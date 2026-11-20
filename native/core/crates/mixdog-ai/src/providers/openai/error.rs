@@ -439,18 +439,13 @@ pub fn ws_closed(code: u16, reason: &str, delivery: DeliveryState) -> ProviderEr
 mod tests {
     use super::*;
 
-    // WS4: a close that ends a response is the error `wsClosedError` makes of it, for every close Node's recording
-    // holds (`ws-close-error-capture.mjs`): the message, the close code and the status of the code or the reason's words.
+    // WS4: a close that ends a response is the error `ws_closed` makes of it, for every close in `ws_close_errors.json`:
+    // the message, the close code and the status of the code or the reason's words.
     #[test]
-    fn a_close_is_the_error_node_makes_of_it() {
-        const RECORDING: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/fixtures/ws-close-errors.json"));
-        const CAPTURE: &[u8] = include_bytes!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../benchmarks/terminal-bench-2.1/analysis/parity/ws-close-error-capture.mjs"));
-        let node: Value = serde_json::from_str(RECORDING).unwrap();
-        assert_eq!(node["manifest"]["exact"], true);
-        assert_eq!(node["manifest"]["nodeCommit"], "b6f10295a");
-        let sha: String = ring::digest::digest(&ring::digest::SHA256, CAPTURE).as_ref().iter().map(|b| format!("{b:02x}")).collect();
-        assert_eq!(node["manifest"]["harness"]["ws-close-error-capture.mjs"], sha.as_str(), "ws-close-error-capture.mjs changed since the recording");
-        let rust: Vec<Value> = node["cases"]
+    fn a_close_becomes_its_error() {
+        const CASES: &str = include_str!("ws_close_errors.json");
+        let cases: Value = serde_json::from_str(CASES).unwrap();
+        let rust: Vec<Value> = cases
             .as_array()
             .unwrap()
             .iter()
@@ -464,7 +459,7 @@ mod tests {
                 serde_json::json!({ "code": code, "reason": reason, "message": err.message, "wsCloseCode": close, "httpStatus": err.status })
             })
             .collect();
-        assert_eq!(Value::Array(rust), node["cases"]);
+        assert_eq!(Value::Array(rust), cases);
     }
 }
 

@@ -2012,6 +2012,98 @@ mod lock_order {
         assert_eq!(seen().len(), 3, "nothing goes twice");
     }
 
+    /// Records how many frames the relay lane had published when each activity change went.
+    struct LaneSeen {
+        feeds: std::sync::OnceLock<Arc<crate::service::ProcessFeeds>>,
+        changes: Mutex<Vec<u64>>,
+    }
+
+    impl TerminalEvents for LaneSeen {
+        fn activity(&self, _: &str, _: Option<ActivityState>) {
+            let published = self.feeds.get().expect("the feeds exist before output").lane_seq();
+            self.changes.lock().unwrap().push(published);
+        }
+        fn size_owner(&self, _: &SizeOwnerChange) {}
+        fn size_claims_forgotten(&self, _: &str) {}
+    }
+
+    /// Runs the runtime until `done`; the child's output arrives on threads of its own and the clock stays where the test put it.
+    async fn settle(what: &str, done: impl Fn() -> bool) {
+        let started = std::time::Instant::now();
+        while !done() {
+            assert!(started.elapsed() < Duration::from_secs(60), "never seen: {what}");
+            std::thread::sleep(Duration::from_millis(2));
+            tokio::task::yield_now().await;
+        }
+    }
+
+    /// The real pump (`ProcessFeeds::pump`) with a phone reading the relay lane: a chunk whose marker changes the tab's activity, arriving
+    /// `gap` after the last frame the lane sent. At 15 ms the relay buffer holds the text back, so the change reaches the clients before it;
+    /// at 16 ms the text goes at once and the change follows it. The clock is paused, so the gap is exact.
+    #[tokio::test(start_paused = true)]
+    async fn a_marker_change_goes_before_held_output_and_after_output_sent_at_once() {
+        use mixdog_core_api::ConnectionSink;
+        use mixdog_core_api::ids::ConnectionId;
+        use mixdog_core_api::mock::MockConnection;
+        use mixdog_core_api::mock::MockLimits;
+        for (gap_ms, held) in [(15, true), (16, false)] {
+            let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, ProcessConfig::default());
+            let handle = ProcessHandle::from(format!("term_order_{gap_ms}_{}", std::process::id()));
+            let seen = Arc::new(LaneSeen { feeds: std::sync::OnceLock::new(), changes: Mutex::new(Vec::new()) });
+            let tab = relay_tab(Arc::clone(&seen) as Arc<dyn TerminalEvents>, manager.clone(), handle.as_str());
+            manager
+                .spawn_with(
+                    piped(
+                        &handle,
+                        "$null = [Console]::In.ReadLine(); [Console]::Out.Write('first'); $null = [Console]::In.ReadLine(); \
+                         [Console]::Out.Write('PS> ' + [char]27 + ']697;P' + [char]7); $null = [Console]::In.ReadLine()",
+                        "read a; printf first; read b; printf 'PS> \\033]697;P\\007'; read c",
+                    ),
+                    SpawnOptions { replays_after_exit: true, filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
+                )
+                .await
+                .unwrap();
+            // The child waits for input: a failed assertion must not leave it running.
+            let _reap = {
+                let (manager, handle) = (manager.clone(), handle.clone());
+                KillOnDrop(Some(move || drop(manager.kill(&handle))))
+            };
+            let feeds = crate::service::ProcessFeeds::new(
+                manager.clone(),
+                Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(MockLimits::default())),
+            );
+            seen.feeds.set(Arc::clone(&feeds)).ok().unwrap();
+            let conn = MockConnection::new(ConnectionId(1), MockLimits::default());
+            let attached = mixdog_core_api::feed::subscribe(&feeds.lane_source(), mixdog_core_api::ids::SubscriptionId::from("s"), mixdog_core_api::feed::Window::Fixed, None, &conn).unwrap();
+            conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
+            let pumped = Arc::clone(&tab);
+            drop(feeds.open_terminal(handle.as_str(), move || Some(Arc::new(move |at: PumpPoint| pumped.pumped(at)) as PumpTell)));
+
+            manager.write_input(&handle, b"1\n".to_vec()).unwrap();
+            settle("the first frame", || feeds.lane_seq() >= 1).await;
+            let first = feeds.lane_seq();
+            tokio::time::advance(Duration::from_millis(gap_ms)).await;
+            manager.write_input(&handle, b"2\n".to_vec()).unwrap();
+            settle("the marker's change", || !seen.changes.lock().unwrap().is_empty()).await;
+            let at_change = seen.changes.lock().unwrap()[0];
+            assert_eq!(at_change, if held { first } else { first + 1 }, "{gap_ms} ms after the last frame: the lane had sent {at_change} frames when the change went (first frame: {first})");
+            // The held text goes out when its 16 ms are up.
+            tokio::time::advance(Duration::from_millis(1)).await;
+            settle("the chunk's text", || feeds.lane_seq() == first + 1).await;
+        }
+    }
+
+    /// Runs its closure when the test leaves the scope, by return or by panic.
+    struct KillOnDrop<F: FnOnce()>(Option<F>);
+
+    impl<F: FnOnce()> Drop for KillOnDrop<F> {
+        fn drop(&mut self) {
+            if let Some(kill) = self.0.take() {
+                kill();
+            }
+        }
+    }
+
     /// Events whose publication is asked for: each `published` is counted (the pump waits on what it returns).
     struct Publishing(Mutex<(Vec<Option<ActivityState>>, usize)>);
 

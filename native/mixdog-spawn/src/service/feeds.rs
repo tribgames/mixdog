@@ -373,6 +373,18 @@ impl ProcessFeeds {
         })
     }
 
+    /// The terminal lane's source, for a reader that makes the pump fill the relay buffer. Tests only.
+    #[cfg(test)]
+    pub(crate) fn lane_source(&self) -> Arc<dyn FeedSource> {
+        self.lane.source()
+    }
+
+    /// How many frames the terminal lane has published. Tests only.
+    #[cfg(test)]
+    pub(crate) fn lane_seq(&self) -> u64 {
+        self.lane.feed.position().seq
+    }
+
     /// The feed of a terminal tab, live and pumping before anyone subscribes: a `feed/subscribe` attaches the publisher's own source,
     /// which never passes the [`Gate`] that starts the pump, so a tab read only through the feed lane would never be pumped.
     /// Returns a hold taken before the pump starts: the ensure's answer goes ahead of the shell's first output. `order` is asked, when

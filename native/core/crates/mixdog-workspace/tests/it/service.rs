@@ -107,15 +107,13 @@ async fn call_local(env: &Env, method: &'static str, params: Value) -> Result<Va
 }
 
 /// Node's `Error` for a folder that is no registered project: code `PROJECT_UNAVAILABLE`, text "Project is not available." (`projectScope`
-/// -> `knownPath`, session-host.ts:556; recorded for the phone in apps/mobile/fixtures/phone-files/golden.json, relay scenario
-/// listProjectDir/readProjectFile on an unregistered folder).
+/// -> `knownPath`, session-host.ts:556).
 fn unavailable<T>(result: &Result<T, CoreError>) -> bool {
     matches!(result, Err(CoreError::DomainError { code, message, .. })
         if code.as_deref() == Some("PROJECT_UNAVAILABLE") && message.as_deref() == Some("Project is not available."))
 }
 
-/// Node's plain `Error` for an entry beyond its project: no code, text "Path is outside the project." (recorded in golden.json, main
-/// scenario readProjectFile `../outside/granted.txt`).
+/// Node's plain `Error` for an entry beyond its project: no code, text "Path is outside the project.".
 fn outside_the_project<T>(result: &Result<T, CoreError>) -> bool {
     matches!(result, Err(CoreError::DomainError { code: None, message, .. }) if message.as_deref() == Some("Path is outside the project."))
 }
@@ -541,8 +539,8 @@ async fn watch_takes_any_absolute_folder_and_a_missing_one_fails_like_fs_watch()
     assert_eq!(&**message, format!("ENOENT: no such file or directory, watch '{}'", missing.display()));
 }
 
-/// Node's `folderWatch` runs `absoluteLocalPath` first and a relative path never reaches `fs.watch` (recorded:
-/// apps/mobile/fixtures/phone-terminal/golden.json, `folderWatch` of `relative/dir` -> `path must be absolute.`). A relative path that
+/// Node's `folderWatch` runs `absoluteLocalPath` first and a relative path never reaches `fs.watch` (`relative/dir`
+/// -> `path must be absolute.`). A relative path that
 /// exists from the core's directory must be refused the same, not resolved and watched.
 #[tokio::test(flavor = "multi_thread")]
 async fn watch_refuses_a_relative_path_even_when_it_exists_from_the_working_directory() {
@@ -595,7 +593,7 @@ async fn watch_pushes_batched_changes_and_connection_close_drops_the_os_watch() 
     assert_eq!(env.service.open_os_watches(), 0);
 }
 
-/// A folder of the recording's shape (apps/mobile/fixtures/folder-watch/golden.json): `actual`, a junction `alias` to it, a folder Everyone
+/// A folder for the watch tests: `actual`, a junction `alias` to it, a folder Everyone
 /// is denied listing, a file. The deny is undone and the folder removed when it goes, whatever the test did.
 #[cfg(windows)]
 struct WatchFolder(PathBuf);
@@ -1043,6 +1041,34 @@ async fn the_project_calls_register_list_touch_rename_and_remove_a_folder() {
     assert!(call(&env, "project/directory", json!({ "path": base.join("new").to_string_lossy() })).await.is_err());
 }
 
+/// A folder made by `project/ensureDirectory` is not a project: the registry's lookups (`project/directory`, `transfer/trash/info`) refuse
+/// it until `project/create` registers it, `project/read` only sees a directory, and a registered folder is found under another spelling of
+/// its path (the working directory, a `.\` prefix, another case) and answered by the spelling it was registered under.
+#[cfg(windows)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_made_folder_is_no_project_until_it_is_registered_and_is_found_under_any_spelling() {
+    let env = env();
+    let tmp = env.root.parent().unwrap().to_path_buf();
+    // The test needs a process of its own (nextest runs one).
+    std::env::set_current_dir(&tmp).unwrap();
+    let made = tmp.join("made").join("deep").to_string_lossy().into_owned();
+
+    let ensured = call(&env, "project/ensureDirectory", json!({ "path": "made\\deep" })).await.unwrap();
+    assert_eq!(ensured["path"], made.as_str());
+    let read = call(&env, "project/read", json!({ "path": made })).await.unwrap();
+    assert_eq!((&read["exists"], &read["directory"]), (&json!(true), &json!(true)));
+    assert!(unavailable(&call(&env, "project/directory", json!({ "path": made })).await), "a folder that is no project has no directory");
+    assert!(unavailable(&call(&env, "transfer/trash/info", json!({ "path": made })).await), "nor a trash");
+
+    let created = call(&env, "project/create", json!({ "path": ".\\made\\deep" })).await.unwrap();
+    assert_eq!(created["project"]["path"], made.as_str());
+    let upper = made.to_uppercase();
+    let found = call(&env, "project/directory", json!({ "path": upper })).await.unwrap();
+    assert_eq!(found["path"], made.as_str(), "the lookup answers the registered spelling");
+    let again = call(&env, "project/create", json!({ "path": upper })).await.unwrap();
+    assert_eq!(again["project"]["path"], made.as_str(), "registering another case is the registered project");
+}
+
 /// An offered file name drops a leading dot run and a trailing dot, turns separators and reserved characters into `-`, falls back to
 /// `download`, and is cut at 120 characters; the mime type is by extension, case-insensitively, and unknown ones are a byte stream.
 #[test]
@@ -1404,15 +1430,12 @@ async fn start_through_core(env: &Env, call: &str, path: &str) -> (Result<String
 
 /// Node read a file once, through one authorized handle (`readProjectTextFileAuthorized`), and answered that one version. The windows of one
 /// read come from the one read the first window made: a file replaced between two windows changes nothing the reader joins. Node's answer
-/// is the recording (apps/mobile/fixtures/phone-files/golden.json, main scenario `readProjectFile toolong.txt`: 1 MiB + 1 byte, so the
-/// phone reads it in windows); the file is made from the recorded text and mtime.
+/// is the one the file had when read (1 MiB + 1 byte of text, so the phone reads it in windows).
 #[tokio::test(flavor = "multi_thread")]
 async fn the_windows_of_one_read_are_one_version_of_a_file_replaced_between_them() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
-    let steps = golden["scenarios"]["main"]["steps"].as_array().unwrap();
-    let recorded = steps.iter().find(|step| step["call"] == "readProjectFile" && step["params"][1] == "toolong.txt").unwrap()["frame"]["value"].clone();
-    let text = recorded["content"].as_str().unwrap().to_owned();
-    let at_ms = recorded["mtimeMs"].as_u64().unwrap();
+    let text = "b".repeat(1_048_577);
+    let at_ms = 1_767_323_045_000_u64;
+    let expected = json!({ "mtimeMs": at_ms, "binary": false, "tooLarge": false, "readOnly": true, "encoding": "utf8" });
     let env = env();
     let file = env.root.join("toolong.txt");
     let pin = |ms: u64| {
@@ -1434,26 +1457,21 @@ async fn the_windows_of_one_read_are_one_version_of_a_file_replaced_between_them
         joined.push_str(part["content"].as_str().unwrap());
     }
     assert!(joined == text, "the joined windows are the first version of the file ({} of {} bytes)", joined.len(), text.len());
-    // The recording holds the time as the integer JSON text `1767323045000`, the core writes the same number as a float: one JSON number
-    // to the phone. Every other field is compared as it is.
-    assert_eq!(part["mtimeMs"].as_f64(), recorded["mtimeMs"].as_f64(), "the time of the first read");
+    // One JSON number to the phone, whether the core writes it as an integer or a float.
+    assert_eq!(part["mtimeMs"].as_f64(), expected["mtimeMs"].as_f64(), "the time of the first read");
     for field in ["binary", "tooLarge", "readOnly", "encoding"] {
-        assert_eq!(part[field], recorded[field], "{field} of the first read");
+        assert_eq!(part[field], expected[field], "{field} of the first read");
     }
-    assert_eq!(part.as_object().unwrap().len(), recorded.as_object().unwrap().len(), "no field more or less than the recording's");
+    assert_eq!(part.as_object().unwrap().len(), expected.as_object().unwrap().len() + 1, "the fields of a window: the recorded ones and the content");
 }
-/// The phone's editor backups and document previews over a relay connection, replayed from the phone-files recording's relay
-/// scenario (apps/mobile/fixtures/phone-files/golden.json): every backup call is sent as a phone that skips the adapter's
-/// `projectFs/entryPath` step would send it, naming the file by its absolute path (the granted file's path for a call with a
-/// token), and answers Node's frame whole; every document preview's file target goes through the same admission
-/// (`relay_file`), refused as Node refused it before any page was rendered. The recording's folders are mapped onto this
-/// world's: its project on the registered project, its outside folder on a folder beside it.
+/// The phone's editor backups and document previews over a relay connection: every backup call is sent as a phone that skips the
+/// adapter's `projectFs/entryPath` step would send it, naming the file by its absolute path (the granted file's path for a call with a
+/// token), and answers the frame below whole; every document preview's file target goes through the same admission (`relay_file`),
+/// refused before any page is rendered. A folder beside the project is not a project, and `..` out of the project is refused.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_relay_editor_backup_or_preview_names_a_project_file_or_a_granted_one_only() {
     // SAFETY: nextest runs each test in its own process, and nothing else in this one reads the environment concurrently yet.
     unsafe { std::env::set_var("MIXDOG_FIXED_NOW_MS", PHONE_FILES_NOW_MS) };
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-files/golden.json")).unwrap();
-    let recorded_root = golden["root"].as_str().unwrap();
     let env = env();
     env.service.set_phone_grants(
         Arc::new(mixdog_workspace::grants::GrantStore::new(Arc::new(mixdog_workspace::transfer::SystemClock), Arc::new(NoneGone))),
@@ -1464,54 +1482,61 @@ async fn a_relay_editor_backup_or_preview_names_a_project_file_or_a_granted_one_
     std::fs::write(outside.join("granted.txt"), "granted edit\n").unwrap();
     std::fs::write(outside.join("other.txt"), "other\n").unwrap();
     std::fs::write(env.root.join("src/a.ts"), "export const a = 1;\n").unwrap();
-    let place = |path: &str| -> String {
-        let (project, out) = (format!("{recorded_root}\\proj"), format!("{recorded_root}\\outside"));
-        if let Some(rest) = path.strip_prefix(&project) {
-            format!("{}{rest}", env.root.to_string_lossy())
-        } else if let Some(rest) = path.strip_prefix(&out) {
-            format!("{}{rest}", outside.to_string_lossy())
-        } else {
-            panic!("{path} is outside the recording's world")
-        }
-    };
-    let mut granted = None;
+    let granted = outside.join("granted.txt").to_string_lossy().into_owned();
+    call(&env, "transfer/grant/mint", json!({ "path": granted })).await.unwrap();
+    let refused = json!({ "ok": false, "error": "Project is not available.", "errorCode": "PROJECT_UNAVAILABLE" });
+    let beyond = json!({ "ok": false, "error": "Path is outside the project." });
+    let saved = |content: &str, expected: &str| json!({ "ok": true, "value": { "content": content, "expectedContent": expected, "updatedAt": 1_780_819_750_000_u64 } });
+    let none = json!({ "ok": true, "value": null });
+    // (call, folder the phone names, file in it, whether the call carries the grant, backup content, expected content, frame)
+    let steps = [
+        ("writeEditorBackup", "outside", "granted.txt", true, "draft granted\n", "granted edit\n", saved("draft granted\n", "granted edit\n")),
+        ("readEditorBackup", "outside", "granted.txt", true, "", "", saved("draft granted\n", "granted edit\n")),
+        ("deleteEditorBackup", "outside", "granted.txt", true, "", "", none.clone()),
+        ("readEditorBackup", "outside", "granted.txt", true, "", "", none.clone()),
+        ("writeEditorBackup", "outside", "other.txt", false, "planted\n", "other\n", refused.clone()),
+        ("readEditorBackup", "outside", "other.txt", false, "", "", refused.clone()),
+        ("deleteEditorBackup", "outside", "other.txt", false, "", "", refused.clone()),
+        ("writeEditorBackup", "proj", "../outside/other.txt", false, "planted\n", "other\n", beyond.clone()),
+        ("readEditorBackup", "proj", "../outside/other.txt", false, "", "", beyond.clone()),
+        ("deleteEditorBackup", "proj", "../outside/other.txt", false, "", "", beyond.clone()),
+        ("previewDocumentPages", "outside", "other.txt", false, "", "", refused.clone()),
+        ("previewDocumentPages", "proj", "../outside/other.txt", false, "", "", beyond.clone()),
+        ("writeEditorBackup", "proj", "src/a.ts", false, "relay draft\n", "export const a = 1;\n", saved("relay draft\n", "export const a = 1;\n")),
+        ("readEditorBackup", "proj", "src/a.ts", false, "", "", saved("relay draft\n", "export const a = 1;\n")),
+        ("deleteEditorBackup", "proj", "src/a.ts", false, "", "", none.clone()),
+        ("readEditorBackup", "proj", "src/a.ts", false, "", "", none.clone()),
+        // A granted file is admitted; the conversion then answers for itself.
+        ("previewDocumentPages", "outside", "granted.txt", true, "", "", json!({ "ok": false, "error": "A document preview needs at least one page." })),
+    ];
+    let place = |dir: &str| if dir == "proj" { env.root.clone() } else { outside.clone() };
     let (mut backups, mut previews) = (0, 0);
-    for step in golden["scenarios"]["relay"]["steps"].as_array().unwrap() {
-        // A `grant` step: the phone holds a one-file permission for this path from here on.
-        if step.get("grant").is_some() {
-            let path = place(step["path"].as_str().unwrap());
-            call(&env, "transfer/grant/mint", json!({ "path": path })).await.unwrap();
-            granted = Some(path);
-            continue;
-        }
-        let (Some(name), params, frame) = (step["call"].as_str(), &step["params"], &step["frame"]) else { continue };
-        let tokened = params[2].is_object();
+    for (name, dir, rel, tokened, content, expected, frame) in steps {
         let file = || -> String {
             // The project and the entry as the phone named them, joined as given (`..` kept).
-            if tokened { granted.clone().unwrap() } else { PathBuf::from(place(params[0].as_str().unwrap())).join(params[1].as_str().unwrap()).to_string_lossy().into_owned() }
+            if tokened { granted.clone() } else { place(dir).join(rel).to_string_lossy().into_owned() }
         };
         let answer = match name {
             "readEditorBackup" => call(&env, "projectFs/backup/read", json!({ "sourcePath": file() })).await,
             "deleteEditorBackup" => call(&env, "projectFs/backup/delete", json!({ "sourcePath": file() })).await.map(|_| Value::Null),
-            "writeEditorBackup" => call(&env, "projectFs/backup/write", json!({ "sourcePath": file(), "content": params[2], "expectedContent": params[3] })).await,
+            "writeEditorBackup" => call(&env, "projectFs/backup/write", json!({ "sourcePath": file(), "content": content, "expectedContent": expected })).await,
             "previewDocumentPages" => {
                 let (root, rel) = if tokened {
-                    let path = PathBuf::from(granted.clone().unwrap());
+                    let path = PathBuf::from(granted.clone());
                     (path.parent().unwrap().to_string_lossy().into_owned(), path.file_name().unwrap().to_string_lossy().into_owned())
                 } else {
-                    (place(params[0].as_str().unwrap()), params[1].as_str().unwrap().to_owned())
+                    (place(dir).to_string_lossy().into_owned(), rel.to_owned())
                 };
                 previews += 1;
                 let admitted = env.service.relay_file(&request("document/previewPages", json!({})), &root, &rel).await;
-                // Node's refusals of the target; a target it took went on to the conversion (whose answer is the worker's).
-                if frame["errorCode"] == "PROJECT_UNAVAILABLE" || frame["error"] == "Path is outside the project." {
+                if frame["ok"] == false && frame["error"] != "A document preview needs at least one page." {
                     admitted.map(|_| Value::Null)
                 } else {
-                    assert!(admitted.is_ok(), "{name} {params}: {admitted:?}");
+                    assert!(admitted.is_ok(), "{name} {dir}/{rel}: {admitted:?}");
                     continue;
                 }
             }
-            _ => continue,
+            _ => unreachable!(),
         };
         if name != "previewDocumentPages" {
             backups += 1;
@@ -1525,112 +1550,55 @@ async fn a_relay_editor_backup_or_preview_names_a_project_file_or_a_granted_one_
                 }
                 node
             }
-            Err(other) => panic!("{name} {params}: {other:?}"),
+            Err(other) => panic!("{name} {dir}/{rel}: {other:?}"),
         };
-        assert_eq!(&got, frame, "{name} {params}");
+        assert_eq!(got, frame, "{name} {dir}/{rel}");
     }
     assert_eq!((backups, previews), (14, 3));
     // Nothing was planted for a refused file.
     let names: Vec<_> = std::fs::read_dir(env.root.parent().unwrap().join("userData").join("editor-backups")).map(|dir| dir.count()).into_iter().collect();
     assert!(names.iter().all(|count| *count == 0), "{names:?}");
 }
-/// Every input Node's `absoluteLocalPath` refused (apps/mobile/fixtures/absolute-local-path/golden.json, the recording with the working
-/// directory on this process's drive) is refused by `fs/watch` with Node's message, and nothing is watched; a non-string `path` included.
+/// Every input `absoluteLocalPath` refuses is refused by `fs/watch` with its message, and nothing is watched; a non-string `path`
+/// included.
 #[cfg(windows)]
 #[tokio::test(flavor = "multi_thread")]
-async fn watch_refuses_every_input_node_refuses_with_nodes_message() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/absolute-local-path/golden.json")).unwrap();
-    let drive = std::env::current_dir().unwrap().to_string_lossy().chars().next().unwrap().to_ascii_uppercase().to_string();
-    let recorded = golden["drives"].get(&drive).unwrap_or_else(|| panic!("absolute-local-path has no recording with the working directory on drive {drive}"));
-    let env = env();
-    let mut refused = 0;
-    for (input, answer) in golden["inputs"].as_array().unwrap().iter().zip(recorded.as_array().unwrap()) {
-        let Some(message) = answer["error"]["message"].as_str() else { continue };
-        let mut params = json!({ "watchId": "refused", "recursive": false });
-        if input.get("absent").is_none() {
-            params["path"] = input["value"].clone();
-        }
-        let error = env.service.call(request("fs/watch", params)).await.err().unwrap_or_else(|| panic!("{}: Node refused it and it was watched", input["name"]));
-        assert!(format!("{error:?}").contains(message), "{}: Node says {message:?}, got {error:?}", input["name"]);
-        refused += 1;
-    }
-    assert!(refused > 0);
-    assert_eq!(env.service.open_os_watches(), 0);
-}
-/// Every class of project path answered as Node answers it (apps/mobile/fixtures/project-path-classes/golden.json, recorded by
-/// record-project-path-classes.mjs from the real registry, the real store and `addProject`): the registry's lookup (`project/read`, and
-/// `transfer/trash/info`, which Node hands `projectDirectory`), the folder `project/ensureDirectory` makes and the path `project/create`
-/// registers. The working directory is the project's parent, as in the recording; the test needs a process of its own (nextest runs one).
-#[cfg(windows)]
-#[tokio::test(flavor = "multi_thread")]
-async fn project_paths_are_read_as_nodes_registry_reads_them() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/project-path-classes/golden.json")).unwrap();
-    let env = env();
-    let tmp = env.root.parent().unwrap().to_path_buf();
-    let proj = tmp.join("proj");
-    std::fs::create_dir(&proj).unwrap();
-    let row = mixdog_store::state::ProjectRow { path: proj.to_string_lossy().into_owned(), alias: None, hidden: false, hidden_rank: None, last_used_at: None, name: None };
-    env.state.write(move |tx| tx.put_project(&row)).await.unwrap();
-    std::env::set_current_dir(&tmp).unwrap();
-
-    let text = |path: &std::path::Path| path.to_string_lossy().into_owned();
-    let (proj_text, tmp_text) = (text(&proj), text(&tmp));
-    let rooted = tmp_text[2..].to_owned();
-    let fill: Vec<(&str, String)> = vec![
-        ("{proj}", proj_text.clone()),
-        ("{tmp}", tmp_text.clone()),
-        ("{PROJ}", proj_text.to_uppercase()),
-        ("{TMP}", tmp_text.to_uppercase()),
-        ("{projSlash}", proj_text.replace('\\', "/")),
-        ("{projUpper}", proj_text.to_uppercase()),
-        ("{tmpName}", tmp.file_name().unwrap().to_string_lossy().into_owned()),
-        ("{drive}", tmp_text[..2].to_owned()),
-        ("{tmpRooted}", rooted.clone()),
-        ("{tmpRootedSlash}", rooted.replace('\\', "/")),
+async fn watch_refuses_every_input_the_path_rule_refuses_with_its_message() {
+    let absolute = "path must be absolute.";
+    let (invalid, not_text) = ("path is invalid.", "path must be a string.");
+    let too_long = format!("C:\\{}", "a".repeat(16_382));
+    let cases: Vec<(&str, Option<Value>, &str)> = vec![
+        ("relative", Some(json!("relative/dir")), absolute),
+        ("dot", Some(json!(".")), absolute),
+        ("dot-dot", Some(json!("..")), absolute),
+        ("dot slash", Some(json!("./x")), absolute),
+        ("dot-dot backslash", Some(json!("..\\x")), absolute),
+        ("drive-relative", Some(json!("C:foo")), absolute),
+        ("drive-relative other drive", Some(json!("D:foo")), absolute),
+        ("drive only", Some(json!("C:")), absolute),
+        ("empty", Some(json!("")), invalid),
+        ("blank", Some(json!("   ")), invalid),
+        ("NUL inside", Some(json!("a\u{0}b")), invalid),
+        ("NUL after a drive-absolute path", Some(json!("C:\\a\u{0}")), invalid),
+        ("16385 characters", Some(json!(too_long)), invalid),
+        ("null", Some(Value::Null), not_text),
+        ("number", Some(json!(123)), not_text),
+        ("true", Some(json!(true)), not_text),
+        ("object", Some(json!({})), not_text),
+        ("array", Some(json!([])), not_text),
+        ("object with a path", Some(json!({ "path": "C:\\x" })), not_text),
+        ("undefined", None, not_text),
     ];
-    let expand = |template: &str| fill.iter().fold(template.to_owned(), |text, (token, value)| text.replace(token, value));
-
-    let inputs = golden["inputs"].as_array().unwrap();
-    let mut replayed = 0;
-    // In the recording's order: `inspect` before `ensure`, which makes the folders later inputs name. `known` is the registry's lookup behind
-    // `project/directory` (the registered folder is its own real path here).
-    for (operation, method) in [("known", "project/directory"), ("inspect", "project/read"), ("trash", "transfer/trash/info"), ("ensure", "project/ensureDirectory"), ("add", "project/create")] {
-        // Node's lookup answers the trash call too: its `projectDirectory` is the registry's lookup, then a folder.
-        let recorded = golden["answers"][if operation == "trash" { "known" } else { operation }].as_array().unwrap();
-        for (input, answer) in inputs.iter().zip(recorded) {
-            let given = expand(input["template"].as_str().unwrap());
-            let got = call(&env, method, json!({ "path": given })).await;
-            let name = format!("{operation} {}: {given:?}", input["name"]);
-            match answer.get("result") {
-                Some(want) => {
-                    let got = got.unwrap_or_else(|error| panic!("{name}: Node answered {want}, got {error:?}"));
-                    if operation == "trash" {
-                        assert!(got.get("available").is_some(), "{name}: {got}");
-                    } else if operation == "inspect" {
-                        let mut want: Value = serde_json::from_str(want.as_str().unwrap()).unwrap();
-                        want["path"] = json!(expand(want["path"].as_str().unwrap()));
-                        assert_eq!(got, want, "{name}");
-                    } else {
-                        let path = if operation == "add" { &got["project"]["path"] } else { &got["path"] };
-                        assert_eq!(path.as_str().unwrap(), expand(want.as_str().unwrap()), "{name}");
-                    }
-                }
-                None => {
-                    let message = answer["error"]["message"].as_str().unwrap();
-                    let error = got.err().unwrap_or_else(|| panic!("{name}: Node refused it with {message:?}"));
-                    // Node's own wording where the answer is Node's (the registry and the catalog); an operating-system error of a path Node
-                    // never reached (`ENOENT ... realpath`, a NUL) is a refusal here as well.
-                    if answer["error"].get("code").and_then(Value::as_str) == Some("PROJECT_UNAVAILABLE") {
-                        assert!(unavailable::<Value>(&Err(error)), "{name}");
-                    } else if !message.starts_with("ENOENT") && !message.starts_with("The argument 'path'") {
-                        assert!(format!("{error:?}").contains(message), "{name}: Node says {message:?}, got {error:?}");
-                    }
-                }
-            }
-            replayed += 1;
+    let env = env();
+    for (name, value, message) in cases {
+        let mut params = json!({ "watchId": "refused", "recursive": false });
+        if let Some(value) = value {
+            params["path"] = value;
         }
+        let error = env.service.call(request("fs/watch", params)).await.err().unwrap_or_else(|| panic!("{name}: it was refused by the rule and watched"));
+        assert!(format!("{error:?}").contains(message), "{name}: expected {message:?}, got {error:?}");
     }
-    assert_eq!(replayed, inputs.len() * 5);
+    assert_eq!(env.service.open_os_watches(), 0);
 }
 #[cfg(windows)]
 impl WatchFolder {
@@ -1660,12 +1628,22 @@ impl WatchFolder {
 }
 /// Node keys a folder watch by the path as resolved (lower-cased on Windows) and watches that path, so a folder and a junction to it are
 /// two watches, each reporting under its own name; a path `fs.watch` refuses fails with `fs.watch`'s own code and text, and a file is
-/// watched (apps/mobile/fixtures/folder-watch/golden.json, recorded with the real registry and `fs.watch`). The core's watches are the
-/// same: one OS watch per name, every changed path under the name the watch was asked for, and the recorded failures.
+/// watched. The core's watches are the same: one OS watch per name, every changed path under the name the watch was asked for, and
+/// `fs.watch`'s failures.
 #[cfg(windows)]
 #[tokio::test(flavor = "multi_thread")]
 async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watch() {
-    let golden: Value = serde_json::from_str(include_str!("../../../../../../apps/mobile/fixtures/folder-watch/golden.json")).unwrap();
+    let golden = json!({
+        "twoNames": {
+            "fsWatchPaths": ["{root}\\alias", "{root}\\actual"],
+            "reportedUnder": [{ "dir": "{root}\\alias" }, { "dir": "{root}\\actual" }],
+        },
+        "failures": [
+            { "name": "missing folder", "path": "{root}\\missing", "answer": { "error": { "message": "ENOENT: no such file or directory, watch '{root}\\missing'", "code": "ENOENT" } } },
+            { "name": "folder the user may not list", "path": "{root}\\locked", "answer": { "error": { "message": "EPERM: operation not permitted, watch '{root}\\locked'", "code": "EPERM" } } },
+            { "name": "a file", "path": "{root}\\afile.txt", "answer": { "watched": true }, "reportedUnder": "{root}\\afile.txt" },
+        ],
+    });
     let env = env();
     let folder = WatchFolder::new();
     let conn = MockConnection::new(ConnectionId(1), env.limits);
@@ -1696,7 +1674,7 @@ async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watc
     for (id, path) in ids.iter().zip(&paths) {
         watch(id, path.clone(), true).await.unwrap();
     }
-    assert_eq!(env.service.open_os_watches(), paths.len(), "one OS watch per name, as Node's {} fs.watch calls", paths.len());
+    assert_eq!(env.service.open_os_watches(), paths.len(), "one OS watch per name, for the {} names", paths.len());
     std::fs::write(folder.0.join("actual").join("changed.txt"), "1").unwrap();
     let frames = mixdog_rt::time::timeout(Duration::from_secs(60), conn.drain_text_until(|texts| ids.iter().all(|id| !changed(texts, id).is_empty()))).await.expect("a change under each name within 60 s");
     for (id, reported) in ids.iter().zip(two["reportedUnder"].as_array().unwrap()) {
@@ -1742,5 +1720,5 @@ async fn watches_are_keyed_and_reported_by_the_resolved_name_and_fail_as_fs_watc
     }
     env.service.connection_closed(&ConnectionId(1));
 }
-// ---- DS-WS-1: the recorded Node fixtures, replayed through the service -----------------------------
+// ---- DS-WS-1: the service's answers ----------------------------------------------------------------
 

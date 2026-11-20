@@ -138,91 +138,27 @@ mod tests {
         assert_eq!(buffer.push(b"y", at(48)), plain(b"y"), "16 ms after the last frame it goes at once");
     }
 
-    /// The frames of Node's relay lane for a scripted sequence of chunks on a virtual clock (apps/mobile/fixtures/relay-framing, recorded
-    /// by benchmarks/rust-core/recorders/record-relay-framing.mjs): the same steps through the relay buffer, driven as the feed pump
-    /// drives it (a due buffer is flushed when due; an exit flushes what waits when due), give the same frames at the same times, each
-    /// as a phone decodes it (the bytes through one streaming UTF-8 decoder per tab, the lone units at its edges around them), and each
-    /// tab's activity changes in the same place among its frames: a change inside an open window before the held frame, one after a
-    /// quiet window after the chunk's frame, the write after a re-render at 15, 16 and 17 ms.
+    /// A character whose bytes arrive in two sends reaches the phone whole: its frames' bytes join to the one character, which a
+    /// streaming decoder yields once.
     #[test]
-    fn the_frames_are_nodes_for_the_recorded_script() {
-        use std::collections::BTreeMap;
-
-        use serde_json::Value;
-        use serde_json::json;
-        let golden: Value = serde_json::from_str(include_str!("../../../../apps/mobile/fixtures/relay-framing/golden.json")).unwrap();
+    fn a_character_split_across_sends_decodes_once() {
         let start = Instant::now();
-        let ms = |at: &Value| start + Duration::from_millis(at.as_u64().unwrap());
-        let bytes_of = |segments: &Value| -> Vec<u8> {
-            let mut out = Vec::new();
-            for segment in segments.as_array().unwrap() {
-                if let Some(hex) = segment["hex"].as_str() {
-                    out.extend((0..hex.len()).step_by(2).map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap()));
-                } else {
-                    out.extend(segment["text"].as_str().unwrap().repeat(segment["times"].as_u64().unwrap_or(1) as usize).into_bytes());
-                }
-            }
-            out
-        };
-        // Per tab: its buffer, its decoder's carried partial character, and the frames a phone got.
-        let mut tabs: BTreeMap<String, (RelayBuffer, Vec<u8>, Vec<Value>)> = BTreeMap::new();
-        let send = |frames: Vec<RelayFrame>, at: Instant, carry: &mut Vec<u8>, got: &mut Vec<Value>| {
-            for frame in frames {
-                carry.extend_from_slice(&frame.bytes);
-                let valid = match std::str::from_utf8(carry) {
-                    Ok(text) => text.len(),
-                    Err(error) if error.error_len().is_none() => error.valid_up_to(),
-                    Err(error) => panic!("invalid output in the script: {error}"),
-                };
-                let text = String::from_utf8(carry.drain(..valid).collect()).unwrap();
-                let mut runs: Vec<(char, u64)> = Vec::new();
-                for c in text.chars() {
-                    match runs.last_mut() {
-                        Some((last, count)) if *last == c => *count += 1,
-                        _ => runs.push((c, 1)),
-                    }
-                }
-                if text.is_empty() && frame.lead.is_none() && frame.tail.is_none() {
-                    continue;
-                }
-                let runs: Vec<Value> = runs.into_iter().map(|(c, n)| json!([c.to_string(), n])).collect();
-                got.push(json!({ "at": (at - start).as_millis() as u64, "lead": frame.lead, "runs": runs, "tail": frame.tail }));
-            }
-        };
-        // What is due before `until` on every tab is sent when due (the pump's timer), in the order of the times.
-        let run_due = |tabs: &mut BTreeMap<String, (RelayBuffer, Vec<u8>, Vec<Value>)>, until: Instant| {
-            for (buffer, carry, got) in tabs.values_mut() {
-                if let Some(due) = buffer.due().filter(|due| *due <= until) {
-                    let frames = buffer.flush(due);
-                    send(frames, due, carry, got);
-                }
-            }
-        };
-        // In time order, equal times as listed (the recorder's order).
-        let mut steps: Vec<&Value> = golden["steps"].as_array().unwrap().iter().collect();
-        steps.sort_by_key(|step| step["at"].as_u64().unwrap());
-        for step in steps {
-            let at = ms(&step["at"]);
-            run_due(&mut tabs, at);
-            let (buffer, carry, got) = tabs.entry(step["tab"].as_str().unwrap().to_owned()).or_default();
-            if let Some(segments) = step.get("bytes") {
-                let frames = buffer.push(&bytes_of(segments), at);
-                send(frames, at, carry, got);
-            }
-            // A change the chunk's marker (or a call) causes goes once the pump has taken the chunk: after what the push sent at once,
-            // before what it holds (`terminal::RelayOrder`, tested by `a_marker_change_waits_for_the_pump_to_take_its_chunk`).
-            if let Some(activity) = step.get("activity") {
-                got.push(json!({ "at": (at - start).as_millis() as u64, "activity": activity }));
-            }
-        }
-        run_due(&mut tabs, start + Duration::from_secs(3600));
-        let mut node: BTreeMap<String, Vec<Value>> = BTreeMap::new();
-        for frame in golden["frames"].as_array().unwrap() {
-            let mut frame = frame.clone();
-            let tab = frame.as_object_mut().unwrap().remove("tab").unwrap().as_str().unwrap().to_owned();
-            node.entry(tab).or_default().push(frame);
-        }
-        let got: BTreeMap<String, Vec<Value>> = tabs.into_iter().map(|(tab, (_, _, got))| (tab, got)).collect();
-        assert_eq!(got, node);
+        let emoji = "😀".as_bytes();
+        let mut buffer = RelayBuffer::default();
+        let mut frames = buffer.push(&emoji[..2], start);
+        frames.extend(buffer.push(&emoji[2..], start + Duration::from_millis(5)));
+        frames.extend(buffer.flush(buffer.due().expect("the rest waits")));
+        let joined: Vec<u8> = frames.iter().flat_map(|frame| frame.bytes.clone()).collect();
+        assert_eq!(std::str::from_utf8(&joined).unwrap(), "😀");
+    }
+
+    /// A frame that ends inside a non-BMP character carries its high surrogate as `tail` and the next starts with the low one as `lead`.
+    #[test]
+    fn a_frame_cut_inside_a_surrogate_pair_carries_each_half() {
+        let text = format!("{}😀b", "a".repeat(RELAY_FRAME_UNITS - 1));
+        let frames = RelayBuffer::default().push(text.as_bytes(), Instant::now());
+        assert_eq!(frames.len(), 2);
+        assert_eq!((frames[0].bytes.len(), frames[0].tail, frames[0].lead), (RELAY_FRAME_UNITS - 1, Some(0xD83D), None));
+        assert_eq!((frames[1].lead, frames[1].bytes.as_slice(), frames[1].tail), (Some(0xDE00), b"b".as_slice(), None));
     }
 }

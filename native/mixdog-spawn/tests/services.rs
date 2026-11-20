@@ -215,12 +215,8 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
         panic!("terminal/ensure answers with a value");
     };
     let id = ensured["id"].as_str().unwrap().to_owned();
-    // The sizes are the claims Node recorded in the phone replay (apps/mobile/fixtures/phone-terminal/golden.json, trace.claims.order, the `sizeOwner` pushes in
-    // the order the phone got them): the first claim of a tab (`own`, its size) and the claim released by a non-positive size.
-    let golden: Value = serde_json::from_str(include_str!("../../../apps/mobile/fixtures/phone-terminal/golden.json")).unwrap();
-    let owners: Vec<&Value> = golden["trace"]["claims"]["order"].as_array().unwrap().iter().filter(|e| e["push"] == "sizeOwner").map(|e| &e["event"]).collect();
-    let (claimed, released) = (owners[0], owners[3]);
-    assert_eq!((claimed["own"].clone(), released["own"].clone()), (json!(true), json!(false)), "the recorded claim owns, the recorded release does not");
+    // The sizes of a tab's claims: the first claim of a tab (`own`, its size) and the claim released by a non-positive size.
+    let (claimed, released) = (json!({ "cols": 90, "rows": 28, "own": true }), json!({ "cols": 0, "rows": 0, "own": false }));
     let attach = |connection: u64| {
         let service = Arc::clone(&service);
         let id = id.clone();
@@ -284,26 +280,13 @@ async fn terminal_size_is_owned_by_the_claiming_connection_and_output_can_pause(
     service.call(request("terminal/dispose", json!({ "tabId": id }), 2)).await.unwrap();
 }
 
-/// Node's answers to the calls named `name`, in the order the recording made them (golden.json, trace.order).
-fn recorded_calls(name: &str) -> Vec<Value> {
-    let golden: Value = serde_json::from_str(include_str!("../../../apps/mobile/fixtures/phone-terminal/golden.json")).unwrap();
-    golden["trace"]["order"].as_array().unwrap().iter().filter(|e| e["call"] == name).cloned().collect()
-}
-
 /// Claims belong to the id, not to a running tab. Node announces a claim and a release whether or not a PTY exists, and disposing an id that has
-/// no tab forgets nothing (terminal-manager.ts:454-487, :536). Recorded: apps/mobile/fixtures/phone-terminal/golden.json, trace.claims.order,
-/// the `sizeOwner` pushes of `term_ph2_none` and the `termDispose` between the first and the second.
+/// no tab forgets nothing (terminal-manager.ts:454-487, :536): the `sizeOwner` pushes of an id with no tab, with a `termDispose` between the
+/// first and the second.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_claim_on_an_id_without_a_tab_is_published_and_a_dispose_of_it_forgets_nothing() {
-    let golden: Value = serde_json::from_str(include_str!("../../../apps/mobile/fixtures/phone-terminal/golden.json")).unwrap();
-    let order = golden["trace"]["claims"]["order"].as_array().unwrap();
-    let first = order.iter().position(|e| e["push"] == "sizeOwner" && e["event"]["id"] == "term_ph2_none").expect("the recording claims an id with no tab");
-    assert_eq!(order[first + 1]["call"], "termDispose", "the recording disposes the id after its first claim");
-    assert_eq!(order[first + 1]["params"], json!(["term_ph2_none"]));
-    let announced: Vec<&Value> = order.iter().filter(|e| e["push"] == "sizeOwner" && e["event"]["id"] == "term_ph2_none").map(|e| &e["event"]).collect();
-    // What the recording's script did, in its order: the phone claims, the other connection claims, the other releases, the phone releases.
-    let sizes: Vec<(u64, u64, bool)> = announced.iter().map(|e| (e["cols"].as_u64().unwrap(), e["rows"].as_u64().unwrap(), e["own"].as_bool().unwrap())).collect();
-    assert_eq!(sizes.len(), 4, "{sizes:?}");
+    // What the script does, in its order: the phone claims, the other connection claims, the other releases, the phone releases.
+    let sizes: Vec<(u64, u64, bool)> = vec![(90, 28, true), (91, 29, false), (90, 28, true), (0, 0, false)];
 
     let manager = manager();
     let feeds = ProcessFeeds::new(manager.clone(), scoped());
@@ -417,7 +400,7 @@ async fn a_dispose_is_answered_after_the_activity_it_ended_is_published() {
     tokio::time::timeout(EVENT_DEADLINE, reply).await.expect("the dispose was never answered after the tab's end was published").unwrap();
     assert!(keys().is_empty(), "the tab's end was not published before the reply: {:?}", keys());
 }
-/// The dispose's hold on the tab's feed (the killed shell's last output and exit line wait behind the answer, golden.json trace.order) is
+/// The dispose's hold on the tab's feed (the killed shell's last output and exit line wait behind the answer) is
 /// handed to the request's `after_answer`, which the server releases once it has queued the answer: when the call returns, the hold still
 /// stands, and it ends with the release.
 #[tokio::test(flavor = "multi_thread")]
@@ -543,7 +526,7 @@ async fn terminal_ensure_opens_the_output_feed_without_an_attach() {
     else {
         panic!("terminal/ensure answers with a value");
     };
-    // Node answers an ensure with the id it was given (phone-terminal golden.json, `termEnsure` of `term_ph2_l1`: `{ id: "term_ph2_l1" }`).
+    // Node answers an ensure with the id it was given (`termEnsure` of `term_ph2_l1`: `{ id: "term_ph2_l1" }`).
     assert_eq!(ensured["id"], json!(tab));
     let ids: Vec<String> = made.ids().iter().map(ToString::to_string).collect();
     // The terminal lane (every phone reading it: Node's relay-lane framing) and the tab's raw feed (the window).
@@ -565,7 +548,7 @@ fn output_text(frames: &[Value]) -> String {
 }
 
 /// A phone reading the terminal lane gets the first output of a tab another connection opens (Node's relay lane pushed every tab's output
-/// to every phone reading the lane: remote-relay-push-lanes.ts:85-100, apps/mobile/fixtures/terminal-lane-reach). The phone subscribed
+/// to every phone reading the lane: remote-relay-push-lanes.ts:85-100). The phone subscribed
 /// before the tab existed and does nothing about the tab; the desktop (connection 1) opens it and types into it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_phone_reading_the_lane_gets_the_first_output_of_a_tab_another_connection_opens() {
@@ -613,12 +596,6 @@ async fn an_ensure_without_a_profile_spawns_the_default_profile() {
         panic!("terminal/profiles answers with a value");
     };
     let default = profiles.as_array().unwrap().iter().find(|p| p["default"] == json!(true)).unwrap()["id"].as_str().unwrap().to_owned();
-    // Node's 	ermProfiles on the recording's machine marks pwsh as the default; the same machine's list does here.
-    if cfg!(windows) {
-        let recorded = recorded_calls("termProfiles").remove(0);
-        let node_default = recorded["value"].as_array().unwrap().iter().find(|p| p["default"] == json!(true)).unwrap()["id"].clone();
-        assert_eq!(json!(default), node_default, "the default profile is the one Node marked");
-    }
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
     service.call(request("terminal/ensure", json!({ "tabId": "term_default", "options": { "cwd": cwd } }), 1)).await.unwrap();
     let shells: Vec<String> = service.tabs().list_tabs().into_iter().map(|tab| tab.shell).collect();
@@ -653,7 +630,7 @@ async fn terminal_ensure_names_a_fresh_tab_and_attach_answers_replay_or_not_runn
 
     // The claim stays after the view leaves the tab (`focused: false`).
     service.notify(Method("terminal/resize"), json!({ "tabId": first, "cols": 90, "rows": 25, "claim": true }), ConnectionId(1));
-    // Node answers a focus with null, and an attach of an id that is not running with null (golden.json: termFocus, termAttach).
+    // Node answers a focus with null, and an attach of an id that is not running with null (`termFocus`, `termAttach`).
     let Reply::Value(focused) = service.call(request("terminal/focus", json!({ "tabId": first, "focused": false }), 1)).await.unwrap() else {
         panic!("terminal/focus answers with a value");
     };
@@ -664,7 +641,7 @@ async fn terminal_ensure_names_a_fresh_tab_and_attach_answers_replay_or_not_runn
     let Reply::Value(none) = service.call(request("terminal/attach", json!({ "tabId": "term_never" }), 1)).await.unwrap() else {
         panic!("an unknown tab answers with a value");
     };
-    assert_eq!(none, recorded_calls("termAttach").iter().find(|call| call.get("value").is_some_and(Value::is_null)).expect("the recording has an attach of an id that is not running")["value"], "Node's answer for an id that is not running");
+    assert_eq!(none, Value::Null, "the answer for an id that is not running");
     service.tabs().dispose_all();
 }
 

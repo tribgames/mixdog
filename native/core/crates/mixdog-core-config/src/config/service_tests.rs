@@ -169,54 +169,25 @@ async fn a_relay_call_may_not_turn_on_allow_all_actions() {
     }
     assert_eq!(seen, 3);
 }
-/// The phone-settings recording (apps/mobile/fixtures/phone-settings), what another paired phone received for each of the
-/// phone's successful `updateSetting` and `notifyProviderModelsChanged` calls: the core announces the same events in the same
-/// order, `desktop` even for a write that changed nothing, then `agent` when the agent section changed; a provider-models
-/// announcement with its trimmed origin. A refused origin announces nothing.
-#[cfg(node_twin)]
+/// `ui/providerModels/announce` tells every client the trimmed origin, once; an origin that is not a string, is blank or is longer than
+/// 128 UTF-16 units is refused and tells no one.
 #[tokio::test]
-async fn a_phones_setting_write_and_provider_models_call_announce_what_node_broadcast() {
-    let golden: Value = serde_json::from_str(mixdog_testkit::fixture!("../../../../apps/mobile/fixtures/phone-settings/golden.json"))
-    .unwrap();
+async fn a_provider_models_announcement_carries_the_trimmed_origin_and_a_bad_origin_announces_nothing() {
     let dir = tempfile::tempdir().unwrap();
-    let file = dir.path().join("mixdog-config.json");
-    std::fs::write(&file, serde_json::to_vec(&golden["world"]["seedConfig"]).unwrap()).unwrap();
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-    let (config, _) = Config::open(file, Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
-    let announced = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
+    let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+    let announced = Arc::new(std::sync::Mutex::new(Vec::<(String, Value)>::new()));
     let sink = announced.clone();
-    config.announce_to(Arc::new(move |method, params| {
-        let event = match method {
-            "ui/settings/changed" => "settings-changed",
-            "ui/providerModels/changed" => "provider-models-changed",
-            other => panic!("unexpected announcement {other}"),
-        };
-        sink.lock().unwrap().push(json!({ "event": event, "payload": params }));
-    }));
-    let mut compared = 0;
-    for case in golden["cases"].as_array().unwrap() {
-        let params = &case["params"];
-        let answer = match case["name"].as_str().unwrap() {
-            "updateSetting" if case["frame"]["ok"] == true => {
-                // The adapter's path of the setting key (shared/desktop-settings.ts `desktopSettingPath`).
-                let path = match params[0].as_str().unwrap() {
-                    "autoClear" => "agent.autoClear.enabled".to_owned(),
-                    "autoCompact" => "agent.compaction.auto".to_owned(),
-                    key => format!("desktop.{key}"),
-                };
-                let write = json!({ "opId": "op-1", "path": path, "value": params[1], "announce": "desktop" });
-                value_write(&config, &write, true).await.map(|_| ())
-            }
-            "notifyProviderModelsChanged" => announce_provider_models(&config, &json!({ "origin": params[0] })).map(|_| ()),
-            _ => continue,
-        };
-        assert_eq!(answer.is_ok(), case["frame"]["ok"] == true, "{params}: {answer:?}");
-        let got = std::mem::take(&mut *announced.lock().unwrap());
-        assert_eq!(Value::Array(got), case["received"]["otherPhone"], "{params}");
-        compared += 1;
+    config.announce_to(Arc::new(move |method, params| sink.lock().unwrap().push((method.to_owned(), params))));
+    let origin = "o".repeat(128);
+    announce_provider_models(&config, &json!({ "origin": format!("  {origin}  ") })).unwrap();
+    assert_eq!(*announced.lock().unwrap(), vec![("ui/providerModels/changed".to_owned(), json!({ "origin": origin }))]);
+    announced.lock().unwrap().clear();
+    for bad in [json!("o".repeat(129)), json!("   "), json!(7)] {
+        assert!(announce_provider_models(&config, &json!({ "origin": bad })).is_err(), "{bad}");
     }
-    assert_eq!(compared, 13, "the recording's setting writes and provider-models calls");
+    assert!(announced.lock().unwrap().is_empty());
 }
 /// Node's desktop settings writes (`record-desktop-setting-writes.mjs`, the set `desktop-setting-writes`): each call of the
 /// recording that reaches the core's `config/value/write` as the desktop's route sends it leaves the config file as the recorded

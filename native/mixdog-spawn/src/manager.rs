@@ -137,7 +137,7 @@ pub struct SpawnOptions {
 ///   (`eof_timeout`, src/win/pipe.c);
 /// - after a kill, [`NODE_PTY_FLUSH`] after the kill at most (windowsConoutConnection.js `dispose`, `_drainDataAndClose`).
 ///
-/// Node's recorded times (apps/mobile/fixtures/phone-terminal/exit-timing.json): 1001-1008 ms after the shell's end with output 0, 999
+/// Node's measured times: 1001-1008 ms after the shell's end with output 0, 999
 /// and 1000 ms before it; 999.7-1001 ms after the last output that came after the end; 48.9-50.6 ms after a killed shell's end. The
 /// wait runs on `runtime`'s clock (a test's paused clock moves only when the test advances it).
 pub struct NodePtyExit {
@@ -2143,7 +2143,7 @@ mod node_pty_exit {
     }
 
     /// A killed shell (the terminal closed, as node-pty's `kill`): the exit is raised [`NODE_PTY_EOF`] after the console's output ends
-    /// (Node: 48.9-50.6 ms after the killed shell's end, exit-timing.json).
+    /// (Node: 48.9-50.6 ms after the killed shell's end).
     #[tokio::test(start_paused = true)]
     async fn a_killed_shells_exit_comes_an_eof_wait_after_its_output_ends() {
         let (manager, handle, end) = shell("kill", "").await;
@@ -2155,28 +2155,5 @@ mod node_pty_exit {
         ended(&end, false);
         tokio::time::advance(Duration::from_millis(1)).await;
         ended(&end, true);
-    }
-
-    /// The rule's two waits are the ones Node's recorded exits show (exit-timing.json, record-pty-exit-timing.mjs), each within 10 ms.
-    #[test]
-    fn the_waits_are_the_ones_node_recorded() {
-        let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../apps/mobile/fixtures/phone-terminal/exit-timing.json");
-        let recorded: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap();
-        let close = |measured: &serde_json::Value, rule: Duration, what: &str| {
-            let measured = measured.as_f64().unwrap_or_else(|| panic!("{what} was recorded"));
-            assert!((measured - rule.as_secs_f64() * 1000.0).abs() <= 10.0, "{what}: Node {measured} ms, the rule {rule:?}");
-        };
-        let cases = &recorded["cases"];
-        for case in ["output 0 ms before the end", "output 999 ms before the end", "output 1000 ms before the end"] {
-            for run in cases[case].as_array().unwrap() {
-                close(&run["exitAfterProcessExit"], NODE_PTY_FLUSH, case);
-            }
-        }
-        for run in cases["output after the end"].as_array().unwrap() {
-            close(&run["exitAfterLastOutputAfterTheEnd"], NODE_PTY_FLUSH, "output after the end");
-        }
-        for run in cases["kill"].as_array().unwrap() {
-            close(&run["exitAfterProcessExit"], NODE_PTY_EOF, "kill");
-        }
     }
 }

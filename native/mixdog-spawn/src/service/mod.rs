@@ -17,7 +17,7 @@
 
 mod feeds;
 mod process;
-mod relay_buffer;
+pub(crate) mod relay_buffer;
 mod system;
 mod terminal;
 
