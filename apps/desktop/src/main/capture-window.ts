@@ -9,6 +9,7 @@ import { captureFixtures, createCaptureRelay, startCaptureCore, type CaptureCore
 import { CORE_PORT_OPEN_CHANNEL, type CorePortRelay } from './core-port/relay';
 import { tagRendererSurface } from './process-memory-diagnostics';
 import { registerPaneLayoutIpc } from './ipc-pane-layout';
+import { registerRendererCacheIpc } from './ipc-renderer-cache';
 import { registerLocalStorageRescueIpc } from './local-storage-rescue';
 import { registerScreenSessions } from './screen-sessions';
 import {
@@ -149,6 +150,7 @@ function registerCaptureHostIpc(window: BrowserWindow, relay: CorePortRelay): ()
     return window.webContents.getZoomFactor();
   });
   const disposePaneLayout = registerPaneLayoutIpc({ window, ipcMain });
+  const disposeRendererCache = registerRendererCacheIpc({ window, ipcMain });
   const disposeLocalStorageRescue = registerLocalStorageRescueIpc({ window, ipcMain });
   const disposeScreenSessions = registerScreenSessions(window, ipcMain);
   const sendUpdaterState = (): void => window.webContents.send(DESKTOP_IPC.updaterState, CAPTURE_UPDATER_STATE);
@@ -157,6 +159,7 @@ function registerCaptureHostIpc(window: BrowserWindow, relay: CorePortRelay): ()
     window.webContents.removeListener('did-finish-load', sendUpdaterState);
     disposeScreenSessions();
     disposePaneLayout();
+    disposeRendererCache();
     disposeLocalStorageRescue();
     for (const channel of handlers.keys()) ipcMain.removeHandler(channel);
   };

@@ -3,6 +3,7 @@ import type { FileDownloadApi } from './file-downloads';
 import type { DesktopNotice } from './desktop-notice';
 import type { DesktopSectionsApi } from './contract-sections';
 import type { DesktopRendererProbeApi } from './renderer-probe';
+import type { RendererCacheName } from './renderer-cache';
 import type { ProjectRecoveryRequest, ProjectRecoveryResponse } from './project-recovery';
 import type { FileLaunchConfirmation, LocalLinkOpened } from './local-files';
 import type { DesktopFeedbackInput, DesktopFeedbackReceipt } from './contract-feedback';
@@ -793,6 +794,10 @@ export interface DesktopApi {
   readPaneLayoutFile?(): string | null;
   /** Mirrors the pane layout the renderer just persisted to that profile file. */
   writePaneLayoutFile?(layout: string): void;
+  /** One of the window's large caches, kept by the main process (renderer-cache.ts): the text last written, or
+   *  null. Synchronous so the first paint can use it; absent on the phone/remote surface. */
+  readRendererCache?(name: RendererCacheName): string | null;
+  writeRendererCache?(name: RendererCacheName, text: string): void;
   /** Dock terminal: create or reattach the shared PTY (main-process owned). */
   termEnsure?(
     id: string | null,

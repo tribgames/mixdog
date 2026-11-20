@@ -186,6 +186,8 @@ export function createHostApi({
     },
     readPaneLayoutFile: () => ipcRenderer.sendSync(DESKTOP_IPC.readPaneLayoutFile),
     writePaneLayoutFile: (layout) => ipcRenderer.send(DESKTOP_IPC.writePaneLayoutFile, layout),
+    readRendererCache: (name) => ipcRenderer.sendSync(DESKTOP_IPC.readRendererCache, name),
+    writeRendererCache: (name, text) => ipcRenderer.send(DESKTOP_IPC.writeRendererCache, name, text),
     revealFile: (cwd, path, accessToken) => invokeIpc(DESKTOP_IPC.revealFile, cwd, path, accessToken),
     openFilePath: (cwd, path, accessToken, confirmedPath) =>
       invokeIpc(DESKTOP_IPC.openFilePath, cwd, path, accessToken, confirmedPath),

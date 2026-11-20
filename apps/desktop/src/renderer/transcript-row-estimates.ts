@@ -1,4 +1,6 @@
+import type { RendererCacheName } from '../shared/renderer-cache';
 import type { TranscriptItem } from './desktop-types';
+import { profileCacheStorage } from './profile-cache-storage';
 import type { TranscriptRowModel } from './transcript-rows';
 import { TRANSCRIPT_ROW_ESTIMATE } from './transcript-virtual-cache';
 
@@ -27,9 +29,12 @@ import { TRANSCRIPT_ROW_ESTIMATE } from './transcript-virtual-cache';
  *  (member speeches, a band that is empty between member turns). */
 export type TranscriptRowSurface = 'coding' | 'agent' | 'room';
 
-// Bumped when the transcript's typography changes: heights measured under
-// the old type no longer match (v2: 16px reading body, new markdown spacing).
+// Bumped together when the transcript's typography changes: heights measured
+// under the old type no longer match (v2: 16px reading body, new markdown
+// spacing). The key is the phone's and the browser's; the desktop's heights
+// are the main process's cache of that name.
 const STORAGE_KEY = 'mixdog.transcript-row-heights.v2';
+const PROFILE_CACHE = 'transcript-row-heights-v2' satisfies RendererCacheName;
 const KEY_LIMIT = 2_000;
 const SHAPE_SAMPLES = 24;
 const SHAPE_LIMIT = 400;
@@ -233,12 +238,12 @@ export function createTranscriptRowHeightStore(
 
 let sharedStore: TranscriptRowHeightStore | null = null;
 
-/** The app-wide store, persisted in localStorage. */
+/** The app-wide store, persisted in the desktop's profile file, or in localStorage on the phone and browser surfaces. */
 export function transcriptRowHeightStore(): TranscriptRowHeightStore {
   if (!sharedStore) {
-    let storage: Storage | null = null;
+    let storage: Pick<Storage, 'getItem' | 'setItem'> | null = profileCacheStorage(PROFILE_CACHE);
     try {
-      storage = typeof window !== 'undefined' ? window.localStorage : null;
+      storage ??= typeof window !== 'undefined' ? window.localStorage : null;
     } catch {
       storage = null;
     }

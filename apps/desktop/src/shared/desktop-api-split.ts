@@ -303,6 +303,8 @@ export const HOST_KEYS = {
     'acknowledgeWhatsNew',
     'readPaneLayoutFile',
     'writePaneLayoutFile',
+    'readRendererCache',
+    'writeRendererCache',
     'getUpdaterState',
     'subscribeUpdaterState',
     'checkForDesktopUpdate',

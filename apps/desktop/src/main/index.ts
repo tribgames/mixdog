@@ -205,7 +205,9 @@ import {
 import { acknowledgeAnnouncement, LAUNCH_VERSION_FILE, recordLaunchVersion } from './launch-version';
 import { installWhatsNewAcknowledge } from './whats-new-acknowledge';
 import { createLocalStorageRescue, type LocalStorageRescue } from './local-storage-rescue';
+import { createRendererCache, type RendererCaches } from './ipc-renderer-cache';
 import { createPaneLayoutFile, flushPaneLayoutFiles, PANE_LAYOUT_FILE } from './pane-layout-file';
+import { RENDERER_CACHE_NAMES } from '../shared/renderer-cache';
 import { displayExitCode } from './desktop-service-client';
 
 const desktopProcessStartedAt = Date.now();
@@ -242,12 +244,16 @@ const launchRecordWriteFailure = (error: unknown) =>
     errorName: error instanceof Error ? error.name : 'Error',
     message: String((error as Error)?.message ?? error).slice(0, 300),
   });
-const paneLayoutFileFailure = (stage: 'read' | 'write', error: unknown) =>
-  diagnostics?.write('pane-layout-file-failed', {
-    stage,
-    errorName: error instanceof Error ? error.name : 'Error',
-    message: String((error as Error)?.message ?? error).slice(0, 300),
-  });
+/** Reports a profile file's read or write failure under `event`. */
+const profileFileFailure =
+  (event: string, details: Record<string, string> = {}) =>
+  (stage: 'read' | 'write', error: unknown) =>
+    diagnostics?.write(event, {
+      ...details,
+      stage,
+      errorName: error instanceof Error ? error.name : 'Error',
+      message: String((error as Error)?.message ?? error).slice(0, 300),
+    });
 
 // Profile identity. Unpackaged shells (electron-vite dev/preview, source-mode
 // E2E) derive userData from this package's name (@mixdog/desktop), so every
@@ -1870,8 +1876,20 @@ function connectionPaneLayoutFile(connection: ConnectionIdentity) {
       app.getPath('userData'),
       connection.kind === 'local' ? PANE_LAYOUT_FILE : `pane-layout-ssh-${connectionStorageKey(connection)}.json`
     ),
-    paneLayoutFileFailure
+    profileFileFailure('pane-layout-file-failed')
   );
+}
+
+/** The window's large caches (ipc-renderer-cache.ts), their files named like its pane layout file: a server window's
+ *  are its own. */
+function connectionRendererCaches(connection: ConnectionIdentity): RendererCaches {
+  const owner = connection.kind === 'local' ? '' : `-ssh-${connectionStorageKey(connection)}`;
+  const cache = (name: string) =>
+    createRendererCache(
+      join(app.getPath('userData'), `renderer-cache-${name}${owner}.json`),
+      profileFileFailure('renderer-cache-file-failed', { cache: name })
+    );
+  return Object.fromEntries(RENDERER_CACHE_NAMES.map((name) => [name, cache(name)])) as RendererCaches;
 }
 
 /** A server window keeps its renderer storage (open session, drafts, panes)
@@ -2767,6 +2785,7 @@ function installWindowIpc(
       : {}),
     remoteHosts: remoteHostsHandle(),
     paneLayoutFile: connectionPaneLayoutFile(connection),
+    rendererCaches: connectionRendererCaches(connection),
     localStorageRescue,
   });
   return () => {
