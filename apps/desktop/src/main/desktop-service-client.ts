@@ -148,17 +148,12 @@ export class DesktopServiceClient implements DesktopService {
     );
   }
 
-  private invoke<T>(
-    method: DesktopServiceMethod,
-    args: unknown[] = [],
-    _timeoutMs?: number,
-    signal?: AbortSignal
-  ): Promise<T> {
+  private invoke<T>(method: DesktopServiceMethod, args: unknown[] = [], signal?: AbortSignal): Promise<T> {
     return this.options.serviceLane.call<T>(method, args, signal);
   }
 
   private invokeRead<T>(method: DesktopServiceMethod, args: unknown[] = [], signal?: AbortSignal): Promise<T> {
-    return this.invoke<T>(method, args, undefined, signal);
+    return this.invoke<T>(method, args, signal);
   }
 
   startProject(projectPath: string): Promise<SessionSnapshot> {

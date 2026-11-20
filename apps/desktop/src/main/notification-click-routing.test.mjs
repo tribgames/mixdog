@@ -38,7 +38,7 @@ function fakeWindow(mode = 'visible') {
 const sent = (state) => state.calls.filter(Array.isArray);
 
 /** The real host presenter and the real click route; only Electron is faked. The core's `host/notification/show` is what a toast is. */
-function harness(t, { windows }) {
+function harness({ windows }) {
   const notifications = [];
   let recreated = 0;
   let current = windows.initial;
@@ -93,9 +93,9 @@ const KINDS = [
 
 for (const [name, row] of KINDS) {
   for (const mode of ['visible', 'minimized', 'hidden']) {
-    test(`clicking the ${name} notification with the window ${mode} sends its session to the renderer`, async (t) => {
+    test(`clicking the ${name} notification with the window ${mode} sends its session to the renderer`, async () => {
       const { window, state } = fakeWindow(mode);
-      const h = harness(t, { windows: { initial: window } });
+      const h = harness({ windows: { initial: window } });
       h.finish([row]);
       assert.equal(h.notifications.length, 1);
       h.notifications[0].emit('click');
@@ -123,7 +123,7 @@ for (const mode of ['hidden', 'minimized', 'visible']) {
 
 test('closing a banner does not open or focus a session', () => {
   const { window, state } = fakeWindow('hidden');
-  const h = harness(null, { windows: { initial: window } });
+  const h = harness({ windows: { initial: window } });
   h.finish([{ id: 'a' }]);
   h.notifications[0].emit('close');
   assert.deepEqual(state.calls, []);
@@ -134,8 +134,8 @@ test('missing or destroyed windows reject notification navigation', () => {
   assert.equal(openDesktopNotificationSession({ isDestroyed: () => true }, 'a'), false);
 });
 
-test('a click with no window rebuilds it and delivers the session once it exists', async (t) => {
-  const h = harness(t, { windows: { initial: null } });
+test('a click with no window rebuilds it and delivers the session once it exists', async () => {
+  const h = harness({ windows: { initial: null } });
   h.finish([{ id: 'room-1', agentRoom: { name: 'Planning' } }]);
   h.notifications[0].emit('click');
   assert.equal(h.recreated(), 1, 'the window is asked for again');

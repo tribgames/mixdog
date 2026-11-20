@@ -343,12 +343,12 @@ for (const operation of ['create', 'move', 'copy']) {
     });
     const renaming = renameProjectEntryIn(root, 'source.txt', 'target.txt');
     await entered.promise;
-    const competing =
-      operation === 'create'
-        ? createProjectEntryIn(root, '', 'target.txt', false)
-        : operation === 'move'
-          ? moveProjectEntryIn(root, 'other/target.txt', '')
-          : copyProjectEntryIn(root, 'other/target.txt', '');
+    const competingOperations = {
+      create: () => createProjectEntryIn(root, '', 'target.txt', false),
+      move: () => moveProjectEntryIn(root, 'other/target.txt', ''),
+      copy: () => copyProjectEntryIn(root, 'other/target.txt', ''),
+    };
+    const competing = competingOperations[operation]();
     const finished = Promise.allSettled([renaming, competing]);
     release.resolve();
     const results = await finished;

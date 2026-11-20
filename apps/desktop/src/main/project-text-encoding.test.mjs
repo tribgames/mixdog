@@ -32,7 +32,8 @@ function encoded(text, encoding, bom = false) {
       bytes[i + 1] = little[i];
     }
   }
-  return Buffer.concat([Buffer.from(bom ? (encoding === 'utf16be' ? [0xfe, 0xff] : [0xff, 0xfe]) : []), bytes]);
+  const bomBytes = encoding === 'utf16be' ? [0xfe, 0xff] : [0xff, 0xfe];
+  return Buffer.concat([Buffer.from(bom ? bomBytes : []), bytes]);
 }
 
 function hook(t, name, action) {
@@ -53,7 +54,7 @@ const variants = [
   ['utf16le', false],
   ['utf16be', false],
 ];
-const text = 'plain ASCII source '.repeat(8) + '\r\n한글 😀 \uFFFD\uFEFF\nlast\rline';
+const text = `${'plain ASCII source '.repeat(8)}\r\n한글 😀 \uFFFD\uFEFF\nlast\rline`;
 for (const [encoding, bom] of variants) {
   test(`ordinary ${encoding} (BOM ${bom}) saves and batch writes preserve bytes and BOM`, async (t) => {
     const bytes = encoded(text, encoding, bom);

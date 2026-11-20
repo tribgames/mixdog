@@ -659,18 +659,6 @@ export const CAPABILITY_ARITY = {
   ...IMPORT_CAPABILITY_ARITY,
 } as const satisfies Record<DesktopCapability, readonly [number, number]>;
 
-/** A paired device's local nickname: a string, where only an explicit '' clears
- *  it. Anything else is refused rather than read as a clear. */
-export function requiredDeviceAlias(value: unknown): string {
-  if (typeof value !== 'string') throw new TypeError('alias must be a string.');
-  if (value.length > 1_024) throw new TypeError('alias is invalid.');
-  return value;
-}
-
-export function requiredSessionContentQuery(value: unknown): string {
-  return requiredString(value, 'session search query', 1_024);
-}
-
 const CUSTOM_PROVIDER_KEYS = new Set([
   'id',
   'name',

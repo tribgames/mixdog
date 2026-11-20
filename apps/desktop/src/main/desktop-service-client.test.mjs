@@ -35,7 +35,14 @@ test('service notices that arrive before any window wait for it, one per conditi
 
 test('overlapping desktop registrations carry increasing versions', async () => {
   const seen = [];
-  const client = clientWith({ serviceLane: { call: async (method, args) => (seen.push([method, args]), true) } });
+  const client = clientWith({
+    serviceLane: {
+      call: async (method, args) => {
+        seen.push([method, args]);
+        return true;
+      },
+    },
+  });
   await Promise.all([client.setVisibleSessions(['a']), client.setVisibleSessions(['b'])]);
   assert.deepEqual(
     seen.map(([, args]) => args[1]),
@@ -46,14 +53,28 @@ test('overlapping desktop registrations carry increasing versions', async () => 
 test('a client calls its capability, operation and service lanes and never a transport', async () => {
   const seen = [];
   const client = clientWith({
-    serviceLane: { call: async (method, args) => (seen.push(['service', method, args]), 'svc') },
-    capabilityLane: {
-      invoke: async (capability, args, sessionId) => (
-        seen.push(['capability', capability, args, sessionId]), { value: 1, snapshot: null }
-      ),
-      read: async (requests) => (seen.push(['read', requests]), []),
+    serviceLane: {
+      call: async (method, args) => {
+        seen.push(['service', method, args]);
+        return 'svc';
+      },
     },
-    operationLane: { invoke: async (method, args) => (seen.push(['operation', method, args]), 'op') },
+    capabilityLane: {
+      invoke: async (capability, args, sessionId) => {
+        seen.push(['capability', capability, args, sessionId]);
+        return { value: 1, snapshot: null };
+      },
+      read: async (requests) => {
+        seen.push(['read', requests]);
+        return [];
+      },
+    },
+    operationLane: {
+      invoke: async (method, args) => {
+        seen.push(['operation', method, args]);
+        return 'op';
+      },
+    },
   });
   assert.equal(await client.listAgentPool(), 'svc');
   await client.invokeCapability('setModel', ['m'], 's1');

@@ -2,8 +2,7 @@
 // automation client that applies `Emulation.setDeviceMetricsOverride`
 // (clipped screenshots do this implicitly) and then dies leaves the renderer
 // FROZEN at the probe viewport — observed repeatedly as the app painting
-// 800x600 in the corner of a fullscreen window (user: 레이아웃 또 틀어짐,
-// 재발 방지). The guard compares the renderer's inner viewport against the
+// 800x600 in the corner of a fullscreen window. The guard compares the renderer's inner viewport against the
 // native content bounds after every resize/load and, when they stay apart,
 // clears the override from the app's own debugger session and nudges a
 // native resize so Chromium re-lays out.

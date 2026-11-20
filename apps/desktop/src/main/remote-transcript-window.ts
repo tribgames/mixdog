@@ -21,7 +21,6 @@ import {
   REMOTE_TRANSCRIPT_TAIL_ITEMS,
 } from './desktop-support';
 import { remoteTranscriptRow, remoteTranscriptSnapshot } from './remote-transcript';
-import type { SnapshotDeltaEncoder } from './state-delta';
 
 interface PhoneWindow {
   /** The first row of the phone's first page: where its tail starts. */
@@ -110,16 +109,4 @@ export function phoneTranscriptView(key: object, snapshot: unknown, held: readon
   }
   const windowed = start === 0 ? record : { ...record, items: items.slice(start), transcriptHasOlder: true };
   return remoteTranscriptSnapshot(windowed, tailStart - start);
-}
-
-/** The wire a phone's encoder sends for `snapshot`: its own window for a phone
- *  that pages (`transcriptPaging`), the whole window for an older build that
- *  cannot page from `transcriptHasOlder`. */
-export function encodePhoneSessionState(encoder: SnapshotDeltaEncoder, snapshot: unknown, paging: boolean): unknown {
-  const held = (encoder.resumePoint()?.held as { items?: unknown } | undefined)?.items;
-  return encoder.encode(
-    paging
-      ? phoneTranscriptView(encoder, snapshot, Array.isArray(held) ? held : undefined)
-      : remoteTranscriptSnapshot(snapshot)
-  );
 }

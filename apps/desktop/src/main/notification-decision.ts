@@ -177,10 +177,3 @@ export function allowsTaskbarFlash(
 export function allowsDeviceNotice(preferences: NotificationDevicePreferences, now: number): boolean {
   return preferences.scope !== 'off' && !inQuietHours(preferences.quietHours, now);
 }
-
-/** A paired device holding pushes while this PC is in use looks back this far. */
-export const DESKTOP_ACTIVE_WINDOW_SECONDS = 180;
-
-/** How long a push held for an in-use PC waits for the user to see it there
- *  before it goes to the device after all. */
-export const DESKTOP_HOLD_MS = 60_000;

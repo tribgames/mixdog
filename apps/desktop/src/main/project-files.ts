@@ -204,15 +204,6 @@ function projectTextTooLarge(mtimeMs: number): ProjectTextFile {
   return { content: '', mtimeMs, binary: false, tooLarge: true, encoding: 'utf8' };
 }
 
-/** readProjectTextFileIn for a file already open and authorized by the
- *  caller (a paired device's read): every byte comes through `handle`. */
-export async function readProjectTextFileThrough(handle: FileHandle): Promise<ProjectTextFile> {
-  const info = await handle.stat();
-  if (!info.isFile()) throw new Error('Not a file.');
-  if (info.size > PROJECT_TEXT_VIEW_MAX_BYTES) return projectTextTooLarge(info.mtimeMs);
-  return projectTextReply(await handle.readFile(), info.mtimeMs);
-}
-
 function projectTextReply(bytes: Buffer, mtimeMs: number): ProjectTextFile {
   const decoded = decodeProjectText(bytes);
   const readOnly = !decoded.binary && (!decoded.lossless || bytes.length > PROJECT_TEXT_EDIT_MAX_BYTES);

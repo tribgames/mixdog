@@ -35,6 +35,7 @@ import { registerProjectFileIpc } from './ipc-project-files';
 import { registerSessionIpc } from './ipc-sessions';
 import type { RemoteHostWindows } from './remote-host-windows';
 import { registerSourceControlIpc } from './ipc-source-control';
+import { registerVisualizeIpc, type VisualizeIpcHost } from './ipc-visualize';
 import { DesktopStateBridge, type DesktopUpdater } from './ipc-state-bridge';
 import { registerWindowSettingsIpc } from './ipc-window-settings';
 import type { PcQuotaHost } from './ipc-host-extras';
@@ -48,17 +49,9 @@ import { registerScreenSessions } from './screen-sessions';
 import { registerRendererProbeIpc } from './renderer-probe';
 import type { ConnectionKind } from './connections/contract';
 import { connectionFeatureGate } from './connections/feature-gates';
-import {
-  requiredAttachmentFile,
-  requiredVisualizeCaptureRect,
-  requiredVisualizeGestureTarget,
-  requiredVisualizePanelSize,
-  requiredVisualizeTabCommand,
-} from './ipc-validation';
+import { requiredAttachmentFile } from './ipc-validation';
 import { createServerFiles, serverCoreInvoke, uploadServerBytes } from './server-file-access';
 import { serverUploadCoordinatorFor } from './server-upload-coordinator';
-import type { DesktopVisualize } from './visualize/host';
-import type { VisualizeService } from './visualize/service';
 
 /** The ipcMain surface one window's registration uses: Electron's ipcMain or
  *  that window's connection-router scope (connections/ipc-router). */
@@ -116,8 +109,7 @@ interface DesktopIpcDependencies {
   /** Extensions → Computer Use: OS readiness reads and one-press fixes. */
   computer?: ComputerIpcHost;
   /** Agent `visualize` tabs (this PC's window only). */
-  visualize?: Pick<VisualizeService, 'snapshot' | 'command' | 'paneText' | 'setPanelSize'> &
-    Partial<Pick<DesktopVisualize, 'attachFeedback' | 'captureRect' | 'consumeChoiceGesture'>>;
+  visualize?: VisualizeIpcHost;
   /** Settings → Connection / command surface: connect to another PC. */
   remoteHosts?: RemoteHostWindows;
   updater?: DesktopUpdater;
@@ -285,30 +277,7 @@ export function registerDesktopIpc(
   registerSessionIpc({ handle, remoteHosts, core: protocol });
   registerBrowserIpc({ handle, browserHost, browserLogin });
   registerComputerIpc({ handle, shell, computer, invokeDesktopOperation });
-  handle(DESKTOP_IPC.visualizeState, () => visualize?.snapshot() ?? []);
-  handle(DESKTOP_IPC.visualizeCommand, async (_event, command) =>
-    visualize?.command(requiredVisualizeTabCommand(command))
-  );
-  handle(DESKTOP_IPC.visualizePaneText, async (_event, sessionId, tabId, index) => {
-    if (!visualize) throw new Error('Visualize is unavailable.');
-    const target = requiredVisualizeGestureTarget({ sessionId, tabId, pane: index });
-    return visualize.paneText(target.sessionId, target.tabId, target.pane);
-  });
-  handle(DESKTOP_IPC.visualizePanelSize, (_event, size) => {
-    visualize?.setPanelSize(requiredVisualizePanelSize(size));
-  });
-  handle(DESKTOP_IPC.visualizeFeedbackAttach, async (_event, sessionId, tabId) => {
-    const target = requiredVisualizeTabCommand({ sessionId, tabId, action: 'activate' });
-    await visualize?.attachFeedback?.(target.sessionId, target.tabId);
-  });
-  handle(DESKTOP_IPC.visualizeCaptureRect, async (_event, rect) => {
-    if (!visualize?.captureRect) throw new Error('Visualize capture is unavailable.');
-    return visualize.captureRect(requiredVisualizeCaptureRect(rect));
-  });
-  handle(
-    DESKTOP_IPC.visualizeConsumeGesture,
-    async (_event, target) => (await visualize?.consumeChoiceGesture?.(requiredVisualizeGestureTarget(target))) === true
-  );
+  registerVisualizeIpc({ handle, visualize });
   const confirmAllowAllActions = createAllowAllActionsConfirm({ window, nativeT });
   registerWindowSettingsIpc({ window, app, handle, invokeDesktopOperation, settingsStore, previewNotificationSound });
   const disposeHostExtrasIpc = registerHostExtrasIpc({

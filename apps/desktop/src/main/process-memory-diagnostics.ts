@@ -105,13 +105,10 @@ export function sampleProcessMemory<T extends RendererContents>(sources: Process
       // adopted into the desktop shell for presentation.
       const pageWindow = sources.browserPageWindow(contents);
       const connectionId = sources.connectionIdFor(webContentsId);
-      const role = pageWindow
-        ? 'browser-page'
-        : connectionId === undefined
-          ? 'unclassified'
-          : connectionId === sources.localConnectionId
-            ? 'local-shell'
-            : 'server-shell';
+      let role: RendererRole = 'server-shell';
+      if (pageWindow) role = 'browser-page';
+      else if (connectionId === undefined) role = 'unclassified';
+      else if (connectionId === sources.localConnectionId) role = 'local-shell';
       const windowId = (pageWindow ?? sources.ownerWindow(contents))?.id ?? null;
       rendererAttribution.push({ rendererOsPid, webContentsId, windowId, role });
     } catch {

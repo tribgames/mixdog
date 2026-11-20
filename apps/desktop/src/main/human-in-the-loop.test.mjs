@@ -1,12 +1,6 @@
 import assert from 'node:assert/strict';
-import { createECDH } from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 
-import { waitUntil } from './bounded-wait.mjs';
-import { createNotificationPreferencesStore, notificationPreferencesPath } from './notification-preferences.ts';
 import { fillSecretInput } from './browser/secret-fill-core.test-helper.mjs';
 import { beginComputerOperation } from './human-only-approval.ts';
 import { requiredToolApprovalDecision } from './ipc-validation.ts';
@@ -462,21 +456,3 @@ test("a pending screen takeover blocks Computer Use and its session's Browser Us
   gate.onSessionState({ sessionId: 's1', snapshot: { toolApproval: { id: 'a1', kind: 'approval' } } });
   gate.assertFree('s1');
 });
-
-const device = () => {
-  const ecdh = createECDH('prime256v1');
-  ecdh.generateKeys();
-  return { privateKey: ecdh.getPrivateKey(), publicKey: ecdh.getPublicKey().toString('base64url') };
-};
-const until = (ready) => waitUntil(ready, 'the push to be sent');
-
-function preferencesIn(t) {
-  const dir = mkdtempSync(join(tmpdir(), 'mute-'));
-  t.after(() => rmSync(dir, { recursive: true, force: true }));
-  const file = notificationPreferencesPath(dir);
-  const store = createNotificationPreferencesStore({
-    filePath: file,
-    readLegacy: async () => ({ turnNotifications: true, mutedAgents: [] }),
-  });
-  return { store, file };
-}

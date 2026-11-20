@@ -149,7 +149,11 @@ test('a pre-existing file at the temp name is never written to or removed', asyn
   syncBuiltinESMExports();
   t.after(() => syncBuiltinESMExports());
   const tempName = `mixdog-tmp-${'ab'.repeat(8)}`;
-  for (const respond of [(_req, res) => res.end('new'), (_req, res) => ((res.statusCode = 404), res.end('nope'))]) {
+  const notFound = (_req, res) => {
+    res.statusCode = 404;
+    res.end('nope');
+  };
+  for (const respond of [(_req, res) => res.end('new'), notFound]) {
     await withServer(respond, async (url, dir) => {
       const file = join(dir, 'out.txt');
       await writeFile(file, 'old');

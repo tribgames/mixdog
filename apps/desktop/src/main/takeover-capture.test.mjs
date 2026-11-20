@@ -7,8 +7,14 @@ import { captureTakeoverOrDecline } from './takeover-capture.ts';
 function fixture({ capture = () => {}, decline = async () => true } = {}) {
   const calls = { captured: [], declined: [], reports: [] };
   const deps = {
-    capture: (...args) => (calls.captured.push(args), capture(...args)),
-    decline: (...args) => (calls.declined.push(args), decline(...args)),
+    capture: (...args) => {
+      calls.captured.push(args);
+      return capture(...args);
+    },
+    decline: (...args) => {
+      calls.declined.push(args);
+      return decline(...args);
+    },
     report: (event, details) => calls.reports.push([event, details]),
   };
   return { deps, calls };
