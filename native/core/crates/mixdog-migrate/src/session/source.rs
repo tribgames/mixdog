@@ -34,11 +34,11 @@ use sha1::Sha1;
 
 use mixdog_core_prompt::prompt::migrate::migrate_system_messages;
 
+use super::context_blobs::ContextBlobs;
+use super::context_blobs::OfficeExtractor;
 use super::ids::message_iids;
 use super::model::Row;
 use super::model::RunModel;
-use super::context_blobs::ContextBlobs;
-use super::context_blobs::OfficeExtractor;
 use super::model::SessionModel;
 use super::pending;
 use super::splice::Splice;
@@ -177,23 +177,13 @@ fn decode_record(v: &Value) -> Option<&Map<String, Value>> {
         }
         "compacted" => messages.is_some_and(|m| count_of(r.get("len")) == Some(m.len() as u64)),
         "append" => messages.is_some_and(|m| !m.is_empty()) && count_of(r.get("len")).is_some(),
-        "edit" => {
-            messages.is_some()
-                && count_of(r.get("len")).is_some()
-                && count_of(r.get("at")).is_some()
-                && count_of(r.get("del")).is_some()
-        }
+        "edit" => messages.is_some() && count_of(r.get("len")).is_some() && count_of(r.get("at")).is_some() && count_of(r.get("del")).is_some(),
         "rollback" => count_of(r.get("len")).is_some(),
         "patch" => {
-            let (Some(set), Some(unset)) = (
-                r.get("set").and_then(Value::as_object),
-                r.get("unset").and_then(Value::as_array),
-            ) else {
+            let (Some(set), Some(unset)) = (r.get("set").and_then(Value::as_object), r.get("unset").and_then(Value::as_array)) else {
                 return None;
             };
-            !set.contains_key("messages")
-                && !set.contains_key("id")
-                && unset.iter().all(|k| k.is_string() && k != "messages" && k != "id")
+            !set.contains_key("messages") && !set.contains_key("id") && unset.iter().all(|k| k.is_string() && k != "messages" && k != "id")
         }
         _ => false,
     };
@@ -256,9 +246,7 @@ pub(super) fn indexed_segment(line: &[u8]) -> bool {
         value
     };
     let quoted = |at: &mut usize| {
-        let close = (probe.get(*at) == Some(&b'"'))
-            .then(|| probe[*at + 1..].iter().position(|b| *b == b'"'))
-            .flatten();
+        let close = (probe.get(*at) == Some(&b'"')).then(|| probe[*at + 1..].iter().position(|b| *b == b'"')).flatten();
         close.inspect(|n| *at += n + 2).is_some()
     };
     let head = literal(&mut at, br#"{"v":1,"seq":"#)
@@ -277,9 +265,9 @@ pub(super) fn indexed_segment(line: &[u8]) -> bool {
     }
     let bytes = digits(&mut at);
     let items = literal(&mut at, br#","items":"#);
-    bytes.zip(items.then_some(())).is_some_and(|(bytes, ())| {
-        usize::try_from(bytes).is_ok_and(|b| at.checked_add(b).and_then(|e| e.checked_add(1)) == Some(line.len()))
-    })
+    bytes
+        .zip(items.then_some(()))
+        .is_some_and(|(bytes, ())| usize::try_from(bytes).is_ok_and(|b| at.checked_add(b).and_then(|e| e.checked_add(1)) == Some(line.len())))
 }
 
 fn opt_number(v: Option<&Value>, what: &str) -> R<Option<Number>> {
@@ -335,12 +323,7 @@ fn segment_rows(line: &[u8], what: &str, range: Option<(f64, f64)>, replaced: &m
     // 1.4.5 shows the last `count` items of a segment its index reads.
     let shown = indexed_segment(line) && visible(range, seq);
     let first_shown = items.len().saturating_sub(usize::try_from(count).unwrap_or(usize::MAX));
-    let origin = ArchiveOrigin::Segment {
-        id: text_id(seg_id)?,
-        prev: prev.as_deref().map(text_id).transpose()?,
-        count,
-        bytes,
-    };
+    let origin = ArchiveOrigin::Segment { id: text_id(seg_id)?, prev: prev.as_deref().map(text_id).transpose()?, count, bytes };
     let rows = items
         .iter()
         .enumerate()
@@ -354,11 +337,7 @@ fn segment_rows(line: &[u8], what: &str, range: Option<(f64, f64)>, replaced: &m
             form: Form::Display,
             model: false,
             visible: shown && j >= first_shown,
-            archive: Some(ArchiveTag {
-                seq,
-                at: at.clone(),
-                origin: origin.clone(),
-            }),
+            archive: Some(ArchiveTag { seq, at: at.clone(), origin: origin.clone() }),
             prompt: None,
             body: item.clone(),
         })
@@ -459,8 +438,7 @@ fn pending_job_rows(id: &str, job: &Value, range: Option<(f64, f64)>) -> R<(u64,
 }
 
 fn text_id(s: &str) -> R<mixdog_store::schema::bounded::Id> {
-    mixdog_store::schema::bounded::Id::try_from(s)
-        .map_err(|e| Fail::Quarantine(QuarantineCode::SchemaViolation, e))
+    mixdog_store::schema::bounded::Id::try_from(s).map_err(|e| Fail::Quarantine(QuarantineCode::SchemaViolation, e))
 }
 
 // ── Turn checkpoints ─────────────────────────────────────────────────────────
@@ -666,14 +644,7 @@ fn checkpoint(
     let unrecovered = |rid: String, checkpoint: Value, at: Option<i64>| {
         Ok(Some((
             Vec::new(),
-            RunModel {
-                rid,
-                at,
-                phases: vec![(
-                    RunPhase::Interrupted,
-                    Some(serde_json::json!({"unrecovered": true, "checkpoint": checkpoint})),
-                )],
-            },
+            RunModel { rid, at, phases: vec![(RunPhase::Interrupted, Some(serde_json::json!({"unrecovered": true, "checkpoint": checkpoint})))] },
         )))
     };
     let parsed = json::parse_source(text).ok();
@@ -712,22 +683,11 @@ fn checkpoint(
     };
     // The recovery's `Date.now()`: the latest time the checkpoint records, so a rerun
     // converts identically.
-    let now = ["updatedAt", "startedAt"]
-        .into_iter()
-        .map(|key| js_number_of(folded.get(key)))
-        .filter(|n| n.is_finite())
-        .fold(0.0, f64::max);
+    let now = ["updatedAt", "startedAt"].into_iter().map(|key| js_number_of(folded.get(key))).filter(|n| n.is_finite()).fold(0.0, f64::max);
     let rows: Vec<Value> = session_messages.iter().chain(&turn).cloned().collect();
     restore_header(session_header, &rows, &folded, blobs, now)?;
     let interruption = folded.get("interruption").cloned();
-    Ok(Some((
-        turn,
-        RunModel {
-            rid,
-            at,
-            phases: vec![(RunPhase::Started, None), (RunPhase::Interrupted, interruption)],
-        },
-    )))
+    Ok(Some((turn, RunModel { rid, at, phases: vec![(RunPhase::Started, None), (RunPhase::Interrupted, interruption)] })))
 }
 
 // ── Shared spools and worker indexes ─────────────────────────────────────────
@@ -871,13 +831,7 @@ struct Index<'a> {
 /// listing fills it (`daemon-stored-session-views.mjs:93-97`): of `workerLinks`
 /// (`store-agent-worker-rows.mjs:286-302`), the last naming this session sets
 /// `parentSessionId` and `ownerSessionId`.
-fn parent_link(
-    cx: &ItemContext<'_>,
-    id: &str,
-    header: &Header,
-    shared: &[&SourceFile],
-    replaced: &mut u64,
-) -> R<Option<Header>> {
+fn parent_link(cx: &ItemContext<'_>, id: &str, header: &Header, shared: &[&SourceFile], replaced: &mut u64) -> R<Option<Header>> {
     if json::js_truthy(header.get("parentSessionId")) {
         return Ok(None);
     }
@@ -979,9 +933,13 @@ fn place_retained(archive: &mut Vec<Row>, messages: &mut Vec<Row>) -> Option<Vec
     let shown_at = |row: &Row| row.body.get("at").and_then(Value::as_f64).filter(|at| at.is_finite());
     let is_divider = |row: &Row| row.body.get("status").and_then(Value::as_str) == Some("compacted");
     let said_at = |row: &Row| row.body.pointer("/meta/transcript/at").and_then(Value::as_f64).filter(|at| at.is_finite());
-    let newest_divider =
-        archive.iter().filter(|row| row.visible && is_divider(row)).filter_map(shown_at).fold(None, |max: Option<f64>, at| Some(max.map_or(at, |m| m.max(at))))?;
-    let retained = |row: &Row| row.visible && row.prompt.is_some() && row.role.as_deref() == Some("user") && said_at(row).is_some_and(|at| at <= newest_divider);
+    let newest_divider = archive
+        .iter()
+        .filter(|row| row.visible && is_divider(row))
+        .filter_map(shown_at)
+        .fold(None, |max: Option<f64>, at| Some(max.map_or(at, |m| m.max(at))))?;
+    let retained =
+        |row: &Row| row.visible && row.prompt.is_some() && row.role.as_deref() == Some("user") && said_at(row).is_some_and(|at| at <= newest_divider);
     if !messages.iter().any(retained) {
         return None;
     }
@@ -1059,20 +1017,17 @@ mod archive_damage_tests {
         let archive = format!("{}\n{{not json\n{}\n", segment(1), segment(2));
         let pending = r#"{"jobs":[{"seq":3,"messages":[{"role":"user","content":"x"}]},{"seq":"four","messages":[]}]}"#;
         let (mut replaced, mut damage) = (0u64, Vec::new());
-        let (rows, superseded) =
-            archive_rows("sess_a", &Header::new(), Some(archive.as_bytes()), Some(pending.as_bytes()), &mut replaced, &mut damage)
-                .expect("a damaged part does not fail the session");
+        let (rows, superseded) = archive_rows("sess_a", &Header::new(), Some(archive.as_bytes()), Some(pending.as_bytes()), &mut replaced, &mut damage)
+            .expect("a damaged part does not fail the session");
         assert!(superseded.is_empty());
         let seqs: Vec<u64> = rows.iter().filter_map(|row| row.archive.as_ref().map(|tag| tag.seq)).collect();
         assert_eq!(seqs, [1, 2], "job 3 goes with its sidecar");
-        let places: Vec<(String, u64)> =
-            damage.iter().map(|d| (d["file"].as_str().unwrap().to_owned(), d["line"].as_u64().unwrap())).collect();
+        let places: Vec<(String, u64)> = damage.iter().map(|d| (d["file"].as_str().unwrap().to_owned(), d["line"].as_u64().unwrap())).collect();
         assert_eq!(places, [("archive".to_owned(), 2), ("pending".to_owned(), 0)]);
         assert_eq!(damage[0]["text"], "{not json");
         assert_eq!(damage[1]["text"], pending, "the whole sidecar is what was skipped");
     }
 }
-
 
 #[cfg(test)]
 mod place_retained_tests {
@@ -1089,7 +1044,17 @@ mod place_retained_tests {
         if let Some(at) = at {
             body["meta"] = json!({ "transcript": { "messageId": id, "at": at } });
         }
-        Row { iid: id.into(), turn: None, role: Some(role.into()), form: Form::Message, model: true, visible: true, archive: None, prompt: prompt.then(|| id.to_owned()), body }
+        Row {
+            iid: id.into(),
+            turn: None,
+            role: Some(role.into()),
+            form: Form::Message,
+            model: true,
+            visible: true,
+            archive: None,
+            prompt: prompt.then(|| id.to_owned()),
+            body,
+        }
     }
 
     fn ids(rows: &[Row]) -> Vec<&str> {
@@ -1165,10 +1130,6 @@ mod worker_index_tests {
         }
     }
 }
-
-
-
-
 
 /// The dev reader's fold (`dev:session-log-reader.mjs` `parseSessionLog`): a line that holds
 /// no record of ours (blank, not JSON, not a record, of an unknown kind) is skipped as Node
@@ -1277,11 +1238,7 @@ pub fn fold_log(id: &str, log: &mut durable::OpenFile, replaced: &mut u64) -> R<
     if base_id != id {
         return q(QuarantineCode::IdMismatch, format!("log base names {base_id}"));
     }
-    Ok(LogFold {
-        header,
-        messages,
-        legacy,
-    })
+    Ok(LogFold { header, messages, legacy })
 }
 /// Segment rows and pending-job rows in seq order (SM §11.4.3).
 fn archive_rows(
@@ -1446,16 +1403,12 @@ pub fn recover_owner<'a>(row: &Value, candidates: &'a [Candidate]) -> Option<&'a
     }
     let reaped = reaped.min(now_ms());
     let pid = positive_int(row.get("clientHostPid"))?;
-    let mut found = candidates.iter().filter(|c| {
-        c.tag == tag && c.pid == Some(pid) && !c.parent.is_empty() && c.created > 0.0 && c.created <= reaped
-    });
+    let mut found = candidates.iter().filter(|c| c.tag == tag && c.pid == Some(pid) && !c.parent.is_empty() && c.created > 0.0 && c.created <= reaped);
     let one = found.next()?;
     found.next().is_none().then_some(one)
 }
 fn now_ms() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0.0, |d| d.as_millis() as f64)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
 }
 /// The `worker` header map of this session (SM §11.4.6): its worker row (agent index wins
 /// over lead), the reaper's tombstone of it and its owner's release marker, all verbatim
@@ -1588,8 +1541,7 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
     let archived = archived_results(cx, id, &header, &messages, &shared)?;
 
     let mut archive_damage = Vec::new();
-    let (archive_rows, superseded) =
-        archive_rows(id, &header, archive.as_deref(), pending.as_deref(), &mut replaced, &mut archive_damage)?;
+    let (archive_rows, superseded) = archive_rows(id, &header, archive.as_deref(), pending.as_deref(), &mut replaced, &mut archive_damage)?;
     let recovered = checkpoint(
         id,
         &mut header,
@@ -1611,8 +1563,7 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
     let mut iids = message_iids(id, &all);
     let mut turn_iids = iids.split_off(messages.len());
     // The system prefix becomes the header's prompt blocks; the rows start after it.
-    let system = migrate_system_messages(&all, &header)
-        .map_err(|e| Fail::Quarantine(QuarantineCode::SchemaViolation, format!("system messages: {e}")))?;
+    let system = migrate_system_messages(&all, &header).map_err(|e| Fail::Quarantine(QuarantineCode::SchemaViolation, format!("system messages: {e}")))?;
     system.apply(&mut header);
     // A checkpoint that holds the whole transcript (`fullTranscript`: the turn compacted it) replaces every saved
     // message, so the system prefix is the checkpoint's own: the rest of it is taken off the recovered turn.
@@ -1630,17 +1581,11 @@ pub fn read(cx: &ItemContext<'_>, item: &ManifestItem, id: &str, office: &Office
     metas.extend(archived);
     let mut messages = message_rows(iids, messages, None);
     let mut checkpoint_rows = message_rows(turn_iids, turn_messages, rid.as_deref());
-    super::restore::convert(
-        messages.iter_mut().chain(checkpoint_rows.iter_mut()),
-        &super::restore::StoreBlobs(cx),
-    );
+    super::restore::convert(messages.iter_mut().chain(checkpoint_rows.iter_mut()), &super::restore::StoreBlobs(cx));
     let mut archive_rows = archive_rows;
     // A turn recovered from its checkpoint holds the requests its own compaction carried over the same way.
-    let held: Vec<(String, Value)> = if archive_rows.is_empty() {
-        Vec::new()
-    } else {
-        messages.iter().chain(&checkpoint_rows).map(|row| (row.iid.clone(), row.body.clone())).collect()
-    };
+    let held: Vec<(String, Value)> =
+        if archive_rows.is_empty() { Vec::new() } else { messages.iter().chain(&checkpoint_rows).map(|row| (row.iid.clone(), row.body.clone())).collect() };
     let moved = [place_retained(&mut archive_rows, &mut messages), place_retained(&mut archive_rows, &mut checkpoint_rows)];
     let context = moved.iter().any(Option::is_some).then_some(held);
     Ok(SessionModel {

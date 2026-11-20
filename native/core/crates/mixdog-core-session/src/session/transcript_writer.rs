@@ -87,7 +87,11 @@ impl Shared {
             .lane
             .submit_wait(&mixdog_rt::CancellationToken::new(), move |lane| {
                 let folders = mixdog_statefile::list_dir(lane, &projects).unwrap_or_default();
-                folders.into_iter().map(|folder| projects.join(folder).join(&name)).filter(|path| mixdog_statefile::metadata(lane, path).is_ok()).collect::<Vec<_>>()
+                folders
+                    .into_iter()
+                    .map(|folder| projects.join(folder).join(&name))
+                    .filter(|path| mixdog_statefile::metadata(lane, path).is_ok())
+                    .collect::<Vec<_>>()
             })
             .await
         {
@@ -515,7 +519,10 @@ mod tests {
         turn.user(&json!("and again 4711"));
         turn.flushed().await;
         let lines = texts(&r.path);
-        assert_eq!(lines.iter().map(|text| text.chars().take(20).collect::<String>()).collect::<Vec<_>>(), ["first line", "the pin is [redacted", "and again [redacted]"]);
+        assert_eq!(
+            lines.iter().map(|text| text.chars().take(20).collect::<String>()).collect::<Vec<_>>(),
+            ["first line", "the pin is [redacted", "and again [redacted]"]
+        );
         assert!(lines.iter().all(|text| !text.contains("4711")));
     }
     /// A value marked two turns after the one that wrote it: every earlier line of every turn is
@@ -579,10 +586,7 @@ mod tests {
         assert!(r.files.turn(SESSION, &r.header, &[]).is_none(), "no writer is made for a deleted session");
         assert!(!r.path.exists(), "nothing recreated the transcript");
     }
-
-
 }
-
 
 /// The transcripts of the process's sessions.
 pub struct TranscriptFiles {

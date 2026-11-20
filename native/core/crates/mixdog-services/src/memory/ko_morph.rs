@@ -5,22 +5,45 @@
 use mixdog_js::{JsRegex, js_trim, utf16_len};
 use std::sync::LazyLock;
 
-
-
 const MIXED_SCRIPT_PARTICLES: &[&str] = &[
-    "으로부터", "에게서", "한테서", "께서는", "에서는", "으로는", "에게는", "한테는", "께서", "에서", "으로", "에게", "한테",
-    "처럼", "보다", "부터", "까지", "은", "는", "이", "가", "을", "를", "에", "로", "와", "과", "의", "도", "만",
+    "으로부터",
+    "에게서",
+    "한테서",
+    "께서는",
+    "에서는",
+    "으로는",
+    "에게는",
+    "한테는",
+    "께서",
+    "에서",
+    "으로",
+    "에게",
+    "한테",
+    "처럼",
+    "보다",
+    "부터",
+    "까지",
+    "은",
+    "는",
+    "이",
+    "가",
+    "을",
+    "를",
+    "에",
+    "로",
+    "와",
+    "과",
+    "의",
+    "도",
+    "만",
 ];
 
-const HADA_ENDINGS: &[&str] = &[
-    "하셨었던", "하셨던", "하였던", "했었던", "했습니다", "하였다", "했는데", "했지만", "했으며", "했던", "해서", "하고",
-    "하면", "하는", "했다", "했음",
-];
+const HADA_ENDINGS: &[&str] =
+    &["하셨었던", "하셨던", "하였던", "했었던", "했습니다", "하였다", "했는데", "했지만", "했으며", "했던", "해서", "하고", "하면", "하는", "했다", "했음"];
 
 /// Particles stripped whenever at least two syllables remain.
-const UNCONDITIONAL_PARTICLES: &[&str] = &[
-    "으로부터", "에게서", "한테서", "께서는", "에서는", "에게는", "한테는", "께서", "에서", "에게", "한테", "부터", "까지",
-];
+const UNCONDITIONAL_PARTICLES: &[&str] =
+    &["으로부터", "에게서", "한테서", "께서는", "에서는", "에게는", "한테는", "께서", "에서", "에게", "한테", "부터", "까지"];
 
 /// Particles whose form depends on the stem's final consonant (batchim).
 type BatchimTest = fn(u32) -> bool;
@@ -39,11 +62,9 @@ const BATCHIM_PARTICLES: &[(&str, BatchimTest)] = &[
 /// Past-attributive endings and the syllable that restores the stem.
 const PAST_ATTRIBUTIVE_ENDINGS: &[(&str, &str)] = &[("되었던", ""), ("됐던", ""), ("왔던", "오"), ("겼던", "기")];
 
-static MIXED: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^([a-z0-9_./:-]{2,})(\p{Script=Hangul}+)$", "iu"));
+static MIXED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^([a-z0-9_./:-]{2,})(\p{Script=Hangul}+)$", "iu"));
 static HANGUL_ONLY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\p{Script=Hangul}+$", "u"));
-static TOKEN: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"-{0,2}[\p{L}\p{N}_][\p{L}\p{N}_./:-]*", "gu"));
+static TOKEN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"-{0,2}[\p{L}\p{N}_][\p{L}\p{N}_./:-]*", "gu"));
 
 fn final_consonant_index(text: &str) -> Option<u32> {
     let point = text.chars().next_back()? as u32;
@@ -65,9 +86,10 @@ pub fn strip_light_korean_particle(token: &str) -> String {
     }
     if let Some(mixed) = MIXED.captures(value)
         && let (Some(stem), Some(particle)) = (mixed.get(1), mixed.get(2))
-        && MIXED_SCRIPT_PARTICLES.contains(&particle) {
-            return stem.to_owned();
-        }
+        && MIXED_SCRIPT_PARTICLES.contains(&particle)
+    {
+        return stem.to_owned();
+    }
     if !HANGUL_ONLY.is_match(value) {
         return value.to_owned();
     }
@@ -111,11 +133,7 @@ pub fn normalize_light_korean_token(token: &str) -> String {
 /// The distinct normalised word tokens of `text`, in order of appearance.
 pub fn light_ko_morph_stems(text: &str) -> Vec<String> {
     let mut seen = std::collections::HashSet::new();
-    TOKEN
-        .find_iter(text)
-        .map(|range| normalize_light_korean_token(&text[range]))
-        .filter(|stem| !stem.is_empty() && seen.insert(stem.clone()))
-        .collect()
+    TOKEN.find_iter(text).map(|range| normalize_light_korean_token(&text[range])).filter(|stem| !stem.is_empty() && seen.insert(stem.clone())).collect()
 }
 
 /// Word tokens of already-cleaned text, as the query tokenizer sees them.

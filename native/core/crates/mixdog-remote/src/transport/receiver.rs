@@ -3,13 +3,13 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use super::TransportError;
 use super::consts::{
-    ACK_ELICITING_THRESHOLD, CANDIDATES_PER_SLOT, CHUNK_BYTES, FUTURE_BUDGET_BYTES, MAX_ACK_DELAY_MS, MAX_ACK_RANGES,
-    MAX_IDLE_TIMEOUT_MS, MAX_RECORD_BYTES, MAX_RECORDS_IN_FLIGHT, PACKET_THRESHOLD, PTO_PROBES, record_charge,
+    ACK_ELICITING_THRESHOLD, CANDIDATES_PER_SLOT, CHUNK_BYTES, FUTURE_BUDGET_BYTES, MAX_ACK_DELAY_MS, MAX_ACK_RANGES, MAX_IDLE_TIMEOUT_MS, MAX_RECORD_BYTES,
+    MAX_RECORDS_IN_FLIGHT, PACKET_THRESHOLD, PTO_PROBES, record_charge,
 };
 use super::frame::RecordMessage;
 use super::path::{PathMonitor, RttEstimate};
-use super::TransportError;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AcceptResult {
@@ -192,9 +192,10 @@ impl Receiver {
             self.note_evidence(sequence - 1, now);
         }
         if let RecordMessage::Chunk { index, total, data, .. } = message {
-            let same = self.slots.get(&sequence).and_then(|slot| {
-                slot.candidates.iter().position(|candidate| candidate.filled.is_some() && candidate.total == *total as usize)
-            });
+            let same = self
+                .slots
+                .get(&sequence)
+                .and_then(|slot| slot.candidates.iter().position(|candidate| candidate.filled.is_some() && candidate.total == *total as usize));
             if let Some(position) = same {
                 let slot = self.slots.get_mut(&sequence).expect("slot");
                 let candidate = &mut slot.candidates[position];
@@ -235,8 +236,7 @@ impl Receiver {
                 }
                 let better = victim.is_none_or(|v| {
                     let current = &slot.candidates[v];
-                    candidate.received < current.received
-                        || (candidate.received == current.received && candidate.progress_at < current.progress_at)
+                    candidate.received < current.received || (candidate.received == current.received && candidate.progress_at < current.progress_at)
                 });
                 if better {
                     victim = Some(position);
@@ -249,9 +249,7 @@ impl Receiver {
         }
         // Every candidate is charged at least one carrier message.
         let charge = record_charge(total);
-        let freed = |this: &Self, victim: Option<usize>| {
-            victim.map_or(0, |position| record_charge(this.slots[&sequence].candidates[position].total))
-        };
+        let freed = |this: &Self, victim: Option<usize>| victim.map_or(0, |position| record_charge(this.slots[&sequence].candidates[position].total));
         let slot_bytes = |this: &Self| this.slots.get(&sequence).map_or(0, |slot| slot.bytes);
         if !self.fits(sequence, slot_bytes(self), charge, freed(self, victim)) {
             // `sweep` may remove the victim (and others): identify it by value afterwards.
@@ -261,11 +259,7 @@ impl Receiver {
             });
             self.sweep_default(now);
             victim = victim_key.and_then(|key| {
-                self.slots.get(&sequence).and_then(|slot| {
-                    slot.candidates
-                        .iter()
-                        .position(|c| (c.total, c.received, c.progress_at) == key && !c.complete())
-                })
+                self.slots.get(&sequence).and_then(|slot| slot.candidates.iter().position(|c| (c.total, c.received, c.progress_at) == key && !c.complete()))
             });
             if !self.fits(sequence, slot_bytes(self), charge, freed(self, victim)) {
                 return AcceptResult::OverMemory;
@@ -278,14 +272,7 @@ impl Receiver {
         }
         // Reserved: allocate.
         let candidate = match message {
-            RecordMessage::App { box_bytes, .. } => Candidate {
-                total,
-                buffer: box_bytes.clone(),
-                filled: None,
-                count: 1,
-                received: 1,
-                progress_at: now,
-            },
+            RecordMessage::App { box_bytes, .. } => Candidate { total, buffer: box_bytes.clone(), filled: None, count: 1, received: 1, progress_at: now },
             RecordMessage::Chunk { index, count, data, .. } => {
                 let mut buffer = vec![0u8; total];
                 let at = *index as usize * CHUNK_BYTES;
@@ -341,11 +328,7 @@ impl Receiver {
         if sequence != self.delivered + 1 {
             return;
         }
-        let Some(position) = self
-            .slots
-            .get(&sequence)
-            .and_then(|slot| slot.candidates.iter().position(Candidate::complete))
-        else {
+        let Some(position) = self.slots.get(&sequence).and_then(|slot| slot.candidates.iter().position(Candidate::complete)) else {
             return;
         };
         self.remove_candidate(sequence, position);
@@ -375,9 +358,7 @@ impl Receiver {
         for (sequence, since) in pending {
             if sequence <= self.delivered || self.has_complete(sequence) {
                 self.gaps.remove(&sequence);
-            } else if sequence + PACKET_THRESHOLD <= self.highest_arrived
-                || now.saturating_sub(since) as f64 >= loss_delay
-            {
+            } else if sequence + PACKET_THRESHOLD <= self.highest_arrived || now.saturating_sub(since) as f64 >= loss_delay {
                 self.declare(sequence, &mut out);
             }
         }
@@ -386,17 +367,9 @@ impl Receiver {
         if !out.is_empty() {
             self.pto_armed_at = Some(now);
         } else if !self.lost.is_empty()
-            && self
-                .pto_armed_at
-                .is_some_and(|armed| now.saturating_sub(armed) as f64 >= rtt.pto_ms() * 2f64.powi(self.pto_count as i32))
+            && self.pto_armed_at.is_some_and(|armed| now.saturating_sub(armed) as f64 >= rtt.pto_ms() * 2f64.powi(self.pto_count as i32))
         {
-            let probes: Vec<u64> = self
-                .lost
-                .iter()
-                .copied()
-                .filter(|sequence| !self.has_complete(*sequence))
-                .take(PTO_PROBES)
-                .collect();
+            let probes: Vec<u64> = self.lost.iter().copied().filter(|sequence| !self.has_complete(*sequence)).take(PTO_PROBES).collect();
             if !probes.is_empty() {
                 out.extend(probes);
                 self.pto_count += 1;

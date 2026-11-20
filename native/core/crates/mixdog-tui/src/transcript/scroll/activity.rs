@@ -147,7 +147,12 @@ pub fn active_tools_signature(state: &Value) -> String {
     if counts.iter().all(|total| *total == 0.0) {
         return String::new();
     }
-    counts.iter().zip(starts).map(|(total, start)| format!("{}:{}", mixdog_js::number_to_string(*total), mixdog_js::number_to_string(start))).collect::<Vec<_>>().join(":")
+    counts
+        .iter()
+        .zip(starts)
+        .map(|(total, start)| format!("{}:{}", mixdog_js::number_to_string(*total), mixdog_js::number_to_string(start)))
+        .collect::<Vec<_>>()
+        .join(":")
 }
 
 /// `activeTools`: the segments of a signature; `None` for an empty one.

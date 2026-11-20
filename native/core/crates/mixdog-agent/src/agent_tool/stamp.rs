@@ -1,8 +1,8 @@
 //! Timestamps as the agent tool shows them: `new Date(ms).toISOString()` and the elapsed label
 //! of `elapsedFromStamps`.
 
-use mixdog_js::time::date_parse;
 use mixdog_js::js_trim;
+use mixdog_js::time::date_parse;
 
 /// `new Date(ms).toISOString()` for a valid epoch-millisecond time.
 pub fn iso_from_ms(ms: i64) -> String {
@@ -18,13 +18,7 @@ pub fn iso_from_ms(ms: i64) -> String {
     let day = doy - (153 * mp + 2) / 5 + 1;
     let month = if mp < 10 { mp + 3 } else { mp - 9 };
     let year = yoe + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
-        rem / 3_600_000,
-        rem % 3_600_000 / 60_000,
-        rem % 60_000 / 1000,
-        rem % 1000
-    )
+    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z", rem / 3_600_000, rem % 3_600_000 / 60_000, rem % 60_000 / 1000, rem % 1000)
 }
 
 fn format_elapsed_ms(ms: f64) -> String {

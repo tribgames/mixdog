@@ -124,7 +124,10 @@ fn collapse_refusals(entries: &[String]) -> Vec<String> {
     let mut groups: HashMap<String, (String, usize)> = HashMap::new();
     let mut lines: Vec<Refusal> = Vec::new();
     for entry in entries {
-        let key = refusal_parts(entry).map(|(address, reason)| (host_of(address), reason)).filter(|(host, _)| !host.is_empty()).map(|(host, reason)| format!("{host}|{reason}"));
+        let key = refusal_parts(entry)
+            .map(|(address, reason)| (host_of(address), reason))
+            .filter(|(host, _)| !host.is_empty())
+            .map(|(host, reason)| format!("{host}|{reason}"));
         let Some(key) = key else {
             lines.push(Refusal::Line(entry.clone()));
             continue;
@@ -141,14 +144,17 @@ fn collapse_refusals(entries: &[String]) -> Vec<String> {
         .into_iter()
         .filter_map(|line| match line {
             Refusal::Line(entry) => Some(entry),
-            Refusal::Group(key) => groups.get(&key).map(|(first, count)| if *count > 1 { format!("{first} (×{count} requests to this host)") } else { first.clone() }),
+            Refusal::Group(key) => {
+                groups.get(&key).map(|(first, count)| if *count > 1 { format!("{first} (×{count} requests to this host)") } else { first.clone() })
+            }
         })
         .collect()
 }
 
 /// Elements a brief reply no longer sees, by role and name; they have no ref.
 fn gone_list(gone: &[GoneElement]) -> String {
-    let named: Vec<String> = gone.iter().take(NAMED_GONE).map(|el| format!("{} {}", redact_browser_text(&el.role), json_string(&redact_browser_text(&el.name)))).collect();
+    let named: Vec<String> =
+        gone.iter().take(NAMED_GONE).map(|el| format!("{} {}", redact_browser_text(&el.role), json_string(&redact_browser_text(&el.name)))).collect();
     let more = if gone.len() > named.len() { ", …" } else { "" };
     format!("{}{more}", named.join(", "))
 }
@@ -224,7 +230,8 @@ pub fn format_snapshot(payload: &BrowserSnapshotPayload, diagnostics: &mut Snaps
     if let (Some(brief), Some(baseline)) = (&brief, baseline) {
         lines.extend(brief_lines(brief, baseline));
     } else if !payload.elements.is_empty() {
-        let capped = if payload.total_elements as usize > payload.elements.len() { format!(", {} matched; capped", payload.total_elements) } else { String::new() };
+        let capped =
+            if payload.total_elements as usize > payload.elements.len() { format!(", {} matched; capped", payload.total_elements) } else { String::new() };
         lines.push(String::new());
         lines.push(format!("Interactive elements ({}{capped}; * = in viewport):", payload.elements.len()));
         lines.extend(payload.elements.iter().map(element_line));
@@ -506,7 +513,10 @@ mod tests {
     fn the_header_names_an_error_status_for_the_document_never_a_success() {
         let mut failed = ledgers();
         seed_document(&mut failed, 404, "Not Found", "text/html");
-        assert!(render(&payload(vec![]), &mut failed, &SnapshotExtras::default()).contains("\nStatus: HTTP 404 Not Found — the server answered this document with an error."));
+        assert!(
+            render(&payload(vec![]), &mut failed, &SnapshotExtras::default())
+                .contains("\nStatus: HTTP 404 Not Found — the server answered this document with an error.")
+        );
         let mut fine = ledgers();
         seed_document(&mut fine, 200, "OK", "text/html");
         assert!(!render(&payload(vec![]), &mut fine, &SnapshotExtras::default()).contains("Status:"));
@@ -636,7 +646,8 @@ mod tests {
         let chooser: BrowserPendingFileChooser = serde_json::from_value(json!({"mode": "selectMultiple", "openedAt": 1, "receiverKey": "k"})).unwrap();
         let dialog: BrowserPendingDialog = serde_json::from_value(json!({"type": "confirm", "message": "Sure?", "openedAt": 1, "bridge": false})).unwrap();
         let mut page = ledgers();
-        let mut diagnostics = SnapshotDiagnostics { pending_dialog: Some(&dialog), dismissed_dialog: None, pending_file_chooser: Some(&chooser), ledgers: &mut page };
+        let mut diagnostics =
+            SnapshotDiagnostics { pending_dialog: Some(&dialog), dismissed_dialog: None, pending_file_chooser: Some(&chooser), ledgers: &mut page };
         let text = format_snapshot(&payload(vec![]), &mut diagnostics, &SnapshotExtras::default());
         assert!(text.contains("Pending file chooser (multiple files): the page is waiting for a file; call upload with paths (no ref needed)."));
         assert!(text.contains("\n\nPending confirm dialog: \"Sure?\""));
@@ -653,7 +664,10 @@ mod tests {
         let mut notice = DismissedNotice { kind: "alert".into(), message: "hi".into(), reason: DismissedReason::Early, at: 3, reported: false };
         let mut page = ledgers();
         let mut first = SnapshotDiagnostics { pending_dialog: None, dismissed_dialog: Some(&mut notice), pending_file_chooser: None, ledgers: &mut page };
-        assert!(format_snapshot(&payload(vec![]), &mut first, &SnapshotExtras::default()).contains("\n\nDismissed alert dialog \"hi\": it opened before the browser was intercepting dialogs"));
+        assert!(
+            format_snapshot(&payload(vec![]), &mut first, &SnapshotExtras::default())
+                .contains("\n\nDismissed alert dialog \"hi\": it opened before the browser was intercepting dialogs")
+        );
         assert!(notice.reported);
         let mut second = SnapshotDiagnostics { pending_dialog: None, dismissed_dialog: Some(&mut notice), pending_file_chooser: None, ledgers: &mut page };
         assert!(!format_snapshot(&payload(vec![]), &mut second, &SnapshotExtras::default()).contains("Dismissed"));

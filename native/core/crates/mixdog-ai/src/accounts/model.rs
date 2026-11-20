@@ -102,10 +102,7 @@ pub struct Account {
 
 impl Account {
     pub fn new(id: impl Into<String>) -> Self {
-        Self {
-            id: id.into(),
-            ..Self::default()
-        }
+        Self { id: id.into(), ..Self::default() }
     }
 
     /// Every block the account holds, oldest first.
@@ -200,14 +197,7 @@ pub struct Pool {
 
 impl Default for Pool {
     fn default() -> Self {
-        Self {
-            accounts: Vec::new(),
-            selected_id: None,
-            auto: Some(true),
-            policy: Some("limit".into()),
-            use_credits: None,
-            extra: Map::new(),
-        }
+        Self { accounts: Vec::new(), selected_id: None, auto: Some(true), policy: Some("limit".into()), use_credits: None, extra: Map::new() }
     }
 }
 
@@ -218,11 +208,7 @@ impl Pool {
         if self.auto == Some(false) {
             return Policy::Manual;
         }
-        if self.policy.as_deref() == Some("headroom") {
-            Policy::Headroom
-        } else {
-            Policy::Limit
-        }
+        if self.policy.as_deref() == Some("headroom") { Policy::Headroom } else { Policy::Limit }
     }
 
     pub fn set_policy(&mut self, policy: Policy) {

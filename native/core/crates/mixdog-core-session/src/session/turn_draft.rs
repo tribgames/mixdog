@@ -161,7 +161,9 @@ impl DraftJournal {
     }
 
     fn with_context(&mut self, out: &mut serde_json::Map<String, Value>, whole: bool) {
-        if (whole || self.context_pending) && let Some(tokens) = self.context {
+        if (whole || self.context_pending)
+            && let Some(tokens) = self.context
+        {
             out.insert("contextTokens".into(), serde_json::json!(tokens));
             self.context_pending = false;
         }
@@ -265,9 +267,7 @@ mod tests {
 
     #[test]
     fn recovery_keeps_an_explicit_context_clear_through_a_draft_rewrite() {
-        let marks = super::super::store::SensitiveMarksOf::new(std::sync::Arc::new(
-            mixdog_services::memory::sensitive::SensitiveStore::default(),
-        ));
+        let marks = super::super::store::SensitiveMarksOf::new(std::sync::Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default()));
         let thread = ThreadId::from("draft-context-test");
         let mut journal = DraftJournal::default();
         let mut draft = RunDraft::default();

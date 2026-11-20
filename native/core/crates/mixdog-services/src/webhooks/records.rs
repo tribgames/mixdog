@@ -236,39 +236,43 @@ impl StateWebhookStore {
 
     /// The reserved file and whether its publication has been acknowledged.
     pub async fn rule_file(&self, name: &str, id: &str) -> Result<Option<(String, bool)>, String> {
-        read_delivery(&self.state, name, id).await.map(|row| {
-            row.and_then(|row| row.queue_file.map(|file| (file, row.status == "done")))
-        })
+        read_delivery(&self.state, name, id).await.map(|row| row.and_then(|row| row.queue_file.map(|file| (file, row.status == "done"))))
     }
 
     pub async fn reserve_rule_file(&self, name: &str, id: &str, file: &str) -> Result<(), String> {
         let (key, file) = (delivery_key(name, id), file.to_owned());
-        self.state.write(move |tx| {
-            let text = tx.meta(&key)?.ok_or_else(|| DbError::Write("webhook delivery lost its claim".into()))?;
-            let mut row: DeliveryRow = parse("webhook delivery", &text)?;
-            row.queue_file = Some(file);
-            row.rule_handoff = true;
-            row.retryable = true;
-            tx.put_meta(&key, &encode(&row)?)
-        }).await.map_err(db)
+        self.state
+            .write(move |tx| {
+                let text = tx.meta(&key)?.ok_or_else(|| DbError::Write("webhook delivery lost its claim".into()))?;
+                let mut row: DeliveryRow = parse("webhook delivery", &text)?;
+                row.queue_file = Some(file);
+                row.rule_handoff = true;
+                row.retryable = true;
+                tx.put_meta(&key, &encode(&row)?)
+            })
+            .await
+            .map_err(db)
     }
 
     /// Settle the receipt before the file is eligible for execution. Do not recreate a
     /// deleted endpoint's history if its already accepted queue work gets another tick.
     pub async fn record_queued_rule(&self, name: &str, id: &str, file: &str) -> Result<(), String> {
         let (key, file, now) = (delivery_key(name, id), file.to_owned(), self.clock.now());
-        self.state.write(move |tx| {
-            let Some(text) = tx.meta(&key)? else { return Ok(()) };
-            let mut row: DeliveryRow = parse("webhook delivery", &text)?;
-            if row.queue_file.as_deref() != Some(file.as_str()) || row.status == "done" {
-                return Ok(());
-            }
-            row.status = "done".into();
-            row.error = None;
-            row.retryable = false;
-            row.updated_at = now;
-            tx.put_meta(&key, &encode(&row)?)
-        }).await.map_err(db)
+        self.state
+            .write(move |tx| {
+                let Some(text) = tx.meta(&key)? else { return Ok(()) };
+                let mut row: DeliveryRow = parse("webhook delivery", &text)?;
+                if row.queue_file.as_deref() != Some(file.as_str()) || row.status == "done" {
+                    return Ok(());
+                }
+                row.status = "done".into();
+                row.error = None;
+                row.retryable = false;
+                row.updated_at = now;
+                tx.put_meta(&key, &encode(&row)?)
+            })
+            .await
+            .map_err(db)
     }
 
     /// A delivery's `(status, error)`, for the tests of what a dispatch left behind.
@@ -303,11 +307,7 @@ impl StateWebhookStore {
         rows
     }
 
-    async fn edit<R: Send + 'static>(
-        &self,
-        name: &str,
-        f: impl FnOnce(&mut EndpointRecord) -> R + Send + 'static,
-    ) -> Result<Option<R>, String> {
+    async fn edit<R: Send + 'static>(&self, name: &str, f: impl FnOnce(&mut EndpointRecord) -> R + Send + 'static) -> Result<Option<R>, String> {
         let name = name.to_owned();
         self.state
             .write(move |tx| {
@@ -322,17 +322,13 @@ impl StateWebhookStore {
 }
 
 async fn read_delivery(state: &CoreState, name: &str, id: &str) -> Result<Option<DeliveryRow>, String> {
-    state.meta(&delivery_key(name, id)).await.map_err(db)?
-        .map(|text| parse("webhook delivery", &text).map_err(db)).transpose()
+    state.meta(&delivery_key(name, id)).await.map_err(db)?.map(|text| parse("webhook delivery", &text).map_err(db)).transpose()
 }
 
 #[async_trait]
 impl WebhookStore for StateWebhookStore {
     async fn load_endpoint(&self, name: &str) -> Result<Option<Endpoint>, String> {
-        Ok(self
-            .load(name)
-            .await?
-            .map(|e| Endpoint { enabled: Some(e.enabled), parser: e.parser, allow_unsigned: None }))
+        Ok(self.load(name).await?.map(|e| Endpoint { enabled: Some(e.enabled), parser: e.parser, allow_unsigned: None }))
     }
 
     async fn any_enabled_endpoint(&self) -> Result<bool, String> {
@@ -377,32 +373,28 @@ impl WebhookStore for StateWebhookStore {
 
     async fn fail_handoff(&self, endpoint: &str, delivery_id: &str, error: &str) -> Result<(), String> {
         let (key, error, now) = (delivery_key(endpoint, delivery_id), error.to_owned(), self.clock.now());
-        self.state.write(move |tx| {
-            let Some(text) = tx.meta(&key)? else { return Ok(()) };
-            let mut row: DeliveryRow = parse("webhook delivery", &text)?;
-            if matches!(row.status.as_str(), "done" | "skipped" | "self-comment-skip") {
-                return Ok(());
-            }
-            row.status = "failed".into();
-            row.error = Some(error);
-            row.retryable = true;
-            row.updated_at = now;
-            tx.put_meta(&key, &encode(&row)?)
-        }).await.map_err(db)
+        self.state
+            .write(move |tx| {
+                let Some(text) = tx.meta(&key)? else { return Ok(()) };
+                let mut row: DeliveryRow = parse("webhook delivery", &text)?;
+                if matches!(row.status.as_str(), "done" | "skipped" | "self-comment-skip") {
+                    return Ok(());
+                }
+                row.status = "failed".into();
+                row.error = Some(error);
+                row.retryable = true;
+                row.updated_at = now;
+                tx.put_meta(&key, &encode(&row)?)
+            })
+            .await
+            .map_err(db)
     }
-
 
     async fn resuming_rule_handoff(&self, name: &str, id: &str) -> Result<bool, String> {
         Ok(read_delivery(&self.state, name, id).await?.is_some_and(|row| row.rule_handoff))
     }
 
-    async fn update_delivery_status(
-        &self,
-        endpoint: &str,
-        delivery_id: &str,
-        status: &str,
-        error: Option<&str>,
-    ) -> Result<(), String> {
+    async fn update_delivery_status(&self, endpoint: &str, delivery_id: &str, status: &str, error: Option<&str>) -> Result<(), String> {
         let key = delivery_key(endpoint, delivery_id);
         let (status, error, now) = (status.to_string(), error.map(str::to_string), self.clock.now());
         self.state

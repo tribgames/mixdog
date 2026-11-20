@@ -3,23 +3,15 @@ use super::*;
 #[test]
 fn current_process_entry_uses_regional_locale_and_existing_zone_override() {
     let locale = crate::default_locale::default_locale_id();
-    for zone in [
-        crate::time::Tz::UTC,
-        crate::time::Tz::America__New_York,
-        crate::time::Tz::Asia__Seoul,
-    ] {
+    for zone in [crate::time::Tz::UTC, crate::time::Tz::America__New_York, crate::time::Tz::Asia__Seoul] {
         crate::time::with_local_zone(zone, || {
             for time in [0.0, -1.0, 1719792000000.0, -0.5] {
-                assert_eq!(
-                    date_to_string(time),
-                    format_date(time, zone.name(), locale, clock_seconds(), false)
-                );
+                assert_eq!(date_to_string(time), format_date(time, zone.name(), locale, clock_seconds(), false));
             }
         });
     }
     assert_eq!(date_to_string(f64::NAN), "Invalid Date");
 }
-
 
 #[test]
 fn data_versions_and_coverage_are_explicit() {
@@ -29,7 +21,6 @@ fn data_versions_and_coverage_are_explicit() {
     assert_eq!(DATA["locales"].as_object().unwrap().len(), 526);
     assert_eq!(DATA["zoneNames"].as_object().unwrap().len(), 639);
 }
-
 
 #[test]
 fn a_date_prints_as_weekday_month_day_year_time_offset_and_zone_name() {

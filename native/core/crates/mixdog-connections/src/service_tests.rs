@@ -9,15 +9,13 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use mixdog_app_protocol::v2::connections::{
-    PortForwardStatus, SshAgentState, SshAgentStatus, SshHostKeyCheck, SshServerLoginFlowState, SshServerLogins,
-};
-use mixdog_core_api::mock::{MockLimits, MockScopedFeeds};
+use mixdog_app_protocol::v2::connections::{PortForwardStatus, SshAgentState, SshAgentStatus, SshHostKeyCheck, SshServerLoginFlowState, SshServerLogins};
 use mixdog_core_api::ScopedFeeds;
+use mixdog_core_api::mock::{MockLimits, MockScopedFeeds};
 use mixdog_protocol::Origin;
 use mixdog_ssh::askpass::AskpassPrompter;
 use mixdog_ssh::cleanup::{CleanupProgress, CleanupReport};
-use mixdog_ssh::command::{parse_ssh_target, SshError};
+use mixdog_ssh::command::{SshError, parse_ssh_target};
 use mixdog_ssh::context::Platform;
 use mixdog_ssh::diagnostics::Diagnostics;
 use mixdog_ssh::host_key::{HostKeyInspection, ResolvedHost};
@@ -33,7 +31,7 @@ use crate::link_machine::LinkState;
 use crate::login::{LoginHelpers, StartedAskpass};
 use crate::paths::ConnectionsPaths;
 use crate::port_forwards::PortErrorCode;
-use crate::view::{ssh_host_view, FeedLink, FeedLinks};
+use crate::view::{FeedLink, FeedLinks, ssh_host_view};
 
 const TARGET: &str = "dev@build.example";
 const HOST: ConnectionId = ConnectionId(1);
@@ -298,7 +296,13 @@ impl ServerLinks for FakeLinks {
         self.has(id)
     }
 
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>, _cancel: Option<&CancellationToken>) -> Result<LinkOpen, ConnectError> {
+    async fn open(
+        &self,
+        spec: LinkSpec,
+        context: AttemptContext,
+        progress: Option<Progress>,
+        _cancel: Option<&CancellationToken>,
+    ) -> Result<LinkOpen, ConnectError> {
         Links::open(self, spec, context, progress).await
     }
 
@@ -379,7 +383,14 @@ impl ConnectionNotifier for FakeNotifier {
 }
 
 fn trusted() -> HostKeyInspection {
-    HostKeyInspection { hops: Vec::new(), check: SshHostKeyCheck::Trusted { authority: None, hops: None }, pin: None, replace: None, summary: None, reviewed: None }
+    HostKeyInspection {
+        hops: Vec::new(),
+        check: SshHostKeyCheck::Trusted { authority: None, hops: None },
+        pin: None,
+        replace: None,
+        summary: None,
+        reviewed: None,
+    }
 }
 
 struct FakeMachine {
@@ -599,8 +610,7 @@ fn host_ctx() -> CallContext {
 }
 
 fn main_ctx() -> CallContext {
-    CallContext::connection(MAIN, Origin::Local, CancellationToken::new())
-        .with_window(Some(WindowScope { id: "main".into(), role: WindowRole::Main }))
+    CallContext::connection(MAIN, Origin::Local, CancellationToken::new()).with_window(Some(WindowScope { id: "main".into(), role: WindowRole::Main }))
 }
 
 fn server_ctx(connection: ConnectionId, server: &str) -> CallContext {
@@ -678,7 +688,6 @@ fn sweep() -> Vec<(&'static str, Value, CallContext)> {
         ("connections/ssh/forget", json!({ "id": "box" }), main_ctx()),
     ]
 }
-
 
 async fn within<T>(work: impl Future<Output = T>) -> T {
     mixdog_rt::time::timeout(Duration::from_secs(5), work).await.expect("timed out")
@@ -786,9 +795,7 @@ async fn every_method_routes_to_its_module() {
     // connect needs the attempt inspect opened.
     let inspected = call(&rig, "connections/ssh/inspect", json!({ "target": TARGET }), main_ctx()).await.expect("inspected");
     let attempt = inspected["attemptId"].as_str().expect("an attempt").to_owned();
-    call(&rig, "connections/ssh/connect", json!({ "attemptId": attempt, "request": { "attemptId": attempt } }), main_ctx())
-        .await
-        .expect("connected");
+    call(&rig, "connections/ssh/connect", json!({ "attemptId": attempt, "request": { "attemptId": attempt } }), main_ctx()).await.expect("connected");
     served.push("connections/ssh/connect");
     // Each method of the table, and the notification, is covered by this walk.
     for method in METHODS.iter().filter(|method| **method != WINDOW_CLOSED) {
@@ -925,9 +932,8 @@ async fn connecting_opens_the_window_and_remembers_it_and_a_cancel_withdraws_an_
     let stolen = call(&rig, "connections/ssh/connect", json!({ "attemptId": attempt, "request": { "attemptId": attempt } }), host_ctx()).await;
     assert!(message_of(&stolen.expect_err("refused")).contains("no longer active"));
 
-    let connected = call(&rig, "connections/ssh/connect", json!({ "attemptId": attempt, "request": { "attemptId": attempt } }), main_ctx())
-        .await
-        .expect("connected");
+    let connected =
+        call(&rig, "connections/ssh/connect", json!({ "attemptId": attempt, "request": { "attemptId": attempt } }), main_ctx()).await.expect("connected");
     assert_eq!(connected["ok"], json!(true));
     let id = connected["host"]["id"].as_str().expect("an id").to_owned();
     assert_eq!(locked(&rig.windows.opened).iter().map(|(opened, _)| opened.clone()).collect::<Vec<_>>(), vec![id.clone()]);
@@ -976,14 +982,10 @@ async fn the_cleanup_reports_its_progress_to_the_caller_and_closes_the_window_fi
     let rig = rig().await;
     save_box(&rig).await;
     rig.links.add("box");
-    let result = call(
-        &rig,
-        "connections/ssh/cleanup",
-        json!({ "id": "box", "request": { "operationId": "op-1", "removeUserData": true, "forget": true } }),
-        main_ctx(),
-    )
-    .await
-    .expect("cleaned");
+    let result =
+        call(&rig, "connections/ssh/cleanup", json!({ "id": "box", "request": { "operationId": "op-1", "removeUserData": true, "forget": true } }), main_ctx())
+            .await
+            .expect("cleaned");
     assert_eq!(result["ok"], json!(true));
     assert_eq!(result["forget"]["ok"], json!(true), "the local half is reported beside the remote one");
     assert!(rig.hosts.get("box").is_none());
@@ -992,7 +994,9 @@ async fn the_cleanup_reports_its_progress_to_the_caller_and_closes_the_window_fi
     let phases: Vec<(ConnectionId, Value, Value)> = progress.iter().map(|(to, params)| (*to, params["id"].clone(), params["phase"].clone())).collect();
     assert_eq!(phases, vec![(MAIN, json!("box"), json!("connect")), (MAIN, json!("box"), json!("done"))]);
     assert_eq!(progress[0].1["operationId"], json!("op-1"));
-    let refused = call(&rig, "connections/ssh/cleanup", json!({ "id": "box", "request": { "operationId": "", "removeUserData": false, "forget": false } }), main_ctx()).await;
+    let refused =
+        call(&rig, "connections/ssh/cleanup", json!({ "id": "box", "request": { "operationId": "", "removeUserData": false, "forget": false } }), main_ctx())
+            .await;
     assert!(message_of(&refused.expect_err("refused")).contains("operationId"));
 }
 // ----- diagnostics ---------------------------------------------------------------------------------------------------------
@@ -1126,7 +1130,8 @@ async fn the_ports_panel_lists_forwards_stops_and_dismisses() {
     let ctx = || server_ctx(WINDOW, "box");
     let view = call(&rig, "connections/ports/list", json!({ "connectionId": "box" }), ctx()).await.expect("listed");
     assert_eq!(view["suggested"], json!([3000]));
-    let forwarded = call(&rig, "connections/ports/forward", json!({ "connectionId": "box", "remotePort": 8080, "localPort": 9000 }), ctx()).await.expect("forwarded");
+    let forwarded =
+        call(&rig, "connections/ports/forward", json!({ "connectionId": "box", "remotePort": 8080, "localPort": 9000 }), ctx()).await.expect("forwarded");
     assert_eq!((forwarded["remotePort"].clone(), forwarded["localPort"].clone(), forwarded["status"].clone()), (json!(8080), json!(9000), json!("active")));
     // A refusal leads with its code.
     let refused = call(&rig, "connections/ports/forward", json!({ "connectionId": "box", "remotePort": 1 }), ctx()).await;
@@ -1308,10 +1313,7 @@ async fn a_notice_of_a_link_reaches_the_windows_that_view_it() {
     settle().await;
     let notices = rig.notifier.of("connections/notice");
     assert_eq!(notices.len(), 1);
-    assert_eq!(
-        (notices[0].0, notices[0].1.clone()),
-        (WINDOW, json!({ "connectionId": "box", "notice": { "kind": "model-sign-in", "provider": "openai" } }))
-    );
+    assert_eq!((notices[0].0, notices[0].1.clone()), (WINDOW, json!({ "connectionId": "box", "notice": { "kind": "model-sign-in", "provider": "openai" } })));
 }
 // ----- "Connect to another PC" ---------------------------------------------------------------------------------------------
 

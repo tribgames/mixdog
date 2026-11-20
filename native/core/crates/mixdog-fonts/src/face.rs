@@ -175,11 +175,8 @@ fn vertical_metrics(face: &ttf_parser::Face<'_>, raw: &ttf_parser::RawFace<'_>) 
         return hhea;
     }
     let Some(os2) = raw.table(Tag::from_bytes(b"OS/2")) else { return hhea };
-    let typographic = VerticalMetrics {
-        ascender: be_i16(os2, 68).unwrap_or(0),
-        descender: be_i16(os2, 70).unwrap_or(0),
-        line_gap: be_i16(os2, 72).unwrap_or(0),
-    };
+    let typographic =
+        VerticalMetrics { ascender: be_i16(os2, 68).unwrap_or(0), descender: be_i16(os2, 70).unwrap_or(0), line_gap: be_i16(os2, 72).unwrap_or(0) };
     if typographic.ascender != 0 || typographic.descender != 0 {
         return typographic;
     }
@@ -236,9 +233,7 @@ impl Face {
         let face = ttf_parser::Face::parse(data, index).map_err(|error| FontError::NotAFont(format!("not a font: {error}")))?;
         let raw = face.raw_face();
         let legacy_family = best_name(&face, name_id::FAMILY).unwrap_or_default();
-        let family = best_name(&face, name_id::WWS_FAMILY)
-            .or_else(|| best_name(&face, name_id::TYPOGRAPHIC_FAMILY))
-            .unwrap_or_else(|| legacy_family.clone());
+        let family = best_name(&face, name_id::WWS_FAMILY).or_else(|| best_name(&face, name_id::TYPOGRAPHIC_FAMILY)).unwrap_or_else(|| legacy_family.clone());
         let axes = axes_of(&face);
         let instances = instances_of(&face, raw, &axes);
         Ok(Self {
@@ -464,6 +459,5 @@ mod tests {
         assert_eq!(FontError::InvalidText.to_string(), "Convert String to CString failed");
     }
 }
-
 
 impl std::error::Error for FontError {}

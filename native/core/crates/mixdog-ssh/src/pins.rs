@@ -14,7 +14,7 @@ use std::path::{Path, PathBuf};
 use sha2::{Digest, Sha256};
 
 use crate::command::SshTarget;
-use crate::known_hosts::{host_field_matches, parse as parse_known, KnownHostEntry, KnownHostMarker};
+use crate::known_hosts::{KnownHostEntry, KnownHostMarker, host_field_matches, parse as parse_known};
 use crate::mixdog_config::{locked, publish_file, read_state};
 
 pub(crate) const RESERVED_PREFIX: &str = "mixdog-pin-v";
@@ -241,9 +241,11 @@ impl EndpointTrust {
             let is_own = own == Some(file.as_path());
             for line in text.lines() {
                 let managed = is_own && matches!(classify(line.as_bytes()), Ok(Kind::Managed(_)));
-                trust.entries.extend(
-                    parse_known(line).into_iter().filter(|entry| host_field_matches(&entry.hosts, spec)).map(|entry| KnownEntry { entry, file: file.clone(), managed }),
-                );
+                trust.entries.extend(parse_known(line).into_iter().filter(|entry| host_field_matches(&entry.hosts, spec)).map(|entry| KnownEntry {
+                    entry,
+                    file: file.clone(),
+                    managed,
+                }));
             }
         }
         trust
@@ -297,7 +299,9 @@ fn still_holds(shown: &[EndpointTrust], own: &Path, claims: &[Claim]) -> Result<
         let fresh = endpoint.reread(own)?;
         let spec = &endpoint.spec;
         let confirmed = |added: &KnownEntry| {
-            added.managed && added.entry.hosts == *spec && claims.iter().any(|claim| claim.spec == *spec && claim.key_type == added.entry.key_type && claim.key == added.entry.key)
+            added.managed
+                && added.entry.hosts == *spec
+                && claims.iter().any(|claim| claim.spec == *spec && claim.key_type == added.entry.key_type && claim.key == added.entry.key)
         };
         let added: Vec<&KnownEntry> = minus(&fresh.entries, &endpoint.entries).into_iter().filter(|held| !confirmed(held)).collect();
         if added.iter().any(|held| held.entry.marker == KnownHostMarker::Revoked) {

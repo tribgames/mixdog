@@ -72,10 +72,7 @@ impl SshFailureLite {
 }
 
 fn kind_name(kind: &SshFailureKind) -> String {
-    serde_json::to_value(kind)
-        .ok()
-        .and_then(|value| value.get("kind").and_then(|name| name.as_str().map(str::to_owned)))
-        .unwrap_or_else(|| "failed".to_owned())
+    serde_json::to_value(kind).ok().and_then(|value| value.get("kind").and_then(|name| name.as_str().map(str::to_owned))).unwrap_or_else(|| "failed".to_owned())
 }
 
 const MAX_MESSAGE_CHARS: usize = 800;
@@ -109,10 +106,7 @@ fn pid_of(message: &str) -> Option<u32> {
 pub fn login_key_commands(target: &SshTarget, platform: Platform) -> (String, String) {
     let port = target.port.map(|port| format!("-p {port} ")).unwrap_or_default();
     let register = if platform.is_windows() {
-        format!(
-            r#"Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub" | ssh {port}{} "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys""#,
-            target.destination
-        )
+        format!(r#"Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub" | ssh {port}{} "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys""#, target.destination)
     } else {
         format!("ssh-copy-id {port}{}", target.destination)
     };

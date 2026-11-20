@@ -25,7 +25,6 @@ fn text(reply: &PageReply) -> &str {
     std::str::from_utf8(reply.body.as_deref().expect("a body")).expect("utf-8")
 }
 
-
 // ---- /app and /app/latest.json ----
 
 #[test]
@@ -169,9 +168,7 @@ fn the_phone_app_is_told_by_its_user_agent_token() {
     assert!(!is_native_app_request(None));
 }
 
-
 // ---- byte equality with the Node pages ----
-
 
 #[test]
 fn the_connect_page_is_served_to_get_and_head_and_refused_to_other_methods() {

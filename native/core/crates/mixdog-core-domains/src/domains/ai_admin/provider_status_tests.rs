@@ -9,11 +9,6 @@ use tokio_util::sync::CancellationToken;
 
 use super::provider_status::QuotaAutoResumeSetting;
 
-
-
-
-
-
 #[tokio::test]
 async fn the_quota_switch_is_on_unless_the_config_says_false() {
     use mixdog_core_api::mock::MockStatePublisher;
@@ -44,5 +39,3 @@ async fn the_quota_switch_is_on_unless_the_config_says_false() {
         assert_eq!(QuotaAutoResumeSetting::enabled(&config), want, "{root}");
     }
 }
-
-

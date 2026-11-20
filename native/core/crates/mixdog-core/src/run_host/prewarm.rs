@@ -11,10 +11,10 @@ use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use mixdog_core_api::domain::common::AbsPath;
-use mixdog_core_api::domain::tool::ToolIo;
-use mixdog_rt::{CancellationToken, InLane, InteractiveIo, LaneToken};
 use mixdog_core_api::domain::process::{CommandSpec, EnvSpec, OutputMode, OutputStream, ProcessEvent, ProcessManager, ProcessOwner, SpawnRequest};
+use mixdog_core_api::domain::tool::ToolIo;
 use mixdog_protocol::ProcessHandle;
+use mixdog_rt::{CancellationToken, InLane, InteractiveIo, LaneToken};
 
 use mixdog_core_prompt::prompt::probes::ProbeRequest;
 use mixdog_core_prompt::prompt::probes::StartupObservations;
@@ -226,7 +226,11 @@ impl PromptFacts {
 }
 
 /// A composition run inside an io-interactive lane job, given the host facts and the probes.
-pub type ComposeJob<R> = Arc<dyn for<'a> Fn(&'a mixdog_rt::InLane<mixdog_rt::InteractiveIo>, mixdog_core_prompt::prompt::real_sources::HostFacts<'a>, &'a StartupObservations) -> R + Send + Sync>;
+pub type ComposeJob<R> = Arc<
+    dyn for<'a> Fn(&'a mixdog_rt::InLane<mixdog_rt::InteractiveIo>, mixdog_core_prompt::prompt::real_sources::HostFacts<'a>, &'a StartupObservations) -> R
+        + Send
+        + Sync,
+>;
 
 async fn in_lane<R: Send + 'static>(io: &ToolIo, facts: &Arc<PromptFacts>, observed: &Arc<StartupObservations>, job: &ComposeJob<R>) -> Result<R, String> {
     let (facts, observed, job) = (facts.clone(), observed.clone(), job.clone());
@@ -284,9 +288,9 @@ mod tests {
     use mixdog_core_api::domain::tool::ToolIo;
 
     use super::*;
-    use crate::run_host::prompt_session::compose_session_prompt;
     use crate::run_host::prompt_session::PromptPaths;
     use crate::run_host::prompt_session::SessionPromptInput;
+    use crate::run_host::prompt_session::compose_session_prompt;
 
     struct Fixed;
     impl Clock for Fixed {
@@ -314,7 +318,8 @@ mod tests {
         let cwd = repo.path().to_string_lossy().into_owned();
         let job: ComposeJob<String> = Arc::new(move |lane, host, observed| {
             let sources = mixdog_core_prompt::prompt::real_sources::RealSources::new(lane, host, observed);
-            let input = SessionPromptInput { session_id: "s1", provider: "anthropic", model: "claude", cwd: Some(&cwd), has_git_tool: true, ..Default::default() };
+            let input =
+                SessionPromptInput { session_id: "s1", provider: "anthropic", model: "claude", cwd: Some(&cwd), has_git_tool: true, ..Default::default() };
             let paths = PromptPaths { plugin_root: host.plugin_root, data_dir: host.data_dir };
             compose_session_prompt(&input, &paths, &sources).environment_tail
         });

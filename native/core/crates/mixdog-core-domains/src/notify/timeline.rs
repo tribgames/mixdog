@@ -50,10 +50,7 @@ fn utf16_prefix(text: &str, units: usize) -> String {
 
 /// Node's `.slice(0, 1_500).replace(/[^\w=@:. -]/gu, '')`.
 pub fn sanitized(text: &str) -> String {
-    utf16_prefix(text, TEXT_MAX_UNITS)
-        .chars()
-        .filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '=' | '@' | ':' | '.' | ' ' | '-'))
-        .collect()
+    utf16_prefix(text, TEXT_MAX_UNITS).chars().filter(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '=' | '@' | ':' | '.' | ' ' | '-')).collect()
 }
 
 #[async_trait]

@@ -13,9 +13,9 @@ use mixdog_core_api::DomainService;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ServerRequestSink;
 use mixdog_core_api::ids::ConnectionId;
+use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::ThreadId;
-use mixdog_core_api::ids::Method;
 use mixdog_core_api::ops::OpScope;
 use mixdog_core_api::ops::OpStatus;
 use mixdog_core_api::service::Admit;
@@ -23,11 +23,11 @@ use mixdog_protocol::Origin;
 use serde_json::Value;
 use serde_json::json;
 
-use super::actor::ActorThread;
-use super::actor::ApprovalActor;
 use super::Client;
 use super::Rig;
 use super::VERSION;
+use super::actor::ActorThread;
+use super::actor::ApprovalActor;
 
 /// Every method a call below reaches, refused with the error the host threw.
 #[derive(Default)]
@@ -35,7 +35,8 @@ struct Refuses {
     thrown: Mutex<Value>,
 }
 
-const METHODS: &[&str] = &["room/send", "account/saveProviderApiKey", "mcp/completeMcpOAuthLogin", "connector/addConnectorAccount", "mcp/saveMcpServer", "approval/provideSecret"];
+const METHODS: &[&str] =
+    &["room/send", "account/saveProviderApiKey", "mcp/completeMcpOAuthLogin", "connector/addConnectorAccount", "mcp/saveMcpServer", "approval/provideSecret"];
 
 /// The wire tag of the typed detail of a code that declares a public param.
 fn detail_tag(code: &str) -> Option<&'static str> {
@@ -57,7 +58,12 @@ fn core_error(thrown: &Value) -> CoreError {
         detail.insert("type".to_owned(), json!(tag));
         Box::new(serde_json::from_value(Value::Object(detail)).expect("a typed detail"))
     });
-    CoreError::DomainError { domain: "room".into(), code: code.map(|code| code.into()), message: thrown["message"].as_str().map(|message| message.into()), detail }
+    CoreError::DomainError {
+        domain: "room".into(),
+        code: code.map(|code| code.into()),
+        message: thrown["message"].as_str().map(|message| message.into()),
+        detail,
+    }
 }
 
 #[async_trait]
@@ -160,7 +166,13 @@ async fn a_phone_is_told_a_refusal_without_the_secrets_of_its_own_call() {
     let world = World::new();
     let phone = world.client(1, Origin::Relay);
     let cases = [
-        ("the secret is removed from the message", key_call(SECRET, "op-0"), json!({ "message": "401 for key my-secret-value", "code": null, "details": null }), "401 for key [redacted]", None),
+        (
+            "the secret is removed from the message",
+            key_call(SECRET, "op-0"),
+            json!({ "message": "401 for key my-secret-value", "code": null, "details": null }),
+            "401 for key [redacted]",
+            None,
+        ),
         (
             "every string of the call that is long enough is a secret",
             key_call(SECRET, "op-1"),
@@ -175,7 +187,13 @@ async fn a_phone_is_told_a_refusal_without_the_secrets_of_its_own_call() {
             "bad body {\"secret\":\"[redacted]\"} and [redacted]",
             None,
         ),
-        ("a string under six characters is no secret", json!({ "opId": "op-3", "providerId": "p", "secret": "abc12" }), json!({ "message": "key abc12 refused", "code": null, "details": null }), "key abc12 refused", None),
+        (
+            "a string under six characters is no secret",
+            json!({ "opId": "op-3", "providerId": "p", "secret": "abc12" }),
+            json!({ "message": "key abc12 refused", "code": null, "details": null }),
+            "key abc12 refused",
+            None,
+        ),
     ];
     for (n, (why, params, thrown, message, code)) in cases.into_iter().enumerate() {
         let answer = world.refused(&phone, n as i64 + 1, &thrown, "account/saveProviderApiKey", params).await;
@@ -190,7 +208,10 @@ async fn a_phone_is_told_the_public_params_of_a_refusal_code_and_no_others() {
     let phone = world.client(1, Origin::Relay);
     let switched_off = json!({ "message": "\"Release\" is switched off.", "code": "ROOM_MEMBER_SWITCHED_OFF", "details": { "name": "Release" } });
     let answer = world.refused(&phone, 1, &switched_off, "room/send", json!({ "opId": "op-a", "input": {} })).await;
-    assert_eq!(answer, told(1, "\"Release\" is switched off.", Some("ROOM_MEMBER_SWITCHED_OFF"), Some(json!({ "type": "roomMemberSwitchedOff", "name": "Release" }))));
+    assert_eq!(
+        answer,
+        told(1, "\"Release\" is switched off.", Some("ROOM_MEMBER_SWITCHED_OFF"), Some(json!({ "type": "roomMemberSwitchedOff", "name": "Release" })))
+    );
 
     let bare = json!({ "message": "\"Release\" is switched off.", "code": "ROOM_MEMBER_SWITCHED_OFF", "details": null });
     let answer = world.refused(&phone, 2, &bare, "room/send", json!({ "opId": "op-b", "input": {} })).await;
@@ -306,7 +327,11 @@ async fn a_decision_refused_by_decide_is_told_a_phone_without_the_secret_and_a_l
     // `error` notification itself, then see that no second one follows.
     let (told, whole) = (error_notification(&phone).await, error_notification(&local).await);
     super::pause().await;
-    assert_eq!((phone.drain().iter().filter(|w| w.body["method"] == "error").count(), local.drain().iter().filter(|w| w.body["method"] == "error").count()), (0, 0), "told once");
+    assert_eq!(
+        (phone.drain().iter().filter(|w| w.body["method"] == "error").count(), local.drain().iter().filter(|w| w.body["method"] == "error").count()),
+        (0, 0),
+        "told once"
+    );
     assert!(whole.to_string().contains(secret), "a local client is told whole: {whole}");
     let mut expected = whole;
     let error = expected["params"]["error"]["data"].as_object_mut().unwrap();

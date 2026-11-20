@@ -40,7 +40,11 @@ fn an_expired_timer_reads_as_the_calls_own_timeout() {
     assert_eq!(Surface::Fetch.timeout_text(after).as_deref(), Some("fetch failed"), "a missed headers timeout is a fetch failure");
     assert_eq!(Surface::FetchSignal.timeout_text(after).as_deref(), Some(SIGNAL_TIMED_OUT));
     assert_eq!(Surface::FetchAborted.timeout_text(after).as_deref(), Some(ABORTED));
-    assert_eq!(Surface::FetchLabeled("catalog read").timeout_text(after).as_deref(), Some("catalog read timed out after 1500ms"), "the label and the timer in milliseconds");
+    assert_eq!(
+        Surface::FetchLabeled("catalog read").timeout_text(after).as_deref(),
+        Some("catalog read timed out after 1500ms"),
+        "the label and the timer in milliseconds"
+    );
     assert_eq!(Surface::SocketLabeled("stream").timeout_text(Duration::from_secs(2)).as_deref(), Some("stream timed out after 2000ms"));
     assert_eq!(Surface::Sdk.timeout_text(after).as_deref(), Some(REQUEST_TIMED_OUT));
     assert_eq!(Surface::SocketConnect.timeout_text(after).as_deref(), Some("Cursor stream was aborted"));

@@ -92,11 +92,7 @@ pub fn round2(value: &Value) -> Value {
 
 /// `roundAll`: every entry but the MSO sentinel, rounded to the hundredth.
 pub fn round_all(object: &Object) -> Object {
-    entries(object)
-        .into_iter()
-        .filter(|(_, value)| value.as_f64() != Some(MSO_UNDEFINED))
-        .map(|(key, value)| (key.clone(), round2(value)))
-        .collect()
+    entries(object).into_iter().filter(|(_, value)| value.as_f64() != Some(MSO_UNDEFINED)).map(|(key, value)| (key.clone(), round2(value))).collect()
 }
 
 /// `{ ...object }` without the entries `keep` refuses.

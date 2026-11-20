@@ -193,7 +193,6 @@ mod device_tests {
     }
 }
 
-
 impl EmbedEnv {
     pub fn from_process() -> Self {
         Self { model: std::env::var("MIXDOG_EMBED_MODEL").ok(), dtype: std::env::var("MIXDOG_EMBED_DTYPE").ok() }

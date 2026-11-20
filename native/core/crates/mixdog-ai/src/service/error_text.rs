@@ -201,7 +201,8 @@ pub fn present_error_text(error: &ErrorView, options: &PresentOptions) -> String
     if matches!(presentation.kind, "image-size" | "payload-size" | "request" | "model-unavailable" | "tool-schema") {
         return presentation.summary;
     }
-    if has_typed_evidence(error) && presentation.kind != "unknown"
+    if has_typed_evidence(error)
+        && presentation.kind != "unknown"
         && let Some(line) = kind_line(&presentation.provider_kind, presentation.retry_after_ms)
     {
         return line;
@@ -244,7 +245,10 @@ pub fn present_error_text(error: &ErrorView, options: &PresentOptions) -> String
     if let Some(transport) = transport_error_text(&TransportInput::of(error)) {
         return transport;
     }
-    if error.is_object && error.message.is_empty() && let Some(delivery) = error.delivery {
+    if error.is_object
+        && error.message.is_empty()
+        && let Some(delivery) = error.delivery
+    {
         return empty_cause_text(error, delivery);
     }
     if re!(r"(?i)\bAGENT_CONTEXT_OVERFLOW\b|agent context overflow|latest turn cannot fit|context budget|context window").is_match(&text) {
@@ -312,11 +316,7 @@ pub fn present_error_text(error: &ErrorView, options: &PresentOptions) -> String
 /// `errorLine`: `Error: <text>` unless the text already starts that way.
 pub fn error_line(error: &ErrorView, options: &PresentOptions) -> String {
     let text = present_error_text(error, options);
-    if re!(r"(?i)^error\s*:").is_match(&text) {
-        text
-    } else {
-        format!("Error: {text}")
-    }
+    if re!(r"(?i)^error\s*:").is_match(&text) { text } else { format!("Error: {text}") }
 }
 
 /// `errText`: the message of a failure.
@@ -355,11 +355,7 @@ fn err_text_json(value: &Value) -> String {
                 return format!("{t} event");
             }
             let json = value.to_string();
-            if json != "{}" && json != "null" {
-                json
-            } else {
-                "[object Object]".into()
-            }
+            if json != "{}" && json != "null" { json } else { "[object Object]".into() }
         }
         Value::Array(_) => value.to_string(),
         other => value_to_string(other),
@@ -376,17 +372,16 @@ pub fn safe_error_details(value: &str) -> String {
     let text = re!(r"\r\n?").replace_all(&text, "\n").into_owned();
     let text = re!(r"(?i)\b((?:https?|ssh)://)[^/\s@]+@").replace_all(&text, "${1}[redacted]@").into_owned();
     let text = re!(r"(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]+").replace_all(&text, "${1} [redacted]").into_owned();
-    let text = re!(r#"(?i)([?&](?:token|access_token|refresh_token|api_key|key|code|signature|sig)=)[^&\s"'<>]+"#).replace_all(&text, "${1}[redacted]").into_owned();
+    let text =
+        re!(r#"(?i)([?&](?:token|access_token|refresh_token|api_key|key|code|signature|sig)=)[^&\s"'<>]+"#).replace_all(&text, "${1}[redacted]").into_owned();
     let text = re!(
         r#"(?i)(["']?(?:api[_-]?key|access[_-]?token|refresh[_-]?token|authorization|cookie|password|secret|client_secret)["']?\s*[:=]\s*)(?:"[^"]*"|'[^']*'|[^\s,;}]+)"#
     )
     .replace_all(&text, "${1}[redacted]")
     .into_owned();
-    let text = re!(
-        r"\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b"
-    )
-    .replace_all(&text, "[redacted]")
-    .into_owned();
+    let text = re!(r"\b(?:sk-[A-Za-z0-9_-]{12,}|gh[pousr]_[A-Za-z0-9_]{16,}|github_pat_[A-Za-z0-9_]{16,}|eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+)\b")
+        .replace_all(&text, "[redacted]")
+        .into_owned();
     let text = re!(r"data:[A-Za-z0-9_.+/-]+;base64,[A-Za-z0-9+/=\s]+").replace_all(&text, "[image data]").into_owned();
     let text = re!(r#"(["']data["']\s*:\s*["'])[A-Za-z0-9+/=]{256,}(["'])"#).replace_all(&text, "${1}[image data]${2}").into_owned();
     let text = js_trim(&text);
@@ -401,18 +396,38 @@ pub fn safe_error_details(value: &str) -> String {
 // ---------------------------------------------------------------------------
 
 const LOST_CODES: &[&str] = &[
-    "ECONNRESET", "EPIPE", "ECONNABORTED", "ENETRESET", "EPROTO", "UND_ERR_SOCKET", "UND_ERR_DESTROYED", "UND_ERR_CLOSED",
-    "UND_ERR_ABORTED", "ERR_STREAM_DESTROYED", "ERR_STREAM_PREMATURE_CLOSE", "ERR_HTTP2_STREAM_ERROR", "ERR_HTTP2_SESSION_ERROR",
-    "ERR_HTTP2_INVALID_SESSION", "ERR_HTTP2_GOAWAY_SESSION", "ERR_HTTP2_STREAM_CANCEL",
+    "ECONNRESET",
+    "EPIPE",
+    "ECONNABORTED",
+    "ENETRESET",
+    "EPROTO",
+    "UND_ERR_SOCKET",
+    "UND_ERR_DESTROYED",
+    "UND_ERR_CLOSED",
+    "UND_ERR_ABORTED",
+    "ERR_STREAM_DESTROYED",
+    "ERR_STREAM_PREMATURE_CLOSE",
+    "ERR_HTTP2_STREAM_ERROR",
+    "ERR_HTTP2_SESSION_ERROR",
+    "ERR_HTTP2_INVALID_SESSION",
+    "ERR_HTTP2_GOAWAY_SESSION",
+    "ERR_HTTP2_STREAM_CANCEL",
 ];
 const UNREACHABLE_CODES: &[&str] = &[
-    "ECONNREFUSED", "ENETUNREACH", "EHOSTUNREACH", "ENETDOWN", "EADDRNOTAVAIL", "ENOTFOUND", "EAI_AGAIN", "EAI_NODATA", "EAI_FAIL",
-    "EAI_NONAME", "UND_ERR_CONNECT",
+    "ECONNREFUSED",
+    "ENETUNREACH",
+    "EHOSTUNREACH",
+    "ENETDOWN",
+    "EADDRNOTAVAIL",
+    "ENOTFOUND",
+    "EAI_AGAIN",
+    "EAI_NODATA",
+    "EAI_FAIL",
+    "EAI_NONAME",
+    "UND_ERR_CONNECT",
 ];
-const TIMEOUT_CODES: &[&str] = &[
-    "ETIMEDOUT", "ESOCKETTIMEDOUT", "ERR_SOCKET_CONNECTION_TIMEOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT",
-    "UND_ERR_BODY_TIMEOUT",
-];
+const TIMEOUT_CODES: &[&str] =
+    &["ETIMEDOUT", "ESOCKETTIMEDOUT", "ERR_SOCKET_CONNECTION_TIMEOUT", "UND_ERR_CONNECT_TIMEOUT", "UND_ERR_HEADERS_TIMEOUT", "UND_ERR_BODY_TIMEOUT"];
 const WS_LOST_CLOSE_CODES: &[u32] = &[1000, 1001, 1005, 1006, 1011, 1012];
 const UNAVAILABLE_STATUSES: &[u32] = &[502, 503, 504, 521, 522, 523, 524];
 
@@ -490,9 +505,9 @@ fn typed_transport_kind(input: &TransportInput) -> Option<Verdict> {
     match input.fault {
         Some(TransportFault::Tls) => verdict("tls", "", 0),
         Some(TransportFault::Connect { .. } | TransportFault::Dns) => verdict("unreachable", "", 0),
-        Some(TransportFault::Reset | TransportFault::Closed | TransportFault::H2GoAway { .. } | TransportFault::H2RstStream { .. } | TransportFault::Io { .. }) => {
-            verdict("lost", "", 0)
-        }
+        Some(
+            TransportFault::Reset | TransportFault::Closed | TransportFault::H2GoAway { .. } | TransportFault::H2RstStream { .. } | TransportFault::Io { .. },
+        ) => verdict("lost", "", 0),
         Some(TransportFault::KeepaliveExpired { .. }) => verdict("timeout", "", 0),
         _ => None,
     }
@@ -524,7 +539,10 @@ fn message_transport_kind(message: &str) -> Option<Verdict> {
         return verdict("lost", format!("WS {close}"), 0);
     }
     if re!(r"(?i)^(?:terminated|socket hang up|other side closed|connection error\.?)$").is_match(message)
-        || re!(r"(?i)\b(?:socket hang up|other side closed|connection (?:was )?reset(?: by peer)?|network unreachable|premature close|stream (?:was )?destroyed)\b").is_match(message)
+        || re!(
+            r"(?i)\b(?:socket hang up|other side closed|connection (?:was )?reset(?: by peer)?|network unreachable|premature close|stream (?:was )?destroyed)\b"
+        )
+        .is_match(message)
     {
         return verdict("lost", "", 0);
     }
@@ -611,17 +629,8 @@ fn model_unavailable_re() -> &'static Regex {
 }
 
 fn first_readable_line(clean: &str) -> String {
-    let first = clean
-        .split('\n')
-        .map(js_trim)
-        .filter(|l| !l.is_empty())
-        .find(|l| !re!(r"(?i)^at\s|^\{|^<!doctype|^<html").is_match(l))
-        .unwrap_or("");
-    if !first.is_empty() && !re!(r"(?i)^[{\[]|^<|(?:API|HTTP)\s+[45][0-9][0-9].*[<{]").is_match(first) {
-        first.to_owned()
-    } else {
-        String::new()
-    }
+    let first = clean.split('\n').map(js_trim).filter(|l| !l.is_empty()).find(|l| !re!(r"(?i)^at\s|^\{|^<!doctype|^<html").is_match(l)).unwrap_or("");
+    if !first.is_empty() && !re!(r"(?i)^[{\[]|^<|(?:API|HTTP)\s+[45][0-9][0-9].*[<{]").is_match(first) { first.to_owned() } else { String::new() }
 }
 
 fn truthy(value: Option<&Value>) -> Option<String> {
@@ -673,34 +682,30 @@ fn unwrap_error(view: &ErrorView) -> Unwrapped {
 }
 
 fn legacy_kind(clean: &str) -> Option<&'static str> {
-    KIND_COPY
-        .iter()
-        .find(|(_, _, summary)| *summary == clean)
-        .map(|(kind, _, _)| *kind)
-        .or_else(|| {
-            if re!(r"(?i)The provider usage limit was reached|quota.*(?:hit|exceed)|usage limit").is_match(clean) {
-                Some("quota_exhausted")
-            } else if re!(r"(?i)rate[_ -]?limit|too many requests").is_match(clean) {
-                Some("rate_limited")
-            } else {
-                None
-            }
-        })
+    KIND_COPY.iter().find(|(_, _, summary)| *summary == clean).map(|(kind, _, _)| *kind).or_else(|| {
+        if re!(r"(?i)The provider usage limit was reached|quota.*(?:hit|exceed)|usage limit").is_match(clean) {
+            Some("quota_exhausted")
+        } else if re!(r"(?i)rate[_ -]?limit|too many requests").is_match(clean) {
+            Some("rate_limited")
+        } else {
+            None
+        }
+    })
 }
 
 /// `classify`: the verdict and whether it is typed (wording must not override a typed one).
 fn classify(view: &ErrorView, raw: &str, clean: &str) -> (Descriptor, bool) {
     let has_typed_fields = view.is_object && (view.status > 0 || !view.code.is_empty() || view.retry_after_ms > 0);
-    if !has_typed_fields
-        && let Some(kind) = legacy_kind(clean)
-    {
+    if !has_typed_fields && let Some(kind) = legacy_kind(clean) {
         let wait = re!(r"(?i)retryAfter=([0-9]+)(ms|s|m)\b").captures(raw).and_then(|c| {
             let n: u64 = c[1].parse().ok()?;
-            Some(n * match c[2].to_lowercase().as_str() {
-                "ms" => 1,
-                "s" => 1000,
-                _ => 60_000,
-            })
+            Some(
+                n * match c[2].to_lowercase().as_str() {
+                    "ms" => 1,
+                    "s" => 1000,
+                    _ => 60_000,
+                },
+            )
         });
         return (Descriptor { kind: kind.into(), retry_after_ms: wait.filter(|w| *w > 0), ..Descriptor::unknown() }, false);
     }
@@ -730,7 +735,9 @@ fn rejected_summary(status: u32, clean: &str) -> String {
     // Text that already carries the summary (a failure presented once before) is taken apart and put together again, so its
     // status, its cap and its redaction are the same as a first presentation's.
     if let Some(rest) = line.strip_prefix(REJECTED_SUMMARY) {
-        let carried = re!(r"^\s*(?:\(HTTP ([0-9]+)\))?\s*[:.]?\s*((?s:.*))$").captures(rest).map(|c| (c.get(1).and_then(|m| m.as_str().parse::<u32>().ok()), c[2].trim().to_owned()));
+        let carried = re!(r"^\s*(?:\(HTTP ([0-9]+)\))?\s*[:.]?\s*((?s:.*))$")
+            .captures(rest)
+            .map(|c| (c.get(1).and_then(|m| m.as_str().parse::<u32>().ok()), c[2].trim().to_owned()));
         let (carried_status, text) = carried.unwrap_or((None, String::new()));
         if status == 0 {
             status = carried_status.unwrap_or(0);
@@ -749,7 +756,6 @@ fn rejected_summary(status: u32, clean: &str) -> String {
         (status, false) => format!("{REJECTED_SUMMARY} (HTTP {status}): {line}"),
     }
 }
-
 
 fn describe_error(view: &ErrorView) -> Presentation {
     let Unwrapped { raw, message, status: text_status, code: text_code } = unwrap_error(view);
@@ -824,22 +830,20 @@ fn describe_error(view: &ErrorView) -> Presentation {
 // ---------------------------------------------------------------------------
 
 fn kind_line(provider_kind: &str, retry_after_ms: Option<u64>) -> Option<String> {
-    Some(
-        match provider_kind {
-            "overloaded" => "Provider is busy at capacity.".to_owned(),
-            "rate_limited" => match retry_after_ms {
-                Some(ms) if ms > 0 => format!("Provider is rate-limited (retry in {}).", format_duration_ms(ms as f64)),
-                _ => "Provider is rate-limited.".to_owned(),
-            },
-            "quota_exhausted" => "Provider usage limit reached.".to_owned(),
-            "entitlement" => "Not included in your plan.".to_owned(),
-            "billing" => "Out of credits or at spend limit.".to_owned(),
-            "permission" => "Access denied by the provider.".to_owned(),
-            "policy" => "Refused by the provider safety policy.".to_owned(),
-            "auth" => "Provider authentication failed.".to_owned(),
-            _ => return None,
+    Some(match provider_kind {
+        "overloaded" => "Provider is busy at capacity.".to_owned(),
+        "rate_limited" => match retry_after_ms {
+            Some(ms) if ms > 0 => format!("Provider is rate-limited (retry in {}).", format_duration_ms(ms as f64)),
+            _ => "Provider is rate-limited.".to_owned(),
         },
-    )
+        "quota_exhausted" => "Provider usage limit reached.".to_owned(),
+        "entitlement" => "Not included in your plan.".to_owned(),
+        "billing" => "Out of credits or at spend limit.".to_owned(),
+        "permission" => "Access denied by the provider.".to_owned(),
+        "policy" => "Refused by the provider safety policy.".to_owned(),
+        "auth" => "Provider authentication failed.".to_owned(),
+        _ => return None,
+    })
 }
 
 fn has_typed_evidence(error: &ErrorView) -> bool {
@@ -851,7 +855,9 @@ fn is_cancel_like(error: &ErrorView) -> bool {
         return true;
     }
     let text = err_text(error);
-    re!(r"(?i)aborted by session close").is_match(&text) || re!(r"(?i)withRetry:\s*(?:sleep )?aborted").is_match(&text) || re!(r"(?i)^sleep aborted$").is_match(&text)
+    re!(r"(?i)aborted by session close").is_match(&text)
+        || re!(r"(?i)withRetry:\s*(?:sleep )?aborted").is_match(&text)
+        || re!(r"(?i)^sleep aborted$").is_match(&text)
 }
 
 fn subject_for_surface(surface: &str) -> &'static str {
@@ -911,9 +917,9 @@ fn extract_json_error(text: &str) -> Option<String> {
 }
 
 fn extract_embedded_error(text: &str) -> Option<String> {
-    text.split('\n').map(|line| line.strip_suffix('\r').unwrap_or(line)).find_map(|line| {
-        re!(r"(?i)^\s*(?:error|failure|failed)\s*[:=]\s*([^\n\r\u2028\u2029]+?)\s*$").captures(line).map(|c| c[1].to_owned())
-    })
+    text.split('\n')
+        .map(|line| line.strip_suffix('\r').unwrap_or(line))
+        .find_map(|line| re!(r"(?i)^\s*(?:error|failure|failed)\s*[:=]\s*([^\n\r\u2028\u2029]+?)\s*$").captures(line).map(|c| c[1].to_owned()))
 }
 
 fn digits(text: &str) -> f64 {
@@ -1000,8 +1006,6 @@ mod tests {
 
     use super::*;
 
-
-
     /// A peer that closed or a failed lookup carries the code Node's `cause` names, as a reset does.
     #[test]
     fn a_closed_socket_and_a_failed_lookup_name_their_node_codes() {
@@ -1045,10 +1049,7 @@ mod tests {
         let cut = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
         assert_eq!(present_error_text(&ErrorView::from(&cut), &PresentOptions::default()), "Connection to the provider was lost (TRUNCATED_STREAM).");
     }
-
-
 }
-
 
 impl Descriptor {
     /// The verdict a classified provider error carries (`providerErrorKind`'s answer): the kind the adapter

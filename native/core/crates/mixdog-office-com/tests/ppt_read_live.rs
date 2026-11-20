@@ -43,18 +43,39 @@ fn scratch(name: &str) -> PathBuf {
 fn make_deck(env: &Env<'_>, path: &Path) {
     let app = new_hidden_application(env, "pptx", "PowerPoint.Application").expect("PowerPoint of this test's own");
     let deck = app.get("Presentations").expect("Presentations").call_member("Add", &[Com::I4(0)]).expect("Add").into_obj().expect("a deck");
-    let layout = deck.get("SlideMaster").and_then(|master| master.member("CustomLayouts")).and_then(|layouts| layouts.call_member("Item", &[Com::I4(7)])).expect("a layout");
+    let layout = deck
+        .get("SlideMaster")
+        .and_then(|master| master.member("CustomLayouts"))
+        .and_then(|layouts| layouts.call_member("Item", &[Com::I4(7)]))
+        .expect("a layout");
     for at in 1..=2 {
         let slide = deck.get("Slides").and_then(|slides| slides.call_member("AddSlide", &[Com::I4(at), layout.clone()])).expect("a slide");
         let shape = slide
             .member("Shapes")
             .and_then(|shapes| shapes.call_member("AddTextbox", &[Com::I4(1), Com::R4(48.0), Com::R4(48.0), Com::R4(400.0), Com::R4(60.0)]))
             .expect("a text box");
-        shape.member("TextFrame").and_then(|frame| frame.member("TextRange")).and_then(|range| range.set_member("Text", Com::from(format!("Slide {at}: 12 and 34")))).expect("text");
+        shape
+            .member("TextFrame")
+            .and_then(|frame| frame.member("TextRange"))
+            .and_then(|range| range.set_member("Text", Com::from(format!("Slide {at}: 12 and 34"))))
+            .expect("text");
         if at == 1 {
-            let table = slide.member("Shapes").and_then(|shapes| shapes.call_member("AddTable", &[Com::I4(2), Com::I4(2), Com::R4(48.0), Com::R4(160.0), Com::R4(300.0), Com::R4(80.0)])).expect("a table");
-            table.member("Table").and_then(|table| table.call_member("Cell", &[Com::I4(1), Com::I4(1)])).and_then(|cell| cell.member("Shape")).and_then(|shape| shape.member("TextFrame")).and_then(|frame| frame.member("TextRange")).and_then(|range| range.set_member("Text", Com::from("Cell"))).expect("a cell");
-            slide.member("Comments").and_then(|comments| comments.call_member("Add", &[Com::R4(20.0), Com::R4(20.0), Com::from("Me"), Com::from("M"), Com::from("A comment")])).expect("a comment");
+            let table = slide
+                .member("Shapes")
+                .and_then(|shapes| shapes.call_member("AddTable", &[Com::I4(2), Com::I4(2), Com::R4(48.0), Com::R4(160.0), Com::R4(300.0), Com::R4(80.0)]))
+                .expect("a table");
+            table
+                .member("Table")
+                .and_then(|table| table.call_member("Cell", &[Com::I4(1), Com::I4(1)]))
+                .and_then(|cell| cell.member("Shape"))
+                .and_then(|shape| shape.member("TextFrame"))
+                .and_then(|frame| frame.member("TextRange"))
+                .and_then(|range| range.set_member("Text", Com::from("Cell")))
+                .expect("a cell");
+            slide
+                .member("Comments")
+                .and_then(|comments| comments.call_member("Add", &[Com::R4(20.0), Com::R4(20.0), Com::from("Me"), Com::from("M"), Com::from("A comment")]))
+                .expect("a comment");
             slide
                 .member("NotesPage")
                 .and_then(|notes| notes.member("Shapes"))

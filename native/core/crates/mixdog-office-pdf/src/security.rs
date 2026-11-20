@@ -45,18 +45,10 @@ fn qpdf_program() -> String {
 /// `run(command, args, timeoutMs)`: Ok when the program exits 0, else the text of what went wrong (its stderr, else its
 /// stdout, else the exit code).
 fn run(program: &str, args: &[String], timeout: Duration) -> Result<(), String> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .map_err(|error| error.to_string())?;
+    let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|error| error.to_string())?;
     runtime.block_on(async {
         let mut command = tokio::process::Command::new(program);
-        command
-            .args(args)
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true);
+        command.args(args).stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(true);
         #[cfg(windows)]
         // CREATE_NO_WINDOW.
         command.creation_flags(0x0800_0000);
@@ -134,31 +126,14 @@ fn directory_of(path: &str) -> PathBuf {
 /// The arguments, the temporary sibling and the response file of a run; `id` makes their names unique.
 pub fn plan_secure(request: &SecureRequest<'_>, id: &str) -> SecurePlan {
     let same_path = js_to_lowercase(request.input) == js_to_lowercase(request.output);
-    let target = if same_path {
-        directory_of(request.output).join(format!(".mixdog-qpdf-{id}.pdf"))
-    } else {
-        PathBuf::from(request.output)
-    };
+    let target = if same_path { directory_of(request.output).join(format!(".mixdog-qpdf-{id}.pdf")) } else { PathBuf::from(request.output) };
     let response = directory_of(&target.to_string_lossy()).join(format!(".mixdog-qpdf-{id}.args"));
     let target_text = target.to_string_lossy().into_owned();
     let args = if request.mode == "encrypt" {
         let owner = if request.owner_password.is_empty() { request.password } else { request.owner_password };
-        vec![
-            "--encrypt".to_owned(),
-            request.password.to_owned(),
-            owner.to_owned(),
-            "256".to_owned(),
-            "--".to_owned(),
-            request.input.to_owned(),
-            target_text,
-        ]
+        vec!["--encrypt".to_owned(), request.password.to_owned(), owner.to_owned(), "256".to_owned(), "--".to_owned(), request.input.to_owned(), target_text]
     } else {
-        vec![
-            format!("--password={}", request.password),
-            "--decrypt".to_owned(),
-            request.input.to_owned(),
-            target_text,
-        ]
+        vec![format!("--password={}", request.password), "--decrypt".to_owned(), request.input.to_owned(), target_text]
     };
     SecurePlan { args, target, response, same_path }
 }
@@ -179,26 +154,20 @@ fn write_response<P: WriteProof>(proof: &P, path: &Path, text: &str) -> std::io:
 
 /// `securePdf({ input, output, mode, password, ownerPassword })`: `{ ok, mode, input, output }` once qpdf has written the
 /// output. A run that fails leaves no response file and no temporary sibling behind.
-pub fn secure_pdf<P: WriteProof>(
-    proof: &P,
-    note: &dyn WriteNote,
-    request: &SecureRequest<'_>,
-) -> Result<Value, AnalysisError> {
+pub fn secure_pdf<P: WriteProof>(proof: &P, note: &dyn WriteNote, request: &SecureRequest<'_>) -> Result<Value, AnalysisError> {
     if !qpdf_available() {
         return Err(AnalysisError::plain(QPDF_INSTALL_HINT));
     }
     check_passwords(request.password, request.owner_password)?;
     let plan = plan_secure(request, &uuid::Uuid::new_v4().to_string());
-    write_response(proof, &plan.response, &response_text(&plan.args))
-        .map_err(|error| AnalysisError::plain(error.to_string()))?;
+    write_response(proof, &plan.response, &response_text(&plan.args)).map_err(|error| AnalysisError::plain(error.to_string()))?;
     note.note_write(Path::new(request.output));
-    let outcome = run(&qpdf_program(), &[format!("@{}", plan.response.display())], QPDF_RUN_TIMEOUT)
-        .and_then(|()| {
-            if plan.same_path {
-                mixdog_fsio::rename(proof, &plan.target, request.output).map_err(|error| error.to_string())?;
-            }
-            Ok(())
-        });
+    let outcome = run(&qpdf_program(), &[format!("@{}", plan.response.display())], QPDF_RUN_TIMEOUT).and_then(|()| {
+        if plan.same_path {
+            mixdog_fsio::rename(proof, &plan.target, request.output).map_err(|error| error.to_string())?;
+        }
+        Ok(())
+    });
     // Whatever happened, the response file (it holds the passwords) and the temporary sibling go.
     let _ = mixdog_fsio::remove_file(proof, &plan.response);
     if plan.same_path {

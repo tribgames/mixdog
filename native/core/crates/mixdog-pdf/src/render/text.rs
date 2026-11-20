@@ -122,9 +122,7 @@ impl Painter<'_> {
     pub(super) fn set_font(&mut self, loaded_name: &str, size: f64) {
         let font = self.drawing.and_then(|drawing| drawing.font(loaded_name));
         let current = &mut self.current;
-        current.font_matrix = font
-            .as_ref()
-            .map_or(FONT_IDENTITY_MATRIX, |font| font.font_matrix);
+        current.font_matrix = font.as_ref().map_or(FONT_IDENTITY_MATRIX, |font| font.font_matrix);
         if size < 0.0 {
             current.font_size = -size;
             current.font_direction = -1.0;
@@ -141,10 +139,7 @@ impl Painter<'_> {
     /// `showText` (`showType3Text` for a Type3 font, whose glyph procedures are executed).
     pub(super) fn show_text(&mut self, items: &[TextItem]) -> Result<()> {
         let Some(drawing) = self.drawing else {
-            self.report_once(
-                "no-fonts",
-                "text was not drawn: no font drawing was supplied to the rasteriser",
-            );
+            self.report_once("no-fonts", "text was not drawn: no font drawing was supplied to the rasteriser");
             return Ok(());
         };
         let Some(font) = self.current.font.clone() else {
@@ -169,17 +164,9 @@ impl Painter<'_> {
 
         self.canvas.save();
         if let Some(matrix) = self.current.text_matrix {
-            self.canvas.transform(
-                matrix[0] as f32,
-                matrix[1] as f32,
-                matrix[2] as f32,
-                matrix[3] as f32,
-                matrix[4] as f32,
-                matrix[5] as f32,
-            );
+            self.canvas.transform(matrix[0] as f32, matrix[1] as f32, matrix[2] as f32, matrix[3] as f32, matrix[4] as f32, matrix[5] as f32);
         }
-        self.canvas
-            .translate(self.current.x as f32, (self.current.y + self.current.text_rise) as f32);
+        self.canvas.translate(self.current.x as f32, (self.current.y + self.current.text_rise) as f32);
         if direction > 0.0 {
             self.canvas.scale(hscale as f32, -1.0);
         } else {
@@ -242,13 +229,7 @@ impl Painter<'_> {
             }
             if self.content_visible && (glyph.is_in_font || font.missing_file) {
                 let draw = drawing.glyph(&self.current.font_name, glyph);
-                self.paint_char(
-                    draw.path.as_ref(),
-                    scaled_x,
-                    scaled_y,
-                    pattern_fill_transform.as_ref(),
-                    pattern_stroke_transform.as_ref(),
-                );
+                self.paint_char(draw.path.as_ref(), scaled_x, scaled_y, pattern_fill_transform.as_ref(), pattern_stroke_transform.as_ref());
                 if let Some(accent) = &draw.accent {
                     self.paint_char(
                         accent.path.as_ref(),
@@ -259,11 +240,7 @@ impl Painter<'_> {
                     );
                 }
             }
-            let char_width = if font.vertical {
-                width * advance_scale - spacing * direction
-            } else {
-                width * advance_scale + spacing * direction
-            };
+            let char_width = if font.vertical { width * advance_scale - spacing * direction } else { width * advance_scale + spacing * direction };
             x += char_width;
         }
         if font.vertical {
@@ -291,17 +268,9 @@ impl Painter<'_> {
         let font_name = self.current.font_name.clone();
         self.canvas.save();
         if let Some(matrix) = self.current.text_matrix {
-            self.canvas.transform(
-                matrix[0] as f32,
-                matrix[1] as f32,
-                matrix[2] as f32,
-                matrix[3] as f32,
-                matrix[4] as f32,
-                matrix[5] as f32,
-            );
+            self.canvas.transform(matrix[0] as f32, matrix[1] as f32, matrix[2] as f32, matrix[3] as f32, matrix[4] as f32, matrix[5] as f32);
         }
-        self.canvas
-            .translate(self.current.x as f32, (self.current.y + self.current.text_rise) as f32);
+        self.canvas.translate(self.current.x as f32, (self.current.y + self.current.text_rise) as f32);
         self.canvas.scale(hscale as f32, self.current.font_direction as f32);
         let mut outcome = Ok(());
         for item in items {
@@ -356,22 +325,12 @@ impl Painter<'_> {
     fn type3_procedure(&self, loaded_name: &str, glyph_name: &str) -> Option<Arc<OperatorList>> {
         let font = self.type3_fonts.get(loaded_name)?;
         let procedures = &font.type3.as_ref()?.procedures;
-        procedures
-            .iter()
-            .find(|(name, _)| name == glyph_name)
-            .map(|(_, list)| list.clone())
+        procedures.iter().find(|(name, _)| name == glyph_name).map(|(_, list)| list.clone())
     }
 
     /// `paintChar`: the outline at `(x, y)` of the text space, filled and/or stroked by the rendering mode (in the
     /// matrix of a pattern when the colour is one), and remembered for the clip of a clipping mode.
-    fn paint_char(
-        &mut self,
-        path: Option<&Arc<Vec<f32>>>,
-        x: f64,
-        y: f64,
-        pattern_fill_transform: Option<&Matrix>,
-        pattern_stroke_transform: Option<&Matrix>,
-    ) {
+    fn paint_char(&mut self, path: Option<&Arc<Vec<f32>>>, x: f64, y: f64, pattern_fill_transform: Option<&Matrix>, pattern_stroke_transform: Option<&Matrix>) {
         let mode = self.current.text_rendering_mode;
         let fill_stroke = mode & FILL_STROKE_MASK;
         let add_to_path = mode & ADD_TO_PATH_FLAG != 0;
@@ -413,11 +372,8 @@ impl Painter<'_> {
                         );
                         if let Some(inverse) = invert(transform) {
                             let no_translation = [current[0], current[1], current[2], current[3], 0.0, 0.0];
-                            let (scale_x, scale_y) =
-                                singular_scales(&gstate::transform(&no_translation, &inverse));
-                            let width = f64::from(self.canvas.line_width())
-                                * f64::from(scale_x.max(scale_y))
-                                / font_size;
+                            let (scale_x, scale_y) = singular_scales(&gstate::transform(&no_translation, &inverse));
+                            let width = f64::from(self.canvas.line_width()) * f64::from(scale_x.max(scale_y)) / font_size;
                             self.canvas.set_line_width(width as f32);
                             if let Some(scaled) = scaled_path(&outline, &current, transform) {
                                 self.canvas.stroke_path2d(&scaled);
@@ -435,15 +391,7 @@ impl Painter<'_> {
         }
         if add_to_path {
             let transform = self.ctm();
-            self.pending_text_paths
-                .get_or_insert_with(Vec::new)
-                .push(TextClipPath {
-                    transform,
-                    x,
-                    y,
-                    font_size,
-                    path: path.cloned(),
-                });
+            self.pending_text_paths.get_or_insert_with(Vec::new).push(TextClipPath { transform, x, y, font_size, path: path.cloned() });
         }
     }
 
@@ -460,10 +408,7 @@ impl Painter<'_> {
         for entry in paths {
             let Some(path) = &entry.path else { continue };
             let outline = path_from_buffer(path);
-            let placed = gstate::transform(
-                &gstate::transform(&inverse, &entry.transform),
-                &[1.0, 0.0, 0.0, 1.0, entry.x, entry.y],
-            );
+            let placed = gstate::transform(&gstate::transform(&inverse, &entry.transform), &[1.0, 0.0, 0.0, 1.0, entry.x, entry.y]);
             let placed = gstate::transform(&placed, &[entry.font_size, 0.0, 0.0, -entry.font_size, 0.0, 0.0]);
             combined.add_path(&outline, skia(&placed));
         }
@@ -476,9 +421,9 @@ mod tests {
     use std::cell::RefCell;
 
     use super::*;
+    use crate::document::{Document, OpenOptions};
     use crate::glyph::{CLOSE_PATH, LINE_TO, MOVE_TO};
     use crate::render::painter::OptionalContentConfig;
-    use crate::document::{Document, OpenOptions};
     use mixdog_raster::canvas::Canvas;
 
     /// A font whose every glyph is the unit square (0,0)-(1,1) of the em.
@@ -488,12 +433,7 @@ mod tests {
 
     impl FontDrawing for Squares {
         fn font(&self, loaded_name: &str) -> Option<DrawnFont> {
-            (loaded_name == "g_f1").then(|| DrawnFont {
-                font_matrix: FONT_IDENTITY_MATRIX,
-                vertical: false,
-                type3: false,
-                missing_file: false,
-            })
+            (loaded_name == "g_f1").then(|| DrawnFont { font_matrix: FONT_IDENTITY_MATRIX, vertical: false, type3: false, missing_file: false })
         }
 
         fn glyph(&self, _: &str, glyph: &Glyph) -> GlyphDraw {
@@ -501,12 +441,7 @@ mod tests {
             if glyph.is_space {
                 return GlyphDraw::default();
             }
-            GlyphDraw {
-                path: Some(Arc::new(vec![
-                    MOVE_TO, 0.0, 0.0, LINE_TO, 1.0, 0.0, LINE_TO, 1.0, 1.0, LINE_TO, 0.0, 1.0, CLOSE_PATH,
-                ])),
-                accent: None,
-            }
+            GlyphDraw { path: Some(Arc::new(vec![MOVE_TO, 0.0, 0.0, LINE_TO, 1.0, 0.0, LINE_TO, 1.0, 1.0, LINE_TO, 0.0, 1.0, CLOSE_PATH])), accent: None }
         }
     }
 
@@ -551,13 +486,7 @@ mod tests {
     fn painter<'a>(document: &'a Document, drawing: &'a Squares) -> Painter<'a> {
         let canvas = Canvas::new(100, 100).expect("canvas");
         let resources = Arc::new(crate::object::Dict::new());
-        let mut painter = Painter::new(
-            canvas,
-            document,
-            resources,
-            Some(drawing),
-            OptionalContentConfig::default(),
-        );
+        let mut painter = Painter::new(canvas, document, resources, Some(drawing), OptionalContentConfig::default());
         painter.canvas.set_fill_color("rgb(255,255,255)");
         painter.canvas.fill_rect(0.0, 0.0, 100.0, 100.0);
         painter.canvas.set_fill_color("#000000");
@@ -578,11 +507,9 @@ mod tests {
         painter.canvas.transform(1.0, 0.0, 0.0, -1.0, 0.0, 100.0);
         painter.begin_text();
         painter.set_text_matrix(&[1.0, 0.0, 0.0, 1.0, 20.0, 30.0]);
-        painter.show_text(&[
-            TextItem::Glyph(glyph(65, 1000.0, false)),
-            TextItem::Adjust(-500.0),
-            TextItem::Glyph(glyph(66, 1000.0, false)),
-        ]).expect("the text is shown");
+        painter
+            .show_text(&[TextItem::Glyph(glyph(65, 1000.0, false)), TextItem::Adjust(-500.0), TextItem::Glyph(glyph(66, 1000.0, false))])
+            .expect("the text is shown");
         // The first square covers x 20..30 above the baseline y = 30 (device rows 60..70), the second sits 15 units on.
         assert!(dark(&painter, 25, 65));
         assert!(!dark(&painter, 32, 65));
@@ -598,10 +525,7 @@ mod tests {
         let mut painter = painter(&document, &drawing);
         painter.current.char_spacing = 2.0;
         painter.current.word_spacing = 3.0;
-        painter.show_text(&[
-            TextItem::Glyph(glyph(32, 250.0, true)),
-            TextItem::Glyph(glyph(65, 500.0, false)),
-        ]).expect("the text is shown");
+        painter.show_text(&[TextItem::Glyph(glyph(32, 250.0, true)), TextItem::Glyph(glyph(65, 500.0, false))]).expect("the text is shown");
         // 250 units of a 10 point font are 2.5, plus 3 for the space and 2 for each character; then 5 and 2.
         assert!((painter.current.x - (2.5 + 3.0 + 2.0 + 5.0 + 2.0)).abs() < 1e-9);
     }
@@ -672,12 +596,7 @@ mod tests {
 
     impl FontDrawing for SquareFont {
         fn font(&self, loaded_name: &str) -> Option<DrawnFont> {
-            (loaded_name == "t3").then(|| DrawnFont {
-                font_matrix: [0.1, 0.0, 0.0, 0.1, 0.0, 0.0],
-                vertical: false,
-                type3: true,
-                missing_file: false,
-            })
+            (loaded_name == "t3").then(|| DrawnFont { font_matrix: [0.1, 0.0, 0.0, 0.1, 0.0, 0.0], vertical: false, type3: true, missing_file: false })
         }
 
         fn glyph(&self, _: &str, _: &Glyph) -> GlyphDraw {
@@ -697,10 +616,7 @@ mod tests {
         list.add_op(Op::ConstructPath {
             paint: PaintOp::Fill,
             path: Some(PathData {
-                data: vec![
-                    DRAW_MOVE_TO, 0.0, 0.0, DRAW_LINE_TO, 10.0, 0.0, DRAW_LINE_TO, 10.0, 10.0, DRAW_LINE_TO, 0.0,
-                    10.0, DRAW_CLOSE_PATH,
-                ],
+                data: vec![DRAW_MOVE_TO, 0.0, 0.0, DRAW_LINE_TO, 10.0, 0.0, DRAW_LINE_TO, 10.0, 10.0, DRAW_LINE_TO, 0.0, 10.0, DRAW_CLOSE_PATH],
                 min_max: [0.0, 0.0, 10.0, 10.0],
             }),
         });
@@ -710,13 +626,7 @@ mod tests {
     fn type3_painter<'a>(document: &'a Document, drawing: &'a SquareFont, bounded: bool) -> Painter<'a> {
         use crate::oplist::{LoadedFont, Type3Data};
         let canvas = Canvas::new(100, 100).expect("canvas");
-        let mut painter = Painter::new(
-            canvas,
-            document,
-            Arc::new(crate::object::Dict::new()),
-            Some(drawing),
-            OptionalContentConfig::default(),
-        );
+        let mut painter = Painter::new(canvas, document, Arc::new(crate::object::Dict::new()), Some(drawing), OptionalContentConfig::default());
         painter.canvas.set_fill_color("rgb(255,255,255)");
         painter.canvas.fill_rect(0.0, 0.0, 100.0, 100.0);
         painter.canvas.set_fill_color("#000000");
@@ -724,10 +634,7 @@ mod tests {
         let font = LoadedFont {
             loaded_name: "t3".to_owned(),
             font: None,
-            type3: Some(Type3Data {
-                procedures: vec![("sq".to_owned(), square_procedure(bounded))],
-                char_bbox: None,
-            }),
+            type3: Some(Type3Data { procedures: vec![("sq".to_owned(), square_procedure(bounded))], char_bbox: None }),
         };
         painter.type3_fonts = Arc::new(std::collections::HashMap::from([("t3".to_owned(), Arc::new(font))]));
         painter.set_font("t3", 10.0);
@@ -735,10 +642,7 @@ mod tests {
     }
 
     fn type3_glyph(width: f64) -> Glyph {
-        Glyph {
-            operator_list_id: Some("sq".to_owned()),
-            ..glyph(65, width, false)
-        }
+        Glyph { operator_list_id: Some("sq".to_owned()), ..glyph(65, width, false) }
     }
 
     #[test]
@@ -748,9 +652,7 @@ mod tests {
         let mut painter = type3_painter(&document, &drawing, false);
         painter.begin_text();
         painter.set_text_matrix(&[1.0, 0.0, 0.0, 1.0, 20.0, 30.0]);
-        painter
-            .show_text(&[TextItem::Glyph(type3_glyph(10.0)), TextItem::Glyph(type3_glyph(10.0))])
-            .expect("the text is shown");
+        painter.show_text(&[TextItem::Glyph(type3_glyph(10.0)), TextItem::Glyph(type3_glyph(10.0))]).expect("the text is shown");
         // A glyph unit is 0.1 of the size 10: the square is 10 by 10 from the baseline at (20, 30), the second one
         // starts 10 on (10 glyph units of width are one unit of the font matrix times the size).
         assert!(dark(&painter, 25, 65));
@@ -767,9 +669,7 @@ mod tests {
         let mut painter = type3_painter(&document, &drawing, true);
         painter.begin_text();
         painter.set_text_matrix(&[1.0, 0.0, 0.0, 1.0, 20.0, 30.0]);
-        painter
-            .show_text(&[TextItem::Glyph(type3_glyph(10.0))])
-            .expect("the text is shown");
+        painter.show_text(&[TextItem::Glyph(type3_glyph(10.0))]).expect("the text is shown");
         // The box of `d1` is 0 to 5 glyph units across: half the square.
         assert!(dark(&painter, 22, 65));
         assert!(!dark(&painter, 28, 65));
@@ -792,12 +692,7 @@ mod tests {
         struct Type3;
         impl FontDrawing for Type3 {
             fn font(&self, _: &str) -> Option<DrawnFont> {
-                Some(DrawnFont {
-                    font_matrix: [0.01, 0.0, 0.0, 0.01, 0.0, 0.0],
-                    vertical: false,
-                    type3: true,
-                    missing_file: false,
-                })
+                Some(DrawnFont { font_matrix: [0.01, 0.0, 0.0, 0.01, 0.0, 0.0], vertical: false, type3: true, missing_file: false })
             }
             fn glyph(&self, _: &str, _: &Glyph) -> GlyphDraw {
                 GlyphDraw::default()
@@ -805,13 +700,7 @@ mod tests {
         }
         let document = pdf_document();
         let canvas = Canvas::new(10, 10).expect("canvas");
-        let mut painter = Painter::new(
-            canvas,
-            &document,
-            Arc::new(crate::object::Dict::new()),
-            Some(&Type3),
-            OptionalContentConfig::default(),
-        );
+        let mut painter = Painter::new(canvas, &document, Arc::new(crate::object::Dict::new()), Some(&Type3), OptionalContentConfig::default());
         painter.set_font("t3", 2.0);
         painter.show_text(&[TextItem::Glyph(glyph(65, 100.0, false)), TextItem::Adjust(500.0)]).expect("the text is shown");
         // 100 glyph units at 0.01 and size 2 is 2; the adjustment of 500 thousandths of size 2 is -1.

@@ -15,10 +15,10 @@ use serde_json::{Map, Value, json};
 
 use super::RoomError;
 use super::home::{HomePlan, HomePorts, Presence};
-use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use super::ready::RoomsReady;
 use super::records::{Left, RoomStore, Rooms};
 use super::service::{KnownAgent, ListingEnd, RoomHost, RoomRunner, join, route_params};
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_rt::CancellationToken;
 
 /// The agent definitions the rooms module needs (files owned by the agent service).
@@ -154,9 +154,7 @@ impl<S: RoomStore + 'static> HomePorts for SessionHomePorts<S> {
         }
         let failed = self.leave(&left).await?;
         if failed > 0 {
-            return Err(RoomError::Port(format!(
-                "The member left its rooms, but {failed} of its conversations could not be deleted."
-            )));
+            return Err(RoomError::Port(format!("The member left its rooms, but {failed} of its conversations could not be deleted.")));
         }
         Ok(())
     }
@@ -167,12 +165,7 @@ impl<S: RoomStore + 'static> HomePorts for SessionHomePorts<S> {
 
     /// `sess_<pid>_<ms>_<uuid>`: unused by any other session.
     fn mint_archive_id(&self) -> String {
-        format!(
-            "sess_{}_{}_{}",
-            std::process::id(),
-            chrono::Utc::now().timestamp_millis(),
-            uuid::Uuid::new_v4().simple()
-        )
+        format!("sess_{}_{}_{}", std::process::id(), chrono::Utc::now().timestamp_millis(), uuid::Uuid::new_v4().simple())
     }
 }
 
@@ -281,10 +274,7 @@ mod tests {
     #[async_trait]
     impl AgentCatalog for Catalog {
         async fn agents(&self) -> Result<Vec<KnownAgent>, RoomError> {
-            Ok(vec![KnownAgent {
-                id: "bench".into(),
-                route: json!([{ "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true }]),
-            }])
+            Ok(vec![KnownAgent { id: "bench".into(), route: json!([{ "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true }]) }])
         }
         async fn mixy_route(&self) -> Value {
             json!({ "provider": "anthropic", "model": "opus" })
@@ -472,7 +462,8 @@ mod tests {
         let rooms = Arc::new(Rooms::new(store.clone()));
         let input = |members: &[&str]| RoomConfigInput { name: "Plan".into(), members: members.iter().map(|m| (*m).into()).collect(), ..Default::default() };
         let host = Arc::new(NoHost { events: events.clone(), refused: Default::default() });
-        let ports = SessionHomePorts::new(Arc::new(Catalog), Arc::new(Spy::default()), rooms.clone(), host.clone(), Arc::new(NoRun::default()), RoomsReady::prepared());
+        let ports =
+            SessionHomePorts::new(Arc::new(Catalog), Arc::new(Spy::default()), rooms.clone(), host.clone(), Arc::new(NoRun::default()), RoomsReady::prepared());
         let taken = || std::mem::take(&mut *events.lock().unwrap());
         let members = |room: &'static str| {
             let rooms = rooms.clone();
@@ -487,7 +478,10 @@ mod tests {
         *host.refused.lock().unwrap() = Some("room03");
         ports.forget_room_member("gh").await.unwrap_err();
         assert_eq!(taken(), ["record room01 ops,bench", "record room03 refused", "record room01 gh,ops,bench"]);
-        assert_eq!((members("room01").await, members("room03").await), (vec!["gh".to_owned(), "ops".into(), "bench".into()], vec!["gh".to_owned(), "ops".into(), "bench".into()]));
+        assert_eq!(
+            (members("room01").await, members("room03").await),
+            (vec!["gh".to_owned(), "ops".into(), "bench".into()], vec!["gh".to_owned(), "ops".into(), "bench".into()])
+        );
         *host.refused.lock().unwrap() = None;
 
         // The save fails: both logs are put back.
@@ -516,12 +510,16 @@ mod tests {
         rooms.create(&input(&["ops", "bench"]), "room02", 2).await.unwrap();
         rooms.create(&input(&["gh", "bench"]), "room03", 3).await.unwrap();
         let runner = Arc::new(NoRun::default());
-        let ports = SessionHomePorts::new(Arc::new(Catalog), Arc::new(Spy::default()), rooms.clone(), Arc::new(NoHost::default()), runner.clone(), RoomsReady::prepared());
-        ports.forget_room_member("gh").await.unwrap();
-        assert_eq!(
-            *runner.0.lock().unwrap(),
-            [("room01".to_owned(), vec!["gh".to_owned()]), ("room03".to_owned(), vec!["gh".to_owned()])]
+        let ports = SessionHomePorts::new(
+            Arc::new(Catalog),
+            Arc::new(Spy::default()),
+            rooms.clone(),
+            Arc::new(NoHost::default()),
+            runner.clone(),
+            RoomsReady::prepared(),
         );
+        ports.forget_room_member("gh").await.unwrap();
+        assert_eq!(*runner.0.lock().unwrap(), [("room01".to_owned(), vec!["gh".to_owned()]), ("room03".to_owned(), vec!["gh".to_owned()])]);
         ports.forget_room_member("gh").await.unwrap();
         assert_eq!(runner.0.lock().unwrap().len(), 2, "a member in no room cancels nothing");
     }
@@ -532,10 +530,7 @@ mod tests {
         let ports = ports(spy.clone());
         let mixy = ports.plan(MIXY_AGENT_ID).await.unwrap();
         assert_eq!(mixy.params, json!({ "provider": "anthropic", "model": "opus" }));
-        assert_eq!(
-            ports.plan("nobody").await.unwrap_err(),
-            RoomError::Invalid("Agent \"nobody\" is not available.".into())
-        );
+        assert_eq!(ports.plan("nobody").await.unwrap_err(), RoomError::Invalid("Agent \"nobody\" is not available.".into()));
         ports.name_retired("home_gone", "gone").await.unwrap();
         ports.name_retired("home_bench", "bench").await.unwrap();
         assert_eq!(*spy.0.lock().unwrap(), vec![("home_gone".to_owned(), json!("Gone (deleted)"))]);
@@ -599,7 +594,6 @@ mod tests {
         assert_eq!(host.delete_sessions(&["a".into(), "bad".into(), "b".into()]).await, 1);
     }
 
-
     /// A task session's create params carry the task workspace as Node's `resolveTaskProject`
     /// gives it for a task without a Project.
     #[tokio::test]
@@ -608,10 +602,7 @@ mod tests {
         let spy = Arc::new(Spy::default());
         let ports = ports(spy.clone());
         let plan = ports.plan("bench").await.unwrap();
-        assert_eq!(
-            plan.params,
-            json!({ "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true, "sessionProfile": { "homeAgent": "bench" } })
-        );
+        assert_eq!(plan.params, json!({ "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true, "sessionProfile": { "homeAgent": "bench" } }));
         assert_eq!(plan.route, json!({ "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true }));
         ports.create_session("home_bench", &plan.params).await.unwrap();
         let (id, sent) = spy.0.lock().unwrap()[0].clone();

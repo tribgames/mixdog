@@ -139,7 +139,10 @@ mod tests {
     #[tokio::test]
     async fn a_step_with_no_member_left_asks_nothing_and_decides_nothing() {
         let lines = Arc::new(Mutex::new(Vec::<String>::new()));
-        let log = { let lines = lines.clone(); Arc::new(move |line: &str| lines.lock().unwrap().push(line.to_owned())) };
+        let log = {
+            let lines = lines.clone();
+            Arc::new(move |line: &str| lines.lock().unwrap().push(line.to_owned()))
+        };
         let maintainer = RouteMaintainer { routes: Arc::new(Stuck), log, timeout: Duration::from_secs(5) };
         for members in [vec![], vec![SupervisorMember { id: String::new(), name: "Nobody".into(), description: String::new() }]] {
             let step = SupervisorStep { members, ..step() };

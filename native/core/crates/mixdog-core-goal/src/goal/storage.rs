@@ -2,10 +2,7 @@
 //! `{ version: 1, goal }`, written atomically with the replaced version kept as `.bak`. A damaged
 //! record never blocks the feature (it is set aside and the last good copy restored, else the
 //! session has no Goal); one a newer build wrote reads as no Goal and is never replaced.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "every file call here runs inside a lane job (the InLane proof argument)"
-)]
+#![allow(clippy::disallowed_methods, reason = "every file call here runs inside a lane job (the InLane proof argument)")]
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -18,8 +15,7 @@ use serde_json::{Value, json};
 use super::error::{GoalError, GoalResult};
 use super::js::{Goal, string};
 use super::state::{
-    GOAL_FILE_VERSION, assert_session_id, completed_goal_expired, freeze_unobserved_segment, is_session_id,
-    normalize_stored_goal, public_goal,
+    GOAL_FILE_VERSION, assert_session_id, completed_goal_expired, freeze_unobserved_segment, is_session_id, normalize_stored_goal, public_goal,
 };
 
 const LOCK_TIMEOUT: Duration = Duration::from_millis(2_000);
@@ -28,11 +24,7 @@ const MAX_SAFE: f64 = 9_007_199_254_740_991.0;
 /// `goalsRoot`: `<dataDir>/goals`; an empty data dir is the working directory.
 pub fn goals_root(data_dir: &str) -> PathBuf {
     let dir = js_trim(data_dir);
-    if dir.is_empty() {
-        std::env::current_dir().unwrap_or_default().join("goals")
-    } else {
-        Path::new(dir).join("goals")
-    }
+    if dir.is_empty() { std::env::current_dir().unwrap_or_default().join("goals") } else { Path::new(dir).join("goals") }
 }
 
 pub fn record_path(root: &Path, session_id: &str) -> PathBuf {
@@ -64,16 +56,9 @@ pub fn file_stamp(proof: &impl mixdog_fsio::WriteProof, path: &Path) -> std::io:
     {
         use std::os::unix::fs::MetadataExt;
         match mixdog_fsio::metadata(proof, path) {
-            Ok(meta) => Ok(Some(format!(
-                "{}:{}:{}:{}.{}:{}.{}",
-                meta.dev(),
-                meta.ino(),
-                meta.len(),
-                meta.mtime(),
-                meta.mtime_nsec(),
-                meta.ctime(),
-                meta.ctime_nsec()
-            ))),
+            Ok(meta) => {
+                Ok(Some(format!("{}:{}:{}:{}.{}:{}.{}", meta.dev(), meta.ino(), meta.len(), meta.mtime(), meta.mtime_nsec(), meta.ctime(), meta.ctime_nsec())))
+            }
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
         }
@@ -91,8 +76,8 @@ fn windows_stamp(proof: &impl mixdog_fsio::WriteProof, path: &Path) -> std::io::
     use std::ffi::c_void;
     use std::os::windows::io::AsRawHandle;
     use windows_sys::Win32::Storage::FileSystem::{
-        BY_HANDLE_FILE_INFORMATION, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, FileBasicInfo, GetFileInformationByHandle, GetFileInformationByHandleEx,
+        BY_HANDLE_FILE_INFORMATION, FILE_BASIC_INFO, FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        FileBasicInfo, GetFileInformationByHandle, GetFileInformationByHandleEx,
     };
     let file = match mixdog_fsio::OpenOptions::new()
         .access_mode(FILE_READ_ATTRIBUTES)
@@ -157,10 +142,7 @@ fn safe_version(doc: &Value) -> Option<f64> {
 fn validate(session_id: &str, at: f64) -> impl Fn(&Value) -> Result<(), Invalid> + '_ {
     move |doc| {
         if let Some(version) = safe_version(doc).filter(|v| *v > GOAL_FILE_VERSION as f64) {
-            return Err(Invalid::Unsupported(format!(
-                "Goal record version {} is newer than this build",
-                mixdog_js::number_to_string(version)
-            )));
+            return Err(Invalid::Unsupported(format!("Goal record version {} is newer than this build", mixdog_js::number_to_string(version))));
         }
         let goal = doc.as_object().and_then(|d| d.get("goal"));
         let current = doc.get("version").and_then(Value::as_f64) == Some(GOAL_FILE_VERSION as f64);
@@ -258,13 +240,7 @@ fn read_stored_goal_file<L: WriteLane>(lane: &InLane<L>, root: &Path, session_id
 
 /// `readStoredGoalSnapshot`: the Goal a reader without a runtime sees (deleting an expired
 /// completed one); an archived Goal reads as none.
-pub fn read_stored_goal_snapshot<L: WriteLane>(
-    lane: &InLane<L>,
-    data_dir: &str,
-    session_id: &str,
-    at: f64,
-    completed_ttl_ms: f64,
-) -> Option<Goal> {
+pub fn read_stored_goal_snapshot<L: WriteLane>(lane: &InLane<L>, data_dir: &str, session_id: &str, at: f64, completed_ttl_ms: f64) -> Option<Goal> {
     stored_goal_snapshot_under(lane, &goals_root(data_dir), session_id, at, completed_ttl_ms)
 }
 
@@ -304,7 +280,9 @@ pub fn list_active_session_ids<L: WriteLane>(lane: &InLane<L>, data_dir: &str, a
             continue;
         }
         if let Some(goal) = goal
-            && string(&goal, "status") == "active" && !super::js::truthy(goal.get("archivedAt")) {
+            && string(&goal, "status") == "active"
+            && !super::js::truthy(goal.get("archivedAt"))
+        {
             ids.push(id.to_owned());
         }
     }

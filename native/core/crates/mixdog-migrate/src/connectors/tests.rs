@@ -1,10 +1,7 @@
 //! The connector transition: the servers of one connector merge into one holding its accounts, and the stores that
 //! name a merged-away server follow it.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "the tests build and read data dirs with blocking std::fs"
-)]
+#![allow(clippy::disallowed_methods, reason = "the tests build and read data dirs with blocking std::fs")]
 
 use std::path::Path;
 
@@ -125,11 +122,7 @@ fn a_disabled_server_keeps_its_account_off_and_a_fully_disabled_connector_is_off
 }
 
 fn policy(allow: Option<&[&str]>, off: &[&str]) -> Policy {
-    Policy {
-        allow: allow.map(|a| a.iter().map(|s| (*s).to_owned()).collect()),
-        off: off.iter().map(|s| (*s).to_owned()).collect(),
-        tools: Default::default(),
-    }
+    Policy { allow: allow.map(|a| a.iter().map(|s| (*s).to_owned()).collect()), off: off.iter().map(|s| (*s).to_owned()).collect(), tools: Default::default() }
 }
 
 fn group() -> Vec<Group> {
@@ -145,4 +138,3 @@ fn a_policy_naming_a_merged_away_server_follows_the_surviving_one() {
     assert_eq!(map_policy(&policy(None, &["gmail"]), &group()), None, "a policy naming none of them is untouched");
     assert_eq!(map_policy(&policy(None, &["notion"]), &group()), None, "the surviving server's own entry needs no move");
 }
-

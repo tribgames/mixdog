@@ -204,12 +204,7 @@ pub struct SessionClose {
 impl SessionClose {
     /// `providers`: the process's provider registry (`closeProviderConnections`); `shells`: the
     /// shell runtime; `read_state`: the one read state of the read, edit and apply_patch tools.
-    pub fn new(
-        directory: Arc<SessionDirectory>,
-        providers: Arc<ProviderRegistry>,
-        shells: Arc<dyn OwnedShells>,
-        read_state: Arc<ReadState>,
-    ) -> Self {
+    pub fn new(directory: Arc<SessionDirectory>, providers: Arc<ProviderRegistry>, shells: Arc<dyn OwnedShells>, read_state: Arc<ReadState>) -> Self {
         Self { threads: SessionThreads::new(directory.clone()), directory, providers, shells, read_state }
     }
 
@@ -367,7 +362,13 @@ mod tests {
             self.header.lock().unwrap().extend(set);
             Ok(())
         }
-        async fn patch_header_if(&self, _: &ThreadId, expect: Map<String, Value>, set: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+        async fn patch_header_if(
+            &self,
+            _: &ThreadId,
+            expect: Map<String, Value>,
+            set: Map<String, Value>,
+            _: Vec<String>,
+        ) -> Result<Option<Map<String, Value>>, PortError> {
             let mut header = self.header.lock().unwrap();
             if self.conflict_once.swap(false, std::sync::atomic::Ordering::SeqCst) {
                 header.insert("generation".into(), json!(5));
@@ -407,10 +408,7 @@ mod tests {
     #[test]
     fn the_tombstone_is_nodes_first_close_and_re_close() {
         let first = tombstone(&obj(json!({ "generation": 2, "updatedAt": 5 })), "heartbeat-finished", 90);
-        assert_eq!(
-            Value::Object(first),
-            json!({ "closed": true, "closedReason": "heartbeat-finished", "status": "closed", "generation": 3, "updatedAt": 90 })
-        );
+        assert_eq!(Value::Object(first), json!({ "closed": true, "closedReason": "heartbeat-finished", "status": "closed", "generation": 3, "updatedAt": 90 }));
         let again = tombstone(&obj(json!({ "closed": true, "generation": 3, "updatedAt": 90 })), "manual", 120);
         assert_eq!(Value::Object(again), json!({ "closed": true, "status": "closed" }));
         let deleted = tombstone(&obj(json!({ "status": "closed", "updatedAt": 90 })), DELETE_REASON, 120);
@@ -420,10 +418,7 @@ mod tests {
         let kept = tombstone(&obj(json!({ "closed": true, "updatedAt": 40, "cancelStatus": "Cancel pending" })), "cli-agent-close", 99);
         assert_eq!((kept["cancelStatus"].clone(), kept["cancelledAt"].clone()), (json!("cancel-unconfirmed"), json!(40)));
     }
-
-
 }
-
 
 /// The idle sweep's close (`closeIdleRecord`, `sweep-row.mjs:134-163`): `markSessionClosed` with
 /// `isSessionLive` and `singleAttempt`, which tombstones the record and lands nothing (`null`)
@@ -434,7 +429,11 @@ mod tests {
 /// shut down; any refusal is `Ok(false)` and nothing changes. The tombstone is then appended as
 /// the thread's last record (the tombstone the close path writes, [`tombstone`]) and the thread
 /// leaves the directory. `Ok(false)` too for a session the catalog does not list.
-pub(crate) async fn close_idle(directory: &super::directory::DirInner, id: &str, guard: super::control::DeleteGuard) -> Result<bool, mixdog_core_api::CoreError> {
+pub(crate) async fn close_idle(
+    directory: &super::directory::DirInner,
+    id: &str,
+    guard: super::control::DeleteGuard,
+) -> Result<bool, mixdog_core_api::CoreError> {
     let id = mixdog_js::js_trim(id);
     if !super::delete::is_session_id(id) {
         return Ok(false);
@@ -459,7 +458,6 @@ pub(crate) async fn close_idle(directory: &super::directory::DirInner, id: &str,
     deps.session_grants.forget(id);
     Ok(true)
 }
-
 
 /// Teardown's `closeOwnSession` (`teardown/session-close.mjs:42-60`): the session a runtime holds is closed with the
 /// stop's reason, tombstoned while it is an empty scratch session and detached otherwise. A worker session is not

@@ -42,7 +42,6 @@ use mixdog_core_session::project::service::Registry;
 use mixdog_core_session::session::worktree::LiveSessions;
 use mixdog_core_session::session::worktree::worktree_tests::rig;
 
-
 struct One(String);
 
 #[async_trait]
@@ -97,9 +96,6 @@ impl SessionSource for Sessions {
     }
 }
 
-
-
-
 /// `{ ok }` or `{ error: { code, message, details } }`, as the recorder's `step` stored a throw.
 /// Node's `details` are the refusal's own fields: the typed detail without its `type` tag.
 fn answer(result: Result<Value, CoreError>) -> Value {
@@ -118,11 +114,6 @@ fn answer(result: Result<Value, CoreError>) -> Value {
         Err(other) => panic!("a failure Node has no counterpart for: {other:?}"),
     }
 }
-
-
-
-
-
 
 /// A connector switch as `origin` (and, for a window, its scope) sends it: the same call `testing::request` builds, with the context of that connection.
 fn switch_as(ops: &mut u64, origin: Origin, window: Option<WindowScope>, repo: &str, connector: &str, enabled: bool) -> CoreRequest {
@@ -176,5 +167,3 @@ async fn a_window_widens_a_project_connector_as_main_does() {
     let relayed = switched(&service, switch_as(&mut n, Origin::Relay, None, &repo, "gmail", true)).await;
     assert!(relayed.get("error").is_some(), "a relay origin cannot widen: {relayed}");
 }
-
-

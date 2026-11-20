@@ -34,7 +34,11 @@ pattern!(PARAGRAPH_PROPS, r"<a:pPr\b[^>]*\/>|<a:pPr\b[^>]*>[\s\S]*?<\/a:pPr>", "
 pattern!(HANGING_PUNCT, r#"\bhangingPunct="[^"]*""#, "");
 pattern!(PARAGRAPH_OPEN, r"^<a:pPr\b", "");
 pattern!(CHART_PARTS, r"^ppt\/charts\/chart[^/]+\.xml$", "");
-pattern!(NON_BAR_CHART, r"<c:(lineChart|line3DChart|areaChart|area3DChart|pieChart|pie3DChart|doughnutChart|radarChart|scatterChart|ofPieChart)\b[\s\S]*?<\/c:\1>", "g");
+pattern!(
+    NON_BAR_CHART,
+    r"<c:(lineChart|line3DChart|areaChart|area3DChart|pieChart|pie3DChart|doughnutChart|radarChart|scatterChart|ofPieChart)\b[\s\S]*?<\/c:\1>",
+    "g"
+);
 pattern!(INVERT_IF_NEGATIVE, r"<c:invertIfNegative\b[^>]*\/>|<c:invertIfNegative\b[^>]*>[\s\S]*?<\/c:invertIfNegative>", "g");
 pattern!(CHART_GROUP, r"<c:(barChart|lineChart|areaChart|radarChart|scatterChart|bubbleChart)>[\s\S]*?<\/c:\1>", "g");
 pattern!(AXIS_ID, r#"<c:(?:catAx|valAx|dateAx|serAx)>\s*<c:axId val="([^"]+)""#, "g");
@@ -289,16 +293,15 @@ fn give_notes_master_own_theme(zip: &mut Package) -> bool {
     if zip.file(&theme.part).is_none() {
         return false;
     }
-    let shared = names.iter().filter(|name| SLIDE_MASTER_PART.is_match(name)).any(|master| {
-        theme_target(&zip.text(&part_relationship_path(master)), master).is_some_and(|found| found.part == theme.part)
-    });
+    let shared = names
+        .iter()
+        .filter(|name| SLIDE_MASTER_PART.is_match(name))
+        .any(|master| theme_target(&zip.text(&part_relationship_path(master)), master).is_some_and(|found| found.part == theme.part));
     if !shared {
         return true;
     }
-    let highest = names
-        .iter()
-        .map(|name| THEME_PART_NUMBER.captures(name).and_then(|found| found.get(1)).map_or(0.0, string_to_number))
-        .fold(0.0_f64, f64::max);
+    let highest =
+        names.iter().map(|name| THEME_PART_NUMBER.captures(name).and_then(|found| found.get(1)).map_or(0.0, string_to_number)).fold(0.0_f64, f64::max);
     let own = format!("ppt/theme/theme{}.xml", mixdog_js::number_to_string(highest + 1.0));
     let theme_xml = zip.text(&theme.part);
     zip.set(&own, theme_xml);
@@ -356,7 +359,8 @@ pub fn merge_accent_series(xml: &str) -> Merged {
     let merged: Vec<(usize, String)> = base_values
         .iter()
         .map(|(index, value)| {
-            let text = if accent.contains(index) { overlay_values.iter().find(|(at, _)| at == index).map(|(_, text)| text.clone()) } else { Some(value.clone()) };
+            let text =
+                if accent.contains(index) { overlay_values.iter().find(|(at, _)| at == index).map(|(_, text)| text.clone()) } else { Some(value.clone()) };
             (*index, text.unwrap_or_default())
         })
         .collect();
@@ -647,7 +651,8 @@ fn attach_svg_icons(zip: &mut Package, slide_part: &str, xml: &str) -> (String, 
             &format!("<Relationship Id=\"{id}\" Type=\"{IMAGE_RELATIONSHIP}\" Target=\"../media/{}\"/></Relationships>", posix::basename(&media_name)),
             1,
         );
-        let extension = format!("<a:extLst><a:ext uri=\"{SVG_EXTENSION_URI}\"><asvg:svgBlip xmlns:asvg=\"{SVG_NAMESPACE}\" r:embed=\"{id}\"/></a:ext></a:extLst>");
+        let extension =
+            format!("<a:extLst><a:ext uri=\"{SVG_EXTENSION_URI}\"><asvg:svgBlip xmlns:asvg=\"{SVG_NAMESPACE}\" r:embed=\"{id}\"/></a:ext></a:extLst>");
         let with_svg = match blip.strip_suffix("/>") {
             Some(open) => format!("{open}>{extension}</a:blip>"),
             None => blip.replacen("</a:blip>", &format!("{extension}</a:blip>"), 1),
@@ -696,23 +701,86 @@ pub fn unique_shape_ids(xml: &str) -> Counted {
 // ---- schema order -------------------------------------------------------------------------------------------------
 
 const CAT_AX_ORDER: &[&str] = &[
-    "axId", "scaling", "delete", "axPos", "majorGridlines", "minorGridlines", "title", "numFmt", "majorTickMark", "minorTickMark", "tickLblPos", "spPr", "txPr", "crossAx", "crosses", "crossesAt", "auto", "lblAlgn",
-    "lblOffset", "tickLblSkip", "tickMarkSkip", "noMultiLvlLbl", "extLst",
+    "axId",
+    "scaling",
+    "delete",
+    "axPos",
+    "majorGridlines",
+    "minorGridlines",
+    "title",
+    "numFmt",
+    "majorTickMark",
+    "minorTickMark",
+    "tickLblPos",
+    "spPr",
+    "txPr",
+    "crossAx",
+    "crosses",
+    "crossesAt",
+    "auto",
+    "lblAlgn",
+    "lblOffset",
+    "tickLblSkip",
+    "tickMarkSkip",
+    "noMultiLvlLbl",
+    "extLst",
 ];
 const DATE_AX_ORDER: &[&str] = &[
-    "axId", "scaling", "delete", "axPos", "majorGridlines", "minorGridlines", "title", "numFmt", "majorTickMark", "minorTickMark", "tickLblPos", "spPr", "txPr", "crossAx", "crosses", "crossesAt", "auto",
-    "lblOffset", "baseTimeUnit", "majorUnit", "majorTimeUnit", "minorUnit", "minorTimeUnit", "extLst",
+    "axId",
+    "scaling",
+    "delete",
+    "axPos",
+    "majorGridlines",
+    "minorGridlines",
+    "title",
+    "numFmt",
+    "majorTickMark",
+    "minorTickMark",
+    "tickLblPos",
+    "spPr",
+    "txPr",
+    "crossAx",
+    "crosses",
+    "crossesAt",
+    "auto",
+    "lblOffset",
+    "baseTimeUnit",
+    "majorUnit",
+    "majorTimeUnit",
+    "minorUnit",
+    "minorTimeUnit",
+    "extLst",
 ];
 const VAL_AX_ORDER: &[&str] = &[
-    "axId", "scaling", "delete", "axPos", "majorGridlines", "minorGridlines", "title", "numFmt", "majorTickMark", "minorTickMark", "tickLblPos", "spPr", "txPr", "crossAx", "crosses", "crossesAt", "crossBetween",
-    "majorUnit", "minorUnit", "dispUnits", "extLst",
+    "axId",
+    "scaling",
+    "delete",
+    "axPos",
+    "majorGridlines",
+    "minorGridlines",
+    "title",
+    "numFmt",
+    "majorTickMark",
+    "minorTickMark",
+    "tickLblPos",
+    "spPr",
+    "txPr",
+    "crossAx",
+    "crosses",
+    "crossesAt",
+    "crossBetween",
+    "majorUnit",
+    "minorUnit",
+    "dispUnits",
+    "extLst",
 ];
 const BAR_CHART_ORDER: &[&str] = &["barDir", "grouping", "varyColors", "ser", "dLbls", "gapWidth", "overlap", "serLines", "axId", "extLst"];
 const LINE_CHART_ORDER: &[&str] = &["grouping", "varyColors", "ser", "dLbls", "dropLines", "hiLowLines", "upDownBars", "marker", "smooth", "axId", "extLst"];
 const AREA_CHART_ORDER: &[&str] = &["grouping", "varyColors", "ser", "dLbls", "dropLines", "axId", "extLst"];
 const PIE_CHART_ORDER: &[&str] = &["varyColors", "ser", "dLbls", "firstSliceAng", "extLst"];
 const DOUGHNUT_CHART_ORDER: &[&str] = &["varyColors", "ser", "dLbls", "firstSliceAng", "holeSize", "extLst"];
-const BAR_SERIES_ORDER: &[&str] = &["idx", "order", "tx", "spPr", "invertIfNegative", "pictureOptions", "dPt", "dLbls", "trendline", "errBars", "cat", "val", "shape", "extLst"];
+const BAR_SERIES_ORDER: &[&str] =
+    &["idx", "order", "tx", "spPr", "invertIfNegative", "pictureOptions", "dPt", "dLbls", "trendline", "errBars", "cat", "val", "shape", "extLst"];
 const LINE_SERIES_ORDER: &[&str] = &["idx", "order", "tx", "spPr", "marker", "dPt", "dLbls", "trendline", "errBars", "cat", "val", "smooth", "extLst"];
 const AREA_SERIES_ORDER: &[&str] = &["idx", "order", "tx", "spPr", "pictureOptions", "dPt", "dLbls", "trendline", "errBars", "cat", "val", "extLst"];
 const PIE_SERIES_ORDER: &[&str] = &["idx", "order", "tx", "spPr", "explosion", "dPt", "dLbls", "cat", "val", "extLst"];
@@ -780,7 +848,8 @@ pub fn order_chart_children(xml: &str) -> Rewrite {
         output = replace_each(pattern, &source, |found| {
             let original = whole(&source, found);
             let inner = found.get(1).unwrap_or("");
-            let filled = if *element == "c:lineChart" && !LINE_GROUPING.is_match(inner) { format!("<c:grouping val=\"standard\"/>{inner}") } else { inner.to_owned() };
+            let filled =
+                if *element == "c:lineChart" && !LINE_GROUPING.is_match(inner) { format!("<c:grouping val=\"standard\"/>{inner}") } else { inner.to_owned() };
             let mut body = sorted_children(&filled, order);
             if let Some(series_order) = *series_order {
                 let sorted = body;
@@ -942,11 +1011,15 @@ mod tests {
     }
 
     fn run(face: &str) -> String {
-        format!("<a:defRPr sz=\"1100\"><a:solidFill><a:srgbClr val=\"5A6B7B\"/></a:solidFill><a:latin typeface=\"{face}\" pitchFamily=\"34\" charset=\"0\"/></a:defRPr>")
+        format!(
+            "<a:defRPr sz=\"1100\"><a:solidFill><a:srgbClr val=\"5A6B7B\"/></a:solidFill><a:latin typeface=\"{face}\" pitchFamily=\"34\" charset=\"0\"/></a:defRPr>"
+        )
     }
 
     fn chart(body: &str) -> String {
-        format!("<c:chartSpace><c:chart><c:plotArea><c:barChart><c:catAx><c:txPr><a:p><a:pPr>{body}</a:pPr></a:p></c:txPr></c:catAx></c:barChart></c:plotArea></c:chart><c:spPr><a:noFill/></c:spPr><c:externalData r:id=\"rId1\"/></c:chartSpace>")
+        format!(
+            "<c:chartSpace><c:chart><c:plotArea><c:barChart><c:catAx><c:txPr><a:p><a:pPr>{body}</a:pPr></a:p></c:txPr></c:catAx></c:barChart></c:plotArea></c:chart><c:spPr><a:noFill/></c:spPr><c:externalData r:id=\"rId1\"/></c:chartSpace>"
+        )
     }
 
     #[test]
@@ -954,9 +1027,13 @@ mod tests {
         let fonts = normalize_chart_fonts(&chart(&run("Noto Sans KR")));
         assert_eq!(fonts.face, "Noto Sans KR");
         assert!(fonts.changed >= 2, "the run and the chart-level default both changed");
-        let faces = JsRegex::new_static(r#"<a:latin typeface="Noto Sans KR"[^>]*\/><a:ea typeface="Noto Sans KR"[^>]*\/><a:cs typeface="Noto Sans KR"[^>]*\/>"#, "");
+        let faces =
+            JsRegex::new_static(r#"<a:latin typeface="Noto Sans KR"[^>]*\/><a:ea typeface="Noto Sans KR"[^>]*\/><a:cs typeface="Noto Sans KR"[^>]*\/>"#, "");
         assert!(faces.is_match(&fonts.xml));
-        let default = JsRegex::new_static(r#"<\/c:spPr><c:txPr>[\s\S]*<a:latin typeface="Noto Sans KR"\/><a:ea typeface="Noto Sans KR"\/>[\s\S]*<\/c:txPr><c:externalData"#, "");
+        let default = JsRegex::new_static(
+            r#"<\/c:spPr><c:txPr>[\s\S]*<a:latin typeface="Noto Sans KR"\/><a:ea typeface="Noto Sans KR"\/>[\s\S]*<\/c:txPr><c:externalData"#,
+            "",
+        );
         assert!(default.is_match(&fonts.xml), "the chart default sits after c:spPr and before c:externalData");
         assert_eq!(normalize_chart_fonts(&fonts.xml).changed, 0, "idempotent: a run that already carries a:ea is left alone");
     }
@@ -976,7 +1053,8 @@ mod tests {
         ] {
             let input = chart(&format!("<a:defRPr><a:latin typeface=\"Noto Sans KR\"/>{existing}</a:defRPr>"));
             let normalized = normalize_chart_fonts(&input);
-            let properties = JsRegex::new_static(r"<a:defRPr>([\s\S]*?)<\/a:defRPr>", "").captures(&normalized.xml).and_then(|found| found.get(1)).unwrap_or("").to_owned();
+            let properties =
+                JsRegex::new_static(r"<a:defRPr>([\s\S]*?)<\/a:defRPr>", "").captures(&normalized.xml).and_then(|found| found.get(1)).unwrap_or("").to_owned();
             assert_eq!(JsRegex::new_static(r"<a:ea\b", "g").find_iter(&properties).count(), 1);
             assert_eq!(JsRegex::new_static(r"<a:cs\b", "g").find_iter(&properties).count(), 1);
             assert!(JsRegex::new_static(r#"<a:ea\b[^>]*\/>\s*<a:cs\b[^>]*typeface="Traditional Arabic""#, "").is_match(&properties));
@@ -996,13 +1074,17 @@ mod tests {
         assert!(ordered.xml.contains("<c:order val=\"0\"/><c:dPt><c:idx val=\"2\"/></c:dPt><c:dLbls>"));
         assert!(ordered.xml.contains("<c:crossAx val=\"2\"/><c:tickLblSkip val=\"1\"/><c:noMultiLvlLbl"));
         assert!(!order_chart_children(&ordered.xml).changed);
-        let line = order_chart_children("<c:lineChart><c:varyColors val=\"0\"/><c:ser><c:idx val=\"0\"/></c:ser><c:marker val=\"1\"/><c:axId val=\"1\"/></c:lineChart>");
+        let line = order_chart_children(
+            "<c:lineChart><c:varyColors val=\"0\"/><c:ser><c:idx val=\"0\"/></c:ser><c:marker val=\"1\"/><c:axId val=\"1\"/></c:lineChart>",
+        );
         assert!(line.xml.starts_with("<c:lineChart><c:grouping val=\"standard\"/><c:varyColors val=\"0\"/><c:ser>"));
     }
 
     fn accent_series(name: &str, values: [u32; 3], color: &str) -> String {
         let points: String = values.iter().enumerate().map(|(index, value)| format!("<c:pt idx=\"{index}\"><c:v>{value}</c:v></c:pt>")).collect();
-        format!("<c:ser><c:idx val=\"0\"/><c:tx><c:strRef><c:f>x</c:f><c:strCache><c:pt idx=\"0\"><c:v>{name}</c:v></c:pt></c:strCache></c:strRef></c:tx><c:spPr><a:solidFill><a:srgbClr val=\"{color}\"/></a:solidFill></c:spPr><c:invertIfNegative val=\"0\"/><c:val><c:numRef><c:numCache>{points}</c:numCache></c:numRef></c:val></c:ser>")
+        format!(
+            "<c:ser><c:idx val=\"0\"/><c:tx><c:strRef><c:f>x</c:f><c:strCache><c:pt idx=\"0\"><c:v>{name}</c:v></c:pt></c:strCache></c:strRef></c:tx><c:spPr><a:solidFill><a:srgbClr val=\"{color}\"/></a:solidFill></c:spPr><c:invertIfNegative val=\"0\"/><c:val><c:numRef><c:numCache>{points}</c:numCache></c:numRef></c:val></c:ser>"
+        )
     }
 
     #[test]
@@ -1038,7 +1120,9 @@ mod tests {
     fn a_gradient_marked_shape_is_saved_as_a_native_gradfill_without_an_outline_and_the_marker_is_cleared() {
         let spec = "%7B%22stops%22%3A%5B%5B0%2C%220B1B2B%22%2C1%5D%2C%5B100%2C%221F3A5F%22%2C0.4%5D%5D%2C%22angle%22%3A90%7D";
         let shape = |name: &str, fill: &str| {
-            format!("<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"{name}\"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"100\" cy=\"100\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>{fill}<a:ln w=\"12700\"><a:solidFill><a:srgbClr val=\"0B1B2B\"/></a:solidFill></a:ln></p:spPr><p:txBody><a:bodyPr/><a:p/></p:txBody></p:sp>")
+            format!(
+                "<p:sp><p:nvSpPr><p:cNvPr id=\"2\" name=\"{name}\"/><p:cNvSpPr/><p:nvPr/></p:nvSpPr><p:spPr><a:xfrm><a:off x=\"0\" y=\"0\"/><a:ext cx=\"100\" cy=\"100\"/></a:xfrm><a:prstGeom prst=\"rect\"><a:avLst/></a:prstGeom>{fill}<a:ln w=\"12700\"><a:solidFill><a:srgbClr val=\"0B1B2B\"/></a:solidFill></a:ln></p:spPr><p:txBody><a:bodyPr/><a:p/></p:txBody></p:sp>"
+            )
         };
         let xml = format!(
             "<p:spTree>{}{}</p:spTree>",
@@ -1055,7 +1139,8 @@ mod tests {
             "an unmarked shape keeps its fill and outline"
         );
         assert_eq!(native_gradients(&native.xml).expect("again").changed, 0, "idempotent");
-        let radial = gradient_fill_xml(&serde_json::json!({ "stops": [[0, "FFAA00", 0.35], [100, "FFAA00", 0]], "radial": { "fx": 0.25, "fy": 0.5 } })).expect("a radial gradient");
+        let radial = gradient_fill_xml(&serde_json::json!({ "stops": [[0, "FFAA00", 0.35], [100, "FFAA00", 0]], "radial": { "fx": 0.25, "fy": 0.5 } }))
+            .expect("a radial gradient");
         assert!(radial.contains("<a:path path=\"circle\"><a:fillToRect l=\"25000\" t=\"50000\" r=\"75000\" b=\"50000\"/></a:path>"));
         assert!(radial.contains("<a:gs pos=\"100000\"><a:srgbClr val=\"FFAA00\"><a:alpha val=\"0\"/>"));
     }
@@ -1075,10 +1160,13 @@ mod tests {
 
     #[test]
     fn the_sheet_and_the_table_of_a_merged_chart_lose_their_third_column() {
-        let sheet = "<dimension ref=\"A1:C4\"/><row r=\"2\" spans=\"1:3\"><c r=\"A2\" t=\"s\"><v>4</v></c><c r=\"B2\"><v>0</v></c><c r=\"C2\"><v>31</v></c></row>";
+        let sheet =
+            "<dimension ref=\"A1:C4\"/><row r=\"2\" spans=\"1:3\"><c r=\"A2\" t=\"s\"><v>4</v></c><c r=\"B2\"><v>0</v></c><c r=\"C2\"><v>31</v></c></row>";
         let merged = merge_workbook_columns(sheet, &[(0, "31".to_owned())]);
         assert_eq!(merged, "<dimension ref=\"A1:B4\"/><row r=\"2\" spans=\"1:2\"><c r=\"A2\" t=\"s\"><v>4</v></c><c r=\"B2\"><v>31</v></c></row>");
-        let table = merge_workbook_table("<table ref=\"A1:C4\"><tableColumns count=\"3\"><tableColumn id=\"1\" name=\"a\"/><tableColumn id=\"3\" name=\"c\"/></tableColumns></table>");
+        let table = merge_workbook_table(
+            "<table ref=\"A1:C4\"><tableColumns count=\"3\"><tableColumn id=\"1\" name=\"a\"/><tableColumn id=\"3\" name=\"c\"/></tableColumns></table>",
+        );
         assert_eq!(table, "<table ref=\"A1:B4\"><tableColumns count=\"2\"><tableColumn id=\"1\" name=\"a\"/></tableColumns></table>");
     }
 }

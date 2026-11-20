@@ -47,7 +47,11 @@ pub async fn summarize_function_lengths(source: &dyn OutlineSource, cwd: &Path, 
                 spanned.insert(language);
             }
             for s in symbols.iter().filter(|s| matches!(s["kind"].as_str(), Some("function" | "method" | "constructor")) && has_span(s)) {
-                functions.push((rel.clone(), s["name"].as_str().unwrap_or("").to_owned(), s["endLine"].as_f64().unwrap_or(0.0) as i64 - s["startLine"].as_f64().unwrap_or(0.0) as i64 + 1));
+                functions.push((
+                    rel.clone(),
+                    s["name"].as_str().unwrap_or("").to_owned(),
+                    s["endLine"].as_f64().unwrap_or(0.0) as i64 - s["startLine"].as_f64().unwrap_or(0.0) as i64 + 1,
+                ));
             }
         }
     }
@@ -55,7 +59,8 @@ pub async fn summarize_function_lengths(source: &dyn OutlineSource, cwd: &Path, 
         let rel = file.replace('\\', "/");
         seen.entry(rel.clone()).or_insert_with(|| extension(&rel));
     }
-    let mut not_measured: Vec<String> = seen.values().filter(|l| !spanned.contains(*l)).cloned().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+    let mut not_measured: Vec<String> =
+        seen.values().filter(|l| !spanned.contains(*l)).cloned().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
     not_measured.sort();
     let over = |limit: i64| functions.iter().filter(|f| f.2 > limit).count();
     let total = functions.len();
@@ -90,7 +95,8 @@ mod tests {
             json!({"rel": "a.ts", "lang": "typescript", "symbols": [sym("big", 1, 160), sym("mid", 1, 60), sym("tiny", 1, 3), {"kind": "class", "name": "C", "startLine": 1, "endLine": 999}]}),
             json!({"rel": "b.sol", "lang": "solidity", "symbols": [{"kind": "function", "name": "f"}]}),
         ];
-        let out = summarize_function_lengths(&Fixed(Ok(records)), Path::new("/r"), &["a.ts".into(), "b.sol".into(), "c.txt".into()], &CancellationToken::new()).await;
+        let out =
+            summarize_function_lengths(&Fixed(Ok(records)), Path::new("/r"), &["a.ts".into(), "b.sol".into(), "c.txt".into()], &CancellationToken::new()).await;
         assert_eq!((out["functions"].clone(), out["over50"].clone(), out["over100"].clone(), out["over150"].clone()), (json!(3), json!(2), json!(1), json!(1)));
         assert_eq!(out["longest"][0], json!({"path": "a.ts", "name": "big", "lines": 160}));
         assert_eq!(out["notMeasured"], json!([".txt", "solidity"]));

@@ -186,8 +186,19 @@ mod tests {
     fn a_fact_the_record_does_not_state_is_left_out_of_the_listing() {
         let listing = listing_value(&ModelRecord::new(ProviderId::from("openai"), "m"));
         for key in [
-            "name", "tier", "latest", "description", "supportsPromptCaching", "reasoningContentField", "defaultServiceTier",
-            "defaultModelParameters", "defaultFast", "supportsMaxMode", "providerName", "manual", "supportsReasoningEffortUpdates",
+            "name",
+            "tier",
+            "latest",
+            "description",
+            "supportsPromptCaching",
+            "reasoningContentField",
+            "defaultServiceTier",
+            "defaultModelParameters",
+            "defaultFast",
+            "supportsMaxMode",
+            "providerName",
+            "manual",
+            "supportsReasoningEffortUpdates",
         ] {
             assert!(listing.get(key).is_none(), "{key}");
         }

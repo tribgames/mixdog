@@ -17,12 +17,7 @@ pub fn merge_queued_restore_draft(queued: &str, current: &Draft) -> Draft {
     let include_queued = !js_trim(queued).is_empty();
     let include_current = !js_trim(&current.value).is_empty();
     let separator = if include_queued && include_current { "\n" } else { "" };
-    let value = format!(
-        "{}{}{}",
-        if include_queued { queued } else { "" },
-        separator,
-        if include_current { current.value.as_str() } else { "" }
-    );
+    let value = format!("{}{}{}", if include_queued { queued } else { "" }, separator, if include_current { current.value.as_str() } else { "" });
     let prefix_length = if include_queued { len16(queued) + len16(separator) } else { 0 };
     let current_length = current.len16();
     let current_cursor = if include_current { current.cursor.min(current_length) } else { 0 };
@@ -50,19 +45,11 @@ fn field_string(entry: &Value, name: &str) -> Option<String> {
 /// (`displayText`, else `text`, else `prompt`) joined with newlines, blank texts left out.
 pub fn queued_restore_projection(entries: &[Value], selected_id: &str) -> QueuedRestoreProjection {
     let target = js_trim(selected_id);
-    let selected: Vec<&Value> = entries
-        .iter()
-        .filter(|entry| target.is_empty() || field_string(entry, "id").unwrap_or_default() == target)
-        .collect();
+    let selected: Vec<&Value> = entries.iter().filter(|entry| target.is_empty() || field_string(entry, "id").unwrap_or_default() == target).collect();
     let ids = selected.iter().map(|entry| field_string(entry, "id").unwrap_or_default()).filter(|id| !id.is_empty());
     let text = selected
         .iter()
-        .map(|entry| {
-            field_string(entry, "displayText")
-                .or_else(|| field_string(entry, "text"))
-                .or_else(|| field_string(entry, "prompt"))
-                .unwrap_or_default()
-        })
+        .map(|entry| field_string(entry, "displayText").or_else(|| field_string(entry, "text")).or_else(|| field_string(entry, "prompt")).unwrap_or_default())
         .filter(|text| !js_trim(text).is_empty())
         .collect::<Vec<_>>()
         .join("\n");
@@ -97,10 +84,7 @@ pub fn replace_queued_restore_prefix(optimistic: &str, authoritative: &str, curr
         let bounded = offset.min(current_length);
         if bounded <= optimistic_length { authoritative_length.min(bounded) } else { bounded + authoritative_length - optimistic_length }
     };
-    ReplacedPrefix {
-        draft: Draft { cursor: remap(current.cursor), selection_anchor: current.selection_anchor.map(remap), value },
-        replaced: true,
-    }
+    ReplacedPrefix { draft: Draft { cursor: remap(current.cursor), selection_anchor: current.selection_anchor.map(remap), value }, replaced: true }
 }
 
 /// Whether the palette owns Up/Down (it has more than one option to move between).

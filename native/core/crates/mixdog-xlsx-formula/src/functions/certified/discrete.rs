@@ -53,10 +53,7 @@ fn binom_log_mass(k: &Fl, n: &Fl, p: f64) -> B {
     let b = n.sub(k).add(&one());
     let q = Rat::int(1).sub(&Rat::f(p));
     let vx = Rat::f(p).mul(&Rat::fl(b.clone())).div(&q.mul(&Rat::fl(a.clone()))).ln();
-    beta_log_mass(&B::exact(a), &B::exact(b), &vx)
-        .sub(&ln(&B::f(p)))
-        .sub(&ln(&q.ball()))
-        .sub(&ln_fl(&n.add(&one())))
+    beta_log_mass(&B::exact(a), &B::exact(b), &vx).sub(&ln(&B::f(p))).sub(&ln(&q.ball())).sub(&ln_fl(&n.add(&one())))
 }
 
 /// P(X <= k) (`upper`: P(X > k)) for 0 <= k <= n, 0 <= p <= 1.
@@ -335,12 +332,7 @@ impl HyperF<'_> {
         let t = self.t;
         let e = |mid: Fl| B { mid, rad: x.rad };
         let xm = &x.mid;
-        [
-            e(xm.add(&one())),
-            e(t.kk.sub(xm).add(&one())),
-            e(t.n.sub(xm).add(&one())),
-            e(t.m.sub(&t.n).add(xm).add(&one())),
-        ]
+        [e(xm.add(&one())), e(t.kk.sub(xm).add(&one())), e(t.n.sub(xm).add(&one())), e(t.m.sub(&t.n).add(xm).add(&one()))]
     }
 
     /// `ln(z1 z4 / (z2 z3))` = sum_c s_c ln z_c over a ball of x. z1 z4 - z2 z3 is linear in x,
@@ -387,9 +379,7 @@ impl Family for HyperF<'_> {
         let need = p + 24 + dtop.max(0) + 2;
         // per cell: rho <= 2^-gap with gap = top(z) - top(d) - 1; the series cells and the others
         let gap: Vec<i64> = z.iter().map(|zc| zc.abs_lo().top() - dtop - 1).collect();
-        let series: Vec<bool> = (0..4)
-            .map(|i| z[i].abs_lo().top() >= 16 && gap[i] >= 5 && need / gap[i] < DIFF_TERMS && z[i].rad.is_zero())
-            .collect();
+        let series: Vec<bool> = (0..4).map(|i| z[i].abs_lo().top() >= 16 && gap[i] >= 5 && need / gap[i] < DIFF_TERMS && z[i].rad.is_zero()).collect();
         let mut s = B::zero();
         if series.iter().any(|&b| b) {
             // first order: d sum_S s_c psi(z_c) = d [ln prod_S z_c^(s_c) (exact quotient) + sum_S s_c (psi - ln)(z_c)]

@@ -5,30 +5,24 @@ use crate::platform::{Integrity, Surface, Wid, WindowInfo};
 use crate::port::windows::{Posted, Refusal, WinPort};
 use std::ffi::c_void;
 use std::time::Duration;
-use windows::core::{BOOL, PWSTR};
 use windows::Wdk::System::Threading::{NtQueryInformationProcess, ProcessBasicInformation};
 use windows::Win32::Foundation::{CloseHandle, HANDLE, HWND, LPARAM, POINT, RECT};
-use windows::Win32::Graphics::Dwm::{
-    DwmGetWindowAttribute, DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS,
-};
+use windows::Win32::Graphics::Dwm::{DWMWA_CLOAKED, DWMWA_EXTENDED_FRAME_BOUNDS, DwmGetWindowAttribute};
 use windows::Win32::Graphics::Gdi::{
-    CreateCompatibleDC, CreateDIBSection, DeleteDC, DeleteObject, GetDC, ReleaseDC, SelectObject,
-    BITMAPINFO, BITMAPINFOHEADER, BI_RGB, DIB_RGB_COLORS,
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateCompatibleDC, CreateDIBSection, DIB_RGB_COLORS, DeleteDC, DeleteObject, GetDC, ReleaseDC, SelectObject,
 };
-use windows::Win32::Storage::Xps::{PrintWindow, PRINT_WINDOW_FLAGS};
-use windows::Win32::Security::{
-    GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TokenIntegrityLevel,
-    TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
-};
+use windows::Win32::Security::{GetSidSubAuthority, GetSidSubAuthorityCount, GetTokenInformation, TOKEN_MANDATORY_LABEL, TOKEN_QUERY, TokenIntegrityLevel};
+use windows::Win32::Storage::Xps::{PRINT_WINDOW_FLAGS, PrintWindow};
 use windows::Win32::System::Threading::{
-    GetCurrentProcess, OpenProcess, OpenProcessToken, QueryFullProcessImageNameW, WaitForSingleObject,
-    PROCESS_BASIC_INFORMATION, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_BASIC_INFORMATION, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE,
+    QueryFullProcessImageNameW, WaitForSingleObject,
 };
 use windows::Win32::UI::WindowsAndMessaging::{
-    ChildWindowFromPointEx, EnumChildWindows, EnumWindows, GetAncestor, GetClassNameW, GetClientRect, GetCursorPos,
-    GetForegroundWindow, GetGUIThreadInfo, GetWindow, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId,
-    IsHungAppWindow, IsIconic, IsWindow, IsWindowVisible, IsZoomed, WindowFromPoint, GA_ROOT, GUITHREADINFO, GW_OWNER,
+    ChildWindowFromPointEx, EnumChildWindows, EnumWindows, GA_ROOT, GUITHREADINFO, GW_OWNER, GetAncestor, GetClassNameW, GetClientRect, GetCursorPos,
+    GetForegroundWindow, GetGUIThreadInfo, GetWindow, GetWindowRect, GetWindowTextW, GetWindowThreadProcessId, IsHungAppWindow, IsIconic, IsWindow,
+    IsWindowVisible, IsZoomed, WindowFromPoint,
 };
+use windows::core::{BOOL, PWSTR};
 
 pub fn hwnd(handle: Wid) -> HWND {
     HWND(handle as usize as *mut c_void)
@@ -70,9 +64,7 @@ pub fn class_name(handle: Wid) -> String {
 pub fn rect(handle: Wid) -> Option<RECT> {
     let mut rect = RECT::default();
     // SAFETY: rect is a valid out pointer.
-    unsafe { GetWindowRect(hwnd(handle), &mut rect) }
-        .ok()
-        .map(|_| rect)
+    unsafe { GetWindowRect(hwnd(handle), &mut rect) }.ok().map(|_| rect)
 }
 
 pub fn is_visible(handle: Wid) -> bool {
@@ -127,16 +119,7 @@ pub fn window_at_point(x: i32, y: i32) -> Wid {
 pub fn is_cloaked(handle: Wid) -> bool {
     let mut cloaked = 0i32;
     // SAFETY: the out pointer and size describe one i32.
-    unsafe {
-        DwmGetWindowAttribute(
-            hwnd(handle),
-            DWMWA_CLOAKED,
-            &mut cloaked as *mut i32 as *mut c_void,
-            4,
-        )
-    }
-    .is_ok()
-        && cloaked != 0
+    unsafe { DwmGetWindowAttribute(hwnd(handle), DWMWA_CLOAKED, &mut cloaked as *mut i32 as *mut c_void, 4) }.is_ok() && cloaked != 0
 }
 
 pub struct Process(pub HANDLE);
@@ -147,15 +130,7 @@ impl Process {
             return None;
         }
         // SAFETY: a plain open; failure is a None.
-        unsafe {
-            OpenProcess(
-                windows::Win32::System::Threading::PROCESS_ACCESS_RIGHTS(access),
-                false,
-                pid,
-            )
-        }
-        .ok()
-        .map(Process)
+        unsafe { OpenProcess(windows::Win32::System::Threading::PROCESS_ACCESS_RIGHTS(access), false, pid) }.ok().map(Process)
     }
 }
 
@@ -173,23 +148,12 @@ pub fn process_name(pid: u32) -> String {
     let mut buffer = [0u16; 1024];
     let mut size = buffer.len() as u32;
     // SAFETY: buffer and size describe the same allocation.
-    let ok = unsafe {
-        QueryFullProcessImageNameW(
-            process.0,
-            PROCESS_NAME_WIN32,
-            PWSTR(buffer.as_mut_ptr()),
-            &mut size,
-        )
-    }
-    .is_ok();
+    let ok = unsafe { QueryFullProcessImageNameW(process.0, PROCESS_NAME_WIN32, PWSTR(buffer.as_mut_ptr()), &mut size) }.is_ok();
     if !ok {
         return String::new();
     }
     let path = String::from_utf16_lossy(&buffer[..size as usize]);
-    std::path::Path::new(&path)
-        .file_stem()
-        .map(|stem| stem.to_string_lossy().into_owned())
-        .unwrap_or_default()
+    std::path::Path::new(&path).file_stem().map(|stem| stem.to_string_lossy().into_owned()).unwrap_or_default()
 }
 
 pub fn parent_pid(pid: u32) -> u32 {
@@ -208,11 +172,7 @@ pub fn parent_pid(pid: u32) -> u32 {
             &mut returned,
         )
     };
-    if status.0 == 0 {
-        information.InheritedFromUniqueProcessId as u32
-    } else {
-        0
-    }
+    if status.0 == 0 { information.InheritedFromUniqueProcessId as u32 } else { 0 }
 }
 
 /// Ends `pid` through the port, then waits for its exit holding nothing.
@@ -242,15 +202,7 @@ fn rid_of(process: HANDLE) -> i32 {
     }
     let mut buffer = vec![0u8; required as usize];
     // SAFETY: the buffer is `required` bytes.
-    let read = unsafe {
-        GetTokenInformation(
-            owned.0,
-            TokenIntegrityLevel,
-            Some(buffer.as_mut_ptr() as *mut c_void),
-            required,
-            &mut required,
-        )
-    };
+    let read = unsafe { GetTokenInformation(owned.0, TokenIntegrityLevel, Some(buffer.as_mut_ptr() as *mut c_void), required, &mut required) };
     if read.is_err() {
         return 0;
     }
@@ -262,11 +214,7 @@ fn rid_of(process: HANDLE) -> i32 {
             return 0;
         }
         let rid = GetSidSubAuthority(label.Label.Sid, (*count - 1) as u32);
-        if rid.is_null() {
-            0
-        } else {
-            *rid as i32
-        }
+        if rid.is_null() { 0 } else { *rid as i32 }
     }
 }
 
@@ -285,14 +233,8 @@ fn integrity_name(rid: i32) -> &'static str {
 pub fn integrity(handle: Wid) -> Integrity {
     // SAFETY: the pseudo-handle needs no close.
     let own_rid = rid_of(unsafe { GetCurrentProcess() });
-    let target_rid = Process::open(pid_of(handle), PROCESS_QUERY_LIMITED_INFORMATION.0)
-        .map_or(0, |process| rid_of(process.0));
-    Integrity {
-        own_rid,
-        target_rid,
-        own_name: integrity_name(own_rid),
-        target_name: integrity_name(target_rid),
-    }
+    let target_rid = Process::open(pid_of(handle), PROCESS_QUERY_LIMITED_INFORMATION.0).map_or(0, |process| rid_of(process.0));
+    Integrity { own_rid, target_rid, own_name: integrity_name(own_rid), target_name: integrity_name(target_rid) }
 }
 
 /// The packaged app's content process hosted in an `ApplicationFrameWindow`.
@@ -316,18 +258,9 @@ fn content_pid(handle: Wid, host_pid: u32, class: &str) -> i64 {
         search.found = pid;
         BOOL(0)
     }
-    let mut search = Search {
-        host: host_pid,
-        found: 0,
-    };
+    let mut search = Search { host: host_pid, found: 0 };
     // SAFETY: the callback only runs during this call and reads `search`.
-    let _ = unsafe {
-        EnumChildWindows(
-            Some(hwnd(handle)),
-            Some(visit),
-            LPARAM(&mut search as *mut Search as isize),
-        )
-    };
+    let _ = unsafe { EnumChildWindows(Some(hwnd(handle)), Some(visit), LPARAM(&mut search as *mut Search as isize)) };
     search.found as i64
 }
 
@@ -341,16 +274,12 @@ pub fn info(handle: Wid, with_app: bool) -> Option<WindowInfo> {
     let mut origin = POINT::default();
     // SAFETY: both are valid out pointers.
     let has_client = unsafe { GetClientRect(hwnd(handle), &mut client) }.is_ok()
-        && unsafe { windows::Win32::Graphics::Gdi::ClientToScreen(hwnd(handle), &mut origin) }
-            .as_bool();
+        && unsafe { windows::Win32::Graphics::Gdi::ClientToScreen(hwnd(handle), &mut origin) }.as_bool();
     let class = class_name(handle);
     let mut owner = owner_of(handle);
     // A native popup menu can have no owner; the GUI thread's menu owner is it.
     if owner == 0 && class == "#32768" {
-        let mut gui = GUITHREADINFO {
-            cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
-            ..Default::default()
-        };
+        let mut gui = GUITHREADINFO { cbSize: std::mem::size_of::<GUITHREADINFO>() as u32, ..Default::default() };
         // SAFETY: gui is initialised with its size.
         if unsafe { GetGUIThreadInfo(thread, &mut gui) }.is_ok() {
             let menu_owner = wid(gui.hwndMenuOwner);
@@ -378,12 +307,7 @@ pub fn info(handle: Wid, with_app: bool) -> Option<WindowInfo> {
         width,
         height,
         client: if has_client {
-            (
-                origin.x,
-                origin.y,
-                (client.right - client.left).max(0),
-                (client.bottom - client.top).max(0),
-            )
+            (origin.x, origin.y, (client.right - client.left).max(0), (client.bottom - client.top).max(0))
         } else {
             (frame.left, frame.top, width, height)
         },
@@ -391,10 +315,7 @@ pub fn info(handle: Wid, with_app: bool) -> Option<WindowInfo> {
 }
 
 fn is_shown(info: &WindowInfo, handle: Wid) -> bool {
-    unsafe { IsWindowVisible(hwnd(handle)) }.as_bool()
-        && !is_cloaked(handle)
-        && info.width > 0
-        && info.height > 0
+    unsafe { IsWindowVisible(hwnd(handle)) }.as_bool() && !is_cloaked(handle) && info.width > 0 && info.height > 0
 }
 
 fn enumerate(mut visit: impl FnMut(Wid)) {
@@ -405,12 +326,7 @@ fn enumerate(mut visit: impl FnMut(Wid)) {
     }
     let mut dynamic: &mut dyn FnMut(Wid) = &mut visit;
     // SAFETY: the callback only runs during this call.
-    let _ = unsafe {
-        EnumWindows(
-            Some(each),
-            LPARAM(&mut dynamic as *mut &mut dyn FnMut(Wid) as isize),
-        )
-    };
+    let _ = unsafe { EnumWindows(Some(each), LPARAM(&mut dynamic as *mut &mut dyn FnMut(Wid) as isize)) };
 }
 
 /// Every window a person could see, with process names looked up once per process.
@@ -427,10 +343,7 @@ pub fn shown_windows(with_app: bool) -> Vec<WindowInfo> {
             continue;
         }
         if with_app {
-            window.app = apps
-                .entry(window.pid)
-                .or_insert_with(|| process_name(window.pid as u32))
-                .clone();
+            window.app = apps.entry(window.pid).or_insert_with(|| process_name(window.pid as u32)).clone();
         }
         shown.push(window);
     }
@@ -459,11 +372,7 @@ pub fn related_windows(target: Wid) -> Vec<Wid> {
     }
     let mut related = Vec::new();
     enumerate(|handle| {
-        if handle != target
-            && unsafe { IsWindowVisible(hwnd(handle)) }.as_bool()
-            && !is_cloaked(handle)
-            && is_owned_by(handle, target)
-        {
+        if handle != target && unsafe { IsWindowVisible(hwnd(handle)) }.as_bool() && !is_cloaked(handle) && is_owned_by(handle, target) {
             related.push(handle);
         }
     });
@@ -507,9 +416,7 @@ pub fn close(port: &WinPort, handle: Wid) -> Result<bool, String> {
     match port.post(handle, Posted::Close) {
         Ok(()) => Ok(true),
         Err(Refusal::Revoked) => Err(crate::port::REVOKED.into()),
-        Err(Refusal::Isolated) => {
-            Err("background_blocked_uipi|Windows integrity isolation blocked the close request".into())
-        }
+        Err(Refusal::Isolated) => Err("background_blocked_uipi|Windows integrity isolation blocked the close request".into()),
         Err(refusal) => Err(format!("background_message_rejected|close request failed: {refusal:?}")),
     }
 }
@@ -551,18 +458,11 @@ pub fn focus(port: &WinPort, handle: Wid) -> bool {
 pub fn child_at(parent: Wid, x: i32, y: i32) -> Option<Wid> {
     let mut point = POINT { x, y };
     // SAFETY: point is a valid in/out pointer.
-    if !unsafe { windows::Win32::Graphics::Gdi::ScreenToClient(hwnd(parent), &mut point) }.as_bool()
-    {
+    if !unsafe { windows::Win32::Graphics::Gdi::ScreenToClient(hwnd(parent), &mut point) }.as_bool() {
         return None;
     }
     // CWP_SKIPINVISIBLE | CWP_SKIPDISABLED | CWP_SKIPTRANSPARENT
-    let child = unsafe {
-        ChildWindowFromPointEx(
-            hwnd(parent),
-            point,
-            windows::Win32::UI::WindowsAndMessaging::CWP_FLAGS(0x7),
-        )
-    };
+    let child = unsafe { ChildWindowFromPointEx(hwnd(parent), point, windows::Win32::UI::WindowsAndMessaging::CWP_FLAGS(0x7)) };
     let child = wid(child);
     (child != 0 && child != parent).then_some(child)
 }
@@ -600,32 +500,17 @@ fn visible_rect(handle: Wid) -> Option<RECT> {
     let mut extended = RECT::default();
     // SAFETY: the out pointer and size describe one RECT.
     let read = unsafe {
-        DwmGetWindowAttribute(
-            hwnd(handle),
-            DWMWA_EXTENDED_FRAME_BOUNDS,
-            &mut extended as *mut RECT as *mut c_void,
-            std::mem::size_of::<RECT>() as u32,
-        )
+        DwmGetWindowAttribute(hwnd(handle), DWMWA_EXTENDED_FRAME_BOUNDS, &mut extended as *mut RECT as *mut c_void, std::mem::size_of::<RECT>() as u32)
     };
-    if read.is_ok() && has_area(&extended) {
-        Some(extended)
-    } else {
-        rect(handle)
-    }
+    if read.is_ok() && has_area(&extended) { Some(extended) } else { rect(handle) }
 }
 
 /// The part of a window-rect frame (top-left at `window`) that lies inside
 /// the visible `frame`: the frame's rectangle in screen coordinates, or None
 /// when it is the whole frame or reaches outside it.
 fn visible_crop(window: &Target, frame: &RECT) -> Option<RECT> {
-    let inside = frame.left >= window.x
-        && frame.top >= window.y
-        && frame.right <= window.x + window.width
-        && frame.bottom <= window.y + window.height;
-    let whole = frame.left == window.x
-        && frame.top == window.y
-        && frame.right == window.x + window.width
-        && frame.bottom == window.y + window.height;
+    let inside = frame.left >= window.x && frame.top >= window.y && frame.right <= window.x + window.width && frame.bottom <= window.y + window.height;
+    let whole = frame.left == window.x && frame.top == window.y && frame.right == window.x + window.width && frame.bottom == window.y + window.height;
     (inside && has_area(frame) && !whole).then_some(*frame)
 }
 
@@ -644,58 +529,26 @@ fn crop_pixels(bgra: &[u8], width: usize, crop: &RECT) -> Vec<u8> {
 /// visible frame a compositor capture covers.
 pub(super) fn begin_capture(handle: Wid, composited: bool) -> Result<Target, String> {
     if !is_window(handle) {
-        return Err(capture_failure(
-            "capture_source_unavailable",
-            "exact native window is stale or invalid",
-        ));
+        return Err(capture_failure("capture_source_unavailable", "exact native window is stale or invalid"));
     }
     if is_iconic(handle) {
-        return Err(capture_failure(
-            "capture_minimized",
-            "minimized native window has no rendered surface",
-        ));
+        return Err(capture_failure("capture_minimized", "minimized native window has no rendered surface"));
     }
     if is_cloaked(handle) {
-        return Err(capture_failure(
-            "capture_cloaked",
-            "native window is cloaked and has no available surface",
-        ));
+        return Err(capture_failure("capture_cloaked", "native window is cloaked and has no available surface"));
     }
-    let bounds = if composited {
-        visible_rect(handle)
-    } else {
-        rect(handle)
-    }
-    .ok_or_else(|| {
-        capture_failure(
-            "capture_source_unavailable",
-            "could not read exact native window bounds",
-        )
-    })?;
+    let bounds = if composited { visible_rect(handle) } else { rect(handle) }
+        .ok_or_else(|| capture_failure("capture_source_unavailable", "could not read exact native window bounds"))?;
     let width = bounds.right - bounds.left;
     let height = bounds.bottom - bounds.top;
     if width <= 0 || height <= 0 || (width as i64) * (height as i64) > PIXEL_BUDGET {
-        return Err(capture_failure(
-            "capture_source_unavailable",
-            "exact native window bounds exceed the capture budget",
-        ));
+        return Err(capture_failure("capture_source_unavailable", "exact native window bounds exceed the capture budget"));
     }
     let (pid, thread) = pid_thread(handle);
     if pid == 0 || thread == 0 {
-        return Err(capture_failure(
-            "capture_source_unavailable",
-            "native window identity is unavailable",
-        ));
+        return Err(capture_failure("capture_source_unavailable", "native window identity is unavailable"));
     }
-    Ok(Target {
-        pid,
-        thread,
-        composited,
-        x: bounds.left,
-        y: bounds.top,
-        width,
-        height,
-    })
+    Ok(Target { pid, thread, composited, x: bounds.left, y: bounds.top, width, height })
 }
 
 /// AssertWindowCaptureStable (MixWin32Window.cs:288-297).
@@ -703,10 +556,7 @@ pub(super) fn assert_capture_stable(handle: Wid, before: &Target) -> Result<(), 
     if begin_capture(handle, before.composited)? == *before {
         Ok(())
     } else {
-        Err(capture_failure(
-            "capture_geometry_changed",
-            "native window changed during capture",
-        ))
+        Err(capture_failure("capture_geometry_changed", "native window changed during capture"))
     }
 }
 
@@ -719,9 +569,7 @@ pub(super) fn encode_png(rgba: &[u8], width: i32, height: i32) -> Result<Vec<u8>
     encoder
         .write_header()
         .and_then(|mut writer| writer.write_image_data(rgba))
-        .map_err(|error| {
-            capture_failure("capture_source_unavailable", &format!("png encoding failed: {error}"))
-        })?;
+        .map_err(|error| capture_failure("capture_source_unavailable", &format!("png encoding failed: {error}")))?;
     Ok(png)
 }
 
@@ -748,10 +596,7 @@ pub fn window_surface(handle: Wid) -> Result<Surface, String> {
     // PrintWindow blocks on a window that never answers; a hung one is
     // recoverable, so the plan moves on to the compositor capture.
     if !is_responding(handle) {
-        return Err(capture_failure(
-            "capture_timeout",
-            "window is not responding",
-        ));
+        return Err(capture_failure("capture_timeout", "window is not responding"));
     }
     let (width, height) = (before.width as usize, before.height as usize);
     let header = BITMAPINFOHEADER {
@@ -763,10 +608,7 @@ pub fn window_surface(handle: Wid) -> Result<Surface, String> {
         biCompression: BI_RGB.0,
         ..Default::default()
     };
-    let info = BITMAPINFO {
-        bmiHeader: header,
-        ..Default::default()
-    };
+    let info = BITMAPINFO { bmiHeader: header, ..Default::default() };
     // SAFETY: every GDI object created here is released before returning.
     unsafe {
         let screen = GetDC(None);
@@ -774,9 +616,7 @@ pub fn window_surface(handle: Wid) -> Result<Surface, String> {
         let mut bits: *mut c_void = std::ptr::null_mut();
         let bitmap = CreateDIBSection(Some(dc), &info, DIB_RGB_COLORS, &mut bits, None, 0);
         let outcome = (|| -> Result<(Vec<u8>, &'static str), String> {
-            let bitmap = bitmap.map_err(|_| {
-                capture_failure("capture_source_unavailable", "window bitmap is unavailable")
-            })?;
+            let bitmap = bitmap.map_err(|_| capture_failure("capture_source_unavailable", "window bitmap is unavailable"))?;
             let previous = SelectObject(dc, bitmap.into());
             let pixels = std::slice::from_raw_parts_mut(bits as *mut u8, width * height * 4);
             // PW_RENDERFULLCONTENT reads the composed surface; a window never
@@ -792,10 +632,7 @@ pub fn window_surface(handle: Wid) -> Result<Surface, String> {
             SelectObject(dc, previous);
             let _ = DeleteObject(bitmap.into());
             if !rendered {
-                return Err(capture_failure(
-                    "capture_source_unavailable",
-                    "window-owned rendering is unavailable",
-                ));
+                return Err(capture_failure("capture_source_unavailable", "window-owned rendering is unavailable"));
             }
             Ok((copy, flags))
         })();
@@ -805,15 +642,9 @@ pub fn window_surface(handle: Wid) -> Result<Surface, String> {
         assert_capture_stable(handle, &before)?;
         // PrintWindow draws the whole window rect, the invisible resize
         // border a black margin: keep the frame DWM shows.
-        let (mut x, mut y, mut width_px, mut height_px) =
-            (before.x, before.y, before.width, before.height);
+        let (mut x, mut y, mut width_px, mut height_px) = (before.x, before.y, before.width, before.height);
         if let Some(frame) = visible_rect(handle).and_then(|frame| visible_crop(&before, &frame)) {
-            let crop = RECT {
-                left: frame.left - before.x,
-                top: frame.top - before.y,
-                right: frame.right - before.x,
-                bottom: frame.bottom - before.y,
-            };
+            let crop = RECT { left: frame.left - before.x, top: frame.top - before.y, right: frame.right - before.x, bottom: frame.bottom - before.y };
             bgra = crop_pixels(&bgra, width, &crop);
             (x, y) = (frame.left, frame.top);
             (width_px, height_px) = (frame.right - frame.left, frame.bottom - frame.top);
@@ -823,14 +654,7 @@ pub fn window_surface(handle: Wid) -> Result<Surface, String> {
             pixel[3] = 255;
         }
         let png = encode_png(&bgra, width_px, height_px)?;
-        Ok(Surface {
-            png,
-            x,
-            y,
-            width: width_px,
-            height: height_px,
-            print_window_flags: Some(flags),
-        })
+        Ok(Surface { png, x, y, width: width_px, height: height_px, print_window_flags: Some(flags) })
     }
 }
 

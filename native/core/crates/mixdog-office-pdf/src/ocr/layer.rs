@@ -142,11 +142,7 @@ fn page_resources(document: &PdfDocument, page: Ref) -> Dict {
 
 /// A copy of the dictionary under `key` of `resources` (a reference followed), empty when there is none.
 fn sub_dictionary(document: &PdfDocument, resources: &Dict, key: &str) -> Dict {
-    resources
-        .get_raw(key)
-        .and_then(|raw| document.store().resolve(raw))
-        .and_then(Obj::as_dict)
-        .map_or_else(Dict::new, |found| (**found).clone())
+    resources.get_raw(key).and_then(|raw| document.store().resolve(raw)).and_then(Obj::as_dict).map_or_else(Dict::new, |found| (**found).clone())
 }
 
 /// A resource name not yet in `taken`.

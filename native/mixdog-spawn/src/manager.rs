@@ -79,11 +79,7 @@ impl Default for ProcessConfig {
             retained_exits: 256,
             input_queue_bytes: 1024 * 1024,
             output_drain: Duration::from_millis(2_000),
-            default_shell: if cfg!(windows) {
-                "powershell.exe".to_owned()
-            } else {
-                "/bin/sh".to_owned()
-            },
+            default_shell: if cfg!(windows) { "powershell.exe".to_owned() } else { "/bin/sh".to_owned() },
         }
     }
 }
@@ -258,9 +254,7 @@ impl InputQueue {
             return Err(ProcessError::StdinClosed);
         }
         if state.bytes + bytes.len() > self.cap {
-            return Err(ProcessError::Overloaded {
-                queue: ProcessQueue::Input,
-            });
+            return Err(ProcessError::Overloaded { queue: ProcessQueue::Input });
         }
         state.bytes += bytes.len();
         state.queued += bytes.len() as u64;
@@ -609,8 +603,7 @@ impl Inner {
                 Some((Arc::clone(&proc.containment), proc.root_ended()))
             }
             Some(Slot::Reserved) => None,
-            None => table.owned.iter().find(|owned| owned.handle.as_ref() == Some(handle))
-                .map(|owned| (Arc::clone(&owned.containment), true)),
+            None => table.owned.iter().find(|owned| owned.handle.as_ref() == Some(handle)).map(|owned| (Arc::clone(&owned.containment), true)),
         }
     }
 
@@ -628,11 +621,7 @@ impl Inner {
             _ => {}
         }
         let limit = self.config.max_processes;
-        self.live
-            .try_update(Ordering::AcqRel, Ordering::Acquire, |n| {
-                (n < limit).then_some(n + 1)
-            })
-            .map_err(|_| ProcessError::LimitReached { limit })?;
+        self.live.try_update(Ordering::AcqRel, Ordering::Acquire, |n| (n < limit).then_some(n + 1)).map_err(|_| ProcessError::LimitReached { limit })?;
         self.prune_exited(&mut table.slots);
         table.owned.retain(|owned| *owned.done.borrow() != Some(true) || !owned.containment.shutdown_idle());
         for owned in &mut table.owned {
@@ -646,11 +635,7 @@ impl Inner {
         }
         table.slots.insert(handle.clone(), Slot::Reserved);
         table.pending += 1;
-        Ok(Admission {
-            inner: Arc::clone(self),
-            handle: handle.clone(),
-            committed: false,
-        })
+        Ok(Admission { inner: Arc::clone(self), handle: handle.clone(), committed: false })
     }
 
     fn finished(&self, proc: &Arc<Proc>, reaped: bool) {
@@ -669,9 +654,7 @@ impl Inner {
         let mut exited: Vec<(u64, ProcessHandle)> = table
             .iter()
             .filter_map(|(handle, slot)| match slot {
-                Slot::Live(proc) if proc.exit.get().is_some() => {
-                    Some((proc.exit_order.load(Ordering::Acquire), handle.clone()))
-                }
+                Slot::Live(proc) if proc.exit.get().is_some() => Some((proc.exit_order.load(Ordering::Acquire), handle.clone())),
                 _ => None,
             })
             .collect();
@@ -778,18 +761,10 @@ struct DeadlineState {
 
 impl Deadlines {
     fn start() -> Arc<Self> {
-        let deadlines = Arc::new(Self {
-            state: Mutex::new(DeadlineState {
-                entries: Vec::new(),
-                closed: false,
-            }),
-            wake: Condvar::new(),
-        });
+        let deadlines = Arc::new(Self { state: Mutex::new(DeadlineState { entries: Vec::new(), closed: false }), wake: Condvar::new() });
         let worker = Arc::clone(&deadlines);
         // Without its thread the run limits cannot fire; spawn failure is not recoverable here.
-        let _ = thread::Builder::new()
-            .name("process-deadlines".to_owned())
-            .spawn(move || worker.run());
+        let _ = thread::Builder::new().name("process-deadlines".to_owned()).spawn(move || worker.run());
         deadlines
     }
 
@@ -829,12 +804,7 @@ impl Deadlines {
             }
             let next = state.entries.iter().map(|(at, _)| *at).min();
             state = match next {
-                Some(at) => {
-                    self.wake
-                        .wait_timeout(state, at.saturating_duration_since(Instant::now()))
-                        .unwrap_or_else(|e| e.into_inner())
-                        .0
-                }
+                Some(at) => self.wake.wait_timeout(state, at.saturating_duration_since(Instant::now())).unwrap_or_else(|e| e.into_inner()).0,
                 None => self.wake.wait(state).unwrap_or_else(|e| e.into_inner()),
             };
         }
@@ -843,13 +813,9 @@ impl Deadlines {
 
 fn spawn_error(program: &str, error: &std::io::Error) -> ProcessError {
     match error.kind() {
-        std::io::ErrorKind::NotFound => ProcessError::ProgramNotFound {
-            program: program.to_owned(),
-        },
+        std::io::ErrorKind::NotFound => ProcessError::ProgramNotFound { program: program.to_owned() },
         std::io::ErrorKind::PermissionDenied => ProcessError::PermissionDenied,
-        _ => ProcessError::Io {
-            os_code: error.raw_os_error(),
-        },
+        _ => ProcessError::Io { os_code: error.raw_os_error() },
     }
 }
 
@@ -865,9 +831,7 @@ fn denied_spawn_delay(program: &str, error: &std::io::Error, attempt: usize) -> 
 }
 
 fn io_error(error: &std::io::Error) -> ProcessError {
-    ProcessError::Io {
-        os_code: error.raw_os_error(),
-    }
+    ProcessError::Io { os_code: error.raw_os_error() }
 }
 
 struct Started {
@@ -921,12 +885,7 @@ fn start_piped(
     drop(out_write);
     drop(err_write);
     let writer = stdin.map(|(_, write)| Box::new(write) as Box<dyn Write + Send>);
-    Ok(Started {
-        root: Root::Win(Arc::new(process)),
-        pty: None,
-        readers,
-        writer,
-    })
+    Ok(Started { root: Root::Win(Arc::new(process)), pty: None, readers, writer })
 }
 
 #[cfg(unix)]
@@ -938,11 +897,7 @@ fn start_piped(
 ) -> std::io::Result<Started> {
     use std::process::Stdio;
     let mut cmd = launch.command(request.cwd.as_path(), env);
-    cmd.stdin(if request.stdin_piped {
-        Stdio::piped()
-    } else {
-        Stdio::null()
-    });
+    cmd.stdin(if request.stdin_piped { Stdio::piped() } else { Stdio::null() });
     let (out_read, out_write) = std::io::pipe()?;
     let mut readers: Vec<(OutputStream, Box<dyn Read + Send>)> = Vec::new();
     match request.output {
@@ -977,16 +932,8 @@ fn start_piped(
     // is gone.
     drop(cmd);
     containment.adopt(child.id());
-    let writer = child
-        .stdin
-        .take()
-        .map(|stdin| Box::new(stdin) as Box<dyn Write + Send>);
-    Ok(Started {
-        root: Root::Child(child),
-        pty: None,
-        readers,
-        writer,
-    })
+    let writer = child.stdin.take().map(|stdin| Box::new(stdin) as Box<dyn Write + Send>);
+    Ok(Started { root: Root::Child(child), pty: None, readers, writer })
 }
 
 /// The output pipes that have not reached their end yet, and the signal for the last one.
@@ -999,11 +946,7 @@ struct Drain {
 
 impl Drain {
     fn new(pipes: usize) -> Arc<Self> {
-        Arc::new(Self {
-            open: Mutex::new(pipes),
-            done: Condvar::new(),
-            ended: tokio::sync::Notify::new(),
-        })
+        Arc::new(Self { open: Mutex::new(pipes), done: Condvar::new(), ended: tokio::sync::Notify::new() })
     }
 
     fn finished(&self) {
@@ -1043,13 +986,7 @@ impl Drop for Reading {
     }
 }
 
-fn read_loop(
-    mut reader: Box<dyn Read + Send>,
-    stream: OutputStream,
-    feed: Weak<Feed>,
-    mut filter: Option<Box<dyn OutputFilter>>,
-    _reading: Reading,
-) {
+fn read_loop(mut reader: Box<dyn Read + Send>, stream: OutputStream, feed: Weak<Feed>, mut filter: Option<Box<dyn OutputFilter>>, _reading: Reading) {
     let mut buffer = vec![0u8; 64 * 1024];
     loop {
         match reader.read(&mut buffer) {
@@ -1079,13 +1016,7 @@ fn deliver_output(feed: &Weak<Feed>, stream: OutputStream, bytes: &[u8], filter:
 /// [`read_loop`] for the framed scripted shell: one whole frame per output, of any length (a real PTY's output never comes here). A
 /// broken frame is the stand-in's error, written to stderr; the output ends there.
 #[cfg(feature = "scripted-shell")]
-fn frame_loop(
-    mut frames: crate::scripted::Frames,
-    stream: OutputStream,
-    feed: Weak<Feed>,
-    mut filter: Option<Box<dyn OutputFilter>>,
-    _reading: Reading,
-) {
+fn frame_loop(mut frames: crate::scripted::Frames, stream: OutputStream, feed: Weak<Feed>, mut filter: Option<Box<dyn OutputFilter>>, _reading: Reading) {
     loop {
         match frames.next_frame() {
             Ok(Some(frame)) => deliver_output(&feed, stream, &frame, &mut filter),
@@ -1104,14 +1035,7 @@ fn frame_loop(
 
 /// Waits for the root, then for the output to end (for at most [`ProcessConfig::output_drain`]; a [`NodePtyExit`] process: until
 /// node-pty would have raised its exit), and publishes the exit as the last event.
-fn wait_and_finish(
-    inner: Arc<Inner>,
-    proc: Arc<Proc>,
-    root: Root,
-    drain: Arc<Drain>,
-    on_exit: Option<ExitHook>,
-    node_pty_exit: Option<NodePtyExit>,
-) {
+fn wait_and_finish(inner: Arc<Inner>, proc: Arc<Proc>, root: Root, drain: Arc<Drain>, on_exit: Option<ExitHook>, node_pty_exit: Option<NodePtyExit>) {
     let status = proc.wait_root(root);
     let reaped = status.is_ok();
     // The readers' flow gate opens before anything waits on them: a reader parked on a paused
@@ -1169,8 +1093,7 @@ fn wait_and_finish(
         // before its line keeps that place for the feed's consumer.
         proc.feed.push_last_output(OutputStream::Pty, || hook(&exit));
     }
-    proc.exit_order
-        .store(inner.exit_counter.fetch_add(1, Ordering::AcqRel), Ordering::Release);
+    proc.exit_order.store(inner.exit_counter.fetch_add(1, Ordering::AcqRel), Ordering::Release);
     let _ = proc.exit.set(exit);
     // The slot is free before the exit is announced, so a caller that saw the exit can spawn.
     inner.live.fetch_sub(1, Ordering::AcqRel);
@@ -1228,9 +1151,7 @@ fn launch_process(
     let launch = Launch::of(&request.command, &inner.config.default_shell);
     let env = environment(&request.env);
     if !request.cwd.as_path().is_dir() {
-        return Err(ProcessError::Io {
-            os_code: Some(if cfg!(windows) { 3 } else { 2 }),
-        });
+        return Err(ProcessError::Io { os_code: Some(if cfg!(windows) { 3 } else { 2 }) });
     }
     let containment = Containment::create(crate::contain::breakaway_ok(&request.owner)).map_err(|e| io_error(&e))?;
     // A scoped computer helper is created only while its scope holds: each attempt takes the scope's commit right before the creation
@@ -1252,16 +1173,12 @@ fn launch_process(
             return Err(ProcessError::Revoked);
         }
         let result = match request.pty {
-            Some(size) => {
-                pty::spawn(&launch, request.cwd.as_path(), &env, size, &containment).map(|parts| {
-                    Started {
-                        root: parts.root,
-                        pty: Some(parts.pty),
-                        readers: vec![(OutputStream::Pty, parts.reader)],
-                        writer: Some(parts.writer),
-                    }
-                })
-            }
+            Some(size) => pty::spawn(&launch, request.cwd.as_path(), &env, size, &containment).map(|parts| Started {
+                root: parts.root,
+                pty: Some(parts.pty),
+                readers: vec![(OutputStream::Pty, parts.reader)],
+                writer: Some(parts.writer),
+            }),
             None => start_piped(&launch, &request, &env, &containment),
         };
         match result {
@@ -1277,12 +1194,7 @@ fn launch_process(
         }
     };
 
-    let Started {
-        root,
-        pty,
-        readers,
-        writer,
-    } = started;
+    let Started { root, pty, readers, writer } = started;
     let pid = root.pid();
     let feed = Feed::new(options.ring_bytes.unwrap_or(inner.config.ring_bytes));
     if options.replays_after_exit {
@@ -1323,12 +1235,7 @@ fn launch_process(
     let stopping = {
         let mut table = inner.table();
         table.incomplete_coverage |= !proc.containment.covers_all_descendants();
-        table.owned.push(OwnedProc {
-            handle: None,
-            proc: Arc::downgrade(&proc),
-            containment: Arc::clone(&proc.containment),
-            done: proc.done.subscribe(),
-        });
+        table.owned.push(OwnedProc { handle: None, proc: Arc::downgrade(&proc), containment: Arc::clone(&proc.containment), done: proc.done.subscribe() });
         table.stopping
     };
     if stopping {
@@ -1376,9 +1283,7 @@ fn launch_process(
                 }
             }) as Box<dyn FnOnce() + Send>
         });
-        let started = thread::Builder::new()
-            .name("io-pty-write".to_owned())
-            .spawn(move || input.run(writer, end_tree));
+        let started = thread::Builder::new().name("io-pty-write".to_owned()).spawn(move || input.run(writer, end_tree));
         if let Err(error) = started {
             abort_start(root);
             return Err(io_error(&error));
@@ -1465,9 +1370,7 @@ impl LocalProcessManager {
             {
                 let table = inner.table();
                 if table.pending == 0 {
-                    let owned = table.owned.iter().map(|owned| {
-                        (owned.proc.upgrade(), Arc::clone(&owned.containment), owned.done.clone())
-                    }).collect();
+                    let owned = table.owned.iter().map(|owned| (owned.proc.upgrade(), Arc::clone(&owned.containment), owned.done.clone())).collect();
                     break (owned, table.incomplete_coverage);
                 }
             }
@@ -1489,11 +1392,8 @@ impl LocalProcessManager {
                 };
                 let outcome = containment.shutdown_outcome();
                 #[cfg(unix)]
-                let outcome = if !reaped && _proc.as_ref().is_some_and(|proc| proc.root_confirmed_running()) {
-                    ShutdownOutcome::ConfirmedFailure
-                } else {
-                    outcome
-                };
+                let outcome =
+                    if !reaped && _proc.as_ref().is_some_and(|proc| proc.root_confirmed_running()) { ShutdownOutcome::ConfirmedFailure } else { outcome };
                 let outcome = if reaped { outcome } else { outcome.max(ShutdownOutcome::Unverified) };
                 (outcome, containment, reaped)
             });
@@ -1514,11 +1414,7 @@ impl LocalProcessManager {
     }
 
     /// [`ProcessManager::spawn`] with the options only in-process callers (the terminal tabs) use.
-    pub async fn spawn_with(
-        &self,
-        request: SpawnRequest,
-        options: SpawnOptions,
-    ) -> Result<SpawnedProcess, ProcessError> {
+    pub async fn spawn_with(&self, request: SpawnRequest, options: SpawnOptions) -> Result<SpawnedProcess, ProcessError> {
         Ok(self.launch(request, options, false).await?.0)
     }
 
@@ -1544,12 +1440,7 @@ impl LocalProcessManager {
         // Dropping this future abandons the wait: a job still queued is dropped unrun, and a child
         // the job commits meanwhile is killed (see `Abandon`), so a cancelled spawn leaves no child
         // that nobody owns.
-        let mut abandon = Abandon {
-            inner: Arc::clone(&self.inner),
-            handle: request.handle.clone(),
-            gone: CancellationToken::new(),
-            answered: false,
-        };
+        let mut abandon = Abandon { inner: Arc::clone(&self.inner), handle: request.handle.clone(), gone: CancellationToken::new(), answered: false };
         let (inner, gone) = (Arc::clone(&self.inner), abandon.gone.clone());
         let job = self
             .inner
@@ -1567,9 +1458,7 @@ impl LocalProcessManager {
                 crate::testing::answer_window();
                 Ok(spawned)
             })
-            .map_err(|_| ProcessError::Overloaded {
-                queue: ProcessQueue::Spawn,
-            })?;
+            .map_err(|_| ProcessError::Overloaded { queue: ProcessQueue::Spawn })?;
         let answer = job.await;
         abandon.answered = true;
         answer.map_err(|_| ProcessError::Io { os_code: None })?
@@ -1577,11 +1466,7 @@ impl LocalProcessManager {
 
     /// Pauses or resumes the reader of a PTY (terminal flow control): while paused, its output
     /// stays in the OS buffer and the child stalls against it.
-    pub fn set_output_paused(
-        &self,
-        handle: &ProcessHandle,
-        paused: bool,
-    ) -> Result<(), ProcessError> {
+    pub fn set_output_paused(&self, handle: &ProcessHandle, paused: bool) -> Result<(), ProcessError> {
         self.inner.lookup(handle)?.feed.set_paused(paused);
         Ok(())
     }
@@ -1628,9 +1513,7 @@ impl LocalProcessManager {
         self.write_input_wait_on_admission(handle, bytes, |_| {}).await
     }
 
-    pub(crate) async fn write_input_wait_on_admission(
-        &self, handle: &ProcessHandle, bytes: Vec<u8>, admitted: impl FnOnce(&[u8]),
-    ) -> Result<(), ProcessError> {
+    pub(crate) async fn write_input_wait_on_admission(&self, handle: &ProcessHandle, bytes: Vec<u8>, admitted: impl FnOnce(&[u8])) -> Result<(), ProcessError> {
         self.queue_input_whole(handle, bytes, admitted).await.map(|_| ())
     }
 
@@ -1642,7 +1525,10 @@ impl LocalProcessManager {
     }
 
     pub(crate) async fn write_input_whole_on_admission(
-        &self, handle: &ProcessHandle, bytes: Vec<u8>, admitted: impl FnOnce(&[u8]),
+        &self,
+        handle: &ProcessHandle,
+        bytes: Vec<u8>,
+        admitted: impl FnOnce(&[u8]),
     ) -> Result<(), ProcessError> {
         let (input, mark) = self.queue_input_whole(handle, bytes, admitted).await?;
         input.written_to(mark).await
@@ -1650,9 +1536,7 @@ impl LocalProcessManager {
 
     /// Queues the whole of `bytes` (see [`Self::write_input_wait`]); the queue and the byte count queued up to its last
     /// piece.
-    async fn queue_input_whole(
-        &self, handle: &ProcessHandle, bytes: Vec<u8>, admitted: impl FnOnce(&[u8]),
-    ) -> Result<(Arc<InputQueue>, u64), ProcessError> {
+    async fn queue_input_whole(&self, handle: &ProcessHandle, bytes: Vec<u8>, admitted: impl FnOnce(&[u8])) -> Result<(Arc<InputQueue>, u64), ProcessError> {
         let proc = self.inner.lookup(handle)?;
         let input = Arc::clone(proc.input.as_ref().ok_or(ProcessError::StdinClosed)?);
         let writing = Arc::clone(&input.writer).lock_owned().await;
@@ -1782,18 +1666,11 @@ impl ProcessManager for LocalProcessManager {
         self.spawn_with(request, SpawnOptions::default()).await
     }
 
-    async fn spawn_subscribed(
-        &self,
-        request: SpawnRequest,
-    ) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
+    async fn spawn_subscribed(&self, request: SpawnRequest) -> Result<(SpawnedProcess, Box<dyn EventSource<ProcessEvent>>), ProcessError> {
         self.spawn_subscribed_with(request, SpawnOptions::default()).await
     }
 
-    fn subscribe(
-        &self,
-        handle: &ProcessHandle,
-        from_seq: Option<u64>,
-    ) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+    fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
         let proc = self.inner.lookup(handle)?;
         Ok(Box::new(proc.feed.subscribe(from_seq)?))
     }
@@ -1899,8 +1776,7 @@ mod tests {
         let (entered, waiting) = mpsc::channel();
         let (release, hold) = mpsc::channel();
         let thread = std::thread::spawn(move || {
-            super::read_loop(Box::new(Pipe(false, entered, hold)), super::OutputStream::Stdout,
-                reader_feed, None, super::Reading(super::Drain::new(1)));
+            super::read_loop(Box::new(Pipe(false, entered, hold)), super::OutputStream::Stdout, reader_feed, None, super::Reading(super::Drain::new(1)));
         });
         waiting.recv_timeout(super::Duration::from_secs(10)).unwrap();
         assert_eq!(feed.pushed(), 4);

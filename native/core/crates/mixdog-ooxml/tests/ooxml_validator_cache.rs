@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use base64::Engine;
 use mixdog_ooxml::ooxml_validator::{
-    Environment, PlatformPackage, Request, ValidatorRuntime, classify_ooxml_validation_errors, ensure_in, node_platform,
-    ooxml_validator_manifest, parse_validator_output, pinned_packages,
+    Environment, PlatformPackage, Request, ValidatorRuntime, classify_ooxml_validation_errors, ensure_in, node_platform, ooxml_validator_manifest,
+    parse_validator_output, pinned_packages,
 };
 use mixdog_rt::{CancellationToken, DurabilityIo, InLane};
 use serde_json::{Value, json};
@@ -115,10 +115,7 @@ impl Fixture {
 fn the_manifest_lists_the_pinned_packages() {
     let manifest = ooxml_validator_manifest();
     assert_eq!(manifest["version"], "0.3.0");
-    assert_eq!(
-        manifest["platforms"],
-        json!(["win32-x64", "win32-arm64", "linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"])
-    );
+    assert_eq!(manifest["platforms"], json!(["win32-x64", "win32-arm64", "linux-x64", "linux-arm64", "darwin-x64", "darwin-arm64"]));
     assert_eq!(manifest["packages"]["win32-x64"]["name"], "@xarsh/ooxml-validator-win32-x64");
     assert_eq!(pinned_packages().len(), 6);
 }
@@ -130,12 +127,7 @@ fn issue(path: &str, x_path: &str, description: &str, id: &str) -> Value {
 #[test]
 fn office_extensions_and_element_order_are_compatibility_warnings_and_real_errors_stay_errors() {
     let extension = issue("/ppt/charts/chart1.xml", "/c:chartSpace[1]/c:extLst[1]/c:ext[2]", "The element is unexpected.", "Sch_X");
-    let namespace = issue(
-        "/xl/charts/chart2.xml",
-        "/c:chartSpace[1]/c:chart[1]",
-        "uses http://schemas.microsoft.com/office/drawing/2014/chartex",
-        "Sch_Y",
-    );
+    let namespace = issue("/xl/charts/chart2.xml", "/c:chartSpace[1]/c:chart[1]", "uses http://schemas.microsoft.com/office/drawing/2014/chartex", "Sch_Y");
     let masters = issue(
         "/ppt/presentation.xml",
         "/p:presentation[1]",
@@ -148,12 +140,8 @@ fn office_extensions_and_element_order_are_compatibility_warnings_and_real_error
         "The element has unexpected child element 'http://schemas.openxmlformats.org/drawingml/2006/chart:axId'.",
         "Sch_UnexpectedElementContent",
     );
-    let unknown_in_chart = issue(
-        "/ppt/charts/chart3.xml",
-        "/c:chartSpace[1]",
-        "The element has unexpected child element 'urn:custom:bogus'.",
-        "Sch_UnexpectedElementContent",
-    );
+    let unknown_in_chart =
+        issue("/ppt/charts/chart3.xml", "/c:chartSpace[1]", "The element has unexpected child element 'urn:custom:bogus'.", "Sch_UnexpectedElementContent");
     let body = issue("/word/document.xml", "/w:document[1]", "The attribute is not declared.", "Sch_UndeclaredAttribute");
     let wrong_xpath = issue("/ppt/presentation.xml", "/p:presentation[2]", masters["description"].as_str().expect("text"), "Sch_Z");
 
@@ -174,13 +162,7 @@ fn office_extensions_and_element_order_are_compatibility_warnings_and_real_error
 }
 
 fn runtime() -> ValidatorRuntime {
-    ValidatorRuntime {
-        available: true,
-        cached: Some(true),
-        path: Some(PathBuf::from("validator")),
-        version: Some("0.3.0".into()),
-        ..Default::default()
-    }
+    ValidatorRuntime { available: true, cached: Some(true), path: Some(PathBuf::from("validator")), version: Some("0.3.0".into()), ..Default::default() }
 }
 
 #[test]
@@ -223,12 +205,8 @@ fn unreadable_output_is_reported_with_the_parser_message() {
     let keys: Vec<String> = bad.to_json().as_object().expect("object").keys().cloned().collect();
     assert_eq!(keys, ["available", "cached", "downloaded", "path", "version", "ok", "errors", "reason"], "Node's key order");
     let null = parse_validator_output("null", runtime(), "Microsoft365");
-    assert_eq!(
-        null.reason.as_deref(),
-        Some("Invalid OOXML schema validator output: Cannot read properties of null (reading 'isValid')")
-    );
+    assert_eq!(null.reason.as_deref(), Some("Invalid OOXML schema validator output: Cannot read properties of null (reading 'isValid')"));
 }
-
 
 /// Runs `job` as a durability-lane job (the inline test backend runs it on this thread).
 fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {

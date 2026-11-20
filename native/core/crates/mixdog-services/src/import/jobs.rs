@@ -20,8 +20,8 @@ use super::candidate::import_origin_key;
 use super::convert::{Conversion, Limits, Source};
 use super::discovery::{Discovery, Imported, display_title, resolve_source_cwd};
 use super::fsutil::ImportError;
-use crate::lane::on_lane;
 use super::turns::WARNING_CWD_MISSING;
+use crate::lane::on_lane;
 
 const MAX_FINISHED_JOBS: usize = 20;
 const EXISTS_CONCURRENCY: usize = 16;
@@ -187,13 +187,7 @@ struct Fatal(String);
 
 impl ImportJobs {
     pub fn new(discovery: Arc<Discovery>, sessions: Arc<dyn ImportSessions>, limits: Limits) -> Arc<Self> {
-        Arc::new(Self {
-            discovery,
-            sessions,
-            limits,
-            registry: Mutex::default(),
-            admission: tokio::sync::Semaphore::new(1),
-        })
+        Arc::new(Self { discovery, sessions, limits, registry: Mutex::default(), admission: tokio::sync::Semaphore::new(1) })
     }
 
     /// The import keys that currently exist as sessions. Candidates come from this process's
@@ -204,12 +198,7 @@ impl ImportJobs {
         let committed_at_start = self.registry.lock().unwrap().committed.clone();
         let ids: Vec<String> = {
             let mut seen = HashSet::new();
-            committed_at_start
-                .values()
-                .cloned()
-                .chain(from_catalog.iter().map(|(_, id)| id.clone()))
-                .filter(|id| seen.insert(id.clone()))
-                .collect()
+            committed_at_start.values().cloned().chain(from_catalog.iter().map(|(_, id)| id.clone())).filter(|id| seen.insert(id.clone())).collect()
         };
         let permits = Arc::new(Semaphore::new(EXISTS_CONCURRENCY));
         let mut checks = Vec::new();
@@ -293,9 +282,7 @@ impl ImportJobs {
     pub fn start(self: &Arc<Self>, request_id: &str, ids: Vec<String>) -> Value {
         let job: JobRef = {
             let mut registry = self.registry.lock().unwrap();
-            if let Some(existing) = registry.by_request.get(request_id).and_then(|id| {
-                registry.jobs.iter().find(|j| j.lock().unwrap().job_id == *id).cloned()
-            }) {
+            if let Some(existing) = registry.by_request.get(request_id).and_then(|id| registry.jobs.iter().find(|j| j.lock().unwrap().job_id == *id).cloned()) {
                 let snapshot = existing.lock().unwrap().snapshot();
                 return snapshot;
             }
@@ -327,10 +314,7 @@ impl ImportJobs {
         let Some(candidate) = self.discovery.get_candidate(candidate_id) else { return (None, None) };
         let titles = if candidate.source == Source::Codex { ctx.titles.as_deref() } else { None };
         let meta = self.discovery.cached_meta(&candidate);
-        (
-            display_title(meta.as_ref(), titles, candidate.title.as_deref()),
-            candidate.path.file_name().map(|n| n.to_string_lossy().into_owned()),
-        )
+        (display_title(meta.as_ref(), titles, candidate.title.as_deref()), candidate.path.file_name().map(|n| n.to_string_lossy().into_owned()))
     }
 
     fn record(&self, job: &JobRef, outcome: Outcome, title: Option<String>, source_name: Option<String>) {
@@ -368,13 +352,8 @@ impl ImportJobs {
 
     fn prune_finished(&self) {
         let mut registry = self.registry.lock().unwrap();
-        let finished: Vec<(String, String)> = registry
-            .jobs
-            .iter()
-            .map(|j| j.lock().unwrap())
-            .filter(|j| !j.state.live())
-            .map(|j| (j.job_id.clone(), j.request_id.clone()))
-            .collect();
+        let finished: Vec<(String, String)> =
+            registry.jobs.iter().map(|j| j.lock().unwrap()).filter(|j| !j.state.live()).map(|j| (j.job_id.clone(), j.request_id.clone())).collect();
         for (job_id, request_id) in finished.iter().take(finished.len().saturating_sub(MAX_FINISHED_JOBS)) {
             registry.jobs.retain(|j| j.lock().unwrap().job_id != *job_id);
             if registry.by_request.get(request_id) == Some(job_id) {
@@ -402,11 +381,8 @@ impl ImportJobs {
 
     async fn run_files(&self, job: &JobRef, candidate_ids: Vec<String>) -> Result<(), Fatal> {
         // One catalog read per batch; later commits are seen through the committed map.
-        let mut ctx = BatchContext {
-            imported: self.imported_lookup().await,
-            titles: self.discovery.load_stored_titles(Source::Codex).await,
-            lead_prepared: false,
-        };
+        let mut ctx =
+            BatchContext { imported: self.imported_lookup().await, titles: self.discovery.load_stored_titles(Source::Codex).await, lead_prepared: false };
         for candidate_id in candidate_ids {
             if job.lock().unwrap().cancel_requested {
                 break;
@@ -501,17 +477,8 @@ impl ImportJobs {
             self.sessions.prepare_lead().await.map_err(Fatal)?;
             ctx.lead_prepared = true;
         }
-        let origin = ImportOrigin::new(
-            candidate.source,
-            candidate.path.clone(),
-            conversion.foreign_session_id.clone(),
-            conversion.cwd.clone(),
-            now_ms(),
-        );
-        let created = self
-            .sessions
-            .create_imported_session(ImportedSession { conversation: conversion, origin, project_path: project_path.clone() })
-            .await;
+        let origin = ImportOrigin::new(candidate.source, candidate.path.clone(), conversion.foreign_session_id.clone(), conversion.cwd.clone(), now_ms());
+        let created = self.sessions.create_imported_session(ImportedSession { conversation: conversion, origin, project_path: project_path.clone() }).await;
         match created {
             Ok(session_id) => {
                 self.registry.lock().unwrap().committed.insert(key, session_id.clone());
@@ -530,7 +497,5 @@ impl ImportJobs {
 }
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }

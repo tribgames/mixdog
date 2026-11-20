@@ -14,13 +14,6 @@ use async_trait::async_trait;
 use globset::Glob;
 use globset::GlobBuilder;
 use globset::GlobMatcher;
-use nucleo_matcher::Config as FuzzyConfig;
-use nucleo_matcher::Matcher as FuzzyMatcher;
-use nucleo_matcher::Utf32String;
-use nucleo_matcher::pattern::AtomKind;
-use nucleo_matcher::pattern::CaseMatching;
-use nucleo_matcher::pattern::Normalization;
-use nucleo_matcher::pattern::Pattern;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::Descent;
 use mixdog_core_api::domain::fs::DirEntry;
@@ -38,14 +31,21 @@ use mixdog_core_api::domain::tool::ToolErrorCode;
 use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolSpec;
 use mixdog_protocol::JsonValue;
+use nucleo_matcher::Config as FuzzyConfig;
+use nucleo_matcher::Matcher as FuzzyMatcher;
+use nucleo_matcher::Utf32String;
+use nucleo_matcher::pattern::AtomKind;
+use nucleo_matcher::pattern::CaseMatching;
+use nucleo_matcher::pattern::Normalization;
+use nucleo_matcher::pattern::Pattern;
 
 use super::common::*;
 use super::grep_context::SourceCache;
 
 type GrepIo<'a> = (&'a ToolContext, &'a mut SourceCache);
-use crate::orch::util::spec_from_def;
 use super::read::ReadTool;
 use super::read::in_noise_dir;
+use crate::orch::util::spec_from_def;
 
 const GLOB_SPEC: &str = include_str!("specs/glob.json");
 const FIND_SPEC: &str = include_str!("specs/find.json");
@@ -114,12 +114,8 @@ fn refusal(reason: String) -> ToolError {
 
 /// Broad-search refusal prefixes: admission expiry names the wait; expiry after admission names the remaining
 /// budget, which also covers producer waiting. The tools answer both as they answer a full queue ([`broad_search`]).
-const BROAD_REFUSALS: [&str; 4] = [
-    "broad search not started: ",
-    "native file inventory search exceeded its ",
-    "native fuzzy search exceeded its ",
-    "native content search exceeded its ",
-];
+const BROAD_REFUSALS: [&str; 4] =
+    ["broad search not started: ", "native file inventory search exceeded its ", "native fuzzy search exceeded its ", "native content search exceeded its "];
 
 /// The reason of a refusal ([`refusal`]).
 fn refused_with(error: &ToolError) -> Option<&str> {
@@ -233,10 +229,8 @@ fn compile_globs(patterns: &[String]) -> Result<OrderedGlobs, ToolError> {
         if !anchored && !p.contains('/') {
             p = format!("**/{p}");
         }
-        let glob: Glob = GlobBuilder::new(&p)
-            .literal_separator(true)
-            .build()
-            .map_err(|e| invalid("pattern", "glob", format!("Error: invalid glob {raw:?}: {e}")))?;
+        let glob: Glob =
+            GlobBuilder::new(&p).literal_separator(true).build().map_err(|e| invalid("pattern", "glob", format!("Error: invalid glob {raw:?}: {e}")))?;
         any_include |= !neg;
         rules.push((glob.compile_matcher(), neg));
     }
@@ -299,8 +293,7 @@ impl<T: Ord> Top<T> {
 /// (`createOwnerFairGate`: a free turn goes round the sessions that wait, not to the oldest waiter). Node holds one turn,
 /// its one search server on a single-threaded host; the core's many sessions run [`broad_search_limit`] at once, and no
 /// session is handed the last free turn while another session waits.
-static BROAD_SEARCH: std::sync::LazyLock<mixdog_rt::OwnerGate> =
-    std::sync::LazyLock::new(|| mixdog_rt::OwnerGate::with_limit(broad_search_limit()));
+static BROAD_SEARCH: std::sync::LazyLock<mixdog_rt::OwnerGate> = std::sync::LazyLock::new(|| mixdog_rt::OwnerGate::with_limit(broad_search_limit()));
 
 /// The broad searches that run at once: `MIXDOG_BROAD_SEARCH_MAX_INFLIGHT` above 0, else the available parallelism
 /// within 2..=8 (as the content search's `SchedulerConfig::from_env` derives its `total`); then within 1..=16. 1 is
@@ -456,10 +449,7 @@ async fn require_dir(ctx: &ToolContext, raw: &str, abs: &AbsPath) -> Result<Opti
         Err(e) if matches!(e.kind, FsErrorKind::NotFound | FsErrorKind::NotADirectory) => {
             let hint = ReadTool::not_found(ctx, raw, abs).await;
             let hint = hint.trim_start_matches("[path absent] ENOENT: no such file or directory, stat ");
-            Ok(Some(format!(
-                "Error: path does not exist: {} (ENOENT) {hint}",
-                fwd(abs.as_path())
-            )))
+            Ok(Some(format!("Error: path does not exist: {} (ENOENT) {hint}", fwd(abs.as_path()))))
         }
         Err(e) => Err(fs_failure(&e, raw)),
     }
@@ -536,8 +526,7 @@ pub fn glob_result_roots(args: &JsonValue) -> Option<Vec<String>> {
     if patterns.is_empty() || patterns.iter().any(|p| !is_absolute_pattern(p.trim_start_matches('!'))) {
         roots.push(path.clone());
     }
-    roots.extend(patterns.iter().filter(|p| is_absolute_pattern(p))
-        .map(|p| extract_glob_base_directory(p).0.unwrap_or_else(|| path.clone())));
+    roots.extend(patterns.iter().filter(|p| is_absolute_pattern(p)).map(|p| extract_glob_base_directory(p).0.unwrap_or_else(|| path.clone())));
     Some(roots)
 }
 
@@ -653,10 +642,7 @@ fn segment_matcher(segment: &str) -> Option<regex::Regex> {
             '?' => source.push_str("[^/]"),
             '[' => {
                 let end = rest.find(']')?;
-                let inner: String = rest[..end]
-                    .chars()
-                    .map(|c| if matches!(c, '\\' | '[' | '&' | '~') { format!("\\{c}") } else { c.to_string() })
-                    .collect();
+                let inner: String = rest[..end].chars().map(|c| if matches!(c, '\\' | '[' | '&' | '~') { format!("\\{c}") } else { c.to_string() }).collect();
                 source.push_str(&format!("[{inner}]"));
                 rest = &rest[end + 1..];
             }
@@ -762,9 +748,7 @@ pub struct GlobTool {
 
 impl GlobTool {
     pub fn new() -> Self {
-        Self {
-            spec: spec_from_def(GLOB_SPEC, true, &[]),
-        }
+        Self { spec: spec_from_def(GLOB_SPEC, true, &[]) }
     }
 }
 
@@ -855,9 +839,7 @@ pub struct FindTool {
 
 impl FindTool {
     pub fn new() -> Self {
-        Self {
-            spec: spec_from_def(FIND_SPEC, true, &[]),
-        }
+        Self { spec: spec_from_def(FIND_SPEC, true, &[]) }
     }
 }
 
@@ -886,8 +868,7 @@ struct Hit {
 /// grep-pattern-fanout.mjs `candidateMatchTexts`: the text after every `:<digits>:` of an output line, each a
 /// possible split of `path:line:text`; the whole line when there is none.
 fn candidate_match_texts(line: &str) -> Vec<&str> {
-    static SPLIT: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r":([0-9]+):").expect("a fixed pattern"));
+    static SPLIT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r":([0-9]+):").expect("a fixed pattern"));
     let mut out = Vec::new();
     let mut at = 0;
     // `re.lastIndex = hit.index + 1`: overlapping splits are all tried.
@@ -966,9 +947,7 @@ fn escape_glob(name: &str) -> String {
 /// Path prefix for grep results: the search path as given (`./` for the cwd).
 fn grep_display_root(raw: &str, root: &AbsPath, cwd: &AbsPath) -> String {
     let given = raw.trim().replace('\\', "/");
-    let under_cwd = Path::new(raw.trim()).is_absolute()
-        .then(|| root.as_path().strip_prefix(cwd.as_path()).ok().map(fwd))
-        .flatten();
+    let under_cwd = Path::new(raw.trim()).is_absolute().then(|| root.as_path().strip_prefix(cwd.as_path()).ok().map(fwd)).flatten();
     let shown = match under_cwd {
         Some(rel) if rel.is_empty() => ".".to_owned(),
         Some(rel) => rel,
@@ -1026,15 +1005,12 @@ fn partial_warning(timed_out: bool, scan_errors: usize, streamed: bool) -> Strin
     if !streamed {
         return "\n[warning] rg exit 2 (partial results)".to_owned();
     }
-    format!(
-        "\n[warning] rg exit 2 (partial results): {scan_errors} file(s) could not be read (permission or I/O error); matches from those files are missing"
-    )
+    format!("\n[warning] rg exit 2 (partial results): {scan_errors} file(s) could not be read (permission or I/O error); matches from those files are missing")
 }
 
 static CONTEXT_HEADER: std::sync::LazyLock<regex::Regex> =
     std::sync::LazyLock::new(|| regex::Regex::new(r"^# ([^\n\r\u{2028}\u{2029}]+):([0-9]+) \[lines ([0-9]+)-([0-9]+)\]$").expect("a fixed pattern"));
-static MATCH_PREFIX: std::sync::LazyLock<regex::Regex> =
-    std::sync::LazyLock::new(|| regex::Regex::new(r":([0-9]+):|-([0-9]+)-").expect("a fixed pattern"));
+static MATCH_PREFIX: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r":([0-9]+):|-([0-9]+)-").expect("a fixed pattern"));
 
 /// Node `splitGrepLinePrefix` of a match line: its path and line number when the first
 /// `:N:`/`-N-` marker (past a drive letter) is a match marker.
@@ -1140,11 +1116,7 @@ fn fanout_sections(dimension: Fanout, patterns: &[String], bodies: &[String]) ->
         if items.is_empty() {
             continue;
         }
-        let scope = if items.len() == patterns.len() {
-            String::new()
-        } else {
-            format!(" {plural}={}", serde_json::to_string(&items).unwrap_or_default())
-        };
+        let scope = if items.len() == patterns.len() { String::new() } else { format!(" {plural}={}", serde_json::to_string(&items).unwrap_or_default()) };
         parts.push(format!("{}{scope}", no_matches(complete)));
     }
     parts.join("\n\n")
@@ -1182,8 +1154,7 @@ static UNSUPPORTED_REGEX: std::sync::LazyLock<regex::Regex> =
 /// after an odd run of backslashes; `\\n` is a backslash and an `n` on one line).
 fn multiline_mode(args: &JsonValue, pattern: &str) -> bool {
     let bytes = pattern.as_bytes();
-    arg_bool(args, "multiline")
-        || bytes.iter().enumerate().any(|(at, &b)| b == b'n' && bytes[..at].iter().rev().take_while(|&&c| c == b'\\').count() % 2 == 1)
+    arg_bool(args, "multiline") || bytes.iter().enumerate().any(|(at, &b)| b == b'n' && bytes[..at].iter().rev().take_while(|&&c| c == b'\\').count() % 2 == 1)
 }
 
 /// A root's hits under the names grep shows: a file's path from the cwd, a folder's hits under the folder as given.
@@ -1194,11 +1165,7 @@ fn label_hits(ctx: &ToolContext, raw: &str, is_file: bool, hits: Vec<Hit>) -> Re
     Ok(hits
         .into_iter()
         .map(|h| {
-            let label = if is_file {
-                display_path(h.path.as_path(), &ctx.cwd)
-            } else {
-                format!("{prefix}/{}", display_under(h.path.as_path(), abs.as_path()))
-            };
+            let label = if is_file { display_path(h.path.as_path(), &ctx.cwd) } else { format!("{prefix}/{}", display_under(h.path.as_path(), abs.as_path())) };
             (label, h)
         })
         .collect())
@@ -1258,7 +1225,8 @@ impl Paged {
 
 /// `path` and line of a rendered result's first line (`# path:line [lines a-b]` or `path:line:text`).
 fn unit_location(first: &str) -> Option<(String, u64)> {
-    static LOCATION: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"^(?:# )?(.+?):([0-9]+)(?:[: ]|$)").expect("a fixed pattern"));
+    static LOCATION: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"^(?:# )?(.+?):([0-9]+)(?:[: ]|$)").expect("a fixed pattern"));
     let found = LOCATION.captures(first)?;
     Some((found[1].to_owned(), found[2].parse().ok()?))
 }
@@ -1365,15 +1333,7 @@ impl PageRender<'_> {
 }
 
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-async fn render(
-    io: GrepIo<'_>,
-    all: &[(String, Hit)],
-    window: &Window,
-    shape: Shape,
-    pattern: &str,
-    budget: usize,
-    prefix: bool,
-) -> Result<String, ToolError> {
+async fn render(io: GrepIo<'_>, all: &[(String, Hit)], window: &Window, shape: Shape, pattern: &str, budget: usize, prefix: bool) -> Result<String, ToolError> {
     Ok(match shape.mode {
         Mode::Files => files_body(io.0, all, window, shape).await,
         Mode::Count => count_body(all, window, shape.complete),
@@ -1400,16 +1360,23 @@ async fn adaptive_body(
     };
     let known = shape.complete && all.len() <= cap;
     let anchors = &all[..all.len().min(cap)];
-    let matches = anchors
-        .iter()
-        .map(|(label, h)| super::grep_context::Match { label, path: &h.path, line: h.line, text: h.text.clone() })
-        .collect();
-    let text = super::grep_context::expand(io, matches, pattern, window.case_insensitive, window.offset, window.limit, known, window.context.unwrap_or(0), budget, prefix).await?;
+    let matches = anchors.iter().map(|(label, h)| super::grep_context::Match { label, path: &h.path, line: h.line, text: h.text.clone() }).collect();
+    let text = super::grep_context::expand(
+        io,
+        matches,
+        pattern,
+        window.case_insensitive,
+        window.offset,
+        window.limit,
+        known,
+        window.context.unwrap_or(0),
+        budget,
+        prefix,
+    )
+    .await?;
     let mut out = if text.is_empty() { no_matches(known) } else { text };
     if shape.complete && !known {
-        out.push_str(&format!(
-            "\n[warning] anchor output capped at {cap} matches; results partial — narrow path/glob/pattern for the full match set."
-        ));
+        out.push_str(&format!("\n[warning] anchor output capped at {cap} matches; results partial — narrow path/glob/pattern for the full match set."));
     }
     Ok(out)
 }
@@ -1432,8 +1399,7 @@ fn page_rows<'a, T>(rows: &'a [T], window: &Window, known: bool) -> (&'a [T], St
 /// total only when it ended inside the page.
 fn bare_body(all: &[(String, Hit)], window: &Window, shape: Shape) -> String {
     let after = all.get(window.offset..).unwrap_or(&[]);
-    let known = shape.complete
-        && (shape.totals == Totals::Combined || window.limit == usize::MAX || after.len() <= window.limit);
+    let known = shape.complete && (shape.totals == Totals::Combined || window.limit == usize::MAX || after.len() <= window.limit);
     let page = &after[..after.len().min(window.limit)];
     let mut out = if shape.fanout {
         page.iter().map(|(label, h)| format!("{label}:{}:{}", h.line, h.text)).collect::<Vec<_>>().join("\n")
@@ -1553,7 +1519,6 @@ mod count_rows {
     }
 }
 
-
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 #[cfg(test)]
 pub(super) async fn walk_entries_pruned(
@@ -1584,7 +1549,17 @@ async fn walk_descending(
 ) -> Result<Walked, ToolError> {
     let budget_ms = server.map_or(u64::MAX, |(_, budget)| budget);
     let server = server.map(|(class, _)| class);
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore, require_git: true, include_dirs: false, prune, descent, server };
+    let request = WalkRequest {
+        root: root.clone(),
+        recursive: true,
+        include_hidden: true,
+        respect_ignore,
+        require_git: true,
+        include_dirs: false,
+        prune,
+        descent,
+        server,
+    };
     walk_kept(ctx, request, keep, cap, budget_ms).await
 }
 /// Files and directories under `root` (nothing ignored or hidden skipped; the kernel trees of a
@@ -1598,7 +1573,17 @@ pub(super) async fn walk_inventory(
     cap: usize,
 ) -> Result<Walked, ToolError> {
     let prune = root_scan_prunes(root, cfg!(not(windows)));
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, require_git: true, include_dirs: true, prune, descent, server: None };
+    let request = WalkRequest {
+        root: root.clone(),
+        recursive: true,
+        include_hidden: true,
+        respect_ignore: false,
+        require_git: true,
+        include_dirs: true,
+        prune,
+        descent,
+        server: None,
+    };
     walk_kept(ctx, request, keep, Some(cap), u64::MAX).await
 }
 /// A deep `list`'s inventory (`tryNativeDeepListRows`): files and directories under `root`, nothing ignored, at most `cap`
@@ -1607,18 +1592,28 @@ pub(super) async fn walk_inventory(
 /// its budget as a glob's inventory does (`BROAD_REFUSALS`). The walk itself stops at `descent` (`--max-depth`, the
 /// noise folders and, unless hidden, dotted folders listed but not entered), so nothing `keep` would drop is read.
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-pub(super) async fn broad_listing(ctx: &ToolContext, root: &AbsPath, descent: Descent, keep: impl Fn(&DirEntry) -> bool, cap: usize) -> Result<Walked, ToolError> {
-    let request = WalkRequest { root: root.clone(), recursive: true, include_hidden: true, respect_ignore: false, require_git: true, include_dirs: true, prune: Vec::new(), descent, server: Some(SearchClass::Bulk) };
+pub(super) async fn broad_listing(
+    ctx: &ToolContext,
+    root: &AbsPath,
+    descent: Descent,
+    keep: impl Fn(&DirEntry) -> bool,
+    cap: usize,
+) -> Result<Walked, ToolError> {
+    let request = WalkRequest {
+        root: root.clone(),
+        recursive: true,
+        include_hidden: true,
+        respect_ignore: false,
+        require_git: true,
+        include_dirs: true,
+        prune: Vec::new(),
+        descent,
+        server: Some(SearchClass::Bulk),
+    };
     broad_search(ctx, BROAD_REFUSALS[1], |budget| walk_kept(ctx, request, keep, Some(cap), budget)).await
 }
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-async fn walk_kept(
-    ctx: &ToolContext,
-    request: WalkRequest,
-    keep: impl Fn(&DirEntry) -> bool,
-    cap: Option<usize>,
-    budget_ms: u64,
-) -> Result<Walked, ToolError> {
+async fn walk_kept(ctx: &ToolContext, request: WalkRequest, keep: impl Fn(&DirEntry) -> bool, cap: Option<usize>, budget_ms: u64) -> Result<Walked, ToolError> {
     let mut entries = Vec::new();
     let (complete, capped) = visit_walk(ctx, request, keep, cap, budget_ms, |entry| entries.push(entry)).await?;
     Ok(Walked { entries, complete, capped })
@@ -1741,9 +1736,7 @@ pub(super) async fn broad_search_turn<T, W: Future<Output = Result<T, ToolError>
     match ran {
         mixdog_rt::Scoped::Done(out) => out.map(|out| (out, turn)),
         mixdog_rt::Scoped::Cancelled => Err(cancelled()),
-        mixdog_rt::Scoped::DeadlineExceeded => {
-            Err(refusal(format!("{kind}{left}ms remaining budget.")))
-        }
+        mixdog_rt::Scoped::DeadlineExceeded => Err(refusal(format!("{kind}{left}ms remaining budget."))),
     }
 }
 /// Visit files under `root` matching any pattern, in walk order.
@@ -1762,19 +1755,33 @@ async fn visit_glob(
     let root_path = root.as_path();
     let descent = Descent { bare: if include_noise { Vec::new() } else { noise_bare() }, ..Descent::default() };
     let request = WalkRequest {
-        root: root.clone(), recursive: true, include_hidden: true, respect_ignore: !include_noise, require_git: true,
-        include_dirs: false, prune: root_scan_prunes(root, cfg!(not(windows))), descent, server: Some(SearchClass::Bulk),
+        root: root.clone(),
+        recursive: true,
+        include_hidden: true,
+        respect_ignore: !include_noise,
+        require_git: true,
+        include_dirs: false,
+        prune: root_scan_prunes(root, cfg!(not(windows))),
+        descent,
+        server: Some(SearchClass::Bulk),
     };
     let mut seen = HashSet::new();
-    visit_walk(ctx, request, |entry| {
-        let path = entry.path.as_path();
-        if !include_noise && in_noise_dir(path, root_path) {
-            return false;
-        }
-        let relative = fwd(path.strip_prefix(root_path).unwrap_or(path));
-        globs.keeps(&relative)
-            && (!unique || seen.insert(entry.path.clone()))
-    }, cap, budget, visit).await
+    visit_walk(
+        ctx,
+        request,
+        |entry| {
+            let path = entry.path.as_path();
+            if !include_noise && in_noise_dir(path, root_path) {
+                return false;
+            }
+            let relative = fwd(path.strip_prefix(root_path).unwrap_or(path));
+            globs.keeps(&relative) && (!unique || seen.insert(entry.path.clone()))
+        },
+        cap,
+        budget,
+        visit,
+    )
+    .await
 }
 
 /// The read tool's inventory, with its own path guard and subsequent ranking.
@@ -1829,14 +1836,14 @@ struct GlobRank {
 
 impl Ord for GlobRank {
     fn cmp(&self, other: &Self) -> Ordering {
-        self.order.cmp(&other.order).then_with(|| {
-            if matches!(&self.order, GlobOrder::Natural) {
-                self.path.cmp(&other.path)
-            } else {
-                Ordering::Equal
-            }
-        // Keep failed stats in walk order, and retain the order of case-folded ties on Windows.
-        }).then_with(|| self.ordinal.cmp(&other.ordinal)).then_with(|| self.path.cmp(&other.path))
+        self.order
+            .cmp(&other.order)
+            .then_with(|| {
+                if matches!(&self.order, GlobOrder::Natural) { self.path.cmp(&other.path) } else { Ordering::Equal }
+                // Keep failed stats in walk order, and retain the order of case-folded ties on Windows.
+            })
+            .then_with(|| self.ordinal.cmp(&other.ordinal))
+            .then_with(|| self.path.cmp(&other.path))
     }
 }
 
@@ -1914,7 +1921,8 @@ async fn rank_glob_group(
                         total += 1;
                     }
                 }
-            }).await?;
+            })
+            .await?;
             return Ok(GlobBatch { top, added, total, missing_stat: false, followed_link: false, complete, capped: walk_cap || merged_cap });
         }
 
@@ -1926,7 +1934,8 @@ async fn rank_glob_group(
             if entries.len() <= remaining && new_glob_path(&entry.path, seen, added.as_mut()) {
                 entries.push(entry.path);
             }
-        }).await?;
+        })
+        .await?;
         if entries.len() > remaining {
             entries.truncate(remaining);
             capped = true;
@@ -1936,7 +1945,8 @@ async fn rank_glob_group(
             let mut stamped = futures::stream::iter(entries.into_iter().enumerate().map(|(number, path)| async move {
                 let mtime = locator_mtime(ctx, &path).await;
                 (number, path, mtime)
-            })).buffer_unordered(64);
+            }))
+            .buffer_unordered(64);
             while let Some((number, path, mtime)) = stamped.next().await {
                 if ctx.cancel.is_cancelled() {
                     return Err(cancelled());
@@ -1947,7 +1957,8 @@ async fn rank_glob_group(
             }
         }
         Ok(GlobBatch { top, added, total, missing_stat, followed_link, complete, capped })
-    }).await
+    })
+    .await
 }
 #[async_trait]
 impl Tool for GlobTool {
@@ -1992,7 +2003,13 @@ impl GlobTool {
                     return Err(invalid("sort", "type", format!("Error: glob arg \"sort\" must be one of natural|mtime (got {got})")));
                 }
             },
-            Some(other) => return Err(invalid("sort", "type", format!("Error: glob arg \"sort\" must be one of natural|mtime (got {})", super::read_legacy::describe_type(other)))),
+            Some(other) => {
+                return Err(invalid(
+                    "sort",
+                    "type",
+                    format!("Error: glob arg \"sort\" must be one of natural|mtime (got {})", super::read_legacy::describe_type(other)),
+                ));
+            }
         };
         let limit = match arg_u64(&args, "limit") {
             Some(0) => usize::MAX,
@@ -2006,8 +2023,7 @@ impl GlobTool {
         let root = resolve_path(&ctx.cwd, raw)?;
         // Node `buildGlobPatternGroups`: an absolute pattern is walked from its own static prefix,
         // anchored there; the others from `path`.
-        let (absolute, relative): (Vec<String>, Vec<String>) =
-            patterns.iter().cloned().partition(|p| is_absolute_pattern(p));
+        let (absolute, relative): (Vec<String>, Vec<String>) = patterns.iter().cloned().partition(|p| is_absolute_pattern(p));
         // Each group with the root Node names it by (`normalizeOutputPath(root)`).
         let mut groups: Vec<(AbsPath, Vec<String>, String)> = Vec::new();
         if !relative.is_empty() || absolute.is_empty() {
@@ -2042,11 +2058,13 @@ impl GlobTool {
         let mut followed_link = false;
         let mut errors = Vec::new();
         // Each walk deduplicates its own paths. Only overlapping roots need cross-group deduplication.
-        let mut seen = groups.iter().enumerate().any(|(index, (root, _, _))| {
-            groups[..index].iter().any(|(other, _, _)| {
-                root.as_path().starts_with(other.as_path()) || other.as_path().starts_with(root.as_path())
+        let mut seen = groups
+            .iter()
+            .enumerate()
+            .any(|(index, (root, _, _))| {
+                groups[..index].iter().any(|(other, _, _)| root.as_path().starts_with(other.as_path()) || other.as_path().starts_with(root.as_path()))
             })
-        }).then(HashSet::new);
+            .then(HashSet::new);
         let (mut walk_ms, mut admitted_directly, mut queued_behind_others) = (0u64, 0usize, false);
         for (group_root, rels, label) in &groups {
             if let Some(missing) = require_dir(ctx, &fwd(group_root.as_path()), group_root).await? {
@@ -2090,7 +2108,9 @@ impl GlobTool {
             local_search.insert("broad_admissions".to_owned(), 1.into());
             local_search.insert("broad_admission_wait_ms".to_owned(), 0.into());
         }
-        for (key, value) in [("native_bulk_requests", 1), ("native_bulk_queue_ms", 0), ("native_bulk_handler_ms", walk_ms), ("native_hits", 1), ("native_ms", walk_ms)] {
+        for (key, value) in
+            [("native_bulk_requests", 1), ("native_bulk_queue_ms", 0), ("native_bulk_handler_ms", walk_ms), ("native_hits", 1), ("native_ms", walk_ms)]
+        {
             local_search.insert(key.to_owned(), value.into());
         }
         let local_search = JsonValue::Object(local_search);
@@ -2119,32 +2139,18 @@ impl GlobTool {
         // Node's `relativeSearchResultPath` strips `<cwd>/`; a filesystem root as the cwd already ends in its separator, so
         // no path starts with `<cwd>//` and every one stays absolute.
         let root_cwd = ctx.cwd.as_path().parent().is_none();
-        let lines: Vec<String> = page
-            .map(|row| if root_cwd { fwd(row.path.as_path()) } else { display_path(row.path.as_path(), &ctx.cwd) })
-            .collect();
+        let lines: Vec<String> = page.map(|row| if root_cwd { fwd(row.path.as_path()) } else { display_path(row.path.as_path(), &ctx.cwd) }).collect();
         let remaining = total.saturating_sub(offset + lines.len());
         let mut direct_fallback = false;
         let mut text = lines.join("\n");
         if remaining > 0 {
             text.push_str(&format!(
                 "\n{}",
-                window_marker(
-                    "entries",
-                    offset as u64 + 1,
-                    (offset + lines.len()) as u64,
-                    Some(total as u64),
-                    Some((offset + lines.len()) as u64),
-                    None
-                )
+                window_marker("entries", offset as u64 + 1, (offset + lines.len()) as u64, Some(total as u64), Some((offset + lines.len()) as u64), None)
             ));
         }
         if lines.is_empty() {
-            let shown_patterns = if patterns.len() == 1 {
-                serde_json::to_string(&patterns[0])
-            } else {
-                serde_json::to_string(&patterns)
-            }
-            .unwrap_or_default();
+            let shown_patterns = if patterns.len() == 1 { serde_json::to_string(&patterns[0]) } else { serde_json::to_string(&patterns) }.unwrap_or_default();
             let base_label = fwd(Path::new(raw));
             if total > 0 && offset >= total {
                 text = format!("(no entries after offset={offset}; total={total}) pattern={shown_patterns} path={base_label}");
@@ -2174,10 +2180,7 @@ impl GlobTool {
             text.push_str(&format!("\n... [warning] {}", errors.join(" | ")));
         }
         if capped {
-            text.push_str(&format!(
-                "\n{}",
-                cap_marker(&format!("{GLOB_ACCUM_CAP} matches"), "results incomplete", None, "narrow the pattern or path")
-            ));
+            text.push_str(&format!("\n{}", cap_marker(&format!("{GLOB_ACCUM_CAP} matches"), "results incomplete", None, "narrow the pattern or path")));
         }
         if !complete {
             text.push_str("\n[warning] search deadline reached; partial results shown.");
@@ -2199,13 +2202,12 @@ impl Tool for FindTool {
 impl FindTool {
     async fn respond(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let args = promote_legacy_args(args, false);
-        let query =arg_str(&args, "query").unwrap_or("").trim().to_owned();
+        let query = arg_str(&args, "query").unwrap_or("").trim().to_owned();
         if query.is_empty() {
             return Err(invalid("query", "required", "Error: find requires query."));
         }
         // arg-guard.mjs (find): a `path` that is not a string is refused; a null or blank one is the cwd.
-        let raw = super::common::optional_path_arg(&args, "path", |got| format!("Error: find arg \"path\" must be a string (got {got})"))?
-            .unwrap_or(".");
+        let raw = super::common::optional_path_arg(&args, "path", |got| format!("Error: find arg \"path\" must be a string (got {got})"))?.unwrap_or(".");
         let limit = match arg_u64(&args, "limit") {
             Some(0) => FIND_UNLIMITED_CAP,
             Some(n) => n as usize,
@@ -2241,16 +2243,26 @@ impl FindTool {
         };
         // Ranking must not slow the timed enumeration or cut better matches from its tail.
         let Walked { entries, complete, .. } = broad_search(ctx, BROAD_REFUSALS[2], |budget| {
-            walk_kept(ctx, request, |entry| {
-                let dotted = !hidden
-                    && entry.path.as_path().strip_prefix(&root_path).is_ok_and(|rel| rel.components().any(|part| part.as_os_str().to_string_lossy().starts_with('.')));
-                !dotted && (include_noise || !in_noise_dir(entry.path.as_path().parent().unwrap_or(&root_path), &root_path))
-            }, None, budget)
-        }).await?;
+            walk_kept(
+                ctx,
+                request,
+                |entry| {
+                    let dotted = !hidden
+                        && entry
+                            .path
+                            .as_path()
+                            .strip_prefix(&root_path)
+                            .is_ok_and(|rel| rel.components().any(|part| part.as_os_str().to_string_lossy().starts_with('.')));
+                    !dotted && (include_noise || !in_noise_dir(entry.path.as_path().parent().unwrap_or(&root_path), &root_path))
+                },
+                None,
+                budget,
+            )
+        })
+        .await?;
         // serve_search/fuzzy.rs: every whitespace-separated fragment is a nucleo fuzzy atom (case ignored, Unicode
         // normalised "smart"), all must match one path, the scores add, and the best score comes first, a tie by path.
-        let atoms: Vec<Pattern> =
-            query.split_whitespace().map(|t| Pattern::new(t, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy)).collect();
+        let atoms: Vec<Pattern> = query.split_whitespace().map(|t| Pattern::new(t, CaseMatching::Ignore, Normalization::Smart, AtomKind::Fuzzy)).collect();
         let mut matcher = FuzzyMatcher::new(FuzzyConfig::DEFAULT.match_paths());
         let mut top = Top::new(limit);
         let mut matched = 0usize;
@@ -2263,9 +2275,7 @@ impl FindTool {
             }
             let rel = display_under(entry.path.as_path(), &root_path);
             let text = Utf32String::from(rel.as_str());
-            if let Some(score) = atoms.iter().try_fold(0u32, |sum, atom| {
-                atom.score(text.slice(..), &mut matcher).map(|score| sum.saturating_add(score))
-            }) {
+            if let Some(score) = atoms.iter().try_fold(0u32, |sum, atom| atom.score(text.slice(..), &mut matcher).map(|score| sum.saturating_add(score))) {
                 matched += 1;
                 top.push((Reverse(score), rel));
             }
@@ -2351,8 +2361,7 @@ impl GrepTool {
         let include_noise = arg_bool(args, "include_noise");
         let single_file = stat.kind == EntryKind::File;
         let (root, mut include_globs) = if single_file {
-            let parent = AbsPath::new(abs.as_path().parent().unwrap_or(abs.as_path()).to_path_buf())
-                .unwrap_or_else(|| abs.clone());
+            let parent = AbsPath::new(abs.as_path().parent().unwrap_or(abs.as_path()).to_path_buf()).unwrap_or_else(|| abs.clone());
             // Anchored to the parent: a bare name would match that name in every folder below it.
             let name = abs.as_path().file_name().map(|n| format!("/{}", escape_glob(&n.to_string_lossy())));
             (parent, name.into_iter().collect::<Vec<_>>())
@@ -2385,34 +2394,31 @@ impl GrepTool {
         }
         let deadlines = SearchDeadlines::within(ctx, budget_ms);
         let request = SearchRequest {
-                root,
-                pattern: pattern.to_owned(),
-                regex: true,
-                // `-i` (`caseInsensitive` of grep-request.mjs, ripgrep's `-i`).
-                case_sensitive: args.get("-i") != Some(&JsonValue::Bool(true)),
-                include_globs,
-                exclude_globs,
-                include_hidden: true,
-                // A file named as the path is searched whatever the ignore rules say, as ripgrep does a file operand.
-                respect_ignore: !include_noise && !single_file,
-                // grep-request.mjs `multilineMode` (`-U --multiline-dotall`) and `pcre2Mode` (`-P`), and `text` (`--text`).
-                multiline: multiline_mode(args, pattern),
-                pcre2: UNSUPPORTED_REGEX.is_match(pattern),
-                binary_as_text: arg_bool(args, "text"),
-                // The scan itself ends at the window (a file list or counts read every match), as Node's server's
-                // `collect_until` does; an unlimited listing at the 200,000-match content cap. The sink below takes one
-                // hit before it checks a spent bound, so a bound of 0 still reads one.
-                limit: (mode == Mode::Content).then(|| bound.map_or(CONTENT_MATCH_CAP, |n| n.max(1))),
-                // A file list reads each file to its first match (`--files-with-matches`).
-                first_per_file: mode == Mode::Files,
-                deadline: Some(deadlines.soft.into_std()),
-                class,
+            root,
+            pattern: pattern.to_owned(),
+            regex: true,
+            // `-i` (`caseInsensitive` of grep-request.mjs, ripgrep's `-i`).
+            case_sensitive: args.get("-i") != Some(&JsonValue::Bool(true)),
+            include_globs,
+            exclude_globs,
+            include_hidden: true,
+            // A file named as the path is searched whatever the ignore rules say, as ripgrep does a file operand.
+            respect_ignore: !include_noise && !single_file,
+            // grep-request.mjs `multilineMode` (`-U --multiline-dotall`) and `pcre2Mode` (`-P`), and `text` (`--text`).
+            multiline: multiline_mode(args, pattern),
+            pcre2: UNSUPPORTED_REGEX.is_match(pattern),
+            binary_as_text: arg_bool(args, "text"),
+            // The scan itself ends at the window (a file list or counts read every match), as Node's server's
+            // `collect_until` does; an unlimited listing at the 200,000-match content cap. The sink below takes one
+            // hit before it checks a spent bound, so a bound of 0 still reads one.
+            limit: (mode == Mode::Content).then(|| bound.map_or(CONTENT_MATCH_CAP, |n| n.max(1))),
+            // A file list reads each file to its first match (`--files-with-matches`).
+            first_per_file: mode == Mode::Files,
+            deadline: Some(deadlines.soft.into_std()),
+            class,
         };
-        let mut stream = if mode == Mode::Content {
-            ctx.files.search_text(ctx.io.maintenance, request)
-        } else {
-            ctx.files.search_summary(ctx.io.maintenance, request)
-        };
+        let mut stream =
+            if mode == Mode::Content { ctx.files.search_text(ctx.io.maintenance, request) } else { ctx.files.search_summary(ctx.io.maintenance, request) };
         let mut hits = Vec::new();
         let mut summaries = std::collections::HashMap::<AbsPath, u64>::new();
         let mut errors = 0usize;
@@ -2421,7 +2427,7 @@ impl GrepTool {
         let mut refused = None;
         // The stream is read to its end, past the bound: the scan stops itself at its limit, and the deadline it may
         // report after its last match belongs to the answer (Node's server checks it once more after its scan).
-        let end = pull_until(ctx, stream.as_mut(), (self.timer)(deadlines.hard.into_std()),|item| {
+        let end = pull_until(ctx, stream.as_mut(), (self.timer)(deadlines.hard.into_std()), |item| {
             match item {
                 Ok(SearchMatch { path, line, text, count, .. }) => {
                     if mode == Mode::Content {
@@ -2507,7 +2513,8 @@ impl SearchDeadlines {
         const REQUEST_TIMEOUT_MS: u64 = 17_500;
         // On the runtime's clock, as the sleeps that wait for these deadlines: a test moves it by an explicit advance.
         let now = mixdog_rt::time::Instant::now();
-        let caller = ctx.deadline.map(|at| u64::try_from(mixdog_rt::time::Instant::from_std(at).saturating_duration_since(now).as_millis()).unwrap_or(u64::MAX));
+        let caller =
+            ctx.deadline.map(|at| u64::try_from(mixdog_rt::time::Instant::from_std(at).saturating_duration_since(now).as_millis()).unwrap_or(u64::MAX));
         // The search ends this much before the call's own deadline, so its typed stage ("not started: waiting for
         // admission", "exceeded its budget while scanning") is what the call reports, not the generic outer timeout.
         const OUTER_MARGIN_MS: u64 = 250;
@@ -2545,7 +2552,9 @@ impl GrepTool {
         if args.get("section").is_some() {
             return match self.fanout_paged((ctx, &mut sources), &args, cap, &mut complete).await? {
                 Some(text) => Ok(output(text, complete)),
-                None => Err(invalid("section", "range", "Error: grep arg \"section\" continues a call over several paths or patterns; this call has one section.")),
+                None => {
+                    Err(invalid("section", "range", "Error: grep arg \"section\" continues a call over several paths or patterns; this call has one section."))
+                }
             };
         }
         let text = self.answer((ctx, &mut sources), args.clone(), cap, Some(cap), &mut complete).await?;
@@ -2636,7 +2645,15 @@ impl GrepTool {
         self.answer_one((ctx, sources), &args, &patterns, budget, fit, complete).await
     }
 
-    async fn answer_one(&self, io: GrepIo<'_>, args: &JsonValue, patterns: &[String], budget: usize, fit: Option<usize>, complete: &mut bool) -> Result<String, ToolError> {
+    async fn answer_one(
+        &self,
+        io: GrepIo<'_>,
+        args: &JsonValue,
+        patterns: &[String],
+        budget: usize,
+        fit: Option<usize>,
+        complete: &mut bool,
+    ) -> Result<String, ToolError> {
         let (patterns, note) = pattern_list(patterns);
         let mode = mode_of(args);
         Ok(format!("{note}{}", self.answer_patterns(io, args, &patterns, mode, budget, fit, complete).await?))
@@ -2645,7 +2662,16 @@ impl GrepTool {
     /// One path's answer to its (distinct, capped) patterns.
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     #[allow(clippy::too_many_arguments)]
-    async fn answer_patterns(&self, (ctx, sources): GrepIo<'_>, args: &JsonValue, patterns: &[String], mode: Mode, budget: usize, fit: Option<usize>, complete: &mut bool) -> Result<String, ToolError> {
+    async fn answer_patterns(
+        &self,
+        (ctx, sources): GrepIo<'_>,
+        args: &JsonValue,
+        patterns: &[String],
+        mode: Mode,
+        budget: usize,
+        fit: Option<usize>,
+        complete: &mut bool,
+    ) -> Result<String, ToolError> {
         let args = args.clone();
         let patterns = patterns.to_vec();
         // Node `runGrepPatternFanout`: several content patterns are independent greps, one section
@@ -2698,7 +2724,17 @@ impl GrepTool {
     /// come within, by delivering fewer whole results ([`Paged`]).
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     #[allow(clippy::too_many_arguments)]
-    async fn search(&self, io: GrepIo<'_>, args: &JsonValue, pattern: &str, mode: Mode, fanout: bool, budget: usize, fit: Option<usize>, complete: &mut bool) -> Result<String, ToolError> {
+    async fn search(
+        &self,
+        io: GrepIo<'_>,
+        args: &JsonValue,
+        pattern: &str,
+        mode: Mode,
+        fanout: bool,
+        budget: usize,
+        fit: Option<usize>,
+        complete: &mut bool,
+    ) -> Result<String, ToolError> {
         let paged = self.search_paged(io, args, pattern, mode, fanout, false, budget, fit, complete).await?;
         *complete &= !paged.by_cap;
         match (paged.oversize, paged.next) {
@@ -2728,7 +2764,18 @@ impl GrepTool {
     /// so it is rendered as such a prefix whatever left results behind (the limit, the context budget or the byte cap).
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     #[allow(clippy::too_many_arguments)]
-    async fn search_paged(&self, io: GrepIo<'_>, args: &JsonValue, pattern: &str, mode: Mode, fanout: bool, section: bool, budget: usize, fit: Option<usize>, complete: &mut bool) -> Result<Paged, ToolError> {
+    async fn search_paged(
+        &self,
+        io: GrepIo<'_>,
+        args: &JsonValue,
+        pattern: &str,
+        mode: Mode,
+        fanout: bool,
+        section: bool,
+        budget: usize,
+        fit: Option<usize>,
+        complete: &mut bool,
+    ) -> Result<Paged, ToolError> {
         let window = Window::of(args, mode);
         // The native search window (serve_search/search.rs `collect_until`): the scan stops one hit past what the call
         // can show, so the length of a cut stream is unknown.
@@ -2741,7 +2788,16 @@ impl GrepTool {
     /// section of the combined scan knows its totals and keeps the scan's order), cut to fit `fit`, with what it delivered.
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
     #[allow(clippy::too_many_arguments)]
-    async fn page((ctx, sources): GrepIo<'_>, collected: Collected, window: Window, pattern: &str, (mode, fanout, section): (Mode, bool, bool), budget: usize, fit: Option<usize>, totals: Totals) -> Result<Paged, ToolError> {
+    async fn page(
+        (ctx, sources): GrepIo<'_>,
+        collected: Collected,
+        window: Window,
+        pattern: &str,
+        (mode, fanout, section): (Mode, bool, bool),
+        budget: usize,
+        fit: Option<usize>,
+        totals: Totals,
+    ) -> Result<Paged, ToolError> {
         let Collected { all, complete, timed_out, scan_errors, errors, single, all_bad } = collected;
         if all.is_empty() && !errors.is_empty() {
             // A pattern the parser refused is a failed call, as Node's caller takes it; a missing path is a miss.
@@ -2830,7 +2886,11 @@ impl GrepTool {
         let resumed = args.get("section").is_some();
         let (start, given) = (arg_u64(args, "section").unwrap_or(0) as usize, arg_u64(args, "offset").unwrap_or(0) as usize);
         if start >= total {
-            return Err(invalid("section", "range", format!("Error: grep arg \"section\" is {start}, but this call has {total} section(s) (0-{}).", total - 1)));
+            return Err(invalid(
+                "section",
+                "range",
+                format!("Error: grep arg \"section\" is {start}, but this call has {total} section(s) (0-{}).", total - 1),
+            ));
         }
         let label_of = |i: usize, j: usize| match (&paths[i], by_pattern) {
             (Some(path), true) => format!("{path} pattern:{}", serde_json::to_string(&pats[j]).unwrap_or_default()),
@@ -2868,8 +2928,26 @@ impl GrepTool {
                     if hits.is_empty() {
                         Ok(Paged::whole(no_matches(true)))
                     } else {
-                        let collected = Collected { all: hits.clone(), complete: true, timed_out: false, scan_errors: 0, errors: Vec::new(), single: *is_file, all_bad: false };
-                        Self::page((ctx, sources), collected, Window::of(&one, mode), pattern, (mode, false, true), room.max(512), Some(room.max(1)), Totals::Combined).await
+                        let collected = Collected {
+                            all: hits.clone(),
+                            complete: true,
+                            timed_out: false,
+                            scan_errors: 0,
+                            errors: Vec::new(),
+                            single: *is_file,
+                            all_bad: false,
+                        };
+                        Self::page(
+                            (ctx, sources),
+                            collected,
+                            Window::of(&one, mode),
+                            pattern,
+                            (mode, false, true),
+                            room.max(512),
+                            Some(room.max(1)),
+                            Totals::Combined,
+                        )
+                        .await
                     }
                 }
                 None => self.search_paged((ctx, sources), &one, &pats[j], mode, by_pattern, true, room.max(512), Some(room.max(1)), complete).await,
@@ -2915,7 +2993,11 @@ impl GrepTool {
                 _ => "patterns",
             };
             let all_missed = missed.len() == total && parts.is_empty();
-            parts.push(if all_missed { no_matches(true) } else { format!("{} {kind}={}", no_matches(true), serde_json::to_string(&missed).unwrap_or_default()) });
+            parts.push(if all_missed {
+                no_matches(true)
+            } else {
+                format!("{} {kind}={}", no_matches(true), serde_json::to_string(&missed).unwrap_or_default())
+            });
         }
         let mut text = format!("{note}{}", parts.join("\n\n"));
         if let Some((section, offset)) = cursor {
@@ -2925,11 +3007,8 @@ impl GrepTool {
                 object.insert("section".to_owned(), JsonValue::from(section));
                 object.insert("offset".to_owned(), JsonValue::from(offset));
             }
-            let reached = if cut_by_cap {
-                format!("response limit {}", format_cap_size(cap))
-            } else {
-                format!("result limit {}", Window::of(args, mode).limit)
-            };
+            let reached =
+                if cut_by_cap { format!("response limit {}", format_cap_size(cap)) } else { format!("result limit {}", Window::of(args, mode).limit) };
             text.push_str(&format!(
                 "\n[{reached} reached after {delivered_units} result(s); the first not delivered is in section {section} ({}) at offset {offset}; later sections start at their first result. Continue with grep {}]",
                 label_of(section / pats.len(), section % pats.len()),
@@ -2986,11 +3065,8 @@ impl GrepTool {
         }
         // The stream's lines as ripgrep printed them: `path:line:text`, the path with the platform's separator, the text
         // clipped at 500 columns.
-        let lines: Vec<String> = found
-            .all
-            .iter()
-            .map(|(label, h)| format!("{}:{}:{}", label.replace('/', std::path::MAIN_SEPARATOR_STR), h.line, h.text))
-            .collect();
+        let lines: Vec<String> =
+            found.all.iter().map(|(label, h)| format!("{}:{}:{}", label.replace('/', std::path::MAIN_SEPARATOR_STR), h.line, h.text)).collect();
         let Some((by_pattern, residual)) = attribute_combined(&lines, &regexes) else { return Ok(None) };
         let mut bodies = Vec::with_capacity(patterns.len());
         for (pattern, indices) in patterns.iter().zip(&by_pattern) {
@@ -3026,7 +3102,15 @@ impl GrepTool {
 
     /// Every root's hits (at most `bound` in all, in scan order), labelled and sorted.
     #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-    async fn collect(&self, ctx: &ToolContext, args: &JsonValue, pattern: &str, mode: Mode, bound: Option<usize>, class: SearchClass) -> Result<Collected, ToolError> {
+    async fn collect(
+        &self,
+        ctx: &ToolContext,
+        args: &JsonValue,
+        pattern: &str,
+        mode: Mode,
+        bound: Option<usize>,
+        class: SearchClass,
+    ) -> Result<Collected, ToolError> {
         let mut roots = arg_strings(args, "path");
         if roots.is_empty() {
             roots.push(".".to_owned());

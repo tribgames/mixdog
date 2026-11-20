@@ -18,8 +18,7 @@ pub(crate) fn is_anthropic(provider: &str) -> bool {
 /// A pressure reading needs the whole prompt, not a lower bound made of the fields that arrived.
 pub(crate) fn has_prompt(usage: &Usage) -> bool {
     let cache = Counters::of_usage(usage);
-    usage.raw.as_ref().and_then(|raw| raw.get("input_tokens")).and_then(serde_json::Value::as_u64).is_some()
-        && cache.read.is_some() && cache.created.is_some()
+    usage.raw.as_ref().and_then(|raw| raw.get("input_tokens")).and_then(serde_json::Value::as_u64).is_some() && cache.read.is_some() && cache.created.is_some()
 }
 
 #[derive(Clone, Debug)]
@@ -90,8 +89,14 @@ fn route(wire: &str, model: &str, account: Option<&str>, admitted: Option<&str>)
 }
 
 fn request_prefix(prefix: &Snapshot, wire: Option<&Value>) -> String {
-    let system_markers: Vec<&str> = wire.and_then(|wire| wire.get("markers")).and_then(Value::as_array)
-        .into_iter().flatten().filter_map(Value::as_str).filter(|marker| marker.starts_with('s')).collect();
+    let system_markers: Vec<&str> = wire
+        .and_then(|wire| wire.get("markers"))
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(Value::as_str)
+        .filter(|marker| marker.starts_with('s'))
+        .collect();
     let field = |name| wire.and_then(|wire| wire.get(name));
     let parts = json!([prefix.request_prefix_hash, field("tools"), field("system"), field("params"), field("toolChoice"), system_markers]);
     format!("{:x}", Sha256::digest(parts.to_string().as_bytes()))
@@ -101,9 +106,7 @@ fn request_prefix(prefix: &Snapshot, wire: Option<&Value>) -> String {
 /// even when the current reply has no replacement counters.
 pub(crate) fn settle(previous: &mut Option<Observation>, request: Request<'_>, counters: Counters) -> Option<Miss> {
     let account = request.account.filter(|id| !id.is_empty());
-    let Some((prefix, ttl)) = request.prefix.zip(request.ttl_ms)
-        .filter(|(_, ttl)| *ttl > 0 && (account.is_some() || request.admitted_route.is_some()))
-    else {
+    let Some((prefix, ttl)) = request.prefix.zip(request.ttl_ms).filter(|(_, ttl)| *ttl > 0 && (account.is_some() || request.admitted_route.is_some())) else {
         *previous = None;
         return None;
     };
@@ -111,8 +114,12 @@ pub(crate) fn settle(previous: &mut Option<Observation>, request: Request<'_>, c
     let request_prefix = request_prefix(prefix, request.wire_prefix);
     let miss = previous.take().and_then(|old| {
         let idle = request.dispatched_at.saturating_sub(old.at);
-        if request.changed_intentionally || idle < 0 || idle >= ttl
-            || old.ttl_ms != ttl || old.route != route || old.prefix != request_prefix
+        if request.changed_intentionally
+            || idle < 0
+            || idle >= ttl
+            || old.ttl_ms != ttl
+            || old.route != route
+            || old.prefix != request_prefix
             || !prefix.message_hashes.get(..old.message_count).is_some_and(|head| message_digest(head) == old.messages)
         {
             return None;
@@ -120,8 +127,7 @@ pub(crate) fn settle(previous: &mut Option<Observation>, request: Request<'_>, c
         let baseline = old.read.saturating_add(old.written);
         *previous = Some(old);
         let read = counters.read?;
-        (read < baseline.div_ceil(2) && baseline.saturating_sub(read) >= 4096)
-            .then_some(Miss { read, previous_prefix: baseline, idle_ms: idle })
+        (read < baseline.div_ceil(2) && baseline.saturating_sub(read) >= 4096).then_some(Miss { read, previous_prefix: baseline, idle_ms: idle })
     });
     if let (Some(read), Some(written)) = (counters.read, counters.created) {
         *previous = Some(Observation {
@@ -172,11 +178,8 @@ impl TailGate for Observe {
             if let Verdict::Send(permit) = &verdict
                 && let Some(tail) = permit.manifest.tail_marker()
             {
-                *self.dispatches.0.lock().unwrap_or_else(PoisonError::into_inner) = Some(Dispatch {
-                    route: format!("{:x}", Sha256::digest(permit.route.0.as_bytes())),
-                    at: permit.dispatched_at,
-                    ttl_ms: tail.ttl_ms as i64,
-                });
+                *self.dispatches.0.lock().unwrap_or_else(PoisonError::into_inner) =
+                    Some(Dispatch { route: format!("{:x}", Sha256::digest(permit.route.0.as_bytes())), at: permit.dispatched_at, ttl_ms: tail.ttl_ms as i64 });
             }
             verdict
         })
@@ -227,9 +230,15 @@ mod tests {
 
     fn request(prefix: &Snapshot, at: i64) -> Request<'_> {
         Request {
-            dispatched_at: at, ttl_ms: Some(TTL), wire: "messages",
-            serving_model: "sonnet", account: Some("first"), admitted_route: None,
-            changed_intentionally: false, prefix: Some(prefix), wire_prefix: None,
+            dispatched_at: at,
+            ttl_ms: Some(TTL),
+            wire: "messages",
+            serving_model: "sonnet",
+            account: Some("first"),
+            admitted_route: None,
+            changed_intentionally: false,
+            prefix: Some(prefix),
+            wire_prefix: None,
         }
     }
 

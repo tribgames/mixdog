@@ -378,11 +378,7 @@ fn text_encoding(value: &str) -> char {
 fn is_plain_text(value: &str, is_param: bool) -> bool {
     !value.chars().any(|c| {
         let code = c as u32;
-        if is_param {
-            code < 0x20 || code == 0x7f || c == '"' || code >= 0x80
-        } else {
-            matches!(code, 0..=8 | 0x0b | 0x0c | 0x0e..=0x1f) || code >= 0x80
-        }
+        if is_param { code < 0x20 || code == 0x7f || c == '"' || code >= 0x80 } else { matches!(code, 0..=8 | 0x0b | 0x0c | 0x0e..=0x1f) || code >= 0x80 }
     })
 }
 
@@ -414,7 +410,8 @@ fn build_header_value(head: &str, params: &[(String, String)]) -> String {
         let param = strip_controls(key);
         if !is_plain_param_value(value) || value.encode_utf16().count() >= 75 {
             for (piece_key, piece) in build_header_param(&param, value, 50) {
-                let special = piece.starts_with(['-', '\'']) || piece.ends_with('\'') || piece.chars().any(|c| c.is_whitespace() || "\"\\;:/=(),<>@[]?".contains(c));
+                let special =
+                    piece.starts_with(['-', '\'']) || piece.ends_with('\'') || piece.chars().any(|c| c.is_whitespace() || "\"\\;:/=(),<>@[]?".contains(c));
                 if !special || piece_key.ends_with('*') {
                     built.push(format!("{piece_key}={piece}"));
                 } else {
@@ -700,7 +697,9 @@ fn trailing_escape(line: &str, max_hex: usize) -> Option<usize> {
 /// `/^(?:=[\da-f]{2}){1,4}$/i`
 fn whole_escapes(line: &str) -> bool {
     let bytes = line.as_bytes();
-    bytes.len().is_multiple_of(3) && (3..=12).contains(&bytes.len()) && bytes.chunks(3).all(|c| c[0] == b'=' && c[1].is_ascii_hexdigit() && c[2].is_ascii_hexdigit())
+    bytes.len().is_multiple_of(3)
+        && (3..=12).contains(&bytes.len())
+        && bytes.chunks(3).all(|c| c[0] == b'=' && c[1].is_ascii_hexdigit() && c[2].is_ascii_hexdigit())
 }
 
 /// `qp.wrap`: soft line breaks at `line_length` (the input is ASCII).
@@ -933,7 +932,8 @@ fn normalize_address(address: &str) -> String {
     if address.is_empty() {
         return String::new();
     }
-    let literal_at = if address.ends_with(']') { address.rfind("@[").filter(|at| !address[at + 2..address.len() - 1].contains(['[', ']', '\\'])) } else { None };
+    let literal_at =
+        if address.ends_with(']') { address.rfind("@[").filter(|at| !address[at + 2..address.len() - 1].contains(['[', ']', '\\'])) } else { None };
     let Some(at) = literal_at.or_else(|| address.rfind('@')) else {
         return normalize_local_part(address);
     };
@@ -1080,7 +1080,14 @@ mod tests {
 
     #[test]
     fn a_quoted_printable_body_wraps_at_76_with_soft_breaks() {
-        let m = message("bot@example.com", "support@mixdog.ai", "", "[Mixdog feedback] bug 1", "Héllo wörld ünïcode with mostly latin letters, quite a long line to force wrapping beyond seventy six characters for soft breaks é\nsecond line  \nthird é   ", vec![]);
+        let m = message(
+            "bot@example.com",
+            "support@mixdog.ai",
+            "",
+            "[Mixdog feedback] bug 1",
+            "Héllo wörld ünïcode with mostly latin letters, quite a long line to force wrapping beyond seventy six characters for soft breaks é\nsecond line  \nthird é   ",
+            vec![],
+        );
         let expected = [
             "From: bot@example.com",
             "To: support@mixdog.ai",
@@ -1103,7 +1110,14 @@ mod tests {
 
     #[test]
     fn a_long_line_of_digits_goes_out_as_base64() {
-        let m = message("bot@example.com", "support@mixdog.ai", "", "s", "123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890", vec![]);
+        let m = message(
+            "bot@example.com",
+            "support@mixdog.ai",
+            "",
+            "s",
+            "123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890123456789012345678901234567890",
+            vec![],
+        );
         let expected = [
             "From: bot@example.com",
             "To: support@mixdog.ai",
@@ -1124,7 +1138,14 @@ mod tests {
 
     #[test]
     fn a_long_ascii_subject_is_folded_not_encoded() {
-        let m = message("bot@example.com", "support@mixdog.ai", "", "A very long subject line that goes on and on and on and on and on and on and on and past seventy six", "t", vec![]);
+        let m = message(
+            "bot@example.com",
+            "support@mixdog.ai",
+            "",
+            "A very long subject line that goes on and on and on and on and on and on and on and past seventy six",
+            "t",
+            vec![],
+        );
         let expected = [
             "From: bot@example.com",
             "To: support@mixdog.ai",
@@ -1144,7 +1165,14 @@ mod tests {
 
     #[test]
     fn a_non_ascii_subject_is_split_into_q_encoded_words() {
-        let m = message("bot@example.com", "support@mixdog.ai", "", "이모지 😀 subject with émoji and more latin text to exceed the length of an encoded word chunk size ok", "t", vec![]);
+        let m = message(
+            "bot@example.com",
+            "support@mixdog.ai",
+            "",
+            "이모지 😀 subject with émoji and more latin text to exceed the length of an encoded word chunk size ok",
+            "t",
+            vec![],
+        );
         let expected = [
             "From: bot@example.com",
             "To: support@mixdog.ai",
@@ -1186,7 +1214,22 @@ mod tests {
 
     #[test]
     fn attachment_names_are_encoded_as_words_and_rfc_2231_continuations() {
-        let m = message("bot@example.com", "support@mixdog.ai", "", "s", "see", vec![attachment("스크린샷 😀 파일.png", "image/png", "89504e470d0a"), attachment("한글파일이름이매우길어서접속이필요한경우한글파일이름이매우길어서접속이필요한경우한글파일이름이매우길어서접속이필요한경우한글파일이름이매우길어서접속이필요한경우.png", "image/webp", "52494646"), attachment("plain-but-very-long-name-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.png", "image/png", "00")]);
+        let m = message(
+            "bot@example.com",
+            "support@mixdog.ai",
+            "",
+            "s",
+            "see",
+            vec![
+                attachment("스크린샷 😀 파일.png", "image/png", "89504e470d0a"),
+                attachment(
+                    "한글파일이름이매우길어서접속이필요한경우한글파일이름이매우길어서접속이필요한경우한글파일이름이매우길어서접속이필요한경우한글파일이름이매우길어서접속이필요한경우.png",
+                    "image/webp",
+                    "52494646",
+                ),
+                attachment("plain-but-very-long-name-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx.png", "image/png", "00"),
+            ],
+        );
         let expected = [
             "From: bot@example.com",
             "To: support@mixdog.ai",
@@ -1300,7 +1343,14 @@ mod tests {
 
     #[test]
     fn a_long_non_latin_text_is_base64() {
-        let m = message("bot@example.com", "support@mixdog.ai", "", "s", "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé", vec![]);
+        let m = message(
+            "bot@example.com",
+            "support@mixdog.ai",
+            "",
+            "s",
+            "éééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééééé",
+            vec![],
+        );
         let expected = [
             "From: bot@example.com",
             "To: support@mixdog.ai",
@@ -1324,7 +1374,6 @@ mod tests {
         assert_eq!(wire(&m).trim_end_matches('\n'), expected);
     }
 }
-
 
 /// `message.createReadStream()` of a message dated now with a random boundary.
 pub fn build(message: &Message) -> Built {

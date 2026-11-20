@@ -358,12 +358,24 @@ fn every_malformed_signal_is_refused_naming_the_first_field_that_is_wrong() {
         ("unknown type", with(offer(), "t", json!("hello")), "remote transport: invalid signal type."),
         ("sdp not text", with(offer(), "sdp", json!(7)), "remote webrtc sdp is invalid."),
         ("sdp not starting v=0", with(offer(), "sdp", json!("o=- 1")), "remote webrtc sdp is invalid."),
-        ("ice-lite sdp", with(offer(), "sdp", json!(format!("v=0\r\na=ice-lite\r\na=fingerprint:sha-256 {print}\r\n"))), "remote webrtc sdp ice-lite is invalid."),
-        ("sdp over one control box", with(offer(), "sdp", json!(format!("v=0{}", "x".repeat(MAX_CONTROL_PLAINTEXT_BYTES)))), "remote transport: invalid sdp size."),
+        (
+            "ice-lite sdp",
+            with(offer(), "sdp", json!(format!("v=0\r\na=ice-lite\r\na=fingerprint:sha-256 {print}\r\n"))),
+            "remote webrtc sdp ice-lite is invalid.",
+        ),
+        (
+            "sdp over one control box",
+            with(offer(), "sdp", json!(format!("v=0{}", "x".repeat(MAX_CONTROL_PLAINTEXT_BYTES)))),
+            "remote transport: invalid sdp size.",
+        ),
         ("no fingerprints", without(offer(), "fingerprints"), "remote transport: invalid fingerprints."),
         ("empty fingerprints", with(offer(), "fingerprints", json!([])), "remote transport: invalid fingerprints."),
         ("four fingerprints", with(offer(), "fingerprints", json!([1, 2, 3, 4])), "remote transport: invalid fingerprints."),
-        ("fingerprint not in the sdp", with(offer(), "fingerprints", json!([{ "algorithm": "sha-256", "value": fingerprint(1) }])), "remote transport: invalid fingerprints."),
+        (
+            "fingerprint not in the sdp",
+            with(offer(), "fingerprints", json!([{ "algorithm": "sha-256", "value": fingerprint(1) }])),
+            "remote transport: invalid fingerprints.",
+        ),
         ("fingerprint null", with(offer(), "fingerprints", json!([null])), "remote transport: invalid fingerprints."),
         ("no ice servers", without(offer(), "iceServers"), "remote webrtc ice servers is invalid."),
         ("ice server without a scheme", with(offer(), "iceServers", json!([{ "urls": "example.org" }])), "remote webrtc ice server url is invalid."),
@@ -394,15 +406,29 @@ fn a_candidate_signal_ends_the_candidates_with_null_and_refuses_what_is_not_a_ca
     assert_eq!(refused(&missing, Role::Client), "remote webrtc candidate is invalid.", "a missing member is not the end marker");
     assert_eq!(refused(&candidate(json!({ "candidate": "garbage", "sdpMid": "0" })), Role::Client), "remote webrtc candidate is invalid.");
     assert_eq!(refused(&candidate(json!({ "candidate": line })), Role::Client), "remote webrtc candidate is invalid.", "neither a mid nor a line index");
-    assert_eq!(refused(&candidate(json!({ "candidate": line, "sdpMid": "0", "sdpMLineIndex": 256 })), Role::Client), "remote webrtc candidate line is invalid.");
+    assert_eq!(
+        refused(&candidate(json!({ "candidate": line, "sdpMid": "0", "sdpMLineIndex": 256 })), Role::Client),
+        "remote webrtc candidate line is invalid."
+    );
 }
 
 #[test]
 fn a_close_signal_carries_a_known_reason_and_a_detail_of_at_most_two_hundred_characters() {
     let close = |reason: Value| with(with(offer(), "t", json!("close")), "reason", reason);
     for reason in [
-        "superseded", "negotiation-timeout", "ice-failed", "dtls-failed", "fingerprint-mismatch", "channel-failed", "stall", "restart",
-        "peer-host-unavailable", "session-ended", "revoked", "suspended", "protocol-error",
+        "superseded",
+        "negotiation-timeout",
+        "ice-failed",
+        "dtls-failed",
+        "fingerprint-mismatch",
+        "channel-failed",
+        "stall",
+        "restart",
+        "peer-host-unavailable",
+        "session-ended",
+        "revoked",
+        "suspended",
+        "protocol-error",
     ] {
         let parsed = parse_signal(&close(json!(reason)), Role::Client).expect(reason);
         assert_eq!(parsed.to_json()["reason"], json!(reason));
@@ -421,7 +447,8 @@ fn media(op: &str) -> Value {
 
 #[test]
 fn media_adapter_messages_are_read_each_from_its_own_side_and_written_back_as_they_came() {
-    let request = json!({ "type": "transport-media", "op": "request", "id": "m-1", "assetId": "0123abcd-4567", "variant": "full", "range": "bytes=0-99", "enc": "mxe1" });
+    let request =
+        json!({ "type": "transport-media", "op": "request", "id": "m-1", "assetId": "0123abcd-4567", "variant": "full", "range": "bytes=0-99", "enc": "mxe1" });
     let frame = "A".repeat(40);
     let cases = [
         (request, Role::Client),
@@ -460,7 +487,12 @@ fn what_is_not_a_media_message_is_passed_over_and_every_malformed_one_is_refused
         ("status not allowed", with(media("head"), "status", json!(201)), Role::Desktop, "remote transport: invalid media status."),
         ("status not a number", with(media("head"), "status", json!("200")), Role::Desktop, "remote transport: invalid media status."),
         ("frame too short", with(media("chunk"), "frame", json!("short")), Role::Desktop, "remote transport: invalid media frame."),
-        ("frame not base64url", with(media("chunk"), "frame", json!(format!("{}=", frame.as_str().unwrap()))), Role::Desktop, "remote transport: invalid media frame."),
+        (
+            "frame not base64url",
+            with(media("chunk"), "frame", json!(format!("{}=", frame.as_str().unwrap()))),
+            Role::Desktop,
+            "remote transport: invalid media frame.",
+        ),
     ];
     for (what, message, from, expected) in table {
         assert_eq!(read_media(&message, from), Err(expected.to_owned()), "{what}");

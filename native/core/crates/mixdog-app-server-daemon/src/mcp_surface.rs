@@ -137,11 +137,7 @@ fn load(lane: &InLane<MaintenanceIo>, path: &Path) -> Loaded {
         Err(_) => return Loaded::Failed,
     };
     let Ok(parsed) = serde_json::from_slice::<Value>(&bytes) else { return Loaded::Failed };
-    let mtime_ms = meta
-        .modified()
-        .ok()
-        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
-        .map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0);
+    let mtime_ms = meta.modified().ok().and_then(|time| time.duration_since(UNIX_EPOCH).ok()).map_or(0.0, |elapsed| elapsed.as_secs_f64() * 1000.0);
     Loaded::Advert(Advert::Read { mtime_ms, parsed })
 }
 
@@ -600,7 +596,6 @@ mod tests {
 
     use super::*;
 
-
     struct Doc(Map<String, Value>);
 
     #[async_trait]
@@ -643,7 +638,10 @@ mod tests {
 
     #[test]
     fn the_browser_is_opened_by_the_platform_opener() {
-        assert_eq!(candidates("http://x/?a=1", true, false, false, "C:\\W"), vec![("C:\\W\\System32\\rundll32.exe".to_owned(), vec!["url.dll,FileProtocolHandler".to_owned(), "http://x/?a=1".to_owned()])]);
+        assert_eq!(
+            candidates("http://x/?a=1", true, false, false, "C:\\W"),
+            vec![("C:\\W\\System32\\rundll32.exe".to_owned(), vec!["url.dll,FileProtocolHandler".to_owned(), "http://x/?a=1".to_owned()])]
+        );
         assert_eq!(candidates("u", false, true, false, "").first().map(|c| c.0.as_str()), Some("open"));
         assert_eq!(candidates("u", false, false, false, "").first().map(|c| c.0.as_str()), Some("xdg-open"));
         let wsl = candidates("it's", false, false, true, "");
@@ -718,7 +716,6 @@ mod tests {
         browser_becomes(&bridges, true).await;
     }
 
-
     fn advert_with(pid: &str) -> String {
         format!(r#"{{"version":1,"port":4100,"token":"t0k","pid":{pid}}}"#)
     }
@@ -759,7 +756,11 @@ mod tests {
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_bridge_file_of_an_exited_owner_or_another_version_is_not_up() {
-        let exited = if cfg!(windows) { std::process::Command::new("cmd").args(["/C", "exit"]).spawn() } else { std::process::Command::new("sh").args(["-c", "exit 0"]).spawn() };
+        let exited = if cfg!(windows) {
+            std::process::Command::new("cmd").args(["/C", "exit"]).spawn()
+        } else {
+            std::process::Command::new("sh").args(["-c", "exit 0"]).spawn()
+        };
         let mut child = exited.unwrap();
         let pid = child.id();
         child.wait().unwrap();
@@ -776,5 +777,4 @@ mod tests {
         assert_eq!(up, vec!["browser", "computer", "terminal"], "the other three stay up");
         assert!(features_up(&[], off).await.is_empty());
     }
-
 }

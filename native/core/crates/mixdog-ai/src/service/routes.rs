@@ -157,11 +157,7 @@ pub fn normalize_route_chain(
     let empty = Value::Object(Map::new());
     let mut routes = Vec::new();
     for (index, entry) in raw.iter().enumerate() {
-        let normalized = if index == 0 {
-            primary.clone()
-        } else {
-            normalize_leaf(entry, &empty).ok_or("fallback route requires provider and model")?
-        };
+        let normalized = if index == 0 { primary.clone() } else { normalize_leaf(entry, &empty).ok_or("fallback route requires provider and model")? };
         let mut o = normalized.as_object().cloned().unwrap_or_default();
         let provider = canonical_route_provider(&clean(o.get("provider")));
         o.insert("provider".into(), Value::String(provider));
@@ -255,10 +251,8 @@ pub fn web_search_route_or_default(candidates: &[&Value]) -> Result<Value, Strin
 
 // -- hosted web-search capability -------------------------------------------------------------
 
-const NON_CHAT_ID: [&str; 13] = [
-    "embedding", "rerank", "moderation", "image", "imagen", "imagine", "video", "veo", "audio", "tts", "stt", "aqa",
-    "search-preview",
-];
+const NON_CHAT_ID: [&str; 13] =
+    ["embedding", "rerank", "moderation", "image", "imagen", "imagine", "video", "veo", "audio", "tts", "stt", "aqa", "search-preview"];
 
 fn non_chat(id: &str) -> bool {
     NON_CHAT_ID.iter().any(|p| id.contains(p))
@@ -333,18 +327,9 @@ fn row_web_search_declaration(row: Option<&Value>) -> Option<bool> {
     if let Some(flag) = row.get("supportsWebSearch").and_then(Value::as_bool) {
         return Some(flag);
     }
-    let lists = [
-        row.get("supportedTools"),
-        row.get("tools"),
-        row.get("capabilities").and_then(|c| c.get("tools")),
-    ];
+    let lists = [row.get("supportedTools"), row.get("tools"), row.get("capabilities").and_then(|c| c.get("tools"))];
     let has = lists.into_iter().flatten().filter_map(Value::as_array).flatten().any(|tool| {
-        let name = ["type", "name"]
-            .iter()
-            .find_map(|k| truthy_str(tool.get(*k)))
-            .or(Some(tool))
-            .map(|v| clean(Some(v)).to_lowercase())
-            .unwrap_or_default();
+        let name = ["type", "name"].iter().find_map(|k| truthy_str(tool.get(*k))).or(Some(tool)).map(|v| clean(Some(v)).to_lowercase()).unwrap_or_default();
         name == "web_search" || name == "web_search_preview"
     });
     has.then_some(true)
@@ -353,12 +338,7 @@ fn row_web_search_declaration(row: Option<&Value>) -> Option<bool> {
 /// `webSearchCapableFor(provider, model)`: the route's own row, then the
 /// catalog's row for the model, then the family's closed set of retired and
 /// non-chat ids. `model_row` is the route's row (`None` for a bare id).
-pub fn web_search_capable_for(
-    provider: &str,
-    model_id: &str,
-    model_row: Option<&Value>,
-    catalog_row: Option<&Value>,
-) -> bool {
+pub fn web_search_capable_for(provider: &str, model_id: &str, model_row: Option<&Value>, catalog_row: Option<&Value>) -> bool {
     let unsupported: fn(&str) -> bool = match web_search_provider_family(provider) {
         "openai" => openai_unsupported,
         "xai" => grok_unsupported,
@@ -422,11 +402,7 @@ pub fn native_web_search_routes(
     Ok(out)
 }
 
-fn resolve_candidate(
-    route: &Value,
-    main: Option<&MainRoute>,
-    catalog_row_for: &dyn Fn(&str, &str) -> Option<Value>,
-) -> Option<SearchCandidate> {
+fn resolve_candidate(route: &Value, main: Option<&MainRoute>, catalog_row_for: &dyn Fn(&str, &str) -> Option<Value>) -> Option<SearchCandidate> {
     let tool_type = Some(clean(route.get("toolType"))).filter(|t| !t.is_empty());
     if is_default_web_search_route(route) {
         let main = main.filter(|m| !m.provider.is_empty() && !m.model.is_empty())?;
@@ -459,11 +435,7 @@ fn resolve_candidate(
         source: "web-search-route",
         effort: Some(clean(route.get("effort"))).filter(|e| !e.is_empty()),
         fast: route.get("fast") == Some(&Value::Bool(true)),
-        model_parameters: route
-            .get("modelParameters")
-            .filter(|p| p.is_object())
-            .cloned()
-            .unwrap_or_else(|| Value::Object(Map::new())),
+        model_parameters: route.get("modelParameters").filter(|p| p.is_object()).cloned().unwrap_or_else(|| Value::Object(Map::new())),
         tool_type,
     })
 }
@@ -474,16 +446,10 @@ pub fn no_candidate_message(web_search_route: &Value, main: Option<&MainRoute>) 
         let unknown = || "unknown".to_owned();
         let provider = main.map(|m| m.provider.clone()).filter(|p| !p.is_empty()).unwrap_or_else(unknown);
         let model = main.map(|m| m.model.clone()).filter(|p| !p.is_empty()).unwrap_or_else(unknown);
-        return format!(
-            "default web search route requires the current main model to support native web search ({provider}/{model})"
-        );
+        return format!("default web search route requires the current main model to support native web search ({provider}/{model})");
     }
     let field = |key: &str| truthy_str(web_search_route.get(key)).map(|v| clean(Some(v))).unwrap_or_else(|| "unknown".into());
-    format!(
-        "web search route \"{}/{}\" cannot run native web search; open /websearch to choose another provider/model",
-        field("provider"),
-        field("model")
-    )
+    format!("web search route \"{}/{}\" cannot run native web search; open /websearch to choose another provider/model", field("provider"), field("model"))
 }
 
 /// `canFallbackCapacityRoute`: only a capacity refusal the server stated
@@ -497,10 +463,7 @@ pub fn capacity_fallback(error: &ProviderError, aborted: bool, pool_quota_refusa
     if error.unsafe_to_retry {
         return false;
     }
-    if !matches!(
-        error.kind,
-        ErrorKind::RateLimited | ErrorKind::QuotaExhausted | ErrorKind::Overloaded | ErrorKind::Transient
-    ) {
+    if !matches!(error.kind, ErrorKind::RateLimited | ErrorKind::QuotaExhausted | ErrorKind::Overloaded | ErrorKind::Transient) {
         return false;
     }
     matches!(error.status, Some(429 | 503)) || (error.kind == ErrorKind::QuotaExhausted && pool_quota_refusal)

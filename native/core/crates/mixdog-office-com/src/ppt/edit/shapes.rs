@@ -18,8 +18,8 @@ use super::array_of;
 use super::as_int_nonzero;
 use super::attempt;
 use super::boolean;
-use super::bstr;
 use super::box_value;
+use super::bstr;
 use super::color;
 use super::color_text;
 use super::double;
@@ -239,11 +239,7 @@ pub(crate) fn add_textbox(presentation: &Com, op: &Value) -> Result<Value> {
     if truthy(&name) {
         attempt(|| shape.set_member("Name", bstr(&text_of(&name))));
     }
-    Ok(record(vec![
-        ("op", Value::string("add_textbox")),
-        ("changed", Value::Bool(true)),
-        ("shape", Value::String(string_value(&shape.member("Name")?))),
-    ]))
+    Ok(record(vec![("op", Value::string("add_textbox")), ("changed", Value::Bool(true)), ("shape", Value::String(string_value(&shape.member("Name")?)))]))
 }
 
 /// The portable writer's shape names (`GEOMETRY` of portable-slide-shapes.mjs) and the figure each draws.
@@ -312,10 +308,9 @@ pub(crate) fn add_shape(presentation: &Com, op: &Value) -> Result<Value> {
     let width = box_value(op, "width", 180)?;
     let height = box_value(op, "height", 90)?;
     let (shape, shape_type) = if is_line {
-        let line = slide.member("Shapes")?.call_member(
-            "AddLine",
-            &[r4(left), r4(top), Com::R8(f64::from(left) + f64::from(width)), Com::R8(f64::from(top) + f64::from(height))],
-        )?;
+        let line = slide
+            .member("Shapes")?
+            .call_member("AddLine", &[r4(left), r4(top), Com::R8(f64::from(left) + f64::from(width)), Com::R8(f64::from(top) + f64::from(height))])?;
         (line, 0)
     } else {
         let code = match (named_type, as_int_nonzero(&shape_type_value)) {
@@ -500,11 +495,7 @@ pub(crate) fn set_shape(presentation: &Com, op: &Value) -> Result<Value> {
         }
         Ok(())
     });
-    Ok(record(vec![
-        ("op", Value::string("set_shape")),
-        ("changed", Value::Bool(true)),
-        ("shape", Value::String(string_value(&shape.member("Name")?))),
-    ]))
+    Ok(record(vec![("op", Value::string("set_shape")), ("changed", Value::Bool(true)), ("shape", Value::String(string_value(&shape.member("Name")?)))]))
 }
 
 /// `set_hyperlink`.
@@ -619,11 +610,7 @@ pub(crate) fn ungroup_shape(presentation: &Com, op: &Value) -> Result<Value> {
     let slide = slide_of(presentation, op)?;
     let shape = shape_of(&slide, op)?;
     let released = shape.call_member("Ungroup", &[])?;
-    Ok(record(vec![
-        ("op", Value::string("ungroup_shape")),
-        ("changed", Value::Bool(true)),
-        ("count", Value::Int(int_value(&released.member("Count")?)?)),
-    ]))
+    Ok(record(vec![("op", Value::string("ungroup_shape")), ("changed", Value::Bool(true)), ("count", Value::Int(int_value(&released.member("Count")?)?))]))
 }
 
 #[cfg(test)]

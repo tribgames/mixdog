@@ -6,9 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mixdog_app_server_client::api::{
-    BlobRef, CallOptions, ClientError, ClientEvent, ConnectionStatus, FeedStamp, FoldStore, InitializeResponse, Json,
-    ProtocolClient, ResumeWindow, SectionEntry, SectionName, ServerRequest, ServerRequestAnswer, StoreChange, ThreadFold,
-    ThreadId, ThreadResumeResponse,
+    BlobRef, CallOptions, ClientError, ClientEvent, ConnectionStatus, FeedStamp, FoldStore, InitializeResponse, Json, ProtocolClient, ResumeWindow,
+    SectionEntry, SectionName, ServerRequest, ServerRequestAnswer, StoreChange, ThreadFold, ThreadId, ThreadResumeResponse,
 };
 use mixdog_rt::CancellationToken;
 use serde_json::json;
@@ -119,11 +118,7 @@ impl ProtocolClient for StubClient {
 
 fn stub(replies: Vec<(&str, Vec<Reply>)>) -> Arc<StubClient> {
     Arc::new(StubClient {
-        store: Arc::new(StubStore {
-            threads: Mutex::new(HashMap::new()),
-            sections: Mutex::new(HashMap::new()),
-            changes: broadcast::channel(64).0,
-        }),
+        store: Arc::new(StubStore { threads: Mutex::new(HashMap::new()), sections: Mutex::new(HashMap::new()), changes: broadcast::channel(64).0 }),
         events: broadcast::channel(64).0,
         replies: Mutex::new(replies.into_iter().map(|(method, list)| (method.to_owned(), list.into())).collect()),
         calls: Mutex::new(Vec::new()),
@@ -201,10 +196,7 @@ async fn server_feed_sessions_fold() {
 #[tokio::test]
 async fn server_feed_edge_outranks_the_listing_it_overlaps() {
     let gate = Arc::new(Notify::new());
-    let client = stub(vec![(
-        "thread/list",
-        vec![Reply::Gate(gate.clone(), json!({ "data": [row("a", "listed", 10), row("b", "gone", 5)] }))],
-    )]);
+    let client = stub(vec![("thread/list", vec![Reply::Gate(gate.clone(), json!({ "data": [row("a", "listed", 10), row("b", "gone", 5)] }))])]);
     let feed = ServerFeed::attach(client.clone());
     client.events.send(notification("thread/summary/updated", json!({ "thread": row("a", "edge", 10) }))).unwrap();
     client.events.send(notification("thread/deleted", json!({ "threadId": "b" }))).unwrap();
@@ -241,10 +233,7 @@ async fn server_feed_state_change_order() {
     let client = stub(vec![("thread/list", vec![Reply::Value(json!({ "data": [] }))])]);
     let feed = ServerFeed::attach(client.clone());
     let mut states = feed.session_states();
-    let fold = |state: Json| ThreadFold {
-        feed: serde_json::from_value(json!({ "id": "thread:t1", "epoch": "e", "seq": 1 })).unwrap(),
-        state,
-    };
+    let fold = |state: Json| ThreadFold { feed: serde_json::from_value(json!({ "id": "thread:t1", "epoch": "e", "seq": 1 })).unwrap(), state };
     let set = |state: Json| {
         client.store.threads.lock().unwrap().insert("t1".into(), fold(state));
         client.store.changes.send(StoreChange::Thread { thread_id: "t1".into() }).unwrap();
@@ -275,10 +264,12 @@ async fn server_feed_approval_observed_not_answered() {
     let tool = approval("a1", "t1", "item/tool/requestApproval");
     let question = approval("q1", "t2", "item/tool/requestUserInput");
     client.held.lock().unwrap().push(tool.clone());
-    let address = address_of(&tool); client.events.send(ClientEvent::ServerRequest(tool, address)).unwrap();
+    let address = address_of(&tool);
+    client.events.send(ClientEvent::ServerRequest(tool, address)).unwrap();
     approvals.wait_for(|rows| rows.len() == 1).await.unwrap();
     client.held.lock().unwrap().push(question.clone());
-    let address = address_of(&question); client.events.send(ClientEvent::ServerRequest(question, address)).unwrap();
+    let address = address_of(&question);
+    client.events.send(ClientEvent::ServerRequest(question, address)).unwrap();
     approvals.wait_for(|rows| rows.len() == 2).await.unwrap();
     let rows = approvals.borrow().clone();
     assert_eq!((rows[0].session_id.as_str(), rows[0].kind), ("t1", ApprovalKind::Tool));
@@ -304,7 +295,8 @@ async fn server_feed_marks_the_approvals_it_found_held_as_replays_and_the_ones_t
 
     let live = approval("new", "t2", "item/tool/requestApproval");
     client.held.lock().unwrap().push(live.clone());
-    let address = address_of(&live); client.events.send(ClientEvent::ServerRequest(live, address)).unwrap();
+    let address = address_of(&live);
+    client.events.send(ClientEvent::ServerRequest(live, address)).unwrap();
     approvals.wait_for(|rows| rows.len() == 2).await.unwrap();
     let rows = approvals.borrow().clone();
     let replay_of = |id: &str| rows.iter().find(|row| row.request_id == RequestId::String(id.into())).map(|row| row.replay);
@@ -326,7 +318,8 @@ async fn server_feed_marks_a_request_the_server_delivers_again_after_a_drop_as_a
     let mut approvals = feed.pending_approvals();
     let live = approval("live", "t1", "item/tool/requestApproval");
     client.held.lock().unwrap().push(live.clone());
-    let address = address_of(&live); client.events.send(ClientEvent::ServerRequest(live.clone(), address)).unwrap();
+    let address = address_of(&live);
+    client.events.send(ClientEvent::ServerRequest(live.clone(), address)).unwrap();
     approvals.wait_for(|rows| rows.len() == 1 && !rows[0].replay).await.unwrap();
 
     // The link drops: the client lets go of what it held, and the list empties.
@@ -335,13 +328,15 @@ async fn server_feed_marks_a_request_the_server_delivers_again_after_a_drop_as_a
     approvals.wait_for(|rows| rows.is_empty()).await.unwrap();
     // The server delivers the held request again after the reconnect, as a request that arrives: it is not news.
     client.held.lock().unwrap().push(live.clone());
-    let address = address_of(&live); client.events.send(ClientEvent::ServerRequest(live, address)).unwrap();
+    let address = address_of(&live);
+    client.events.send(ClientEvent::ServerRequest(live, address)).unwrap();
     approvals.wait_for(|rows| rows.len() == 1).await.unwrap();
     assert!(approvals.borrow()[0].replay);
     // A request asked for the first time after the reconnect is live.
     let fresh = approval("fresh", "t2", "item/tool/requestApproval");
     client.held.lock().unwrap().push(fresh.clone());
-    let address = address_of(&fresh); client.events.send(ClientEvent::ServerRequest(fresh, address)).unwrap();
+    let address = address_of(&fresh);
+    client.events.send(ClientEvent::ServerRequest(fresh, address)).unwrap();
     approvals.wait_for(|rows| rows.len() == 2).await.unwrap();
     let rows = approvals.borrow().clone();
     assert!(!rows.iter().find(|row| row.request_id == RequestId::String("fresh".into())).expect("fresh").replay);
@@ -388,10 +383,7 @@ async fn server_feed_final_answer_read() {
 #[tokio::test]
 async fn server_feed_agent_pool_from_section_and_list() {
     let pool_row = |tag: &str| json!({ "tag": tag, "sessionId": format!("s-{tag}"), "ownerSessionId": "lead", "status": "running", "stage": "turn" });
-    let client = stub(vec![
-        ("thread/list", vec![Reply::Value(json!({ "data": [] }))]),
-        ("agent/pool/list", vec![Reply::Value(json!([pool_row("w1")]))]),
-    ]);
+    let client = stub(vec![("thread/list", vec![Reply::Value(json!({ "data": [] }))]), ("agent/pool/list", vec![Reply::Value(json!([pool_row("w1")]))])]);
     let feed = ServerFeed::attach(client.clone());
     let mut pool = feed.agent_pool();
     // No section yet: the list method answers.
@@ -400,10 +392,12 @@ async fn server_feed_agent_pool_from_section_and_list() {
     assert_eq!(pool.borrow()[0].owner_session_id.as_deref(), Some("lead"));
 
     // An inline section replaces it.
-    client.store.sections.lock().unwrap().insert(
-        "agentPool".into(),
-        SectionEntry { section: SectionName::AgentPool, key: None, revision: 1, value: json!([pool_row("w2"), pool_row("w3")]) },
-    );
+    client
+        .store
+        .sections
+        .lock()
+        .unwrap()
+        .insert("agentPool".into(), SectionEntry { section: SectionName::AgentPool, key: None, revision: 1, value: json!([pool_row("w2"), pool_row("w3")]) });
     client.store.changes.send(StoreChange::Section { section: SectionName::AgentPool, key: None }).unwrap();
     pool.wait_for(|rows| rows.len() == 2).await.unwrap();
     assert_eq!(pool.borrow()[1].tag, "w3");
@@ -416,10 +410,7 @@ async fn server_feed_state_carries_host_shell_jobs_and_remote_session() {
     let mut states = feed.session_states();
     client.store.threads.lock().unwrap().insert(
         "t1".into(),
-        ThreadFold {
-            feed: serde_json::from_value(json!({ "id": "thread:t1", "epoch": "e", "seq": 1 })).unwrap(),
-            state: json!({ "busy": false }),
-        },
+        ThreadFold { feed: serde_json::from_value(json!({ "id": "thread:t1", "epoch": "e", "seq": 1 })).unwrap(), state: json!({ "busy": false }) },
     );
     client.store.changes.send(StoreChange::Thread { thread_id: "t1".into() }).unwrap();
     let first = states.recv().await.unwrap();
@@ -428,10 +419,12 @@ async fn server_feed_state_carries_host_shell_jobs_and_remote_session() {
     assert_eq!((first.snapshot["remoteEnabled"].clone(), first.snapshot["remoteSessionId"].clone()), (json!(false), Json::Null));
 
     let jobs = json!({ "count": 1, "elapsedLabel": "1s", "jobs": [{}], "finished": [] });
-    client.store.sections.lock().unwrap().insert(
-        "hostShellJobs".into(),
-        SectionEntry { section: SectionName::HostShellJobs, key: None, revision: 1, value: jobs.clone() },
-    );
+    client
+        .store
+        .sections
+        .lock()
+        .unwrap()
+        .insert("hostShellJobs".into(), SectionEntry { section: SectionName::HostShellJobs, key: None, revision: 1, value: jobs.clone() });
     client.store.changes.send(StoreChange::Section { section: SectionName::HostShellJobs, key: None }).unwrap();
     let second = states.recv().await.unwrap();
     assert_eq!((second.session_id.as_str(), &second.snapshot["hostShellJobs"]), ("t1", &jobs));
@@ -450,10 +443,12 @@ async fn server_feed_state_carries_host_shell_jobs_and_remote_session() {
     assert_eq!((third.snapshot["remoteEnabled"].clone(), third.snapshot["remoteSessionId"].clone()), (json!(true), json!("t1")));
 
     // The host says it has no jobs any more: the null is laid over the state, as the desktop's window state carried it.
-    client.store.sections.lock().unwrap().insert(
-        "hostShellJobs".into(),
-        SectionEntry { section: SectionName::HostShellJobs, key: None, revision: 2, value: Json::Null },
-    );
+    client
+        .store
+        .sections
+        .lock()
+        .unwrap()
+        .insert("hostShellJobs".into(), SectionEntry { section: SectionName::HostShellJobs, key: None, revision: 2, value: Json::Null });
     client.store.changes.send(StoreChange::Section { section: SectionName::HostShellJobs, key: None }).unwrap();
     let fourth = states.recv().await.unwrap();
     assert_eq!(fourth.snapshot.get("hostShellJobs"), Some(&Json::Null));
@@ -466,7 +461,6 @@ fn server_feed_remote_session_id_is_a_session_id() {
     assert_eq!(remote_session_id(&json!({ "sessionId": null })), None);
     assert_eq!(remote_session_id(&json!({ "sessionId": "x".repeat(257) })), None);
 }
-
 
 #[tokio::test(start_paused = true)]
 async fn server_feed_edge_reaches_the_list_after_the_debounce() {

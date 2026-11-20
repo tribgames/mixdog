@@ -8,7 +8,7 @@ use async_trait::async_trait;
 use serde_json::{Value, json};
 
 use super::{MemberHost, Outcome, PersistFuture, SubmitOptions, TurnCall, combined_call, member_turn};
-use crate::rooms::calls::{Run, RoomCall};
+use crate::rooms::calls::{RoomCall, Run};
 use crate::rooms::exchange::{Scene, Turn, TurnResult};
 use crate::rooms::turn_host::{MemberLabel, RoomRecord, RoomTurnHost, TurnState};
 use crate::rooms::turn_prompt::RoomPrompt;
@@ -112,7 +112,23 @@ impl MemberHost for Host {
 }
 
 fn labels() -> Arc<HashMap<String, MemberLabel>> {
-    Arc::new(["ann", "bob"].iter().map(|id| ((*id).to_owned(), MemberLabel { id: (*id).into(), name: id.to_uppercase(), route: json!({ "provider": "route-p", "model": "route-m" }), description: String::new(), disabled: false })).collect())
+    Arc::new(
+        ["ann", "bob"]
+            .iter()
+            .map(|id| {
+                (
+                    (*id).to_owned(),
+                    MemberLabel {
+                        id: (*id).into(),
+                        name: id.to_uppercase(),
+                        route: json!({ "provider": "route-p", "model": "route-m" }),
+                        description: String::new(),
+                        disabled: false,
+                    },
+                )
+            })
+            .collect(),
+    )
 }
 
 fn turn() -> Turn {
@@ -244,7 +260,11 @@ async fn a_failed_member_turn_holds_its_detail_and_a_usage_limit_ends_the_exchan
     assert_eq!((answer.result, answer.failed, answer.usage), (TurnResult::Pass, true, None));
     assert_eq!(state_a.failures()[0].reason, "boom");
 
-    let limited = Arc::new(Host::new(&["ann"], vec![user_row("u1", "hi")], failed_snapshot(json!({ "quota": { "provider": "openai", "model": "gpt-x", "resetAt": 9000 } }))));
+    let limited = Arc::new(Host::new(
+        &["ann"],
+        vec![user_row("u1", "hi")],
+        failed_snapshot(json!({ "quota": { "provider": "openai", "model": "gpt-x", "resetAt": 9000 } })),
+    ));
     let state_b = state();
     state_b.set_waiting(true);
     let (answer, _) = run(&limited, &state_b, &turn()).await;
@@ -291,7 +311,10 @@ async fn a_newer_message_pending_before_the_turn_submits_cuts_it_short_and_the_r
     *state.run.pending() = Some(crate::rooms::calls::Request::default());
     let (answer, _) = run(&host, &state, &turn()).await;
     assert_eq!(answer.result, TurnResult::Superseded);
-    assert!(host.submitted.lock().unwrap().is_empty() && host.posted.lock().unwrap().is_empty(), "nothing is submitted or posted for rows a newer message outdates");
+    assert!(
+        host.submitted.lock().unwrap().is_empty() && host.posted.lock().unwrap().is_empty(),
+        "nothing is submitted or posted for rows a newer message outdates"
+    );
     assert_eq!(host.room.lock().unwrap().cursors.get("ann"), None, "the cursor is as it was before the turn took the rows");
     assert_eq!(*host.aborted.lock().unwrap(), ["sess-ann"], "the member's session is aborted");
 }
@@ -309,7 +332,11 @@ async fn a_newer_message_arriving_while_the_member_answers_posts_nothing_and_kee
     assert!(host.posted.lock().unwrap().is_empty(), "its answer is not posted");
     let room = host.room.lock().unwrap();
     assert_eq!(room.cursors.get("ann"), None, "the cursor goes back so the rows are handed again");
-    assert_eq!(room.seen.as_ref().and_then(|seen| seen.get("ann")).map(String::as_str), Some("u1"), "the session holds them already: they come again marked as shown");
+    assert_eq!(
+        room.seen.as_ref().and_then(|seen| seen.get("ann")).map(String::as_str),
+        Some("u1"),
+        "the session holds them already: they come again marked as shown"
+    );
 }
 
 #[tokio::test]

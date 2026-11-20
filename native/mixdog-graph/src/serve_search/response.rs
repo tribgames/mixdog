@@ -20,12 +20,7 @@ pub(super) struct ResponseQueue {
 impl ResponseQueue {
     pub(super) fn new(capacity: usize) -> Self {
         Self {
-            state: Mutex::new(ResponseQueueState {
-                control: VecDeque::new(),
-                normal: VecDeque::new(),
-                writing: false,
-                closed: false,
-            }),
+            state: Mutex::new(ResponseQueueState { control: VecDeque::new(), normal: VecDeque::new(), writing: false, closed: false }),
             changed: Condvar::new(),
             space: Condvar::new(),
             drained: Condvar::new(),
@@ -35,9 +30,7 @@ impl ResponseQueue {
 
     pub(super) fn push(&self, line: String, control: bool) {
         let mut state = lock_recover(&self.state);
-        while !state.closed
-            && state.control.len().saturating_add(state.normal.len()) >= self.capacity
-        {
+        while !state.closed && state.control.len().saturating_add(state.normal.len()) >= self.capacity {
             state = self.space.wait(state).unwrap_or_else(|e| e.into_inner());
         }
         if state.closed {
@@ -66,11 +59,7 @@ impl ResponseQueue {
                 if state.closed && state.control.is_empty() && state.normal.is_empty() {
                     return;
                 }
-                let line = state
-                    .control
-                    .pop_front()
-                    .or_else(|| state.normal.pop_front())
-                    .expect("response queue line");
+                let line = state.control.pop_front().or_else(|| state.normal.pop_front()).expect("response queue line");
                 state.writing = true;
                 self.space.notify_all();
                 line
@@ -96,9 +85,7 @@ impl ResponseQueue {
 
     pub(super) fn flush(&self) {
         let mut state = lock_recover(&self.state);
-        while !state.closed
-            && (state.writing || !state.control.is_empty() || !state.normal.is_empty())
-        {
+        while !state.closed && (state.writing || !state.control.is_empty() || !state.normal.is_empty()) {
             state = self.drained.wait(state).unwrap_or_else(|e| e.into_inner());
         }
     }
@@ -149,17 +136,12 @@ pub(super) fn response_queue() -> Arc<ResponseQueue> {
 pub(super) fn spawn_response_writer<W: Write + Send + 'static>(writer: W) -> Arc<ResponseQueue> {
     let queue = Arc::new(ResponseQueue::new(response_queue_capacity()));
     let writer_queue = Arc::clone(&queue);
-    std::thread::Builder::new()
-        .name("mixdog-search-response-writer".to_string())
-        .spawn(move || writer_queue.run(writer))
-        .expect("mixdog response writer");
+    std::thread::Builder::new().name("mixdog-search-response-writer".to_string()).spawn(move || writer_queue.run(writer)).expect("mixdog response writer");
     queue
 }
 
 /// Redirect unsolicited events, returning the route that was replaced.
-pub(super) fn install_response_queue(
-    queue: Option<Arc<ResponseQueue>>,
-) -> Option<Arc<ResponseQueue>> {
+pub(super) fn install_response_queue(queue: Option<Arc<ResponseQueue>>) -> Option<Arc<ResponseQueue>> {
     let mut slot = write_recover(&RESPONSE_QUEUE);
     std::mem::replace(&mut *slot, queue)
 }
@@ -221,7 +203,5 @@ impl ClientSink {
 }
 
 pub(super) fn stdio_sink() -> ClientSink {
-    ClientSink {
-        queue: response_queue(),
-    }
+    ClientSink { queue: response_queue() }
 }

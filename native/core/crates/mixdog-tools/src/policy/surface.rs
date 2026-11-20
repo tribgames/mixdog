@@ -16,18 +16,7 @@ use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
 
 /// Tools a read-only session may call by name, whatever their annotations.
-pub const READONLY_TOOL_NAMES: [&str; 10] = [
-    "read",
-    "list",
-    "grep",
-    "find",
-    "glob",
-    "code_graph",
-    "web_search",
-    "web_fetch",
-    "recall",
-    "Skill",
-];
+pub const READONLY_TOOL_NAMES: [&str; 10] = ["read", "list", "grep", "find", "glob", "code_graph", "web_search", "web_fetch", "recall", "Skill"];
 
 /// The `tools:readonly` schema bundle (the file-system tools that only read).
 pub const READONLY_FS_TOOL_NAMES: [&str; 6] = ["code_graph", "find", "glob", "list", "grep", "read"];
@@ -46,8 +35,7 @@ const BRIDGE_DISCOVERY_TOOLS: [&str; 1] = ["load_tool"];
 /// Whether a tool is offered to a read-only session: it is named in
 /// [`READONLY_TOOL_NAMES`], or declares itself read-only and not destructive.
 pub fn readonly_selectable(name: &str, annotations: &ToolAnnotations) -> bool {
-    READONLY_TOOL_NAMES.contains(&name)
-        || (annotations.destructive_hint != Some(true) && annotations.read_only_hint == Some(true))
+    READONLY_TOOL_NAMES.contains(&name) || (annotations.destructive_hint != Some(true) && annotations.read_only_hint == Some(true))
 }
 
 const BRIDGE_CALL_TOOL: &str = "call_tool";
@@ -147,8 +135,7 @@ const COMPACTED_PATCH_REFUSAL: &str = "Error: [tool-input-validation] apply_patc
 /// `apply_patch` input that carries a `[mixdog compacted …]` marker line
 /// outside the patch's own `+`, `-` and context lines.
 fn has_compacted_patch_placeholder(name: &str, args: &Value) -> bool {
-    static MARKER: LazyLock<JsRegex> =
-        LazyLock::new(|| cs(r"^\s*\[mixdog compacted\b[^\]\n]*\]"));
+    static MARKER: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^\s*\[mixdog compacted\b[^\]\n]*\]"));
     if name != "apply_patch" {
         return false;
     }
@@ -187,24 +174,15 @@ impl SessionSurface {
         if self.bridge && name == BRIDGE_CALL_TOOL {
             return Some(refused(
                 "bridge-recursion",
-                "Error: BRIDGE_RECURSION: call_tool runs one tool named in its arguments and cannot be dispatched itself."
-                    .into(),
+                "Error: BRIDGE_RECURSION: call_tool runs one tool named in its arguments and cannot be dispatched itself.".into(),
             ));
         }
         if let Some((_, reason)) = self.route_excluded.iter().find(|(tool, _)| tool == schema) {
             return Some(refused("route-excluded", format!("Error: {reason}")));
         }
         let bridge_discovery = self.bridge && BRIDGE_DISCOVERY_TOOLS.contains(&schema);
-        if !bridge_discovery
-            && self
-                .schema_allowed
-                .as_ref()
-                .is_some_and(|allowed| !listed(allowed, schema))
-        {
-            return Some(refused(
-                "schema-allowlist",
-                format!("Error: tool \"{name}\" is not available on this session's schema allowlist."),
-            ));
+        if !bridge_discovery && self.schema_allowed.as_ref().is_some_and(|allowed| !listed(allowed, schema)) {
+            return Some(refused("schema-allowlist", format!("Error: tool \"{name}\" is not available on this session's schema allowlist.")));
         }
         if listed(&self.workflow_denied, schema) {
             return Some(refused(
@@ -219,45 +197,26 @@ impl SessionSurface {
             return Some(if listed(&self.feature_denied, schema) {
                 refused(
                     "disabled-in-settings",
-                    format!(
-                        "Error: tool \"{schema}\" is disabled in settings by the user. Do not retry unless the user turns it back on."
-                    ),
+                    format!("Error: tool \"{schema}\" is disabled in settings by the user. Do not retry unless the user turns it back on."),
                 )
             } else {
-                refused(
-                    "not-in-session",
-                    format!("Error: tool \"{name}\" is not available in this session."),
-                )
+                refused("not-in-session", format!("Error: tool \"{name}\" is not available in this session."))
             });
         }
         if self.connector_disabled {
-            return Some(refused(
-                "connector-disabled",
-                format!("Error: tool \"{name}\" is not available to this agent."),
-            ));
+            return Some(refused("connector-disabled", format!("Error: tool \"{name}\" is not available to this agent.")));
         }
         if self.project_disabled {
-            return Some(refused(
-                "project-disabled",
-                format!("Error: tool \"{name}\" is switched off in this project."),
-            ));
+            return Some(refused("project-disabled", format!("Error: tool \"{name}\" is switched off in this project.")));
         }
         if self.off_readonly_surface(schema) {
-            return Some(refused(
-                "readonly-session",
-                format!("Error: tool \"{name}\" is not available in this read-only session."),
-            ));
+            return Some(refused("readonly-session", format!("Error: tool \"{name}\" is not available in this read-only session.")));
         }
         if has_compacted_patch_placeholder(name, args) {
             return Some(refused("compacted-patch", COMPACTED_PATCH_REFUSAL.into()));
         }
         if self.agent_owned && AGENT_DENIED_TOOLS.contains(&name) {
-            return Some(refused(
-                "lead-only",
-                format!(
-                    "Error: control-plane tool \"{name}\" is Lead-only and not available to agent workers."
-                ),
-            ));
+            return Some(refused("lead-only", format!("Error: control-plane tool \"{name}\" is Lead-only and not available to agent workers.")));
         }
         // Node's dispatch check (`tool-exec/dispatch.mjs:125`) runs after `preDispatchDenyForSession` has passed the call: a tool
         // the session does not hold at all is refused above as "not available in this session", never as a user's setting.
@@ -268,10 +227,7 @@ impl SessionSurface {
     fn live_refusal(&self, name: &str, schema: &str) -> Option<ToolError> {
         let denied = self.live_feature_denied.as_ref()?;
         setting_disabled_in(name, denied).or_else(|| setting_disabled_in(schema, denied)).map(|off| {
-            refused(
-                "disabled-in-settings",
-                format!("Error: tool \"{off}\" is disabled in settings by the user; do not retry unless the user turns it back on"),
-            )
+            refused("disabled-in-settings", format!("Error: tool \"{off}\" is disabled in settings by the user; do not retry unless the user turns it back on"))
         })
     }
 
@@ -282,31 +238,19 @@ impl SessionSurface {
     /// `project_disabled` depend on the called tool and are set per call.
     pub fn from_header(header: &Map<String, Value>, route_excluded: Vec<(String, String)>) -> Self {
         let names = |key: &str| -> Option<Vec<String>> {
-            header
-                .get(key)
-                .and_then(Value::as_array)
-                .map(|items| items.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            header.get(key).and_then(Value::as_array).map(|items| items.iter().filter_map(Value::as_str).map(str::to_owned).collect())
         };
         let tool_names = |key: &str| -> Vec<String> {
             header
                 .get(key)
                 .and_then(Value::as_array)
-                .map(|tools| {
-                    tools
-                        .iter()
-                        .filter_map(|tool| tool.get("name").and_then(Value::as_str))
-                        .map(|name| mixdog_js::js_trim(name).to_owned())
-                        .collect()
-                })
+                .map(|tools| tools.iter().filter_map(|tool| tool.get("name").and_then(Value::as_str)).map(|name| mixdog_js::js_trim(name).to_owned()).collect())
                 .unwrap_or_default()
         };
         let disallowed = names("disallowedTools").unwrap_or_default();
         // `deferredCatalogUnion`: the boot and late catalogs, minus denied tools.
-        let catalog_tools = ["deferredToolCatalog", "deferredLateToolCatalog"]
-            .into_iter()
-            .flat_map(tool_names)
-            .filter(|name| !listed(&disallowed, name))
-            .collect();
+        let catalog_tools =
+            ["deferredToolCatalog", "deferredLateToolCatalog"].into_iter().flat_map(tool_names).filter(|name| !listed(&disallowed, name)).collect();
         let text = |key: &str| header.get(key).and_then(Value::as_str).unwrap_or("");
         let overlay = header.get("workflowOverlay");
         Self {
@@ -321,13 +265,8 @@ impl SessionSurface {
             active_tools: tool_names("tools"),
             catalog_tools,
             bridge: text("toolExposureMode") == BRIDGE_EXPOSURE,
-            agent_owned: text("scope").starts_with("agent:")
-                || mixdog_js::js_trim(text("owner")).to_lowercase() == "agent",
-            workflow_name: overlay
-                .and_then(|o| o.pointer("/workflow/name"))
-                .and_then(Value::as_str)
-                .unwrap_or_default()
-                .to_owned(),
+            agent_owned: text("scope").starts_with("agent:") || mixdog_js::js_trim(text("owner")).to_lowercase() == "agent",
+            workflow_name: overlay.and_then(|o| o.pointer("/workflow/name")).and_then(Value::as_str).unwrap_or_default().to_owned(),
             workflow_denied: overlay
                 .and_then(|o| o.get("deniedTools"))
                 .and_then(Value::as_array)
@@ -379,11 +318,7 @@ impl SessionSurface {
     /// catalog tools (whose read-only gate is [`readonly_selectable`]) and
     /// skill-list plumbing.
     fn off_readonly_surface(&self, name: &str) -> bool {
-        self.readonly
-            && !name.is_empty()
-            && !INACTIVE_INFRA.contains(&name)
-            && !listed(&self.active_tools, name)
-            && !listed(&self.catalog_tools, name)
+        self.readonly && !name.is_empty() && !INACTIVE_INFRA.contains(&name) && !listed(&self.active_tools, name) && !listed(&self.catalog_tools, name)
     }
 }
 
@@ -423,15 +358,9 @@ mod tests {
 
     #[test]
     fn the_allowlist_is_case_blind_and_never_strands_the_bridge_discovery_tool() {
-        let surface = SessionSurface {
-            schema_allowed: Some(names(&["Read"])),
-            ..SessionSurface::default()
-        };
+        let surface = SessionSurface { schema_allowed: Some(names(&["Read"])), ..SessionSurface::default() };
         assert!(surface.refusal("read", None).is_none());
-        assert_eq!(
-            text(surface.refusal("shell", None)),
-            "Error: tool \"shell\" is not available on this session's schema allowlist."
-        );
+        assert_eq!(text(surface.refusal("shell", None)), "Error: tool \"shell\" is not available on this session's schema allowlist.");
         assert!(surface.refusal("load_tool", None).is_some());
         let bridged = SessionSurface { bridge: true, ..surface };
         assert!(bridged.refusal("load_tool", None).is_none());
@@ -439,28 +368,18 @@ mod tests {
 
     #[test]
     fn a_renamed_call_is_judged_by_its_schema_name() {
-        let surface = SessionSurface {
-            schema_allowed: Some(names(&["web_fetch"])),
-            ..SessionSurface::default()
-        };
+        let surface = SessionSurface { schema_allowed: Some(names(&["web_fetch"])), ..SessionSurface::default() };
         assert!(surface.refusal("local_fetch", Some("web_fetch")).is_none());
     }
 
     #[test]
     fn a_denied_tool_says_whether_settings_switched_it_off() {
-        let surface = SessionSurface {
-            disallowed: names(&["goal", "react"]),
-            feature_denied: names(&["goal"]),
-            ..SessionSurface::default()
-        };
+        let surface = SessionSurface { disallowed: names(&["goal", "react"]), feature_denied: names(&["goal"]), ..SessionSurface::default() };
         assert_eq!(
             text(surface.refusal("goal", None)),
             "Error: tool \"goal\" is disabled in settings by the user. Do not retry unless the user turns it back on."
         );
-        assert_eq!(
-            text(surface.refusal("react", None)),
-            "Error: tool \"react\" is not available in this session."
-        );
+        assert_eq!(text(surface.refusal("react", None)), "Error: tool \"react\" is not available in this session.");
     }
 
     #[test]
@@ -485,42 +404,25 @@ mod tests {
     #[test]
     fn connectors_the_agent_or_project_turned_off_are_refused() {
         let agent = SessionSurface { connector_disabled: true, ..SessionSurface::default() };
-        assert_eq!(
-            text(agent.refusal("mcp__a__b", None)),
-            "Error: tool \"mcp__a__b\" is not available to this agent."
-        );
+        assert_eq!(text(agent.refusal("mcp__a__b", None)), "Error: tool \"mcp__a__b\" is not available to this agent.");
         let project = SessionSurface { project_disabled: true, ..SessionSurface::default() };
-        assert_eq!(
-            text(project.refusal("mcp__a__b", None)),
-            "Error: tool \"mcp__a__b\" is switched off in this project."
-        );
+        assert_eq!(text(project.refusal("mcp__a__b", None)), "Error: tool \"mcp__a__b\" is switched off in this project.");
     }
 
     #[test]
     fn a_readonly_session_runs_active_and_catalog_tools_and_skill_plumbing_only() {
-        let surface = SessionSurface {
-            readonly: true,
-            active_tools: names(&["read"]),
-            catalog_tools: names(&["Web_Search"]),
-            ..SessionSurface::default()
-        };
+        let surface = SessionSurface { readonly: true, active_tools: names(&["read"]), catalog_tools: names(&["Web_Search"]), ..SessionSurface::default() };
         for ok in ["read", "READ", "web_search", "skills_list", "skill_view"] {
             assert!(surface.refusal(ok, None).is_none(), "{ok}");
         }
-        assert_eq!(
-            text(surface.refusal("apply_patch", None)),
-            "Error: tool \"apply_patch\" is not available in this read-only session."
-        );
+        assert_eq!(text(surface.refusal("apply_patch", None)), "Error: tool \"apply_patch\" is not available in this read-only session.");
     }
 
     #[test]
     fn agent_workers_lose_exactly_the_four_control_tools() {
         let surface = SessionSurface { agent_owned: true, ..SessionSurface::default() };
         for name in AGENT_DENIED_TOOLS {
-            assert_eq!(
-                text(surface.refusal(name, None)),
-                format!("Error: control-plane tool \"{name}\" is Lead-only and not available to agent workers.")
-            );
+            assert_eq!(text(surface.refusal(name, None)), format!("Error: control-plane tool \"{name}\" is Lead-only and not available to agent workers."));
         }
         // Hidden by annotation but not refused: load_tool, goal, react, setup, call_tool.
         for name in ["load_tool", "goal", "react", "setup", "call_tool", "todo"] {
@@ -556,26 +458,24 @@ mod tests {
         assert_eq!(surface.catalog_tools, names(&["web_search", "recall"]));
         assert_eq!(surface.workflow_name, "plan");
         // Node's order: the route exclusion answers before the allowlist and the rest.
-        assert_eq!(
-            text(surface.refusal("grep", None)),
-            "Error: tool \"grep\" is unavailable with the current model"
-        );
+        assert_eq!(text(surface.refusal("grep", None)), "Error: tool \"grep\" is unavailable with the current model");
         assert_eq!(
             text(SessionSurface { schema_allowed: None, route_excluded: vec![], ..surface.clone() }.refusal("shell", None)),
             "Error: tool \"shell\" is not available in workflow plan: this conversation switched to it. Do the work without it."
         );
-        assert!(
-            SessionSurface::from_header(&header(serde_json::json!({"toolSpec": ["full", "tools:readonly"]})), vec![])
-                .readonly
-                == false
-        );
+        assert!(SessionSurface::from_header(&header(serde_json::json!({"toolSpec": ["full", "tools:readonly"]})), vec![]).readonly == false);
         // deferredSurfaceMode: readonly under a full tool mode: the deferred-call guard refuses what is not read-only selectable.
         let persisted = SessionSurface::from_header(
-            &header(serde_json::json!({"toolSpec": "full", "deferredSurfaceMode": "readonly", "toolExposureMode": "bridge-v1", "deferredToolCatalog": [{"name": "odd"}]})),
+            &header(
+                serde_json::json!({"toolSpec": "full", "deferredSurfaceMode": "readonly", "toolExposureMode": "bridge-v1", "deferredToolCatalog": [{"name": "odd"}]}),
+            ),
             vec![],
         );
         assert!(!persisted.readonly && persisted.deferred_readonly);
-        assert_eq!(persisted.deferred_call_refusal("odd", &ToolAnnotations::default()).as_deref(), Some("Error: tool \"odd\" is not available in readonly mode"));
+        assert_eq!(
+            persisted.deferred_call_refusal("odd", &ToolAnnotations::default()).as_deref(),
+            Some("Error: tool \"odd\" is not available in readonly mode")
+        );
         // call_tool is never dispatched itself on a bridge session.
         assert_eq!(
             text(surface.refusal("call_tool", None)),
@@ -600,11 +500,7 @@ mod tests {
     #[test]
     fn readonly_selection_follows_the_name_list_then_the_annotations() {
         let read_only = ToolAnnotations { read_only_hint: Some(true), ..ToolAnnotations::default() };
-        let destructive = ToolAnnotations {
-            read_only_hint: Some(true),
-            destructive_hint: Some(true),
-            ..ToolAnnotations::default()
-        };
+        let destructive = ToolAnnotations { read_only_hint: Some(true), destructive_hint: Some(true), ..ToolAnnotations::default() };
         assert!(readonly_selectable("ask_user", &read_only));
         assert!(!readonly_selectable("odd", &destructive));
         assert!(!readonly_selectable("shell", &ToolAnnotations::default()));

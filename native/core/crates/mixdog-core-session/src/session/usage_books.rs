@@ -81,7 +81,15 @@ pub(crate) fn compact_usage_change(header: &Header, excludes: bool, delta: &Valu
 /// `onUsageDelta(delta)` for one model call: `delta` is the call's `usageDeltaEvent`
 /// (`live_rows::usage_delta`), `outgoing` the transcript its request carried and `send_tools` its tools.
 /// `excludes` is the convention of the adapter that produced the call's usage, carried on its report.
-pub(crate) fn usage_change(header: &Header, excludes: bool, delta: &Value, outgoing: &[AgentMessage], send_tools: &[ToolDefinition], books: Option<&Books>, (sent_at, now): (f64, f64)) -> Option<HeaderChange> {
+pub(crate) fn usage_change(
+    header: &Header,
+    excludes: bool,
+    delta: &Value,
+    outgoing: &[AgentMessage],
+    send_tools: &[ToolDefinition],
+    books: Option<&Books>,
+    (sent_at, now): (f64, f64),
+) -> Option<HeaderChange> {
     let provider = provider_of(header);
     let delta = &with_loop_ids(header, delta);
     let patch = match books {
@@ -183,7 +191,8 @@ mod tests {
                 reasoning_tokens_complete: false,
                 outgoing: Vec::new().into(),
                 sent_at_ms: 0,
-                input_excludes_cache: excludes, tail_book: None,
+                input_excludes_cache: excludes,
+                tail_book: None,
             };
             let delta = super::super::live_rows::usage_delta("s", &report, 1);
             let change = usage_change(&header, report.input_excludes_cache, &delta, &[], &[], None, (0.0, 1.0)).expect("a change");
@@ -195,7 +204,6 @@ mod tests {
         }
     }
 
-
     /// The owner's book is written as it was settled, and nothing is inferred from the usage itself.
     #[test]
     fn the_settled_book_is_persisted_and_no_usage_alone_writes_one() {
@@ -205,5 +213,4 @@ mod tests {
         assert_eq!(change.unset, vec!["lastProviderCacheTail".to_owned()]);
         assert!(with_tail_book(None, None).is_none(), "a call whose owner learned nothing writes no book");
     }
-
 }

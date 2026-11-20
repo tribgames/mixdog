@@ -99,7 +99,12 @@ impl Fetcher for ReqwestFetcher {
             request = request.header("Range", format!("bytes={from}-"));
         }
         let response = request.send().await.map_err(|e| e.to_string())?;
-        Ok(Fetched { status: response.status().as_u16(), content_length: response.content_length().map(|n| n as i64), https: response.url().scheme() == "https", body: Box::new(ReqwestBody(response)) })
+        Ok(Fetched {
+            status: response.status().as_u16(),
+            content_length: response.content_length().map(|n| n as i64),
+            https: response.url().scheme() == "https",
+            body: Box::new(ReqwestBody(response)),
+        })
     }
 }
 
@@ -197,7 +202,11 @@ impl DownloadOptions {
 /// Runs blocking file work on the durability lane and waits for it to settle. Cancelling `cancel`
 /// stops a job still waiting for lane room or queued; a job already running is always awaited, so
 /// `Aborted` is only returned once nothing of this call is still touching the file.
-async fn on_durability_lane<T: Send + 'static>(lane: DurabilityIo, cancel: &CancellationToken, work: impl FnOnce() -> std::io::Result<T> + Send + 'static) -> Result<T, AssetError> {
+async fn on_durability_lane<T: Send + 'static>(
+    lane: DurabilityIo,
+    cancel: &CancellationToken,
+    work: impl FnOnce() -> std::io::Result<T> + Send + 'static,
+) -> Result<T, AssetError> {
     let aborted = |e: &dyn std::fmt::Display| if cancel.is_cancelled() { AssetError::Aborted } else { AssetError::Other(e.to_string()) };
     let job = lane.submit_wait(cancel, move |_| work()).await.map_err(|e| aborted(&e))?;
     let done = job.await.map_err(|e| aborted(&e))?;
@@ -435,7 +444,11 @@ pub async fn download_verified_asset(fetcher: &dyn Fetcher, asset: &Value, desti
     }
     .await;
     if let Some(open) = file.take() {
-        let _ = settled(lane, move || { drop(open); Ok(()) }).await;
+        let _ = settled(lane, move || {
+            drop(open);
+            Ok(())
+        })
+        .await;
     }
     streamed?;
     if total != size {
@@ -465,7 +478,17 @@ pub(super) async fn extract_archive(processes: &Processes, archive: &Path, desti
     let (program, args) = if archive.extension().is_some_and(|e| e == "zip") {
         env.insert("MIXDOG_LOCAL_ARCHIVE".into(), archive.to_string_lossy().into_owned());
         env.insert("MIXDOG_LOCAL_DESTINATION".into(), destination.to_string_lossy().into_owned());
-        ("powershell", ["-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath $env:MIXDOG_LOCAL_ARCHIVE -DestinationPath $env:MIXDOG_LOCAL_DESTINATION -Force"].map(str::to_owned).to_vec())
+        (
+            "powershell",
+            [
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "$ErrorActionPreference = 'Stop'; Expand-Archive -LiteralPath $env:MIXDOG_LOCAL_ARCHIVE -DestinationPath $env:MIXDOG_LOCAL_DESTINATION -Force",
+            ]
+            .map(str::to_owned)
+            .to_vec(),
+        )
     } else {
         ("tar", vec!["-xzf".to_owned(), archive.to_string_lossy().into_owned(), "-C".to_owned(), destination.to_string_lossy().into_owned()])
     };
@@ -494,7 +517,10 @@ pub(super) async fn extract_archive(processes: &Processes, archive: &Path, desti
         from = at;
     }
     let tail = &log[from..];
-    Err(AssetError::Other(format!("[local-provider] runtime extraction failed: {}", if tail.is_empty() { format!("status {}", output.code) } else { tail.to_owned() })))
+    Err(AssetError::Other(format!(
+        "[local-provider] runtime extraction failed: {}",
+        if tail.is_empty() { format!("status {}", output.code) } else { tail.to_owned() }
+    )))
 }
 
 const RUNTIME_RECEIPT: &str = ".mixdog-runtime-verification.json";
@@ -512,7 +538,14 @@ fn runtime_receipt(entry: &Value, version: &str, digest: &str) -> Value {
 /// Only the managed installer writes this receipt, after verifying all pinned
 /// archives and extracting them together. Reuse also checks the current binary.
 #[allow(clippy::disallowed_methods, reason = "receipt IO runs on the durability lane")]
-async fn verified_runtime(lane: DurabilityIo, dir: &Path, entry: &Value, version: &str, executable: &str, cancel: &CancellationToken) -> Result<bool, AssetError> {
+async fn verified_runtime(
+    lane: DurabilityIo,
+    dir: &Path,
+    entry: &Value,
+    version: &str,
+    executable: &str,
+    cancel: &CancellationToken,
+) -> Result<bool, AssetError> {
     let path = dir.join(RUNTIME_RECEIPT);
     let server = dir.join(executable);
     let check_server = server.clone();
@@ -525,7 +558,8 @@ async fn verified_runtime(lane: DurabilityIo, dir: &Path, entry: &Value, version
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(None),
             Err(error) => Err(error),
         }
-    }).await?;
+    })
+    .await?;
     let Some(receipt) = receipt else { return Ok(false) };
     let Some(digest) = receipt["executableSha256"].as_str() else { return Ok(false) };
     if receipt != runtime_receipt(entry, version, digest) {
@@ -535,7 +569,14 @@ async fn verified_runtime(lane: DurabilityIo, dir: &Path, entry: &Value, version
 }
 
 #[allow(clippy::disallowed_methods, reason = "receipt IO runs on the durability lane")]
-async fn record_runtime_verification(lane: DurabilityIo, staging: &Path, entry: &Value, version: &str, executable: &str, cancel: &CancellationToken) -> Result<(), AssetError> {
+async fn record_runtime_verification(
+    lane: DurabilityIo,
+    staging: &Path,
+    entry: &Value,
+    version: &str,
+    executable: &str,
+    cancel: &CancellationToken,
+) -> Result<(), AssetError> {
     let server = staging.join(executable);
     let check_server = server.clone();
     if !on_durability_lane(lane, cancel, move || Ok(file_has_data(&check_server))).await? {
@@ -548,9 +589,17 @@ async fn record_runtime_verification(lane: DurabilityIo, staging: &Path, entry: 
 }
 
 /// Installs the runtime build for this host; reuse requires verified evidence.
-pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, processes: &Processes, platform_key: &str, progress: Progress, cancel: CancellationToken) -> Result<Value, AssetError> {
+pub async fn install_runtime(
+    catalog: &Arc<Catalog>,
+    fetcher: &dyn Fetcher,
+    processes: &Processes,
+    platform_key: &str,
+    progress: Progress,
+    cancel: CancellationToken,
+) -> Result<Value, AssetError> {
     let durability = processes.durability();
-    let unsupported = || AssetError::Other("[local-provider] Windows x64 with a compatible NVIDIA RTX GPU, or an Apple Silicon Mac with enough memory, is required".into());
+    let unsupported =
+        || AssetError::Other("[local-provider] Windows x64 with a compatible NVIDIA RTX GPU, or an Apple Silicon Mac with enough memory, is required".into());
     let entry = catalog.runtime_platform_entry(platform_key).ok_or_else(unsupported)?;
     let target = catalog.runtime_directory();
     let executable = entry["executable"].as_str().filter(|name| !name.is_empty()).ok_or_else(unsupported)?;
@@ -566,7 +615,9 @@ pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, proc
     if status["available"] != true {
         return Err(unsupported());
     }
-    let assets = entry["assets"].as_array().filter(|assets| !assets.is_empty())
+    let assets = entry["assets"]
+        .as_array()
+        .filter(|assets| !assets.is_empty())
         .ok_or_else(|| AssetError::Other("[local-provider] runtime manifest has no pinned assets".into()))?;
     let total_bytes = entry["downloadBytes"].as_i64().unwrap_or(0);
     check_disk(durability, true, &catalog.runtime_root(), total_bytes).await?;
@@ -589,11 +640,19 @@ pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, proc
                 m.insert("percent".into(), json!((got as f64 / total_bytes as f64 * 100.0).round()));
                 progress_cb(m);
             });
-            download_verified_asset(fetcher, asset, &archive, DownloadOptions { on_progress: Some(on_progress), cancel: cancel.clone(), ..DownloadOptions::new(durability) }).await?;
+            download_verified_asset(
+                fetcher,
+                asset,
+                &archive,
+                DownloadOptions { on_progress: Some(on_progress), cancel: cancel.clone(), ..DownloadOptions::new(durability) },
+            )
+            .await?;
             let after = completed + asset["size"].as_i64().unwrap_or(0);
             progress(Map::from_iter([
-                ("phase".to_owned(), json!("runtime")), ("stage".into(), json!("extracting")),
-                ("receivedBytes".into(), json!(after)), ("totalBytes".into(), json!(total_bytes)),
+                ("phase".to_owned(), json!("runtime")),
+                ("stage".into(), json!("extracting")),
+                ("receivedBytes".into(), json!(after)),
+                ("totalBytes".into(), json!(total_bytes)),
                 ("percent".into(), json!((after as f64 / total_bytes as f64 * 100.0).round().min(99.0))),
             ]));
             extract_archive(processes, &archive, &staging, &cancel).await?;
@@ -617,7 +676,14 @@ pub async fn install_runtime(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, proc
 }
 
 /// Downloads one model after checking the runtime and GPU memory.
-pub async fn install_model(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, durability: DurabilityIo, entry: &Value, progress: Progress, cancel: CancellationToken) -> Result<Value, AssetError> {
+pub async fn install_model(
+    catalog: &Arc<Catalog>,
+    fetcher: &dyn Fetcher,
+    durability: DurabilityIo,
+    entry: &Value,
+    progress: Progress,
+    cancel: CancellationToken,
+) -> Result<Value, AssetError> {
     let hardware = catalog.hardware.detect(true).await;
     if cancel.is_cancelled() {
         return Err(AssetError::Aborted);
@@ -635,7 +701,13 @@ pub async fn install_model(catalog: &Arc<Catalog>, fetcher: &dyn Fetcher, durabi
         p.insert("modelId".into(), id.clone());
         progress(p);
     });
-    download_verified_asset(fetcher, entry, &catalog.model_path(entry), DownloadOptions { on_progress: Some(on_progress), cancel, ..DownloadOptions::new(durability) }).await?;
+    download_verified_asset(
+        fetcher,
+        entry,
+        &catalog.model_path(entry),
+        DownloadOptions { on_progress: Some(on_progress), cancel, ..DownloadOptions::new(durability) },
+    )
+    .await?;
     catalog.status(None).await
 }
 
@@ -700,7 +772,8 @@ pub async fn discard_downloads(catalog: &Arc<Catalog>, phase: &str, model_id: Op
 fn discard_blocking(catalog: &Catalog, phase: &str, model_id: Option<&str>) -> Result<(), DiscardError> {
     match phase {
         "runtime" => {
-            for asset in catalog.runtime_platform_entry(super::hardware::host_platform_key()).and_then(|e| e["assets"].as_array().cloned()).unwrap_or_default() {
+            for asset in catalog.runtime_platform_entry(super::hardware::host_platform_key()).and_then(|e| e["assets"].as_array().cloned()).unwrap_or_default()
+            {
                 let path = catalog.runtime_root().join(".downloads").join(asset["name"].as_str().unwrap_or(""));
                 // `resumable-installations.mjs:67-68, :73`: bare `rmSync(.., { force: true })`.
                 remove_forced(&path, false).map_err(|e| DiscardError::Lane(e.to_string()))?;
@@ -743,8 +816,14 @@ mod tests {
     impl Fetcher for Fake {
         async fn get(&self, _: &str, from: i64) -> Result<Fetched, String> {
             self.requested_from.lock().unwrap().push(from);
-            let (status, body) = if from > 0 && self.status == 200 { (206, self.content[from as usize..].to_vec()) } else { (self.status, self.content.clone()) };
-            Ok(Fetched { status, content_length: Some(body.len() as i64), https: self.https, body: Box::new(Chunks(body.chunks(4).map(<[u8]>::to_vec).collect())) })
+            let (status, body) =
+                if from > 0 && self.status == 200 { (206, self.content[from as usize..].to_vec()) } else { (self.status, self.content.clone()) };
+            Ok(Fetched {
+                status,
+                content_length: Some(body.len() as i64),
+                https: self.https,
+                body: Box::new(Chunks(body.chunks(4).map(<[u8]>::to_vec).collect())),
+            })
         }
     }
 
@@ -826,7 +905,12 @@ mod tests {
             release_rx.lock().unwrap().recv().ok();
         });
         let run = |fetcher: &Fake, options: DownloadOptions| {
-            tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(download_verified_asset(fetcher, &asset(content), &dest, options))
+            tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(download_verified_asset(
+                fetcher,
+                &asset(content),
+                &dest,
+                options,
+            ))
         };
         let partial = part_path(&dest);
         std::thread::scope(|scope| {
@@ -937,10 +1021,16 @@ mod tests {
         short.status = 200;
         assert!(matches!(download_verified_asset(&short, &asset(content), &dest, opts()).await, Err(AssetError::Incomplete(_, 2, 4))));
         assert!(part_path(&dest).exists());
-        let cancelled = DownloadOptions { cancel: { let c = CancellationToken::new(); c.cancel(); c }, ..opts() };
+        let cancelled = DownloadOptions {
+            cancel: {
+                let c = CancellationToken::new();
+                c.cancel();
+                c
+            },
+            ..opts()
+        };
         assert!(matches!(download_verified_asset(&fake(content), &asset(content), &dest, cancelled).await, Err(AssetError::Aborted)));
     }
-
 
     #[tokio::test]
     async fn partial_files_surface_as_paused_installations_and_can_be_discarded() {

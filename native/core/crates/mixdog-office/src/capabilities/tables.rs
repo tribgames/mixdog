@@ -146,10 +146,7 @@ fn operation_backends(format: &str, catalog: &FormatCatalog, operation: &str) ->
 impl Raw {
     fn explicit_signature(&self, format: &str, operation: &str) -> Option<&Signature> {
         let by_format = if format == "csv" || format == "tsv" { "xlsx" } else { format };
-        self.format_signatures
-            .get(by_format)
-            .and_then(|signatures| signatures.get(operation))
-            .or_else(|| self.common_signatures.get(operation))
+        self.format_signatures.get(by_format).and_then(|signatures| signatures.get(operation)).or_else(|| self.common_signatures.get(operation))
     }
 
     /// The registry Node's `capabilities.mjs` builds at load; a catalogue operation with no signature is a fault of the
@@ -159,13 +156,9 @@ impl Raw {
         for (format, catalog) in &self.catalog {
             let mut operations = IndexMap::new();
             for name in catalog.all_operations() {
-                let input = self
-                    .explicit_signature(format, name)
-                    .unwrap_or_else(|| panic!("Office operation registry is missing a signature for {format}.{name}"));
-                operations.insert(
-                    name.to_owned(),
-                    Operation { input: input.clone(), supported_backends: operation_backends(format, catalog, name) },
-                );
+                let input =
+                    self.explicit_signature(format, name).unwrap_or_else(|| panic!("Office operation registry is missing a signature for {format}.{name}"));
+                operations.insert(name.to_owned(), Operation { input: input.clone(), supported_backends: operation_backends(format, catalog, name) });
             }
             registry.insert(format.clone(), operations);
         }
@@ -175,8 +168,7 @@ impl Raw {
 
 impl Capabilities {
     fn load() -> Self {
-        let raw: Raw =
-            serde_json::from_str(CAPABILITIES_JSON).expect("data/capabilities.json is the recorder's output");
+        let raw: Raw = serde_json::from_str(CAPABILITIES_JSON).expect("data/capabilities.json is the recorder's output");
         let registry = raw.registry();
         Self {
             actions: raw.actions,

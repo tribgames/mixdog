@@ -166,14 +166,6 @@ impl super::NewThreadRoute for HeldSeat {
     }
 }
 
-
-
-
-
-
-
-
-
 /// The refusal's fresh address is `sess_desktop_` and 32 random bytes in hex (`freshSessionId`): every hex digit takes any value.
 /// Two joined UUID v4 values would fix digit 12 of each half to `4` and digit 16 to one of `8`-`b`; over 64 addresses each of those
 /// digits takes a value outside `4`, `8`-`b` unless the bytes are not uniformly random (a chance of (5/16)^64, about 10^-32, each).
@@ -189,9 +181,6 @@ fn the_fresh_address_is_32_random_bytes() {
         assert!(digits.iter().any(|digit| !matches!(digit, b'4' | b'8'..=b'9' | b'a'..=b'b')), "hex digit {at} only ever took {digits:?}");
     }
 }
-
-
-
 
 /// The bound of every wait in this file, in real time. The tests run on a paused clock, which moves only when a test advances it,
 /// so a deadline taken on it never fires for a wait that stalls: the bound is a thread's, outside the runtime.
@@ -293,7 +282,11 @@ async fn a_retry_after_a_crash_resumes_at_configured_without_a_second_prompt() {
     assert_eq!(retry, derived("sub-c"));
     assert_eq!(runs.load(Ordering::SeqCst), 1, "the prompt the thread holds is not sent again");
     assert_eq!(stored(&rig, "sub-c").expect("receipt").phase(), Phase::Accepted);
-    assert_eq!(*receipts.writes.lock().unwrap(), vec![("accepted".to_owned(), true)], "the attempt resumes at configured: nothing is reserved or configured again");
+    assert_eq!(
+        *receipts.writes.lock().unwrap(),
+        vec![("accepted".to_owned(), true)],
+        "the attempt resumes at configured: nothing is reserved or configured again"
+    );
 }
 /// The phase resumed after a crash: a `reserved` receipt with no thread behind it starts the task at the reserved address.
 #[tokio::test(start_paused = true)]
@@ -313,7 +306,11 @@ async fn a_retry_after_a_crash_at_reserved_creates_the_task_at_the_reserved_addr
     assert_eq!(retry, derived("sub-d"));
     assert_eq!(runs.load(Ordering::SeqCst), 1);
     assert_eq!(stored(&rig, "sub-d").expect("receipt").phase(), Phase::Accepted);
-    assert_eq!(*receipts.writes.lock().unwrap(), vec![("configured".to_owned(), false), ("accepted".to_owned(), true)], "the attempt resumes at reserved: the reservation is not made again");
+    assert_eq!(
+        *receipts.writes.lock().unwrap(),
+        vec![("configured".to_owned(), false), ("accepted".to_owned(), true)],
+        "the attempt resumes at reserved: the reservation is not made again"
+    );
 }
 /// The refusal reset: an attempt refused before the prompt leaves a marked receipt on a fresh address, flushed; the id may then be
 /// sent with other content, which starts there on a fresh address of its own, the mark cleared.
@@ -363,47 +360,47 @@ async fn an_accepted_receipt_found_at_start_answers_the_session_and_sends_nothin
 #[tokio::test(start_paused = true)]
 async fn a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task() {
     whole("a_request_whose_reply_is_lost_runs_on_and_the_retry_gets_its_task", |step| async move {
-    let rig = Rig::new();
-    let runs = counting(&rig);
-    let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.new_route = Arc::new(HeldRoute { entered: entered.clone(), release: release.clone(), held: false.into() });
-    let deps = Arc::new(deps);
-    let receipts = deps.new_tasks.clone();
-    let directory = SessionDirectory::new(deps);
-    let connection = CancellationToken::new();
-    // The attempt is past `reserved`: the connection ends and the call is dropped with it, before any answer.
-    step.at("the attempt reaching its held route");
-    tokio::select! {
-        () = entered.notified() => connection.cancel(),
-        answered = submit_on(&directory, "op-1", "sub-l", "write the report", json!({}), connection.clone()) => panic!("answered while held: {answered:?}"),
-    }
-    assert_eq!(stored(&rig, "sub-l").expect("receipt").phase(), Phase::Reserved, "the reply is lost after `reserved`");
-    // The retry arrives while the attempt is still held, and joins it: no second attempt starts. Each other way the retry can go
-    // (a second attempt, or an answer without joining) ends the wait as a failure.
-    let mut attempts = receipts.attempts.subscribe();
-    assert_eq!(*attempts.borrow(), 1, "the held attempt");
-    let mut retry = tokio::spawn({
-        let directory = directory.share();
-        async move { submit(&directory, "op-2", "sub-l", "write the report", json!({})).await }
-    });
-    step.at("the retry joining the held attempt, starting a second one or being answered");
-    tokio::select! {
-        () = receipts.joined.notified() => {}
-        _ = attempts.wait_for(|started| *started > 1) => panic!("the retry started a second attempt instead of joining the held one"),
-        answered = &mut retry => panic!("the retry was answered without joining the held attempt: {answered:?}"),
-    }
-    assert_eq!(*attempts.borrow(), 1, "one attempt");
-    release.add_permits(1);
-    step.at("the joined retry's answer once the attempt was released");
-    let retry = retry.await.expect("joined").expect("retry");
-    assert_eq!(retry, derived("sub-l"));
-    assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
-    assert_eq!(directory.loaded_ids().len(), 1, "one task");
-    let receipt = stored(&rig, "sub-l").expect("receipt");
-    assert_eq!((receipt.phase(), receipt.refused()), (Phase::Accepted, false));
-    let writes = receipts.writes.lock().unwrap().clone();
-    assert_eq!(writes, vec![("reserved".to_owned(), false), ("configured".to_owned(), false), ("accepted".to_owned(), true)], "one attempt's phases");
+        let rig = Rig::new();
+        let runs = counting(&rig);
+        let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.new_route = Arc::new(HeldRoute { entered: entered.clone(), release: release.clone(), held: false.into() });
+        let deps = Arc::new(deps);
+        let receipts = deps.new_tasks.clone();
+        let directory = SessionDirectory::new(deps);
+        let connection = CancellationToken::new();
+        // The attempt is past `reserved`: the connection ends and the call is dropped with it, before any answer.
+        step.at("the attempt reaching its held route");
+        tokio::select! {
+            () = entered.notified() => connection.cancel(),
+            answered = submit_on(&directory, "op-1", "sub-l", "write the report", json!({}), connection.clone()) => panic!("answered while held: {answered:?}"),
+        }
+        assert_eq!(stored(&rig, "sub-l").expect("receipt").phase(), Phase::Reserved, "the reply is lost after `reserved`");
+        // The retry arrives while the attempt is still held, and joins it: no second attempt starts. Each other way the retry can go
+        // (a second attempt, or an answer without joining) ends the wait as a failure.
+        let mut attempts = receipts.attempts.subscribe();
+        assert_eq!(*attempts.borrow(), 1, "the held attempt");
+        let mut retry = tokio::spawn({
+            let directory = directory.share();
+            async move { submit(&directory, "op-2", "sub-l", "write the report", json!({})).await }
+        });
+        step.at("the retry joining the held attempt, starting a second one or being answered");
+        tokio::select! {
+            () = receipts.joined.notified() => {}
+            _ = attempts.wait_for(|started| *started > 1) => panic!("the retry started a second attempt instead of joining the held one"),
+            answered = &mut retry => panic!("the retry was answered without joining the held attempt: {answered:?}"),
+        }
+        assert_eq!(*attempts.borrow(), 1, "one attempt");
+        release.add_permits(1);
+        step.at("the joined retry's answer once the attempt was released");
+        let retry = retry.await.expect("joined").expect("retry");
+        assert_eq!(retry, derived("sub-l"));
+        assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
+        assert_eq!(directory.loaded_ids().len(), 1, "one task");
+        let receipt = stored(&rig, "sub-l").expect("receipt");
+        assert_eq!((receipt.phase(), receipt.refused()), (Phase::Accepted, false));
+        let writes = receipts.writes.lock().unwrap().clone();
+        assert_eq!(writes, vec![("reserved".to_owned(), false), ("configured".to_owned(), false), ("accepted".to_owned(), true)], "one attempt's phases");
     })
     .await;
 }
@@ -414,7 +411,10 @@ async fn an_attempt_that_panics_frees_its_id() {
     let rig = Rig::new();
     let receipts = NewTaskReceipts::new(&rig._data.path().join("userdata"), mixdog_rt::testing::tokens().durability_io);
     let panicked = within("the panicked attempt's answer", receipts.run("sub-p", &json!({}), |_| async { panic!("the attempt's seam panics") })).await;
-    assert!(matches!(&panicked, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == "The new task request ended without an answer."), "{panicked:?}");
+    assert!(
+        matches!(&panicked, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == "The new task request ended without an answer."),
+        "{panicked:?}"
+    );
     assert_eq!(receipts.in_flight(), 0, "the panicked attempt gave up its place");
     let next = within(
         "the next attempt's answer",
@@ -430,43 +430,43 @@ async fn an_attempt_that_panics_frees_its_id() {
 #[tokio::test(start_paused = true)]
 async fn shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it() {
     whole("shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it", |step| async move {
-    let rig = Rig::new();
-    let runs = counting(&rig);
-    let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.new_route = Arc::new(HeldRoute { entered: entered.clone(), release: release.clone(), held: false.into() });
-    let deps = Arc::new(deps);
-    let receipts = deps.new_tasks.clone();
-    let directory = SessionDirectory::new(deps);
-    let caller = submit(&directory, "op-1", "sub-s", "write the report", json!({}));
-    tokio::pin!(caller);
-    step.at("the attempt reaching its held route");
-    tokio::select! {
-        () = entered.notified() => {}
-        answered = &mut caller => panic!("answered while held: {answered:?}"),
-    }
-    step.at("the directory's shutdown");
-    directory.shutdown().await;
-    assert_eq!(receipts.in_flight(), 0, "the attempt was cut");
-    // Nothing the attempt held runs on: released now, it would write `configured`.
-    release.add_permits(1);
-    let polled = |future: std::pin::Pin<&mut dyn std::future::Future<Output = Result<String, CoreError>>>| {
-        future.poll(&mut std::task::Context::from_waker(std::task::Waker::noop())).map(|answer| format!("{answer:?}"))
-    };
-    assert_eq!(polled(caller.as_mut()), std::task::Poll::Pending, "the caller in flight got an answer at shutdown");
-    assert_eq!(*receipts.writes.lock().unwrap(), vec![("reserved".to_owned(), false)]);
-    let receipt = stored(&rig, "sub-s").expect("receipt");
-    assert_eq!((receipt.phase(), receipt.refused(), receipt.session_id()), (Phase::Reserved, false, derived("sub-s").as_str()));
-    let later = submit(&directory, "op-2", "sub-s", "write the report", json!({}));
-    tokio::pin!(later);
-    assert_eq!(polled(later.as_mut()), std::task::Poll::Pending, "a request after shutdown got an answer");
-    assert_eq!(*receipts.attempts.borrow(), 1, "a request after shutdown started an attempt");
-    let (restarted, _) = directory_over(&rig);
-    step.at("the retry's answer after the restart");
-    let retry = submit(&restarted, "op-3", "sub-s", "write the report", json!({})).await.expect("retry");
-    assert_eq!(retry, derived("sub-s"));
-    assert_eq!(runs.load(Ordering::SeqCst), 1);
-    assert_eq!(stored(&rig, "sub-s").expect("receipt").phase(), Phase::Accepted);
+        let rig = Rig::new();
+        let runs = counting(&rig);
+        let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.new_route = Arc::new(HeldRoute { entered: entered.clone(), release: release.clone(), held: false.into() });
+        let deps = Arc::new(deps);
+        let receipts = deps.new_tasks.clone();
+        let directory = SessionDirectory::new(deps);
+        let caller = submit(&directory, "op-1", "sub-s", "write the report", json!({}));
+        tokio::pin!(caller);
+        step.at("the attempt reaching its held route");
+        tokio::select! {
+            () = entered.notified() => {}
+            answered = &mut caller => panic!("answered while held: {answered:?}"),
+        }
+        step.at("the directory's shutdown");
+        directory.shutdown().await;
+        assert_eq!(receipts.in_flight(), 0, "the attempt was cut");
+        // Nothing the attempt held runs on: released now, it would write `configured`.
+        release.add_permits(1);
+        let polled = |future: std::pin::Pin<&mut dyn std::future::Future<Output = Result<String, CoreError>>>| {
+            future.poll(&mut std::task::Context::from_waker(std::task::Waker::noop())).map(|answer| format!("{answer:?}"))
+        };
+        assert_eq!(polled(caller.as_mut()), std::task::Poll::Pending, "the caller in flight got an answer at shutdown");
+        assert_eq!(*receipts.writes.lock().unwrap(), vec![("reserved".to_owned(), false)]);
+        let receipt = stored(&rig, "sub-s").expect("receipt");
+        assert_eq!((receipt.phase(), receipt.refused(), receipt.session_id()), (Phase::Reserved, false, derived("sub-s").as_str()));
+        let later = submit(&directory, "op-2", "sub-s", "write the report", json!({}));
+        tokio::pin!(later);
+        assert_eq!(polled(later.as_mut()), std::task::Poll::Pending, "a request after shutdown got an answer");
+        assert_eq!(*receipts.attempts.borrow(), 1, "a request after shutdown started an attempt");
+        let (restarted, _) = directory_over(&rig);
+        step.at("the retry's answer after the restart");
+        let retry = submit(&restarted, "op-3", "sub-s", "write the report", json!({})).await.expect("retry");
+        assert_eq!(retry, derived("sub-s"));
+        assert_eq!(runs.load(Ordering::SeqCst), 1);
+        assert_eq!(stored(&rig, "sub-s").expect("receipt").phase(), Phase::Accepted);
     })
     .await;
 }
@@ -478,40 +478,40 @@ async fn shutdown_cuts_an_attempt_in_flight_and_the_next_start_resumes_it() {
 #[tokio::test(start_paused = true)]
 async fn shutdown_while_the_creation_has_not_returned_keeps_the_reservation() {
     whole("shutdown_while_the_creation_has_not_returned_keeps_the_reservation", |step| async move {
-    let rig = Rig::new();
-    let runs = counting(&rig);
-    let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.new_route = Arc::new(HeldSeat { entered: entered.clone(), release: release.clone(), held: false.into() });
-    let deps = Arc::new(deps);
-    let receipts = deps.new_tasks.clone();
-    let directory = SessionDirectory::new(deps);
-    let caller = submit(&directory, "op-1", "sub-q", "write the report", json!({}));
-    tokio::pin!(caller);
-    step.at("the creation reaching its held seat");
-    tokio::select! {
-        () = entered.notified() => {}
-        answered = &mut caller => panic!("answered while held: {answered:?}"),
-    }
-    let header = directory.try_stored_header(&mixdog_core_api::ids::ThreadId::from(derived("sub-q"))).await.expect("read");
-    assert!(header.is_some(), "the creation wrote its record");
-    step.at("the directory's shutdown");
-    directory.shutdown().await;
-    release.add_permits(1);
-    let polled = caller.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
-    assert!(polled.is_pending(), "the caller in flight got an answer at shutdown: {polled:?}");
-    let receipt = stored(&rig, "sub-q").expect("receipt");
-    assert_eq!((receipt.phase(), receipt.refused(), receipt.session_id()), (Phase::Reserved, false, derived("sub-q").as_str()), "the reservation is kept");
-    assert_eq!(*receipts.writes.lock().unwrap(), vec![("reserved".to_owned(), false)]);
-    let mut deps = rig.deps_parts(rig.store.clone());
-    deps.new_route = Arc::new(HeldSeat { entered: Arc::default(), release: Arc::new(tokio::sync::Semaphore::new(0)), held: true.into() });
-    let restarted = SessionDirectory::new(Arc::new(deps));
-    step.at("the retry's answer after the restart");
-    let retry = submit(&restarted, "op-2", "sub-q", "write the report", json!({})).await.expect("retry");
-    assert_eq!(retry, derived("sub-q"), "the retry starts the task in the session at the reserved address");
-    assert_eq!(stored(&rig, "sub-q").expect("receipt").phase(), Phase::Accepted);
-    assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
-    assert_eq!(restarted.loaded_ids().len(), 1, "one task");
+        let rig = Rig::new();
+        let runs = counting(&rig);
+        let (entered, release) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Semaphore::new(0)));
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.new_route = Arc::new(HeldSeat { entered: entered.clone(), release: release.clone(), held: false.into() });
+        let deps = Arc::new(deps);
+        let receipts = deps.new_tasks.clone();
+        let directory = SessionDirectory::new(deps);
+        let caller = submit(&directory, "op-1", "sub-q", "write the report", json!({}));
+        tokio::pin!(caller);
+        step.at("the creation reaching its held seat");
+        tokio::select! {
+            () = entered.notified() => {}
+            answered = &mut caller => panic!("answered while held: {answered:?}"),
+        }
+        let header = directory.try_stored_header(&mixdog_core_api::ids::ThreadId::from(derived("sub-q"))).await.expect("read");
+        assert!(header.is_some(), "the creation wrote its record");
+        step.at("the directory's shutdown");
+        directory.shutdown().await;
+        release.add_permits(1);
+        let polled = caller.as_mut().poll(&mut std::task::Context::from_waker(std::task::Waker::noop()));
+        assert!(polled.is_pending(), "the caller in flight got an answer at shutdown: {polled:?}");
+        let receipt = stored(&rig, "sub-q").expect("receipt");
+        assert_eq!((receipt.phase(), receipt.refused(), receipt.session_id()), (Phase::Reserved, false, derived("sub-q").as_str()), "the reservation is kept");
+        assert_eq!(*receipts.writes.lock().unwrap(), vec![("reserved".to_owned(), false)]);
+        let mut deps = rig.deps_parts(rig.store.clone());
+        deps.new_route = Arc::new(HeldSeat { entered: Arc::default(), release: Arc::new(tokio::sync::Semaphore::new(0)), held: true.into() });
+        let restarted = SessionDirectory::new(Arc::new(deps));
+        step.at("the retry's answer after the restart");
+        let retry = submit(&restarted, "op-2", "sub-q", "write the report", json!({})).await.expect("retry");
+        assert_eq!(retry, derived("sub-q"), "the retry starts the task in the session at the reserved address");
+        assert_eq!(stored(&rig, "sub-q").expect("receipt").phase(), Phase::Accepted);
+        assert_eq!(runs.load(Ordering::SeqCst), 1, "one prompt");
+        assert_eq!(restarted.loaded_ids().len(), 1, "one task");
     })
     .await;
 }
@@ -555,19 +555,13 @@ async fn requests_at_once_join_or_are_refused() {
     let runs = counting(&rig);
     let (directory, _) = directory_over(&rig);
     let (a, b) = within("the answers of two identical requests at once", async {
-        tokio::join!(
-            submit(&directory, "op-1", "sub-f", "write the report", json!({})),
-            submit(&directory, "op-2", "sub-f", "write the report", json!({})),
-        )
+        tokio::join!(submit(&directory, "op-1", "sub-f", "write the report", json!({})), submit(&directory, "op-2", "sub-f", "write the report", json!({})),)
     })
     .await;
     assert_eq!(a.expect("a"), b.expect("b"));
     assert_eq!(runs.load(Ordering::SeqCst), 1);
     let (c, d) = within("the answers of two requests with other content at once", async {
-        tokio::join!(
-            submit(&directory, "op-3", "sub-g", "write the report", json!({})),
-            submit(&directory, "op-4", "sub-g", "write another", json!({})),
-        )
+        tokio::join!(submit(&directory, "op-3", "sub-g", "write the report", json!({})), submit(&directory, "op-4", "sub-g", "write another", json!({})),)
     })
     .await;
     assert!(c.is_ok());
@@ -616,11 +610,12 @@ async fn the_129th_request_in_flight_is_refused() {
         receipts.run("one-more", &json!({}), |_| async { Err(mixdog_core_base::support::failed("session", "never runs")) }),
     )
     .await;
-    assert!(matches!(&refused, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == "Too many new task requests are in progress."), "{refused:?}");
+    assert!(
+        matches!(&refused, Err(CoreError::DomainError { message: Some(message), .. }) if message.as_ref() == "Too many new task requests are in progress."),
+        "{refused:?}"
+    );
     release.add_permits(super::new_task::MAX_ACTIVE);
     for task in held {
         within("a released request's answer", task).await.expect("joined").expect_err("released");
     }
 }
-
-

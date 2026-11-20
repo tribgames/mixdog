@@ -98,10 +98,7 @@ impl BootCoordinator {
             Ok(summary) => summary,
             Err(error) => return (self.log)(&format!("active Goal recovery failed: {error}")),
         };
-        (self.log)(&format!(
-            "active Goal recovery found={} resumed={} skipped={} failed={}",
-            summary.found, summary.resumed, summary.skipped, summary.failed
-        ));
+        (self.log)(&format!("active Goal recovery found={} resumed={} skipped={} failed={}", summary.found, summary.resumed, summary.skipped, summary.failed));
         if let Err(error) = self.steps.start_quota_resume() {
             (self.log)(&format!("quota resume start failed (non-fatal): {error}"));
         }

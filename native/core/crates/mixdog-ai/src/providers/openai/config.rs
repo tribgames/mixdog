@@ -139,33 +139,12 @@ pub struct OpenAiConfig {
 }
 
 impl OpenAiConfig {
-    pub fn api_key(
-        store: bool,
-        facts: Arc<dyn ModelFactsSource>,
-        context: Arc<dyn WireContext>,
-    ) -> Self {
-        Self {
-            target: Target::ApiKey,
-            store,
-            facts,
-            context,
-            cache_lanes: Default::default(),
-        }
+    pub fn api_key(store: bool, facts: Arc<dyn ModelFactsSource>, context: Arc<dyn WireContext>) -> Self {
+        Self { target: Target::ApiKey, store, facts, context, cache_lanes: Default::default() }
     }
 
-    pub fn codex(
-        store: bool,
-        identity: CodexIdentity,
-        facts: Arc<dyn ModelFactsSource>,
-        context: Arc<dyn WireContext>,
-    ) -> Self {
-        Self {
-            target: Target::Codex(identity),
-            store,
-            facts,
-            context,
-            cache_lanes: Default::default(),
-        }
+    pub fn codex(store: bool, identity: CodexIdentity, facts: Arc<dyn ModelFactsSource>, context: Arc<dyn WireContext>) -> Self {
+        Self { target: Target::Codex(identity), store, facts, context, cache_lanes: Default::default() }
     }
 
     /// Keep only the provider's prompt-cache lane settings, not its credentials or other config.
@@ -206,9 +185,5 @@ impl Capabilities {
 
 /// The connection scope of a request: its transport scope, else its session.
 pub fn request_scope(request: &mixdog_core_api::domain::provider::ModelRequest) -> Option<&str> {
-    request
-        .options
-        .transport_scope
-        .as_deref()
-        .or(request.options.session_id.as_deref())
+    request.options.transport_scope.as_deref().or(request.options.session_id.as_deref())
 }

@@ -112,31 +112,16 @@ fn seeded(session_id: &str, index: usize, message: &Value) -> String {
                 .iter()
                 .map(|c| {
                     let id = c.get("id");
-                    if js_truthy(id) {
-                        js_to_string(id.expect("truthy"))
-                    } else {
-                        String::new()
-                    }
+                    if js_truthy(id) { js_to_string(id.expect("truthy")) } else { String::new() }
                 })
                 .collect::<Vec<_>>()
                 .join(",")
         })
         .unwrap_or_default();
-    let tool_call_id = [message.get("toolCallId"), message.get("tool_call_id")]
-        .into_iter()
-        .find(|v| js_truthy(*v))
-        .flatten()
-        .map(js_to_string)
-        .unwrap_or_default();
-    let seed = [
-        session_id.to_string(),
-        index.to_string(),
-        join_text(message.get("role")),
-        tool_call_id,
-        call_ids,
-        bounded_content(message.get("content")),
-    ]
-    .join("\u{2}");
+    let tool_call_id =
+        [message.get("toolCallId"), message.get("tool_call_id")].into_iter().find(|v| js_truthy(*v)).flatten().map(js_to_string).unwrap_or_default();
+    let seed = [session_id.to_string(), index.to_string(), join_text(message.get("role")), tool_call_id, call_ids, bounded_content(message.get("content"))]
+        .join("\u{2}");
     format!("msg_{}", &hex(&Sha1::digest(seed.as_bytes()))[..32])
 }
 

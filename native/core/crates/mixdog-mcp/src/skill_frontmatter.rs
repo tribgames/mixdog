@@ -300,15 +300,7 @@ struct Site {
 
 impl Site {
     fn fresh() -> Self {
-        Self {
-            kind: Kind::Unset,
-            anchor: None,
-            tag: None,
-            source: String::new(),
-            comment: None,
-            comment_before: Vec::new(),
-            space_before: false,
-        }
+        Self { kind: Kind::Unset, anchor: None, tag: None, source: String::new(), comment: None, comment_before: Vec::new(), space_before: false }
     }
 }
 
@@ -358,11 +350,7 @@ fn tag_string(tag: &str) -> String {
 fn take_props(mut text: &str) -> (Props, &str) {
     let mut props = Props::default();
     loop {
-        let end = if text.starts_with("!<") {
-            text.find('>').map_or(text.len(), |i| i + 1)
-        } else {
-            text.find([' ', '\t']).unwrap_or(text.len())
-        };
+        let end = if text.starts_with("!<") { text.find('>').map_or(text.len(), |i| i + 1) } else { text.find([' ', '\t']).unwrap_or(text.len()) };
         if text.starts_with('&') {
             props.anchor = Some(text[1..end].to_owned());
         } else if text.starts_with('!') {
@@ -433,8 +421,8 @@ fn value_site(lines: &[&str], entry: &Entry) -> Result<(Site, usize), SkillDocum
         }
         Some(quote @ ('"' | '\'')) => {
             site.kind = if quote == '"' { Kind::Double } else { Kind::Single };
-            let (end_line, end_byte) = closing_quote(lines, at, column + 1, quote)
-                .ok_or_else(|| SkillDocumentError::InvalidYaml("missing closing quote".to_owned()))?;
+            let (end_line, end_byte) =
+                closing_quote(lines, at, column + 1, quote).ok_or_else(|| SkillDocumentError::InvalidYaml("missing closing quote".to_owned()))?;
             if end_line == at {
                 site.source = lines[at][column + 1..end_byte].to_owned();
             }
@@ -639,7 +627,8 @@ pub(crate) fn tagged_string(
         Some(TAG_FLOAT) => (number(value, EXP.is_match(source) && !NAN_INF.is_match(source)), false),
         Some(TAG_BINARY) => {
             return Err(SkillDocumentError::Writer(
-                "The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received undefined".to_owned(),
+                "The first argument must be of type string or an instance of Buffer, ArrayBuffer, or Array or an Array-like Object. Received undefined"
+                    .to_owned(),
             ));
         }
         Some(TAG_TIMESTAMP) => return Err(SkillDocumentError::Writer("value?.toISOString is not a function".to_owned())),
@@ -657,8 +646,7 @@ fn pair(key_text: &str, value: &str, site: &Site) -> Result<String, SkillDocumen
         indent_at_start = indent_at_start.map(|column| column + utf16_len(&props) + 1);
     }
     let ctx = Ctx::block_value(indent_at_start);
-    let (printed, comment_done) =
-        tagged_string(value, site.kind, site.comment.as_deref(), site.tag.as_deref(), &site.source, &ctx)?;
+    let (printed, comment_done) = tagged_string(value, site.kind, site.comment.as_deref(), site.tag.as_deref(), &site.source, &ctx)?;
     let printed = if props.is_empty() { printed } else { format!("{props} {printed}") };
     let separator = if site.space_before || !site.comment_before.is_empty() {
         let mut ws = if site.space_before { "\n" } else { "" }.to_owned();
@@ -692,8 +680,7 @@ fn re(pattern: &str, flags: &str) -> JsRegex {
     JsRegex::new_static(pattern, flags)
 }
 
-static PLAIN_UNSAFE: LazyLock<JsRegex> =
-    LazyLock::new(|| re(r#"^[\n\t ,[\]{}#&*!|>'"%@`]|^[?-]$|^[?-][ \t]|[\n:][ \t]|[ \t]\n|[\n\t ]#|[\n\t :]$"#, ""));
+static PLAIN_UNSAFE: LazyLock<JsRegex> = LazyLock::new(|| re(r#"^[\n\t ,[\]{}#&*!|>'"%@`]|^[?-]$|^[?-][ \t]|[\n:][ \t]|[ \t]\n|[\n\t ]#|[\n\t :]$"#, ""));
 static CONTROL: LazyLock<JsRegex> = LazyLock::new(|| re(r"[\x00-\x08\x0b-\x1f\x7f-\x9f]", ""));
 static NEWLINES: LazyLock<JsRegex> = LazyLock::new(|| re(r"\n+", "g"));
 static WHITESPACE_AROUND_NEWLINE: LazyLock<JsRegex> = LazyLock::new(|| re(r"[ \t]\n|\n[ \t]", ""));
@@ -811,11 +798,7 @@ fn plain_string(value: &str, kind: Kind, comment: Option<&str>, ctx: &Ctx) -> (S
 fn quoted_string(value: &str, ctx: &Ctx) -> String {
     let has_double = value.contains('"');
     let has_single = value.contains('\'');
-    if has_double && !has_single {
-        single_quoted(value, ctx)
-    } else {
-        double_quoted(value, ctx)
-    }
+    if has_double && !has_single { single_quoted(value, ctx) } else { double_quoted(value, ctx) }
 }
 
 fn single_quoted(value: &str, ctx: &Ctx) -> String {
@@ -960,12 +943,10 @@ fn block_string(value: &str, kind: Kind, comment: Option<&str>, ctx: &Ctx) -> (S
     }
     if !literal {
         let doubled = NEWLINES.replace_all_with(&value, |c| format!("\n{}", c.get(0).unwrap_or_default()));
-        let unfolded = MORE_INDENTED
-            .replace_all_with(&doubled, |c| format!("{}{}", c.get(1).unwrap_or_default(), c.get(2).unwrap_or_default()));
+        let unfolded = MORE_INDENTED.replace_all_with(&doubled, |c| format!("{}{}", c.get(1).unwrap_or_default(), c.get(2).unwrap_or_default()));
         let folded_value = append_after(&NEWLINES, &unfolded, indent);
         let track_overflow = kind != Kind::Folded;
-        let (body, overflowed) =
-            fold_flow_lines(&format!("{start}{folded_value}{end}"), indent, Mode::Block, Some(indent.len()), track_overflow);
+        let (body, overflowed) = fold_flow_lines(&format!("{start}{folded_value}{end}"), indent, Mode::Block, Some(indent.len()), track_overflow);
         if !overflowed {
             return (format!(">{header}\n{indent}{body}"), comment_done);
         }

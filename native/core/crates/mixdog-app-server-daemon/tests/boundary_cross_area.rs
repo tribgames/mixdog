@@ -514,7 +514,8 @@ async fn a_typed_secret_is_in_no_frame_of_the_browser_engine() {
         },
     );
     let input = serde_json::Map::new();
-    let reply = engine.run(&ThreadId::from("s1"), "list_tabs", &input, &CancellationToken::new()).await.map_err(|failure| failure.error).expect("the tabs are listed");
+    let reply =
+        engine.run(&ThreadId::from("s1"), "list_tabs", &input, &CancellationToken::new()).await.map_err(|failure| failure.error).expect("the tabs are listed");
     assert!(reply.text.contains("Welcome"), "the page is listed: {}", reply.text);
     assert!(!reply.text.contains(secret), "the reply repeats the secret: {}", reply.text);
     for call in host.calls().iter().chain(host.notifications().iter()) {
@@ -522,7 +523,6 @@ async fn a_typed_secret_is_in_no_frame_of_the_browser_engine() {
     }
     host.finish().expect("the one scripted call was made");
 }
-
 
 fn server_config() -> ServerConfig {
     let available = || CapabilityState::Available;
@@ -573,14 +573,13 @@ impl Harness {
         let mut request = format!("ws://{}/rpc", self.addr).into_client_request().unwrap();
         request.headers_mut().insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
         for (name, value) in headers {
-            request.headers_mut().append(
-                tokio_tungstenite::tungstenite::http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
-                value.parse().unwrap(),
-            );
+            request.headers_mut().append(tokio_tungstenite::tungstenite::http::HeaderName::from_bytes(name.as_bytes()).unwrap(), value.parse().unwrap());
         }
         let (socket, _) = tokio_tungstenite::client_async(request, tcp).await.unwrap();
         let mut client = Client { socket, next: 1 };
-        let initialized = client.call("initialize", json!({ "clientInfo": { "name": "boundary", "version": VERSION, "kind": "desktop" }, "capabilities": capabilities })).await;
+        let initialized = client
+            .call("initialize", json!({ "clientInfo": { "name": "boundary", "version": VERSION, "kind": "desktop" }, "capabilities": capabilities }))
+            .await;
         (client, initialized)
     }
 

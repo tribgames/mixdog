@@ -181,7 +181,8 @@ impl Extensions {
         host.clear_context(&mut own);
         host.close_usage_panel();
         // An overlay stays up (`kind` project, so the banner and the height stay reserved; it has no `_kind`) but is inert: no selectable rows.
-        let mut opening = ExtPanel::loading("Project", "Opening folder picker\u{2026} choose a folder in the dialog window.", Handler::ProjectOpening).with_layout_kind("project");
+        let mut opening = ExtPanel::loading("Project", "Opening folder picker\u{2026} choose a folder in the dialog window.", Handler::ProjectOpening)
+            .with_layout_kind("project");
         opening.help = Some("Waiting for the system folder dialog\u{2026}".to_owned());
         opening.index_mode = Some(IndexMode::Never);
         host.paint(&mut own, Some(opening));

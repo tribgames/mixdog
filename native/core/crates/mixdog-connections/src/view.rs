@@ -151,9 +151,8 @@ struct Entry {
 
 /// The snapshot state of a feed: the section update of each of its keys.
 fn snapshot<'a>(entries: impl Iterator<Item = (&'a String, &'a Entry)>) -> Value {
-    let sections: Vec<Value> = entries
-        .map(|(key, entry)| json!({ "section": SECTION, "key": key, "revision": entry.revision, "value": entry.value }))
-        .collect();
+    let sections: Vec<Value> =
+        entries.map(|(key, entry)| json!({ "section": SECTION, "key": key, "revision": entry.revision, "value": entry.value })).collect();
     json!({ "sections": sections })
 }
 
@@ -233,8 +232,7 @@ impl Inner {
     }
 
     fn publish_hosts(&self) {
-        let hosts: Vec<SshHost> =
-            self.hosts.list().iter().map(|record| ssh_host_view(record, self.links.get(&record.id).is_some())).collect();
+        let hosts: Vec<SshHost> = self.hosts.list().iter().map(|record| ssh_host_view(record, self.links.get(&record.id).is_some())).collect();
         self.publish(HOSTS_KEY, serde_json::to_value(hosts).ok());
     }
 

@@ -1,6 +1,6 @@
 //! `quality-score.mjs`: the release score of a reviewed Office document and its diagnostics evidence.
 
-use mixdog_js::{json_number, js_to_lowercase, to_number, to_number_of};
+use mixdog_js::{js_to_lowercase, json_number, to_number, to_number_of};
 use mixdog_office_base::values::clamp;
 use serde_json::{Map, Value};
 

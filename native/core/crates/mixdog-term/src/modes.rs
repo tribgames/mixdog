@@ -14,17 +14,13 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
-use crate::input::{
-    DISABLE_MODIFY_OTHER_KEYS, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, POP_KITTY, supports_extended_keys_with,
-};
+use crate::input::{DISABLE_MODIFY_OTHER_KEYS, ENABLE_KITTY_KEYBOARD, ENABLE_MODIFY_OTHER_KEYS, POP_KITTY, supports_extended_keys_with};
 
 /// Every mouse, paste and shift-escape mode off and the cursor shown. The trailing `ESC [ > 0 s` restores XTSHIFTESCAPE,
 /// which [`ModeEnv::mouse_on`] may have opted into.
-pub const TERMINAL_MODE_RESET: &str =
-    "\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[>0s\x1b[?25h";
+pub const TERMINAL_MODE_RESET: &str = "\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[>0s\x1b[?25h";
 /// [`TERMINAL_MODE_RESET`] with the cursor hidden.
-pub const TERMINAL_MODE_RESET_HIDDEN_CURSOR: &str =
-    "\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[>0s\x1b[?25l";
+pub const TERMINAL_MODE_RESET_HIDDEN_CURSOR: &str = "\x1b[?1006l\x1b[?1005l\x1b[?1015l\x1b[?1003l\x1b[?1002l\x1b[?1000l\x1b[?2004l\x1b[>0s\x1b[?25l";
 /// OSC 111: the terminal's own background again.
 pub const OSC_RESET_BACKGROUND: &str = "\x1b]111\x07";
 /// DECSET 1007 on: the terminal turns the wheel into arrow keys on the alternate screen. Written at exit.
@@ -70,9 +66,7 @@ pub(crate) fn is_off_word(raw: &str) -> bool {
 /// The bytes that enter the alternate screen: modes reset with the cursor hidden, the screen switched, the reset again,
 /// the screen cleared and the cursor homed, then the blinking bar cursor.
 pub fn screen_entry_sequence() -> String {
-    format!(
-        "{TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[?1049h{TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[2J\x1b[H{CURSOR_BLINKING_BAR}"
-    )
+    format!("{TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[?1049h{TERMINAL_MODE_RESET_HIDDEN_CURSOR}\x1b[2J\x1b[H{CURSOR_BLINKING_BAR}")
 }
 
 /// The bytes that leave everything the session turned on. The kitty pop and modifyOtherKeys off are written whether or
@@ -280,10 +274,7 @@ mod tests {
         let t0 = Instant::now();
         assert_eq!(restore.passthrough(t0).unwrap(), "\x1b[?1006l\x1b[?1002l\x1b[?1000l\x1b[?1007l");
         assert!(restore.poll(t0 + Duration::from_millis(699)).is_none());
-        assert_eq!(
-            restore.poll(t0 + Duration::from_millis(700)).unwrap(),
-            "\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?1007l"
-        );
+        assert_eq!(restore.poll(t0 + Duration::from_millis(700)).unwrap(), "\x1b[?1000h\x1b[?1002h\x1b[?1006h\x1b[?1007l");
         assert!(restore.poll(t0 + Duration::from_secs(5)).is_none());
     }
 
@@ -330,7 +321,6 @@ mod tests {
     }
 }
 
-
 impl ModeEnv {
     /// The decisions of the environment `var` reads (`None` when a variable is not set).
     pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> ModeEnv {
@@ -360,10 +350,6 @@ impl ModeEnv {
     /// Kitty keyboard flags and modifyOtherKeys, written at the moment raw mode turns on, before the first read; empty
     /// when the terminal is not on the allowlist.
     pub fn extended_keys_on(&self) -> String {
-        if self.extended_keys {
-            format!("{ENABLE_KITTY_KEYBOARD}{ENABLE_MODIFY_OTHER_KEYS}")
-        } else {
-            String::new()
-        }
+        if self.extended_keys { format!("{ENABLE_KITTY_KEYBOARD}{ENABLE_MODIFY_OTHER_KEYS}") } else { String::new() }
     }
 }

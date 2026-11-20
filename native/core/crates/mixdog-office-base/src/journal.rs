@@ -164,10 +164,7 @@ fn list_at<P: WriteProof>(proof: &P, data_dir: &Path, cleanup: bool, now: f64) -
             }
         }
     }
-    let mut keyed: Vec<(String, Value)> = records
-        .into_iter()
-        .map(|record| (truthy_text(record.get("updatedAt")).unwrap_or_default(), record))
-        .collect();
+    let mut keyed: Vec<(String, Value)> = records.into_iter().map(|record| (truthy_text(record.get("updatedAt")).unwrap_or_default(), record)).collect();
     keyed.sort_by(|left, right| locale_compare(&right.0, &left.0));
     Ok(keyed.into_iter().map(|(_, record)| record).collect())
 }
@@ -291,7 +288,10 @@ mod tests {
         mixdog_fsio::write(&Unlaned, &keep, b"ck").expect("ck");
         write(&json!({ "id": "fresh", "updatedAt": stamp(1.0), "checkpoint": keep.display().to_string() }), dir.path());
         write(&json!({ "id": "month", "updatedAt": stamp(29.0) }), dir.path());
-        write(&json!({ "id": "old", "updatedAt": stamp(31.0), "checkpoint": checkpoint.display().to_string(), "baselinePdf": baseline.display().to_string() }), dir.path());
+        write(
+            &json!({ "id": "old", "updatedAt": stamp(31.0), "checkpoint": checkpoint.display().to_string(), "baselinePdf": baseline.display().to_string() }),
+            dir.path(),
+        );
         write(&json!({ "id": "started", "startedAt": stamp(45.0) }), dir.path());
         let kept = list_at(&Unlaned, dir.path(), true, now).expect("list");
         assert_eq!(ids(&kept), ["fresh", "month"]);

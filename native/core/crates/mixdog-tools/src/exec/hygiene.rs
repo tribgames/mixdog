@@ -71,11 +71,7 @@ fn rewrite_msys_drive_paths(src: &str) -> (String, bool) {
 /// `(command to run, block message)`. `shell_is_powershell`: the resolved shell's type;
 /// `shell_name`: its program name (`powershell.exe`, `pwsh`), which tells Windows PowerShell 5.1
 /// (no `&&`) from PowerShell 7.
-pub fn preflight_powershell_hygiene(
-    command: &str,
-    shell_is_powershell: bool,
-    shell_name: &str,
-) -> (String, Option<String>) {
+pub fn preflight_powershell_hygiene(command: &str, shell_is_powershell: bool, shell_name: &str) -> (String, Option<String>) {
     if !shell_is_powershell || mixdog_js::js_trim(command).is_empty() {
         return (command.to_owned(), None);
     }
@@ -94,10 +90,7 @@ pub fn preflight_powershell_hygiene(
     if violations.is_empty() {
         return (rewritten, None);
     }
-    let block = format!(
-        "PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- {}",
-        violations.join("\n- ")
-    );
+    let block = format!("PowerShell preflight blocked this command (invalid PowerShell syntax). Fix and retry:\n- {}", violations.join("\n- "));
     (rewritten, Some(block))
 }
 
@@ -158,5 +151,3 @@ mod tests {
         assert_eq!(preflight("$PID = 1; a && b", "pwsh.exe").1, Some(format!("{HEAD}{PID_RULE}")));
     }
 }
-
-

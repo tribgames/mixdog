@@ -74,23 +74,13 @@ use std::sync::{Arc, LazyLock, RwLock};
 use ast_grep_core::tree_sitter::LanguageExt;
 use std::collections::HashMap;
 
-use crate::scan_lang::{cached_for_lang, ScanLang};
+use crate::scan_lang::{ScanLang, cached_for_lang};
 
 /// Kind-name words that mark a node kind as identifier-carrying. Matched
 /// against the `_`-separated words of the kind name, so `type_identifier`,
 /// `variable_name`, `instance_variable` and `simple_symbol` all qualify while
 /// `string_content`, `namespace` and `comment` do not.
-const IDENTIFIER_WORDS: &[&str] = &[
-    "identifier",
-    "name",
-    "variable",
-    "word",
-    "constant",
-    "constructor",
-    "alias",
-    "symbol",
-    "atom",
-];
+const IDENTIFIER_WORDS: &[&str] = &["identifier", "name", "variable", "word", "constant", "constructor", "alias", "symbol", "atom"];
 
 /// One file-level metadata field a declaration node can carry.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -147,10 +137,7 @@ impl GrammarKinds {
 
     #[inline]
     pub fn role(&self, kind_id: u16) -> KindRole {
-        self.roles
-            .get(kind_id as usize)
-            .copied()
-            .unwrap_or(KindRole::None)
+        self.roles.get(kind_id as usize).copied().unwrap_or(KindRole::None)
     }
 
     /// True when this grammar has any `packageName`/`namespaceName`/
@@ -164,9 +151,7 @@ impl GrammarKinds {
 /// name is an identifier word. A leading `_` (tree-sitter's hidden-rule
 /// marker) is not part of the name.
 fn is_identifier_kind(kind: &str) -> bool {
-    kind.trim_start_matches('_')
-        .split('_')
-        .any(|word| IDENTIFIER_WORDS.contains(&word))
+    kind.trim_start_matches('_').split('_').any(|word| IDENTIFIER_WORDS.contains(&word))
 }
 
 /// The declaration node kinds that carry file-level metadata. This is a
@@ -176,16 +161,13 @@ fn meta_field_for(lang_id: &str, kind: &str) -> Option<MetaField> {
     match (lang_id, kind) {
         ("java", "package_declaration") => Some(MetaField::Package),
         ("kotlin", "package_header") => Some(MetaField::Package),
-        ("csharp", "namespace_declaration" | "file_scoped_namespace_declaration") => {
-            Some(MetaField::Namespace)
-        }
+        ("csharp", "namespace_declaration" | "file_scoped_namespace_declaration") => Some(MetaField::Namespace),
         ("go", "package_clause") => Some(MetaField::GoPackage),
         _ => None,
     }
 }
 
-static TABLES: LazyLock<RwLock<HashMap<ScanLang, Arc<GrammarKinds>>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
+static TABLES: LazyLock<RwLock<HashMap<ScanLang, Arc<GrammarKinds>>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Kind table for `lang`, built on first use and shared after.
 pub fn kinds_for(lang: ScanLang) -> Arc<GrammarKinds> {
@@ -359,10 +341,7 @@ mod tests {
             "raw_string_literal",
             "atomic_declaration",
         ] {
-            assert!(
-                !is_identifier_kind(kind),
-                "{kind} must not carry identifiers"
-            );
+            assert!(!is_identifier_kind(kind), "{kind} must not carry identifiers");
         }
     }
 
@@ -374,15 +353,8 @@ mod tests {
             }
             for lang in crate::scan_lang::graph_lang_scan_langs(info.id) {
                 let kinds = kinds_for(lang);
-                let count = (0..u16::MAX)
-                    .take_while(|id| (*id as usize) < kinds.roles.len())
-                    .filter(|id| kinds.role(*id) == KindRole::Identifier)
-                    .count();
-                assert!(
-                    count > 0,
-                    "{}: grammar {lang} has no identifier kind",
-                    info.id
-                );
+                let count = (0..u16::MAX).take_while(|id| (*id as usize) < kinds.roles.len()).filter(|id| kinds.role(*id) == KindRole::Identifier).count();
+                assert!(count > 0, "{}: grammar {lang} has no identifier kind", info.id);
             }
         }
     }

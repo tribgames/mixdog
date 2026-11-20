@@ -20,13 +20,12 @@ use mixdog_core_api::CoreState;
 use mixdog_core_session::session::StartHold;
 use tokio::sync::watch;
 
+use super::grace::ThreadTimer;
 use super::machine::Machine;
 use super::model::ActivityInfo;
 use super::model::Blocked;
-use super::grace::ThreadTimer;
 use super::model::ClientGrace;
 use super::model::ClientKind;
-use super::ports::GraceTimer;
 use super::model::CommandError;
 use super::model::CoreStatus;
 use super::model::DiscoveryPhase;
@@ -37,6 +36,7 @@ use super::model::ReleaseCause;
 use super::model::StopMode;
 use super::model::StopReason;
 use super::ports::CorePort;
+use super::ports::GraceTimer;
 use super::ports::ManagedDrain;
 use super::ports::Ports;
 use super::release::LastExit;
@@ -247,23 +247,13 @@ impl Lifecycle {
         self.apply(|m| m.hold(on, ttl))
     }
 
-    pub fn stop(
-        self: &Arc<Self>,
-        mode: StopMode,
-        reason: StopReason,
-        confirm_token: Option<&str>,
-    ) -> Result<(), CommandError> {
+    pub fn stop(self: &Arc<Self>, mode: StopMode, reason: StopReason, confirm_token: Option<&str>) -> Result<(), CommandError> {
         self.apply(|m| m.stop(mode, reason, confirm_token))
     }
 
     /// A `Quit` request over the control listener to stop the core ([`Machine::defers_stop`]): put off while a client is attached, as
     /// Node's `/shutdown` is (`daemon.mjs:508-529`); the core then stops when the last client leaves. Everything else is [`Lifecycle::stop`].
-    pub fn request_stop(
-        self: &Arc<Self>,
-        mode: StopMode,
-        reason: StopReason,
-        confirm_token: Option<&str>,
-    ) -> Result<(), CommandError> {
+    pub fn request_stop(self: &Arc<Self>, mode: StopMode, reason: StopReason, confirm_token: Option<&str>) -> Result<(), CommandError> {
         if mode == StopMode::Force {
             return self.stop_noting(mode, reason, confirm_token, super::model::FORCED_STOP_TEXT);
         }
@@ -278,13 +268,7 @@ impl Lifecycle {
 
     /// [`Lifecycle::stop`] with Node's text of this request (`daemon.mjs:272` `shutdown(reason)`), noted before the machine decides so a
     /// release that starts inside the call already has it; a refused stop takes it back.
-    pub fn stop_noting(
-        self: &Arc<Self>,
-        mode: StopMode,
-        reason: StopReason,
-        confirm_token: Option<&str>,
-        node_reason: &str,
-    ) -> Result<(), CommandError> {
+    pub fn stop_noting(self: &Arc<Self>, mode: StopMode, reason: StopReason, confirm_token: Option<&str>, node_reason: &str) -> Result<(), CommandError> {
         let fresh = locked(&self.trigger).is_none();
         self.note_trigger(node_reason);
         let result = self.stop(mode, reason, confirm_token);
@@ -298,29 +282,17 @@ impl Lifecycle {
         self.apply(|m| m.cancel_drain(drain_id))
     }
 
-    pub fn release_decision(
-        self: &Arc<Self>,
-        pid: u32,
-        confirm_token: &str,
-    ) -> Result<(), CommandError> {
+    pub fn release_decision(self: &Arc<Self>, pid: u32, confirm_token: &str) -> Result<(), CommandError> {
         self.apply(|m| m.release_decision(pid, confirm_token))
     }
 
     /// The stalled-core exit (LR §6.1). It touches nothing the runtime owns: it checks the
     /// token, records the exit, lets the caller answer, and calls the exiter. Storage
     /// consistency is the crash case of the store invariants.
-    pub fn terminate(
-        &self,
-        confirm_token: &str,
-        acknowledge: impl FnOnce(),
-    ) -> Result<(), CommandError> {
+    pub fn terminate(&self, confirm_token: &str, acknowledge: impl FnOnce()) -> Result<(), CommandError> {
         locked(&self.machine).check_terminate(confirm_token)?;
-        let record = LastExit {
-            reason: "userTerminated".to_owned(),
-            instance_id: self.cfg.instance_id.clone(),
-            stalled_ms: Some(self.stalled_ms()),
-            stuck_step: None,
-        };
+        let record =
+            LastExit { reason: "userTerminated".to_owned(), instance_id: self.cfg.instance_id.clone(), stalled_ms: Some(self.stalled_ms()), stuck_step: None };
         if let Err(error) = write_last_exit(&self.cfg.runtime_root, &record) {
             tracing::error!(%error, "last-exit.json was not written");
         }
@@ -425,10 +397,7 @@ impl Lifecycle {
             Effect::CancelHold => drop(locked(&self.hold_timer).take()),
             Effect::BeginRelease(cause) => {
                 let lifecycle = Arc::clone(self);
-                std::thread::Builder::new()
-                    .name("mixdog-release".into())
-                    .spawn(move || lifecycle.release(cause))
-                    .expect("the OS refused a release thread");
+                std::thread::Builder::new().name("mixdog-release".into()).spawn(move || lifecycle.release(cause)).expect("the OS refused a release thread");
             }
         }
     }
@@ -470,15 +439,13 @@ impl Lifecycle {
                     let recorder = Arc::clone(&lifecycle);
                     let (detail, code) = drain_exit(&drain, cause);
                     let reason = format!("{}{detail}", cause.text());
-                    let _ = std::thread::Builder::new()
-                        .name("mixdog-release-record".into())
-                        .spawn(move || {
-                            recorder.record_exit(&reason, Some("shutdownBudget"));
-                            #[cfg(test)]
-                            if let Some(test) = test_backstop {
-                                let _ = test.recorded.send(());
-                            }
-                        });
+                    let _ = std::thread::Builder::new().name("mixdog-release-record".into()).spawn(move || {
+                        recorder.record_exit(&reason, Some("shutdownBudget"));
+                        #[cfg(test)]
+                        if let Some(test) = test_backstop {
+                            let _ = test.recorded.send(());
+                        }
+                    });
                     let reason = format!("{node_reason}{detail} (budget exceeded, forced exit)");
                     lifecycle.ports.exiter.exit(crate::crash_record::settle_exit(&reason, code));
                 }
@@ -541,12 +508,8 @@ impl Lifecycle {
     }
 
     fn record_exit(&self, reason: &str, stuck_step: Option<&'static str>) {
-        let record = LastExit {
-            reason: reason.to_owned(),
-            instance_id: self.cfg.instance_id.clone(),
-            stalled_ms: None,
-            stuck_step: stuck_step.map(str::to_owned),
-        };
+        let record =
+            LastExit { reason: reason.to_owned(), instance_id: self.cfg.instance_id.clone(), stalled_ms: None, stuck_step: stuck_step.map(str::to_owned) };
         let root = self.cfg.runtime_root.clone();
         supervise("recordExit", self.budgets.record_exit, move || {
             if let Err(error) = write_last_exit(&root, &record) {

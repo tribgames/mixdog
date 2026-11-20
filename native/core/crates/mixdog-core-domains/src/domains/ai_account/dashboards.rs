@@ -42,12 +42,7 @@ pub struct Dashboards {
 
 fn scope_key(options: &Value) -> String {
     let Some(list) = options.get("refreshProviders").and_then(Value::as_array) else { return String::new() };
-    let mut ids: Vec<String> = list
-        .iter()
-        .take(16)
-        .map(|v| super::js::clean(Some(v)).to_lowercase())
-        .filter(|v| !v.is_empty())
-        .collect();
+    let mut ids: Vec<String> = list.iter().take(16).map(|v| super::js::clean(Some(v)).to_lowercase()).filter(|v| !v.is_empty()).collect();
     ids.sort();
     ids.dedup();
     ids.join(",")
@@ -95,27 +90,25 @@ impl Dashboards {
 
     async fn answer(&self, options: &Value, sources: &dyn UsageSources, accounts: &AccountStore, now: i64, remember: bool) -> Result<Value, Failure> {
         let refresh_usage = options.get("refresh") == Some(&Value::Bool(true));
-        let force_setup = options.get("force") == Some(&Value::Bool(true))
-            || (refresh_usage && options.get("refreshSetup") != Some(&Value::Bool(false)));
+        let force_setup = options.get("force") == Some(&Value::Bool(true)) || (refresh_usage && options.get("refreshSetup") != Some(&Value::Bool(false)));
         {
             let cache = self.cache();
             if !force_setup && !refresh_usage && cache.dashboard.is_some() {
                 return Ok(self.cached(&cache));
             }
             let scope = scope_key(options);
-            if refresh_usage && !force_setup && scope.is_empty()
+            if refresh_usage
+                && !force_setup
+                && scope.is_empty()
                 && let (Some(_), Some(live)) = (&cache.dashboard, cache.live_at)
-                && now - live < USAGE_REFRESH_REUSE_MS {
+                && now - live < USAGE_REFRESH_REUSE_MS
+            {
                 return Ok(self.cached(&cache));
             }
         }
         let dashboard = self.build(options, refresh_usage, force_setup, sources, accounts, now).await?;
         if remember {
-            *self.cache() = Cache {
-                dashboard: Some(dashboard.clone()),
-                at: now,
-                live_at: (refresh_usage && scope_key(options).is_empty()).then_some(now),
-            };
+            *self.cache() = Cache { dashboard: Some(dashboard.clone()), at: now, live_at: (refresh_usage && scope_key(options).is_empty()).then_some(now) };
         }
         Ok(dashboard)
     }
@@ -136,10 +129,7 @@ impl Dashboards {
         };
         let dashboard_options = DashboardOptions {
             refresh: refresh_usage,
-            refresh_providers: options
-                .get("refreshProviders")
-                .and_then(Value::as_array)
-                .map(|l| l.iter().map(|v| super::js::clean(Some(v))).collect()),
+            refresh_providers: options.get("refreshProviders").and_then(Value::as_array).map(|l| l.iter().map(|v| super::js::clean(Some(v))).collect()),
             preview: false,
         };
         let config = self.setup.display_config().await.map_err(Failure::error)?;

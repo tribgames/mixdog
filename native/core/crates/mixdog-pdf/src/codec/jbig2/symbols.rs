@@ -51,14 +51,10 @@ pub struct SymbolDict {
 
 /// The `index`th table segment (type 53) among the segments a segment refers to.
 pub(super) fn referred_table(referred: &[&Segment], index: usize) -> Option<HuffmanTable> {
-    referred
-        .iter()
-        .filter(|s| s.kind == 53)
-        .nth(index)
-        .and_then(|s| match &s.result {
-            SegmentResult::Table(table) => Some(table.clone()),
-            _ => None,
-        })
+    referred.iter().filter(|s| s.kind == 53).nth(index).and_then(|s| match &s.result {
+        SegmentResult::Table(table) => Some(table.clone()),
+        _ => None,
+    })
 }
 
 /// The tables of a Huffman coded symbol dictionary.
@@ -158,14 +154,7 @@ impl SymbolDecoder<'_> {
                 }
                 let (w, h) = (width as i32, height_class as i32);
                 new[decoded as usize] = if !self.refagg {
-                    let region = GenericRegion {
-                        width: w,
-                        height: h,
-                        template: self.template,
-                        tpgdon: false,
-                        skip: None,
-                        at: self.at,
-                    };
+                    let region = GenericRegion { width: w, height: h, template: self.template, tpgdon: false, skip: None, at: self.at };
                     let image = region.decode_arith(decoder, gb)?;
                     if image.rows < h {
                         return None;
@@ -210,16 +199,7 @@ impl SymbolDecoder<'_> {
                             }
                             Symbol::Bitmap(image) => image,
                         };
-                        let region = RefinementRegion {
-                            width: w,
-                            height: h,
-                            template: self.r_template,
-                            tpgron: false,
-                            reference,
-                            dx,
-                            dy,
-                            at: self.r_at,
-                        };
+                        let region = RefinementRegion { width: w, height: h, template: self.r_template, tpgron: false, reference, dx, dy, at: self.r_at };
                         Symbol::Bitmap(region.decode(decoder, gr)?)
                     } else {
                         Symbol::Null
@@ -298,9 +278,7 @@ impl SymbolDecoder<'_> {
                             num_instances: instances as u32,
                             strips: 1,
                             symbols: &known,
-                            symbol_codes: (0..count)
-                                .map(|code| super::huffman::Code { len: code_len, code })
-                                .collect(),
+                            symbol_codes: (0..count).map(|code| super::huffman::Code { len: code_len, code }).collect(),
                             def_pixel: false,
                             comb_op: super::image::ComposeOp::Or,
                             transposed: false,
@@ -347,16 +325,7 @@ impl SymbolDecoder<'_> {
                             }
                             Symbol::Bitmap(image) => image,
                         };
-                        let region = RefinementRegion {
-                            width: w,
-                            height: h,
-                            template: self.r_template,
-                            tpgron: false,
-                            reference,
-                            dx,
-                            dy,
-                            at: self.r_at,
-                        };
+                        let region = RefinementRegion { width: w, height: h, template: self.r_template, tpgron: false, reference, dx, dy, at: self.r_at };
                         let mut decoder = ArithDecoder::new(stream.data(), start);
                         let image = region.decode(&mut decoder, gr)?;
                         stream.set_byte_index(decoder.byte_index());
@@ -391,21 +360,13 @@ impl SymbolDecoder<'_> {
                         let pitch = image.stride();
                         for row in 0..height_class as usize {
                             let from = start + row * stride as usize;
-                            image.data_mut()[row * pitch..row * pitch + stride as usize]
-                                .copy_from_slice(&stream.data()[from..from + stride as usize]);
+                            image.data_mut()[row * pitch..row * pitch + stride as usize].copy_from_slice(&stream.data()[from..from + stride as usize]);
                         }
                     }
                     stream.add_offset(bytes as u32);
                     Some(image)
                 } else {
-                    let region = GenericRegion {
-                        width: w,
-                        height: h,
-                        template: 0,
-                        tpgdon: false,
-                        skip: None,
-                        at: [0; 8],
-                    };
+                    let region = GenericRegion { width: w, height: h, template: 0, tpgdon: false, skip: None, at: [0; 8] };
                     let image = region.decode_mmr(stream.data(), stream.bit_position());
                     let collective = image.map(|(image, bits)| {
                         stream.set_bit_position(bits);
@@ -450,11 +411,7 @@ impl SymbolDecoder<'_> {
 
 impl Context<'_> {
     /// `ParseSymbolDict` (T.88 7.4.2).
-    pub(super) fn parse_symbol_dict(
-        &mut self,
-        segment: &mut Segment,
-        globals: Option<&Context<'_>>,
-    ) -> Result<Flow, Failure> {
+    pub(super) fn parse_symbol_dict(&mut self, segment: &mut Segment, globals: Option<&Context<'_>>) -> Result<Flow, Failure> {
         let flags = self.stream.read_u16().ok_or(Failure)?;
         let huffman = flags & 1 != 0;
         let refagg = (flags >> 1) & 1 != 0;
@@ -511,11 +468,7 @@ impl Context<'_> {
                 dw: pick(dw, &[2, 3])?,
                 bm_size: pick(bm_size, &[1])?,
                 // the table of the instance counts is looked up only by a dictionary that aggregates
-                agg_inst: if refagg {
-                    pick(agg_inst, &[1])?
-                } else {
-                    HuffmanTable::standard(1)
-                },
+                agg_inst: if refagg { pick(agg_inst, &[1])? } else { HuffmanTable::standard(1) },
             })
         } else {
             None
@@ -548,16 +501,7 @@ impl Context<'_> {
                 }
             }
         }
-        let decoder = SymbolDecoder {
-            refagg,
-            template,
-            r_template,
-            at,
-            r_at,
-            num_ex,
-            num_new,
-            in_symbols: &in_symbols,
-        };
+        let decoder = SymbolDecoder { refagg, template, r_template, at, r_at, num_ex, num_new, in_symbols: &in_symbols };
         let symbols = match &tables {
             None => {
                 let mut arith = ArithDecoder::new(stream.data(), stream.byte_index());
@@ -638,16 +582,7 @@ mod tests {
     #[test]
     fn export_chooses_by_flags_and_input_symbols_are_copied() {
         let input = [&bitmap(&["#"]), &bitmap(&["##"])];
-        let decoder = SymbolDecoder {
-            refagg: false,
-            template: 0,
-            r_template: 0,
-            at: [0; 8],
-            r_at: [0; 4],
-            num_ex: 2,
-            num_new: 2,
-            in_symbols: &input,
-        };
+        let decoder = SymbolDecoder { refagg: false, template: 0, r_template: 0, at: [0; 8], r_at: [0; 4], num_ex: 2, num_new: 2, in_symbols: &input };
         let new = vec![bitmap(&["###"]), Symbol::Null];
         let exported = decoder.export(new.clone(), &[false, true, true, false]).unwrap();
         assert_eq!(exported, [bitmap(&["##"]), bitmap(&["###"])]);
@@ -663,13 +598,7 @@ mod tests {
         // HTPS 1 bit, HTRS 1 bit: one line (prefix 1, 1 offset bit), lower (prefix 1), upper (prefix 0)...
         data.push(0b1_1_1_0_0000);
         let mut context = Context::new(&data);
-        let mut segment = Segment {
-            number: 1,
-            kind: 53,
-            referred: Vec::new(),
-            data_length: data.len() as u32,
-            result: SegmentResult::None,
-        };
+        let mut segment = Segment { number: 1, kind: 53, referred: Vec::new(), data_length: data.len() as u32, result: SegmentResult::None };
         assert!(context.parse_table(&mut segment).is_ok());
         let found = [&segment];
         assert!(referred_table(&found, 0).is_some());

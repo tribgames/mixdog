@@ -4,8 +4,8 @@
 
 use serde_json::Value;
 
-use super::consts::{MAX_ACK_RANGES, MAX_RECORDS_IN_FLIGHT};
 use super::TransportError;
+use super::consts::{MAX_ACK_RANGES, MAX_RECORDS_IN_FLIGHT};
 
 const VERSION: u64 = 1;
 const MAX_SAFE_INTEGER: u64 = (1 << 53) - 1;

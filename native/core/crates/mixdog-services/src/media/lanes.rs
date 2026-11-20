@@ -76,7 +76,14 @@ fn gemini_image_controls() -> Value {
 
 fn lanes() -> Vec<LaneDef> {
     vec![
-        LaneDef { id: "grok-oauth", label: "Grok Imagine", auth_type: "oauth", auth_provider: "grok-oauth", image: Some(grok_image()), video: Some(grok_video()) },
+        LaneDef {
+            id: "grok-oauth",
+            label: "Grok Imagine",
+            auth_type: "oauth",
+            auth_provider: "grok-oauth",
+            image: Some(grok_image()),
+            video: Some(grok_video()),
+        },
         LaneDef { id: "xai", label: "Grok Imagine", auth_type: "api-key", auth_provider: "xai", image: Some(grok_image()), video: Some(grok_video()) },
         LaneDef {
             id: "openai-oauth",
@@ -96,7 +103,14 @@ fn lanes() -> Vec<LaneDef> {
             video: Some(json!({ "aspectRatio": ["16:9", "9:16"], "resolution": ["720p", "1080p"], "durations": [4, 6, 8], "maxReferences": 1 })),
         },
         // The gateway lists Nano Banana image models only: the lane never advertises a video kind.
-        LaneDef { id: "antigravity-oauth", label: "Google Antigravity", auth_type: "oauth", auth_provider: "antigravity-oauth", image: Some(gemini_image_controls()), video: None },
+        LaneDef {
+            id: "antigravity-oauth",
+            label: "Google Antigravity",
+            auth_type: "oauth",
+            auth_provider: "antigravity-oauth",
+            image: Some(gemini_image_controls()),
+            video: None,
+        },
         // Gateway lanes on the normalized Image API: every model advertises its own parameters.
         LaneDef { id: "openrouter", label: "OpenRouter", auth_type: "api-key", auth_provider: "openrouter", image: Some(json!({})), video: None },
         LaneDef { id: "nano-gpt", label: "NanoGPT", auth_type: "api-key", auth_provider: "nano-gpt", image: Some(json!({})), video: None },

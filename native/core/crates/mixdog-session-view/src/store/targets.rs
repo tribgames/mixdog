@@ -69,10 +69,7 @@ pub fn target_of(action: &str, args: &[Value], thread: Option<&str>, fast_on: bo
                 ),
             )
         }
-        "inheritSession" => method(
-            "thread/fork",
-            given(vec![("threadId", at(args, 0)), ("route", at(args, 1)), ("compact", field(args.get(2), "compact"))]),
-        ),
+        "inheritSession" => method("thread/fork", given(vec![("threadId", at(args, 0)), ("route", at(args, 1)), ("compact", field(args.get(2), "compact"))])),
         "setAgentRoute" => method("route/set", given(vec![("threadId", thread_value), ("agentId", at(args, 0)), ("route", at(args, 1))])),
         "toggleFast" => method("fast/set", given(vec![("threadId", thread_value), ("on", Some(Value::Bool(!fast_on)))])),
         "getOnboardingStatus" => Some(Target::Section { section: "config", key: Some("onboarding".to_owned()), refresh: None }),
@@ -119,9 +116,7 @@ const INTAKE_MEMBERS: [&str; 7] = ["submit", "submitAsync", "steer", "abort", "r
 /// Whether the store serves `name` at all: a row of the router, a target of this table, or a member of the prompt surface. A name
 /// that is none of them is no function of Node's store, and its callers take the silent `null` instead of an error.
 pub fn has_action(name: &str) -> bool {
-    TARGET_ACTIONS.contains(&name)
-        || INTAKE_MEMBERS.contains(&name)
-        || crate::action_route::session_actions().contains(&name)
+    TARGET_ACTIONS.contains(&name) || INTAKE_MEMBERS.contains(&name) || crate::action_route::session_actions().contains(&name)
 }
 
 #[cfg(test)]
@@ -138,7 +133,10 @@ mod tests {
     #[test]
     fn a_project_action_is_its_methods_params() {
         assert_eq!(method_of(target_of("addProject", &[json!("/p")], Some("t"), false)), ("project/create".to_owned(), json!({ "path": "/p" })));
-        assert_eq!(method_of(target_of("renameProject", &[json!("/p"), json!("A")], None, false)), ("project/update".to_owned(), json!({ "path": "/p", "alias": "A" })));
+        assert_eq!(
+            method_of(target_of("renameProject", &[json!("/p"), json!("A")], None, false)),
+            ("project/update".to_owned(), json!({ "path": "/p", "alias": "A" }))
+        );
         assert_eq!(method_of(target_of("listProjects", &[], None, false)).0, "project/list");
         assert_eq!(method_of(target_of("inspectProjectPath", &[json!("/p")], Some("t"), false)), ("project/read".to_owned(), json!({ "path": "/p" })));
     }
@@ -162,7 +160,10 @@ mod tests {
             target_of("getProviderSetup", &[json!({ "force": true, "other": 1 })], None, false),
             Some(Target::Section { section: "providerSetup", key: None, refresh: Some(json!({ "force": true })) })
         );
-        assert_eq!(target_of("getOnboardingStatus", &[], None, false), Some(Target::Section { section: "config", key: Some("onboarding".to_owned()), refresh: None }));
+        assert_eq!(
+            target_of("getOnboardingStatus", &[], None, false),
+            Some(Target::Section { section: "config", key: Some("onboarding".to_owned()), refresh: None })
+        );
         assert_eq!(target_of("getProviderAccounts", &[], None, false), None);
     }
 

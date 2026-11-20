@@ -54,9 +54,7 @@ fn port_error(error: CatalogError) -> PortError {
     match error {
         CatalogError::Lane(mixdog_rt::SubmitWaitError::Cancelled) => PortError::Cancelled,
         CatalogError::Lane(_) => PortError::Unavailable { capability: "skills".to_owned(), message: error.to_string() },
-        CatalogError::Dropped(_) | CatalogError::Read(_) => {
-            PortError::Failed { capability: "skills".to_owned(), message: error.to_string() }
-        }
+        CatalogError::Dropped(_) | CatalogError::Read(_) => PortError::Failed { capability: "skills".to_owned(), message: error.to_string() },
     }
 }
 

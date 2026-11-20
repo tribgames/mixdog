@@ -93,11 +93,8 @@ pub fn blocking_dialog_reply(dialog: &BrowserPendingDialog, dispatched: bool, re
             ..ToolReply::default()
         };
     }
-    let ran = if dispatched {
-        "The action ran; do not repeat it. "
-    } else {
-        "This action was not sent; after handle_dialog, repeat it only if it is still needed. "
-    };
+    let ran =
+        if dispatched { "The action ran; do not repeat it. " } else { "This action was not sent; after handle_dialog, repeat it only if it is still needed. " };
     ToolReply {
         text: format!(
             "A {} dialog is blocking the page: {}\n{ran}Call handle_dialog with accept:true or accept:false before continuing.",
@@ -188,7 +185,9 @@ mod tests {
         assert_eq!(reply.outcome, Some(ReplyOutcome::Blocked));
         assert!(reply.text.starts_with("The page refused to be left: it guards unsaved work with a leave confirmation"));
         assert!(reply.text.ends_with("repeating the same navigation is refused the same way."));
-        assert!(reply.text.contains("handle_dialog has nothing left to answer.\nFinish or discard what the page is holding — submit, reset, or clear the form — and navigate again; "));
+        assert!(reply.text.contains(
+            "handle_dialog has nothing left to answer.\nFinish or discard what the page is holding — submit, reset, or clear the form — and navigate again; "
+        ));
         assert_eq!(reply.text, blocking_dialog_reply(&dialog("beforeunload", ""), false, &keep).text);
     }
 
@@ -199,7 +198,10 @@ mod tests {
             describe_dismissed_dialog(&notice(DismissedReason::Early)),
             "Dismissed confirm dialog \"Sure?\": it opened before the browser was intercepting dialogs on this page, so nobody saw it and the page received a dismissal (confirm returns false, prompt returns null). handle_dialog has nothing to answer."
         );
-        assert!(describe_dismissed_dialog(&notice(DismissedReason::Unreachable)).contains("its request never reached the browser (a page security policy can refuse it), so nobody saw it"));
+        assert!(
+            describe_dismissed_dialog(&notice(DismissedReason::Unreachable))
+                .contains("its request never reached the browser (a page security policy can refuse it), so nobody saw it")
+        );
         assert_eq!(DismissedReason::from_wire(Some("early")), DismissedReason::Early);
         assert_eq!(DismissedReason::from_wire(None), DismissedReason::Unreachable);
     }

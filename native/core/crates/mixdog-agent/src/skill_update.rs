@@ -149,7 +149,10 @@ mod tests {
             AgentMessage::assistant(V2, Vec::new()),
             AgentMessage::sourced(Source::Skill, format!("\n  {other}")),
             AgentMessage::user(format!("{V1}\ntrailing")),
-            AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("<skill>\n<name>deck</name>\n".into(), None), ContentPart::Text("# Deck v2\n</skill>".into(), None)])),
+            AgentMessage::user_content(Content::Parts(vec![
+                ContentPart::Text("<skill>\n<name>deck</name>\n".into(), None),
+                ContentPart::Text("# Deck v2\n</skill>".into(), None),
+            ])),
         ];
         let bodies = latest_skill_bodies(&messages);
         assert_eq!(bodies.iter().map(|body| (body.name.as_str(), body.index)).collect::<Vec<_>>(), [("a & b", 2), ("deck", 4)]);

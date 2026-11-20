@@ -15,7 +15,8 @@ pub struct Sandbox {
 /// The `PATH` entries of the host that hold neither Node nor Electron.
 pub fn path_without_node() -> OsString {
     let holds = |dir: &Path| ["node", "node.exe", "nodejs", "electron", "electron.exe"].iter().any(|name| dir.join(name).exists());
-    let kept: Vec<PathBuf> = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).filter(|dir| !dir.as_os_str().is_empty() && !holds(dir)).collect();
+    let kept: Vec<PathBuf> =
+        std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).filter(|dir| !dir.as_os_str().is_empty() && !holds(dir)).collect();
     std::env::join_paths(kept).unwrap()
 }
 

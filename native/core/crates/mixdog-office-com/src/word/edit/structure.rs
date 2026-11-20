@@ -280,15 +280,8 @@ fn target_range(document: &Obj, op: &Value) -> Result<Com> {
 
 /// `$range.Find.Execute([string]$op.find, $false, $false, $false, $false, $false, $true)`.
 fn find_phrase(range: &Com, op: &Value) -> Result<bool> {
-    let arguments = [
-        Com::from(text_of(&prop(op, "find"))),
-        Com::Bool(false),
-        Com::Bool(false),
-        Com::Bool(false),
-        Com::Bool(false),
-        Com::Bool(false),
-        Com::Bool(true),
-    ];
+    let arguments =
+        [Com::from(text_of(&prop(op, "find"))), Com::Bool(false), Com::Bool(false), Com::Bool(false), Com::Bool(false), Com::Bool(false), Com::Bool(true)];
     Ok(super::truth(&range.member("Find")?.call_member("Execute", &arguments)?))
 }
 
@@ -314,16 +307,9 @@ pub(super) fn add_hyperlink(document: &Obj, op: &Value) -> Result<Value> {
     } else {
         text_of(&prop(op, "address"))
     };
-    let link = document.get("Hyperlinks")?.call_member(
-        "Add",
-        &[
-            range,
-            Com::from(text_of(&prop(op, "address"))),
-            Com::from(text_of(&prop(op, "subAddress"))),
-            Com::Null,
-            Com::from(display),
-        ],
-    )?;
+    let link = document
+        .get("Hyperlinks")?
+        .call_member("Add", &[range, Com::from(text_of(&prop(op, "address"))), Com::from(text_of(&prop(op, "subAddress"))), Com::Null, Com::from(display)])?;
     Ok(ordered(vec![
         ("op", Value::string("add_hyperlink")),
         ("changed", Value::Bool(true)),
@@ -343,11 +329,7 @@ pub(super) fn add_bookmark(document: &Obj, op: &Value) -> Result<Value> {
         range.call_member("Collapse", &[Com::I4(0)])?;
     }
     let bookmark = document.get("Bookmarks")?.call_member("Add", &[Com::from(text_of(&prop(op, "name"))), range])?;
-    Ok(ordered(vec![
-        ("op", Value::string("add_bookmark")),
-        ("changed", Value::Bool(true)),
-        ("name", Value::String(super::string(&bookmark.member("Name")?))),
-    ]))
+    Ok(ordered(vec![("op", Value::string("add_bookmark")), ("changed", Value::Bool(true)), ("name", Value::String(super::string(&bookmark.member("Name")?)))]))
 }
 
 /// `set_content_control`: a control by tag or by index; a locked one refuses the write, and saying so beats a COM error.

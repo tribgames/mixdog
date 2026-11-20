@@ -21,10 +21,7 @@ pub(super) fn begin(host: &Host) {
 /// Annotates the result of `req` after it was handled: the lock's facts and
 /// its note first (they come from the guarded call), then the refused hold's.
 pub(super) fn annotate(host: &Host, req: &Req, result: &mut Obj) {
-    let unprotected = host
-        .desktop
-        .background()
-        .is_some_and(|background| background.take_activation_unprotected());
+    let unprotected = host.desktop.background().is_some_and(|background| background.take_activation_unprotected());
     let facts = host.activation_facts.borrow().clone();
     let Some(annotated) = annotated(&req.action(), result) else {
         return;
@@ -39,11 +36,7 @@ pub(super) fn annotate(host: &Host, req: &Req, result: &mut Obj) {
 
 /// A sequence step carries its input's result inside the step envelope.
 fn annotated<'a>(action: &str, result: &'a mut Obj) -> Option<&'a mut Obj> {
-    if action == "sequence_step" {
-        result.get_mut("step_result").and_then(Value::as_object_mut)
-    } else {
-        Some(result)
-    }
+    if action == "sequence_step" { result.get_mut("step_result").and_then(Value::as_object_mut) } else { Some(result) }
 }
 
 fn delivered(result: &Obj) -> bool {
@@ -51,10 +44,7 @@ fn delivered(result: &Obj) -> bool {
 }
 
 fn add_note(result: &mut Obj, note: &str) {
-    let text = result
-        .get("text")
-        .and_then(Value::as_str)
-        .unwrap_or_default();
+    let text = result.get("text").and_then(Value::as_str).unwrap_or_default();
     let text = format!("{text}{note}");
     result.insert("activation_protection".into(), json!("unavailable"));
     result.insert("text".into(), json!(text));
@@ -88,29 +78,19 @@ mod tests {
         obj! { "text" => "clicked", "delivery_accepted" => accepted, "delivery" => delivery }
     }
 
-    const NO_CHANNEL: fn() -> Value =
-        || json!({ "holder": "none", "host_answer": "not_offered", "release": "none" });
+    const NO_CHANNEL: fn() -> Value = || json!({ "holder": "none", "host_answer": "not_offered", "release": "none" });
 
     #[test]
     fn a_refused_hold_marks_an_accepted_background_delivery() {
         let mut result = delivered(true, "background");
         note_refused_hold(&mut result);
-        assert_eq!(
-            result.get("activation_protection"),
-            Some(&json!("unavailable"))
-        );
-        assert_eq!(
-            result.get("text"),
-            Some(&json!(format!("clicked{REFUSED_HOLD}")))
-        );
+        assert_eq!(result.get("activation_protection"), Some(&json!("unavailable")));
+        assert_eq!(result.get("text"), Some(&json!(format!("clicked{REFUSED_HOLD}"))));
     }
 
     #[test]
     fn a_refused_delivery_or_a_foreground_one_gets_no_hold_suffix() {
-        for mut result in [
-            delivered(false, "background"),
-            delivered(true, "foreground"),
-        ] {
+        for mut result in [delivered(false, "background"), delivered(true, "foreground")] {
             let before = result.clone();
             note_refused_hold(&mut result);
             assert_eq!(result, before);
@@ -147,10 +127,7 @@ mod tests {
         let mut result = delivered(true, "background");
         note_lock(&mut result, NO_CHANNEL());
         note_refused_hold(&mut result);
-        assert_eq!(
-            result["text"],
-            json!(format!("clicked{LOCK_UNAVAILABLE}{REFUSED_HOLD}"))
-        );
+        assert_eq!(result["text"], json!(format!("clicked{LOCK_UNAVAILABLE}{REFUSED_HOLD}")));
     }
 
     #[test]
@@ -161,10 +138,7 @@ mod tests {
         note_refused_hold(step);
         assert_eq!(result.get("text"), Some(&json!("step")));
         assert!(!result.contains_key("foreground_lock"));
-        assert_eq!(
-            result["step_result"]["activation_protection"],
-            json!("unavailable")
-        );
+        assert_eq!(result["step_result"]["activation_protection"], json!("unavailable"));
         assert!(result["step_result"]["foreground_lock"].is_object());
         let mut bare = obj! { "text" => "step" };
         assert!(annotated("sequence_step", &mut bare).is_none());

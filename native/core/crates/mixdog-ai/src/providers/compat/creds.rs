@@ -51,17 +51,9 @@ pub enum CredentialError {
 pub const MIMO_DEFAULT_BASE_URL: &str = "https://api.xiaomimimo.com/v1";
 pub const MIMO_PLATFORM_ORIGIN: &str = "https://platform.xiaomimimo.com";
 /// Probe order for a Token Plan key that arrives without a gateway URL.
-pub const MIMO_TOKEN_PLAN_BASE_URLS: [&str; 3] = [
-    "https://token-plan-sgp.xiaomimimo.com/v1",
-    "https://token-plan-ams.xiaomimimo.com/v1",
-    "https://token-plan-cn.xiaomimimo.com/v1",
-];
-const MIMO_HOSTS: [&str; 4] = [
-    "api.xiaomimimo.com",
-    "token-plan-sgp.xiaomimimo.com",
-    "token-plan-ams.xiaomimimo.com",
-    "token-plan-cn.xiaomimimo.com",
-];
+pub const MIMO_TOKEN_PLAN_BASE_URLS: [&str; 3] =
+    ["https://token-plan-sgp.xiaomimimo.com/v1", "https://token-plan-ams.xiaomimimo.com/v1", "https://token-plan-cn.xiaomimimo.com/v1"];
+const MIMO_HOSTS: [&str; 4] = ["api.xiaomimimo.com", "token-plan-sgp.xiaomimimo.com", "token-plan-ams.xiaomimimo.com", "token-plan-cn.xiaomimimo.com"];
 
 /// `mimo-oauth.json`. The key never expires and has no refresh grant: a 401
 /// means the user signs in again.
@@ -90,11 +82,8 @@ pub fn normalize_mimo_base_url(value: &str) -> Result<String, CredentialError> {
         return Err(reject());
     }
     let url = Url::parse(value).map_err(|_| reject())?;
-    let plain_path = url
-        .path()
-        .split('/')
-        .skip(1)
-        .all(|seg| seg.is_empty() || seg.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'~' | b'-')));
+    let plain_path =
+        url.path().split('/').skip(1).all(|seg| seg.is_empty() || seg.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'~' | b'-')));
     let host_ok = url.host_str().is_some_and(|h| MIMO_HOSTS.contains(&h));
     if url.scheme() != "https"
         || !host_ok
@@ -142,9 +131,7 @@ impl MimoLoginKey {
         const EPHEMERAL: usize = 32;
         const NONCE: usize = 12;
         const TAG: usize = 16;
-        let bytes = URL_SAFE_NO_PAD
-            .decode(mixdog_js::js_trim(payload))
-            .map_err(|_| CredentialError::Undecryptable)?;
+        let bytes = URL_SAFE_NO_PAD.decode(mixdog_js::js_trim(payload)).map_err(|_| CredentialError::Undecryptable)?;
         if bytes.len() <= EPHEMERAL + NONCE + TAG {
             return Err(CredentialError::TooShort);
         }
@@ -152,9 +139,8 @@ impl MimoLoginKey {
         let shared = self.secret.diffie_hellman(&PublicKey::from(ephemeral));
         let key = Sha256::digest(shared.as_bytes());
         let cipher = Aes256Gcm::new_from_slice(&key).map_err(|_| CredentialError::Undecryptable)?;
-        let plain = cipher
-            .decrypt(Nonce::from_slice(&bytes[EPHEMERAL..EPHEMERAL + NONCE]), &bytes[EPHEMERAL + NONCE..])
-            .map_err(|_| CredentialError::Undecryptable)?;
+        let plain =
+            cipher.decrypt(Nonce::from_slice(&bytes[EPHEMERAL..EPHEMERAL + NONCE]), &bytes[EPHEMERAL + NONCE..]).map_err(|_| CredentialError::Undecryptable)?;
         let doc: JsonValue = serde_json::from_slice(&plain).map_err(|_| CredentialError::Undecryptable)?;
         let JsonValue::Object(doc) = doc else {
             return Err(CredentialError::NotAnObject);
@@ -196,11 +182,7 @@ pub fn mimo_code_from_input(input: &str) -> Option<String> {
         return None;
     }
     if text.starts_with("http://") || text.starts_with("https://") {
-        return Url::parse(text)
-            .ok()?
-            .query_pairs()
-            .find(|(k, _)| k == "u")
-            .map(|(_, v)| v.into_owned());
+        return Url::parse(text).ok()?.query_pairs().find(|(k, _)| k == "u").map(|(_, v)| v.into_owned());
     }
     Some(text.to_owned())
 }
@@ -322,11 +304,7 @@ mod tests {
         let payload = seal(&key, &doc);
         assert_eq!(
             key.open(&payload),
-            Ok(MimoCredentials {
-                api_key: "tp-abc123".into(),
-                uid: "42".into(),
-                base_url: "https://token-plan-sgp.xiaomimimo.com/v1".into(),
-            })
+            Ok(MimoCredentials { api_key: "tp-abc123".into(), uid: "42".into(), base_url: "https://token-plan-sgp.xiaomimimo.com/v1".into() })
         );
         assert_eq!(MimoLoginKey::from_bytes([2u8; 32]).open(&payload), Err(CredentialError::Undecryptable));
         assert_eq!(key.open("AAAA"), Err(CredentialError::TooShort));
@@ -339,20 +317,13 @@ mod tests {
         assert_eq!(open(serde_json::json!({"uid": 1})), Err(CredentialError::NoKey));
         assert_eq!(open(serde_json::json!({"sk": "has space"})), Err(CredentialError::MalformedKey));
         assert_eq!(open(serde_json::json!({"sk": "k", "uid": ["x"]})), Err(CredentialError::MalformedUid));
-        assert_eq!(
-            open(serde_json::json!({"sk": "k", "url": "https://evil.example/v1"})),
-            Err(CredentialError::GatewayOutsideAllowlist)
-        );
+        assert_eq!(open(serde_json::json!({"sk": "k", "url": "https://evil.example/v1"})), Err(CredentialError::GatewayOutsideAllowlist));
         assert_eq!(open(serde_json::json!([1])), Err(CredentialError::NotAnObject));
     }
 
     #[test]
     fn gateway_urls_are_held_to_the_allowlist() {
-        for ok in [
-            "https://api.xiaomimimo.com/v1",
-            "https://token-plan-cn.xiaomimimo.com/v1/",
-            "https://api.xiaomimimo.com",
-        ] {
+        for ok in ["https://api.xiaomimimo.com/v1", "https://token-plan-cn.xiaomimimo.com/v1/", "https://api.xiaomimimo.com"] {
             assert!(normalize_mimo_base_url(ok).is_ok(), "{ok}");
         }
         for bad in [
@@ -388,10 +359,7 @@ mod tests {
         let muse: MuseCodeCredentials = serde_json::from_str(r#"{"accessToken":"a","apiKey":"k"}"#).unwrap();
         assert!(muse.is_valid());
         assert!(!MuseCodeCredentials { access_token: String::new(), ..muse }.is_valid());
-        let go: OpenCodeGoCredentials = serde_json::from_str(
-            r#"{"access_token":"t","refresh_token":"r","expires_at":1000000,"org_id":"o"}"#,
-        )
-        .unwrap();
+        let go: OpenCodeGoCredentials = serde_json::from_str(r#"{"access_token":"t","refresh_token":"r","expires_at":1000000,"org_id":"o"}"#).unwrap();
         assert!(!go.needs_refresh(600_000));
         assert!(go.needs_refresh(700_001), "within five minutes of expiry");
         assert!(!OpenCodeGoCredentials { expires_at: 0, ..go.clone() }.needs_refresh(u64::MAX / 2));

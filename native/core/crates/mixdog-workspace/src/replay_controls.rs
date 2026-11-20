@@ -31,7 +31,10 @@ fn dir() -> Option<&'static Path> {
 }
 
 /// Tells the replay something: the content of `<dir>/<name>`, replaced whole.
-#[allow(clippy::disallowed_methods, reason = "opt-in replay-controls synchronously reads/writes its external test controller files; not a production clock or profile path")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "opt-in replay-controls synchronously reads/writes its external test controller files; not a production clock or profile path"
+)]
 pub fn publish(name: &str, text: &str) {
     if let Some(dir) = dir() {
         let temp = dir.join(format!(".{name}.tmp"));
@@ -42,7 +45,10 @@ pub fn publish(name: &str, text: &str) {
 }
 
 /// Holds the calling thread while the replay has asked for `point` to be held (a call is a lane job, so a blocked thread is a held call).
-#[allow(clippy::disallowed_methods, reason = "explicit replay-only barrier called on a download lane thread; bounded polling intentionally holds that replayed call")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "explicit replay-only barrier called on a download lane thread; bounded polling intentionally holds that replayed call"
+)]
 pub fn gate(point: &str) {
     let Some(dir) = dir() else { return };
     let hold = dir.join(format!("hold-{point}"));
@@ -66,7 +72,10 @@ pub struct FileClock {
 }
 
 impl FileClock {
-    #[allow(clippy::disallowed_methods, reason = "opt-in replay-controls synchronously reads/writes its external test controller files; not a production clock or profile path")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "opt-in replay-controls synchronously reads/writes its external test controller files; not a production clock or profile path"
+    )]
     fn read(&self) -> i64 {
         std::fs::read_to_string(&self.file).ok().and_then(|text| text.trim().parse().ok()).unwrap_or(self.start)
     }
@@ -93,7 +102,10 @@ impl IdleTimer for FileClock {
 }
 
 /// The replay's clock, when the environment names a folder holding one.
-#[allow(clippy::disallowed_methods, reason = "opt-in replay-controls synchronously reads/writes its external test controller files; not a production clock or profile path")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "opt-in replay-controls synchronously reads/writes its external test controller files; not a production clock or profile path"
+)]
 pub fn clock() -> Option<Arc<FileClock>> {
     static CLOCK: OnceLock<Option<Arc<FileClock>>> = OnceLock::new();
     CLOCK

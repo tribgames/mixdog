@@ -20,10 +20,7 @@ fn build(pattern: &str, case_sensitive: bool) -> Result<Regex, String> {
 
 /// Compiles `source`, the pattern as the `regex` crate reads it; a refusal names `shown`, the pattern as the host wrote it.
 fn build_from(source: &str, shown: &str, case_sensitive: bool) -> Result<Regex, String> {
-    RegexBuilder::new(source)
-        .case_insensitive(!case_sensitive)
-        .build()
-        .map_err(|error| invalid_pattern(shown, &error))
+    RegexBuilder::new(source).case_insensitive(!case_sensitive).build().map_err(|error| invalid_pattern(shown, &error))
 }
 
 /// PowerShell's own text for a pattern .NET refuses.

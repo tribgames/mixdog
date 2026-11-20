@@ -54,7 +54,8 @@ impl FeatureStatus {
                 continue;
             };
             let extra: &[&str] = if name == "autoEffort" { &AUTO_EFFORT_KEYS } else { &[] };
-            let kept: Map<String, Value> = fields.iter().filter(|(key, _)| KEYS.contains(&key.as_str()) || extra.contains(&key.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
+            let kept: Map<String, Value> =
+                fields.iter().filter(|(key, _)| KEYS.contains(&key.as_str()) || extra.contains(&key.as_str())).map(|(k, v)| (k.clone(), v.clone())).collect();
             out.insert(name.clone(), Value::Object(kept));
         }
         for id in ["browser", "computer", "terminal"] {

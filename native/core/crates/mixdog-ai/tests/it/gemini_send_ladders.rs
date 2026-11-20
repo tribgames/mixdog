@@ -139,9 +139,7 @@ async fn send(transport: Arc<dyn HttpSend>) -> (Result<u32, SendError>, Sink, Ve
     });
     let (lines, guard) = mixdog_rt::node_log::capture();
     let mut sink = Sink::default();
-    let sent = broker
-        .send(&adapter, SendRequest { request, lane, admission: AdmissionRequest::default() }, &mut sink, &CancellationToken::new())
-        .await;
+    let sent = broker.send(&adapter, SendRequest { request, lane, admission: AdmissionRequest::default() }, &mut sink, &CancellationToken::new()).await;
     drop(guard);
     let stderr = lines.lock().unwrap().iter().filter(|(_, channel, _)| *channel == Channel::Stderr).map(|(_, _, line)| line.clone()).collect();
     (sent, sink, stderr)
@@ -178,13 +176,7 @@ async fn a_payload_without_output_takes_four_600_second_stream_attempts_then_one
     let streaming = "streamGenerateContent".to_owned();
     assert_eq!(
         transport.seen(),
-        [
-            (0, streaming.clone()),
-            (601, streaming.clone()),
-            (1203, streaming.clone()),
-            (1807, streaming),
-            (2407, "generateContent".to_owned()),
-        ],
+        [(0, streaming.clone()), (601, streaming.clone()), (1203, streaming.clone()), (1807, streaming), (2407, "generateContent".to_owned()),],
         "the requests actually made, when"
     );
 
@@ -196,10 +188,8 @@ async fn a_payload_without_output_takes_four_600_second_stream_attempts_then_one
     assert!(sink.text.is_empty());
 
     // The ladder the user is told about: attempts 2..4 of 4, after 1, 2 and 4 s.
-    let ladder: Vec<(u64, u64, u64)> = reconnecting(&sink)
-        .iter()
-        .map(|p| (p["attempt"].as_u64().unwrap(), p["max"].as_u64().unwrap(), p["waitMs"].as_u64().unwrap()))
-        .collect();
+    let ladder: Vec<(u64, u64, u64)> =
+        reconnecting(&sink).iter().map(|p| (p["attempt"].as_u64().unwrap(), p["max"].as_u64().unwrap(), p["waitMs"].as_u64().unwrap())).collect();
     assert_eq!(ladder, [(2, 4, 1_000), (3, 4, 2_000), (4, 4, 4_000)]);
     assert!(reconnecting(&sink).iter().all(|p| p["reason"] == "No progress 10m"));
     let retries: Vec<&String> = stderr.iter().filter(|line| line.contains("retry attempt")).collect();
@@ -298,7 +288,7 @@ impl HttpSend for Plan {
 
 const OVERLOADED: &str = r#"{"error":{"code":503,"message":"The model is overloaded. Please try again later.","status":"UNAVAILABLE"}}"#;
 const RECOVERY_REFUSED: &str = r#"{"error":{"code":503,"message":"the non-streaming request was refused","status":"UNAVAILABLE"}}"#;
-const BAD_REQUEST: &str =r#"{"error":{"code":400,"message":"Request contains an invalid argument.","status":"INVALID_ARGUMENT"}}"#;
+const BAD_REQUEST: &str = r#"{"error":{"code":400,"message":"Request contains an invalid argument.","status":"INVALID_ARGUMENT"}}"#;
 const RATE_LIMITED: &str = r#"{"error":{"code":429,"message":"Resource has been exhausted (e.g. check quota).","status":"RESOURCE_EXHAUSTED"}}"#;
 const SHOWN_TEXT: &[u8] = b"data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"hello\"}]}}]}\n\n";
 const FINISHED: &[u8] = b"data: {\"candidates\":[{\"content\":{\"role\":\"model\",\"parts\":[{\"text\":\"done\"}]},\"finishReason\":\"STOP\"}]}\n\n";
@@ -337,10 +327,8 @@ async fn a_request_that_never_opens_is_asked_ten_times_on_the_connection_ladder_
             0 => assert!(error.transport.is_some() && error.status.is_none(), "{what}: the transport's own failure: {error:?}"),
             status => assert_eq!(error.status, Some(status), "{what}: the server's own status: {error:?}"),
         }
-        let ladder: Vec<(u64, u64, u64)> = reconnecting(&sink)
-            .iter()
-            .map(|p| (p["attempt"].as_u64().unwrap(), p["max"].as_u64().unwrap(), p["waitMs"].as_u64().unwrap()))
-            .collect();
+        let ladder: Vec<(u64, u64, u64)> =
+            reconnecting(&sink).iter().map(|p| (p["attempt"].as_u64().unwrap(), p["max"].as_u64().unwrap(), p["waitMs"].as_u64().unwrap())).collect();
         let waits = [5_000, 10_000, 20_000, 30_000, 30_000, 30_000, 30_000, 30_000, 30_000];
         let want: Vec<(u64, u64, u64)> = waits.iter().enumerate().map(|(i, wait)| (i as u64 + 2, 10, *wait)).collect();
         assert_eq!(ladder, want, "{what}: the stages the user is shown");
@@ -400,11 +388,12 @@ async fn a_stream_that_fails_after_it_opened_is_asked_four_times_at_1_2_and_4_se
             [(0, streaming.clone()), (1, streaming.clone()), (3, streaming.clone()), (7, streaming), (7, "generateContent".to_owned())],
             "{what}: four stream attempts after waits of 1, 2 and 4 s, then the one non-streaming request"
         );
-        assert!(matches!(&sent, Err(SendError::Exhausted(error)) if !error.message.contains("non-streaming request was refused")), "{what}: the stream's own error, not the recovery's: {sent:?}");
-        let ladder: Vec<(u64, u64, u64)> = reconnecting(&sink)
-            .iter()
-            .map(|p| (p["attempt"].as_u64().unwrap(), p["max"].as_u64().unwrap(), p["waitMs"].as_u64().unwrap()))
-            .collect();
+        assert!(
+            matches!(&sent, Err(SendError::Exhausted(error)) if !error.message.contains("non-streaming request was refused")),
+            "{what}: the stream's own error, not the recovery's: {sent:?}"
+        );
+        let ladder: Vec<(u64, u64, u64)> =
+            reconnecting(&sink).iter().map(|p| (p["attempt"].as_u64().unwrap(), p["max"].as_u64().unwrap(), p["waitMs"].as_u64().unwrap())).collect();
         assert_eq!(ladder, [(2, 4, 1_000), (3, 4, 2_000), (4, 4, 4_000)], "{what}");
         assert!(sink.text.is_empty(), "{what}");
     }

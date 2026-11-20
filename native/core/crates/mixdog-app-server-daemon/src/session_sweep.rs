@@ -195,9 +195,7 @@ async fn prune_open(store: &dyn SweepStore, now: i64, mut candidates: Vec<(&Swee
 }
 
 fn now_ms() -> i64 {
-    mixdog_rt::wall_clock!()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
+    mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
 }
 /// `startIdleCleanup`: one cycle per interval, the first after one interval, a cycle never
 /// overlapping the next. Returns once `stop` is cancelled. Needs the proof that startup (the
@@ -233,8 +231,6 @@ mod tests {
 
     const NOW: i64 = 10_000_000_000;
 
-
-
     #[tokio::test]
     async fn an_unreadable_store_is_not_swept() {
         struct Broken;
@@ -255,6 +251,4 @@ mod tests {
         }
         assert_eq!(sweep_once(&Broken, NOW).await.unwrap_err(), "EACCES");
     }
-
-
 }

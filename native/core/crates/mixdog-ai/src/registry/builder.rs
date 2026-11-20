@@ -30,24 +30,34 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
+use super::gateway::GatewayAdapter;
+use super::gateway::GatewayHttp;
+use super::gateway::ResponsesEngine;
+use super::gateway::Sdk;
+use super::gateway::WirePick;
 use super::keys::ApiKeyStore;
 use super::keys::KeyConfig;
 use super::keys::ProviderKey;
+use super::multiwire::MultiWireAdapter;
 use super::providers::OAUTH_PROVIDER_NAMES;
 use super::providers::ProviderBuilder;
+use super::versioned::VersionedAdapter;
+use super::vertex_metadata;
 use crate::accounts::AccountStore;
 use crate::accounts::CredentialState;
 use crate::accounts::rotation::AccountRotation;
 use crate::catalog::CachedModelInfo;
 use crate::catalog::ListingLookup;
+use crate::client_versions::Dialect;
 use crate::oauth::CredentialFile;
+use crate::oauth::CredentialIo;
 use crate::oauth::Pace;
-use crate::providers::compat::login::opencode_go::OpenCodeGoAuth;
-use crate::providers::compat::login::opencode_go::RefreshError;
 use crate::oauth::Probe;
 use crate::providers::anthropic::AnthropicAdapter;
+use crate::providers::anthropic::AnthropicCodec;
 use crate::providers::anthropic::AnthropicConfig;
 use crate::providers::anthropic::CapsLookup;
+use crate::providers::anthropic::Flavor;
 use crate::providers::anthropic::OAuthSession;
 use crate::providers::compat::adapter::CompatAdapter;
 use crate::providers::compat::adapter::RouteInputs;
@@ -55,31 +65,22 @@ use crate::providers::compat::chat::CompatChatCodec;
 use crate::providers::compat::chat::CompatConfig;
 use crate::providers::compat::creds::MimoCredentials;
 use crate::providers::compat::creds::OpenCodeGoCredentials;
-use crate::oauth::CredentialIo;
+use crate::providers::compat::login::opencode_go::OpenCodeGoAuth;
+use crate::providers::compat::login::opencode_go::RefreshError;
 use crate::providers::compat::profile::CompatProfile;
+use crate::providers::compat::profile::Wire;
+use crate::providers::compat::responses::CompatResponsesCodec;
+use crate::providers::connect::rewrite::Credential;
+use crate::providers::connect::rewrite::HttpAdapter;
+use crate::providers::connect::rewrite::RewriteCodec;
 use crate::providers::cursor::CursorAdapter;
 use crate::providers::cursor::auth::ApiKeyAccess;
 use crate::providers::cursor::auth::FileAccess;
-use super::gateway::GatewayAdapter;
-use super::gateway::GatewayHttp;
-use super::gateway::ResponsesEngine;
-use super::gateway::Sdk;
-use super::gateway::WirePick;
-use super::multiwire::MultiWireAdapter;
-use crate::providers::compat::responses::CompatResponsesCodec;
-use super::vertex_metadata;
-use crate::providers::anthropic::AnthropicCodec;
-use crate::providers::anthropic::Flavor;
-use crate::providers::compat::profile::Wire;
-use crate::providers::connect::rewrite::HttpAdapter;
-use crate::providers::connect::rewrite::RewriteCodec;
-use crate::providers::connect::rewrite::Credential;
 use crate::providers::custom;
 use crate::providers::custom::CustomRequestConfig;
-use crate::providers::custom::listing::CustomListing;
-use mixdog_core_api::domain::provider::ModelListing;
 use crate::providers::custom::CustomRewriter;
 use crate::providers::custom::Protocol;
+use crate::providers::custom::listing::CustomListing;
 use crate::providers::devin::DevinAdapter;
 use crate::providers::devin::auth::FileSessionToken;
 use crate::providers::google;
@@ -96,9 +97,7 @@ use crate::providers::openai::adapter::Credential as OpenAiBearer;
 use crate::providers::openai::adapter::CredentialSource;
 use crate::providers::openai::adapter::OpenAiAdapter;
 use crate::providers::openai::adapter::SessionContext;
-use crate::client_versions::Dialect;
 use crate::providers::openai::codec::OpenAiCodec;
-use super::versioned::VersionedAdapter;
 use crate::providers::openai::config::CodexIdentity;
 use crate::providers::openai::config::ModelFactsSource;
 use crate::providers::openai::config::OpenAiConfig;
@@ -109,9 +108,10 @@ use crate::providers::openai::transport_policy;
 use crate::providers::openai::transport_policy::Mode as PolicyMode;
 use crate::transport::BidiOpen;
 use crate::transport::HttpSend;
+use crate::transport::WsDial;
 use crate::transport::preconnect::Preconnect;
 use crate::transport::preconnect::Setting;
-use crate::transport::WsDial;
+use mixdog_core_api::domain::provider::ModelListing;
 
 /// A provider id's catalog traits for wire routing ([`BuilderEnv::route_traits`]).
 pub type RouteTraits = Arc<dyn Fn(&str) -> Option<Arc<dyn crate::catalog::ModelTraits>> + Send + Sync>;
@@ -270,12 +270,7 @@ impl DefaultProviderBuilder {
 
     /// `customKeyEngine`: the provider's configuration with the additional key, read once, as its only key.
     async fn custom_key_engine(&self, name: &str, cfg: &Value, id: &str) -> super::key_pool::KeyEngine {
-        let key = self
-            .env
-            .keys
-            .read_custom(name, id)
-            .await
-            .map_err(|error| format!("An additional API key of {name} could not be read: {error}."))?;
+        let key = self.env.keys.read_custom(name, id).await.map_err(|error| format!("An additional API key of {name} could not be read: {error}."))?;
         if key.is_empty() {
             return Err(format!("An additional API key of {name} is not readable; enter it again in its settings."));
         }
@@ -379,7 +374,10 @@ fn read_gcloud_project(dir: &std::path::Path, named: String) -> Option<String> {
 
 /// What the gcloud login location held.
 enum AdcRead {
-    Found { raw: String, path: String },
+    Found {
+        raw: String,
+        path: String,
+    },
     /// No `GOOGLE_APPLICATION_CREDENTIALS`, and no file in gcloud's directory.
     NoLogin,
 }
@@ -424,10 +422,7 @@ fn key_config(cfg: &Value) -> KeyConfig {
 }
 
 fn string_pairs(cfg: &Value, key: &str) -> Vec<(String, String)> {
-    cfg.get(key)
-        .and_then(Value::as_object)
-        .map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned()))).collect())
-        .unwrap_or_default()
+    cfg.get(key).and_then(Value::as_object).map(|o| o.iter().filter_map(|(k, v)| v.as_str().map(|v| (k.clone(), v.to_owned()))).collect()).unwrap_or_default()
 }
 
 fn reauth(message: &str) -> ProviderError {
@@ -459,7 +454,12 @@ impl FileKey {
         match self.file.load::<StoredKey>().await {
             Probe::Present(stored) => {
                 let held: Vec<&str> = [stored.api_key.as_deref(), stored.access_token.as_deref()].into_iter().flatten().collect();
-                let key = stored.api_key.clone().or_else(|| stored.access_token.clone()).filter(|k| !k.is_empty()).ok_or_else(|| reauth(&format!("not signed in to {}", self.provider)))?;
+                let key = stored
+                    .api_key
+                    .clone()
+                    .or_else(|| stored.access_token.clone())
+                    .filter(|k| !k.is_empty())
+                    .ok_or_else(|| reauth(&format!("not signed in to {}", self.provider)))?;
                 self.file.keep(&held);
                 Ok(key)
             }
@@ -515,23 +515,22 @@ impl ApiKeySource for MimoKey {
             let base = stored.base_url().to_owned();
             return Ok((stored.api_key, Some(base)));
         }
-        let routed = crate::providers::compat::login::mimo::ensure_token_plan_base_url(&self.http, &file, stored).await
-            .map_err(|failure| match failure {
-                LoginFailure::Failed { code, message } if code == "invalid_grant" => {
-                    let mut error = reauth(&message);
-                    error.status = Some(401);
-                    error.code = Some(code);
-                    error
-                }
-                failure => {
-                    let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
-                    error.message = match failure {
-                        LoginFailure::Failed { message, .. } => message,
-                        other => format!("{other:?}"),
-                    };
-                    error
-                }
-            })?;
+        let routed = crate::providers::compat::login::mimo::ensure_token_plan_base_url(&self.http, &file, stored).await.map_err(|failure| match failure {
+            LoginFailure::Failed { code, message } if code == "invalid_grant" => {
+                let mut error = reauth(&message);
+                error.status = Some(401);
+                error.code = Some(code);
+                error
+            }
+            failure => {
+                let mut error = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
+                error.message = match failure {
+                    LoginFailure::Failed { message, .. } => message,
+                    other => format!("{other:?}"),
+                };
+                error
+            }
+        })?;
         let base = routed.base_url().to_owned();
         Ok((routed.api_key, Some(base)))
     }
@@ -699,11 +698,7 @@ fn custom_wires(cfg: &Value, protocol: &Protocol, protocol_wire: Wire) -> Result
 }
 
 /// `normalizeModelWires`: the per-model wire override, each one of the served wires.
-fn custom_model_wires(
-    cfg: &Value,
-    protocol: &Protocol,
-    served: &[Wire],
-) -> Result<std::collections::HashMap<String, Wire>, String> {
+fn custom_model_wires(cfg: &Value, protocol: &Protocol, served: &[Wire]) -> Result<std::collections::HashMap<String, Wire>, String> {
     let mut out = std::collections::HashMap::new();
     let Some(raw) = cfg.get("modelWires") else { return Ok(out) };
     if *protocol == Protocol::Anthropic {
@@ -714,10 +709,7 @@ fn custom_model_wires(
         let wire = wire.as_str().and_then(wire_of_name).filter(|w| served.contains(w));
         let Some(wire) = wire else {
             let names: Vec<&str> = CUSTOM_WIRE_ORDER.iter().filter(|(_, w)| served.contains(w)).map(|(n, _)| *n).collect();
-            return Err(custom_invalid(&format!(
-                "modelWires[{model}] must be one of the served wires: {}",
-                names.join(", ")
-            )));
+            return Err(custom_invalid(&format!("modelWires[{model}] must be one of the served wires: {}", names.join(", "))));
         };
         out.insert(model.clone(), wire);
     }
@@ -799,9 +791,7 @@ impl CredentialSource for OpenAiKey {
 }
 
 fn now_ms_u64() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 fn adapter<T: ProviderAdapter + 'static>(a: T) -> Arc<dyn ProviderAdapter> {
@@ -890,41 +880,33 @@ impl DefaultProviderBuilder {
         let (transport, mode) = openai_transport(self.env.env.var("MIXDOG_OAI_TRANSPORT"));
         let (config, credentials): (OpenAiConfig, Arc<dyn CredentialSource>) = if name == "openai" {
             let store = flag(cfg, "store").unwrap_or(true)
-                && !self.env.env.var("MIXDOG_OAI_STORE").is_some_and(|raw| {
-                    matches!(mixdog_js::js_trim(&raw).to_ascii_lowercase().as_str(), "0" | "false" | "off" | "no")
-                });
-            (
-                OpenAiConfig::api_key(store, facts, context),
-                Arc::new(OpenAiKey(self.key_source(name, cfg))),
-            )
+                && !self
+                    .env
+                    .env
+                    .var("MIXDOG_OAI_STORE")
+                    .is_some_and(|raw| matches!(mixdog_js::js_trim(&raw).to_ascii_lowercase().as_str(), "0" | "false" | "off" | "no"));
+            (OpenAiConfig::api_key(store, facts, context), Arc::new(OpenAiKey(self.key_source(name, cfg))))
         } else {
-            (
-                OpenAiConfig::codex(false, self.env.codex_identity.clone(), facts, context),
-                Arc::new(OpenAiOAuth::new(self.file(name)?, self.env.http.clone())),
-            )
+            (OpenAiConfig::codex(false, self.env.codex_identity.clone(), facts, context), Arc::new(OpenAiOAuth::new(self.file(name)?, self.env.http.clone())))
         };
-        Ok(adapter(OpenAiAdapter::new(
-            ProviderId::from(name),
-            OpenAiCodec::new(config.with_prompt_cache_lanes(cfg), transport),
-            AdapterLinks {
-                http: self.env.http.clone(),
-                dial: self.env.dial.clone(),
-                compress_lane: self.env.gzip_lane,
-                credentials,
-                context: self.env.openai_context.clone(),
-                listing: self.env.listing.clone(),
-            },
-        )
-        .with_mode(mode)))
+        Ok(adapter(
+            OpenAiAdapter::new(
+                ProviderId::from(name),
+                OpenAiCodec::new(config.with_prompt_cache_lanes(cfg), transport),
+                AdapterLinks {
+                    http: self.env.http.clone(),
+                    dial: self.env.dial.clone(),
+                    compress_lane: self.env.gzip_lane,
+                    credentials,
+                    context: self.env.openai_context.clone(),
+                    listing: self.env.listing.clone(),
+                },
+            )
+            .with_mode(mode),
+        ))
     }
 
-    fn compat_config(
-        &self,
-        profile: &CompatProfile,
-        cfg: &Value,
-        base_url: Option<String>,
-        login_headers: Vec<(String, String)>,
-    ) -> CompatConfig {
+    fn compat_config(&self, profile: &CompatProfile, cfg: &Value, base_url: Option<String>, login_headers: Vec<(String, String)>) -> CompatConfig {
         let mut extra_headers = string_pairs(cfg, "extraHeaders");
         extra_headers.extend(login_headers);
         CompatConfig {
@@ -958,9 +940,7 @@ impl DefaultProviderBuilder {
         // The Anthropic SDK's `accept`, which the gateway engines send ahead of their own headers.
         config.extra_headers = std::iter::once(("accept".to_owned(), "application/json".to_owned())).chain(headers).collect();
         config.listing = self.env.listing.clone();
-        let policy = AnthropicAdapter::api_key(config.clone(), http.clone(), Arc::new(FixedKey(String::new())), self.env.gzip_lane)
-            .retry_policy()
-            .clone();
+        let policy = AnthropicAdapter::api_key(config.clone(), http.clone(), Arc::new(FixedKey(String::new())), self.env.gzip_lane).retry_policy().clone();
         // What each gateway's Messages engine declares (`openrouter.mjs` `nativePdf: true`, `deepseek.mjs` `nativePdf` and
         // `nativeDocuments: false`; `wire-gateway.mjs:64`, `opencode-go.mjs`, `command-code-oauth.mjs:109` take a PDF as text).
         let media = match name {
@@ -974,9 +954,7 @@ impl DefaultProviderBuilder {
     }
 
     fn xai_config_value(cfg: &Value, primary: &str, legacy: &str) -> Option<String> {
-        cfg.get(primary).filter(|value| !value.is_null())
-            .or_else(|| cfg.get(legacy).filter(|value| !value.is_null()))
-            .map(mixdog_js::value_to_string)
+        cfg.get(primary).filter(|value| !value.is_null()).or_else(|| cfg.get(legacy).filter(|value| !value.is_null())).map(mixdog_js::value_to_string)
     }
 
     /// The provider default; the gateway applies any per-request override.
@@ -993,21 +971,9 @@ impl DefaultProviderBuilder {
             "xai" => (CompatProfile::xai(), self.key_source(name, cfg), None),
             "deepseek" => (CompatProfile::deepseek(), self.key_source(name, cfg), None),
             "openrouter" => (CompatProfile::openrouter(), self.key_source(name, cfg), None),
-            "mimo-oauth" => (
-                CompatProfile::mimo_oauth(),
-                Arc::new(MimoKey { file: self.file(name)?, http: self.env.http.clone() }),
-                None,
-            ),
-            "command-code-oauth" => (
-                CompatProfile::command_code_oauth(),
-                Arc::new(FileKey { file: self.file(name)?, provider: "command-code-oauth" }),
-                None,
-            ),
-            "muse-code-oauth" => (
-                CompatProfile::muse_code_oauth(),
-                Arc::new(FileKey { file: self.file(name)?, provider: "muse-code-oauth" }),
-                None,
-            ),
+            "mimo-oauth" => (CompatProfile::mimo_oauth(), Arc::new(MimoKey { file: self.file(name)?, http: self.env.http.clone() }), None),
+            "command-code-oauth" => (CompatProfile::command_code_oauth(), Arc::new(FileKey { file: self.file(name)?, provider: "command-code-oauth" }), None),
+            "muse-code-oauth" => (CompatProfile::muse_code_oauth(), Arc::new(FileKey { file: self.file(name)?, provider: "muse-code-oauth" }), None),
             "opencode-go-oauth" => {
                 let file = self.file(name)?;
                 // The org the login named rides every request (`x-org-id`); a
@@ -1030,8 +996,7 @@ impl DefaultProviderBuilder {
         let defaults: Vec<(String, String)> =
             profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).chain(config.extra_headers.iter().cloned()).collect();
         let http: Arc<dyn crate::transport::HttpSend> = Arc::new(GatewayHttp::new(self.env.http.clone()).through_sdk(Sdk::OpenAi, &defaults));
-        let codec = CompatChatCodec::new(profile.clone(), config.clone())
-            .with_cache_control(flag(cfg, "chatCacheControl"));
+        let codec = CompatChatCodec::new(profile.clone(), config.clone()).with_cache_control(flag(cfg, "chatCacheControl"));
         let chat_base = codec.base_url().to_owned();
         let model_wires = cfg
             .get("modelWires")
@@ -1054,15 +1019,14 @@ impl DefaultProviderBuilder {
             self.declare(name, account.clone());
         }
         let responses = || -> Arc<dyn ProviderAdapter> {
-            let codec = CompatResponsesCodec::new(profile.clone(), config.clone(), TransportKind::Http1)
-                .with_prompt_cache_key(flag(cfg, "responsesPromptCacheKey"));
+            let codec =
+                CompatResponsesCodec::new(profile.clone(), config.clone(), TransportKind::Http1).with_prompt_cache_key(flag(cfg, "responsesPromptCacheKey"));
             Arc::new(ResponsesEngine::new(account.clone(), codec))
         };
         let xai_responses = || -> Arc<dyn ProviderAdapter> {
             let codec = CompatResponsesCodec::new(profile.clone(), config.clone(), TransportKind::Http1);
             let transport = Self::xai_config_value(cfg, "responsesTransport", "transport");
-            Arc::new(ResponsesEngine::new(account.clone(), codec)
-                .with_xai_websocket(self.env.dial.clone(), transport, self.env.env.clone()))
+            Arc::new(ResponsesEngine::new(account.clone(), codec).with_xai_websocket(self.env.dial.clone(), transport, self.env.env.clone()))
         };
         // The gateway's own identifying headers, then the user's (`extraHeaders`), ride every wire.
         let mut identifying: Vec<(String, String)> =
@@ -1113,7 +1077,14 @@ impl DefaultProviderBuilder {
                         Some(if reasoning["enabled"] == false { "none".to_owned() } else { reasoning["effort"].as_str()?.to_owned() })
                     }));
                 };
-                let engine = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("authorization", true), identifying.clone(), Arc::new(anthropic_http()), &tune);
+                let engine = self.gateway_messages_engine(
+                    name,
+                    messages_base(&chat_base),
+                    keyed("authorization", true),
+                    identifying.clone(),
+                    Arc::new(anthropic_http()),
+                    &tune,
+                );
                 (vec![(Wire::Messages, Arc::new(engine)), (Wire::Responses, responses())], WirePick::Routed, false)
             }
             "command-code-oauth" => {
@@ -1123,19 +1094,25 @@ impl DefaultProviderBuilder {
                 (vec![(Wire::Messages, Arc::new(engine)), (Wire::Responses, responses())], WirePick::Routed, false)
             }
             "opencode-go-oauth" => {
-                let messages = self.gateway_messages_engine(name, messages_base(&chat_base), keyed("x-api-key", false), identifying.clone(), Arc::new(anthropic_http()), &untuned);
+                let messages = self.gateway_messages_engine(
+                    name,
+                    messages_base(&chat_base),
+                    keyed("x-api-key", false),
+                    identifying.clone(),
+                    Arc::new(anthropic_http()),
+                    &untuned,
+                );
                 // The generateContent routes live under `.../go/v1`, not the organization's chat base
                 // (`opencode-go.mjs` `_geminiEngine`); the Gemini codec writes `/v1beta`.
                 let origin = chat_base.strip_suffix("/openai/v1").unwrap_or(&chat_base).to_owned();
-                let gemini_http: Arc<dyn crate::transport::HttpSend> =
-                    Arc::new(
-                        GatewayHttp::new(self.env.http.clone())
-                            .moving_path("/v1beta/models/", "/v1/models/")
-                            .plain_system_instruction()
-                            .with_headers(identifying.clone())
-                            // `originBoundFetch`: the Gemini engine never follows a redirect either.
-                            .refusing_redirects_as("opencode-go"),
-                    );
+                let gemini_http: Arc<dyn crate::transport::HttpSend> = Arc::new(
+                    GatewayHttp::new(self.env.http.clone())
+                        .moving_path("/v1beta/models/", "/v1/models/")
+                        .plain_system_instruction()
+                        .with_headers(identifying.clone())
+                        // `originBoundFetch`: the Gemini engine never follows a redirect either.
+                        .refusing_redirects_as("opencode-go"),
+                );
                 let gemini = google::adapter::GoogleAdapter::new(
                     google::codec::GoogleCodec::gemini(origin, self.env.google_traits.clone()).with_error_label("OpenCode Go Gemini streamGenerateContent"),
                     google::policy::gemini(),
@@ -1192,13 +1169,7 @@ impl DefaultProviderBuilder {
     async fn gcloud_config_project(&self) -> Option<String> {
         let dir = self.gcloud_dir();
         let named = self.env.env.var("CLOUDSDK_ACTIVE_CONFIG_NAME").map(|v| v.trim().to_owned()).unwrap_or_default();
-        self.env
-            .io
-            .read_job(move |_| Ok(read_gcloud_project(&dir, named)))
-            .await
-            .ok()
-            .flatten()
-            .filter(|p| !p.is_empty())
+        self.env.io.read_job(move |_| Ok(read_gcloud_project(&dir, named))).await.ok().flatten().filter(|p| !p.is_empty())
     }
 
     /// `adcLocation` + `readAdcFile`: `GOOGLE_APPLICATION_CREDENTIALS`, when
@@ -1306,9 +1277,7 @@ impl DefaultProviderBuilder {
             if key.trim().is_empty() {
                 return Err("[vertex-ai] the Vertex AI API key is not configured".into());
             }
-            return Ok(adapter(
-                google::vertex_express_at(key.trim(), text(cfg, "location"), http, traits).with_listing_lookup(self.env.listing.clone()),
-            ));
+            return Ok(adapter(google::vertex_express_at(key.trim(), text(cfg, "location"), http, traits).with_listing_lookup(self.env.listing.clone())));
         }
         let credential = if mode == Some("adc") {
             match self.adc_text().await? {
@@ -1326,8 +1295,9 @@ impl DefaultProviderBuilder {
             // A service-account key names its own project; the gcloud login
             // takes the environment, the file's quota project, then gcloud's
             // configured project.
-            None if mode != Some("adc") => vertex::resolve_project(&credential, &|n| env.var(n))
-                .ok_or_else(|| "[vertex-ai] no Google Cloud project is configured".to_owned())?,
+            None if mode != Some("adc") => {
+                vertex::resolve_project(&credential, &|n| env.var(n)).ok_or_else(|| "[vertex-ai] no Google Cloud project is configured".to_owned())?
+            }
             None => match vertex::resolve_project(&credential, &|n| env.var(n)) {
                 Some(p) => p,
                 None => self.gcloud_config_project().await.ok_or_else(|| {
@@ -1351,11 +1321,7 @@ impl DefaultProviderBuilder {
     /// variables, then the one the server names.
     async fn build_vertex_metadata(&self, cfg: &Value) -> Result<Arc<dyn ProviderAdapter>, String> {
         let http = self.env.http.clone();
-        let found = self
-            .metadata_project
-            .get_or_init(|| async { vertex_metadata::probe_project(&self.env.http).await })
-            .await
-            .clone();
+        let found = self.metadata_project.get_or_init(|| async { vertex_metadata::probe_project(&self.env.http).await }).await.clone();
         let Some(served) = found else {
             return Err(format!("No gcloud login found. {ADC_LOGIN_HINT}"));
         };
@@ -1363,23 +1329,21 @@ impl DefaultProviderBuilder {
         let project = match text(cfg, "projectId") {
             Some(p) if p.len() <= 128 && p.chars().all(|c| c.is_ascii_alphanumeric() || "._:-".contains(c)) => p.to_owned(),
             Some(_) => return Err("[vertex-ai] project ID override is invalid".into()),
-            None => vertex::PROJECT_ENV
-                .iter()
-                .find_map(|name| env.var(name).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()))
-                .unwrap_or(served.clone()),
+            None => vertex::PROJECT_ENV.iter().find_map(|name| env.var(name).map(|v| v.trim().to_owned()).filter(|v| !v.is_empty())).unwrap_or(served.clone()),
         };
-        let place = VertexPlace::project(project, text(cfg, "location"), None)
-            .with_gcloud_principal("The metadata server's service account");
+        let place = VertexPlace::project(project, text(cfg, "location"), None).with_gcloud_principal("The metadata server's service account");
         let auth = vertex_metadata::MetadataAuth::new(http.clone(), &served, Box::new(now_ms_u64));
         let identity = auth.identity().to_owned();
         Ok(self.project_vertex(place, Arc::new(auth), identity))
     }
 
     fn project_vertex(&self, place: VertexPlace, auth: Arc<dyn RequestAuth>, identity: String) -> Arc<dyn ProviderAdapter> {
-        adapter(google::vertex(place, auth, identity, self.env.http.clone(), self.env.google_traits.clone(), self.env.anthropic_caps.clone())
-            .with_vertex_environment(self.env.env.clone())
-            .with_listing_lookup(self.env.listing.clone())
-            .with_images(self.fitter()))
+        adapter(
+            google::vertex(place, auth, identity, self.env.http.clone(), self.env.google_traits.clone(), self.env.anthropic_caps.clone())
+                .with_vertex_environment(self.env.env.clone())
+                .with_listing_lookup(self.env.listing.clone())
+                .with_images(self.fitter()),
+        )
     }
 
     async fn build_antigravity(&self, name: &str) -> Result<Arc<dyn ProviderAdapter>, String> {
@@ -1463,10 +1427,13 @@ impl DefaultProviderBuilder {
             };
             Arc::new(CustomKey { source, env: text(cfg, "apiKeyEnv").map(str::to_owned), header, bearer, refreshable })
         };
-        let retry = CompatProfile::plain("custom", "http://127.0.0.1/v1", crate::providers::compat::profile::CredentialKind::Keyless)
-            .retry_policy();
+        let retry = CompatProfile::plain("custom", "http://127.0.0.1/v1", crate::providers::compat::profile::CredentialKind::Keyless).retry_policy();
         let request = CustomRequestConfig {
-            base_url: base_url.clone(), headers, request_body, model_body, model_headers,
+            base_url: base_url.clone(),
+            headers,
+            request_body,
+            model_body,
+            model_headers,
             responses_prompt_cache_key: flag(entry, "responsesPromptCacheKey"),
         };
         let mut engines: Vec<(Wire, Arc<dyn ProviderAdapter>)> = Vec::new();
@@ -1487,16 +1454,11 @@ impl DefaultProviderBuilder {
         ));
         // Every wire's reasoning follows the model's own row (`getCachedModelInfo`) at the turn's effort, else the
         // provider's `reasoningEffort`; the Chat wire also replays the model's reasoning as the row says.
-        let reasoning = custom::ReasoningSource {
-            rows: handle.clone(),
-            configured: text(cfg, "reasoningEffort").map(str::to_owned),
-            base_url: base_url.clone(),
-        };
+        let reasoning =
+            custom::ReasoningSource { rows: handle.clone(), configured: text(cfg, "reasoningEffort").map(str::to_owned), base_url: base_url.clone() };
         let replay = {
             let reasoning = reasoning.clone();
-            crate::providers::compat::chat::CustomReplay(Arc::new(move |request: &ModelRequest| {
-                reasoning.resolve(&Protocol::OpenaiChat, request).replay
-            }))
+            crate::providers::compat::chat::CustomReplay(Arc::new(move |request: &ModelRequest| reasoning.resolve(&Protocol::OpenaiChat, request).replay))
         };
         for wire in &served {
             // The provider lists its models once, through the engine of its protocol's wire.
@@ -1531,9 +1493,7 @@ impl DefaultProviderBuilder {
                         None => engine,
                     };
                     if *other == Wire::Responses {
-                        Arc::new(custom::responses::ResponsesAdapter::new(
-                            engine, reasoning.clone(), self.custom_rejected_history.clone(),
-                        ))
+                        Arc::new(custom::responses::ResponsesAdapter::new(engine, reasoning.clone(), self.custom_rejected_history.clone()))
                     } else {
                         Arc::new(engine)
                     }
@@ -1584,14 +1544,8 @@ impl DefaultProviderBuilder {
         // The Anthropic SDK's own `accept`.
         config.extra_headers = vec![("accept".to_owned(), "application/json".to_owned())];
         // The Anthropic engine's retry rows, read off an adapter built the same way.
-        let policy = AnthropicAdapter::api_key(
-            config.clone(),
-            self.env.http.clone(),
-            Arc::new(FixedKey(String::new())),
-            self.env.gzip_lane,
-        )
-        .retry_policy()
-        .clone();
+        let policy =
+            AnthropicAdapter::api_key(config.clone(), self.env.http.clone(), Arc::new(FixedKey(String::new())), self.env.gzip_lane).retry_policy().clone();
         let codec = AnthropicCodec::new(Flavor::ApiKey, config);
         let rewriter = CustomRewriter { config: request.clone(), wire: Protocol::Anthropic, reasoning: reasoning.clone() };
         HttpAdapter::new(
@@ -1612,21 +1566,11 @@ impl DefaultProviderBuilder {
             Arc::new(ApiKeyAccess::new(http.clone(), key, slot))
         } else {
             // `CURSOR_ACCESS_TOKEN` stands in for the default account's file only.
-            let env_token = if self.fixed_account.as_deref().is_none_or(|account| account == "default") {
-                self.env.env.key_var("CURSOR_ACCESS_TOKEN")
-            } else {
-                None
-            };
+            let env_token =
+                if self.fixed_account.as_deref().is_none_or(|account| account == "default") { self.env.env.key_var("CURSOR_ACCESS_TOKEN") } else { None };
             Arc::new(FileAccess::new(http.clone(), self.file(name)?).with_env_token(env_token))
         };
-        let built = Arc::new(CursorAdapter::new(
-            name,
-            None,
-            self.env.cursor_client_version.clone(),
-            http,
-            self.env.bidi.clone(),
-            tokens,
-        ));
+        let built = Arc::new(CursorAdapter::new(name, None, self.env.cursor_client_version.clone(), http, self.env.bidi.clone(), tokens));
         self.declare(name, built.clone());
         Ok(built)
     }
@@ -1644,8 +1588,9 @@ impl DefaultProviderBuilder {
             "gemini" => self.build_gemini(name, cfg).await,
             "vertex-ai" => self.build_vertex(name, cfg).await,
             "antigravity-oauth" => self.build_antigravity(name).await,
-            "xai" | "deepseek" | "openrouter" | "mimo-oauth" | "command-code-oauth" | "muse-code-oauth"
-            | "opencode-go-oauth" => self.build_compat(name, cfg).await,
+            "xai" | "deepseek" | "openrouter" | "mimo-oauth" | "command-code-oauth" | "muse-code-oauth" | "opencode-go-oauth" => {
+                self.build_compat(name, cfg).await
+            }
             "grok-oauth" => {
                 let credential = Arc::new(GrokCredential::new(self.env.http.clone(), self.file(name)?).with_pace(self.env.pace.clone()));
                 let retry = CompatProfile::xai().retry_policy();
@@ -1662,11 +1607,8 @@ impl DefaultProviderBuilder {
             }
             "cursor-oauth" | "cursor-api" => self.build_cursor(name, cfg).await,
             "devin-oauth" => {
-                let built = Arc::new(DevinAdapter::new(
-                    text(cfg, "baseUrl").map(str::to_owned),
-                    self.env.http.clone(),
-                    Arc::new(FileSessionToken(self.file(name)?)),
-                ));
+                let built =
+                    Arc::new(DevinAdapter::new(text(cfg, "baseUrl").map(str::to_owned), self.env.http.clone(), Arc::new(FileSessionToken(self.file(name)?))));
                 self.declare(name, built.clone());
                 Ok(built)
             }
@@ -1676,7 +1618,10 @@ impl DefaultProviderBuilder {
                     // The installed models are read once now, so `getCachedModelInfo` has its answer from the moment the
                     // provider exists (Node reads the disk on every call); a failed read leaves it a miss until the next.
                     let _ = runtime.installed().await;
-                    let built = Arc::new(crate::providers::local::RegisteredAdapter::new(self.env.http.clone(), runtime.clone()).with_extra_headers(string_pairs(cfg, "extraHeaders")));
+                    let built = Arc::new(
+                        crate::providers::local::RegisteredAdapter::new(self.env.http.clone(), runtime.clone())
+                            .with_extra_headers(string_pairs(cfg, "extraHeaders")),
+                    );
                     self.declare(name, built.clone());
                     Ok(built)
                 }
@@ -1766,10 +1711,7 @@ impl super::key_pool::AccountEngines for OAuthEngines {
         builder.images = self.images.clone();
         builder.fixed_account = Some(account.to_owned());
         builder.account_models = self.models.clone();
-        let engine = builder
-            .build_engine(&self.provider, &self.cfg)
-            .await
-            .map_err(|message| super::key_pool::plain(ErrorKind::Unknown, None, message))?;
+        let engine = builder.build_engine(&self.provider, &self.cfg).await.map_err(|message| super::key_pool::plain(ErrorKind::Unknown, None, message))?;
         self.built.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(account.to_owned(), engine.clone());
         Ok(engine)
     }

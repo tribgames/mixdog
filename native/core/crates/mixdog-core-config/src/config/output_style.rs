@@ -113,17 +113,13 @@ impl OutputStyles {
 }
 
 fn status_of(configured: &str, styles: &[Style]) -> Value {
-    let current = find(configured, styles)
-        .or_else(|| find(DEFAULT_STYLE, styles))
-        .or(styles.first())
-        .cloned()
-        .unwrap_or_else(|| Style {
-            id: DEFAULT_STYLE.into(),
-            label: title_case(DEFAULT_STYLE),
-            description: String::new(),
-            aliases: Vec::new(),
-            source: "builtin",
-        });
+    let current = find(configured, styles).or_else(|| find(DEFAULT_STYLE, styles)).or(styles.first()).cloned().unwrap_or_else(|| Style {
+        id: DEFAULT_STYLE.into(),
+        label: title_case(DEFAULT_STYLE),
+        description: String::new(),
+        aliases: Vec::new(),
+        source: "builtin",
+    });
     json!({
         "configured": configured,
         "current": current.json(),
@@ -243,10 +239,7 @@ fn find<'a>(value: &str, styles: &'a [Style]) -> Option<&'a Style> {
         return None;
     }
     styles.iter().find(|style| {
-        style.id == id
-            || compact(&style.id) == key
-            || compact(&style.label) == key
-            || style.aliases.iter().any(|alias| *alias == id || compact(alias) == key)
+        style.id == id || compact(&style.id) == key || compact(&style.label) == key || style.aliases.iter().any(|alias| *alias == id || compact(alias) == key)
     })
 }
 
@@ -267,15 +260,7 @@ pub fn style_slug(value: &str) -> String {
         }
     }
     let slug = slug.trim_matches('-');
-    if !slug.is_empty()
-        && slug
-            .bytes()
-            .all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-'))
-    {
-        slug.to_owned()
-    } else {
-        String::new()
-    }
+    if !slug.is_empty() && slug.bytes().all(|b| matches!(b, b'a'..=b'z' | b'0'..=b'9' | b'.' | b'-')) { slug.to_owned() } else { String::new() }
 }
 
 #[cfg(test)]

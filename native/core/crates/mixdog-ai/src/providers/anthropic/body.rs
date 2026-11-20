@@ -97,11 +97,7 @@ pub struct CacheStrategy {
 
 impl Default for CacheStrategy {
     fn default() -> Self {
-        Self {
-            system: Some(CacheTtl::OneHour),
-            tier3: Some(CacheTtl::OneHour),
-            messages: Some(CacheTtl::FiveMinutes),
-        }
+        Self { system: Some(CacheTtl::OneHour), tier3: Some(CacheTtl::OneHour), messages: Some(CacheTtl::FiveMinutes) }
     }
 }
 
@@ -193,16 +189,12 @@ const SERVER_FALLBACK_FAMILIES: [&str; 2] = ["claude-opus-5", "claude-fable-5"];
 /// Node's `supportsAnthropicTurnScopedSystemMessages` (a family floor), unless the model rejected
 /// turn-scoped system messages on this route in this process (`anthropicTurnScopedReminders`).
 pub(super) fn turn_scoped_model(provider: &str, model: &str) -> bool {
-    claude_floors::supports_turn_scoped_system_messages(model)
-        && claude_floors::enabled(claude_floors::Feature::TurnScopedSystem, provider, model)
+    claude_floors::supports_turn_scoped_system_messages(model) && claude_floors::enabled(claude_floors::Feature::TurnScopedSystem, provider, model)
 }
 
 fn server_fallback(cfg: &BodyConfig<'_>, model: &str, parameters: Option<&Value>) -> bool {
     let key = effort_updates::model_key(model);
-    let family = SERVER_FALLBACK_FAMILIES.iter().any(|family| {
-        key.strip_prefix(family)
-            .is_some_and(|rest| rest.is_empty() || rest.starts_with(['-', '@']))
-    });
+    let family = SERVER_FALLBACK_FAMILIES.iter().any(|family| key.strip_prefix(family).is_some_and(|rest| rest.is_empty() || rest.starts_with(['-', '@'])));
     family
         && !cfg.custom_endpoint
         && parameters.and_then(|p| p.get("serverFallback")) != Some(&Value::Bool(false))
@@ -258,9 +250,7 @@ fn system_items(request: &ModelRequest) -> Result<Vec<(String, Tier)>, ProviderE
                     match part {
                         ContentPart::Text(text, _) => push(text),
                         _ => {
-                            return Err(local_error(
-                                "Anthropic system instructions must be text",
-                            ));
+                            return Err(local_error("Anthropic system instructions must be text"));
                         }
                     }
                 }
@@ -312,10 +302,7 @@ fn is_cache_eligible(block: &Value) -> bool {
     match block.get("type").and_then(Value::as_str) {
         _ if !block.is_object() => false,
         Some("thinking" | "redacted_thinking") => false,
-        Some("text") => block
-            .get("text")
-            .and_then(Value::as_str)
-            .is_some_and(|t| !t.trim().is_empty()),
+        Some("text") => block.get("text").and_then(Value::as_str).is_some_and(|t| !t.trim().is_empty()),
         _ => true,
     }
 }
@@ -329,9 +316,7 @@ fn last_eligible_block(content: &WireContent) -> Option<usize> {
 
 /// A turn-scoped system message rejects `cache_control`, and an effort control has no block to mark.
 fn last_markable_message(messages: &[WireMessage]) -> Option<usize> {
-    messages
-        .iter()
-        .rposition(|m| m.role != "system" && last_eligible_block(&m.content).is_some())
+    messages.iter().rposition(|m| m.role != "system" && last_eligible_block(&m.content).is_some())
 }
 
 /// The breakpoint on the last message that has an eligible block.
@@ -424,11 +409,7 @@ pub(crate) fn sanitize_input_schema(schema: &Value) -> Value {
     }
     let mut branch_descriptions: Vec<String> = Vec::new();
     for raw in map[key].as_array().into_iter().flatten() {
-        let branch = if conjunctive && raw.get("allOf").is_some_and(truthy) {
-            sanitize_input_schema(raw)
-        } else {
-            raw.clone()
-        };
+        let branch = if conjunctive && raw.get("allOf").is_some_and(truthy) { sanitize_input_schema(raw) } else { raw.clone() };
         let Some(branch_map) = branch.as_object() else {
             continue;
         };
@@ -516,19 +497,12 @@ fn native_provider(provider: &str) -> bool {
 /// Why the Messages wire leaves `tool` out of a request (`anthropicToolExclusion`), or `None`
 /// when it is sent. Reports nothing.
 pub fn anthropic_tool_exclusion(tool: &ToolDefinition, provider: &str) -> Option<ToolExclusion> {
-    input_schema(tool, native_provider(provider))
-        .err()
-        .map(|problem| exclusion(&tool.name, 0, problem, &format!("[{provider}] tool")))
+    input_schema(tool, native_provider(provider)).err().map(|problem| exclusion(&tool.name, 0, problem, &format!("[{provider}] tool")))
 }
 
 /// A Messages endpoint rejects the whole request for one invalid `input_schema`, so a tool that is
 /// broken even after lowering is reported (`excluded`) and left out (`toAnthropicTools`).
-pub(crate) fn wire_tools(
-    tools: &[ToolDefinition],
-    provider: &str,
-    eager: bool,
-    excluded: &mut dyn FnMut(ToolExclusion),
-) -> Vec<Value> {
+pub(crate) fn wire_tools(tools: &[ToolDefinition], provider: &str, eager: bool, excluded: &mut dyn FnMut(ToolExclusion)) -> Vec<Value> {
     let source = format!("[{provider}] tool");
     tools
         .iter()
@@ -588,10 +562,7 @@ fn max_tokens(cfg: &BodyConfig<'_>, request: &ModelRequest) -> u32 {
     if let Some(over) = options.max_output_tokens_override.filter(|v| *v > 0) {
         return over;
     }
-    let declared = options
-        .model_max_output_tokens
-        .filter(|v| *v > 0)
-        .or_else(|| cfg.caps.and_then(|c| c.max_output_tokens).filter(|v| *v > 0));
+    let declared = options.model_max_output_tokens.filter(|v| *v > 0).or_else(|| cfg.caps.and_then(|c| c.max_output_tokens).filter(|v| *v > 0));
     match (cfg.max_output_tokens, declared) {
         (Some(configured), Some(declared)) => configured.min(declared),
         (Some(configured), None) => configured,
@@ -648,9 +619,7 @@ fn normalize_effort(raw: &str, caps: &ModelCaps) -> Option<&'static str> {
     if level == "max" && !(caps.has_level("max") || caps.has_level("xhigh")) {
         return Some("high");
     }
-    ["low", "medium", "high", "xhigh", "max"]
-        .into_iter()
-        .find(|known| *known == level)
+    ["low", "medium", "high", "xhigh", "max"].into_iter().find(|known| *known == level)
 }
 
 #[derive(Default)]
@@ -674,49 +643,26 @@ impl Reasoning {
 fn custom_reasoning(fields: &Map<String, Value>) -> Reasoning {
     let output_config = fields.get("output_config").cloned();
     let effort = output_config.as_ref().and_then(|c| c.get("effort")).and_then(Value::as_str);
-    Reasoning {
-        effort_beta: effort.is_some_and(|e| !e.is_empty()),
-        thinking: fields.get("thinking").cloned(),
-        output_config,
-        display_updates: false,
-    }
+    Reasoning { effort_beta: effort.is_some_and(|e| !e.is_empty()), thinking: fields.get("thinking").cloned(), output_config, display_updates: false }
 }
 
 fn manual_budget(request: &ModelRequest) -> Option<u64> {
-    request
-        .options
-        .model_parameters
-        .as_ref()
-        .and_then(|p| p.get("thinkingBudgetTokens"))
-        .and_then(Value::as_u64)
-        .filter(|b| *b > 0)
+    request.options.model_parameters.as_ref().and_then(|p| p.get("thinkingBudgetTokens")).and_then(Value::as_u64).filter(|b| *b > 0)
 }
 
 /// `effort` is the turn's effort: the request's, or the projection's initial
 /// one when updates carry the changes after it.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-fn reasoning(
-    cfg: &BodyConfig<'_>,
-    request: &ModelRequest,
-    effort: Option<&str>,
-    max_tokens: u32,
-) -> Result<Reasoning, ProviderError> {
+fn reasoning(cfg: &BodyConfig<'_>, request: &ModelRequest, effort: Option<&str>, max_tokens: u32) -> Result<Reasoning, ProviderError> {
     let Some(caps) = cfg.caps else {
         return Ok(Reasoning::default());
     };
     if let Some(budget) = manual_budget(request) {
         if !caps.manual_thinking {
-            return Err(local_error(format!(
-                "{} does not support thinkingBudgetTokens; use effort with adaptive thinking instead.",
-                request.model
-            )));
+            return Err(local_error(format!("{} does not support thinkingBudgetTokens; use effort with adaptive thinking instead.", request.model)));
         }
-        let thinking = clamp_thinking_budget(budget, max_tokens)
-            .map(|b| json!({ "type": "enabled", "budget_tokens": b }));
-        return Ok(Reasoning {
-            thinking,
-            ..Reasoning::default()
-        });
+        let thinking = clamp_thinking_budget(budget, max_tokens).map(|b| json!({ "type": "enabled", "budget_tokens": b }));
+        return Ok(Reasoning { thinking, ..Reasoning::default() });
     }
     let effort = effort.and_then(|raw| normalize_effort(raw, caps));
     if caps.adaptive_thinking && caps.supports_effort() {
@@ -724,34 +670,17 @@ fn reasoning(
         let display_updates = (cfg.flavor == Flavor::OAuth || cfg.beta_headers)
             && caps.thinking_display_updates
             && claude_floors::enabled(claude_floors::Feature::ProgressUpdates, cfg.provider_name, &request.model);
-        let thinking = if display_updates {
-            json!({ "type": "adaptive", "display": "updates" })
-        } else {
-            json!({ "type": "adaptive" })
-        };
-        return Ok(Reasoning {
-            output_config: effort.map(|level| json!({ "effort": level })),
-            thinking: Some(thinking),
-            effort_beta: true,
-            display_updates,
-        });
+        let thinking = if display_updates { json!({ "type": "adaptive", "display": "updates" }) } else { json!({ "type": "adaptive" }) };
+        return Ok(Reasoning { output_config: effort.map(|level| json!({ "effort": level })), thinking: Some(thinking), effort_beta: true, display_updates });
     }
     let Some(level) = effort else {
         return Ok(Reasoning::default());
     };
     if !caps.manual_thinking {
-        return Err(local_error(format!(
-            "{} does not support thinkingBudgetTokens; use effort with adaptive thinking instead.",
-            request.model
-        )));
+        return Err(local_error(format!("{} does not support thinkingBudgetTokens; use effort with adaptive thinking instead.", request.model)));
     }
-    let thinking = legacy_effort_budget(level)
-        .and_then(|b| clamp_thinking_budget(b, max_tokens))
-        .map(|b| json!({ "type": "enabled", "budget_tokens": b }));
-    Ok(Reasoning {
-        thinking,
-        ..Reasoning::default()
-    })
+    let thinking = legacy_effort_budget(level).and_then(|b| clamp_thinking_budget(b, max_tokens)).map(|b| json!({ "type": "enabled", "budget_tokens": b }));
+    Ok(Reasoning { thinking, ..Reasoning::default() })
 }
 
 // ---------------------------------------------------------------------------
@@ -766,11 +695,7 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
     let reserved = system.iter().filter(|b| b.get("cache_control").is_some()).count();
 
     let available: HashSet<String> = request.tools.iter().map(|t| t.name.trim().to_owned()).collect();
-    let context = LowerContext {
-        owner: cfg.owner,
-        own_provider: cfg.provider_name,
-        available_tools: &available,
-    };
+    let context = LowerContext { owner: cfg.owner, own_provider: cfg.provider_name, available_tools: &available };
     let updates = request.options.effort_projection.as_ref().filter(|_| {
         effort_updates::enabled(
             cfg.provider_name,
@@ -790,12 +715,8 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
     let lower = |source: &[Message]| {
         let lowered = match updates {
             Some(projection) => {
-                let kept: BTreeMap<usize, String> = projection
-                    .updates
-                    .iter()
-                    .filter(|(index, _)| **index < source.len())
-                    .map(|(index, effort)| (*index, effort.clone()))
-                    .collect();
+                let kept: BTreeMap<usize, String> =
+                    projection.updates.iter().filter(|(index, _)| **index < source.len()).map(|(index, effort)| (*index, effort.clone())).collect();
                 lower_with_updates(source, &kept, &context)
             }
             None if turn_scoped => turn_scoped_layout(lower_messages(source, &context)),
@@ -829,28 +750,12 @@ pub(crate) fn build_body(cfg: &BodyConfig<'_>, request: &ModelRequest) -> Result
         (None, Some("none")) => Reasoning::default(),
         (None, gateway) => reasoning(cfg, request, gateway.or(turn_effort), max_tokens)?,
     };
-    let disable_parallel = parameters
-        .and_then(|p| p.get("disableParallelToolUse"))
-        .and_then(Value::as_bool)
-        .unwrap_or(false);
+    let disable_parallel = parameters.and_then(|p| p.get("disableParallelToolUse")).and_then(Value::as_bool).unwrap_or(false);
     // Hosted tools first, then the function tools (`requestAnthropicTools`, anthropic-request-utils.mjs:786-792).
     let mut tools = crate::providers::hosted::anthropic_tools(&request.options);
-    tools.extend(wire_tools(&request.tools, cfg.provider_name, cfg.first_party, &mut |excluded| {
-        report_exclusion(&request.options, excluded)
-    }));
-    let choice = if tools.is_empty() {
-        None
-    } else {
-        tool_choice(
-            request.options.tool_choice.as_deref(),
-            reasoning.thinking_active(),
-            disable_parallel,
-        )
-    };
-    let fast = request.options.fast
-        && !cfg.custom_endpoint
-        && cfg.caps.is_some_and(|c| c.fast_mode)
-        && cfg.fast_mode.available(super::fast_mode::now_ms());
+    tools.extend(wire_tools(&request.tools, cfg.provider_name, cfg.first_party, &mut |excluded| report_exclusion(&request.options, excluded)));
+    let choice = if tools.is_empty() { None } else { tool_choice(request.options.tool_choice.as_deref(), reasoning.thinking_active(), disable_parallel) };
+    let fast = request.options.fast && !cfg.custom_endpoint && cfg.caps.is_some_and(|c| c.fast_mode) && cfg.fast_mode.available(super::fast_mode::now_ms());
 
     let messages_json = Value::Array(messages.iter().map(WireMessage::to_json).collect());
     let fallback = server_fallback(cfg, &request.model, parameters);

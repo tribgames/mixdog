@@ -26,33 +26,17 @@ fn shell_stem(shell: &str) -> String {
 impl Launch {
     pub fn of(command: &CommandSpec, default_shell: &str) -> Self {
         match command {
-            CommandSpec::Argv { program, args } => Self {
-                program: program.clone(),
-                args: args.clone(),
-                raw_tail: None,
-            },
+            CommandSpec::Argv { program, args } => Self { program: program.clone(), args: args.clone(), raw_tail: None },
             CommandSpec::Shell { script, shell } => {
                 let shell = shell.as_deref().unwrap_or(default_shell);
                 match shell_stem(shell).as_str() {
-                    "cmd" => Self {
-                        program: shell.to_owned(),
-                        args: vec!["/d".into(), "/s".into(), "/c".into()],
-                        raw_tail: Some(format!("\"{script}\"")),
-                    },
+                    "cmd" => Self { program: shell.to_owned(), args: vec!["/d".into(), "/s".into(), "/c".into()], raw_tail: Some(format!("\"{script}\"")) },
                     "powershell" | "pwsh" => Self {
                         program: shell.to_owned(),
-                        args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"]
-                            .iter()
-                            .map(|a| (*a).to_owned())
-                            .chain([script.clone()])
-                            .collect(),
+                        args: ["-NoLogo", "-NoProfile", "-NonInteractive", "-Command"].iter().map(|a| (*a).to_owned()).chain([script.clone()]).collect(),
                         raw_tail: None,
                     },
-                    _ => Self {
-                        program: shell.to_owned(),
-                        args: vec!["-c".into(), script.clone()],
-                        raw_tail: None,
-                    },
+                    _ => Self { program: shell.to_owned(), args: vec!["-c".into(), script.clone()], raw_tail: None },
                 }
             }
         }
@@ -103,17 +87,9 @@ pub(crate) fn environment(spec: &EnvSpec) -> Vec<(OsString, OsString)> {
 
 fn environment_of(spec: &EnvSpec, own: impl IntoIterator<Item = (OsString, OsString)>) -> Vec<(OsString, OsString)> {
     let same = |a: &OsString, b: &str| {
-        if cfg!(windows) {
-            a.to_string_lossy().eq_ignore_ascii_case(b)
-        } else {
-            a == b
-        }
+        if cfg!(windows) { a.to_string_lossy().eq_ignore_ascii_case(b) } else { a == b }
     };
-    let mut env: Vec<(OsString, OsString)> = if spec.inherit {
-        own.into_iter().filter(|(k, _)| !same(k, SYSTEM_PROXY_HANDOFF)).collect()
-    } else {
-        Vec::new()
-    };
+    let mut env: Vec<(OsString, OsString)> = if spec.inherit { own.into_iter().filter(|(k, _)| !same(k, SYSTEM_PROXY_HANDOFF)).collect() } else { Vec::new() };
     env.retain(|(k, _)| !spec.remove.iter().any(|r| same(k, r)));
     for (key, value) in &spec.set {
         env.retain(|(k, _)| !same(k, key));

@@ -101,10 +101,7 @@ pub fn retransmit_schedule(rto: Duration) -> (Vec<Duration>, Duration) {
 }
 
 fn resolve_ipv4(host: &str, port: u16) -> io::Result<SocketAddr> {
-    (host, port)
-        .to_socket_addrs()?
-        .find(SocketAddr::is_ipv4)
-        .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("no IPv4 address for {host}")))
+    (host, port).to_socket_addrs()?.find(SocketAddr::is_ipv4).ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, format!("no IPv4 address for {host}")))
 }
 
 /// One Binding transaction with the RFC 8489 section 6.2.1 schedule. `rto` exists so a test can run the same schedule at a

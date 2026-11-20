@@ -110,17 +110,17 @@ pub(super) fn augment(frames: &FrameStore, capture: &Capture, result: &Map<Strin
     let narrowing = Narrowing::of(capture.command);
     let candidates: Vec<Recognized> = dedupe(recognized(reply.get("words")), &shown.labelled);
     let fitting = candidates.len().min(ask.limit as usize);
-    let words: Vec<Recognized> = candidates
-        .into_iter()
-        .take(remaining.min(ask.limit) as usize)
-        .filter(|word| narrowing.matches(&word.text))
-        .collect();
+    let words: Vec<Recognized> = candidates.into_iter().take(remaining.min(ask.limit) as usize).filter(|word| narrowing.matches(&word.text)).collect();
     let cut_by_budget = fitting.saturating_sub(remaining as usize);
     let lines: Vec<Recognized> = recognized(reply.get("lines")).into_iter().filter(|line| narrowing.matches(&line.text)).collect();
     // Set-of-marks and state modes list the words as elements after the accessibility marks; the other modes owe the words themselves.
     let first_mark = matches!(capture.mode, "som" | "state").then_some(shown.max_mark + 1);
     if let Some(first) = first_mark {
-        let marks = words.iter().enumerate().map(|(index, word)| (first + index as i64, OcrMark { x: word.center_x, y: word.center_y, bounds: [word.x, word.y, word.width, word.height] })).collect();
+        let marks = words
+            .iter()
+            .enumerate()
+            .map(|(index, word)| (first + index as i64, OcrMark { x: word.center_x, y: word.center_y, bounds: [word.x, word.y, word.width, word.height] }))
+            .collect();
         frames.remember_marks(frame, marks);
     }
     let count = |key: &str| reply.get(key).and_then(Value::as_f64).unwrap_or(0.0) as i64;
@@ -361,7 +361,8 @@ mod tests {
     fn a_word_an_element_already_carries_is_not_listed_again() {
         // The element covers (2560,-489) 200x40 physical = (0,0) 100x20 frame pixels, and names "Save File".
         let snapshot = json!({"elements": [{"mark": 1, "name": "Save File", "x": 2560, "y": -489, "width": 200, "height": 40}]});
-        let (text, _) = run(json!({"include_ocr": true}), "state", Some(snapshot), &reply(vec![word("Save", 0, 0), word("Save", 400, 0), word("a", 0, 100)]), 80);
+        let (text, _) =
+            run(json!({"include_ocr": true}), "state", Some(snapshot), &reply(vec![word("Save", 0, 0), word("Save", 400, 0), word("a", 0, 100)]), 80);
         assert_eq!(text.matches("Text \"Save\"").count(), 1, "{text}");
         assert!(text.contains("@450,10"), "{text}");
         assert!(!text.contains("\"a\""), "{text}");
@@ -415,7 +416,9 @@ mod tests {
     #[test]
     fn words_never_displace_elements_the_budget_holds() {
         // 18 elements under a budget of 30 with 7 words recognized: all 7 fit after them, nothing is cut.
-        let rows: Vec<Value> = (1..=18).map(|mark| json!({"mark": mark, "ref": format!("e{}", mark - 1), "name": "", "x": 2560 + mark * 40, "y": -489, "width": 20, "height": 20})).collect();
+        let rows: Vec<Value> = (1..=18)
+            .map(|mark| json!({"mark": mark, "ref": format!("e{}", mark - 1), "name": "", "x": 2560 + mark * 40, "y": -489, "width": 20, "height": 20}))
+            .collect();
         let words: Vec<Value> = (0..7).map(|i| word(&format!("word{i}"), i * 100, 300)).collect();
         let (text, _) = run(json!({"include_ocr": true}), "som", Some(json!({"elements": rows})), &reply(words), 30);
         assert_eq!(text.matches("[ocr:").count(), 7, "{text}");

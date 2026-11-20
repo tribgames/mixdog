@@ -20,9 +20,6 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-use mixdog_core_ports::ports::setup_actions::SetupActions;
-use mixdog_core_ports::ports::setup_actions::SetupCall;
-use mixdog_core_ports::ports::setup_actions::SetupCallers;
 use crate::agents::AgentDefinitions;
 use crate::agents::AgentsError;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
@@ -30,6 +27,9 @@ use mixdog_core_config::workflow::ids::clean;
 use mixdog_core_config::workflow::ids::has_own;
 use mixdog_core_config::workflow::ids::js_string;
 use mixdog_core_config::workflow::ids::truthy;
+use mixdog_core_ports::ports::setup_actions::SetupActions;
+use mixdog_core_ports::ports::setup_actions::SetupCall;
+use mixdog_core_ports::ports::setup_actions::SetupCallers;
 
 const ACTIONS: &[&str] = &["create_definition", "save_definition", "delete_definition", "read_definition", "restore_definition"];
 /// The keys of `SETUP_EXTENDED_PROPERTIES.definition`, in order: what an edit keeps of the stored
@@ -63,12 +63,7 @@ pub struct DefinitionSetup {
 }
 
 impl DefinitionSetup {
-    pub fn new(
-        agents: Arc<AgentDefinitions>,
-        callers: Arc<dyn SetupCallers>,
-        workflow: Arc<dyn DomainService>,
-        skills: Arc<dyn DomainService>,
-    ) -> Self {
+    pub fn new(agents: Arc<AgentDefinitions>, callers: Arc<dyn SetupCallers>, workflow: Arc<dyn DomainService>, skills: Arc<dyn DomainService>) -> Self {
         Self { agents, callers, workflow, skills }
     }
 
@@ -106,8 +101,7 @@ impl DefinitionSetup {
         if let Some(kind) = input.get("kind") {
             return kind.clone();
         }
-        let from_mixy = self.callers.agent_mode(call.thread).await
-            && self.callers.acting_agent(call.thread).await.is_ok_and(|agent| agent == MIXY_AGENT_ID);
+        let from_mixy = self.callers.agent_mode(call.thread).await && self.callers.acting_agent(call.thread).await.is_ok_and(|agent| agent == MIXY_AGENT_ID);
         json!(if from_mixy { "bot" } else { "agent" })
     }
 

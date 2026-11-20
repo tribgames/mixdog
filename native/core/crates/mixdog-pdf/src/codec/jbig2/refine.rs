@@ -36,11 +36,7 @@ impl RefinementRegion<'_> {
     /// The vertical shift the reference is read with. The decoder's byte-wise path (the one that reads padding) takes
     /// a shift of the reference's height or more as no shift.
     fn reference_dy(&self) -> i32 {
-        if self.reads_padding() && self.dy.unsigned_abs() >= self.reference.height() as u32 {
-            0
-        } else {
-            self.dy
-        }
+        if self.reads_padding() && self.dy.unsigned_abs() >= self.reference.height() as u32 { 0 } else { self.dy }
     }
 
     /// The context of pixel (`x`, `y`) of `img` (T.88 figures 12 and 13).
@@ -49,15 +45,8 @@ impl RefinementRegion<'_> {
         let dy = self.reference_dy();
         let p = |ox: i32, oy: i32| usize::from(img.get_pixel(x + ox, y + oy));
         let r = |ox: i32, oy: i32| {
-            let (rx, ry) = (
-                x.wrapping_sub(self.dx).wrapping_add(ox),
-                y.wrapping_sub(dy).wrapping_add(oy),
-            );
-            usize::from(if padding {
-                self.reference.padded_pixel(rx, ry)
-            } else {
-                self.reference.get_pixel(rx, ry)
-            })
+            let (rx, ry) = (x.wrapping_sub(self.dx).wrapping_add(ox), y.wrapping_sub(dy).wrapping_add(oy));
+            usize::from(if padding { self.reference.padded_pixel(rx, ry) } else { self.reference.get_pixel(rx, ry) })
         };
         if self.template == 0 {
             r(1, 1)
@@ -147,16 +136,7 @@ mod tests {
         reference.set_pixel(2, 2, 1);
         let img = Image::new(5, 5).unwrap();
         for (template, expected) in [(0u8, 0x0010usize), (1, 0x0008)] {
-            let region = RefinementRegion {
-                width: 5,
-                height: 5,
-                template,
-                tpgron: true,
-                reference: &reference,
-                dx: 0,
-                dy: 0,
-                at: [-1, -1, -1, -1],
-            };
+            let region = RefinementRegion { width: 5, height: 5, template, tpgron: true, reference: &reference, dx: 0, dy: 0, at: [-1, -1, -1, -1] };
             assert_eq!(region.context(&img, 2, 2), expected);
         }
     }
@@ -165,16 +145,7 @@ mod tests {
     fn uniform_neighbourhoods() {
         let mut reference = Image::new(6, 6).unwrap();
         reference.set_pixel(3, 3, 1);
-        let region = RefinementRegion {
-            width: 6,
-            height: 6,
-            template: 0,
-            tpgron: true,
-            reference: &reference,
-            dx: 0,
-            dy: 0,
-            at: [-1, -1, -1, -1],
-        };
+        let region = RefinementRegion { width: 6, height: 6, template: 0, tpgron: true, reference: &reference, dx: 0, dy: 0, at: [-1, -1, -1, -1] };
         assert_eq!(region.uniform_reference(0, 0), Some(0));
         assert_eq!(region.uniform_reference(2, 2), None);
         assert_eq!(region.uniform_reference(5, 5), Some(0));

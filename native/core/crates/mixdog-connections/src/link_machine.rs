@@ -132,10 +132,19 @@ pub enum LinkState {
     Connected,
     /// `next_retry_at_ms` (the machine's clock, epoch based) and `countdown_ms` (the wait it was scheduled with) are `None`
     /// while an attempt is running.
-    Reconnecting { attempt: u32, next_retry_at_ms: Option<u64>, countdown_ms: Option<u64> },
+    Reconnecting {
+        attempt: u32,
+        next_retry_at_ms: Option<u64>,
+        countdown_ms: Option<u64>,
+    },
     /// `terminal`: only a new connection can fix it (host key, login, server install). `settings_required`: it needs the user's
     /// confirmation in Settings.
-    Lost { terminal: bool, code: String, message: String, settings_required: bool },
+    Lost {
+        terminal: bool,
+        code: String,
+        message: String,
+        settings_required: bool,
+    },
     /// This PC is asleep: not a failure.
     Paused,
 }
@@ -538,10 +547,7 @@ impl Inner {
         }
         self.clear_attempt(core);
         core.service_down = true;
-        self.set_state(
-            core,
-            LinkState::Lost { terminal: true, code: failure.code, message: failure.message, settings_required: failure.settings_required },
-        );
+        self.set_state(core, LinkState::Lost { terminal: true, code: failure.code, message: failure.message, settings_required: failure.settings_required });
     }
 
     fn go_down(self: &Arc<Self>, core: &mut Core, fx: &mut Vec<Effect>) {
@@ -592,10 +598,7 @@ impl Inner {
             return;
         }
         let (attempt, delay_ms) = core.ladder.next(now);
-        self.set_state(
-            core,
-            LinkState::Reconnecting { attempt, next_retry_at_ms: Some(now + delay_ms), countdown_ms: Some(delay_ms) },
-        );
+        self.set_state(core, LinkState::Reconnecting { attempt, next_retry_at_ms: Some(now + delay_ms), countdown_ms: Some(delay_ms) });
         core.timer_generation += 1;
         let generation = core.timer_generation;
         let inner = Arc::clone(self);

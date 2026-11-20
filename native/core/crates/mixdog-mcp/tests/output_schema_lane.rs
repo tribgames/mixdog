@@ -64,13 +64,7 @@ fn long_shapes() -> Vec<Shape> {
         shape("one delegated search", r"^(?=x)[a-z]*$".to_owned(), format!("x{}", "a".repeat(4 << 20)), 10, 0),
         shape("a long literal", format!("^(?=a){}", "a".repeat(700_000)), "a".repeat(700_000), 10, 0),
         shape("a long case-insensitive literal", format!("(?i)^(?=a){}", "a".repeat(300_000)), "A".repeat(300_000), 4, 0),
-        shape(
-            "the groups of a delegated match",
-            r"^(?=x)(x[a-z]*)$".to_owned(),
-            format!("x{}", "a".repeat(4 << 20)),
-            2,
-            (4 << 20) + 1,
-        ),
+        shape("the groups of a delegated match", r"^(?=x)(x[a-z]*)$".to_owned(), format!("x{}", "a".repeat(4 << 20)), 2, (4 << 20) + 1),
     ]
 }
 
@@ -79,9 +73,7 @@ fn long_shapes() -> Vec<Shape> {
 /// a step count of at least the haystack's length, and a stop set while the pass ran ends the match there.
 #[test]
 fn a_search_the_meta_engine_runs_whole_is_charged_and_its_stop_read_after_it() {
-    let build = |pattern: &str| {
-        probe::without_lazy_dfa(|| fancy_regex::RegexBuilder::new(pattern).backtrack_limit(usize::MAX).build().unwrap())
-    };
+    let build = |pattern: &str| probe::without_lazy_dfa(|| fancy_regex::RegexBuilder::new(pattern).backtrack_limit(usize::MAX).build().unwrap());
     let run = |regex: &fancy_regex::Regex, haystack: &str, stop: bool| {
         probe::take_reads();
         let answer = fancy_regex::interrupt::checking(Arc::new(AtomicBool::new(stop)), || regex.is_match(haystack));
@@ -89,11 +81,9 @@ fn a_search_the_meta_engine_runs_whole_is_charged_and_its_stop_read_after_it() {
     };
     // (shape, pattern, haystack length): `is_match` of a wrapped pattern; a delegate after a lookahead; an absent
     // repeater's delegate (one call per advance, so a shorter haystack).
-    for (shape, pattern, length) in [
-        ("a wrapped is_match", r"a+$", 300_000),
-        ("a delegate", r"^(?=a)a+$", 300_000),
-        ("an absent repeater's delegate", r"^(?=a)(?~b)$", 70_000),
-    ] {
+    for (shape, pattern, length) in
+        [("a wrapped is_match", r"a+$", 300_000), ("a delegate", r"^(?=a)a+$", 300_000), ("an absent repeater's delegate", r"^(?=a)(?~b)$", 70_000)]
+    {
         let regex = build(pattern);
         let haystack = "a".repeat(length);
         let (answer, reads) = run(&regex, &haystack, false);
@@ -103,10 +93,7 @@ fn a_search_the_meta_engine_runs_whole_is_charged_and_its_stop_read_after_it() {
 
     // The stop set while the wrapped pass runs: no read precedes it, so the match ends at the read right after it.
     let (answer, reads) = run(&build(r"a+$"), &"a".repeat(300_000), true);
-    assert!(
-        matches!(answer, Err(fancy_regex::Error::RuntimeError(fancy_regex::RuntimeError::BacktrackLimitExceeded))),
-        "{answer:?}"
-    );
+    assert!(matches!(answer, Err(fancy_regex::Error::RuntimeError(fancy_regex::RuntimeError::BacktrackLimitExceeded))), "{answer:?}");
     assert_eq!(reads.len(), 1, "ended at the first read");
     assert!(reads[0] >= 300_000, "the read follows the pass: {}", reads[0]);
 
@@ -128,7 +115,6 @@ fn a_cancelled_calls_check_answers_cancelled() {
     let result = json!({"content": [], "structuredContent": {"v": hostile_value()}});
     assert_eq!(validators.check("hostile", &result, &Arc::new(AtomicBool::new(true))), Err(RpcError::Cancelled));
 }
-
 
 /// On a runtime of one worker thread, a call whose result's pattern backtracks for hours leaves the worker free: a call
 /// made after it answers while it is still being checked. Cancelling it then ends the check, and the call answers that it
@@ -176,9 +162,7 @@ fn calls_on_one_worker() {
         tokio::pin!(hostile);
         let plain = async {
             let server = server.clone();
-            tokio::spawn(async move { server.call_tool_settled("b", "plain", json!({"i": 0}), &CancellationToken::new(), None).await })
-                .await
-                .unwrap()
+            tokio::spawn(async move { server.call_tool_settled("b", "plain", json!({"i": 0}), &CancellationToken::new(), None).await }).await.unwrap()
         };
         tokio::select! {
             biased;
@@ -211,9 +195,7 @@ fn on_the_lane(
                 probe::take_reads();
                 let started = std::time::Instant::now();
                 let answer = match stop {
-                    Some(stop) => fancy_regex::interrupt::checking(Arc::new(AtomicBool::new(stop)), || {
-                        regex.is_match(haystack.as_str())
-                    }),
+                    Some(stop) => fancy_regex::interrupt::checking(Arc::new(AtomicBool::new(stop)), || regex.is_match(haystack.as_str())),
                     None => regex.is_match(haystack.as_str()),
                 };
                 let took = started.elapsed();
@@ -253,10 +235,7 @@ fn a_long_match_reads_its_stop_within_a_bounded_number_of_steps_and_frees_its_la
         }
 
         let (answer, reads, _) = on_the_lane(&tokens, &regex, &haystack, Some(true));
-        assert!(
-            matches!(answer, Err(fancy_regex::Error::RuntimeError(fancy_regex::RuntimeError::BacktrackLimitExceeded))),
-            "{shape}: {answer:?}"
-        );
+        assert!(matches!(answer, Err(fancy_regex::Error::RuntimeError(fancy_regex::RuntimeError::BacktrackLimitExceeded))), "{shape}: {answer:?}");
         assert_eq!(reads.len(), 1, "{shape}: the match ended at its first read of the stop");
         assert!(reads[0] <= INTERVAL + CHUNK as u64, "{shape}: first read after {} steps", reads[0]);
     }

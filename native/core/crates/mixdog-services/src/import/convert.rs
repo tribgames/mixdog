@@ -7,9 +7,7 @@ use serde_json::Value;
 
 use super::claude::ClaudeReducer;
 use super::codex::CodexReducer;
-use super::turns::{
-    ERROR_INTERNAL, ERROR_TOO_LARGE, RawTurn, Turn, WARNING_MALFORMED, conversation_title, normalize_turns, utf16_len,
-};
+use super::turns::{ERROR_INTERNAL, ERROR_TOO_LARGE, RawTurn, Turn, WARNING_MALFORMED, conversation_title, normalize_turns, utf16_len};
 
 /// Bytes read from one source file before it fails as `tooLarge`.
 pub const MAX_FILE_BYTES: u64 = 256 * 1024 * 1024;
@@ -110,11 +108,7 @@ impl Converter {
         Self {
             source,
             limits,
-            reducer: if source == Source::Codex {
-                Reducer::Codex(CodexReducer::default())
-            } else {
-                Reducer::Claude(ClaudeReducer::default())
-            },
+            reducer: if source == Source::Codex { Reducer::Codex(CodexReducer::default()) } else { Reducer::Claude(ClaudeReducer::default()) },
             records: 0,
             malformed: 0,
             too_large: false,
@@ -176,10 +170,7 @@ impl Converter {
                 (r.chars(), r.entries(), r.metadata_bytes())
             }
         };
-        if chars > self.limits.max_transcript_chars
-            || entries > self.limits.max_retained_entries
-            || metadata > self.limits.max_metadata_bytes
-        {
+        if chars > self.limits.max_transcript_chars || entries > self.limits.max_retained_entries || metadata > self.limits.max_metadata_bytes {
             self.too_large = true;
         }
         !self.too_large
@@ -275,11 +266,7 @@ impl Converter {
 /// Converts an in-memory JSONL body; `complete: false` drops a trailing partial line.
 pub fn convert_conversation_text(source: Source, text: &str, complete: bool, limits: Limits) -> Conversion {
     let mut converter = Converter::new(source, limits);
-    let body = if complete {
-        text
-    } else {
-        text.rfind('\n').map_or("", |end| &text[..end])
-    };
+    let body = if complete { text } else { text.rfind('\n').map_or("", |end| &text[..end]) };
     for line in body.split('\n') {
         if !converter.push_line(line, false) {
             break;
@@ -315,10 +302,7 @@ mod tests {
         assert_eq!(run(Source::Codex, "").as_deref(), Some("empty"));
         assert_eq!(run(Source::Codex, "nope").as_deref(), Some("malformed"));
         assert_eq!(run(Source::Codex, "{\"a\":1}").as_deref(), Some("unsupported"));
-        assert_eq!(
-            run(Source::Codex, "{\"type\":\"session_meta\",\"payload\":{\"thread_source\":\"subagent\"}}").as_deref(),
-            Some("internalRecord")
-        );
+        assert_eq!(run(Source::Codex, "{\"type\":\"session_meta\",\"payload\":{\"thread_source\":\"subagent\"}}").as_deref(), Some("internalRecord"));
         assert_eq!(run(Source::Codex, "{\"type\":\"session_meta\",\"payload\":{\"id\":\"x\"}}").as_deref(), Some("empty"));
     }
 
@@ -336,6 +320,4 @@ mod tests {
         assert_eq!(c.message_count, 2);
         assert_eq!(c.warnings, vec!["malformed".to_owned()], "only the unparsable middle line");
     }
-
-
 }

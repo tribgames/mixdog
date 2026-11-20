@@ -30,7 +30,9 @@ async fn forking(conversation: &[(&str, &str)]) -> Forking {
     directory.create_with_id(ThreadId::from(SOURCE), header.as_object().cloned().expect("header"), json!({})).await.expect("create the source");
     if !conversation.is_empty() {
         let rows: Vec<Value> = conversation.iter().map(|(role, content)| json!({ "role": role, "content": content })).collect();
-        ThreadRequests::request(&*directory, &ThreadId::from(SOURCE), "thread/inheritedRows/append", json!({ "messages": rows })).await.expect("the conversation");
+        ThreadRequests::request(&*directory, &ThreadId::from(SOURCE), "thread/inheritedRows/append", json!({ "messages": rows }))
+            .await
+            .expect("the conversation");
     }
     *rig.inherit.budget.lock().expect("budget") = Some(100_000);
     let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
@@ -74,7 +76,9 @@ impl Forking {
 
     /// What the heir `minted` holds besides system rows.
     async fn held(&self, minted: &str) -> Vec<(String, String)> {
-        let rows = ThreadRequests::request(&*self.directory, &ThreadId::from(minted), "thread/messages/read", json!({ "threadId": minted })).await.expect("the heir's rows");
+        let rows = ThreadRequests::request(&*self.directory, &ThreadId::from(minted), "thread/messages/read", json!({ "threadId": minted }))
+            .await
+            .expect("the heir's rows");
         rows["messages"]
             .as_array()
             .expect("messages")
@@ -167,7 +171,12 @@ async fn a_fork_belongs_to_the_lead_session_and_a_worker_may_not_make_one() {
 async fn preflight(world: &Forking) -> Value {
     // The preflight is answered by the directory, which looks the source up itself; no session actor serves it.
     use mixdog_core_api::call::{CallContext, CoreRequest};
-    let request = CoreRequest { method: mixdog_core_api::ids::Method("thread/inheritancePreflight"), params: json!({ "threadId": SOURCE }), op: None, ctx: CallContext::internal("replay") };
+    let request = CoreRequest {
+        method: mixdog_core_api::ids::Method("thread/inheritancePreflight"),
+        params: json!({ "threadId": SOURCE }),
+        op: None,
+        ctx: CallContext::internal("replay"),
+    };
     match mixdog_core_api::ThreadDirectory::request(&*world.directory, request).await.expect("preflight") {
         mixdog_core_api::Reply::Value(value) => value,
         mixdog_core_api::Reply::Subscribe(_) => panic!("a value reply"),
@@ -180,7 +189,10 @@ async fn the_preflight_says_a_conversation_under_the_heirs_limit_fits_and_how_mu
     *world.rig.inherit.basis.lock().expect("basis") = Some((200, 50, true));
     let verdict = preflight(&world).await;
     assert_eq!(verdict["sourceSessionId"], SOURCE);
-    assert_eq!((&verdict["known"], &verdict["fits"], &verdict["used"], &verdict["limit"], &verdict["percent"]), (&json!(true), &json!(true), &json!(50), &json!(200), &json!(25)));
+    assert_eq!(
+        (&verdict["known"], &verdict["fits"], &verdict["used"], &verdict["limit"], &verdict["percent"]),
+        (&json!(true), &json!(true), &json!(50), &json!(200), &json!(25))
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

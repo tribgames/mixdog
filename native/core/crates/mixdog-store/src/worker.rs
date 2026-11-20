@@ -106,8 +106,7 @@ impl TagKeys {
     /// has a tag, and is not a Lead pool session (`agent || sourceName` "lead").
     pub fn of(session: &str, header: &Map<String, Value>) -> Option<TagKeys> {
         let owner = owner_of(header).filter(|o| crate::summary::is_stored_session_id(o) && o != session)?;
-        let agent_only = crate::summary::session_visibility(header) == "agent-only"
-            || clean(header.get("owner")).to_lowercase() == "agent";
+        let agent_only = crate::summary::session_visibility(header) == "agent-only" || clean(header.get("owner")).to_lowercase() == "agent";
         let agent = header.get("agent");
         let agent = if truthy(agent) { agent } else { header.get("sourceName") };
         let tag = clean(header.get("agentTag"));
@@ -199,8 +198,7 @@ macro_rules! indexed_sql {
 }
 
 /// Every listed session.
-pub(crate) const INDEXED_ALL_SQL: &str =
-    indexed_sql!("deleted = 0 AND log_id <> '' AND (worker_tag IS NOT NULL OR visibility = 'agent-only')");
+pub(crate) const INDEXED_ALL_SQL: &str = indexed_sql!("deleted = 0 AND log_id <> '' AND (worker_tag IS NOT NULL OR visibility = 'agent-only')");
 /// The sessions written since a revision.
 pub(crate) const INDEXED_SINCE_SQL: &str = indexed_sql!("worker_rev > ?1");
 /// One session by id.
@@ -239,14 +237,6 @@ macro_rules! rows_sql {
 
 /// `[tag lookup][scope]`, scope in `Owner`, `HostPid`, `All` order.
 pub(crate) const ROWS_SQL: [[&str; 3]; 2] = [
-    [
-        rows_sql!("worker_owner = ?1"),
-        rows_sql!("worker_host_pid = ?1"),
-        rows_sql!("worker_tag IS NOT NULL"),
-    ],
-    [
-        rows_sql!("worker_tag = ?2 AND worker_owner = ?1"),
-        rows_sql!("worker_tag = ?2 AND worker_host_pid = ?1"),
-        rows_sql!("worker_tag = ?1"),
-    ],
+    [rows_sql!("worker_owner = ?1"), rows_sql!("worker_host_pid = ?1"), rows_sql!("worker_tag IS NOT NULL")],
+    [rows_sql!("worker_tag = ?2 AND worker_owner = ?1"), rows_sql!("worker_tag = ?2 AND worker_host_pid = ?1"), rows_sql!("worker_tag = ?1")],
 ];

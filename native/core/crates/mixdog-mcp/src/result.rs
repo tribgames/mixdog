@@ -73,7 +73,10 @@ pub struct ReportedError {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Part {
     Text(String),
-    Image { mime: String, bytes: Vec<u8> },
+    Image {
+        mime: String,
+        bytes: Vec<u8>,
+    },
     /// Inline file media (`pdf`, `text`, `office`) in the shape Node hands to provider lowering.
     File(Value),
 }
@@ -105,9 +108,7 @@ fn lenient_base64(data: &str) -> Vec<u8> {
 
 const LENIENT: base64::engine::GeneralPurpose = base64::engine::GeneralPurpose::new(
     &base64::alphabet::STANDARD,
-    base64::engine::GeneralPurposeConfig::new()
-        .with_decode_allow_trailing_bits(true)
-        .with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
+    base64::engine::GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true).with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent),
 );
 
 enum Canon {
@@ -150,9 +151,7 @@ fn image_part(data: &str, raw_mime: Option<&str>) -> Part {
     }
     match canonical(data, MAX_IMAGE_BYTES) {
         Canon::Empty => Part::Text("[MCP image omitted: empty image data]".to_owned()),
-        Canon::TooLarge => {
-            Part::Text(format!("[MCP image omitted: {mime} image exceeds the {} limit]", mib(MAX_IMAGE_BYTES)))
-        }
+        Canon::TooLarge => Part::Text(format!("[MCP image omitted: {mime} image exceeds the {} limit]", mib(MAX_IMAGE_BYTES))),
         Canon::Bytes(bytes) => Part::Image { mime, bytes },
     }
 }
@@ -167,18 +166,12 @@ async fn audio_part(data: Option<&str>, raw_mime: Option<&str>, spiller: &Spille
     let canon = data.filter(|d| !d.is_empty()).map(|d| canonical(d, MAX_ATTACHMENT_BLOB_BYTES));
     match canon {
         None | Some(Canon::Empty) => Part::Text(format!("[MCP audio content: {mime}]")),
-        Some(Canon::TooLarge) => Part::Text(format!(
-            "[MCP audio omitted: {mime} exceeds the {} limit]",
-            mib(MAX_ATTACHMENT_BLOB_BYTES)
-        )),
+        Some(Canon::TooLarge) => Part::Text(format!("[MCP audio omitted: {mime} exceeds the {} limit]", mib(MAX_ATTACHMENT_BLOB_BYTES))),
         Some(Canon::Bytes(bytes)) => {
             let subtype = mime.split(';').next().unwrap_or("").split('/').nth(1).unwrap_or("");
             let size = bytes.len();
             match spiller.write_binary(bytes, &extension_of(subtype)).await {
-                Ok(path) => Part::Text(format!(
-                    "[MCP audio content: {mime} ({size} bytes) saved to {}; open it from disk with read.]",
-                    path.display()
-                )),
+                Ok(path) => Part::Text(format!("[MCP audio content: {mime} ({size} bytes) saved to {}; open it from disk with read.]", path.display())),
                 Err(_) => Part::Text(format!("[MCP audio content: {mime}]")),
             }
         }
@@ -206,11 +199,7 @@ fn resource_filename(uri: &str) -> String {
     let path = uri.split(['?', '#']).next().unwrap_or("");
     let tail = path.split('/').rfind(|s| !s.is_empty()).unwrap_or("");
     let name = if tail.is_empty() { "resource".to_owned() } else { percent_decode(tail).unwrap_or_else(|| tail.to_owned()) };
-    let cleaned: String = name
-        .chars()
-        .map(|c| if (c as u32) < 0x20 || c == '/' || c == '\\' { '_' } else { c })
-        .take(255)
-        .collect();
+    let cleaned: String = name.chars().map(|c| if (c as u32) < 0x20 || c == '/' || c == '\\' { '_' } else { c }).take(255).collect();
     if cleaned.is_empty() { "resource".to_owned() } else { cleaned }
 }
 
@@ -222,10 +211,7 @@ async fn file_part(blob: &str, raw_mime: Option<&str>, uri: &str, spiller: &Spil
     let bytes = match canonical(blob, MAX_ATTACHMENT_BLOB_BYTES) {
         Canon::Empty => return Part::Text(format!("[MCP resource omitted: {filename} has no data]")),
         Canon::TooLarge => {
-            return Part::Text(format!(
-                "[MCP resource omitted: {filename} ({mime}) exceeds the {} limit]",
-                mib(MAX_ATTACHMENT_BLOB_BYTES)
-            ));
+            return Part::Text(format!("[MCP resource omitted: {filename} ({mime}) exceeds the {} limit]", mib(MAX_ATTACHMENT_BLOB_BYTES)));
         }
         Canon::Bytes(bytes) => bytes,
     };
@@ -238,13 +224,8 @@ async fn file_part(blob: &str, raw_mime: Option<&str>, uri: &str, spiller: &Spil
             .map_or_else(|| "bin".to_owned(), str::to_lowercase);
         let size = bytes.len();
         return match spiller.write_binary(bytes, &extension).await {
-            Ok(path) => Part::Text(format!(
-                "[MCP resource {filename} ({mime}, {size} bytes) saved to {}; open it from disk with read.]",
-                path.display()
-            )),
-            Err(_) => {
-                Part::Text(format!("[MCP resource omitted: {filename} ({mime}, {size} bytes) could not be saved]"))
-            }
+            Ok(path) => Part::Text(format!("[MCP resource {filename} ({mime}, {size} bytes) saved to {}; open it from disk with read.]", path.display())),
+            Err(_) => Part::Text(format!("[MCP resource omitted: {filename} ({mime}, {size} bytes) could not be saved]")),
         };
     }
     Part::File(serde_json::json!({"type": "file", "data": data, "mimeType": mime, "filename": filename}))
@@ -325,9 +306,7 @@ fn plan_cut(text: &str, policy: OutputPolicy) -> Option<Plan> {
     let limit = if over_bytes { format_cap_size(policy.max_bytes) } else { format!("{} lines", policy.max_lines) };
     let from = head_count + 1;
     let kb = ((bytes as f64) / 1024.0).round().max(1.0) as u64;
-    let marker = format!(
-        "[output capped at {limit}; lines {from}-{tail_start} of {lines} omitted ({kb} KB file); offset:{from} for more]"
-    );
+    let marker = format!("[output capped at {limit}; lines {from}-{tail_start} of {lines} omitted ({kb} KB file); offset:{from} for more]");
     Some(Plan { marker, head: rows[..head_count].join("\n"), tail: rows[tail_start..].join("\n") })
 }
 
@@ -351,9 +330,8 @@ fn apply_cut(parts: Vec<Part>, plan: &Plan, spill_note: &str) -> Vec<Part> {
         }
     }
     let owner = starts.iter().rposition(|s| *s <= head_end);
-    let slice = |text: &str, from: usize, to: Option<usize>| -> String {
-        text.chars().skip(from).take(to.map_or(usize::MAX, |t| t.saturating_sub(from))).collect()
-    };
+    let slice =
+        |text: &str, from: usize, to: Option<usize>| -> String { text.chars().skip(from).take(to.map_or(usize::MAX, |t| t.saturating_sub(from))).collect() };
     let mut out = Vec::new();
     let mut index = 0usize;
     for part in parts {
@@ -384,17 +362,10 @@ fn apply_cut(parts: Vec<Part>, plan: &Plan, spill_note: &str) -> Vec<Part> {
 
 /// Node's `capMcpResult` over `parts`; the full text is spilled when a cut happens.
 pub async fn cap_parts(parts: Vec<Part>, policy: OutputPolicy, spiller: &Spiller) -> (Vec<Part>, Option<TruncationNote>) {
-    let joined = parts
-        .iter()
-        .filter_map(|p| if let Part::Text(t) = p { Some(t.as_str()) } else { None })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let joined = parts.iter().filter_map(|p| if let Part::Text(t) = p { Some(t.as_str()) } else { None }).collect::<Vec<_>>().join("\n");
     let Some(plan) = plan_cut(&joined, policy) else { return (parts, None) };
     let (spill_note, full_path) = match spiller.write_text(joined.clone()).await {
-        Ok(path) => (
-            format!("\n\n... [full output spilled to {}] ...", path.display()),
-            mixdog_core_api::domain::common::AbsPath::new(path),
-        ),
+        Ok(path) => (format!("\n\n... [full output spilled to {}] ...", path.display()), mixdog_core_api::domain::common::AbsPath::new(path)),
         Err(_) => (String::new(), None),
     };
     let note = TruncationNote {
@@ -444,11 +415,7 @@ pub async fn normalize_parts(result: &Value, spiller: &Spiller) -> Vec<Part> {
     if parts.iter().any(Part::is_media) {
         return parts;
     }
-    let joined = parts
-        .iter()
-        .filter_map(|p| if let Part::Text(t) = p { Some(t.as_str()) } else { None })
-        .collect::<Vec<_>>()
-        .join("\n");
+    let joined = parts.iter().filter_map(|p| if let Part::Text(t) = p { Some(t.as_str()) } else { None }).collect::<Vec<_>>().join("\n");
     vec![Part::Text(joined)]
 }
 
@@ -473,10 +440,7 @@ pub async fn map_call_result(result: &Value, policy: OutputPolicy, spiller: &Spi
         // Without media Node returns the `Error: …` text (classified an error by the loop); with media it returns the parts as a
         // structured result, which the loop does not classify (execute-call.mjs classifyToolReturn: a non-string is normal).
         if !parts.iter().any(Part::is_media) {
-            return Err(ReportedError {
-                text: error_text(&parts),
-                data: result.get("structuredContent").filter(|v| !v.is_null()).cloned(),
-            });
+            return Err(ReportedError { text: error_text(&parts), data: result.get("structuredContent").filter(|v| !v.is_null()).cloned() });
         }
         parts = error_parts(parts);
     }
@@ -519,7 +483,6 @@ mod tests {
     }
 }
 
-
 impl Spiller {
     pub fn new(dir: PathBuf, io: DurabilityIo) -> Self {
         Self { dir, io }
@@ -538,9 +501,7 @@ impl Spiller {
 
     /// The full text of an over-cap result: `mcp-<ms>-<8 hex>.txt`.
     async fn write_text(&self, text: String) -> std::io::Result<PathBuf> {
-        let millis = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis());
+        let millis = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
         let id = uuid::Uuid::new_v4().simple().to_string();
         self.write(format!("mcp-{millis}-{}.txt", &id[..8]), text.into_bytes(), false).await
     }

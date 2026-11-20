@@ -9,7 +9,7 @@ use std::time::Duration;
 use async_trait::async_trait;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpListener;
-use tokio::sync::{watch, Notify};
+use tokio::sync::{Notify, watch};
 
 use crate::bootstrap::{BootstrapPhase, RemoteDiscovery, RemoteReport};
 use crate::command::parse_ssh_target;

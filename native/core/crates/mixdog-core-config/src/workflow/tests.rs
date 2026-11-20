@@ -66,10 +66,6 @@ impl WorkflowHost for Host {
     fn web_search_route_saved(&self, _route: &Value) {}
 }
 
-
-
-
-
 /// The pushed sections hold what the session actions return (`listPresets`, `getWebSearchRoute`, `listWorkflows`,
 /// `getOnboardingStatus`), and a pass pushes only the one whose value changed.
 #[tokio::test]
@@ -97,12 +93,7 @@ async fn the_sections_push_the_values_of_the_actions_and_only_what_changed() {
     let sections: Vec<(SectionName, Option<String>)> = first.iter().map(|(section, key, _)| (*section, key.clone())).collect();
     assert_eq!(
         sections,
-        [
-            (SectionName::Presets, None),
-            (SectionName::WebSearch, None),
-            (SectionName::Workflows, None),
-            (SectionName::Config, Some("onboarding".to_owned())),
-        ]
+        [(SectionName::Presets, None), (SectionName::WebSearch, None), (SectionName::Workflows, None), (SectionName::Config, Some("onboarding".to_owned())),]
     );
     let pushed = |change: &SectionChange| match change {
         SectionChange::Set(bytes) => serde_json::from_slice::<Value>(bytes).unwrap(),
@@ -129,5 +120,3 @@ async fn the_sections_push_the_values_of_the_actions_and_only_what_changed() {
     assert!(after.len() > 4 && after[4].0 == SectionName::Presets, "a changed config pushes the presets again");
     assert!(pushed(&after[4].2).as_array().unwrap().iter().any(|preset| preset["id"] == "mine"));
 }
-
-

@@ -157,10 +157,7 @@ impl Office {
 }
 
 fn found_dispatch(platform: &WindowsPlatform, path: &str) -> bool {
-    platform
-        .try_get_running_file(path)
-        .and_then(|object| object.downcast::<IUnknown>().ok())
-        .is_some_and(|unknown| unknown.cast::<IDispatch>().is_ok())
+    platform.try_get_running_file(path).and_then(|object| object.downcast::<IUnknown>().ok()).is_some_and(|unknown| unknown.cast::<IDispatch>().is_ok())
 }
 
 #[tokio::test]

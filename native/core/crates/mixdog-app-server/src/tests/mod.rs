@@ -17,15 +17,15 @@ mod queues;
 mod relay_answer;
 mod routing;
 mod samples;
-mod surrogate_inventory;
 mod settings_announcement;
-mod thread_transport;
-mod wire;
 mod storm;
 mod subscriptions;
+mod surrogate_inventory;
+mod thread_transport;
 mod two_windows;
 mod upload_chunks;
 mod visualize_order;
+mod wire;
 
 use std::collections::BTreeSet;
 use std::collections::HashMap;
@@ -60,13 +60,13 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::SubscriptionId;
 use mixdog_core_api::ids::ThreadId;
-use mixdog_core_api::sink::LaneRecovery;
-use mixdog_core_api::sink::LaneRelease;
-use mixdog_core_api::sink::SinkClosed;
 use mixdog_core_api::mock::MockConnection;
 use mixdog_core_api::mock::MockCore;
 use mixdog_core_api::mock::MockLimits;
 use mixdog_core_api::service::Admit;
+use mixdog_core_api::sink::LaneRecovery;
+use mixdog_core_api::sink::LaneRelease;
+use mixdog_core_api::sink::SinkClosed;
 use mixdog_protocol::Origin;
 use serde_json::Value;
 use serde_json::json;
@@ -108,11 +108,7 @@ impl DomainService for GateDomain {
     }
 
     async fn call(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        let tag = ["tabId", "opId"]
-            .iter()
-            .find_map(|key| req.params.get(*key).and_then(Value::as_str))
-            .unwrap_or("")
-            .to_owned();
+        let tag = ["tabId", "opId"].iter().find_map(|key| req.params.get(*key).and_then(Value::as_str)).unwrap_or("").to_owned();
         let tag = format!("{}:{tag}", req.method);
         self.held.lock().unwrap().push(req.ctx.after_answer.hold());
         self.log.lock().unwrap().push(format!("start {tag}"));
@@ -167,20 +163,12 @@ impl TestCore {
 
     /// `handle` serves thread `id` from now on.
     pub(crate) fn load(&self, id: &str, handle: Arc<dyn ThreadHandle>) {
-        crate::sharded::lock(&self.threads)
-            .loaded
-            .insert(ThreadId::from(id), handle);
+        crate::sharded::lock(&self.threads).loaded.insert(ThreadId::from(id), handle);
     }
 
     /// Thread `id` is built by `build` on its first `open`, once however many callers race.
-    pub(crate) fn cold(
-        &self,
-        id: &str,
-        build: impl Fn() -> Arc<dyn ThreadHandle> + Send + Sync + 'static,
-    ) {
-        crate::sharded::lock(&self.threads)
-            .cold
-            .insert(ThreadId::from(id), Box::new(build));
+    pub(crate) fn cold(&self, id: &str, build: impl Fn() -> Arc<dyn ThreadHandle> + Send + Sync + 'static) {
+        crate::sharded::lock(&self.threads).cold.insert(ThreadId::from(id), Box::new(build));
     }
 
     /// `directory` serves every thread not registered with [`TestCore::load`] or [`TestCore::cold`].
@@ -213,11 +201,7 @@ impl ThreadDirectory for TestCore {
         })
     }
 
-    async fn open(
-        &self,
-        id: &ThreadId,
-        ctx: &CallContext,
-    ) -> Result<Arc<dyn ThreadHandle>, CoreError> {
+    async fn open(&self, id: &ThreadId, ctx: &CallContext) -> Result<Arc<dyn ThreadHandle>, CoreError> {
         self.opens.fetch_add(1, Ordering::AcqRel);
         {
             let mut threads = crate::sharded::lock(&self.threads);
@@ -350,11 +334,8 @@ fn namespace_methods(namespaces: &[&str]) -> &'static [&'static str] {
 
 /// Every method the table routes to a domain.
 fn domain_methods() -> &'static [&'static str] {
-    let namespaces: BTreeSet<&str> = CLIENT_METHODS
-        .iter()
-        .filter_map(|spec| spec.method.split('/').next())
-        .filter(|namespace| !["thread", "turn"].contains(namespace))
-        .collect();
+    let namespaces: BTreeSet<&str> =
+        CLIENT_METHODS.iter().filter_map(|spec| spec.method.split('/').next()).filter(|namespace| !["thread", "turn"].contains(namespace)).collect();
     namespace_methods(&namespaces.into_iter().collect::<Vec<_>>())
 }
 
@@ -382,11 +363,7 @@ impl ConnectionSink for HookedSink {
         self.inner.send_control_release(frame, release)
     }
 
-    fn open_lane(
-        &self,
-        sub: SubscriptionId,
-        recovery: Arc<dyn LaneRecovery>,
-    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+    fn open_lane(&self, sub: SubscriptionId, recovery: Arc<dyn LaneRecovery>) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
         self.inner.open_lane(sub, recovery)
     }
 }
@@ -411,11 +388,7 @@ impl ConnectionSink for WatchedSink {
         self.inner.send_control_release(frame, release)
     }
 
-    fn open_lane(
-        &self,
-        sub: SubscriptionId,
-        recovery: Arc<dyn LaneRecovery>,
-    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+    fn open_lane(&self, sub: SubscriptionId, recovery: Arc<dyn LaneRecovery>) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
         self.inner.open_lane(sub, recovery)
     }
 }
@@ -447,7 +420,6 @@ pub(crate) async fn settle() {
     }
 }
 
-
 impl Rig {
     pub(crate) fn new() -> Self {
         Self::gated(&[])
@@ -456,27 +428,17 @@ impl Rig {
     /// The mock core, except that every method of the namespaces in `gated` is served by a
     /// [`GateDomain`].
     pub(crate) fn gated(gated: &[&'static str]) -> Self {
-        Self::routed(
-            domain_methods(),
-            gated.iter().map(|namespace| (*namespace, namespace_methods(&[*namespace]))).collect(),
-        )
+        Self::routed(domain_methods(), gated.iter().map(|namespace| (*namespace, namespace_methods(&[*namespace]))).collect())
     }
 
     /// The mock serves `mock`; each `(name, methods)` of `gates` is a [`GateDomain`] serving
     /// exactly those methods, reached by `Rig::gate(name)`.
-    pub(crate) fn routed(
-        mock: &'static [&'static str],
-        gates: Vec<(&'static str, &'static [&'static str])>,
-    ) -> Self {
+    pub(crate) fn routed(mock: &'static [&'static str], gates: Vec<(&'static str, &'static [&'static str])>) -> Self {
         Self::configured(mock, gates, config())
     }
 
     /// [`Rig::routed`] with a server configuration of the test's own.
-    pub(crate) fn configured(
-        mock: &'static [&'static str],
-        gates: Vec<(&'static str, &'static [&'static str])>,
-        config: ServerConfig,
-    ) -> Self {
+    pub(crate) fn configured(mock: &'static [&'static str], gates: Vec<(&'static str, &'static [&'static str])>, config: ServerConfig) -> Self {
         mixdog_rt::testing::tokens();
         let core = Arc::new(TestCore {
             mock: MockCore::new(mock, MockLimits::default()),
@@ -504,15 +466,9 @@ impl Rig {
         let outgoing = Outgoing::new();
         let origins: Arc<Mutex<std::collections::HashMap<ConnectionId, Origin>>> = Arc::default();
         let known = origins.clone();
-        let origin_of: crate::OriginOf =
-            Arc::new(move |id| known.lock().unwrap().get(&id).copied());
+        let origin_of: crate::OriginOf = Arc::new(move |id| known.lock().unwrap().get(&id).copied());
         let server = AppServer::new(core.clone(), outgoing.clone(), origin_of, config).unwrap();
-        Self {
-            server,
-            core,
-            outgoing,
-            origins,
-        }
+        Self { server, core, outgoing, origins }
     }
 
     /// The transport loses track of connection `id` while its handle is still driven.
@@ -525,10 +481,7 @@ impl Rig {
     }
 
     pub(crate) fn connect(&self, id: u64, origin: Origin) -> Client {
-        let wire = Arc::new(MockConnection::new(
-            ConnectionId(id),
-            MockLimits::default(),
-        ));
+        let wire = Arc::new(MockConnection::new(ConnectionId(id), MockLimits::default()));
         self.origins.lock().unwrap().insert(ConnectionId(id), origin);
         let handle = self.server.open(ConnectionId(id), wire.clone());
         Client { handle, wire }
@@ -536,19 +489,9 @@ impl Rig {
 
     /// A connection whose writer runs `hook` just before it queues its first control frame,
     /// the initialize response: the window in which a session is latched but unanswered.
-    pub(crate) fn connect_hooked(
-        &self,
-        id: u64,
-        hook: impl FnOnce() + Send + 'static,
-    ) -> Client {
-        let wire = Arc::new(MockConnection::new(
-            ConnectionId(id),
-            MockLimits::default(),
-        ));
-        let sink = HookedSink {
-            inner: wire.clone(),
-            hook: Mutex::new(Some(Box::new(hook))),
-        };
+    pub(crate) fn connect_hooked(&self, id: u64, hook: impl FnOnce() + Send + 'static) -> Client {
+        let wire = Arc::new(MockConnection::new(ConnectionId(id), MockLimits::default()));
+        let sink = HookedSink { inner: wire.clone(), hook: Mutex::new(Some(Box::new(hook))) };
         self.origins.lock().unwrap().insert(ConnectionId(id), Origin::Local);
         let handle = self.server.open(ConnectionId(id), Arc::new(sink));
         Client { handle, wire }
@@ -556,11 +499,7 @@ impl Rig {
 
     /// A connection whose sink hands each control frame, with what `watch` saw at that instant, to the returned
     /// [`Arrivals`] just before it queues the frame.
-    pub(crate) fn connect_watched<T: Send + 'static>(
-        &self,
-        id: u64,
-        watch: impl Fn() -> T + Send + Sync + 'static,
-    ) -> (Client, Arrivals<T>) {
+    pub(crate) fn connect_watched<T: Send + 'static>(&self, id: u64, watch: impl Fn() -> T + Send + Sync + 'static) -> (Client, Arrivals<T>) {
         let wire = Arc::new(MockConnection::new(ConnectionId(id), MockLimits::default()));
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
         let sink = WatchedSink {
@@ -646,9 +585,7 @@ impl Client {
             .into_iter()
             .map(|written| Wire {
                 lane: written.lane.map(|sub| sub.to_string()),
-                body: serde_json::from_slice(&written.frame).unwrap_or_else(|_| {
-                    Value::String(String::from_utf8_lossy(&written.frame).into_owned())
-                }),
+                body: serde_json::from_slice(&written.frame).unwrap_or_else(|_| Value::String(String::from_utf8_lossy(&written.frame).into_owned())),
             })
             .collect()
     }

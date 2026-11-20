@@ -79,11 +79,21 @@ impl Runner for Ruff {
             let changed = parse_ruff_format_diff(&r.stdout, &req.cwd);
             Batch::Done(Findings { diagnostics: reformat_diagnostics(&changed, "ruff", "ruff/format"), changed, ..Default::default() })
         };
-        let linted = run_batches(req, "ruff", &selected, req.files_per_spawn, &|files| Invocation::over(req, &["check", "--output-format", "json", "--no-fix", "--force-exclude"], files), &lint).await;
+        let linted = run_batches(
+            req,
+            "ruff",
+            &selected,
+            req.files_per_spawn,
+            &|files| Invocation::over(req, &["check", "--output-format", "json", "--no-fix", "--force-exclude"], files),
+            &lint,
+        )
+        .await;
         if linted.failure.is_some() {
             return linted.into_result();
         }
-        let formatted = run_batches(req, "ruff", &selected, req.files_per_spawn, &|files| Invocation::over(req, &["format", "--diff", "--force-exclude"], files), &format).await;
+        let formatted =
+            run_batches(req, "ruff", &selected, req.files_per_spawn, &|files| Invocation::over(req, &["format", "--diff", "--force-exclude"], files), &format)
+                .await;
         RunnerResult { ignored, ..linted.and(formatted).into_result() }
     }
     async fn fix(&self, req: &RunRequest) -> RunnerResult {
@@ -111,7 +121,16 @@ mod tests {
 
     #[async_trait]
     impl Spawn for Fake {
-        async fn run(&self, _: &str, args: &[String], _: &Path, _: std::time::Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> ProcessResult {
+        async fn run(
+            &self,
+            _: &str,
+            args: &[String],
+            _: &Path,
+            _: std::time::Duration,
+            _: Option<&CancellationToken>,
+            _: Option<&HashMap<String, String>>,
+            _: Option<Vec<u8>>,
+        ) -> ProcessResult {
             self.0.lock().unwrap().push(args.to_vec());
             (self.1)(args)
         }
@@ -119,7 +138,10 @@ mod tests {
 
     fn request(files: &[&str], reply: impl Fn(&[String]) -> ProcessResult + Send + Sync + 'static) -> (Arc<Fake>, RunRequest) {
         let spawn = Arc::new(Fake(Mutex::default(), Box::new(reply)));
-        (spawn.clone(), RunRequest::new(Path::new(CWD), "ruff", files.iter().map(|f| (*f).to_owned()).collect(), spawn, mixdog_rt::testing::tokens().durability_io))
+        (
+            spawn.clone(),
+            RunRequest::new(Path::new(CWD), "ruff", files.iter().map(|f| (*f).to_owned()).collect(), spawn, mixdog_rt::testing::tokens().durability_io),
+        )
     }
 
     fn files_of(args: &[String]) -> Vec<&str> {
@@ -138,7 +160,9 @@ mod tests {
         }
         let diff: String = files.iter().filter(|f| **f == "messy.py").map(|f| format!("--- {f}\n+++ {f}\n@@ -1 +1 @@\n-x=1\n+x = 1\n\n")).collect();
         match files.iter().find(|f| **f == "bad.py") {
-            Some(bad) => ProcessResult { code: 2, stdout: diff, stderr: format!("error: Failed to parse {bad}:1:7: Expected a parameter"), ..Default::default() },
+            Some(bad) => {
+                ProcessResult { code: 2, stdout: diff, stderr: format!("error: Failed to parse {bad}:1:7: Expected a parameter"), ..Default::default() }
+            }
             None => ProcessResult { code: i32::from(!diff.is_empty()), stdout: diff, ..Default::default() },
         }
     }
@@ -146,7 +170,13 @@ mod tests {
     #[test]
     fn json_rows_mark_only_safe_fixes_fixable_and_anything_else_is_not_a_report() {
         let row = |code: &str, fix: &str| format!(r#"{{"filename":"/r/a.py","code":"{code}","message":"m","location":{{"row":1,"column":8}},"fix":{fix}}}"#);
-        let json = format!("[{},{},{},{}]", row("F401", r#"{"applicability":"safe","edits":[]}"#), row("F841", r#"{"applicability":"unsafe","edits":[]}"#), row("X1", r#"{"applicability":"display_only","edits":[]}"#), row("E501", "null"));
+        let json = format!(
+            "[{},{},{},{}]",
+            row("F401", r#"{"applicability":"safe","edits":[]}"#),
+            row("F841", r#"{"applicability":"unsafe","edits":[]}"#),
+            row("X1", r#"{"applicability":"display_only","edits":[]}"#),
+            row("E501", "null")
+        );
         let rows = parse_ruff_json(&json, Path::new(CWD)).unwrap();
         assert_eq!(rows.iter().map(|d| d.fixable).collect::<Vec<_>>(), [true, false, false, false]);
         assert_eq!((rows[0].file.as_str(), rows[0].code.as_str(), rows[0].line, rows[0].col), ("a.py", "F401", 1, 8));
@@ -185,7 +215,11 @@ mod tests {
         assert!(Ruff.fix(&req).await.error.is_none());
         let calls = spawn.0.lock().unwrap().clone();
         assert_eq!(calls, [vec!["check", "--fix", "--no-unsafe-fixes", "--force-exclude", "messy.py"], vec!["format", "--force-exclude", "messy.py"]]);
-        let (_spawn, req) = request(&["messy.py"], |args| ProcessResult { code: if args[0] == "format" { 2 } else { 0 }, stderr: "error: Failed to parse messy.py".into(), ..Default::default() });
+        let (_spawn, req) = request(&["messy.py"], |args| ProcessResult {
+            code: if args[0] == "format" { 2 } else { 0 },
+            stderr: "error: Failed to parse messy.py".into(),
+            ..Default::default()
+        });
         let failed = Ruff.fix(&req).await;
         assert_eq!(failed.unprocessed.iter().map(|(f, _)| f.as_str()).collect::<Vec<_>>(), ["messy.py"]);
         let (_spawn, req) = request(&["a.py", "b.py"], |_| ProcessResult { code: 2, stderr: "error: invalid configuration".into(), ..Default::default() });

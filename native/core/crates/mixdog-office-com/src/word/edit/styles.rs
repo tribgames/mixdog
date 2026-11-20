@@ -76,11 +76,7 @@ pub(super) fn define_styles(document: &Obj, op: &Value) -> Result<Value> {
         formatting::set_paragraph_flow(&format, &fields)?;
         defined.push(Value::String(name));
     }
-    let mut pairs = vec![
-        ("op", Value::string("define_styles")),
-        ("changed", Value::Bool(!defined.is_empty())),
-        ("styles", Value::Array(defined)),
-    ];
+    let mut pairs = vec![("op", Value::string("define_styles")), ("changed", Value::Bool(!defined.is_empty())), ("styles", Value::Array(defined))];
     if !not_found.is_empty() {
         pairs.push(("styleNotFound", Value::Array(not_found)));
     }
@@ -117,11 +113,8 @@ pub(super) fn set_paragraph_style(document: &Obj, op: &Value) -> Result<Value> {
     let paragraph = super::item(&document.get("Paragraphs")?, cast_int(&prop(op, "paragraph"))?)?;
     let missing = formatting::set_style(&paragraph.member("Range")?, &text_of(&prop(op, "style")));
     let reported = missing.clone().filter(|name| !name.is_empty());
-    let mut pairs = vec![
-        ("op", Value::string("set_paragraph_style")),
-        ("changed", Value::Bool(reported.is_none())),
-        ("style", Value::String(text_of(&prop(op, "style")))),
-    ];
+    let mut pairs =
+        vec![("op", Value::string("set_paragraph_style")), ("changed", Value::Bool(reported.is_none())), ("style", Value::String(text_of(&prop(op, "style"))))];
     if let Some(name) = reported {
         pairs.push(("styleNotFound", Value::String(name)));
     }

@@ -5,9 +5,8 @@
 use mixdog_tui::surface::epoch::PanelValue;
 use mixdog_tui::surface::latch::IndexModePanel;
 use mixdog_tui::surface::layout::{
-    CommitFollowUp, HintText, PanelTransition, PickerLayout, PromptBoxRect, QueuedCommand, ShellLayout, ShellLayoutInput,
-    ShellRefs, ShellState, TextEntryPrompt, TranscriptTail, TranscriptViewport, commit_panel_transition, compute_shell_layout,
-    record_transcript_tail,
+    CommitFollowUp, HintText, PanelTransition, PickerLayout, PromptBoxRect, QueuedCommand, ShellLayout, ShellLayoutInput, ShellRefs, ShellState,
+    TextEntryPrompt, TranscriptTail, TranscriptViewport, commit_panel_transition, compute_shell_layout, record_transcript_tail,
 };
 use mixdog_tui::surface::owner::{PanelSurface, SurfaceEvent};
 use mixdog_tui_widgets::picker::IndexMode;
@@ -34,11 +33,7 @@ fn item(id: &str, kind: &str) -> TranscriptTail {
 }
 
 fn state_with_items(items: &[(&str, &str)]) -> ShellState {
-    ShellState {
-        item_count: items.len(),
-        latest_item: items.last().map(|(id, kind)| item(id, kind)),
-        ..ShellState::default()
-    }
+    ShellState { item_count: items.len(), latest_item: items.last().map(|(id, kind)| item(id, kind)), ..ShellState::default() }
 }
 
 /// The fields `CORE_KEYS` of the Node test, in its order.
@@ -152,10 +147,7 @@ fn an_option_picker_hides_the_prompt_box_and_takes_the_panel_rows() {
 fn a_live_spinner_plus_queued_prompts_reserve_the_meta_band_and_the_queued_band() {
     let state = ShellState {
         spinner_active: true,
-        queued: vec![
-            QueuedCommand { text: "a".into(), ..QueuedCommand::default() },
-            QueuedCommand { display_text: "b".into(), ..QueuedCommand::default() },
-        ],
+        queued: vec![QueuedCommand { text: "a".into(), ..QueuedCommand::default() }, QueuedCommand { display_text: "b".into(), ..QueuedCommand::default() }],
         ..state_with_items(&[("u1", "user")])
     };
     let input = ShellLayoutInput { state, prompt_layout_value: "x".into(), ..base_input() };
@@ -207,11 +199,7 @@ fn a_toast_on_the_empty_transcript_carves_an_in_viewport_hint_row_and_sizes_the_
 
 #[test]
 fn a_live_spinner_shares_the_hint_slot_width_and_leaves_room_for_its_separator() {
-    let state = ShellState {
-        spinner_active: true,
-        latest_toast: Some(HintText { text: "oops".into(), tone: "error".into() }),
-        ..ShellState::default()
-    };
+    let state = ShellState { spinner_active: true, latest_toast: Some(HintText { text: "oops".into(), tone: "error".into() }), ..ShellState::default() };
     let layout = compute_shell_layout(&ShellLayoutInput { state, ..base_input() }, &mut base_refs());
     assert_eq!(layout.spinner_hint_width, 42);
     assert_eq!(layout.guard_hint_width, 42);
@@ -255,12 +243,8 @@ fn opening_the_slash_palette_on_the_empty_screen_borrows_one_guard_row() {
 #[test]
 fn prompt_row_only_churn_while_a_spinner_meta_band_collapses_onto_a_fresh_done_row_masks_nothing() {
     let mut refs = base_refs();
-    refs.panel_transition = PanelTransition {
-        signature: "||||||input-visible|0|3|2|0|0".into(),
-        reserve: 8,
-        tail_id: Some("u1".into()),
-        ..PanelTransition::default()
-    };
+    refs.panel_transition =
+        PanelTransition { signature: "||||||input-visible|0|3|2|0|0".into(), reserve: 8, tail_id: Some("u1".into()), ..PanelTransition::default() };
     let input = ShellLayoutInput { state: state_with_items(&[("u1", "user"), ("d1", "turndone")]), ..base_input() };
     let layout = compute_shell_layout(&input, &mut refs);
     assert_eq!(layout.panel_layout_signature, "||||||input-visible|0|3|0|0|0");
@@ -302,7 +286,8 @@ fn a_question_approval_reserves_the_tallest_question_and_hides_the_prompt() {
     assert!(layout.desired_floating_panel_rows > 0);
     assert!(layout.panel_layout_signature.starts_with("tool|"));
     let plain = serde_json::json!({ "kind": "bash", "args": {} });
-    let plain_layout = compute_shell_layout(&ShellLayoutInput { tool_approval: Some(plain), state: state_with_items(&[("a", "user")]), ..base_input() }, &mut base_refs());
+    let plain_layout =
+        compute_shell_layout(&ShellLayoutInput { tool_approval: Some(plain), state: state_with_items(&[("a", "user")]), ..base_input() }, &mut base_refs());
     assert_eq!(plain_layout.desired_floating_panel_rows, 6 + 2 + 3);
 }
 

@@ -262,7 +262,9 @@ fn without_a_manifest_url_or_with_remote_checks_off_the_library_is_only_indexed(
     assert_eq!(local["templates"], json!({ "changed": false, "count": 0, "templates": [] }));
     let data = library.data();
     let cx = Context { lane: &Unlaned, env: &library.env, fetch: &network, indexer: &NoIndex };
-    let offline = sync_office_design_library(&cx, &SyncOptions { allow_remote: false, force: true, config: Some(&config()), ..SyncOptions::new(&data) }).expect("offline").to_value();
+    let offline = sync_office_design_library(&cx, &SyncOptions { allow_remote: false, force: true, config: Some(&config()), ..SyncOptions::new(&data) })
+        .expect("offline")
+        .to_value();
     assert_eq!(offline["checked"], false);
     assert!(network.requests().is_empty());
 }

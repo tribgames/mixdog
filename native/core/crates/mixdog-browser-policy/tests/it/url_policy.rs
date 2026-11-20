@@ -71,10 +71,7 @@ fn only_http_and_https_are_opened() {
 #[test]
 fn an_unparsable_url_is_refused_with_its_secrets_redacted_from_the_message() {
     assert_eq!(agent("https://exa mple.com/?token=abcdef", &open()), Err("invalid url: https://exa mple.com/?token=[REDACTED]".into()));
-    assert_eq!(
-        agent("http://[bad ghp_abcdefghijklmnopqrstuvwxyz", &open()),
-        Err("invalid url: http://[bad [REDACTED_GITHUB_TOKEN]".into())
-    );
+    assert_eq!(agent("http://[bad ghp_abcdefghijklmnopqrstuvwxyz", &open()), Err("invalid url: http://[bad [REDACTED_GITHUB_TOKEN]".into()));
 }
 
 #[test]
@@ -107,12 +104,7 @@ fn an_agent_url_may_not_carry_a_secret_but_a_page_url_may() {
 
 #[test]
 fn what_looks_like_a_secret_but_is_not_one_is_admitted() {
-    for url in [
-        "https://example.com/cb?code=abc",
-        "https://example.com/?token=",
-        "https://example.com/docs?key=keyboard",
-        "https://example.com/#token=abc",
-    ] {
+    for url in ["https://example.com/cb?code=abc", "https://example.com/?token=", "https://example.com/docs?key=keyboard", "https://example.com/#token=abc"] {
         assert_eq!(agent(url, &open()), Ok(url.into()), "{url}");
     }
 }
@@ -191,7 +183,10 @@ fn loopback_is_always_reachable_for_local_web_app_development() {
 fn the_domain_allow_list_admits_exact_hosts_and_wildcard_subdomains_only() {
     let policy = only(&["example.com", "*.trusted.test"]);
     assert_eq!(agent("https://example.net", &policy), Err("navigation to example.net is blocked by the Browser Use domain policy".into()));
-    assert_eq!(agent("https://evilexample.com/", &only(&["example.com"])), Err("navigation to evilexample.com is blocked by the Browser Use domain policy".into()));
+    assert_eq!(
+        agent("https://evilexample.com/", &only(&["example.com"])),
+        Err("navigation to evilexample.com is blocked by the Browser Use domain policy".into())
+    );
     assert!(agent("https://example.com/x", &policy).is_ok());
     assert!(agent("https://a.b.trusted.test/x", &policy).is_ok());
     // A wildcard entry also admits the bare domain it names.
@@ -220,14 +215,8 @@ fn a_resolved_address_is_checked_against_the_name_it_was_resolved_for() {
     );
     assert_eq!(check("192.168.1.10", "nas.example.test", &local()), Ok(()));
     assert_eq!(check("100.101.102.103", "nas.example.test", &local()), Ok(()));
-    assert_eq!(
-        check("fe80::1", "x.test", &open()),
-        Err("navigation to x.test resolved to blocked private or internal address fe80::1".into())
-    );
-    assert_eq!(
-        check("[::1]", "x.example.test", &open()),
-        Err("navigation to x.example.test resolved to blocked private or internal address [::1]".into())
-    );
+    assert_eq!(check("fe80::1", "x.test", &open()), Err("navigation to x.test resolved to blocked private or internal address fe80::1".into()));
+    assert_eq!(check("[::1]", "x.example.test", &open()), Err("navigation to x.example.test resolved to blocked private or internal address [::1]".into()));
 }
 
 #[test]
@@ -319,10 +308,7 @@ fn a_mail_link_compares_registrable_domains_on_the_public_suffix_list() {
 fn a_mail_link_lifts_only_the_secret_refusal() {
     let url = mail_url("alternativeto.net");
     let mail = link(&url, "alternativeto.net", Some(0));
-    assert_eq!(
-        with_mail(&url, &mail, 0, &only(&["example.com"])),
-        Err("navigation to alternativeto.net is blocked by the Browser Use domain policy".into())
-    );
+    assert_eq!(with_mail(&url, &mail, 0, &only(&["example.com"])), Err("navigation to alternativeto.net is blocked by the Browser Use domain policy".into()));
 }
 
 #[test]

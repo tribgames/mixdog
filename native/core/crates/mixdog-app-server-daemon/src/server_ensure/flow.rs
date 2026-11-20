@@ -24,9 +24,9 @@ use super::layout::RemotePaths;
 use super::lock::InstallLock;
 use super::lock::LockOptions;
 use super::manage;
-use super::report::is_intended;
 use super::report::Replaced;
 use super::report::Report;
+use super::report::is_intended;
 use crate::compat;
 use crate::compat::Order;
 use crate::control::api::ReplacementBuild;
@@ -40,12 +40,7 @@ const DEFAULT_LOCK_STALE_MS: u64 = 15 * 60_000;
 
 /// One `server-ensure` run. `own_exe` is the running binary: the file installed when the
 /// desktop uploaded it.
-pub fn run(
-    args: &ProgramArgs,
-    host: &dyn EnsureHost,
-    access: &dyn CoreAccess,
-    own_exe: &Path,
-) -> Result<Report, EnsureError> {
+pub fn run(args: &ProgramArgs, host: &dyn EnsureHost, access: &dyn CoreAccess, own_exe: &Path) -> Result<Report, EnsureError> {
     match args.mode {
         Mode::Ensure => ensure(args, host, access, own_exe),
         Mode::Probe => manage::probe(args, host, access),
@@ -83,20 +78,10 @@ fn decide(order: Order) -> Decision {
     }
 }
 
-fn ensure(
-    args: &ProgramArgs,
-    host: &dyn EnsureHost,
-    access: &dyn CoreAccess,
-    own_exe: &Path,
-) -> Result<Report, EnsureError> {
+fn ensure(args: &ProgramArgs, host: &dyn EnsureHost, access: &dyn CoreAccess, own_exe: &Path) -> Result<Report, EnsureError> {
     let desktop = compat::parse(&args.version).map_err(|e| EnsureError::BadVersion(e.0))?;
     let paths = RemotePaths::new(&host.home());
-    let spec = InstallSpec {
-        install_id: &args.install_id,
-        version: &args.version,
-        build: &args.build,
-        sha256: args.sha256.as_deref(),
-    };
+    let spec = InstallSpec { install_id: &args.install_id, version: &args.version, build: &args.build, sha256: args.sha256.as_deref() };
     let version_dir = paths.version_dir(&args.install_id)?;
     private_dir(&paths.root)?;
     let _lock = InstallLock::acquire(&paths.lock, &lock_options(args, format!("install {}", args.install_id)), host)?;
@@ -109,9 +94,10 @@ fn ensure(
     // replacement instance may be migrating too). Only a settled core, or none, is decided on. The whole attempt has one
     // deadline, counted from the first wait.
     let mut waiting_since = None;
-    while let Some(core) = found.clone().filter(|core| {
-        matches!(core.state, DiscoveryPhase::Booting | DiscoveryPhase::Migrating) && core.version == args.version && core.build == args.build
-    }) {
+    while let Some(core) = found
+        .clone()
+        .filter(|core| matches!(core.state, DiscoveryPhase::Booting | DiscoveryPhase::Migrating) && core.version == args.version && core.build == args.build)
+    {
         let since = *waiting_since.get_or_insert_with(std::time::Instant::now);
         found = match access.await_serving(&core, since)? {
             CoreReport::Reached(settled) => Some(settled),
@@ -123,18 +109,11 @@ fn ensure(
             let server = compat::parse(&core.version).map_err(|e| EnsureError::BadVersion(e.0))?;
             let decision = decide(compat::order(&desktop, &server));
             if decision == Decision::RefuseOutdated {
-                return Err(EnsureError::ClientOutdated {
-                    desktop_version: args.version.clone(),
-                    server_version: core.version.clone(),
-                });
+                return Err(EnsureError::ClientOutdated { desktop_version: args.version.clone(), server_version: core.version.clone() });
             }
             // Same version but another build or another model-login mode: not the core asked for, so it goes the ordinary
             // way of a replacement (hold, idle drain, the user's confirmation when it is busy) and is never attached to.
-            if decision == Decision::Attach && !is_intended(core, args) {
-                Decision::Replace
-            } else {
-                decision
-            }
+            if decision == Decision::Attach && !is_intended(core, args) { Decision::Replace } else { decision }
         }
         None => Decision::Replace,
     };

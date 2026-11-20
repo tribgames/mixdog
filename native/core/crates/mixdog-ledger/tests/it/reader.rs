@@ -1,11 +1,7 @@
 //! The query API on its lanes: every query is served through [`UsageReader`], the lane
 //! each query shape runs on is the documented one, and the interactive statements never scan a
 //! table (RL §7.2: query-plan test).
-#![allow(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "test fixture I/O; mixdog-store::sqlite has not landed"
-)]
+#![allow(clippy::disallowed_types, clippy::disallowed_methods, reason = "test fixture I/O; mixdog-store::sqlite has not landed")]
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -34,29 +30,14 @@ use rusqlite::types::Null;
 
 #[test]
 fn event_reading_queries_take_the_maintenance_lane() {
-    let timed = RollupQuery {
-        from_ms: Some(1),
-        to_ms: Some(2),
-        ..RollupQuery::default()
-    };
-    let hourly = RollupQuery {
-        hourly_day: Some("2026-11-05".into()),
-        ..RollupQuery::default()
-    };
+    let timed = RollupQuery { from_ms: Some(1), to_ms: Some(2), ..RollupQuery::default() };
+    let hourly = RollupQuery { hourly_day: Some("2026-11-05".into()), ..RollupQuery::default() };
     assert_eq!(UsageReader::rollup_lane(&timed), ReadLane::Maintenance);
     assert_eq!(UsageReader::rollup_lane(&hourly), ReadLane::Maintenance);
-    assert_eq!(
-        UsageReader::rollup_lane(&RollupQuery::default()),
-        ReadLane::Interactive
-    );
+    assert_eq!(UsageReader::rollup_lane(&RollupQuery::default()), ReadLane::Interactive);
     let stats = |json: &str| UsageReader::stats_lane(&serde_json::from_str(json).unwrap());
     assert_eq!(stats(r#"{"view":"hour"}"#), ReadLane::Maintenance);
-    assert_eq!(
-        stats(
-            r#"{"view":"custom","startDay":"2026-11-01","endDay":"2026-11-02","startTime":"09:00"}"#
-        ),
-        ReadLane::Maintenance
-    );
+    assert_eq!(stats(r#"{"view":"custom","startDay":"2026-11-01","endDay":"2026-11-02","startTime":"09:00"}"#), ReadLane::Maintenance);
     assert_eq!(stats(r#"{"view":"day"}"#), ReadLane::Interactive);
     assert_eq!(stats(r#"{"days":30}"#), ReadLane::Interactive);
 }
@@ -66,18 +47,10 @@ fn event_reading_queries_take_the_maintenance_lane() {
 fn scans(conn: &Connection, sql: &str) -> Vec<String> {
     let mut stmt = conn.prepare(&format!("EXPLAIN QUERY PLAN {sql}")).unwrap();
     let count = conn.prepare(sql).unwrap().parameter_count();
-    let params: Vec<&dyn rusqlite::ToSql> =
-        (0..count).map(|_| &Null as &dyn rusqlite::ToSql).collect();
-    let rows = stmt
-        .query_map(params.as_slice(), |r| r.get::<_, String>(3))
-        .unwrap()
-        .collect::<Result<Vec<_>, _>>()
-        .unwrap();
-    rows.into_iter()
-        .filter(|row| row.starts_with("SCAN ") || row.contains("TEMP B-TREE"))
-        .collect()
+    let params: Vec<&dyn rusqlite::ToSql> = (0..count).map(|_| &Null as &dyn rusqlite::ToSql).collect();
+    let rows = stmt.query_map(params.as_slice(), |r| r.get::<_, String>(3)).unwrap().collect::<Result<Vec<_>, _>>().unwrap();
+    rows.into_iter().filter(|row| row.starts_with("SCAN ") || row.contains("TEMP B-TREE")).collect()
 }
-
 
 fn upgraded(dir: &Path) -> std::path::PathBuf {
     let path = dir.join("ledger.sqlite");
@@ -101,15 +74,9 @@ async fn every_lane_serves_its_queries() {
         let options: UsageStatsOptions = serde_json::from_str(options).unwrap();
         let first = reader.usage_stats(options.clone(), now).await.unwrap();
         let again = reader.usage_stats(options, now).await.unwrap();
-        assert_eq!(
-            mixdog_js::json_stringify(&first),
-            mixdog_js::json_stringify(&again)
-        );
+        assert_eq!(mixdog_js::json_stringify(&first), mixdog_js::json_stringify(&again));
     }
-    let history = reader
-        .quota_history(QuotaHistoryOptions::default(), BTreeMap::new(), now)
-        .await
-        .unwrap();
+    let history = reader.quota_history(QuotaHistoryOptions::default(), BTreeMap::new(), now).await.unwrap();
     assert!(history.is_object());
     let day = reader.rollup(RollupQuery::default()).await.unwrap();
     assert!(day["days"].as_object().is_some_and(|d| !d.is_empty()));
@@ -132,13 +99,7 @@ fn interactive_statements_do_not_scan_a_table() {
         for cursor in [false, true] {
             for completed in [false, true] {
                 for routes in [0, 1, 3] {
-                    statements.push((
-                        format!(
-                            "request page {}/{cursor}/{completed}/{routes}",
-                            source as u8
-                        ),
-                        page_sql(source, cursor, completed, routes),
-                    ));
+                    statements.push((format!("request page {}/{cursor}/{completed}/{routes}", source as u8), page_sql(source, cursor, completed, routes)));
                 }
             }
         }
@@ -152,21 +113,14 @@ fn interactive_statements_do_not_scan_a_table() {
             failed.push(format!("{name}: {found:?}"));
         }
     }
-    assert!(
-        failed.is_empty(),
-        "full table scans:\n{}",
-        failed.join("\n")
-    );
+    assert!(failed.is_empty(), "full table scans:\n{}", failed.join("\n"));
 }
 /// A later page is an interactive, index-bounded read. The first page also lists the models,
 /// which visits every route, so the whole first page is one maintenance job (one snapshot).
 #[test]
 fn first_page_is_one_maintenance_job() {
     let first = RequestQuery::default();
-    let later = RequestQuery {
-        cursor: Some("1:ab".into()),
-        ..RequestQuery::default()
-    };
+    let later = RequestQuery { cursor: Some("1:ab".into()), ..RequestQuery::default() };
     assert_eq!(UsageReader::requests_lane(&first), ReadLane::Maintenance);
     assert_eq!(UsageReader::requests_lane(&later), ReadLane::Interactive);
 

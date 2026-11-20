@@ -76,17 +76,11 @@ pub(crate) fn required_session_id(value: Option<&Value>) -> Checked<String> {
 }
 
 fn pane_index(value: Option<&Value>) -> Checked<i64> {
-    value
-        .and_then(integer)
-        .filter(|n| (0..=15).contains(n))
-        .ok_or_else(|| "visualize pane index is invalid.".to_owned())
+    value.and_then(integer).filter(|n| (0..=15).contains(n)).ok_or_else(|| "visualize pane index is invalid.".to_owned())
 }
 
 fn version_number(value: Option<&Value>) -> Checked<i64> {
-    value
-        .and_then(integer)
-        .filter(|n| (1..=1_000_000_000).contains(n))
-        .ok_or_else(|| "visualize version must be a positive integer.".to_owned())
+    value.and_then(integer).filter(|n| (1..=1_000_000_000).contains(n)).ok_or_else(|| "visualize version must be a positive integer.".to_owned())
 }
 
 /// A URL scheme prefix such as `https://`.
@@ -94,8 +88,7 @@ fn has_url_scheme(target: &str) -> bool {
     let Some(end) = target.find("://") else { return false };
     let scheme = &target[..end];
     let mut chars = scheme.chars();
-    chars.next().is_some_and(|c| c.is_ascii_alphabetic())
-        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic()) && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
 }
 
 /// The renderer's command, validated: `{ sessionId, tabId, action, ... }` with only the fields the
@@ -104,10 +97,7 @@ pub fn required_tab_command(value: &Value) -> Checked<Map<String, Value>> {
     let empty = Map::new();
     let command = value.as_object().unwrap_or(&empty);
     let action = match command.get("action").and_then(Value::as_str) {
-        Some(
-            a @ ("activate" | "close" | "version" | "restore" | "network" | "reopen" | "render" | "blocked"
-            | "history" | "export" | "thumbnail"),
-        ) => a,
+        Some(a @ ("activate" | "close" | "version" | "restore" | "network" | "reopen" | "render" | "blocked" | "history" | "export" | "thumbnail")) => a,
         _ => return Err(ACTIONS.to_owned()),
     };
     let mut out = Map::new();
@@ -175,11 +165,8 @@ pub fn required_tab_command(value: &Value) -> Checked<Map<String, Value>> {
         }
         "restore" => {
             let assets = command.get("assets");
-            let bad = |a: &Value| {
-                a.as_array().is_none_or(|list| {
-                    list.len() > 64 || list.iter().any(|r| r.as_str().is_none_or(|s| s.is_empty() || len16(s) > 1024))
-                })
-            };
+            let bad =
+                |a: &Value| a.as_array().is_none_or(|list| list.len() > 64 || list.iter().any(|r| r.as_str().is_none_or(|s| s.is_empty() || len16(s) > 1024)));
             if assets.is_some_and(bad) {
                 return Err("visualize restore assets must be a list of file paths.".to_owned());
             }
@@ -190,10 +177,7 @@ pub fn required_tab_command(value: &Value) -> Checked<Map<String, Value>> {
         }
         "thumbnail" => {
             let version = command.get("version").and_then(integer).filter(|n| (0..=1_000_000).contains(n));
-            out.insert(
-                "version".into(),
-                json!(version.ok_or_else(|| "visualize thumbnail version is invalid.".to_owned())?),
-            );
+            out.insert("version".into(), json!(version.ok_or_else(|| "visualize thumbnail version is invalid.".to_owned())?));
         }
         _ => {}
     }
@@ -224,10 +208,7 @@ fn reopen(out: &mut Map<String, Value>, command: &Map<String, Value>) -> Checked
     } else {
         let targets = command.get("targets").and_then(Value::as_array);
         let valid = targets.is_some_and(|list| {
-            (1..=3).contains(&list.len())
-                && list.iter().all(|t| {
-                    t.as_str().is_some_and(|s| !trim_js(s).is_empty() && len16(s) <= 4096 && !has_url_scheme(s))
-                })
+            (1..=3).contains(&list.len()) && list.iter().all(|t| t.as_str().is_some_and(|s| !trim_js(s).is_empty() && len16(s) <= 4096 && !has_url_scheme(s)))
         });
         if !valid {
             return Err("visualize reopen targets must be 1-3 file paths.".to_owned());
@@ -249,9 +230,7 @@ fn thumbnail(value: Option<&Value>) -> Option<String> {
     let data = text.strip_prefix(THUMBNAIL_PREFIX)?;
     let body = data.trim_end_matches('=');
     let padding = data.len() - body.len();
-    let valid = !body.is_empty()
-        && padding <= 2
-        && body.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/');
+    let valid = !body.is_empty() && padding <= 2 && body.chars().all(|c| c.is_ascii_alphanumeric() || c == '+' || c == '/');
     (valid && data.len() * 3 / 4 <= THUMBNAIL_MAX_BYTES).then(|| text.to_owned())
 }
 
@@ -308,7 +287,12 @@ impl VisualizeService {
                 // An Office pane is read as its converted PDF (`remote-visualize.ts:156-165`), still named as the pane it is.
                 match scope.panes.get(index).filter(|pane| pane.kind == "document" && !pane.inline).cloned() {
                     Some(pane) => {
-                        let rel = pane.path.strip_prefix(&pane.root).map_err(|_| refused("This file is not part of the visualize tab.".to_owned()))?.to_string_lossy().replace('\\', "/");
+                        let rel = pane
+                            .path
+                            .strip_prefix(&pane.root)
+                            .map_err(|_| refused("This file is not part of the visualize tab.".to_owned()))?
+                            .to_string_lossy()
+                            .replace('\\', "/");
                         let (converted, _) = converted_scope(panes.pages().ok_or_else(unavailable)?, req, &pane.root, &rel, pane.version).await?;
                         let mut answer = files.file(req, converted, 0).await?;
                         answer["kind"] = json!("document");
@@ -352,7 +336,13 @@ impl VisualizeService {
 }
 
 /// The scope a converted document is read under: its PDF as the one pane of its own folder, and the name to read it by.
-async fn converted_scope(pages: &Arc<dyn PanePages>, req: &CoreRequest, root: &Path, rel: &str, version: Option<i64>) -> Result<(PaneScope, String), CoreError> {
+async fn converted_scope(
+    pages: &Arc<dyn PanePages>,
+    req: &CoreRequest,
+    root: &Path,
+    rel: &str,
+    version: Option<i64>,
+) -> Result<(PaneScope, String), CoreError> {
     let pdf = pages.converted(req, root.to_string_lossy().into_owned(), rel.to_owned()).await?;
     let folder = pdf.parent().map(Path::to_path_buf).ok_or_else(|| refused("The document preview is unavailable.".to_owned()))?;
     let name = pdf.file_name().map(|name| name.to_string_lossy().into_owned()).ok_or_else(|| refused("The document preview is unavailable.".to_owned()))?;
@@ -378,18 +368,15 @@ impl DomainService for VisualizeService {
         if req.method.as_str() != "visualize/command" {
             return Err(CoreError::InvalidParams { path: "method".into(), expected: "visualize/command".into() });
         }
-        let action = req
-            .params
-            .get("action")
-            .and_then(Value::as_str)
-            .ok_or_else(|| CoreError::InvalidParams { path: "action".into(), expected: "a string".into() })?;
+        let action =
+            req.params.get("action").and_then(Value::as_str).ok_or_else(|| CoreError::InvalidParams { path: "action".into(), expected: "a string".into() })?;
         if req.ctx.origin == Origin::Relay && PANE_ACTIONS.contains(&action) {
             return self.pane_read(&req, action).await;
         }
         let mut fields = req.params.get("input").and_then(Value::as_object).cloned().unwrap_or_default();
         fields.insert("action".into(), json!(action));
-        let valid = required_tab_command(&Value::Object(fields))
-            .map_err(|message| CoreError::InvalidParams { path: "params".into(), expected: message.into() })?;
+        let valid =
+            required_tab_command(&Value::Object(fields)).map_err(|message| CoreError::InvalidParams { path: "params".into(), expected: message.into() })?;
         let relay = req.ctx.origin == Origin::Relay;
         // Outside network for a page is the desktop user's decision alone.
         if relay && action == "network" {
@@ -450,35 +437,19 @@ mod tests {
 
     #[test]
     fn each_action_keeps_only_its_own_fields() {
-        assert_eq!(
-            check(base(json!({ "action": "close", "stray": 1 }))).unwrap(),
-            json!({ "sessionId": "session-1", "tabId": "v2", "action": "close" })
-        );
+        assert_eq!(check(base(json!({ "action": "close", "stray": 1 }))).unwrap(), json!({ "sessionId": "session-1", "tabId": "v2", "action": "close" }));
         assert_eq!(
             check(json!({ "sessionId": "s", "action": "history", "entry": " e ", "tabId": "ignored" })).unwrap(),
             json!({ "sessionId": "s", "tabId": "", "action": "history", "entry": "e" })
         );
-        assert_eq!(
-            check(base(json!({ "action": "version", "version": null, "compare": true }))).unwrap()["compare"],
-            json!(true)
-        );
+        assert_eq!(check(base(json!({ "action": "version", "version": null, "compare": true }))).unwrap()["compare"], json!(true));
         assert_eq!(check(base(json!({ "action": "version", "version": 3 }))).unwrap()["version"], json!(3));
         assert_eq!(
-            check(base(json!({ "action": "render", "pane": 2, "renderId": "r", "error": "x".repeat(5000) })))
-                .unwrap()["error"]
-                .as_str()
-                .unwrap()
-                .len(),
+            check(base(json!({ "action": "render", "pane": 2, "renderId": "r", "error": "x".repeat(5000) }))).unwrap()["error"].as_str().unwrap().len(),
             4000
         );
-        assert_eq!(
-            check(base(json!({ "action": "reopen", "targets": ["a/b.md"], "label": "L" }))).unwrap()["targets"],
-            json!(["a/b.md"])
-        );
-        assert_eq!(
-            check(base(json!({ "action": "restore", "version": 2, "assets": [] }))).unwrap().get("assets"),
-            None
-        );
+        assert_eq!(check(base(json!({ "action": "reopen", "targets": ["a/b.md"], "label": "L" }))).unwrap()["targets"], json!(["a/b.md"]));
+        assert_eq!(check(base(json!({ "action": "restore", "version": 2, "assets": [] }))).unwrap().get("assets"), None);
     }
 
     #[test]
@@ -508,10 +479,7 @@ mod tests {
         let say = |c: Value| check(c).unwrap_err();
         // U+0085 is Rust whitespace but not JavaScript's, so it is not trimmed away.
         assert_eq!(say(json!({ "action": "close", "sessionId": "\u{85}s\u{85}" })), "session id is invalid.");
-        assert_eq!(
-            check(json!({ "action": "close", "sessionId": "\u{feff}s\u{a0}", "tabId": "\u{85}t" })).unwrap()["tabId"],
-            "\u{85}t"
-        );
+        assert_eq!(check(json!({ "action": "close", "sessionId": "\u{feff}s\u{a0}", "tabId": "\u{85}t" })).unwrap()["tabId"], "\u{85}t");
         assert_eq!(check(json!({ "action": "close", "sessionId": "\u{feff}s\u{a0}", "tabId": "t" })).unwrap()["sessionId"], "s");
     }
 
@@ -551,9 +519,7 @@ mod tests {
         let (service, channel) = rig(json!({}));
         let input = json!({ "sessionId": "s", "tabId": "t" });
         let network = json!({ "action": "network", "input": { "sessionId": "s", "tabId": "t", "allow": true } });
-        let CoreError::InvalidParams { expected, .. } = value(&service, Origin::Relay, network.clone()).await.unwrap_err() else {
-            panic!("invalid params")
-        };
+        let CoreError::InvalidParams { expected, .. } = value(&service, Origin::Relay, network.clone()).await.unwrap_err() else { panic!("invalid params") };
         assert_eq!(&*expected, "Outside network can only be allowed on the desktop.");
         assert!(value(&service, Origin::Local, network).await.is_ok(), "the desktop may");
 
@@ -575,10 +541,7 @@ mod tests {
         channel.reply(Method("host/visualize/command"), json!({ "thumbnail": png_data, "extra": 1 }));
         let mut thumb = input.clone();
         thumb.as_object_mut().unwrap().insert("version".into(), json!(1));
-        assert_eq!(
-            value(&service, Origin::Relay, json!({ "action": "thumbnail", "input": thumb.clone() })).await.unwrap(),
-            json!({ "thumbnail": png_data })
-        );
+        assert_eq!(value(&service, Origin::Relay, json!({ "action": "thumbnail", "input": thumb.clone() })).await.unwrap(), json!({ "thumbnail": png_data }));
         channel.reply(Method("host/visualize/command"), json!({ "thumbnail": "data:image/jpeg;base64,AAAA" }));
         assert_eq!(value(&service, Origin::Relay, json!({ "action": "thumbnail", "input": thumb })).await.unwrap(), Value::Null);
         channel.reply(Method("host/visualize/command"), json!({ "x": 1 }));
@@ -601,9 +564,7 @@ mod tests {
         let export = json!({ "action": "export", "input": { "sessionId": "s", "tabId": "t", "format": "png" } });
         for role in [WindowRole::Main, WindowRole::Server { connection_id: "c1".into() }] {
             for params in [network.clone(), export.clone()] {
-                let Reply::Value(answer) = service.call(windowed(Origin::Local, role.clone(), params.clone())).await.unwrap() else {
-                    panic!("a value reply")
-                };
+                let Reply::Value(answer) = service.call(windowed(Origin::Local, role.clone(), params.clone())).await.unwrap() else { panic!("a value reply") };
                 assert_eq!(answer, json!({ "anything": true }), "{role:?} {params}");
             }
         }
@@ -636,7 +597,9 @@ mod tests {
             assert!(!text.contains(host_path), "{host_path} left the core: {text}");
         }
         assert_eq!(states[0]["tabs"][0]["panes"][0]["remoteTarget"], "a.html");
-        let Reply::Value(inline) = service.call(phone("paneInline", json!({ "sessionId": "s1", "tabId": "t1", "pane": 1 }))).await.unwrap() else { panic!("a value reply") };
+        let Reply::Value(inline) = service.call(phone("paneInline", json!({ "sessionId": "s1", "tabId": "t1", "pane": 1 }))).await.unwrap() else {
+            panic!("a value reply")
+        };
         assert_eq!(inline, json!({ "kind": "mermaid", "source": "graph TD", "title": "T" }));
         let message = |error: CoreError| match error {
             CoreError::DomainError { message, .. } => message.map(|m| m.to_string()).unwrap_or_default(),
@@ -707,7 +670,9 @@ mod tests {
         let service = service.with_panes(panes);
         let phone = |action: &str, input: Value| request(Origin::Relay, json!({ "action": action, "input": input }));
 
-        let Reply::Value(file) = service.call(phone("paneFile", json!({ "sessionId": "s1", "tabId": "t1", "pane": 0 }))).await.unwrap() else { panic!("a value") };
+        let Reply::Value(file) = service.call(phone("paneFile", json!({ "sessionId": "s1", "tabId": "t1", "pane": 0 }))).await.unwrap() else {
+            panic!("a value")
+        };
         assert_eq!((file["kind"].clone(), file["rel"].clone()), (json!("document"), json!("deck.pptx")));
         service.call(phone("paneRange", json!({ "sessionId": "s1", "tabId": "t1", "rel": "deck.pptx", "offset": 0, "length": 10 }))).await.unwrap();
         let seen = recorder.seen.lock().unwrap();

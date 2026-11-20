@@ -19,12 +19,12 @@ use crate::identity::Ownership;
 use crate::office::close_office_document;
 use crate::office::get_full_path;
 use crate::office::open_background_document;
+use crate::ps::ObjectKind;
+use crate::ps::Value;
 use crate::state::Mode;
 use crate::state::SessionState;
 use crate::state::close_session_state;
 use crate::state::open_session_state;
-use crate::ps::ObjectKind;
-use crate::ps::Value;
 
 fn owned_background(state: &SessionState, format: &str) -> bool {
     state.format == format && state.mode == Mode::Background && state.ownership == Ownership::Owned
@@ -46,11 +46,7 @@ pub fn close_state_document_without_saving(state: &mut SessionState) -> Result<(
 
 /// `Reopen-BackgroundExcelSession`: the workbook closed, optionally replaced by a copy of the file at `restore_path`, its
 /// zero DPIs repaired (counted into the session's `ExcelDpiRepairs`), opened again and recalculated in full.
-pub fn reopen_background_excel_session<P: WriteProof>(
-    actions: &Actions<'_, P>,
-    state: &mut SessionState,
-    restore_path: &str,
-) -> Result<(), String> {
+pub fn reopen_background_excel_session<P: WriteProof>(actions: &Actions<'_, P>, state: &mut SessionState, restore_path: &str) -> Result<(), String> {
     if !owned_background(state, "xlsx") {
         return Err("Full-file Excel restore is available only for owned background sessions".to_owned());
     }
@@ -60,11 +56,7 @@ pub fn reopen_background_excel_session<P: WriteProof>(
     }
     state.excel_dpi_repairs = i32::try_from(repair_excel_page_setup_dpi(actions, &state.path)?).unwrap_or(i32::MAX);
     let app = application_of(state)?;
-    let book = app
-        .get("Workbooks")
-        .and_then(|books| books.call_member("Open", &[Com::from(state.path.as_str())]))
-        .map_err(text)?
-        .into_obj();
+    let book = app.get("Workbooks").and_then(|books| books.call_member("Open", &[Com::from(state.path.as_str())])).map_err(text)?.into_obj();
     let _ = app.call("CalculateFullRebuild", &[]);
     state.document = book;
     Ok(())
@@ -76,10 +68,8 @@ pub fn reopen_background_word_session(state: &mut SessionState) -> Result<(), St
         return Err("Word reopen validation is available only for owned background sessions".to_owned());
     }
     close_state_document_without_saving(state)?;
-    let opened = application_of(state)?
-        .get("Documents")
-        .and_then(|documents| documents.call_member("Open", &[Com::from(state.path.as_str())]))
-        .map_err(text)?;
+    let opened =
+        application_of(state)?.get("Documents").and_then(|documents| documents.call_member("Open", &[Com::from(state.path.as_str())])).map_err(text)?;
     state.document = opened.into_obj();
     Ok(())
 }
@@ -125,12 +115,7 @@ pub fn reopen_background_powerpoint_session<P: WriteProof>(
 /// `Reload-SessionDocument`: re-authoring rewrites the whole deck, and starting PowerPoint again costs seconds, so the
 /// application stays and only the document is swapped: the freshly written file at `source_path` is moved onto the session's
 /// path while nothing holds it open, then opened in place. A dead application falls back to a full reopen.
-pub fn reload_session_document<P: WriteProof>(
-    actions: &Actions<'_, P>,
-    out: &mut Emitter,
-    state: &mut SessionState,
-    source_path: &str,
-) -> Result<Obj, String> {
+pub fn reload_session_document<P: WriteProof>(actions: &Actions<'_, P>, out: &mut Emitter, state: &mut SessionState, source_path: &str) -> Result<Obj, String> {
     if !owned_background(state, "pptx") {
         return Err("Document reload is available only for owned background PowerPoint sessions".to_owned());
     }

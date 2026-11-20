@@ -86,12 +86,7 @@ fn fill_lane(gate: &Gate) -> Vec<JobHandle<()>> {
     }
     for _ in 0..2 {
         let gate = gate.clone();
-        handles.push(
-            tokens
-                .cpu_bulk
-                .submit(&CancellationToken::new(), move |_| gate.wait())
-                .unwrap(),
-        );
+        handles.push(tokens.cpu_bulk.submit(&CancellationToken::new(), move |_| gate.wait()).unwrap());
     }
     let lane = rt().0.diagnostics().lanes.into_iter().find(|l| l.kind == mixdog_rt::LaneKind::CpuBulk).unwrap();
     assert_eq!((lane.queue_depth, lane.room), (2, 2), "the queue holds its room");
@@ -153,9 +148,7 @@ fn dropping_the_wait_enqueues_nothing() {
     block_on(async {
         let cancel = CancellationToken::new();
         let flag = ran.clone();
-        let waiting = tokens
-            .cpu_bulk
-            .submit_wait(&cancel, move |_| flag.store(true, SeqCst));
+        let waiting = tokens.cpu_bulk.submit_wait(&cancel, move |_| flag.store(true, SeqCst));
         // Abandoned mid-wait, as a `select!` branch or a timeout would.
         let mut waiting = pin!(waiting);
         let polled = std::future::poll_fn(|cx| std::task::Poll::Ready(waiting.as_mut().poll(cx))).await;
@@ -166,12 +159,7 @@ fn dropping_the_wait_enqueues_nothing() {
         block_on(h).unwrap();
     }
     // The lane is idle and serving; the abandoned job never appears.
-    let after = block_on(
-        tokens
-            .cpu_bulk
-            .submit(&CancellationToken::new(), |_| 1)
-            .unwrap(),
-    );
+    let after = block_on(tokens.cpu_bulk.submit(&CancellationToken::new(), |_| 1).unwrap());
     assert_eq!(after, Ok(1));
     assert!(!ran.load(SeqCst));
 }

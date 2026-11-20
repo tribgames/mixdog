@@ -38,5 +38,3 @@ async fn the_reader_reads_the_1_4_5_key_and_the_registered_key() {
     let own = config_holding(dir.path(), &serde_json::json!({"quotaAutoResume": false})).await;
     assert!(!auto_resume_enabled(&own));
 }
-
-

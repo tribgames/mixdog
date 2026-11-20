@@ -3,13 +3,6 @@
 //! `thread/header/patch` (a `meta` record), which the session serves to internal callers only.
 
 use async_trait::async_trait;
-use mixdog_core_api::CoreError;
-use mixdog_core_api::ids::ThreadId;
-use mixdog_store::schema::record::Header;
-use mixdog_store::schema::record::HeaderChange;
-use mixdog_tools::orch::util::PortError;
-use serde_json::Map;
-use serde_json::Value;
 use mixdog_app_protocol::v2::thread::PromptRestore;
 use mixdog_app_protocol::v2::thread::ProviderAccountChange;
 use mixdog_app_protocol::v2::thread::SetupUiRequest;
@@ -18,7 +11,14 @@ use mixdog_app_protocol::v2::thread::ThreadApprovals;
 use mixdog_app_protocol::v2::thread::ThreadContext;
 use mixdog_app_protocol::v2::thread::ThreadRoute;
 use mixdog_app_protocol::v2::thread::ThreadRuntime;
+use mixdog_core_api::CoreError;
+use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::QuotaResume;
+use mixdog_store::schema::record::Header;
+use mixdog_store::schema::record::HeaderChange;
+use mixdog_tools::orch::util::PortError;
+use serde_json::Map;
+use serde_json::Value;
 
 #[async_trait]
 pub trait ThreadState: Send + Sync {
@@ -64,10 +64,9 @@ pub trait HeaderUpdates: Send + Sync {
 
 pub fn port_error(error: CoreError) -> PortError {
     match error {
-        CoreError::ThreadNotFound { thread_id } => PortError::NotFound {
-            target: thread_id.as_str().to_owned(),
-            message: format!("session: {} is unavailable", thread_id.as_str()),
-        },
+        CoreError::ThreadNotFound { thread_id } => {
+            PortError::NotFound { target: thread_id.as_str().to_owned(), message: format!("session: {} is unavailable", thread_id.as_str()) }
+        }
         other => PortError::Failed { capability: "session".into(), message: format!("{other:?}") },
     }
 }

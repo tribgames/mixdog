@@ -207,7 +207,15 @@ async fn finish(
 ) -> Result<Value, String> {
     // The images of the print are the reference the review compares against; a print that cannot be drawn leaves the
     // document without them rather than failing it.
-    let printed = render_pdf_pages(tokens, Arc::clone(&registry), Arc::clone(&note), &artifacts.print(), RenderPagesOptions { max_width: COMPARE_WIDTH, ..RenderPagesOptions::default() }).await.ok();
+    let printed = render_pdf_pages(
+        tokens,
+        Arc::clone(&registry),
+        Arc::clone(&note),
+        &artifacts.print(),
+        RenderPagesOptions { max_width: COMPARE_WIDTH, ..RenderPagesOptions::default() },
+    )
+    .await
+    .ok();
     let mut inline = BTreeMap::new();
     for (index, picture) in inline_pictures(&laid.flow).into_iter().enumerate() {
         let path = scratch.join(format!("inline-{index}.{}", picture.extension));
@@ -254,7 +262,12 @@ mod tests {
 
     #[test]
     fn the_word_page_is_the_sheet_in_points_to_two_places() {
-        let area = PrintableArea { sheet: Sheet { width: 793.7007874, height: 1122.519685 }, margin: Margins { top: 75.59055118, right: 75.59055118, bottom: 75.59055118, left: 75.59055118 }, width: 642.5, height: 971.3 };
+        let area = PrintableArea {
+            sheet: Sheet { width: 793.7007874, height: 1122.519685 },
+            margin: Margins { top: 75.59055118, right: 75.59055118, bottom: 75.59055118, left: 75.59055118 },
+            width: 642.5,
+            height: 971.3,
+        };
         assert_eq!(page_of(&area), DocxPage { width: 595.28, height: 841.89, top: 56.69, right: 56.69, bottom: 56.69, left: 56.69 });
     }
 

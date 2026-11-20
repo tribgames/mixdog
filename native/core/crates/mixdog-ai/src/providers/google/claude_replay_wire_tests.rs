@@ -5,6 +5,3 @@
 //! production builder from the recorded sign-in and sends each history over the recorder's hub: the request is compared
 //! whole with Node's (the per-send `requestId` only for presence), the answer whole with Node's result (the replay
 //! envelope the next turn sends back included), and the stream callbacks in order.
-
-
-

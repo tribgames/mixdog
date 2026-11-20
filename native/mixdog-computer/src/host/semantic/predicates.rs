@@ -7,7 +7,7 @@ use crate::host::{Host, Res};
 use crate::obj;
 use crate::platform::WindowInfo;
 use crate::protocol::{Obj, Req};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 /// Get-WindowPredicates' reply for a window that exists. `read` is the
 /// element read, absent when the caller asked for none; a read that returned
@@ -71,7 +71,7 @@ impl Host {
                     "exists" => false,
                     "returned" => 0,
                     "elements" => Vec::<Value>::new(),
-                })
+                });
             }
             Err(error) => return Err(error),
         };
@@ -101,11 +101,7 @@ mod tests {
     use crate::a11y::PredicateRead;
 
     fn window() -> WindowInfo {
-        WindowInfo {
-            handle: 0x2a,
-            title: "Notes".into(),
-            ..WindowInfo::default()
-        }
+        WindowInfo { handle: 0x2a, title: "Notes".into(), ..WindowInfo::default() }
     }
 
     fn reply(max: usize, texts: &[(&str, &str)], complete: bool) -> Obj {
@@ -123,20 +119,14 @@ mod tests {
     fn a_whole_read_is_complete_and_lists_each_observation() {
         let reply = reply(5, &[("Saved", ""), ("", "draft")], true);
         let keys: Vec<&str> = reply.keys().map(String::as_str).collect();
-        assert_eq!(
-            keys,
-            ["text", "window_id", "title", "exists", "returned", "text_complete", "elements"]
-        );
+        assert_eq!(keys, ["text", "window_id", "title", "exists", "returned", "text_complete", "elements"]);
         assert_eq!(reply["text"], "window predicate state: Notes");
         assert_eq!(reply["window_id"], window().id());
         assert_eq!(reply["title"], "Notes");
         assert_eq!(reply["exists"], true);
         assert_eq!(reply["returned"], 2);
         assert_eq!(reply["text_complete"], true);
-        assert_eq!(
-            reply["elements"][1],
-            json!({ "role": "Text", "name": "", "value": "draft", "enabled": true })
-        );
+        assert_eq!(reply["elements"][1], json!({ "role": "Text", "name": "", "value": "draft", "enabled": true }));
     }
 
     #[test]
@@ -168,10 +158,7 @@ mod tests {
 
     #[test]
     fn the_probe_reports_the_tree_that_answered() {
-        assert_eq!(
-            Value::Object(probe_reply(Some("uia"), "uia")),
-            json!({ "interactive": true, "source": "uia" })
-        );
+        assert_eq!(Value::Object(probe_reply(Some("uia"), "uia")), json!({ "interactive": true, "source": "uia" }));
         assert_eq!(probe_reply(Some("msaa"), "uia")["source"], "msaa");
         assert_eq!(probe_reply(Some(""), "atspi")["source"], "atspi");
         assert_eq!(Value::Object(probe_reply(None, "uia")), json!({ "interactive": false }));

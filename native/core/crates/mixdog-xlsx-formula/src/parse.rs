@@ -97,10 +97,14 @@ struct Cursor {
 }
 
 impl Cursor {
-    fn peek(&self) -> Option<&Token> { self.tokens.get(self.at) }
+    fn peek(&self) -> Option<&Token> {
+        self.tokens.get(self.at)
+    }
     fn take(&mut self) -> Option<Token> {
         let token = self.tokens.get(self.at).cloned();
-        if token.is_some() { self.at += 1; }
+        if token.is_some() {
+            self.at += 1;
+        }
         token
     }
 }
@@ -146,16 +150,17 @@ fn parse_tokens(tokens: Vec<Token>, tree: &mut Tree) -> Result<usize, Unsupporte
     while let Some(step) = work.pop() {
         match step {
             Work::Level(level) => {
-                if level == LEVELS.len() { work.push(Work::Unary); }
-                else {
+                if level == LEVELS.len() {
+                    work.push(Work::Unary);
+                } else {
                     work.push(Work::First(level));
                     work.push(Work::Level(level + 1));
                 }
             }
             Work::First(level) => work.push(Work::Tail { level, first: last, rest: Vec::new() }),
             Work::Tail { level, first, rest } => {
-                let operator = cursor.peek().filter(|t| t.kind == TokenKind::Operator)
-                    .and_then(|t| BinaryOperator::of(&t.text)).filter(|op| LEVELS[level].contains(op));
+                let operator =
+                    cursor.peek().filter(|t| t.kind == TokenKind::Operator).and_then(|t| BinaryOperator::of(&t.text)).filter(|op| LEVELS[level].contains(op));
                 if let Some(operator) = operator {
                     cursor.take();
                     work.push(Work::Operand { level, first, rest, operator });
@@ -178,7 +183,9 @@ fn parse_tokens(tokens: Vec<Token>, tree: &mut Tree) -> Result<usize, Unsupporte
                 work.push(Work::Primary);
             }
             Work::Signs(negations) => {
-                if !negations.is_empty() { last = tree.push(Node::Unary { negations, operand: last }); }
+                if !negations.is_empty() {
+                    last = tree.push(Node::Unary { negations, operand: last });
+                }
             }
             Work::Postfix => {
                 let mut count = 0;
@@ -186,13 +193,15 @@ fn parse_tokens(tokens: Vec<Token>, tree: &mut Tree) -> Result<usize, Unsupporte
                     cursor.take();
                     count += 1;
                 }
-                if count != 0 { last = tree.push(Node::Percent { operand: last, count }); }
+                if count != 0 {
+                    last = tree.push(Node::Percent { operand: last, count });
+                }
             }
             Work::Primary => {
                 let token = cursor.take().ok_or_else(|| refuse("the formula ends early"))?;
                 let node = match token.kind {
                     TokenKind::Number => Node::Literal(Value::Number(string_to_number(&token.text))),
-                    TokenKind::String => Node::Literal(Value::Text(token.text[1..token.text.len()-1].replace("\"\"", "\"")).canonical()),
+                    TokenKind::String => Node::Literal(Value::Text(token.text[1..token.text.len() - 1].replace("\"\"", "\"")).canonical()),
                     TokenKind::Error => Node::Literal(error_literal(&token.text)),
                     TokenKind::Reference => Node::Reference(token.text),
                     TokenKind::Name => match token.text.to_uppercase().as_str() {
@@ -240,7 +249,9 @@ fn parse_tokens(tokens: Vec<Token>, tree: &mut Tree) -> Result<usize, Unsupporte
             }
         }
     }
-    if let Some(token) = cursor.peek() { return Err(refuse(format!("unexpected \"{}\"", token.text))); }
+    if let Some(token) = cursor.peek() {
+        return Err(refuse(format!("unexpected \"{}\"", token.text)));
+    }
     Ok(last)
 }
 

@@ -98,17 +98,14 @@ impl ModelLoader {
             if let Some(flight) = state.pending.get(&key).cloned() {
                 (flight, None)
             } else {
-            let changed = state.revisions.get(&key).is_some_and(|known| *known != revision);
-            let retry = state.retry_after.get(&key).filter(|retry| retry.revision == revision).map(|retry| (retry.at, retry.error.clone()));
-            let (source, cache, now, shared) = (self.source.clone(), self.cache.clone(), self.now.clone(), self.state.clone());
-            let (lane, key_owned) = (lane.to_owned(), key.clone());
-            let flight: Flight = async move {
-                Self::resolve(&source, &cache, &now, &shared, &lane, &key_owned, revision, cached, changed, retry).await
-            }
-            .boxed()
-            .shared();
-            state.pending.insert(key.clone(), flight.clone());
-            (flight, Some(Pending { state: self.state.clone(), key }))
+                let changed = state.revisions.get(&key).is_some_and(|known| *known != revision);
+                let retry = state.retry_after.get(&key).filter(|retry| retry.revision == revision).map(|retry| (retry.at, retry.error.clone()));
+                let (source, cache, now, shared) = (self.source.clone(), self.cache.clone(), self.now.clone(), self.state.clone());
+                let (lane, key_owned) = (lane.to_owned(), key.clone());
+                let flight: Flight =
+                    async move { Self::resolve(&source, &cache, &now, &shared, &lane, &key_owned, revision, cached, changed, retry).await }.boxed().shared();
+                state.pending.insert(key.clone(), flight.clone());
+                (flight, Some(Pending { state: self.state.clone(), key }))
             }
         };
         flight.await
@@ -130,11 +127,11 @@ impl ModelLoader {
         if cached {
             // A lane that fell back is not asked again until its window ends.
             if let Some((_, error)) = retry.filter(|(at, _)| now() < *at)
-                && let Some(previous) = cache.load(key, true).await {
+                && let Some(previous) = cache.load(key, true).await
+            {
                 return Ok(stale(previous, &error));
             }
-            if !changed
-                && let Some(rows) = cache.load(key, false).await {
+            if !changed && let Some(rows) = cache.load(key, false).await {
                 shared.lock().unwrap().revisions.insert(key.to_owned(), revision);
                 return Ok(CatalogRows { rows, warning: None });
             }

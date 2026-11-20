@@ -285,16 +285,9 @@ mod tests {
         let thinking = |effort| Thinking { thinking: true, effort, ..Thinking::default() };
         assert_eq!(spinner_thinking_parts(&thinking("medium")), Some(ThinkingParts::Thinking { effort: "medium".into() }));
         assert_eq!(spinner_thinking_parts(&thinking("")), Some(ThinkingParts::Thinking { effort: String::new() }));
-        assert_eq!(
-            spinner_thinking_parts(&Thinking { thinking_ms: 3000.0, ..Thinking::default() }),
-            Some(ThinkingParts::Thought { seconds: 3 })
-        );
+        assert_eq!(spinner_thinking_parts(&Thinking { thinking_ms: 3000.0, ..Thinking::default() }), Some(ThinkingParts::Thought { seconds: 3 }));
         assert_eq!(spinner_thinking_parts(&Thinking::default()), None);
-        let built = build_spinner_meta(&SpinnerMetaInput {
-            output_tokens: 340.0,
-            thinking: thinking("low"),
-            ..SpinnerMetaInput::default()
-        });
+        let built = build_spinner_meta(&SpinnerMetaInput { output_tokens: 340.0, thinking: thinking("low"), ..SpinnerMetaInput::default() });
         assert_eq!(built.tokens_count, "340");
         assert_eq!(built.thinking_parts, Some(ThinkingParts::Thinking { effort: "low".into() }));
         assert_eq!(meta(0.0).tokens_count, "");
@@ -326,12 +319,7 @@ mod tests {
     #[test]
     fn quiet_cue_appears_after_two_minutes_and_names_what_it_waits_on() {
         let now = 1_700_000_000_000.0;
-        let quiet = |ago: f64, wait: &str, tool: Option<&str>, warn_ms: f64| Quiet {
-            since: now - ago,
-            wait: wait.into(),
-            tool: tool.map(Into::into),
-            warn_ms,
-        };
+        let quiet = |ago: f64, wait: &str, tool: Option<&str>, warn_ms: f64| Quiet { since: now - ago, wait: wait.into(), tool: tool.map(Into::into), warn_ms };
         assert_eq!(quiet_progress_parts(Some(&quiet(119_999.0, "provider", None, 0.0)), now), None);
         let parts = quiet_progress_parts(Some(&quiet(125_000.0, "provider", None, 0.0)), now);
         assert_eq!(quiet_progress_label(parts.as_ref()), "quiet for 2m \u{b7} waiting on provider");

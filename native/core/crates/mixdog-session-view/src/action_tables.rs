@@ -134,24 +134,8 @@ pub const ACTION_NAMESPACES: &[(&str, &[&str])] = &[
             "setAgentRoute",
         ],
     ),
-    (
-        "instructions",
-        &[
-            "listInstructionFiles",
-            "getInstructionFile",
-            "saveInstructionFile",
-            "resetInstructionFile",
-            "setInstructionFiles",
-        ],
-    ),
-    (
-        "connector",
-        &[
-            "listConnectors",
-            "listConnectorTools",
-            "addConnectorAccount",
-        ],
-    ),
+    ("instructions", &["listInstructionFiles", "getInstructionFile", "saveInstructionFile", "resetInstructionFile", "setInstructionFiles"]),
+    ("connector", &["listConnectors", "listConnectorTools", "addConnectorAccount"]),
     (
         "config",
         &[
@@ -239,13 +223,7 @@ pub const ACTION_NAMESPACES: &[(&str, &[&str])] = &[
     ),
     (
         "import",
-        &[
-            "getConversationImportJobs",
-            "listImportableConversations",
-            "startConversationImport",
-            "cancelConversationImport",
-            "registerConversationImportFile",
-        ],
+        &["getConversationImportJobs", "listImportableConversations", "startConversationImport", "cancelConversationImport", "registerConversationImportFile"],
     ),
     (
         "media",
@@ -338,57 +316,13 @@ pub const ACTION_NAMESPACES: &[(&str, &[&str])] = &[
             "deleteLocalProviderModel",
         ],
     ),
-    (
-        "usage",
-        &["getUsageDashboard", "getUsageStats", "getUsageRequests"],
-    ),
-    (
-        "update",
-        &["getUpdateStatus", "checkForUpdate", "runUpdateNow"],
-    ),
-    (
-        "voice",
-        &[
-            "getVoiceStatus",
-            "toggleVoice",
-            "transcribeAudio",
-            "prepareTranscription",
-        ],
-    ),
+    ("usage", &["getUsageDashboard", "getUsageStats", "getUsageRequests"]),
+    ("update", &["getUpdateStatus", "checkForUpdate", "runUpdateNow"]),
+    ("voice", &["getVoiceStatus", "toggleVoice", "transcribeAudio", "prepareTranscription"]),
     ("tidy", &["getTidyEngineStatus", "getTidyInstallStatus"]),
-    (
-        "skills",
-        &[
-            "skillsStatus",
-            "skillContent",
-            "getDisabledSkills",
-            "addSkill",
-            "saveSkill",
-            "removeSkill",
-            "reloadSkills",
-            "setDisabledSkills",
-        ],
-    ),
-    (
-        "plugins",
-        &[
-            "pluginsStatus",
-            "addPlugin",
-            "updatePlugin",
-            "setPluginEnabled",
-            "removePlugin",
-            "reloadPlugins",
-        ],
-    ),
-    (
-        "hooks",
-        &[
-            "hooksStatus",
-            "addHookRule",
-            "deleteHookRule",
-            "setHookRuleEnabled",
-        ],
-    ),
+    ("skills", &["skillsStatus", "skillContent", "getDisabledSkills", "addSkill", "saveSkill", "removeSkill", "reloadSkills", "setDisabledSkills"]),
+    ("plugins", &["pluginsStatus", "addPlugin", "updatePlugin", "setPluginEnabled", "removePlugin", "reloadPlugins"]),
+    ("hooks", &["hooksStatus", "addHookRule", "deleteHookRule", "setHookRuleEnabled"]),
     ("tools", &["toolsStatus"]),
     ("memory", &["memoryControl", "recall"]),
     ("diagnostics", &["runDoctor"]),
@@ -396,78 +330,33 @@ pub const ACTION_NAMESPACES: &[(&str, &[&str])] = &[
 
 /// The positional argument order of a method whose declared order differs from the alphabetical order of the schema.
 pub const ARG_ORDER: &[(&str, &[&str])] = &[
-    (
-        "account/beginOAuthProviderLogin",
-        &["providerId", "options"],
-    ),
-    (
-        "account/completeOAuthProviderLogin",
-        &["flowId", "callbackUrl"],
-    ),
+    ("account/beginOAuthProviderLogin", &["providerId", "options"]),
+    ("account/completeOAuthProviderLogin", &["flowId", "callbackUrl"]),
     ("account/forgetProviderAuth", &["providerId", "accountId"]),
-    (
-        "account/saveProviderApiKey",
-        &["providerId", "secret", "options"],
-    ),
-    (
-        "account/updateCustomProviderModel",
-        &["providerId", "modelId", "patch"],
-    ),
+    ("account/saveProviderApiKey", &["providerId", "secret", "options"]),
+    ("account/updateCustomProviderModel", &["providerId", "modelId", "patch"]),
     ("account/updateProviderAccounts", &["providerId", "change"]),
-    (
-        "agent/recordAgentApprovalAudit",
-        &["agentId", "action", "decision"],
-    ),
+    ("agent/recordAgentApprovalAudit", &["agentId", "action", "decision"]),
     ("agent/saveAgentDefinition", &["payload", "options"]),
-    (
-        "agent/setAgentConnectorToolPermission",
-        &[
-            "agentId",
-            "connectorId",
-            "toolName",
-            "permission",
-            "options",
-        ],
-    ),
-    (
-        "agent/setAgentPermission",
-        &["agentId", "action", "mode", "options"],
-    ),
+    ("agent/setAgentConnectorToolPermission", &["agentId", "connectorId", "toolName", "permission", "options"]),
+    ("agent/setAgentPermission", &["agentId", "action", "mode", "options"]),
     ("channel/setScheduleEnabled", &["name", "enabled"]),
     ("channel/setWebhookEnabled", &["name", "enabled"]),
     ("config/setBuiltinToolEnabled", &["name", "enabled"]),
     ("config/setDeveloperOption", &["id", "enabled"]),
     ("config/setModelPreferences", &["providerId", "changes"]),
     ("config/setNetworkProxy", &["patch", "options"]),
-    (
-        "instructions/resetInstructionFile",
-        &["group", "id", "expectedRevision"],
-    ),
-    (
-        "localProvider/discardLocalProviderInstallation",
-        &["phase", "modelId"],
-    ),
-    (
-        "localProvider/registerHuggingFaceModel",
-        &["previewId", "licenseAccepted"],
-    ),
-    (
-        "localProvider/startLocalProviderInstallation",
-        &["phase", "modelId"],
-    ),
+    ("instructions/resetInstructionFile", &["group", "id", "expectedRevision"]),
+    ("localProvider/discardLocalProviderInstallation", &["phase", "modelId"]),
+    ("localProvider/registerHuggingFaceModel", &["previewId", "licenseAccepted"]),
+    ("localProvider/startLocalProviderInstallation", &["phase", "modelId"]),
     ("mcp/completeMcpOAuthLogin", &["flowId", "callbackUrl"]),
     ("mcp/setMcpServerEnabled", &["name", "enabled"]),
     ("media/setMediaAssetBoard", &["ids", "boardId"]),
     ("memory/recall", &["query", "args"]),
     ("plugins/setPluginEnabled", &["plugin", "enabled"]),
-    (
-        "project/setProjectConnectorEnabled",
-        &["projectPath", "connectorId", "enabled", "options"],
-    ),
-    (
-        "thread/inheritancePreflight",
-        &["sourceThreadId", "selection"],
-    ),
+    ("project/setProjectConnectorEnabled", &["projectPath", "connectorId", "enabled", "options"]),
+    ("thread/inheritancePreflight", &["sourceThreadId", "selection"]),
     ("thread/pushNotice", &["text", "level"]),
     ("thread/revertTurnReviewFile", &["file", "checkpointId"]),
     ("thread/setEffort", &["value", "options"]),

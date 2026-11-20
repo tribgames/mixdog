@@ -55,11 +55,7 @@ fn file_type_error(v: &Value) -> Option<String> {
 }
 
 fn text(v: &Value, key: &str) -> Option<String> {
-    v.get(key)
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(str::to_string)
+    v.get(key).and_then(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string)
 }
 
 fn number(v: &Value, key: &str) -> Option<f64> {
@@ -71,16 +67,7 @@ fn number(v: &Value, key: &str) -> Option<f64> {
 }
 
 fn strings(v: &Value) -> Vec<String> {
-    v.as_array()
-        .map(|a| {
-            a.iter()
-                .filter_map(Value::as_str)
-                .map(str::trim)
-                .filter(|s| !s.is_empty())
-                .map(str::to_string)
-                .collect()
-        })
-        .unwrap_or_default()
+    v.as_array().map(|a| a.iter().filter_map(Value::as_str).map(str::trim).filter(|s| !s.is_empty()).map(str::to_string).collect()).unwrap_or_default()
 }
 
 /// `["a","b"]` written as a string.
@@ -115,12 +102,7 @@ impl Args {
             Some(Value::String(s)) => match json_array_string(s) {
                 Some(list) => files = list,
                 None => {
-                    files = s
-                        .split(',')
-                        .map(str::trim)
-                        .filter(|t| !t.is_empty())
-                        .map(str::to_string)
-                        .collect();
+                    files = s.split(',').map(str::trim).filter(|t| !t.is_empty()).map(str::to_string).collect();
                     files_is_list_string = s.contains(',');
                 }
             },
@@ -156,20 +138,8 @@ impl Args {
 
     /// Every symbol named by `symbols[]`, a `symbols` string or `symbol`, deduplicated.
     pub fn symbol_list(&self) -> Vec<String> {
-        let split = |s: &str| {
-            s.split(|c: char| c == ',' || c.is_whitespace())
-                .map(str::trim)
-                .filter(|t| !t.is_empty())
-                .map(str::to_string)
-                .collect::<Vec<_>>()
-        };
-        dedupe(
-            self.symbols
-                .iter()
-                .cloned()
-                .chain(self.symbols_text.iter().flat_map(|s| split(s)))
-                .chain(self.symbol.iter().flat_map(|s| split(s))),
-        )
+        let split = |s: &str| s.split(|c: char| c == ',' || c.is_whitespace()).map(str::trim).filter(|t| !t.is_empty()).map(str::to_string).collect::<Vec<_>>();
+        dedupe(self.symbols.iter().cloned().chain(self.symbols_text.iter().flat_map(|s| split(s))).chain(self.symbol.iter().flat_map(|s| split(s))))
     }
 
     /// `file` plus `files`, deduplicated, `files` first.
@@ -178,25 +148,14 @@ impl Args {
     }
 
     pub fn user_limit(&self) -> Option<usize> {
-        self.limit
-            .filter(|l| l.is_finite() && *l > 0.0)
-            .map(|l| (l.floor() as usize).min(500))
+        self.limit.filter(|l| l.is_finite() && *l > 0.0).map(|l| (l.floor() as usize).min(500))
     }
 
     pub fn with_file(&self, file: &str) -> Args {
-        Args {
-            file: Some(file.to_string()),
-            files: Vec::new(),
-            ..self.clone()
-        }
+        Args { file: Some(file.to_string()), files: Vec::new(), ..self.clone() }
     }
 
     pub fn with_symbol(&self, symbol: &str) -> Args {
-        Args {
-            symbol: Some(symbol.to_string()),
-            symbols: Vec::new(),
-            symbols_text: None,
-            ..self.clone()
-        }
+        Args { symbol: Some(symbol.to_string()), symbols: Vec::new(), symbols_text: None, ..self.clone() }
     }
 }

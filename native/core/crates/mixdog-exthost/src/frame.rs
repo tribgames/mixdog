@@ -83,12 +83,7 @@ struct CallBody<'a> {
 }
 
 pub fn call(id: u32, method: &str, params: &Value, paths: &[String], thread: &str) -> Bytes {
-    let body = CallBody {
-        method,
-        params,
-        paths,
-        thread,
-    };
+    let body = CallBody { method, params, paths, thread };
     let data_len = params.get("data").and_then(Value::as_str).map_or(0, str::len);
     let mut out = Vec::with_capacity(HEADER_BYTES + data_len + 128);
     out.extend_from_slice(&[0; 4]);
@@ -114,11 +109,7 @@ pub fn browser(id: u32, answer: &Result<String, String>) -> Bytes {
         Ok(ws) => serde_json::json!({ "ws": ws }),
         Err(error) => serde_json::json!({ "error": error }),
     };
-    encode(
-        kind::BROWSER,
-        id,
-        &serde_json::to_vec(&body).unwrap_or_default(),
-    )
+    encode(kind::BROWSER, id, &serde_json::to_vec(&body).unwrap_or_default())
 }
 
 pub fn bye() -> Bytes {
@@ -170,23 +161,15 @@ impl Inbound {
     fn parse(raw: RawFrame) -> Result<Inbound, FrameError> {
         match raw.kind {
             kind::READY => Ok(Inbound::Ready),
-            kind::CHUNK => Ok(Inbound::Chunk {
-                call: raw.id,
-                bytes: raw.body,
-            }),
+            kind::CHUNK => Ok(Inbound::Chunk { call: raw.id, bytes: raw.body }),
             kind::NEED_BROWSER => Ok(Inbound::NeedBrowser { call: raw.id }),
             kind::RESULT => {
-                let body: ResultBody =
-                    serde_json::from_slice(&raw.body).map_err(|e| FrameError::Body(e.to_string()))?;
+                let body: ResultBody = serde_json::from_slice(&raw.body).map_err(|e| FrameError::Body(e.to_string()))?;
                 let outcome = match body.err {
                     Some(error) => Err(error),
                     None => Ok(body.ok.unwrap_or(Value::Null)),
                 };
-                Ok(Inbound::Result {
-                    call: raw.id,
-                    pin: body.pin,
-                    outcome,
-                })
+                Ok(Inbound::Result { call: raw.id, pin: body.pin, outcome })
             }
             other => Err(FrameError::UnknownKind(other)),
         }
@@ -202,11 +185,7 @@ pub struct FrameReader<R> {
 
 impl<R: AsyncRead + Unpin> FrameReader<R> {
     pub fn new(io: R) -> Self {
-        Self {
-            io,
-            buf: BytesMut::new(),
-            eof: false,
-        }
+        Self { io, buf: BytesMut::new(), eof: false }
     }
 
     fn take(&mut self) -> Result<Option<RawFrame>, FrameError> {
@@ -231,11 +210,7 @@ impl<R: AsyncRead + Unpin> FrameReader<R> {
     }
 
     fn at_eof(&self) -> Result<Option<Inbound>, FrameError> {
-        if self.buf.is_empty() {
-            Ok(None)
-        } else {
-            Err(FrameError::Truncated)
-        }
+        if self.buf.is_empty() { Ok(None) } else { Err(FrameError::Truncated) }
     }
 
     /// The next frame, `None` at a clean end of stream.
@@ -248,11 +223,7 @@ impl<R: AsyncRead + Unpin> FrameReader<R> {
                 return self.at_eof();
             }
             self.buf.reserve(64 * 1024);
-            let n = self
-                .io
-                .read_buf(&mut self.buf)
-                .await
-                .map_err(FrameError::Io)?;
+            let n = self.io.read_buf(&mut self.buf).await.map_err(FrameError::Io)?;
             if n == 0 {
                 self.eof = true;
             }
@@ -293,11 +264,7 @@ mod tests {
     async fn reads_frames_split_at_every_byte() {
         let mut wire = raw(kind::READY, 0, &[]);
         wire.extend(raw(kind::CHUNK, 7, b"abc"));
-        wire.extend(raw(
-            kind::RESULT,
-            7,
-            br#"{"err":{"code":"x","message":"m"},"pin":true}"#,
-        ));
+        wire.extend(raw(kind::RESULT, 7, br#"{"err":{"code":"x","message":"m"},"pin":true}"#));
         let (mut tx, rx) = tokio::io::duplex(1);
         let writer = tokio::spawn(async move {
             use tokio::io::AsyncWriteExt;
@@ -305,23 +272,10 @@ mod tests {
         });
         let mut reader = FrameReader::new(rx);
         assert_eq!(reader.next().await.unwrap(), Some(Inbound::Ready));
+        assert_eq!(reader.next().await.unwrap(), Some(Inbound::Chunk { call: 7, bytes: Bytes::from_static(b"abc") }));
         assert_eq!(
             reader.next().await.unwrap(),
-            Some(Inbound::Chunk {
-                call: 7,
-                bytes: Bytes::from_static(b"abc")
-            })
-        );
-        assert_eq!(
-            reader.next().await.unwrap(),
-            Some(Inbound::Result {
-                call: 7,
-                pin: true,
-                outcome: Err(WireError {
-                    code: "x".into(),
-                    message: "m".into()
-                })
-            })
+            Some(Inbound::Result { call: 7, pin: true, outcome: Err(WireError { code: "x".into(), message: "m".into() }) })
         );
         assert_eq!(reader.next().await.unwrap(), None);
         writer.await.unwrap();
@@ -336,10 +290,7 @@ mod tests {
         assert!(matches!(reader.next().await, Err(FrameError::Oversized(_))));
         let unknown = raw(99, 0, &[]);
         let mut reader = FrameReader::new(&unknown[..]);
-        assert!(matches!(
-            reader.next().await,
-            Err(FrameError::UnknownKind(99))
-        ));
+        assert!(matches!(reader.next().await, Err(FrameError::UnknownKind(99))));
         let cut = raw(kind::CHUNK, 1, b"abcdef");
         let mut reader = FrameReader::new(&cut[..cut.len() - 2]);
         assert!(matches!(reader.next().await, Err(FrameError::Truncated)));
@@ -356,6 +307,5 @@ mod tests {
         assert_eq!(reader.next_buffered().unwrap(), None);
     }
 }
-
 
 impl std::error::Error for FrameError {}

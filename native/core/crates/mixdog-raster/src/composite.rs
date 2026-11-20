@@ -33,7 +33,10 @@ impl Blend {
 pub enum Placement {
     #[default]
     Centre,
-    At { left: i64, top: i64 },
+    At {
+        left: i64,
+        top: i64,
+    },
 }
 
 /// One entry of the `composite` list.

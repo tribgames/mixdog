@@ -86,8 +86,7 @@ const SELF_MCP_SERVER: &str = "plugin_mixdog_mixdog";
 /// `parseMcpToolName`: `(server, tool)` of an MCP tool definition: its `mcpServerName` and
 /// `mcpToolName` metadata win, else the `mcp__<server>__<tool>` form of its name.
 fn parse_mcp_tool(tool: &Value) -> Option<(String, String)> {
-    static NAMED: std::sync::LazyLock<mixdog_js::JsRegex> =
-        std::sync::LazyLock::new(|| mixdog_js::JsRegex::new_static(r"^mcp__(.+?)__(.+)$", ""));
+    static NAMED: std::sync::LazyLock<mixdog_js::JsRegex> = std::sync::LazyLock::new(|| mixdog_js::JsRegex::new_static(r"^mcp__(.+?)__(.+)$", ""));
     let from_name = || {
         let name = tool.get("name").filter(|n| !n.is_null()).map(mixdog_js::value_to_string).unwrap_or_default();
         NAMED.captures(&name).map(|c| (c.get(1).unwrap_or_default().to_owned(), c.get(2).unwrap_or_default().to_owned()))
@@ -236,7 +235,12 @@ impl McpService {
     /// is taken at the call's start; the action runs; its notice is posted to that runtime, a failure of the post rejecting the
     /// call (the action's effect stands); then the service and the runtime are checked again (`:111`). A failed action rejects
     /// before the notice and the check. A call with no session, or one no runtime hosts, posts nothing and is never disposed.
-    async fn announced(&self, params: &Value, action: impl Future<Output = Result<Value, Failure>>, notice: impl FnOnce(&Value) -> Option<String>) -> Result<Value, Failure> {
+    async fn announced(
+        &self,
+        params: &Value,
+        action: impl Future<Output = Result<Value, Failure>>,
+        notice: impl FnOnce(&Value) -> Option<String>,
+    ) -> Result<Value, Failure> {
         if self.toasts.closed() {
             return Err(SERVICE_CLOSED.to_owned());
         }
@@ -294,12 +298,8 @@ impl McpService {
     /// A name no server, plugin server or account has yet: `base`, else `base-2`…
     async fn free_name(&self, servers: &Map<String, Value>, base: &str) -> String {
         let catalog = self.runtime.catalog().await;
-        let taken: Vec<String> = servers
-            .iter()
-            .flat_map(|(name, cfg)| {
-                std::iter::once(name.clone()).chain(accounts_of(cfg).into_iter().map(|a| text(field(&a, "name"))))
-            })
-            .collect();
+        let taken: Vec<String> =
+            servers.iter().flat_map(|(name, cfg)| std::iter::once(name.clone()).chain(accounts_of(cfg).into_iter().map(|a| text(field(&a, "name"))))).collect();
         let free = |name: &str| !taken.iter().any(|t| t == name) && plugin_server(&catalog, name).is_none();
         if free(base) {
             return base.to_owned();
@@ -544,7 +544,10 @@ impl McpService {
     async fn save_mcp_server(&self, input: &Value) -> Result<Value, Failure> {
         let mut servers = self.user_servers().await;
         // A name of a multi-account connector's account edits that account.
-        let wanted = { let o = text(field(input, "originalName")); if o.is_empty() { text(field(input, "name")) } else { o } };
+        let wanted = {
+            let o = text(field(input, "originalName"));
+            if o.is_empty() { text(field(input, "name")) } else { o }
+        };
         if let Some(account_of) = account_target(&servers, &wanted)
             && !Self::edits_server_itself(&account_of, input)
         {
@@ -561,11 +564,16 @@ impl McpService {
         if explicit.is_empty() && !servers.contains_key(&bare) {
             self.refuse_plugin_server(&bare).await?;
         }
-        let original = if !explicit.is_empty() { explicit } else if servers.contains_key(&bare) { bare } else { String::new() };
+        let original = if !explicit.is_empty() {
+            explicit
+        } else if servers.contains_key(&bare) {
+            bare
+        } else {
+            String::new()
+        };
         let existing = if original.is_empty() { json!({}) } else { servers[&original].clone() };
         let cwd = self.host.current_cwd(None).await?;
-        let (normalized_name, normalized_config) =
-            normalize_mcp_server_input(&merged_server_input(input, &existing, &original), &cwd, &self.home)?;
+        let (normalized_name, normalized_config) = normalize_mcp_server_input(&merged_server_input(input, &existing, &original), &cwd, &self.home)?;
         let name = if !original.is_empty() && text(field(input, "name")) == original { original.clone() } else { normalized_name };
         if name != original
             && (servers.contains_key(&name) || plugin_server(&self.runtime.catalog().await, &name).is_some() || account_target(&servers, &name).is_some())
@@ -770,7 +778,7 @@ impl McpService {
             // Server intent only: the effective state still requires the plugin. Only a choice
             // that differs from the declared default is stored.
             let stored = want == owned.declared_enabled.unwrap_or(true);
-            let next = with_plugin_server_intent(&self.adopted_config().await,&owned.owner_id, &owned.owner_key, |mut intent| {
+            let next = with_plugin_server_intent(&self.adopted_config().await, &owned.owner_id, &owned.owner_key, |mut intent| {
                 if stored {
                     intent.shift_remove("enabled");
                 } else {
@@ -786,7 +794,13 @@ impl McpService {
             self.host.publish_mcp_changes(&[(server_name, effective)]).await;
             return Ok(status);
         }
-        let known = self.runtime.status().await.get("servers").and_then(Value::as_array).is_some_and(|rows| rows.iter().any(|s| field(s, "name") == &json!(server_name)));
+        let known = self
+            .runtime
+            .status()
+            .await
+            .get("servers")
+            .and_then(Value::as_array)
+            .is_some_and(|rows| rows.iter().any(|s| field(s, "name") == &json!(server_name)));
         if !known {
             return Err(format!("MCP server not configured: {server_name}"));
         }
@@ -822,7 +836,13 @@ impl McpService {
         let id = text(if truthy(field(&registered, "id")) { field(&registered, "id") } else { field(&registered, "name") });
         let catalog = self.runtime.catalog().await;
         let Some(row) = catalog.plugins.get(&id) else {
-            let shown = clean(if truthy(field(plugin, "id")) { field(plugin, "id") } else if truthy(field(plugin, "name")) { field(plugin, "name") } else { plugin });
+            let shown = clean(if truthy(field(plugin, "id")) {
+                field(plugin, "id")
+            } else if truthy(field(plugin, "name")) {
+                field(plugin, "name")
+            } else {
+                plugin
+            });
             return Err(format!("plugin not registered: {}", if shown.is_empty() { id } else { shown }));
         };
         let servers: Vec<String> = field(row, "servers").as_array().map(|l| l.iter().map(text).collect()).unwrap_or_default();
@@ -1053,7 +1073,9 @@ impl McpService {
             "mcp/enablePluginMcp" => self.enable_plugin_mcp(field(p, "plugin")).await,
             // Only a start that waits for the browser is announced; one that stored tokens settled, or that failed, is not.
             "mcp/beginMcpOAuthLogin" => {
-                let started = |result: &Value| (field(result, "state") == "pending").then(|| format!("mcp sign-in started: {}", mixdog_js::value_to_string(field(p, "name"))));
+                let started = |result: &Value| {
+                    (field(result, "state") == "pending").then(|| format!("mcp sign-in started: {}", mixdog_js::value_to_string(field(p, "name"))))
+                };
                 self.announced(p, self.begin_oauth_login(&text(field(p, "name")), field(p, "options")), started).await
             }
             "mcp/getMcpOAuthLoginStatus" => self.runtime.login_status(&text(field(p, "flowId")), field(p, "options")).await,

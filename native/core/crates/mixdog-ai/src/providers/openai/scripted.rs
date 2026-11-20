@@ -146,9 +146,7 @@ impl WsDial for ScriptedDial {
                 Box::new(Socket { sent: self.wire.clone(), frames: frames.into(), close, ended: false }),
                 Response::builder().status(101).body(None).unwrap(),
             )),
-            Dialed::Rejected { status, body } => {
-                Err(ConnectError::Rejected(Response::builder().status(status).body(Some(body.into_bytes())).unwrap()))
-            }
+            Dialed::Rejected { status, body } => Err(ConnectError::Rejected(Response::builder().status(status).body(Some(body.into_bytes())).unwrap())),
         }
     }
 }

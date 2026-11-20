@@ -49,9 +49,7 @@ async fn a_public_name_resolving_to_a_private_address_is_refused_unless_the_sess
         ("mapped.example.test", &["::ffff:10.0.0.1"]),
         ("v6ula.example.test", &["fd00::1"]),
     ]);
-    for (name, address) in
-        [("rebind", "192.168.1.10"), ("ts", "100.101.102.103"), ("mapped", "::ffff:10.0.0.1"), ("v6ula", "fd00::1")]
-    {
+    for (name, address) in [("rebind", "192.168.1.10"), ("ts", "100.101.102.103"), ("mapped", "::ffff:10.0.0.1"), ("v6ula", "fd00::1")] {
         let url_text = format!("https://{name}.example.test/");
         assert_eq!(
             url(&url_text, UrlPolicy::default(), &resolver).await,
@@ -111,7 +109,10 @@ async fn loopback_names_and_ip_literals_are_decided_without_a_lookup() {
     for target in ["http://[::1]:8080/fixture", "http://localhost:3000/", "http://app.localhost:3000/"] {
         assert_eq!(url(target, UrlPolicy::default(), &nothing).await, Ok(()), "{target}");
     }
-    assert_eq!(url("http://192.168.1.10/", UrlPolicy::default(), &nothing).await, Err("navigation to private or internal address 192.168.1.10 is blocked".into()));
+    assert_eq!(
+        url("http://192.168.1.10/", UrlPolicy::default(), &nothing).await,
+        Err("navigation to private or internal address 192.168.1.10 is blocked".into())
+    );
     assert_eq!(url("http://192.168.1.10/", local(), &nothing).await, Ok(()));
     for policy in [UrlPolicy::default(), local()] {
         assert_eq!(url("http://169.254.169.254/", policy, &nothing).await, Err("navigation to cloud metadata endpoints is blocked".into()));
@@ -137,10 +138,7 @@ async fn the_policy_is_applied_before_any_lookup() {
         assert_eq!(url(&target, policy.clone(), &resolver).await, Err(reason), "{target}");
     }
     let listed = UrlPolicy { allow_private_network: false, allowed_domains: vec!["example.com".into()] };
-    assert_eq!(
-        url("https://example.test/", listed, &resolver).await,
-        Err("navigation to example.test is blocked by the Browser Use domain policy".into())
-    );
+    assert_eq!(url("https://example.test/", listed, &resolver).await, Err("navigation to example.test is blocked by the Browser Use domain policy".into()));
 }
 
 #[tokio::test]
@@ -162,10 +160,7 @@ async fn a_validated_agent_url_is_the_normal_form_once_its_host_is_admitted() {
         check(&admission, &resolver, "rebind.example.test", None).await,
         Err("navigation to rebind.example.test resolved to blocked private or internal address 192.168.1.10".into())
     );
-    assert_eq!(
-        check(&admission, &resolver, "http://10.0.0.1/", None).await,
-        Err("navigation to private or internal address 10.0.0.1 is blocked".into())
-    );
+    assert_eq!(check(&admission, &resolver, "http://10.0.0.1/", None).await, Err("navigation to private or internal address 10.0.0.1 is blocked".into()));
     let token = "eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl";
     let mail_url = format!("https://example.test/v?token={token}");
     assert_eq!(

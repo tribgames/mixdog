@@ -139,7 +139,7 @@ fn line_comment_kind(line: &str) -> &'static str {
 
 fn is_block_comment_text(t: &str) -> bool {
     let t = js_trim(t);
-    t.starts_with("/*") ||t.starts_with("--[[") || t.starts_with("<!--")
+    t.starts_with("/*") || t.starts_with("--[[") || t.starts_with("<!--")
 }
 
 fn is_full_line_comment(buf: &[u8], start: usize) -> bool {
@@ -302,15 +302,28 @@ pub fn refine_history_comment_matches(matches: Vec<Value>, source_for: &dyn Fn(&
                     let block = is_block_comment_text(&comment);
                     let embedded = block && (!is_full_line_comment(&buf, start) || !js_trim(&text(&buf, end, line_end(&buf, end))).is_empty());
                     if embedded {
-                        refined.push(refine(Value::Null, true, json!("History comment shares a line with code; preserve token boundaries and line terminators.")));
+                        refined.push(refine(
+                            Value::Null,
+                            true,
+                            json!("History comment shares a line with code; preserve token boundaries and line terminators."),
+                        ));
                         continue;
                     }
                     // A block comment keeps its line terminators so line numbers do not shift.
-                    let keep: String = if block { comment.chars().filter(|c| matches!(c, '\r' | '\n' | '\u{2028}' | '\u{2029}')).collect() } else { String::new() };
-                    let message = sample.get("message").filter(|m| m.as_str().is_some_and(|s| !s.is_empty())).cloned().unwrap_or_else(|| json!("Delete comments that only record a move or copy."));
+                    let keep: String =
+                        if block { comment.chars().filter(|c| matches!(c, '\r' | '\n' | '\u{2028}' | '\u{2029}')).collect() } else { String::new() };
+                    let message = sample
+                        .get("message")
+                        .filter(|m| m.as_str().is_some_and(|s| !s.is_empty()))
+                        .cloned()
+                        .unwrap_or_else(|| json!("Delete comments that only record a move or copy."));
                     refined.push(refine(json!({"byteOffset": [start, end], "text": keep}), false, message));
                 }
-                _ => refined.push(refine(Value::Null, true, json!(format!("History phrase mixed with other comment text; edit by hand: \"{}\"", classified.offending.unwrap_or_default())))),
+                _ => refined.push(refine(
+                    Value::Null,
+                    true,
+                    json!(format!("History phrase mixed with other comment text; edit by hand: \"{}\"", classified.offending.unwrap_or_default())),
+                )),
             }
         }
     }
@@ -379,7 +392,9 @@ mod tests {
     #[test]
     fn other_rules_pass_through_and_unreadable_files_become_manual() {
         let other = json!({"file": "a.ts", "ruleId": "other", "fix": {"text": "x"}});
-        let out = refine_history_comment_matches(vec![other.clone(), m("gone.ts", 0, 1), json!({"file": "b.ts", "ruleId": HISTORY_COMMENT_RULE_ID})], &|f| (f == "b.ts").then(|| b"x".to_vec()));
+        let out = refine_history_comment_matches(vec![other.clone(), m("gone.ts", 0, 1), json!({"file": "b.ts", "ruleId": HISTORY_COMMENT_RULE_ID})], &|f| {
+            (f == "b.ts").then(|| b"x".to_vec())
+        });
         assert_eq!(out[0], other);
         assert_eq!(out[1]["manual"], true);
         assert_eq!(out[2]["manual"], true, "a match without a byte range is manual");

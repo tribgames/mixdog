@@ -57,26 +57,11 @@ impl TaskOutcome {
     /// (124), otherwise the exit code decides.
     pub fn of_exit(exit: &ProcessExit) -> Self {
         match (exit.killed, exit.status) {
-            (Some(KillReason::TimeLimit), _) => Self {
-                status: TaskStatus::Failed,
-                exit_code: Some(TIME_LIMIT_EXIT_CODE),
-            },
-            (Some(_), _) => Self {
-                status: TaskStatus::Cancelled,
-                exit_code: Some(KILLED_EXIT_CODE),
-            },
-            (None, ExitStatus::Code(0)) => Self {
-                status: TaskStatus::Completed,
-                exit_code: Some(0),
-            },
-            (None, ExitStatus::Code(code)) => Self {
-                status: TaskStatus::Failed,
-                exit_code: Some(code),
-            },
-            (None, ExitStatus::Signal(_)) => Self {
-                status: TaskStatus::Failed,
-                exit_code: None,
-            },
+            (Some(KillReason::TimeLimit), _) => Self { status: TaskStatus::Failed, exit_code: Some(TIME_LIMIT_EXIT_CODE) },
+            (Some(_), _) => Self { status: TaskStatus::Cancelled, exit_code: Some(KILLED_EXIT_CODE) },
+            (None, ExitStatus::Code(0)) => Self { status: TaskStatus::Completed, exit_code: Some(0) },
+            (None, ExitStatus::Code(code)) => Self { status: TaskStatus::Failed, exit_code: Some(code) },
+            (None, ExitStatus::Signal(_)) => Self { status: TaskStatus::Failed, exit_code: None },
         }
     }
 }
@@ -200,10 +185,7 @@ pub struct TaskRegistry {
 }
 
 impl TaskRegistry {
-    pub fn new(
-        publisher: Arc<dyn TaskPublisher>,
-        now_ms: impl Fn() -> u64 + Send + Sync + 'static,
-    ) -> Self {
+    pub fn new(publisher: Arc<dyn TaskPublisher>, now_ms: impl Fn() -> u64 + Send + Sync + 'static) -> Self {
         Self {
             inner: Mutex::new(Inner {
                 tasks: HashMap::new(),
@@ -274,11 +256,7 @@ impl TaskRegistry {
     }
 
     /// Marks a finished task whose processes are not confirmed gone (or confirms them).
-    pub fn set_termination_unconfirmed(
-        &self,
-        task_id: &str,
-        unconfirmed: bool,
-    ) -> Result<(), TaskError> {
+    pub fn set_termination_unconfirmed(&self, task_id: &str, unconfirmed: bool) -> Result<(), TaskError> {
         self.change(task_id, |row| row.termination_unconfirmed = unconfirmed)
     }
 
@@ -310,11 +288,7 @@ impl TaskRegistry {
     /// are) and drops its row.
     pub fn release(&self, task_id: &str) -> Result<(), TaskError> {
         let mut inner = self.lock();
-        let owner = inner
-            .tasks
-            .remove(task_id)
-            .ok_or(TaskError::UnknownTask)?
-            .owner;
+        let owner = inner.tasks.remove(task_id).ok_or(TaskError::UnknownTask)?.owner;
         inner.processes.remove(task_id);
         inner.order.retain(|id| id != task_id);
         self.publish(&mut inner, owner.as_deref());
@@ -345,11 +319,7 @@ impl TaskRegistry {
         let gone: Vec<String> = inner
             .tasks
             .values()
-            .filter(|r| {
-                r.owner.as_deref() == Some(thread)
-                    && r.status != TaskStatus::Running
-                    && !r.termination_unconfirmed
-            })
+            .filter(|r| r.owner.as_deref() == Some(thread) && r.status != TaskStatus::Running && !r.termination_unconfirmed)
             .map(|r| r.task_id.clone())
             .collect();
         for id in &gone {
@@ -363,11 +333,7 @@ impl TaskRegistry {
     /// Every registered task, in start order.
     pub fn list(&self) -> Vec<TaskRow> {
         let inner = self.lock();
-        inner
-            .order
-            .iter()
-            .filter_map(|id| inner.tasks.get(id).cloned())
-            .collect()
+        inner.order.iter().filter_map(|id| inner.tasks.get(id).cloned()).collect()
     }
 
     pub fn get(&self, task_id: &str) -> Option<TaskRow> {
@@ -417,16 +383,8 @@ impl TaskRegistry {
     /// Shell rows matching `keep`, newest start first (ties by id), as the poller's job-id sort
     /// ordered them.
     fn by_start(inner: &Inner, keep: impl Fn(&TaskRow) -> bool) -> Vec<&TaskRow> {
-        let mut rows: Vec<&TaskRow> = inner
-            .tasks
-            .values()
-            .filter(|r| r.surface == "shell" && keep(r))
-            .collect();
-        rows.sort_by(|a, b| {
-            b.started_at_ms
-                .cmp(&a.started_at_ms)
-                .then_with(|| a.task_id.cmp(&b.task_id))
-        });
+        let mut rows: Vec<&TaskRow> = inner.tasks.values().filter(|r| r.surface == "shell" && keep(r)).collect();
+        rows.sort_by(|a, b| b.started_at_ms.cmp(&a.started_at_ms).then_with(|| a.task_id.cmp(&b.task_id)));
         rows
     }
 
@@ -442,10 +400,7 @@ impl TaskRegistry {
 
     /// The newest 30 finished records (by start), before the foreground, owner and age filters.
     fn done_rows(inner: &Inner) -> Vec<&TaskRow> {
-        Self::by_start(inner, |r| r.status != TaskStatus::Running && !r.termination_unconfirmed)
-            .into_iter()
-            .take(MAX_FINISHED_ROWS)
-            .collect()
+        Self::by_start(inner, |r| r.status != TaskStatus::Running && !r.termination_unconfirmed).into_iter().take(MAX_FINISHED_ROWS).collect()
     }
 
     fn expires_at(row: &TaskRow) -> Option<u64> {
@@ -454,46 +409,21 @@ impl TaskRegistry {
 
     fn visible_done<'a>(&self, inner: &'a Inner) -> Vec<&'a TaskRow> {
         let now = (self.now_ms)();
-        Self::done_rows(inner)
-            .into_iter()
-            .filter(|r| !r.foreground && Self::expires_at(r).is_some_and(|at| now < at))
-            .collect()
+        Self::done_rows(inner).into_iter().filter(|r| !r.foreground && Self::expires_at(r).is_some_and(|at| now < at)).collect()
     }
 
     fn build_thread(&self, inner: &Inner, thread: &str) -> ShellJobsState {
-        let jobs: Vec<ShellJobRow> = Self::running_rows(inner)
-            .into_iter()
-            .filter(|r| r.owner.as_deref() == Some(thread))
-            .map(|r| Self::strip_row(r, false))
-            .collect();
-        let finished = self
-            .visible_done(inner)
-            .into_iter()
-            .filter(|r| r.owner.as_deref() == Some(thread))
-            .map(|r| Self::strip_row(r, true))
-            .collect();
-        ShellJobsState {
-            count: jobs.len(),
-            jobs,
-            finished,
-        }
+        let jobs: Vec<ShellJobRow> =
+            Self::running_rows(inner).into_iter().filter(|r| r.owner.as_deref() == Some(thread)).map(|r| Self::strip_row(r, false)).collect();
+        let finished = self.visible_done(inner).into_iter().filter(|r| r.owner.as_deref() == Some(thread)).map(|r| Self::strip_row(r, true)).collect();
+        ShellJobsState { count: jobs.len(), jobs, finished }
     }
 
     fn build_host(&self, inner: &Inner) -> HostShellJobs {
-        let jobs: Vec<ShellJobRow> = Self::running_rows(inner)
-            .into_iter()
-            .map(|r| Self::strip_row(r, false))
-            .collect();
-        let orphaned = Self::running_rows(inner)
-            .into_iter()
-            .filter(|r| r.termination_unconfirmed && r.owner_closed)
-            .map(|r| Self::strip_row(r, false))
-            .collect();
-        HostShellJobs {
-            count: jobs.len(),
-            jobs,
-            orphaned,
-        }
+        let jobs: Vec<ShellJobRow> = Self::running_rows(inner).into_iter().map(|r| Self::strip_row(r, false)).collect();
+        let orphaned =
+            Self::running_rows(inner).into_iter().filter(|r| r.termination_unconfirmed && r.owner_closed).map(|r| Self::strip_row(r, false)).collect();
+        HostShellJobs { count: jobs.len(), jobs, orphaned }
     }
 
     /// Publishes the states that changed: `thread`'s strip and the host's.
@@ -536,11 +466,7 @@ impl TaskRegistry {
 
     /// Asks the publisher for one wake-up at the earliest moment a shown finished row ages out.
     fn reschedule(&self, inner: &mut Inner) {
-        let next = self
-            .visible_done(inner)
-            .into_iter()
-            .filter_map(|r| Self::expires_at(r))
-            .min();
+        let next = self.visible_done(inner).into_iter().filter_map(|r| Self::expires_at(r)).min();
         if next != inner.scheduled {
             inner.scheduled = next;
             if let Some(at) = next {

@@ -325,7 +325,11 @@ fn script_files(script: &Path) -> Vec<PathBuf> {
                 [Word(keyword), Word(name) | Raw(name), Mark(';'), ..] if keyword == "mod" => {
                     let found = match path_attribute.take() {
                         Some(path) => {
-                            assert!(inline.is_empty(), "{}: a `path` attribute on `mod {name};` inside an inline module is not followed by this test", file.display());
+                            assert!(
+                                inline.is_empty(),
+                                "{}: a `path` attribute on `mod {name};` inside an inline module is not followed by this test",
+                                file.display()
+                            );
                             dir.join(path)
                         }
                         None => {
@@ -341,7 +345,11 @@ fn script_files(script: &Path) -> Vec<PathBuf> {
                     continue;
                 }
                 [Word(keyword), Word(name) | Raw(name), Mark('{'), ..] if keyword == "mod" => {
-                    assert!(path_attribute.take().is_none(), "{}: a `path` attribute on the inline module `{name}` is not followed by this test", file.display());
+                    assert!(
+                        path_attribute.take().is_none(),
+                        "{}: a `path` attribute on the inline module `{name}` is not followed by this test",
+                        file.display()
+                    );
                     inline.push((name.clone(), depth));
                     depth += 1;
                     i += 3;
@@ -394,10 +402,14 @@ fn the_module_walk_follows_nested_inline_and_attributed_modules() {
     write("type.rs", "");
     write("rules.yml", "mod not_rust;\n");
     write("more.yml", "");
-    let mut found: Vec<String> = script_files(&dir.join("build.rs")).iter().map(|f| f.strip_prefix(canonical(&dir)).unwrap().to_string_lossy().replace('\\', "/")).collect();
+    let mut found: Vec<String> =
+        script_files(&dir.join("build.rs")).iter().map(|f| f.strip_prefix(canonical(&dir)).unwrap().to_string_lossy().replace('\\', "/")).collect();
     found.sort();
     let _ = std::fs::remove_dir_all(&dir);
-    assert_eq!(found, ["build.rs", "elsewhere/attributed.rs", "more.yml", "outer/deeper/leaf.rs", "outer/inner.rs", "plain.rs", "plain/child.rs", "rules.yml", "type.rs"]);
+    assert_eq!(
+        found,
+        ["build.rs", "elsewhere/attributed.rs", "more.yml", "outer/deeper/leaf.rs", "outer/inner.rs", "plain.rs", "plain/child.rs", "rules.yml", "type.rs"]
+    );
 }
 
 #[test]
@@ -493,11 +505,7 @@ fn each_core_package_declares_what_its_tool_declares() {
         }
         let mut tool_build = dependencies(&tool, &tool_dir, &["build-dependencies"]);
         tool_build.retain(|key, _| !key.ends_with(" winresource"));
-        assert_eq!(
-            dependencies(&core, &core_dir, &["build-dependencies"]),
-            tool_build,
-            "{name}: build-dependencies differ from native/{name}/Cargo.toml"
-        );
+        assert_eq!(dependencies(&core, &core_dir, &["build-dependencies"]), tool_build, "{name}: build-dependencies differ from native/{name}/Cargo.toml");
     }
 }
 

@@ -219,15 +219,9 @@ impl Feed {
         let end = state.pushed;
         let handed = state.handed_seq;
         let merged = match state.events.back_mut() {
-            Some(Entry {
-                event:
-                    ProcessEvent::Output {
-                        seq,
-                        stream: last_stream,
-                        bytes: last,
-                    },
-                end: last_end,
-            }) if mergeable && *seq >= handed && *last_stream == stream && last.len() + bytes.len() <= MERGE_LIMIT => {
+            Some(Entry { event: ProcessEvent::Output { seq, stream: last_stream, bytes: last }, end: last_end })
+                if mergeable && *seq >= handed && *last_stream == stream && last.len() + bytes.len() <= MERGE_LIMIT =>
+            {
                 last.extend_from_slice(bytes);
                 *last_end = end;
                 true
@@ -237,14 +231,7 @@ impl Feed {
         if !merged {
             let seq = state.next_seq;
             state.next_seq += 1;
-            state.events.push_back(Entry {
-                event: ProcessEvent::Output {
-                    seq,
-                    stream,
-                    bytes: bytes.to_vec(),
-                },
-                end,
-            });
+            state.events.push_back(Entry { event: ProcessEvent::Output { seq, stream, bytes: bytes.to_vec() }, end });
         }
         self.evict(&mut state);
         drop(state);
@@ -270,10 +257,7 @@ impl Feed {
         let seq = state.next_seq;
         state.next_seq += 1;
         let end = state.pushed;
-        state.events.push_back(Entry {
-            event: ProcessEvent::Exited { seq, exit },
-            end,
-        });
+        state.events.push_back(Entry { event: ProcessEvent::Exited { seq, exit }, end });
         state.done = true;
         drop(state);
         self.gate.notify_all();
@@ -362,10 +346,7 @@ impl Feed {
     }
 
     /// A subscription from `from_seq` (replayed from the ring) or from the next event.
-    pub(crate) fn subscribe(
-        self: &Arc<Self>,
-        from_seq: Option<u64>,
-    ) -> Result<Subscription, ProcessError> {
+    pub(crate) fn subscribe(self: &Arc<Self>, from_seq: Option<u64>) -> Result<Subscription, ProcessError> {
         let state = self.lock();
         if from_seq.is_some_and(|seq| seq < state.first_seq) {
             let oldest = state.first_seq;
@@ -395,11 +376,7 @@ impl Feed {
             Some(seq) if seq >= state.next_seq => (state.next_seq, state.pushed),
             Some(seq) => {
                 let index = (seq - state.first_seq) as usize;
-                let start = if index == 0 {
-                    state.base
-                } else {
-                    state.events[index - 1].end
-                };
+                let start = if index == 0 { state.base } else { state.events[index - 1].end };
                 (seq, start)
             }
         };
@@ -411,12 +388,7 @@ impl Feed {
         let id = state.next_consumer;
         state.next_consumer += 1;
         state.consumers.push(Consumer { id, taken });
-        Subscription {
-            feed: Arc::clone(self),
-            id,
-            next_seq,
-            start: taken,
-        }
+        Subscription { feed: Arc::clone(self), id, next_seq, start: taken }
     }
 }
 
@@ -444,10 +416,7 @@ impl Subscription {
             return if state.done { Err(()) } else { Ok(None) };
         };
         // The only reader of output nobody replays takes the event itself, not a copy of it.
-        let sole = index == 0
-            && state.consumers.len() == 1
-            && matches!(entry.event, ProcessEvent::Output { .. })
-            && self.feed.owned();
+        let sole = index == 0 && state.consumers.len() == 1 && matches!(entry.event, ProcessEvent::Output { .. }) && self.feed.owned();
         let (event, end) = if sole {
             let entry = state.events.pop_front().expect("the event was just seen");
             if let ProcessEvent::Output { bytes, .. } = &entry.event {

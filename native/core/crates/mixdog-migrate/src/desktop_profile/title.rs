@@ -20,30 +20,23 @@ const DOT: &str = r"[^\n\r\x{2028}\x{2029}]";
 
 /// Compiles `pattern`, where `{S}`, `{NS}` and `{DOT}` stand for the ECMAScript classes.
 fn rx(pattern: &str) -> Regex {
-    let pattern = pattern
-        .replace("{S}", SPACE)
-        .replace("{NS}", NOT_SPACE)
-        .replace("{DOT}", DOT);
+    let pattern = pattern.replace("{S}", SPACE).replace("{NS}", NOT_SPACE).replace("{DOT}", DOT);
     Regex::new(&pattern).expect("a fixed title pattern compiles")
 }
 
 pub(super) fn is_space(c: char) -> bool {
-    matches!(c, '\t' | '\n' | '\u{B}' | '\u{C}' | '\r' | ' ' | '\u{A0}' | '\u{1680}'
-        | '\u{2000}'..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\u{FEFF}')
+    matches!(
+        c,
+        '\t' | '\n' | '\u{B}' | '\u{C}' | '\r' | ' ' | '\u{A0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200A}' | '\u{2028}' | '\u{2029}' | '\u{202F}' | '\u{205F}' | '\u{3000}' | '\u{FEFF}'
+    )
 }
 
 fn trim(text: &str) -> &str {
     text.trim_matches(is_space)
 }
 
-const INJECTED_TAGS: [&str; 6] = [
-    "system-reminder",
-    "available-deferred-tools",
-    "mcp-instructions",
-    "memory-context",
-    "skill",
-    "event",
-];
+const INJECTED_TAGS: [&str; 6] = ["system-reminder", "available-deferred-tools", "mcp-instructions", "memory-context", "skill", "event"];
 
 struct TagPatterns {
     closed: Regex,
@@ -92,13 +85,11 @@ fn strip_session_envelope(value: &str) -> String {
     text
 }
 
-static REFERENCE_PREFIX: LazyLock<Regex> =
-    LazyLock::new(|| rx(r"(?i)^{S}*(?:확인{S}*)?\[[0-9]{4}-[0-9]{2}-[0-9]{2}{S}+[0-9]{2}:[0-9]{2}\]{S}*"));
+static REFERENCE_PREFIX: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)^{S}*(?:확인{S}*)?\[[0-9]{4}-[0-9]{2}-[0-9]{2}{S}+[0-9]{2}:[0-9]{2}\]{S}*"));
 /// The quoted excerpt up to its ellipsis and the first character after it; the character
 /// is matched here (the crate has no look-ahead) and handed back by the caller.
-static REFERENCE_QUOTE: LazyLock<Regex> = LazyLock::new(|| {
-    rx(r"(?i)^{S}*(?:확인{S}*)?\[[0-9]{4}-[0-9]{2}-[0-9]{2}{S}+[0-9]{2}:[0-9]{2}\]{S}*(?s:.){0,160}?(?:…|\.\.\.){S}*{NS}")
-});
+static REFERENCE_QUOTE: LazyLock<Regex> =
+    LazyLock::new(|| rx(r"(?i)^{S}*(?:확인{S}*)?\[[0-9]{4}-[0-9]{2}-[0-9]{2}{S}+[0-9]{2}:[0-9]{2}\]{S}*(?s:.){0,160}?(?:…|\.\.\.){S}*{NS}"));
 static DEICTIC: LazyLock<Regex> = LazyLock::new(|| rx(r"^(?:이거|이게|그거){S}*"));
 
 /// `stripSessionReference`.
@@ -111,12 +102,8 @@ fn strip_session_reference(value: &str) -> String {
     REFERENCE_PREFIX.replace(value, "").into_owned()
 }
 
-static MEDIA: LazyLock<Regex> = LazyLock::new(|| {
-    rx(r"(?i)\[(Image|Video)(?:{S}*#?[0-9]+(?:{S}*:[^\]\r\n]*)?|{S}+source:{S}*[^\]\r\n]+|:{S}*([^\]\r\n]+))\]")
-});
-static MEDIA_DETAIL: LazyLock<Regex> = LazyLock::new(|| {
-    rx(r"(?i)source:|[0-9]{1,6}{S}*[x×]{S}*[0-9]{1,6}|displayed{S}+at(?-u:\b)|duration(?-u:\b)")
-});
+static MEDIA: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)\[(Image|Video)(?:{S}*#?[0-9]+(?:{S}*:[^\]\r\n]*)?|{S}+source:{S}*[^\]\r\n]+|:{S}*([^\]\r\n]+))\]"));
+static MEDIA_DETAIL: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)source:|[0-9]{1,6}{S}*[x×]{S}*[0-9]{1,6}|displayed{S}+at(?-u:\b)|duration(?-u:\b)"));
 
 /// The `MEDIA_DISPLAY_BLOCK` matches as (start, end, is video). Its third form
 /// (`[Image: …]`) only counts when the text carries a source, size, display or duration
@@ -149,12 +136,9 @@ fn replace_media(text: &str) -> String {
     out
 }
 
-static FILE_CHIP: LazyLock<Regex> =
-    LazyLock::new(|| rx(r"(?i)\[(?:PDF|File){S}*#[0-9]+:{S}*([^\]\r\n]+)\]"));
+static FILE_CHIP: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)\[(?:PDF|File){S}*#[0-9]+:{S}*([^\]\r\n]+)\]"));
 static FILE_BLOCK: LazyLock<Regex> = LazyLock::new(|| rx(r"(?is)<file\b[^>]*>.*?</file>"));
-static PASTED: LazyLock<Regex> = LazyLock::new(|| {
-    rx(r"(?i)\[Pasted text{S}*#?[0-9]+(?:{S}*(?::[^\]\r\n]*|\+[0-9]+{S}+lines))?\]")
-});
+static PASTED: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)\[Pasted text{S}*#?[0-9]+(?:{S}*(?::[^\]\r\n]*|\+[0-9]+{S}+lines))?\]"));
 static REFERENCE_FILES: LazyLock<Regex> = LazyLock::new(|| rx(r"(?i)^Reference files:{S}*"));
 static SPACES: LazyLock<Regex> = LazyLock::new(|| rx(r"{S}+"));
 
@@ -214,7 +198,9 @@ static NOISE: LazyLock<Vec<Regex>> = LazyLock::new(|| {
 });
 
 static LEGACY_MEDIA: LazyLock<Regex> = LazyLock::new(|| {
-    rx(r"(?i)^{S}*{DOT}+?\.(png|jpe?g|gif|webp|bmp|avif|mp4|mov|m4v|webm|mkv|avi){S}+[0-9]{1,6}{S}*[x×]{S}*[0-9]{1,6}(?:{S}*,?{S}*displayed{S}+at{S}+[0-9]{1,6}{S}*[x×]{S}*[0-9]{1,6})?{S}*(?:…|\.\.\.)?{S}*")
+    rx(
+        r"(?i)^{S}*{DOT}+?\.(png|jpe?g|gif|webp|bmp|avif|mp4|mov|m4v|webm|mkv|avi){S}+[0-9]{1,6}{S}*[x×]{S}*[0-9]{1,6}(?:{S}*,?{S}*displayed{S}+at{S}+[0-9]{1,6}{S}*[x×]{S}*[0-9]{1,6})?{S}*(?:…|\.\.\.)?{S}*",
+    )
 });
 
 fn is_synthetic(value: &str) -> bool {
@@ -226,11 +212,7 @@ fn is_synthetic(value: &str) -> bool {
 fn legacy_media(value: &str) -> Option<(&'static str, &str)> {
     let caps = LEGACY_MEDIA.captures(value)?;
     let extension = caps.get(1)?.as_str().to_ascii_lowercase();
-    let placeholder = if matches!(extension.as_str(), "mp4" | "mov" | "m4v" | "webm" | "mkv" | "avi") {
-        "[Video]"
-    } else {
-        "[Image]"
-    };
+    let placeholder = if matches!(extension.as_str(), "mp4" | "mov" | "m4v" | "webm" | "mkv" | "avi") { "[Video]" } else { "[Image]" };
     Some((placeholder, trim(&value[caps.get(0)?.end()..])))
 }
 
@@ -268,11 +250,7 @@ pub fn generated_title(value: &str) -> String {
         Some((placeholder, text)) => normalize(text, placeholder, MAX),
         None => {
             let attachment = attachment_fallback(value);
-            let fallback = if attachment.is_empty() {
-                String::new()
-            } else {
-                normalize(&attachment, "", MAX)
-            };
+            let fallback = if attachment.is_empty() { String::new() } else { normalize(&attachment, "", MAX) };
             normalize(value, &fallback, MAX)
         }
     };
@@ -285,10 +263,7 @@ mod tests {
 
     #[test]
     fn injected_blocks_are_stripped_closed_or_with_their_unterminated_tail() {
-        assert_eq!(
-            strip_injected_blocks("a<system-reminder>x</system-reminder>b</skill>c", false),
-            "a b c"
-        );
+        assert_eq!(strip_injected_blocks("a<system-reminder>x</system-reminder>b</skill>c", false), "a b c");
         assert_eq!(strip_injected_blocks("a <event x=1>cut off", true), "a  ");
         assert_eq!(strip_injected_blocks("a <event x=1>kept", false), "a <event x=1>kept");
     }
@@ -321,10 +296,7 @@ mod tests {
     #[test]
     fn a_legacy_media_prefix_and_a_session_reference_are_dropped() {
         assert_eq!(generated_title("shot.png 800x600, displayed at 400x300 fix the layout"), "fix the layout");
-        assert_eq!(
-            generated_title("확인 [2026-07-01 10:20] quoted text that is long… 이거 고쳐줘"),
-            "고쳐줘"
-        );
+        assert_eq!(generated_title("확인 [2026-07-01 10:20] quoted text that is long… 이거 고쳐줘"), "고쳐줘");
         assert_eq!(generated_title("[2026-07-01 10:20] 안녕"), "안녕");
     }
 

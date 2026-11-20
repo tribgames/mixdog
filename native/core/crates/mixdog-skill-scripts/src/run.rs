@@ -73,8 +73,6 @@ mod tests {
         assert_eq!(without_verbatim_prefix(Path::new("/a/b.mjs")), PathBuf::from("/a/b.mjs"));
     }
 
-
-
     #[test]
     fn a_missing_script_keeps_its_resolved_path() {
         let path = script_path("no-such-dir-xyz/missing.mjs");
@@ -86,8 +84,7 @@ mod tests {
         let dir = tempfile::tempdir().expect("isolated folder");
         // A copied/exported built-in is recognized by content even when the unavailable
         // interpreter cannot name its install's skills root. No current-directory change.
-        let source = Path::new(env!("CARGO_MANIFEST_DIR"))
-            .join("../../../../src/defaults/skills/pptx/scripts/source-extract.mjs");
+        let source = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../src/defaults/skills/pptx/scripts/source-extract.mjs");
         let script = dir.path().join("copied-extract.mjs");
         mixdog_testkit::write(&script, mixdog_testkit::read(source));
         let input = dir.path().join("source.txt");
@@ -104,14 +101,10 @@ mod tests {
         let script = dir.path().join("user-script.mjs");
         mixdog_testkit::write(&script, "console.log('a user-owned script');\n");
         assert!(shipped_script(&Unlaned, &script, &dir.path().join("skills")).is_none());
-        let code = skill_run(
-            vec![script.into_os_string()],
-            UserScriptRuntime::Unavailable { reason: "test interpreter is unavailable".into() },
-        );
+        let code = skill_run(vec![script.into_os_string()], UserScriptRuntime::Unavailable { reason: "test interpreter is unavailable".into() });
         assert_eq!(code, ExitCode::from(1));
     }
 }
-
 
 /// Runs the skill script `args` names (what follows `skill-run` on the command line) and returns its exit
 /// code. A shipped script with a native version runs in this process; any other goes to `user_runtime`.

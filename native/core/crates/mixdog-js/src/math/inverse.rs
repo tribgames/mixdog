@@ -24,10 +24,7 @@ const QS3: f64 = -6.88283971605453293030e-01;
 const QS4: f64 = 7.70381505559019352791e-02;
 
 fn rational(z: f64) -> (f64, f64) {
-    (
-        z * (PS0 + z * (PS1 + z * (PS2 + z * (PS3 + z * (PS4 + z * PS5))))),
-        1.0 + z * (QS1 + z * (QS2 + z * (QS3 + z * QS4))),
-    )
+    (z * (PS0 + z * (PS1 + z * (PS2 + z * (PS3 + z * (PS4 + z * PS5))))), 1.0 + z * (QS1 + z * (QS2 + z * (QS3 + z * QS4))))
 }
 
 /// `Math.acos`.
@@ -105,18 +102,8 @@ pub fn asin(x: f64) -> f64 {
 
 /// `Math.atan`.
 pub fn atan(mut x: f64) -> f64 {
-    const HI: [f64; 4] = [
-        4.63647609000806093515e-01,
-        7.85398163397448278999e-01,
-        9.82793723247329054082e-01,
-        1.57079632679489655800e+00,
-    ];
-    const LO: [f64; 4] = [
-        2.26987774529616870924e-17,
-        3.06161699786838301793e-17,
-        1.39033110312309984516e-17,
-        6.12323399573676603587e-17,
-    ];
+    const HI: [f64; 4] = [4.63647609000806093515e-01, 7.85398163397448278999e-01, 9.82793723247329054082e-01, 1.57079632679489655800e+00];
+    const LO: [f64; 4] = [2.26987774529616870924e-17, 3.06161699786838301793e-17, 1.39033110312309984516e-17, 6.12323399573676603587e-17];
     const AT: [f64; 11] = [
         3.33333333333329318027e-01,
         -1.99999999998764832476e-01,
@@ -136,11 +123,7 @@ pub fn atan(mut x: f64) -> f64 {
         if ix > 0x7ff0_0000 || (ix == 0x7ff0_0000 && low(x) != 0) {
             return quiet_nan(x);
         }
-        return if hx > 0 {
-            HI[3] + LO[3]
-        } else {
-            -HI[3] - LO[3]
-        };
+        return if hx > 0 { HI[3] + LO[3] } else { -HI[3] - LO[3] };
     }
     let id: Option<usize>;
     if ix < 0x3fdc_0000 {
@@ -203,11 +186,7 @@ pub fn atan2(y: f64, x: f64) -> f64 {
         };
     }
     if (ix as u32 | lx) == 0 {
-        return if hy < 0 {
-            -PIO2_HI - TINY
-        } else {
-            PIO2_HI + TINY
-        };
+        return if hy < 0 { -PIO2_HI - TINY } else { PIO2_HI + TINY };
     }
     if ix == 0x7ff0_0000 {
         if iy == 0x7ff0_0000 {
@@ -226,11 +205,7 @@ pub fn atan2(y: f64, x: f64) -> f64 {
         };
     }
     if iy == 0x7ff0_0000 {
-        return if hy < 0 {
-            -PIO2_HI - TINY
-        } else {
-            PIO2_HI + TINY
-        };
+        return if hy < 0 { -PIO2_HI - TINY } else { PIO2_HI + TINY };
     }
     let k = (iy - ix) >> 20;
     let z = if k > 60 {

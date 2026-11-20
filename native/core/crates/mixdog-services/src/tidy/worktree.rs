@@ -83,7 +83,16 @@ pub async fn list_working_tree_changes(processes: &Processes, cwd: &Path, cancel
     );
     if let Some(failed) = [&status, &prefix].into_iter().find(|r| r.code != 0) {
         let err = mixdog_js::slice_utf16(mixdog_js::js_trim(&failed.stderr), 200);
-        return Changes { error: if !err.is_empty() { err } else if !failed.error.is_empty() { failed.error.clone() } else { format!("git status exited {}", failed.code) }, ..Default::default() };
+        return Changes {
+            error: if !err.is_empty() {
+                err
+            } else if !failed.error.is_empty() {
+                failed.error.clone()
+            } else {
+                format!("git status exited {}", failed.code)
+            },
+            ..Default::default()
+        };
     }
     Changes { files: Some(parse_status(&status.stdout, &prefix.stdout)), ..Default::default() }
 }
@@ -117,7 +126,9 @@ pub fn worktree_notes(working_tree: Option<&Value>, action: &str) -> Vec<String>
         return Vec::new();
     }
     let writes = if action == "fix" { "apply:true writes them too" } else { "a fix apply:true would write them too" };
-    vec![format!("workingTree.clean: {clean} file(s) with findings are unmodified in the repository; {writes} — pass those files in paths only when you mean to touch them")]
+    vec![format!(
+        "workingTree.clean: {clean} file(s) with findings are unmodified in the repository; {writes} — pass those files in paths only when you mean to touch them"
+    )]
 }
 
 #[cfg(test)]

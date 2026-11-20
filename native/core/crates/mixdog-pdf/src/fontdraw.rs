@@ -38,9 +38,7 @@ use crate::fonts::data::{
     font_flags,
     standard_fonts::{NON_STD_FONT_MAP, STD_FONT_MAP},
 };
-use crate::fonts::font::{
-    Font, FontKind, FontLoader, LoadContext, NoType3Scan, TranslatedFont,
-};
+use crate::fonts::font::{Font, FontKind, FontLoader, LoadContext, NoType3Scan, TranslatedFont};
 use crate::fonts::to_unicode::UniValue;
 use crate::fonts::widths::normalize_font_name;
 use crate::glyph::substitute::{StandardFonts, standard_font_name};
@@ -53,9 +51,7 @@ use crate::render::{DrawnFont, FontDrawing, GlyphDraw};
 use crate::xref::Xref;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(std::sync::PoisonError::into_inner)
+    mutex.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
 }
 
 /// How a character code reaches a glyph of the program.
@@ -136,10 +132,7 @@ impl DrawFont {
             Ok(path) if !path.is_empty() => Some(Arc::new(path)),
             Ok(_) => None,
             Err(error) => {
-                self.warn_once(&format!(
-                    "font \"{}\": a glyph outline cannot be drawn: {error}",
-                    self.font.font().map_or("", |font| font.name.as_str())
-                ));
+                self.warn_once(&format!("font \"{}\": a glyph outline cannot be drawn: {error}", self.font.font().map_or("", |font| font.name.as_str())));
                 None
             }
         }
@@ -173,11 +166,7 @@ impl FontObject for BridgedFont {
                     unicode: text,
                     accent: None,
                     vmetric: glyph.vmetric,
-                    operator_list_id: if font.is_type3_font {
-                        font.glyph_name(glyph.original_char_code).map(str::to_owned)
-                    } else {
-                        None
-                    },
+                    operator_list_id: if font.is_type3_font { font.glyph_name(glyph.original_char_code).map(str::to_owned) } else { None },
                     is_space: glyph.is_space,
                     is_in_font: true,
                 }
@@ -186,11 +175,7 @@ impl FontObject for BridgedFont {
     }
 
     fn bbox(&self) -> [f64; 4] {
-        self.draw
-            .font
-            .font()
-            .and_then(|font| font.bbox)
-            .unwrap_or([0.0; 4])
+        self.draw.font.font().and_then(|font| font.bbox).unwrap_or([0.0; 4])
     }
 }
 
@@ -213,10 +198,7 @@ pub struct PageFonts {
 impl PageFonts {
     /// The fonts of `document`'s pages: its font cache, its error policy.
     pub fn new(document: &Document) -> Self {
-        PageFonts {
-            loader: crate::text::font_loader(document),
-            registry: Mutex::new(Registry::default()),
-        }
+        PageFonts { loader: crate::text::font_loader(document), registry: Mutex::new(Registry::default()) }
     }
 
     fn draw_font(&self, translated: Arc<TranslatedFont>) -> Arc<DrawFont> {
@@ -234,37 +216,20 @@ impl FontProvider for PageFonts {
     fn translate_font(&self, dict: &Arc<Dict>, xref: &Xref) -> Result<Arc<dyn FontObject>> {
         let resources = Dict::new();
         let type3_font_refs = HashSet::new();
-        let context = LoadContext {
-            type3_font_refs: &type3_font_refs,
-            parsing_type3_font: false,
-            type3: &NoType3Scan,
-        };
-        let translated = self.loader.load_font(
-            xref,
-            None,
-            Some(&Obj::Dict(Arc::clone(dict))),
-            &resources,
-            &context,
-        )?;
+        let context = LoadContext { type3_font_refs: &type3_font_refs, parsing_type3_font: false, type3: &NoType3Scan };
+        let translated = self.loader.load_font(xref, None, Some(&Obj::Dict(Arc::clone(dict))), &resources, &context)?;
         if let FontKind::Error(error) = &translated.font {
             return Err(PdfError::Unknown(error.error.clone()));
         }
         let draw = self.draw_font(translated);
-        let object: Arc<dyn FontObject> = Arc::new(BridgedFont {
-            draw: Arc::clone(&draw),
-        });
-        lock(&self.registry)
-            .pending
-            .insert(Arc::as_ptr(&object).cast::<()>() as usize, draw);
+        let object: Arc<dyn FontObject> = Arc::new(BridgedFont { draw: Arc::clone(&draw) });
+        lock(&self.registry).pending.insert(Arc::as_ptr(&object).cast::<()>() as usize, draw);
         Ok(object)
     }
 
     fn font_loaded(&self, loaded_name: &str, font: &Arc<dyn FontObject>) {
         let mut registry = lock(&self.registry);
-        if let Some(draw) = registry
-            .pending
-            .remove(&(Arc::as_ptr(font).cast::<()>() as usize))
-        {
+        if let Some(draw) = registry.pending.remove(&(Arc::as_ptr(font).cast::<()>() as usize)) {
             registry.by_name.insert(loaded_name.to_owned(), draw);
         }
     }
@@ -272,18 +237,12 @@ impl FontProvider for PageFonts {
 
 impl FontDrawing for PageFonts {
     fn font(&self, loaded_name: &str) -> Option<DrawnFont> {
-        lock(&self.registry)
-            .by_name
-            .get(loaded_name)
-            .map(|draw| draw.drawn.clone())
+        lock(&self.registry).by_name.get(loaded_name).map(|draw| draw.drawn.clone())
     }
 
     fn glyph(&self, loaded_name: &str, glyph: &Glyph) -> GlyphDraw {
         let draw = lock(&self.registry).by_name.get(loaded_name).cloned();
-        GlyphDraw {
-            path: draw.and_then(|draw| draw.path(glyph.original_char_code)),
-            accent: None,
-        }
+        GlyphDraw { path: draw.and_then(|draw| draw.path(glyph.original_char_code)), accent: None }
     }
 }
 
@@ -292,12 +251,7 @@ impl FontDrawing for PageFonts {
 fn build_draw_font(translated: Arc<TranslatedFont>) -> DrawFont {
     let Some(font) = translated.font() else {
         return DrawFont {
-            drawn: DrawnFont {
-                font_matrix: FONT_IDENTITY_MATRIX,
-                vertical: false,
-                type3: false,
-                missing_file: false,
-            },
+            drawn: DrawnFont { font_matrix: FONT_IDENTITY_MATRIX, vertical: false, type3: false, missing_file: false },
             font: Arc::clone(&translated),
             outlines: None,
             paths: Mutex::new(HashMap::new()),
@@ -322,18 +276,9 @@ fn build_draw_font(translated: Arc<TranslatedFont>) -> DrawFont {
             }
         }
     };
-    let draw = DrawFont {
-        drawn,
-        font: Arc::clone(&translated),
-        outlines,
-        paths: Mutex::new(HashMap::new()),
-        reported: Mutex::new(false),
-    };
+    let draw = DrawFont { drawn, font: Arc::clone(&translated), outlines, paths: Mutex::new(HashMap::new()), reported: Mutex::new(false) };
     if let Some(message) = failure {
-        draw.warn_once(&format!(
-            "font \"{}\" draws nothing: {message}",
-            font.name
-        ));
+        draw.warn_once(&format!("font \"{}\" draws nothing: {message}", font.name));
     }
     draw
 }
@@ -369,26 +314,14 @@ fn be16(data: &[u8], at: usize) -> Option<u16> {
 fn sfnt_outlines(font: &Font, program: &[u8]) -> std::result::Result<Outlines, String> {
     let ttf = SfntFile::parse(program, &font.name).map_err(|error| error.to_string())?;
     if !ttf.is_true_type() {
-        let cff = ttf
-            .table_data("CFF ")
-            .ok_or_else(|| "no CFF table".to_owned())?;
+        let cff = ttf.table_data("CFF ").ok_or_else(|| "no CFF table".to_owned())?;
         return cff_outlines(font, cff);
     }
-    let table = |tag: &str| {
-        ttf.table_data(tag)
-            .ok_or_else(|| format!("the {tag} table is missing"))
-    };
+    let table = |tag: &str| ttf.table_data(tag).ok_or_else(|| format!("the {tag} table is missing"));
     let (glyf, loca, head) = (table("glyf")?, table("loca")?, table("head")?);
     let units_per_em = be16(head, 18).unwrap_or(0);
     let long_offsets = be16(head, 50).unwrap_or(0) != 0;
-    let renderer = FontRenderer::from_glyf(
-        glyf,
-        loca,
-        long_offsets,
-        units_per_em,
-        usable_matrix(font.font_matrix),
-    )
-    .map_err(|error| error.to_string())?;
+    let renderer = FontRenderer::from_glyf(glyf, loca, long_offsets, units_per_em, usable_matrix(font.font_matrix)).map_err(|error| error.to_string())?;
     let mapping = if font.composite {
         Mapping::Cid(match &font.cid_to_gid_map {
             Some(map) if !map.is_empty() => CidToGid::Map(map.clone()),
@@ -397,10 +330,7 @@ fn sfnt_outlines(font: &Font, program: &[u8]) -> std::result::Result<Outlines, S
     } else {
         Mapping::Codes(true_type_codes(font, &ttf).map_err(|error| error.to_string())?)
     };
-    Ok(Outlines {
-        renderer: Arc::new(Mutex::new(renderer)),
-        mapping,
-    })
+    Ok(Outlines { renderer: Arc::new(Mutex::new(renderer)), mapping })
 }
 
 /// `recoverGlyphName`: a glyph name the glyph list knows by the name it gives its code point.
@@ -408,9 +338,7 @@ fn recover_glyph_name(name: &str) -> String {
     if data::glyph_unicode(name).is_some() {
         return name.to_owned();
     }
-    data::get_unicode_for_glyph(name, &data::glyphlist::GLYPHS_UNICODE)
-        .and_then(data::glyph_name_for_unicode)
-        .map_or_else(|| name.to_owned(), str::to_owned)
+    data::get_unicode_for_glyph(name, &data::glyphlist::GLYPHS_UNICODE).and_then(data::glyph_name_for_unicode).map_or_else(|| name.to_owned(), str::to_owned)
 }
 
 /// The character code to glyph id table of a simple TrueType font (`checkAndRepair`).
@@ -426,19 +354,11 @@ fn true_type_codes(font: &Font, ttf: &SfntFile) -> Result<HashMap<u32, u16>> {
     let (platform, encoding) = (cmap.platform_id, cmap.encoding_id);
     let mut codes: HashMap<u32, u16> = HashMap::new();
     let mut base_encoding: Option<&'static [&'static str; 256]> = None;
-    if font.has_encoding
-        && matches!(
-            font.base_encoding_name.as_deref(),
-            Some("MacRomanEncoding" | "WinAnsiEncoding")
-        )
-    {
+    if font.has_encoding && matches!(font.base_encoding_name.as_deref(), Some("MacRomanEncoding" | "WinAnsiEncoding")) {
         base_encoding = font.base_encoding_name.as_deref().and_then(get_encoding);
     }
     let mut force_post_table = false;
-    if font.has_encoding
-        && !font.is_symbolic_font
-        && ((platform == 3 && encoding == 1) || (platform == 1 && encoding == 0))
-    {
+    if font.has_encoding && !font.is_symbolic_font && ((platform == 3 && encoding == 1) || (platform == 1 && encoding == 0)) {
         let by_char: HashMap<i64, i64> = {
             let mut table = HashMap::new();
             for mapping in &cmap.mappings {
@@ -461,20 +381,13 @@ fn true_type_codes(font: &Font, ttf: &SfntFile) -> Result<HashMap<u32, u16>> {
             let mut wanted: Option<i64> = if platform == 3 {
                 data::glyph_unicode(&standard).map(i64::from)
             } else {
-                Some(
-                    MAC_ROMAN_ENCODING
-                        .iter()
-                        .position(|name| *name == standard)
-                        .map_or(-1, |at| at as i64),
-                )
+                Some(MAC_ROMAN_ENCODING.iter().position(|name| *name == standard).map_or(-1, |at| at as i64))
             };
             if wanted.is_none()
                 && font.has_included_to_unicode_map
                 && !font.to_unicode.is_identity()
                 && let Some(UniValue::Str(text)) = font.to_unicode.get(code as u32)
-                && let Some(first) = String::from_utf16_lossy(&text)
-                    .chars()
-                    .next()
+                && let Some(first) = String::from_utf16_lossy(&text).chars().next()
             {
                 wanted = Some(i64::from(u32::from(first)));
             }
@@ -500,10 +413,7 @@ fn true_type_codes(font: &Font, ttf: &SfntFile) -> Result<HashMap<u32, u16>> {
             set_code(&mut codes, mapping.char_code, mapping.glyph_id);
         }
     }
-    let post_names = ttf
-        .read_post_script_table(info.num_glyphs)
-        .filter(|post| post.valid)
-        .and_then(|post| post.glyph_names);
+    let post_names = ttf.read_post_script_table(info.num_glyphs).filter(|post| post.valid).and_then(|post| post.glyph_names);
     if let Some(names) = post_names
         && (base_encoding.is_some() || font.differences.size() > 0)
     {
@@ -518,11 +428,7 @@ fn true_type_codes(font: &Font, ttf: &SfntFile) -> Result<HashMap<u32, u16>> {
             if glyph_name.is_empty() {
                 continue;
             }
-            if let Some(glyph) = names
-                .iter()
-                .position(|name| name.as_deref() == Some(glyph_name))
-                .filter(|glyph| *glyph > 0 && info.has_glyph(*glyph as i64))
-            {
+            if let Some(glyph) = names.iter().position(|name| name.as_deref() == Some(glyph_name)).filter(|glyph| *glyph > 0 && info.has_glyph(*glyph as i64)) {
                 set_code(&mut codes, code, glyph as i64);
             }
         }
@@ -536,20 +442,10 @@ fn unicode_ranges(by_unicode: &HashMap<u32, u16>) -> Vec<CmapRange> {
     entries.sort_unstable();
     let mut ranges: Vec<CmapRange> = entries
         .into_iter()
-        .map(|(unicode, glyph)| CmapRange {
-            start: unicode,
-            end: unicode,
-            id_delta: i64::from(glyph) - i64::from(unicode),
-            ids: None,
-        })
+        .map(|(unicode, glyph)| CmapRange { start: unicode, end: unicode, id_delta: i64::from(glyph) - i64::from(unicode), ids: None })
         .collect();
     if ranges.is_empty() {
-        ranges.push(CmapRange {
-            start: 0,
-            end: 0,
-            id_delta: 0,
-            ids: None,
-        });
+        ranges.push(CmapRange { start: 0, end: 0, id_delta: 0, ids: None });
     }
     ranges
 }
@@ -559,11 +455,7 @@ fn unicode_table(names: &[Option<String>], dingbats: bool) -> HashMap<u32, u16> 
     let mut table = HashMap::new();
     for (glyph, name) in names.iter().enumerate() {
         let Some(name) = name else { continue };
-        let unicode = if dingbats {
-            data::dingbats_glyph_unicode(name).or_else(|| data::glyph_unicode(name))
-        } else {
-            data::glyph_unicode(name)
-        };
+        let unicode = if dingbats { data::dingbats_glyph_unicode(name).or_else(|| data::glyph_unicode(name)) } else { data::glyph_unicode(name) };
         if let (Some(unicode), Ok(glyph)) = (unicode, u16::try_from(glyph)) {
             table.entry(unicode).or_insert(glyph);
         }
@@ -626,11 +518,7 @@ fn cff_outlines(font: &Font, program: &[u8]) -> std::result::Result<Outlines, St
             CharsetEntry::Cid(_) => None,
         })
         .collect();
-    let renderer = FontRenderer::from_type2(
-        outlines,
-        unicode_ranges(&unicode_table(&names, false)),
-        usable_matrix(font.font_matrix),
-    );
+    let renderer = FontRenderer::from_type2(outlines, unicode_ranges(&unicode_table(&names, false)), usable_matrix(font.font_matrix));
     let mapping = if font.composite {
         if cff.is_cid_font {
             let mut charset = HashMap::new();
@@ -646,43 +534,20 @@ fn cff_outlines(font: &Font, program: &[u8]) -> std::result::Result<Outlines, St
     } else {
         Mapping::Codes(type1_codes(font, &names))
     };
-    Ok(Outlines {
-        renderer: Arc::new(Mutex::new(renderer)),
-        mapping,
-    })
+    Ok(Outlines { renderer: Arc::new(Mutex::new(renderer)), mapping })
 }
 
 fn type1_outlines(font: &Font, program: &[u8]) -> std::result::Result<Outlines, String> {
-    let parsed = Type1Font::parse(
-        program,
-        Type1Options {
-            length1: None,
-            composite: font.composite,
-        },
-    )
-    .map_err(|error| error.to_string())?;
-    let names: Vec<Option<String>> = parsed
-        .charset()
-        .into_iter()
-        .map(|name| Some(name.to_owned()))
-        .collect();
-    let renderer = FontRenderer::from_type2(
-        parsed.to_type2(),
-        unicode_ranges(&unicode_table(&names, false)),
-        usable_matrix(font.font_matrix),
-    );
+    let parsed = Type1Font::parse(program, Type1Options { length1: None, composite: font.composite }).map_err(|error| error.to_string())?;
+    let names: Vec<Option<String>> = parsed.charset().into_iter().map(|name| Some(name.to_owned())).collect();
+    let renderer = FontRenderer::from_type2(parsed.to_type2(), unicode_ranges(&unicode_table(&names, false)), usable_matrix(font.font_matrix));
     let mapping = if font.composite {
-        let charset = (0..names.len().saturating_sub(1))
-            .filter_map(|cid| Some((u32::try_from(cid).ok()?, u16::try_from(cid + 1).ok()?)))
-            .collect();
+        let charset = (0..names.len().saturating_sub(1)).filter_map(|cid| Some((u32::try_from(cid).ok()?, u16::try_from(cid + 1).ok()?))).collect();
         Mapping::Cid(CidToGid::Charset(charset))
     } else {
         Mapping::Codes(type1_codes(font, &names))
     };
-    Ok(Outlines {
-        renderer: Arc::new(Mutex::new(renderer)),
-        mapping,
-    })
+    Ok(Outlines { renderer: Arc::new(Mutex::new(renderer)), mapping })
 }
 
 // ---- the substitute faces -------------------------------------------------------------------------------------------
@@ -722,10 +587,7 @@ fn embedded_file(file: &str) -> std::io::Result<Vec<u8>> {
         "FoxitSymbol.pfb" => include_bytes!("../assets/standard_fonts/FoxitSymbol.pfb"),
         "FoxitDingbats.pfb" => include_bytes!("../assets/standard_fonts/FoxitDingbats.pfb"),
         _ => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "no such bundled font",
-            ));
+            return Err(std::io::Error::new(std::io::ErrorKind::NotFound, "no such bundled font"));
         }
     };
     Ok(bytes.to_vec())
@@ -741,15 +603,13 @@ fn substitute_face(standard: &'static str) -> Option<Arc<SubstituteFace>> {
         return found.clone();
     }
     let files = FILES.get_or_init(|| StandardFonts::new(Box::new(embedded_file)));
-    let made = files
-        .fetch(standard)
-        .and_then(|bytes| match make_face(standard, &bytes) {
-            Ok(face) => Some(Arc::new(face)),
-            Err(message) => {
-                tracing::warn!("the substitute face of {standard} cannot be read: {message}");
-                None
-            }
-        });
+    let made = files.fetch(standard).and_then(|bytes| match make_face(standard, &bytes) {
+        Ok(face) => Some(Arc::new(face)),
+        Err(message) => {
+            tracing::warn!("the substitute face of {standard} cannot be read: {message}");
+            None
+        }
+    });
     lock(faces).insert(standard, made.clone());
     made
 }
@@ -757,35 +617,18 @@ fn substitute_face(standard: &'static str) -> Option<Arc<SubstituteFace>> {
 fn make_face(standard: &str, bytes: &[u8]) -> std::result::Result<SubstituteFace, String> {
     if bytes.starts_with(&[0, 1, 0, 0]) {
         let ttf = SfntFile::parse(bytes, standard).map_err(|error| error.to_string())?;
-        let table = |tag: &str| {
-            ttf.table_data(tag)
-                .ok_or_else(|| format!("the {tag} table is missing"))
-        };
+        let table = |tag: &str| ttf.table_data(tag).ok_or_else(|| format!("the {tag} table is missing"));
         let (glyf, loca, head) = (table("glyf")?, table("loca")?, table("head")?);
-        let renderer = FontRenderer::from_glyf(
-            glyf,
-            loca,
-            be16(head, 50).unwrap_or(0) != 0,
-            be16(head, 18).unwrap_or(0),
-            None,
-        )
-        .map_err(|error| error.to_string())?;
-        let cmap = ttf
-            .read_cmap_table(false, true)
-            .map_err(|error| error.to_string())?;
+        let renderer =
+            FontRenderer::from_glyf(glyf, loca, be16(head, 50).unwrap_or(0) != 0, be16(head, 18).unwrap_or(0), None).map_err(|error| error.to_string())?;
+        let cmap = ttf.read_cmap_table(false, true).map_err(|error| error.to_string())?;
         let mut by_unicode = HashMap::new();
         for mapping in &cmap.mappings {
-            if let (Ok(code), Ok(glyph)) = (
-                u32::try_from(mapping.char_code),
-                u16::try_from(mapping.glyph_id),
-            ) {
+            if let (Ok(code), Ok(glyph)) = (u32::try_from(mapping.char_code), u16::try_from(mapping.glyph_id)) {
                 by_unicode.entry(code).or_insert(glyph);
             }
         }
-        return Ok(SubstituteFace {
-            renderer: Arc::new(Mutex::new(renderer)),
-            by_unicode: Arc::new(by_unicode),
-        });
+        return Ok(SubstituteFace { renderer: Arc::new(Mutex::new(renderer)), by_unicode: Arc::new(by_unicode) });
     }
     let mut properties = CffProperties::default();
     let cff = read_cff_font(bytes, &mut properties).map_err(|error| error.to_string())?;
@@ -800,15 +643,9 @@ fn make_face(standard: &str, bytes: &[u8]) -> std::result::Result<SubstituteFace
         .collect();
     let by_unicode = unicode_table(&names, standard == "ZapfDingbats");
     let outlines = parse_cff(bytes, true).map_err(|error| error.to_string())?;
-    let matrix = usable_matrix(properties.font_matrix.as_deref().and_then(|matrix| {
-        <[f64; 6]>::try_from(matrix).ok()
-    }));
+    let matrix = usable_matrix(properties.font_matrix.as_deref().and_then(|matrix| <[f64; 6]>::try_from(matrix).ok()));
     Ok(SubstituteFace {
-        renderer: Arc::new(Mutex::new(FontRenderer::from_type2(
-            outlines,
-            unicode_ranges(&by_unicode),
-            matrix,
-        ))),
+        renderer: Arc::new(Mutex::new(FontRenderer::from_type2(outlines, unicode_ranges(&by_unicode), matrix))),
         by_unicode: Arc::new(by_unicode),
     })
 }
@@ -817,37 +654,25 @@ fn make_face(standard: &str, bytes: &[u8]) -> std::result::Result<SubstituteFace
 /// pdf.js maps to one), else what its flags and name say (fixed pitch, serif, bold, italic).
 fn substitute_name(font: &Font) -> &'static str {
     let mut name = font.name.as_str();
-    if name.len() > 7 && name.as_bytes()[6] == b'+' && name.as_bytes()[..6].iter().all(u8::is_ascii_uppercase)
-    {
+    if name.len() > 7 && name.as_bytes()[6] == b'+' && name.as_bytes()[..6].iter().all(u8::is_ascii_uppercase) {
         name = &name[7..];
     }
     if let Some(standard) = standard_font_name(name) {
         return standard;
     }
     let normalized = normalize_font_name(name);
-    if let Some(mapped) = data::lookup(&NON_STD_FONT_MAP, &normalized)
-        .and_then(|mapped| data::lookup(&STD_FONT_MAP, mapped))
-        .and_then(standard_font_name)
-    {
+    if let Some(mapped) = data::lookup(&NON_STD_FONT_MAP, &normalized).and_then(|mapped| data::lookup(&STD_FONT_MAP, mapped)).and_then(standard_font_name) {
         return mapped;
     }
     let lower = name.to_lowercase();
     let bold = lower.contains("bold") || font.flags & font_flags::FORCE_BOLD as i32 != 0;
-    let italic = lower.contains("italic")
-        || lower.contains("oblique")
-        || font.flags & font_flags::ITALIC as i32 != 0
-        || font.italic_angle != 0.0;
+    let italic = lower.contains("italic") || lower.contains("oblique") || font.flags & font_flags::ITALIC as i32 != 0 || font.italic_angle != 0.0;
     let styles = if font.is_monospace {
         ["Courier", "Courier-Bold", "Courier-Oblique", "Courier-BoldOblique"]
     } else if font.is_serif_font {
         ["Times-Roman", "Times-Bold", "Times-Italic", "Times-BoldItalic"]
     } else {
-        [
-            "Helvetica",
-            "Helvetica-Bold",
-            "Helvetica-Oblique",
-            "Helvetica-BoldOblique",
-        ]
+        ["Helvetica", "Helvetica-Bold", "Helvetica-Oblique", "Helvetica-BoldOblique"]
     };
     // index: 0 regular, 1 bold, 2 italic, 3 bold italic
     let index = match (bold, italic) {
@@ -861,10 +686,6 @@ fn substitute_name(font: &Font) -> &'static str {
 
 fn substitute_outlines(font: &Font) -> std::result::Result<Outlines, String> {
     let standard = substitute_name(font);
-    let face = substitute_face(standard)
-        .ok_or_else(|| format!("the substitute face {standard} is not available"))?;
-    Ok(Outlines {
-        renderer: Arc::clone(&face.renderer),
-        mapping: Mapping::Unicode(Arc::clone(&face.by_unicode)),
-    })
+    let face = substitute_face(standard).ok_or_else(|| format!("the substitute face {standard} is not available"))?;
+    Ok(Outlines { renderer: Arc::clone(&face.renderer), mapping: Mapping::Unicode(Arc::clone(&face.by_unicode)) })
 }

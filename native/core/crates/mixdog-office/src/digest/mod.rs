@@ -21,10 +21,7 @@ use mixdog_office_base::formats::is_tabular_format;
 use mixdog_office_base::values::truthy;
 use serde_json::Value;
 
-use common::{
-    Object, filtered, is_bool, is_positive, is_str, is_truthy, js_length, remove, same_value, strict_equals, without_empty,
-    without_empty_object,
-};
+use common::{Object, filtered, is_bool, is_positive, is_str, is_truthy, js_length, remove, same_value, strict_equals, without_empty, without_empty_object};
 
 /// The disclosure a deck whose brief declared its figures illustrative carries on every result the author reads.
 pub const FACTS_SAMPLE_DISCLOSURE: &str = "The brief declares facts: sample \u{2014} every figure on this deck is illustrative. Tell the user so in the delivery and never present the numbers as measured.";
@@ -135,8 +132,7 @@ fn office_design_digest(design: &Value) -> Value {
         }
     }
     // An unset intent, audience or content reads the same absent as empty.
-    let unset: Vec<String> =
-        digest.iter().filter(|(_, entry)| entry.is_null() || is_str(Some(*entry), "")).map(|(key, _)| key.clone()).collect();
+    let unset: Vec<String> = digest.iter().filter(|(_, entry)| entry.is_null() || is_str(Some(*entry), "")).map(|(key, _)| key.clone()).collect();
     for key in unset {
         remove(&mut digest, &key);
     }
@@ -156,9 +152,7 @@ fn preset_results(results: Vec<Value>, semantic: Option<&Value>) -> Vec<Value> {
         let routine = is_bool(entry.get("changed"), true)
             && matches!(entry.get("op"), Some(Value::String(op)) if matches!(op.as_str(), "append_text" | "set_table_cell_style" | "set_style" | "merge_cells" | "set_cell" | "set_row_height"))
             && entry.as_object().is_some_and(|fields| {
-                fields.keys().all(|field| {
-                    matches!(field.as_str(), "op" | "changed" | "style" | "table" | "row" | "col" | "sheet" | "cell" | "range")
-                })
+                fields.keys().all(|field| matches!(field.as_str(), "op" | "changed" | "style" | "table" | "row" | "col" | "sheet" | "cell" | "range"))
             });
         if routine {
             let op = value_to_string(&entry["op"]);
@@ -346,11 +340,8 @@ fn model_facing_qa_result(result: &Value, top_visual_review: Option<&Value>, fin
         }
     }
     let quality_review = review.get("quality").and_then(|quality| quality.get("visualReview"));
-    let repeated = [top_visual_review, source.get("visualReview")]
-        .into_iter()
-        .flatten()
-        .find(|entry| same_value(Some(*entry), quality_review))
-        .is_some_and(truthy);
+    let repeated =
+        [top_visual_review, source.get("visualReview")].into_iter().flatten().find(|entry| same_value(Some(*entry), quality_review)).is_some_and(truthy);
     if repeated {
         let status = quality_review.and_then(|visual| visual.get("status")).cloned();
         if let Some(Value::Object(quality)) = review.get("quality") {
@@ -376,9 +367,7 @@ fn passed_check_detail(check: &str, key: &str, field: &Value, entry: &Object) ->
         ("native", "opened" | "reopened" | "persisted" | "documentSaved") => matches!(field, Value::Bool(true)),
         ("native", "snapshotFingerprint") => true,
         ("native", "excelDpiRepairs") => !is_positive(Some(field)),
-        ("native", "issueCount") => {
-            to_number(field) == entry.get("issues").and_then(Value::as_array).map_or(0.0, |issues| issues.len() as f64)
-        }
+        ("native", "issueCount") => to_number(field) == entry.get("issues").and_then(Value::as_array).map_or(0.0, |issues| issues.len() as f64),
         _ => false,
     }
 }
@@ -433,9 +422,7 @@ fn finalize_validation_digest(validation: &Object, result: &Object, session: Opt
         let answer = filtered(entry, |key, field| !passed_check_detail(check, key, field, entry));
         digest.insert(check.to_owned(), Value::Object(answer));
     }
-    let gate_passed = digest
-        .get("postSaveGate")
-        .is_some_and(|gate| is_bool(gate.get("ok"), true) && !is_positive(gate.get("criticalCount")));
+    let gate_passed = digest.get("postSaveGate").is_some_and(|gate| is_bool(gate.get("ok"), true) && !is_positive(gate.get("criticalCount")));
     if gate_passed {
         remove(&mut digest, "postSaveGate");
     }
@@ -755,12 +742,7 @@ mod tests {
     }
 
     fn session(format: &str) -> ResultSession {
-        ResultSession {
-            target: format!("C:/docs/a.{format}"),
-            format: format.to_owned(),
-            file_kind: format.to_owned(),
-            ..ResultSession::default()
-        }
+        ResultSession { target: format!("C:/docs/a.{format}"), format: format.to_owned(), file_kind: format.to_owned(), ..ResultSession::default() }
     }
 
     #[test]
@@ -821,10 +803,7 @@ mod tests {
             "source": "existing-document", "artDirection": { "applyTokens": false }, "review": { "required": true, "x": 1 },
             "profile": "p", "library": { "warning": "w" }
         });
-        assert_eq!(
-            json_stringify(&office_design_digest(&design)),
-            r#"{"source":"existing-document","review":{"required":true},"warning":"w"}"#
-        );
+        assert_eq!(json_stringify(&office_design_digest(&design)), r#"{"source":"existing-document","review":{"required":true},"warning":"w"}"#);
     }
 
     #[test]
@@ -1092,9 +1071,6 @@ mod tests {
     #[test]
     fn a_delimited_file_cell_drops_its_row_and_column() {
         let document = json!({ "format": "csv", "sheets": [{ "cells": [{ "ref": "B2", "row": 2, "column": 2, "value": "x" }] }] });
-        assert_eq!(
-            json_stringify(&office_document_digest(&document)),
-            r#"{"format":"csv","sheets":[{"cells":[{"ref":"B2","value":"x"}]}]}"#
-        );
+        assert_eq!(json_stringify(&office_document_digest(&document)), r#"{"format":"csv","sheets":[{"cells":[{"ref":"B2","value":"x"}]}]}"#);
     }
 }

@@ -9,11 +9,11 @@ use mixdog_agent::step_effort::{StepCall, StepInput};
 
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::host::{HostClient, HostLaunch, START_LIMIT, serve_resident};
-use crate::effort_judge::worker_tests::Clock;
 use crate::effort_judge::input::TurnInput;
 use crate::effort_judge::judge::{KEEP_WARM, Resident};
 use crate::effort_judge::model::{ModelConfig, OrtRuntime};
 use crate::effort_judge::worker::Stopper;
+use crate::effort_judge::worker_tests::Clock;
 use crate::effort_judge::{EffortJudgeModel, JudgeLanes, JudgeTiming, TurnVerdict};
 
 const HOST_ENV: &str = "MIXDOG_TEST_EFFORT_JUDGE_HOST";

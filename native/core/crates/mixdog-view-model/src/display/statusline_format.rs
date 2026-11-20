@@ -19,10 +19,10 @@ use serde_json::Value;
 
 use super::coerce::truthy;
 use super::context_measurement::context_measurement_label;
-pub use super::time_format::format_elapsed;
 use super::model_display::display_model_name;
 use super::model_display::effort_display_label;
 use super::model_display::shorten_model_name;
+pub use super::time_format::format_elapsed;
 
 /// The token window used to compute a fallback context share from our own session usage. The live gateway (when up)
 /// overrides it with the real route's window; this is the last resort for unknown local models.
@@ -278,7 +278,10 @@ mod tests {
 
     #[test]
     fn the_codes_are_empty_without_styling() {
-        assert_eq!((OFF.reset(), OFF.bold(), OFF.dim(), OFF.green(), OFF.yellow(), OFF.red()), (String::new(), String::new(), String::new(), String::new(), String::new(), String::new()));
+        assert_eq!(
+            (OFF.reset(), OFF.bold(), OFF.dim(), OFF.green(), OFF.yellow(), OFF.red()),
+            (String::new(), String::new(), String::new(), String::new(), String::new(), String::new())
+        );
         assert_eq!(OFF.status_text("x"), "x");
         assert_eq!(ON.reset(), "\u{1b}[0m");
         assert_eq!(ON.bold(), "\u{1b}[1m");
@@ -321,7 +324,10 @@ mod tests {
     fn the_context_segment_drops_its_bar_when_narrow() {
         assert_eq!(format_context_segment(OFF, Some(50.0), 79.0, "last_api_request"), "50%");
         assert_eq!(format_context_segment(ON, Some(95.0), 40.0, "last_api_request"), "\u{1b}[38;2;220;70;88m95%\u{1b}[0m");
-        assert_eq!(format_context_segment(OFF, Some(50.0), 80.0, "last_api_request"), "\u{2593}\u{2593}\u{2593}\u{2593}\u{2593}\u{2593}\u{2593}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591} 50%");
+        assert_eq!(
+            format_context_segment(OFF, Some(50.0), 80.0, "last_api_request"),
+            "\u{2593}\u{2593}\u{2593}\u{2593}\u{2593}\u{2593}\u{2593}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591}\u{2591} 50%"
+        );
         assert_eq!(format_context_segment(OFF, None, 120.0, "unavailable"), "Usage unavailable");
         assert_eq!(format_context_segment(OFF, None, 120.0, "pending"), "Awaiting measurement");
     }

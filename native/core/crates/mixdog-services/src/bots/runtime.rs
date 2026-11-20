@@ -173,15 +173,7 @@ pub struct RoutineRuntime {
 impl RoutineRuntime {
     /// `tz` is the zone a turn's header states the local time in.
     pub fn new(host: Arc<dyn RoutineHost>, records: Arc<dyn RoutineRecords>, clock: Arc<dyn Clock>, tz: Tz) -> Arc<Self> {
-        Arc::new(Self {
-            host,
-            records,
-            clock,
-            tz,
-            runs: AutomationRuns::new(),
-            waiting: Mutex::new(HashMap::new()),
-            retry_armed: AtomicBool::new(false),
-        })
+        Arc::new(Self { host, records, clock, tz, runs: AutomationRuns::new(), waiting: Mutex::new(HashMap::new()), retry_armed: AtomicBool::new(false) })
     }
 
     pub fn runs(&self) -> &Arc<AutomationRuns> {

@@ -87,7 +87,13 @@ fn event(body: &str) -> Option<Value> {
     let finite = |key: &str| line.get(key).filter(|value| value.as_f64().is_some_and(f64::is_finite)).cloned();
     let held = line.get("held")?.as_bool()?;
     let phase = match line.get("phase") {
-        None | Some(Value::Null) => if held { "drag" } else { "move" },
+        None | Some(Value::Null) => {
+            if held {
+                "drag"
+            } else {
+                "move"
+            }
+        }
         Some(phase) => phase.as_str().filter(|phase| PHASES.contains(phase))?,
     };
     let mode = if line.get("mode").and_then(Value::as_str) == Some("foreground") { "foreground" } else { "background" };
@@ -178,7 +184,9 @@ mod tests {
         assert_eq!(wait.get("pointer_feedback"), None);
         // A request that asks on its own is answered as any other: never a hidden pointer without an overlay.
         let (absent, _) = desktop(false);
-        for (action, desktop, expected) in [("click", None, None), ("click", Some(&absent), None), ("snapshot", Some(&serving), None), ("click", Some(&serving), Some(json!(true)))] {
+        for (action, desktop, expected) in
+            [("click", None, None), ("click", Some(&absent), None), ("snapshot", Some(&serving), None), ("click", Some(&serving), Some(json!(true)))]
+        {
             let mut asked = json!({"action": action, "pointer_feedback": true}).as_object().cloned().unwrap();
             decorate(&mut asked, desktop);
             assert_eq!(asked.get("pointer_feedback"), expected.as_ref(), "{action}");
@@ -189,7 +197,9 @@ mod tests {
     fn a_macos_or_linux_line_always_says_whether_it_asks() {
         let (serving, _) = desktop(true);
         let (absent, _) = desktop(false);
-        for (action, desktop, expected) in [("click", Some(&serving), true), ("click", Some(&absent), false), ("click", None, false), ("list_windows", Some(&serving), false)] {
+        for (action, desktop, expected) in
+            [("click", Some(&serving), true), ("click", Some(&absent), false), ("click", None, false), ("list_windows", Some(&serving), false)]
+        {
             let mut asked = json!({"action": action, "pointer_feedback": !expected}).as_object().cloned().unwrap();
             mark(&mut asked, desktop);
             assert_eq!(asked.get("pointer_feedback"), Some(&json!(expected)), "{action}");
@@ -229,7 +239,6 @@ mod tests {
         assert!(super::super::computer_pointer::is_ready("feedback-live"));
     }
 
-
     async fn next(channel: &mut mpsc::UnboundedReceiver<Value>) -> Value {
         mixdog_rt::time::timeout(Duration::from_secs(5), channel.recv()).await.expect("in time").expect("sent")
     }
@@ -260,7 +269,6 @@ mod tests {
     }
 }
 
-
 impl Pointer {
     /// The relay of `session`'s helper to `desktop`'s overlay.
     pub(super) fn new(desktop: Option<Arc<dyn HostChannel>>, session: &str) -> Self {
@@ -289,7 +297,9 @@ impl Pointer {
 async fn serve(mut inbox: mpsc::UnboundedReceiver<Value>, desktop: Arc<dyn HostChannel>, session: String) {
     while let Some(first) = inbox.recv().await {
         let mut events = vec![first];
-        while events.len() < BATCH && let Ok(next) = inbox.try_recv() {
+        while events.len() < BATCH
+            && let Ok(next) = inbox.try_recv()
+        {
             events.push(next);
         }
         let params = json!({"sessionId": session, "events": events});

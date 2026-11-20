@@ -5,22 +5,13 @@ use std::time::{SystemTime, UNIX_EPOCH};
 #[cfg(target_os = "windows")]
 #[test]
 fn path_prefix_checks_are_utf8_boundary_safe() {
-    assert!(path_starts_with(
-        Path::new(r"C:\한\child"),
-        Path::new(r"C:\한"),
-    ));
-    assert!(!path_starts_with(
-        Path::new(r"C:\€\child"),
-        Path::new(r"C:\é"),
-    ));
+    assert!(path_starts_with(Path::new(r"C:\한\child"), Path::new(r"C:\한"),));
+    assert!(!path_starts_with(Path::new(r"C:\€\child"), Path::new(r"C:\é"),));
 }
 
 #[test]
 fn overrides_preserve_ignore_precedence_and_rule_order() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("mg-overrides-{nonce}"));
     std::fs::create_dir_all(dir.join(".git")).unwrap();
     std::fs::create_dir_all(dir.join(".cache")).unwrap();
@@ -30,30 +21,12 @@ fn overrides_preserve_ignore_precedence_and_rule_order() {
     }
     let store = Arc::new(FileListStore::new());
     for (flags, expected) in [
-        (
-            vec!["--glob", "*.mjs"],
-            vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"],
-        ),
-        (
-            vec!["--glob", "*.mjs", "--glob", "!drop.mjs"],
-            vec![".cache/hit.mjs", "keep.mjs"],
-        ),
-        (
-            vec!["--glob", "!drop.mjs", "--glob", "*.mjs"],
-            vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"],
-        ),
-        (
-            vec!["--glob", "!**/.cache/**", "--glob", "*.mjs"],
-            vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"],
-        ),
-        (
-            vec!["--glob", "*.mjs", "--glob", "!**/.cache/**"],
-            vec!["drop.mjs", "keep.mjs"],
-        ),
-        (
-            vec!["--glob", "keep.mjs", "--iglob", "*.rs"],
-            vec!["keep.mjs", "other.RS"],
-        ),
+        (vec!["--glob", "*.mjs"], vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"]),
+        (vec!["--glob", "*.mjs", "--glob", "!drop.mjs"], vec![".cache/hit.mjs", "keep.mjs"]),
+        (vec!["--glob", "!drop.mjs", "--glob", "*.mjs"], vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"]),
+        (vec!["--glob", "!**/.cache/**", "--glob", "*.mjs"], vec![".cache/hit.mjs", "drop.mjs", "keep.mjs"]),
+        (vec!["--glob", "*.mjs", "--glob", "!**/.cache/**"], vec!["drop.mjs", "keep.mjs"]),
+        (vec!["--glob", "keep.mjs", "--iglob", "*.rs"], vec!["keep.mjs", "other.RS"]),
     ] {
         for mode in ["--files", "-l"] {
             let mut args = vec!["--hidden", mode];
@@ -70,13 +43,7 @@ fn overrides_preserve_ignore_precedence_and_rule_order() {
                 .as_array()
                 .unwrap()
                 .iter()
-                .map(|line| {
-                    line.as_str()
-                        .unwrap()
-                        .replace('\\', "/")
-                        .trim_start_matches("./")
-                        .to_string()
-                })
+                .map(|line| line.as_str().unwrap().replace('\\', "/").trim_start_matches("./").to_string())
                 .collect::<Vec<_>>();
             actual.sort();
             assert_eq!(actual, expected, "{args:?}");
@@ -88,10 +55,7 @@ fn overrides_preserve_ignore_precedence_and_rule_order() {
 
 #[test]
 fn unlimited_grep_scans_before_inventory_completion() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("mg-stream-grep-{nonce}"));
     std::fs::create_dir_all(&dir).unwrap();
     let path = dir.join("early.txt");
@@ -105,13 +69,7 @@ fn unlimited_grep_scans_before_inventory_completion() {
     let (live, _) = store.begin_live(key.clone(), true);
     let mut batch = WorkerWalkBatch::new(&live, inventory_publish_batch());
     batch.push(path.clone());
-    let response = handle(
-        &req,
-        &AtomicBool::new(false),
-        &store,
-        Some(Instant::now() + Duration::from_millis(250)),
-    )
-    .unwrap();
+    let response = handle(&req, &AtomicBool::new(false), &store, Some(Instant::now() + Duration::from_millis(250))).unwrap();
     assert_eq!(response["filesScanned"], 1, "{response}");
     assert_eq!(response["lines"].as_array().unwrap().len(), 1);
     assert_eq!(response["timeout"], true);
@@ -128,53 +86,31 @@ fn unlimited_grep_scans_before_inventory_completion() {
 
 #[test]
 fn fuzzy_ascii_prefilter_rejects_only_impossible_candidates() {
-    assert!(fuzzy_ascii_subsequence_possible(
-        "TLSMOKE",
-        "scripts/tool-smoke.mjs"
-    ));
-    assert!(!fuzzy_ascii_subsequence_possible(
-        "tool-smoke",
-        "scripts/trace-store.mjs"
-    ));
+    assert!(fuzzy_ascii_subsequence_possible("TLSMOKE", "scripts/tool-smoke.mjs"));
+    assert!(!fuzzy_ascii_subsequence_possible("tool-smoke", "scripts/trace-store.mjs"));
     // Unicode stays on Nucleo's Smart-normalization path.
     assert!(fuzzy_ascii_subsequence_possible("resume", "src/résumé.rs"));
 }
 
 #[test]
 fn exact_file_search_skips_parent_watch_and_stays_complete() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("mixdog-exact-file-{nonce}"));
     std::fs::create_dir_all(&dir).unwrap();
     let file = dir.join("mountinfo");
     std::fs::write(&file, "overlay / overlay\n").unwrap();
     let store = Arc::new(FileListStore::new());
     let cancelled = AtomicBool::new(false);
-    let req = request(
-        &[
-            "--no-heading",
-            "--line-number",
-            "-e",
-            "overlay",
-            "--",
-            &file.to_string_lossy(),
-        ],
-        20,
-    );
+    let req = request(&["--no-heading", "--line-number", "-e", "overlay", "--", &file.to_string_lossy()], 20);
 
     let response = handle(&req, &cancelled, &store, None).unwrap();
 
     assert_eq!(response["complete"], true);
     assert_eq!(response["partial"], false);
     assert_eq!(response["cacheSafe"], false);
-    assert!(response["lines"]
-        .as_array()
-        .is_some_and(|lines| lines.iter().any(|line| {
-            line.as_str()
-                .is_some_and(|value| value.contains("overlay / overlay"))
-        })));
+    assert!(
+        response["lines"].as_array().is_some_and(|lines| lines.iter().any(|line| { line.as_str().is_some_and(|value| value.contains("overlay / overlay")) }))
+    );
     assert!(lock_recover(&store.watched_roots).is_empty());
     std::fs::remove_dir_all(&dir).ok();
 }
@@ -191,25 +127,9 @@ fn unreadable_file_counts_a_scan_error_instead_of_silent_no_match() {
     let missing = std::env::temp_dir().join("mg-vanished-during-walk.txt");
     std::fs::remove_file(&missing).ok();
     let files_scanned = AtomicUsize::new(0);
-    let ctx = ScanCtx {
-        parsed: &parsed,
-        matcher: &matcher,
-        cancelled: &cancelled,
-        deadline_at: None,
-        scan_errors: &scan_errors,
-        files_scanned: &files_scanned,
-    };
-    assert!(scan_file(
-        &missing,
-        "",
-        None,
-        &TrustSnapshot {
-            usn_volumes: Arc::new(HashSet::new()),
-            watch_roots: Arc::new(Vec::new()),
-        },
-        &ctx,
-    )
-    .is_none());
+    let ctx =
+        ScanCtx { parsed: &parsed, matcher: &matcher, cancelled: &cancelled, deadline_at: None, scan_errors: &scan_errors, files_scanned: &files_scanned };
+    assert!(scan_file(&missing, "", None, &TrustSnapshot { usn_volumes: Arc::new(HashSet::new()), watch_roots: Arc::new(Vec::new()) }, &ctx,).is_none());
     assert_eq!(scan_errors.load(Ordering::Relaxed), 1);
 }
 
@@ -221,17 +141,7 @@ fn expired_deadline_never_reports_a_silent_complete_empty_result() {
     std::fs::write(&file, "raise ValueError\n").unwrap();
     let store = Arc::new(FileListStore::new());
     let cancelled = AtomicBool::new(false);
-    let mut req = request(
-        &[
-            "--no-heading",
-            "--line-number",
-            "-e",
-            "raise",
-            "--",
-            &file.to_string_lossy(),
-        ],
-        50,
-    );
+    let mut req = request(&["--no-heading", "--line-number", "-e", "raise", "--", &file.to_string_lossy()], 50);
     req.cwd = dir.to_string_lossy().into_owned();
     // scan_standard swallows a mid-scan TimedOut read error into `None`
     // ("no matches in this file"); the response-level deadline re-check
@@ -246,10 +156,7 @@ fn expired_deadline_never_reports_a_silent_complete_empty_result() {
 
 #[test]
 fn broad_search_mtime_deadline_and_cancellation_are_not_complete_results() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("mg-mtime-deadline-{nonce}"));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("needle.txt"), "needle\n").unwrap();
@@ -267,10 +174,7 @@ fn broad_search_mtime_deadline_and_cancellation_are_not_complete_results() {
     assert_eq!(response["partial"], true);
     assert_eq!(response["timeout"], true);
     cancelled.store(true, Ordering::Relaxed);
-    assert_eq!(
-        handle(&req, &cancelled, &store, None).unwrap_err(),
-        CANCELLED
-    );
+    assert_eq!(handle(&req, &cancelled, &store, None).unwrap_err(), CANCELLED);
     std::fs::remove_dir_all(dir).unwrap();
 }
 
@@ -280,37 +184,18 @@ fn root_search_windows_paths_are_relative_without_device_prefixes() {
     let normal = Path::new(r"C:\Project\sample\한글.mjs");
     let verbatim = Path::new(r"\\?\C:\Project\sample\한글.mjs");
     let root = Path::new(r"c:\project\sample");
-    assert_eq!(
-        relative_inventory_path(normal, root),
-        Some("한글.mjs".to_string())
-    );
-    assert_eq!(
-        relative_inventory_path(verbatim, root),
-        Some("한글.mjs".to_string())
-    );
+    assert_eq!(relative_inventory_path(normal, root), Some("한글.mjs".to_string()));
+    assert_eq!(relative_inventory_path(verbatim, root), Some("한글.mjs".to_string()));
     assert_eq!(display_path(".", root, verbatim), ".\\한글.mjs");
     assert!(path_starts_with(verbatim, Path::new(r"C:\")));
     assert!(!path_starts_with(normal, Path::new(r"C:\Project\mix")));
-    assert_eq!(
-        relative_inventory_path(
-            Path::new(r"\\?\UNC\server\share\leaf"),
-            Path::new(r"\\server\share")
-        ),
-        Some("leaf".to_string()),
-    );
+    assert_eq!(relative_inventory_path(Path::new(r"\\?\UNC\server\share\leaf"), Path::new(r"\\server\share")), Some("leaf".to_string()),);
 }
 
 #[test]
 fn root_search_waits_for_completion_in_the_same_call_past_three_seconds() {
-    let root = if cfg!(windows) {
-        Path::new(r"C:\")
-    } else {
-        Path::new("/")
-    };
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let root = if cfg!(windows) { Path::new(r"C:\") } else { Path::new("/") };
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let scope = std::env::temp_dir().join(format!("mg-same-call-{nonce}"));
     std::fs::create_dir_all(&scope).unwrap();
     let path = scope.join("same-call-result.txt");
@@ -331,64 +216,32 @@ fn root_search_waits_for_completion_in_the_same_call_past_three_seconds() {
         std::thread::sleep(Duration::from_millis(3200));
         let files = Arc::new(vec![path]);
         publish_live_files(&producer_live, &files);
-        producer_live
-            .enumeration_done
-            .store(true, Ordering::Release);
+        producer_live.enumeration_done.store(true, Ordering::Release);
         producer_store.finish_live(producer_key.clone(), &producer_live, Ok(files));
         producer_store.release_live(&producer_key, &producer_live);
     });
-    let result = handle(
-        &req,
-        &AtomicBool::new(false),
-        &store,
-        Some(Instant::now() + Duration::from_secs(8)),
-    )
-    .unwrap();
+    let result = handle(&req, &AtomicBool::new(false), &store, Some(Instant::now() + Duration::from_secs(8))).unwrap();
     producer.join().unwrap();
     assert_eq!(result["complete"], true);
     assert_eq!(result["partial"], false);
-    assert!(result["lines"][0]
-        .as_str()
-        .unwrap()
-        .ends_with("same-call-result.txt"));
+    assert!(result["lines"][0].as_str().unwrap().ends_with("same-call-result.txt"));
     std::fs::remove_dir_all(scope).unwrap();
 }
 
 #[test]
 fn broad_search_mtime_order_tracks_updates_without_content_reads() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("mg-mtime-order-{nonce}"));
     std::fs::create_dir_all(&dir).unwrap();
     let older = dir.join("older.txt");
     let newer = dir.join("newer.txt");
     std::fs::write(&older, "old").unwrap();
     std::fs::write(&newer, "new").unwrap();
-    File::options()
-        .write(true)
-        .open(&older)
-        .unwrap()
-        .set_modified(UNIX_EPOCH + Duration::from_secs(1000))
-        .unwrap();
-    File::options()
-        .write(true)
-        .open(&newer)
-        .unwrap()
-        .set_modified(UNIX_EPOCH + Duration::from_secs(2000))
-        .unwrap();
-    let trust = TrustSnapshot {
-        usn_volumes: Arc::new(HashSet::new()),
-        watch_roots: Arc::new(Vec::new()),
-    };
+    File::options().write(true).open(&older).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(1000)).unwrap();
+    File::options().write(true).open(&newer).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(2000)).unwrap();
+    let trust = TrustSnapshot { usn_volumes: Arc::new(HashSet::new()), watch_roots: Arc::new(Vec::new()) };
     assert!(file_mtime_ms(&older, &trust).unwrap() < file_mtime_ms(&newer, &trust).unwrap());
-    File::options()
-        .write(true)
-        .open(&older)
-        .unwrap()
-        .set_modified(UNIX_EPOCH + Duration::from_secs(3000))
-        .unwrap();
+    File::options().write(true).open(&older).unwrap().set_modified(UNIX_EPOCH + Duration::from_secs(3000)).unwrap();
     assert!(file_mtime_ms(&older, &trust).unwrap() > file_mtime_ms(&newer, &trust).unwrap());
     std::fs::remove_dir_all(dir).unwrap();
 }
@@ -398,10 +251,7 @@ fn broad_search_mtime_order_tracks_updates_without_content_reads() {
 fn fuzzy_inventory_includes_symlink_leaves_without_following_symlink_directories() {
     use std::os::unix::fs::symlink;
 
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let root = std::env::temp_dir().join(format!("mg-fuzzy-links-{nonce}"));
     let outside = std::env::temp_dir().join(format!("mg-fuzzy-links-outside-{nonce}"));
     std::fs::create_dir_all(&root).unwrap();
@@ -423,11 +273,7 @@ fn fuzzy_inventory_includes_symlink_leaves_without_following_symlink_directories
 
     let linked_file = handle_fuzzy(&req, &cancelled, &store, None).unwrap();
     assert_eq!(linked_file["complete"], true);
-    assert!(linked_file["matches"]
-        .as_array()
-        .unwrap()
-        .iter()
-        .any(|path| path.as_str() == Some("tool-link")));
+    assert!(linked_file["matches"].as_array().unwrap().iter().any(|path| path.as_str() == Some("tool-link")));
 
     req.fuzzy = Some("nested-only-marker".to_string());
     let linked_directory = handle_fuzzy(&req, &cancelled, &store, None).unwrap();
@@ -442,10 +288,7 @@ fn fuzzy_inventory_includes_symlink_leaves_without_following_symlink_directories
 #[test]
 fn failed_directory_inventory_preserves_results_and_rechecks_recovery() {
     use std::os::windows::fs::OpenOptionsExt;
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("mg-retry-directory-{nonce}"));
     let blocked = dir.join("blocked");
     std::fs::create_dir_all(&blocked).unwrap();
@@ -457,12 +300,7 @@ fn failed_directory_inventory_preserves_results_and_rechecks_recovery() {
     assert!(store.watch_root(&dir));
     // A private fixture handle prevents directory enumeration without
     // changing ACLs or requiring administrator privileges.
-    let lock = std::fs::OpenOptions::new()
-        .read(true)
-        .share_mode(0)
-        .custom_flags(0x02000000)
-        .open(&blocked)
-        .unwrap();
+    let lock = std::fs::OpenOptions::new().read(true).share_mode(0).custom_flags(0x02000000).open(&blocked).unwrap();
     assert!(std::fs::read_dir(&blocked).is_err());
     let cancelled = AtomicBool::new(false);
     let first = handle(&req, &cancelled, &store, None).unwrap();
@@ -492,19 +330,12 @@ fn failed_directory_inventory_preserves_results_and_rechecks_recovery() {
 
 #[test]
 fn content_windows_are_path_ordered_and_offset_pages_cover_each_match_once() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("mg-content-paging-{nonce}"));
     for i in 0..150 {
         let sub = dir.join(format!("d{}", i % 7));
         std::fs::create_dir_all(&sub).unwrap();
-        std::fs::write(
-            sub.join(format!("f{i:03}.txt")),
-            "needle a\nskip\nneedle b\n",
-        )
-        .unwrap();
+        std::fs::write(sub.join(format!("f{i:03}.txt")), "needle a\nskip\nneedle b\n").unwrap();
     }
     let store = Arc::new(FileListStore::new());
     let lines = |offset: usize, limit: usize| {
@@ -513,12 +344,7 @@ fn content_windows_are_path_ordered_and_offset_pages_cover_each_match_once() {
         req.offset = offset;
         let response = handle(&req, &AtomicBool::new(false), &store, None).unwrap();
         assert_eq!(response["timeout"], false, "{response}");
-        response["lines"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|line| line.as_str().unwrap().to_string())
-            .collect::<Vec<_>>()
+        response["lines"].as_array().unwrap().iter().map(|line| line.as_str().unwrap().to_string()).collect::<Vec<_>>()
     };
     // The first call scans a live walk, the rest a cached inventory: both
     // must produce the same path-ordered window.
@@ -531,17 +357,9 @@ fn content_windows_are_path_ordered_and_offset_pages_cover_each_match_once() {
     sorted.sort();
     assert_eq!(paths, sorted);
     for page in [1, 7, 64] {
-        let first = (0..)
-            .map(|index| index * page)
-            .take_while(|offset| *offset < whole.len())
-            .flat_map(|offset| lines(offset, page))
-            .collect::<Vec<_>>();
+        let first = (0..).map(|index| index * page).take_while(|offset| *offset < whole.len()).flat_map(|offset| lines(offset, page)).collect::<Vec<_>>();
         assert_eq!(first, whole, "page {page}");
-        let again = (0..)
-            .map(|index| index * page)
-            .take_while(|offset| *offset < whole.len())
-            .flat_map(|offset| lines(offset, page))
-            .collect::<Vec<_>>();
+        let again = (0..).map(|index| index * page).take_while(|offset| *offset < whole.len()).flat_map(|offset| lines(offset, page)).collect::<Vec<_>>();
         assert_eq!(again, first, "repeat page {page}");
     }
     drop(store);

@@ -22,9 +22,17 @@ pub struct Rendition {
 /// Permanent outcome of validating one original at one validator version.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Outcome {
-    Accepted { kind: ImageKind, width: u32, height: u32, frames: u32, rendition: Option<Rendition> },
+    Accepted {
+        kind: ImageKind,
+        width: u32,
+        height: u32,
+        frames: u32,
+        rendition: Option<Rendition>,
+    },
     /// A deterministic refusal, with its short text; never a transient failure.
-    Refused { text: String },
+    Refused {
+        text: String,
+    },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -63,9 +71,20 @@ fn kind_name(kind: ImageKind) -> &'static str {
 }
 
 fn kind_of(name: &str) -> Option<ImageKind> {
-    [ImageKind::Png, ImageKind::Jpeg, ImageKind::Webp, ImageKind::Gif, ImageKind::Avif, ImageKind::Tiff, ImageKind::Svg, ImageKind::Heic, ImageKind::Bmp, ImageKind::Ico]
-        .into_iter()
-        .find(|k| kind_name(*k) == name)
+    [
+        ImageKind::Png,
+        ImageKind::Jpeg,
+        ImageKind::Webp,
+        ImageKind::Gif,
+        ImageKind::Avif,
+        ImageKind::Tiff,
+        ImageKind::Svg,
+        ImageKind::Heic,
+        ImageKind::Bmp,
+        ImageKind::Ico,
+    ]
+    .into_iter()
+    .find(|k| kind_name(*k) == name)
 }
 
 impl Manifest {

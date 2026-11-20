@@ -127,7 +127,11 @@ pub struct ListingNotice {
 pub fn notice(header: &Header, prior: &[Value], current: Option<&[AgentEntry]>) -> Option<ListingNotice> {
     let current = current?;
     let announced = announced_agents(header, prior);
-    let added: Vec<AgentRef> = current.iter().filter(|entry| !announced.iter().any(|known| known.id == entry.id)).map(|entry| AgentRef { id: entry.id.clone(), name: entry.name.clone() }).collect();
+    let added: Vec<AgentRef> = current
+        .iter()
+        .filter(|entry| !announced.iter().any(|known| known.id == entry.id))
+        .map(|entry| AgentRef { id: entry.id.clone(), name: entry.name.clone() })
+        .collect();
     let removed: Vec<AgentRef> = announced.iter().filter(|known| !current.iter().any(|entry| entry.id == known.id)).cloned().collect();
     if added.is_empty() && removed.is_empty() {
         return None;

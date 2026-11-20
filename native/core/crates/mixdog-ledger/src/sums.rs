@@ -30,11 +30,7 @@ pub const SUM_BUILD_STEP_EVENTS: i64 = 1000;
 /// Persisted cursor of the build lives in `usage_session_days_state`; a maintenance job
 /// needs no other state.
 pub fn sums_complete(conn: &Connection) -> Result<bool> {
-    Ok(conn
-        .query_row("SELECT complete FROM usage_session_days_state", [], |r| {
-            r.get::<_, i64>(0)
-        })
-        .map(|complete| complete == 1)?)
+    Ok(conn.query_row("SELECT complete FROM usage_session_days_state", [], |r| r.get::<_, i64>(0)).map(|complete| complete == 1)?)
 }
 
 /// One (day, route) of a session: the values SQLite's own `SUM` gives over the session's records
@@ -77,22 +73,13 @@ pub(crate) fn aggregate_batch(conn: &Connection, from_next: i64, budget: i64) ->
     let mut events = 0;
     let mut exhausted = false;
     while events < budget.max(1) {
-        let first: Option<i64> = conn
-            .query_row(
-                "SELECT session FROM usage_events WHERE session>=?1 ORDER BY session LIMIT 1",
-                [cursor],
-                |r| r.get(0),
-            )
-            .optional()?;
+        let first: Option<i64> =
+            conn.query_row("SELECT session FROM usage_events WHERE session>=?1 ORDER BY session LIMIT 1", [cursor], |r| r.get(0)).optional()?;
         let Some(session) = first else {
             exhausted = true;
             break;
         };
-        events += conn.query_row(
-            "SELECT COUNT(*) FROM usage_events WHERE session=?1",
-            [session],
-            |r| r.get::<_, i64>(0),
-        )?;
+        events += conn.query_row("SELECT COUNT(*) FROM usage_events WHERE session=?1", [session], |r| r.get::<_, i64>(0))?;
         // The statement of Node's build (`buildSessionDaysStep`), restricted to one session.
         let mut stmt = conn.prepare_cached(
             "SELECT e.day,e.route,COUNT(*),SUM(e.input),SUM(e.output),SUM(e.cache_read),SUM(e.cache_write),
@@ -121,12 +108,7 @@ pub(crate) fn aggregate_batch(conn: &Connection, from_next: i64, budget: i64) ->
         sessions.push(SessionSums { session, rows });
         cursor = session + 1;
     }
-    Ok(Snapshot {
-        from_next,
-        upto: cursor,
-        exhausted,
-        sessions,
-    })
+    Ok(Snapshot { from_next, upto: cursor, exhausted, sessions })
 }
 
 /// A record the writer committed after the snapshot was taken.
@@ -161,16 +143,8 @@ pub(crate) enum Applied {
 ///
 /// The writer is the only writer of records and the only caller, so `late` is every record
 /// written since the snapshot.
-pub(crate) fn apply_snapshot(
-    tx: &Transaction,
-    snapshot: &Snapshot,
-    late: &[Late],
-) -> Result<Applied> {
-    let (complete, next): (i64, i64) = tx.query_row(
-        "SELECT complete, next FROM usage_session_days_state",
-        [],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )?;
+pub(crate) fn apply_snapshot(tx: &Transaction, snapshot: &Snapshot, late: &[Late]) -> Result<Applied> {
+    let (complete, next): (i64, i64) = tx.query_row("SELECT complete, next FROM usage_session_days_state", [], |r| Ok((r.get(0)?, r.get(1)?)))?;
     if complete == 1 || next != snapshot.from_next {
         return Ok(Applied::Stale);
     }
@@ -178,10 +152,7 @@ pub(crate) fn apply_snapshot(
     if snapshot.exhausted {
         tx.execute("DELETE FROM usage_session_days WHERE session >= ?1", [next])?;
     } else {
-        tx.execute(
-            "DELETE FROM usage_session_days WHERE session >= ?1 AND session < ?2",
-            params![next, snapshot.upto],
-        )?;
+        tx.execute("DELETE FROM usage_session_days WHERE session >= ?1 AND session < ?2", params![next, snapshot.upto])?;
     }
     let mut insert = tx.prepare_cached(
         "INSERT INTO usage_session_days (session,day,route,turns,input,output,cache_read,cache_write,
@@ -206,16 +177,12 @@ pub(crate) fn apply_snapshot(
         }
     }
     for record in late {
-        let passed = record.session >= snapshot.from_next
-            && (snapshot.exhausted || record.session < snapshot.upto);
+        let passed = record.session >= snapshot.from_next && (snapshot.exhausted || record.session < snapshot.upto);
         if passed {
             add_record(tx, record.session, &record.id)?;
         }
     }
-    tx.execute(
-        "UPDATE usage_session_days_state SET complete = ?1, next = ?2 WHERE id = 1",
-        params![snapshot.exhausted, snapshot.upto],
-    )?;
+    tx.execute("UPDATE usage_session_days_state SET complete = ?1, next = ?2 WHERE id = 1", params![snapshot.exhausted, snapshot.upto])?;
     Ok(Applied::Done(snapshot.exhausted))
 }
 
@@ -248,11 +215,7 @@ fn add_record(tx: &Transaction, session: i64, id: &[u8]) -> Result<()> {
 /// once the sums are complete.
 pub fn build_sums_step(conn: &mut Connection, budget: i64) -> Result<bool> {
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
-    let (complete, next): (i64, i64) = tx.query_row(
-        "SELECT complete, next FROM usage_session_days_state",
-        [],
-        |r| Ok((r.get(0)?, r.get(1)?)),
-    )?;
+    let (complete, next): (i64, i64) = tx.query_row("SELECT complete, next FROM usage_session_days_state", [], |r| Ok((r.get(0)?, r.get(1)?)))?;
     if complete == 1 {
         return Ok(true);
     }
@@ -276,11 +239,7 @@ const MEMBERS: &str = "WITH RECURSIVE owned(id) AS (
 
 /// The token of a group of sessions: it changes whenever a number [`read_session_usage`]
 /// would return for the group can have changed, and not otherwise.
-pub(crate) fn read_usage_token(
-    conn: &Connection,
-    session_ids: &[String],
-    owner_ids: &[String],
-) -> Result<String> {
+pub(crate) fn read_usage_token(conn: &Connection, session_ids: &[String], owner_ids: &[String]) -> Result<String> {
     let sql = format!(
         "{MEMBERS}
         SELECT (SELECT rev FROM usage_membership_revision),
@@ -292,25 +251,17 @@ pub(crate) fn read_usage_token(
                     AND json_extract(r.signature,'$[0]') = k.provider
                     AND json_extract(r.signature,'$[1]') = k.model))"
     );
-    let (membership, members, sessions, keys): (i64, i64, i64, i64) = conn.query_row(
-        &sql,
-        params![
-            serde_json::to_string(owner_ids)?,
-            serde_json::to_string(session_ids)?
-        ],
-        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)),
-    )?;
+    let (membership, members, sessions, keys): (i64, i64, i64, i64) =
+        conn.query_row(&sql, params![serde_json::to_string(owner_ids)?, serde_json::to_string(session_ids)?], |r| {
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+        })?;
     Ok(format!("{membership}.{members}.{sessions}.{keys}"))
 }
 
 /// One session's lifetime totals over every id its spend was recorded under, with the same
 /// route choice as a rollup (a gateway summary never doubles a detail record). `owner_ids`
 /// adds every session recorded as run for one of them.
-pub(crate) fn read_session_usage(
-    conn: &Connection,
-    session_ids: &[String],
-    owner_ids: &[String],
-) -> Result<Value> {
+pub(crate) fn read_session_usage(conn: &Connection, session_ids: &[String], owner_ids: &[String]) -> Result<Value> {
     if !sums_complete(conn)? {
         return Err(LedgerError::SumsBuilding);
     }
@@ -348,12 +299,7 @@ pub(crate) fn read_session_usage(
         best = crate::rollup::BEST_SQL,
     );
     let mut stmt = conn.prepare(&sql)?;
-    let mut rows = stmt.query(params![
-        serde_json::to_string(owner_ids)?,
-        serde_json::to_string(session_ids)?,
-        "0000-01-01",
-        "9999-12-31",
-    ])?;
+    let mut rows = stmt.query(params![serde_json::to_string(owner_ids)?, serde_json::to_string(session_ids)?, "0000-01-01", "9999-12-31",])?;
     let mut total = Bucket::new();
     let (mut speed_output, mut speed_ms) = (0.0, 0.0);
     while let Some(row) = rows.next()? {
@@ -384,10 +330,7 @@ pub(crate) fn read_session_usage(
 }
 
 #[cfg(test)]
-#[allow(
-    clippy::disallowed_methods,
-    reason = "test fixture: temporary ledger files"
-)]
+#[allow(clippy::disallowed_methods, reason = "test fixture: temporary ledger files")]
 mod tests {
     use super::*;
     use crate::append::UsageRecord;
@@ -409,10 +352,7 @@ mod tests {
         let mut conn = Connection::open(dir.join("ledger.sqlite")).unwrap();
         prepare(&mut conn).unwrap();
         append_batch(&mut conn, records).unwrap();
-        conn.execute_batch(
-            "DELETE FROM usage_session_days; UPDATE usage_session_days_state SET complete=0,next=0",
-        )
-        .unwrap();
+        conn.execute_batch("DELETE FROM usage_session_days; UPDATE usage_session_days_state SET complete=0,next=0").unwrap();
         conn
     }
 
@@ -427,13 +367,7 @@ mod tests {
             .unwrap();
         stmt.query_map([], |r| {
             let f = |i| r.get::<_, f64>(i);
-            Ok((
-                r.get(0)?,
-                r.get(1)?,
-                r.get(2)?,
-                r.get(3)?,
-                [f(4)?, f(5)?, f(6)?, f(7)?, f(8)?, f(9)?, f(10)?, f(11)?],
-            ))
+            Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, [f(4)?, f(5)?, f(6)?, f(7)?, f(8)?, f(9)?, f(10)?, f(11)?]))
         })
         .unwrap()
         .collect::<std::result::Result<_, _>>()
@@ -444,20 +378,14 @@ mod tests {
         rows.iter()
             .map(|row| {
                 let id = crate::append::encode_usage_id(&row.id);
-                let session = conn
-                    .query_row("SELECT session FROM usage_events WHERE id=?1", [&id], |r| {
-                        r.get(0)
-                    })
-                    .unwrap();
+                let session = conn.query_row("SELECT session FROM usage_events WHERE id=?1", [&id], |r| r.get(0)).unwrap();
                 Late { session, id }
             })
             .collect()
     }
 
     fn apply_in_tx(conn: &mut Connection, snapshot: &Snapshot, late: &[Late]) -> Applied {
-        let tx = conn
-            .transaction_with_behavior(TransactionBehavior::Immediate)
-            .unwrap();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate).unwrap();
         let applied = apply_snapshot(&tx, snapshot, late).unwrap();
         tx.commit().unwrap();
         applied
@@ -467,24 +395,15 @@ mod tests {
     /// the numbers a build that finished first and then saw the records through the trigger has.
     #[test]
     fn late_records_fold_in_as_the_trigger_adds_them() {
-        let first: Vec<UsageRecord> = (0..50)
-            .map(|n| record(n, "a", 0.1 * ((n % 7) + 1) as f64))
-            .collect();
-        let late_rows = [
-            record(100, "a", 0.3),
-            record(101, "a", 0.7),
-            record(102, "a", 0.1),
-        ];
+        let first: Vec<UsageRecord> = (0..50).map(|n| record(n, "a", 0.1 * ((n % 7) + 1) as f64)).collect();
+        let late_rows = [record(100, "a", 0.3), record(101, "a", 0.7), record(102, "a", 0.1)];
 
         let dir = tempfile::tempdir().unwrap();
         let mut folded = unbuilt(dir.path(), &first);
         let snapshot = aggregate_batch(&folded, 0, 10).unwrap();
         append_batch(&mut folded, &late_rows).unwrap();
         let late = late_of(&folded, &late_rows);
-        assert_eq!(
-            apply_in_tx(&mut folded, &snapshot, &late),
-            Applied::Done(false)
-        );
+        assert_eq!(apply_in_tx(&mut folded, &snapshot, &late), Applied::Done(false));
         let rest = aggregate_batch(&folded, snapshot.upto, 10).unwrap();
         assert_eq!(apply_in_tx(&mut folded, &rest, &[]), Applied::Done(true));
 
@@ -505,31 +424,17 @@ mod tests {
         let mut conn = Connection::open(dir.path().join("ledger.sqlite")).unwrap();
         prepare(&mut conn).unwrap();
         // 'e' is session 1 and holds nothing yet; 'l' is session 2, 'm' session 3.
-        conn.execute("INSERT INTO usage_sessions(value) VALUES ('e')", [])
-            .unwrap();
-        let rows: Vec<UsageRecord> = (0..20)
-            .map(|n| record(n, "l", 0.5))
-            .chain((20..25).map(|n| record(n, "m", 0.5)))
-            .collect();
+        conn.execute("INSERT INTO usage_sessions(value) VALUES ('e')", []).unwrap();
+        let rows: Vec<UsageRecord> = (0..20).map(|n| record(n, "l", 0.5)).chain((20..25).map(|n| record(n, "m", 0.5))).collect();
         append_batch(&mut conn, &rows).unwrap();
-        conn.execute_batch(
-            "DELETE FROM usage_session_days; UPDATE usage_session_days_state SET complete=0,next=0",
-        )
-        .unwrap();
+        conn.execute_batch("DELETE FROM usage_session_days; UPDATE usage_session_days_state SET complete=0,next=0").unwrap();
 
         let snapshot = aggregate_batch(&conn, 0, 10).unwrap();
-        assert_eq!(
-            (snapshot.upto, snapshot.exhausted),
-            (3, false),
-            "'l' alone reaches the budget"
-        );
+        assert_eq!((snapshot.upto, snapshot.exhausted), (3, false), "'l' alone reaches the budget");
         let written = [record(100, "e", 0.5), record(101, "m", 0.5)];
         append_batch(&mut conn, &written).unwrap();
         let late = late_of(&conn, &written);
-        assert_eq!(
-            apply_in_tx(&mut conn, &snapshot, &late),
-            Applied::Done(false)
-        );
+        assert_eq!(apply_in_tx(&mut conn, &snapshot, &late), Applied::Done(false));
         // 'e' is in; 'm' (beyond the cursor) waits for its batch, which finds both its records.
         let turns = |conn: &Connection, session: &str| -> i64 {
             conn.query_row(
@@ -540,28 +445,16 @@ mod tests {
             )
             .unwrap()
         };
-        assert_eq!(
-            (turns(&conn, "e"), turns(&conn, "l"), turns(&conn, "m")),
-            (1, 20, 0)
-        );
+        assert_eq!((turns(&conn, "e"), turns(&conn, "l"), turns(&conn, "m")), (1, 20, 0));
 
         let rest = aggregate_batch(&conn, snapshot.upto, 10).unwrap();
         assert_eq!(apply_in_tx(&mut conn, &rest, &[]), Applied::Done(true));
-        assert_eq!(
-            (turns(&conn, "e"), turns(&conn, "l"), turns(&conn, "m")),
-            (1, 20, 6)
-        );
+        assert_eq!((turns(&conn, "e"), turns(&conn, "l"), turns(&conn, "m")), (1, 20, 6));
         // Every record is counted once, and later appends follow the trigger.
         append_batch(&mut conn, &[record(200, "e", 0.5)]).unwrap();
         assert_eq!(turns(&conn, "e"), 2);
-        let events: i64 = conn
-            .query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get(0))
-            .unwrap();
-        let counted: i64 = conn
-            .query_row("SELECT SUM(turns) FROM usage_session_days", [], |r| {
-                r.get(0)
-            })
-            .unwrap();
+        let events: i64 = conn.query_row("SELECT COUNT(*) FROM usage_events", [], |r| r.get(0)).unwrap();
+        let counted: i64 = conn.query_row("SELECT SUM(turns) FROM usage_session_days", [], |r| r.get(0)).unwrap();
         assert_eq!(counted, events);
     }
 

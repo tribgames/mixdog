@@ -27,9 +27,7 @@ pub fn tool_result(value: &Value, is_error: bool, images: &[ToolImage]) -> Value
         other => serialized_tool_value(other),
     };
     let mut content = vec![json!({ "type": "text", "text": text })];
-    content.extend(images.iter().map(|image| {
-        json!({ "type": "image", "source": { "type": "base64", "media_type": image.mime_type, "data": image.data } })
-    }));
+    content.extend(images.iter().map(|image| json!({ "type": "image", "source": { "type": "base64", "media_type": image.mime_type, "data": image.data } })));
     let mut result = Map::new();
     result.insert("content".to_owned(), Value::Array(content));
     if is_error {
@@ -94,6 +92,5 @@ mod tests {
         assert_eq!(error.code(), Some("transaction_conflict"));
     }
 }
-
 
 impl std::error::Error for OfficeConflictError {}

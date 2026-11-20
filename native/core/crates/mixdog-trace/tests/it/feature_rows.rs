@@ -1,10 +1,6 @@
 //! What the trace writer records for tool failures, cache breaks, watchdog aborts and concurrent flushes, with every
 //! input written inline.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "test fixture I/O; the flushers run on plain threads"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixture I/O; the flushers run on plain threads")]
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -162,10 +158,7 @@ fn a_cache_break_record_becomes_a_payload_a_trace_row_and_a_stderr_line() {
 #[test]
 fn an_empty_cache_break_record_is_unknown_and_flags_are_false() {
     let payload = t::cache_break_payload(&object(json!({})));
-    assert_eq!(
-        Value::Object(payload),
-        json!({"classification": "unknown", "reason": "unknown", "request_prefix_changed": false, "actual_cache_miss": false})
-    );
+    assert_eq!(Value::Object(payload), json!({"classification": "unknown", "reason": "unknown", "request_prefix_changed": false, "actual_cache_miss": false}));
 }
 
 #[test]
@@ -302,17 +295,12 @@ impl flush_probe::Probe for Probe {
 fn a_flush_started_while_another_writes_waits_and_keeps_the_rows_in_order() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("trace").join("agent-trace.jsonl");
-    let env: BTreeMap<String, String> = [("MIXDOG_DIAGNOSTICS", "1"), ("MIXDOG_AGENT_TRACE_PATH", path.to_str().unwrap())]
-        .into_iter()
-        .map(|(k, v)| (k.to_owned(), v.to_owned()))
-        .collect();
+    let env: BTreeMap<String, String> =
+        [("MIXDOG_DIAGNOSTICS", "1"), ("MIXDOG_AGENT_TRACE_PATH", path.to_str().unwrap())].into_iter().map(|(k, v)| (k.to_owned(), v.to_owned())).collect();
     let trace = AgentTrace::new(&TraceConfig::from_env(dir.path(), &|name| env.get(name).cloned(), false));
     let (events, seen) = mpsc::channel();
     let (release, released) = mpsc::channel();
-    flush_probe::install(
-        &path,
-        Arc::new(Probe { events: Mutex::new(events), release: Mutex::new(released), held_first: AtomicBool::new(false) }),
-    );
+    flush_probe::install(&path, Arc::new(Probe { events: Mutex::new(events), release: Mutex::new(released), held_first: AtomicBool::new(false) }));
     let now = 1_700_000_000_000;
     let row = |n: i64| object(json!({"kind": "r", "ts": n, "sessionId": "s"}));
     let line = |n: i64| format!("{{\"kind\":\"r\",\"ts\":{n},\"session_id\":\"s\",\"payload\":{{}}}}");

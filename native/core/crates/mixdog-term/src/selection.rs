@@ -58,17 +58,7 @@ pub struct SelectionRect {
 impl SelectionRect {
     /// A linear or block selection with the default highlight, the whole screen as its clip, and text capture on.
     pub fn new(mode: SelectionMode, x1: i32, y1: i32, x2: i32, y2: i32) -> Self {
-        Self {
-            mode,
-            x1,
-            y1,
-            x2,
-            y2,
-            clip_y1: None,
-            clip_y2: None,
-            capture_text: true,
-            background: DEFAULT_SELECTION_BACKGROUND,
-        }
+        Self { mode, x1, y1, x2, y2, clip_y1: None, clip_y2: None, capture_text: true, background: DEFAULT_SELECTION_BACKGROUND }
     }
 
     /// Whether two rectangles select the same region (`selectionRectsEqual`: the colours do not count).
@@ -177,11 +167,7 @@ pub fn apply_selection(grid: &mut Grid, soft_wrap: &[bool], rect: &SelectionRect
         }
         let next_continues = y < y2 && wraps(y + 1);
         let trimmed = js_trim_end(&text);
-        let text = if next_continues && trimmed.len() < text.len() {
-            format!("{trimmed} ")
-        } else {
-            trimmed.to_owned()
-        };
+        let text = if next_continues && trimmed.len() < text.len() { format!("{trimmed} ") } else { trimmed.to_owned() };
         rows.push(SelectedRow { y, text, soft_wrap: sw });
     }
     while rows.first().is_some_and(|row| js_trim(&row.text).is_empty()) {
@@ -272,11 +258,7 @@ const WORD_PUNCTUATION: [char; 7] = ['_', '/', '.', '-', '+', '~', '\\'];
 /// Blank (empty or a space), word-forming (a letter or digit, or a glyph carrying word punctuation), or a symbol.
 pub fn cell_class(value: Option<&str>) -> CellClass {
     let Some(value) = value.filter(|v| !v.is_empty() && *v != " ") else { return CellClass::Blank };
-    if value.chars().any(|c| c.is_alphabetic() || c.is_numeric() || WORD_PUNCTUATION.contains(&c)) {
-        CellClass::Word
-    } else {
-        CellClass::Symbol
-    }
+    if value.chars().any(|c| c.is_alphabetic() || c.is_numeric() || WORD_PUNCTUATION.contains(&c)) { CellClass::Word } else { CellClass::Symbol }
 }
 
 fn value(cells: &[Cell], column: i32) -> Option<&str> {

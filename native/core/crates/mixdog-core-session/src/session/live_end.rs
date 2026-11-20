@@ -40,7 +40,14 @@ pub fn done_verb(turn: usize) -> &'static str {
 /// A reply the history does not stamp (the partial reply of a cancelled turn is stored as the bare message) reads live as
 /// the stream's text, untrimmed (`stream.assistantText`, `raw`), under the turn's route and identity (`turn`: the input
 /// row's `meta.transcript`) and its own `messageId`, stamped `at` the time it showed.
-pub(crate) fn live_form(mut item: mixdog_protocol::ThreadItem, attempt: Option<&str>, verb: Option<&str>, turn: Option<&Value>, raw: Option<&str>, at: i64) -> mixdog_protocol::ThreadItem {
+pub(crate) fn live_form(
+    mut item: mixdog_protocol::ThreadItem,
+    attempt: Option<&str>,
+    verb: Option<&str>,
+    turn: Option<&Value>,
+    raw: Option<&str>,
+    at: i64,
+) -> mixdog_protocol::ThreadItem {
     use mixdog_protocol::MaybeBlob;
     use mixdog_protocol::ThreadItem;
     match &mut item {
@@ -104,7 +111,11 @@ pub(crate) fn live_form(mut item: mixdog_protocol::ThreadItem, attempt: Option<&
 /// its call was recorded, which a restore reads for both (`restoredToolCallItems`). A call whose wait for the person the
 /// turn's abort ended (`abort_ended`, by call id) reads, live, what that wait settled with and its eager entry noticed to the
 /// card (`Error: <abort reason>`, eager-dispatch/entry.mjs:39-44), where the stored result is the interruption's `Cancelled`.
-pub(crate) fn live_result(mut update: mixdog_protocol::ThreadItem, at: i64, abort_ended: &std::collections::HashMap<String, String>) -> mixdog_protocol::ThreadItem {
+pub(crate) fn live_result(
+    mut update: mixdog_protocol::ThreadItem,
+    at: i64,
+    abort_ended: &std::collections::HashMap<String, String>,
+) -> mixdog_protocol::ThreadItem {
     if let mixdog_protocol::ThreadItem::ToolCall { run, output, meta, .. } = &mut update {
         run.completed_at = Some(at);
         // The result counts its calls done (`completedCount: visualCompleted`, aggregate-result.mjs:35-45): the card opened at 0.
@@ -140,7 +151,8 @@ fn first<'a>(call: &'a Value, paths: &[&str]) -> Option<&'a Value> {
 
 /// `toolCallName`, `toolCallArgs` (`tool-call-fields.mjs`): the call's name (`tool` when it states none) and arguments.
 fn call_name(call: &Value) -> String {
-    first(call, &["name", "function/name", "toolName", "tool_name"]).map_or_else(|| "tool".to_owned(), |name| name.as_str().map_or_else(|| value_to_string(name), str::to_owned))
+    first(call, &["name", "function/name", "toolName", "tool_name"])
+        .map_or_else(|| "tool".to_owned(), |name| name.as_str().map_or_else(|| value_to_string(name), str::to_owned))
 }
 
 fn call_args(call: &Value) -> Option<&Value> {
@@ -377,22 +389,32 @@ mod tests {
     #[test]
     fn a_shown_item_takes_the_live_form() {
         use mixdog_protocol::{ItemMeta, MaybeBlob, ThreadItem, ToolRun};
-        let reply = ThreadItem::AgentMessage { id: "a".into(), text: MaybeBlob::Inline("hi".into()), meta: ItemMeta::default(), imported_tool_runs: Vec::new() };
+        let reply =
+            ThreadItem::AgentMessage { id: "a".into(), text: MaybeBlob::Inline("hi".into()), meta: ItemMeta::default(), imported_tool_runs: Vec::new() };
         let ThreadItem::AgentMessage { meta, .. } = live_form(reply, Some("att"), Some("Mapped"), None, None, 0) else { panic!("a reply stays a reply") };
         assert_eq!(
             (meta.ext.get("attemptId"), meta.ext.get("completionVerb"), meta.ext.get("streaming")),
             (Some(&json!("att")), Some(&json!("Mapped")), Some(&json!(false)))
         );
-        let call = ThreadItem::ToolCall { id: "t".into(), name: "read".into(), input: json!({}), output: None, run: Box::new(ToolRun::default()), meta: ItemMeta::default() };
+        let call = ThreadItem::ToolCall {
+            id: "t".into(),
+            name: "read".into(),
+            input: json!({}),
+            output: None,
+            run: Box::new(ToolRun::default()),
+            meta: ItemMeta::default(),
+        };
         let ThreadItem::ToolCall { run, .. } = live_form(call, None, None, None, None, 0) else { panic!("a call stays a call") };
         assert_eq!(run.live, Some(true));
         assert_eq!(run.started_at, Some(0), "a live card without a stored time starts when it shows");
         let stored = ToolRun { started_at: Some(5), ..ToolRun::default() };
-        let call = ThreadItem::ToolCall { id: "t".into(), name: "explore".into(), input: json!({}), output: None, run: Box::new(stored), meta: ItemMeta::default() };
+        let call =
+            ThreadItem::ToolCall { id: "t".into(), name: "explore".into(), input: json!({}), output: None, run: Box::new(stored), meta: ItemMeta::default() };
         let ThreadItem::ToolCall { run, .. } = live_form(call, None, None, None, None, 9) else { panic!("a call stays a call") };
         assert_eq!(run.started_at, Some(5), "a stored start stays");
         let done = ToolRun { result: Some(MaybeBlob::Inline("ok".into())), ..ToolRun::default() };
-        let call = ThreadItem::ToolCall { id: "t".into(), name: "explore".into(), input: json!({}), output: None, run: Box::new(done), meta: ItemMeta::default() };
+        let call =
+            ThreadItem::ToolCall { id: "t".into(), name: "explore".into(), input: json!({}), output: None, run: Box::new(done), meta: ItemMeta::default() };
         let ThreadItem::ToolCall { run, .. } = live_form(call, None, None, None, None, 9) else { panic!("a call stays a call") };
         assert_eq!(run.started_at, None, "a result update does not restamp the start");
     }
@@ -403,8 +425,11 @@ mod tests {
     fn a_reply_the_history_does_not_stamp_reads_live_under_the_turns_identity() {
         use mixdog_protocol::{ItemMeta, MaybeBlob, ThreadItem};
         let turn = json!({ "attemptId": "att", "agent": "Default", "model": "m", "modelId": "m-id", "provider": "p", "at": 1 });
-        let reply = ThreadItem::AgentMessage { id: "a".into(), text: MaybeBlob::Inline("once upon".into()), meta: ItemMeta::default(), imported_tool_runs: Vec::new() };
-        let ThreadItem::AgentMessage { text, meta, .. } = live_form(reply, None, Some("Mapped"), Some(&turn), Some("once upon "), 7) else { panic!("a reply stays a reply") };
+        let reply =
+            ThreadItem::AgentMessage { id: "a".into(), text: MaybeBlob::Inline("once upon".into()), meta: ItemMeta::default(), imported_tool_runs: Vec::new() };
+        let ThreadItem::AgentMessage { text, meta, .. } = live_form(reply, None, Some("Mapped"), Some(&turn), Some("once upon "), 7) else {
+            panic!("a reply stays a reply")
+        };
         assert_eq!(text, MaybeBlob::Inline("once upon ".into()));
         let read = |key: &str| meta.ext.get(key).cloned();
         assert_eq!(
@@ -429,9 +454,20 @@ mod tests {
         let builtin = Names(Some(["browser use".to_owned()].into()));
         let mut counts = LiveCounts::default();
         counts.tool_batch(&[json!(null), json!({ "id": "c1", "name": "read", "arguments": { "path": "a" } })], &builtin, 0);
-        counts.tool_batch(&[json!({ "id": "c2", "name": "functions.Task", "arguments": "{\"action\":\"WAIT\"}" }), json!({ "id": "c3", "name": "todo" })], &builtin, 0);
+        counts.tool_batch(
+            &[json!({ "id": "c2", "name": "functions.Task", "arguments": "{\"action\":\"WAIT\"}" }), json!({ "id": "c3", "name": "todo" })],
+            &builtin,
+            0,
+        );
         assert_eq!(counts.tool_cards, 1, "a task wait and a control tool get no card");
-        counts.tool_batch(&[json!({ "id": "c4", "name": "skill", "arguments": { "name": " Browser Use " } }), json!({ "id": "c5", "name": "skill", "arguments": { "name": "mine" } })], &builtin, 0);
+        counts.tool_batch(
+            &[
+                json!({ "id": "c4", "name": "skill", "arguments": { "name": " Browser Use " } }),
+                json!({ "id": "c5", "name": "skill", "arguments": { "name": "mine" } }),
+            ],
+            &builtin,
+            0,
+        );
         assert_eq!(counts.tool_cards, 2, "a built-in skill load gets none, a user skill does");
         counts.tool_batch(&[json!({ "name": "tool_search" }), json!({ "id": "", "name": "todo" })], &builtin, 0);
         assert_eq!(counts.tool_cards, 4, "a call with no id keeps its card");
@@ -477,7 +513,6 @@ mod tests {
         assert_eq!(counts.final_output_tokens(), 5);
     }
 }
-
 
 /// `createTranscriptRouteMetadata(session)` without its time and workflow agent: the non-empty `modelId`, the display
 /// `model` (`displayModelName`) and `provider` of the route, in Node's order.

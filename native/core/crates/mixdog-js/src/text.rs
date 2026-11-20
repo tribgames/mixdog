@@ -6,8 +6,8 @@
 pub fn is_js_space(c: char) -> bool {
     matches!(
         c,
-        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}'
-            | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
+        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
     )
 }
 
@@ -113,7 +113,10 @@ mod tests {
 
     #[test]
     fn the_whitespace_set_is_ecmascripts() {
-        for c in ['\t', '\n', '\u{b}', '\u{c}', '\r', ' ', '\u{a0}', '\u{1680}', '\u{2000}', '\u{200a}', '\u{2028}', '\u{2029}', '\u{202f}', '\u{205f}', '\u{3000}', '\u{feff}'] {
+        for c in [
+            '\t', '\n', '\u{b}', '\u{c}', '\r', ' ', '\u{a0}', '\u{1680}', '\u{2000}', '\u{200a}', '\u{2028}', '\u{2029}', '\u{202f}', '\u{205f}', '\u{3000}',
+            '\u{feff}',
+        ] {
             assert!(is_js_space(c), "{c:?}");
         }
         for c in ['\u{85}', '\u{180e}', '\u{200b}', '\u{2060}', 'a'] {
@@ -136,14 +139,11 @@ mod tests {
         assert_eq!(utf16_len("a😀"), 3);
     }
 
-
     #[test]
     fn trim_removes_exactly_the_white_space_and_line_terminators_of_the_specification() {
         // WhiteSpace (TAB, VT, FF, SP, NBSP, ZWNBSP, any Zs) and LineTerminator (LF, CR, LS, PS).
-        let spec: Vec<u32> = [0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, 0xa0, 0x1680, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff]
-            .into_iter()
-            .chain(0x2000..=0x200a)
-            .collect();
+        let spec: Vec<u32> =
+            [0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x20, 0xa0, 0x1680, 0x2028, 0x2029, 0x202f, 0x205f, 0x3000, 0xfeff].into_iter().chain(0x2000..=0x200a).collect();
         let ours: Vec<u32> = (0..=0x10ffff_u32)
             .filter_map(char::from_u32)
             .filter(|c| {

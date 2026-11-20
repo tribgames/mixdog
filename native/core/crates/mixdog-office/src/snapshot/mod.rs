@@ -200,7 +200,8 @@ mod tests {
     impl ComHost for ScriptedHost {
         fn call(&self, payload: &Value, _cancel: Option<&CancellationToken>, _timeout: Option<Duration>) -> impl Future<Output = Value> {
             self.seen.borrow_mut().push(payload.clone());
-            let answer = if self.answers.borrow().is_empty() { json!({ "ok": false, "error": "no answer scripted" }) } else { self.answers.borrow_mut().remove(0) };
+            let answer =
+                if self.answers.borrow().is_empty() { json!({ "ok": false, "error": "no answer scripted" }) } else { self.answers.borrow_mut().remove(0) };
             async move { answer }
         }
     }
@@ -350,8 +351,6 @@ mod tests {
         });
     }
 }
-
-
 
 /// `readComSavedCopy(session, read)`: the live Office document saved to a copy in the temporary folder and read as a package,
 /// for what the application will not report itself. The copy is removed afterwards; the user's file is never saved over.

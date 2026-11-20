@@ -13,10 +13,10 @@ pub mod shared;
 pub mod store;
 
 pub use account::AccountMode;
+pub use mixdog_secrets::default_store;
 pub use session::McpLoginFlow;
 pub use session::McpOAuth;
 pub use session::OAuthEnv;
 pub use shared::OAuthError;
-pub use mixdog_secrets::default_store;
 pub use store::MemoryStore;
 pub use store::SecretStore;

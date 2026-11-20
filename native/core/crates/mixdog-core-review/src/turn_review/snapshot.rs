@@ -167,7 +167,8 @@ impl ShadowSnapshot {
         }
         let source = if clean(old_path).is_empty() { String::new() } else { safe_relative_path(&root_path, old_path).ok()? };
         // Only authorized paths reach the diff.
-        let targets: Vec<String> = if !source.is_empty() && allowed(&source) && shadow_key(&source) != shadow_key(&target) { vec![target, source] } else { vec![target] };
+        let targets: Vec<String> =
+            if !source.is_empty() && allowed(&source) && shadow_key(&source) != shadow_key(&target) { vec![target, source] } else { vec![target] };
         let keys: HashSet<String> = targets.iter().map(|t| shadow_key(t)).collect();
         let after = root.capture_sequence();
         let _guard = root.lock().await;
@@ -190,9 +191,8 @@ impl ShadowSnapshot {
         let omitted: Vec<(String, u64)> = {
             let snap = self.snap();
             let scope = snap.scope_paths.as_ref().map(|p| p.iter().map(|v| shadow_key(v)).collect::<HashSet<_>>());
-            
-            snap
-                .baseline_files
+
+            snap.baseline_files
                 .values()
                 .filter(|e| e.get("omitted") == Some(&Value::Bool(true)))
                 .filter_map(|e| Some((e.get("path")?.as_str()?.to_owned(), e.get("size").and_then(Value::as_f64).unwrap_or(0.0) as u64)))
@@ -253,13 +253,16 @@ impl ShadowSnapshot {
         let mut args = vec!["ls-tree", "-r", "-z", "--name-only", tree.as_str(), "--"];
         args.extend(&paths);
         let listed = self.root.shadow_run(&args, Vec::new()).await?;
-        let nul_list = |bytes: &[u8]| -> Vec<String> { String::from_utf8_lossy(bytes).split('\0').map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()).collect() };
+        let nul_list =
+            |bytes: &[u8]| -> Vec<String> { String::from_utf8_lossy(bytes).split('\0').map(|v| v.trim().to_owned()).filter(|v| !v.is_empty()).collect() };
         let present: HashSet<String> = nul_list(&listed.stdout).iter().map(|p| shadow_key(p)).collect();
         // A leading ':' is pathspec magic to ls-tree and check-ignore.
         let literal = paths.iter().all(|p| !p.starts_with(':'));
         let tracked = self.root.source_tracked();
         let asks_ignored = |(path, p): &(String, Pending)| {
-            p.content.as_ref().is_some_and(|c| c.len() <= MAX_UNTRACKED_FILE_BYTES) && !present.contains(&shadow_key(path)) && !tracked.contains(&shadow_key(path))
+            p.content.as_ref().is_some_and(|c| c.len() <= MAX_UNTRACKED_FILE_BYTES)
+                && !present.contains(&shadow_key(path))
+                && !tracked.contains(&shadow_key(path))
         };
         let mut ignored: HashSet<String> = HashSet::new();
         if !literal || pending.iter().any(asks_ignored) {
@@ -276,11 +279,18 @@ impl ShadowSnapshot {
                 !present.contains(&shadow_key(path))
                     && (p.content.is_none()
                         || p.omitted.is_some()
-                        || (!tracked.contains(&shadow_key(path)) && (ignored.contains(&shadow_key(path)) || p.content.as_ref().is_some_and(|c| c.len() > MAX_UNTRACKED_FILE_BYTES))))
+                        || (!tracked.contains(&shadow_key(path))
+                            && (ignored.contains(&shadow_key(path)) || p.content.as_ref().is_some_and(|c| c.len() > MAX_UNTRACKED_FILE_BYTES))))
             })
             // A path whose exact baseline is already in the tree keeps it; one that is not and whose
             // bytes were never captured is recorded as omitted.
-            .map(|(path, p)| BaselineEntry { path: path.clone(), content: p.content.clone(), oid: None, omitted: p.omitted.is_some(), size: p.omitted.unwrap_or(0) })
+            .map(|(path, p)| BaselineEntry {
+                path: path.clone(),
+                content: p.content.clone(),
+                oid: None,
+                omitted: p.omitted.is_some(),
+                size: p.omitted.unwrap_or(0),
+            })
             .collect();
         // A path ls-tree read literally and did not list is not in the tree.
         let absent: Option<HashSet<String>> = literal.then(|| paths.iter().map(|p| shadow_key(p)).filter(|k| !present.contains(k)).collect());

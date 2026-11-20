@@ -98,11 +98,7 @@ impl Bench {
             cancel: CancellationToken::new(),
             deadline: None,
             progress: seen.clone(),
-            io: ToolIo {
-                interactive: self.tokens.interactive_io,
-                durability: self.tokens.durability_io,
-                maintenance: self.tokens.maintenance_io,
-            },
+            io: ToolIo { interactive: self.tokens.interactive_io, durability: self.tokens.durability_io, maintenance: self.tokens.maintenance_io },
             approvals: Arc::new(MockApprovalGate::default()),
             files: Arc::new(MockFileService::default()),
             processes: self.processes.clone(),
@@ -228,10 +224,7 @@ fn main() {
         let held = mixdog_rt::time::timeout(HELD_DEADLINE, calls).await;
         match held {
             Ok(samples) => report(&format!("{CONCURRENT} concurrent calls, io-maintenance held"), &samples),
-            Err(_) => println!(
-                "{CONCURRENT} concurrent calls, io-maintenance held: not finished within {} s",
-                HELD_DEADLINE.as_secs()
-            ),
+            Err(_) => println!("{CONCURRENT} concurrent calls, io-maintenance held: not finished within {} s", HELD_DEADLINE.as_secs()),
         }
         drop(releases);
     });

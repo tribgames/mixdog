@@ -2,10 +2,7 @@
 //! `mixdog_js::time`'s test override (the one local-time implementation the ledger uses).
 //! Expected values come from the calendar: a spring-forward day has 23 hours, a fall-back day
 //! 25, and wall-clock times map to instants by `Date`'s rules.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "test fixture: a temporary ledger file"
-)]
+#![allow(clippy::disallowed_methods, reason = "test fixture: a temporary ledger file")]
 
 use chrono::DateTime;
 use chrono::NaiveDate;
@@ -30,9 +27,7 @@ use crate::time::parse_day;
 const HOUR: i64 = 3_600_000;
 
 fn utc(text: &str) -> i64 {
-    DateTime::parse_from_rfc3339(text)
-        .unwrap()
-        .timestamp_millis()
+    DateTime::parse_from_rfc3339(text).unwrap().timestamp_millis()
 }
 
 fn record(id: &str, ts: i64) -> UsageRecord {
@@ -47,11 +42,7 @@ fn record(id: &str, ts: i64) -> UsageRecord {
 /// The rollup of one local `day` with its hourly view, over a ledger holding `events`, and the
 /// day's hourly series.
 fn day_view(day: &str, events: &[i64]) -> (Value, Vec<Value>) {
-    let rows: Vec<UsageRecord> = events
-        .iter()
-        .enumerate()
-        .map(|(i, ts)| record(&format!("r{i}"), *ts))
-        .collect();
+    let rows: Vec<UsageRecord> = events.iter().enumerate().map(|(i, ts)| record(&format!("r{i}"), *ts)).collect();
     day_view_of(day, &rows)
 }
 
@@ -67,21 +58,12 @@ fn day_view_of(day: &str, rows: &[UsageRecord]) -> (Value, Vec<Value>) {
     query.hourly_day = Some(day.to_string());
     let rollup = rollup_usage(&conn, &query).unwrap();
     let date = parse_day(day).unwrap();
-    let series = hourly_series(
-        rollup.hourly.as_ref(),
-        local_midnight_ms(date),
-        next_midnight_ms(date) - 1,
-        next_midnight_ms(date),
-        false,
-    );
+    let series = hourly_series(rollup.hourly.as_ref(), local_midnight_ms(date), next_midnight_ms(date) - 1, next_midnight_ms(date), false);
     (rollup.to_value(), series.as_array().unwrap().clone())
 }
 
 fn labels(series: &[Value]) -> Vec<&str> {
-    series
-        .iter()
-        .map(|b| b["label"].as_str().unwrap())
-        .collect()
+    series.iter().map(|b| b["label"].as_str().unwrap()).collect()
 }
 
 fn turns(bucket: &Value) -> i64 {
@@ -101,19 +83,10 @@ fn spring_forward_day_has_23_hours() {
         assert_eq!(day_key(end - 1), "2026-03-08");
         assert_eq!(day_key(end), "2026-03-09");
         // 02:30 does not exist: it reads with the offset before the change.
-        let gap = NaiveDate::from_ymd_opt(2026, 3, 8)
-            .unwrap()
-            .and_hms_opt(2, 30, 0)
-            .unwrap();
+        let gap = NaiveDate::from_ymd_opt(2026, 3, 8).unwrap().and_hms_opt(2, 30, 0).unwrap();
         assert_eq!(local_ms(gap), utc("2026-03-08T07:30:00Z"));
 
-        let events = [
-            start - 1,
-            utc("2026-03-08T06:59:59Z"),
-            utc("2026-03-08T07:00:00Z"),
-            end - 1,
-            end,
-        ];
+        let events = [start - 1, utc("2026-03-08T06:59:59Z"), utc("2026-03-08T07:00:00Z"), end - 1, end];
         let (rollup, series) = day_view("2026-03-08", &events);
         assert_eq!(turns(&rollup["days"]["2026-03-08"]), 3);
         assert_eq!(rollup["hourly"]["rows"].as_array().unwrap().len(), 3);
@@ -122,12 +95,7 @@ fn spring_forward_day_has_23_hours() {
         let names = labels(&series);
         assert_eq!(&names[..4], ["00:00", "01:00", "03:00", "04:00"]);
         assert!(!names.contains(&"02:00"));
-        let filled: Vec<(usize, i64)> = series
-            .iter()
-            .enumerate()
-            .map(|(i, b)| (i, turns(b)))
-            .filter(|(_, t)| *t > 0)
-            .collect();
+        let filled: Vec<(usize, i64)> = series.iter().enumerate().map(|(i, b)| (i, turns(b))).filter(|(_, t)| *t > 0).collect();
         assert_eq!(filled, [(1, 1), (2, 1), (22, 1)]);
     });
 }
@@ -147,13 +115,7 @@ fn fall_back_day_has_25_hours() {
         let repeated = date.and_hms_opt(1, 30, 0).unwrap();
         assert_eq!(local_ms(repeated), utc("2026-11-01T05:30:00Z"));
 
-        let events = [
-            start - 1,
-            utc("2026-11-01T05:30:00Z"),
-            utc("2026-11-01T06:30:00Z"),
-            end - 1,
-            end,
-        ];
+        let events = [start - 1, utc("2026-11-01T05:30:00Z"), utc("2026-11-01T06:30:00Z"), end - 1, end];
         let (rollup, series) = day_view("2026-11-01", &events);
         assert_eq!(turns(&rollup["days"]["2026-11-01"]), 3);
 
@@ -161,12 +123,7 @@ fn fall_back_day_has_25_hours() {
         let names = labels(&series);
         assert_eq!(names[0], "00:00");
         assert_eq!(names.iter().filter(|n| **n == "01:00").count(), 2);
-        let filled: Vec<(usize, i64)> = series
-            .iter()
-            .enumerate()
-            .map(|(i, b)| (i, turns(b)))
-            .filter(|(_, t)| *t > 0)
-            .collect();
+        let filled: Vec<(usize, i64)> = series.iter().enumerate().map(|(i, b)| (i, turns(b))).filter(|(_, t)| *t > 0).collect();
         assert_eq!(filled, [(1, 1), (2, 1), (24, 1)]);
     });
 }

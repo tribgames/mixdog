@@ -172,11 +172,7 @@ impl Platform for FakePlatform {
     fn try_get_running_file(&self, path: &str) -> Option<RunningObject> {
         let expected = normalize_path(path).to_uppercase();
         let state = self.state();
-        state
-            .running_files
-            .iter()
-            .find(|(display, _)| normalize_path(display).to_uppercase() == expected)
-            .map(|(_, label)| RunningObject::new(label.clone()))
+        state.running_files.iter().find(|(display, _)| normalize_path(display).to_uppercase() == expected).map(|(_, label)| RunningObject::new(label.clone()))
     }
 
     fn register_excel_instances(&self) {
@@ -224,9 +220,7 @@ impl Platform for FakePlatform {
         self.state()
             .windows
             .iter()
-            .find(|window| {
-                window.visible && window.class.eq_ignore_ascii_case(class) && window.title.to_uppercase().contains(&part)
-            })
+            .find(|window| window.visible && window.class.eq_ignore_ascii_case(class) && window.title.to_uppercase().contains(&part))
             .map_or(0, |window| window.hwnd)
     }
 
@@ -265,20 +259,11 @@ impl Platform for FakePlatform {
     }
 
     fn process_ids_by_name(&self, name: &str) -> Vec<i32> {
-        self.state()
-            .processes
-            .iter()
-            .filter(|process| process.alive && process.name.eq_ignore_ascii_case(name))
-            .map(|process| process.process_id)
-            .collect()
+        self.state().processes.iter().filter(|process| process.alive && process.name.eq_ignore_ascii_case(name)).map(|process| process.process_id).collect()
     }
 
     fn process_start_ticks(&self, process_id: i32) -> i64 {
-        self.state()
-            .processes
-            .iter()
-            .find(|process| process.alive && process.process_id == process_id)
-            .map_or(0, |process| process.start_ticks)
+        self.state().processes.iter().find(|process| process.alive && process.process_id == process_id).map_or(0, |process| process.start_ticks)
     }
 
     fn process_exists(&self, process_id: i32) -> bool {

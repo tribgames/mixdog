@@ -1,7 +1,9 @@
 //! The book's admission, settlement and storm control over manifests built from real bodies.
 
-use mixdog_core_api::domain::cache_tail::{Admission, Claim, Claimed, Cold, ColdRequest, Counters, Purpose, Resolution, TailRefusal, TailRoute, Verdict, WireManifest, TTL_1H_MS, TTL_5M_MS};
-use serde_json::{json, Value};
+use mixdog_core_api::domain::cache_tail::{
+    Admission, Claim, Claimed, Cold, ColdRequest, Counters, Purpose, Resolution, TTL_1H_MS, TTL_5M_MS, TailRefusal, TailRoute, Verdict, WireManifest,
+};
+use serde_json::{Value, json};
 
 use super::book::{Book, Judgment};
 use super::manifest::anthropic;
@@ -63,7 +65,16 @@ fn proven(tail: &str) -> (Book, WireManifest) {
     let mut book = Book::default();
     let manifest = anthropic(&body(1, tail));
     let permit = sent(admit(&mut book, &anthropic(&body(0, tail)), "a", Purpose::Turn, T0 - 1));
-    book.settle(&permit, Some(Counters { read: Some(0), created: Some(1500), created_5m: Some(if tail == "1h" { 0 } else { 500 }), created_1h: Some(if tail == "1h" { 1500 } else { 1000 }) }), T0);
+    book.settle(
+        &permit,
+        Some(Counters {
+            read: Some(0),
+            created: Some(1500),
+            created_5m: Some(if tail == "1h" { 0 } else { 500 }),
+            created_1h: Some(if tail == "1h" { 1500 } else { 1000 }),
+        }),
+        T0,
+    );
     let permit = sent(admit(&mut book, &manifest, "a", Purpose::Turn, T0));
     let counters = if tail == "1h" { wrote_1h_tail(1000, 900) } else { wrote_5m(1000, 900) };
     book.settle(&permit, counters, T0);
@@ -102,7 +113,11 @@ fn the_lifetime_runs_from_the_last_send_whatever_the_request_holds() {
         assert_eq!(book.judge(&route(account), &manifest, T0 + 1), Judgment::Live { holds_ms: TTL_5M_MS - 1 }, "{account}");
         assert_eq!(book.judge(&route(account), &manifest, COLD), Judgment::Cold(Cold::Expired), "{account}");
     }
-    assert_eq!(book.judge(&route("a"), &anthropic(&body(2, "5m")), T0 - 600_000), Judgment::Cold(Cold::Unproven), "no lease is extended on a clock that went back");
+    assert_eq!(
+        book.judge(&route("a"), &anthropic(&body(2, "5m")), T0 - 600_000),
+        Judgment::Cold(Cold::Unproven),
+        "no lease is extended on a clock that went back"
+    );
 }
 
 /// A session of an earlier version has no book, only its header's record of the last send: the lifetime runs from that.
@@ -197,7 +212,9 @@ fn cancelled_or_abandoned_rewrites_are_never_counted() {
 #[test]
 fn a_failed_rewrite_hands_its_leave_to_its_owner_alone() {
     let (mut book, manifest) = expired();
-    let with = |book: &mut Book, unreduced, now| book.admit(Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &manifest, generation: None, unreduced }, now, true, SIZING);
+    let with = |book: &mut Book, unreduced, now| {
+        book.admit(Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &manifest, generation: None, unreduced }, now, true, SIZING)
+    };
     // Two turns cold on one history: the first owns the rewrite, the second waits for it.
     let TailRefusal::Rebuild(offer) = refused(with(&mut book, None, COLD)) else { panic!() };
     assert_eq!(book.claim(offer.ticket), Claim::Owner);
@@ -212,7 +229,12 @@ fn a_failed_rewrite_hands_its_leave_to_its_owner_alone() {
     assert!(matches!(refused(admit(&mut Book::from_json(&book.to_json(), COLD + 4, None), &manifest, "a", Purpose::Turn, COLD + 5)), TailRefusal::Rebuild(_)));
     // A leave names its history: on any other one it lets nothing through.
     let grown = anthropic(&body(4, "5m"));
-    let other = book.admit(Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &grown, generation: None, unreduced: Some(leave) }, COLD + 6, true, SIZING);
+    let other = book.admit(
+        Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &grown, generation: None, unreduced: Some(leave) },
+        COLD + 6,
+        true,
+        SIZING,
+    );
     assert!(matches!(refused(other), TailRefusal::Rebuild(_)));
 }
 
@@ -256,7 +278,11 @@ fn every_live_prefix_keeps_its_proof_for_its_whole_lifetime() {
     let mut book = Book::unrecorded(false, None);
     for k in 0..12 {
         let at = T0 + k as i64;
-        let Verdict::Send(permit) = book.admit(Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &branch(k, 1), generation: None, unreduced: None }, at, false, SIZING) else { panic!() };
+        let Verdict::Send(permit) =
+            book.admit(Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &branch(k, 1), generation: None, unreduced: None }, at, false, SIZING)
+        else {
+            panic!()
+        };
         book.settle(&permit, wrote_5m(0, 4000), at);
     }
     for k in 0..12 {
@@ -265,7 +291,11 @@ fn every_live_prefix_keeps_its_proof_for_its_whole_lifetime() {
     assert_eq!(book.receipts().len(), 12);
     let after = T0 + 12 + TTL_5M_MS as i64;
     for k in 0..12 {
-        assert_eq!(Book::from_json(&book.to_json(), after, None).judge(&route("a"), &branch(k, 2), after), Judgment::Cold(Cold::Expired), "branch {k}: and no longer");
+        assert_eq!(
+            Book::from_json(&book.to_json(), after, None).judge(&route("a"), &branch(k, 2), after),
+            Judgment::Cold(Cold::Expired),
+            "branch {k}: and no longer"
+        );
     }
 }
 
@@ -286,7 +316,8 @@ fn an_offer_lasts_as_long_as_its_history() {
     assert_eq!(book.claim(first), Claim::Owner, "a side question's admission is not the history");
     let mut book = expired().0;
     let first = offer(&mut book, &current);
-    let _ = sent(book.admit(Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &appended, generation: None, unreduced: None }, COLD, false, SIZING));
+    let _ =
+        sent(book.admit(Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &appended, generation: None, unreduced: None }, COLD, false, SIZING));
     assert_eq!(book.claim(first), Claim::Stale, "the history was appended to");
     let mut book = expired().0;
     let first = offer(&mut book, &current);
@@ -306,7 +337,11 @@ fn optional_attempts_skip_a_cold_history_and_a_side_question_never_rebuilds() {
 fn auto_clear_off_sends_unchanged_and_still_collects_evidence() {
     let mut book = Book::unrecorded(false, None);
     let manifest = anthropic(&body(3, "5m"));
-    let Verdict::Send(permit) = book.admit(Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &manifest, generation: None, unreduced: None }, T0, false, SIZING) else { panic!() };
+    let Verdict::Send(permit) =
+        book.admit(Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &manifest, generation: None, unreduced: None }, T0, false, SIZING)
+    else {
+        panic!()
+    };
     book.settle(&permit, wrote_5m(1000, 4000), T0 + 5);
     assert!(live(book.judge(&route("a"), &anthropic(&body(4, "5m")), T0 + 6)));
 }
@@ -363,9 +398,17 @@ fn a_restart_drops_times_ahead_of_its_clock_and_keeps_the_proof_of_an_expiry() {
     let snapshot = book.to_json();
     assert_eq!(Book::from_json(&snapshot, T0 + 1, None).receipts().len(), 2, "the first write and the tail after it");
     assert!(Book::from_json(&snapshot, T0 - 2, None).receipts().is_empty(), "a time ahead of the clock is uncertain");
-    assert_eq!(Book::from_json(&snapshot, COLD, None).judge(&route("a"), &anthropic(&body(2, "5m")), COLD), Judgment::Cold(Cold::Expired), "an entry that ran out while the process was down expired all the same");
+    assert_eq!(
+        Book::from_json(&snapshot, COLD, None).judge(&route("a"), &anthropic(&body(2, "5m")), COLD),
+        Judgment::Cold(Cold::Expired),
+        "an entry that ran out while the process was down expired all the same"
+    );
     assert!(Book::from_json(&json!({ "v": 0 }), T0, None).receipts().is_empty());
-    assert_eq!(Book::from_json(&json!({ "v": 1 }), T0, None).judge(&route("a"), &anthropic(&body(0, "5m")), T0), Judgment::Cold(Cold::Unproven), "an older record is a history, not a new session");
+    assert_eq!(
+        Book::from_json(&json!({ "v": 1 }), T0, None).judge(&route("a"), &anthropic(&body(0, "5m")), T0),
+        Judgment::Cold(Cold::Unproven),
+        "an older record is a history, not a new session"
+    );
 }
 
 /// Newness is a recorded fact, not the absence of an answer: a user-only transcript the book did not record (an import,
@@ -404,7 +447,12 @@ fn a_disposition_is_retired_by_a_new_sizing_policy_or_a_later_proof() {
     for resolution in [Resolution::NoSizing, Resolution::Irreducible] {
         let mut book = decided(resolution);
         let _ = sent(admit(&mut book, &manifest, "a", Purpose::Turn, COLD + 1));
-        let resized = book.admit(Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &manifest, generation: None, unreduced: None }, COLD + 2, true, SIZING + 1);
+        let resized = book.admit(
+            Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &manifest, generation: None, unreduced: None },
+            COLD + 2,
+            true,
+            SIZING + 1,
+        );
         assert!(matches!(refused(resized), TailRefusal::Rebuild(_)), "{resolution:?}: a new sizing policy decides again");
     }
     let mut book = decided(Resolution::Irreducible);
@@ -421,9 +469,19 @@ fn an_attempt_prepared_before_a_rewrite_is_stale() {
     let (mut book, manifest) = proven("5m");
     let prepared = book.generation();
     book.rebuilt();
-    let fork = book.admit(Admission { purpose: Purpose::SummaryFork, route: &route("a"), manifest: &manifest, generation: Some(prepared), unreduced: None }, T0 + 1, true, SIZING);
+    let fork = book.admit(
+        Admission { purpose: Purpose::SummaryFork, route: &route("a"), manifest: &manifest, generation: Some(prepared), unreduced: None },
+        T0 + 1,
+        true,
+        SIZING,
+    );
     assert_eq!(refused(fork), TailRefusal::Stale);
-    let current = book.admit(Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &manifest, generation: Some(book.generation()), unreduced: None }, T0 + 1, true, SIZING);
+    let current = book.admit(
+        Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &manifest, generation: Some(book.generation()), unreduced: None },
+        T0 + 1,
+        true,
+        SIZING,
+    );
     assert!(matches!(current, Verdict::Send(_)));
 }
 
@@ -432,7 +490,11 @@ fn an_attempt_prepared_before_a_rewrite_is_stale() {
 async fn a_waiter_resumes_when_the_owner_decides() {
     let (books, session) = (super::Books::default(), "waiters".to_owned());
     let clock: super::Clock = std::sync::Arc::new(|| COLD);
-    let gate = books.gate(&session, Some(&expired().0.to_json()), super::GateSettings { clock, auto_clear: std::sync::Arc::new(|| true), sizing: SIZING, fresh: false, last_send_at: None });
+    let gate = books.gate(
+        &session,
+        Some(&expired().0.to_json()),
+        super::GateSettings { clock, auto_clear: std::sync::Arc::new(|| true), sizing: SIZING, fresh: false, last_send_at: None },
+    );
     let manifest = anthropic(&body(3, "5m"));
     let on_a = route("a");
     let ask = || gate.0.admit(Admission { purpose: Purpose::Turn, route: &on_a, manifest: &manifest, generation: None, unreduced: None });
@@ -453,7 +515,11 @@ async fn a_waiter_resumes_when_the_owner_decides() {
 async fn an_owner_cancelled_mid_rewrite_hands_the_rewrite_to_a_waiter() {
     let (books, session) = (super::Books::default(), "cancelled-owner".to_owned());
     let clock: super::Clock = std::sync::Arc::new(|| COLD);
-    let gate = books.gate(&session, Some(&expired().0.to_json()), super::GateSettings { clock, auto_clear: std::sync::Arc::new(|| true), sizing: SIZING, fresh: false, last_send_at: None });
+    let gate = books.gate(
+        &session,
+        Some(&expired().0.to_json()),
+        super::GateSettings { clock, auto_clear: std::sync::Arc::new(|| true), sizing: SIZING, fresh: false, last_send_at: None },
+    );
     let manifest = std::sync::Arc::new(anthropic(&body(3, "5m")));
     let admit_turn = |gate: mixdog_core_api::domain::cache_tail::TailGateHandle, manifest: std::sync::Arc<WireManifest>| async move {
         gate.0.admit(Admission { purpose: Purpose::Turn, route: &route("a"), manifest: &manifest, generation: None, unreduced: None }).await
@@ -494,7 +560,13 @@ async fn an_owner_cancelled_mid_rewrite_hands_the_rewrite_to_a_waiter() {
 /// its own turn's settings.
 #[tokio::test]
 async fn same_id_sessions_of_two_stores_have_their_own_books_and_a_second_open_shares_one() {
-    let settings = |at: i64, auto_clear: bool| super::GateSettings { clock: std::sync::Arc::new(move || at), auto_clear: std::sync::Arc::new(move || auto_clear), sizing: SIZING, fresh: false, last_send_at: None };
+    let settings = |at: i64, auto_clear: bool| super::GateSettings {
+        clock: std::sync::Arc::new(move || at),
+        auto_clear: std::sync::Arc::new(move || auto_clear),
+        sizing: SIZING,
+        fresh: false,
+        last_send_at: None,
+    };
     let (one, two) = (super::Books::default(), super::Books::default());
     let (proven_book, _) = proven("5m");
     let next = anthropic(&body(2, "5m"));
@@ -537,7 +609,10 @@ async fn an_unloaded_session_leaves_no_book_and_reloads_the_persisted_one() {
     let gate = books.gate(&session, Some(&book.to_json()), settings());
     let on_a = route("a");
     let next = anthropic(&body(2, "5m"));
-    let Verdict::Send(permit) = gate.0.admit(Admission { purpose: Purpose::Turn, route: &on_a, manifest: &next, generation: None, unreduced: None }).await else { panic!("live") };
+    let Verdict::Send(permit) = gate.0.admit(Admission { purpose: Purpose::Turn, route: &on_a, manifest: &next, generation: None, unreduced: None }).await
+    else {
+        panic!("live")
+    };
     gate.0.settle(&permit, wrote_5m(1900, 300));
     assert!(books.loaded(&session));
     let header = books.unsaved(&session).expect("the settle is unsaved");
@@ -610,7 +685,10 @@ fn a_proof_on_one_route_does_not_rearm_the_disposition_on_another() {
     book.settle(&on_a, wrote_5m(0, 9000), COLD + 2);
     let _ = sent(admit(&mut book, &manifest, "b", Purpose::Turn, COLD + 3));
     let _ = sent(admit(&mut book, &manifest, "b", Purpose::Turn, COLD + 2 + TTL_5M_MS as i64));
-    assert!(matches!(refused(admit(&mut book, &manifest, "a", Purpose::Turn, COLD + 2 + TTL_5M_MS as i64)), TailRefusal::Rebuild(ColdRequest { cold: Cold::Expired, .. })));
+    assert!(matches!(
+        refused(admit(&mut book, &manifest, "a", Purpose::Turn, COLD + 2 + TTL_5M_MS as i64)),
+        TailRefusal::Rebuild(ColdRequest { cold: Cold::Expired, .. })
+    ));
 }
 
 /// A plain side question never writes a compacted base unchanged (its body may predate the rewrite); one rebuilt after its

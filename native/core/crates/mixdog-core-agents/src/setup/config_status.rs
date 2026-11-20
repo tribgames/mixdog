@@ -16,10 +16,8 @@ use super::domain_settings::DomainCalls;
 use super::settings::truthy;
 use super::status::StatusReader;
 
-const DOMAINS: &[&str] = &[
-    "autoclear", "compaction", "developer", "shell", "update", "worktree", "network-proxy", "output-style",
-    "local-provider", "memory", "profile",
-];
+const DOMAINS: &[&str] =
+    &["autoclear", "compaction", "developer", "shell", "update", "worktree", "network-proxy", "output-style", "local-provider", "memory", "profile"];
 
 pub struct ConfigStatus {
     domains: Arc<dyn DomainCalls>,

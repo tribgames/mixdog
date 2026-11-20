@@ -13,13 +13,6 @@ use mixdog_tui::transcript::window::render_window::{AnchorPoint, WindowTuning, r
 use mixdog_tui::transcript::window::row_index::{Items, RowIndex};
 use serde_json::{Value, json};
 
-
-
-
-
-
-
-
 fn params(columns: usize, tool_output_expanded: bool) -> HeightParams {
     HeightParams { columns, tool_output_expanded }
 }
@@ -104,7 +97,16 @@ fn many_users(count: usize) -> Vec<Value> {
 }
 
 fn frame_props(settled: &[Value], revision: u64, scroll_offset: f64) -> FrameProps<'_> {
-    FrameProps { settled, structure_revision: revision, streaming_tail: None, columns: 40, tool_output_expanded: false, content_height: 6, floating_panel_rows: 0, scroll_offset }
+    FrameProps {
+        settled,
+        structure_revision: revision,
+        streaming_tail: None,
+        columns: 40,
+        tool_output_expanded: false,
+        content_height: 6,
+        floating_panel_rows: 0,
+        scroll_offset,
+    }
 }
 
 /// The item at the viewport top for a frame with `total` rows scrolled `offset` rows up.
@@ -141,7 +143,8 @@ fn the_window_follows_the_tail_then_holds_the_reading_anchor_while_rows_grow() {
     let held = state.frame(&frame_props(&grown, 3, 3.0), &tuning, |index, _| {
         let items = Items::new(&settled, None);
         let view = 6;
-        resolve_anchor_scroll_offset(Some(&anchor), &items, &index.prefix_rows, index.total_rows, view, index.total_rows.saturating_sub(view)).map_or(3.0, |offset| offset as f64)
+        resolve_anchor_scroll_offset(Some(&anchor), &items, &index.prefix_rows, index.total_rows, view, index.total_rows.saturating_sub(view))
+            .map_or(3.0, |offset| offset as f64)
     });
     let index = state.row_index();
     assert_eq!(top_item(index, held.window.effective_scroll_offset, 6), anchored_item, "growth below the anchor leaves the top row in place");
@@ -167,4 +170,3 @@ fn a_session_switch_never_lends_the_old_rows_to_the_new_transcript() {
     assert_eq!(frame.window.end_index, 3);
     assert_eq!(state.commit_total_rows(frame.geometry.total_rows), 0);
 }
-

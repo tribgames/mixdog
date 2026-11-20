@@ -77,21 +77,13 @@ fn flag(value: Option<&Value>) -> bool {
 }
 
 fn strings(value: Option<&Value>, max: usize) -> Vec<Value> {
-    value
-        .and_then(Value::as_array)
-        .map(|a| a.iter().filter(|v| v.is_string()).take(max).cloned().collect())
-        .unwrap_or_default()
+    value.and_then(Value::as_array).map(|a| a.iter().filter(|v| v.is_string()).take(max).cloned().collect()).unwrap_or_default()
 }
 
 fn short_strings(value: Option<&Value>) -> Vec<Value> {
     value
         .and_then(Value::as_array)
-        .map(|a| {
-            a.iter()
-                .filter(|v| v.as_str().is_some_and(|s| !s.is_empty() && s.chars().count() <= 8))
-                .cloned()
-                .collect()
-        })
+        .map(|a| a.iter().filter(|v| v.as_str().is_some_and(|s| !s.is_empty() && s.chars().count() <= 8)).cloned().collect())
         .unwrap_or_default()
 }
 
@@ -112,7 +104,12 @@ pub fn normalize(initialization: &Value) -> Value {
     out.insert("codeActionResolve".into(), json!(flag(opt("codeActionProvider", "resolveProvider"))));
     out.insert(
         "codeActionKinds".into(),
-        Value::Array(opt("codeActionProvider", "codeActionKinds").and_then(Value::as_array).map(|a| a.iter().filter(|v| v.is_string()).cloned().collect()).unwrap_or_default()),
+        Value::Array(
+            opt("codeActionProvider", "codeActionKinds")
+                .and_then(Value::as_array)
+                .map(|a| a.iter().filter(|v| v.is_string()).cloned().collect())
+                .unwrap_or_default(),
+        ),
     );
     let mut on_type: Vec<Value> = Vec::new();
     if let Some(first) = opt("documentOnTypeFormattingProvider", "firstTriggerCharacter").filter(|v| v.is_string()) {

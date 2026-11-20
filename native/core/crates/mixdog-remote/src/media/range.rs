@@ -12,7 +12,10 @@ pub const DOWNLOAD_WINDOW_MAX_BYTES: u64 = 8 * 1024 * 1024;
 pub enum Range {
     /// No (or an empty) header: the whole file.
     Whole,
-    Bytes { start: u64, end: u64 },
+    Bytes {
+        start: u64,
+        end: u64,
+    },
     Unsatisfiable,
 }
 

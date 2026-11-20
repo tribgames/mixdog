@@ -31,7 +31,6 @@ impl AgentEvidence for NoEvidence {
     }
 }
 
-
 pub(crate) struct World {
     /// Keeps the sandbox alive.
     pub _dir: tempfile::TempDir,

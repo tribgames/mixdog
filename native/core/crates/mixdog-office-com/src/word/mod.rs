@@ -72,15 +72,11 @@ fn ps_value(value: &Com, target: &str) -> Result<Value> {
             mantissa: (u128::from(number.hi32) << 64) | u128::from(number.lo64),
             scale: number.scale,
         }),
-        Com::Date(days) => Value::DateTime(crate::ps::DateTimeValue {
-            ticks: datetime::oa_date_to_ticks(*days).map_err(Error::host)?,
-            kind: crate::ps::DateKind::Unspecified,
-        }),
+        Com::Date(days) => {
+            Value::DateTime(crate::ps::DateTimeValue { ticks: datetime::oa_date_to_ticks(*days).map_err(Error::host)?, kind: crate::ps::DateKind::Unspecified })
+        }
         Com::Dispatch(_) | Com::Unknown(_) | Com::Array(_) => {
-            return Err(Error::host(format!(
-                "Cannot convert the \"{0}\" value of type \"{0}\" to type \"{target}\".",
-                value.dotnet_type_name()
-            )));
+            return Err(Error::host(format!("Cannot convert the \"{0}\" value of type \"{0}\" to type \"{target}\".", value.dotnet_type_name())));
         }
     })
 }

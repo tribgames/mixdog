@@ -23,8 +23,7 @@ const MAX_FILES: usize = 8;
 const MAX_BLOB_BYTES: usize = 64 * 1024 * 1024;
 const HEAD_BYTES: usize = 4096;
 
-const IMAGE_TYPES: [(&str, &str); 5] =
-    [(".png", "image/png"), (".jpg", "image/jpeg"), (".jpeg", "image/jpeg"), (".gif", "image/gif"), (".webp", "image/webp")];
+const IMAGE_TYPES: [(&str, &str); 5] = [(".png", "image/png"), (".jpg", "image/jpeg"), (".jpeg", "image/jpeg"), (".gif", "image/gif"), (".webp", "image/webp")];
 const DOCUMENT_TYPES: [(&str, &str); 8] = [
     (".pdf", "application/pdf"),
     (".docx", "application/vnd.openxmlformats-officedocument.wordprocessingml.document"),
@@ -35,14 +34,8 @@ const DOCUMENT_TYPES: [(&str, &str); 8] = [
     (".xls", "application/vnd.ms-excel"),
     (".ppt", "application/vnd.ms-powerpoint"),
 ];
-const TEXT_TYPES: [(&str, &str); 6] = [
-    (".md", "text/markdown"),
-    (".html", "text/html"),
-    (".htm", "text/html"),
-    (".csv", "text/csv"),
-    (".json", "application/json"),
-    (".svg", "image/svg+xml"),
-];
+const TEXT_TYPES: [(&str, &str); 6] =
+    [(".md", "text/markdown"), (".html", "text/html"), (".htm", "text/html"), (".csv", "text/csv"), (".json", "application/json"), (".svg", "image/svg+xml")];
 const TEXT_EXTENSIONS: &str = ".mdx .txt .log .jsonl .yaml .yml .toml .xml .tsv .js .jsx .mjs .cjs .ts .tsx .mts .cts .py .rb .rs .go .java .kt .swift .cs .cpp .cc .c .h .hh .hpp .sh .zsh .ps1 .bat .cmd .sql .css .scss .sass .vue .svelte .ini .conf .cfg .gql .graphql";
 const SUPPORTED_IMAGE_MIME_TYPES: [&str; 4] = ["image/png", "image/jpeg", "image/gif", "image/webp"];
 const OFFICE_WRITE_ACTIONS: [&str; 10] = ["author", "create", "batch", "render", "save", "finalize", "secure", "commit", "refine", "design"];
@@ -477,9 +470,6 @@ mod tests {
 
     use super::*;
 
-
-
-
     #[test]
     fn percent_escapes_decode_as_decode_uri_does() {
         assert_eq!(decode_uri("sp%20ace.txt").as_deref(), Some("sp ace.txt"));
@@ -490,9 +480,10 @@ mod tests {
 
     fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
         let lanes = mixdog_rt::testing::tokens();
-        tokio::runtime::Builder::new_current_thread().build().unwrap().block_on(async {
-            lanes.durability_io.submit(&CancellationToken::new(), job).unwrap().await.unwrap()
-        })
+        tokio::runtime::Builder::new_current_thread()
+            .build()
+            .unwrap()
+            .block_on(async { lanes.durability_io.submit(&CancellationToken::new(), job).unwrap().await.unwrap() })
     }
     /// An agent's report lists the files its turn wrote that the report does not name: here the one it left out.
     #[test]
@@ -545,10 +536,7 @@ mod tests {
         ]);
         assert_eq!(roots, [real, inner]);
     }
-
-
 }
-
 
 /// What a caller gives `collect_turn_artifacts` besides the messages.
 pub struct Options {
@@ -601,7 +589,8 @@ pub fn sensitive_scopes(folders: &[PathBuf]) -> Vec<Vec<String>> {
 /// `isSensitiveLocalPath(path)`: the path as written or what its links lead to is a secret file.
 fn is_sensitive_local_path(path: &Path, scopes: &[Vec<String>]) -> bool {
     let absolute = resolve(&std::env::current_dir().unwrap_or_default(), &path.to_string_lossy());
-    sensitive::matches_sensitive_path(&absolute.to_string_lossy(), scopes) || sensitive::matches_sensitive_path(&real_or_self(&absolute).to_string_lossy(), scopes)
+    sensitive::matches_sensitive_path(&absolute.to_string_lossy(), scopes)
+        || sensitive::matches_sensitive_path(&real_or_self(&absolute).to_string_lossy(), scopes)
 }
 /// The identity of an opened file: its device and file number where the OS gives them, and its
 /// creation time.
@@ -739,12 +728,7 @@ pub fn collect_unreported_writes<L: IoLane>(lane: &InLane<L>, messages: &Value, 
 /// produced, inside the roots. A file that fits a prompt's types and limits is stored through
 /// `store` and carries its attachment `id`; otherwise it is a path-only entry. Secret files,
 /// folders and anything outside the roots are left out silently; at most eight are kept.
-pub fn collect_turn_artifacts<L: IoLane>(
-    lane: &InLane<L>,
-    messages: &Value,
-    options: &Options,
-    store: &dyn Fn(&[u8]) -> Result<String, String>,
-) -> Artifacts {
+pub fn collect_turn_artifacts<L: IoLane>(lane: &InLane<L>, messages: &Value, options: &Options, store: &dyn Fn(&[u8]) -> Result<String, String>) -> Artifacts {
     let mut files = Vec::new();
     let mut omitted = 0;
     let mut budget = Budget::default();

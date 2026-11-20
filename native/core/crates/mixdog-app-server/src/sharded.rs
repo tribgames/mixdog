@@ -12,9 +12,7 @@ use std::sync::MutexGuard;
 const SHARDS: usize = 32;
 
 pub(crate) fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 pub(crate) struct Sharded<K, V> {
@@ -28,10 +26,7 @@ impl<K: Hash + Eq, V> Sharded<K, V> {
     }
 
     pub(crate) fn with_shards(count: usize) -> Self {
-        Self {
-            hasher: RandomState::new(),
-            shards: (0..count).map(|_| Mutex::new(HashMap::new())).collect(),
-        }
+        Self { hasher: RandomState::new(), shards: (0..count).map(|_| Mutex::new(HashMap::new())).collect() }
     }
 
     /// The shard that owns `key`, locked.

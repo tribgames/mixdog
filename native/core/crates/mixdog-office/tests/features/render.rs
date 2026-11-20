@@ -1,6 +1,5 @@
 //! The render preview: what is exported, drawn and reused, and when a held preview or its approval stops being valid.
 
-
 use std::cell::{Cell, RefCell};
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -194,7 +193,9 @@ fn deck(texts: &[&str]) -> Package {
         parts.push((format!("ppt/slides/slide{number}.xml"), format!("<p:sld><p:txBody>{text}</p:txBody></p:sld>")));
         parts.push((
             format!("ppt/slides/_rels/slide{number}.xml.rels"),
-            format!("<Relationships><Relationship Id=\"rId1\" Type=\"{relationships}/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/></Relationships>"),
+            format!(
+                "<Relationships><Relationship Id=\"rId1\" Type=\"{relationships}/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/></Relationships>"
+            ),
         ));
     }
     parts.push(("ppt/presentation.xml".to_owned(), format!("<p:presentation xmlns:r=\"{relationships}\"><p:sldIdLst>{ids}</p:sldIdLst></p:presentation>")));
@@ -417,7 +418,10 @@ fn the_result_names_its_renderer_and_keeps_its_key_order() {
     let portable = draw(&engine, &handle, json!({}), dir.path()).expect("portable");
     assert_eq!(portable["renderer"], json!("LibreOffice"));
     let keys: Vec<&str> = portable.as_object().expect("object").keys().map(String::as_str).collect();
-    assert_eq!(keys, ["session", "backend", "output", "format", "renderer", "pageCount", "visualCoverage", "images", "_images", "reviewToken", "exportAvailable"]);
+    assert_eq!(
+        keys,
+        ["session", "backend", "output", "format", "renderer", "pageCount", "visualCoverage", "images", "_images", "reviewToken", "exportAvailable"]
+    );
     assert!(portable["images"][0].get("data").is_none() && portable["_images"][0].get("data").is_some());
     assert_eq!(portable["output"], json!(dir.path().join("a.docx.mixdog-preview.pdf").to_string_lossy().into_owned()));
     for (format, name) in [("docx", "Microsoft Word"), ("xlsx", "Microsoft Excel"), ("pptx", "Microsoft PowerPoint")] {

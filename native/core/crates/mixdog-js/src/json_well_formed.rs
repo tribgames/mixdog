@@ -281,12 +281,8 @@ mod tests {
         let r = "\u{fffd}";
         let mut found = lone_surrogates(r#"{"a\ud800":1,"a\udc00":2,"b\ud800":3,"c\ufffd":4,"c\udc00":5}"#);
         found.sort();
-        let mut expected = vec![
-            LoneAt::MergedKey(format!("/a{r}")),
-            LoneAt::MergedKey(format!("/a{r}")),
-            LoneAt::Key(format!("/b{r}")),
-            LoneAt::MergedKey(format!("/c{r}")),
-        ];
+        let mut expected =
+            vec![LoneAt::MergedKey(format!("/a{r}")), LoneAt::MergedKey(format!("/a{r}")), LoneAt::Key(format!("/b{r}")), LoneAt::MergedKey(format!("/c{r}"))];
         expected.sort();
         assert_eq!(found, expected);
     }
@@ -299,11 +295,8 @@ mod tests {
         let text = format!(r#"{{"{e}":{{"x":"\ud800"}},"a{e}":{{"\udc00":1}}}}"#);
         let mut found = lone_surrogates(&text);
         found.sort();
-        let mut expected = vec![
-            LoneAt::Key(format!("/a{e}/\u{fffd}")),
-            LoneAt::Value(format!("/{e}/x")),
-            LoneAt::Unit { pointer: format!("/{e}/x"), at: 0, unit: 0xd800 },
-        ];
+        let mut expected =
+            vec![LoneAt::Key(format!("/a{e}/\u{fffd}")), LoneAt::Value(format!("/{e}/x")), LoneAt::Unit { pointer: format!("/{e}/x"), at: 0, unit: 0xd800 }];
         expected.sort();
         assert_eq!(found, expected);
     }

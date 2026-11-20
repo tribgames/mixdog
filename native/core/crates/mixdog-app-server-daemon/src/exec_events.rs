@@ -33,9 +33,9 @@ use mixdog_rt::TaskClass;
 use mixdog_rt::time::Instant;
 use mixdog_spawn::tasks::HostShellJobs;
 use mixdog_spawn::tasks::ShellJobsState;
-use mixdog_tools::orch::util::PortError;
 use mixdog_tools::exec::ShellControl;
 use mixdog_tools::exec::TaskNotifier;
+use mixdog_tools::orch::util::PortError;
 use tokio::sync::mpsc;
 use tokio::sync::watch;
 use tokio_util::sync::CancellationToken;
@@ -144,7 +144,12 @@ impl<T> Counted<T> {
 }
 
 /// Each completion goes to its owner's session, and its task id to `delivered` once the owner took it.
-async fn completions(mut finished: mpsc::Receiver<Finished>, directory: Arc<SessionDirectory>, delivered: mpsc::UnboundedSender<String>, stop: CancellationToken) {
+async fn completions(
+    mut finished: mpsc::Receiver<Finished>,
+    directory: Arc<SessionDirectory>,
+    delivered: mpsc::UnboundedSender<String>,
+    stop: CancellationToken,
+) {
     loop {
         let next = tokio::select! {
             () = stop.cancelled() => return,
@@ -320,7 +325,12 @@ mod tests {
         async fn header(&self, _: &ThreadId) -> Result<mixdog_store::schema::record::Header, mixdog_tools::orch::util::PortError> {
             unimplemented!()
         }
-        async fn patch_header(&self, _: &ThreadId, _: serde_json::Map<String, serde_json::Value>, _: Vec<String>) -> Result<(), mixdog_tools::orch::util::PortError> {
+        async fn patch_header(
+            &self,
+            _: &ThreadId,
+            _: serde_json::Map<String, serde_json::Value>,
+            _: Vec<String>,
+        ) -> Result<(), mixdog_tools::orch::util::PortError> {
             unimplemented!()
         }
         async fn patch_header_if(
@@ -358,7 +368,6 @@ mod tests {
         let value: serde_json::Value = serde_json::from_slice(bytes).unwrap();
         assert_eq!(value, serde_json::json!({ "count": 0, "elapsedLabel": "", "jobs": [], "orphaned": [] }));
     }
-
 
     /// A strip whose publish failed is published again on the next pass, though the strip itself did not change.
     #[tokio::test]

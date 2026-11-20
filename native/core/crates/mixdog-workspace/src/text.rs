@@ -30,13 +30,9 @@ pub struct Decoded {
 }
 
 fn utf16(bytes: &[u8], be: bool) -> (String, bool) {
-    let units: Vec<u16> = bytes
-        .as_chunks::<2>().0.iter()
-        .map(|p| if be { u16::from_be_bytes([p[0], p[1]]) } else { u16::from_le_bytes([p[0], p[1]]) })
-        .collect();
-    let text: String = char::decode_utf16(units.iter().copied())
-        .map(|r| r.unwrap_or('\u{fffd}'))
-        .collect();
+    let units: Vec<u16> =
+        bytes.as_chunks::<2>().0.iter().map(|p| if be { u16::from_be_bytes([p[0], p[1]]) } else { u16::from_le_bytes([p[0], p[1]]) }).collect();
+    let text: String = char::decode_utf16(units.iter().copied()).map(|r| r.unwrap_or('\u{fffd}')).collect();
     let lossless = bytes.len().is_multiple_of(2) && String::from_utf16(&units).is_ok();
     (text, lossless)
 }

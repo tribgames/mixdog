@@ -14,18 +14,17 @@ use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use mixdog_app_protocol::v2::connections::SshFailureKind;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::io::{AsyncRead, AsyncWrite};
 
 use crate::bootstrap::{
-    bootstrap, parse_remote_discovery, parse_remote_report, BootstrapOptions, BootstrapPhase, ServerBinary, ServerIdentity, ServerPayloads,
+    BootstrapOptions, BootstrapPhase, ServerBinary, ServerIdentity, ServerPayloads, bootstrap, parse_remote_discovery, parse_remote_report,
 };
-use crate::cleanup::{cleanup_server, CleanupOptions, CleanupProgress};
-use crate::command::{parse_ssh_target, FailureClass, SshError, SshTarget};
-use crate::connect_failure::{failure_of, login_key_commands, ConnectError};
+use crate::cleanup::{CleanupOptions, CleanupProgress, cleanup_server};
+use crate::command::{FailureClass, SshError, SshTarget, parse_ssh_target};
+use crate::connect_failure::{ConnectError, failure_of, login_key_commands};
 use crate::context::{
-    AttemptContext, ChildExit, ConfigFiles, ModelLogin, Platform, PreparedSpawn, SshChild, SshConfigFiles, SshEnv, SshSpawner, ToolOutput,
-    ToolRunner,
+    AttemptContext, ChildExit, ConfigFiles, ModelLogin, Platform, PreparedSpawn, SshChild, SshConfigFiles, SshEnv, SshSpawner, ToolOutput, ToolRunner,
 };
 use crate::diagnostics::{DiagnosticKind, Diagnostics};
 use crate::install_wire::{RemoteBootstrapError, ServerPlatform};
@@ -209,9 +208,10 @@ impl ServerPayloads for FakePayloads {
 
     fn binary(&self, platform: ServerPlatform) -> Result<ServerBinary, RemoteBootstrapError> {
         let key = platform.key();
-        let archive = self.bundles.get(&key).ok_or_else(|| {
-            RemoteBootstrapError::from_wire("local-payload", format!("This desktop ships no Mixdog server runtime for {key}."), None)
-        })?;
+        let archive = self
+            .bundles
+            .get(&key)
+            .ok_or_else(|| RemoteBootstrapError::from_wire("local-payload", format!("This desktop ships no Mixdog server runtime for {key}."), None))?;
         let (sha256, bundle_sha256) = self.digests(&key);
         Ok(ServerBinary { sha256, bundle_sha256, archive: archive.clone() })
     }
@@ -414,7 +414,10 @@ async fn upload_only_when_missing() {
     assert_eq!(ssh.call_count(), 2);
     let ensure = ssh.program_args(1);
     let (sha256, bundle_sha256) = release.digests("linux-x64");
-    assert_eq!((&ensure["mode"], &ensure["upload"], &ensure["sha256"], &ensure["bundleSha256"]), (&json!("ensure"), &json!(true), &json!(sha256), &json!(bundle_sha256)));
+    assert_eq!(
+        (&ensure["mode"], &ensure["upload"], &ensure["sha256"], &ensure["bundleSha256"]),
+        (&json!("ensure"), &json!(true), &json!(sha256), &json!(bundle_sha256))
+    );
     assert_eq!(ssh.input(1), b"bundle linux-x64\n");
     assert!(ssh.input(0).is_empty());
     assert!(report.started);
@@ -450,7 +453,8 @@ async fn the_attempt_writes_what_it_found_and_did_into_the_servers_log() {
     ]);
     let context = AttemptContext { diagnostics_key: Some("log-ring".to_owned()), ..AttemptContext::default() };
     run_bootstrap(&env, &context, "log-ring", None, &release, &Phases::default()).await.unwrap();
-    let lines: Vec<String> = env.diagnostics.entries("log-ring").into_iter().filter(|entry| entry.kind == DiagnosticKind::Log).map(|entry| entry.text).collect();
+    let lines: Vec<String> =
+        env.diagnostics.entries("log-ring").into_iter().filter(|entry| entry.kind == DiagnosticKind::Log).map(|entry| entry.text).collect();
     assert_eq!(
         lines,
         [
@@ -479,14 +483,8 @@ async fn a_confirmation_sends_exactly_the_token_of_the_listing_the_user_saw_once
     let drain = json!({ "drainId": "d1", "confirmToken": "tok-1",
         "running": [{ "kind": "turn", "threadId": "t1", "turnId": "u1", "title": "fix the build" }] });
     let busy = error_reply("daemon-busy-other-version", "The Mixdog core (1.4.5) is running 1 turn on the server.", Some(drain));
-    let (env, ssh) = world(vec![
-        result(older()),
-        busy,
-        result(older()),
-        result(json!({ "started": true })),
-        result(older()),
-        result(json!({ "started": true })),
-    ]);
+    let (env, ssh) =
+        world(vec![result(older()), busy, result(older()), result(json!({ "started": true })), result(older()), result(json!({ "started": true }))]);
     let release = all_platforms();
     let plain = AttemptContext::default();
     let confirming = AttemptContext { force_restart: true, ..Default::default() };
@@ -559,12 +557,19 @@ async fn a_windows_server_is_an_unsupported_platform() {
     let reply = Reply { stdout: String::new(), stderr: "line1\nline2\n".to_owned(), code: 2 };
     let (env, _ssh) = world(vec![reply]);
     let error = bootstrap_error(run_bootstrap(&env, &AttemptContext::default(), "odd-shell", None, &all_platforms(), &Phases::default()).await);
-    assert_eq!((error.code.as_str(), error.message.as_str()), ("remote-shell", "The install check on the server stopped unexpectedly (status 2). Try connecting again.\nline1\nline2"));
+    assert_eq!(
+        (error.code.as_str(), error.message.as_str()),
+        ("remote-shell", "The install check on the server stopped unexpectedly (status 2). Try connecting again.\nline1\nline2")
+    );
 }
 
 #[tokio::test]
 async fn a_server_platform_with_no_shipped_runtime_is_refused_before_anything_is_sent() {
-    let reply = Reply { stdout: "MIXDOG_PLATFORM Linux aarch64|glibc\nMIXDOG_RESULT {\"home\":\"/h\",\"installed\":false}\n".to_owned(), stderr: String::new(), code: 0 };
+    let reply = Reply {
+        stdout: "MIXDOG_PLATFORM Linux aarch64|glibc\nMIXDOG_RESULT {\"home\":\"/h\",\"installed\":false}\n".to_owned(),
+        stderr: String::new(),
+        code: 0,
+    };
     let (env, ssh) = world(vec![reply]);
     let lonely = payloads(&["linux-x64"]);
     let error = bootstrap_error(run_bootstrap(&env, &AttemptContext::default(), "lonely", None, &lonely, &Phases::default()).await);
@@ -585,8 +590,14 @@ async fn ssh_failures_pass_through_as_ssh_errors() {
 fn terminal_classification_covers_refusals_and_mismatches_not_transient_trouble() {
     let terminal = |code: &str| ConnectError::Bootstrap(RemoteBootstrapError::from_wire(code, code, None)).is_terminal();
     for code in [
-        "client-outdated", "daemon-model-login", "protocol-mismatch", "unsupported-platform", "daemon-busy-other-version", "install-locked",
-        "port-unavailable", "local-payload",
+        "client-outdated",
+        "daemon-model-login",
+        "protocol-mismatch",
+        "unsupported-platform",
+        "daemon-busy-other-version",
+        "install-locked",
+        "port-unavailable",
+        "local-payload",
     ] {
         assert!(terminal(code), "{code}");
     }
@@ -708,10 +719,7 @@ fn a_refused_login_becomes_the_login_key_guidance_with_the_powershell_variant_on
     assert!(linux.settings_required);
     let windows = failure_of(&refused, &target("root@123.45.67.89"), Platform::Windows);
     let SshFailureKind::Auth { register, .. } = windows.kind else { panic!("expected the login guidance") };
-    assert_eq!(
-        register,
-        r#"Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub" | ssh root@123.45.67.89 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys""#
-    );
+    assert_eq!(register, r#"Get-Content "$env:USERPROFILE\.ssh\id_ed25519.pub" | ssh root@123.45.67.89 "mkdir -p ~/.ssh && cat >> ~/.ssh/authorized_keys""#);
     assert_eq!(login_key_commands(&target("root@host:2202"), LINUX).1, "ssh-copy-id -p 2202 root@host");
 }
 
@@ -735,19 +743,20 @@ fn strict_checking_a_key_never_seen_is_a_plain_failure_a_changed_one_still_block
         "No ED25519 host key is known for 123.45.67.89 and you have requested strict checking.\nHost key verification failed.",
     );
     assert!(matches!(view(&unknown), SshFailureKind::Failed { .. }));
-    let changed = ssh_error(
-        "x",
-        FailureClass::Terminal,
-        "Host key for 123.45.67.89 has changed and you have requested strict checking.\nHost key verification failed.",
-    );
+    let changed =
+        ssh_error("x", FailureClass::Terminal, "Host key for 123.45.67.89 has changed and you have requested strict checking.\nHost key verification failed.");
     assert_eq!(view(&changed), SshFailureKind::HostKeyChanged { previous: None, current: None });
 }
 
 #[test]
 fn a_daemon_outside_proxy_mode_yields_its_pid_other_codes_stay_generic() {
-    let running = coded("daemon-not-proxy", "A Mixdog daemon (pid 1667) is already running on the server without desktop model proxy mode; stop it (kill 1667).");
+    let running =
+        coded("daemon-not-proxy", "A Mixdog daemon (pid 1667) is already running on the server without desktop model proxy mode; stop it (kill 1667).");
     assert_eq!(view(&running), SshFailureKind::DaemonRunning { pid: 1667 });
-    assert_eq!(view(&coded("daemon-not-proxy", "A Mixdog daemon is already running.")), SshFailureKind::Failed { message: "A Mixdog daemon is already running.".to_owned() });
+    assert_eq!(
+        view(&coded("daemon-not-proxy", "A Mixdog daemon is already running.")),
+        SshFailureKind::Failed { message: "A Mixdog daemon is already running.".to_owned() }
+    );
     assert_eq!(view(&coded("upload", "Cannot write /x on the server.")), SshFailureKind::Failed { message: "Cannot write /x on the server.".to_owned() });
 }
 
@@ -755,7 +764,10 @@ fn a_daemon_outside_proxy_mode_yields_its_pid_other_codes_stay_generic() {
 fn the_server_installs_error_codes_each_get_their_own_view() {
     let message = |text: &str| text.to_owned();
     let of = |code: &str, text: &str| view(&coded(code, text));
-    assert_eq!(of("unsupported-platform", "Windows servers are not supported."), SshFailureKind::UnsupportedPlatform { message: message("Windows servers are not supported.") });
+    assert_eq!(
+        of("unsupported-platform", "Windows servers are not supported."),
+        SshFailureKind::UnsupportedPlatform { message: message("Windows servers are not supported.") }
+    );
     assert_eq!(of("install-failed", "digest"), SshFailureKind::InstallFailed { message: message("digest") });
     assert_eq!(of("local-payload", "no runtime"), SshFailureKind::InstallFailed { message: message("no runtime") });
     assert_eq!(of("install-locked", "locked"), SshFailureKind::InstallLocked);
@@ -794,8 +806,17 @@ fn a_missing_openssh_client_gets_the_windows_install_command_other_systems_only_
 fn every_failure_view_carries_the_error_code_the_bootstrap_code_or_the_views_own_name() {
     let code = |error: ConnectError| failure_of(&error, &target("root@h"), LINUX).code;
     for name in [
-        "install-failed", "install-locked", "daemon-busy-other-version", "port-unavailable", "protocol-mismatch", "internal", "remote-shell",
-        "remote-home", "client-outdated", "upload", "daemon-not-proxy",
+        "install-failed",
+        "install-locked",
+        "daemon-busy-other-version",
+        "port-unavailable",
+        "protocol-mismatch",
+        "internal",
+        "remote-shell",
+        "remote-home",
+        "client-outdated",
+        "upload",
+        "daemon-not-proxy",
     ] {
         assert_eq!(code(coded(name, "pid 5")), name);
     }

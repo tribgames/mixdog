@@ -24,15 +24,10 @@ pub(crate) struct HistoryState {
 
 pub(crate) fn read_state(conn: &Connection) -> Result<HistoryState> {
     let read = |key: &str| -> Result<f64> {
-        let value: Option<String> = conn
-            .query_row("SELECT value FROM metadata WHERE key=?1", [key], |r| r.get(0))
-            .optional()?;
+        let value: Option<String> = conn.query_row("SELECT value FROM metadata WHERE key=?1", [key], |r| r.get(0)).optional()?;
         Ok(value.map_or(0.0, |value| mixdog_js::string_to_number(&value)))
     };
-    Ok(HistoryState {
-        live_since: read("liveSince")?,
-        imported_through: read("importedThrough")?,
-    })
+    Ok(HistoryState { live_since: read("liveSince")?, imported_through: read("importedThrough")? })
 }
 
 /// One file the import read, as the receipt records it.
@@ -96,8 +91,7 @@ pub(crate) struct HistoryOutcome {
 }
 
 fn set_metadata(tx: &Transaction, key: &str, value: &str) -> Result<()> {
-    tx.prepare_cached("INSERT INTO metadata VALUES (?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value")?
-        .execute(params![key, value])?;
+    tx.prepare_cached("INSERT INTO metadata VALUES (?1,?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value")?.execute(params![key, value])?;
     Ok(())
 }
 
@@ -111,9 +105,7 @@ impl HistoryWrite {
         let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
         let mut days = 0;
         for (day, document) in &self.legacy_days {
-            days += tx
-                .prepare_cached("INSERT OR IGNORE INTO legacy_days VALUES (?1,?2)")?
-                .execute(params![day, document])?;
+            days += tx.prepare_cached("INSERT OR IGNORE INTO legacy_days VALUES (?1,?2)")?.execute(params![day, document])?;
         }
         if let Some(through) = &self.through {
             set_metadata(&tx, "importedThrough", through)?;
@@ -122,10 +114,6 @@ impl HistoryWrite {
             set_metadata(&tx, "importReceipt", &receipt.json(self.previously_inserted + inserted))?;
         }
         tx.commit()?;
-        Ok(HistoryOutcome {
-            changed: inserted > 0 || days > 0,
-            inserted,
-            marked: self.through.is_some(),
-        })
+        Ok(HistoryOutcome { changed: inserted > 0 || days > 0, inserted, marked: self.through.is_some() })
     }
 }

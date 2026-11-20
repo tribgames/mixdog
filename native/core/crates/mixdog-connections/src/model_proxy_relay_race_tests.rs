@@ -8,8 +8,8 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::model_proxy::{ProxyAnswer, ProxyCall, ProxyEvent};
 use mixdog_app_server_client::api::{
-    BlobRef, CallOptions, ClientError, ClientEvent, ConnectionStatus, FoldStore, InitializeResponse, Json, ReplyAddress, ResumeWindow,
-    ServerRequest, ServerRequestAnswer, ThreadId, ThreadResumeResponse,
+    BlobRef, CallOptions, ClientError, ClientEvent, ConnectionStatus, FoldStore, InitializeResponse, Json, ReplyAddress, ResumeWindow, ServerRequest,
+    ServerRequestAnswer, ThreadId, ThreadResumeResponse,
 };
 use mixdog_app_server_client::mock::{MockConn, MockNetwork};
 use mixdog_app_server_client::{AttachmentId, Clock, ConnectOptions, DEFAULT_LADDER, InitializeCapabilities, ProtocolClient, Target, connect};
@@ -19,10 +19,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{CallOutcome, LocalModelProxy, ModelProxyRelay, ProxyEventSink};
 
-const OPTIONS: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../../../packages/protocol-client/conformance/options.json"
-));
+const OPTIONS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/protocol-client/conformance/options.json"));
 
 struct PausedClock;
 

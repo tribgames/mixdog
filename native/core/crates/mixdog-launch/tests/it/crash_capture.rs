@@ -1,11 +1,7 @@
 //! The launcher's crash capture of a core it starts: where captures live, the files and the JSON sidecar of one boot as the boot
 //! goes (spawned, tracked, ready, exited, failed to start), what is mirrored into the launcher's log, the failure summary a launcher
 //! shows, and what retention keeps. The clock is scripted and nothing here starts a process.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the test lays out folders and reads what the capture left on disk"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the test lays out folders and reads what the capture left on disk")]
 
 use std::ffi::OsString;
 use std::io::Write;
@@ -74,7 +70,8 @@ impl Boot {
     }
 
     fn files(&self) -> Vec<String> {
-        let mut names: Vec<String> = std::fs::read_dir(self.dir.path()).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+        let mut names: Vec<String> =
+            std::fs::read_dir(self.dir.path()).unwrap().flatten().map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
         names.sort();
         names
     }
@@ -107,7 +104,8 @@ impl Boot {
 #[test]
 fn captures_live_in_the_daemon_crash_folder_of_the_data_folder() {
     assert_eq!(capture_dir(Path::new("data")), Path::new("data").join("daemon-crash"));
-    let env = |vars: &'static [(&'static str, &'static str)]| move |name: &str| vars.iter().find(|(key, _)| *key == name).map(|(_, value)| OsString::from(*value));
+    let env =
+        |vars: &'static [(&'static str, &'static str)]| move |name: &str| vars.iter().find(|(key, _)| *key == name).map(|(_, value)| OsString::from(*value));
     // The data folder: MIXDOG_DATA_DIR, else `data` under MIXDOG_HOME; an empty variable counts as not set.
     assert_eq!(data_dir_of(&env(&[("MIXDOG_DATA_DIR", "x")]), None), Some(PathBuf::from("x")));
     assert_eq!(data_dir_of(&env(&[("MIXDOG_HOME", "h")]), None), Some(Path::new("h").join("data")));
@@ -143,7 +141,14 @@ fn a_boot_that_serves_and_then_crashes_leaves_a_file_of_what_it_said_and_a_sidec
 
     let ended = boot.sidecar();
     assert_eq!(
-        (ended["exitedAt"].clone(), ended["exitCode"].clone(), ended["exitSignal"].clone(), ended["uptimeMs"].clone(), ended["stderrBytes"].clone(), ended["exitReason"].clone()),
+        (
+            ended["exitedAt"].clone(),
+            ended["exitCode"].clone(),
+            ended["exitSignal"].clone(),
+            ended["uptimeMs"].clone(),
+            ended["stderrBytes"].clone(),
+            ended["exitReason"].clone()
+        ),
         (json!("2026-11-14T03:04:06.628Z"), json!(1), Value::Null, json!(950), json!(36), json!("exited with code 1"))
     );
     assert_eq!(
@@ -158,7 +163,10 @@ fn a_boot_that_serves_and_then_crashes_leaves_a_file_of_what_it_said_and_a_sidec
     );
     assert_eq!(boot.files(), [format!("{STEM}.err.log"), format!("{STEM}.json")], "a crash keeps its file");
     let summary = boot.summary();
-    assert_eq!((summary["pid"].clone(), summary["ready"].clone(), summary["exitReason"].clone(), summary["uptimeMs"].clone()), (json!(100), json!(true), json!("exited with code 1"), json!(950)));
+    assert_eq!(
+        (summary["pid"].clone(), summary["ready"].clone(), summary["exitReason"].clone(), summary["uptimeMs"].clone()),
+        (json!(100), json!(true), json!("exited with code 1"), json!(950))
+    );
     assert_eq!((summary["stderrErrorLine"].clone(), summary["stderrLastLine"].clone()), (json!("TypeError: boom"), json!("tail line")));
     assert_eq!(summary["stderrPath"], json!(format!("{STEM}.err.log")));
 }
@@ -177,7 +185,10 @@ fn an_exit_is_worded_by_how_it_happened() {
     assert_eq!(words(Some(3), None), (json!("exited with code 3"), Value::Null));
     assert_eq!(words(None, Some("SIGKILL")), (json!("killed by signal SIGKILL"), json!("SIGKILL")));
     // Windows reports a process ended by its parent's job with this status.
-    assert_eq!(words(Some(1_073_807_364), None).0, json!("terminated externally (DBG_TERMINATE_PROCESS 0x40010004: process-tree/job termination by its parent)"));
+    assert_eq!(
+        words(Some(1_073_807_364), None).0,
+        json!("terminated externally (DBG_TERMINATE_PROCESS 0x40010004: process-tree/job termination by its parent)")
+    );
 }
 
 #[test]
@@ -187,7 +198,13 @@ fn a_contender_that_lost_the_claim_and_said_nothing_leaves_no_file_but_a_core_th
     contender.after(20);
     contender.capture.note_exit(Some(0), None);
     assert_eq!(contender.files(), Vec::<String>::new(), "nothing is kept for a clean exit of a boot that never served and said nothing");
-    assert_eq!(contender.log(), [format!("daemon crash capture pid=101 file={}", contender.err_log()), "daemon exit pid=101 code=0 signal=- ready=0 uptimeMs=20 stderrBytes=0".to_owned()]);
+    assert_eq!(
+        contender.log(),
+        [
+            format!("daemon crash capture pid=101 file={}", contender.err_log()),
+            "daemon exit pid=101 code=0 signal=- ready=0 uptimeMs=20 stderrBytes=0".to_owned()
+        ]
+    );
     assert_eq!(contender.summary()["stderrPath"], Value::Null);
 
     let served = Boot::begin();
@@ -213,7 +230,10 @@ fn a_core_that_cannot_be_started_is_recorded_as_a_failed_start_with_its_message_
     silent.capture.note_spawn_error("spawn mixdogd ENOENT");
     assert_eq!(silent.files(), [format!("{STEM}.json")], "no bytes were written: no capture file");
     let record = silent.sidecar();
-    assert_eq!((record["error"].clone(), record["exitedAt"].clone(), record["pid"].clone(), record["exitCode"].clone()), (json!("spawn mixdogd ENOENT"), json!("2026-11-14T03:04:05.683Z"), Value::Null, Value::Null));
+    assert_eq!(
+        (record["error"].clone(), record["exitedAt"].clone(), record["pid"].clone(), record["exitCode"].clone()),
+        (json!("spawn mixdogd ENOENT"), json!("2026-11-14T03:04:05.683Z"), Value::Null, Value::Null)
+    );
     let summary = silent.summary();
     assert_eq!((summary["error"].clone(), summary["pid"].clone(), summary["stderrPath"].clone()), (json!("spawn mixdogd ENOENT"), Value::Null, Value::Null));
 
@@ -240,7 +260,10 @@ fn what_the_core_writes_about_its_own_exit_is_kept_and_its_reason_is_the_one_rec
     boot.capture.note_exit(Some(2), None);
     let ended = boot.sidecar();
     assert_eq!(ended["daemonExit"], record["daemonExit"], "the core's own block survives the launcher's update");
-    assert_eq!((ended["exitReason"].clone(), ended["exitCode"].clone(), ended["exitedAt"].clone()), (json!("shutdown: fatal boot error (exited with code 2)"), json!(2), json!("2026-11-14T03:04:06.678Z")));
+    assert_eq!(
+        (ended["exitReason"].clone(), ended["exitCode"].clone(), ended["exitedAt"].clone()),
+        (json!("shutdown: fatal boot error (exited with code 2)"), json!(2), json!("2026-11-14T03:04:06.678Z"))
+    );
 }
 
 #[test]
@@ -256,7 +279,10 @@ fn a_second_ready_or_exit_of_the_same_boot_changes_nothing() {
     boot.after(40);
     boot.capture.note_exit(Some(4), None);
     let record = boot.sidecar();
-    assert_eq!((record["readyAt"].clone(), record["exitCode"].clone(), record["exitedAt"].clone()), (json!("2026-11-14T03:04:05.688Z"), json!(3), json!("2026-11-14T03:04:05.708Z")));
+    assert_eq!(
+        (record["readyAt"].clone(), record["exitCode"].clone(), record["exitedAt"].clone()),
+        (json!("2026-11-14T03:04:05.688Z"), json!(3), json!("2026-11-14T03:04:05.708Z"))
+    );
 }
 
 #[test]
@@ -315,7 +341,6 @@ fn lay_out(dir: &Path, stem: &str, record: Option<&str>, raw: usize, age_secs: u
         stamp(dir.join(format!("{stem}.json")));
     }
 }
-
 
 const EXITED: &str = r#"{"pid": 1, "exitedAt": "2026-11-13T00:00:00.000Z"}"#;
 

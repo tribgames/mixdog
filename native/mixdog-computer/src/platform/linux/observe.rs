@@ -3,26 +3,19 @@
 //! Without X11, the session's idle clock is watched and attributed by time.
 
 use super::x11::connect;
-use crate::observer::{now_ms, Shared};
+use crate::observer::{Shared, now_ms};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::time::Duration;
 use x11rb::connection::Connection;
-use x11rb::protocol::xinput::{self, ConnectionExt as _, XIEventMask};
 use x11rb::protocol::Event;
+use x11rb::protocol::xinput::{self, ConnectionExt as _, XIEventMask};
 
 fn xtest_devices(conn: &impl Connection) -> HashSet<u16> {
     conn.xinput_xi_query_device(xinput::Device::ALL)
         .ok()
         .and_then(|cookie| cookie.reply().ok())
-        .map(|reply| {
-            reply
-                .infos
-                .iter()
-                .filter(|info| String::from_utf8_lossy(&info.name).contains("XTEST"))
-                .map(|info| info.deviceid)
-                .collect()
-        })
+        .map(|reply| reply.infos.iter().filter(|info| String::from_utf8_lossy(&info.name).contains("XTEST")).map(|info| info.deviceid).collect())
         .unwrap_or_default()
 }
 
@@ -41,31 +34,17 @@ pub fn start_x11(shared: Arc<Shared>) {
 
 fn watch_raw(shared: &Shared) -> Result<(), String> {
     let (conn, root) = connect()?;
-    let version = conn
-        .xinput_xi_query_version(2, 2)
-        .map_err(|error| error.to_string())?
-        .reply()
-        .map_err(|error| error.to_string())?;
+    let version = conn.xinput_xi_query_version(2, 2).map_err(|error| error.to_string())?.reply().map_err(|error| error.to_string())?;
     if version.major_version < 2 {
         return Err("XInput2 is not available".into());
     }
-    let raw = XIEventMask::RAW_KEY_PRESS
-        | XIEventMask::RAW_KEY_RELEASE
-        | XIEventMask::RAW_BUTTON_PRESS
-        | XIEventMask::RAW_BUTTON_RELEASE
-        | XIEventMask::RAW_MOTION;
+    let raw =
+        XIEventMask::RAW_KEY_PRESS | XIEventMask::RAW_KEY_RELEASE | XIEventMask::RAW_BUTTON_PRESS | XIEventMask::RAW_BUTTON_RELEASE | XIEventMask::RAW_MOTION;
     let masks = [
-        xinput::EventMask {
-            deviceid: xinput::Device::ALL_MASTER.into(),
-            mask: vec![raw],
-        },
-        xinput::EventMask {
-            deviceid: xinput::Device::ALL.into(),
-            mask: vec![XIEventMask::HIERARCHY],
-        },
+        xinput::EventMask { deviceid: xinput::Device::ALL_MASTER.into(), mask: vec![raw] },
+        xinput::EventMask { deviceid: xinput::Device::ALL.into(), mask: vec![XIEventMask::HIERARCHY] },
     ];
-    conn.xinput_xi_select_events(root, &masks)
-        .map_err(|error| error.to_string())?;
+    conn.xinput_xi_select_events(root, &masks).map_err(|error| error.to_string())?;
     conn.flush().map_err(|error| error.to_string())?;
     let mut xtest = xtest_devices(&conn);
     shared.set_ready(true);
@@ -73,9 +52,7 @@ fn watch_raw(shared: &Shared) -> Result<(), String> {
         let event = conn.wait_for_event().map_err(|error| error.to_string())?;
         let source = match &event {
             Event::XinputRawKeyPress(raw) | Event::XinputRawKeyRelease(raw) => Some(raw.sourceid),
-            Event::XinputRawButtonPress(raw)
-            | Event::XinputRawButtonRelease(raw)
-            | Event::XinputRawMotion(raw) => Some(raw.sourceid),
+            Event::XinputRawButtonPress(raw) | Event::XinputRawButtonRelease(raw) | Event::XinputRawMotion(raw) => Some(raw.sourceid),
             Event::XinputHierarchy(_) => {
                 xtest = xtest_devices(&conn);
                 None
@@ -120,12 +97,7 @@ fn watch_idle(shared: &Shared, idle_ms: impl Fn() -> Option<u64>) {
 fn watch_screensaver(shared: &Shared) {
     use x11rb::protocol::screensaver::ConnectionExt as _;
     let Ok((conn, root)) = connect() else { return };
-    watch_idle(shared, || {
-        conn.screensaver_query_info(root)
-            .ok()
-            .and_then(|cookie| cookie.reply().ok())
-            .map(|info| info.ms_since_user_input as u64)
-    });
+    watch_idle(shared, || conn.screensaver_query_info(root).ok().and_then(|cookie| cookie.reply().ok()).map(|info| info.ms_since_user_input as u64));
 }
 
 /// A Wayland session exposes its idle clock through the compositor: Mutter's
@@ -159,20 +131,10 @@ pub fn start_session_idle(shared: Arc<Shared>) {
                         &(),
                     )
                     .ok()?;
-                reply
-                    .body()
-                    .deserialize::<u32>()
-                    .ok()
-                    .map(|seconds| seconds as u64 * 1000)
+                reply.body().deserialize::<u32>().ok().map(|seconds| seconds as u64 * 1000)
             };
             let use_mutter = mutter(&bus).is_some();
-            watch_idle(&shared, || {
-                if use_mutter {
-                    mutter(&bus)
-                } else {
-                    freedesktop(&bus)
-                }
-            });
+            watch_idle(&shared, || if use_mutter { mutter(&bus) } else { freedesktop(&bus) });
         })
         .ok();
 }

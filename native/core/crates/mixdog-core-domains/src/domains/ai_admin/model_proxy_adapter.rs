@@ -46,7 +46,8 @@ impl ProxiedBuilder {
 #[async_trait]
 impl ProviderBuilder for ProxiedBuilder {
     async fn build(&self, name: &str, config: &Value) -> Result<Arc<dyn p::ProviderAdapter>, String> {
-        let traits = config.get("modelProxy").cloned().map(serde_json::from_value::<w::ProxyTraits>).transpose().map_err(|e| e.to_string())?.unwrap_or_default();
+        let traits =
+            config.get("modelProxy").cloned().map(serde_json::from_value::<w::ProxyTraits>).transpose().map_err(|e| e.to_string())?.unwrap_or_default();
         Ok(Arc::new(ProxiedAdapter::new(name, traits, self.transport.clone(), self.attachments.clone())))
     }
 
@@ -128,7 +129,16 @@ impl p::ProviderAdapter for ProxiedAdapter {
             let sent = remote_send(transport.as_ref(), attachments.as_ref(), &provider, &request, &mut sink, &given_up).await;
             let _ = tell.send(Heard::End(sent));
         }));
-        let mut stream = ProxiedStream { heard, attempt: Held::default(), out: VecDeque::new(), end: None, left: None, terminal_out: false, finished: false, _call: cancel.drop_guard() };
+        let mut stream = ProxiedStream {
+            heard,
+            attempt: Held::default(),
+            out: VecDeque::new(),
+            end: None,
+            left: None,
+            terminal_out: false,
+            finished: false,
+            _call: cancel.drop_guard(),
+        };
         while stream.out.is_empty() && stream.end.is_none() {
             match stream.heard.recv().await {
                 Some(Heard::End(Err(error))) if stream.attempt.events.is_empty() => return Err(failure(error)),
@@ -182,7 +192,11 @@ impl p::WireRouting for ProxyRouting {
         if self.single.lock().unwrap_or_else(PoisonError::into_inner).contains(model) {
             return Ok(None);
         }
-        let call = w::ProxyCall::ResolveWireRoute { provider: self.provider.clone(), model: model.to_owned(), context: w::ProxyRouteContext { agent: context.agent, legacy: context.legacy } };
+        let call = w::ProxyCall::ResolveWireRoute {
+            provider: self.provider.clone(),
+            model: model.to_owned(),
+            context: w::ProxyRouteContext { agent: context.agent, legacy: context.legacy },
+        };
         let call = serde_json::to_value(call).map_err(|e| transient(&e.to_string(), p::DeliveryState::NotSent))?;
         let answer = ask_pc(self.transport.as_ref(), call).await?;
         let route = match serde_json::from_value::<w::ProxyAnswer>(answer) {

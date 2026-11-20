@@ -112,7 +112,14 @@ impl TakeoverHolds for SessionDirectory {
     }
 
     fn holding(&self) -> Vec<(ThreadId, TakeoverHold)> {
-        self.loaded_ids().into_iter().map(|thread| { let hold = self.hold(&thread); (thread, hold) }).filter(|(_, hold)| hold.held).collect()
+        self.loaded_ids()
+            .into_iter()
+            .map(|thread| {
+                let hold = self.hold(&thread);
+                (thread, hold)
+            })
+            .filter(|(_, hold)| hold.held)
+            .collect()
     }
 }
 
@@ -234,10 +241,12 @@ mod tests {
         assert_eq!(step(json!({ "surface": "computer", "target": "a".repeat(160) })), named(&"a".repeat(160)));
         assert_eq!(step(json!({ "surface": "computer", "target": 7 })), Some("a step only the user can do".to_owned()));
         assert_eq!(step(json!({ "surface": "browser", "target": "x" })), None);
-        assert_eq!(step(json!({ "surface": "computer", "purpose": "login", "url": "https://Accounts.Example.com:8443/x", "target": "t" })), Some("sign-in on accounts.example.com".to_owned()));
+        assert_eq!(
+            step(json!({ "surface": "computer", "purpose": "login", "url": "https://Accounts.Example.com:8443/x", "target": "t" })),
+            Some("sign-in on accounts.example.com".to_owned())
+        );
         assert_eq!(step(json!({ "surface": "computer", "purpose": "login", "url": "not a url", "target": "t" })), named("t"));
     }
-
 
     /// What the two locks say with the given takeover holds open and the desktop's holds on the human-only lock.
     fn locks(holds: &[(&str, TakeoverHold)], desktop_holds: usize, sessions: &[&str]) -> (Vec<bool>, bool) {

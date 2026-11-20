@@ -20,11 +20,11 @@ use async_trait::async_trait;
 use mixdog_app_protocol::v2::connections::{HostClaimResources, WindowFocusEntry, WindowFocusValue};
 use mixdog_app_protocol::v2::host::{HostNotificationShowParams, HostNotificationStatus, PowerEvent};
 use mixdog_app_server::Outgoing;
-use mixdog_connections::host_list_ops::HostList;
 use mixdog_connections::attempts::Attempts;
 use mixdog_connections::cleanup_ops::{Cleanup, CleanupDeps, EnvCleaner};
 use mixdog_connections::connect::{Connect, ConnectDeps, EnvMachine};
 use mixdog_connections::diagnostics_ops::{DiagnosticsOps, EnvDiagnostics};
+use mixdog_connections::host_list_ops::HostList;
 use mixdog_connections::host_store::{SshHostRecord, SshHostStore};
 use mixdog_connections::link::{LinkPool, LinkStores};
 use mixdog_connections::login::EnvLoginHelpers;
@@ -35,18 +35,18 @@ use mixdog_connections::remote_hosts::RemoteHostStore;
 use mixdog_connections::restore::Restore;
 use mixdog_connections::server_logins::{ServerLoginStores, ServerLogins};
 use mixdog_connections::service::{
-    ConnectionsDeps, ConnectionsService, HostChannelWindows, LinkWatchers, NotifierPush, PoolHandle, RelayClient, ServerWindowOpener,
-    ServiceProxy, WindowHost, ssh_config_hosts,
+    ConnectionsDeps, ConnectionsService, HostChannelWindows, LinkWatchers, NotifierPush, PoolHandle, RelayClient, ServerWindowOpener, ServiceProxy, WindowHost,
+    ssh_config_hosts,
 };
 use mixdog_connections::view::{ConnectionsFeed, ssh_host_view};
 use mixdog_connections::window_restore_store::WindowRestoreStore;
 use mixdog_core::run_host::process::HostInfo;
 use mixdog_core::run_host::run_seams::EnvReader;
+use mixdog_core_api::ConnectionNotifier;
 use mixdog_core_api::feed::ScopedFeeds;
 use mixdog_core_api::host::{HostCapability, HostChannel};
 use mixdog_core_api::ids::{ConnectionId, Method};
 use mixdog_core_api::state::SectionChange;
-use mixdog_core_api::ConnectionNotifier;
 use mixdog_core_base::state::SectionFeedState;
 use mixdog_core_config::config::Config;
 use mixdog_core_domains::domains::ai_admin::model_proxy_service::ModelProxyService;
@@ -58,16 +58,14 @@ use mixdog_protocol::SectionName;
 use mixdog_rt::{DurabilityIo, SpawnIo, TaskClass};
 use mixdog_spawn::LocalProcessManager;
 use mixdog_ssh::bootstrap::{ServerBinary, ServerIdentity, ServerPayloads, StagedPayloads};
-use mixdog_ssh::context::{
-    ClaimedResources, ConfigFiles, LaneFiles, Platform, PreparedSpawn, SshConfigFiles, SshEnv, SshSpawner, ToolOutput, ToolRunner,
-};
+use mixdog_ssh::context::{ClaimedResources, ConfigFiles, LaneFiles, Platform, PreparedSpawn, SshConfigFiles, SshEnv, SshSpawner, ToolOutput, ToolRunner};
 use mixdog_ssh::diagnostics::Diagnostics;
-use mixdog_ssh::install_wire::{RemoteBootstrapError, ServerPlatform, SERVER_MANIFEST_FILE};
+use mixdog_ssh::install_wire::{RemoteBootstrapError, SERVER_MANIFEST_FILE, ServerPlatform};
 use mixdog_ssh::mixdog_config::MixdogSshConfig;
 use mixdog_ssh::resolved_config::ResolvedConfigs;
-use mixdog_ssh::spawn::{ProcessSpawner, MAX_CAPTURE_BYTES};
-use mixdog_workspace::service::{RemoteFileReaders, WorkspaceService};
+use mixdog_ssh::spawn::{MAX_CAPTURE_BYTES, ProcessSpawner};
 use mixdog_workspace::RemoteFileReader;
+use mixdog_workspace::service::{RemoteFileReaders, WorkspaceService};
 use serde_json::json;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWriteExt};
 use tokio::task::AbortHandle;
@@ -229,15 +227,35 @@ pub struct SshMachineParts {
 /// The variables the ssh code reads by name (`SshEnv::var`, Mixdog's ssh folder, the link's grace): each is taken from the composed
 /// reader where it has one, so an environment the composition (or a test) injects is what the ssh code sees.
 const READ_NAMES: [&str; 22] = [
-    "PATH", "Path", "SystemRoot", "windir", "ProgramData", "ALLUSERSPROFILE", "PUBLIC", "SystemDrive", "USERNAME", "USER", "LOGNAME",
-    "TMPDIR", "TMP", "TEMP", "SSH_AUTH_SOCK", "DISPLAY", "MIXDOG_HOME", "MIXDOG_DESKTOP_USER_DATA", "MIXDOG_REMOTE_CLIENT_GRACE_MS",
-    "MIXDOG_SSH_REMOTE_CWD", ASKPASS_ENV, SERVER_CORES_ENV,
+    "PATH",
+    "Path",
+    "SystemRoot",
+    "windir",
+    "ProgramData",
+    "ALLUSERSPROFILE",
+    "PUBLIC",
+    "SystemDrive",
+    "USERNAME",
+    "USER",
+    "LOGNAME",
+    "TMPDIR",
+    "TMP",
+    "TEMP",
+    "SSH_AUTH_SOCK",
+    "DISPLAY",
+    "MIXDOG_HOME",
+    "MIXDOG_DESKTOP_USER_DATA",
+    "MIXDOG_REMOTE_CLIENT_GRACE_MS",
+    "MIXDOG_SSH_REMOTE_CWD",
+    ASKPASS_ENV,
+    SERVER_CORES_ENV,
 ];
 
 /// What a child ssh inherits: the process's environment, with the names ssh reads taken from `env` where it answers, and Mixdog's
 /// own ssh files in `data_dir` (the data folder this core was composed over) whatever the process environment says.
 fn ssh_vars(env: &dyn Fn(&str) -> Option<String>, data_dir: &Path) -> BTreeMap<String, String> {
-    let mut vars: BTreeMap<String, String> = std::env::vars_os().filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?))).collect();
+    let mut vars: BTreeMap<String, String> =
+        std::env::vars_os().filter_map(|(name, value)| Some((name.into_string().ok()?, value.into_string().ok()?))).collect();
     for name in READ_NAMES {
         if let Some(value) = env(name) {
             vars.insert(name.to_owned(), value);
@@ -264,7 +282,13 @@ async fn mixdog_ssh_files(before: SshEnv) -> SshMachineParts {
 
 /// This PC as the ssh code sees it: the process's environment (read through `env`), `home`, the OpenSSH tools through `processes`,
 /// Mixdog's own ssh config in `data_dir` (the core's data folder), the askpass helper and the server runtimes the desktop ships.
-pub async fn ssh_machine(home: PathBuf, data_dir: PathBuf, env: &(dyn Fn(&str) -> Option<String> + Send + Sync), processes: LocalProcessManager, spawn_io: SpawnIo) -> SshMachineParts {
+pub async fn ssh_machine(
+    home: PathBuf,
+    data_dir: PathBuf,
+    env: &(dyn Fn(&str) -> Option<String> + Send + Sync),
+    processes: LocalProcessManager,
+    spawn_io: SpawnIo,
+) -> SshMachineParts {
     let spawner: Arc<dyn SshSpawner> = Arc::new(ProcessSpawner::new(Arc::new(processes), spawn_io));
     let files: Arc<dyn ConfigFiles + Send + Sync> = Arc::new(LaneFiles(&mixdog_fsio::Unlaned));
     let exe_dir = std::env::current_exe().ok().and_then(|exe| exe.parent().map(Path::to_path_buf));
@@ -314,7 +338,8 @@ impl NotifySink for HostToasts {
             let (host, cell) = (self.host.clone(), self.supported.clone());
             drop(mixdog_rt::spawn("connections-notify-status", TaskClass::Control, async move {
                 let answer = host.request(HostCapability::Notifications, NOTIFICATION_STATUS, json!({})).await;
-                let supported = answer.ok().and_then(|value| serde_json::from_value::<HostNotificationStatus>(value).ok()).is_some_and(|status| status.supported);
+                let supported =
+                    answer.ok().and_then(|value| serde_json::from_value::<HostNotificationStatus>(value).ok()).is_some_and(|status| status.supported);
                 cell.lock().unwrap_or_else(PoisonError::into_inner).1 = supported;
             }));
         }
@@ -444,7 +469,11 @@ impl RemoteFileReaders for PoolFiles {
 pub struct ResourceClaimHook(pub Arc<ResourceClaims>);
 
 impl mixdog_app_server::ClaimHook for ResourceClaimHook {
-    fn claimed(&self, _serves: &[HostCapability], resources: Option<&mixdog_app_protocol::v2::connections::HostClaimResources>) -> Option<Box<dyn std::any::Any + Send>> {
+    fn claimed(
+        &self,
+        _serves: &[HostCapability],
+        resources: Option<&mixdog_app_protocol::v2::connections::HostClaimResources>,
+    ) -> Option<Box<dyn std::any::Any + Send>> {
         Some(self.0.attach(resources.cloned()))
     }
 }
@@ -536,10 +565,13 @@ impl Connections {
     /// The stop step: the presence watch ends, the logins on servers are disposed and every link closes.
     pub fn stop_step(&self) -> StopStep {
         let (service, presence) = (self.service.clone(), self.presence.clone());
-        ("connections", Box::pin(async move {
-            presence.abort();
-            service.dispose().await;
-        }))
+        (
+            "connections",
+            Box::pin(async move {
+                presence.abort();
+                service.dispose().await;
+            }),
+        )
     }
 }
 
@@ -552,7 +584,25 @@ impl ConnectionOwner for ConnectionsService {
 
 /// Builds the link pool and every module over it, starts the service, and gives the workspace the readers of the servers' files.
 pub async fn compose_connections(inputs: ConnectionsInputs) -> Connections {
-    let ConnectionsInputs { home, data_dir, user_data_dir, env, config, style, claims, processes, spawn_io, durability_io, host, outgoing, notifier, scoped_feeds, sections, model_proxy, workspace } = inputs;
+    let ConnectionsInputs {
+        home,
+        data_dir,
+        user_data_dir,
+        env,
+        config,
+        style,
+        claims,
+        processes,
+        spawn_io,
+        durability_io,
+        host,
+        outgoing,
+        notifier,
+        scoped_feeds,
+        sections,
+        model_proxy,
+        workspace,
+    } = inputs;
     let machine = ssh_machine(home, data_dir, &*env, processes, spawn_io).await;
     let (ssh_env, configs) = (machine.env, machine.configs);
     let payloads: Arc<LocalPayloads> = Arc::new(LocalPayloads::new(ssh_env.clone(), claims.resources()));

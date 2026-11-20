@@ -3,11 +3,7 @@
 //! 10 MB, a failed write warned and its chunk dropped. The clock is the `now_ms` each call is given, advanced explicitly.
 //! The surrogate expectation was taken from Node v22.20.0: `('Error: '+'a'.repeat(292)+'\u{1F600}tail').slice(0,300)`
 //! stringifies as `…aaaa\ud83d"`.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "test fixture I/O"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixture I/O")]
 
 use std::collections::BTreeMap;
 use std::fs;

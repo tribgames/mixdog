@@ -117,7 +117,9 @@ fn project_panel(app: &AppState) -> Option<(bool, bool)> {
     match app.surface.picker() {
         // The loading frame of the project list is the one with no rows and the loading description (`picker-state.mjs` sets
         // no `loading` flag on it: only the create flow's panel does).
-        Some(AppPicker::Ext(panel)) if panel.kind == "project" => Some((panel.items.is_empty() && panel.description.starts_with("Loading projects"), panel.initial_pending)),
+        Some(AppPicker::Ext(panel)) if panel.kind == "project" => {
+            Some((panel.items.is_empty() && panel.description.starts_with("Loading projects"), panel.initial_pending))
+        }
         _ => None,
     }
 }
@@ -188,7 +190,15 @@ fn the_disabled_skills_are_read_once_after_the_first_frame_and_a_failure_leaves_
 
 #[test]
 fn the_catalog_warm_up_waits_its_delay_then_lists_both_catalogs_once() {
-    let mut h = harness(1, true, false, vec![("listProviderModels", Ok(json!([{ "provider": "openai", "id": "gpt" }]))), ("listWebSearchModels", Ok(json!([{ "provider": "openai", "id": "gpt" }])))]);
+    let mut h = harness(
+        1,
+        true,
+        false,
+        vec![
+            ("listProviderModels", Ok(json!([{ "provider": "openai", "id": "gpt" }]))),
+            ("listWebSearchModels", Ok(json!([{ "provider": "openai", "id": "gpt" }]))),
+        ],
+    );
     h.app.mount();
     while h.app.run_background() {}
     assert!(h.calls_named("listProviderModels").is_empty());

@@ -138,11 +138,7 @@ impl AgentGreetings {
     /// `noteCreated` before the save's reply (`session-host-lifecycle.ts:1181-1186`) and reads the catalog only when
     /// the user's next `listAgents` arrives; here the save itself rebuilds the pushed catalog, whose reconcile would
     /// otherwise run between the save and its record and greet the agent the dialog just created.
-    pub async fn saving<T, E>(
-        &self,
-        save: impl std::future::Future<Output = Result<T, E>>,
-        agent_id: impl FnOnce(&T) -> Option<String>,
-    ) -> Result<T, E> {
+    pub async fn saving<T, E>(&self, save: impl std::future::Future<Output = Result<T, E>>, agent_id: impl FnOnce(&T) -> Option<String>) -> Result<T, E> {
         let _turn = self.serial.acquire(QUEUE).await;
         let saved = save.await?;
         if let Some(id) = agent_id(&saved)
@@ -182,7 +178,8 @@ impl AgentGreetings {
                 continue;
             }
             let shown = |key: &str| row.get(key).filter(|value| truthy(Some(value))).map(value_to_string);
-            let agent = GreetAgent { id: id.to_owned(), name: shown("label").unwrap_or_else(|| id.to_owned()), description: shown("description").unwrap_or_default() };
+            let agent =
+                GreetAgent { id: id.to_owned(), name: shown("label").unwrap_or_else(|| id.to_owned()), description: shown("description").unwrap_or_default() };
             if let Err(error) = self.deps.greet(&agent).await {
                 tracing::warn!("[mixdog-session] Could not greet the new agent: {}", error.message);
             }

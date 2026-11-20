@@ -11,9 +11,9 @@ use std::path::Path;
 use async_trait::async_trait;
 use gix::bstr::BString;
 use gix::bstr::ByteSlice;
-use gix::dir::walk::EmissionMode;
 use gix::dir::entry::Kind;
 use gix::dir::entry::Status;
+use gix::dir::walk::EmissionMode;
 use mixdog_rt::MaintenanceIo;
 use mixdog_workspace::zip::TrackedFiles;
 use tokio_util::sync::CancellationToken;
@@ -74,15 +74,8 @@ fn walk(opened: &Opened, ignored: bool) -> Option<Vec<gix::dirwalk::iter::Item>>
         .emit_ignored(ignored.then_some(EmissionMode::Matching))
         .emit_tracked(false)
         .recurse_repositories(false);
-    let patterns: Vec<BString> = if opened.prefix.is_empty() {
-        Vec::new()
-    } else {
-        vec![BString::from(opened.prefix.trim_end_matches('/'))]
-    };
-    let iter = opened
-        .repo
-        .dirwalk_iter(index, patterns, Default::default(), options)
-        .ok()?;
+    let patterns: Vec<BString> = if opened.prefix.is_empty() { Vec::new() } else { vec![BString::from(opened.prefix.trim_end_matches('/'))] };
+    let iter = opened.repo.dirwalk_iter(index, patterns, Default::default(), options).ok()?;
     iter.collect::<Result<Vec<_>, _>>().ok()
 }
 
@@ -98,10 +91,7 @@ fn count_files(dir: &Path, tracked: &HashSet<String>, workdir: &Path) -> u64 {
             match entry.file_type() {
                 Ok(kind) if kind.is_dir() => count_files(&path, tracked, workdir),
                 Ok(_) => {
-                    let rel = path
-                        .strip_prefix(workdir)
-                        .map(|p| p.to_string_lossy().replace('\\', "/"))
-                        .unwrap_or_default();
+                    let rel = path.strip_prefix(workdir).map(|p| p.to_string_lossy().replace('\\', "/")).unwrap_or_default();
                     u64::from(!tracked.contains(&rel))
                 }
                 Err(_) => 0,
@@ -180,12 +170,7 @@ mod tests {
 
     fn listed(cwd: &Path, args: &[&str]) -> Vec<String> {
         let out = Command::new("git").args(args).current_dir(cwd).output().unwrap();
-        let mut names: Vec<String> = out
-            .stdout
-            .split(|b| *b == 0)
-            .filter(|r| !r.is_empty())
-            .map(|r| String::from_utf8_lossy(r).into_owned())
-            .collect();
+        let mut names: Vec<String> = out.stdout.split(|b| *b == 0).filter(|r| !r.is_empty()).map(|r| String::from_utf8_lossy(r).into_owned()).collect();
         names.sort();
         names
     }
@@ -216,10 +201,7 @@ mod tests {
             got.sort();
             assert_eq!(got, listed(&folder, &["ls-files", "-z", "-c", "-o", "--exclude-standard"]), "{folder:?}");
         }
-        assert_eq!(
-            tracked.ignored(&root, &cancel).await.unwrap(),
-            listed(&root, &["ls-files", "-z", "-o", "-i", "--exclude-standard"]).len() as u64
-        );
+        assert_eq!(tracked.ignored(&root, &cancel).await.unwrap(), listed(&root, &["ls-files", "-z", "-o", "-i", "--exclude-standard"]).len() as u64);
         let outside = tempfile::tempdir().unwrap();
         assert!(tracked.files(outside.path(), &cancel).await.is_none());
     }

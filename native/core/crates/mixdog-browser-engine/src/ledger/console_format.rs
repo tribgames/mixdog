@@ -111,7 +111,8 @@ fn format_argument(argument: &Value) -> String {
         return formatted_value(value);
     }
     let preview = argument.get("preview");
-    let properties: Vec<&Value> = preview.and_then(|preview| preview.get("properties")).and_then(Value::as_array).map_or_else(Vec::new, |all| all.iter().collect());
+    let properties: Vec<&Value> =
+        preview.and_then(|preview| preview.get("properties")).and_then(Value::as_array).map_or_else(Vec::new, |all| all.iter().collect());
     if !properties.is_empty() {
         let shown = &properties[..properties.len().min(MAX_PREVIEW_PROPERTIES)];
         let body = shown
@@ -125,7 +126,10 @@ fn format_argument(argument: &Value) -> String {
             .join(", ");
         let overflowed = preview.and_then(|preview| preview.get("overflow")).and_then(Value::as_bool) == Some(true) || properties.len() > shown.len();
         let overflow = if overflowed { ", …" } else { "" };
-        let label = preview.and_then(|preview| text_field(preview, "description")).filter(|description| *description != "Object").map_or_else(String::new, |description| format!("{description} "));
+        let label = preview
+            .and_then(|preview| text_field(preview, "description"))
+            .filter(|description| *description != "Object")
+            .map_or_else(String::new, |description| format!("{description} "));
         return format!("{label}{{{body}{overflow}}}");
     }
     text_field(argument, "description")
@@ -168,12 +172,17 @@ mod tests {
             "order {code: 500}"
         );
         assert_eq!(
-            format_console_arguments(&[json!({"type": "object", "subtype": "error", "description": "TypeError: cart is undefined\n    at checkout (app.js:12)"})]),
+            format_console_arguments(&[
+                json!({"type": "object", "subtype": "error", "description": "TypeError: cart is undefined\n    at checkout (app.js:12)"})
+            ]),
             "TypeError: cart is undefined\n    at checkout (app.js:12)"
         );
         assert_eq!(format_console_arguments(&[json!({"type": "number", "value": 0}), json!({"type": "undefined"})]), "0 undefined");
         // A preview Chromium already cut, and one this cuts itself, both say so.
-        assert_eq!(format_console_arguments(&[json!({"type": "object", "preview": {"overflow": true, "properties": [{"name": "id", "value": "7"}]}})]), "{id: 7, …}");
+        assert_eq!(
+            format_console_arguments(&[json!({"type": "object", "preview": {"overflow": true, "properties": [{"name": "id", "value": "7"}]}})]),
+            "{id: 7, …}"
+        );
         let wide: Vec<Value> = (0..20).map(|index| json!({"name": format!("k{index}"), "value": index.to_string()})).collect();
         let shown = format_console_arguments(&[json!({"type": "object", "preview": {"properties": wide}})]);
         assert!(shown.starts_with("{k0: 0, ") && shown.contains("k11: 11") && !shown.contains("k12") && shown.ends_with(", …}"), "{shown}");

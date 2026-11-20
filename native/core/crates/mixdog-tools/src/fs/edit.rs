@@ -17,16 +17,16 @@ use mixdog_js::js_object_keys;
 use mixdog_protocol::JsonValue;
 
 use super::common::*;
+use super::edit_plan::SAME_STRINGS;
+use super::edit_plan::apply;
+use super::edit_plan::dialect;
 use super::os_error::read_message;
 use super::os_error::write_message;
-use crate::orch::util::spec_from_def;
 use super::patch_review::committed_edit;
 use super::patch_review::note_edit;
 use super::read_state::FileVersion;
 use super::read_state::ReadState;
-use super::edit_plan::SAME_STRINGS;
-use super::edit_plan::apply;
-use super::edit_plan::dialect;
+use crate::orch::util::spec_from_def;
 
 const EDIT_SPEC: &str = include_str!("specs/edit.json");
 
@@ -71,7 +71,8 @@ fn string_args(args: &JsonValue) -> Result<(&str, &str), ToolError> {
     for (slot, (canonical, alias)) in [("old_string", "old_str"), ("new_string", "new_str")].into_iter().enumerate() {
         let (c, a) = (args.get(canonical), args.get(alias));
         if let (Some(c), Some(a)) = (c, a)
-            && c != a {
+            && c != a
+        {
             return Err(invalid(
                 canonical,
                 "ambiguous",
@@ -115,9 +116,10 @@ impl Tool for EditTool {
         }
         let replace_all = replace_all_arg(&args);
         // An empty target is no target (Node tests the argument's truthiness).
-        let raw = arg_str(&args, "file_path").filter(|p| !p.is_empty()).or_else(|| arg_str(&args, "path").filter(|p| !p.is_empty())).ok_or_else(|| {
-            invalid("file_path", "required", crate::foreign::refusal(ctx.options.called_as.as_deref().unwrap_or(&self.spec.name)))
-        })?;
+        let raw = arg_str(&args, "file_path")
+            .filter(|p| !p.is_empty())
+            .or_else(|| arg_str(&args, "path").filter(|p| !p.is_empty()))
+            .ok_or_else(|| invalid("file_path", "required", crate::foreign::refusal(ctx.options.called_as.as_deref().unwrap_or(&self.spec.name))))?;
         let abs = resolve_write_target(ctx, raw).await?;
         let shown = display_path(abs.as_path(), &ctx.cwd);
         let full = abs.as_path().display().to_string();
@@ -158,7 +160,9 @@ impl Tool for EditTool {
             if !content.is_empty() {
                 return Err(fail(
                     ToolErrorCode::Conflict { matches: 0 },
-                    format!("Error: cannot create {full}: file exists: to replace it entirely pass its current content as old_string (read it first); to change part, pass that part as old_string with the replacement as new_string"),
+                    format!(
+                        "Error: cannot create {full}: file exists: to replace it entirely pass its current content as old_string (read it first); to change part, pass that part as old_string with the replacement as new_string"
+                    ),
                 ));
             }
             let after = encode_text(new, codec);
@@ -194,23 +198,14 @@ fn unreadable(full: &str, why: &str) -> ToolError {
 }
 
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-async fn write_checked(
-    ctx: &ToolContext,
-    abs: &AbsPath,
-    full: &str,
-    content: Vec<u8>,
-    precondition: WritePrecondition,
-) -> Result<(), ToolError> {
+async fn write_checked(ctx: &ToolContext, abs: &AbsPath, full: &str, content: Vec<u8>, precondition: WritePrecondition) -> Result<(), ToolError> {
     let created = matches!(precondition, WritePrecondition::Absent);
     let request = WriteRequest { path: abs.clone(), content, precondition };
     match write_guarded(ctx, "edit", request).await? {
         Ok(_) => Ok(()),
         Err(e) if matches!(e.kind, FsErrorKind::PreconditionFailed { .. }) => {
             let why = if created { "was created concurrently; read it before editing" } else { STALE_DURING_EDIT };
-            Err(fail(
-                ToolErrorCode::Stale { expected: full.to_owned(), actual: "changed".to_owned() },
-                format!("Error: {full} {why}"),
-            ))
+            Err(fail(ToolErrorCode::Stale { expected: full.to_owned(), actual: "changed".to_owned() }, format!("Error: {full} {why}")))
         }
         // Node `createEditTarget` writes with the in-process `atomicWrite`, whose message the adapter
         // wraps as `edit failed (…)` (`tryExecuteExternalToolAdapter`).
@@ -318,11 +313,8 @@ impl Tool for WriteTool {
             Some(_) => stat.and_then(|s| FileVersion::of(&s)),
             None => None,
         };
-        let before = if ctx.review.is_some() {
-            ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default()).await.ok().map(|read| read.bytes)
-        } else {
-            None
-        };
+        let before =
+            if ctx.review.is_some() { ctx.files.read(ctx.io.interactive, abs.clone(), ReadRange::default()).await.ok().map(|read| read.bytes) } else { None };
         if let Some(parent) = abs.as_path().parent().and_then(|p| AbsPath::new(p.to_path_buf())) {
             let _ = guarded(ctx, "write", ctx.files.create_dir(ctx.io.durability, parent, true)).await?;
         }

@@ -16,29 +16,18 @@ use crate::summary::truthy;
 
 static SUMMARY_TAIL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\nmessages=\d+\s+(?:sha256=|compact_type=)", ""));
 static REFERENCE_FILES: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^Reference files:\s*", "i"));
-static SYNTHETIC_CONTROL: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(
-        r"^(?:\[mixdog-runtime\]|\[request interrupted(?: by user(?: for tool use)?| by process restart)?\])(?:\s|$)",
-        "i",
-    )
-});
+static SYNTHETIC_CONTROL: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^(?:\[mixdog-runtime\]|\[request interrupted(?: by user(?: for tool use)?| by process restart)?\])(?:\s|$)", "i"));
 static FIELD: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^<([\w-]+)>([^<]*)<\/\1>$", "gm"));
 static SURFACE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(\S+) task ", ""));
 static TASK_ID_LINE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\[task_id:\s*\S+\]", "im"));
-static BRACKETED_STATUS: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(
-        r"^\[status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled|error|timeout|done|success)\]",
-        "im",
-    )
-});
+static BRACKETED_STATUS: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^\[status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled|error|timeout|done|success)\]", "im"));
 static BACKGROUND: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^background task\b", "i"));
 static TASK_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^task_id:\s*\S+", "im"));
-static STATUS: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b", "im")
-});
-static TASK_KEYS: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^(?:surface|operation|type|target|role|agent|preset|model|effort|fast|notification):\s*", "im")
-});
+static STATUS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b", "im"));
+static TASK_KEYS: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^(?:surface|operation|type|target|role|agent|preset|model|effort|fast|notification):\s*", "im"));
 static ASYNC_HEADER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^Async .+ finished\.", "i"));
 static RESULT_SPLIT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\n\nResult:\n", ""));
 static QUOTED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^> ", ""));
@@ -130,8 +119,7 @@ fn is_model_visible_tool_completion_wrapper(text: &str) -> bool {
         return false;
     }
     // `split(/\r?\n/)`: a CR before the newline belongs to the separator.
-    let lines: Vec<&str> =
-        value[split.end..].split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).filter(|l| !l.is_empty()).collect();
+    let lines: Vec<&str> = value[split.end..].split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).filter(|l| !l.is_empty()).collect();
     if lines.is_empty() || !lines.iter().all(|l| QUOTED.is_match(l)) {
         return false;
     }
@@ -165,8 +153,7 @@ fn is_summary_message(m: &Value) -> bool {
     if !is_user(m) || is_imported(m) {
         return false;
     }
-    source_text(m) == "compact-summary"
-        || m.get("content").and_then(Value::as_str).is_some_and(|c| c.starts_with(ANCHOR) && SUMMARY_TAIL.is_match(c))
+    source_text(m) == "compact-summary" || m.get("content").and_then(Value::as_str).is_some_and(|c| c.starts_with(ANCHOR) && SUMMARY_TAIL.is_match(c))
 }
 
 /// `isProtectedContextUserMessage`: a user turn made only of `<system-reminder>` envelopes.

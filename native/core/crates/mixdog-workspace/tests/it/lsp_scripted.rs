@@ -10,18 +10,18 @@ use std::sync::atomic::Ordering;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::EventSource;
+use mixdog_core_api::domain::process::CommandSpec;
+use mixdog_core_api::domain::process::ExitStatus;
+use mixdog_core_api::domain::process::KillReason;
 use mixdog_core_api::domain::process::OutputStream;
 use mixdog_core_api::domain::process::ProcessError;
 use mixdog_core_api::domain::process::ProcessEvent;
+use mixdog_core_api::domain::process::ProcessExit;
 use mixdog_core_api::domain::process::ProcessInfo;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::process::PtySize;
 use mixdog_core_api::domain::process::SpawnRequest;
 use mixdog_core_api::domain::process::SpawnedProcess;
-use mixdog_core_api::domain::process::CommandSpec;
-use mixdog_core_api::domain::process::ExitStatus;
-use mixdog_core_api::domain::process::KillReason;
-use mixdog_core_api::domain::process::ProcessExit;
 use mixdog_protocol::ProcessHandle;
 use mixdog_workspace::lsp::DocumentInput;
 use mixdog_workspace::lsp::LspManager;
@@ -245,7 +245,10 @@ async fn a_scripted_server_is_started_told_about_documents_and_stopped() {
 
     let state = lsp.document(&project_path, &root, open("src/a.script", "let a", 1)).await.unwrap();
     assert_eq!((state["status"].clone(), state["available"].clone(), state["server"].clone()), (json!("ready"), json!(true), json!("Scripted")));
-    assert_eq!((state["capabilities"]["hover"].clone(), state["capabilities"]["completion"].clone(), state["capabilities"]["rename"].clone()), (json!(true), json!(true), json!(false)));
+    assert_eq!(
+        (state["capabilities"]["hover"].clone(), state["capabilities"]["completion"].clone(), state["capabilities"]["rename"].clone()),
+        (json!(true), json!(true), json!(false))
+    );
     assert_eq!(state["capabilities"]["completionTriggerCharacters"], json!(["."]));
     assert_eq!(sink.states(), ["starting", "ready"]);
     assert_eq!(pm.spawned.lock().unwrap().len(), 1);
@@ -256,7 +259,14 @@ async fn a_scripted_server_is_started_told_about_documents_and_stopped() {
     assert_eq!(initialize["params"]["workspaceFolders"][0]["name"], root.file_name().unwrap().to_string_lossy().as_ref());
     // `didOpen` carries the document's own text and version; the first message the server saw was `initialize`.
     let opened = pm.sent("textDocument/didOpen").await;
-    assert_eq!((opened["params"]["textDocument"]["languageId"].clone(), opened["params"]["textDocument"]["text"].clone(), opened["params"]["textDocument"]["version"].clone()), (json!("scriptlang"), json!("let a"), json!(1)));
+    assert_eq!(
+        (
+            opened["params"]["textDocument"]["languageId"].clone(),
+            opened["params"]["textDocument"]["text"].clone(),
+            opened["params"]["textDocument"]["version"].clone()
+        ),
+        (json!("scriptlang"), json!("let a"), json!(1))
+    );
     assert_eq!(pm.methods()[..3], ["initialize", "initialized", "textDocument/didOpen"]);
 
     // The server's diagnostics reach the sink under the relative path.
@@ -267,7 +277,10 @@ async fn a_scripted_server_is_started_told_about_documents_and_stopped() {
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
     let diagnostics = sink.diagnostics.lock().unwrap().clone();
-    assert_eq!((diagnostics[0]["relPath"].clone(), diagnostics[0]["server"].clone(), diagnostics[0]["diagnostics"][0]["message"].clone()), (json!("src/a.script"), json!("Scripted"), json!("scripted problem")));
+    assert_eq!(
+        (diagnostics[0]["relPath"].clone(), diagnostics[0]["server"].clone(), diagnostics[0]["diagnostics"][0]["message"].clone()),
+        (json!("src/a.script"), json!("Scripted"), json!("scripted problem"))
+    );
 
     // A second document event of an open one is a change, not another open; the server is not started again.
     lsp.document(&project_path, &root, DocumentInput { kind: "change".into(), ..open("src/a.script", "let ab", 2) }).await.unwrap();
@@ -276,7 +289,10 @@ async fn a_scripted_server_is_started_told_about_documents_and_stopped() {
     assert_eq!(pm.spawned.lock().unwrap().len(), 1);
 
     // A supported request is the server's answer; an unoffered method says so without asking the server.
-    let hover = lsp.request(&project_path, &root, "src/a.script", "scriptlang", "textDocument/hover", &json!({ "position": { "line": 0, "character": 1 } })).await.unwrap();
+    let hover = lsp
+        .request(&project_path, &root, "src/a.script", "scriptlang", "textDocument/hover", &json!({ "position": { "line": 0, "character": 1 } }))
+        .await
+        .unwrap();
     assert_eq!((hover["status"].clone(), hover["result"]["contents"].clone()), (json!("ready"), json!("scripted hover")));
     let hover_wire = pm.message("textDocument/hover");
     assert_eq!(hover_wire["params"]["position"], json!({ "line": 0, "character": 1 }));

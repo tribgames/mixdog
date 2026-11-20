@@ -125,18 +125,12 @@ impl BpeTokenizer {
         let file: File = serde_json::from_slice(&bytes).map_err(|e| JudgeError::Load(format!("tokenizer.json: {e}")))?;
         drop(bytes);
         let space_to_meta = file.normalizer.as_ref().is_some_and(|n| {
-            n.r#type == "Replace"
-                && n.pattern.as_ref().and_then(|p| p.string.as_deref()) == Some(" ")
-                && n.content.as_deref() == Some("\u{2581}")
+            n.r#type == "Replace" && n.pattern.as_ref().and_then(|p| p.string.as_deref()) == Some(" ") && n.content.as_deref() == Some("\u{2581}")
         });
         let pre = file.pre_tokenizer.as_ref();
         let split = match pre {
             Some(p) if p.r#type == "Metaspace" && p.split != Some(false) => Some(Split::Metaspace),
-            Some(p)
-                if p.r#type == "Split" && p.pattern.as_ref().and_then(|x| x.string.as_deref()) == Some(" ") && space_to_meta =>
-            {
-                Some(Split::Whole)
-            }
+            Some(p) if p.r#type == "Split" && p.pattern.as_ref().and_then(|x| x.string.as_deref()) == Some(" ") && space_to_meta => Some(Split::Whole),
             _ => None,
         };
         let model = &file.model;
@@ -169,9 +163,7 @@ impl BpeTokenizer {
                     (parts.next().unwrap_or_default(), parts.next().unwrap_or_default())
                 }
             };
-            let (Some(ida), Some(idb), Some(out)) =
-                (model.vocab.get(a), model.vocab.get(b), model.vocab.get(&format!("{a}{b}")))
-            else {
+            let (Some(ida), Some(idb), Some(out)) = (model.vocab.get(a), model.vocab.get(b), model.vocab.get(&format!("{a}{b}"))) else {
                 continue;
             };
             merges.entry((*ida, *idb)).or_insert((rank, *out));
@@ -179,11 +171,8 @@ impl BpeTokenizer {
         }
         let unk = model.unk_token.as_ref().and_then(|t| model.vocab.get(t)).map_or(-1, |id| i64::from(*id));
 
-        let mut added: Vec<AddedToken> = file
-            .added_tokens
-            .iter()
-            .map(|t| AddedToken { content: t.content.clone(), id: t.id, lstrip: t.lstrip, rstrip: t.rstrip })
-            .collect();
+        let mut added: Vec<AddedToken> =
+            file.added_tokens.iter().map(|t| AddedToken { content: t.content.clone(), id: t.id, lstrip: t.lstrip, rstrip: t.rstrip }).collect();
         // Longest (in UTF-16 units) first; equal lengths keep file order.
         added.sort_by_key(|t| Reverse(t.content.encode_utf16().count()));
         let mut by_first: HashMap<char, Vec<usize>> = HashMap::new();

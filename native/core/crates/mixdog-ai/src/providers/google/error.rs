@@ -55,11 +55,9 @@ static DURATION: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(?:\d+(?:\.\d+)?(?:m
 static DURATION_PART: LazyLock<JsRegex> = LazyLock::new(|| re(r"(\d+(?:\.\d+)?)(ms|s|m|h)", "g"));
 static BARE_SECONDS: LazyLock<JsRegex> = LazyLock::new(|| re(r"^\d+(?:\.\d+)?$", ""));
 /// "Please retry in 34.07s" (Gemini API) / "reset after 2h1m1s" (Cloud Code).
-static MESSAGE_DELAY: LazyLock<JsRegex> =
-    LazyLock::new(|| re(r"(?:please retry in|reset after)\s+((?:\d+(?:\.\d+)?(?:ms|h|m|s))+)", "i"));
+static MESSAGE_DELAY: LazyLock<JsRegex> = LazyLock::new(|| re(r"(?:please retry in|reset after)\s+((?:\d+(?:\.\d+)?(?:ms|h|m|s))+)", "i"));
 static LIMIT_ZERO: LazyLock<JsRegex> = LazyLock::new(|| re(r"limit:\s*0(?!\d|\.\d)", "i"));
-static CONTRACT_CAPACITY_MESSAGE: LazyLock<JsRegex> =
-    LazyLock::new(|| re(r"exhausted your capacity|capacity exceeded|model_capacity_exhausted", "i"));
+static CONTRACT_CAPACITY_MESSAGE: LazyLock<JsRegex> = LazyLock::new(|| re(r"exhausted your capacity|capacity exceeded|model_capacity_exhausted", "i"));
 static SCOPE_DAY: LazyLock<JsRegex> = LazyLock::new(|| re(r"per[\s_-]?day|daily", "i"));
 static SCOPE_MINUTE: LazyLock<JsRegex> = LazyLock::new(|| re(r"per[\s_-]?minute", "i"));
 /// `antigravityError`'s rate-limit wordings, read on an untyped 429 only.
@@ -188,9 +186,7 @@ pub fn contract(details: Option<&Value>, google_status: Option<&Value>, message:
     let mut zero_limit = false;
     for entry in list {
         let kind = entry.get("@type").and_then(Value::as_str).unwrap_or("");
-        if (kind.ends_with(".RetryInfo") || entry.get("retryDelay").is_some())
-            && retry_after_ms.is_none()
-        {
+        if (kind.ends_with(".RetryInfo") || entry.get("retryDelay").is_some()) && retry_after_ms.is_none() {
             retry_after_ms = advice_ms(entry.get("retryDelay"));
         }
         if kind.ends_with(".QuotaFailure") || entry.get("violations").is_some_and(Value::is_array) {
@@ -371,11 +367,7 @@ fn antigravity_error(response: &ErrorResponse, text: &str, endpoint: &str, now: 
     let payload: Option<Value> = if text.is_empty() { None } else { serde_json::from_str(text).ok() };
     let detail = payload.as_ref().and_then(|p| p.get("error")).filter(|e| js_truthy(e));
     // `detail?.message || text?.slice(0, 300) || ''`.
-    let message = detail
-        .and_then(|d| d.get("message"))
-        .filter(|m| js_truthy(m))
-        .map(value_to_string)
-        .unwrap_or_else(|| mixdog_js::slice_utf16(text, 300));
+    let message = detail.and_then(|d| d.get("message")).filter(|m| js_truthy(m)).map(value_to_string).unwrap_or_else(|| mixdog_js::slice_utf16(text, 300));
     let status = response.status.map_or_else(|| "undefined".to_owned(), |s| s.to_string());
     let scrubbed = crate::oauth::scrub::scrub_oauth_secrets(&message, &[]);
     let contract = if detail.is_some() {
@@ -390,9 +382,7 @@ fn antigravity_error(response: &ErrorResponse, text: &str, endpoint: &str, now: 
     let capacity = || Some("model_capacity_exhausted".to_owned());
     match response.status {
         Some(503 | 529) if !err.kind.is_deterministic() => err.code = capacity(),
-        Some(429)
-            if !matches!(err.code.as_deref(), Some("quota_exhausted" | "rate_limit_exceeded" | "model_capacity_exhausted")) =>
-        {
+        Some(429) if !matches!(err.code.as_deref(), Some("quota_exhausted" | "rate_limit_exceeded" | "model_capacity_exhausted")) => {
             if ANTIGRAVITY_CAPACITY_MESSAGE.is_match(&message) {
                 err.code = capacity();
             } else if ANTIGRAVITY_RATE_LIMIT_MESSAGE.is_match(&message) {
@@ -485,8 +475,7 @@ pub fn classify(response: &ErrorResponse, dialect: &ErrorDialect, now: SystemTim
 }
 
 const MODEL_GARDEN: &str = "https://console.cloud.google.com/agent-platform/publishers";
-const LOCATIONS_DOC: &str =
-    "https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations";
+const LOCATIONS_DOC: &str = "https://docs.cloud.google.com/gemini-enterprise-agent-platform/resources/locations";
 /// The error code of a model the project cannot use.
 pub const VERTEX_MODEL_NOT_ENABLED: &str = "VERTEX_MODEL_NOT_ENABLED";
 
@@ -495,14 +484,7 @@ pub const VERTEX_MODEL_NOT_ENABLED: &str = "VERTEX_MODEL_NOT_ENABLED";
 /// classification stay as they were. An IAM denial (`IAM_PERMISSION_DENIED` in
 /// the ErrorInfo details) is left alone. Only structured fields decide: the
 /// HTTP status and `details[].reason`.
-pub fn vertex_model_access(
-    error: &mut ProviderError,
-    response: &ErrorResponse,
-    publisher: &str,
-    model: &str,
-    project: &str,
-    location: &str,
-) {
+pub fn vertex_model_access(error: &mut ProviderError, response: &ErrorResponse, publisher: &str, model: &str, project: &str, location: &str) {
     let parsed: Option<Value> = serde_json::from_slice(&response.body).ok();
     let body = parsed.as_ref().and_then(error_object);
     let iam_reason = ["details", "errorDetails"]
@@ -575,23 +557,14 @@ pub fn in_band(chunk: &Value, dialect: &ErrorDialect, now: SystemTime) -> Option
     };
     let google_status = body.get("status").and_then(Value::as_str).unwrap_or("");
     let numeric = body.get("code").map_or(f64::NAN, to_number);
-    let status = if numeric.is_finite() && numeric > 0.0 {
-        Some(numeric as u16)
-    } else {
-        http_status_of(google_status)
-    };
+    let status = if numeric.is_finite() && numeric > 0.0 { Some(numeric as u16) } else { http_status_of(google_status) };
     // `String(body.message || googleStatus || 'unknown')`.
     let shown = match body.get("message").filter(|m| js_truthy(m)) {
         Some(message) => value_to_string(message),
         None if !google_status.is_empty() => google_status.to_owned(),
         None => "unknown".to_owned(),
     };
-    let message = format!(
-        "{} in-band error{}: {}",
-        dialect.label,
-        status.map(|s| format!(" {s}")).unwrap_or_default(),
-        mixdog_js::slice_utf16(&shown, 300)
-    );
+    let message = format!("{} in-band error{}: {}", dialect.label, status.map(|s| format!(" {s}")).unwrap_or_default(), mixdog_js::slice_utf16(&shown, 300));
     let contract = contract_of(Some(&body), now);
     // `applyGeminiErrorContract` keeps no prior code: the error has none.
     Some(typed_error(message, status, contract.code.clone(), Some(&body), &contract))
@@ -642,15 +615,21 @@ mod tests {
         // `vertexModelAccessError`'s detail is the error's own message (`geminiRestError`'s), cut at 200 units.
         assert!(err.message.ends_with("(HTTP 404: Vertex AI Gemini streamGenerateContent 404: {\"error\":{\"code\":404,\"message\":\"Publisher Model was not found\",\"status\":\"NOT_FOUND\"}})"));
 
-        let iam = response(404, json!({"error":{"code":404,"status":"NOT_FOUND","message":"x",
-            "details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"IAM_PERMISSION_DENIED"}]}}));
+        let iam = response(
+            404,
+            json!({"error":{"code":404,"status":"NOT_FOUND","message":"x",
+            "details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":"IAM_PERMISSION_DENIED"}]}}),
+        );
         let mut err = classify(&iam, GEMINI);
         vertex_model_access(&mut err, &iam, "google", "gemini-x", "p1", "global");
         assert_ne!(err.code.as_deref(), Some(VERTEX_MODEL_NOT_ENABLED));
 
         // The enablement wording under another status is not a 404: no text is read.
-        let wording = response(403, json!({"error":{"code":403,"status":"PERMISSION_DENIED",
-            "message":"Project `p` is not allowed to use Publisher Model `m`"}}));
+        let wording = response(
+            403,
+            json!({"error":{"code":403,"status":"PERMISSION_DENIED",
+            "message":"Project `p` is not allowed to use Publisher Model `m`"}}),
+        );
         let mut err = classify(&wording, GEMINI);
         vertex_model_access(&mut err, &wording, "google", "gemini-x", "p1", "global");
         assert_ne!(err.code.as_deref(), Some(VERTEX_MODEL_NOT_ENABLED));
@@ -665,8 +644,10 @@ mod tests {
 
     #[test]
     fn antigravity_capacity_and_rate_limit_come_from_status_and_code_fields() {
-        let reason = |r: &str| json!({"error":{"code":429,"message":"x","status":"RESOURCE_EXHAUSTED",
-            "details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":r,"metadata":{"quotaResetDelay":"3.5s"}}]}});
+        let reason = |r: &str| {
+            json!({"error":{"code":429,"message":"x","status":"RESOURCE_EXHAUSTED",
+            "details":[{"@type":"type.googleapis.com/google.rpc.ErrorInfo","reason":r,"metadata":{"quotaResetDelay":"3.5s"}}]}})
+        };
         let capacity = classify(&response(429, reason("MODEL_CAPACITY_EXHAUSTED")), ANTIGRAVITY);
         assert_eq!(capacity.kind, ErrorKind::Overloaded);
         assert_eq!(capacity.retry_after, Some(Duration::from_millis(3500)));
@@ -684,18 +665,17 @@ mod tests {
         assert_eq!(overloaded.kind, ErrorKind::Overloaded);
         assert_eq!(classify(&response(503, json!({"error":{"message":"oops"}})), GEMINI).kind, ErrorKind::Transient);
         assert_eq!(classify(&response(529, json!({})), ANTIGRAVITY).kind, ErrorKind::Overloaded);
-        let denied = classify(
-            &response(503, json!({"error":{"status":"PERMISSION_DENIED","message":"no"}})),
-            ANTIGRAVITY,
-        );
+        let denied = classify(&response(503, json!({"error":{"status":"PERMISSION_DENIED","message":"no"}})), ANTIGRAVITY);
         assert_eq!(denied.kind, ErrorKind::Permission, "a typed refusal is not an overload");
     }
 
     #[test]
     fn google_quota_window_decides_between_rate_limit_and_quota() {
-        let failure = |quota_id: &str| json!({"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"q",
+        let failure = |quota_id: &str| {
+            json!({"error":{"code":429,"status":"RESOURCE_EXHAUSTED","message":"q",
             "details":[{"@type":"type.googleapis.com/google.rpc.QuotaFailure","violations":[{"quotaId":quota_id}]},
-                       {"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"12s"}]}});
+                       {"@type":"type.googleapis.com/google.rpc.RetryInfo","retryDelay":"12s"}]}})
+        };
         let minute = classify(&response(429, failure("GenerateRequestsPerMinutePerProject")), GEMINI);
         assert_eq!((minute.kind, minute.retry_after), (ErrorKind::RateLimited, Some(Duration::from_secs(12))));
         let day = classify(&response(429, failure("GenerateRequestsPerDayPerProject")), GEMINI);

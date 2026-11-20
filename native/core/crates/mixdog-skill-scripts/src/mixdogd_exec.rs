@@ -86,7 +86,11 @@ pub struct Mixdogd {
     bin: Option<String>,
 }
 
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the office scripts start `mixdogd exec` and wait for its output, as skill-run's interpreter start does; they have no runtime or lane")]
+#[allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "the office scripts start `mixdogd exec` and wait for its output, as skill-run's interpreter start does; they have no runtime or lane"
+)]
 impl ExecRunner for Mixdogd {
     fn run(&self, options: &ExecOptions) -> ExecResult {
         let bin = mixdogd_bin(self.bin.as_deref());
@@ -137,26 +141,29 @@ mod tests {
     fn a_run_is_one_exec_with_the_route_folder_usage_log_and_tool_mode() {
         let args = mixdogd_exec_args(&options());
         let want = [
-            "exec", "--provider", "p", "--model", "m", "--effort", "high", "--cwd", "/deck", "--usage-log", "/deck/r.usage.json",
-            "--tool-mode", "readonly", "--", "--looks like a flag",
+            "exec",
+            "--provider",
+            "p",
+            "--model",
+            "m",
+            "--effort",
+            "high",
+            "--cwd",
+            "/deck",
+            "--usage-log",
+            "/deck/r.usage.json",
+            "--tool-mode",
+            "readonly",
+            "--",
+            "--looks like a flag",
         ];
         assert_eq!(args, want);
     }
 
     #[test]
     fn unset_options_are_left_out_and_web_search_is_a_flag() {
-        let bare = ExecOptions {
-            effort: Some(String::new()),
-            cwd: None,
-            usage_log_path: None,
-            web_search: true,
-            tool_mode: ToolMode::Full,
-            ..options()
-        };
-        assert_eq!(
-            mixdogd_exec_args(&bare),
-            ["exec", "--provider", "p", "--model", "m", "--web-search", "--tool-mode", "full", "--", "--looks like a flag"]
-        );
+        let bare = ExecOptions { effort: Some(String::new()), cwd: None, usage_log_path: None, web_search: true, tool_mode: ToolMode::Full, ..options() };
+        assert_eq!(mixdogd_exec_args(&bare), ["exec", "--provider", "p", "--model", "m", "--web-search", "--tool-mode", "full", "--", "--looks like a flag"]);
     }
 
     #[test]
@@ -165,7 +172,6 @@ mod tests {
         assert_eq!(mixdogd_bin(Some("")), "mixdogd");
         assert_eq!(mixdogd_bin(None), "mixdogd");
     }
-
 
     #[test]
     fn a_mixdogd_that_cannot_start_is_exit_code_one_with_the_reason_on_stderr() {
@@ -176,7 +182,6 @@ mod tests {
         assert!(result.stderr.ends_with('\n'));
     }
 }
-
 
 impl Mixdogd {
     /// The runner that starts `bin` (`MIXDOGD_BIN`'s value) or `mixdogd`.

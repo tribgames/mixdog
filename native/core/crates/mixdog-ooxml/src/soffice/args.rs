@@ -13,8 +13,7 @@ use crate::xml::xml_encode;
 
 /// The desktop must stay out of the way on every run: without these a first start opens the setup wizard and a previously
 /// killed run opens the recovery dialog, and a headless process then waits for a window nobody can answer.
-pub const QUIET_ARGS: [&str; 7] =
-    ["--headless", "--invisible", "--nocrashreport", "--nodefault", "--nologo", "--nofirststartwizard", "--norestore"];
+pub const QUIET_ARGS: [&str; 7] = ["--headless", "--invisible", "--nocrashreport", "--nodefault", "--nologo", "--nofirststartwizard", "--norestore"];
 
 /// Documents reach this LibreOffice from untrusted sources (chat attachments), so the private profile it runs with turns every
 /// macro off: the strictest security level, and macro execution disabled outright.
@@ -134,8 +133,7 @@ pub fn registry_soffice_programs(output: &str) -> Vec<String> {
 /// nothing at all. The config names the system, local, and user folders, and the Office for Mac bundle where Excel keeps Calibri
 /// and Malgun Gothic, so the preview draws a workbook in Excel's faces.
 pub fn mac_font_config(home: &Path, cache_dir: &Path, office_font_dir: Option<&Path>) -> String {
-    let mut directories =
-        vec!["/System/Library/Fonts".to_owned(), "/Library/Fonts".to_owned(), home.join("Library").join("Fonts").display().to_string()];
+    let mut directories = vec!["/System/Library/Fonts".to_owned(), "/Library/Fonts".to_owned(), home.join("Library").join("Fonts").display().to_string()];
     if let Some(office) = office_font_dir.filter(|dir| !dir.as_os_str().is_empty()) {
         directories.push(office.display().to_string());
     }
@@ -165,8 +163,7 @@ mod tests {
 
     #[test]
     fn reg_query_output_names_the_soffice_com_of_the_recorded_install_folder_in_any_ui_language() {
-        let english =
-            "\r\nHKEY_LOCAL_MACHINE\\SOFTWARE\\LibreOffice\\UNO\\InstallPath\r\n    (Default)    REG_SZ    D:\\Apps\\LibreOffice 24\\program\r\n\r\n";
+        let english = "\r\nHKEY_LOCAL_MACHINE\\SOFTWARE\\LibreOffice\\UNO\\InstallPath\r\n    (Default)    REG_SZ    D:\\Apps\\LibreOffice 24\\program\r\n\r\n";
         let korean = "HKEY_CURRENT_USER\\SOFTWARE\\LibreOffice\\UNO\\InstallPath\r\n    (기본값)    REG_SZ    C:\\Users\\me\\AppData\\Local\\Programs\\LibreOffice\\program\r\n";
         assert_eq!(registry_soffice_programs(english), ["D:\\Apps\\LibreOffice 24\\program\\soffice.com"]);
         assert_eq!(registry_soffice_programs(korean), ["C:\\Users\\me\\AppData\\Local\\Programs\\LibreOffice\\program\\soffice.com"]);
@@ -206,7 +203,16 @@ mod tests {
         assert_eq!(Path::new(&mac[2]), Path::new("/Users/me").join("Applications").join("LibreOffice.app").join("Contents").join("MacOS").join("soffice"));
         assert_eq!(mac[3..], ["/opt/homebrew/bin/soffice", "/usr/local/bin/soffice"]);
         let linux = candidates(&Host::new(Os::Linux, "/home/me", "/tmp", &[]));
-        assert_eq!(linux[..5], ["soffice", "libreoffice", "/usr/lib/libreoffice/program/soffice", "/snap/bin/libreoffice", "/var/lib/flatpak/exports/bin/org.libreoffice.LibreOffice"]);
+        assert_eq!(
+            linux[..5],
+            [
+                "soffice",
+                "libreoffice",
+                "/usr/lib/libreoffice/program/soffice",
+                "/snap/bin/libreoffice",
+                "/var/lib/flatpak/exports/bin/org.libreoffice.LibreOffice"
+            ]
+        );
         assert!(linux[5].contains("org.libreoffice.LibreOffice") && linux[5].starts_with("/home/me"));
     }
 
@@ -215,7 +221,6 @@ mod tests {
         assert_eq!(converted_output_path(Path::new("out"), Path::new("dir/report.v2.docx"), "pdf"), Path::new("out").join("report.v2.pdf"));
         assert_eq!(converted_output_path(Path::new("out"), Path::new("t.csv"), "xlsx"), Path::new("out").join("t.xlsx"));
     }
-
 
     #[test]
     fn conversions_launch_in_a_private_profile_with_first_start_and_recovery_prompts_off() {
@@ -230,7 +235,6 @@ mod tests {
     }
 }
 
-
 impl Host {
     /// This process: its system, its environment, `os.homedir()` and `os.tmpdir()`.
     pub fn process() -> Self {
@@ -243,12 +247,7 @@ impl Host {
 
     /// A host of the given system with the given variables.
     pub fn new(os: Os, home: impl Into<PathBuf>, temp_dir: impl Into<PathBuf>, env: &[(&str, &str)]) -> Self {
-        Self {
-            os,
-            home: home.into(),
-            temp_dir: temp_dir.into(),
-            env: env.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect(),
-        }
+        Self { os, home: home.into(), temp_dir: temp_dir.into(), env: env.iter().map(|(name, value)| ((*name).to_owned(), (*value).to_owned())).collect() }
     }
 
     /// `process.env[name]`, an empty variable counting as unset (`process.env.X || fallback`).

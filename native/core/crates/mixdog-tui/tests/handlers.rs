@@ -20,8 +20,7 @@ use mixdog_tui::editor::helpers::HintTone;
 use mixdog_tui::editor::interrupt::InterruptResult;
 use mixdog_tui::editor::prompt::{DraftOverride, EscapePhase, HistoryDirection, PaletteReply, PasteSource};
 use mixdog_tui::handlers::draft_flow::{
-    accept_slash_palette, apply_prompt_draft_change, cancel_provider_prompt, cancel_settings_prompt, cancel_slash_palette,
-    complete_slash_palette,
+    accept_slash_palette, apply_prompt_draft_change, cancel_provider_prompt, cancel_settings_prompt, cancel_slash_palette, complete_slash_palette,
 };
 use mixdog_tui::handlers::escape::handle_prompt_escape;
 use mixdog_tui::handlers::global_keys::{ApprovalDecision, GlobalKeyOutcome, SelectionMove, ToolApproval, handle_global_key};
@@ -39,8 +38,6 @@ use mixdog_tui::surface::{SurfaceClaim, SurfaceKind};
 use mixdog_tui::transcript::window::selection_shift::SelectionRect;
 use serde_json::{Value, json};
 use slash_support::Fake;
-
-
 
 fn str_of(value: &Value) -> &str {
     value.as_str().unwrap_or_default()
@@ -153,13 +150,7 @@ impl H {
 }
 
 fn attachment(name: &str) -> ImageAttachment {
-    ImageAttachment {
-        content: "AA".to_owned(),
-        media_type: "image/png".to_owned(),
-        filename: name.to_owned(),
-        source_path: String::new(),
-        metadata_text: None,
-    }
+    ImageAttachment { content: "AA".to_owned(), media_type: "image/png".to_owned(), filename: name.to_owned(), source_path: String::new(), metadata_text: None }
 }
 
 impl AppCtx for H {
@@ -567,16 +558,9 @@ impl GlobalKeyHost for H {
     }
 }
 
-
 fn paste_host() -> H {
     H::new()
 }
-
-
-
-
-
-
 
 // ---- ports of use-prompt-handlers.test.mjs ---------------------------------------------------------------------------------
 
@@ -593,22 +577,11 @@ fn paste_inserts_short_text_raw_folds_large_text_and_resolves_image_paths_into_a
     assert_eq!(paste(&mut host, &big), PasteResult::Insert("[Pasted text #1 +1 lines]".to_owned()));
     assert_eq!(host.p.buffers.texts.entries().get(&1), Some(&big));
 
-    assert_eq!(
-        paste(&mut host, "before\n/tmp/p/a.png\nafter"),
-        PasteResult::Insert("before\n[Image #1]\nafter".to_owned())
-    );
+    assert_eq!(paste(&mut host, "before\n/tmp/p/a.png\nafter"), PasteResult::Insert("before\n[Image #1]\nafter".to_owned()));
     assert_eq!(host.hints().last(), Some(&("attached a.png".to_owned(), "plain".to_owned())));
-    assert_eq!(
-        paste(&mut host, "/tmp/p/missing.png"),
-        PasteResult::Insert("/tmp/p/missing.png".to_owned()),
-        "an unreadable image path stays plain text"
-    );
+    assert_eq!(paste(&mut host, "/tmp/p/missing.png"), PasteResult::Insert("/tmp/p/missing.png".to_owned()), "an unreadable image path stays plain text");
     assert_eq!(host.p.buffers.images.entries().len(), 1);
-    assert_eq!(
-        paste(&mut host, "/tmp/p/boom.png"),
-        PasteResult::Insert("/tmp/p/boom.png".to_owned()),
-        "a failing image read stays plain text and says so"
-    );
+    assert_eq!(paste(&mut host, "/tmp/p/boom.png"), PasteResult::Insert("/tmp/p/boom.png".to_owned()), "a failing image read stays plain text and says so");
     assert_eq!(host.hints().last(), Some(&("image attach failed: boom".to_owned(), "warn".to_owned())));
 }
 
@@ -616,10 +589,7 @@ fn paste_inserts_short_text_raw_folds_large_text_and_resolves_image_paths_into_a
 fn the_clipboard_shortcut_reads_the_clipboard_and_a_paste_with_text_is_not_read_again() {
     let mut host = paste_host();
     host.clip_text = Ok("from clipboard".to_owned());
-    assert_eq!(
-        handle_prompt_paste(&mut host, "", PasteSource::ClipboardShortcut),
-        PasteResult::Insert("from clipboard".to_owned())
-    );
+    assert_eq!(handle_prompt_paste(&mut host, "", PasteSource::ClipboardShortcut), PasteResult::Insert("from clipboard".to_owned()));
     assert_eq!(handle_prompt_paste(&mut host, "typed", PasteSource::ClipboardShortcut), PasteResult::Raw);
     assert_eq!(PasteResult::Raw.into_reply(), mixdog_tui::editor::prompt::PasteReply::Fallback);
     assert_eq!(PasteResult::Nothing.into_reply(), mixdog_tui::editor::prompt::PasteReply::Drop);
@@ -691,10 +661,7 @@ fn escape_closes_overlays_first_then_arms_and_executes_the_clear_and_select_phas
 }
 
 fn aborted(restore_text: &str) -> InterruptOutcome {
-    InterruptOutcome {
-        result: InterruptResult { aborted: Some(true), restore_text: restore_text.into() },
-        ..InterruptOutcome::default()
-    }
+    InterruptOutcome { result: InterruptResult { aborted: Some(true), restore_text: restore_text.into() }, ..InterruptOutcome::default() }
 }
 
 #[test]
@@ -851,10 +818,7 @@ fn palette_rows_complete_and_cancel_as_the_node_flow_does() {
         "a typed spelling of the name stays as typed (lowercased)"
     );
     host.palette_item = Some(PaletteItem::Skill { name: "review".into(), label: "$review".into(), description: String::new() });
-    assert_eq!(
-        complete_slash_palette(&mut host, "use $rev now", Some(8)),
-        PaletteReply::Draft { value: "use $review  now".to_owned(), cursor: 12 }
-    );
+    assert_eq!(complete_slash_palette(&mut host, "use $rev now", Some(8)), PaletteReply::Draft { value: "use $review  now".to_owned(), cursor: 12 });
     assert_eq!(accept_slash_palette(&mut host, "no mention", None), PaletteReply::Declined);
     host.palette_item = None;
     assert_eq!(accept_slash_palette(&mut host, "/x", None), PaletteReply::Declined);
@@ -999,10 +963,8 @@ fn paging_scrolls_by_sixty_percent_of_the_rows_unless_an_overlay_owns_the_keys()
 fn typing_host(previous_draft: &str) -> H {
     let mut host = H::new();
     host.p.draft = previous_draft.to_owned();
-    host.p.draft_override = Some(mixdog_tui::handlers::state::PublishedOverride {
-        id: 0,
-        draft: DraftOverride { value: "x".to_owned(), cursor: None, selection_anchor: None },
-    });
+    host.p.draft_override =
+        Some(mixdog_tui::handlers::state::PublishedOverride { id: 0, draft: DraftOverride { value: "x".to_owned(), cursor: None, selection_anchor: None } });
     host
 }
 
@@ -1070,4 +1032,3 @@ fn a_dismissed_palette_stays_dismissed_until_the_text_changes() {
     apply_prompt_draft_change(&mut host, "/mod");
     assert_eq!(host.p.slash_dismissed_for, "", "the next edit lets it open again");
 }
-

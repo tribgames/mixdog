@@ -34,13 +34,7 @@ impl StatePublisher for Sections {
 }
 
 fn work(id: u64) -> Running {
-    Running {
-        id,
-        kind: ActivityKind::Turn,
-        thread_id: Some("t1".into()),
-        turn_id: Some("u1".into()),
-        title: "a turn".into(),
-    }
+    Running { id, kind: ActivityKind::Turn, thread_id: Some("t1".into()), turn_id: Some("u1".into()), title: "a turn".into() }
 }
 
 struct Fixture {
@@ -60,10 +54,7 @@ struct Fixture {
 fn template() -> Discovery {
     Discovery {
         pid: 1234,
-        endpoints: Endpoints {
-            session: SessionEndpoint { port: 4001, token: "t".into() },
-            model_proxy: None,
-        },
+        endpoints: Endpoints { session: SessionEndpoint { port: 4001, token: "t".into() }, model_proxy: None },
         core: CoreSection {
             version: "1.4.6".into(),
             build: "b6".into(),
@@ -243,7 +234,6 @@ fn a_boot_state_that_cannot_be_published_is_fatal_and_a_draining_one_is_only_log
     assert!(failures.try_recv().is_ok(), "a failed serving publication is fatal");
 }
 
-
 fn fixture() -> Fixture {
     // A worker thread drives the spawned pool tasks while the test thread blocks on the handle, as
     // the release thread does in production.
@@ -315,12 +305,7 @@ fn health_and_the_drain_reach_the_app_feed_sections() {
     let f = fixture();
     f.core.health(2500);
     f.core.health(0);
-    f.core.drain_notice(&DrainNotice {
-        drain_id: "d1".into(),
-        reason: DrainReason::Update,
-        running: vec![work(7)],
-        confirm_token: "tok".into(),
-    });
+    f.core.drain_notice(&DrainNotice { drain_id: "d1".into(), reason: DrainReason::Update, running: vec![work(7)], confirm_token: "tok".into() });
     let sections = f.sections.0.lock().unwrap();
     assert_eq!(sections[0], (SectionName::CoreHealth, serde_json::json!({ "stalledMs": 2500 })));
     assert_eq!(sections[1], (SectionName::CoreHealth, serde_json::json!({ "stalledMs": 0 })));
@@ -334,12 +319,7 @@ fn health_and_the_drain_reach_the_app_feed_sections() {
         *drains,
         [CoreDrainParams {
             drain_id: "d1".into(),
-            running: vec![DrainRunning {
-                thread_id: Some("t1".into()),
-                turn_id: Some("u1".into()),
-                kind: ActivityKind::Turn,
-                title: "a turn".into(),
-            }],
+            running: vec![DrainRunning { thread_id: Some("t1".into()), turn_id: Some("u1".into()), kind: ActivityKind::Turn, title: "a turn".into() }],
             confirm_token: "tok".into(),
         }]
     );
@@ -348,12 +328,7 @@ fn health_and_the_drain_reach_the_app_feed_sections() {
 fn serving_replaces_a_draining_core_section_with_the_serving_state() {
     use crate::lifecycle::CorePort;
     let f = fixture();
-    f.core.drain_notice(&DrainNotice {
-        drain_id: "d1".into(),
-        reason: DrainReason::Quit,
-        running: Vec::new(),
-        confirm_token: "tok".into(),
-    });
+    f.core.drain_notice(&DrainNotice { drain_id: "d1".into(), reason: DrainReason::Quit, running: Vec::new(), confirm_token: "tok".into() });
     f.core.serving();
     let sections = f.sections.0.lock().unwrap();
     let states: Vec<mixdog_app_protocol::v1::CoreState> = sections
@@ -363,10 +338,7 @@ fn serving_replaces_a_draining_core_section_with_the_serving_state() {
             serde_json::from_value(value.clone()).unwrap()
         })
         .collect();
-    assert_eq!(
-        states,
-        [mixdog_app_protocol::v1::CoreState::Draining { reason: DrainReason::Quit }, mixdog_app_protocol::v1::CoreState::Serving]
-    );
+    assert_eq!(states, [mixdog_app_protocol::v1::CoreState::Draining { reason: DrainReason::Quit }, mixdog_app_protocol::v1::CoreState::Serving]);
 }
 #[test]
 fn work_without_a_thread_is_listed_with_null_ids() {
@@ -375,12 +347,7 @@ fn work_without_a_thread_is_listed_with_null_ids() {
     shell.kind = ActivityKind::BackgroundShell;
     shell.thread_id = None;
     shell.turn_id = None;
-    f.core.drain_notice(&DrainNotice {
-        drain_id: "d2".into(),
-        reason: DrainReason::Quit,
-        running: vec![shell],
-        confirm_token: "t".into(),
-    });
+    f.core.drain_notice(&DrainNotice { drain_id: "d2".into(), reason: DrainReason::Quit, running: vec![shell], confirm_token: "t".into() });
     let wire = serde_json::to_value(&f.drains.lock().unwrap()[0]).unwrap();
     assert!(wire["running"][0]["threadId"].is_null());
     assert!(wire["running"][0]["turnId"].is_null());

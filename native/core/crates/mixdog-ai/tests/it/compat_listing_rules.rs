@@ -211,7 +211,8 @@ async fn the_decorated_listing_shows_the_seed_roster_when_the_roster_is_empty_or
     let refused = adapter(profile.clone(), Answers::new(vec![(401, json!({"error": {"message": "no"}}))]), key("k"), None).list_models().await;
     assert_eq!(refused.unwrap_err().status, Some(401), "a refused key is the caller's to hear");
     // A roster that has rows is listed as it is, each row given the default ladder when it declares none.
-    let rows = adapter(profile, Answers::new(vec![(200, json!({"data": [{"id": "m-1", "name": " Model One "}]}))]), key("k"), None).list_models().await.unwrap();
+    let rows =
+        adapter(profile, Answers::new(vec![(200, json!({"data": [{"id": "m-1", "name": " Model One "}]}))]), key("k"), None).list_models().await.unwrap();
     assert_eq!(ids(&rows), ["m-1"]);
     assert_eq!(rows[0].name.as_deref(), Some("Model One"), "the name the roster states, trimmed");
     assert_eq!(rows[0].reasoning_levels, default_levels.iter().map(|l| (*l).to_owned()).collect::<Vec<_>>());
@@ -265,7 +266,10 @@ async fn opencode_go_lists_the_console_configs_models_with_their_limits_prices_a
     let one = &rows[0];
     assert_eq!(one.name.as_deref(), Some("Model One"));
     assert_eq!((one.context_window, one.max_output_tokens), (Some(200_000), Some(8_000)));
-    assert_eq!((one.input_cost_per_m, one.output_cost_per_m, one.cache_read_cost_per_m, one.cache_write_cost_per_m), (Some(1.5), Some(6.0), Some(0.15), Some(1.875)));
+    assert_eq!(
+        (one.input_cost_per_m, one.output_cost_per_m, one.cache_read_cost_per_m, one.cache_write_cost_per_m),
+        (Some(1.5), Some(6.0), Some(0.15), Some(1.875))
+    );
     assert_eq!((one.supports_reasoning, one.reasoning_levels.clone()), (Some(true), vec!["low".to_owned(), "high".to_owned()]), "empty levels are dropped");
     let two = &rows[1];
     assert_eq!(two.name.as_deref(), Some("model-two"), "no name: the id");

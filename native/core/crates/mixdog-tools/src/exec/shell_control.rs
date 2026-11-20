@@ -75,10 +75,7 @@ impl ShellControl {
 
     /// `listStoppableShellJobs`.
     pub fn list_stoppable(&self, owner: &ThreadId) -> Vec<StoppableJob> {
-        self.owned_background(owner)
-            .into_iter()
-            .map(|row| StoppableJob { task_id: row.task_id, command: row.command })
-            .collect()
+        self.owned_background(owner).into_iter().map(|row| StoppableJob { task_id: row.task_id, command: row.command }).collect()
     }
 
     /// `stopBackgroundShellJob`: `{stopped: true}` only when the job was actually cancelled. A job
@@ -118,10 +115,7 @@ impl ShellControl {
     /// `stopBackgroundShellJobs`: every background shell of `owner`, each through the same
     /// confirmed cancel. `stopping` counts those whose processes are not yet confirmed gone.
     pub async fn stop_jobs(&self, owner: &ThreadId) -> JsonValue {
-        let answers = futures::future::join_all(
-            self.owned_background(owner).iter().map(|row| self.stop_job(owner, &row.task_id)),
-        )
-        .await;
+        let answers = futures::future::join_all(self.owned_background(owner).iter().map(|row| self.stop_job(owner, &row.task_id))).await;
         let count = |key: &str| answers.iter().filter(|answer| answer[key] == JsonValue::Bool(true)).count();
         json!({ "stopped": count("stopped"), "stopping": count("unconfirmed") })
     }
@@ -149,7 +143,9 @@ impl ShellControl {
                 if !runtime.cancel_survivors_intent(&job) && !job.termination_pending() {
                     return;
                 }
-                if let Some(watch) = &runtime.config.survivors && watch.kill(&job.handle).await {
+                if let Some(watch) = &runtime.config.survivors
+                    && watch.kill(&job.handle).await
+                {
                     runtime.finish_survivors(&job).await;
                 }
             }));

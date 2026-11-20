@@ -43,8 +43,12 @@ impl Runner for Air {
         "air"
     }
     async fn check(&self, req: &RunRequest) -> RunnerResult {
-        let read = |r: &ProcessResult, _: &[String]| if clean_or_unformatted(r) { Batch::Done(parse_air_check(&r.stderr, &req.cwd)) } else { Batch::Incomplete(said(r)) };
-        quiet_when_found(run_batches(req, "air", &req.files, req.files_per_spawn, &|files| Invocation::over(req, &["format", "--check"], files), &read).await.into_result())
+        let read = |r: &ProcessResult, _: &[String]| {
+            if clean_or_unformatted(r) { Batch::Done(parse_air_check(&r.stderr, &req.cwd)) } else { Batch::Incomplete(said(r)) }
+        };
+        quiet_when_found(
+            run_batches(req, "air", &req.files, req.files_per_spawn, &|files| Invocation::over(req, &["format", "--check"], files), &read).await.into_result(),
+        )
     }
     async fn fix(&self, req: &RunRequest) -> RunnerResult {
         run_writes(req, "air", &["format"], &exited_zero).await.into_result()
@@ -101,7 +105,11 @@ impl Runner for ClangFormat {
             // An error positioned in a file it was not given is in what it read on its own: its configuration.
             Err((_, message)) => Batch::Refused(message),
         };
-        quiet_when_found(run_batches(req, "clang-format", &req.files, req.files_per_spawn, &|files| Invocation::over(req, &["--dry-run", "-Werror"], files), &read).await.into_result())
+        quiet_when_found(
+            run_batches(req, "clang-format", &req.files, req.files_per_spawn, &|files| Invocation::over(req, &["--dry-run", "-Werror"], files), &read)
+                .await
+                .into_result(),
+        )
     }
     async fn fix(&self, req: &RunRequest) -> RunnerResult {
         run_writes(req, "clang-format", &["-i"], &exited_zero).await.into_result()
@@ -133,7 +141,13 @@ impl Runner for Dprint {
             Ok(split) => split,
             Err(why) => return engine_stopped(why),
         };
-        let read = |r: &ProcessResult, _: &[String]| if r.code == 0 || r.code == 20 { Batch::Done(parse_dprint_check(&format!("{}\n{}", r.stdout, r.stderr), &req.cwd)) } else { Batch::Incomplete(said(r)) };
+        let read = |r: &ProcessResult, _: &[String]| {
+            if r.code == 0 || r.code == 20 {
+                Batch::Done(parse_dprint_check(&format!("{}\n{}", r.stdout, r.stderr), &req.cwd))
+            } else {
+                Batch::Incomplete(said(r))
+            }
+        };
         let pass = run_batches(req, "dprint", &selected, req.files_per_spawn, &|files| Invocation::over(req, &["check"], files), &read).await;
         RunnerResult { ignored, ..quiet_when_found(pass.into_result()) }
     }
@@ -161,7 +175,9 @@ impl Runner for Stylua {
         "stylua"
     }
     async fn check(&self, req: &RunRequest) -> RunnerResult {
-        let read = |r: &ProcessResult, _: &[String]| if clean_or_unformatted(r) { Batch::Done(parse_stylua_check(&format!("{}\n{}", r.stdout, r.stderr), &req.cwd)) } else { Batch::Incomplete(said(r)) };
+        let read = |r: &ProcessResult, _: &[String]| {
+            if clean_or_unformatted(r) { Batch::Done(parse_stylua_check(&format!("{}\n{}", r.stdout, r.stderr), &req.cwd)) } else { Batch::Incomplete(said(r)) }
+        };
         let call = |line_ending: &[&str], files: &[String]| Invocation::over(req, &[&["--check", "--respect-ignores"][..], line_ending].concat(), files);
         quiet_when_found(run_by_line_ending(req, "stylua", Command::Reads, &STYLUA_LINE_ENDINGS, &call, &read).await.into_result())
     }
@@ -244,7 +260,9 @@ fn glob_literal(file: &str) -> String {
 }
 
 async fn taplo(req: &RunRequest, command: Command, mode: &[&str], read: &(dyn Fn(&ProcessResult, &[String]) -> Batch + Sync)) -> RunnerResult {
-    let call = |line_ending: &[&str], files: &[String]| Invocation::over(req, &[mode, line_ending].concat(), &files.iter().map(|f| glob_literal(f)).collect::<Vec<_>>());
+    let call = |line_ending: &[&str], files: &[String]| {
+        Invocation::over(req, &[mode, line_ending].concat(), &files.iter().map(|f| glob_literal(f)).collect::<Vec<_>>())
+    };
     let pass = run_by_line_ending(req, "taplo", command, &TAPLO_LINE_ENDINGS, &call, read).await;
     // Its stderr is its log; what that says about the files is in the findings.
     RunnerResult { stderr_tail: String::new(), ..pass.into_result() }
@@ -295,13 +313,28 @@ mod tests {
 
     #[async_trait]
     impl Spawn for Fake {
-        async fn run(&self, _: &str, args: &[String], _: &Path, _: std::time::Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> ProcessResult {
+        async fn run(
+            &self,
+            _: &str,
+            args: &[String],
+            _: &Path,
+            _: std::time::Duration,
+            _: Option<&CancellationToken>,
+            _: Option<&HashMap<String, String>>,
+            _: Option<Vec<u8>>,
+        ) -> ProcessResult {
             (self.0)(args)
         }
     }
 
     fn request(files: &[&str], reply: impl Fn(&[String]) -> ProcessResult + Send + Sync + 'static) -> RunRequest {
-        RunRequest::new(cwd(), "engine", files.iter().map(|f| (*f).to_owned()).collect(), Arc::new(Fake(Box::new(reply))), mixdog_rt::testing::tokens().durability_io)
+        RunRequest::new(
+            cwd(),
+            "engine",
+            files.iter().map(|f| (*f).to_owned()).collect(),
+            Arc::new(Fake(Box::new(reply))),
+            mixdog_rt::testing::tokens().durability_io,
+        )
     }
 
     /// A request over files that exist, each one line that ends with LF, for the engines that
@@ -313,7 +346,13 @@ mod tests {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(path, "x\n").unwrap();
         }
-        let req = RunRequest::new(dir.path(), "engine", files.iter().map(|f| (*f).to_owned()).collect(), Arc::new(Fake(Box::new(reply))), mixdog_rt::testing::tokens().durability_io);
+        let req = RunRequest::new(
+            dir.path(),
+            "engine",
+            files.iter().map(|f| (*f).to_owned()).collect(),
+            Arc::new(Fake(Box::new(reply))),
+            mixdog_rt::testing::tokens().durability_io,
+        );
         (dir, req)
     }
 
@@ -332,8 +371,14 @@ mod tests {
     fn clang_format_violations_carry_positions_and_any_other_positioned_message_is_a_refusal() {
         let found = parse_clang_format_dry_run("src/a.c:3:5: error: code should be clang-formatted [-Wclang-format-violations]\nint main(){}\n    ^\nsrc/a.c:9:1: warning: code should be clang-formatted [-Wclang-format-violations]", cwd()).unwrap();
         assert_eq!(found.changed, ["src/a.c"]);
-        assert_eq!((found.diagnostics[0].line, found.diagnostics[0].col, found.diagnostics[0].severity.as_str(), found.diagnostics[1].severity.as_str()), (3, 5, "error", "warning"));
-        assert_eq!(parse_clang_format_dry_run("/r/.clang-format:2:1: error: unknown key 'Foo'\nError reading /r/.clang-format: Invalid argument", cwd()).unwrap_err(), (".clang-format".to_owned(), "/r/.clang-format:2:1: error: unknown key 'Foo'".to_owned()));
+        assert_eq!(
+            (found.diagnostics[0].line, found.diagnostics[0].col, found.diagnostics[0].severity.as_str(), found.diagnostics[1].severity.as_str()),
+            (3, 5, "error", "warning")
+        );
+        assert_eq!(
+            parse_clang_format_dry_run("/r/.clang-format:2:1: error: unknown key 'Foo'\nError reading /r/.clang-format: Invalid argument", cwd()).unwrap_err(),
+            (".clang-format".to_owned(), "/r/.clang-format:2:1: error: unknown key 'Foo'".to_owned())
+        );
     }
 
     #[tokio::test]
@@ -342,7 +387,9 @@ mod tests {
         let stylua = |args: &[String]| {
             let diff: String = args.iter().filter(|a| a.starts_with("messy")).map(|a| format!("Diff in {a}:\n-x\n+y\n")).collect();
             match args.iter().find(|a| a.starts_with("bad")) {
-                Some(bad) => ProcessResult { code: 2, stdout: diff, stderr: format!("error: could not format file {bad}: error parsing"), ..Default::default() },
+                Some(bad) => {
+                    ProcessResult { code: 2, stdout: diff, stderr: format!("error: could not format file {bad}: error parsing"), ..Default::default() }
+                }
                 None => ProcessResult { code: i32::from(!diff.is_empty()), stdout: diff, ..Default::default() },
             }
         };
@@ -356,7 +403,11 @@ mod tests {
     async fn an_engine_that_fails_alike_on_separate_files_is_a_failed_engine_not_a_list_of_bad_files() {
         let air = |_: &[String]| ProcessResult { code: 255, stderr: "ERROR Failed to load configuration air.toml".into(), ..Default::default() };
         let out = Air.check(&request(&["a.R", "b.R", "c.R", "d.R"], air)).await;
-        assert!(out.error.as_deref().is_some_and(|e| e.contains("failed the same way on separate groups of files") && e.contains("air.toml")), "{:?}", out.error);
+        assert!(
+            out.error.as_deref().is_some_and(|e| e.contains("failed the same way on separate groups of files") && e.contains("air.toml")),
+            "{:?}",
+            out.error
+        );
         assert_eq!((out.files_checked, out.unprocessed.len()), (Some(0), 0));
         let fixed = Air.fix(&request(&["a.R"], air)).await;
         assert_eq!(names(&fixed.unprocessed), ["a.R"], "one file alone cannot tell a bad file from a bad engine: the file is what is known to have failed");
@@ -367,20 +418,31 @@ mod tests {
         let dprint = |args: &[String]| {
             let matched: Vec<&String> = args.iter().filter(|a| a.ends_with(".json")).collect();
             if args[0] == "output-file-paths" {
-                return if matched.is_empty() { ProcessResult { code: 14, stderr: "No files found to format with the specified plugins".into(), ..Default::default() } } else { ProcessResult { stdout: matched.iter().map(|f| format!("/r/{f}\n")).collect(), ..Default::default() } };
+                return if matched.is_empty() {
+                    ProcessResult { code: 14, stderr: "No files found to format with the specified plugins".into(), ..Default::default() }
+                } else {
+                    ProcessResult { stdout: matched.iter().map(|f| format!("/r/{f}\n")).collect(), ..Default::default() }
+                };
             }
             assert!(args.iter().all(|a| !a.ends_with(".md")), "an unmatched file is not passed to check: {args:?}");
             ProcessResult { code: 20, stdout: "from /r/a.json:\n1|-x\n".into(), stderr: "Found 1 not formatted file.".into(), ..Default::default() }
         };
         let out = Dprint.check(&request(&["a.json", "notes.md"], dprint)).await;
-        assert_eq!((out.files_checked, out.changed_files.clone(), out.ignored.clone(), out.error.clone()), (Some(1), vec!["a.json".to_owned()], vec!["notes.md".to_owned()], None));
+        assert_eq!(
+            (out.files_checked, out.changed_files.clone(), out.ignored.clone(), out.error.clone()),
+            (Some(1), vec!["a.json".to_owned()], vec!["notes.md".to_owned()], None)
+        );
         let none = Dprint.check(&request(&["notes.md"], dprint)).await;
         assert_eq!((none.files_checked, none.ignored.clone(), none.error.clone()), (Some(0), vec!["notes.md".to_owned()], None));
     }
 
     #[tokio::test]
     async fn clang_format_that_refuses_its_configuration_is_not_a_clean_run() {
-        let refused = |_: &[String]| ProcessResult { code: 1, stderr: "/r/.clang-format:2:1: error: unknown key 'Foo'\nError reading /r/.clang-format: Invalid argument".into(), ..Default::default() };
+        let refused = |_: &[String]| ProcessResult {
+            code: 1,
+            stderr: "/r/.clang-format:2:1: error: unknown key 'Foo'\nError reading /r/.clang-format: Invalid argument".into(),
+            ..Default::default()
+        };
         // One file is enough to know: the error is positioned in a file clang-format was not given.
         let out = ClangFormat.check(&request(&["a.c"], refused)).await;
         assert_eq!((out.error.as_deref(), out.unprocessed.len()), (Some("clang-format could not run: /r/.clang-format:2:1: error: unknown key 'Foo'"), 0));
@@ -392,7 +454,10 @@ mod tests {
 
     #[test]
     fn dart_and_taplo_reports_name_the_files_to_rewrite_and_taplo_errors_are_not_findings() {
-        assert_eq!(parse_dart_check("Changed lib/a.dart\nChanged ./-b.dart\nFormatted 3 files (2 changed) in 0.01 seconds.", cwd()).changed, ["lib/a.dart", "-b.dart"]);
+        assert_eq!(
+            parse_dart_check("Changed lib/a.dart\nChanged ./-b.dart\nFormatted 3 files (2 changed) in 0.01 seconds.", cwd()).changed,
+            ["lib/a.dart", "-b.dart"]
+        );
         let log = " INFO taplo:format_files:collect_files: found files total=2 excluded=0 files=[\"/r/sub/a.toml\", \"/r/b.toml\"] cwd=\"/r\"\nERROR taplo:format_files: the file is not properly formatted path=\"/r/sub/a.toml\"\nERROR operation failed error=some files were not properly formatted";
         assert_eq!(parse_taplo_check(log, cwd()).unwrap().changed, ["sub/a.toml"]);
         assert_eq!(parse_taplo_check("error: invalid TOML\n  ┌─ /r/bad.toml:1:5", cwd()).unwrap_err(), "error: invalid TOML");
@@ -405,10 +470,18 @@ mod tests {
             assert_eq!(args[0], "--output=none");
             let changed: String = args.iter().filter(|a| a.starts_with("messy")).map(|a| format!("Changed {a}\n")).collect();
             let code = if args.iter().any(|a| a.starts_with("bad")) { 65 } else { 0 };
-            ProcessResult { code, stdout: changed, stderr: if code == 0 { String::new() } else { "Could not format because the source could not be parsed:".into() }, ..Default::default() }
+            ProcessResult {
+                code,
+                stdout: changed,
+                stderr: if code == 0 { String::new() } else { "Could not format because the source could not be parsed:".into() },
+                ..Default::default()
+            }
         };
         let out = Dart.check(&request(&["messy.dart", "bad.dart", "ok.dart"], dart)).await;
-        assert_eq!((out.files_checked, out.changed_files.clone(), names(&out.unprocessed), out.error.clone()), (Some(2), vec!["messy.dart".to_owned()], vec!["bad.dart"], None));
+        assert_eq!(
+            (out.files_checked, out.changed_files.clone(), names(&out.unprocessed), out.error.clone()),
+            (Some(2), vec!["messy.dart".to_owned()], vec!["bad.dart"], None)
+        );
     }
 
     #[tokio::test]
@@ -421,9 +494,19 @@ mod tests {
         let spawn = Fake(Box::new(move |args: &[String]| {
             seen.lock().unwrap().push(args.join(" "));
             let named = args.iter().filter(|a| a.ends_with(".toml")).map(|a| a.replace("[[]", "[").replace("[]]", "]"));
-            ProcessResult { code: 1, stderr: named.map(|file| format!("ERROR taplo:format_files: the file is not properly formatted path=\"{root}/{file}\"\n")).collect(), ..Default::default() }
+            ProcessResult {
+                code: 1,
+                stderr: named.map(|file| format!("ERROR taplo:format_files: the file is not properly formatted path=\"{root}/{file}\"\n")).collect(),
+                ..Default::default()
+            }
         }));
-        let req = RunRequest::new(dir.path(), "taplo", vec!["unix.toml".to_owned(), "gone.toml".to_owned(), "win[1].toml".to_owned()], Arc::new(spawn), mixdog_rt::testing::tokens().durability_io);
+        let req = RunRequest::new(
+            dir.path(),
+            "taplo",
+            vec!["unix.toml".to_owned(), "gone.toml".to_owned(), "win[1].toml".to_owned()],
+            Arc::new(spawn),
+            mixdog_rt::testing::tokens().durability_io,
+        );
         let out = Taplo.check(&req).await;
         assert_eq!(*calls.lock().unwrap(), ["fmt --check -o crlf=false unix.toml", "fmt --check -o crlf=true win[[]1[]].toml"]);
         assert_eq!((out.files_checked, out.changed_files, out.error), (Some(2), vec!["unix.toml".to_owned(), "win[1].toml".to_owned()], None));
@@ -443,7 +526,11 @@ mod tests {
         let out = Stylua.fix(&req).await;
         assert_eq!((*calls.lock().unwrap(), out.files_checked, out.error.clone()), (1, Some(0), None));
         assert_eq!(names(&out.unprocessed), ["a.lua", "b.lua", "c.lua"]);
-        assert!(out.unprocessed[0].1.contains("failed over the 3 files it was given") && out.unprocessed[0].1.contains("could not format file c.lua"), "{:?}", out.unprocessed);
+        assert!(
+            out.unprocessed[0].1.contains("failed over the 3 files it was given") && out.unprocessed[0].1.contains("could not format file c.lua"),
+            "{:?}",
+            out.unprocessed
+        );
         // What a writing command printed is not its result: a cut log does not undo a completed write.
         let (_dir, req) = on_disk(&["a.lua", "b.lua"], |_| ProcessResult { truncated: true, ..Default::default() });
         let out = Stylua.fix(&req).await;
@@ -452,12 +539,30 @@ mod tests {
 
     #[tokio::test]
     async fn taplo_with_a_configuration_it_cannot_read_is_a_failed_engine_and_a_file_that_is_not_toml_is_unprocessed() {
-        let refused = |_: &[String]| ProcessResult { stderr: " INFO taplo:format_files:load_config: found configuration file path=\"/r/.taplo.toml\"\n WARN taplo:format_files:load_config: invalid configuration file error=TOML parse error at line 1, column 13".into(), ..Default::default() };
+        let refused = |_: &[String]| {
+            ProcessResult { stderr: " INFO taplo:format_files:load_config: found configuration file path=\"/r/.taplo.toml\"\n WARN taplo:format_files:load_config: invalid configuration file error=TOML parse error at line 1, column 13".into(), ..Default::default() }
+        };
         let out = Taplo.fix(&on_disk(&["a.toml"], refused).1).await;
-        assert_eq!((out.files_checked, out.error.as_deref()), (Some(0), Some("taplo could not run: WARN taplo:format_files:load_config: invalid configuration file error=TOML parse error at line 1, column 13")));
-        let broken = |args: &[String]| if args.iter().any(|a| a == "bad.toml") { ProcessResult { code: 1, stderr: " INFO taplo:format_files:collect_files: found files total=1\nerror: invalid TOML\n  ┌─ /r/bad.toml:1:5".into(), ..Default::default() } } else { ProcessResult::default() };
+        assert_eq!(
+            (out.files_checked, out.error.as_deref()),
+            (Some(0), Some("taplo could not run: WARN taplo:format_files:load_config: invalid configuration file error=TOML parse error at line 1, column 13"))
+        );
+        let broken = |args: &[String]| {
+            if args.iter().any(|a| a == "bad.toml") {
+                ProcessResult {
+                    code: 1,
+                    stderr: " INFO taplo:format_files:collect_files: found files total=1\nerror: invalid TOML\n  ┌─ /r/bad.toml:1:5".into(),
+                    ..Default::default()
+                }
+            } else {
+                ProcessResult::default()
+            }
+        };
         let out = Taplo.check(&on_disk(&["ok.toml", "bad.toml"], broken).1).await;
-        assert_eq!((out.files_checked, out.unprocessed.clone(), out.error.clone(), out.stderr_tail.as_str()), (Some(1), vec![("bad.toml".to_owned(), "exit 1: error: invalid TOML\n  ┌─ /r/bad.toml:1:5".to_owned())], None, ""));
+        assert_eq!(
+            (out.files_checked, out.unprocessed.clone(), out.error.clone(), out.stderr_tail.as_str()),
+            (Some(1), vec![("bad.toml".to_owned(), "exit 1: error: invalid TOML\n  ┌─ /r/bad.toml:1:5".to_owned())], None, "")
+        );
     }
 
     #[tokio::test]

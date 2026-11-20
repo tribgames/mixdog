@@ -198,9 +198,7 @@ struct Path {
 
 fn add_to_path(path: &Path, added: bool, removed: bool, old_pos_inc: isize) -> Path {
     let component = match &path.last {
-        Some(last) if last.added == added && last.removed == removed => {
-            Component { count: last.count + 1, added, removed, previous: last.previous.clone() }
-        }
+        Some(last) if last.added == added && last.removed == removed => Component { count: last.count + 1, added, removed, previous: last.previous.clone() },
         last => Component { count: 1, added, removed, previous: last.clone() },
     };
     Path { old_pos: path.old_pos + old_pos_inc, last: Some(Rc::new(component)) }

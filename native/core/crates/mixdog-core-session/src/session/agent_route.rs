@@ -16,12 +16,12 @@ use mixdog_tools::orch::util::PortError;
 use serde_json::Value;
 
 use super::directory::SessionDirectory;
+use mixdog_core_base::rooms::ids::agent_home_session_id;
+use mixdog_core_base::rooms::ids::room_member_of_session;
 use mixdog_core_ports::ports::domain_sessions::AgentRoutePublisher;
 use mixdog_core_ports::ports::route::AgentChats;
 use mixdog_core_ports::ports::route::AgentRouteFollow;
 use mixdog_core_ports::ports::route::Route;
-use mixdog_core_base::rooms::ids::agent_home_session_id;
-use mixdog_core_base::rooms::ids::room_member_of_session;
 
 /// The chats `follow` filters `sessionsById` to: the home thread and the bot's room-member
 /// sessions, among the threads this process hosts.
@@ -31,10 +31,7 @@ impl AgentChats for SessionDirectory {
         Some(
             self.loaded_ids()
                 .into_iter()
-                .filter(|id| {
-                    id.as_str() == home
-                        || room_member_of_session(id.as_str()).is_some_and(|member| member.agent_id == agent_id)
-                })
+                .filter(|id| id.as_str() == home || room_member_of_session(id.as_str()).is_some_and(|member| member.agent_id == agent_id))
                 .collect(),
         )
     }
@@ -142,9 +139,9 @@ mod tests {
     use serde_json::json;
 
     use super::*;
+    use crate::session::testing::Rig;
     use mixdog_core_ports::ports::route::ChatRouteSetter;
     use mixdog_core_ports::ports::route::FollowOptions;
-    use crate::session::testing::Rig;
 
     struct Two;
     impl AgentChats for Two {
@@ -182,8 +179,7 @@ mod tests {
         let publisher = SessionRoutePublisher::new(Arc::new(AgentRouteFollow::new(Arc::new(Two), setter.clone())));
         let route = json!({ "provider": "openai", "model": "next" });
         // Two runtimes apply the same change at once: one attempt per chat, both told it failed.
-        let (first, second) =
-            tokio::join!(publisher.publish_stored("writer", &route), publisher.publish_stored("writer", &route));
+        let (first, second) = tokio::join!(publisher.publish_stored("writer", &route), publisher.publish_stored("writer", &route));
         assert!(first.is_err() && second.is_err());
         assert_eq!(setter.attempts.load(SeqCst), 2);
         setter.taking.store(true, SeqCst);
@@ -192,7 +188,6 @@ mod tests {
         publisher.publish_stored("writer", &route).await.expect("already taken");
         assert_eq!(setter.attempts.load(SeqCst), 4, "taken once, it is not delivered again");
     }
-
 
     #[async_trait]
     impl ChatRouteSetter for Refusing {
@@ -217,7 +212,6 @@ mod tests {
             Ok(())
         }
     }
-
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_bots_chats_are_its_hosted_home_and_room_member_sessions() {

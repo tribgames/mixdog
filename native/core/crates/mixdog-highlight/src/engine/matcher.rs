@@ -29,11 +29,7 @@ pub(crate) struct LazyRegex {
 
 impl LazyRegex {
     pub(crate) fn new(source: String, icase: bool) -> Self {
-        Self {
-            source,
-            icase,
-            compiled: OnceCell::new(),
-        }
+        Self { source, icase, compiled: OnceCell::new() }
     }
 
     /// `escape(value)` of core.js: the text as a literal pattern, with the `m` flag only.
@@ -57,11 +53,7 @@ impl LazyRegex {
     pub(crate) fn get(&self) -> Option<&Regex> {
         self.compiled
             .get_or_init(|| {
-                let flags = Flags {
-                    icase: self.icase,
-                    multiline: true,
-                    ..Flags::default()
-                };
+                let flags = Flags { icase: self.icase, multiline: true, ..Flags::default() };
                 Regex::with_flags(&engine_source(&self.source, self.icase), flags).ok()
             })
             .as_ref()
@@ -117,12 +109,7 @@ struct MultiRegex {
 }
 
 impl MultiRegex {
-    fn exec(
-        &self,
-        rules: &[Rule],
-        text: &[u16],
-        last_index: usize,
-    ) -> Result<Option<LexMatch>, ()> {
+    fn exec(&self, rules: &[Rule], text: &[u16], last_index: usize) -> Result<Option<LexMatch>, ()> {
         if self.broken {
             return Err(());
         }
@@ -138,19 +125,11 @@ impl MultiRegex {
         let Some(base) = (1..=found.captures.len()).find(|&g| found.group(g).is_some()) else {
             return Err(());
         };
-        let Some(&(_, rule_index)) = self.match_indexes.iter().find(|(group, _)| *group == base)
-        else {
+        let Some(&(_, rule_index)) = self.match_indexes.iter().find(|(group, _)| *group == base) else {
             return Err(());
         };
         let rule = &rules[rule_index];
-        Ok(Some(LexMatch {
-            index: found.start(),
-            end: found.end(),
-            kind: rule.kind,
-            position: rule.position.get(),
-            base,
-            caps: found,
-        }))
+        Ok(Some(LexMatch { index: found.start(), end: found.end(), kind: rule.kind, position: rule.position.get(), base, caps: found }))
     }
 }
 
@@ -168,27 +147,10 @@ pub(crate) struct Matcher {
 
 impl Matcher {
     pub(crate) fn new(rules: Vec<(String, RuleKind)>, icase: bool) -> Self {
-        let count = rules
-            .iter()
-            .filter(|(_, kind)| matches!(kind, RuleKind::Begin(_)))
-            .count();
-        let rules: Vec<Rule> = rules
-            .into_iter()
-            .map(|(pattern, kind)| Rule {
-                pattern,
-                kind,
-                position: Cell::new(0),
-            })
-            .collect();
+        let count = rules.iter().filter(|(_, kind)| matches!(kind, RuleKind::Begin(_))).count();
+        let rules: Vec<Rule> = rules.into_iter().map(|(pattern, kind)| Rule { pattern, kind, position: Cell::new(0) }).collect();
         let slots = vec![None; rules.len() + 1];
-        Self {
-            rules,
-            count,
-            icase,
-            multi: RefCell::new(slots),
-            last_index: Cell::new(0),
-            regex_index: Cell::new(0),
-        }
+        Self { rules, count, icase, multi: RefCell::new(slots), last_index: Cell::new(0), regex_index: Cell::new(0) }
     }
 
     pub(crate) fn consider_all(&self) {
@@ -218,21 +180,13 @@ impl Matcher {
         let (regex, broken) = if patterns.is_empty() {
             (None, false)
         } else {
-            let flags = Flags {
-                icase: self.icase,
-                multiline: true,
-                ..Flags::default()
-            };
+            let flags = Flags { icase: self.icase, multiline: true, ..Flags::default() };
             match Regex::with_flags(&engine_source(&join(&patterns), self.icase), flags) {
                 Ok(regex) => (Some(regex), false),
                 Err(_) => (None, true),
             }
         };
-        let built = Rc::new(MultiRegex {
-            regex,
-            broken,
-            match_indexes,
-        });
+        let built = Rc::new(MultiRegex { regex, broken, match_indexes });
         if let Some(slot) = self.multi.borrow_mut().get_mut(index) {
             *slot = Some(built.clone());
         }
@@ -253,14 +207,11 @@ impl Matcher {
         if self.resuming_scan_at_same_position() {
             let same_place = result.as_ref().is_some_and(|r| r.index == last_index);
             if !same_place {
-                result = self
-                    .matcher_from(0)
-                    .exec(&self.rules, text, last_index + 1)?;
+                result = self.matcher_from(0).exec(&self.rules, text, last_index + 1)?;
             }
         }
         if let Some(found) = &result {
-            self.regex_index
-                .set(self.regex_index.get() + found.position + 1);
+            self.regex_index.set(self.regex_index.get() + found.position + 1);
             if self.regex_index.get() == self.count {
                 self.consider_all();
             }
@@ -293,8 +244,7 @@ pub(crate) fn count_groups(source: &str) -> usize {
             }
             '(' => {
                 if chars.get(i + 1) == Some(&'?') {
-                    let named = chars.get(i + 2) == Some(&'<')
-                        && !matches!(chars.get(i + 3), Some(&'=') | Some(&'!'));
+                    let named = chars.get(i + 2) == Some(&'<') && !matches!(chars.get(i + 3), Some(&'=') | Some(&'!'));
                     if named {
                         groups += 1;
                     }
@@ -346,11 +296,7 @@ fn next_token(chars: &[char], from: usize) -> Option<(usize, usize, Token)> {
                 }
             }
             '(' => {
-                return Some(if chars.get(i + 1) == Some(&'?') {
-                    (i, 2, Token::Paren(false))
-                } else {
-                    (i, 1, Token::Paren(true))
-                });
+                return Some(if chars.get(i + 1) == Some(&'?') { (i, 2, Token::Paren(false)) } else { (i, 1, Token::Paren(true)) });
             }
             '\\' => {
                 if let Some(&next) = chars.get(i + 1) {
@@ -511,14 +457,8 @@ mod tests {
 
     #[test]
     fn the_matching_group_names_the_rule() {
-        let matcher = Matcher::new(
-            vec![
-                ("a+".to_string(), RuleKind::Begin(7)),
-                (r"(b)(c)".to_string(), RuleKind::End),
-                ("\\d".to_string(), RuleKind::Illegal),
-            ],
-            false,
-        );
+        let matcher =
+            Matcher::new(vec![("a+".to_string(), RuleKind::Begin(7)), (r"(b)(c)".to_string(), RuleKind::End), ("\\d".to_string(), RuleKind::Illegal)], false);
         let text = utf16("xxbc9");
         matcher.consider_all();
         matcher.last_index.set(0);
@@ -530,13 +470,7 @@ mod tests {
 
     #[test]
     fn a_resumed_scan_skips_the_rules_before_the_one_that_matched() {
-        let matcher = Matcher::new(
-            vec![
-                ("x".to_string(), RuleKind::Begin(1)),
-                ("x|y".to_string(), RuleKind::Begin(2)),
-            ],
-            false,
-        );
+        let matcher = Matcher::new(vec![("x".to_string(), RuleKind::Begin(1)), ("x|y".to_string(), RuleKind::Begin(2))], false);
         let text = utf16("xy");
         matcher.consider_all();
         matcher.last_index.set(0);

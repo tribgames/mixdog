@@ -110,7 +110,10 @@ async fn opening_and_resetting_through_the_service_answer_the_session_ids() {
     let (service, _) = service_over(|world| world.agents = vec![contact("ada")]);
     assert_eq!(call(&service, "agent/home/open", json!({ "agentId": " ada" })).await.unwrap(), json!({ "sessionId": "sess_home_ada" }));
     // Nothing was said in the thread: a reset has no conversation to archive.
-    assert_eq!(call(&service, "agent/home/reset", json!({ "agentId": "ada" })).await.unwrap(), json!({ "sessionId": "sess_home_ada", "archivedSessionId": null }));
+    assert_eq!(
+        call(&service, "agent/home/reset", json!({ "agentId": "ada" })).await.unwrap(),
+        json!({ "sessionId": "sess_home_ada", "archivedSessionId": null })
+    );
     let missing = call(&service, "agent/home/open", json!({ "agentId": "nobody" })).await.unwrap_err();
     assert_eq!(message(&missing), "Agent \"nobody\" is not available.");
 }

@@ -95,11 +95,9 @@ const JSON_CT: (&str, &str) = ("content-type", "application/json");
 #[tokio::test]
 async fn name_gate_runs_before_anything_else() {
     let f = fx(WebhookConfig::default());
-    for (path, status, error) in [
-        ("/webhook/..%2Fx", 404, "invalid endpoint name"),
-        ("/webhook/", 404, "invalid endpoint name"),
-        ("/webhook/nope", 404, "unknown endpoint"),
-    ] {
+    for (path, status, error) in
+        [("/webhook/..%2Fx", 404, "invalid endpoint name"), ("/webhook/", 404, "invalid endpoint name"), ("/webhook/nope", 404, "unknown endpoint")]
+    {
         let reply = f.svc.handle_post(path, &headers(&[]), b"{}").await;
         assert_eq!((reply.status, reply.body), (status, json!({"error":error})), "{path}");
     }
@@ -166,10 +164,8 @@ async fn test_probe_needs_header_marker_and_secret_and_never_dispatches() {
     assert_eq!((ok.status, ok.body), (200, json!({"status":"verified","test":true})));
     let header_only_body = b"{}";
     let sig2 = sign("s3", header_only_body);
-    let mismatch = f
-        .svc
-        .handle_post("/webhook/hook", &headers(&[JSON_CT, ("x-hub-signature-256", &sig2), ("x-mixdog-webhook-test", "1")]), header_only_body)
-        .await;
+    let mismatch =
+        f.svc.handle_post("/webhook/hook", &headers(&[JSON_CT, ("x-hub-signature-256", &sig2), ("x-mixdog-webhook-test", "1")]), header_only_body).await;
     assert_eq!((mismatch.status, mismatch.body), (400, json!({"error":"invalid test request"})));
     assert!(f.dispatched.0.lock().unwrap().is_empty());
     assert!(f.store.deliveries.lock().unwrap().is_empty());
@@ -220,10 +216,6 @@ async fn a_hostile_body_is_refused_before_it_is_built() {
     assert!(f.dispatched.0.lock().unwrap().is_empty());
 }
 
-
-
-
-
 #[test]
 fn transport_collector_joins_chunks_and_caps_the_wire_body() {
     // Chunks split inside a multi-byte character join byte for byte.
@@ -264,7 +256,6 @@ async fn oversized_body_is_413_and_listener_counts_as_work() {
     drop(listening);
     assert!(f.work.is_idle());
 }
-
 
 // ---- transport: the real listener over loopback ----
 
@@ -481,7 +472,6 @@ async fn fill(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>, w
 /// when the peer closed first. `waiting` names what the caller is waiting for.
 async fn read_response_typed(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>, waiting: &str) -> Option<Parsed> {
     read_response_to(stream, pending, waiting, false).await
-
 }
 /// `no_body`: the reply answers a `HEAD` request, so it carries no body whatever its headers say.
 async fn read_response_to(stream: &mut (impl AsyncReadExt + Unpin), pending: &mut Vec<u8>, waiting: &str, no_body: bool) -> Option<Parsed> {
@@ -687,7 +677,8 @@ async fn pipelined_requests_are_each_answered_in_order() {
     let f = fx(WebhookConfig::default());
     let listener = serve_on_loopback(&f).await;
     let mut stream = connect(listener.port()).await;
-    send(&mut stream, b"GET / HTTP/1.1\r\nHost: x\r\n\r\nGET /nope HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n", "three pipelined requests").await;
+    send(&mut stream, b"GET / HTTP/1.1\r\nHost: x\r\n\r\nGET /nope HTTP/1.1\r\nHost: x\r\n\r\nGET / HTTP/1.1\r\nHost: x\r\n\r\n", "three pipelined requests")
+        .await;
     let mut pending = Vec::new();
     let mut replies = Vec::new();
     for _ in 0..3 {
@@ -775,7 +766,8 @@ async fn a_body_past_the_cap_gets_413_at_the_crossing_chunk_and_never_dispatches
 async fn a_request_in_flight_is_cut_at_the_shutdown_grace() {
     let f = fx(WebhookConfig::default());
     let reached = Arc::new(tokio::sync::Notify::new());
-    let service = Arc::new(WebhookService::new(f.store.clone(), Arc::new(NeverAnswers(reached.clone())), WebhookConfig::default(), f.work.clone(), Arc::new(|| 0)));
+    let service =
+        Arc::new(WebhookService::new(f.store.clone(), Arc::new(NeverAnswers(reached.clone())), WebhookConfig::default(), f.work.clone(), Arc::new(|| 0)));
     let listener = WebhookListener::start(service, 0).await.unwrap();
     let port = listener.port();
     let body = br#"{"a":1}"#;
@@ -788,7 +780,6 @@ async fn a_request_in_flight_is_cut_at_the_shutdown_grace() {
     listener.stop().await;
     assert_eq!(reply.await.unwrap(), None, "the request ran to the 25 s bound instead of the grace");
 }
-
 
 /// Node's `headersTimeout` and `requestTimeout`: a head that never completes and a body that does not arrive are each
 /// answered with Node's recorded bare 408 and the connection ends. The recorded defaults are waited on the paused clock,

@@ -88,16 +88,9 @@ pub fn find_device_code(output: &str) -> Option<String> {
     let mut from = 0;
     while let Some(at) = lower[from..].find("one-time code") {
         let rest = &output[from + at + "one-time code".len()..];
-        let after = if let Some(rest) = rest.strip_prefix(':') {
-            Some(rest.trim_start())
-        } else {
-            rest.trim_start().strip_prefix('(')
-        };
+        let after = if let Some(rest) = rest.strip_prefix(':') { Some(rest.trim_start()) } else { rest.trim_start().strip_prefix('(') };
         if let Some(after) = after {
-            let code: String = after
-                .chars()
-                .take_while(|c| c.is_ascii_alphanumeric() || *c == '-')
-                .collect();
+            let code: String = after.chars().take_while(|c| c.is_ascii_alphanumeric() || *c == '-').collect();
             if code.len() >= 6 {
                 return Some(code);
             }
@@ -193,27 +186,24 @@ mod tests {
         let text = strip_control("\u{1b}[1mFirst copy your one-time code: ABCD-1234\u{1b}[0m\r\nOpen https://github.com/login/device now\n");
         assert_eq!(find_device_code(&text).as_deref(), Some("ABCD-1234"));
         assert_eq!(find_device_url(&text).as_deref(), Some("https://github.com/login/device"));
-        assert_eq!(
-            find_device_code("! One-time code (WXYZ-9876) copied to clipboard").as_deref(),
-            Some("WXYZ-9876")
-        );
+        assert_eq!(find_device_code("! One-time code (WXYZ-9876) copied to clipboard").as_deref(), Some("WXYZ-9876"));
         assert_eq!(find_device_code("one-time code: abc"), None);
     }
 }
-
 
 /// gh prints the one-time code within seconds; silence past this is a stall.
 const CODE_STALL: std::time::Duration = std::time::Duration::from_secs(45);
 const LOGIN_LIMIT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 /// Fails the flow and kills gh when the code never shows up in time, or the flow outlives its limit.
-#[allow(clippy::disallowed_methods, reason = "on a replay's virtual clock mixdog_rt::time adds a stop of its own, so one advance past the stall would fail the login where tokio's timer observed it at the advance's end")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "on a replay's virtual clock mixdog_rt::time adds a stop of its own, so one advance past the stall would fail the login where tokio's timer observed it at the advance's end"
+)]
 async fn guard(shared: Arc<Shared>, stall: std::time::Duration, limit: std::time::Duration) {
     let deadline = tokio::time::Instant::now() + limit;
     let mut state = shared.state.subscribe();
     // The watch's read guard must not outlive the wait: `advance` writes to the same channel.
-    let started = tokio::time::timeout(stall, state.wait_for(|s| !matches!(s, LoginState::Starting)))
-        .await
-        .map(|waited| waited.is_ok());
+    let started = tokio::time::timeout(stall, state.wait_for(|s| !matches!(s, LoginState::Starting))).await.map(|waited| waited.is_ok());
     let message = match started {
         Err(_) => "GitHub sign-in did not start. Run `gh auth login` in a terminal instead.",
         Ok(false) => return,
@@ -246,11 +236,7 @@ impl GithubLogin {
         self
     }
 
-    pub fn new(
-        processes: Arc<dyn ProcessManager>,
-        client: Arc<GhClient>,
-        program: Arc<dyn Fn() -> String + Send + Sync>,
-    ) -> Self {
+    pub fn new(processes: Arc<dyn ProcessManager>, client: Arc<GhClient>, program: Arc<dyn Fn() -> String + Send + Sync>) -> Self {
         Self {
             processes,
             client,
@@ -270,39 +256,26 @@ impl LoginFlow for GithubLogin {
     }
 
     async fn start(&self) -> Result<Box<dyn LoginSession>, LoginError> {
-        let home = AbsPath::new(home_dir()).ok_or(LoginError::Failed(LoginFailure::Failed {
-            code: "home".into(),
-            message: "The home directory is not absolute.".into(),
-        }))?;
+        let home = AbsPath::new(home_dir())
+            .ok_or(LoginError::Failed(LoginFailure::Failed { code: "home".into(), message: "The home directory is not absolute.".into() }))?;
         // One login at a time: a fresh start supersedes (and kills) the earlier flow.
         if let Some(previous) = self.current.lock().expect("login flow").take() {
             previous.advance(LoginState::Cancelled);
             let _ = previous.processes.kill(&previous.handle);
         }
-        let handle = ProcessHandle(format!(
-            "scm-login-{}-{}",
-            std::process::id(),
-            self.sequence.fetch_add(1, Ordering::Relaxed)
-        ));
+        let handle = ProcessHandle(format!("scm-login-{}-{}", std::process::id(), self.sequence.fetch_add(1, Ordering::Relaxed)));
         let request = SpawnRequest {
             handle: handle.clone(),
             command: CommandSpec::Argv {
                 program: (self.program)(),
-                args: ["auth", "login", "--hostname", HOSTNAME, "--web"]
-                    .iter()
-                    .map(|arg| (*arg).to_owned())
-                    .collect(),
+                args: ["auth", "login", "--hostname", HOSTNAME, "--web"].iter().map(|arg| (*arg).to_owned()).collect(),
             },
             cwd: home,
             env: EnvSpec {
                 inherit: true,
                 // Prompts are disabled so gh never asks the git-protocol / git-credentials
                 // questions (and skips its press-Enter stop).
-                set: vec![
-                    ("GH_PROMPT_DISABLED".into(), "1".into()),
-                    ("BROWSER".into(), no_op_browser().into()),
-                    ("GH_BROWSER".into(), no_op_browser().into()),
-                ],
+                set: vec![("GH_PROMPT_DISABLED".into(), "1".into()), ("BROWSER".into(), no_op_browser().into()), ("GH_BROWSER".into(), no_op_browser().into())],
                 remove: crate::exec::child_env_removed(),
             },
             pty: Some(PtySize { cols: 120, rows: 30 }),
@@ -312,8 +285,7 @@ impl LoginFlow for GithubLogin {
             time_limit: None,
         };
         let CommandSpec::Argv { program: attempted, args: attempted_args } = &request.command else { unreachable!("built above") };
-        let attempt =
-            crate::seam::attempt_begin(attempted, attempted_args, true, request.cwd.as_path(), &request.env.set, &request.env.remove);
+        let attempt = crate::seam::attempt_begin(attempted, attempted_args, true, request.cwd.as_path(), &request.env.set, &request.env.remove);
         let spawned = self.processes.spawn(request).await;
         attempt.spawned(spawned.is_ok());
         match spawned {
@@ -322,10 +294,7 @@ impl LoginFlow for GithubLogin {
                 return Err(LoginError::Failed(LoginFailure::Unavailable { capability: "gh".into() }));
             }
             Err(other) => {
-                return Err(LoginError::Failed(LoginFailure::Failed {
-                    code: "spawn".into(),
-                    message: format!("{other:?}"),
-                }));
+                return Err(LoginError::Failed(LoginFailure::Failed { code: "spawn".into(), message: format!("{other:?}") }));
             }
         }
         let events = self
@@ -367,8 +336,7 @@ async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent
                 url = url.or_else(|| find_device_url(&output));
                 // End the watch read guard before advance may publish a new state.
                 let starting = matches!(*shared.state.borrow(), LoginState::Starting);
-                if starting
-                    && let Some(code) = find_device_code(&output) {
+                if starting && let Some(code) = find_device_code(&output) {
                     shared.advance(LoginState::DeviceCode {
                         user_code: code,
                         verification_uri: url.clone().unwrap_or_else(|| DEFAULT_DEVICE_URL.into()),
@@ -391,10 +359,7 @@ async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent
         return;
     }
     let Some(exit) = exit else {
-        shared.advance(LoginState::Failed(LoginFailure::Failed {
-            code: "gh-exit".into(),
-            message: "gh ended without an exit status.".into(),
-        }));
+        shared.advance(LoginState::Failed(LoginFailure::Failed { code: "gh-exit".into(), message: "gh ended without an exit status.".into() }));
         return;
     };
     if exit.killed == Some(KillReason::Requested) {
@@ -421,15 +386,10 @@ async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent
     let verdict = async {
         let status = crate::gh::account::auth_status(&client, &home, &cancel).await?;
         if !status.success() {
-            return Ok(Err(LoginFailure::Failed {
-                code: "not-signed-in".into(),
-                message: "gh finished, but no account is signed in.".into(),
-            }));
+            return Ok(Err(LoginFailure::Failed { code: "not-signed-in".into(), message: "gh finished, but no account is signed in.".into() }));
         }
         // Non-interactive login skips gh's git-credentials step; wire it up here.
-        let setup = client
-            .output(&home, &cancel, &["auth", "setup-git", "--hostname", HOSTNAME])
-            .await?;
+        let setup = client.output(&home, &cancel, &["auth", "setup-git", "--hostname", HOSTNAME]).await?;
         if !setup.success() {
             let detail = setup.stderr.trim();
             return Ok(Err(LoginFailure::Failed {
@@ -444,16 +404,9 @@ async fn drive(shared: Arc<Shared>, mut events: Box<dyn EventSource<ProcessEvent
     }
     .await;
     shared.advance(match verdict {
-        Ok(Ok(login)) => LoginState::Done {
-            account: (!login.is_empty()).then_some(login),
-        },
+        Ok(Ok(login)) => LoginState::Done { account: (!login.is_empty()).then_some(login) },
         Ok(Err(failure)) => LoginState::Failed(failure),
-        Err(crate::error::ScmFailure::Unavailable { .. }) => {
-            LoginState::Failed(LoginFailure::Unavailable { capability: "gh".into() })
-        }
-        Err(other) => LoginState::Failed(LoginFailure::Failed {
-            code: "verify".into(),
-            message: other.to_string(),
-        }),
+        Err(crate::error::ScmFailure::Unavailable { .. }) => LoginState::Failed(LoginFailure::Unavailable { capability: "gh".into() }),
+        Err(other) => LoginState::Failed(LoginFailure::Failed { code: "verify".into(), message: other.to_string() }),
     });
 }

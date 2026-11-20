@@ -84,8 +84,12 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
         mixdog_fsio::create_dir_all(self.design().lane, dirname(&output)).map_err(|error| error.to_string())?;
         let password = text_arg(args, "password");
         let owner_password = text_arg(args, "ownerPassword");
-        let secured = secure_pdf(self.design().lane, self.note(), &SecureRequest { input: &input, output: &output, mode: &mode, password: &password, owner_password: &owner_password })
-            .map_err(|error| error.message)?;
+        let secured = secure_pdf(
+            self.design().lane,
+            self.note(),
+            &SecureRequest { input: &input, output: &output, mode: &mode, password: &password, owner_password: &owner_password },
+        )
+        .map_err(|error| error.message)?;
         Ok(self.tool_result(secured, "secure", None, started, &[]))
     }
 
@@ -122,7 +126,13 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
 
     /// `runSessionlessOfficeAction({ action, args, cwd, dataDir, signal, startedAt })`: the tool result, or `None` when the action
     /// needs a session.
-    pub async fn sessionless_action(&self, action: &str, args: &Value, signal: Option<&CancellationToken>, started: Instant) -> Result<Option<Value>, TransactionError> {
+    pub async fn sessionless_action(
+        &self,
+        action: &str,
+        args: &Value,
+        signal: Option<&CancellationToken>,
+        started: Instant,
+    ) -> Result<Option<Value>, TransactionError> {
         let plain = |value: Value| Some(self.tool_result_plain(value));
         match action {
             "detect" => Ok(plain(self.detect_action(args).await?)),

@@ -11,9 +11,7 @@ use std::collections::BTreeSet;
 use std::ops::Range;
 use std::sync::LazyLock;
 
-use mixdog_js::{
-    JsRegex, js_trim, math, number_to_string, slice_utf16, string_to_number, to_number_of, utf16_len, value_to_string,
-};
+use mixdog_js::{JsRegex, js_trim, math, number_to_string, slice_utf16, string_to_number, to_number_of, utf16_len, value_to_string};
 use mixdog_office_base::a1::{column_label, column_number, parse_cell_ref};
 use mixdog_office_base::values::truthy;
 use serde_json::{Map, Value};
@@ -584,9 +582,7 @@ pub fn parse_area_range(range: &str) -> Result<Area, String> {
     // A sheet-qualified reference is a near miss, not a malformed range: say where the sheet belongs instead of reporting
     // the whole string as unusable.
     if range.contains('!') {
-        return Err(format!(
-            "Range \"{range}\" carries a sheet name; pass the cells alone (A1:D25) and name the sheet in the operation's sheet field"
-        ));
+        return Err(format!("Range \"{range}\" carries a sheet name; pass the cells alone (A1:D25) and name the sheet in the operation's sheet field"));
     }
     Err(format!("Unsupported range: {range}"))
 }
@@ -594,13 +590,7 @@ pub fn parse_area_range(range: &str) -> Result<Area, String> {
 /// `areaReference(area)`: a parsed area written back as the bounded reference Excel reads (`A1:D5`): the inverse of
 /// [`parse_area_range`], and the one spelling every operation that records a range uses.
 pub fn area_reference(area: &Area) -> String {
-    format!(
-        "{}{}:{}{}",
-        column_label(area.start_col),
-        number_to_string(area.start_row),
-        column_label(area.end_col),
-        number_to_string(area.end_row)
-    )
+    format!("{}{}:{}{}", column_label(area.start_col), number_to_string(area.start_row), column_label(area.end_col), number_to_string(area.end_row))
 }
 
 /// Hangul, CJK and fullwidth forms take two character cells of a column.
@@ -1031,10 +1021,8 @@ pub fn sheet_qualified_areas(range: &str) -> Vec<SheetArea> {
         .map(|part| {
             let text = js_trim(part);
             let found = QUALIFIED_AREA.captures(text);
-            let sheet = found
-                .as_ref()
-                .map(|found| js_trim(&found.get(1).or_else(|| found.get(2)).unwrap_or("").replace("''", "'")).to_owned())
-                .unwrap_or_default();
+            let sheet =
+                found.as_ref().map(|found| js_trim(&found.get(1).or_else(|| found.get(2)).unwrap_or("").replace("''", "'")).to_owned()).unwrap_or_default();
             let area = found.as_ref().map_or(text, |found| found.get(3).unwrap_or("")).replace('$', "");
             SheetArea { sheet, area: js_trim(&area).to_owned() }
         })
@@ -1254,15 +1242,23 @@ mod tests {
             write_column_widths(xml, &[(2, 12.5), (4, 8.0)]),
             "<worksheet><cols><col min=\"1\" max=\"1\" width=\"5\" hidden=\"1\"/><col min=\"2\" max=\"2\" width=\"12.5\" hidden=\"1\" customWidth=\"1\"/><col min=\"4\" max=\"4\" width=\"8\" customWidth=\"1\"/></cols><sheetData/></worksheet>"
         );
-        let hidden = hidden_sheet_areas("<worksheet><cols><col min=\"2\" max=\"3\" hidden=\"1\"/></cols><sheetData><row r=\"7\" hidden=\"true\"/><row r=\"8\"/></sheetData></worksheet>");
+        let hidden = hidden_sheet_areas(
+            "<worksheet><cols><col min=\"2\" max=\"3\" hidden=\"1\"/></cols><sheetData><row r=\"7\" hidden=\"true\"/><row r=\"8\"/></sheetData></worksheet>",
+        );
         assert_eq!(hidden.rows.iter().copied().collect::<Vec<_>>(), vec![7]);
         assert_eq!(hidden.columns.iter().copied().collect::<Vec<_>>(), vec![2, 3]);
         // `Number(max) || min` keeps a negative max, and Node's loop then covers no column.
         assert!(hidden_sheet_areas("<cols><col min=\"2\" max=\"-1\" hidden=\"1\"/></cols>").columns.is_empty());
-        assert_eq!(write_column_widths("<worksheet><cols><col min=\"2\" max=\"-1\"/></cols></worksheet>", &[(1, 5.0)]), "<worksheet><cols><col min=\"1\" max=\"1\" width=\"5\" customWidth=\"1\"/></cols></worksheet>");
+        assert_eq!(
+            write_column_widths("<worksheet><cols><col min=\"2\" max=\"-1\"/></cols></worksheet>", &[(1, 5.0)]),
+            "<worksheet><cols><col min=\"1\" max=\"1\" width=\"5\" customWidth=\"1\"/></cols></worksheet>"
+        );
         let shown = write_column_visibility(xml, &[1], true);
         assert!(shown.contains("<col min=\"1\" max=\"1\" width=\"5\"/>"));
-        assert!(write_column_visibility("<worksheet><sheetData/></worksheet>", &[3], false).contains("<col min=\"3\" max=\"3\" width=\"9.14\" customWidth=\"1\" hidden=\"1\"/>"));
+        assert!(
+            write_column_visibility("<worksheet><sheetData/></worksheet>", &[3], false)
+                .contains("<col min=\"3\" max=\"3\" width=\"9.14\" customWidth=\"1\" hidden=\"1\"/>")
+        );
     }
 
     #[test]
@@ -1279,6 +1275,9 @@ mod tests {
         let added = upsert_defined_name(xml, Some("<definedName name=\"Rate\">0.1</definedName>"), |_| false);
         assert_eq!(added, "<workbook><sheets/><definedNames><definedName name=\"Rate\">0.1</definedName></definedNames><calcPr/></workbook>");
         assert_eq!(upsert_defined_name(&added, None, |item| item.contains("\"Rate\"")), "<workbook><sheets/><calcPr/></workbook>");
-        assert_eq!(append_worksheet_section("<worksheet><hyperlinks><hyperlink/></hyperlinks></worksheet>", "hyperlinks", "<hyperlinks/>"), "<worksheet><hyperlinks><hyperlink/></hyperlinks><hyperlinks/></worksheet>");
+        assert_eq!(
+            append_worksheet_section("<worksheet><hyperlinks><hyperlink/></hyperlinks></worksheet>", "hyperlinks", "<hyperlinks/>"),
+            "<worksheet><hyperlinks><hyperlink/></hyperlinks><hyperlinks/></worksheet>"
+        );
     }
 }

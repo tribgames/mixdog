@@ -26,9 +26,7 @@ pub fn connector_accounts_instructions(accounts: &[ConnectorAccount]) -> Option<
     Some(if named.len() == 1 {
         format!("Accounts: {list}. `account` may be left out.")
     } else {
-        format!(
-            "Accounts: {list}. `account` picks one; left out, a call uses the account used last, and its result names it."
-        )
+        format!("Accounts: {list}. `account` picks one; left out, a call uses the account used last, and its result names it.")
     })
 }
 
@@ -68,10 +66,7 @@ mod tests {
     #[test]
     fn single_and_multiple_account_lines() {
         assert_eq!(connector_accounts_instructions(&[acct("", None)]), None);
-        assert_eq!(
-            connector_accounts_instructions(&[acct("a@x.com", None), acct("", None)]).unwrap(),
-            "Accounts: a@x.com. `account` may be left out."
-        );
+        assert_eq!(connector_accounts_instructions(&[acct("a@x.com", None), acct("", None)]).unwrap(), "Accounts: a@x.com. `account` may be left out.");
         assert_eq!(
             connector_accounts_instructions(&[acct("a@x.com", None), acct("b@x.com", Some("needs sign-in"))]).unwrap(),
             "Accounts: a@x.com, b@x.com (needs sign-in). `account` picks one; left out, a call uses the account used last, and its result names it."

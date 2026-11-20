@@ -75,23 +75,10 @@ pub fn normalize(entry: &SteerEntry) -> Option<Merged> {
 /// The transcript message and the event for one merged entry. A task
 /// notification keeps the user role the wire needs but is stored under its own
 /// source, so envelope classification never mistakes it for typed input.
-pub fn inject(
-    merged: Merged,
-    stage: DrainStage,
-    injected_at: i64,
-    fresh_message_id: impl FnOnce() -> String,
-) -> (AgentMessage, SteerInjected) {
+pub fn inject(merged: Merged, stage: DrainStage, injected_at: i64, fresh_message_id: impl FnOnce() -> String) -> (AgentMessage, SteerInjected) {
     let message_id = merged.message_id.clone().unwrap_or_else(fresh_message_id);
-    let source = if merged.task_notification {
-        Source::TaskNotification
-    } else {
-        Source::Steering
-    };
-    let text = if merged.text.is_empty() {
-        content_text(&merged.content)
-    } else {
-        merged.text.clone()
-    };
+    let source = if merged.task_notification { Source::TaskNotification } else { Source::Steering };
+    let text = if merged.text.is_empty() { content_text(&merged.content) } else { merged.text.clone() };
     let mut message = AgentMessage::user_content(merged.content);
     message.source = Some(source);
     // A notification's row keeps its execution provenance after `source` (`steering.mjs:165-170`); the message
@@ -184,8 +171,7 @@ mod tests {
         let mut task = entry("done");
         task.mode = SteerMode::TaskNotification;
         task.execution = Some(JsonValue::from("shell"));
-        let (message, event) =
-            inject(normalize(&task).unwrap(), DrainStage::PreSend, 5, || "m1".into());
+        let (message, event) = inject(normalize(&task).unwrap(), DrainStage::PreSend, 5, || "m1".into());
         assert_eq!(message.source, Some(Source::TaskNotification));
         assert!(event.task_notification);
         assert_eq!(event.message_id, "m1");

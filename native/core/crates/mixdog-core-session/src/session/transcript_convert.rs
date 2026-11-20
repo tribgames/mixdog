@@ -32,15 +32,15 @@ use serde::de::DeserializeOwned;
 use serde_json::Value;
 use serde_json::json;
 
-use crate::session::seams::Shown;
-use super::transcript_rows::ResultFact;
 use super::transcript_rows::Restored;
+use super::transcript_rows::ResultFact;
 use super::transcript_rows::Row;
 use super::transcript_rows::call_item_id;
 use super::transcript_rows::metadata;
 use super::transcript_rows::normalize_attachments;
 use super::transcript_rows::normalize_reactions;
 use super::transcript_rows::text_field;
+use crate::session::seams::Shown;
 
 /// What a row's conversion needs beyond the row.
 pub(in crate::session) struct Ctx<'a> {
@@ -189,13 +189,12 @@ fn user_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
         details.bot_chain = bot_chain;
         details.room_row = room_row;
         if details.source == Some(MessageSource::HeldRequest) {
-            details.held_request = message
-                .pointer("/meta/heldRequest")
-                .and_then(|held| serde_json::from_value::<HeldRequest>(held.clone()).ok());
+            details.held_request = message.pointer("/meta/heldRequest").and_then(|held| serde_json::from_value::<HeldRequest>(held.clone()).ok());
         }
     }
     let device = take_str(&mut row, "device");
-    let client_submission_id = take_str(&mut row, "clientSubmissionId");    let checkpoint_id = take_str(&mut row, "checkpointId");
+    let client_submission_id = take_str(&mut row, "clientSubmissionId");
+    let checkpoint_id = take_str(&mut row, "checkpointId");
     let applied_skills = row.shift_remove("appliedSkills").and_then(|skills| serde_json::from_value::<Vec<String>>(skills).ok());
     row.shift_remove("expanded");
     meta = finish(meta, row);
@@ -218,12 +217,7 @@ fn assistant_item(mut row: Row, ctx: &Ctx<'_>) -> ThreadItem {
     let text = take_str(&mut row, "text").unwrap_or_default();
     let imported_tool_runs = take_as::<Vec<ImportedToolRun>>(&mut row, "importedToolRuns").unwrap_or_default();
     let meta = meta_of(&mut row, ctx);
-    ThreadItem::AgentMessage {
-        id: item_id(&id),
-        text: MaybeBlob::Inline(text),
-        imported_tool_runs,
-        meta: finish(meta, row),
-    }
+    ThreadItem::AgentMessage { id: item_id(&id), text: MaybeBlob::Inline(text), imported_tool_runs, meta: finish(meta, row) }
 }
 
 fn blob_text(row: &mut Row, key: &str) -> Option<MaybeBlob<String>> {
@@ -436,8 +430,7 @@ fn room_item(id: &str, message: &Value, ctx: &Ctx<'_>) -> Option<ThreadItem> {
         attachments: files.and_then(|f| serde_json::from_value(Value::Array(f)).ok()).unwrap_or_default(),
         images: if user { images.and_then(|i| serde_json::from_value(i).ok()).unwrap_or_default() } else { Vec::new() },
         reactions: if user {
-            serde_json::from_value(Value::Array(normalize_reactions(message.pointer("/meta/transcript/reactions"))))
-                .unwrap_or_default()
+            serde_json::from_value(Value::Array(normalize_reactions(message.pointer("/meta/transcript/reactions")))).unwrap_or_default()
         } else {
             Vec::new()
         },
@@ -488,10 +481,14 @@ pub fn message_shown(record: &ItemRecord, message: &Value) -> Vec<(Shown, Option
             }
         }
     }
-    for (row, item) in shown.iter_mut().filter_map(|(shown, _)| match shown {
-        Shown::Item(item) => Some(item),
-        Shown::Update(_) => None,
-    }).enumerate() {
+    for (row, item) in shown
+        .iter_mut()
+        .filter_map(|(shown, _)| match shown {
+            Shown::Item(item) => Some(item),
+            Shown::Update(_) => None,
+        })
+        .enumerate()
+    {
         super::super::reads::mark_history_position(item, record.iid.as_str(), row);
     }
     shown
@@ -516,12 +513,7 @@ pub fn display_item(record: &ItemRecord, body: &Value) -> Option<ThreadItem> {
     if !row.get("id").is_some_and(Value::is_string) {
         row.insert("id".into(), json!(record.iid.as_str()));
     }
-    let ctx = Ctx {
-        turn: record.turn.as_ref().map(|t| t.as_str()),
-        message: None,
-        counts_prompt: record.prompt.is_some(),
-        source: None,
-    };
+    let ctx = Ctx { turn: record.turn.as_ref().map(|t| t.as_str()), message: None, counts_prompt: record.prompt.is_some(), source: None };
     let mut item = item_of(row, &ctx);
     super::super::reads::mark_history_position(&mut item, record.iid.as_str(), 0);
     Some(item)
@@ -571,7 +563,13 @@ mod tests {
         let end_of = |meta: Value, content: &str| {
             let mut state = SessionState::new(16);
             let shown = commit(&mut state, "u1", json!({ "role": "user", "content": content, "meta": meta }));
-            let ends: Vec<ThreadItem> = shown.into_iter().filter_map(|s| match s { Shown::Item(i @ ThreadItem::TurnEnd { .. }) => Some(i), _ => None }).collect();
+            let ends: Vec<ThreadItem> = shown
+                .into_iter()
+                .filter_map(|s| match s {
+                    Shown::Item(i @ ThreadItem::TurnEnd { .. }) => Some(i),
+                    _ => None,
+                })
+                .collect();
             assert_eq!(ends.len(), 1, "one typed turn end: {ends:?}");
             let ThreadItem::TurnEnd { status, meta, .. } = &ends[0] else { unreachable!() };
             (*status, meta.ext.get("cause").and_then(Value::as_str).map(str::to_owned))
@@ -597,7 +595,15 @@ mod tests {
         });
         let shown = commit(&mut state, "a1", row);
         assert!(!shown.is_empty(), "the answer is shown");
-        let wire = serde_json::to_string(&shown.iter().map(|s| match s { Shown::Item(i) | Shown::Update(i) => i }).collect::<Vec<_>>()).unwrap();
+        let wire = serde_json::to_string(
+            &shown
+                .iter()
+                .map(|s| match s {
+                    Shown::Item(i) | Shown::Update(i) => i,
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap();
         assert!(wire.contains("ok"), "{wire}");
         assert!(!wire.contains("accountRouting") && !wire.contains("k2") && !wire.contains("k1"), "{wire}");
     }
@@ -609,7 +615,11 @@ mod tests {
     fn a_message_that_lost_originals_carries_the_count_on_its_item() {
         let ext_of = |stored: Value| {
             let mut state = SessionState::new(16);
-            commit(&mut state, "u1", json!({ "role": "user", "content": "look", "meta": { "transcript": { "messageId": "m1", "originalImagesMissing": stored } } }));
+            commit(
+                &mut state,
+                "u1",
+                json!({ "role": "user", "content": "look", "meta": { "transcript": { "messageId": "m1", "originalImagesMissing": stored } } }),
+            );
             let [row] = state.window.make_contiguous() else { panic!("one row") };
             let ThreadItem::UserMessage { meta, .. } = &*row.item else { panic!("a user message") };
             meta.ext.get("originalImagesMissing").cloned()
@@ -658,6 +668,4 @@ mod tests {
         let meta = run.tool_meta.as_ref().expect("the owner meta rides the run");
         assert_eq!((meta.code.as_str(), meta.owner_session_id.as_deref()), ("visualize_owner", Some("sess_lead1x")));
     }
-
-
 }

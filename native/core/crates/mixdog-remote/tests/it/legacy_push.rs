@@ -7,9 +7,7 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
-use mixdog_remote::push::legacy::{
-    LegacyKeys, LegacySubscription, PushPoster, VAPID_SUBJECT, node_base64_decode, send_web_push, vapid_authorization_header,
-};
+use mixdog_remote::push::legacy::{LegacyKeys, LegacySubscription, PushPoster, VAPID_SUBJECT, node_base64_decode, send_web_push, vapid_authorization_header};
 use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::{Signature, VerifyingKey};
 
@@ -29,10 +27,7 @@ fn vapid_header_verifies_against_the_public_key() {
     verifier.verify(signing_input.as_bytes(), &signature).unwrap();
     let payload = signing_input.split('.').nth(1).unwrap();
     let claims: serde_json::Value = serde_json::from_slice(&URL_SAFE_NO_PAD.decode(payload).unwrap()).unwrap();
-    assert_eq!(
-        claims,
-        serde_json::json!({ "aud": "https://push.example", "exp": 1_700_000_000u64 + 43_200, "sub": VAPID_SUBJECT })
-    );
+    assert_eq!(claims, serde_json::json!({ "aud": "https://push.example", "exp": 1_700_000_000u64 + 43_200, "sub": VAPID_SUBJECT }));
 }
 
 #[test]

@@ -61,7 +61,9 @@ fn union_tools(lists: &[Vec<Value>]) -> Vec<Value> {
         let schema = tool["inputSchema"].as_object_mut().expect("schema");
         schema.entry("type").or_insert(json!("object"));
         let properties = schema.entry("properties").or_insert(json!({}));
-        if !properties.is_object() { *properties = json!({}); }
+        if !properties.is_object() {
+            *properties = json!({});
+        }
         properties["account"] = json!({
             "type": "string",
             "description": "The account to use (its email address or account name). Left out: the account used last."
@@ -101,7 +103,9 @@ impl Drop for AccountTransport {
 #[async_trait]
 impl Transport for AccountTransport {
     async fn send(&self, message: Value, _: Liveness) -> Result<(), TransportError> {
-        if self.cancel.is_cancelled() { return Err(TransportError::Closed); }
+        if self.cancel.is_cancelled() {
+            return Err(TransportError::Closed);
+        }
         if message["method"] == "notifications/cancelled" {
             if let Some(cancel) = self.inflight.lock().unwrap_or_else(|e| e.into_inner()).get(&message["params"]["requestId"].to_string()) {
                 cancel.cancel();
@@ -162,10 +166,14 @@ mod tests {
     #[test]
     fn account_union_compares_schema_objects_and_rejects_conflicting_tools() {
         let lists = vec![
-            vec![json!({"name": "search", "inputSchema": {"type": "object", "properties": {"q": {"type": "string"}}}}),
-                 json!({"name": "conflict", "inputSchema": {"type": "object"}})],
-            vec![json!({"name": "search", "inputSchema": {"properties": {"q": {"type": "string"}}, "type": "object"}}),
-                 json!({"name": "conflict", "inputSchema": {"type": "string"}})],
+            vec![
+                json!({"name": "search", "inputSchema": {"type": "object", "properties": {"q": {"type": "string"}}}}),
+                json!({"name": "conflict", "inputSchema": {"type": "object"}}),
+            ],
+            vec![
+                json!({"name": "search", "inputSchema": {"properties": {"q": {"type": "string"}}, "type": "object"}}),
+                json!({"name": "conflict", "inputSchema": {"type": "string"}}),
+            ],
         ];
         let tools = union_tools(&lists);
         assert_eq!(tools.len(), 1);
@@ -175,13 +183,14 @@ mod tests {
     }
 }
 
-
 impl AccountGroup {
     pub fn new(config: &McpServerConfig, servers: Vec<Arc<McpServer>>, runtime: &AccountRuntime) -> Arc<Self> {
         let connector = config.connector.as_deref().expect("accounts belong to a catalog connector");
-        let seeds = config.accounts.iter().map(|account| AccountSeed {
-            name: account.server.name.clone(), id: account.id.clone(), email: account.email.clone(),
-        }).collect();
+        let seeds = config
+            .accounts
+            .iter()
+            .map(|account| AccountSeed { name: account.server.name.clone(), id: account.id.clone(), email: account.email.clone() })
+            .collect();
         Arc::new(Self {
             choice: ConnectorAccounts::new(connector, seeds, runtime.health.clone(), runtime.data_dir.clone(), runtime.maintenance).expect("live accounts"),
             servers,
@@ -207,10 +216,16 @@ impl AccountGroup {
                 }
             });
         }
-        (Arc::new(AccountTransport {
-            group: self.clone(), tx, cancel,
-            inflight: Arc::new(Mutex::new(HashMap::new())), running: Arc::new(RunningGate::new(())),
-        }), rx)
+        (
+            Arc::new(AccountTransport {
+                group: self.clone(),
+                tx,
+                cancel,
+                inflight: Arc::new(Mutex::new(HashMap::new())),
+                running: Arc::new(RunningGate::new(())),
+            }),
+            rx,
+        )
     }
 
     fn catalog(&self) -> (Vec<Value>, String) {
@@ -219,9 +234,10 @@ impl AccountGroup {
         let mut catalogs = self.catalogs.lock().unwrap_or_else(|e| e.into_inner());
         for server in &self.servers {
             if let Some(ready) = server.connection() {
-                catalogs.insert(server.name().to_owned(), AccountCatalog {
-                    tools: ready.tools.clone(), instructions: ready.instructions.clone().unwrap_or_default(),
-                });
+                catalogs.insert(
+                    server.name().to_owned(),
+                    AccountCatalog { tools: ready.tools.clone(), instructions: ready.instructions.clone().unwrap_or_default() },
+                );
             }
             // Node keeps the discovered union when an account drops or its next
             // connection fails; connectivity changes must not remove its schemas.
@@ -240,9 +256,7 @@ impl AccountGroup {
                 }
                 None => {
                     let error = health_error(&server.state());
-                    self.choice.record(server.name(), &AccountReport {
-                        auth_required: server.sign_in_required(), error: error.clone(), email: None,
-                    });
+                    self.choice.record(server.name(), &AccountReport { auth_required: server.sign_in_required(), error: error.clone(), email: None });
                 }
             }
         }
@@ -262,16 +276,25 @@ impl AccountGroup {
         // Connections are started and retried by the hub. A ready account makes the
         // namespace usable; siblings continue on their own per-server startup budgets.
         use futures::StreamExt;
-        let mut settled = self.servers.iter().map(|server| async move {
-            let mut state = server.subscribe();
-            state.wait_for(|state| !matches!(**state, ServerState::Starting)).await.map(|state| Arc::clone(&state)).ok()
-        }).collect::<futures::stream::FuturesUnordered<_>>();
+        let mut settled = self
+            .servers
+            .iter()
+            .map(|server| async move {
+                let mut state = server.subscribe();
+                state.wait_for(|state| !matches!(**state, ServerState::Starting)).await.map(|state| Arc::clone(&state)).ok()
+            })
+            .collect::<futures::stream::FuturesUnordered<_>>();
         let mut first_error = None;
         let mut ready = false;
         while let Some(state) = settled.next().await {
             match state.as_deref() {
-                Some(ServerState::Ready(_)) => { ready = true; break; }
-                Some(state) => { first_error.get_or_insert_with(|| state.describe()); }
+                Some(ServerState::Ready(_)) => {
+                    ready = true;
+                    break;
+                }
+                Some(state) => {
+                    first_error.get_or_insert_with(|| state.describe());
+                }
                 None => {}
             }
         }
@@ -289,12 +312,17 @@ impl AccountGroup {
         let tool = params["name"].as_str().unwrap_or_default();
         let conversation = params["_meta"]["mixdog/conversation"].as_str().unwrap_or_default().trim();
         let mut args = params.get("arguments").cloned().unwrap_or_else(|| json!({}));
-        if let Some(args) = args.as_object_mut() { args.shift_remove("account"); }
+        if let Some(args) = args.as_object_mut() {
+            args.shift_remove("account");
+        }
         let chosen = match params["_meta"].get("mixdog/approved-account") {
-            Some(binding) => self.choice.approved(tool, &mixdog_core_api::domain::tool::ConnectorAccountBinding {
-                name: binding["name"].as_str().unwrap_or_default().to_owned(),
-                id: binding["id"].as_str().unwrap_or_default().to_owned(),
-            }),
+            Some(binding) => self.choice.approved(
+                tool,
+                &mixdog_core_api::domain::tool::ConnectorAccountBinding {
+                    name: binding["name"].as_str().unwrap_or_default().to_owned(),
+                    id: binding["id"].as_str().unwrap_or_default().to_owned(),
+                },
+            ),
             None => return error_result("A grouped connector call requires a bound account identity before dispatch."),
         };
         let chosen = match chosen {
@@ -315,7 +343,10 @@ impl AccountGroup {
             Ok(result) => {
                 self.choice.record(&chosen.name, &AccountReport::default());
                 if result.get("isError") != Some(&Value::Bool(true)) {
-                    let parts = result["content"].as_array().into_iter().flatten()
+                    let parts = result["content"]
+                        .as_array()
+                        .into_iter()
+                        .flatten()
                         .filter(|part| part["type"] == "text")
                         .filter_map(|part| part["text"].as_str().map(|text| mixdog_core_api::domain::tool::ToolPart::Text(text.to_owned())))
                         .collect();
@@ -332,7 +363,9 @@ impl AccountGroup {
                 error_result(message)
             }
         };
-        if !result["content"].is_array() { result["content"] = json!([]); }
+        if !result["content"].is_array() {
+            result["content"] = json!([]);
+        }
         result["content"].as_array_mut().expect("content").push(json!({
             "type": "text", "text": format!("({} account: {})", self.service, chosen.label)
         }));

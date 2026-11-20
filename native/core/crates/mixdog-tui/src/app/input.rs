@@ -8,7 +8,9 @@
 use std::collections::BTreeMap;
 
 use mixdog_term::os::{Platform, SystemRunner};
-use mixdog_term::paste::{ImageAttachment, PastedImage, ResizeRequest, ResizedImage, read_clipboard_image_attachment, read_clipboard_text, read_image_attachment_from_path};
+use mixdog_term::paste::{
+    ImageAttachment, PastedImage, ResizeRequest, ResizedImage, read_clipboard_image_attachment, read_clipboard_text, read_image_attachment_from_path,
+};
 use mixdog_term::selection::{CellSpan, SelectedRow, SelectionRect as TermRect, line_rect_at, word_rect_at};
 use mixdog_term::{KeyFlags, MouseReport};
 use mixdog_tui_style::{Key, theme_color};
@@ -33,7 +35,9 @@ use crate::mouse::host::{PromptSelection, RenderStore, SelectionIo};
 use crate::mouse::{FocusMove, HintTone as MouseHint, Mouse, MouseHost, SlashPalette as MousePalette};
 use crate::slash::commands::OverlayOwner;
 use crate::slash::host::TextPrompt;
-use crate::slash::palette::{PaletteInputs, PaletteItem, PaletteKind, SlashPalette, clamp_slash_index, derive_slash_palette, fetch_mention_skills, mention_active};
+use crate::slash::palette::{
+    PaletteInputs, PaletteItem, PaletteKind, SlashPalette, clamp_slash_index, derive_slash_palette, fetch_mention_skills, mention_active,
+};
 use crate::slash::workflow_cycle::{TabCycleOverlays, workflow_tab_cycle};
 use crate::surface::latch::EnterLatch;
 use crate::transcript::scroll::engine::ScrollHost;

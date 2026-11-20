@@ -164,11 +164,7 @@ pub fn compose_digest(facts: &Facts, state: &HeartbeatState, at: i64) -> Digest 
         }
         let entry = state.routines.get(&key);
         let reported_paused = truthy(entry.and_then(|e| e.get("paused")));
-        let due = if paused {
-            !reported_paused
-        } else {
-            entry.is_none_or(|e| at - millis(e.get("at")) >= REPEAT_MS)
-        };
+        let due = if paused { !reported_paused } else { entry.is_none_or(|e| at - millis(e.get("at")) >= REPEAT_MS) };
         if !due {
             continue;
         }
@@ -191,8 +187,7 @@ pub fn compose_digest(facts: &Facts, state: &HeartbeatState, at: i64) -> Digest 
     }
     let (tasks, sessions) = (&facts.tasks, &facts.sessions);
     let mut out = Lines { lines: Vec::new(), size: 0, reserved: room(tasks, more_tasks) + room(sessions, more_sessions) };
-    let reported: Vec<ReportedRoutine> =
-        routines.into_iter().take(MAX_ROUTINE_LINES).filter(|routine| out.add(routine.text.clone())).collect();
+    let reported: Vec<ReportedRoutine> = routines.into_iter().take(MAX_ROUTINE_LINES).filter(|routine| out.add(routine.text.clone())).collect();
     let approvals = facts.approvals;
     // Only more approvals than the last handled check saw are news: the same ones never wake
     // Mixy twice.
@@ -219,8 +214,7 @@ pub fn compose_digest(facts: &Facts, state: &HeartbeatState, at: i64) -> Digest 
         tasks,
         MAX_TASK_LINES,
         &|task| {
-            let preview =
-                if task.preview.is_empty() { String::new() } else { format!(", last: \"{}\"", quoted_text(&task.preview, TEXT_LIMIT)) };
+            let preview = if task.preview.is_empty() { String::new() } else { format!(", last: \"{}\"", quoted_text(&task.preview, TEXT_LIMIT)) };
             format!("task session {} of bot {} finished: \"{}\"{preview}", task.id, task.bot, quoted_text(&task.title, TEXT_LIMIT))
         },
         more_tasks,
@@ -231,11 +225,7 @@ pub fn compose_digest(facts: &Facts, state: &HeartbeatState, at: i64) -> Digest 
         MAX_SESSION_LINES,
         &|session| {
             let owner = if session.bot.is_empty() { String::new() } else { format!(" (bot {})", session.bot) };
-            let preview = if session.preview.is_empty() {
-                String::new()
-            } else {
-                format!(", last: \"{}\"", quoted_text(&session.preview, TEXT_LIMIT))
-            };
+            let preview = if session.preview.is_empty() { String::new() } else { format!(", last: \"{}\"", quoted_text(&session.preview, TEXT_LIMIT)) };
             let place = if session.room { "group room " } else { "" };
             format!("new activity in {place}{}{owner}: \"{}\"{preview}", session.id, quoted_text(&session.title, TEXT_LIMIT))
         },
@@ -255,11 +245,7 @@ pub fn skipped_note(skipped: i64, exact: bool) -> String {
     }
     let count = format!("{}{skipped}", if exact { "" } else { "at least " });
     let one = skipped == 1 && exact;
-    format!(
-        "{count} older message{} since the last check {} not reviewed",
-        if one { "" } else { "s" },
-        if one { "was" } else { "were" }
-    )
+    format!("{count} older message{} since the last check {} not reviewed", if one { "" } else { "s" }, if one { "was" } else { "were" })
 }
 
 /// Whether a heartbeat turn's reply is exactly the quiet sentinel.

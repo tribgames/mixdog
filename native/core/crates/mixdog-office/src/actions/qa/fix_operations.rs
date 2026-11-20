@@ -113,7 +113,11 @@ mod tests {
 
     #[test]
     fn a_table_running_off_the_page_is_fitted_by_its_number() {
-        let found = qa_fix_operations("docx", Backend::MixdogOoxml, &[issue("table_width", "/body/table[2]"), issue("table_wider_than_page", "/body/tbl[2]"), issue("table_width", "/body/table[0]")]);
+        let found = qa_fix_operations(
+            "docx",
+            Backend::MixdogOoxml,
+            &[issue("table_width", "/body/table[2]"), issue("table_wider_than_page", "/body/tbl[2]"), issue("table_width", "/body/table[0]")],
+        );
         assert_eq!(json_stringify(&Value::Array(found)), r#"[{"op":"fit_table","table":2,"allowNoChange":true}]"#);
     }
 
@@ -122,7 +126,11 @@ mod tests {
         let found = qa_fix_operations(
             "xlsx",
             Backend::MicrosoftOfficeCom,
-            &[issue("cell_overflow", "/sheet[Data]/cell[b2]"), issue("label_truncated", "/sheet[Data]/cell[B40]"), issue("column_too_narrow", "/sheet[Data]/cell[C1]")],
+            &[
+                issue("cell_overflow", "/sheet[Data]/cell[b2]"),
+                issue("label_truncated", "/sheet[Data]/cell[B40]"),
+                issue("column_too_narrow", "/sheet[Data]/cell[C1]"),
+            ],
         );
         assert_eq!(
             json_stringify(&Value::Array(found)),

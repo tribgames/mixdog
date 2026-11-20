@@ -12,12 +12,12 @@ use futures::future::BoxFuture;
 use serde_json::{Map, Value, json};
 use tokio::task::AbortHandle;
 
-use super::chain::{Answer, submission_outcome, Outcome};
-use crate::bots::delivery::env::RetryTimer;
-use crate::memory::cycles::requests::wait;
+use super::chain::{Answer, Outcome, submission_outcome};
 use super::follow::{FINAL_POLL, FINAL_SETTLE, Follow, FollowArgs, FollowHost, GONE_TEXT, RESUME_FAILED_TEXT, RuntimeView};
 use super::{progress_run_id, turn_report_run_id};
+use crate::bots::delivery::env::RetryTimer;
 use crate::memory::cycles::requests::spawn_work;
+use crate::memory::cycles::requests::wait;
 
 pub const LOST_TEXT: &str = "The message never ran: the app restarted before its turn started.";
 /// Delays before the retries of a failed report.

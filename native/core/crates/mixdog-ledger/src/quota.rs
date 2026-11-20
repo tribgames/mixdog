@@ -8,10 +8,7 @@
 //! list-price value; a rise with no Mixdog record behind it came from outside Mixdog. The split
 //! is an estimate: providers do not publish what a request costs the meter.
 
-#![allow(
-    clippy::neg_cmp_op_on_partial_ord,
-    reason = "NaN must take the guard's branch"
-)]
+#![allow(clippy::neg_cmp_op_on_partial_ord, reason = "NaN must take the guard's branch")]
 
 use std::collections::BTreeMap;
 use std::collections::HashMap;
@@ -62,9 +59,7 @@ const RESET_DROP_POINTS: f64 = 5.0;
 // Readings further apart than this leave the path between them unmeasured.
 const MEASURED_GAP_MS: f64 = 20.0 * MINUTE;
 // Hover slots: the finest of these sizes that cuts the chart into at most 48.
-const SLOT_MINUTES: [f64; 11] = [
-    30.0, 60.0, 120.0, 180.0, 360.0, 720.0, 1440.0, 2880.0, 10080.0, 20160.0, 43200.0,
-];
+const SLOT_MINUTES: [f64; 11] = [30.0, 60.0, 120.0, 180.0, 360.0, 720.0, 1440.0, 2880.0, 10080.0, 20160.0, 43200.0];
 const MAX_SLOTS: f64 = 48.0;
 const MAX_POINTS: usize = 4000;
 // The window history is read a page at a time.
@@ -88,9 +83,7 @@ fn is_word(c: char) -> bool {
 /// `^<prefix>\b` over the upper-cased text (case-blind prefix).
 fn starts_word(text: &str, prefix: &str) -> bool {
     let upper = text.to_uppercase();
-    upper
-        .strip_prefix(prefix)
-        .is_some_and(|rest| !rest.chars().next().is_some_and(is_word))
+    upper.strip_prefix(prefix).is_some_and(|rest| !rest.chars().next().is_some_and(is_word))
 }
 
 /// Nominal length of a limit window from its label; none when unknown.
@@ -121,10 +114,7 @@ fn quota_window_opened(label: &str, reset_at: Option<f64>) -> Option<f64> {
     let (year, month) = if chrono::Datelike::month(&fields) == 1 {
         (chrono::Datelike::year(&fields) - 1, 12)
     } else {
-        (
-            chrono::Datelike::year(&fields),
-            chrono::Datelike::month(&fields) - 1,
-        )
+        (chrono::Datelike::year(&fields), chrono::Datelike::month(&fields) - 1)
     };
     let first = chrono::NaiveDate::from_ymd_opt(year, month, 1)?;
     let date = first + chrono::TimeDelta::days(i64::from(chrono::Datelike::day(&fields)) - 1);
@@ -191,14 +181,7 @@ pub fn record_quota_samples(conn: &mut Connection, samples: &[QuotaReading]) -> 
                 "SELECT ts,seen_until,used_pct,reset_at FROM quota_samples
                  WHERE provider=?1 AND account=?2 AND label=?3 ORDER BY ts DESC LIMIT 1",
             )?
-            .query_row(params![key.0, key.1, key.2], |r| {
-                Ok(Latest {
-                    ts: r.get(0)?,
-                    seen_until: r.get(1)?,
-                    used_pct: r.get(2)?,
-                    reset_at: r.get(3)?,
-                })
-            })
+            .query_row(params![key.0, key.1, key.2], |r| Ok(Latest { ts: r.get(0)?, seen_until: r.get(1)?, used_pct: r.get(2)?, reset_at: r.get(3)? }))
             .optional()?;
         let sample = &reading.sample;
         // A reading older than the span already confirmed arrived late.
@@ -208,21 +191,12 @@ pub fn record_quota_samples(conn: &mut Connection, samples: &[QuotaReading]) -> 
         let same = previous.as_ref().is_some_and(|p| same_window(p, sample));
         match &previous {
             Some(p) if same && (p.used_pct - sample.used_pct).abs() < 0.005 => {
-                tx.prepare_cached(
-                    "UPDATE quota_samples SET seen_until=?1 WHERE provider=?2 AND account=?3 AND label=?4 AND ts=?5",
-                )?
-                .execute(params![sample.ts, key.0, key.1, key.2, p.ts])?;
+                tx.prepare_cached("UPDATE quota_samples SET seen_until=?1 WHERE provider=?2 AND account=?3 AND label=?4 AND ts=?5")?
+                    .execute(params![sample.ts, key.0, key.1, key.2, p.ts])?;
             }
             _ => {
-                let reset = if same {
-                    previous.as_ref().and_then(|p| p.reset_at)
-                } else {
-                    sample.reset_at
-                };
-                tx.prepare_cached(
-                    "INSERT OR IGNORE INTO quota_samples VALUES (?1,?2,?3,?4,?5,?6,?7)",
-                )?
-                .execute(params![
+                let reset = if same { previous.as_ref().and_then(|p| p.reset_at) } else { sample.reset_at };
+                tx.prepare_cached("INSERT OR IGNORE INTO quota_samples VALUES (?1,?2,?3,?4,?5,?6,?7)")?.execute(params![
                     key.0,
                     key.1,
                     key.2,
@@ -241,12 +215,10 @@ pub fn record_quota_samples(conn: &mut Connection, samples: &[QuotaReading]) -> 
 
 /// The next recorded (provider, account, label) after a key: windows are visited by index
 /// probes, never by a scan of the samples.
-pub const NEXT_SERIES_SQL: &str =
-    "SELECT provider,account,label FROM quota_samples WHERE (provider,account,label) > (?1,?2,?3)
+pub const NEXT_SERIES_SQL: &str = "SELECT provider,account,label FROM quota_samples WHERE (provider,account,label) > (?1,?2,?3)
          ORDER BY provider,account,label LIMIT 1";
 /// When a window's meter last moved.
-pub const SERIES_CHANGED_SQL: &str =
-    "SELECT MAX(ts) FROM quota_samples WHERE provider=?1 AND account=?2 AND label=?3";
+pub const SERIES_CHANGED_SQL: &str = "SELECT MAX(ts) FROM quota_samples WHERE provider=?1 AND account=?2 AND label=?3";
 /// Every reading of one window, oldest first.
 pub const WINDOW_ROWS_SQL: &str = "SELECT ts,seen_until,used_pct,reset_at FROM quota_samples WHERE provider=?1 AND account=?2 AND label=?3 ORDER BY ts";
 
@@ -267,34 +239,18 @@ fn list_quota_series(conn: &Connection) -> Result<Vec<Series>> {
     // The empty key sorts before every stored one (a provider is never empty).
     let mut cursor: (String, String, String) = (String::new(), String::new(), String::new());
     loop {
-        let row: Option<(String, String, String)> = next
-            .query_row(params![cursor.0, cursor.1, cursor.2], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?))
-            })
-            .optional()?;
+        let row: Option<(String, String, String)> =
+            next.query_row(params![cursor.0, cursor.1, cursor.2], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?;
         let Some(row) = row else { break };
         let ts: i64 = changed.query_row(params![row.0, row.1, row.2], |r| r.get(0))?;
         let key = format!("{}\u{0}{}", row.0, row.1);
-        let entry = found.entry(&key, || {
-            (
-                Series {
-                    provider: row.0.clone(),
-                    account: row.1.clone(),
-                    windows: Vec::new(),
-                },
-                0.0,
-            )
-        });
+        let entry = found.entry(&key, || (Series { provider: row.0.clone(), account: row.1.clone(), windows: Vec::new() }, 0.0));
         entry.0.windows.push(row.2.clone());
         entry.1 = max(entry.1, ts as f64);
         cursor = row;
     }
     let mut series: Vec<(Series, f64)> = found.values().cloned().collect();
-    series.sort_by(|a, b| {
-        (b.1 - a.1)
-            .partial_cmp(&0.0)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
+    series.sort_by(|a, b| (b.1 - a.1).partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal));
     Ok(series
         .into_iter()
         .map(|(mut s, _)| {
@@ -329,40 +285,18 @@ fn is_weekly(label: &str) -> bool {
 /// No account asked for: the one its account pool has in use (`in_use`, per provider), else the
 /// one whose meter moved last. A subscription opens on its weekly window unless a window was
 /// asked for; one without a weekly window opens on its shortest.
-fn pick_selection(
-    series: &[Series],
-    provider: &str,
-    account: &str,
-    label: &str,
-    in_use: &BTreeMap<String, String>,
-) -> Option<Selection> {
-    let chosen = if provider.is_empty() {
-        series.first()?.provider.clone()
-    } else {
-        provider.to_string()
-    };
-    let account_id = if account.is_empty() {
-        in_use.get(&chosen).cloned().unwrap_or_default()
-    } else {
-        account.to_string()
-    };
+fn pick_selection(series: &[Series], provider: &str, account: &str, label: &str, in_use: &BTreeMap<String, String>) -> Option<Selection> {
+    let chosen = if provider.is_empty() { series.first()?.provider.clone() } else { provider.to_string() };
+    let account_id = if account.is_empty() { in_use.get(&chosen).cloned().unwrap_or_default() } else { account.to_string() };
     let entry = series
         .iter()
         .find(|row| row.provider == chosen && row.account == account_id)
         .or_else(|| series.iter().find(|row| row.provider == chosen))
         .or_else(|| series.first())?;
     let wanted = label.to_lowercase();
-    let picked = entry
-        .windows
-        .iter()
-        .find(|w| w.to_lowercase() == wanted)
-        .or_else(|| entry.windows.iter().find(|w| is_weekly(w)))
-        .or_else(|| entry.windows.first())?;
-    Some(Selection {
-        provider: entry.provider.clone(),
-        account: entry.account.clone(),
-        label: picked.clone(),
-    })
+    let picked =
+        entry.windows.iter().find(|w| w.to_lowercase() == wanted).or_else(|| entry.windows.iter().find(|w| is_weekly(w))).or_else(|| entry.windows.first())?;
+    Some(Selection { provider: entry.provider.clone(), account: entry.account.clone(), label: picked.clone() })
 }
 
 #[derive(Clone, Copy, Debug)]
@@ -419,10 +353,7 @@ fn quota_instances(rows: &[Row], label: &str, now: f64) -> Vec<Instance> {
     for row in rows {
         let new_group = match groups.last().and_then(|g| g.last()) {
             None => true,
-            Some(previous) => {
-                row.reset_at != previous.reset_at
-                    || row.used_pct < previous.used_pct - RESET_DROP_POINTS
-            }
+            Some(previous) => row.reset_at != previous.reset_at || row.used_pct < previous.used_pct - RESET_DROP_POINTS,
         };
         if new_group {
             groups.push(Vec::new());
@@ -480,13 +411,7 @@ fn quota_instances(rows: &[Row], label: &str, now: f64) -> Vec<Instance> {
         let opened = quota_window_opened(label, instance.reset_at);
         instance.paced = opened.is_some();
         instance.start_ms = max(min(opened.unwrap_or(first_ts), first_ts), previous_end);
-        instance.end_ms = max(
-            min(
-                instance.reset_at.unwrap_or(instance.last_at),
-                next_ts.unwrap_or(f64::INFINITY),
-            ),
-            instance.last_at,
-        );
+        instance.end_ms = max(min(instance.reset_at.unwrap_or(instance.last_at), next_ts.unwrap_or(f64::INFINITY)), instance.last_at);
         instance.current = !has_next && instance.reset_at.is_none_or(|r| r > now);
         previous_end = instance.end_ms;
     }
@@ -532,22 +457,13 @@ fn quota_points(instances: &[&Instance]) -> Vec<Point> {
         points.push(Point { at, percent, kind });
     }
     let stretch = |from: f64, to: f64| {
-        if to - from > MEASURED_GAP_MS {
-            UNMEASURED
-        } else {
-            MEASURED
-        }
+        if to - from > MEASURED_GAP_MS { UNMEASURED } else { MEASURED }
     };
     for instance in instances {
         if instance.idle {
             if instance.end_ms > instance.start_ms {
                 let prior = points.last().map_or(instance.start_ms, |p| p.at);
-                add(
-                    &mut points,
-                    instance.start_ms,
-                    0.0,
-                    stretch(prior, instance.start_ms),
-                );
+                add(&mut points, instance.start_ms, 0.0, stretch(prior, instance.start_ms));
                 add(&mut points, instance.end_ms, 0.0, MEASURED);
             }
             continue;
@@ -555,12 +471,7 @@ fn quota_points(instances: &[&Instance]) -> Vec<Point> {
         // Between windows the meter sits at zero, and every window opens there.
         if instance.start_ms < instance.rows[0].ts {
             let prior = points.last().map_or(instance.start_ms, |p| p.at);
-            add(
-                &mut points,
-                instance.start_ms,
-                0.0,
-                stretch(prior, instance.start_ms),
-            );
+            add(&mut points, instance.start_ms, 0.0, stretch(prior, instance.start_ms));
         }
         for row in &instance.rows {
             let prior = points.last().map_or(row.ts, |p| p.at);
@@ -572,12 +483,7 @@ fn quota_points(instances: &[&Instance]) -> Vec<Point> {
         if instance.current {
             continue;
         }
-        add(
-            &mut points,
-            instance.end_ms,
-            instance.last_pct,
-            stretch(instance.last_at, instance.end_ms),
-        );
+        add(&mut points, instance.end_ms, instance.last_pct, stretch(instance.last_at, instance.end_ms));
         add(&mut points, instance.end_ms, 0.0, MEASURED);
     }
     points
@@ -597,13 +503,9 @@ fn value_at(points: &[Point], time: f64) -> f64 {
             high = mid - 1;
         }
     }
-    let Point {
-        at, percent: value, ..
-    } = points[low];
+    let Point { at, percent: value, .. } = points[low];
     match points.get(low + 1) {
-        Some(next) if next.kind != MOVE && next.at != at => {
-            value + ((next.percent - value) * (time - at)) / (next.at - at)
-        }
+        Some(next) if next.kind != MOVE && next.at != at => value + ((next.percent - value) * (time - at)) / (next.at - at),
         _ => value,
     }
 }
@@ -700,9 +602,7 @@ fn legacy_account_owner(conn: &Connection, provider: &str) -> Result<Option<Stri
         "SELECT id,json_extract(signature,'$[8]') FROM usage_routes
          WHERE json_extract(signature,'$[0]')=?1 AND COALESCE(json_extract(signature,'$[8]'),'')<>''",
     )?;
-    let named: Vec<(i64, String)> = routes
-        .query_map([provider], |r| Ok((r.get(0)?, r.get(1)?)))?
-        .collect::<std::result::Result<_, _>>()?;
+    let named: Vec<(i64, String)> = routes.query_map([provider], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_, _>>()?;
     let mut earliest = conn.prepare_cached("SELECT MIN(ts) FROM usage_events WHERE route=?1")?;
     let mut best: Option<(i64, String)> = None;
     for (route, account) in named {
@@ -719,12 +619,7 @@ fn legacy_account_owner(conn: &Connection, provider: &str) -> Result<Option<Stri
 /// The provider account's token records in [from_ms, to_ms], summed per minute and model,
 /// keeping the best-ranked origin per day and model like the usage rollups. Records without an
 /// account belong to the legacy owner only, or to every account while no record names one.
-fn read_quota_events(
-    conn: &Connection,
-    selection: &Selection,
-    from_ms: f64,
-    to_ms: f64,
-) -> Result<Vec<Event>> {
+fn read_quota_events(conn: &Connection, selection: &Selection, from_ms: f64, to_ms: f64) -> Result<Vec<Event>> {
     let provider = selection.provider.as_str();
     let owner = legacy_account_owner(conn, provider)?;
     let unlabeled = match &owner {
@@ -735,10 +630,7 @@ fn read_quota_events(
     let scope = if provider == "anthropic-oauth" && selection.label.starts_with("7D ") {
         let tail = mixdog_js::js_trim(&selection.label[3..]).to_lowercase();
         let separators = mixdog_js::JsRegex::new_static(r"[\s_]+", "g");
-        format!(
-            "claude-{}",
-            separators.replace_all_with(&tail, |_| "-".to_string())
-        )
+        format!("claude-{}", separators.replace_all_with(&tail, |_| "-".to_string()))
     } else {
         String::new()
     };
@@ -780,42 +672,30 @@ fn read_quota_events(
     }
     let mut stmt = conn.prepare_cached(&sql)?;
     let raws: Vec<Raw> = stmt
-        .query_map(
-            params![provider, selection.account, unlabeled, from_ms, to_ms],
-            |r| {
-                Ok(Raw {
-                    ts: r.get(0)?,
-                    day: r.get(1)?,
-                    model: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
-                    rank: r.get(3)?,
-                    turns: r.get::<_, i64>(4)? as f64,
-                    input: r.get(5)?,
-                    output: r.get(6)?,
-                    cache_read: r.get(7)?,
-                    cache_write: r.get(8)?,
-                    cost_usd: r.get(9)?,
-                    priced: r.get::<_, i64>(10)? as f64,
-                    speed_output: r.get(11)?,
-                    speed_ms: r.get(12)?,
-                    tier: r.get(13)?,
-                })
-            },
-        )?
+        .query_map(params![provider, selection.account, unlabeled, from_ms, to_ms], |r| {
+            Ok(Raw {
+                ts: r.get(0)?,
+                day: r.get(1)?,
+                model: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                rank: r.get(3)?,
+                turns: r.get::<_, i64>(4)? as f64,
+                input: r.get(5)?,
+                output: r.get(6)?,
+                cache_read: r.get(7)?,
+                cache_write: r.get(8)?,
+                cost_usd: r.get(9)?,
+                priced: r.get::<_, i64>(10)? as f64,
+                speed_output: r.get(11)?,
+                speed_ms: r.get(12)?,
+                tier: r.get(13)?,
+            })
+        })?
         .collect::<std::result::Result<_, _>>()?;
     let mut best: HashMap<String, Option<f64>> = HashMap::new();
-    let mut ranks = conn.prepare_cached(
-        "SELECT day,model,MIN(rank) AS rank FROM daily WHERE provider=?1 AND day BETWEEN ?2 AND ?3 GROUP BY day,model",
-    )?;
-    let rows = ranks.query_map(
-        params![provider, day_key(from_ms as i64), day_key(to_ms as i64)],
-        |r| {
-            Ok((
-                r.get::<_, String>(0)?,
-                r.get::<_, String>(1)?,
-                r.get::<_, Option<f64>>(2)?,
-            ))
-        },
-    )?;
+    let mut ranks = conn.prepare_cached("SELECT day,model,MIN(rank) AS rank FROM daily WHERE provider=?1 AND day BETWEEN ?2 AND ?3 GROUP BY day,model")?;
+    let rows = ranks.query_map(params![provider, day_key(from_ms as i64), day_key(to_ms as i64)], |r| {
+        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, Option<f64>>(2)?))
+    })?;
     for row in rows {
         let (day, model, rank) = row?;
         best.insert(format!("{day}\u{0}{model}"), rank);
@@ -828,13 +708,7 @@ fn read_quota_events(
             continue;
         }
         let day = row.day.to_string();
-        let key = format!(
-            "{}-{}-{}\u{0}{}",
-            &day[..4],
-            &day[4..6],
-            &day[6..],
-            row.model
-        );
+        let key = format!("{}-{}-{}\u{0}{}", &day[..4], &day[4..6], &day[6..], row.model);
         if best.get(&key) != Some(&row.rank) {
             continue;
         }
@@ -842,14 +716,7 @@ fn read_quota_events(
         let (input, cache_read, cache_write, cost_usd, known, unmeasured) = if unmeasuring {
             (0.0, 0.0, 0.0, 0.0, 0.0, row.turns)
         } else {
-            (
-                row.input.unwrap_or(0.0),
-                row.cache_read.unwrap_or(0.0),
-                row.cache_write.unwrap_or(0.0),
-                row.cost_usd.unwrap_or(0.0),
-                row.priced,
-                0.0,
-            )
+            (row.input.unwrap_or(0.0), row.cache_read.unwrap_or(0.0), row.cache_write.unwrap_or(0.0), row.cost_usd.unwrap_or(0.0), row.priced, 0.0)
         };
         let output = row.output.unwrap_or(0.0);
         events.push(Event {
@@ -966,9 +833,7 @@ fn window_intervals(instance: &Instance, events: &[Event], mixed: &[Span]) -> Ve
                 // lowers its measurement quality.
                 measured: row_index > 0 && from_pct > 0.0 && row.used_pct < 100.0,
                 priced: turns > 0.0 && priced == turns,
-                mixed: mixed
-                    .iter()
-                    .any(|span| span.from_ms < row.ts && span.to_ms > from_ms),
+                mixed: mixed.iter().any(|span| span.from_ms < row.ts && span.to_ms > from_ms),
             });
         }
         from_ms = row.ts;
@@ -990,13 +855,7 @@ struct Outside {
 /// history before allocating the remainder over Mixdog's requests; recent observations outweigh
 /// older ones. Each window continues from its earlier windows in `listed` (every non-idle
 /// window, oldest first), whose records `events` must cover.
-fn allocate_quota(
-    all: &mut [Instance],
-    instances: &[usize],
-    events: &[Event],
-    mixed: &[Span],
-    listed: &[usize],
-) -> (Vec<f64>, Vec<Outside>) {
+fn allocate_quota(all: &mut [Instance], instances: &[usize], events: &[Event], mixed: &[Span], listed: &[usize]) -> (Vec<f64>, Vec<Outside>) {
     let mut shares = vec![0.0f64; events.len()];
     let mut outside: Vec<Outside> = Vec::new();
     let mut calibration: HashMap<usize, Vec<Interval>> = HashMap::new();
@@ -1004,12 +863,7 @@ fn allocate_quota(
         let earlier = earlier_windows(all, listed, index);
         let mut prior: Vec<Interval> = Vec::new();
         for window in earlier {
-            let held = calibration.entry(window).or_insert_with(|| {
-                window_intervals(&all[window], events, mixed)
-                    .into_iter()
-                    .filter(|i| !i.mixed)
-                    .collect()
-            });
+            let held = calibration.entry(window).or_insert_with(|| window_intervals(&all[window], events, mixed).into_iter().filter(|i| !i.mixed).collect());
             prior.extend(held.iter().cloned());
         }
         let intervals = window_intervals(&all[index], events, mixed);
@@ -1017,13 +871,8 @@ fn allocate_quota(
         let estimate = estimate_quota_value(&own, &prior);
         // The estimate still splits the meter, but it is shown in dollars only once it rests on
         // more than a few coincidences.
-        let own_samples = own
-            .iter()
-            .filter(|i| i.measured && value_evidence(i))
-            .count();
-        let value = estimate
-            .clone()
-            .filter(|_| prior.iter().any(value_evidence) || own_samples >= MIN_VALUE_SAMPLES);
+        let own_samples = own.iter().filter(|i| i.measured && value_evidence(i)).count();
+        let value = estimate.clone().filter(|_| prior.iter().any(value_evidence) || own_samples >= MIN_VALUE_SAMPLES);
         let instance = &mut all[index];
         instance.outside = 0.0;
         instance.outside_cost_usd = 0.0;
@@ -1034,30 +883,17 @@ fn allocate_quota(
                 external = 0.0;
                 if interval.measured && interval.priced {
                     external = match (&estimate, interval.mixed) {
-                        (Some(model), true) => min(
-                            interval.points,
-                            max(
-                                0.0,
-                                interval.points - interval.cost_usd / model.cost_per_percent,
-                            ),
-                        ),
+                        (Some(model), true) => min(interval.points, max(0.0, interval.points - interval.cost_usd / model.cost_per_percent)),
                         _ => estimate_outside_quota(interval, estimate.as_ref()),
                     };
                 }
                 for event_index in interval.start..interval.end {
-                    shares[event_index] += ((interval.points - external)
-                        * events[event_index].weight(interval.weight))
-                        / interval.total;
+                    shares[event_index] += ((interval.points - external) * events[event_index].weight(interval.weight)) / interval.total;
                 }
             }
             if external > 0.0 {
                 let cost_usd = value.as_ref().map(|v| external * v.cost_per_percent);
-                outside.push(Outside {
-                    from_ms: interval.from_ms,
-                    to_ms: interval.to_ms,
-                    points: external,
-                    cost_usd,
-                });
+                outside.push(Outside { from_ms: interval.from_ms, to_ms: interval.to_ms, points: external, cost_usd });
                 instance.outside += external;
                 match cost_usd {
                     None => instance.outside_unpriced += external,
@@ -1074,13 +910,7 @@ fn allocate_quota(
 
 /// The weekly all-model limit's five-hour companion restarts from zero every few hours and moves
 /// in quarter-size steps, so it exposes outside use that a whole-percent weekly reading hides.
-fn finer_outside_spans(
-    conn: &Connection,
-    selection: &Selection,
-    events: &[Event],
-    weeks: &[&Instance],
-    now: f64,
-) -> Result<Vec<Span>> {
+fn finer_outside_spans(conn: &Connection, selection: &Selection, events: &[Event], weeks: &[&Instance], now: f64) -> Result<Vec<Span>> {
     if selection.label != "7D" || events.is_empty() || weeks.is_empty() {
         return Ok(Vec::new());
     }
@@ -1088,40 +918,17 @@ fn finer_outside_spans(
     for event in events {
         prefix.push(prefix[prefix.len() - 1] + event.cost_usd);
     }
-    let cost_between =
-        |from: f64, to: f64| prefix[first_after(events, to)] - prefix[first_after(events, from)];
-    let fives: Vec<Instance> = quota_instances(&read_quota_rows(conn, selection, "5H")?, "5H", now)
-        .into_iter()
-        .filter(|i| !i.idle)
-        .collect();
+    let cost_between = |from: f64, to: f64| prefix[first_after(events, to)] - prefix[first_after(events, from)];
+    let fives: Vec<Instance> = quota_instances(&read_quota_rows(conn, selection, "5H")?, "5H", now).into_iter().filter(|i| !i.idle).collect();
     let mut spans = Vec::new();
     for week in weeks {
         let readings: Vec<Vec<Reading>> = fives
             .iter()
             .filter(|five| five.start_ms >= week.start_ms && five.start_ms < week.end_ms)
-            .map(|five| {
-                five.rows
-                    .iter()
-                    .map(|r| Reading {
-                        ts: r.ts,
-                        used_pct: r.used_pct,
-                    })
-                    .collect()
-            })
+            .map(|five| five.rows.iter().map(|r| Reading { ts: r.ts, used_pct: r.used_pct }).collect())
             .collect();
-        let starts: Vec<f64> = fives
-            .iter()
-            .filter(|five| five.start_ms >= week.start_ms && five.start_ms < week.end_ms)
-            .map(|five| five.start_ms)
-            .collect();
-        let windows: Vec<FinerWindow> = starts
-            .iter()
-            .zip(&readings)
-            .map(|(start_ms, readings)| FinerWindow {
-                start_ms: *start_ms,
-                readings,
-            })
-            .collect();
+        let starts: Vec<f64> = fives.iter().filter(|five| five.start_ms >= week.start_ms && five.start_ms < week.end_ms).map(|five| five.start_ms).collect();
+        let windows: Vec<FinerWindow> = starts.iter().zip(&readings).map(|(start_ms, readings)| FinerWindow { start_ms: *start_ms, readings }).collect();
         spans.extend(outside_spans(&windows, &cost_between, 5.0 * MINUTE));
     }
     Ok(spans)
@@ -1129,16 +936,9 @@ fn finer_outside_spans(
 
 fn interval_share(interval: &Interval, from_ms: f64, to_ms: f64) -> f64 {
     if interval.to_ms <= interval.from_ms {
-        return if interval.to_ms >= from_ms && interval.to_ms <= to_ms {
-            1.0
-        } else {
-            0.0
-        };
+        return if interval.to_ms >= from_ms && interval.to_ms <= to_ms { 1.0 } else { 0.0 };
     }
-    max(
-        0.0,
-        min(interval.to_ms, to_ms) - max(interval.from_ms, from_ms),
-    ) / (interval.to_ms - interval.from_ms)
+    max(0.0, min(interval.to_ms, to_ms) - max(interval.from_ms, from_ms)) / (interval.to_ms - interval.from_ms)
 }
 
 /// A period spanning different capacities averages by observed quota, not dollars. A missing
@@ -1165,19 +965,11 @@ fn rounded_cost(value: f64) -> Value {
     js_number(round_to(value, 6))
 }
 
-fn put_cost_fields(
-    out: &mut Map<String, Value>,
-    cost_usd: f64,
-    outside_cost_usd: Option<f64>,
-    unpriced: bool,
-) {
+fn put_cost_fields(out: &mut Map<String, Value>, cost_usd: f64, outside_cost_usd: Option<f64>, unpriced: bool) {
     let extra = outside_cost_usd.map(|c| round_to(c, 6));
     let recorded = round_to(cost_usd, 6);
     out.insert("costUsd".into(), js_number(recorded));
-    out.insert(
-        "outsideCostUsd".into(),
-        extra.map_or(Value::Null, js_number),
-    );
+    out.insert("outsideCostUsd".into(), extra.map_or(Value::Null, js_number));
     out.insert(
         "estimatedTotalCostUsd".into(),
         match extra {
@@ -1237,25 +1029,11 @@ fn export_usage(usage: &Usage) -> Map<String, Value> {
     out.insert("tokens".into(), js_number(usage.tokens()));
     out.insert("unmeasuredTurns".into(), js_number(usage.unmeasured_turns));
     out.insert("costUsd".into(), rounded_cost(usage.cost_usd));
-    out.insert(
-        "costUnpricedTurns".into(),
-        js_number(max(0.0, usage.turns - usage.cost_known_turns)),
-    );
-    out.insert(
-        "cacheHitRate".into(),
-        if unknown || prompt <= 0.0 {
-            Value::Null
-        } else {
-            js_number(round_to(usage.cache_read / prompt, 4))
-        },
-    );
+    out.insert("costUnpricedTurns".into(), js_number(max(0.0, usage.turns - usage.cost_known_turns)));
+    out.insert("cacheHitRate".into(), if unknown || prompt <= 0.0 { Value::Null } else { js_number(round_to(usage.cache_read / prompt, 4)) });
     out.insert(
         "outputTokensPerSecond".into(),
-        if usage.speed_ms > 0.0 {
-            js_number(round_to((usage.speed_output * 1000.0) / usage.speed_ms, 1))
-        } else {
-            Value::Null
-        },
+        if usage.speed_ms > 0.0 { js_number(round_to((usage.speed_output * 1000.0) / usage.speed_ms, 1)) } else { Value::Null },
     );
     out
 }
@@ -1270,11 +1048,7 @@ fn put_identity(out: &mut Map<String, Value>, key: &str) {
 }
 
 fn model_of_row(row: &Value) -> String {
-    row.get("modelId")
-        .or_else(|| row.get("model"))
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_string()
+    row.get("modelId").or_else(|| row.get("model")).and_then(Value::as_str).unwrap_or("").to_string()
 }
 
 fn export_model(key: &str, usage: &Usage) -> Value {
@@ -1289,9 +1063,7 @@ fn window_period(all: &[Instance], listed: &[usize], anchor: Option<&str>) -> Op
     if listed.is_empty() {
         return None;
     }
-    let index = anchor
-        .and_then(|a| listed.iter().position(|&i| all[i].key == a))
-        .unwrap_or(listed.len() - 1);
+    let index = anchor.and_then(|a| listed.iter().position(|&i| all[i].key == a)).unwrap_or(listed.len() - 1);
     let instance = &all[listed[index]];
     let mut out = Map::new();
     out.insert("view".into(), "window".into());
@@ -1300,18 +1072,8 @@ fn window_period(all: &[Instance], listed: &[usize], anchor: Option<&str>) -> Op
     out.insert("toMs".into(), js_number(instance.end_ms));
     out.insert("startDay".into(), day_key(instance.start_ms as i64).into());
     out.insert("endDay".into(), day_key(instance.end_ms as i64).into());
-    out.insert(
-        "previousAnchor".into(),
-        index
-            .checked_sub(1)
-            .map_or(Value::Null, |p| all[listed[p]].key.clone().into()),
-    );
-    out.insert(
-        "nextAnchor".into(),
-        listed
-            .get(index + 1)
-            .map_or(Value::Null, |&n| all[n].key.clone().into()),
-    );
+    out.insert("previousAnchor".into(), index.checked_sub(1).map_or(Value::Null, |p| all[listed[p]].key.clone().into()));
+    out.insert("nextAnchor".into(), listed.get(index + 1).map_or(Value::Null, |&n| all[n].key.clone().into()));
     out.insert("isCurrent".into(), instance.current.into());
     Some(Value::Object(out))
 }
@@ -1328,11 +1090,7 @@ fn forecast_for(instance: Option<&Instance>, points: &[Point]) -> Value {
     if !instance.current || instance.last_pct >= 100.0 {
         return Value::Null;
     }
-    let span = if instance.paced {
-        Some(reset_at - instance.start_ms)
-    } else {
-        None
-    };
+    let span = if instance.paced { Some(reset_at - instance.start_ms) } else { None };
     let lookback = min(
         24.0 * HOUR,
         max(
@@ -1349,34 +1107,16 @@ fn forecast_for(instance: Option<&Instance>, points: &[Point]) -> Value {
         return Value::Null;
     }
     let rate = max(0.0, (instance.last_pct - value_at(points, from)) / hours);
-    let runs_out = if rate > 0.0 {
-        instance.last_at + ((100.0 - instance.last_pct) / rate) * HOUR
-    } else {
-        f64::INFINITY
-    };
+    let runs_out = if rate > 0.0 { instance.last_at + ((100.0 - instance.last_pct) / rate) * HOUR } else { f64::INFINITY };
     let before_reset = runs_out < reset_at;
     let mut out = Map::new();
     out.insert("ratePerHour".into(), js_number(round_to(rate, 2)));
     out.insert("fromMs".into(), js_number(instance.last_at));
     out.insert("fromPct".into(), js_number(instance.last_pct));
-    out.insert(
-        "exhaustAt".into(),
-        if before_reset {
-            js_number(round(runs_out))
-        } else {
-            Value::Null
-        },
-    );
+    out.insert("exhaustAt".into(), if before_reset { js_number(round(runs_out)) } else { Value::Null });
     out.insert(
         "atResetPct".into(),
-        if before_reset {
-            Value::Null
-        } else {
-            js_number(round_to(
-                instance.last_pct + (rate * (reset_at - instance.last_at)) / HOUR,
-                1,
-            ))
-        },
+        if before_reset { Value::Null } else { js_number(round_to(instance.last_pct + (rate * (reset_at - instance.last_at)) / HOUR, 1)) },
     );
     Value::Object(out)
 }
@@ -1395,17 +1135,14 @@ struct Slot {
 /// Each model's running share of its window, sampled at slot ends; the slot running now is
 /// sampled at now, as far as it has run.
 fn model_series(slots: &[Slot], instances: &[&Instance], keys: &[String], now: f64) -> Vec<Value> {
-    let mut series: Vec<(String, Vec<Value>)> =
-        keys.iter().map(|k| (k.clone(), Vec::new())).collect();
+    let mut series: Vec<(String, Vec<Value>)> = keys.iter().map(|k| (k.clone(), Vec::new())).collect();
     let mut running: HashMap<String, f64> = HashMap::new();
     let mut owner: Option<Option<usize>> = None;
     for slot in slots {
         if slot.future {
             break;
         }
-        let instance = instances
-            .iter()
-            .position(|entry| slot.from_ms >= entry.start_ms && slot.from_ms < entry.end_ms);
+        let instance = instances.iter().position(|entry| slot.from_ms >= entry.start_ms && slot.from_ms < entry.end_ms);
         if owner != Some(instance) {
             owner = Some(instance);
             for (key, points) in &mut series {
@@ -1414,17 +1151,10 @@ fn model_series(slots: &[Slot], instances: &[&Instance], keys: &[String], now: f
             }
         }
         for (key, points) in &mut series {
-            let part = if key == OUTSIDE_KEY {
-                slot.outside
-            } else {
-                slot.models.get(key).map_or(0.0, |u| u.consumed)
-            };
+            let part = if key == OUTSIDE_KEY { slot.outside } else { slot.models.get(key).map_or(0.0, |u| u.consumed) };
             let total = running[key.as_str()] + part;
             running.insert(key.clone(), total);
-            points.push(Value::Array(vec![
-                js_number(min(slot.to_ms, now)),
-                js_number(round_to(total, 2)),
-            ]));
+            points.push(Value::Array(vec![js_number(min(slot.to_ms, now)), js_number(round_to(total, 2))]));
         }
     }
     series
@@ -1443,19 +1173,8 @@ fn model_series(slots: &[Slot], instances: &[&Instance], keys: &[String], now: f
 
 /// Outside usage is spread over the time its interval covers; returns its total within the
 /// domain.
-fn spread_outside_usage(
-    outside: &[Outside],
-    slots: &mut [Slot],
-    domain_from: f64,
-    domain_to: f64,
-    slot_ms: f64,
-) -> f64 {
-    let slot_at = |time: f64, len: usize| {
-        min(
-            (len - 1) as f64,
-            max(0.0, ((time - domain_from) / slot_ms).floor()),
-        ) as usize
-    };
+fn spread_outside_usage(outside: &[Outside], slots: &mut [Slot], domain_from: f64, domain_to: f64, slot_ms: f64) -> f64 {
+    let slot_at = |time: f64, len: usize| min((len - 1) as f64, max(0.0, ((time - domain_from) / slot_ms).floor())) as usize;
     let mut total = 0.0;
     let add = |slot: &mut Slot, interval: &Outside, share: f64, total: &mut f64| {
         let part = interval.points * share;
@@ -1474,24 +1193,14 @@ fn spread_outside_usage(
             if interval.to_ms < domain_from || interval.to_ms > domain_to {
                 continue;
             }
-            add(
-                &mut slots[slot_at(interval.to_ms, len)],
-                interval,
-                1.0,
-                &mut total,
-            );
+            add(&mut slots[slot_at(interval.to_ms, len)], interval, 1.0, &mut total);
             continue;
         }
         let mut index = slot_at(from, len);
         while index < len && slots[index].from_ms < to {
             let overlap = min(to, slots[index].to_ms) - max(from, slots[index].from_ms);
             if overlap > 0.0 {
-                add(
-                    &mut slots[index],
-                    interval,
-                    overlap / (interval.to_ms - interval.from_ms),
-                    &mut total,
-                );
+                add(&mut slots[index], interval, overlap / (interval.to_ms - interval.from_ms), &mut total);
             }
             index += 1;
         }
@@ -1513,37 +1222,16 @@ fn history_row(instance: &Instance, events: &[Event]) -> Value {
     out.insert("key".into(), instance.key.clone().into());
     out.insert("startMs".into(), js_number(instance.start_ms));
     out.insert("endMs".into(), js_number(instance.end_ms));
-    out.insert(
-        "resetAt".into(),
-        instance.reset_at.map_or(Value::Null, js_number),
-    );
+    out.insert("resetAt".into(), instance.reset_at.map_or(Value::Null, js_number));
     out.insert("peak".into(), js_number(round_to(instance.peak, 1)));
     out.insert("peakAt".into(), js_number(instance.peak_at));
-    out.insert(
-        "exhaustedAt".into(),
-        instance.exhausted_at.map_or(Value::Null, js_number),
-    );
+    out.insert("exhaustedAt".into(), instance.exhausted_at.map_or(Value::Null, js_number));
     out.insert("current".into(), instance.current.into());
     out.insert("tokens".into(), js_number(tokens));
     out.insert("turns".into(), js_number(turns));
-    put_cost_fields(
-        &mut out,
-        cost_usd,
-        (instance.value.is_some() && instance.outside_unpriced == 0.0)
-            .then_some(instance.outside_cost_usd),
-        unpriced > 0.0,
-    );
-    out.insert(
-        "costPerPercent".into(),
-        instance
-            .value
-            .as_ref()
-            .map_or(Value::Null, |v| js_number(round_to(v.cost_per_percent, 6))),
-    );
-    out.insert(
-        "estimateSamples".into(),
-        instance.estimate.as_ref().map_or(0, |e| e.samples).into(),
-    );
+    put_cost_fields(&mut out, cost_usd, (instance.value.is_some() && instance.outside_unpriced == 0.0).then_some(instance.outside_cost_usd), unpriced > 0.0);
+    out.insert("costPerPercent".into(), instance.value.as_ref().map_or(Value::Null, |v| js_number(round_to(v.cost_per_percent, 6))));
+    out.insert("estimateSamples".into(), instance.estimate.as_ref().map_or(0, |e| e.samples).into());
     out.insert("outside".into(), js_number(round_to(instance.outside, 2)));
     Value::Object(out)
 }
@@ -1571,10 +1259,7 @@ fn series_value(series: &[Series]) -> Value {
                 let mut out = Map::new();
                 out.insert("provider".into(), s.provider.clone().into());
                 out.insert("account".into(), s.account.clone().into());
-                out.insert(
-                    "windows".into(),
-                    Value::Array(s.windows.iter().cloned().map(Value::from).collect()),
-                );
+                out.insert("windows".into(), Value::Array(s.windows.iter().cloned().map(Value::from).collect()));
                 Value::Object(out)
             })
             .collect(),
@@ -1585,42 +1270,23 @@ fn series_value(series: &[Series]) -> Value {
 /// hover slot), where each window in it peaked and, for the open window, where the current pace
 /// ends it. `view: window` selects one window (the latest, or `anchor`); any other view reads
 /// [from_ms, to_ms]. The list of every window is read a page at a time ([`read_quota_windows`]).
-pub(crate) fn read_quota_history(
-    conn: &Connection,
-    query: &QuotaHistoryQuery,
-    now: i64,
-) -> Result<Value> {
+pub(crate) fn read_quota_history(conn: &Connection, query: &QuotaHistoryQuery, now: i64) -> Result<Value> {
     let now = now as f64;
-    let view = if query.view.is_empty() {
-        "window"
-    } else {
-        query.view.as_str()
-    };
+    let view = if query.view.is_empty() { "window" } else { query.view.as_str() };
     let subscriptions = list_quota_series(conn)?;
-    let selection = pick_selection(
-        &subscriptions,
-        &query.provider,
-        &query.account,
-        &query.label,
-        &query.in_use,
-    );
+    let selection = pick_selection(&subscriptions, &query.provider, &query.account, &query.label, &query.in_use);
     let mut base = Map::new();
     base.insert("generatedAt".into(), js_number(now));
     base.insert("view".into(), view.to_string().into());
     base.insert("subscriptions".into(), series_value(&subscriptions));
-    base.insert(
-        "selection".into(),
-        selection.as_ref().map_or(Value::Null, Selection::to_value),
-    );
+    base.insert("selection".into(), selection.as_ref().map_or(Value::Null, Selection::to_value));
     let Some(selection) = selection else {
         base.insert("period".into(), Value::Null);
         return Ok(Value::Object(base));
     };
     let rows = read_quota_rows(conn, &selection, &selection.label)?;
     let mut instances = quota_instances(&rows, &selection.label, now);
-    let listed: Vec<usize> = (0..instances.len())
-        .filter(|&i| !instances[i].idle)
-        .collect();
+    let listed: Vec<usize> = (0..instances.len()).filter(|&i| !instances[i].idle).collect();
     let mut range = Map::new();
     range.insert("firstDay".into(), day_key(rows[0].ts as i64).into());
     let period: Option<(Value, f64, f64)> = if view == "window" {
@@ -1632,16 +1298,9 @@ pub(crate) fn read_quota_history(
     } else {
         let mut p = Map::new();
         p.insert("view".into(), view.to_string().into());
-        p.insert(
-            "fromMs".into(),
-            query.from_ms.map_or(Value::Null, js_number),
-        );
+        p.insert("fromMs".into(), query.from_ms.map_or(Value::Null, js_number));
         p.insert("toMs".into(), query.to_ms.map_or(Value::Null, js_number));
-        Some((
-            Value::Object(p),
-            query.from_ms.unwrap_or(0.0),
-            query.to_ms.unwrap_or(0.0),
-        ))
+        Some((Value::Object(p), query.from_ms.unwrap_or(0.0), query.to_ms.unwrap_or(0.0)))
     };
     let Some((period, period_from, period_to)) = period else {
         base.insert("range".into(), Value::Object(range));
@@ -1649,23 +1308,13 @@ pub(crate) fn read_quota_history(
         return Ok(Value::Object(base));
     };
 
-    let domain_from = if period_from > 0.0 {
-        period_from
-    } else {
-        rows[0].ts
-    };
+    let domain_from = if period_from > 0.0 { period_from } else { rows[0].ts };
     let domain_to = max(period_to, domain_from + MINUTE);
     let overlapping = |i: &Instance| i.end_ms > domain_from && i.start_ms < domain_to;
-    let shown: Vec<usize> = (0..instances.len())
-        .filter(|&i| overlapping(&instances[i]))
-        .collect();
+    let shown: Vec<usize> = (0..instances.len()).filter(|&i| overlapping(&instances[i])).collect();
     let calibrated = calibrated_windows(&instances, &listed, &shown);
-    let from = calibrated
-        .iter()
-        .fold(domain_from, |m, &i| min(m, instances[i].start_ms));
-    let to = shown
-        .iter()
-        .fold(domain_to, |m, &i| max(m, instances[i].end_ms));
+    let from = calibrated.iter().fold(domain_from, |m, &i| min(m, instances[i].start_ms));
+    let to = shown.iter().fold(domain_to, |m, &i| max(m, instances[i].end_ms));
     let events = read_quota_events(conn, &selection, from, to)?;
     let calibrated_refs: Vec<&Instance> = calibrated.iter().map(|&i| &instances[i]).collect();
     let finer = finer_outside_spans(conn, &selection, &events, &calibrated_refs, now)?;
@@ -1674,11 +1323,7 @@ pub(crate) fn read_quota_history(
     let points = quota_points(&shown_refs);
 
     let span = domain_to - domain_from;
-    let slot_ms = SLOT_MINUTES
-        .iter()
-        .map(|m| m * MINUTE)
-        .find(|size| span / size <= MAX_SLOTS)
-        .unwrap_or_else(|| (span / MAX_SLOTS).ceil());
+    let slot_ms = SLOT_MINUTES.iter().map(|m| m * MINUTE).find(|size| span / size <= MAX_SLOTS).unwrap_or_else(|| (span / MAX_SLOTS).ceil());
     let mut slots: Vec<Slot> = Vec::new();
     let mut start = domain_from;
     while start < domain_to {
@@ -1695,12 +1340,7 @@ pub(crate) fn read_quota_history(
         start += slot_ms;
     }
     let last_slot = (slots.len() - 1) as f64;
-    let slot_at = |time: f64| {
-        min(
-            last_slot,
-            max(0.0, ((time - domain_from) / slot_ms).floor()),
-        ) as usize
-    };
+    let slot_at = |time: f64| min(last_slot, max(0.0, ((time - domain_from) / slot_ms).floor())) as usize;
     let mut totals = Usage::default();
     let mut models: Ordered<Usage> = Ordered::default();
     for (index, event) in events.iter().enumerate() {
@@ -1713,23 +1353,17 @@ pub(crate) fn read_quota_history(
         let at = slot_at(event.ts);
         let slot = &mut slots[at];
         slot.usage.add(event, share);
-        slot.models
-            .entry(&event.model, Usage::default)
-            .add(event, share);
+        slot.models.entry(&event.model, Usage::default).add(event, share);
     }
     let outside_total = spread_outside_usage(&outside, &mut slots, domain_from, domain_to, slot_ms);
     let cost_per_percent = period_quota_rate(&shown_refs, domain_from, domain_to);
-    let outside_cost_usd =
-        if cost_per_percent.is_none() || slots.iter().any(|s| s.outside_unpriced > 0.0) {
-            None
-        } else {
-            Some(slots.iter().fold(0.0, |sum, s| sum + s.outside_cost_usd))
-        };
+    let outside_cost_usd = if cost_per_percent.is_none() || slots.iter().any(|s| s.outside_unpriced > 0.0) {
+        None
+    } else {
+        Some(slots.iter().fold(0.0, |sum, s| sum + s.outside_cost_usd))
+    };
 
-    let mut exported_models: Vec<Value> = models
-        .iter()
-        .map(|(key, usage)| export_model(key, usage))
-        .collect();
+    let mut exported_models: Vec<Value> = models.iter().map(|(key, usage)| export_model(key, usage)).collect();
     sort_model_tiers(&mut exported_models, model_of_row, &["consumed", "tokens"]);
     let mut series_keys: Vec<String> = exported_models
         .iter()
@@ -1741,17 +1375,10 @@ pub(crate) fn read_quota_history(
         series_keys.push(OUTSIDE_KEY.to_string());
     }
     let last_point = points.last().map_or(domain_from, |p| p.at);
-    let peaks: Vec<&Instance> = listed
-        .iter()
-        .map(|&i| &instances[i])
-        .filter(|i| overlapping(i))
-        .collect();
+    let peaks: Vec<&Instance> = listed.iter().map(|&i| &instances[i]).filter(|i| overlapping(i)).collect();
     let focus = if view == "window" {
         let anchor = period.get("anchor").and_then(Value::as_str).unwrap_or("");
-        listed
-            .iter()
-            .map(|&i| &instances[i])
-            .find(|i| i.key == anchor)
+        listed.iter().map(|&i| &instances[i]).find(|i| i.key == anchor)
     } else {
         None
     };
@@ -1767,10 +1394,7 @@ pub(crate) fn read_quota_history(
     out.insert(
         "points".into(),
         Value::Array(
-            decimate(points.clone(), domain_from, domain_to)
-                .iter()
-                .map(|p| Value::Array(vec![js_number(p.at), js_number(p.percent), p.kind.into()]))
-                .collect(),
+            decimate(points.clone(), domain_from, domain_to).iter().map(|p| Value::Array(vec![js_number(p.at), js_number(p.percent), p.kind.into()])).collect(),
         ),
     );
     out.insert(
@@ -1783,10 +1407,7 @@ pub(crate) fn read_quota_history(
             o.insert("usedPct".into(), js_number(f.last_pct));
             o.insert("readAt".into(), js_number(f.last_at));
             o.insert("peak".into(), js_number(f.peak));
-            o.insert(
-                "exhaustedAt".into(),
-                f.exhausted_at.map_or(Value::Null, js_number),
-            );
+            o.insert("exhaustedAt".into(), f.exhausted_at.map_or(Value::Null, js_number));
             o.insert("current".into(), f.current.into());
             // Whether the window's opening is known, so an even pace can be drawn.
             o.insert("paced".into(), f.paced.into());
@@ -1795,41 +1416,12 @@ pub(crate) fn read_quota_history(
     );
     out.insert("forecast".into(), forecast);
     let mut summary = Map::new();
-    summary.insert(
-        "consumed".into(),
-        js_number(round_to(totals.consumed + outside_total, 2)),
-    );
+    summary.insert("consumed".into(), js_number(round_to(totals.consumed + outside_total, 2)));
     summary.insert("outside".into(), js_number(round_to(outside_total, 2)));
-    put_cost_fields(
-        &mut summary,
-        totals.cost_usd,
-        outside_cost_usd,
-        totals.cost_known_turns < totals.turns,
-    );
-    summary.insert(
-        "costPerPercent".into(),
-        cost_per_percent.map_or(Value::Null, js_number),
-    );
-    summary.insert(
-        "estimateSamples".into(),
-        shown_refs
-            .iter()
-            .fold(0usize, |sum, i| {
-                sum + i.estimate.as_ref().map_or(0, |e| e.samples)
-            })
-            .into(),
-    );
-    summary.insert(
-        "maxedOut".into(),
-        peaks
-            .iter()
-            .filter(|i| {
-                i.exhausted_at
-                    .is_some_and(|e| e >= domain_from && e <= domain_to)
-            })
-            .count()
-            .into(),
-    );
+    put_cost_fields(&mut summary, totals.cost_usd, outside_cost_usd, totals.cost_known_turns < totals.turns);
+    summary.insert("costPerPercent".into(), cost_per_percent.map_or(Value::Null, js_number));
+    summary.insert("estimateSamples".into(), shown_refs.iter().fold(0usize, |sum, i| sum + i.estimate.as_ref().map_or(0, |e| e.samples)).into());
+    summary.insert("maxedOut".into(), peaks.iter().filter(|i| i.exhausted_at.is_some_and(|e| e >= domain_from && e <= domain_to)).count().into());
     out.insert("summary".into(), Value::Object(summary));
     out.insert("totals".into(), Value::Object(export_usage(&totals)));
     out.insert("outside".into(), js_number(round_to(outside_total, 2)));
@@ -1842,21 +1434,9 @@ pub(crate) fn read_quota_history(
             o.insert("fromMs".into(), js_number(slot.from_ms));
             o.insert("toMs".into(), js_number(slot.to_ms));
             o.insert("future".into(), slot.future.into());
-            o.insert(
-                "startPct".into(),
-                js_number(round_to(value_at(&points, slot.from_ms), 1)),
-            );
-            o.insert(
-                "endPct".into(),
-                js_number(round_to(
-                    value_at(&points, min(slot.to_ms, last_point as f64)),
-                    1,
-                )),
-            );
-            o.insert(
-                "consumed".into(),
-                js_number(round_to(slot.usage.consumed + slot.outside, 2)),
-            );
+            o.insert("startPct".into(), js_number(round_to(value_at(&points, slot.from_ms), 1)));
+            o.insert("endPct".into(), js_number(round_to(value_at(&points, min(slot.to_ms, last_point as f64)), 1)));
+            o.insert("consumed".into(), js_number(round_to(slot.usage.consumed + slot.outside, 2)));
             o.insert("outside".into(), js_number(round_to(slot.outside, 2)));
             o.insert("tokens".into(), js_number(slot.usage.tokens()));
             o.insert("turns".into(), js_number(slot.usage.turns));
@@ -1864,11 +1444,7 @@ pub(crate) fn read_quota_history(
             put_cost_fields(
                 &mut o,
                 slot.usage.cost_usd,
-                if slot_rate.is_none() || slot.outside_unpriced > 0.0 {
-                    None
-                } else {
-                    Some(slot.outside_cost_usd)
-                },
+                if slot_rate.is_none() || slot.outside_unpriced > 0.0 { None } else { Some(slot.outside_cost_usd) },
                 slot.usage.cost_known_turns < slot.usage.turns,
             );
             let mut slot_models: Vec<Value> = slot
@@ -1890,10 +1466,7 @@ pub(crate) fn read_quota_history(
         })
         .collect();
     out.insert("slots".into(), Value::Array(slot_values));
-    out.insert(
-        "modelSeries".into(),
-        Value::Array(model_series(&slots, &shown_refs, &series_keys, now)),
-    );
+    out.insert("modelSeries".into(), Value::Array(model_series(&slots, &shown_refs, &series_keys, now)));
     // A period over several windows marks where each of them peaked.
     out.insert(
         "peaks".into(),
@@ -1928,25 +1501,12 @@ pub struct QuotaWindowsQuery {
 /// One page of a limit window's history, newest first: every window that opened, with its peak,
 /// the shape it rose in and what the requests behind it cost. `page` is clamped to the pages
 /// there are.
-pub(crate) fn read_quota_windows(
-    conn: &Connection,
-    query: &QuotaWindowsQuery,
-    now: i64,
-) -> Result<Value> {
+pub(crate) fn read_quota_windows(conn: &Connection, query: &QuotaWindowsQuery, now: i64) -> Result<Value> {
     let now = now as f64;
-    let selection = pick_selection(
-        &list_quota_series(conn)?,
-        &query.provider,
-        &query.account,
-        &query.label,
-        &query.in_use,
-    );
+    let selection = pick_selection(&list_quota_series(conn)?, &query.provider, &query.account, &query.label, &query.in_use);
     let mut base = Map::new();
     base.insert("generatedAt".into(), js_number(now));
-    base.insert(
-        "selection".into(),
-        selection.as_ref().map_or(Value::Null, Selection::to_value),
-    );
+    base.insert("selection".into(), selection.as_ref().map_or(Value::Null, Selection::to_value));
     base.insert("page".into(), 0.into());
     base.insert("pageCount".into(), 0.into());
     base.insert("total".into(), 0.into());
@@ -1954,39 +1514,20 @@ pub(crate) fn read_quota_windows(
     let Some(selection) = selection else {
         return Ok(Value::Object(base));
     };
-    let mut instances = quota_instances(
-        &read_quota_rows(conn, &selection, &selection.label)?,
-        &selection.label,
-        now,
-    );
-    let chronological: Vec<usize> = (0..instances.len())
-        .filter(|&i| !instances[i].idle)
-        .collect();
+    let mut instances = quota_instances(&read_quota_rows(conn, &selection, &selection.label)?, &selection.label, now);
+    let chronological: Vec<usize> = (0..instances.len()).filter(|&i| !instances[i].idle).collect();
     let listed: Vec<usize> = chronological.iter().rev().copied().collect();
     let page_count = listed.len().div_ceil(HISTORY_PAGE_SIZE);
     if page_count == 0 {
         return Ok(Value::Object(base));
     }
     // `Math.floor(page) || 0`, clamped.
-    let requested = if query.page.is_finite() {
-        query.page.floor()
-    } else {
-        0.0
-    };
+    let requested = if query.page.is_finite() { query.page.floor() } else { 0.0 };
     let index = min(max(0.0, requested), (page_count - 1) as f64) as usize;
-    let shown: Vec<usize> = listed
-        .iter()
-        .skip(index * HISTORY_PAGE_SIZE)
-        .take(HISTORY_PAGE_SIZE)
-        .copied()
-        .collect();
+    let shown: Vec<usize> = listed.iter().skip(index * HISTORY_PAGE_SIZE).take(HISTORY_PAGE_SIZE).copied().collect();
     let calibrated = calibrated_windows(&instances, &chronological, &shown);
-    let from = calibrated
-        .iter()
-        .fold(f64::INFINITY, |m, &i| min(m, instances[i].start_ms));
-    let to = shown
-        .iter()
-        .fold(f64::NEG_INFINITY, |m, &i| max(m, instances[i].end_ms));
+    let from = calibrated.iter().fold(f64::INFINITY, |m, &i| min(m, instances[i].start_ms));
+    let to = shown.iter().fold(f64::NEG_INFINITY, |m, &i| max(m, instances[i].end_ms));
     let events = read_quota_events(conn, &selection, from, to)?;
     let calibrated_refs: Vec<&Instance> = calibrated.iter().map(|&i| &instances[i]).collect();
     let finer = finer_outside_spans(conn, &selection, &events, &calibrated_refs, now)?;
@@ -1994,15 +1535,7 @@ pub(crate) fn read_quota_windows(
     base.insert("page".into(), index.into());
     base.insert("pageCount".into(), page_count.into());
     base.insert("total".into(), listed.len().into());
-    base.insert(
-        "windows".into(),
-        Value::Array(
-            shown
-                .iter()
-                .map(|&i| history_row(&instances[i], &events))
-                .collect(),
-        ),
-    );
+    base.insert("windows".into(), Value::Array(shown.iter().map(|&i| history_row(&instances[i], &events)).collect()));
     Ok(Value::Object(base))
 }
 
@@ -2041,33 +1574,14 @@ pub fn quota_text(value: Option<&str>) -> String {
 
 /// `getQuotaHistory` over the ledger, before the account service adds its labels: a window
 /// list page when `page` is given, else the history of the named window or period.
-pub(crate) fn get_quota_history(
-    conn: &Connection,
-    options: &QuotaHistoryOptions,
-    in_use: &BTreeMap<String, String>,
-    now: i64,
-) -> Result<Value> {
+pub(crate) fn get_quota_history(conn: &Connection, options: &QuotaHistoryOptions, in_use: &BTreeMap<String, String>, now: i64) -> Result<Value> {
     let provider = quota_text(options.provider.as_deref());
     let account = quota_text(options.account.as_deref());
     let label = quota_text(options.window.as_deref());
     if let Some(page) = options.page {
-        return read_quota_windows(
-            conn,
-            &QuotaWindowsQuery {
-                provider,
-                account,
-                label,
-                in_use: in_use.clone(),
-                page,
-            },
-            now,
-        );
+        return read_quota_windows(conn, &QuotaWindowsQuery { provider, account, label, in_use: in_use.clone(), page }, now);
     }
-    let view = options
-        .view
-        .clone()
-        .filter(|v| v != "window")
-        .unwrap_or_else(|| "window".to_string());
+    let view = options.view.clone().filter(|v| v != "window").unwrap_or_else(|| "window".to_string());
     let period = if view == "window" {
         None
     } else {

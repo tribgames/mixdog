@@ -40,8 +40,7 @@ pub struct DisplayedResult {
 pub fn resolve_displayed_result(base: &CardBase, surface: &CardSurface, translate: Option<Translate>) -> DisplayedResult {
     let rt = base.rt.as_deref();
     let is_background_tool = is_background_task_tool(&surface.normalized_name);
-    let background_meta =
-        if !base.pending && is_background_tool { resolve_background_task_meta(&surface.parsed_args, rt.unwrap_or_default()) } else { None };
+    let background_meta = if !base.pending && is_background_tool { resolve_background_task_meta(&surface.parsed_args, rt.unwrap_or_default()) } else { None };
     let background_error = match &background_meta {
         Some(meta) if truthy(Some(&meta.error)) => text_or_empty(Some(&meta.error)),
         _ => text_or_empty(field(&surface.parsed_args, "error")),
@@ -49,9 +48,7 @@ pub fn resolve_displayed_result(base: &CardBase, surface: &CardSurface, translat
     // Only a real background envelope's bare error line is redundant with its failure label; any other tool's error body is
     // the cause the card shows.
     let error_only_result = rt.is_some_and(|text| {
-        !text.is_empty()
-            && ((background_meta.is_some() && is_background_error_only_body(text, &background_error, None))
-                || is_user_control_cancellation(text))
+        !text.is_empty() && ((background_meta.is_some() && is_background_error_only_body(text, &background_error, None)) || is_user_control_cancellation(text))
     });
     let background_result_text = background_meta.as_ref().filter(|meta| meta.has_response).map(|meta| meta.body.clone()).unwrap_or_default();
     let displayed_result_text = if !background_result_text.is_empty() {
@@ -62,11 +59,8 @@ pub fn resolve_displayed_result(base: &CardBase, surface: &CardSurface, translat
         rt.unwrap_or_default().to_owned()
     };
     let has_display_result = !js_trim(&displayed_result_text).is_empty();
-    let mut displayed_result_body_text = if surface.normalized_name == "git" {
-        displayed_result_text.clone()
-    } else {
-        strip_leading_status_marker_from_text(&displayed_result_text)
-    };
+    let mut displayed_result_body_text =
+        if surface.normalized_name == "git" { displayed_result_text.clone() } else { strip_leading_status_marker_from_text(&displayed_result_text) };
     if surface.normalized_name == "read" {
         displayed_result_body_text = read_rows_for_display(&displayed_result_body_text);
     }
@@ -74,20 +68,11 @@ pub fn resolve_displayed_result(base: &CardBase, surface: &CardSurface, translat
     let lines: Vec<&str> = if displayed_result_body_text.is_empty() { Vec::new() } else { displayed_result_body_text.split('\n').collect() };
     let is_background_result = !base.pending && is_background_tool && background_meta.is_some();
     let is_background_response = is_background_result
-        && (background_meta.as_ref().is_some_and(|meta| meta.has_response)
-            || is_background_task_response_args(&surface.normalized_name, &surface.parsed_args));
+        && (background_meta.as_ref().is_some_and(|meta| meta.has_response) || is_background_task_response_args(&surface.normalized_name, &surface.parsed_args));
     let summarizable = !base.pending && (has_display_body || surface.normalized_name == "git");
-    let result_summary = if summarizable {
-        summarize_tool_result(&base.name, &base.args, &displayed_result_body_text, base.is_error)
-    } else {
-        None
-    };
+    let result_summary = if summarizable { summarize_tool_result(&base.name, &base.args, &displayed_result_body_text, base.is_error) } else { None };
     let result_summary_display = translate.map(|translate| {
-        if summarizable {
-            summarize_tool_result_translated(&base.name, &base.args, &displayed_result_body_text, base.is_error, translate)
-        } else {
-            None
-        }
+        if summarizable { summarize_tool_result_translated(&base.name, &base.args, &displayed_result_body_text, base.is_error, translate) } else { None }
     });
     DisplayedResult {
         is_background_metadata_result: is_background_result && !is_background_response && background_meta.is_some(),

@@ -395,7 +395,10 @@ mod tests {
     /// The edit and the submit ran; the follow-up snapshot then loses the connection: the typed loss reaches the caller.
     #[tokio::test]
     async fn a_submit_whose_follow_up_snapshot_loses_the_connection_is_the_typed_loss() {
-        let (mut context, _host, _) = context(json!({"ref": "p1-s2-e3", "text": "q", "submit": true}), vec![fill_value("q"), batch_done().with_params(json!({"steps": [{"op": "press", "key": "Enter"}]}))]);
+        let (mut context, _host, _) = context(
+            json!({"ref": "p1-s2-e3", "text": "q", "submit": true}),
+            vec![fill_value("q"), batch_done().with_params(json!({"steps": [{"op": "press", "key": "Enter"}]}))],
+        );
         context.snapshot_error = Some(RefError::Host(HostCallError::ConnectionLost));
         let error = fill(&mut context).await.expect_err("lost");
         assert_eq!(error, RefError::Host(HostCallError::ConnectionLost));
@@ -403,7 +406,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_submit_presses_enter_after_the_edit() {
-        let (mut context, host, _) = context(json!({"ref": "p1-s2-e3", "text": "q", "submit": true}), vec![fill_value("q"), batch_done().with_params(json!({"steps": [{"op": "press", "key": "Enter"}]}))]);
+        let (mut context, host, _) = context(
+            json!({"ref": "p1-s2-e3", "text": "q", "submit": true}),
+            vec![fill_value("q"), batch_done().with_params(json!({"steps": [{"op": "press", "key": "Enter"}]}))],
+        );
         fill(&mut context).await.expect("filled and submitted");
         host.finish().expect("fill, then the key");
     }
@@ -478,14 +484,22 @@ mod tests {
         let many: Vec<Value> = (0..31).map(|index| json!({"ref": format!("p1-s2-e{index}"), "text": "x"})).collect();
         let cases = [
             (json!({"fields": many}), "fill requires at most 30 fields"),
-            (json!({"fields": [{"target": {"name": "a"}, "text": "x"}, {"ref": "p1-s2-e1", "text": "y"}]}), "fill.fields must address every item by ref or every item by target, not a mix"),
+            (
+                json!({"fields": [{"target": {"name": "a"}, "text": "x"}, {"ref": "p1-s2-e1", "text": "y"}]}),
+                "fill.fields must address every item by ref or every item by target, not a mix",
+            ),
         ];
         for (command, message) in cases {
             let (mut context, _, _) = self::context(command, Vec::new());
             assert_eq!(fill(&mut context).await, Err(failed(message)));
         }
         let bad = "Fill stopped at field 1 of 1; 0 field(s) completed. Input was not replayed. Do not repeat completed fields; inspect the failing field before continuing. each fill field requires ref or target and exactly one of text/value, values, or checked\n\nobservation";
-        for field in [json!({"ref": "p1-s2-e1"}), json!({"ref": "p1-s2-e1", "text": "a", "value": "b"}), json!({"ref": "p1-s2-e1", "text": "a", "checked": true}), json!({"text": "a"})] {
+        for field in [
+            json!({"ref": "p1-s2-e1"}),
+            json!({"ref": "p1-s2-e1", "text": "a", "value": "b"}),
+            json!({"ref": "p1-s2-e1", "text": "a", "checked": true}),
+            json!({"text": "a"}),
+        ] {
             let (mut context, _, _) = self::context(json!({"fields": [field]}), Vec::new());
             assert_eq!(fill(&mut context).await, Err(failed(bad)));
         }
@@ -503,7 +517,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_sensitive_fill_registers_every_text_before_the_page_sees_it() {
-        let (mut context, _, _) = context(json!({"sensitive": true, "text": "t0", "fields": [{"ref": "p1-s2-e1", "text": "t1", "value": ""}, {"ref": "p1-s2-e2", "value": "t2"}]}), vec![]);
+        let (mut context, _, _) = context(
+            json!({"sensitive": true, "text": "t0", "fields": [{"ref": "p1-s2-e1", "text": "t1", "value": ""}, {"ref": "p1-s2-e2", "value": "t2"}]}),
+            vec![],
+        );
         let secrets = Arc::new(Mutex::new(Vec::<String>::new()));
         let sink = secrets.clone();
         context.actions.remember_secret = Arc::new(move |value: &str| sink.lock().expect("secrets").push(value.to_string()));
@@ -527,7 +544,13 @@ mod tests {
         assert_eq!(type_text(&mut context).await, Err(failed("type requires ref (from snapshot) or target")));
         let (mut context, _, _) = self::context(json!({"ref": "p1-s2-e1"}), Vec::new());
         assert_eq!(type_text(&mut context).await, Err(failed("type requires text")));
-        let (mut context, host, log) = self::context(json!({"ref": "p1-s2-e1", "text": "abc"}), vec![call(json!({})), batch_done().with_params(json!({"steps": [{"op": "press"}, {"op": "press", "key": "Backspace"}, {"op": "type", "text": "abc"}]}))]);
+        let (mut context, host, log) = self::context(
+            json!({"ref": "p1-s2-e1", "text": "abc"}),
+            vec![
+                call(json!({})),
+                batch_done().with_params(json!({"steps": [{"op": "press"}, {"op": "press", "key": "Backspace"}, {"op": "type", "text": "abc"}]})),
+            ],
+        );
         assert_eq!(type_text(&mut context).await.expect("typed").text, "decorated settled");
         assert_eq!(log.lock().expect("log")[0], "mutate p1-s2-e1 editable=true");
         host.finish().expect("focus, then one batch");
@@ -562,11 +585,15 @@ mod tests {
 
     #[tokio::test]
     async fn a_dialog_is_answered_with_the_decision_and_the_prompt_text() {
-        let (mut context, host, log) = context(json!({"accept": true, "promptText": "yes"}), vec![dialog_answer(true).with_params(json!({"pageId": "p1", "accept": true, "promptText": "yes"}))]);
+        let (mut context, host, log) = context(
+            json!({"accept": true, "promptText": "yes"}),
+            vec![dialog_answer(true).with_params(json!({"pageId": "p1", "accept": true, "promptText": "yes"}))],
+        );
         assert_eq!(handle_dialog(&mut context).await.expect("answered").text, "settled");
         assert_eq!(*log.lock().expect("log"), ["invalidate"]);
         host.finish().expect("one answer");
-        let (mut context, host, _) = self::context(json!({"accept": "true"}), vec![dialog_answer(true).with_params(json!({"accept": false, "promptText": ""}))]);
+        let (mut context, host, _) =
+            self::context(json!({"accept": "true"}), vec![dialog_answer(true).with_params(json!({"accept": false, "promptText": ""}))]);
         handle_dialog(&mut context).await.expect("dismissed");
         host.finish().expect("only an explicit true accepts");
     }

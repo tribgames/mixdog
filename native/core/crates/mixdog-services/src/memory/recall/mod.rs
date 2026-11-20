@@ -29,18 +29,17 @@ use crate::memory::error::{MemoryError, Result};
 use crate::memory::pg::db::Db;
 use crate::memory::project::resolve_project_scope;
 use crate::memory::recall::browse::{
-    CoreOptions, EntryFilters, EventContext, RawOptions, SessionOptions, browse_entries, browse_last_sessions,
-    expand_event_context, read_raw_rows_in_window, recall_core_rows, recall_session_rows, retrieve_entries,
-    search_by_ids,
+    CoreOptions, EntryFilters, EventContext, RawOptions, SessionOptions, browse_entries, browse_last_sessions, expand_event_context, read_raw_rows_in_window,
+    recall_core_rows, recall_session_rows, retrieve_entries, search_by_ids,
 };
 use crate::memory::recall::format::{RenderOptions, collapse_near_duplicate_rows, interleave_raw_rows, render_entry_lines, search_haystack};
 use crate::memory::recall::hybrid::{SearchOptions, search_relevant_hybrid};
 use crate::memory::recall::period::Clock;
 use crate::memory::recall::plan::{RECALL_LIMIT_CAP, SearchArgs, SearchPlan, js_number, resolve_search_plan};
 use crate::memory::recall::ranking::{
-    annotate_root_context, bound_rows_to_temporal, collapse_history_duplicates, has_vague_latest_work_intent,
-    is_semantic_only, latest_recall_topic_terms, merge_historical_rows, preserve_latest_concept_rows,
-    prioritize_historical_root_evidence, rank_latest_rows, sample_timeline, session_recall_terms, topic_term_coverage,
+    annotate_root_context, bound_rows_to_temporal, collapse_history_duplicates, has_vague_latest_work_intent, is_semantic_only, latest_recall_topic_terms,
+    merge_historical_rows, preserve_latest_concept_rows, prioritize_historical_root_evidence, rank_latest_rows, sample_timeline, session_recall_terms,
+    topic_term_coverage,
 };
 use crate::memory::recall::row::{Row, by_diff, compare_by_score, compare_newest_first, unique_rows_by_id};
 const FAN_OUT_QUERIES_CAP: usize = 5;
@@ -218,12 +217,7 @@ fn id_values(value: &Value) -> Vec<i64> {
         Value::Array(items) => items.iter().collect(),
         other => vec![other],
     };
-    items
-        .into_iter()
-        .map(|v| js_number(Some(v)))
-        .filter(|n| n.fract() == 0.0 && n.is_finite() && *n > 0.0)
-        .map(|n| n as i64)
-        .collect()
+    items.into_iter().map(|v| js_number(Some(v))).filter(|n| n.fract() == 0.0 && n.is_finite() && *n > 0.0).map(|n| n as i64).collect()
 }
 
 /// The arguments `recall` forwards to the search: every advertised argument,
@@ -311,9 +305,7 @@ fn order_candidates(mut filtered: Vec<Row>, plan: &SearchPlan, vague_latest_root
 /// every classified root.
 fn promote_latest_raw_rows(filtered: Vec<Row>, plan: &SearchPlan) -> (bool, Vec<Row>) {
     let terms = latest_recall_topic_terms(&plan.retrieval_query);
-    let coverage = |select: &dyn Fn(&Row) -> bool| {
-        filtered.iter().filter(|r| select(r)).map(|r| topic_term_coverage(r, &terms) as i64).fold(-1, i64::max)
-    };
+    let coverage = |select: &dyn Fn(&Row) -> bool| filtered.iter().filter(|r| select(r)).map(|r| topic_term_coverage(r, &terms) as i64).fold(-1, i64::max);
     let raw = coverage(&|r| r.is_root == 0 && r.chunk_root.is_none());
     let root = coverage(&|r| r.is_root == 1);
     if raw > root { (true, rank_latest_rows(filtered, &plan.retrieval_query)) } else { (false, filtered) }
@@ -329,10 +321,10 @@ fn page_rows(filtered: Vec<Row>, plan: &SearchPlan) -> Vec<Row> {
     rows.into_iter().skip(plan.offset).take(plan.limit).collect()
 }
 
-
 /// Largest recall text handed to a model.
 pub fn recall_output_max_bytes() -> usize {
-    static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| mixdog_tools::github::positive_env_int(std::env::var("MIXDOG_RECALL_OUTPUT_MAX_BYTES").ok().as_deref(), 20 * 1024));
+    static MAX: std::sync::LazyLock<usize> =
+        std::sync::LazyLock::new(|| mixdog_tools::github::positive_env_int(std::env::var("MIXDOG_RECALL_OUTPUT_MAX_BYTES").ok().as_deref(), 20 * 1024));
     *MAX
 }
 impl Recall {
@@ -360,12 +352,9 @@ impl Recall {
                 outcome.text = cap_recall_text(&outcome.text, recall_output_max_bytes());
                 outcome
             }
-            Err(error) => RecallOutcome {
-                text: format!("recall failed: {}", error.message()),
-                next_cursor: None,
-                is_error: true,
-                cancelled: cancel.is_cancelled(),
-            },
+            Err(error) => {
+                RecallOutcome { text: format!("recall failed: {}", error.message()), next_cursor: None, is_error: true, cancelled: cancel.is_cancelled() }
+            }
         }
     }
 
@@ -373,9 +362,7 @@ impl Recall {
     pub async fn search_memories(&self, args: &Value, cancel: &CancellationToken) -> RecallOutcome {
         match self.handle_search(args, cancel).await {
             Ok(outcome) => outcome,
-            Err(error) => {
-                RecallOutcome { text: format!("search_memories failed: {}", error.message()), next_cursor: None, is_error: true, cancelled: false }
-            }
+            Err(error) => RecallOutcome { text: format!("search_memories failed: {}", error.message()), next_cursor: None, is_error: true, cancelled: false },
         }
     }
 
@@ -385,9 +372,10 @@ impl Recall {
         let mut args = args.clone();
         if let Some(object) = args.as_object_mut()
             && !object.get("ids").is_some_and(Value::is_array)
-                && let Some(id) = object.get("id").filter(|v| !v.is_null()).cloned() {
-                    object.insert("ids".into(), if id.is_array() { id } else { json!([id]) });
-                }
+            && let Some(id) = object.get("id").filter(|v| !v.is_null()).cloned()
+        {
+            object.insert("ids".into(), if id.is_array() { id } else { json!([id]) });
+        }
         let search = SearchArgs::new(args);
         if let Some(queries) = search.query_list() {
             return self.fan_out(&search, queries, cancel).await;
@@ -424,9 +412,8 @@ impl Recall {
             }
             Ok::<_, MemoryError>(parts.into_iter().flatten().collect::<Vec<_>>())
         };
-        let parts = mixdog_rt::time::timeout(FAN_OUT_DEADLINE, gather)
-            .await
-            .map_err(|_| MemoryError::rejected("memory fan-out deadline exceeded (180s)"))??;
+        let parts =
+            mixdog_rt::time::timeout(FAN_OUT_DEADLINE, gather).await.map_err(|_| MemoryError::rejected("memory fan-out deadline exceeded (180s)"))??;
         let header = if dropped > 0 {
             format!("note: {} queries received, {} processed, {dropped} dropped (cap {FAN_OUT_QUERIES_CAP})\n\n", dedup.len(), selected.len())
         } else {
@@ -438,17 +425,13 @@ impl Recall {
     async fn dispatch(&self, args: &SearchArgs, cancel: &CancellationToken) -> Result<RecallOutcome> {
         let db = &self.deps.db;
         let clock = self.clock();
-        if args.raw.get("currentSession") == Some(&Value::Bool(true))
-            || !args.text("sessionId").is_empty()
-            || !args.text("session_id").is_empty()
-        {
+        if args.raw.get("currentSession") == Some(&Value::Bool(true)) || !args.text("sessionId").is_empty() || !args.text("session_id").is_empty() {
             let estimate = |text: &str| (self.deps.estimate_tokens)(text);
             let text = read("session_rows", cancel, recall_session_rows(db, &clock, args, &SessionOptions { estimate_tokens: &estimate })).await??;
             return Ok(RecallOutcome::ok(text));
         }
         let cwd = args.get("cwd").and_then(Value::as_str).filter(|c| !c.is_empty());
-        let resolved =
-            read("project_scope", cancel, resolve_project_scope(self.deps.lane, cwd, self.deps.session_cwd.as_deref())).await??;
+        let resolved = read("project_scope", cancel, resolve_project_scope(self.deps.lane, cwd, self.deps.session_cwd.as_deref())).await??;
         if let Some(ids) = args.raw.get("ids").filter(|v| v.as_array().is_some_and(|a| !a.is_empty())) {
             let ids = id_values(ids);
             let text = read("ids", cancel, search_by_ids(db, &clock, args, &ids, resolved.as_deref())).await??;
@@ -533,9 +516,10 @@ impl Recall {
         let filtered = read("expand", cancel, self.expand_and_bound(filtered, plan, &candidates, promote_latest_raw)).await??;
         let sliced = page_rows(filtered.clone(), plan);
         if let (Some(sink), Some(top)) = (&self.deps.trace, filtered.first())
-            && top.id > 0 {
-                sink(RecallTrace { query: plan.query.chars().take(200).collect(), top_entry_id: top.id, hit_count: filtered.len() });
-            }
+            && top.id > 0
+        {
+            sink(RecallTrace { query: plan.query.chars().take(200).collect(), top_entry_id: top.id, hit_count: filtered.len() });
+        }
         let latest_note =
             if plan.latest_intent && args.get("period").is_none() { "note: latest stored evidence; no newer stored completion is implied\n" } else { "" };
         let semantic_note = if candidates.semantic_only {
@@ -567,13 +551,7 @@ impl Recall {
         search_relevant_hybrid(&self.deps.db, query, options).await
     }
 
-    async fn retrieve_candidates(
-        &self,
-        args: &SearchArgs,
-        plan: &SearchPlan,
-        vector: Option<Vec<f32>>,
-        cancel: &CancellationToken,
-    ) -> Result<Candidates> {
+    async fn retrieve_candidates(&self, args: &SearchArgs, plan: &SearchPlan, vector: Option<Vec<f32>>, cancel: &CancellationToken) -> Result<Candidates> {
         let db = &self.deps.db;
         let window = plan.window();
         let retrieval_limit = (plan.limit + plan.offset).max(RECALL_LIMIT_CAP.min((plan.limit + plan.offset) * 3));
@@ -598,33 +576,31 @@ impl Recall {
         };
         let historical = async {
             if plan.bounded_historical {
-                self.hybrid_search(
-                    &plan.retrieval_query,
-                    &SearchOptions { include_members: false, root_only: true, ..options.clone() },
-                )
-                .await
+                self.hybrid_search(&plan.retrieval_query, &SearchOptions { include_members: false, root_only: true, ..options.clone() }).await
             } else {
                 Ok(Vec::new())
             }
         };
         let (results, historical_rows) = read("candidates", cancel, async { tokio::try_join!(primary, historical) }).await??;
         let primary_roots: Vec<Row> = if plan.deep_historical {
-            results.iter().filter(|r| r.is_root == 1).cloned().map(|mut r| {
-                r.members = Some(Vec::new());
-                r
-            }).collect()
+            results
+                .iter()
+                .filter(|r| r.is_root == 1)
+                .cloned()
+                .map(|mut r| {
+                    r.members = Some(Vec::new());
+                    r
+                })
+                .collect()
         } else {
             Vec::new()
         };
         let mut historical_candidates = unique_rows_by_id(primary_roots.iter().cloned().chain(historical_rows.iter().cloned()));
         let low = if plan.deep_historical { results.len() <= 2 } else { results.len() <= 5 && historical_rows.len() <= 2 };
         if plan.bounded_historical && low {
-            let window_roots =
-                read("window_roots", cancel, retrieve_entries(db, &EntryFilters { limit: Some(50), ..window_filters })).await??;
+            let window_roots = read("window_roots", cancel, retrieve_entries(db, &EntryFilters { limit: Some(50), ..window_filters })).await??;
             let terms = session_recall_terms(&plan.retrieval_query);
-            historical_candidates = unique_rows_by_id(
-                primary_roots.into_iter().chain(window_roots).chain(historical_rows),
-            );
+            historical_candidates = unique_rows_by_id(primary_roots.into_iter().chain(window_roots).chain(historical_rows));
             historical_candidates.sort_by(|a, b| {
                 by_diff(topic_term_coverage(b, &terms) as f64 - topic_term_coverage(a, &terms) as f64)
                     .then_with(|| by_diff(b.retrieval_value() - a.retrieval_value()))
@@ -668,8 +644,7 @@ impl Recall {
         let window = plan.window();
         let mut filtered = filtered;
         if plan.sort != "date" && plan.include_raw && (!plan.structured_time_mode || promote_latest_raw) {
-            let latest_concept_rows: Vec<Row> =
-                if plan.latest_intent { filtered.iter().filter(|r| r.concept_expanded).cloned().collect() } else { Vec::new() };
+            let latest_concept_rows: Vec<Row> = if plan.latest_intent { filtered.iter().filter(|r| r.concept_expanded).cloned().collect() } else { Vec::new() };
             filtered = expand_event_context(
                 &self.deps.db,
                 filtered,
@@ -689,7 +664,13 @@ impl Recall {
             }
         }
         if plan.bounded_historical {
-            let reserve = if plan.deep_historical { 6 } else if candidates.low_historical { 5 } else { 1 };
+            let reserve = if plan.deep_historical {
+                6
+            } else if candidates.low_historical {
+                5
+            } else {
+                1
+            };
             filtered = merge_historical_rows(filtered, &candidates.historical_candidates, candidates.retrieval_limit, true, reserve);
             if plan.deep_historical {
                 filtered = prioritize_historical_root_evidence(filtered);

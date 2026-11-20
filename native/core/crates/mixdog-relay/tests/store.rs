@@ -132,11 +132,6 @@ fn node_file_text(extra_client_name: &str) -> String {
     mixdog_relay::js::pretty(&rows)
 }
 
-
-
-
-
-
 fn io() -> mixdog_rt::DurabilityIo {
     mixdog_rt::testing::tokens().durability_io
 }
@@ -351,7 +346,8 @@ async fn a_browser_registration_clips_its_profile_defaults_its_name_and_replaces
     let store = open(dir.path()).await;
     assert!(store.authenticate(DEVICE, SECRET).await);
     let long = "n".repeat(200);
-    let first = store.register_client(DEVICE, "12345678", &ProfileInput::from_value(&json!({ "name": long, "platform": 7, "browser": ["a", "b"] }))).await.unwrap();
+    let first =
+        store.register_client(DEVICE, "12345678", &ProfileInput::from_value(&json!({ "name": long, "platform": 7, "browser": ["a", "b"] }))).await.unwrap();
     assert_eq!(first.client.name.len(), 80);
     assert_eq!((first.client.platform.as_str(), first.client.browser.as_str()), ("7", "a,b"));
     let nameless = store.register_client(DEVICE, "cccccccc", &ProfileInput::from_value(&json!({ "name": "", "platform": null }))).await.unwrap();
@@ -422,7 +418,10 @@ async fn a_desktop_version_report_is_stored_and_an_unchanged_one_is_rewritten_on
     store.save().await.unwrap();
     let document = parsed(&data);
     let row = &document[DEVICE];
-    assert_eq!((row["appVersion"].as_str(), row["rendererRelease"].as_str(), row["versionSeenAt"].as_i64()), (Some("1.2.3"), Some(hex64().as_str()), Some(start)));
+    assert_eq!(
+        (row["appVersion"].as_str(), row["rendererRelease"].as_str(), row["versionSeenAt"].as_i64()),
+        (Some("1.2.3"), Some(hex64().as_str()), Some(start))
+    );
     // The same report inside the hour changes nothing and writes nothing.
     assert!(store.record_desktop_version_at(DEVICE, &report, start + 59 * 60_000));
     assert!(!store.save_pending());
@@ -452,7 +451,9 @@ async fn unusable_version_fields_are_dropped_at_load_and_the_rest_of_the_row_is_
     assert_eq!((second.app_version.as_str(), second.renderer_release.as_str()), ("2.0.0", ""));
     store.save().await.unwrap();
     let saved = parsed(dir.path());
-    assert!(saved["abcdef12"].get("appVersion").is_none() && saved["abcdef12"].get("versionSeenAt").is_none() && saved["abcdef12"].get("rendererRelease").is_none());
+    assert!(
+        saved["abcdef12"].get("appVersion").is_none() && saved["abcdef12"].get("versionSeenAt").is_none() && saved["abcdef12"].get("rendererRelease").is_none()
+    );
     assert!(saved["abcdef34"].get("rendererRelease").is_none());
     assert!(saved["abcdef34"]["versionSeenAt"].is_number(), "a missing timestamp is the load time");
     // Defaults are added to a sparse row, and what the file holds besides is kept.

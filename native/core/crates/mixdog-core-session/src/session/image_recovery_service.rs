@@ -72,14 +72,25 @@ impl ImageRecoveryService {
         let manifest = supply.inline(data).await.map_err(|_| failed("session", format!("{name} could not be attached. Choose another picture.")))?;
         match manifest.outcome {
             Outcome::Refused { text } => Err(failed("session", format!("{name} cannot be used: {text} Choose another picture."))),
-            Outcome::Accepted { kind, .. } => Ok(Action::ReplaceWithStored { key: PartKey { message_id: image.message_id, part: image.part }, reference: manifest.original, mime_type: kind.mime().to_owned(), name }),
+            Outcome::Accepted { kind, .. } => Ok(Action::ReplaceWithStored {
+                key: PartKey { message_id: image.message_id, part: image.part },
+                reference: manifest.original,
+                mime_type: kind.mime().to_owned(),
+                name,
+            }),
         }
     }
 
     /// The conversation's messages under the ids its image choices address them by (the ids they are sent under).
     async fn history(&self, thread: &ThreadId) -> Result<History, CoreError> {
         let deps = self.directory.deps();
-        let context = super::run::ModelContext { store: deps.store.clone(), sensitive: deps.sensitive.clone(), lanes: deps.lanes, thread: thread.clone(), input: ItemId::from(String::new()) };
+        let context = super::run::ModelContext {
+            store: deps.store.clone(),
+            sensitive: deps.sensitive.clone(),
+            lanes: deps.lanes,
+            thread: thread.clone(),
+            input: ItemId::from(String::new()),
+        };
         Ok(History::of(&context.read_from(0).await?))
     }
 

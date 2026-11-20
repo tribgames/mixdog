@@ -58,10 +58,7 @@ pub(crate) fn retry_policy_with(retry_429: bool, default_jitter: Jitter) -> Retr
     policy.request = RetryRow::single(RetrySchedule {
         max_retries: REQUEST_RETRIES,
         backoff: Backoff::Ladder(millis(&[500, 1000, 2000, 4000, 8000, 16000, 32000, 32000, 32000, 32000])),
-        jitter: Jitter {
-            ratio: 0.25,
-            mode: JitterMode::Positive,
-        },
+        jitter: Jitter { ratio: 0.25, mode: JitterMode::Positive },
         advice: AdviceRule::honored_in_full(),
     });
     policy.midstream = RetryRow::single(RetrySchedule {
@@ -71,16 +68,8 @@ pub(crate) fn retry_policy_with(retry_429: bool, default_jitter: Jitter) -> Retr
         jitter: default_jitter,
         advice: AdviceRule::honored_in_full(),
     });
-    policy.status = StatusRules {
-        retry_429,
-        retry_529: true,
-        ..StatusRules::default()
-    };
-    policy.overload = OverloadRule {
-        fallback_after: Some(MAX_CONSECUTIVE_OVERLOADS),
-        fallback_model: None,
-        stop_after_repeated: false,
-    };
+    policy.status = StatusRules { retry_429, retry_529: true, ..StatusRules::default() };
+    policy.overload = OverloadRule { fallback_after: Some(MAX_CONSECUTIVE_OVERLOADS), fallback_model: None, stop_after_repeated: false };
     policy.honor_should_retry_true = true;
     // A cut stream that spent the mid-stream row is replayed by the loop (`anthropic-midstream-recovery.mjs` never marks it
     // `providerRecoveryExhausted`).

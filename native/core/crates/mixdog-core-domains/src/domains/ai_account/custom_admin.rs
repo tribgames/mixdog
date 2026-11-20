@@ -50,17 +50,17 @@ use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StreamEvent;
-use tokio_util::sync::CancellationToken;
 use mixdog_js::js_trim;
 use mixdog_js::utf16_len;
 use mixdog_protocol::ProviderId;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
+use tokio_util::sync::CancellationToken;
 
+use super::admin::ProviderAdmin;
 use super::admin::acct;
 use super::admin::object_at;
-use super::admin::ProviderAdmin;
 use super::collaborators::AuthRefresh;
 use super::collaborators::CustomProviders;
 use super::custom_config::assert_reasoning_patch;
@@ -82,26 +82,14 @@ const API_KEY_MAX: usize = 65_536;
 /// What a test send asks (`Reply with OK.`, `maxTokens: 16`).
 const TEST_PROMPT: &str = "Reply with OK.";
 const TEST_MAX_TOKENS: u32 = 16;
-const MODEL_PATCH_KEYS: [&str; 9] = [
-    "manual",
-    "hidden",
-    "name",
-    "contextWindow",
-    "maxOutputTokens",
-    "supportsVision",
-    "reasoning",
-    "requestBody",
-    "requestHeaders",
-];
+const MODEL_PATCH_KEYS: [&str; 9] =
+    ["manual", "hidden", "name", "contextWindow", "maxOutputTokens", "supportsVision", "reasoning", "requestBody", "requestHeaders"];
 const REASONING_PATCH_KEYS: [&str; 4] = ["levels", "wireFormat", "wireValues", "replay"];
 
 /// `^<8>-<4>-<4>-<4>-<12>$` of lowercase hex.
 fn is_uuid(text: &str) -> bool {
     let dashes = [8, 13, 18, 23];
-    text.len() == 36
-        && text.char_indices().all(|(at, c)| {
-            if dashes.contains(&at) { c == '-' } else { c.is_ascii_digit() || ('a'..='f').contains(&c) }
-        })
+    text.len() == 36 && text.char_indices().all(|(at, c)| if dashes.contains(&at) { c == '-' } else { c.is_ascii_digit() || ('a'..='f').contains(&c) })
 }
 
 /// `CUSTOM_ID_RE`.
@@ -141,10 +129,8 @@ fn validate_extra_api_keys(rows: &Value) -> Result<(), Failure> {
             return Err(invalid());
         }
         if let Some(id) = row.get("id") {
-            let id = id
-                .as_str()
-                .filter(|id| is_uuid(id) && !ids.contains(id))
-                .ok_or_else(|| Failure::type_error("custom provider extraApiKeys id is invalid"))?;
+            let id =
+                id.as_str().filter(|id| is_uuid(id) && !ids.contains(id)).ok_or_else(|| Failure::type_error("custom provider extraApiKeys id is invalid"))?;
             ids.insert(id);
         }
         if let Some(key) = row.get("apiKey")
@@ -152,8 +138,7 @@ fn validate_extra_api_keys(rows: &Value) -> Result<(), Failure> {
         {
             return Err(Failure::type_error("custom provider extraApiKeys apiKey is invalid"));
         }
-        if !row.contains_key("id") && row.get("apiKey").and_then(Value::as_str).is_none_or(|key| js_trim(key).is_empty())
-        {
+        if !row.contains_key("id") && row.get("apiKey").and_then(Value::as_str).is_none_or(|key| js_trim(key).is_empty()) {
             return Err(Failure::type_error("custom provider additional API key is empty"));
         }
     }
@@ -361,8 +346,7 @@ fn drop_references(agent: &mut Obj, id: &str) {
         agent.shift_remove("webSearchRoute");
     }
     if let Some(presets) = agent.get("presets").and_then(Value::as_array).cloned() {
-        let dropped: HashSet<String> =
-            presets.iter().filter(|p| names(p)).filter_map(|p| p.get("id").and_then(Value::as_str).map(str::to_owned)).collect();
+        let dropped: HashSet<String> = presets.iter().filter(|p| names(p)).filter_map(|p| p.get("id").and_then(Value::as_str).map(str::to_owned)).collect();
         agent.insert("presets".into(), Value::Array(presets.into_iter().filter(|p| !names(p)).collect()));
         if agent.get("default").and_then(Value::as_str).is_some_and(|d| dropped.contains(d)) {
             agent.shift_remove("default");
@@ -444,11 +428,8 @@ pub fn custom_provider_row<F: CustomFacts + ?Sized>(facts: &F, id: &str, entry: 
     };
     let configured_enabled = entry.get("enabled") != Some(&Value::Bool(false));
     let keyless = is_keyless(config.as_ref(), entry);
-    let api_key_env = if keyless {
-        String::new()
-    } else {
-        config.as_ref().and_then(|c| c.get("apiKeyEnv")).and_then(Value::as_str).unwrap_or_default().to_owned()
-    };
+    let api_key_env =
+        if keyless { String::new() } else { config.as_ref().and_then(|c| c.get("apiKeyEnv")).and_then(Value::as_str).unwrap_or_default().to_owned() };
     let env_set = !api_key_env.is_empty() && facts.env(&api_key_env).is_some_and(|value| !value.is_empty());
     let account = api_key_account(id);
     let stored = check_secrets && facts.has_stored_secret(&account);
@@ -519,7 +500,7 @@ pub fn custom_provider_row<F: CustomFacts + ?Sized>(facts: &F, id: &str, entry: 
         row.insert("authenticated".into(), json!(false));
     }
 
-Value::Object(row)
+    Value::Object(row)
 }
 
 /// `customProviderRows(providers, checkSecrets)`: the rows of the stored custom providers, in
@@ -580,14 +561,13 @@ impl KeyEngines {
         if let Some(built) = self.built.lock().unwrap_or_else(PoisonError::into_inner).get(account) {
             return Ok(built.clone());
         }
-        let key = self.keys.read_custom(&self.id, account).await.map_err(|error| {
-            plain_error(format!("An additional API key of {} could not be read: {error}.", self.id))
-        })?;
+        let key = self
+            .keys
+            .read_custom(&self.id, account)
+            .await
+            .map_err(|error| plain_error(format!("An additional API key of {} could not be read: {error}.", self.id)))?;
         if key.is_empty() {
-            return Err(plain_error(format!(
-                "An additional API key of {} is not readable; enter it again in its settings.",
-                self.id
-            )));
+            return Err(plain_error(format!("An additional API key of {} is not readable; enter it again in its settings.", self.id)));
         }
         // The key is the only source: an environment variable names the primary key alone.
         let mut config = self.config.clone();
@@ -616,9 +596,7 @@ impl AccountSender<Option<String>> for KeyEngines {
         let send = SendRequest { request: self.request.clone(), lane, admission: AdmissionRequest::default() };
         match self.broker.send(engine.as_ref(), send, &mut Discard, &CancellationToken::new()).await {
             Ok(_) => Ok(None),
-            Err(SendError::Provider(error) | SendError::Exhausted(error) | SendError::Fallback { last: error, .. }) => {
-                Err(Failed::new(error))
-            }
+            Err(SendError::Provider(error) | SendError::Exhausted(error) | SendError::Fallback { last: error, .. }) => Err(Failed::new(error)),
             Err(SendError::Admission(error)) => Err(Failed::new(plain_error(format!("{error:?}")))),
             Err(SendError::Cancelled) => Err(Failed::new(plain_error("This operation was aborted".into()))),
         }
@@ -800,7 +778,6 @@ mod key_variable_reads {
     }
 }
 
-
 fn vault_failure(error: mixdog_ai::registry::keys::VaultError) -> Failure {
     Failure::error(error.message)
 }
@@ -866,13 +843,8 @@ impl CustomAdmin {
 
     /// `serializeCustomKeySave`.
     async fn serialized<T>(&self, id: &str, run: impl Future<Output = T>) -> T {
-        let lock = self
-            .queues
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .entry(id.to_owned())
-            .or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(1)))
-            .clone();
+        let lock =
+            self.queues.lock().unwrap_or_else(PoisonError::into_inner).entry(id.to_owned()).or_insert_with(|| Arc::new(tokio::sync::Semaphore::new(1))).clone();
         let out = {
             // Never closed, so the permit is always granted in turn.
             let _turn = lock.acquire().await;
@@ -888,10 +860,7 @@ impl CustomAdmin {
 
     /// Edits the agent section; `change` answers through the slot, and a refusal leaves the
     /// document as it was.
-    async fn edit<T: Send + 'static>(
-        &self,
-        change: impl FnOnce(&mut Obj) -> Result<T, Failure> + Send + 'static,
-    ) -> Result<T, Failure> {
+    async fn edit<T: Send + 'static>(&self, change: impl FnOnce(&mut Obj) -> Result<T, Failure> + Send + 'static) -> Result<T, Failure> {
         let slot: Slot<T> = Arc::new(Mutex::new(None));
         let answer = slot.clone();
         self.host
@@ -979,10 +948,7 @@ impl CustomAdmin {
         // unused secret behind, never a failed save that did commit.
         for key_id in &plan.removed {
             if let Err(error) = host.keys.forget_custom(id, key_id).await {
-                (host.log)(&format!(
-                    "[provider-admin] could not delete additional API key {key_id} of {id}: {}\n",
-                    error.message
-                ));
+                (host.log)(&format!("[provider-admin] could not delete additional API key {key_id} of {id}: {}\n", error.message));
             }
         }
         host.row(id, &entry).await
@@ -997,13 +963,8 @@ impl CustomAdmin {
         let id = resolved.id.clone().unwrap_or_else(|| format!("custom-{}", uuid::Uuid::new_v4()));
         // Every save that may change the keys runs in the provider's key queue: a typed key, an
         // additional-key list, or a no-auth save (which drops them), decided from the input alone.
-        let keys_change =
-            !resolved.typed.is_empty() || object.contains_key("extraApiKeys") || (resolved.id.is_some() && resolved.keyless);
-        if keys_change {
-            self.serialized(&id, self.commit_save(&id, object, &resolved)).await
-        } else {
-            self.commit_save(&id, object, &resolved).await
-        }
+        let keys_change = !resolved.typed.is_empty() || object.contains_key("extraApiKeys") || (resolved.id.is_some() && resolved.keyless);
+        if keys_change { self.serialized(&id, self.commit_save(&id, object, &resolved)).await } else { self.commit_save(&id, object, &resolved).await }
     }
 
     /// `takesStoredKey`.
@@ -1072,8 +1033,7 @@ impl CustomAdmin {
             .edit(move |agent| {
                 let entry = existing_entry(agent, &at)?;
                 let current = normalize(&entry).map_err(Failure::error)?;
-                let mut overrides =
-                    current.get("modelOverrides").and_then(Value::as_object).cloned().unwrap_or_default();
+                let mut overrides = current.get("modelOverrides").and_then(Value::as_object).cloned().unwrap_or_default();
                 if patch.as_ref().is_some_and(Value::is_null) {
                     overrides.shift_remove(&model);
                 } else {

@@ -13,12 +13,12 @@
 use std::collections::BTreeMap;
 use std::collections::BTreeSet;
 use std::sync::Arc;
-use std::sync::Weak;
-use std::sync::atomic::AtomicU32;
-use std::sync::atomic::Ordering;
 use std::sync::Mutex;
 use std::sync::MutexGuard;
 use std::sync::PoisonError;
+use std::sync::Weak;
+use std::sync::atomic::AtomicU32;
+use std::sync::atomic::Ordering;
 use std::time::Duration;
 
 use mixdog_core_api::domain::computer::ComputerError;
@@ -376,7 +376,9 @@ impl UserControlState {
             {
                 inner.takeover = None;
             }
-            if inner.open.is_empty() && inner.takeover.as_ref().is_some_and(|takeover| takeover.reason == USER_STOP || ENVIRONMENT_REASONS.contains(&takeover.reason.as_str())) {
+            if inner.open.is_empty()
+                && inner.takeover.as_ref().is_some_and(|takeover| takeover.reason == USER_STOP || ENVIRONMENT_REASONS.contains(&takeover.reason.as_str()))
+            {
                 inner.takeover = None;
             }
         }
@@ -533,7 +535,12 @@ impl UserControlState {
     /// The gate every command passes before it dispatches (`waitUntilRunnable`, `executeAttempt`): `None` lets it run, a reply
     /// ends it. A hold whose person has been idle long enough is resumed here first, as the Node host's sampler would have. A
     /// held desktop refuses with an error; a yielded session is answered with the yield.
-    pub(super) async fn admit(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Option<Vec<ToolPart>>, ComputerError> {
+    pub(super) async fn admit(
+        &self,
+        backend: &ProcessComputerBackend,
+        command: &Map<String, Value>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<Vec<ToolPart>>, ComputerError> {
         let action = text(command, "action");
         match self.blocked_now(backend, command, cancel).await? {
             None => Ok(None),
@@ -546,7 +553,12 @@ impl UserControlState {
     /// A request meeting the person's pause parks before it takes the desktop's lane (`command-queue.ts` parks outside it), so
     /// the other sessions' requests and a Release are not held behind it for the pause's budget. `None` leaves the request to go
     /// on (to the lane and the gate); a reply ends it.
-    pub(super) async fn park_before_lane(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Option<Vec<ToolPart>>, ComputerError> {
+    pub(super) async fn park_before_lane(
+        &self,
+        backend: &ProcessComputerBackend,
+        command: &Map<String, Value>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<Vec<ToolPart>>, ComputerError> {
         // Any other hold is met at the gate in the lane, so its recovery and idle resume run once (`recoverBeforeCommand`).
         if !self.paused_by_user() {
             return Ok(None);
@@ -558,7 +570,12 @@ impl UserControlState {
     }
 
     /// What holds the command back now, after the recovery and the idle resume that may lift the hold first.
-    async fn blocked_now(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Option<Block>, ComputerError> {
+    async fn blocked_now(
+        &self,
+        backend: &ProcessComputerBackend,
+        command: &Map<String, Value>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<Block>, ComputerError> {
         let session = backend.config.session_id.as_str();
         let action = text(command, "action");
         // `recoverBeforeCommand`: a cleanup left latched with no other session open and nobody waiting (nobody to resume it) gets
@@ -598,7 +615,12 @@ impl UserControlState {
     /// answers `paused` and will not dispatch later). A read that only observes runs once the pause ended (`None`), as a changed
     /// takeover generation stales only input (`runAttempt`). A hold that becomes any other takeover refuses it; a cancelled turn
     /// ends it.
-    async fn park(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Option<Vec<ToolPart>>, ComputerError> {
+    async fn park(
+        &self,
+        backend: &ProcessComputerBackend,
+        command: &Map<String, Value>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<Vec<ToolPart>>, ComputerError> {
         let mut changes = self.changes.subscribe();
         let deadline = Instant::now() + PAUSE_WAIT;
         loop {
@@ -625,7 +647,12 @@ impl UserControlState {
     }
 
     /// `recaptureRequiredReply` + `pendingWorkReply`: the fresh look at the request's window, with what the request still has to do.
-    async fn pending_work(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+    async fn pending_work(
+        &self,
+        backend: &ProcessComputerBackend,
+        command: &Map<String, Value>,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<ToolPart>, ComputerError> {
         let window = text(command, "window_id");
         let mut images = Vec::new();
         let observation = if window.is_empty() {
@@ -667,7 +694,12 @@ impl UserControlState {
     /// What a command's result means for the person's hold (`failedAttempt`, `runAttempt`): the person's input interrupting a
     /// foreground action yields its session, and a takeover code hands the desktop back after the helper's cleanup. Any other
     /// result stands.
-    pub(super) async fn settle(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, result: Result<Vec<ToolPart>, ComputerError>) -> Result<Vec<ToolPart>, ComputerError> {
+    pub(super) async fn settle(
+        &self,
+        backend: &ProcessComputerBackend,
+        command: &Map<String, Value>,
+        result: Result<Vec<ToolPart>, ComputerError>,
+    ) -> Result<Vec<ToolPart>, ComputerError> {
         let observes = computer_lane::observes_only(text(command, "action"));
         match interrupt(command, observes, &result) {
             None => result,
@@ -679,7 +711,12 @@ impl UserControlState {
     /// result stands, unless the person's input or a takeover code interrupted it. That is read from the error's code or the `code` of
     /// the result itself, never from a comparison of reply texts. An interrupted step fails with the words the model reads (the
     /// refusal, the yield, or the takeover's error).
-    pub(super) async fn settle_step(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, result: Result<Map<String, Value>, ComputerError>) -> Result<Map<String, Value>, String> {
+    pub(super) async fn settle_step(
+        &self,
+        backend: &ProcessComputerBackend,
+        command: &Map<String, Value>,
+        result: Result<Map<String, Value>, ComputerError>,
+    ) -> Result<Map<String, Value>, String> {
         let observes = computer_lane::observes_only(text(command, "action"));
         let interrupted = match &result {
             Err(error) => interrupt_of_error(command, observes, error),
@@ -687,14 +724,23 @@ impl UserControlState {
         };
         let Some(interrupt) = interrupted else { return result.map_err(|error| error_text(&error)) };
         match self.interrupted(backend, command, observes, interrupt).await {
-            Ok(parts) => Err(parts.into_iter().find_map(|part| if let ToolPart::Text(text) = part { Some(text) } else { None }).unwrap_or_else(|| "computer command was held".to_owned())),
+            Ok(parts) => Err(parts
+                .into_iter()
+                .find_map(|part| if let ToolPart::Text(text) = part { Some(text) } else { None })
+                .unwrap_or_else(|| "computer command was held".to_owned())),
             Err(error) => Err(error_text(&error)),
         }
     }
 
     /// What an interruption does to the person's hold: the person's input refuses the action (a foreground one's session also
     /// yields), a takeover code hands the desktop back after the helper's cleanup.
-    async fn interrupted(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, observes: bool, interrupt: Interrupt) -> Result<Vec<ToolPart>, ComputerError> {
+    async fn interrupted(
+        &self,
+        backend: &ProcessComputerBackend,
+        command: &Map<String, Value>,
+        observes: bool,
+        interrupt: Interrupt,
+    ) -> Result<Vec<ToolPart>, ComputerError> {
         match interrupt {
             Interrupt::UserInput(payload) => {
                 // A background action only ever refuses; a foreground one's session waits for the person to be idle.
@@ -720,7 +766,10 @@ impl UserControlState {
             let result = backend.host_read("input_idle_state", Vec::new(), None, cancel).await?;
             match Idle::of(&result) {
                 Some(idle) if started.elapsed() <= SLOW_READING => Ok(idle),
-                _ => Err(ComputerError::Failed { code: "input_observation_unavailable".into(), message: "input_observation_unavailable: the idle state could not be read".into() }),
+                _ => Err(ComputerError::Failed {
+                    code: "input_observation_unavailable".into(),
+                    message: "input_observation_unavailable: the idle state could not be read".into(),
+                }),
             }
         };
         let first = observe().await?;
@@ -739,7 +788,12 @@ impl UserControlState {
 
     /// `wait_for_user` (`createUserWaitService.command`): waits until the session may act again, the person stops everything,
     /// the turn is cancelled or `timeout_ms` passes, and says which. It never replays input.
-    pub(super) async fn wait_for_user(&self, backend: &ProcessComputerBackend, command: &Map<String, Value>, cancel: &CancellationToken) -> Result<Vec<ToolPart>, ComputerError> {
+    pub(super) async fn wait_for_user(
+        &self,
+        backend: &ProcessComputerBackend,
+        command: &Map<String, Value>,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<ToolPart>, ComputerError> {
         let invalid = |message: &str| ComputerError::Failed { code: "invalid_request".into(), message: format!("invalid_request: {message}") };
         if command.keys().any(|key| !["action", "session_id", "timeout_ms"].contains(&key.as_str())) {
             return Err(invalid("wait_for_user accepts only timeout_ms"));
@@ -936,7 +990,10 @@ fn pending_work_reply(command: &Map<String, Value>, observation: Map<String, Val
     payload.insert("ok".into(), json!(fresh));
     payload.insert("action".into(), json!(text(command, "action")));
     payload.insert("code".into(), json!(RESUME_RECAPTURE_CODE));
-    payload.insert("verdict".into(), json!({"decision": if fresh { "verify_fresh_state" } else { "escalate" }, "recommended": if fresh { "continue_pending_work" } else { "recapture" }}));
+    payload.insert(
+        "verdict".into(),
+        json!({"decision": if fresh { "verify_fresh_state" } else { "escalate" }, "recommended": if fresh { "continue_pending_work" } else { "recapture" }}),
+    );
     payload.insert(
         "recovery".into(),
         json!({
@@ -1047,7 +1104,10 @@ fn yielded_payload(mut payload: Map<String, Value>, manual: bool) -> Map<String,
         "this agent continues by itself once the user has been idle."
     };
     let landed = if sent { "The user's input interrupted the action and its input may have landed; it will not be replayed." } else { "No input was sent." };
-    payload.insert("message".into(), json!(format!("Computer Use yielded to the user's input; {resume} {landed} Call wait_for_user, then capture fresh state before acting")));
+    payload.insert(
+        "message".into(),
+        json!(format!("Computer Use yielded to the user's input; {resume} {landed} Call wait_for_user, then capture fresh state before acting")),
+    );
     payload.insert("verdict".into(), json!({"decision": "wait_for_user", "recommended": "wait_for_user"}));
     payload
 }
@@ -1128,13 +1188,19 @@ mod tests {
         let refused = control.settle_step(&a, &click_in_background(), Ok(object(json!({"code": "user_input_active"})))).await.unwrap_err();
         assert!(refused.contains("\"code\":\"user_input_active\"") && !refused.contains("yielded"), "{refused}");
         assert_eq!(control.section(), None, "a background step only refuses");
-        let yielded = control.settle_step(&a, &focus(), Err(ComputerError::Failed { code: USER_INPUT_ACTIVE.into(), message: "user_input_active: interrupted".into() })).await.unwrap_err();
+        let yielded = control
+            .settle_step(&a, &focus(), Err(ComputerError::Failed { code: USER_INPUT_ACTIVE.into(), message: "user_input_active: interrupted".into() }))
+            .await
+            .unwrap_err();
         assert!(yielded.contains("\"status\":\"yielded\""), "{yielded}");
         assert!(control.section().is_some_and(|section| !section.active), "the session yields");
         control.resume(None);
         let other = ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: unknown frame_id".into() };
         assert_eq!(control.settle_step(&a, &focus(), Err(other)).await, Err("stale_frame: unknown frame_id".to_owned()));
-        let takeover = control.settle_step(&a, &click_in_background(), Ok(object(json!({"code": "input_cleanup_unconfirmed", "message": "a key is held"})))).await.unwrap_err();
+        let takeover = control
+            .settle_step(&a, &click_in_background(), Ok(object(json!({"code": "input_cleanup_unconfirmed", "message": "a key is held"}))))
+            .await
+            .unwrap_err();
         assert_eq!(takeover, "input_cleanup_unconfirmed: a key is held");
         assert!(control.section().is_some_and(|section| section.active), "the desktop is handed back");
     }
@@ -1186,7 +1252,10 @@ mod tests {
         assert_eq!(yielded["status"], "yielded");
         assert_eq!(yielded["resume_mode"], "idle");
         assert_eq!(yielded["input_may_have_executed"], true);
-        assert_eq!(control.section(), Some(ComputerUserControlSection { active: false, reason: "user_input_active".into(), resume_mode: ComputerResumeMode::Idle }));
+        assert_eq!(
+            control.section(),
+            Some(ComputerUserControlSection { active: false, reason: "user_input_active".into(), resume_mode: ComputerResumeMode::Idle })
+        );
         // Only that session waits; it sends nothing, and says so.
         let refused = control.admit(&a, &focus(), &cancel).await.unwrap().expect("the yielded session is refused");
         assert_eq!(payload_of(&refused)["input_may_have_executed"], false);
@@ -1194,7 +1263,10 @@ mod tests {
         assert!(control.admit(&a, &object(json!({"action": "list_windows"})), &cancel).await.unwrap().is_none(), "reads stay open");
 
         let waited = payload_of(&control.wait_for_user(&a, &wait_for_user(json!(60_000)), &cancel).await.unwrap());
-        assert_eq!(waited, json!({"ok": true, "action": "wait_for_user", "status": "resumed", "resumed": true, "fresh_capture_required": true, "input_replayed": false, "reason": ""}));
+        assert_eq!(
+            waited,
+            json!({"ok": true, "action": "wait_for_user", "status": "resumed", "resumed": true, "fresh_capture_required": true, "input_replayed": false, "reason": ""})
+        );
         let elapsed = started.elapsed();
         assert!(elapsed >= DEFAULT_IDLE_RESUME && elapsed <= DEFAULT_IDLE_RESUME + Duration::from_secs(1), "{elapsed:?}");
         assert_eq!(control.section(), None);
@@ -1242,7 +1314,8 @@ mod tests {
         assert!(refused.get("status").is_none());
         assert_eq!(control.section(), None);
         // An admission refusal sent nothing.
-        let superseded = Err(ComputerError::Failed { code: USER_INPUT_ACTIVE.into(), message: "user_input_active: observation was superseded by external input".into() });
+        let superseded =
+            Err(ComputerError::Failed { code: USER_INPUT_ACTIVE.into(), message: "user_input_active: observation was superseded by external input".into() });
         assert_eq!(payload_of(&control.settle(&a, &click_in_background(), superseded).await.unwrap())["input_may_have_executed"], false);
         // A sequence reports the person's input in its reply instead of an error.
         let in_reply = Ok(vec![ToolPart::Text(json!({"ok": false, "code": "user_input_active", "input_may_have_executed": true}).to_string())]);
@@ -1262,11 +1335,17 @@ mod tests {
 
         let ended = control.settle(&a, &click_in_background(), cleanup_failed()).await;
         assert!(matches!(ended, Err(ComputerError::Failed { ref code, .. }) if code == "input_cleanup_unconfirmed"), "the command still ends in its own error");
-        assert_eq!(control.section(), Some(ComputerUserControlSection { active: true, reason: "input_cleanup_unconfirmed".into(), resume_mode: ComputerResumeMode::Manual }));
+        assert_eq!(
+            control.section(),
+            Some(ComputerUserControlSection { active: true, reason: "input_cleanup_unconfirmed".into(), resume_mode: ComputerResumeMode::Manual })
+        );
         for backend in [&a, &b] {
             assert_eq!(
                 control.admit(backend, &click_in_background(), &cancel).await,
-                Err(ComputerError::Failed { code: "computer_user_takeover".into(), message: "computer_user_takeover: Computer Use is paused while the user has control".into() })
+                Err(ComputerError::Failed {
+                    code: "computer_user_takeover".into(),
+                    message: "computer_user_takeover: Computer Use is paused while the user has control".into()
+                })
             );
         }
         assert!(control.admit(&b, &object(json!({"action": "diagnose"})), &cancel).await.unwrap().is_none());
@@ -1350,7 +1429,9 @@ mod tests {
         assert_eq!(control.section(), None, "the Stop is done once no session is left");
 
         for bad in [json!(-1), json!(120_001), json!(1.5), json!("5"), json!(null)] {
-            assert!(matches!(control.wait_for_user(&b, &wait_for_user(bad), &cancel).await, Err(ComputerError::Failed { ref code, .. }) if code == "invalid_request"));
+            assert!(
+                matches!(control.wait_for_user(&b, &wait_for_user(bad), &cancel).await, Err(ComputerError::Failed { ref code, .. }) if code == "invalid_request")
+            );
         }
         let extra = object(json!({"action": "wait_for_user", "window_id": "hwnd:0x2"}));
         assert_eq!(
@@ -1377,7 +1458,10 @@ mod tests {
             })
             .collect();
         sleep(Duration::from_secs(1)).await;
-        let full = Err(ComputerError::Failed { code: "computer_capacity_exhausted".into(), message: "computer_capacity_exhausted: user wait already active or full".into() });
+        let full = Err(ComputerError::Failed {
+            code: "computer_capacity_exhausted".into(),
+            message: "computer_capacity_exhausted: user wait already active or full".into(),
+        });
         assert_eq!(control.wait_for_user(&backends[MAX_WAITERS], &wait_for_user(json!(1)), &cancel).await, full);
         assert_eq!(control.wait_for_user(&backends[0], &wait_for_user(json!(1)), &cancel).await, full, "one wait per session");
         cancel.cancel();
@@ -1669,7 +1753,10 @@ mod tests {
         let cancel = CancellationToken::new();
         assert!(!control.take_over_environment("user_stop"), "not an environment reason");
         assert!(control.take_over_environment("display_changed"));
-        assert_eq!(control.section(), Some(ComputerUserControlSection { active: true, reason: "display_changed".into(), resume_mode: ComputerResumeMode::Manual }));
+        assert_eq!(
+            control.section(),
+            Some(ComputerUserControlSection { active: true, reason: "display_changed".into(), resume_mode: ComputerResumeMode::Manual })
+        );
         for backend in [&a, &b] {
             assert_eq!(control.admit(backend, &click_in_background(), &cancel).await, Err(takeover_refusal()));
         }

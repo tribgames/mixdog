@@ -20,13 +20,7 @@ const PROVIDER: &str = "grok-oauth";
 
 fn store(dir: &tempfile::TempDir) -> AccountStore {
     let tokens = mixdog_rt::testing::tokens();
-    AccountStore::new(
-        dir.path().to_path_buf(),
-        CredentialIo {
-            read: tokens.interactive_io,
-            write: tokens.durability_io,
-        },
-    )
+    AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io })
 }
 
 fn refusal(kind: ErrorKind, status: u16) -> Failed {
@@ -113,10 +107,7 @@ async fn a_quota_refusal_blocks_the_account_rotates_and_commits_the_fallback() {
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let (rotation, s) = rotation(&dir, clock()).await;
-    let script = Script::new(vec![
-        (ID_A, vec![Err(refusal(ErrorKind::QuotaExhausted, 429))]),
-        (ID_B, vec![Ok("answer")]),
-    ]);
+    let script = Script::new(vec![(ID_A, vec![Err(refusal(ErrorKind::QuotaExhausted, 429))]), (ID_B, vec![Ok("answer")])]);
     let got = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap();
     assert_eq!(got, "answer@22/22");
     assert_eq!(script.calls(), [ID_A, ID_B]);
@@ -134,10 +125,7 @@ async fn every_account_spent_proves_quota_exhaustion_with_the_last_error() {
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let (rotation, _) = rotation(&dir, clock()).await;
-    let script = Script::new(vec![
-        (ID_A, vec![Err(refusal(ErrorKind::QuotaExhausted, 429))]),
-        (ID_B, vec![Err(refusal(ErrorKind::Billing, 402))]),
-    ]);
+    let script = Script::new(vec![(ID_A, vec![Err(refusal(ErrorKind::QuotaExhausted, 429))]), (ID_B, vec![Err(refusal(ErrorKind::Billing, 402))])]);
     let err = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap_err();
     assert!(matches!(&err.cause, Cause::Provider(e) if e.kind == ErrorKind::Billing));
     let proof = err.quota_exhausted.expect("quota proof");
@@ -181,25 +169,13 @@ async fn a_cooldown_only_roster_waits_within_the_policy_bound_then_retries() {
     let pace = clock();
     let rotation = AccountRotation::new(s, Arc::new(NoProbe), pace.clone());
     let started = pace.now_ms();
-    let mut script = Script::new(vec![(
-        ID_A,
-        vec![Err(refusal(ErrorKind::RateLimited, 429)), Ok("late")],
-    )]);
-    script.cooldown = Some(CooldownPolicy {
-        rotate_on_rate_limit: true,
-        rate_limited_ms: Some(40),
-        wait_for_cooldown_ms: Some(10_000),
-        ..CooldownPolicy::default()
-    });
+    let mut script = Script::new(vec![(ID_A, vec![Err(refusal(ErrorKind::RateLimited, 429)), Ok("late")])]);
+    script.cooldown =
+        Some(CooldownPolicy { rotate_on_rate_limit: true, rate_limited_ms: Some(40), wait_for_cooldown_ms: Some(10_000), ..CooldownPolicy::default() });
     assert_eq!(rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap(), "late@11/11");
     assert_eq!(script.calls(), [ID_A, ID_A]);
-    let waits: Vec<i64> = script
-        .stages
-        .lock()
-        .unwrap()
-        .iter()
-        .filter_map(|s| if let Stage::Reconnecting { wait_ms: Some(w), .. } = s { Some(*w) } else { None })
-        .collect();
+    let waits: Vec<i64> =
+        script.stages.lock().unwrap().iter().filter_map(|s| if let Stage::Reconnecting { wait_ms: Some(w), .. } = s { Some(*w) } else { None }).collect();
     assert_eq!(waits, [40], "waited once, for the cooldown");
     assert_eq!(pace.now_ms() - started, 40);
     assert_eq!(*pace.waits.lock().unwrap(), [std::time::Duration::from_millis(40)]);
@@ -210,10 +186,7 @@ async fn without_a_wait_policy_a_cooldown_surfaces_the_provider_error() {
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let (rotation, _) = rotation(&dir, clock()).await;
-    let mut script = Script::new(vec![
-        (ID_A, vec![Err(refusal(ErrorKind::RateLimited, 429))]),
-        (ID_B, vec![Err(refusal(ErrorKind::RateLimited, 429))]),
-    ]);
+    let mut script = Script::new(vec![(ID_A, vec![Err(refusal(ErrorKind::RateLimited, 429))]), (ID_B, vec![Err(refusal(ErrorKind::RateLimited, 429))])]);
     script.cooldown = Some(CooldownPolicy { rotate_on_rate_limit: true, ..CooldownPolicy::default() });
     let err = rotation.pool_send(PROVIDER, &ctx(), &script).await.unwrap_err();
     assert!(matches!(err.cause, Cause::Provider(_)));
@@ -263,11 +236,7 @@ async fn a_provider_without_a_roster_is_refused_only_on_a_proven_spent_plan_wind
     assert_eq!(err.quota_exhausted.expect("quota proof").reset_at, Some(now + 60_000));
     assert!(script.calls().is_empty(), "no wire call for a proven exhaustion");
 
-    for (used, reset, checked) in [
-        (100.0, None, now - 24 * 60 * 60 * 1_000),
-        (100.0, Some(now - 1), now - 1_000),
-        (40.0, Some(now + 60_000), now - 1_000),
-    ] {
+    for (used, reset, checked) in [(100.0, None, now - 24 * 60 * 60 * 1_000), (100.0, Some(now - 1), now - 1_000), (40.0, Some(now + 60_000), now - 1_000)] {
         let mut ordinary = ctx();
         ordinary.implicit_plan_usage = Some(implicit_reading(used, reset, checked));
         let script = Script::new(vec![("default", vec![Ok("plain")])]);
@@ -283,7 +252,13 @@ async fn full_plan_meters_refuse_a_roster_only_where_they_apply_and_state_no_cre
     mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let (rotation, s) = rotation(&dir, clock()).await;
-    let full = |remaining: Option<f64>| QuotaWindowInput { label: "7D".into(), used_pct: Some(100.0), reset_at: Some(1_900_000_000_000), remaining, ..QuotaWindowInput::default() };
+    let full = |remaining: Option<f64>| QuotaWindowInput {
+        label: "7D".into(),
+        used_pct: Some(100.0),
+        reset_at: Some(1_900_000_000_000),
+        remaining,
+        ..QuotaWindowInput::default()
+    };
     for id in [ID_A, ID_B] {
         s.record_usage(PROVIDER, id, vec![full(None)]).await.unwrap();
     }

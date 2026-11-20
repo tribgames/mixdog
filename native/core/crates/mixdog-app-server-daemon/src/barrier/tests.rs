@@ -1,8 +1,4 @@
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "test setup on temp data dirs"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup on temp data dirs")]
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -72,14 +68,7 @@ fn steps_of(gate: &mut LaneGate) -> (GateStep, Vec<Step>) {
     steps_with(gate, |_| {})
 }
 
-const ALL_STEPS: [Step; 6] = [
-    Step::Judged,
-    Step::Linking,
-    Step::Held,
-    Step::ClaimLockTaken,
-    Step::RecordWritten,
-    Step::BarrierInstalled,
-];
+const ALL_STEPS: [Step; 6] = [Step::Judged, Step::Linking, Step::Held, Step::ClaimLockTaken, Step::RecordWritten, Step::BarrierInstalled];
 
 const CONFLICT: [Step; 4] = [Step::Judged, Step::Linking, Step::Held, Step::Conflict];
 
@@ -96,10 +85,7 @@ fn claim_lock_reads_like_read_lock_owner() {
     assert_eq!(owner(r#"{"pid":31,"startedAt":5}"#), (Some(31), None));
     assert_eq!(owner("{not json"), (None, None));
     // The barrier pid without the barrier token is an ordinary (dead) holder.
-    assert_eq!(
-        owner("4294967296 0 someone-else"),
-        (Some(4_294_967_296), Some(0))
-    );
+    assert_eq!(owner("4294967296 0 someone-else"), (Some(4_294_967_296), Some(0)));
 }
 
 #[test]
@@ -109,10 +95,7 @@ fn fresh_data_dir_gets_barrier_and_record() {
     let (result, steps) = steps_of(&mut gate);
     assert!(matches!(result, GateStep::Clear));
     assert_eq!(steps, ALL_STEPS);
-    assert_eq!(
-        temp.file(CLAIM_LOCK_FILE).unwrap(),
-        barrier_bytes(own.instance_id())
-    );
+    assert_eq!(temp.file(CLAIM_LOCK_FILE).unwrap(), barrier_bytes(own.instance_id()));
     assert_eq!(temp.file(RECORD_FILE).unwrap(), record().to_bytes());
     assert!(temp.file(BARRIER_STAGING_FILE).is_none() && temp.file(RECORD_STAGING_FILE).is_none());
     assert_eq!(own.revalidate(), Ok(()));
@@ -122,22 +105,13 @@ fn fresh_data_dir_gets_barrier_and_record() {
 fn installed_barrier_is_kept_and_the_record_never_rewritten() {
     let temp = TempData::new();
     temp.write(CLAIM_LOCK_FILE, &barrier_bytes("earlier-core"));
-    temp.write(
-        RECORD_FILE,
-        b"{\"kind\":\"mixdog-daemon\",\"pid\":\"older text\"}\n",
-    );
+    temp.write(RECORD_FILE, b"{\"kind\":\"mixdog-daemon\",\"pid\":\"older text\"}\n");
     let (_own, mut gate) = temp.gate(Box::new(FakeTable::default()));
     let (result, steps) = steps_of(&mut gate);
     assert!(matches!(result, GateStep::Clear));
     assert!(steps.is_empty());
-    assert_eq!(
-        temp.file(CLAIM_LOCK_FILE).unwrap(),
-        barrier_bytes("earlier-core")
-    );
-    assert_eq!(
-        temp.file(RECORD_FILE).unwrap(),
-        b"{\"kind\":\"mixdog-daemon\",\"pid\":\"older text\"}\n"
-    );
+    assert_eq!(temp.file(CLAIM_LOCK_FILE).unwrap(), barrier_bytes("earlier-core"));
+    assert_eq!(temp.file(RECORD_FILE).unwrap(), b"{\"kind\":\"mixdog-daemon\",\"pid\":\"older text\"}\n");
 }
 
 #[test]
@@ -163,14 +137,8 @@ fn dead_holder_is_reclaimed_under_the_guard() {
     let (result, steps) = steps_of(&mut gate);
     assert!(matches!(result, GateStep::Clear));
     assert_eq!(steps, ALL_STEPS);
-    assert_eq!(
-        temp.file(CLAIM_LOCK_FILE).unwrap(),
-        barrier_bytes(own.instance_id())
-    );
-    assert!(
-        temp.file(RECLAIM_GUARD_FILE).is_none(),
-        "the guard is released"
-    );
+    assert_eq!(temp.file(CLAIM_LOCK_FILE).unwrap(), barrier_bytes(own.instance_id()));
+    assert!(temp.file(RECLAIM_GUARD_FILE).is_none(), "the guard is released");
 }
 
 #[test]
@@ -190,19 +158,12 @@ fn the_record_is_reread_while_the_core_holds_the_claim_lock() {
     let held = String::from_utf8(held.take().expect("B read while held")).unwrap();
     let parts: Vec<&str> = held.split_whitespace().collect();
     assert_eq!(parts[0], std::process::id().to_string());
-    assert_eq!(
-        parts[2],
-        format!("{CORE_TOKEN_PREFIX}{}", own.instance_id())
-    );
+    assert_eq!(parts[2], format!("{CORE_TOKEN_PREFIX}{}", own.instance_id()));
 }
 
 /// `R` naming the live `child` and the port it listens on.
 fn live_record(child: &crate::verdict::tests::SelfChild, port: Option<u16>) -> String {
-    format!(
-        r#"{{"kind":"mixdog-daemon","pid":{},"livenessPort":{}}}"#,
-        child.pid(),
-        port.unwrap()
-    )
+    format!(r#"{{"kind":"mixdog-daemon","pid":{},"livenessPort":{}}}"#, child.pid(), port.unwrap())
 }
 
 #[test]
@@ -213,9 +174,7 @@ fn a_live_owner_is_judged_without_touching_the_claim_lock() {
     temp.write(RECORD_FILE, record.as_bytes());
     let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
     let (result, steps) = steps_of(&mut gate);
-    let GateStep::Blocked(blocked) = result else {
-        panic!("expected blocked")
-    };
+    let GateStep::Blocked(blocked) = result else { panic!("expected blocked") };
     assert_eq!(blocked.kind, BlockedKind::WaitExit);
     assert!(steps.is_empty(), "the owner's heartbeat needs B: {steps:?}");
     assert!(temp.file(CLAIM_LOCK_FILE).is_none());
@@ -223,12 +182,7 @@ fn a_live_owner_is_judged_without_touching_the_claim_lock() {
 }
 
 /// A gate whose hook writes `R` (or deletes it, for `None`) once, at `at`.
-fn change_record_at(
-    temp: &TempData,
-    gate: &mut LaneGate,
-    at: Step,
-    record: Option<String>,
-) -> (GateStep, Vec<Step>) {
+fn change_record_at(temp: &TempData, gate: &mut LaneGate, at: Step, record: Option<String>) -> (GateStep, Vec<Step>) {
     let path = temp.data().join(RECORD_FILE);
     let mut once = Some(record);
     steps_with(gate, move |step| {
@@ -250,13 +204,8 @@ fn a_claim_in_the_gap_gives_the_claim_lock_back_at_once() {
     let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
     let record = live_record(&child, port);
     let (result, steps) = change_record_at(&temp, &mut gate, Step::Linking, Some(record.clone()));
-    let GateStep::Blocked(blocked) = result else {
-        panic!("expected blocked")
-    };
-    assert_eq!(
-        (blocked.kind, blocked.process.identity.pid),
-        (BlockedKind::WaitExit, child.pid())
-    );
+    let GateStep::Blocked(blocked) = result else { panic!("expected blocked") };
+    assert_eq!((blocked.kind, blocked.process.identity.pid), (BlockedKind::WaitExit, child.pid()));
     assert_eq!(steps, CONFLICT);
     assert!(temp.file(CLAIM_LOCK_FILE).is_none());
     assert_eq!(temp.file(RECORD_FILE).unwrap(), record.as_bytes());
@@ -267,12 +216,7 @@ fn a_claim_before_the_pre_link_read_never_takes_the_claim_lock() {
     let (child, port) = idle_child_process(true);
     let temp = TempData::new();
     let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
-    let (result, steps) = change_record_at(
-        &temp,
-        &mut gate,
-        Step::Judged,
-        Some(live_record(&child, port)),
-    );
+    let (result, steps) = change_record_at(&temp, &mut gate, Step::Judged, Some(live_record(&child, port)));
     assert!(matches!(result, GateStep::Blocked(ref b) if b.kind == BlockedKind::WaitExit));
     assert_eq!(steps, [Step::Judged]);
     assert!(temp.file(CLAIM_LOCK_FILE).is_none());
@@ -283,18 +227,12 @@ fn a_record_deleted_in_the_gap_is_judged_again() {
     let temp = TempData::new();
     // A dead owner's record, which its (dead) writer cannot delete: the change
     // still sends the verdict around again.
-    temp.write(
-        RECORD_FILE,
-        br#"{"kind":"mixdog-daemon","pid":99993,"livenessPort":9}"#,
-    );
+    temp.write(RECORD_FILE, br#"{"kind":"mixdog-daemon","pid":99993,"livenessPort":9}"#);
     let (own, mut gate) = temp.gate(Box::new(FakeTable::default()));
     let (result, steps) = change_record_at(&temp, &mut gate, Step::Linking, None);
     assert!(matches!(result, GateStep::Clear));
     assert_eq!(steps, [&CONFLICT[..], &ALL_STEPS[..]].concat());
-    assert_eq!(
-        temp.file(CLAIM_LOCK_FILE).unwrap(),
-        barrier_bytes(own.instance_id())
-    );
+    assert_eq!(temp.file(CLAIM_LOCK_FILE).unwrap(), barrier_bytes(own.instance_id()));
 }
 
 #[test]
@@ -303,10 +241,7 @@ fn legacy_lock_directories() {
     std::fs::create_dir_all(temp.data().join(CLAIM_LOCK_FILE)).unwrap();
     let (own, mut gate) = temp.gate(Box::new(FakeTable::default()));
     assert!(matches!(gate.step().unwrap(), GateStep::Clear));
-    assert_eq!(
-        temp.file(CLAIM_LOCK_FILE).unwrap(),
-        barrier_bytes(own.instance_id())
-    );
+    assert_eq!(temp.file(CLAIM_LOCK_FILE).unwrap(), barrier_bytes(own.instance_id()));
 
     let temp = TempData::new();
     std::fs::create_dir_all(temp.data().join(CLAIM_LOCK_FILE).join("inner")).unwrap();
@@ -337,11 +272,7 @@ fn a_transient_sharing_violation_on_the_target_is_retried() {
     let (result, steps) = steps_with(&mut gate, move |step| match step {
         // B holds the core's content; the barrier replaces it next.
         Step::RecordWritten => {
-            let scan = std::fs::OpenOptions::new()
-                .read(true)
-                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
-                .open(&path)
-                .expect("scan handle");
+            let scan = std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE).open(&path).expect("scan handle");
             opened_at.set(Some(Instant::now()));
             std::thread::spawn(move || {
                 std::thread::sleep(HOLD);
@@ -357,10 +288,7 @@ fn a_transient_sharing_violation_on_the_target_is_retried() {
     assert_eq!(steps, ALL_STEPS);
     let waited = waited.get().expect("the scan ran before the barrier");
     assert!(waited >= HOLD, "renamed after {waited:?}, under the scan");
-    assert_eq!(
-        temp.file(CLAIM_LOCK_FILE).unwrap(),
-        barrier_bytes(own.instance_id())
-    );
+    assert_eq!(temp.file(CLAIM_LOCK_FILE).unwrap(), barrier_bytes(own.instance_id()));
     assert!(temp.file(BARRIER_STAGING_FILE).is_none());
     assert_eq!(own.revalidate(), Ok(()));
 }
@@ -383,11 +311,7 @@ fn a_transient_sharing_violation_on_a_dead_holders_b_is_retried() {
     let (result, steps) = steps_with(&mut gate, move |step| {
         if step == Step::Held && !scanned {
             scanned = true;
-            let scan = std::fs::OpenOptions::new()
-                .read(true)
-                .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
-                .open(&path)
-                .expect("scan handle");
+            let scan = std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE).open(&path).expect("scan handle");
             std::thread::spawn(move || {
                 std::thread::sleep(Duration::from_millis(300));
                 drop(scan);
@@ -396,10 +320,7 @@ fn a_transient_sharing_violation_on_a_dead_holders_b_is_retried() {
     });
     assert!(matches!(result, GateStep::Clear), "{result:?}");
     assert_eq!(steps, ALL_STEPS);
-    assert_eq!(
-        temp.file(CLAIM_LOCK_FILE).unwrap(),
-        barrier_bytes(own.instance_id())
-    );
+    assert_eq!(temp.file(CLAIM_LOCK_FILE).unwrap(), barrier_bytes(own.instance_id()));
 }
 /// A dead holder's `B`: a fixed pid could name an unrelated live process
 /// (these tests read the real process table), so it names a reaped child.
@@ -419,32 +340,18 @@ fn dead_reclaim_guard_is_revoked_and_live_one_waited_for() {
     temp.write(CLAIM_LOCK_FILE, &dead_claim_lock());
     // The gate watches a live holder's real OS exit, so it must be a real process.
     let (child, _) = idle_child_process(false);
-    temp.write(
-        RECLAIM_GUARD_FILE,
-        format!("{} 1700000000000 fedcba9876543210\n", child.pid()).as_bytes(),
-    );
+    temp.write(RECLAIM_GUARD_FILE, format!("{} 1700000000000 fedcba9876543210\n", child.pid()).as_bytes());
     let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
     let (result, steps) = steps_of(&mut gate);
-    let GateStep::Blocked(blocked) = result else {
-        panic!("expected blocked")
-    };
-    assert_eq!(
-        (blocked.kind, blocked.process.identity.pid),
-        (BlockedKind::WaitClaim, child.pid())
-    );
+    let GateStep::Blocked(blocked) = result else { panic!("expected blocked") };
+    assert_eq!((blocked.kind, blocked.process.identity.pid), (BlockedKind::WaitClaim, child.pid()));
     assert_eq!(steps, [Step::Judged, Step::Linking]);
-    assert!(
-        temp.file(RECLAIM_GUARD_FILE).is_some(),
-        "a live guard is never revoked"
-    );
+    assert!(temp.file(RECLAIM_GUARD_FILE).is_some(), "a live guard is never revoked");
     drop(gate);
 
     let temp = TempData::new();
     temp.write(CLAIM_LOCK_FILE, b"99991 1700000000000 0123456789abcdef\n");
-    temp.write(
-        RECLAIM_GUARD_FILE,
-        b"99992 1700000000000 fedcba9876543210\n",
-    );
+    temp.write(RECLAIM_GUARD_FILE, b"99992 1700000000000 fedcba9876543210\n");
     let (_own, mut gate) = temp.gate(Box::new(FakeTable::default()));
     let (result, _) = steps_of(&mut gate);
     assert!(matches!(result, GateStep::Clear));
@@ -457,28 +364,18 @@ fn a_claim_in_the_gap_before_a_reclaim_keeps_the_dead_holder_and_frees_the_guard
     let dead = dead_claim_lock();
     temp.write(CLAIM_LOCK_FILE, &dead);
     let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
-    let (result, steps) = change_record_at(
-        &temp,
-        &mut gate,
-        Step::Linking,
-        Some(live_record(&child, port)),
-    );
+    let (result, steps) = change_record_at(&temp, &mut gate, Step::Linking, Some(live_record(&child, port)));
     assert!(matches!(result, GateStep::Blocked(ref b) if b.kind == BlockedKind::WaitExit));
     assert_eq!(steps, CONFLICT);
     assert_eq!(temp.file(CLAIM_LOCK_FILE).unwrap(), dead);
     assert!(temp.file(RECLAIM_GUARD_FILE).is_none());
 }
 
-
-
 /// What a 1.4.5 daemon start reads in the data dir of a 1.5.0 core: the claim lock is a barrier line no 1.4.5 reader takes for a live
 /// owner, and `daemon-owner.json` carries the update text where 1.4.5 prints the owner's pid.
 #[test]
 fn the_barrier_and_the_owner_record_are_the_bytes_an_old_daemon_reads_as_update_mixdog() {
     assert_eq!(barrier_bytes("fixture-instance"), b"4294967296 0 mixdog-barrier-v1:fixture-instance\n".to_vec());
-    assert_eq!(
-        record().to_bytes(),
-        b"{\"kind\":\"mixdog-daemon\",\"pid\":\"Update Mixdog to continue\",\"protocol\":2,\"version\":\"1.4.6\"}\n".to_vec()
-    );
+    assert_eq!(record().to_bytes(), b"{\"kind\":\"mixdog-daemon\",\"pid\":\"Update Mixdog to continue\",\"protocol\":2,\"version\":\"1.4.6\"}\n".to_vec());
     assert_eq!(ClaimLock::parse(barrier_bytes("fixture-instance")), ClaimLock::Barrier);
 }

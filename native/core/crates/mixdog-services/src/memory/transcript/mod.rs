@@ -118,11 +118,7 @@ type RewriteFuture = std::pin::Pin<Box<dyn std::future::Future<Output = std::io:
 /// `None` when the file is missing or unchanged.
 // Boxed as `Send` here: the lane's higher-ranked job closure otherwise defeats the `Send` proof of
 // every async caller that awaits it.
-pub fn rewrite_lines_file<L: mixdog_fsio::WriteLane + Send + 'static>(
-    lane: L,
-    path: &Path,
-    rewrite: LineRewrite,
-) -> RewriteFuture {
+pub fn rewrite_lines_file<L: mixdog_fsio::WriteLane + Send + 'static>(lane: L, path: &Path, rewrite: LineRewrite) -> RewriteFuture {
     let file = path.to_owned();
     Box::pin(async move { rewrite_lines_job(lane, file, rewrite).await })
 }

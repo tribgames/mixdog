@@ -105,12 +105,7 @@ pub(crate) fn prune_retained_jobs(manager: &Arc<Manager>) {
         .iter()
         .filter(|(_, managed)| managed.done.load(Ordering::Acquire))
         .map(|(job_id, managed)| {
-            let finished_at = managed
-                .state
-                .lock()
-                .ok()
-                .and_then(|state| state.finished_at_ms)
-                .unwrap_or(0);
+            let finished_at = managed.state.lock().ok().and_then(|state| state.finished_at_ms).unwrap_or(0);
             (finished_at, job_id.clone())
         })
         .collect();
@@ -152,9 +147,7 @@ pub(crate) fn encode_base64(bytes: &[u8]) -> String {
     let mut out = String::with_capacity(bytes.len().div_ceil(3) * 4);
     let mut index = 0;
     while index + 3 <= bytes.len() {
-        let bits = ((bytes[index] as u32) << 16)
-            | ((bytes[index + 1] as u32) << 8)
-            | bytes[index + 2] as u32;
+        let bits = ((bytes[index] as u32) << 16) | ((bytes[index + 1] as u32) << 8) | bytes[index + 2] as u32;
         out.push(TABLE[((bits >> 18) & 0x3f) as usize] as char);
         out.push(TABLE[((bits >> 12) & 0x3f) as usize] as char);
         out.push(TABLE[((bits >> 6) & 0x3f) as usize] as char);
@@ -181,24 +174,13 @@ pub(crate) fn encode_base64(bytes: &[u8]) -> String {
     out
 }
 
-pub(crate) fn pump_pipe(
-    id: u64,
-    kind: &'static str,
-    mut pipe: impl Read,
-    managed: Arc<ManagedProcess>,
-    stream: bool,
-    raw_output: bool,
-) {
+pub(crate) fn pump_pipe(id: u64, kind: &'static str, mut pipe: impl Read, managed: Arc<ManagedProcess>, stream: bool, raw_output: bool) {
     let mut buf = [0u8; 8192];
     loop {
         match pipe.read(&mut buf) {
             Ok(0) => break,
             Ok(n) => {
-                let exceeded = managed
-                    .state
-                    .lock()
-                    .map(|mut state| state.append(kind, &buf[..n]))
-                    .unwrap_or(false);
+                let exceeded = managed.state.lock().map(|mut state| state.append(kind, &buf[..n])).unwrap_or(false);
                 if stream {
                     if raw_output {
                         emit_output(&json!({
@@ -254,22 +236,11 @@ pub(crate) fn spawn_io_error(id: u64, error: std::io::Error) {
 // Open the caller's capture files in append mode. BOTH must open for file
 // capture to engage; a half-open pair falls back to pipes so a command never
 // fails over capture plumbing alone.
-pub(crate) fn open_capture_files(
-    stdout_path: Option<&str>,
-    stderr_path: Option<&str>,
-) -> Option<(File, File)> {
+pub(crate) fn open_capture_files(stdout_path: Option<&str>, stderr_path: Option<&str>) -> Option<(File, File)> {
     let out_path = stdout_path.filter(|path| !path.is_empty())?;
     let err_path = stderr_path.filter(|path| !path.is_empty())?;
-    let out = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(out_path)
-        .ok()?;
-    let err = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(err_path)
-        .ok()?;
+    let out = OpenOptions::new().create(true).append(true).open(out_path).ok()?;
+    let err = OpenOptions::new().create(true).append(true).open(err_path).ok()?;
     Some((out, err))
 }
 
@@ -305,12 +276,7 @@ pub(crate) fn read_capture_tail(path: &str, limit: usize) -> (u64, Vec<u8>) {
 // when the output cap is now exceeded — the same verdict pump_pipe reaches
 // per chunk on the pipe path — and then, with `kill`, kills the command in the
 // same hold.
-pub(crate) fn refresh_capture_state(
-    managed: &ManagedProcess,
-    stdout_path: &str,
-    stderr_path: &str,
-    kill: bool,
-) -> bool {
+pub(crate) fn refresh_capture_state(managed: &ManagedProcess, stdout_path: &str, stderr_path: &str, kill: bool) -> bool {
     let (out_bytes, out_tail) = read_capture_tail(stdout_path, TAIL_LIMIT);
     let (err_bytes, err_tail) = read_capture_tail(stderr_path, TAIL_LIMIT);
     match managed.state.lock() {
@@ -334,18 +300,16 @@ pub(crate) fn refresh_capture_state(
     }
 }
 
-pub(crate) fn arm_output_size_watchdog(
-    managed: Arc<ManagedProcess>,
-    stdout_path: String,
-    stderr_path: String,
-) {
-    thread::spawn(move || loop {
-        if managed.done.load(Ordering::Acquire) {
-            return;
+pub(crate) fn arm_output_size_watchdog(managed: Arc<ManagedProcess>, stdout_path: String, stderr_path: String) {
+    thread::spawn(move || {
+        loop {
+            if managed.done.load(Ordering::Acquire) {
+                return;
+            }
+            if refresh_capture_state(&managed, &stdout_path, &stderr_path, true) {
+                return;
+            }
+            thread::sleep(Duration::from_millis(SIZE_WATCHDOG_INTERVAL_MS));
         }
-        if refresh_capture_state(&managed, &stdout_path, &stderr_path, true) {
-            return;
-        }
-        thread::sleep(Duration::from_millis(SIZE_WATCHDOG_INTERVAL_MS));
     });
 }

@@ -41,14 +41,7 @@ pub struct EditContext<'a> {
 pub trait FormatEditor: Sync {
     /// `Apply-WordOperation`, `Apply-ExcelOperation` or `Apply-PowerPointOperation`: the operation's structured result (the
     /// last dictionary it emitted), `None` when it emitted none. A refusal is the error.
-    fn apply_operation(
-        &self,
-        context: &mut EditContext<'_>,
-        document: &Obj,
-        op: &Value,
-        live: bool,
-        allow_ui_activation: bool,
-    ) -> Result<Option<Value>>;
+    fn apply_operation(&self, context: &mut EditContext<'_>, document: &Obj, op: &Value, live: bool, allow_ui_activation: bool) -> Result<Option<Value>>;
 
     /// The operations this editor serves, in the order of the registry (`tests/fixtures/registry/operations.json`).
     fn operation_names(&self) -> &'static [&'static str];
@@ -106,8 +99,7 @@ pub fn issues_document(drivers: &Drivers<'_>, env: &Env<'_>, document: &Obj, for
         other => other.clone(),
     };
     let issues = crate::ps::pipeline_items(&listed);
-    let has_error =
-        issues.iter().any(|issue| payload::names_equal(&convert::to_ps_string(&payload::property(issue, "severity")), "error"));
+    let has_error = issues.iter().any(|issue| payload::names_equal(&convert::to_ps_string(&payload::property(issue, "severity")), "error"));
     let mut result = Value::object(
         ObjectKind::Ordered,
         vec![

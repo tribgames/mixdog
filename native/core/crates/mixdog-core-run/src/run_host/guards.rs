@@ -15,7 +15,6 @@ use mixdog_tools::state::goal::GoalPort;
 use mixdog_tools::state::todo as store;
 use mixdog_tools::state::todo::{TodoList, TodoStore};
 
-
 /// The running background work of the process (`hasActiveBackgroundTasks`).
 #[async_trait]
 pub trait RunningWork: Send + Sync {
@@ -244,7 +243,8 @@ mod tests {
         assert!(carries_todo_start(&sent));
         let quoted = json!({ "role": "user", "content": format!("what does this mean: {reminder}") });
         assert!(!carries_todo_start(&quoted), "the user's own words never count");
-        let quoted_with_suffix = json!({ "role": "user", "content": format!("{reminder}\n\nnote"), "meta": { "runtimeUserContext": { "prefix": "", "suffix": "\n\nnote" } } });
+        let quoted_with_suffix =
+            json!({ "role": "user", "content": format!("{reminder}\n\nnote"), "meta": { "runtimeUserContext": { "prefix": "", "suffix": "\n\nnote" } } });
         assert!(!carries_todo_start(&quoted_with_suffix));
         assert!(!carries_todo_start(&json!({ "role": "user", "content": "brief" })), "a message stored before the fact existed");
     }
@@ -262,11 +262,7 @@ mod tests {
         async fn read(&self, _: &ThreadId) -> TodoList {
             self.0.lock().unwrap().clone()
         }
-        async fn update(
-            &self,
-            _: &ThreadId,
-            f: &mut store::TodoEdit<'_>,
-        ) -> Result<(), String> {
+        async fn update(&self, _: &ThreadId, f: &mut store::TodoEdit<'_>) -> Result<(), String> {
             let current = self.0.lock().unwrap().clone();
             let next = f(&current)?;
             *self.0.lock().unwrap() = next;
@@ -278,10 +274,7 @@ mod tests {
         }
         fn turn_started(&self, _: &ThreadId) {}
     }
-
-
 }
-
 
 fn phases_of(list: &TodoList) -> Vec<TodoPhase> {
     list.phases

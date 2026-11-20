@@ -87,7 +87,8 @@ fn table_issues(document: &Obj, issues: &mut Vec<Value>) -> Result<()> {
             }
             let sections = table.member("Range")?.member("Sections")?;
             let page = super::item(&sections, 1)?.member("PageSetup")?;
-            let available = super::double(&page.member("PageWidth")?)? - super::double(&page.member("LeftMargin")?)? - super::double(&page.member("RightMargin")?)?;
+            let available =
+                super::double(&page.member("PageWidth")?)? - super::double(&page.member("LeftMargin")?)? - super::double(&page.member("RightMargin")?)?;
             if width > available + 1.0 {
                 issues.push(office_issue(
                     "warning",

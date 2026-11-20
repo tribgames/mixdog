@@ -217,7 +217,13 @@ pub struct TaskReportHost {
 }
 
 impl TaskReportHost {
-    pub fn new(home: Arc<dyn HomeQueue>, sessions: Arc<dyn SessionStore>, agents: Arc<dyn AgentRegistry>, bot_work: Arc<BotWork>, timer: Arc<dyn RetryTimer>) -> Arc<Self> {
+    pub fn new(
+        home: Arc<dyn HomeQueue>,
+        sessions: Arc<dyn SessionStore>,
+        agents: Arc<dyn AgentRegistry>,
+        bot_work: Arc<BotWork>,
+        timer: Arc<dyn RetryTimer>,
+    ) -> Arc<Self> {
         Arc::new(Self { home, sessions, agents, bot_work, timer })
     }
 

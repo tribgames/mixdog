@@ -44,21 +44,9 @@ pub(crate) struct SnapshotParams<'a> {
 }
 
 impl SessionView {
-    pub fn build(
-        feed: FeedId,
-        summary: ThreadSummary,
-        state: &SessionState,
-        storage: StorageState,
-        items: Option<Arc<[Arc<ThreadItem>]>>,
-    ) -> Self {
+    pub fn build(feed: FeedId, summary: ThreadSummary, state: &SessionState, storage: StorageState, items: Option<Arc<[Arc<ThreadItem>]>>) -> Self {
         let items = items.unwrap_or_else(|| Self::items_of(state));
-        Self {
-            feed,
-            summary,
-            state: state.thread_state(storage),
-            items,
-            has_older: state.has_older,
-        }
+        Self { feed, summary, state: state.thread_state(storage), items, has_older: state.has_older }
     }
 
     /// Window rows plus in-progress items (status `inProgress`).
@@ -113,12 +101,7 @@ pub(crate) fn snapshot_has_older(store_has_older: bool, window: &Window, sent: u
 }
 
 impl FeedView for SessionView {
-    fn encode_snapshot(
-        &self,
-        _lane: &InLane<CpuInteractive>,
-        at: FeedPosition,
-        window: &Window,
-    ) -> Bytes {
+    fn encode_snapshot(&self, _lane: &InLane<CpuInteractive>, at: FeedPosition, window: &Window) -> Bytes {
         let items = self.select(window);
         let params = SnapshotParams {
             thread: &self.summary,
@@ -126,19 +109,21 @@ impl FeedView for SessionView {
             has_older: snapshot_has_older(self.has_older, window, items.len(), self.items.len()),
             items,
         };
-        frame(
-            &Note::new("thread/snapshot", &params),
-            &self.feed,
-            &at.epoch,
-            at.seq,
-        )
+        frame(&Note::new("thread/snapshot", &params), &self.feed, &at.epoch, at.seq)
     }
 
     /// A thread that is retrying shows the wait left when the snapshot is delivered, not when it was first encoded: the cached bytes
     /// serve every attach at the seq, so each delivery gets a copy with the digits of `retryInMs` set (the frame's size in copying,
     /// nothing in encoding), and only while the view's spinner is `reconnecting`.
     fn at_delivery(&self, frame: Bytes) -> Bytes {
-        let reconnecting = self.state.runtime.as_ref().and_then(|runtime| runtime.spinner.as_ref()).and_then(|spinner| spinner.get("mode")).and_then(serde_json::Value::as_str) == Some("reconnecting");
+        let reconnecting = self
+            .state
+            .runtime
+            .as_ref()
+            .and_then(|runtime| runtime.spinner.as_ref())
+            .and_then(|spinner| spinner.get("mode"))
+            .and_then(serde_json::Value::as_str)
+            == Some("reconnecting");
         if !reconnecting {
             return frame;
         }

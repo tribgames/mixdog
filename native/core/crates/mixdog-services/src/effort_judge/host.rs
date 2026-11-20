@@ -11,15 +11,15 @@
 
 use std::ffi::OsString;
 use std::io::{BufRead, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
+pub(crate) use crate::model_host::HostLaunch;
+use crate::model_host::Pipes;
 use mixdog_agent::step_effort::{StepCall, StepInput};
 use mixdog_rt::JudgeThread;
 use serde::{Deserialize, Serialize};
-pub(crate) use crate::model_host::HostLaunch;
-use crate::model_host::Pipes;
 
 use crate::effort_judge::error::JudgeError;
 use crate::effort_judge::input::TurnInput;
@@ -68,11 +68,7 @@ fn send(output: &mut impl Write, reply: &Reply) -> bool {
 
 /// The host process: loads the model with `load`, says so, then answers one request line at a time
 /// until its input ends. Answers the process's exit status.
-pub(crate) fn serve_resident(
-    load: impl FnOnce() -> Result<Arc<dyn Resident>, JudgeError>,
-    input: impl BufRead,
-    mut output: impl Write,
-) -> i32 {
+pub(crate) fn serve_resident(load: impl FnOnce() -> Result<Arc<dyn Resident>, JudgeError>, input: impl BufRead, mut output: impl Write) -> i32 {
     let model = match load() {
         Ok(model) => model,
         Err(error) => {
@@ -167,8 +163,7 @@ impl HostLaunch {
     pub(crate) fn of(config: &ModelConfig) -> Result<Self, JudgeError> {
         let OrtRuntime::Library(library) = &config.ort_library else { return Err(JudgeError::Unsupported) };
         let program = std::env::current_exe().map_err(|error| JudgeError::Worker(format!("effort judge host: {error}")))?;
-        let mut args: Vec<OsString> =
-            vec![HOST_COMMAND.into(), "--dir".into(), config.dir.clone().into(), "--ort-library".into(), library.clone().into()];
+        let mut args: Vec<OsString> = vec![HOST_COMMAND.into(), "--dir".into(), config.dir.clone().into(), "--ort-library".into(), library.clone().into()];
         if config.explicit {
             args.push("--explicit".into());
         }

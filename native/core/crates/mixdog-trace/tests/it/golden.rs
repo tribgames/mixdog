@@ -1,10 +1,6 @@
 //! The trace writer's files: ship mode, explicit paths and the disable switch, when a flush is due, and what a failed write
 //! does, and the row sinks.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "test fixture I/O"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixture I/O")]
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -38,10 +34,7 @@ fn ship_mode_writes_no_local_trace_but_keeps_failures() {
     trace.flush(1);
     let history = dir.path().join("history");
     assert!(!history.join("agent-trace.jsonl").exists());
-    assert_eq!(
-        fs::read_to_string(history.join("tool-failures.jsonl")).unwrap(),
-        "{\"tool\":\"edit\"}\n"
-    );
+    assert_eq!(fs::read_to_string(history.join("tool-failures.jsonl")).unwrap(), "{\"tool\":\"edit\"}\n");
 }
 
 #[test]
@@ -49,20 +42,11 @@ fn explicit_path_and_disable_switches() {
     let dir = tempfile::tempdir().unwrap();
     let explicit = dir.path().join("sub").join("t.jsonl");
     let path = explicit.to_string_lossy().into_owned();
-    let trace = AgentTrace::new(&config(
-        dir.path(),
-        &[("MIXDOG_MODE", "ship"), ("MIXDOG_AGENT_TRACE_PATH", path.as_str())],
-    ));
+    let trace = AgentTrace::new(&config(dir.path(), &[("MIXDOG_MODE", "ship"), ("MIXDOG_AGENT_TRACE_PATH", path.as_str())]));
     trace.append(object(&json!({"kind": "a", "ts": 1})), 1);
     trace.flush(1);
-    assert_eq!(
-        fs::read_to_string(&explicit).unwrap(),
-        "{\"kind\":\"a\",\"ts\":1,\"session_id\":\"no-session\",\"payload\":{}}\n"
-    );
-    let off = AgentTrace::new(&config(
-        dir.path(),
-        &[("MIXDOG_AGENT_TRACE_PATH", path.as_str()), ("MIXDOG_AGENT_TRACE_DISABLE", "1")],
-    ));
+    assert_eq!(fs::read_to_string(&explicit).unwrap(), "{\"kind\":\"a\",\"ts\":1,\"session_id\":\"no-session\",\"payload\":{}}\n");
+    let off = AgentTrace::new(&config(dir.path(), &[("MIXDOG_AGENT_TRACE_PATH", path.as_str()), ("MIXDOG_AGENT_TRACE_DISABLE", "1")]));
     assert!(!off.append(object(&json!({"kind": "b"})), 1));
     off.flush(1);
     assert_eq!(fs::read_to_string(&explicit).unwrap().lines().count(), 1);
@@ -99,10 +83,7 @@ fn row_sink_gets_every_row_even_when_no_file_is_written() {
     let sink = Arc::new(Collect(Mutex::new(Vec::new())));
     let trace = AgentTrace::with_sink(&config(dir.path(), &[("MIXDOG_MODE", "ship")]), Some(sink.clone()));
     assert!(!trace.append(object(&json!({"kind": "a", "sessionId": "s", "ts": 5})), 1));
-    assert_eq!(
-        *sink.0.lock().unwrap(),
-        ["{\"kind\":\"a\",\"ts\":5,\"session_id\":\"s\",\"payload\":{}}"]
-    );
+    assert_eq!(*sink.0.lock().unwrap(), ["{\"kind\":\"a\",\"ts\":5,\"session_id\":\"s\",\"payload\":{}}"]);
     assert!(!dir.path().join("history").join("agent-trace.jsonl").exists());
 }
 #[test]

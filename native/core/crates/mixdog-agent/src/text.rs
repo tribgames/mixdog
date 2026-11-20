@@ -2,15 +2,8 @@
 //! with its redirect or suggestion, byte-equal to Node's.
 
 /// Typo aliases of builtin names (exact, case-sensitive).
-const TYPO_ALIASES: [(&str, &str); 7] = [
-    ("grop", "grep"),
-    ("grpe", "grep"),
-    ("greap", "grep"),
-    ("gerp", "grep"),
-    ("glbo", "glob"),
-    ("gloob", "glob"),
-    ("golb", "glob"),
-];
+const TYPO_ALIASES: [(&str, &str); 7] =
+    [("grop", "grep"), ("grpe", "grep"), ("greap", "grep"), ("gerp", "grep"), ("glbo", "glob"), ("gloob", "glob"), ("golb", "glob")];
 
 /// The canonical name a typo alias or a case variant stands for, among the
 /// surface's `names`; `None` when the name is not one of those.
@@ -82,14 +75,8 @@ mod tests {
     #[test]
     fn redirect_suggestion_and_plain() {
         let names = ["read", "grep", "glob", "shell"];
-        assert_eq!(
-            unknown_tool_message("Bash", &names),
-            "Error: unknown tool \"Bash\" — use the `shell` tool."
-        );
-        assert_eq!(
-            unknown_tool_message("raed", &names),
-            "Error: unknown tool \"raed\". Did you mean \"read\"?"
-        );
+        assert_eq!(unknown_tool_message("Bash", &names), "Error: unknown tool \"Bash\" — use the `shell` tool.");
+        assert_eq!(unknown_tool_message("raed", &names), "Error: unknown tool \"raed\". Did you mean \"read\"?");
         assert_eq!(unknown_tool_message("zzzzzzzz", &names), "Error: unknown tool \"zzzzzzzz\"");
         assert_eq!(canonical_name("Grep", names.iter().copied()), Some("grep"));
         assert_eq!(canonical_name("gerp", names.iter().copied()), Some("grep"));

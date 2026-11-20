@@ -41,11 +41,7 @@ impl<'a> Iterator for Replay<'a> {
 
 impl Ring {
     pub fn new(limit: usize) -> Self {
-        Self {
-            limit,
-            entries: VecDeque::new(),
-            held: 0,
-        }
+        Self { limit, entries: VecDeque::new(), held: 0 }
     }
 
     /// Appends `frame` (the feed's next seq) and evicts the oldest frames above the limit.
@@ -54,10 +50,7 @@ impl Ring {
         self.held += frame.bytes.len();
         self.entries.push_back(Entry { frame, end });
         while self.held > self.limit {
-            let evicted = self
-                .entries
-                .pop_front()
-                .expect("the ring holds the counted bytes");
+            let evicted = self.entries.pop_front().expect("the ring holds the counted bytes");
             self.held -= evicted.frame.bytes.len();
         }
     }
@@ -74,10 +67,7 @@ impl Ring {
     /// `after ≤ head` and `after + 1 ≥ firstSeq`. `head` is the feed's last seq; the ring's
     /// newest frame, if any, is `head`.
     pub fn after(&self, after: u64, head: u64) -> Option<Replay<'_>> {
-        let first_seq = self
-            .entries
-            .front()
-            .map_or(head + 1, |entry| entry.frame.seq);
+        let first_seq = self.entries.front().map_or(head + 1, |entry| entry.frame.seq);
         if after > head || after + 1 < first_seq {
             return None;
         }
@@ -86,10 +76,7 @@ impl Ring {
             (Some(first), Some(last)) => (last.end - first.start()) as usize,
             _ => 0,
         };
-        Some(Replay {
-            bytes,
-            frames: self.entries.range(skip..),
-        })
+        Some(Replay { bytes, frames: self.entries.range(skip..) })
     }
 
     /// Encoded bytes held.

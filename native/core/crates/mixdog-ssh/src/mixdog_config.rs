@@ -32,7 +32,11 @@ pub fn word(path: &str) -> String {
 /// the listed files.
 pub fn mixdog_ssh_config_text(known_hosts_file: &str, extra_user_files: &[String], home: &Path) -> String {
     let user_config = home.join(".ssh").join("config");
-    format!("# Written by Mixdog; rewritten on every start.\n{}\nInclude {}\n", generic_block(known_hosts_file, extra_user_files), word(&user_config.to_string_lossy()))
+    format!(
+        "# Written by Mixdog; rewritten on every start.\n{}\nInclude {}\n",
+        generic_block(known_hosts_file, extra_user_files),
+        word(&user_config.to_string_lossy())
+    )
 }
 
 /// The `Host *` block of the generic config: Mixdog's known_hosts, the default user files and `extra_user_files`.

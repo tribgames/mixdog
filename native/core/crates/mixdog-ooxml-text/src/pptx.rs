@@ -52,10 +52,7 @@ fn slide_notes_text(zip: &Zip, slide_part: &str) -> Result<String, Failure> {
 
 /// `presentationText`: one section per slide, in slide-number order.
 pub fn presentation_text(zip: &Zip, max_output_bytes: usize) -> Result<String, Failure> {
-    let mut slides: Vec<(&str, f64)> = zip
-        .names()
-        .filter_map(|name| slide_number(name).map(|digits| (name, string_to_number(digits))))
-        .collect();
+    let mut slides: Vec<(&str, f64)> = zip.names().filter_map(|name| slide_number(name).map(|digits| (name, string_to_number(digits)))).collect();
     if slides.is_empty() {
         return Err(Failure::Format("no ppt/slides/*.xml parts — not a PPTX presentation (or an encrypted one)".into()));
     }

@@ -55,29 +55,14 @@ fn too_large(what: &str, limit: usize) -> ProviderError {
 
 /// A version-4-shaped UUID derived from `seed`.
 pub fn deterministic_uuid(seed: &str) -> String {
-    let hex: String = Sha256::digest(seed.as_bytes())
-        .iter()
-        .take(16)
-        .map(|b| format!("{b:02x}"))
-        .collect();
+    let hex: String = Sha256::digest(seed.as_bytes()).iter().take(16).map(|b| format!("{b:02x}")).collect();
     let variant = (u8::from_str_radix(&hex[16..17], 16).expect("hex") & 3) | 8;
-    format!(
-        "{}-{}-4{}-{variant:x}{}-{}",
-        &hex[0..8],
-        &hex[8..12],
-        &hex[13..16],
-        &hex[17..20],
-        &hex[20..32]
-    )
+    format!("{}-{}-4{}-{variant:x}{}-{}", &hex[0..8], &hex[8..12], &hex[13..16], &hex[17..20], &hex[20..32])
 }
 
 /// The conversation a scope owns: stable across attempts and turns.
 pub fn conversation_id(scope: &str) -> String {
-    let key: String = Sha256::digest(format!("cursor-session:{scope}").as_bytes())
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect::<String>()[..20]
-        .to_owned();
+    let key: String = Sha256::digest(format!("cursor-session:{scope}").as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>()[..20].to_owned();
     deterministic_uuid(&format!("cursor-conversation:{key}"))
 }
 
@@ -167,9 +152,7 @@ fn text_of(content: &Content) -> String {
 /// to send.
 fn data_url_image(part: &ContentPart) -> Option<(String, String, &str)> {
     match part {
-        ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => {
-            Some((format!("data:{mime_type};base64,{data}"), mime_type.clone(), data.as_str()))
-        }
+        ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => Some((format!("data:{mime_type};base64,{data}"), mime_type.clone(), data.as_str())),
         _ => None,
     }
 }
@@ -181,16 +164,10 @@ fn root_content(content: &Content) -> Vec<String> {
         Content::Parts(parts) => parts
             .iter()
             .filter_map(|p| match p {
-                ContentPart::Text(t, _) if !t.is_empty() => {
-                    Some(format!("{{\"type\":\"text\",\"text\":{}}}", json_str(t)))
+                ContentPart::Text(t, _) if !t.is_empty() => Some(format!("{{\"type\":\"text\",\"text\":{}}}", json_str(t))),
+                other => {
+                    data_url_image(other).map(|(url, mime, _)| format!("{{\"type\":\"image\",\"image\":{},\"mediaType\":{}}}", json_str(&url), json_str(&mime)))
                 }
-                other => data_url_image(other).map(|(url, mime, _)| {
-                    format!(
-                        "{{\"type\":\"image\",\"image\":{},\"mediaType\":{}}}",
-                        json_str(&url),
-                        json_str(&mime)
-                    )
-                }),
             })
             .collect(),
     }
@@ -209,11 +186,7 @@ fn user_images(content: &Content) -> Result<Vec<UserImage>, ProviderError> {
         if bytes.len() > MAX_USER_IMAGE_BYTES {
             return Err(too_large("image", MAX_USER_IMAGE_BYTES));
         }
-        out.push(UserImage {
-            uuid: random_uuid(),
-            mime_type: mime,
-            data: bytes,
-        });
+        out.push(UserImage { uuid: random_uuid(), mime_type: mime, data: bytes });
     }
     Ok(out)
 }
@@ -222,17 +195,10 @@ fn tool_result_entry(message: &Message, tool_names: &HashMap<String, String>) ->
     let id = message.tool_call_id.clone().unwrap_or_default();
     let text = text_of(&message.content);
     let media: Vec<String> = match &message.content {
-        Content::Parts(parts) => parts
-            .iter()
-            .filter_map(|p| data_url_image(p).map(|(_, mime, _)| format!("[{mime} image]")))
-            .collect(),
+        Content::Parts(parts) => parts.iter().filter_map(|p| data_url_image(p).map(|(_, mime, _)| format!("[{mime} image]"))).collect(),
         Content::Text(_) => Vec::new(),
     };
-    let result = std::iter::once(text)
-        .chain(media)
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let result = std::iter::once(text).chain(media).filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n");
     let name = tool_names.get(&id).cloned().unwrap_or_default();
     let error = if message.is_error { ",\"isError\":true" } else { "" };
     format!(
@@ -289,11 +255,7 @@ pub fn parse_messages(messages: &[Message]) -> Result<ParsedMessages, ProviderEr
             }
             Role::User => {
                 let text = text_of(&message.content);
-                history.push(format!(
-                    "{{\"role\":\"user\",\"content\":[{}],\"text\":{}}}",
-                    root_content(&message.content).join(","),
-                    json_str(&text)
-                ));
+                history.push(format!("{{\"role\":\"user\",\"content\":[{}],\"text\":{}}}", root_content(&message.content).join(","), json_str(&text)));
                 last_user = Some((history.len() - 1, text, user_images(&message.content)?));
             }
         }
@@ -306,29 +268,14 @@ pub fn parse_messages(messages: &[Message]) -> Result<ParsedMessages, ProviderEr
         }
         _ => (String::new(), Vec::new()),
     };
-    Ok(ParsedMessages {
-        systems,
-        history,
-        user_text,
-        user_images,
-    })
+    Ok(ParsedMessages { systems, history, user_text, user_images })
 }
 
 // ---------------------------------------------------------------------------
 // Tool definitions
 // ---------------------------------------------------------------------------
 
-const SCHEMA_ANNOTATIONS: [&str; 9] = [
-    "$comment",
-    "$id",
-    "$schema",
-    "default",
-    "deprecated",
-    "examples",
-    "readOnly",
-    "title",
-    "writeOnly",
-];
+const SCHEMA_ANNOTATIONS: [&str; 9] = ["$comment", "$id", "$schema", "default", "deprecated", "examples", "readOnly", "title", "writeOnly"];
 
 fn slim_schema(value: &Value, depth: usize) -> Value {
     if depth > 12 {
@@ -353,8 +300,7 @@ fn slim_schema(value: &Value, depth: usize) -> Value {
                 Value::Array(items.iter().map(|schema| slim_schema(schema, depth + 2)).collect())
             }
             (
-                "items" | "additionalProperties" | "propertyNames" | "contains" | "not" | "if" | "then" | "else"
-                | "unevaluatedItems" | "unevaluatedProperties",
+                "items" | "additionalProperties" | "propertyNames" | "contains" | "not" | "if" | "then" | "else" | "unevaluatedItems" | "unevaluatedProperties",
                 _,
             ) => slim_schema(child, depth + 1),
             _ => child.clone(),
@@ -402,12 +348,7 @@ pub fn prepare_tool(tool: &ToolDefinition) -> McpToolDefinition {
     } else {
         serde_json::json!({"type": "object", "properties": {}})
     };
-    McpToolDefinition {
-        name: tool.name.clone(),
-        description: tool.description.clone(),
-        input_schema: schema,
-        provider_identifier: "mixdog".to_owned(),
-    }
+    McpToolDefinition { name: tool.name.clone(), description: tool.description.clone(), input_schema: schema, provider_identifier: "mixdog".to_owned() }
 }
 
 /// The tools a request offers: none for `tool_choice: none`. Every `parameters` must first be a
@@ -416,9 +357,7 @@ pub fn prepare_tool(tool: &ToolDefinition) -> McpToolDefinition {
 /// reported. The check runs whatever the tool choice, as in Node.
 pub fn selected_tools(request: &ModelRequest) -> Vec<McpToolDefinition> {
     static SCHEMAS: LazyLock<SchemaMemo> = LazyLock::new(SchemaMemo::default);
-    let accepted = SCHEMAS.accepted_wire_tools(&request.tools, Rule::OpenAi, "[cursor] tool", &mut |excluded| {
-        report_exclusion(&request.options, excluded)
-    });
+    let accepted = SCHEMAS.accepted_wire_tools(&request.tools, Rule::OpenAi, "[cursor] tool", &mut |excluded| report_exclusion(&request.options, excluded));
     // `selectToolsForChoice`: `none` offers nothing; a named tool (Node's object form
     // `{ name }` / `{ type: 'function', function: { name } }`, which `RequestOptions.tool_choice`
     // carries as the bare name) narrows the offer to the tools of that name, none when there is no
@@ -428,22 +367,13 @@ pub fn selected_tools(request: &ModelRequest) -> Vec<McpToolDefinition> {
         Some("" | "auto" | "required" | "any") | None => None,
         Some(name) => Some(name),
     };
-    accepted
-        .iter()
-        .filter(|t| named.is_none_or(|name| t.name == name))
-        .filter(|t| !t.name.is_empty())
-        .map(prepare_tool)
-        .collect()
+    accepted.iter().filter(|t| named.is_none_or(|name| t.name == name)).filter(|t| !t.name.is_empty()).map(prepare_tool).collect()
 }
 
 pub fn request_context(tools: &[McpToolDefinition], cloud_rule: Option<&str>) -> RequestContext {
     RequestContext {
         tools: tools.to_vec(),
-        mcp_instructions: if tools.is_empty() {
-            Vec::new()
-        } else {
-            vec![("mixdog".to_owned(), MCP_INSTRUCTIONS.to_owned())]
-        },
+        mcp_instructions: if tools.is_empty() { Vec::new() } else { vec![("mixdog".to_owned(), MCP_INSTRUCTIONS.to_owned())] },
         cloud_rule: cloud_rule.map(str::to_owned),
     }
 }
@@ -467,12 +397,7 @@ pub struct RunBuild {
 }
 
 /// Builds the run request of one attempt.
-pub fn build_run(
-    request: &ModelRequest,
-    selection: &ModelSelection,
-    conversation_id: &str,
-    message_id: &str,
-) -> Result<RunBuild, ProviderError> {
+pub fn build_run(request: &ModelRequest, selection: &ModelSelection, conversation_id: &str, message_id: &str) -> Result<RunBuild, ProviderError> {
     let parsed = parse_messages(&request.messages)?;
     if parsed.user_text.is_empty() && parsed.user_images.is_empty() && parsed.history.is_empty() {
         let mut error = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::NotSent);
@@ -490,12 +415,7 @@ pub fn build_run(
     let action = if parsed.user_text.is_empty() && parsed.user_images.is_empty() {
         Action::Resume { context }
     } else {
-        Action::UserMessage {
-            text: parsed.user_text,
-            message_id: message_id.to_owned(),
-            images: parsed.user_images,
-            context,
-        }
+        Action::UserMessage { text: parsed.user_text, message_id: message_id.to_owned(), images: parsed.user_images, context }
     };
     let message = RunRequest {
         conversation_state: conversation_state(&ids),
@@ -513,12 +433,7 @@ pub fn build_run(
     if message.len() > MAX_CONNECT_FRAME_BYTES {
         return Err(too_large("frame", MAX_CONNECT_FRAME_BYTES));
     }
-    Ok(RunBuild {
-        message,
-        blobs,
-        tools,
-        cloud_rule,
-    })
+    Ok(RunBuild { message, blobs, tools, cloud_rule })
 }
 
 #[cfg(test)]
@@ -568,25 +483,20 @@ mod tests {
             defer_loading: false,
             freeform: None,
         };
-        let request = ModelRequest {
-            model: "auto".into(),
-            messages: Vec::new(),
-            tools: vec![tool],
-            options: Default::default(),
-        };
+        let request = ModelRequest { model: "auto".into(), messages: Vec::new(), tools: vec![tool], options: Default::default() };
         let context = request_context(&selected_tools(&request), None);
         assert_eq!(context.tools[0].name, "lookup");
         assert_eq!(context.tools[0].description, "Read a record");
-        assert_eq!(context.tools[0].input_schema, serde_json::json!({
-            "type": "object",
-            "properties": {
-                "title": {"type": "string"},
-                "default": {"type": ["object", "null"], "enum": [{"default": 1, "required": []}, null]}
-            },
-            "required": ["title"]
-        }));
+        assert_eq!(
+            context.tools[0].input_schema,
+            serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "default": {"type": ["object", "null"], "enum": [{"default": 1, "required": []}, null]}
+                },
+                "required": ["title"]
+            })
+        );
     }
-
-
-
 }

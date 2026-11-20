@@ -7,9 +7,9 @@ pub mod adapter;
 pub(crate) mod ajv_meta;
 pub mod chat;
 pub mod creds;
-pub mod login;
-pub(crate) mod listing;
 pub mod error;
+pub(crate) mod listing;
+pub mod login;
 pub mod models;
 mod nonstream;
 pub mod pairing;
@@ -27,7 +27,6 @@ mod tests;
 
 pub use chat::{CompatChatCodec, CompatConfig};
 pub use profile::CompatProfile;
-
 
 /// The profile's per-send session header ([`profile::ChatDialect::session_header`]): the trimmed session id, else a
 /// UUID drawn for the send.

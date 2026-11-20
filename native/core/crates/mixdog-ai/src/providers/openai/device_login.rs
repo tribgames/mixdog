@@ -65,14 +65,7 @@ pub struct OpenAiDeviceLogin {
 
 impl OpenAiDeviceLogin {
     pub fn new(login: Arc<OpenAiLogin>, http: Arc<dyn HttpSend>, pace: Arc<dyn Pace>, browser: Arc<dyn LoginFlow>) -> Self {
-        Self {
-            target: LoginTarget::Provider(ProviderId::from(PROVIDER_ID)),
-            login,
-            http,
-            pace,
-            browser,
-            running: Arc::new(AtomicBool::new(false)),
-        }
+        Self { target: LoginTarget::Provider(ProviderId::from(PROVIDER_ID)), login, http, pace, browser, running: Arc::new(AtomicBool::new(false)) }
     }
 }
 
@@ -115,22 +108,13 @@ impl LoginFlow for OpenAiDeviceLogin {
             return self.browser.start().await;
         }
         if !started.ok() {
-            return Err(LoginError::Failed(failed(
-                "device_auth",
-                format!("[openai-oauth] device code request failed with status {}", started.status),
-            )));
+            return Err(LoginError::Failed(failed("device_auth", format!("[openai-oauth] device code request failed with status {}", started.status))));
         }
         let body = started.json().unwrap_or(JsonValue::Null);
-        let user_code = [field_text(body.get("user_code")), field_text(body.get("usercode"))]
-            .into_iter()
-            .find(|code| !code.is_empty())
-            .unwrap_or_default();
+        let user_code = [field_text(body.get("user_code")), field_text(body.get("usercode"))].into_iter().find(|code| !code.is_empty()).unwrap_or_default();
         let device_auth_id = field_text(body.get("device_auth_id"));
         if user_code.is_empty() || device_auth_id.is_empty() {
-            return Err(LoginError::Failed(failed(
-                "device_auth",
-                "[openai-oauth] device code response missing user_code or device_auth_id",
-            )));
+            return Err(LoginError::Failed(failed("device_auth", "[openai-oauth] device code response missing user_code or device_auth_id")));
         }
         let interval = field_text(body.get("interval")).parse::<f64>().ok().filter(|seconds| seconds.is_finite() && *seconds > 0.0);
         // A wait never outlasts the login window, so a larger interval is the window (and cannot overflow a Duration).
@@ -208,12 +192,7 @@ mod tests {
     async fn the_code_is_shown_then_the_grant_is_exchanged_with_the_device_redirect() {
         let dir = tempfile::tempdir().unwrap();
         let tokens = r#"{"access_token":"a.b.c","refresh_token":"r","expires_in":3600}"#;
-        let http = Scripted::new(&[
-            (200, STARTED),
-            (403, ""),
-            (200, r#"{"authorization_code":"code-1","code_verifier":"ver-1"}"#),
-            (200, tokens),
-        ]);
+        let http = Scripted::new(&[(200, STARTED), (403, ""), (200, r#"{"authorization_code":"code-1","code_verifier":"ver-1"}"#), (200, tokens)]);
         let session = flow(http.clone(), &dir).start().await.expect("a device flow");
         let states = finish(session.as_ref()).await;
         assert!(matches!(

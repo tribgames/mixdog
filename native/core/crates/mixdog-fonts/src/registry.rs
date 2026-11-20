@@ -56,9 +56,7 @@ impl Registry {
     pub fn register(&mut self, face: Arc<Face>, family: Option<&str>, path: Option<&Path>) -> FaceId {
         let family = family.map_or_else(|| face.family.clone(), str::to_owned);
         if let Some(path) = path {
-            let same = self.faces.iter().position(|known| {
-                known.family == family && known.path.as_deref() == Some(path) && known.face.index() == face.index()
-            });
+            let same = self.faces.iter().position(|known| known.family == family && known.path.as_deref() == Some(path) && known.face.index() == face.index());
             if let Some(id) = same {
                 return id;
             }
@@ -174,9 +172,9 @@ impl Registry {
 }
 
 fn is_font_file(path: &Path) -> bool {
-    path.extension().and_then(|extension| extension.to_str()).is_some_and(|extension| {
-        ["ttf", "otf", "ttc", "otc"].iter().any(|known| extension.eq_ignore_ascii_case(known))
-    })
+    path.extension()
+        .and_then(|extension| extension.to_str())
+        .is_some_and(|extension| ["ttf", "otf", "ttc", "otc"].iter().any(|known| extension.eq_ignore_ascii_case(known)))
 }
 
 /// The font files under `dir`, a folder's entries sorted by upper-cased name before any is entered.

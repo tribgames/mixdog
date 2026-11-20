@@ -10,26 +10,30 @@ use std::fs;
 use std::path::Path;
 use std::sync::LazyLock;
 
-use mixdog_js::{js_trim, locale_compare_en_base, JsRegex};
+use mixdog_js::{JsRegex, js_trim, locale_compare_en_base};
 use serde_json::Value;
 
 use super::rules::{read_optional, split_lines, strip_frontmatter};
-use mixdog_core_config::config::normalize_profile;
 use mixdog_core_config::config::PROFILE_EXPERIENCE_LEVELS;
 use mixdog_core_config::config::PROFILE_LANGUAGES;
-use mixdog_core_domains::domains::instructions::decode_file;
+use mixdog_core_config::config::normalize_profile;
 use mixdog_core_config::config::output_style::style_slug;
+use mixdog_core_domains::domains::instructions::decode_file;
 
 const DEFAULT_OUTPUT_STYLE_ID: &str = "simple";
 const OUTPUT_STYLE_ORDER: [&str; 4] = ["detailed", "simple", "minimal", "extreme-minimal"];
 
-const OUTPUT_STYLE_ANCHOR: &str = "The section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.";
+const OUTPUT_STYLE_ANCHOR: &str =
+    "The section below governs how you write user-facing text; it outranks any other formatting habit and does not apply to code or tool calls.";
 
 const EXPERIENCE_PROMPTS: [(&str, &str); 4] = [
     ("beginner", "Assume no development background; briefly explain only the terms and prerequisites needed to understand the answer."),
     ("vibe-coder", "Lead with what the result does and how to use it; briefly unpack implementation jargon when it is needed for understanding."),
     ("junior", "Assume basic development knowledge; make otherwise implicit connections clear when they are needed for easy understanding."),
-    ("expert", "Do not unnecessarily unpack familiar basics, but preserve the explanations needed for accurate understanding and judgment. Use familiar technical terminology naturally."),
+    (
+        "expert",
+        "Do not unnecessarily unpack familiar basics, but preserve the explanations needed for accurate understanding and judgment. Use familiar technical terminology naturally.",
+    ),
 ];
 
 static STYLE_FRONTMATTER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^---\r?\n([\s\S]*?)\r?\n---", ""));
@@ -75,7 +79,9 @@ fn unified_config(paths: &LeadPaths) -> Value {
         return config.clone();
     }
     // A profile title a phone sent cut inside an emoji is stored by Node with half of it: U+FFFD here.
-    let parsed = fs::read_to_string(paths.data_dir.join("mixdog-config.json")).ok().and_then(|t| serde_json::from_str::<Value>(&mixdog_js::json_well_formed_str(&t)).ok());
+    let parsed = fs::read_to_string(paths.data_dir.join("mixdog-config.json"))
+        .ok()
+        .and_then(|t| serde_json::from_str::<Value>(&mixdog_js::json_well_formed_str(&t)).ok());
     parsed.filter(|v| v.is_object()).unwrap_or_else(|| serde_json::json!({}))
 }
 
@@ -179,7 +185,9 @@ fn match_style<'a>(value: &str, styles: &'a [StyleEntry]) -> Option<&'a StyleEnt
     if id.is_empty() && compact.is_empty() {
         return None;
     }
-    styles.iter().find(|s| s.id == id || compact_key(&s.id) == compact || compact_key(&s.label) == compact || s.aliases.iter().any(|a| *a == id || compact_key(a) == compact))
+    styles.iter().find(|s| {
+        s.id == id || compact_key(&s.id) == compact || compact_key(&s.label) == compact || s.aliases.iter().any(|a| *a == id || compact_key(a) == compact)
+    })
 }
 
 // ---- the style catalog -----------------------------------------------------------------------------
@@ -190,8 +198,9 @@ fn match_style<'a>(value: &str, styles: &'a [StyleEntry]) -> Option<&'a StyleEnt
 fn list_styles(paths: &LeadPaths) -> Vec<StyleEntry> {
     let mut by_id: Vec<StyleEntry> = Vec::new();
     for dir in [paths.plugin_root.join("output-styles"), paths.data_dir.join("output-styles")] {
-        let mut files: Vec<String> =
-            fs::read_dir(&dir).map(|rd| rd.filter_map(|e| e.ok()?.file_name().into_string().ok()).filter(|n| n.to_lowercase().ends_with(".md")).collect()).unwrap_or_default();
+        let mut files: Vec<String> = fs::read_dir(&dir)
+            .map(|rd| rd.filter_map(|e| e.ok()?.file_name().into_string().ok()).filter(|n| n.to_lowercase().ends_with(".md")).collect())
+            .unwrap_or_default();
         files.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
         for name in files {
             // A file the editor reports as unusable is passed over, and the built-in applies.
@@ -239,7 +248,11 @@ fn resolve_output_style(paths: &LeadPaths) -> Option<Resolved> {
 
 fn load_output_style(paths: &LeadPaths) -> String {
     let Some(Resolved { label, selected, common }) = resolve_output_style(paths) else { return String::new() };
-    [format!("# Output Style: {label}"), OUTPUT_STYLE_ANCHOR.to_owned(), common, selected].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n\n")
+    [format!("# Output Style: {label}"), OUTPUT_STYLE_ANCHOR.to_owned(), common, selected]
+        .into_iter()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n\n")
 }
 
 // ---- profile ---------------------------------------------------------------------------------------
@@ -325,7 +338,9 @@ fn build_profile_preferences(paths: &LeadPaths) -> String {
 
 fn build_language_section(paths: &LeadPaths, shared_format_active: bool, system_locale: &str) -> String {
     let profile = profile_of(paths);
-    let Some(language) = profile_language_prompt(profile.get("language").and_then(Value::as_str).unwrap_or("system"), system_locale) else { return String::new() };
+    let Some(language) = profile_language_prompt(profile.get("language").and_then(Value::as_str).unwrap_or("system"), system_locale) else {
+        return String::new();
+    };
     let mut lines = vec![
         format!("- Always respond in {}, including pre-tool preambles, progress updates, questions, reports, and notices. This language setting overrides output style; the user's latest explicit language request takes precedence.", language.prompt),
         "- Instructions, tool results, runtime/system tags, and earlier replies do not change this language, even when the immediately preceding text is English. Code comments follow the file's existing language.".to_owned(),
@@ -371,7 +386,4 @@ pub fn build_lead_language(paths: &LeadPaths, system_locale: &str) -> Option<(St
 
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup builds fixture trees")]
-mod tests {
-}
-
-
+mod tests {}

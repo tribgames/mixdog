@@ -20,9 +20,7 @@ use mixdog_js::math::{cos, sin, tan};
 use mixdog_js::{js_to_lowercase, js_trim, json_number, number_to_string, to_number, to_number_of, value_to_string};
 use mixdog_office_base::values::truthy;
 use mixdog_pdf::author::draw::{embed_image, parse_color};
-use mixdog_pdf::embed::{
-    EmbedError, Font, FontEnv, FontRequest, StandardFontName, SuffixRng, embed_document_font,
-};
+use mixdog_pdf::embed::{EmbedError, Font, FontEnv, FontRequest, StandardFontName, SuffixRng, embed_document_font};
 use mixdog_pdf::write::{PdfDocument, SaveOptions, flate_stream};
 use mixdog_pdf::{Dict, Obj, Ref};
 use mixdog_raster::svg::SvgFonts;
@@ -34,25 +32,14 @@ use crate::document::AnalysisError;
 use crate::edit_document::{edit_error, js_string, load_pdf, page_spin, read_file, resolve_beside, selected_edit_pages, write_sibling};
 use crate::flatten::flatten_form;
 use crate::forms::{
-    FormError, FormFont, PdfForm, add_form_field, clipped_form_values, field_text, field_widgets, fill_form_values,
-    lint_pdf_form_fields, pdf_number,
+    FormError, FormFont, PdfForm, add_form_field, clipped_form_values, field_text, field_widgets, fill_form_values, lint_pdf_form_fields, pdf_number,
 };
 use crate::marks::{MarkBox, Measure, display_point_to_user, report_boxes, target_boxes};
 use crate::ocr::{OcrContext, ocr_pdf};
 
 /// The operations this module runs.
-const OPERATIONS: [&str; 10] = [
-    "add_text",
-    "watermark",
-    "highlight",
-    "add_link",
-    "stamp_image",
-    "ocr_pages",
-    "fill_form",
-    "add_form_field",
-    "flatten_form",
-    "preview_fields",
-];
+const OPERATIONS: [&str; 10] =
+    ["add_text", "watermark", "highlight", "add_link", "stamp_image", "ocr_pages", "fill_form", "add_form_field", "flatten_form", "preview_fields"];
 
 /// pdf-lib's default `lineHeight` of a page (`TL`), used between the lines of a stamp.
 const LINE_HEIGHT: f64 = 24.0;
@@ -113,10 +100,7 @@ fn colour_of(value: Option<&Value>, fallback: &str) -> Result<[f64; 3], Analysis
 /// pdf-lib's `assertRangeOrUndefined(opacity, 'opacity.opacity', 0, 1)`.
 fn assert_opacity(opacity: f64) -> Result<(), AnalysisError> {
     if opacity < 0.0 || opacity > 1.0 {
-        return Err(plain(format!(
-            "`opacity.opacity` must be at least 0 and at most 1, but was actually {}",
-            number_to_string(opacity)
-        )));
+        return Err(plain(format!("`opacity.opacity` must be at least 0 and at most 1, but was actually {}", number_to_string(opacity))));
     }
     Ok(())
 }
@@ -179,11 +163,7 @@ fn page_resources(document: &PdfDocument, page: Ref) -> Dict {
 
 /// A copy of the dictionary under `key` of `resources` (a reference followed), empty when there is none.
 fn sub_dictionary(document: &PdfDocument, resources: &Dict, key: &str) -> Dict {
-    resources
-        .get_raw(key)
-        .and_then(|raw| document.store().resolve(raw))
-        .and_then(Obj::as_dict)
-        .map_or_else(Dict::new, |found| (**found).clone())
+    resources.get_raw(key).and_then(|raw| document.store().resolve(raw)).and_then(Obj::as_dict).map_or_else(Dict::new, |found| (**found).clone())
 }
 
 /// The page's `Contents` as a list of references, whatever form it was written in.
@@ -287,7 +267,17 @@ impl PageInk {
     }
 
     /// `drawRectangle`: filled when it has a colour and a border, outlined when it has a border colour only.
-    pub(crate) fn draw_rectangle(&mut self, x: f64, y: f64, width: f64, height: f64, fill: Option<[f64; 3]>, stroke: Option<[f64; 3]>, border_width: f64, state: Option<&str>) {
+    pub(crate) fn draw_rectangle(
+        &mut self,
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+        fill: Option<[f64; 3]>,
+        stroke: Option<[f64; 3]>,
+        border_width: f64,
+        state: Option<&str>,
+    ) {
         let mut ops = String::from("q\n");
         if let Some(state) = state {
             ops.push_str(&format!("/{state} gs\n"));
@@ -300,11 +290,7 @@ impl PageInk {
         }
         ops.push_str(&format!("{} w\n[] 0 d\n", pdf_number(border_width)));
         ops.push_str(&format!("1 0 0 1 {} {} cm\n1 0 0 1 0 0 cm\n1 0 0 1 0 0 cm\n", pdf_number(x), pdf_number(y)));
-        ops.push_str(&format!(
-            "0 0 m\n0 {h} l\n{w} {h} l\n{w} 0 l\nh\n",
-            w = pdf_number(width),
-            h = pdf_number(height)
-        ));
+        ops.push_str(&format!("0 0 m\n0 {h} l\n{w} {h} l\n{w} 0 l\nh\n", w = pdf_number(width), h = pdf_number(height)));
         let paint = if fill.is_some() && border_width != 0.0 {
             "B"
         } else if fill.is_some() {
@@ -456,7 +442,16 @@ fn pages_of(boxes: &[MarkBox]) -> Vec<Value> {
 
 impl ContentOperations {
     /// `stampText`: one page's run of text, placed as the reader sees the page.
-    fn stamp_text(&self, document: &PdfDocument, ink: &mut PageInk, rng: &mut SuffixRng, font_name: &str, page: Ref, text: &str, stamp: &Stamp<'_>) -> Result<(), AnalysisError> {
+    fn stamp_text(
+        &self,
+        document: &PdfDocument,
+        ink: &mut PageInk,
+        rng: &mut SuffixRng,
+        font_name: &str,
+        page: Ref,
+        text: &str,
+        stamp: &Stamp<'_>,
+    ) -> Result<(), AnalysisError> {
         let text_width = stamp.font.width_of_text_at_size(text, stamp.size).map_err(embed_error)?;
         let spin = page_spin(document, page);
         let media = document.media_box(page).map_err(edit_error)?;
@@ -497,10 +492,7 @@ impl ContentOperations {
         let color = colour_of(stamp.color, "")?;
         assert_opacity(stamp.opacity)?;
         let state = ink.state(rng, stamp.opacity, None);
-        let lines = text_lines(text)
-            .iter()
-            .map(|line| stamp.font.encode_text(line).map_err(embed_error))
-            .collect::<Result<Vec<_>, _>>()?;
+        let lines = text_lines(text).iter().map(|line| stamp.font.encode_text(line).map_err(embed_error)).collect::<Result<Vec<_>, _>>()?;
         let size = if stamp.size.is_nan() || stamp.size == 0.0 { DEFAULT_FONT_SIZE } else { stamp.size };
         ink.draw_text(&lines, font_name, size, color, (stamp.angle + spin as f64) * PI / 180.0, x, y, Some(&state));
         Ok(())
@@ -517,12 +509,9 @@ impl ContentOperations {
             return Err(plain(format!("{op} needs text")));
         }
         let font_path = text_of(operation, "fontPath");
-        let chosen = embed_document_font(
-            state.proof,
-            &self.fonts,
-            &FontRequest { font_path: &font_path, text: &template, standard: StandardFontName::Helvetica },
-        )
-        .map_err(embed_error)?;
+        let chosen =
+            embed_document_font(state.proof, &self.fonts, &FontRequest { font_path: &font_path, text: &template, standard: StandardFontName::Helvetica })
+                .map_err(embed_error)?;
         let align = match operation.get("align") {
             Some(value) if truthy(value) => js_to_lowercase(&value_to_string(value)),
             _ => (if watermark { "center" } else { "left" }).to_owned(),
@@ -569,10 +558,7 @@ impl ContentOperations {
 
     fn highlight<P: WriteProof>(&self, state: &mut BatchState<'_, P>, operation: &Value) -> Result<Value, AnalysisError> {
         let boxes = measure_targets(state, operation)?;
-        let fill = colour_of(
-            operation.get("color"),
-            "ffeb3b",
-        )?;
+        let fill = colour_of(operation.get("color"), "ffeb3b")?;
         let opacity = number_or(operation, "opacity", 0.45);
         assert_opacity(opacity)?;
         let refs = state.document.pages();
@@ -649,11 +635,7 @@ impl ContentOperations {
             Some(page) => Some(destination_of(&refs, page)?),
         };
         let link_url = |mark: &MarkBox| -> String {
-            if auto_urls {
-                mark.text.as_deref().unwrap_or_default().trim_end_matches(['.', ',', ';', ':', '!', '?']).to_owned()
-            } else {
-                url.clone()
-            }
+            if auto_urls { mark.text.as_deref().unwrap_or_default().trim_end_matches(['.', ',', ';', ':', '!', '?']).to_owned() } else { url.clone() }
         };
         for mark in &boxes {
             let page = *refs.get(mark.index).ok_or_else(|| plain(format!("PDF page out of range: {}", mark.index + 1)))?;
@@ -661,15 +643,8 @@ impl ContentOperations {
             let mut annotation = Dict::new();
             annotation.set("Type", Obj::name("Annot"));
             annotation.set("Subtype", Obj::name("Link"));
-            annotation.set(
-                "Rect",
-                Obj::Array(Arc::new(vec![
-                    Obj::Num(mark.x),
-                    Obj::Num(mark.y),
-                    Obj::Num(mark.x + mark.width),
-                    Obj::Num(mark.y + mark.height),
-                ])),
-            );
+            annotation
+                .set("Rect", Obj::Array(Arc::new(vec![Obj::Num(mark.x), Obj::Num(mark.y), Obj::Num(mark.x + mark.width), Obj::Num(mark.y + mark.height)])));
             annotation.set("Border", Obj::Array(Arc::new(vec![Obj::Num(0.0), Obj::Num(0.0), Obj::Num(0.0)])));
             if href.is_empty() {
                 annotation.set("Dest", destination.clone().unwrap_or(Obj::Null));
@@ -716,14 +691,7 @@ impl ContentOperations {
             let mut ink = PageInk::new(&state.document, selected.page);
             let name = ink.xobject(&mut rng, "Image", placed.reference);
             let gs = ink.state(&mut rng, opacity, None);
-            ink.draw_image(
-                &name,
-                number_truthy_or(operation, "x", 0.0),
-                number_truthy_or(operation, "y", 0.0),
-                width,
-                height,
-                Some(&gs),
-            );
+            ink.draw_image(&name, number_truthy_or(operation, "x", 0.0), number_truthy_or(operation, "y", 0.0), width, height, Some(&gs));
             ink.commit(&mut state.document, &self.wrapped);
             pages.push(json!(selected.index + 1));
         }
@@ -744,10 +712,7 @@ impl ContentOperations {
         state.note.note_write(state.path);
         mixdog_fsio::write(state.proof, state.path, &bytes).map_err(|error| plain(error.to_string()))?;
         // The batch runs as a blocking job; the recognition is async work, so it runs on a runtime of its own.
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .map_err(|error| plain(error.to_string()))?;
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|error| plain(error.to_string()))?;
         let result = runtime.block_on(ocr_pdf(context, state.path, operation, self.cancel.clone()))?;
         state.document = load_pdf(&read_file(state.proof, state.path)?, false)?;
         Ok(result)
@@ -759,12 +724,9 @@ impl ContentOperations {
         let filled = fill_form_values(&mut form, &mut state.document, values).map_err(form_error)?;
         let coverage = coverage_of(values);
         let font_path = text_of(operation, "fontPath");
-        let chosen = embed_document_font(
-            state.proof,
-            &self.fonts,
-            &FontRequest { font_path: &font_path, text: &coverage, standard: StandardFontName::Helvetica },
-        )
-        .map_err(embed_error)?;
+        let chosen =
+            embed_document_font(state.proof, &self.fonts, &FontRequest { font_path: &font_path, text: &coverage, standard: StandardFontName::Helvetica })
+                .map_err(embed_error)?;
         let reference = state.document.store_mut().next_ref();
         let face = FormFont { font: chosen.font.clone(), reference };
         form.update_field_appearances(&mut state.document, Some(&face)).map_err(form_error)?;
@@ -805,8 +767,7 @@ impl ContentOperations {
         let mut field = [operation.clone()];
         let check = lint_pdf_form_fields(&mut field, &sizes);
         if check["ok"] != Value::Bool(true) {
-            let messages: Vec<String> =
-                check["issues"].as_array().into_iter().flatten().map(|issue| value_to_string(&issue["message"])).collect();
+            let messages: Vec<String> = check["issues"].as_array().into_iter().flatten().map(|issue| value_to_string(&issue["message"])).collect();
             return Err(plain(messages.join(" ")));
         }
         let [field] = field;
@@ -838,12 +799,8 @@ impl ContentOperations {
         let font_path = text_of(operation, "fontPath");
         let mut embedded: Option<(Font, Ref)> = None;
         if !font_path.is_empty() {
-            let chosen = embed_document_font(
-                state.proof,
-                &self.fonts,
-                &FontRequest { font_path: &font_path, text: "", standard: StandardFontName::Helvetica },
-            )
-            .map_err(embed_error)?;
+            let chosen = embed_document_font(state.proof, &self.fonts, &FontRequest { font_path: &font_path, text: "", standard: StandardFontName::Helvetica })
+                .map_err(embed_error)?;
             let reference = state.document.store_mut().next_ref();
             let face = FormFont { font: chosen.font.clone(), reference };
             form.update_field_appearances(&mut state.document, Some(&face)).map_err(form_error)?;
@@ -875,12 +832,8 @@ impl ContentOperations {
         names.extend(proposed.iter().map(|entry| label_of(entry, String::new())));
         let labels = names.join(" ");
         let text = format!("{labels} box 0123456789");
-        let chosen = embed_document_font(
-            state.proof,
-            &self.fonts,
-            &FontRequest { font_path: "", text: &text, standard: StandardFontName::Helvetica },
-        )
-        .map_err(embed_error)?;
+        let chosen = embed_document_font(state.proof, &self.fonts, &FontRequest { font_path: "", text: &text, standard: StandardFontName::Helvetica })
+            .map_err(embed_error)?;
         let reference = copy.store_mut().next_ref();
         let ink_color = colour_of(None, "d32f2f")?;
         let wrapped = Wrapped::default();
@@ -942,11 +895,7 @@ fn destination_of(pages: &[Ref], to_page: f64) -> Result<Obj, AnalysisError> {
     let index = to_page - 1.0;
     let last = pages.len() as f64 - 1.0;
     if index < 0.0 || index > last {
-        return Err(plain(format!(
-            "`index` must be at least 0 and at most {}, but was actually {}",
-            number_to_string(last),
-            number_to_string(index)
-        )));
+        return Err(plain(format!("`index` must be at least 0 and at most {}, but was actually {}", number_to_string(last), number_to_string(index))));
     }
     let Some(page) = (index.fract() == 0.0).then(|| pages[index as usize]) else {
         return Err(plain("Cannot read properties of undefined (reading 'ref')"));
@@ -1000,10 +949,7 @@ mod tests {
     #[test]
     fn an_opacity_outside_zero_to_one_is_refused_in_pdf_libs_words() {
         assert!(assert_opacity(0.0).is_ok() && assert_opacity(1.0).is_ok());
-        assert_eq!(
-            assert_opacity(1.5).expect_err("range").message,
-            "`opacity.opacity` must be at least 0 and at most 1, but was actually 1.5"
-        );
+        assert_eq!(assert_opacity(1.5).expect_err("range").message, "`opacity.opacity` must be at least 0 and at most 1, but was actually 1.5");
         assert!(assert_opacity(-0.1).is_err());
     }
 
@@ -1019,10 +965,7 @@ mod tests {
         let Obj::Array(items) = destination_of(&pages, 2.0).expect("destination") else { panic!("an array") };
         assert_eq!(items[0].as_ref_value(), Some(Ref::new(9, 0)));
         assert!(items[1].is_name("XYZ") && matches!(items[2], Obj::Null));
-        assert_eq!(
-            destination_of(&pages, 0.0).expect_err("range").message,
-            "`index` must be at least 0 and at most 1, but was actually -1"
-        );
+        assert_eq!(destination_of(&pages, 0.0).expect_err("range").message, "`index` must be at least 0 and at most 1, but was actually -1");
         assert!(destination_of(&pages, 3.0).is_err());
     }
 
@@ -1104,20 +1047,15 @@ mod tests {
 
     #[test]
     fn a_highlight_by_box_is_multiplied_and_a_link_by_box_is_an_annotation() {
-        let (document, result) = run(
-            batch_document(),
-            json!({ "op": "highlight", "page": 1, "x": 10, "y": 20, "width": 30, "height": 8, "color": "#ff0000" }),
-        );
+        let (document, result) = run(batch_document(), json!({ "op": "highlight", "page": 1, "x": 10, "y": 20, "width": 30, "height": 8, "color": "#ff0000" }));
         let row = result.expect("a highlight");
         assert_eq!(row["marks"], json!(1));
         assert_eq!(row["pages"], json!([1]));
         assert_eq!(row["boxes"][0]["page"], json!(1));
         let content = page_content(&document, document.pages()[0]);
         assert!(content.contains("1 0 0 rg") && content.contains("9 19") && content.contains("32 10"), "{content}");
-        let (document, result) = run(
-            document,
-            json!({ "op": "add_link", "url": "https://example.test/x", "page": 1, "x": 1, "y": 2, "width": 3, "height": 4 }),
-        );
+        let (document, result) =
+            run(document, json!({ "op": "add_link", "url": "https://example.test/x", "page": 1, "x": 1, "y": 2, "width": 3, "height": 4 }));
         let row = result.expect("a link");
         assert_eq!(row["links"], json!(1));
         assert_eq!(row["url"], json!("https://example.test/x"));
@@ -1130,8 +1068,7 @@ mod tests {
         assert_eq!(refused.expect_err("needs a target").message, "add_link needs url, toPage, or urls:true");
         let (_, refused) = run(batch_document(), json!({ "op": "add_link", "url": "ftp://x", "page": 1, "x": 1, "y": 2, "width": 3, "height": 4 }));
         assert_eq!(refused.expect_err("scheme").message, "add_link url must start with http://, https://, or mailto: (ftp://x)");
-        let (document, result) =
-            run(batch_document(), json!({ "op": "add_link", "toPage": 2, "page": 1, "x": 1, "y": 2, "width": 3, "height": 4 }));
+        let (document, result) = run(batch_document(), json!({ "op": "add_link", "toPage": 2, "page": 1, "x": 1, "y": 2, "width": 3, "height": 4 }));
         assert_eq!(result.expect("an internal link")["toPage"], json!(2));
         assert_eq!(document.page_annotations(document.pages()[0]).len(), 1);
     }
@@ -1140,10 +1077,7 @@ mod tests {
     fn the_preview_needs_an_output_and_a_proposed_box_needs_its_numbers() {
         let (_, refused) = run(batch_document(), json!({ "op": "preview_fields" }));
         assert_eq!(refused.expect_err("output").message, "preview_fields needs output (a file name beside the document)");
-        let (_, refused) = run(
-            batch_document(),
-            json!({ "op": "preview_fields", "output": "never-written-preview.pdf", "boxes": [{ "page": 1, "x": 1 }] }),
-        );
+        let (_, refused) = run(batch_document(), json!({ "op": "preview_fields", "output": "never-written-preview.pdf", "boxes": [{ "page": 1, "x": 1 }] }));
         assert_eq!(refused.expect_err("box").message, "preview_fields boxes[0] needs page, x, y, width, height");
     }
 

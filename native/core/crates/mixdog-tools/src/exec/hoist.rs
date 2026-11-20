@@ -94,16 +94,74 @@ impl Hoist {
 }
 
 const NODE_BUILTINS: [&str; 68] = [
-    "_http_agent", "_http_client", "_http_common", "_http_incoming", "_http_outgoing", "_http_server",
-    "_stream_duplex", "_stream_passthrough", "_stream_readable", "_stream_transform", "_stream_wrap",
-    "_stream_writable", "_tls_common", "_tls_wrap", "assert", "assert/strict", "async_hooks", "buffer",
-    "child_process", "cluster", "console", "constants", "crypto", "dgram", "diagnostics_channel", "dns",
-    "dns/promises", "domain", "events", "fs", "fs/promises", "http", "http2", "https", "inspector",
-    "inspector/promises", "module", "net", "os", "path", "path/posix", "path/win32", "perf_hooks",
-    "process", "punycode", "querystring", "readline", "readline/promises", "repl", "stream",
-    "stream/consumers", "stream/promises", "stream/web", "string_decoder", "sys", "timers",
-    "timers/promises", "tls", "trace_events", "tty", "url", "util", "util/types", "v8", "vm", "wasi",
-    "worker_threads", "zlib",
+    "_http_agent",
+    "_http_client",
+    "_http_common",
+    "_http_incoming",
+    "_http_outgoing",
+    "_http_server",
+    "_stream_duplex",
+    "_stream_passthrough",
+    "_stream_readable",
+    "_stream_transform",
+    "_stream_wrap",
+    "_stream_writable",
+    "_tls_common",
+    "_tls_wrap",
+    "assert",
+    "assert/strict",
+    "async_hooks",
+    "buffer",
+    "child_process",
+    "cluster",
+    "console",
+    "constants",
+    "crypto",
+    "dgram",
+    "diagnostics_channel",
+    "dns",
+    "dns/promises",
+    "domain",
+    "events",
+    "fs",
+    "fs/promises",
+    "http",
+    "http2",
+    "https",
+    "inspector",
+    "inspector/promises",
+    "module",
+    "net",
+    "os",
+    "path",
+    "path/posix",
+    "path/win32",
+    "perf_hooks",
+    "process",
+    "punycode",
+    "querystring",
+    "readline",
+    "readline/promises",
+    "repl",
+    "stream",
+    "stream/consumers",
+    "stream/promises",
+    "stream/web",
+    "string_decoder",
+    "sys",
+    "timers",
+    "timers/promises",
+    "tls",
+    "trace_events",
+    "tty",
+    "url",
+    "util",
+    "util/types",
+    "v8",
+    "vm",
+    "wasi",
+    "worker_threads",
+    "zlib",
 ];
 /// Builtins that exist only behind the `node:` scheme.
 const NODE_SCHEME_ONLY: [&str; 4] = ["sea", "sqlite", "test", "test/reporters"];
@@ -128,12 +186,7 @@ fn imports_package(body: &str) -> bool {
     if calls != literal {
         return true;
     }
-    for m in lazy_re!(
-        r#"(?:\brequire\s*\(\s*|\bimport\s*\(\s*|\bfrom\s+|\bimport\s+)['"]([^'"]+)['"]"#,
-        "g"
-    )
-    .captures_iter(body)
-    {
+    for m in lazy_re!(r#"(?:\brequire\s*\(\s*|\bimport\s*\(\s*|\bfrom\s+|\bimport\s+)['"]([^'"]+)['"]"#, "g").captures_iter(body) {
         if !is_builtin(m.get(1).unwrap_or("")) {
             return true;
         }
@@ -189,11 +242,7 @@ fn python_imports_outside_stdlib(body: &str) -> bool {
 }
 
 /// `node -e` accepts ESM syntax and top-level `await`; the `.cjs` file a hoist writes does not.
-async fn node_body_needs_module_syntax(
-    body: &str,
-    syntax: &dyn ScriptSyntax,
-    thread: &ThreadId,
-) -> Result<bool, ExtError> {
+async fn node_body_needs_module_syntax(body: &str, syntax: &dyn ScriptSyntax, thread: &ThreadId) -> Result<bool, ExtError> {
     if lazy_re!(r#"(?:^|[;{}\n])[ \t]*(?:import[ \t]*[\w$*{'"]|export[ \t])"#, "").is_match(body) {
         return Ok(true);
     }
@@ -239,9 +288,7 @@ fn posix_live_at(text: &[char], index: usize) -> bool {
                 Some(next) => i = next,
                 None => return false,
             }
-        } else if ch == '#'
-            && (i == 0 || mixdog_js::is_js_space(text[i - 1]) || matches!(text[i - 1], ';' | '&' | '|' | '('))
-        {
+        } else if ch == '#' && (i == 0 || mixdog_js::is_js_space(text[i - 1]) || matches!(text[i - 1], ';' | '&' | '|' | '(')) {
             match find('\n', i) {
                 Some(nl) if nl < index => i = nl,
                 _ => return false,
@@ -278,7 +325,8 @@ fn is_shell_invocation_at(text: &[char], index: usize, powershell: bool) -> bool
     let assignments = lazy_re!(r"(?:^|[\s;|&(){}])[A-Za-z_]\w*=[^\s;|&(){}]*[ \t]+$", "");
     let mut head = before;
     while let Some(m) = assignments.find(&head) {
-        let lead: String = head[m.start..].chars().next().filter(|c| mixdog_js::is_js_space(*c) || ";|&(){}".contains(*c)).map(String::from).unwrap_or_default();
+        let lead: String =
+            head[m.start..].chars().next().filter(|c| mixdog_js::is_js_space(*c) || ";|&(){}".contains(*c)).map(String::from).unwrap_or_default();
         head = format!("{}{}", &head[..m.start], lead);
     }
     let trimmed = head.trim_end_matches([' ', '\t']);
@@ -298,20 +346,12 @@ fn byte_to_char(s: &str, byte: usize) -> usize {
 }
 
 /// `planInlineScriptHoist`.
-pub async fn plan_inline_script_hoist(
-    command: &str,
-    powershell: bool,
-    syntax: &dyn ScriptSyntax,
-    thread: &ThreadId,
-) -> Result<Option<Hoist>, ExtError> {
+pub async fn plan_inline_script_hoist(command: &str, powershell: bool, syntax: &dyn ScriptSyntax, thread: &ThreadId) -> Result<Option<Hoist>, ExtError> {
     if mixdog_js::js_trim(command).is_empty() {
         return Ok(None);
     }
-    let Some(m) = lazy_re!(
-        r#"\b(node(?:\.exe)?|python3?|py)((?:\s+--?[\w-]+(?:=[^\s"']+)?)*)\s+(-e|--eval|-c)\s+"((?:[^"\\]|\\.)*)""#,
-        ""
-    )
-    .captures(command) else {
+    let Some(m) = lazy_re!(r#"\b(node(?:\.exe)?|python3?|py)((?:\s+--?[\w-]+(?:=[^\s"']+)?)*)\s+(-e|--eval|-c)\s+"((?:[^"\\]|\\.)*)""#, "").captures(command)
+    else {
         return Ok(None);
     };
     let whole = m.range();
@@ -337,10 +377,7 @@ pub async fn plan_inline_script_hoist(
     if is_node && imports_package(body) {
         return Ok(None);
     }
-    if is_node
-        && !lazy_re!(r"--input-type=module", "").is_match(raw_flags)
-        && node_body_needs_module_syntax(body, syntax, thread).await?
-    {
+    if is_node && !lazy_re!(r"--input-type=module", "").is_match(raw_flags) && node_body_needs_module_syntax(body, syntax, thread).await? {
         return Ok(None);
     }
     if !is_node && python_imports_outside_stdlib(body) {
@@ -367,11 +404,8 @@ pub fn plan_long_inline_script_file_transport(command: &str, windows: bool, powe
     if !windows || utf16_len(command) < WINDOWS_INLINE_COMMAND_FILE_THRESHOLD {
         return None;
     }
-    let m = lazy_re!(
-        r#"\b(node(?:\.exe)?|python3?|py)((?:\s+--?[\w-]+(?:=[^\s"']+)?)*)\s+(-e|--eval|-c)\s+(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)')"#,
-        "i"
-    )
-    .captures(command)?;
+    let m = lazy_re!(r#"\b(node(?:\.exe)?|python3?|py)((?:\s+--?[\w-]+(?:=[^\s"']+)?)*)\s+(-e|--eval|-c)\s+(?:"((?:[^"\\]|\\.)*)"|'((?:[^']|'')*)')"#, "i")
+        .captures(command)?;
     let whole = m.range();
     let (exe, raw_flags) = (m.get(1)?, m.get(2).unwrap_or(""));
     if !lazy_re!(r"^[ \t]*(?:$|[\r\n|;&)<>]|\d+>)", "").is_match(&command[whole.end..]) {
@@ -432,18 +466,11 @@ pub fn plan_long_shell_script_file_transport(command: &str, windows: bool, power
 }
 
 /// `hoistInlineScript`'s planning: the first plan that applies.
-pub async fn plan_hoist(
-    command: &str,
-    windows: bool,
-    powershell: bool,
-    syntax: &dyn ScriptSyntax,
-    thread: &ThreadId,
-) -> Result<Option<Hoist>, ExtError> {
+pub async fn plan_hoist(command: &str, windows: bool, powershell: bool, syntax: &dyn ScriptSyntax, thread: &ThreadId) -> Result<Option<Hoist>, ExtError> {
     if let Some(plan) = plan_inline_script_hoist(command, powershell, syntax, thread).await? {
         return Ok(Some(plan));
     }
-    Ok(plan_long_inline_script_file_transport(command, windows, powershell)
-        .or_else(|| plan_long_shell_script_file_transport(command, windows, powershell)))
+    Ok(plan_long_inline_script_file_transport(command, windows, powershell).or_else(|| plan_long_shell_script_file_transport(command, windows, powershell)))
 }
 
 #[cfg(test)]
@@ -474,7 +501,6 @@ mod tests {
         );
         assert!(plan_long_shell_script_file_transport(&format!("$PSScriptRoot {body}"), true, true).is_none());
     }
-
 
     /// The file extension, body and the command with the file's path in place of the inline script, or `None` when the
     /// command is left as it is.

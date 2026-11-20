@@ -29,7 +29,9 @@ async fn ask(url: &str, method: &str, authorization: Option<&str>, body: &str) -
 
 #[test]
 fn only_https_addresses_of_the_three_reserved_hosts_are_the_connectors() {
-    for (name, url) in [("gmail", "https://gmail.mixdog.invalid/mcp"), ("calendar", "https://calendar.mixdog.invalid/mcp"), ("drive", "https://drive.mixdog.invalid/anything")] {
+    for (name, url) in
+        [("gmail", "https://gmail.mixdog.invalid/mcp"), ("calendar", "https://calendar.mixdog.invalid/mcp"), ("drive", "https://drive.mixdog.invalid/anything")]
+    {
         assert_eq!(service(&Url::parse(url).unwrap()), Some(name), "{url}");
     }
     assert_eq!(mcp_url("gmail"), "https://gmail.mixdog.invalid/mcp");
@@ -59,7 +61,9 @@ async fn the_sign_in_metadata_names_google_as_the_authorization_server_for_any_m
         assert_eq!(metadata.status, 200);
         assert_eq!(
             metadata.body,
-            Some(json!({"resource": "https://calendar.mixdog.invalid/mcp", "authorization_servers": ["https://accounts.google.com"], "bearer_methods_supported": ["header"]}))
+            Some(
+                json!({"resource": "https://calendar.mixdog.invalid/mcp", "authorization_servers": ["https://accounts.google.com"], "bearer_methods_supported": ["header"]})
+            )
         );
     }
 }
@@ -104,22 +108,35 @@ async fn a_failed_google_api_request_returns_a_tool_error() {
         br#"{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"list_events"}}"#,
         &Offline,
         NOW_MS,
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
     assert_eq!(reply.status, 200);
-    assert_eq!(reply.body, Some(json!({
-        "jsonrpc": "2.0", "id": 1,
-        "result": {"content": [{"type": "text", "text": "connection lost"}], "isError": true}
-    })));
+    assert_eq!(
+        reply.body,
+        Some(json!({
+            "jsonrpc": "2.0", "id": 1,
+            "result": {"content": [{"type": "text", "text": "connection lost"}], "isError": true}
+        }))
+    );
 }
 
 #[tokio::test]
 async fn google_dispatch_does_not_coerce_method_names_or_argument_types() {
-    let reply = ask(&mcp_url("calendar"), "POST", Some("Bearer t"), r#"[
+    let reply = ask(
+        &mcp_url("calendar"),
+        "POST",
+        Some("Bearer t"),
+        r#"[
         {"id":1,"method":["tools/list"]},
         {"id":2,"method":"tools/call","params":{"name":["list_events"]}},
         {"id":3,"method":"tools/call","params":{"name":"list_events","arguments":false}},
         {"id":4,"method":"tools/call","params":{"name":"list_events","arguments":{"maxResults":"2"}}}
-    ]"#).await.body.unwrap();
+    ]"#,
+    )
+    .await
+    .body
+    .unwrap();
     assert_eq!(reply[0]["error"]["code"], -32600);
     assert_eq!(reply[1]["error"]["code"], -32602);
     assert_eq!(reply[2]["error"]["code"], -32602);

@@ -105,10 +105,7 @@ fn uuid_from_seed(seed: &str) -> String {
 
 /// `promptCacheLaneAutoRequested` for a string.
 fn auto_requested(raw: &str) -> bool {
-    matches!(
-        mixdog_js::js_trim(raw).to_lowercase().as_str(),
-        "0" | "auto" | "unbounded" | "unlimited" | "none" | "off"
-    )
+    matches!(mixdog_js::js_trim(raw).to_lowercase().as_str(), "0" | "auto" | "unbounded" | "unlimited" | "none" | "off")
 }
 
 /// `parsePromptCacheLaneLimit`: 0 is the unbounded lane.

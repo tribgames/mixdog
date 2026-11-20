@@ -24,38 +24,28 @@ use mixdog_rt::LaneToken;
 
 /// Model-facing byte cap of one tool result (`TOOL_OUTPUT_MAX_BYTES`, `MIXDOG_TOOL_OUTPUT_MAX_BYTES`).
 pub(crate) fn output_max_bytes() -> usize {
-    static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| crate::github::positive_env_int(std::env::var("MIXDOG_TOOL_OUTPUT_MAX_BYTES").ok().as_deref(), 50 * 1024));
+    static MAX: std::sync::LazyLock<usize> =
+        std::sync::LazyLock::new(|| crate::github::positive_env_int(std::env::var("MIXDOG_TOOL_OUTPUT_MAX_BYTES").ok().as_deref(), 50 * 1024));
     *MAX
 }
 
 /// Model-facing byte cap of locator tools: find, glob, list (`LOCATOR_OUTPUT_MAX_BYTES`, `MIXDOG_LOCATOR_OUTPUT_MAX_BYTES`).
 pub(crate) fn locator_max_bytes() -> usize {
-    static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| crate::github::positive_env_int(std::env::var("MIXDOG_LOCATOR_OUTPUT_MAX_BYTES").ok().as_deref(), 20 * 1024));
+    static MAX: std::sync::LazyLock<usize> =
+        std::sync::LazyLock::new(|| crate::github::positive_env_int(std::env::var("MIXDOG_LOCATOR_OUTPUT_MAX_BYTES").ok().as_deref(), 20 * 1024));
     *MAX
 }
 
 /// Model-facing byte cap of grep (`GREP_OUTPUT_MAX_BYTES`, `MIXDOG_GREP_OUTPUT_MAX_BYTES`).
 pub(crate) fn grep_max_bytes() -> usize {
-    static MAX: std::sync::LazyLock<usize> = std::sync::LazyLock::new(|| crate::github::positive_env_int(std::env::var("MIXDOG_GREP_OUTPUT_MAX_BYTES").ok().as_deref(), 5 * 1024));
+    static MAX: std::sync::LazyLock<usize> =
+        std::sync::LazyLock::new(|| crate::github::positive_env_int(std::env::var("MIXDOG_GREP_OUTPUT_MAX_BYTES").ok().as_deref(), 5 * 1024));
     *MAX
 }
 
 /// Directory names pruned unless `include_noise` is set.
-pub(crate) const NOISE_DIRS: &[&str] = &[
-    "node_modules",
-    ".git",
-    ".next",
-    ".nuxt",
-    ".svelte-kit",
-    ".cache",
-    ".parcel-cache",
-    ".turbo",
-    "venv",
-    ".venv",
-    "__pycache__",
-    ".pytest_cache",
-    ".gradle",
-];
+pub(crate) const NOISE_DIRS: &[&str] =
+    &["node_modules", ".git", ".next", ".nuxt", ".svelte-kit", ".cache", ".parcel-cache", ".turbo", "venv", ".venv", "__pycache__", ".pytest_cache", ".gradle"];
 
 /// [`NOISE_DIRS`] as a walk's `Descent::bare`: each noise folder listed, never entered.
 pub(crate) fn noise_bare() -> Vec<String> {
@@ -68,10 +58,7 @@ pub const RESULT_TELEMETRY_META: &str = "resultTelemetry";
 pub const LOCAL_SEARCH_META: &str = "localSearchTelemetry";
 
 pub(crate) fn text_output(text: impl Into<String>) -> ToolOutput {
-    ToolOutput {
-        parts: vec![ToolPart::Text(text.into())],
-        ..ToolOutput::default()
-    }
+    ToolOutput { parts: vec![ToolPart::Text(text.into())], ..ToolOutput::default() }
 }
 
 /// An error whose model text is `message` (callers include the `Error: ` prefix).
@@ -80,13 +67,7 @@ pub(crate) fn fail(code: ToolErrorCode, message: impl Into<String>) -> ToolError
 }
 
 pub(crate) fn invalid(field: &str, reason: &str, message: impl Into<String>) -> ToolError {
-    fail(
-        ToolErrorCode::InvalidArgs {
-            field: field.to_owned(),
-            reason: reason.to_owned(),
-        },
-        message,
-    )
+    fail(ToolErrorCode::InvalidArgs { field: field.to_owned(), reason: reason.to_owned() }, message)
 }
 
 /// The optional scope `key` of list, find or glob as Node's argument guard leaves it (arg-guard.mjs
@@ -100,8 +81,7 @@ pub(crate) fn optional_path_arg<'a>(args: &'a JsonValue, key: &str, refusal: imp
         None | Some(JsonValue::Null) => Ok(None),
         Some(JsonValue::String(s)) => Ok((!mixdog_js::js_trim(s).is_empty()).then_some(s.as_str())),
         Some(JsonValue::Array(items))
-            if !items.is_empty()
-                && items.iter().flat_map(|item| item.as_array().map_or(std::slice::from_ref(item), Vec::as_slice)).all(blank) =>
+            if !items.is_empty() && items.iter().flat_map(|item| item.as_array().map_or(std::slice::from_ref(item), Vec::as_slice)).all(blank) =>
         {
             Ok(None)
         }
@@ -114,41 +94,21 @@ pub(crate) fn cancelled() -> ToolError {
 }
 
 pub(crate) fn deadline_exceeded(name: &str, partial: bool) -> ToolError {
-    fail(
-        ToolErrorCode::DeadlineExceeded { partial },
-        format!("Error: read-only I/O tool \"{name}\" exceeded its deadline."),
-    )
+    fail(ToolErrorCode::DeadlineExceeded { partial }, format!("Error: read-only I/O tool \"{name}\" exceeded its deadline."))
 }
 
 /// Maps a file-service failure to the typed error plus its model text.
 pub(crate) fn fs_failure(err: &FsError, shown: &str) -> ToolError {
     match &err.kind {
-        FsErrorKind::NotFound => fail(
-            ToolErrorCode::NotFound {
-                target: shown.to_owned(),
-            },
-            format!("Error: ENOENT: no such file or directory: {shown}"),
-        ),
-        FsErrorKind::PermissionDenied => fail(
-            ToolErrorCode::PermissionDenied,
-            format!("Error: EACCES: permission denied: {shown}"),
-        ),
+        FsErrorKind::NotFound => fail(ToolErrorCode::NotFound { target: shown.to_owned() }, format!("Error: ENOENT: no such file or directory: {shown}")),
+        FsErrorKind::PermissionDenied => fail(ToolErrorCode::PermissionDenied, format!("Error: EACCES: permission denied: {shown}")),
         FsErrorKind::OutcomeUnknown => {
-            let mut e = fail(
-                ToolErrorCode::OutcomeUnknown,
-                format!("Error: {shown}: write outcome unknown; re-read before retrying"),
-            );
+            let mut e = fail(ToolErrorCode::OutcomeUnknown, format!("Error: {shown}: write outcome unknown; re-read before retrying"));
             e.outcome_unknown = true;
             e
         }
-        FsErrorKind::IsADirectory => fail(
-            ToolErrorCode::Io { os_code: None },
-            format!("Error: {shown} is a directory"),
-        ),
-        FsErrorKind::NotADirectory => fail(
-            ToolErrorCode::Io { os_code: None },
-            format!("Error: not a directory — {shown}"),
-        ),
+        FsErrorKind::IsADirectory => fail(ToolErrorCode::Io { os_code: None }, format!("Error: {shown} is a directory")),
+        FsErrorKind::NotADirectory => fail(ToolErrorCode::Io { os_code: None }, format!("Error: not a directory — {shown}")),
         // The OS error by libuv's name, as Node's message starts with it; one the name table does not
         // know keeps the plain I/O text rather than claiming an unknown error.
         FsErrorKind::Io { .. } | FsErrorKind::AlreadyExists => {
@@ -159,10 +119,7 @@ pub(crate) fn fs_failure(err: &FsError, shown: &str) -> ToolError {
             };
             fail(ToolErrorCode::Io { os_code }, text)
         }
-        other => fail(
-            ToolErrorCode::Io { os_code: None },
-            format!("Error: {other:?} on {shown}"),
-        ),
+        other => fail(ToolErrorCode::Io { os_code: None }, format!("Error: {other:?} on {shown}")),
     }
 }
 
@@ -173,11 +130,7 @@ pub(crate) fn fs_failure_worded(err: &FsError, shown: &str, text: String) -> Too
 
 /// Runs `fut` until it ends, the call is cancelled, or the deadline passes.
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
-pub(crate) async fn guarded<F: Future>(
-    ctx: &ToolContext,
-    name: &str,
-    fut: F,
-) -> Result<F::Output, ToolError> {
+pub(crate) async fn guarded<F: Future>(ctx: &ToolContext, name: &str, fut: F) -> Result<F::Output, ToolError> {
     let deadline = async {
         match ctx.deadline {
             Some(at) => mixdog_rt::time::sleep_until(tokio::time::Instant::from_std(at)).await,
@@ -409,9 +362,7 @@ fn symlink_target_refusal(full: &Path, shown: &str) -> Option<String> {
                     return target_refusal(&full, shown).or_else(|| Some(format!("Error: {reason}: {shown} → {}", fwd(&full))));
                 }
                 // Native canonicalization also identifies a mapped share when the path was reached through a link.
-                if followed
-                    && let Ok(real) = mixdog_workspace::pathguard::canonical(&full)
-                {
+                if followed && let Ok(real) = mixdog_workspace::pathguard::canonical(&full) {
                     return target_refusal(&real, shown);
                 }
                 return None;
@@ -436,11 +387,7 @@ pub(super) fn target_refusal(real: &Path, shown: &str) -> Option<String> {
     } else {
         return None;
     };
-    Some(format!(
-        "Error: cannot read {what}: {} → {}",
-        super::patch_guard::normalize_output_path(shown),
-        super::patch_guard::normalize_output_path(&target)
-    ))
+    Some(format!("Error: cannot read {what}: {} → {}", super::patch_guard::normalize_output_path(shown), super::patch_guard::normalize_output_path(&target)))
 }
 
 /// [`symlink_target_refusal`] as a job on the interactive lane: `read`'s refusal for a path whose link leads somewhere
@@ -556,11 +503,7 @@ pub(crate) async fn pull_until<T: Send>(
 /// `close` says what has ended when it returns; one the deadline or the
 /// cancellation cuts short is dropped, which stops its producer without
 /// waiting for it.
-pub(crate) async fn pull_all<T: Send>(
-    ctx: &ToolContext,
-    source: &mut dyn EventSource<T>,
-    sink: impl FnMut(T) -> bool,
-) -> PullEnd {
+pub(crate) async fn pull_all<T: Send>(ctx: &ToolContext, source: &mut dyn EventSource<T>, sink: impl FnMut(T) -> bool) -> PullEnd {
     pull_until(ctx, source, std::future::pending(), sink).await
 }
 
@@ -573,11 +516,7 @@ pub(crate) fn resolve_path(cwd: &AbsPath, raw: &str) -> Result<AbsPath, ToolErro
     if trimmed.is_empty() {
         return Err(invalid("path", "empty", "Error: path must not be empty"));
     }
-    let joined = if Path::new(trimmed).is_absolute() {
-        PathBuf::from(trimmed)
-    } else {
-        cwd.as_path().join(trimmed)
-    };
+    let joined = if Path::new(trimmed).is_absolute() { PathBuf::from(trimmed) } else { cwd.as_path().join(trimmed) };
     let mut out = PathBuf::new();
     for comp in joined.components() {
         match comp {
@@ -588,13 +527,7 @@ pub(crate) fn resolve_path(cwd: &AbsPath, raw: &str) -> Result<AbsPath, ToolErro
             other => out.push(other.as_os_str()),
         }
     }
-    AbsPath::new(out).ok_or_else(|| {
-        invalid(
-            "path",
-            "not absolute",
-            format!("Error: cannot resolve path {trimmed}"),
-        )
-    })
+    AbsPath::new(out).ok_or_else(|| invalid("path", "not absolute", format!("Error: cannot resolve path {trimmed}")))
 }
 
 pub(crate) fn fwd(path: &Path) -> String {
@@ -638,9 +571,7 @@ pub(crate) fn extract_glob_base_directory(pattern: &str) -> (Option<String>, Str
 
 /// Directory entry order of `list`: case-insensitive, lowercase first on ties.
 pub(crate) fn compare_names(a: &str, b: &str) -> Ordering {
-    a.to_lowercase()
-        .cmp(&b.to_lowercase())
-        .then_with(|| b.cmp(a))
+    a.to_lowercase().cmp(&b.to_lowercase()).then_with(|| b.cmp(a))
 }
 
 // ---- text ----
@@ -665,30 +596,16 @@ pub(crate) fn decode_text(bytes: &[u8]) -> Result<(String, Codec), String> {
         if !body.len().is_multiple_of(2) {
             return Err("utf16 body has an odd trailing byte".to_owned());
         }
-        let units: Vec<u16> = body
-            .as_chunks::<2>().0.iter()
-            .map(|p| {
-                if le {
-                    u16::from_le_bytes([p[0], p[1]])
-                } else {
-                    u16::from_be_bytes([p[0], p[1]])
-                }
-            })
-            .collect();
+        let units: Vec<u16> =
+            body.as_chunks::<2>().0.iter().map(|p| if le { u16::from_le_bytes([p[0], p[1]]) } else { u16::from_be_bytes([p[0], p[1]]) }).collect();
         String::from_utf16(&units).map_err(|_| "invalid utf16".to_owned())
     };
     if let Some(body) = bytes.strip_prefix(&[0xFF, 0xFE]) {
-        let codec = Codec {
-            encoding: Encoding::Utf16Le,
-            bom: true,
-        };
+        let codec = Codec { encoding: Encoding::Utf16Le, bom: true };
         return utf16(body, true).map(|s| (s, codec));
     }
     if let Some(body) = bytes.strip_prefix(&[0xFE, 0xFF]) {
-        let codec = Codec {
-            encoding: Encoding::Utf16Be,
-            bom: true,
-        };
+        let codec = Codec { encoding: Encoding::Utf16Be, bom: true };
         return utf16(body, false).map(|s| (s, codec));
     }
     let (body, bom) = match bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]) {
@@ -699,13 +616,7 @@ pub(crate) fn decode_text(bytes: &[u8]) -> Result<(String, Codec), String> {
         return Err("nul_without_utf16_bom".to_owned());
     }
     match std::str::from_utf8(body) {
-        Ok(s) => Ok((
-            s.to_owned(),
-            Codec {
-                encoding: Encoding::Utf8,
-                bom,
-            },
-        )),
+        Ok(s) => Ok((s.to_owned(), Codec { encoding: Encoding::Utf8, bom })),
         Err(e) => Err(format!("invalid_utf8@{}", e.valid_up_to())),
     }
 }
@@ -758,39 +669,19 @@ pub(crate) fn format_cap_size(bytes: usize) -> String {
         return format!("{bytes} bytes");
     }
     let kb = bytes as f64 / 1024.0;
-    if kb.fract() == 0.0 {
-        format!("{} KB", kb as u64)
-    } else {
-        format!("{kb:.1} KB")
-    }
+    if kb.fract() == 0.0 { format!("{} KB", kb as u64) } else { format!("{kb:.1} KB") }
 }
 
 /// `[lines a-b of N; output capped at X; offset:K for more]`.
-pub(crate) fn window_marker(
-    unit: &str,
-    from: u64,
-    to: u64,
-    total: Option<u64>,
-    next_offset: Option<u64>,
-    cap_bytes: Option<usize>,
-) -> String {
+pub(crate) fn window_marker(unit: &str, from: u64, to: u64, total: Option<u64>, next_offset: Option<u64>, cap_bytes: Option<usize>) -> String {
     let of = total.map(|t| format!(" of {t}")).unwrap_or_default();
-    let cap = cap_bytes
-        .map(|c| format!("; output capped at {}", format_cap_size(c)))
-        .unwrap_or_default();
-    let more = next_offset
-        .map(|n| format!("; offset:{n} for more"))
-        .unwrap_or_default();
+    let cap = cap_bytes.map(|c| format!("; output capped at {}", format_cap_size(c))).unwrap_or_default();
+    let more = next_offset.map(|n| format!("; offset:{n} for more")).unwrap_or_default();
     format!("[{unit} {from}-{to}{of}{cap}{more}]")
 }
 
 /// `[output capped at X; shown; offset:N for more | narrow: ...]`.
-pub(crate) fn cap_marker(
-    limit: &str,
-    shown: &str,
-    next_offset: Option<u64>,
-    narrow: &str,
-) -> String {
+pub(crate) fn cap_marker(limit: &str, shown: &str, next_offset: Option<u64>, narrow: &str) -> String {
     let mut parts = vec![format!("output capped at {limit}")];
     if !shown.is_empty() {
         parts.push(shown.to_owned());
@@ -799,11 +690,7 @@ pub(crate) fn cap_marker(
         parts.push(format!("offset:{n} for more"));
     }
     if !narrow.is_empty() || next_offset.is_none() {
-        let n = if narrow.is_empty() {
-            "restrict the path, pattern or scope"
-        } else {
-            narrow
-        };
+        let n = if narrow.is_empty() { "restrict the path, pattern or scope" } else { narrow };
         parts.push(format!("narrow: {n}"));
     }
     format!("[{}]", parts.join("; "))
@@ -826,10 +713,7 @@ pub(crate) fn cap_lines(text: &str, max: usize) -> (String, usize) {
         used += add;
         kept += 1;
     }
-    (
-        text.split('\n').take(kept).collect::<Vec<_>>().join("\n"),
-        total - kept,
-    )
+    (text.split('\n').take(kept).collect::<Vec<_>>().join("\n"), total - kept)
 }
 
 // ---- args ----
@@ -857,10 +741,7 @@ pub(crate) fn arg_bool(args: &JsonValue, key: &str) -> bool {
 pub(crate) fn arg_strings(args: &JsonValue, key: &str) -> Vec<String> {
     match args.get(key) {
         Some(JsonValue::String(s)) => vec![s.clone()],
-        Some(JsonValue::Array(a)) => a
-            .iter()
-            .filter_map(|v| v.as_str().map(str::to_owned))
-            .collect(),
+        Some(JsonValue::Array(a)) => a.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect(),
         _ => Vec::new(),
     }
 }

@@ -33,11 +33,9 @@ pub struct CompositionContext {
 /// `strings`: a list of the non-empty texts of a value that is a list, one text, or nothing.
 pub fn strings(value: Option<&Value>) -> Vec<String> {
     match value {
-        Some(Value::Array(items)) => items
-            .iter()
-            .map(|entry| if entry.is_null() { String::new() } else { value_to_string(entry) })
-            .filter(|entry| !entry.is_empty())
-            .collect(),
+        Some(Value::Array(items)) => {
+            items.iter().map(|entry| if entry.is_null() { String::new() } else { value_to_string(entry) }).filter(|entry| !entry.is_empty()).collect()
+        }
         None | Some(Value::Null) => Vec::new(),
         Some(Value::String(written)) if written.is_empty() => Vec::new(),
         Some(other) => vec![value_to_string(other)],
@@ -271,8 +269,23 @@ pub fn compact_design(design: &Value) -> Value {
         }
     };
     for key in [
-        "profile", "label", "intent", "audience", "tone", "density", "purpose", "expressionMode", "signature", "source", "artDirection", "creative",
-        "library", "tokens", "discipline", "format", "deck",
+        "profile",
+        "label",
+        "intent",
+        "audience",
+        "tone",
+        "density",
+        "purpose",
+        "expressionMode",
+        "signature",
+        "source",
+        "artDirection",
+        "creative",
+        "library",
+        "tokens",
+        "discipline",
+        "format",
+        "deck",
     ] {
         copy(key, &mut compact);
     }
@@ -415,18 +428,12 @@ fn resolve_pptx_deck_plan(input: &Value, tokens: &Value, art_direction: &Value) 
     let requested_template_mode = js_to_lowercase(js_trim(&text(prop(source, "templateMode"))));
     let requested_composition_mode = js_to_lowercase(js_trim(&text(prop(source, "compositionMode"))));
     let selected = prop(art_direction, "selected");
-    let direction_ids: Vec<Value> = array_of(prop(art_direction, "candidates"))
-        .into_iter()
-        .flatten()
-        .filter_map(|candidate| prop(candidate, "id").cloned())
-        .collect();
+    let direction_ids: Vec<Value> =
+        array_of(prop(art_direction, "candidates")).into_iter().flatten().filter_map(|candidate| prop(candidate, "id").cloned()).collect();
     let pick = |key: &str, fallback: &str| first_text(&[prop(source, key), prop(direction, key), Some(&Value::String(fallback.to_owned()))]);
     let mut plan = Map::new();
     plan.insert("backgroundMode".into(), Value::String(background_mode));
-    plan.insert(
-        "dominantColorRole".into(),
-        Value::String(if has_color(&dominant_color_role) { dominant_color_role } else { content_role }),
-    );
+    plan.insert("dominantColorRole".into(), Value::String(if has_color(&dominant_color_role) { dominant_color_role } else { content_role }));
     plan.insert("motif".into(), Value::String(first_text(&[prop(source, "motif"), prop(direction, "motif"), prop(input, "signature")])));
     plan.insert("spacingScale".into(), Value::String(first_text(&[prop(source, "spacingScale"), Some(&json!("consistent"))])));
     plan.insert("imageTreatment".into(), Value::String(pick("imageTreatment", "contained-evidence")));
@@ -441,8 +448,7 @@ fn resolve_pptx_deck_plan(input: &Value, tokens: &Value, art_direction: &Value) 
     plan.insert("sectionSlides".into(), slide_numbers(prop(source, "sectionSlides")));
     plan.insert("roles".into(), Value::Object(roles));
     let template_mode = if PPTX_TEMPLATE_MODES.contains(&requested_template_mode.as_str()) { requested_template_mode } else { "scratch".to_owned() };
-    let composition_mode =
-        if PPTX_COMPOSITION_MODES.contains(&requested_composition_mode.as_str()) { requested_composition_mode } else { "model".to_owned() };
+    let composition_mode = if PPTX_COMPOSITION_MODES.contains(&requested_composition_mode.as_str()) { requested_composition_mode } else { "model".to_owned() };
     plan.insert("templateMode".into(), Value::String(template_mode));
     plan.insert("compositionMode".into(), Value::String(composition_mode));
     plan.insert("enforce".into(), Value::Bool(is_not_false(prop(source, "enforce"))));
@@ -479,8 +485,7 @@ pub fn resolve_office_design(format: &str, request: &Value, library: Option<&Val
         let known = js_object_keys(&packs).into_iter().map(String::as_str).collect::<Vec<_>>().join(", ");
         return Err(format!("Unknown Office design profile \"{profile}\". Use one of: {known}"));
     };
-    let art_direction =
-        resolve_office_art_direction(&normalized_format, input, &profile, &composition.purpose, &composition.expression_mode);
+    let art_direction = resolve_office_art_direction(&normalized_format, input, &profile, &composition.purpose, &composition.expression_mode);
     let direction_tokens = if prop(&art_direction, "applyTokens").is_some_and(truthy) {
         let selected = prop(&art_direction, "selected");
         json!({
@@ -536,10 +541,13 @@ pub fn resolve_office_design(format: &str, request: &Value, library: Option<&Val
     put("creative", prop(input, "creative").filter(|creative| plain_object(creative)).cloned().unwrap_or(Value::Null));
     put("content", content);
     put("library", compact_library(library));
-    put("layouts", match opt_prop(library, "layouts") {
-        Some(Value::Array(layouts)) => Value::Array(layouts.clone()),
-        _ => Value::Array(Vec::new()),
-    });
+    put(
+        "layouts",
+        match opt_prop(library, "layouts") {
+            Some(Value::Array(layouts)) => Value::Array(layouts.clone()),
+            _ => Value::Array(Vec::new()),
+        },
+    );
     put("tokens", tokens);
     put(
         "discipline",
@@ -560,10 +568,13 @@ pub fn resolve_office_design(format: &str, request: &Value, library: Option<&Val
             put(&key, value);
         }
     }
-    put("compositions", match prop(input, "compositions") {
-        Some(Value::Array(compositions)) => Value::Array(compositions.clone()),
-        _ => Value::Array(Vec::new()),
-    });
+    put(
+        "compositions",
+        match prop(input, "compositions") {
+            Some(Value::Array(compositions)) => Value::Array(compositions.clone()),
+            _ => Value::Array(Vec::new()),
+        },
+    );
     let flag = |key: &str| Value::Bool(prop(input, key) == Some(&Value::Bool(true)));
     let required = normalized_format == "pptx" || (is_not_false(prop(input, "review")) && normalized_format != "csv" && normalized_format != "tsv");
     put(
@@ -694,10 +705,7 @@ mod tests {
 
     #[test]
     fn unknown_formats_and_profiles_are_refused() {
-        assert_eq!(
-            resolve_office_design("odt", &json!({}), None, &context("explain")),
-            Err("Unsupported Office design format: odt".into())
-        );
+        assert_eq!(resolve_office_design("odt", &json!({}), None, &context("explain")), Err("Unsupported Office design format: odt".into()));
         assert_eq!(
             resolve_office_design("docx", &json!({ "profile": "Zine" }), None, &context("explain")),
             Err("Unknown Office design profile \"zine\". Use one of: executive, editorial, technical, data".into())

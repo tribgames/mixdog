@@ -113,10 +113,7 @@ fn owner_keys_and_binding_session_ids() {
     assert_eq!(owner_key(&c, &req("x", json!({"sessionId":"s"}), None)), "session:s");
     assert_eq!(owner_key(&c, &req("x", json!({}), None)), "pid:9");
     assert_eq!(owner_key(&client("tok", None), &req("x", json!({}), None)), "client:tok");
-    assert_eq!(
-        owner_key(&c, &req(ACTIVATE_TOOL, json!({"transcriptPath":"C:\\a\\b\\sess-1.jsonl"}), None)),
-        "session:sess-1"
-    );
+    assert_eq!(owner_key(&c, &req(ACTIVATE_TOOL, json!({"transcriptPath":"C:\\a\\b\\sess-1.jsonl"}), None)), "session:sess-1");
     assert_eq!(remote_session_id_from_binding("reply", &json!({"sessionId":"s"})), None);
     assert_eq!(remote_session_id_from_binding(ACTIVATE_TOOL, &json!({"sessionId":"bad id"})), None);
 }
@@ -181,12 +178,8 @@ async fn tool_dispatch_matches_the_lifecycle_tool_contract() {
     assert_eq!(t.handle_tool_call("memory", &json!({})).await, error_result("unknown tool: memory"));
 
     *degraded.lock().unwrap() = true;
-    assert_eq!(
-        t.handle_tool_call("reload_config", &json!({})).await,
-        error_result("[channels degraded] reload_config unavailable — restart MCP to recover")
-    );
+    assert_eq!(t.handle_tool_call("reload_config", &json!({})).await, error_result("[channels degraded] reload_config unavailable — restart MCP to recover"));
 }
-
 
 #[tokio::test(start_paused = true)]
 async fn cache_entry_expires_a_ttl_after_the_call_settles() {

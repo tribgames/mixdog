@@ -23,7 +23,6 @@ use mixdog_store::schema::migration::QuarantineCode;
 use mixdog_store::schema::record::Anchor;
 use mixdog_store::schema::record::CheckpointRecord;
 use mixdog_store::schema::record::CompactedRecord;
-use mixdog_store::schema::record::ReplacementEntry;
 use mixdog_store::schema::record::Form;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::HeaderChange;
@@ -36,6 +35,7 @@ use mixdog_store::schema::record::Origin;
 use mixdog_store::schema::record::QueueAction;
 use mixdog_store::schema::record::QueueRecord;
 use mixdog_store::schema::record::Record;
+use mixdog_store::schema::record::ReplacementEntry;
 use mixdog_store::schema::record::RunPhase;
 use mixdog_store::schema::record::RunRecord;
 use mixdog_store::schema::record::SESSION_RECORD_VERSION;
@@ -75,10 +75,9 @@ fn slot_within<T: Serialize>(cx: &ItemContext<'_>, value: T, budget: usize) -> R
     match mixdog_store::encode::slot_within(value, budget) {
         Ok((slot, None, used)) => Ok((slot, None, used)),
         Ok((slot, Some(blob), used)) => Ok((slot, Some(cx.put_blob(&blob.bytes)?), used)),
-        Err(EncodeError::ItemTooLarge { bytes }) => Err(Fail::Quarantine(
-            QuarantineCode::ItemTooLarge,
-            format!("a body of {bytes} bytes exceeds {MAX_BLOB_BYTES}"),
-        )),
+        Err(EncodeError::ItemTooLarge { bytes }) => {
+            Err(Fail::Quarantine(QuarantineCode::ItemTooLarge, format!("a body of {bytes} bytes exceeds {MAX_BLOB_BYTES}")))
+        }
         Err(e) => panic!("a slot value encodes: {e}"),
     }
 }
@@ -154,11 +153,7 @@ impl Builder<'_> {
     fn append(&mut self, payload: &[u8]) -> FramePos {
         let file_no = (self.files.len() - 1) as u32;
         let file = self.files.last_mut().expect("a file");
-        let pos = FramePos {
-            ordinal: self.ordinal,
-            file_no,
-            offset: file.len() as u64,
-        };
+        let pos = FramePos { ordinal: self.ordinal, file_no, offset: file.len() as u64 };
         crate::frame::encode_into(file, self.ordinal, payload);
         self.ordinal += 1;
         pos
@@ -186,10 +181,7 @@ impl Builder<'_> {
         let anchor = self.item(row, body)?;
         for entry in entries {
             self.push(&Record::ModelSwitch(ModelSwitchRecord {
-                anchor: Anchor {
-                    iid: bounded(&row.iid, "iid")?,
-                    ordinal: anchor.ordinal,
-                },
+                anchor: Anchor { iid: bounded(&row.iid, "iid")?, ordinal: anchor.ordinal },
                 op: None,
                 entry: slot(self.cx, entry)?.0,
             }))?;
@@ -210,10 +202,7 @@ impl Builder<'_> {
         attachment_refs(&row.body, &mut refs);
         refs.extend(blob);
         refs.extend(prompt_blob);
-        let refs: Vec<Digest> = refs
-            .into_iter()
-            .map(|h| Digest::try_from(format!("sha256:{h}")).expect("hex digest"))
-            .collect();
+        let refs: Vec<Digest> = refs.into_iter().map(|h| Digest::try_from(format!("sha256:{h}")).expect("hex digest")).collect();
         let record = Record::Item(ItemRecord {
             iid: bounded(&row.iid, "iid")?,
             turn: row.turn.as_deref().map(|t| bounded(t, "turn")).transpose()?,
@@ -236,12 +225,7 @@ impl Builder<'_> {
 }
 
 /// The staged log files of `model`.
-pub fn frames(
-    cx: &ItemContext<'_>,
-    model: &SessionModel,
-    item_key: &str,
-    source_digest: &str,
-) -> R<Vec<Vec<u8>>> {
+pub fn frames(cx: &ItemContext<'_>, model: &SessionModel, item_key: &str, source_digest: &str) -> R<Vec<Vec<u8>>> {
     let log_id = log_id(cx.manifest_sha256, &model.id);
     let mut b = Builder {
         cx,
@@ -265,8 +249,7 @@ pub fn frames(
             migration: MigrationOrigin {
                 manifest_sha256: bounded(cx.manifest_sha256, "manifest digest")?,
                 item_key: bounded(item_key, "item key")?,
-                source_digest: Digest::try_from(source_digest.to_string())
-                    .or_else(|e| violation(format!("source digest: {e}")))?,
+                source_digest: Digest::try_from(source_digest.to_string()).or_else(|e| violation(format!("source digest: {e}")))?,
             },
         }),
         op: None,
@@ -307,10 +290,7 @@ pub fn frames(
                 detail,
             }))?;
             match phase {
-                RunPhase::Started => b.runs.push(OpenRun {
-                    rid: run.rid.clone(),
-                    started: pos,
-                }),
+                RunPhase::Started => b.runs.push(OpenRun { rid: run.rid.clone(), started: pos }),
                 _ => b.runs.retain(|r| r.rid != run.rid),
             }
         }
@@ -324,20 +304,10 @@ pub fn frames(
             op: None,
             entry: Some(entry),
         }))?;
-        b.queue.push(QueuedEntry {
-            qid: qid.clone(),
-            enqueued: pos,
-            updated: None,
-        });
+        b.queue.push(QueuedEntry { qid: qid.clone(), enqueued: pos, updated: None });
     }
     for set in &model.metas {
-        let (change, _) = slot(
-            cx,
-            HeaderChange {
-                set: set.clone(),
-                unset: Vec::new(),
-            },
-        )?;
+        let (change, _) = slot(cx, HeaderChange { set: set.clone(), unset: Vec::new() })?;
         b.push(&Record::Meta(MetaRecord { op: None, change }))?;
         for (k, v) in set {
             b.header.insert(k.clone(), v.clone());

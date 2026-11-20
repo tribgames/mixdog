@@ -68,10 +68,7 @@ fn is_truly_opening_tag(m: &MatchView<'_>, response: &mut Response<'_>) {
             // "</" + match[0].slice(1)
             let mut tag: Vec<u16> = "</".encode_utf16().collect();
             tag.extend_from_slice(m.lexeme().get(1..).unwrap_or(&[]));
-            let found = m
-                .input
-                .get(after..)
-                .is_some_and(|rest| rest.windows(tag.len()).any(|w| w == tag.as_slice()));
+            let found = m.input.get(after..).is_some_and(|rest| rest.windows(tag.len()).any(|w| w == tag.as_slice()));
             if !found {
                 response.ignore_match();
             }
@@ -97,24 +94,12 @@ fn before_match(compiler: &mut Compiler, id: usize, _parent: Option<usize>) -> R
     original.frozen = false;
     compiler.nodes[id].fields.clear();
 
-    let begin = format!(
-        "{}(?={})",
-        source_of(Some(&before)),
-        source_of(original.get("begin"))
-    );
+    let begin = format!("{}(?={})", source_of(Some(&before)), source_of(original.get("begin")));
     original.set("endsParent", Raw::Bool(true));
     original.remove("beforeMatch");
     let original_id = compiler.new_node(original);
-    let starts = RawObject {
-        frozen: false,
-        fields: vec![
-            ("relevance".to_string(), Raw::Num(0.0)),
-            (
-                "contains".to_string(),
-                Raw::Arr(vec![Raw::Obj(original_id)]),
-            ),
-        ],
-    };
+    let starts =
+        RawObject { frozen: false, fields: vec![("relevance".to_string(), Raw::Num(0.0)), ("contains".to_string(), Raw::Arr(vec![Raw::Obj(original_id)]))] };
     let starts_id = compiler.new_node(starts);
     let node = &mut compiler.nodes[id];
     node.set("begin", Raw::Str(begin));

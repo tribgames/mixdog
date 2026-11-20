@@ -42,7 +42,11 @@ impl MediaGraph for Graph {
     async fn start(&self, input: &Value) -> Result<Value, MediaFailure> {
         self.started.lock().unwrap().push(input.clone());
         self.job_started.notify_one();
-        self.start_answer.lock().unwrap().take().unwrap_or_else(|| Ok(json!({"id": "j1", "status": "running", "kind": input["kind"], "lane": input["lane"], "model": input["model"]})))
+        self.start_answer
+            .lock()
+            .unwrap()
+            .take()
+            .unwrap_or_else(|| Ok(json!({"id": "j1", "status": "running", "kind": input["kind"], "lane": input["lane"], "model": input["model"]})))
     }
     fn get(&self, id: &str) -> Option<Value> {
         let jobs = self.jobs.lock().unwrap();
@@ -91,7 +95,8 @@ fn rig() -> Rig {
     *graph.lanes.lock().unwrap() = lanes();
     let clock = Arc::new(AtomicI64::new(1_000_000));
     let now = clock.clone();
-    let service = MediaToolService::new(graph.clone(), mixdog_rt::testing::tokens().durability_io, Arc::new(|session| format!("source-of-{session}"))).with_timing(Arc::new(move || now.load(Ordering::SeqCst)), Duration::from_millis(1));
+    let service = MediaToolService::new(graph.clone(), mixdog_rt::testing::tokens().durability_io, Arc::new(|session| format!("source-of-{session}")))
+        .with_timing(Arc::new(move || now.load(Ordering::SeqCst)), Duration::from_millis(1));
     Rig { graph, service, dir: tempfile::tempdir().unwrap(), clock }
 }
 
@@ -199,7 +204,10 @@ async fn a_lane_whose_catalog_failed_or_fell_back_is_reported_beside_the_list() 
 async fn a_generate_names_its_kind_prompt_and_path_or_is_refused() {
     let r = rig();
     assert_eq!(failed(&r, json!({"action": "generate"})).await["error"], "generate requires kind: image | video");
-    assert_eq!(failed(&r, json!({"action": "generate", "kind": "image", "prompt": "  "})).await["error"], "generate requires prompt: the subject, the treatment, the mood, the framing, and what must not appear");
+    assert_eq!(
+        failed(&r, json!({"action": "generate", "kind": "image", "prompt": "  "})).await["error"],
+        "generate requires prompt: the subject, the treatment, the mood, the framing, and what must not appear"
+    );
     assert_eq!(failed(&r, json!({"action": "generate", "kind": "image", "prompt": "p"})).await["error"], "generate requires path: where to write the file");
     assert_eq!(failed(&r, json!({"action": "zap"})).await["error"], "Unsupported media action \"zap\"; use list, generate, status, cancel");
     assert!(r.started().is_empty());
@@ -209,17 +217,35 @@ async fn a_generate_names_its_kind_prompt_and_path_or_is_refused() {
 async fn a_generate_runs_the_job_waits_for_it_and_copies_the_asset_to_the_path_with_its_extension() {
     let r = rig();
     *r.graph.original.lock().unwrap() = Some(r.source_file("a.png", b"PNGDATA"));
-    r.job("j1", vec![json!({"id": "j1", "status": "running"}), json!({"id": "j1", "status": "done", "assetId": "asset-1", "startedAt": 1_000_000, "endedAt": 1_004_000})]);
+    r.job(
+        "j1",
+        vec![
+            json!({"id": "j1", "status": "running"}),
+            json!({"id": "j1", "status": "done", "assetId": "asset-1", "startedAt": 1_000_000, "endedAt": 1_004_000}),
+        ],
+    );
     let (body, is_error) = r.run(json!({"action": " Generate ", "kind": "image", "prompt": "a lamp", "path": "out/lamp"})).await;
     assert!(!is_error, "{body}");
     let output = r.dir.path().join("out").join("lamp.png");
     assert_eq!(std::fs::read(&output).unwrap(), b"PNGDATA");
     assert_eq!(body["output"], output.to_string_lossy().as_ref());
-    assert_eq!((body["lane"].clone(), body["model"].clone(), body["laneSource"].clone(), body["assetId"].clone(), body["elapsedMs"].clone(), body["referenceCount"].clone()), (json!("openai-oauth"), json!("gpt-image-2"), json!("first"), json!("asset-1"), json!(4000), json!(0)));
+    assert_eq!(
+        (
+            body["lane"].clone(),
+            body["model"].clone(),
+            body["laneSource"].clone(),
+            body["assetId"].clone(),
+            body["elapsedMs"].clone(),
+            body["referenceCount"].clone()
+        ),
+        (json!("openai-oauth"), json!("gpt-image-2"), json!("first"), json!("asset-1"), json!(4000), json!(0))
+    );
     assert_eq!(body["options"], json!({}));
     assert_eq!(
         r.started(),
-        vec![json!({"lane": "openai-oauth", "kind": "image", "model": "gpt-image-2", "prompt": "a lamp", "options": {}, "references": [], "sessionId": "sess_1", "sourceType": "source-of-sess_1"})]
+        vec![
+            json!({"lane": "openai-oauth", "kind": "image", "model": "gpt-image-2", "prompt": "a lamp", "options": {}, "references": [], "sessionId": "sess_1", "sourceType": "source-of-sess_1"})
+        ]
     );
 }
 
@@ -249,11 +275,16 @@ async fn a_job_that_fails_or_never_ends_is_an_error_naming_the_job() {
     let error = failed(&r, json!({"action": "generate", "kind": "image", "prompt": "p", "path": "o"})).await;
     assert_eq!((error["error"].as_str(), error["job"].as_str()), (Some("generation failed on openai-oauth/gpt-image-2: upstream said no"), Some("j1")));
     r.job("j1", vec![json!({"id": "j1", "status": "cancelled"})]);
-    assert_eq!(failed(&r, json!({"action": "generate", "kind": "image", "prompt": "p", "path": "o"})).await["error"], "generation failed on openai-oauth/gpt-image-2: cancelled");
+    assert_eq!(
+        failed(&r, json!({"action": "generate", "kind": "image", "prompt": "p", "path": "o"})).await["error"],
+        "generation failed on openai-oauth/gpt-image-2: cancelled"
+    );
     r.job("j1", vec![json!({"id": "j1", "status": "running"})]);
     let clock = r.clock.clone();
-    let ticking = MediaToolService::new(r.graph.clone(), mixdog_rt::testing::tokens().durability_io, Arc::new(|_| String::new())).with_timing(Arc::new(move || clock.fetch_add(60_000, Ordering::SeqCst)), Duration::from_millis(1));
-    let envelope = ticking.execute(&json!({"action": "generate", "kind": "image", "prompt": "p", "path": "o"}), r.dir.path(), "s", &CancellationToken::new()).await;
+    let ticking = MediaToolService::new(r.graph.clone(), mixdog_rt::testing::tokens().durability_io, Arc::new(|_| String::new()))
+        .with_timing(Arc::new(move || clock.fetch_add(60_000, Ordering::SeqCst)), Duration::from_millis(1));
+    let envelope =
+        ticking.execute(&json!({"action": "generate", "kind": "image", "prompt": "p", "path": "o"}), r.dir.path(), "s", &CancellationToken::new()).await;
     let body: Value = serde_json::from_str(envelope["content"][0]["text"].as_str().unwrap()).unwrap();
     assert_eq!(body["error"], "generation is still running after 180s on openai-oauth; poll media status job:j1");
     assert_eq!(body["job"], "j1");
@@ -368,11 +399,17 @@ async fn started_options(r: &Rig, args: Value) -> Value {
 #[tokio::test]
 async fn the_placement_words_become_the_lanes_options_checked_against_the_models_controls() {
     let r = rig();
-    assert_eq!(started_options(&r, json!({"kind": "image", "lane": "xai", "aspect": "16:9", "resolution": "1k"})).await, json!({"aspectRatio": "16:9", "resolution": "1k"}));
+    assert_eq!(
+        started_options(&r, json!({"kind": "image", "lane": "xai", "aspect": "16:9", "resolution": "1k"})).await,
+        json!({"aspectRatio": "16:9", "resolution": "1k"})
+    );
     assert_eq!(started_options(&r, json!({"kind": "image", "lane": "xai"})).await, json!({"resolution": "2k"}), "a lane that lists 2k gets it by default");
     assert_eq!(started_options(&r, json!({"kind": "image", "lane": "openai-oauth", "background": "transparent"})).await, json!({"background": "transparent"}));
     assert_eq!(started_options(&r, json!({"kind": "image", "lane": "openai-oauth", "background": "auto"})).await, json!({}), "auto is the lane's own default");
-    assert_eq!(started_options(&r, json!({"kind": "video", "lane": "xai", "duration": 6, "resolution": "720p"})).await, json!({"resolution": "720p", "duration": 6}));
+    assert_eq!(
+        started_options(&r, json!({"kind": "video", "lane": "xai", "duration": 6, "resolution": "720p"})).await,
+        json!({"resolution": "720p", "duration": 6})
+    );
 }
 
 #[tokio::test]
@@ -404,12 +441,15 @@ async fn reference_images_are_read_as_base64_with_their_mime_and_counted_against
     std::fs::write(r.dir.path().join("a.PNG"), b"AAA").unwrap();
     std::fs::write(r.dir.path().join("b.jpeg"), b"BBB").unwrap();
     std::fs::write(r.dir.path().join("c.txt"), b"x").unwrap();
-    let (body, is_error) = r.run(json!({"action": "generate", "kind": "image", "prompt": "p", "path": "o", "lane": "xai", "wait": false, "references": ["a.PNG", " b.jpeg ", ""]})).await;
+    let (body, is_error) = r
+        .run(json!({"action": "generate", "kind": "image", "prompt": "p", "path": "o", "lane": "xai", "wait": false, "references": ["a.PNG", " b.jpeg ", ""]}))
+        .await;
     assert!(!is_error, "{body}");
     assert_eq!(body["referenceCount"], 2);
     assert_eq!(r.started()[0]["references"], json!([{"base64": "QUFB", "name": "a.PNG"}, {"base64": "QkJC", "name": "b.jpeg"}]));
     // The graph's admission checks bytes, not extensions. This fake just captures the request.
-    let (text, is_error) = r.run(json!({"action": "generate", "kind": "image", "prompt": "p", "path": "o", "lane": "xai", "wait": false, "references": ["c.txt"]})).await;
+    let (text, is_error) =
+        r.run(json!({"action": "generate", "kind": "image", "prompt": "p", "path": "o", "lane": "xai", "wait": false, "references": ["c.txt"]})).await;
     assert!(!is_error, "{text}");
     assert_eq!(r.started()[1]["references"], json!([{"base64": "eA==", "name": "c.txt"}]));
     let malformed = failed(&r, json!({"action": "generate", "kind": "image", "prompt": "p", "path": "o", "references": [true]})).await;
@@ -437,7 +477,10 @@ async fn status_reports_a_job_and_writes_the_file_of_a_finished_one() {
     r.job("run", vec![json!({"id": "run", "status": "running", "kind": "video", "lane": "xai", "model": "m", "progress": 40, "startedAt": 100, "endedAt": 0})]);
     let (running, is_error) = r.run(json!({"action": "status", "job": "run"})).await;
     assert!(!is_error);
-    assert_eq!((running["ok"].clone(), running["job"].clone(), running["progress"].clone(), running["status"].clone()), (json!(true), json!("run"), json!(40), json!("running")));
+    assert_eq!(
+        (running["ok"].clone(), running["job"].clone(), running["progress"].clone(), running["status"].clone()),
+        (json!(true), json!("run"), json!(40), json!("running"))
+    );
     r.job("bad", vec![json!({"id": "bad", "status": "failed", "error": "boom"})]);
     let (bad, is_error) = r.run(json!({"action": "status", "job": "bad"})).await;
     assert!(!is_error, "a failed job is still a successful status");

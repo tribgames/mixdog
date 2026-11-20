@@ -5,17 +5,78 @@ use mixdog_js::{JsRegex, js_trim, utf16_len};
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
-
-
 use crate::memory::clean::clean_memory_text;
 use crate::memory::ko_morph::{light_ko_morph_stems, raw_tokens, strip_light_korean_particle};
 
 const STOPWORDS: &[&str] = &[
-    "a", "an", "and", "are", "as", "at", "be", "but", "by", "did", "do", "does", "for", "from", "how", "i", "if", "in",
-    "is", "it", "me", "my", "of", "on", "or", "our", "so", "that", "the", "their", "them", "they", "this", "to", "was",
-    "we", "were", "what", "when", "who", "why", "you", "your", "unless", "with", "user", "assistant", "requested",
-    "request", "asked", "ask", "stated", "state", "reported", "report", "mentioned", "mention", "clarified", "clarify",
-    "explicitly", "currently", "asks", "question", "answer", "reply", "said", "explained", "huh",
+    "a",
+    "an",
+    "and",
+    "are",
+    "as",
+    "at",
+    "be",
+    "but",
+    "by",
+    "did",
+    "do",
+    "does",
+    "for",
+    "from",
+    "how",
+    "i",
+    "if",
+    "in",
+    "is",
+    "it",
+    "me",
+    "my",
+    "of",
+    "on",
+    "or",
+    "our",
+    "so",
+    "that",
+    "the",
+    "their",
+    "them",
+    "they",
+    "this",
+    "to",
+    "was",
+    "we",
+    "were",
+    "what",
+    "when",
+    "who",
+    "why",
+    "you",
+    "your",
+    "unless",
+    "with",
+    "user",
+    "assistant",
+    "requested",
+    "request",
+    "asked",
+    "ask",
+    "stated",
+    "state",
+    "reported",
+    "report",
+    "mentioned",
+    "mention",
+    "clarified",
+    "clarify",
+    "explicitly",
+    "currently",
+    "asks",
+    "question",
+    "answer",
+    "reply",
+    "said",
+    "explained",
+    "huh",
 ];
 
 /// From this many lexemes a prefix query is an OR: the conjunction of three or
@@ -28,10 +89,8 @@ static IDENTIFIER_PUNCT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_stati
 static HAS_NUMBER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\p{N}", "u"));
 static ALL_CAPS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[A-Z][A-Z0-9_-]{1,}$", ""));
 static HAS_HANGUL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\p{Script=Hangul}", "u"));
-static DATE_TOKEN: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^\d{4}-\d{2}-\d{2}(?:~\d{4}-\d{2}-\d{2})?$", ""));
-static CLOCK_TOKEN: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^\d{1,2}:\d{2}(?:~\d{1,2}:\d{2})?$", ""));
+static DATE_TOKEN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\d{4}-\d{2}-\d{2}(?:~\d{4}-\d{2}-\d{2})?$", ""));
+static CLOCK_TOKEN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\d{1,2}:\d{2}(?:~\d{1,2}:\d{2})?$", ""));
 static SINGLE_DIGIT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\d$", ""));
 static LEXEME_SYNTAX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"[&|!():*'"\\\s]+"#, "g"));
 
@@ -96,8 +155,7 @@ pub fn merge_recall_concept_tokens(text: &str, concept_tokens: &[String], limit:
     let cap = limit.clamp(1, 64);
     let cleaned = clean_memory_text(text);
     let raw: Vec<&str> = raw_tokens(&cleaned);
-    let concepts: Vec<String> =
-        concept_tokens.iter().map(|t| js_trim(t).to_owned()).filter(|t| !t.is_empty()).collect();
+    let concepts: Vec<String> = concept_tokens.iter().map(|t| js_trim(t).to_owned()).filter(|t| !t.is_empty()).collect();
     let entity_concepts: Vec<&String> = concepts.iter().filter(|t| is_entity_concept(t)).collect();
     let ranking_entity: Vec<&&String> = entity_concepts.iter().filter(|t| !is_structural_time_token(t)).collect();
     let use_entity = ranking_entity.iter().any(|t| is_identifier(t)) || ranking_entity.len() > 2;
@@ -105,22 +163,12 @@ pub fn merge_recall_concept_tokens(text: &str, concept_tokens: &[String], limit:
     // words stay: dropping them left a mixed query matching only on product
     // names that half the history shares.
     let ranking: Vec<&str> = if use_entity {
-        entity_concepts
-            .iter()
-            .map(|t| t.as_str())
-            .chain(concepts.iter().filter(|t| !is_entity_concept(t)).map(String::as_str))
-            .collect()
+        entity_concepts.iter().map(|t| t.as_str()).chain(concepts.iter().filter(|t| !is_entity_concept(t)).map(String::as_str)).collect()
     } else {
         concepts.iter().map(String::as_str).collect()
     };
-    let source: Vec<&str> = if concepts.is_empty() {
-        raw
-    } else {
-        raw.into_iter()
-            .filter(|t| is_identifier(t) || is_concept_compound(t, &concepts))
-            .chain(ranking)
-            .collect()
-    };
+    let source: Vec<&str> =
+        if concepts.is_empty() { raw } else { raw.into_iter().filter(|t| is_identifier(t) || is_concept_compound(t, &concepts)).chain(ranking).collect() };
     let mut seen = HashSet::new();
     source
         .into_iter()
@@ -150,12 +198,7 @@ fn fts_tokens(tokens: Vec<String>) -> Vec<String> {
 
 /// Plain tokens for `websearch_to_tsquery`, space-joined; empty when nothing qualifies.
 pub fn build_fts_query(text: &str) -> String {
-    fts_tokens(tokenize_recall_query(text, 24))
-        .iter()
-        .map(|t| t.replace(['"', '\''], ""))
-        .filter(|t| !t.is_empty())
-        .collect::<Vec<_>>()
-        .join(" ")
+    fts_tokens(tokenize_recall_query(text, 24)).iter().map(|t| t.replace(['"', '\''], "")).filter(|t| !t.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
 /// A `to_tsquery` expression: every lexeme a prefix match (`:*`), AND-joined

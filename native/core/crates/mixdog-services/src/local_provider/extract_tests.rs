@@ -6,7 +6,9 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::EventSource;
-use mixdog_core_api::domain::process::{CommandSpec, ExitStatus, OutputStream, ProcessError, ProcessEvent, ProcessExit, ProcessInfo, ProcessManager, PtySize, SpawnRequest, SpawnedProcess};
+use mixdog_core_api::domain::process::{
+    CommandSpec, ExitStatus, OutputStream, ProcessError, ProcessEvent, ProcessExit, ProcessInfo, ProcessManager, PtySize, SpawnRequest, SpawnedProcess,
+};
 use mixdog_protocol::ProcessHandle;
 use tokio_util::sync::CancellationToken;
 
@@ -43,7 +45,12 @@ impl ProcessManager for Scripted {
         let CommandSpec::Argv { program, args } = &request.command else { panic!("argv expected") };
         let env = |key: &str| request.env.set.iter().find(|(k, _)| k == key).map(|(_, v)| v.clone());
         self.log.lock().unwrap().push((program.clone(), args.clone(), env("MIXDOG_LOCAL_ARCHIVE"), env("MIXDOG_LOCAL_DESTINATION")));
-        let mut events: VecDeque<ProcessEvent> = self.output.iter().enumerate().map(|(i, (stream, text))| ProcessEvent::Output { seq: i as u64, stream: stream.clone(), bytes: text.as_bytes().to_vec() }).collect();
+        let mut events: VecDeque<ProcessEvent> = self
+            .output
+            .iter()
+            .enumerate()
+            .map(|(i, (stream, text))| ProcessEvent::Output { seq: i as u64, stream: stream.clone(), bytes: text.as_bytes().to_vec() })
+            .collect();
         events.push_back(ProcessEvent::Exited { seq: events.len() as u64, exit: ProcessExit { status: ExitStatus::Code(self.code), killed: None } });
         self.replies.lock().unwrap().insert(request.handle.0.clone(), events);
         Ok(SpawnedProcess { handle: request.handle, pid: 1 })
@@ -94,7 +101,11 @@ async fn a_zip_is_expanded_by_powershell_from_variables_and_a_tarball_by_tar() {
     let (program, args, archive, destination) = &log[0];
     assert_eq!(program, "powershell");
     assert!(args.last().unwrap().contains("Expand-Archive -LiteralPath $env:MIXDOG_LOCAL_ARCHIVE -DestinationPath $env:MIXDOG_LOCAL_DESTINATION -Force"));
-    assert_eq!((archive.as_deref(), destination.as_deref()), (Some("/pkg/runtime.zip"), Some("/dest")), "paths travel in the environment, not the command line");
+    assert_eq!(
+        (archive.as_deref(), destination.as_deref()),
+        (Some("/pkg/runtime.zip"), Some("/dest")),
+        "paths travel in the environment, not the command line"
+    );
     assert_eq!(log[1], ("tar".to_owned(), ["-xzf", "/pkg/runtime.tar.gz", "-C", "/dest"].map(String::from).to_vec(), None, None));
 }
 

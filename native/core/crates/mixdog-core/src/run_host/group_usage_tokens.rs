@@ -108,7 +108,10 @@ impl GroupUsageTokens {
     /// Resolves once no background read is running (every read asked for so far has finished and
     /// woken the pool if its tokens differed).
     #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
     async fn idle(&self) {
         loop {
             let notified = self.idle.notified();
@@ -141,7 +144,19 @@ impl GroupUsageTokens {
             }
         }
         let Some(ledger) = self.source.if_open() else { return self.state().known.clone() };
-        let shape = serde_json::to_string(&groups.iter().map(|(owner, ids)| (owner, { let mut ids = ids.clone(); ids.sort(); ids })).collect::<Vec<_>>()).unwrap_or_default();
+        let shape = serde_json::to_string(
+            &groups
+                .iter()
+                .map(|(owner, ids)| {
+                    (owner, {
+                        let mut ids = ids.clone();
+                        ids.sort();
+                        ids
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .unwrap_or_default();
         let (this, groups, busy) = (Arc::clone(self), groups.to_vec(), Busy::new(self));
         drop(tokio::spawn(async move {
             let _busy = busy;
@@ -250,9 +265,12 @@ mod tests {
         let open = Arc::new(Open(Mutex::new(Some(ledger.clone()))));
         let wakes = Arc::new(AtomicUsize::new(0));
         let counter = wakes.clone();
-        let tokens = GroupUsageTokens::new(open.clone(), Arc::new(move || {
-            counter.fetch_add(1, Ordering::SeqCst);
-        }));
+        let tokens = GroupUsageTokens::new(
+            open.clone(),
+            Arc::new(move || {
+                counter.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
         (ledger, open, wakes, tokens)
     }
 
@@ -294,6 +312,4 @@ mod tests {
         *open.0.lock().unwrap() = None;
         assert!(tokens.tokens(&groups()).is_empty(), "asking never opens a ledger");
     }
-
-
 }

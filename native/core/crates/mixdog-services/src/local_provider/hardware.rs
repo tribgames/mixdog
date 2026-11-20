@@ -71,7 +71,14 @@ pub fn parse_nvidia_gpus(output: &str) -> Vec<Gpu> {
             if !uuid_ok || memory <= 0.0 || free < 0.0 || free > memory || !safe(memory) || !safe(free) {
                 return None;
             }
-            Some(Gpu { index, uuid: uuid.into(), vendor: "NVIDIA", name: parts[2..parts.len() - 2].join(", "), memory_bytes: memory as i64, free_memory_bytes: free as i64 })
+            Some(Gpu {
+                index,
+                uuid: uuid.into(),
+                vendor: "NVIDIA",
+                name: parts[2..parts.len() - 2].join(", "),
+                memory_bytes: memory as i64,
+                free_memory_bytes: free as i64,
+            })
         })
         .collect()
 }
@@ -141,7 +148,9 @@ pub enum GpuSelectError {
     Detection(String),
     #[error("[local-provider] model is missing a GPU memory estimate")]
     NoEstimate,
-    #[error("[local-provider] insufficient available GPU memory: estimated requirement {required} bytes; best compatible GPU has {best_free} bytes free. Free GPU memory or choose a smaller compatible model.")]
+    #[error(
+        "[local-provider] insufficient available GPU memory: estimated requirement {required} bytes; best compatible GPU has {best_free} bytes free. Free GPU memory or choose a smaller compatible model."
+    )]
     Insufficient { required: i64, best_free: i64 },
 }
 
@@ -165,7 +174,8 @@ pub fn select_gpu(hardware: &Hardware, estimated_vram: i64, minimum_vram: i64) -
 mod tests {
     use super::*;
 
-    const SMI: &str = "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\nbroken line\n2, not-a-uuid, X, 100, 50\n";
+    const SMI: &str =
+        "0, GPU-aaaa-1111, NVIDIA RTX 4090, 24564, 20000\n1, GPU-bbbb-2222, NVIDIA RTX 3060, 12288, 12000\nbroken line\n2, not-a-uuid, X, 100, 50\n";
 
     #[test]
     fn nvidia_output_is_parsed_strictly() {
@@ -213,7 +223,15 @@ mod tests {
 
     #[test]
     fn gpu_selection_prefers_the_most_free_memory_that_fits() {
-        let hw = Hardware { platform: "windows".into(), arch: "x86_64".into(), gpus: parse_nvidia_gpus(SMI), supported: true, checking: false, checked_at: None, error: None };
+        let hw = Hardware {
+            platform: "windows".into(),
+            arch: "x86_64".into(),
+            gpus: parse_nvidia_gpus(SMI),
+            supported: true,
+            checking: false,
+            checked_at: None,
+            error: None,
+        };
         assert_eq!(select_gpu(&hw, 10_000 * MIB, 10_000 * MIB).unwrap().index, 0);
         assert_eq!(select_gpu(&hw, 30_000 * MIB, 1), Err(GpuSelectError::Insufficient { required: 30_000 * MIB, best_free: 20_000 * MIB }));
         assert_eq!(select_gpu(&hw, 0, 0), Err(GpuSelectError::NoEstimate));
@@ -221,7 +239,6 @@ mod tests {
         none.supported = false;
         assert!(matches!(select_gpu(&none, 1, 1), Err(GpuSelectError::Detection(_))));
     }
-
 
     #[tokio::test]
     async fn a_probe_command_reports_output_failure_and_a_missing_program() {
@@ -232,7 +249,6 @@ mod tests {
         assert!(probe_command(&processes, "definitely-not-a-binary-xyz", &[]).await.unwrap_err().contains("not found"));
     }
 }
-
 
 pub fn host_platform_key() -> &'static str {
     platform_key(std::env::consts::OS, std::env::consts::ARCH)
@@ -253,7 +269,15 @@ impl HardwareProbe {
             arch: arch.into(),
             supported_platform,
             cache_ms: cache_ms.unwrap_or(CACHE_MS),
-            value: Mutex::new(Hardware { platform: os.into(), arch: arch.into(), gpus: Vec::new(), supported: false, checking: supported_platform, checked_at: None, error: None }),
+            value: Mutex::new(Hardware {
+                platform: os.into(),
+                arch: arch.into(),
+                gpus: Vec::new(),
+                supported: false,
+                checking: supported_platform,
+                checked_at: None,
+                error: None,
+            }),
         })
     }
 
@@ -320,7 +344,15 @@ impl HardwareProbe {
             }
             Err(message) => (Vec::new(), Some(message)),
         };
-        let next = Hardware { platform: self.os.clone(), arch: self.arch.clone(), supported: !gpus.is_empty(), gpus, checking: false, checked_at: Some(now_ms()), error };
+        let next = Hardware {
+            platform: self.os.clone(),
+            arch: self.arch.clone(),
+            supported: !gpus.is_empty(),
+            gpus,
+            checking: false,
+            checked_at: Some(now_ms()),
+            error,
+        };
         let changed = {
             let mut value = self.value.lock().unwrap();
             let changed = value.gpus != next.gpus || value.supported != next.supported || value.checking != next.checking || value.error != next.error;
@@ -364,8 +396,22 @@ async fn query_nvidia(processes: &Processes) -> Result<Query, String> {
 }
 async fn query_apple(processes: &Processes) -> Result<Query, String> {
     // macOS before 14 has no such key.
-    let limit = probe_command(processes, "/usr/sbin/sysctl", &["-n", "iogpu.wired_limit_mb"]).await.ok().map(|text| mixdog_js::string_to_number(&text)).filter(|n| n.is_finite()).map_or(0, |n| n as i64);
-    let total = probe_command(processes, "/usr/sbin/sysctl", &["-n", "hw.memsize"]).await.ok().and_then(|text| mixdog_js::js_trim(&text).parse::<i64>().ok()).unwrap_or(0);
-    let name = probe_command(processes, "/usr/sbin/sysctl", &["-n", "machdep.cpu.brand_string"]).await.ok().map(|text| mixdog_js::js_trim(&text).to_owned()).filter(|n| !n.is_empty()).unwrap_or_else(|| "Apple Silicon".into());
+    let limit = probe_command(processes, "/usr/sbin/sysctl", &["-n", "iogpu.wired_limit_mb"])
+        .await
+        .ok()
+        .map(|text| mixdog_js::string_to_number(&text))
+        .filter(|n| n.is_finite())
+        .map_or(0, |n| n as i64);
+    let total = probe_command(processes, "/usr/sbin/sysctl", &["-n", "hw.memsize"])
+        .await
+        .ok()
+        .and_then(|text| mixdog_js::js_trim(&text).parse::<i64>().ok())
+        .unwrap_or(0);
+    let name = probe_command(processes, "/usr/sbin/sysctl", &["-n", "machdep.cpu.brand_string"])
+        .await
+        .ok()
+        .map(|text| mixdog_js::js_trim(&text).to_owned())
+        .filter(|n| !n.is_empty())
+        .unwrap_or_else(|| "Apple Silicon".into());
     Ok(Query::Apple { name, total_bytes: total, wired_limit_mb: limit })
 }

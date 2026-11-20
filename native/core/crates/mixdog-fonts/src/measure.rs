@@ -186,12 +186,11 @@ struct Region {
 fn is_cursive(run: &str) -> bool {
     use unicode_script::Script;
     use unicode_script::UnicodeScript;
-    run.chars()
-        .map(|character| character.script())
-        .find(|script| !matches!(script, Script::Common | Script::Inherited | Script::Unknown))
-        .is_some_and(|script| {
+    run.chars().map(|character| character.script()).find(|script| !matches!(script, Script::Common | Script::Inherited | Script::Unknown)).is_some_and(
+        |script| {
             matches!(script, Script::Arabic | Script::Hanifi_Rohingya | Script::Mandaic | Script::Mongolian | Script::Nko | Script::Phags_Pa | Script::Syriac)
-        })
+        },
+    )
 }
 
 /// Characters the shaper does not take part in the font resolution of (they join the run they are in).
@@ -296,13 +295,7 @@ fn actual_bounds(placed: &[Placed]) -> (f32, f32, f32, f32) {
 }
 
 /// `measureText` for a parsed font.
-pub fn measure_parsed<P: ReadProof>(
-    proof: &P,
-    registry: &Registry,
-    font: &ParsedFont,
-    text: &str,
-    options: &MeasureOptions,
-) -> Result<TextMetrics, FontError> {
+pub fn measure_parsed<P: ReadProof>(proof: &P, registry: &Registry, font: &ParsedFont, text: &str, options: &MeasureOptions) -> Result<TextMetrics, FontError> {
     if text.contains('\0') {
         return Err(FontError::InvalidText);
     }

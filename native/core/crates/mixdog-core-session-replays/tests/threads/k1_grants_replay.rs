@@ -30,76 +30,7 @@
 //! | S5 (7) | `gate.remember` `["once","session"]` (shown: `["once","agent"]`); answered `remember` `session` while the home session is a schedule run | no session grant: step 9 (after the run ends) asks with `["once","session","agent"]` | not exercisable, for H8's reason; `answer` asserts no card was answered; step 9 compared whole in `session_5_…` |
 //! | S6 (1, 2, 5, 6) | `gate.remember` `["once","session","agent"]` (shown: `["once"]`), then `undefined` (Node offers every scope, `gate.mjs:383`); answered `remember` `session`, then `agent`, for a payment and a permanent delete | no grant: `grants` at step 8 is `[]`; steps 3, 7, 10, 11 ask with `["once"]` | the forged gate reaches `record_decision`; step 8's grants and the decides compared whole in `session_6_…` |
 
-
-
-
-
 std::thread_local! {
     /// The case being replayed, for a failure the comparison does not report (a test's runtime is one thread).
     static CASE: std::cell::RefCell<String> = const { std::cell::RefCell::new(String::new()) };
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

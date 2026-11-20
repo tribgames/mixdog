@@ -25,7 +25,6 @@ use super::RoomError;
 use super::calls::{CallRunner, Request, RoomCalls};
 use super::config::{AskError, MemberName, parse_room_ask};
 use super::exchange::Decision;
-use super::user_send::{UserMessage, prompt_text, room_upload, submission_row_id};
 use super::exchange_run::{RoomExchangeHost, RoomHosts, SupervisorStep};
 use super::maintainer::Maintainer;
 use super::member_turn::{MemberHost, PersistFuture, SubmitOptions};
@@ -34,9 +33,10 @@ use super::row_message::{normalize_room_row, room_row_message};
 use super::runner::RoomRowsSource;
 use super::service::{new_room_id, route_params};
 use super::sessions::{AgentCatalog, SessionOps};
-use super::turn_post::approval_id;
 use super::turn_host::{Activity, MemberLabel, RoomRecord, RoomTurnHost, TurnState};
+use super::turn_post::approval_id;
 use super::turn_prompt::RoomPrompt;
+use super::user_send::{UserMessage, prompt_text, room_upload, submission_row_id};
 
 /// The rows this host posted that are kept per room (`RECENT_ROWS`).
 const RECENT_ROWS: usize = 200;
@@ -410,7 +410,12 @@ impl LiveRooms {
     /// room, a submission accepted before (acknowledged, nothing posted: false), the addressees (`/ask`) against every member, a
     /// switched-off one refused, the files going up with the row, the row posted (the log's intake stores the files or
     /// refuses them), the room's last line, the route (unless stopped meanwhile), the room saved with the submission id.
-    pub async fn send<S: RoomStore + 'static, R: CallRunner + 'static>(&self, rooms: &Rooms<S>, calls: &Arc<RoomCalls<R>>, message: &UserMessage) -> Result<bool, RoomError> {
+    pub async fn send<S: RoomStore + 'static, R: CallRunner + 'static>(
+        &self,
+        rooms: &Rooms<S>,
+        calls: &Arc<RoomCalls<R>>,
+        message: &UserMessage,
+    ) -> Result<bool, RoomError> {
         let room_id = room_id_of_session(&message.session_id).unwrap_or_default();
         let intake = calls.intake(&room_id);
         // A plain `Error` in Node (`agent-room-records.ts:102-105`): no code on the wire.

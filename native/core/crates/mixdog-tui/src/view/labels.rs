@@ -112,7 +112,9 @@ mod tests {
 
     #[test]
     fn an_api_key_prompt_says_where_the_key_comes_from_and_where_it_goes() {
-        let fields = provider_prompt_fields(&json!({ "kind": "api-key", "mode": "replace", "label": "OpenAI", "envName": "OPENAI_API_KEY", "source": "env", "keyUrl": "https://k.example", "hint": "extra" }));
+        let fields = provider_prompt_fields(
+            &json!({ "kind": "api-key", "mode": "replace", "label": "OpenAI", "envName": "OPENAI_API_KEY", "source": "env", "keyUrl": "https://k.example", "hint": "extra" }),
+        );
         assert_eq!(fields.title, "Replace API key \u{b7} OpenAI");
         assert_eq!(fields.hint, "Env: OPENAI_API_KEY \u{b7} Current: env \u{b7} Get a key: https://k.example \u{b7} extra \u{b7} Stored in the OS keychain.");
         assert_eq!(fields.prompt_label, "API key > ");

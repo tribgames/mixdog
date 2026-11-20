@@ -407,10 +407,8 @@ mod tests;
 
 /// Flushes every writer of the process (the exit hook: `process.on('exit', _flushToolFailuresSync)`).
 pub async fn flush_all() {
-    let writers: Vec<Arc<FailureWriter>> = WRITERS
-        .get()
-        .map(|writers| writers.lock().unwrap_or_else(PoisonError::into_inner).values().cloned().collect())
-        .unwrap_or_default();
+    let writers: Vec<Arc<FailureWriter>> =
+        WRITERS.get().map(|writers| writers.lock().unwrap_or_else(PoisonError::into_inner).values().cloned().collect()).unwrap_or_default();
     for writer in writers {
         writer.flush().await;
     }
@@ -506,10 +504,8 @@ impl ToolFailureLog for RunFailureLog {
                 "resultCompletedAt": t.result_completed_at,
             });
         }
-        args["executionIntervals"] = execution_intervals
-            .iter()
-            .map(|(started, completed)| json!({ "started_at_ms": started, "completed_at_ms": completed }))
-            .collect();
+        args["executionIntervals"] =
+            execution_intervals.iter().map(|(started, completed)| json!({ "started_at_ms": started, "completed_at_ms": completed })).collect();
         if let Some(telemetry) = result_telemetry {
             args["resultTelemetry"] = telemetry;
         }

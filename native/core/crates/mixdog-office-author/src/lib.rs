@@ -12,25 +12,25 @@
 //! `<workbook>.mixdog-source.html` and the sheet pictures).
 
 pub mod brief;
-pub mod contact_sheet;
-pub mod review_artifacts;
-pub mod source_drift;
 pub mod cdp;
+pub mod contact_sheet;
+pub mod docx_build;
+pub mod docx_html_runner;
 pub mod geometry;
 pub mod html_browser;
 pub mod icons;
+mod link_target;
 pub mod measure_deck;
-pub mod page;
-pub mod pptx_writer;
 pub mod measure_docx;
 pub mod measure_xlsx;
-pub mod pdf_print;
 pub mod normalize;
-pub mod receipt;
-mod link_target;
+pub mod page;
+pub mod pdf_print;
 pub mod pptx_build;
 pub mod pptx_html_runner;
-pub mod docx_build;
-pub mod docx_html_runner;
+pub mod pptx_writer;
+pub mod receipt;
+pub mod review_artifacts;
+pub mod source_drift;
 pub mod xlsx_build;
 pub mod xlsx_html_runner;

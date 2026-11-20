@@ -81,7 +81,6 @@ mod tests {
         assert!(used.exists(), "an install a process runs from is kept");
     }
 
-
     #[test]
     fn lists_this_process_with_its_own_image() {
         let own = std::env::current_exe().unwrap();

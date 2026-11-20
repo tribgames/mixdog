@@ -153,10 +153,7 @@ impl SessionMetadata {
 
     /// Parses the file's bytes; also returns the lone surrogates replaced.
     pub fn parse(bytes: &[u8]) -> Step<(Self, u64)> {
-        let Parsed {
-            value,
-            replaced_surrogates,
-        } = source::parse_json(bytes)?;
+        let Parsed { value, replaced_surrogates } = source::parse_json(bytes)?;
         Ok((Self::from_value(&value), replaced_surrogates))
     }
 
@@ -177,11 +174,7 @@ impl SessionMetadata {
 
     /// The entries of migrated sessions, `id -> set`, as a JSON object.
     fn migrated(&self, is_migrated: impl Fn(&str) -> bool) -> Map<String, Value> {
-        self.entries
-            .iter()
-            .filter(|(id, _)| is_migrated(id))
-            .map(|(id, meta)| (id.clone(), Value::Object(meta.to_set())))
-            .collect()
+        self.entries.iter().filter(|(id, _)| is_migrated(id)).map(|(id, meta)| (id.clone(), Value::Object(meta.to_set()))).collect()
     }
 }
 
@@ -223,11 +216,7 @@ fn read_entry(id: &str, value: &Value) -> Option<ReadState> {
     }
     let epoch = number("epoch");
     let stamped = cursor.contains_key("epoch") && jsvalue::is_safe_integer(epoch) && epoch >= 0.0;
-    Some(ReadState {
-        message_count: message_count as u64,
-        revision: revision as u64,
-        epoch: stamped.then_some(epoch as u64),
-    })
+    Some(ReadState { message_count: message_count as u64, revision: revision as u64, epoch: stamped.then_some(epoch as u64) })
 }
 
 fn is_migrated(cx: &ItemContext<'_>, id: &str) -> bool {
@@ -237,12 +226,7 @@ fn is_migrated(cx: &ItemContext<'_>, id: &str) -> bool {
 /// The metadata file, parsed from the shared source of the manifest; empty when the
 /// manifest carries none.
 pub(super) fn load(cx: &ItemContext<'_>) -> Step<(SessionMetadata, u64)> {
-    let shared = cx
-        .manifest
-        .shared
-        .iter()
-        .map(|shared| &shared.file)
-        .find(|file| file.root == Root::Profile && file.path == SESSION_METADATA_FILE);
+    let shared = cx.manifest.shared.iter().map(|shared| &shared.file).find(|file| file.root == Root::Profile && file.path == SESSION_METADATA_FILE);
     let Some(file) = shared else {
         return Ok(Default::default());
     };
@@ -292,13 +276,7 @@ fn dangling_key(item: &ManifestItem) -> String {
 /// disposal deletes before the completion marker counts it.
 pub(super) fn publish(cx: &ItemContext<'_>, cache: &MetadataCache, item: &ManifestItem) -> Step<()> {
     let dangling = cache.get(cx)?.0.dangling(|id| is_migrated(cx, id));
-    state_tables::put_meta(
-        cx,
-        &[
-            (meta_key(item), cx.manifest_sha256.to_owned()),
-            (dangling_key(item), dangling.to_string()),
-        ],
-    )
+    state_tables::put_meta(cx, &[(meta_key(item), cx.manifest_sha256.to_owned()), (dangling_key(item), dangling.to_string())])
 }
 
 pub(super) fn withdraw(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<()> {
@@ -325,10 +303,7 @@ pub(super) fn stage(cx: &ItemContext<'_>, cache: &MetadataCache, item: &Manifest
     let bytes = source::canonical_text(&applied(metadata, cx)).into_bytes();
     let path = cx.stage_dir(item.key.as_str()).join(SESSION_STAGE_FILE);
     fsx::write_new(&path, &bytes, true).map_err(|error| ApplyError::io("write", &path, error))?;
-    Ok(Staged {
-        output_sha256: durable::sha256_hex(&bytes),
-        replaced_surrogates,
-    })
+    Ok(Staged { output_sha256: durable::sha256_hex(&bytes), replaced_surrogates })
 }
 
 /// Verification: the file read afresh says what was staged. That every migrated session
@@ -337,17 +312,11 @@ pub(super) fn stage(cx: &ItemContext<'_>, cache: &MetadataCache, item: &Manifest
 pub(super) fn verify(cx: &ItemContext<'_>, cache: &MetadataCache, item: &ManifestItem) -> Step<Digest> {
     let value = applied(&cache.get(cx)?.0, cx);
     if state_tables::get_meta(cx, &meta_key(item))?.as_deref() != Some(cx.manifest_sha256) {
-        return Err(ApplyError::quarantine(
-            QuarantineCode::DigestMismatch,
-            "the item's record names another manifest",
-        ));
+        return Err(ApplyError::quarantine(QuarantineCode::DigestMismatch, "the item's record names another manifest"));
     }
     let staged = cx.stage_dir(item.key.as_str()).join(SESSION_STAGE_FILE);
     if durable::read_optional(&staged)?.is_some_and(|bytes| bytes != source::canonical_text(&value).as_bytes()) {
-        return Err(ApplyError::quarantine(
-            QuarantineCode::DigestMismatch,
-            "the metadata differs from what was staged",
-        ));
+        return Err(ApplyError::quarantine(QuarantineCode::DigestMismatch, "the metadata differs from what was staged"));
     }
     Ok(source::digest_value(&value))
 }
@@ -379,14 +348,7 @@ mod tests {
         assert_eq!(s1.name.as_deref(), Some("My name"));
         assert_eq!(s1.archived_at, Some(Number::from(1_700_000_000_000u64)));
         assert_eq!(s1.project.as_deref(), Some(""));
-        assert_eq!(
-            s1.read_state,
-            Some(ReadState {
-                message_count: 4,
-                revision: 2,
-                epoch: Some(1)
-            })
-        );
+        assert_eq!(s1.read_state, Some(ReadState { message_count: 4, revision: 2, epoch: Some(1) }));
         let s2 = metadata.meta_for("s2").unwrap();
         assert_eq!((s2.title.as_deref(), s2.read_state.clone()), (None, None));
         assert!(s2.favorite_at.is_some());

@@ -97,27 +97,10 @@ pub enum PointerButton {
 /// Remote-control input in display pixels of the shared screen.
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ScreenInput {
-    Move {
-        x: i32,
-        y: i32,
-    },
-    Button {
-        button: PointerButton,
-        down: bool,
-        at: Option<(i32, i32)>,
-    },
-    Wheel {
-        x: i32,
-        y: i32,
-        dx: i32,
-        dy: i32,
-    },
-    Key {
-        vk: u32,
-        scan: u32,
-        extended: bool,
-        down: bool,
-    },
+    Move { x: i32, y: i32 },
+    Button { button: PointerButton, down: bool, at: Option<(i32, i32)> },
+    Wheel { x: i32, y: i32, dx: i32, dy: i32 },
+    Key { vk: u32, scan: u32, extended: bool, down: bool },
     Text(String),
 }
 
@@ -161,11 +144,7 @@ pub struct ComputerStatus {
 #[async_trait]
 pub trait ComputerBackend: Send + Sync {
     /// One `computer` tool action; runs on the backend's session thread.
-    async fn run(
-        &self,
-        request: ComputerRequest,
-        cancel: CancellationToken,
-    ) -> Result<Vec<ToolPart>, ComputerError>;
+    async fn run(&self, request: ComputerRequest, cancel: CancellationToken) -> Result<Vec<ToolPart>, ComputerError>;
     /// Phone remote-control input, injected in-process.
     fn inject(&self, input: ScreenInput) -> Result<InputOutcome, ComputerError>;
     /// Releases every key and button this backend holds down; returns the count.
@@ -173,8 +152,7 @@ pub trait ComputerBackend: Send + Sync {
     /// `None` while the input desktop is unreadable.
     fn input_desktop(&self) -> Option<DesktopIdentity>;
     fn displays(&self) -> Result<Vec<DisplayInfo>, ComputerError>;
-    fn screen_source(&self, display: DisplayId)
-    -> Result<Box<dyn MediaFrameSource>, ComputerError>;
+    fn screen_source(&self, display: DisplayId) -> Result<Box<dyn MediaFrameSource>, ComputerError>;
     fn status(&self) -> ComputerStatus;
 }
 

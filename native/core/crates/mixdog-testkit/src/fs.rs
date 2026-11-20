@@ -87,8 +87,7 @@ pub fn is_readonly(path: impl AsRef<Path>) -> bool {
 
 pub fn set_readonly(path: impl AsRef<Path>, readonly: bool) {
     let path = path.as_ref();
-    let mut permissions =
-        std::fs::metadata(path).unwrap_or_else(|e| panic!("metadata {}: {e}", path.display())).permissions();
+    let mut permissions = std::fs::metadata(path).unwrap_or_else(|e| panic!("metadata {}: {e}", path.display())).permissions();
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;

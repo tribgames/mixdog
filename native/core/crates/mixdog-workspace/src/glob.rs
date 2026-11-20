@@ -79,11 +79,7 @@ pub fn ignore_rules(source: &str, base: &str) -> Vec<IgnoreRule> {
                 return None;
             }
             let expression = glob_expression(pattern);
-            let full = if anchored || pattern.contains('/') {
-                format!("^{expression}(?:/.*)?$")
-            } else {
-                format!("(?:^|/){expression}(?:/.*)?$")
-            };
+            let full = if anchored || pattern.contains('/') { format!("^{expression}(?:/.*)?$") } else { format!("(?:^|/){expression}(?:/.*)?$") };
             Some(IgnoreRule { base: base.to_owned(), ignored, directory_only, matcher: Regex::new(&full).ok()? })
         })
         .collect()
@@ -92,13 +88,11 @@ pub fn ignore_rules(source: &str, base: &str) -> Vec<IgnoreRule> {
 pub fn ignored_path(path: &str, directory: bool, rules: &[IgnoreRule]) -> bool {
     let mut ignored = false;
     for rule in rules {
-        let candidate = if rule.base.is_empty() {
-            Some(path)
-        } else {
-            path.strip_prefix(rule.base.as_str()).and_then(|rest| rest.strip_prefix('/'))
-        };
+        let candidate = if rule.base.is_empty() { Some(path) } else { path.strip_prefix(rule.base.as_str()).and_then(|rest| rest.strip_prefix('/')) };
         if let Some(candidate) = candidate
-            && (!rule.directory_only || directory) && rule.matcher.is_match(candidate) {
+            && (!rule.directory_only || directory)
+            && rule.matcher.is_match(candidate)
+        {
             ignored = rule.ignored;
         }
     }

@@ -44,9 +44,7 @@ fn id_of(value: Option<&Value>) -> String {
 fn has_text(content: Option<&Value>) -> bool {
     match content {
         Some(Value::String(s)) => !js_trim(s).is_empty(),
-        Some(Value::Array(parts)) => parts
-            .iter()
-            .any(|p| p.get("text").and_then(Value::as_str).is_some_and(|t| !js_trim(t).is_empty())),
+        Some(Value::Array(parts)) => parts.iter().any(|p| p.get("text").and_then(Value::as_str).is_some_and(|t| !js_trim(t).is_empty())),
         _ => false,
     }
 }
@@ -61,8 +59,7 @@ impl Facets {
                 _ => None,
             },
         };
-        let mut ids: Vec<String> =
-            calls.into_iter().flatten().map(|c| id_of(c.get("id"))).filter(|id| !id.is_empty()).collect();
+        let mut ids: Vec<String> = calls.into_iter().flatten().map(|c| id_of(c.get("id"))).filter(|id| !id.is_empty()).collect();
         if role == "tool" {
             let result = match message.get("tool_call_id").filter(|v| truthy(v)) {
                 Some(v) => value_to_string(v),
@@ -86,11 +83,7 @@ impl Facets {
     pub fn rows(&self, iid: &str) -> FacetRows {
         let iid = self.id_of(iid);
         let kind = if matches!(self.role.as_str(), "user" | "assistant") { self.role.as_str() } else { "notice" };
-        let text_row = |kind: &str| ArchiveRow {
-            kind: kind.into(),
-            message_id: Some(iid.to_owned()),
-            ..ArchiveRow::default()
-        };
+        let text_row = |kind: &str| ArchiveRow { kind: kind.into(), message_id: Some(iid.to_owned()), ..ArchiveRow::default() };
         // A user prompt always has its row; a reply only with text; a tool message is
         // its card; any other message is a row of its own.
         let has_text_row = match self.role.as_str() {
@@ -98,11 +91,8 @@ impl Facets {
             "assistant" => self.text,
             _ => true,
         };
-        let calls: Vec<ArchiveRow> = self
-            .calls
-            .iter()
-            .map(|id| ArchiveRow { kind: "tool".into(), call_id: Some(id.clone()), ..ArchiveRow::default() })
-            .collect();
+        let calls: Vec<ArchiveRow> =
+            self.calls.iter().map(|id| ArchiveRow { kind: "tool".into(), call_id: Some(id.clone()), ..ArchiveRow::default() }).collect();
         let text = if has_text_row {
             Some(text_row(kind))
         } else if calls.is_empty() {

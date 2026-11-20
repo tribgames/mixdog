@@ -22,9 +22,7 @@ use std::cmp::Ordering;
 use unicode_segmentation::UnicodeSegmentation;
 
 use crate::strip::strip_ansi;
-use crate::width_tables::{
-    AMBIGUOUS, EXTENDED_PICTOGRAPHIC, NOT_VISIBLE, RGI_SEQUENCES, RGI_SINGLE, SPACING_MARK, WIDE,
-};
+use crate::width_tables::{AMBIGUOUS, EXTENDED_PICTOGRAPHIC, NOT_VISIBLE, RGI_SEQUENCES, RGI_SINGLE, SPACING_MARK, WIDE};
 
 /// The options of `stringWidth(input, options)`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -65,11 +63,7 @@ fn in_ranges(ranges: &[(u32, u32)], cp: u32) -> bool {
 /// when asked), otherwise 1.
 fn east_asian_width(ch: char, ambiguous_as_wide: bool) -> usize {
     let cp = u32::from(ch);
-    if in_ranges(WIDE, cp) || (ambiguous_as_wide && in_ranges(AMBIGUOUS, cp)) {
-        2
-    } else {
-        1
-    }
+    if in_ranges(WIDE, cp) || (ambiguous_as_wide && in_ranges(AMBIGUOUS, cp)) { 2 } else { 1 }
 }
 
 fn is_visible(ch: char) -> bool {
@@ -114,8 +108,7 @@ fn is_double_width_non_rgi_sequence(segment: &str) -> bool {
     {
         return true;
     }
-    segment.contains(ZWJ)
-        && segment.chars().filter(|&c| in_ranges(EXTENDED_PICTOGRAPHIC, u32::from(c))).take(2).count() >= 2
+    segment.contains(ZWJ) && segment.chars().filter(|&c| in_ranges(EXTENDED_PICTOGRAPHIC, u32::from(c))).take(2).count() >= 2
 }
 
 /// The cluster from its first visible code point, or `None` when the whole cluster is invisible.

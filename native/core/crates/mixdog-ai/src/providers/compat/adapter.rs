@@ -6,8 +6,8 @@
 //!
 //! The HTTP exchange is the shared `transport::HttpSend` seam.
 
-use crate::transport::deadlines::compat_model_list;
 use crate::transport::deadlines::MODEL_STREAM;
+use crate::transport::deadlines::compat_model_list;
 use crate::transport::model_driver::Expiry;
 use crate::transport::model_driver::ModelCall;
 use crate::transport::model_driver::ModelDriver;
@@ -20,11 +20,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
-use mixdog_core_api::domain::provider::{
-    DeliveryState, ModelRequest, ModelStream, ProviderAdapter, ProviderError, StreamEvent,
-    WireCodec, WireDecoder, WireRequest,
-};
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::{
+    DeliveryState, ModelRequest, ModelStream, ProviderAdapter, ProviderError, StreamEvent, WireCodec, WireDecoder, WireRequest,
+};
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 
@@ -52,11 +51,7 @@ pub fn redact_key(value: &str, key: &str) -> String {
     let mut out = String::with_capacity(value.len());
     let mut i = 0;
     while i < chars.len() {
-        let run = chars[i..]
-            .iter()
-            .zip(&key)
-            .take_while(|(a, b)| a == b)
-            .count();
+        let run = chars[i..].iter().zip(&key).take_while(|(a, b)| a == b).count();
         if run >= min {
             out.push_str("[redacted]");
             i += run;
@@ -117,13 +112,7 @@ async fn fetch_listing(
     let final_url = url.clone();
     let response = http
         .send(
-            WireRequest {
-                transport: mixdog_core_api::domain::keepalive::TransportKind::Http1,
-                method: "GET".into(),
-                url,
-                headers,
-                body: Vec::new(),
-            },
+            WireRequest { transport: mixdog_core_api::domain::keepalive::TransportKind::Http1, method: "GET".into(), url, headers, body: Vec::new() },
             compat_model_list(profile.id),
         )
         .await?;
@@ -166,7 +155,13 @@ async fn fetch_listing(
 /// driver calls this once per expiry); the first-output and idle windows are the stream stall (`streamStalledError`,
 /// `stall-policy.mjs:161`: `ESTREAMSTALL`, transient, phase `idle`, unsafe to retry once a tool call was dispatched); the
 /// recovery's generation total is the re-issue's own timeout.
-fn expired(label: &str, gate: Option<&crate::providers::head_wait::FirstByteGate>, expiry: Expiry, delivery: DeliveryState, exposure: Exposure) -> ProviderError {
+fn expired(
+    label: &str,
+    gate: Option<&crate::providers::head_wait::FirstByteGate>,
+    expiry: Expiry,
+    delivery: DeliveryState,
+    exposure: Exposure,
+) -> ProviderError {
     let ms = expiry.window.as_millis();
     let mut err = ProviderError::new(ErrorKind::Transient, delivery);
     err.timed_out = true;
@@ -317,9 +312,7 @@ mod site_tests {
     async fn a_model_list_that_outlives_its_timer_fails() {
         let transport = crate::transport::timeout_probe::NeverAnswers::new();
         let profile = CompatProfile::plain("groq", "http://x.test/v1", CredentialKind::Keyless);
-        let error = fetch_json(transport.as_ref(), &profile, "http://x.test/v1/models".to_owned(), &[], None)
-            .await
-            .expect_err("the endpoint never answers");
+        let error = fetch_json(transport.as_ref(), &profile, "http://x.test/v1/models".to_owned(), &[], None).await.expect_err("the endpoint never answers");
         assert!(!error.message.is_empty());
         transport.assert_each_request_was_bounded(1);
     }
@@ -330,9 +323,7 @@ mod site_tests {
     async fn a_model_list_that_outlives_its_timer_reads_as_nodes() {
         let transport = TimingOut::new();
         let profile = CompatProfile::plain("groq", "http://x.test/v1", CredentialKind::Keyless);
-        let error = fetch_json(transport.as_ref(), &profile, "http://x.test/v1/models".to_owned(), &[], None)
-            .await
-            .expect_err("the endpoint never answers");
+        let error = fetch_json(transport.as_ref(), &profile, "http://x.test/v1/models".to_owned(), &[], None).await.expect_err("the endpoint never answers");
         assert_transport("compatModelList", &transport);
         assert_thrown("compatModelList", &error.message);
     }
@@ -353,17 +344,13 @@ mod site_tests {
             fetch(CompatProfile::command_code_oauth(), "https://api.commandcode.ai/provider/v1/models").await,
             "[command-code-oauth] /provider/v1/models returned invalid JSON"
         );
-        assert_eq!(
-            fetch(CompatProfile::opencode_go(), "https://opencode.ai/api/config").await,
-            "[opencode-go-oauth] /api/config 200: <html>no</html>"
-        );
+        assert_eq!(fetch(CompatProfile::opencode_go(), "https://opencode.ai/api/config").await, "[opencode-go-oauth] /api/config 200: <html>no</html>");
         for profile in [CompatProfile::mimo_oauth(), CompatProfile::muse_code_oauth()] {
             let message = fetch(profile, "https://x.test/v1/models").await;
             assert!(message.contains("Unexpected token '<', \"<html>no</html>\" is not valid JSON"), "{message}");
         }
     }
 }
-
 
 pub struct CompatAdapter {
     id: ProviderId,
@@ -400,19 +387,11 @@ impl CompatAdapter {
         self
     }
 
-    pub fn new(
-        codec: CompatChatCodec,
-        http: Arc<dyn HttpSend>,
-        key: Option<Arc<dyn ApiKeySource>>,
-    ) -> Self {
+    pub fn new(codec: CompatChatCodec, http: Arc<dyn HttpSend>, key: Option<Arc<dyn ApiKeySource>>) -> Self {
         #[cfg(feature = "count-work")]
         crate::work::provider_built();
         let profile = codec.profile();
-        debug_assert_eq!(
-            key.is_none(),
-            profile.credential == CredentialKind::Keyless,
-            "a keyless profile has no key source and a keyed one has"
-        );
+        debug_assert_eq!(key.is_none(), profile.credential == CredentialKind::Keyless, "a keyless profile has no key source and a keyed one has");
         Self {
             id: ProviderId::from(profile.id),
             policy: profile.retry_policy(),
@@ -451,9 +430,7 @@ impl CompatAdapter {
     fn with_key(wire: &WireRequest, key: Option<&str>) -> WireRequest {
         let mut request = wire.clone();
         if let Some(key) = key {
-            request
-                .headers
-                .push(("authorization".into(), format!("Bearer {key}")));
+            request.headers.push(("authorization".into(), format!("Bearer {key}")));
         }
         request
     }
@@ -476,8 +453,7 @@ impl CompatAdapter {
     /// Whether a rejected key may change under us (a static config key can be
     /// edited; a login-issued key needs a new login instead).
     fn reloadable(profile: &CompatProfile) -> bool {
-        profile.credential == CredentialKind::StaticKey { reauth_on_401: false }
-            && !super::login::opencode_go::gateway_owns_auth_recovery()
+        profile.credential == CredentialKind::StaticKey { reauth_on_401: false } && !super::login::opencode_go::gateway_owns_auth_recovery()
     }
 
     pub(crate) fn opencode_auth(&self) -> Option<&super::login::opencode_go::OpenCodeGoAuth> {
@@ -538,7 +514,11 @@ impl ProviderAdapter for CompatAdapter {
     /// `compatFirstResponseBudget(this.name, chatProfile)`: a profile with a first-byte window of its own (Mimo's 285 s) declares it:
     /// one attempt's head wait and the same window again for its first payload, never Node's sum over the retry ladder (the
     /// watchdog's clock restarts with every attempt); one on the shared window leaves the watchdog's default.
-    fn first_response_budget(&self, _model: &str, _parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
+    fn first_response_budget(
+        &self,
+        _model: &str,
+        _parameters: Option<&mixdog_protocol::JsonValue>,
+    ) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
         let policy = self.first_byte.compat(self.profile().chat.first_byte?);
         Some(crate::providers::first_byte::attempt_budget(&policy))
     }
@@ -568,8 +548,7 @@ impl ProviderAdapter for CompatAdapter {
     /// on: nothing reached the caller, no call was cut or dispatched, and it is transient, stalled or a truncated
     /// stream.
     fn recovers_spent(&self, _model: &str, failure: &ProviderError) -> bool {
-        let exposed =
-            failure.unsafe_to_retry || failure.exposure.text_emitted || failure.exposure.tool_dispatched || failure.exposure.tool_input_cut;
+        let exposed = failure.unsafe_to_retry || failure.exposure.text_emitted || failure.exposure.tool_dispatched || failure.exposure.tool_input_cut;
         let transient = matches!(failure.kind, ErrorKind::Transient | ErrorKind::Overloaded)
             || failure.timed_out
             || failure.transport == Some(mixdog_core_api::domain::provider::TransportFault::TruncatedStream);
@@ -629,7 +608,11 @@ impl CompatAdapter {
     fn first_byte_gate(&self, identity: &mixdog_core_api::domain::provider::SendIdentity) -> crate::providers::head_wait::FirstByteGate {
         let policy = match self.profile().chat.first_byte {
             Some(policy) => self.first_byte.compat(policy),
-            None => crate::providers::first_byte::FirstBytePolicy { timeout_ms: self.first_byte.provider_ms, max_ms: self.first_byte.max_before_warn_ms, retries: None },
+            None => crate::providers::first_byte::FirstBytePolicy {
+                timeout_ms: self.first_byte.provider_ms,
+                max_ms: self.first_byte.max_before_warn_ms,
+                retries: None,
+            },
         };
         crate::providers::head_wait::FirstByteGate::of(&policy, identity, self.profile().id.to_string())
     }
@@ -648,7 +631,11 @@ impl CompatAdapter {
             recovery: Some(millis(self.first_byte.generate_total_ms)),
         };
         let label = self.profile().id.to_string();
-        let call = ModelCall::new(&request.options.send_identity, windows, Arc::new(move |expiry, delivery, exposure| expired(&label, gate.as_ref(), expiry, delivery, exposure)));
+        let call = ModelCall::new(
+            &request.options.send_identity,
+            windows,
+            Arc::new(move |expiry, delivery, exposure| expired(&label, gate.as_ref(), expiry, delivery, exposure)),
+        );
         if recovery { call.recovery() } else { call }
     }
 
@@ -717,19 +704,10 @@ impl CompatAdapter {
 }
 #[async_trait]
 impl WireRouting for CompatAdapter {
-    async fn resolve_wire_route(
-        &self,
-        model: &str,
-        context: &WireRouteContext,
-    ) -> Result<Option<WireRoute>, ProviderError> {
+    async fn resolve_wire_route(&self, model: &str, context: &WireRouteContext) -> Result<Option<WireRoute>, ProviderError> {
         let profile = self.codec.profile();
         let mut facts = WireFacts {
-            override_wire: self
-                .routing
-                .model_wires
-                .get(model)
-                .copied()
-                .or_else(|| self.roster_wires.load().get(model).copied()),
+            override_wire: self.routing.model_wires.get(model).copied().or_else(|| self.roster_wires.load().get(model).copied()),
             known: true,
             ..WireFacts::default()
         };

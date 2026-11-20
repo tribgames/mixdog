@@ -93,7 +93,8 @@ fn tree_hash_from_dir(dir: &Path) -> Option<String> {
 fn load_history(root: &Path) -> (History, Vec<u16>) {
     let mut history: History = HISTORY_SECTIONS.iter().map(|section| ((*section).to_owned(), Value::Object(Map::new()))).collect();
     let mut spread = Vec::new();
-    let parsed = std::fs::read(root.join("defaults").join("shipped-history.json")).ok().and_then(|bytes| mixdog_js::json_parse(&String::from_utf8_lossy(&bytes)).ok());
+    let parsed =
+        std::fs::read(root.join("defaults").join("shipped-history.json")).ok().and_then(|bytes| mixdog_js::json_parse(&String::from_utf8_lossy(&bytes)).ok());
     match parsed {
         Some(Value::Object(map)) => history.extend(map),
         Some(Value::Array(items)) => history.extend(items.into_iter().enumerate().map(|(at, item)| (at.to_string(), item))),
@@ -181,7 +182,8 @@ fn holds_only_editor_files(dir: &Path, allowed: &[&str], entry: &str) -> bool {
     let Ok(entries) = entries.collect::<Result<Vec<_>, _>>() else { return false };
     let named = |item: &std::fs::DirEntry| item.file_name().to_string_lossy().into_owned();
     let is_file = |item: &std::fs::DirEntry| item.file_type().is_ok_and(|kind| kind.is_file());
-    entries.iter().any(|item| is_file(item) && named(item) == entry) && entries.iter().all(|item| is_file(item) && (allowed.contains(&named(item).as_str()) || is_stray(&named(item))))
+    entries.iter().any(|item| is_file(item) && named(item) == entry)
+        && entries.iter().all(|item| is_file(item) && (allowed.contains(&named(item).as_str()) || is_stray(&named(item))))
 }
 
 /// `retireSeededSkillCopies`: built-in skills (`<root>/defaults/skills/<name>/`) compared as a whole tree. Returns the names retired.
@@ -282,4 +284,3 @@ pub fn retire_seeded_copies(lane: &InLane<MaintenanceIo>, paths: &WorkflowPaths,
     }
     Ok(())
 }
-

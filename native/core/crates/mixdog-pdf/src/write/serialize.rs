@@ -44,9 +44,7 @@ fn write_number(out: &mut Vec<u8>, n: f64) {
 }
 
 fn write_name_byte(out: &mut Vec<u8>, byte: u8) {
-    let regular = byte > 0x20
-        && byte < 0x7f
-        && !matches!(byte, b'#' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%');
+    let regular = byte > 0x20 && byte < 0x7f && !matches!(byte, b'#' | b'(' | b')' | b'<' | b'>' | b'[' | b']' | b'{' | b'}' | b'/' | b'%');
     if regular {
         out.push(byte);
     } else {

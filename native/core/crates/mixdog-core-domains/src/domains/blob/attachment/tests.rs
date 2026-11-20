@@ -14,9 +14,9 @@ use sha2::Sha256;
 use tokio_util::sync::CancellationToken;
 
 use super::AttachmentSource;
+use super::view_name;
 use mixdog_core_ports::ports::domain_sessions::NamedAttachment;
 use mixdog_core_ports::ports::domain_sessions::SessionAttachments;
-use super::view_name;
 
 /// Names the one attachment `(session, id)` with the given name and type.
 struct Names(&'static str, String, Option<String>, Option<String>);
@@ -24,8 +24,7 @@ struct Names(&'static str, String, Option<String>, Option<String>);
 #[async_trait]
 impl SessionAttachments for Names {
     async fn named(&self, session_id: &str, id: &str) -> Option<NamedAttachment> {
-        (session_id == self.0 && id == self.1)
-            .then(|| NamedAttachment { name: self.2.clone(), mime_type: self.3.clone() })
+        (session_id == self.0 && id == self.1).then(|| NamedAttachment { name: self.2.clone(), mime_type: self.3.clone() })
     }
 }
 
@@ -78,7 +77,6 @@ fn view_names_are_what_the_desktop_computed() {
     }
 }
 
-
 fn source(store: BlobStore, id: &str, name: Option<&str>, mime: Option<&str>) -> Arc<AttachmentSource> {
     let names = Names("s1", id.into(), name.map(Into::into), mime.map(Into::into));
     AttachmentSource::new(store, Arc::new(names), &mixdog_rt::testing::tokens())
@@ -124,20 +122,14 @@ async fn every_refusal_is_the_one_the_desktop_threw() {
     let named = source(store_as(dir.path(), &id, b"hello"), &id, Some("n"), None);
     // An id the transcript does not name (another session's, a guessed hash).
     let other = "a".repeat(64);
-    assert_eq!(
-        refusal(named.open(&request(&other), &cancel).await),
-        (Reason::NotLinked, "This conversation has no such attachment.".into())
-    );
+    assert_eq!(refusal(named.open(&request(&other), &cancel).await), (Reason::NotLinked, "This conversation has no such attachment.".into()));
     assert_eq!(
         refusal(named.open(&json!({ "kind": "attachment", "sessionId": "s2", "attachmentId": id }), &cancel).await),
         (Reason::NotLinked, "This conversation has no such attachment.".into())
     );
     assert_eq!(Reason::NotLinked.code(), "notLinked");
     // `requiredAttachmentId`: 64 lowercase hex digits, or a TypeError.
-    assert_eq!(
-        refusal(named.open(&request(&id.to_uppercase()), &cancel).await),
-        (Reason::InvalidParams, "attachment id is invalid.".into())
-    );
+    assert_eq!(refusal(named.open(&request(&id.to_uppercase()), &cancel).await), (Reason::InvalidParams, "attachment id is invalid.".into()));
     // `requiredSessionId` (checked before the attachment id) and `requiredAttachmentId`.
     for (source, text) in [
         (json!({ "kind": "attachment", "attachmentId": id }), "session id must be a string."),
@@ -155,15 +147,9 @@ async fn every_refusal_is_the_one_the_desktop_threw() {
     // Named, but the store lost it.
     let lost_dir = tempfile::tempdir().unwrap();
     let lost = source(BlobStore::new(lost_dir.path()), &id, Some("n"), None);
-    assert_eq!(
-        refusal(lost.open(&request(&id), &cancel).await),
-        (Reason::NotFound, "This attachment is no longer stored on the PC.".into())
-    );
+    assert_eq!(refusal(lost.open(&request(&id), &cancel).await), (Reason::NotFound, "This attachment is no longer stored on the PC.".into()));
     // Bytes that do not hash to the id.
     let bad_dir = tempfile::tempdir().unwrap();
     let corrupt = source(store_as(bad_dir.path(), &id, b"other bytes"), &id, Some("n"), None);
-    assert_eq!(
-        refusal(corrupt.open(&request(&id), &cancel).await),
-        (Reason::Changed, "The stored attachment failed its integrity check.".into())
-    );
+    assert_eq!(refusal(corrupt.open(&request(&id), &cancel).await), (Reason::Changed, "The stored attachment failed its integrity check.".into()));
 }

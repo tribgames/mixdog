@@ -92,7 +92,8 @@ async fn hook_rules_saved_while_a_session_is_open_apply_to_its_next_call_and_sto
     let log = HookEventLog::new(data.clone());
     let status = HookStatus::new(data.clone(), tokens.maintenance_io, log.clone(), log.clone());
     let setup = HookRuleSetup::new(data.join("hooks.json"), tokens.maintenance_io, status, log.clone());
-    let bus = HookBus::new(data.clone(), tokens.maintenance_io, Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default())), None, None, None);
+    let bus =
+        HookBus::new(data.clone(), tokens.maintenance_io, Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default())), None, None, None);
     let thread = ThreadId::from("sess_resumed");
     let (common, args) = (HookCommon::default(), json!({}));
     let decide = |tool: &'static str| {
@@ -138,7 +139,8 @@ async fn the_deny_hook_runs_once_per_call_for_a_resumed_and_a_fresh_session_and_
     let (command, args) = deny_command(&data, &calls);
     let hooks = json!({ "PreToolUse": [{ "matcher": "shell", "hooks": [{ "type": "command", "command": command, "args": args, "timeout": 10 }] }] });
     std::fs::write(data.join("hooks.json"), json!({ "hooks": hooks }).to_string()).unwrap();
-    let bus = HookBus::new(data.clone(), tokens.maintenance_io, Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default())), None, None, None);
+    let bus =
+        HookBus::new(data.clone(), tokens.maintenance_io, Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default())), None, None, None);
     let policy = ToolPolicy::new(Arc::new(MemoryGrantStore::default()), Arc::new(NoConnectors))
         .with_hook(Arc::new(BusPreToolHook::new(bus, Arc::new(|_: &ThreadId| HookCommon::default()))));
     for id in ["sess_resumed", "sess_fresh"] {

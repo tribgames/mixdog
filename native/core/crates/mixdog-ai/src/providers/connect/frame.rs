@@ -45,10 +45,7 @@ pub struct FrameReader {
 
 impl FrameReader {
     pub fn new(max_frame: usize) -> Self {
-        Self {
-            buf: Vec::new(),
-            max_frame,
-        }
+        Self { buf: Vec::new(), max_frame }
     }
 
     /// Bytes of an incomplete frame still buffered.
@@ -75,19 +72,13 @@ impl FrameReader {
             let length = u32::from_be_bytes(self.buf[at + 1..at + HEADER].try_into().expect("4 bytes"));
             if length as usize > self.max_frame {
                 self.buf.clear();
-                return (frames, Some(FrameTooLarge {
-                    length: u64::from(length),
-                    max: self.max_frame,
-                }));
+                return (frames, Some(FrameTooLarge { length: u64::from(length), max: self.max_frame }));
             }
             let end = at + HEADER + length as usize;
             if self.buf.len() < end {
                 break;
             }
-            frames.push(Frame {
-                flags,
-                payload: self.buf[at + HEADER..end].to_vec(),
-            });
+            frames.push(Frame { flags, payload: self.buf[at + HEADER..end].to_vec() });
             at = end;
         }
         self.buf.drain(..at);

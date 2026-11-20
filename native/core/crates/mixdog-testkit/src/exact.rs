@@ -32,14 +32,26 @@ pub enum Exact {
     /// The decimal text of a bigint.
     BigInt(String),
     /// `ms` and `iso` are `None` for an invalid date.
-    Date { ms: Option<i64>, iso: Option<String> },
+    Date {
+        ms: Option<i64>,
+        iso: Option<String>,
+    },
     /// `type_name` is the JS class (`Buffer`, `Uint8Array`, `ArrayBuffer`, ...).
-    Bytes { type_name: String, bytes: Vec<u8> },
+    Bytes {
+        type_name: String,
+        bytes: Vec<u8>,
+    },
     Map(Vec<(Exact, Exact)>),
     Set(Vec<Exact>),
     /// `code` and `cause` are `None` when the error had no such own property; `props` are its other
     /// own enumerable properties, in order. The stack is never recorded.
-    Error { name: String, message: String, code: Option<Box<Exact>>, cause: Option<Box<Exact>>, props: Vec<(String, Exact)> },
+    Error {
+        name: String,
+        message: String,
+        code: Option<Box<Exact>>,
+        cause: Option<Box<Exact>>,
+        props: Vec<(String, Exact)>,
+    },
     /// A string holding a lone surrogate, as its UTF-16 code units (a Rust `String` cannot hold one).
     Utf16(Vec<u16>),
     /// An object with a key holding a lone surrogate: every key as its UTF-16 code units, in recorded order.
@@ -56,8 +68,7 @@ impl Exact {
     pub fn load(path: impl AsRef<Path>) -> Exact {
         let path = path.as_ref();
         let text = crate::read_string(path);
-        let value: Value =
-            serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
+        let value: Value = serde_json::from_str(&text).unwrap_or_else(|e| panic!("parse {}: {e}", path.display()));
         Exact::decode(&value).unwrap_or_else(|e| panic!("decode {}: {e}", path.display()))
     }
 
@@ -137,12 +148,9 @@ impl Exact {
 
 fn first_difference(actual: &Exact, expected: &Exact, path: &str) -> String {
     match (actual, expected) {
-        (Exact::Object(a), Exact::Object(b)) if a.iter().map(|(k, _)| k).eq(b.iter().map(|(k, _)| k)) => a
-            .iter()
-            .zip(b)
-            .find(|((_, x), (_, y))| x != y)
-            .map(|((key, x), (_, y))| first_difference(x, y, &format!("{path}.{key}")))
-            .unwrap_or_default(),
+        (Exact::Object(a), Exact::Object(b)) if a.iter().map(|(k, _)| k).eq(b.iter().map(|(k, _)| k)) => {
+            a.iter().zip(b).find(|((_, x), (_, y))| x != y).map(|((key, x), (_, y))| first_difference(x, y, &format!("{path}.{key}"))).unwrap_or_default()
+        }
         (Exact::Array(a), Exact::Array(b)) if a.len() == b.len() => a
             .iter()
             .zip(b)
@@ -186,15 +194,9 @@ fn decode_at(value: &Value, path: &str) -> Result<Exact, String> {
             Exact::Number(f)
         }
         Value::String(s) => Exact::String(s.clone()),
-        Value::Array(items) => Exact::Array(
-            items.iter().enumerate().map(|(i, x)| decode_at(x, &format!("{path}[{i}]"))).collect::<Result<_, _>>()?,
-        ),
+        Value::Array(items) => Exact::Array(items.iter().enumerate().map(|(i, x)| decode_at(x, &format!("{path}[{i}]"))).collect::<Result<_, _>>()?),
         Value::Object(map) => match map.get(TAG) {
-            None => Exact::Object(
-                map.iter()
-                    .map(|(k, v)| decode_at(v, &format!("{path}.{k}")).map(|x| (k.clone(), x)))
-                    .collect::<Result<_, _>>()?,
-            ),
+            None => Exact::Object(map.iter().map(|(k, v)| decode_at(v, &format!("{path}.{k}")).map(|x| (k.clone(), x))).collect::<Result<_, _>>()?),
             Some(kind) => decode_tag(kind, map, path)?,
         },
     })
@@ -211,12 +213,8 @@ fn decode_tag(kind: &Value, map: &serde_json::Map<String, Value>, path: &str) ->
         }
         Ok(())
     };
-    let string = |key: &str| -> Result<String, String> {
-        map[key].as_str().map(str::to_owned).ok_or_else(|| format!("{path}.{key}: not a string"))
-    };
-    let array = |key: &str| -> Result<&Vec<Value>, String> {
-        map[key].as_array().ok_or_else(|| format!("{path}.{key}: not an array"))
-    };
+    let string = |key: &str| -> Result<String, String> { map[key].as_str().map(str::to_owned).ok_or_else(|| format!("{path}.{key}: not a string")) };
+    let array = |key: &str| -> Result<&Vec<Value>, String> { map[key].as_array().ok_or_else(|| format!("{path}.{key}: not an array")) };
     fn pair<'v>(item: &'v Value, at: &str) -> Result<(&'v Value, &'v Value), String> {
         match item.as_array().map(Vec::as_slice) {
             Some([a, b]) => Ok((a, b)),
@@ -239,18 +237,15 @@ fn decode_tag(kind: &Value, map: &serde_json::Map<String, Value>, path: &str) ->
             shape(&["ms", "iso"], &["ms", "iso"])?;
             match (&map["ms"], &map["iso"]) {
                 (Value::Null, Value::Null) => Ok(Exact::Date { ms: None, iso: None }),
-                (Value::Number(ms), Value::String(iso)) => Ok(Exact::Date {
-                    ms: Some(ms.as_i64().ok_or_else(|| format!("{path}.ms: not an integer"))?),
-                    iso: Some(iso.clone()),
-                }),
+                (Value::Number(ms), Value::String(iso)) => {
+                    Ok(Exact::Date { ms: Some(ms.as_i64().ok_or_else(|| format!("{path}.ms: not an integer"))?), iso: Some(iso.clone()) })
+                }
                 _ => Err(format!("{path}: date needs ms and iso both null or both set")),
             }
         }
         "bytes" => {
             shape(&["type", "base64"], &["type", "base64"])?;
-            let bytes = base64::engine::general_purpose::STANDARD
-                .decode(string("base64")?)
-                .map_err(|e| format!("{path}.base64: {e}"))?;
+            let bytes = base64::engine::general_purpose::STANDARD.decode(string("base64")?).map_err(|e| format!("{path}.base64: {e}"))?;
             Ok(Exact::Bytes { type_name: string("type")?, bytes })
         }
         "map" => {
@@ -265,32 +260,20 @@ fn decode_tag(kind: &Value, map: &serde_json::Map<String, Value>, path: &str) ->
         }
         "set" => {
             shape(&["values"], &["values"])?;
-            let values = array("values")?
-                .iter()
-                .enumerate()
-                .map(|(i, x)| decode_at(x, &format!("{path}.values[{i}]")))
-                .collect::<Result<_, _>>()?;
+            let values = array("values")?.iter().enumerate().map(|(i, x)| decode_at(x, &format!("{path}.values[{i}]"))).collect::<Result<_, _>>()?;
             Ok(Exact::Set(values))
         }
         "error" => {
             shape(&["name", "message", "code", "cause", "props"], &["name", "message", "props"])?;
-            let optional = |key: &str| -> Result<Option<Box<Exact>>, String> {
-                map.get(key).map(|v| decode_at(v, &format!("{path}.{key}")).map(Box::new)).transpose()
-            };
+            let optional =
+                |key: &str| -> Result<Option<Box<Exact>>, String> { map.get(key).map(|v| decode_at(v, &format!("{path}.{key}")).map(Box::new)).transpose() };
             let props = match &map["props"] {
-                Value::Object(props) => props
-                    .iter()
-                    .map(|(k, v)| decode_at(v, &format!("{path}.props.{k}")).map(|x| (k.clone(), x)))
-                    .collect::<Result<_, _>>()?,
+                Value::Object(props) => {
+                    props.iter().map(|(k, v)| decode_at(v, &format!("{path}.props.{k}")).map(|x| (k.clone(), x))).collect::<Result<_, _>>()?
+                }
                 _ => return Err(format!("{path}.props: not an object")),
             };
-            Ok(Exact::Error {
-                name: string("name")?,
-                message: string("message")?,
-                code: optional("code")?,
-                cause: optional("cause")?,
-                props,
-            })
+            Ok(Exact::Error { name: string("name")?, message: string("message")?, code: optional("code")?, cause: optional("cause")?, props })
         }
         "utf16" => {
             shape(&["units"], &["units"])?;
@@ -336,15 +319,10 @@ fn to_plain_at(value: &Exact, path: &str) -> Result<Value, String> {
         Exact::Number(n) if n.fract() == 0.0 && n.abs() <= 9_007_199_254_740_991.0 => Value::from(*n as i64),
         Exact::Number(n) => serde_json::Number::from_f64(*n).map(Value::Number).ok_or_else(|| format!("{path}: {n}"))?,
         Exact::String(s) => Value::String(s.clone()),
-        Exact::Array(items) => Value::Array(
-            items.iter().enumerate().map(|(i, x)| to_plain_at(x, &format!("{path}[{i}]"))).collect::<Result<_, _>>()?,
-        ),
-        Exact::Object(entries) => Value::Object(
-            entries
-                .iter()
-                .map(|(k, v)| to_plain_at(v, &format!("{path}.{k}")).map(|x| (k.clone(), x)))
-                .collect::<Result<_, _>>()?,
-        ),
+        Exact::Array(items) => Value::Array(items.iter().enumerate().map(|(i, x)| to_plain_at(x, &format!("{path}[{i}]"))).collect::<Result<_, _>>()?),
+        Exact::Object(entries) => {
+            Value::Object(entries.iter().map(|(k, v)| to_plain_at(v, &format!("{path}.{k}")).map(|x| (k.clone(), x))).collect::<Result<_, _>>()?)
+        }
         other => return Err(format!("{path}: {other:?} has no plain JSON form")),
     })
 }

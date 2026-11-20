@@ -31,18 +31,7 @@ pub struct GhCommand {
 
 impl GhCommand {
     pub fn read(args: Vec<String>, hostname: Option<String>) -> Self {
-        Self {
-            args,
-            input: None,
-            json: true,
-            list: false,
-            collection: None,
-            page: 1,
-            limit: 30,
-            mutation: false,
-            hostname,
-            plain: false,
-        }
+        Self { args, input: None, json: true, list: false, collection: None, page: 1, limit: 30, mutation: false, hostname, plain: false }
     }
 }
 
@@ -113,30 +102,12 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
     let number = || required_number(request, "number");
     let id = || required_number(request, "id");
     let api = |endpoint: String, method: &str, body: Option<Body>| {
-        let mut args = vec![
-            "api".to_owned(),
-            endpoint,
-            "--hostname".to_owned(),
-            hostname.clone(),
-            "--method".to_owned(),
-            method.to_owned(),
-        ];
+        let mut args = vec!["api".to_owned(), endpoint, "--hostname".to_owned(), hostname.clone(), "--method".to_owned(), method.to_owned()];
         let input = body.map(|body| {
             args.extend(["--input".to_owned(), "-".to_owned()]);
             body.render()
         });
-        GhCommand {
-            args,
-            input,
-            json: true,
-            list: def.list,
-            collection: def.collection,
-            page,
-            limit,
-            mutation: def.write,
-            hostname: None,
-            plain: false,
-        }
+        GhCommand { args, input, json: true, list: def.list, collection: def.collection, page, limit, mutation: def.write, hostname: None, plain: false }
     };
     let cli = |args: Vec<String>| GhCommand {
         args,
@@ -158,9 +129,7 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
         },
         "repo.view" => api(root, "GET", None),
         "repo.create" => {
-            let visibility = request
-                .text("visibility")
-                .ok_or_else(|| type_error("Choose private or public visibility explicitly."))?;
+            let visibility = request.text("visibility").ok_or_else(|| type_error("Choose private or public visibility explicitly."))?;
             cli(vec![
                 "repo".into(),
                 "create".into(),
@@ -170,28 +139,15 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
                 request.text("description").unwrap_or("").to_owned(),
             ])
         }
-        "repo.clone" => cli(vec![
-            "repo".into(),
-            "clone".into(),
-            repo,
-            required_text(request, "destination")?,
-        ]),
-        "repo.fork" => api(
-            format!("{root}/forks"),
-            "POST",
-            Some(Body::default().selected(request, &["organization"])),
-        ),
+        "repo.clone" => cli(vec!["repo".into(), "clone".into(), repo, required_text(request, "destination")?]),
+        "repo.fork" => api(format!("{root}/forks"), "POST", Some(Body::default().selected(request, &["organization"]))),
         "issue.list" => api(format!("{root}/issues?{query}&state={state}"), "GET", None),
         "issue.view" => api(format!("{root}/issues/{}", number()?), "GET", None),
         "issue.comments" => api(format!("{root}/issues/{}/comments?{query}", number()?), "GET", None),
         "issue.create" => api(
             format!("{root}/issues"),
             "POST",
-            Some(
-                Body::default()
-                    .selected(request, &["body", "labels", "assignees"])
-                    .with("title", required_text(request, "title")?),
-            ),
+            Some(Body::default().selected(request, &["body", "labels", "assignees"]).with("title", required_text(request, "title")?)),
         ),
         "issue.edit" => {
             let body = Body::default().selected(request, &["title", "body", "labels", "assignees"]);
@@ -200,16 +156,12 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
             }
             api(format!("{root}/issues/{}", number()?), "PATCH", Some(body))
         }
-        "issue.close" | "issue.reopen" => api(
-            format!("{root}/issues/{}", number()?),
-            "PATCH",
-            Some(Body::default().with("state", if action == "issue.close" { "closed" } else { "open" })),
-        ),
-        "issue.comment" | "pr.comment" => api(
-            format!("{root}/issues/{}/comments", number()?),
-            "POST",
-            Some(Body::default().with("body", required_text(request, "body")?)),
-        ),
+        "issue.close" | "issue.reopen" => {
+            api(format!("{root}/issues/{}", number()?), "PATCH", Some(Body::default().with("state", if action == "issue.close" { "closed" } else { "open" })))
+        }
+        "issue.comment" | "pr.comment" => {
+            api(format!("{root}/issues/{}/comments", number()?), "POST", Some(Body::default().with("body", required_text(request, "body")?)))
+        }
         "pr.list" => api(format!("{root}/pulls?{query}&state={state}"), "GET", None),
         "pr.view" => api(format!("{root}/pulls/{}", number()?), "GET", None),
         "pr.comments" => api(format!("{root}/pulls/{}/comments?{query}", number()?), "GET", None),
@@ -224,81 +176,41 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
                     .selected(request, &["body", "draft"]),
             ),
         ),
-        "pr.checkout" => cli(vec![
-            "pr".into(),
-            "checkout".into(),
-            number()?.to_string(),
-            "--repo".into(),
-            repo,
-        ]),
+        "pr.checkout" => cli(vec!["pr".into(), "checkout".into(), number()?.to_string(), "--repo".into(), repo]),
         // The head sha goes into the body as the request gave it (commands.mjs:100, :109): the contract's check read it as a
         // string (`/^[a-f0-9]{40}$/i.test(sha)`), so a list holding one sha passed and stays a list.
         "pr.merge" => {
-            let sha = request
-                .fields
-                .get("sha")
-                .cloned()
-                .ok_or_else(|| type_error("Read the pull request and supply its head sha before merging."))?;
+            let sha = request.fields.get("sha").cloned().ok_or_else(|| type_error("Read the pull request and supply its head sha before merging."))?;
             api(
                 format!("{root}/pulls/{}/merge", number()?),
                 "PUT",
-                Some(
-                    Body::default()
-                        .with("merge_method", request.text("method").unwrap_or("merge"))
-                        .with("sha", sha),
-                ),
+                Some(Body::default().with("merge_method", request.text("method").unwrap_or("merge")).with("sha", sha)),
             )
         }
         "pr.review" => {
-            let event = request
-                .text("event")
-                .ok_or_else(|| type_error("A review event is required."))?;
-            let sha = request
-                .fields
-                .get("sha")
-                .cloned()
-                .ok_or_else(|| type_error("Read the pull request and supply its head sha before reviewing."))?;
+            let event = request.text("event").ok_or_else(|| type_error("A review event is required."))?;
+            let sha = request.fields.get("sha").cloned().ok_or_else(|| type_error("Read the pull request and supply its head sha before reviewing."))?;
             if event != "APPROVE" {
                 required_text(request, "body")?;
             }
             api(
                 format!("{root}/pulls/{}/reviews", number()?),
                 "POST",
-                Some(
-                    Body::default()
-                        .with("event", event)
-                        .with("body", request.text("body").unwrap_or(""))
-                        .with("commit_id", sha),
-                ),
+                Some(Body::default().with("event", event).with("body", request.text("body").unwrap_or("")).with("commit_id", sha)),
             )
         }
         "workflow.list" => api(format!("{root}/actions/workflows?{query}"), "GET", None),
         "workflow.run" => {
             let workflow = encode_component(&required_text(request, "workflow")?);
-            let inputs = request
-                .fields
-                .get("inputs")
-                .cloned()
-                .unwrap_or_else(|| Value::Object(Default::default()));
+            let inputs = request.fields.get("inputs").cloned().unwrap_or_else(|| Value::Object(Default::default()));
             api(
                 format!("{root}/actions/workflows/{workflow}/dispatches"),
                 "POST",
-                Some(
-                    Body::default()
-                        .with("ref", required_text(request, "ref")?)
-                        .with("inputs", inputs),
-                ),
+                Some(Body::default().with("ref", required_text(request, "ref")?).with("inputs", inputs)),
             )
         }
         "run.list" => match request.text("workflow") {
-            Some(_) => api(
-                format!(
-                    "{root}/actions/workflows/{}/runs?{query}",
-                    encode_component(&required_text(request, "workflow")?)
-                ),
-                "GET",
-                None,
-            ),
+            Some(_) => api(format!("{root}/actions/workflows/{}/runs?{query}", encode_component(&required_text(request, "workflow")?)), "GET", None),
             None => api(format!("{root}/actions/runs?{query}"), "GET", None),
         },
         "run.view" => api(format!("{root}/actions/runs/{}", id()?), "GET", None),
@@ -337,11 +249,7 @@ pub fn build(request: &GithubRequest) -> Result<GhCommand, ScmFailure> {
             }
             api(format!("{root}/releases/{}", id()?), "PATCH", Some(body))
         }
-        "notification.list" => api(
-            format!("notifications?{query}&all={}", request.flag("all") == Some(true)),
-            "GET",
-            None,
-        ),
+        "notification.list" => api(format!("notifications?{query}&all={}", request.flag("all") == Some(true)), "GET", None),
         "notification.read" => api(format!("notifications/threads/{}", id()?), "PATCH", None),
         _ => return Err(type_error("Unsupported GitHub action.")),
     })

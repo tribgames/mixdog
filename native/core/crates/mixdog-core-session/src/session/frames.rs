@@ -18,10 +18,7 @@ pub(crate) struct Note {
 
 impl Note {
     pub fn new<T: Serialize>(method: &'static str, params: &T) -> Self {
-        Self {
-            method,
-            params: encode(params),
-        }
+        Self { method, params: encode(params) }
     }
 }
 

@@ -150,8 +150,10 @@ fn enabled(configured: &Value) -> bool {
 }
 
 const UNSAFE_PERMISSIONS: &str = "The private secrets folder has unsafe permissions, so its keys are ignored — run chmod 700 on the folder and chmod 600 on its files, or save the key again.";
-const UNSAFE_OWNER: &str = "The private secrets folder or one of its files belongs to another user, so its keys are ignored — change its owner to the current user (chown).";
-const UNSAFE_TYPE: &str = "The private secrets folder or one of its files is a symlink or not a regular file, so its keys are ignored — remove it and save the key again.";
+const UNSAFE_OWNER: &str =
+    "The private secrets folder or one of its files belongs to another user, so its keys are ignored — change its owner to the current user (chown).";
+const UNSAFE_TYPE: &str =
+    "The private secrets folder or one of its files is a symlink or not a regular file, so its keys are ignored — remove it and save the key again.";
 
 fn keychain_hint(state: &str) -> Option<&'static str> {
     match state {
@@ -192,9 +194,8 @@ fn vertex_adc_detail(adc: Option<&Value>, location: &str) -> String {
     if adc.get("state").and_then(Value::as_str) != Some("ready") {
         return adc.get("message").and_then(Value::as_str).unwrap_or_default().to_owned();
     }
-    let account = text(adc.get("account")).unwrap_or_else(|| {
-        if adc.get("type").and_then(Value::as_str) == Some("metadata") { "metadata server" } else { "gcloud user login" }.to_owned()
-    });
+    let account = text(adc.get("account"))
+        .unwrap_or_else(|| if adc.get("type").and_then(Value::as_str) == Some("metadata") { "metadata server" } else { "gcloud user login" }.to_owned());
     let project = text(adc.get("projectId")).unwrap_or_else(|| "no project".to_owned());
     [account, project, location.to_owned()].join(" · ")
 }
@@ -264,7 +265,6 @@ fn api_provider_setup(world: &dyn SetupWorld, p: &ApiProvider, providers: &Value
     if let Some(issue) = row_issue {
         detail = issue["message"].clone();
     }
-
 
     if p.id == "vertex-ai" && configured.get("authMode").and_then(Value::as_str) == Some(VERTEX_ADC_MODE) {
         // gcloud login: nothing is stored; connected while enabled and the login is readable.
@@ -387,8 +387,7 @@ fn oauth_provider_setup(world: &dyn SetupWorld, id: &str, name: &str, desc: &str
     let authenticated = truthy(auth.get("authenticated"));
     let status = text(auth.get("status")).unwrap_or_else(|| if authenticated { "Set" } else { "Not Set" }.to_owned());
     let detail = text(auth.get("detail")).unwrap_or_else(|| desc.to_owned());
-    let usable = auth.get("usable") == Some(&Value::Bool(true))
-        || (matches!(auth.get("usable"), None | Some(Value::Null)) && authenticated);
+    let usable = auth.get("usable") == Some(&Value::Bool(true)) || (matches!(auth.get("usable"), None | Some(Value::Null)) && authenticated);
     json!({
         "id": id,
         "name": name,
@@ -452,8 +451,7 @@ pub fn provider_setup(world: &dyn SetupWorld, config: &Value, options: SetupOpti
     let empty = Value::Object(Map::new());
     let providers = config.get("providers").filter(|value| truthy(Some(value))).unwrap_or(&empty);
     let keychain = if options.check_secrets { keychain_issue(world) } else { None };
-    let mut api: Vec<Value> =
-        API_PROVIDERS.iter().map(|p| api_provider_setup(world, p, providers, options.check_secrets, keychain.as_ref())).collect();
+    let mut api: Vec<Value> = API_PROVIDERS.iter().map(|p| api_provider_setup(world, p, providers, options.check_secrets, keychain.as_ref())).collect();
     if let Some(entries) = providers.as_object() {
         api.extend(custom_provider_rows(world, entries, options.check_secrets));
     }
@@ -481,9 +479,7 @@ pub(super) fn with_hidden_favorites(mut setup: Value, config: &Value) -> Value {
                 continue;
             }
             row.shift_remove("hiddenFavoriteModels");
-            let (Some(provider), Some(settings)) =
-                (row.get("id").and_then(Value::as_str), config.get("modelSettings"))
-            else {
+            let (Some(provider), Some(settings)) = (row.get("id").and_then(Value::as_str), config.get("modelSettings")) else {
                 continue;
             };
             let starred = |id: &str| settings.get(format!("{provider}/{id}")).and_then(|saved| saved.get("favorite")) == Some(&Value::Bool(true));

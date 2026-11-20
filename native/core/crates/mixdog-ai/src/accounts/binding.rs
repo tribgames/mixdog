@@ -6,8 +6,8 @@
 use std::collections::HashMap;
 use std::future::Future;
 use std::sync::Arc;
-use std::sync::RwLock;
 use std::sync::PoisonError;
+use std::sync::RwLock;
 
 use super::AccountError;
 use super::AccountStore;
@@ -43,11 +43,7 @@ pub fn replace_provider_auth_bindings(next: HashMap<String, String>) -> impl FnO
 
 /// `hasExplicitProviderAuthBinding(provider)`.
 pub fn has_explicit_provider_auth_binding(provider: &str) -> bool {
-    BINDINGS
-        .read()
-        .unwrap_or_else(PoisonError::into_inner)
-        .as_ref()
-        .is_some_and(|b| b.get(provider).is_some_and(|path| !path.is_empty()))
+    BINDINGS.read().unwrap_or_else(PoisonError::into_inner).as_ref().is_some_and(|b| b.get(provider).is_some_and(|path| !path.is_empty()))
 }
 
 impl AccountStore {
@@ -79,10 +75,7 @@ mod tests {
 
     fn store(dir: &tempfile::TempDir) -> AccountStore {
         let tokens = mixdog_rt::testing::tokens();
-        AccountStore::new(
-            dir.path().to_path_buf(),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
+        AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io })
     }
 
     #[tokio::test]

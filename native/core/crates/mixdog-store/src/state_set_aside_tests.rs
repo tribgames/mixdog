@@ -216,9 +216,16 @@ async fn a_new_state_gets_its_projects_back_from_the_sessions_recorded_folders()
     for folder in [&alpha, &beta] {
         std::fs::create_dir(folder).unwrap();
     }
-    for (id, class, path, used) in [("s1", "project", &alpha, 100), ("s2", "project", &alpha, 300), ("s3", "project", &beta, 50), ("s4", "task", &alpha, 900), ("s5", "project", &gone, 700)] {
+    for (id, class, path, used) in [
+        ("s1", "project", &alpha, 100),
+        ("s2", "project", &alpha, 300),
+        ("s3", "project", &beta, 50),
+        ("s4", "task", &alpha, 900),
+        ("s5", "project", &gone, 700),
+    ] {
         let header = json!({"id": id, "title": "t", "updatedAt": used, "lastUsedAt": used, "desktopSession": {"classification": class, "projectPath": path}});
-        let head = CatalogHead { session: id.into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone() };
+        let head =
+            CatalogHead { session: id.into(), log_id: "4f1c2a9e0b7d3c5a6e8f9012".into(), base_session: None, header: header.as_object().unwrap().clone() };
         index.upsert(head, DirtyMark::Set).await.unwrap();
     }
     let state_dir = tempfile::tempdir().unwrap();
@@ -257,7 +264,6 @@ async fn an_unreadable_project_row_is_kept_in_meta_and_the_other_rows_stay() {
     state.close();
 }
 
-
 /// Whatever damage a state database has, the daemon's open survives: the damaged bytes stay under `<file>.corrupt-<ms>`, the next
 /// read is empty, a next write works and is read back, and a later open sets nothing more aside.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -287,4 +293,3 @@ async fn a_damaged_state_database_is_set_aside_and_the_next_read_and_write_work(
         state.close();
     }
 }
-

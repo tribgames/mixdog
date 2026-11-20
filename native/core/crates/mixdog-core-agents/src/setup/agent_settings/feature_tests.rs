@@ -137,7 +137,8 @@ async fn a_widening_where_nobody_can_be_asked_is_refused() {
 #[tokio::test]
 async fn a_widening_raises_a_card_with_the_levels_above_the_current_one() {
     let world = world().await;
-    *world.person.outcome.lock().unwrap() = CardOutcome::Settled(Some(CardAnswer { response: Some("deny".into()), device: Some("phone".into()), ..CardAnswer::default() }));
+    *world.person.outcome.lock().unwrap() =
+        CardOutcome::Settled(Some(CardAnswer { response: Some("deny".into()), device: Some("phone".into()), ..CardAnswer::default() }));
     let receipt = run(&world, "set_agent_connector_tool", tool_args("auto")).await.unwrap();
     assert_eq!(
         receipt,
@@ -223,7 +224,16 @@ async fn a_widening_card_is_an_approval_request_on_the_turns_gate_and_its_answer
         reason: "why".into(),
     };
     let decided = |approved: bool, scope: Option<&str>, response: HumanGateResponse| ApprovalResolution::Decided {
-        decision: ToolApprovalDecision { approved, reason: None, answers: None, reply: None, response: Some(response), edited_args: None, remember: None, scope: scope.map(str::to_owned) },
+        decision: ToolApprovalDecision {
+            approved,
+            reason: None,
+            answers: None,
+            reply: None,
+            response: Some(response),
+            edited_args: None,
+            remember: None,
+            scope: scope.map(str::to_owned),
+        },
         device: "phone".into(),
         connection_kind: ConnectionKind::Phone,
         at: 1,
@@ -232,7 +242,13 @@ async fn a_widening_card_is_an_approval_request_on_the_turns_gate_and_its_answer
     let outcome = with_call_approvals(CallApprovals { gate: gate.clone(), call_id: ToolCallId::from("call-1") }, GateWidenCards.ask(&thread, &card)).await;
     assert_eq!(
         outcome,
-        CardOutcome::Settled(Some(CardAnswer { approved: true, scope: Some("auto".into()), timed_out: false, response: Some("approve".into()), device: Some("phone".into()) }))
+        CardOutcome::Settled(Some(CardAnswer {
+            approved: true,
+            scope: Some("auto".into()),
+            timed_out: false,
+            response: Some("approve".into()),
+            device: Some("phone".into())
+        }))
     );
     let asks = gate.asks.lock().unwrap();
     assert_eq!(asks.len(), 1);

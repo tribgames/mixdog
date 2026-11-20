@@ -8,11 +8,7 @@
 
 // The migration is a sanctioned blocking-I/O home (RL §13): it runs once, before the
 // runtime, on its own thread.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "one-time migration: blocking std::fs on the migration thread"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "one-time migration: blocking std::fs on the migration thread")]
 
 use std::fs;
 use std::fs::File;
@@ -101,11 +97,7 @@ pub fn step(_: Step, _: &Path, _: &[u8]) {}
 
 /// Syncs a file's data and metadata.
 pub fn sync_file(path: &Path) -> Result<()> {
-    let file = OpenOptions::new()
-        .read(true)
-        .write(true)
-        .open(path)
-        .map_err(|e| Blocked::io("open", path, e))?;
+    let file = OpenOptions::new().read(true).write(true).open(path).map_err(|e| Blocked::io("open", path, e))?;
     fsio::sync_file(&file, path).map_err(Blocked::fsio)
 }
 
@@ -236,8 +228,7 @@ pub fn is_file(path: &Path) -> bool {
 }
 
 pub fn exists(path: &Path) -> Result<bool> {
-    path.try_exists()
-        .map_err(|e| Blocked::io("stat", path, e))
+    path.try_exists().map_err(|e| Blocked::io("stat", path, e))
 }
 
 pub fn read(path: &Path) -> Result<Vec<u8>> {
@@ -277,7 +268,8 @@ impl OpenFile {
     /// Reads what is left of the file, then refuses unless the bytes read through this handle
     /// are the expected size and hash. What was read before this returns is not to be used.
     pub fn verify(&mut self) -> Result<()> {
-        let Some((size, sha256)) = &self.expected else { return Ok(()) };        std::io::copy(&mut self.reader, &mut std::io::sink()).map_err(|e| Blocked::io("read", &self.path, e))?;
+        let Some((size, sha256)) = &self.expected else { return Ok(()) };
+        std::io::copy(&mut self.reader, &mut std::io::sink()).map_err(|e| Blocked::io("read", &self.path, e))?;
         let read = self.reader.get_ref();
         if read.size != *size || hex(&read.hasher.clone().finalize()) != *sha256 {
             return Err(Blocked::SourceChanged { path: self.path.clone() });
@@ -289,11 +281,7 @@ impl OpenFile {
 fn open_with(path: &Path, expected: Option<(u64, String)>) -> Result<OpenFile> {
     let file = File::open(path).map_err(|e| Blocked::io("open", path, e))?;
     let hashing = Hashing { file, hasher: Sha256::new(), size: 0 };
-    Ok(OpenFile {
-        path: path.to_path_buf(),
-        reader: std::io::BufReader::with_capacity(1 << 16, hashing),
-        expected,
-    })
+    Ok(OpenFile { path: path.to_path_buf(), reader: std::io::BufReader::with_capacity(1 << 16, hashing), expected })
 }
 
 /// `path` opened for a line-by-line read, checked against nothing.
@@ -375,9 +363,7 @@ pub fn hash_file(path: &Path) -> Result<(u64, String)> {
     let mut buf = vec![0u8; 1 << 16];
     let mut size = 0u64;
     loop {
-        let n = file
-            .read(&mut buf)
-            .map_err(|e| Blocked::io("read", path, e))?;
+        let n = file.read(&mut buf).map_err(|e| Blocked::io("read", path, e))?;
         if n == 0 {
             break;
         }
@@ -412,9 +398,7 @@ pub fn list_dir(path: &Path) -> Result<Vec<(String, bool)>> {
     let mut out = Vec::new();
     for entry in entries {
         let entry = entry.map_err(|e| Blocked::io("list", path, e))?;
-        let kind = entry
-            .file_type()
-            .map_err(|e| Blocked::io("stat", &entry.path(), e))?;
+        let kind = entry.file_type().map_err(|e| Blocked::io("stat", &entry.path(), e))?;
         let name = entry.file_name().to_string_lossy().into_owned();
         out.push((name, kind.is_dir()));
     }
@@ -427,17 +411,9 @@ pub fn walk_files(dir: &Path) -> Result<Vec<String>> {
     let mut out = Vec::new();
     let mut stack = vec![String::new()];
     while let Some(rel) = stack.pop() {
-        let abs = if rel.is_empty() {
-            dir.to_path_buf()
-        } else {
-            dir.join(&rel)
-        };
+        let abs = if rel.is_empty() { dir.to_path_buf() } else { dir.join(&rel) };
         for (name, is_dir) in list_dir(&abs)? {
-            let child = if rel.is_empty() {
-                name
-            } else {
-                format!("{rel}/{name}")
-            };
+            let child = if rel.is_empty() { name } else { format!("{rel}/{name}") };
             if is_dir {
                 stack.push(child);
             } else {

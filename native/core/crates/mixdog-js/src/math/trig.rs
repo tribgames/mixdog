@@ -23,11 +23,7 @@ fn kernel_sin(x: f64, y: f64, tail: bool) -> f64 {
     let z = x * x;
     let v = z * x;
     let r = S2 + z * (S3 + z * (S4 + z * (S5 + z * S6)));
-    if !tail {
-        x + v * (S1 + z * r)
-    } else {
-        x - ((z * (0.5 * y - v * r) - y) - v * S1)
-    }
+    if !tail { x + v * (S1 + z * r) } else { x - ((z * (0.5 * y - v * r) - y) - v * S1) }
 }
 
 fn kernel_cos(x: f64, y: f64) -> f64 {
@@ -46,11 +42,7 @@ fn kernel_cos(x: f64, y: f64) -> f64 {
     if ix < 0x3fd3_3333 {
         1.0 - (0.5 * z - (z * r - x * y))
     } else {
-        let qx = if ix > 0x3fe9_0000 {
-            0.28125
-        } else {
-            words(ix - 0x0020_0000, 0)
-        };
+        let qx = if ix > 0x3fe9_0000 { 0.28125 } else { words(ix - 0x0020_0000, 0) };
         let iz = 0.5 * z - qx;
         let a = 1.0 - qx;
         a - (iz - (z * r - x * y))
@@ -132,11 +124,7 @@ pub fn sin(x: f64) -> f64 {
         return kernel_sin(x, 0.0, false);
     }
     if ix >= 0x7ff0_0000 {
-        return if x.is_nan() {
-            quiet_nan(x)
-        } else {
-            f64::from_bits(0xfff8_0000_0000_0000)
-        };
+        return if x.is_nan() { quiet_nan(x) } else { f64::from_bits(0xfff8_0000_0000_0000) };
     }
     let (n, [a, b]) = rem_pio2(x);
     match n & 3 {
@@ -154,11 +142,7 @@ pub fn cos(x: f64) -> f64 {
         return kernel_cos(x, 0.0);
     }
     if ix >= 0x7ff0_0000 {
-        return if x.is_nan() {
-            quiet_nan(x)
-        } else {
-            f64::from_bits(0xfff8_0000_0000_0000)
-        };
+        return if x.is_nan() { quiet_nan(x) } else { f64::from_bits(0xfff8_0000_0000_0000) };
     }
     let (n, [a, b]) = rem_pio2(x);
     match n & 3 {
@@ -176,11 +160,7 @@ pub fn tan(x: f64) -> f64 {
         return kernel_tan(x, 0.0, 1);
     }
     if ix >= 0x7ff0_0000 {
-        return if x.is_nan() {
-            quiet_nan(x)
-        } else {
-            f64::from_bits(0xfff8_0000_0000_0000)
-        };
+        return if x.is_nan() { quiet_nan(x) } else { f64::from_bits(0xfff8_0000_0000_0000) };
     }
     let (n, [a, b]) = rem_pio2(x);
     kernel_tan(a, b, 1 - ((n & 1) << 1))

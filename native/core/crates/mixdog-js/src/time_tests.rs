@@ -102,7 +102,12 @@ fn text_that_is_not_a_date_is_nan() {
 // "2000-01-01T24:00:00Z" = 946771200000 = 2000-01-02Z). ECMA-262 leaves such strings to the implementation.
 #[test]
 fn a_day_past_the_end_of_its_month_rolls_into_the_next_as_v8_does() {
-    for (text, ms) in [("2000-02-30T00:00:00Z", 951_868_800_000.0), ("2000-02-30", 951_868_800_000.0), ("2000-04-31T00:00:00Z", 957_139_200_000.0), ("2000-01-01T24:00:00Z", 946_771_200_000.0)] {
+    for (text, ms) in [
+        ("2000-02-30T00:00:00Z", 951_868_800_000.0),
+        ("2000-02-30", 951_868_800_000.0),
+        ("2000-04-31T00:00:00Z", 957_139_200_000.0),
+        ("2000-01-01T24:00:00Z", 946_771_200_000.0),
+    ] {
         assert_eq!(date_parse(text), ms, "{text:?}");
     }
 }
@@ -116,4 +121,3 @@ fn the_legacy_formats_are_read_as_local_time_unless_they_name_a_zone() {
         assert_eq!(date_parse("Mon, 06 May 2024 10:00:00 GMT"), utc_to_ms(2024, 5, 6, 10, 0, 0, 0));
     });
 }
-

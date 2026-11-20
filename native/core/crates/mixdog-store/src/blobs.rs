@@ -99,11 +99,7 @@ impl BlobStore {
     /// Publishes `bytes` (SM §7.5 step 1) for a frame about to be committed and returns their digest. An existing file whose
     /// bytes hash to its name is kept; any other (unreadable, or cut short by a crash) is replaced by the publish's rename:
     /// these bytes are the ones the name stands for (`saveBuffer`, `attachments/store.mjs:146-160`).
-    pub(crate) fn put_unlaned(
-        &self,
-        bytes: &[u8],
-        publish: impl FnOnce(&Path, &[u8]) -> Result<(), IoError>,
-    ) -> Result<Digest, BlobError> {
+    pub(crate) fn put_unlaned(&self, bytes: &[u8], publish: impl FnOnce(&Path, &[u8]) -> Result<(), IoError>) -> Result<Digest, BlobError> {
         if bytes.len() as u64 > MAX_BLOB_BYTES {
             return Err(BlobError::ItemTooLarge { bytes: bytes.len() as u64 });
         }
@@ -138,8 +134,7 @@ impl BlobStore {
         let path = self.path(digest);
         let file = open_blob(&path, digest)?;
         let mut hasher = Sha256::new();
-        let len = std::io::copy(&mut file.take(MAX_BLOB_BYTES + 1), &mut HashWriter(&mut hasher))
-            .map_err(err(IoOp::Read, &path))?;
+        let len = std::io::copy(&mut file.take(MAX_BLOB_BYTES + 1), &mut HashWriter(&mut hasher)).map_err(err(IoOp::Read, &path))?;
         let hash = hasher.finalize();
         let mut text = String::with_capacity(DIGEST_PREFIX.len() + 64);
         text.push_str(DIGEST_PREFIX);
@@ -200,10 +195,7 @@ fn read_verified(path: &Path, digest: &Digest) -> Result<Vec<u8>, BlobError> {
         Err(e) => return Err(err(IoOp::Open, path)(e).into()),
     };
     let mut bytes = Vec::new();
-    file.by_ref()
-        .take(MAX_BLOB_BYTES + 1)
-        .read_to_end(&mut bytes)
-        .map_err(err(IoOp::Read, path))?;
+    file.by_ref().take(MAX_BLOB_BYTES + 1).read_to_end(&mut bytes).map_err(err(IoOp::Read, path))?;
     if digest_of(&bytes) != *digest {
         return Err(BlobError::Corrupt { digest: digest.clone() });
     }
@@ -247,10 +239,6 @@ impl<L: IoLane> Blobs for LaneBlobs<'_, L> {
 
 /// The descriptor of a body slot whose encoding is `bytes`.
 pub fn body_blob(bytes: &[u8]) -> BodyBlob {
-    BodyBlob::try_from(BlobDescriptor {
-        digest: digest_of(bytes),
-        bytes: bytes.len() as u64,
-        media_type: BODY_MEDIA_TYPE.to_owned(),
-    })
-    .expect("a body descriptor is well formed")
+    BodyBlob::try_from(BlobDescriptor { digest: digest_of(bytes), bytes: bytes.len() as u64, media_type: BODY_MEDIA_TYPE.to_owned() })
+        .expect("a body descriptor is well formed")
 }

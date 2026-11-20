@@ -17,10 +17,9 @@ use mixdog_pdf::write::{PdfDocument, flate_stream};
 use mixdog_pdf::{Dict, Obj, Ref};
 
 use super::{
-    FLAG_COMB, FLAG_FILE_SELECT, FLAG_MULTILINE, FLAG_PASSWORD, Field, FieldKind, FormError, FormFont, FormResult, NormalAppearance,
-    PdfForm, Widget, border_style_width, characteristic_components, characteristic_rotation, choice_options, choice_values,
-    default_appearance, find_last_match, has_flag, latin1_object, normal_appearance, pdf_number, set_key, text_value, widget_on_value,
-    widget_rectangle, widgets_of,
+    FLAG_COMB, FLAG_FILE_SELECT, FLAG_MULTILINE, FLAG_PASSWORD, Field, FieldKind, FormError, FormFont, FormResult, NormalAppearance, PdfForm, Widget,
+    border_style_width, characteristic_components, characteristic_rotation, choice_options, choice_values, default_appearance, find_last_match, has_flag,
+    latin1_object, normal_appearance, pdf_number, set_key, text_value, widget_on_value, widget_rectangle, widgets_of,
 };
 
 const MIN_FONT_SIZE: f64 = 4.0;
@@ -560,12 +559,7 @@ fn split_out_lines(input: &[u16], max_width: f64, font: &Font, font_size: f64) -
         last = (1..candidate.len()).rev().find(|at| is_unit_space(candidate[*at])).unwrap_or(0);
     }
     let line = String::from_utf16_lossy(input);
-    Ok(Split {
-        encoded: font.encode_text(&line)?,
-        width: font.width_of_text_at_size(&line, font_size)?,
-        line,
-        remainder: None,
-    })
+    Ok(Split { encoded: font.encode_text(&line)?, width: font.width_of_text_at_size(&line, font_size)?, line, remainder: None })
 }
 
 struct MultilineLayout {
@@ -618,10 +612,7 @@ fn layout_combed_text(text: &str, font_size: Option<f64>, font: &Font, bounds: B
     let line = merge_lines(&clean_text(text));
     let length = utf16_len(&line);
     if (length as f64) > cell_count {
-        return Err(FormError::new(format!(
-            "Failed to layout combed text as lineLength={length} is greater than cellCount={}",
-            pdf_number(cell_count)
-        )));
+        return Err(FormError::new(format!("Failed to layout combed text as lineLength={length} is greater than cellCount={}", pdf_number(cell_count))));
     }
     let font_size = match font_size {
         Some(size) if size != 0.0 => size,
@@ -720,11 +711,7 @@ fn read_geometry(store: &ObjectStore, field: Ref, widget: &Widget) -> FormResult
     let rectangle = widget_rectangle(store, widget)?;
     let border_width = border_style_width(store, widget).unwrap_or(0.0);
     let rotation = reduce_rotation(characteristic_rotation(store, widget));
-    let (width, height) = if rotation == 90 || rotation == 270 {
-        (rectangle.height, rectangle.width)
-    } else {
-        (rectangle.width, rectangle.height)
-    };
+    let (width, height) = if rotation == 90 || rotation == 270 { (rectangle.height, rectangle.width) } else { (rectangle.width, rectangle.height) };
     let border = characteristic_components(store, widget, "BC");
     let background = characteristic_components(store, widget, "BG");
     Ok(WidgetGeometry {
@@ -860,13 +847,7 @@ fn option_list_ops(store: &mut ObjectStore, field: Ref, widget: &Widget, font: &
     let text = options.join("\n");
     let bounds = text_bounds(&g, 1.0);
     let layout = layout_multiline_text(&text, Alignment::Left, g.widget_font_size.or(g.field_font_size), &font.font, bounds)?;
-    let selected_lines: Vec<usize> = layout
-        .lines
-        .iter()
-        .enumerate()
-        .filter(|(_, line)| selected.contains(&line.text))
-        .map(|(index, _)| index)
-        .collect();
+    let selected_lines: Vec<usize> = layout.lines.iter().enumerate().filter(|(_, line)| selected.contains(&line.text)).map(|(index, _)| index).collect();
     let blue = Color::Rgb(153.0 / 255.0, 193.0 / 255.0, 218.0 / 255.0);
     let text_color = g.widget_color.or(g.field_color).unwrap_or(BLACK);
     let on_widget = g.widget_color.is_some() || g.widget_font_size.is_some();
@@ -891,12 +872,7 @@ fn button_ops(store: &mut ObjectStore, field: Ref, widget: &Widget, font: &FormF
     let g = read_geometry(store, field, widget)?;
     let normal_text = caption(store, widget, "CA").unwrap_or_default();
     let down_text = caption(store, widget, "AC").unwrap_or_else(|| normal_text.clone());
-    let bounds = Bounds {
-        x: g.border_width,
-        y: g.border_width,
-        width: g.width - g.border_width * 2.0,
-        height: g.height - g.border_width * 2.0,
-    };
+    let bounds = Bounds { x: g.border_width, y: g.border_width, width: g.width - g.border_width * 2.0, height: g.height - g.border_width * 2.0 };
     let requested = g.widget_font_size.or(g.field_font_size);
     let (normal_line, normal_size) = layout_singleline_text(&normal_text, Alignment::Center, requested, &font.font, bounds)?;
     let (down_line, down_size) = layout_singleline_text(&down_text, Alignment::Center, requested, &font.font, bounds)?;
@@ -956,11 +932,7 @@ fn set_widget_appearances(store: &mut ObjectStore, widget: Ref, normal: Obj, dow
             None => ap.delete("D"),
         }
     };
-    let indirect = store
-        .dict(widget)
-        .and_then(|dict| dict.get_raw("AP"))
-        .and_then(Obj::as_ref_value)
-        .filter(|reference| store.dict(*reference).is_some());
+    let indirect = store.dict(widget).and_then(|dict| dict.get_raw("AP")).and_then(Obj::as_ref_value).filter(|reference| store.dict(*reference).is_some());
     if let Some(reference) = indirect {
         store.modify_dict(reference, edit);
         return;
@@ -1009,19 +981,10 @@ fn update_widget_appearance(store: &mut ObjectStore, field: &Field, widget: &Wid
 }
 
 /// Draws the appearance of a widget that was just added to a field (`addToPage`'s call of `updateWidgetAppearance`).
-pub(crate) fn draw_new_widget(
-    doc: &mut PdfDocument,
-    field: &Field,
-    widget_ref: Ref,
-    font: &FormFont,
-    on_value: Option<&str>,
-) -> FormResult<()> {
+pub(crate) fn draw_new_widget(doc: &mut PdfDocument, field: &Field, widget_ref: Ref, font: &FormFont, on_value: Option<&str>) -> FormResult<()> {
     let store = doc.store_mut();
     let widgets = widgets_of(store, field.reference)?;
-    let widget = widgets
-        .into_iter()
-        .find(|entry| entry.reference == Some(widget_ref))
-        .ok_or_else(|| FormError::new("the widget is not a kid of its field"))?;
+    let widget = widgets.into_iter().find(|entry| entry.reference == Some(widget_ref)).ok_or_else(|| FormError::new("the widget is not a kid of its field"))?;
     update_widget_appearance(store, field, &widget, font, on_value)
 }
 
@@ -1106,18 +1069,10 @@ impl PdfForm {
     pub(crate) fn appearance_font_size(doc: &PdfDocument, field: &Field, widget: &Widget) -> f64 {
         let store = doc.store();
         let size_of = |content: &str| -> f64 {
-            static TF_ANY: LazyLock<JsRegex> =
-                LazyLock::new(|| JsRegex::new_static(r"/[^\s/]+\s+([\d.]+)\s+Tf", ""));
-            TF_ANY
-                .captures(content)
-                .and_then(|caps| caps.get(1).map(mixdog_js::string_to_number))
-                .filter(|size| truthy(*size))
-                .unwrap_or(0.0)
+            static TF_ANY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"/[^\s/]+\s+([\d.]+)\s+Tf", ""));
+            TF_ANY.captures(content).and_then(|caps| caps.get(1).map(mixdog_js::string_to_number)).filter(|size| truthy(*size)).unwrap_or(0.0)
         };
-        let declared = store
-            .dict(field.reference)
-            .and_then(|dict| default_appearance(store, dict))
-            .map_or(0.0, |da| size_of(&da));
+        let declared = store.dict(field.reference).and_then(|dict| default_appearance(store, dict)).map_or(0.0, |da| size_of(&da));
         if declared > 0.0 {
             return declared;
         }

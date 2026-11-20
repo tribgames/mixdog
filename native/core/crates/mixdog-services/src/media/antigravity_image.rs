@@ -73,7 +73,9 @@ pub fn antigravity_image_parts(sse_text: &str) -> StreamParts {
             Some(nested) if truthy(Some(nested)) && (nested.is_object() || nested.is_array()) => nested,
             _ => &value,
         };
-        if let Some(content) = chunk.get("candidates").and_then(|c| c.get(0)).and_then(|c| c.get("content")).and_then(|c| c.get("parts")).and_then(Value::as_array) {
+        if let Some(content) =
+            chunk.get("candidates").and_then(|c| c.get(0)).and_then(|c| c.get("content")).and_then(|c| c.get("parts")).and_then(Value::as_array)
+        {
             parts.extend(content.iter().cloned());
         }
         // usageMetadata is cumulative; the last chunk that carries it is the total.
@@ -82,7 +84,8 @@ pub fn antigravity_image_parts(sse_text: &str) -> StreamParts {
         }
         let blocked = chunk.get("promptFeedback").and_then(|f| f.get("blockReason")).filter(|b| truthy(Some(b)));
         if let Some(reason) = blocked
-            && failure.as_deref().is_none_or(str::is_empty) {
+            && failure.as_deref().is_none_or(str::is_empty)
+        {
             failure = Some(format!("prompt blocked ({})", value_to_string(reason)));
         }
     }
@@ -91,7 +94,15 @@ pub fn antigravity_image_parts(sse_text: &str) -> StreamParts {
 
 /// `generateImage({ model, prompt, options, references, signal })`.
 #[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
-pub async fn generate_image(http: &dyn JsonPost, session: &dyn AntigravitySession, model: &str, prompt: &str, options: &Value, references: &References, cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
+pub async fn generate_image(
+    http: &dyn JsonPost,
+    session: &dyn AntigravitySession,
+    model: &str,
+    prompt: &str,
+    options: &Value,
+    references: &References,
+    cancel: &CancellationToken,
+) -> Result<GeneratedImage, AdapterError> {
     let auth = session.auth().await?;
     let url = format!("{}/v1internal:streamGenerateContent?alt=sse", session.endpoint());
     let references = references.prepare(&Target { endpoint: &url, account: &auth.project_id, model, operation: "image-generation" }).await?;

@@ -416,8 +416,7 @@ fn starter_guide_state(value: Option<&Value>) -> Result<(), &'static str> {
     }
     let known_steps = |steps: &Value| {
         steps.as_array().is_some_and(|list| {
-            list.len() <= STARTER_GUIDE_STEPS.len() * 2
-                && list.iter().all(|step| step.as_str().is_some_and(|name| STARTER_GUIDE_STEPS.contains(&name)))
+            list.len() <= STARTER_GUIDE_STEPS.len() * 2 && list.iter().all(|step| step.as_str().is_some_and(|name| STARTER_GUIDE_STEPS.contains(&name)))
         })
     };
     if state.get("visited").is_some_and(|steps| !known_steps(steps)) {
@@ -444,10 +443,7 @@ fn required_session_id(value: Option<&Value>) -> Result<(), &'static str> {
         return Err("session id must be a string.");
     };
     let id = js_trim(text);
-    if id.is_empty()
-        || utf16_len(id) > MAX_SESSION_ID_LENGTH
-        || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
-    {
+    if id.is_empty() || utf16_len(id) > MAX_SESSION_ID_LENGTH || !id.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-') {
         return Err("session id is invalid.");
     }
     Ok(())
@@ -462,10 +458,7 @@ fn allowed_keys(options: &Map<String, Value>, allowed: &[&str], name: &str) -> R
 }
 
 /// An options param: absent or `null` is no options; an empty object is read as none too (the clients send `{}`).
-fn options_object<'a>(
-    value: Option<&'a Value>,
-    expected: &str,
-) -> Result<Option<&'a Map<String, Value>>, (String, String)> {
+fn options_object<'a>(value: Option<&'a Value>, expected: &str) -> Result<Option<&'a Map<String, Value>>, (String, String)> {
     match value {
         None | Some(Value::Null) => Ok(None),
         Some(Value::Object(options)) if options.is_empty() => Ok(None),
@@ -484,10 +477,8 @@ fn context_status_options(value: Option<&Value>) -> Result<(), (String, String)>
         return Err(("/options".to_owned(), "context inspection requires inspect: true.".to_owned()));
     }
     if let Some(entry) = inspection.get("entryId") {
-        required_string(Some(entry), "context entry id", 128)
-            .map_err(|expected| ("/options/entryId".to_owned(), expected))?;
-        required_string(inspection.get("revision"), "context revision", 64)
-            .map_err(|expected| ("/options/revision".to_owned(), expected))?;
+        required_string(Some(entry), "context entry id", 128).map_err(|expected| ("/options/entryId".to_owned(), expected))?;
+        required_string(inspection.get("revision"), "context revision", 64).map_err(|expected| ("/options/revision".to_owned(), expected))?;
     } else if inspection.contains_key("revision") {
         return Err(("/options/revision".to_owned(), "context revision requires an entry id.".to_owned()));
     }
@@ -522,8 +513,7 @@ fn skills_status_options(value: Option<&Value>) -> Result<(), (String, String)> 
         return Ok(());
     }
     let path = "/options/projectPath";
-    let project_path = required_string(options.get("projectPath"), "projectPath", 4_096)
-        .map_err(|expected| (path.to_owned(), expected))?;
+    let project_path = required_string(options.get("projectPath"), "projectPath", 4_096).map_err(|expected| (path.to_owned(), expected))?;
     if !path_is_absolute(project_path) || project_path.contains('\0') {
         return Err((path.to_owned(), "projectPath is invalid.".to_owned()));
     }
@@ -567,13 +557,7 @@ mod tests {
         for row in rows {
             let got = run(&row.method, &row.params);
             match (row.path, row.expected) {
-                (Some(path), Some(expected)) => assert_eq!(
-                    got,
-                    Err(ErrorData::InvalidParams { path, expected }),
-                    "{}: {}",
-                    row.method,
-                    row.case
-                ),
+                (Some(path), Some(expected)) => assert_eq!(got, Err(ErrorData::InvalidParams { path, expected }), "{}: {}", row.method, row.case),
                 (None, None) => assert_eq!(got, Ok(()), "{}: {}", row.method, row.case),
                 _ => panic!("{}: {}: path and expected go together", row.method, row.case),
             }
@@ -640,10 +624,7 @@ mod tests {
             run("skills/skillsStatus", &options(serde_json::json!({ "projectPath": "work/proj", "cwd": "/work/proj" }))),
             refused("/options/projectPath", "projectPath is invalid.")
         );
-        assert_eq!(
-            run("skills/skillsStatus", &options(serde_json::json!({ "cwd": null }))),
-            refused("/options/projectPath", "projectPath must be a string.")
-        );
+        assert_eq!(run("skills/skillsStatus", &options(serde_json::json!({ "cwd": null }))), refused("/options/projectPath", "projectPath must be a string."));
         assert_eq!(
             run("skills/skillsStatus", &options(serde_json::json!({ "cwd": "/work/proj", "force": true }))),
             refused("/options", "skills status options contains an unsupported field.")
@@ -654,10 +635,7 @@ mod tests {
     #[test]
     fn validate_capability_structured_bounds() {
         let params = |payload: Value| serde_json::json!({ "opId": "o1", "payload": payload });
-        let too_large = |path: &str| Err(ErrorData::InvalidParams {
-            path: path.to_owned(),
-            expected: "structured input is too large.".to_owned(),
-        });
+        let too_large = |path: &str| Err(ErrorData::InvalidParams { path: path.to_owned(), expected: "structured input is too large.".to_owned() });
         let rows = |count: usize| Value::Array((0..count).map(|_| Value::Array(vec![Value::Null; 4_000])).collect());
         assert_eq!(run("config/createWorkflow", &params(rows(4))), Ok(()));
         assert_eq!(run("config/createWorkflow", &params(rows(6))), too_large("/payload"));
@@ -676,24 +654,15 @@ mod tests {
             object
         };
         let refused = |path: &str, expected: &str| Err(ErrorData::InvalidParams { path: path.to_owned(), expected: expected.to_owned() });
-        assert_eq!(
-            run("turn/retryFailed", &params(serde_json::json!({ "threadId": "t1" }))),
-            refused("/turnKey", "turn key must be a string.")
-        );
+        assert_eq!(run("turn/retryFailed", &params(serde_json::json!({ "threadId": "t1" }))), refused("/turnKey", "turn key must be a string."));
         assert_eq!(run("thread/askSide", &params(serde_json::json!({}))), refused("/question", "side question must be a string."));
         // Typed by another group of this folder.
-        assert_eq!(
-            run("account/checkCustomProviderKeyEnv", &params(serde_json::json!({}))),
-            refused("/name", "environment variable name must be a string.")
-        );
+        assert_eq!(run("account/checkCustomProviderKeyEnv", &params(serde_json::json!({}))), refused("/name", "environment variable name must be a string."));
         assert_eq!(
             run("account/saveCustomProviderKey", &params(serde_json::json!({ "providerId": "custom-0190f3c2-7a31-7c00-8000-000000000001" }))),
             refused("/secret", "provider secret is invalid.")
         );
-        assert_eq!(
-            run("account/removeCustomProvider", &params(serde_json::json!({}))),
-            refused("/providerId", "custom provider id must be a string.")
-        );
+        assert_eq!(run("account/removeCustomProvider", &params(serde_json::json!({}))), refused("/providerId", "custom provider id must be a string."));
         // No check types it: the argument count.
         assert_eq!(
             run("thread/rewind", &params(serde_json::json!({ "threadId": "t1" }))),
@@ -708,10 +677,7 @@ mod tests {
         let payload: Value = serde_json::from_str(&format!(r#"{{"constructor": 1, "0": [{}0]}}"#, "0,".repeat(5_000))).unwrap();
         assert_eq!(
             run("config/createWorkflow", &serde_json::json!({ "opId": "o1", "payload": payload })),
-            Err(ErrorData::InvalidParams {
-                path: "/payload".to_owned(),
-                expected: "structured input contains too many entries.".to_owned()
-            })
+            Err(ErrorData::InvalidParams { path: "/payload".to_owned(), expected: "structured input contains too many entries.".to_owned() })
         );
     }
 }

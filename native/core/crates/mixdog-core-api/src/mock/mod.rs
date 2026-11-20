@@ -32,7 +32,6 @@ use crate::ids::FeedEpoch;
 pub use self::core::ControlCall;
 pub use self::core::Handler;
 pub use self::core::MockCore;
-pub use self::core::OpenedConnection;
 pub use self::core::MockDirectory;
 pub use self::core::MockDomain;
 pub use self::core::MockHostChannel;
@@ -41,12 +40,13 @@ pub use self::core::MockOpIndex;
 pub use self::core::MockServerRequests;
 pub use self::core::MockStatePublisher;
 pub use self::core::MockThread;
+pub use self::core::OpenedConnection;
 pub use self::core::ServerRequestEvent;
-pub use self::image_supply::MockImageSupply;
-pub use self::image_supply::install_mock_image_supply;
 pub use self::feed::FeedTap;
 pub use self::feed::MockFeed;
 pub use self::feed::MockScopedFeeds;
+pub use self::image_supply::MockImageSupply;
+pub use self::image_supply::install_mock_image_supply;
 pub use self::transport::MockConnection;
 pub use self::transport::Written;
 
@@ -62,12 +62,7 @@ pub struct MockLimits {
 impl Default for MockLimits {
     /// SPEC §3.1 values.
     fn default() -> Self {
-        Self {
-            queue_bytes: 8 << 20,
-            control_reserve_bytes: 512 << 10,
-            max_snapshot_bytes: 3 << 20,
-            ring_bytes: 4 << 20,
-        }
+        Self { queue_bytes: 8 << 20, control_reserve_bytes: 512 << 10, max_snapshot_bytes: 3 << 20, ring_bytes: 4 << 20 }
     }
 }
 
@@ -82,22 +77,14 @@ impl MockLimits {
 pub struct EchoView;
 
 impl FeedView for EchoView {
-    fn encode_snapshot(
-        &self,
-        _lane: &InLane<CpuInteractive>,
-        at: FeedPosition,
-        _window: &Window,
-    ) -> Bytes {
+    fn encode_snapshot(&self, _lane: &InLane<CpuInteractive>, at: FeedPosition, _window: &Window) -> Bytes {
         Bytes::from(format!("snapshot@{}", at.seq))
     }
 }
 
 /// The frame `evt@<seq>`.
 pub fn event(seq: u64) -> FeedFrame {
-    FeedFrame {
-        seq,
-        bytes: Bytes::from(format!("evt@{seq}")),
-    }
+    FeedFrame { seq, bytes: Bytes::from(format!("evt@{seq}")) }
 }
 
 /// A 32-hex-digit epoch with value `n`.

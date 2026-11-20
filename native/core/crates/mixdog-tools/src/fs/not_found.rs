@@ -14,8 +14,7 @@ use super::patch_guard::normalize_output_path;
 use super::read_paths;
 
 const FIND_NUDGE: &str = "Locate with find on the basename before retrying.";
-const ABSENT: &str =
-    " Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires).";
+const ABSENT: &str = " Nothing same-named elsewhere in the project scan — treat the path as absent (create it if the task requires).";
 /// `read`'s own multi-path wording (Node's, kept as recorded); the tools below word the repair for themselves
 /// ([`repair`]), since each takes a path list differently.
 pub(super) const MULTI_PATH: &str = " To pass several paths, send an array (path[]), not a comma- or space-joined string.";
@@ -33,8 +32,25 @@ pub(crate) enum PathTool {
 const SCAN_DEADLINE: Duration = Duration::from_millis(750);
 const SCAN_MAX_DIRS: usize = 6000;
 const SCAN_SKIP_DIRS: [&str; 19] = [
-    "node_modules", ".git", ".hg", ".svn", "dist", "build", "out", "coverage", ".next", ".nuxt", ".turbo", ".cache",
-    "vendor", "target", ".venv", "venv", "__pycache__", ".idea", ".vscode",
+    "node_modules",
+    ".git",
+    ".hg",
+    ".svn",
+    "dist",
+    "build",
+    "out",
+    "coverage",
+    ".next",
+    ".nuxt",
+    ".turbo",
+    ".cache",
+    "vendor",
+    "target",
+    ".venv",
+    "venv",
+    "__pycache__",
+    ".idea",
+    ".vscode",
 ];
 
 /// The error code Node's stat reports for a missing path, when it is one.
@@ -69,11 +85,7 @@ pub(crate) async fn missing_with_tool(ctx: &ToolContext, missing: &AbsPath, inpu
         hint = suggest_indexed(ctx, missing).await;
     }
     let hint = with_cwd_note(ctx, hint);
-    format!(
-        "Error: path does not exist: {} ({code}){}",
-        normalize_output_path(&missing.as_path().to_string_lossy()),
-        finalize_tail(hint, joined, tool)
-    )
+    format!("Error: path does not exist: {} ({code}){}", normalize_output_path(&missing.as_path().to_string_lossy()), finalize_tail(hint, joined, tool))
 }
 
 /// The answer for a tool that takes one path, given several joined in one string, when the evidence is there: `Some`
@@ -95,13 +107,13 @@ async fn suggest_indexed(ctx: &ToolContext, missing: &AbsPath) -> String {
         return String::new();
     }
     let args = serde_json::json!({ "pattern": format!("**/{base}"), "limit": 6 });
-    let Ok(output) = <super::search::GlobTool as mixdog_core_api::domain::tool::Tool>::call(&super::search::GlobTool::new(), ctx, args).await
-    else {
+    let Ok(output) = <super::search::GlobTool as mixdog_core_api::domain::tool::Tool>::call(&super::search::GlobTool::new(), ctx, args).await else {
         return String::new();
     };
     static NO_RESULT: std::sync::LazyLock<regex::Regex> =
         std::sync::LazyLock::new(|| regex::Regex::new(r"^\(no (?:files found|entries\b)").expect("a fixed pattern"));
-    let rows: String = output.parts.iter().filter_map(|p| if let mixdog_core_api::domain::tool::ToolPart::Text(t) = p { Some(t.as_str()) } else { None }).collect();
+    let rows: String =
+        output.parts.iter().filter_map(|p| if let mixdog_core_api::domain::tool::ToolPart::Text(t) = p { Some(t.as_str()) } else { None }).collect();
     let hits: Vec<&str> = rows
         .split('\n')
         .filter(|s| !s.is_empty() && !NO_RESULT.is_match(s) && !s.starts_with("... ["))
@@ -133,7 +145,8 @@ async fn joined_evidence(ctx: &ToolContext, requested: &str) -> Option<Vec<Strin
     if !joined_list(requested) {
         return None;
     }
-    let parts: Vec<String> = mixdog_js::js_trim(requested).split(|c: char| c == ',' || c == ';' || mixdog_js::is_js_space(c)).filter(|s| !s.is_empty()).map(str::to_owned).collect();
+    let parts: Vec<String> =
+        mixdog_js::js_trim(requested).split(|c: char| c == ',' || c == ';' || mixdog_js::is_js_space(c)).filter(|s| !s.is_empty()).map(str::to_owned).collect();
     for part in &parts {
         let Ok(abs) = super::common::resolve_path(&ctx.cwd, part) else { continue };
         if ctx.files.stat(ctx.io.interactive, abs).await.is_ok() {
@@ -147,9 +160,14 @@ async fn joined_evidence(ctx: &ToolContext, requested: &str) -> Option<Vec<Strin
 fn repair(tool: PathTool, parts: &[String]) -> String {
     let quoted = |items: &[String]| items.iter().map(|p| format!("\"{p}\"")).collect::<Vec<_>>().join(", ");
     match tool {
-        PathTool::Grep => format!(" These look like several paths in one string; grep takes an array for that: path: {}.", serde_json::to_string(&parts[..parts.len().min(10)]).unwrap_or_default()),
+        PathTool::Grep => format!(
+            " These look like several paths in one string; grep takes an array for that: path: {}.",
+            serde_json::to_string(&parts[..parts.len().min(10)]).unwrap_or_default()
+        ),
         PathTool::List => format!(" These look like several paths in one string; list takes one path per call: list {}, each in its own call.", quoted(parts)),
-        PathTool::Glob => format!(" These look like several paths in one string; glob takes one base path per call: use {}, each in its own call.", quoted(parts)),
+        PathTool::Glob => {
+            format!(" These look like several paths in one string; glob takes one base path per call: use {}, each in its own call.", quoted(parts))
+        }
     }
 }
 
@@ -169,24 +187,15 @@ fn finalize_tail(hint: String, joined: Option<Vec<String>>, tool: PathTool) -> S
 /// A directory's entries in the order Node lists them; `None` when it cannot be read.
 async fn listing(ctx: &ToolContext, dir: &AbsPath) -> Option<Vec<(String, EntryKind, AbsPath)>> {
     let entries = ctx.files.list_dir(ctx.io.interactive, dir.clone()).await.ok()?;
-    let mut named: Vec<(String, EntryKind, AbsPath)> = entries
-        .into_iter()
-        .filter_map(|e| Some((e.path.as_path().file_name()?.to_string_lossy().into_owned(), e.kind, e.path)))
-        .collect();
+    let mut named: Vec<(String, EntryKind, AbsPath)> =
+        entries.into_iter().filter_map(|e| Some((e.path.as_path().file_name()?.to_string_lossy().into_owned(), e.kind, e.path))).collect();
     named.sort_by_cached_key(|(name, ..)| read_paths::dir_order_key(name));
     Some(named)
 }
 
 /// `listSiblings`: the first `limit` entries not starting with a dot.
 async fn siblings(ctx: &ToolContext, dir: &AbsPath, limit: usize) -> Vec<String> {
-    listing(ctx, dir)
-        .await
-        .unwrap_or_default()
-        .into_iter()
-        .map(|(name, ..)| name)
-        .filter(|name| !name.starts_with('.'))
-        .take(limit)
-        .collect()
+    listing(ctx, dir).await.unwrap_or_default().into_iter().map(|(name, ..)| name).filter(|name| !name.starts_with('.')).take(limit).collect()
 }
 
 async fn is_dir(ctx: &ToolContext, path: &AbsPath) -> bool {
@@ -329,8 +338,7 @@ async fn hint_body(ctx: &ToolContext, missing: &AbsPath, verb: &str) -> String {
     }
     // `isDirectoryPathGuess`: a last segment with no glob magic and no extension names a directory.
     let base = missing.as_path().file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-    static EXTENSION: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"\.[a-zA-Z0-9]{1,12}$").expect("a fixed pattern"));
+    static EXTENSION: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"\.[a-zA-Z0-9]{1,12}$").expect("a fixed pattern"));
     let directory_guess = !base.is_empty() && !base.contains(['*', '?', '[', ']', '{', '}']) && !EXTENSION.is_match(&base);
     if !directory_guess {
         return if elsewhere.exhaustive { ABSENT.to_owned() } else { String::new() };

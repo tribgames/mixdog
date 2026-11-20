@@ -81,11 +81,7 @@ fn capped(text: &str, budget: usize) -> String {
 
 /// Headings and error lines are labels, not answers: no truncation marker.
 fn shortened(text: &str, max: usize) -> String {
-    if text.js_len() <= max {
-        text.to_owned()
-    } else {
-        format!("{}…", mixdog_js::slice_utf16(text, max - 1))
-    }
+    if text.js_len() <= max { text.to_owned() } else { format!("{}…", mixdog_js::slice_utf16(text, max - 1)) }
 }
 
 /// The merged text and whether every explorer failed.
@@ -156,9 +152,7 @@ impl Tool for ExploreTool {
         let started = Instant::now();
         let deadline = ctx.deadline.unwrap_or(started + EXPLORE_TIMEOUT);
         let timeout = deadline.saturating_duration_since(started);
-        let runs = queries.iter().map(|query| {
-            self.runner.explore(ExploreRun { query, thread: &ctx.thread_id, cwd: &ctx.cwd, cancel: &ctx.cancel, deadline })
-        });
+        let runs = queries.iter().map(|query| self.runner.explore(ExploreRun { query, thread: &ctx.thread_id, cwd: &ctx.cwd, cancel: &ctx.cancel, deadline }));
         let results = join_all(runs).await;
         if ctx.cancel.is_cancelled() {
             return Err(cancelled());

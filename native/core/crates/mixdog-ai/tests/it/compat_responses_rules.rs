@@ -59,13 +59,25 @@ fn a_models_wire_is_decided_by_the_first_tier_that_speaks_in_this_order() {
         ("the user's override", WireFacts { override_wire: Some(Responses), ..known() }, Some((Responses, Override))),
         ("an override outranks the catalog", WireFacts { override_wire: Some(Chat), catalog_wire: Some(Responses), ..known() }, Some((Chat, Override))),
         ("an override works even for an undescribed model", WireFacts { override_wire: Some(Responses), known: false, ..known() }, Some((Responses, Override))),
-        ("an override on the wire just refused is not taken again", WireFacts { override_wire: Some(Responses), exclude: &[Responses], ..known() }, Some((Chat, Default))),
+        (
+            "an override on the wire just refused is not taken again",
+            WireFacts { override_wire: Some(Responses), exclude: &[Responses], ..known() },
+            Some((Chat, Default)),
+        ),
         ("the catalog's wire", WireFacts { catalog_wire: Some(Responses), ..known() }, Some((Responses, Catalog))),
         ("a catalog wire the gateway does not offer says nothing", WireFacts { catalog_wire: Some(Wire::Gemini), ..known() }, Some((Chat, Default))),
         ("the one wire the roster advertises", WireFacts { endpoints: Some(&[Responses]), ..known() }, Some((Responses, Endpoints))),
         ("a roster that advertises both leaves the default", WireFacts { endpoints: Some(&[Chat, Responses]), ..known() }, Some((Chat, Default))),
-        ("the catalog outranks the single-wire roster rule when both wires are advertised", WireFacts { endpoints: Some(&[Chat, Responses]), catalog_wire: Some(Responses), ..known() }, Some((Responses, Catalog))),
-        ("a catalog wire the roster does not advertise says nothing: the one advertised wire", WireFacts { endpoints: Some(&[Responses]), catalog_wire: Some(Chat), ..known() }, Some((Responses, Endpoints))),
+        (
+            "the catalog outranks the single-wire roster rule when both wires are advertised",
+            WireFacts { endpoints: Some(&[Chat, Responses]), catalog_wire: Some(Responses), ..known() },
+            Some((Responses, Catalog)),
+        ),
+        (
+            "a catalog wire the roster does not advertise says nothing: the one advertised wire",
+            WireFacts { endpoints: Some(&[Responses]), catalog_wire: Some(Chat), ..known() },
+            Some((Responses, Endpoints)),
+        ),
         ("a model nothing describes gets the default, flagged unknown", WireFacts { known: false, ..known() }, Some((Chat, Unknown))),
         ("a session that predates the table keeps the wire it started on", WireFacts { legacy: true, ..known() }, Some((Chat, Legacy))),
         ("and that outranks the override", WireFacts { legacy: true, override_wire: Some(Responses), ..known() }, Some((Chat, Legacy))),
@@ -170,7 +182,11 @@ fn an_http_request_goes_to_the_responses_endpoint_with_the_fixed_header_order_an
         let base = profile.base_url;
         let (method, url, headers, body) = encode(profile.clone(), CompatConfig::default(), TransportKind::Http1, &request("m1", options.clone()));
         assert_eq!((method.as_str(), url.as_str()), ("POST", format!("{base}/responses").as_str()), "{id}");
-        assert_eq!((headers[0].clone(), headers[1].clone()), (("content-type".into(), "application/json".into()), ("accept".into(), accept.into())), "{id}: content type, then accept, then the profile's own");
+        assert_eq!(
+            (headers[0].clone(), headers[1].clone()),
+            (("content-type".into(), "application/json".into()), ("accept".into(), accept.into())),
+            "{id}: content type, then accept, then the profile's own"
+        );
         assert_eq!(body["stream"], true, "{id}");
         assert_eq!(body["model"], "m1", "{id}");
         assert!(body["input"].is_array(), "{id}");
@@ -205,13 +221,41 @@ fn body_keys_follow_each_routes_fixed_order() {
     let options = RequestOptions { session_id: Some("s1".into()), effort: Some("high".into()), ..RequestOptions::default() };
     let req = request("grok-4", options);
     let http = encode(CompatProfile::xai(), CompatConfig::default(), TransportKind::Http1, &req).3;
-    let order = ["model", "input", "store", "include", "prompt_cache_key", "previous_response_id", "instructions", "tools", "parallel_tool_calls", "max_output_tokens", "tool_choice", "reasoning", "stream"];
+    let order = [
+        "model",
+        "input",
+        "store",
+        "include",
+        "prompt_cache_key",
+        "previous_response_id",
+        "instructions",
+        "tools",
+        "parallel_tool_calls",
+        "max_output_tokens",
+        "tool_choice",
+        "reasoning",
+        "stream",
+    ];
     assert!(follows(&keys(&http), &order), "{:?}", keys(&http));
     assert!(keys(&http).contains(&"reasoning") && keys(&http).contains(&"prompt_cache_key"));
     let ws = encode(CompatProfile::xai(), CompatConfig::default(), TransportKind::WebSocket, &req).3;
     assert!(follows(&keys(&ws)[1..], &order[..order.len() - 1]), "{:?}", keys(&ws));
 
-    let gateway_order = ["model", "input", "store", "include", "stream", "previous_response_id", "max_output_tokens", "tools", "parallel_tool_calls", "tool_choice", "reasoning", "instructions", "prompt_cache_key"];
+    let gateway_order = [
+        "model",
+        "input",
+        "store",
+        "include",
+        "stream",
+        "previous_response_id",
+        "max_output_tokens",
+        "tools",
+        "parallel_tool_calls",
+        "tool_choice",
+        "reasoning",
+        "instructions",
+        "prompt_cache_key",
+    ];
     let go = encode(CompatProfile::opencode_go(), CompatConfig::default(), TransportKind::Http1, &req).3;
     assert!(follows(&keys(&go), &gateway_order), "{:?}", keys(&go));
 
@@ -241,7 +285,8 @@ fn xai_takes_only_the_efforts_it_knows_and_forces_no_tool_choice_but_none() {
 
 #[test]
 fn muse_code_places_reasoning_by_its_own_levels_and_caches_by_the_given_key_or_the_session() {
-    let body = |options: RequestOptions| encode(CompatProfile::muse_code_oauth(), CompatConfig::default(), TransportKind::Http1, &request("muse-spark", options)).3;
+    let body =
+        |options: RequestOptions| encode(CompatProfile::muse_code_oauth(), CompatConfig::default(), TransportKind::Http1, &request("muse-spark", options)).3;
     let with_effort = |effort: &str| body(RequestOptions { effort: Some(effort.into()), ..RequestOptions::default() });
     assert_eq!(with_effort("high")["reasoning"], json!({"effort": "high", "summary": "auto"}));
     assert_eq!(with_effort("max")["reasoning"], json!({"effort": "xhigh", "summary": "auto"}), "max is the top level it has");
@@ -252,12 +297,22 @@ fn muse_code_places_reasoning_by_its_own_levels_and_caches_by_the_given_key_or_t
 
     let key = |options: RequestOptions| body(options).get("prompt_cache_key").cloned();
     assert_eq!(key(RequestOptions { session_id: Some("s1".into()), ..RequestOptions::default() }), Some(json!("s1")));
-    assert_eq!(key(RequestOptions { session_id: Some("s1".into()), prompt_cache_key: Some(" lane ".into()), ..RequestOptions::default() }), Some(json!("lane")));
-    assert_eq!(key(RequestOptions { session_id: Some("s1".into()), prompt_cache_key: Some(String::new()), ..RequestOptions::default() }), None, "an explicit blank key suppresses caching");
+    assert_eq!(
+        key(RequestOptions { session_id: Some("s1".into()), prompt_cache_key: Some(" lane ".into()), ..RequestOptions::default() }),
+        Some(json!("lane"))
+    );
+    assert_eq!(
+        key(RequestOptions { session_id: Some("s1".into()), prompt_cache_key: Some(String::new()), ..RequestOptions::default() }),
+        None,
+        "an explicit blank key suppresses caching"
+    );
     let long = "k".repeat(65);
     let hashed = key(RequestOptions { prompt_cache_key: Some(long), ..RequestOptions::default() }).unwrap();
     let hashed = hashed.as_str().unwrap();
-    assert!(hashed.starts_with("pc_") && hashed.len() == 3 + 32 && hashed[3..].bytes().all(|b| b.is_ascii_hexdigit()), "past 64 units the key is a bounded hash: {hashed}");
+    assert!(
+        hashed.starts_with("pc_") && hashed.len() == 3 + 32 && hashed[3..].bytes().all(|b| b.is_ascii_hexdigit()),
+        "past 64 units the key is a bounded hash: {hashed}"
+    );
     let kept = key(RequestOptions { prompt_cache_key: Some("k".repeat(64)), ..RequestOptions::default() }).unwrap();
     assert_eq!(kept.as_str().unwrap().len(), 64, "up to 64 units it is kept");
 }
@@ -311,10 +366,14 @@ fn a_request_without_a_session_or_with_the_scope_off_sends_no_key() {
     assert_eq!(xai_key(&[], base(), |_| {}), None, "the default scope needs a session");
     assert_eq!(xai_key(&[], base(), |o| o.session_id = Some("   ".into())), None, "a blank session is none");
     for scope in ["none", "off", "omit", " OFF "] {
-        assert_eq!(xai_key(&[], base(), |o| {
-            o.session_id = Some("s1".into());
-            o.xai_responses_cache_scope = Some(scope.into());
-        }), None, "{scope:?}");
+        assert_eq!(
+            xai_key(&[], base(), |o| {
+                o.session_id = Some("s1".into());
+                o.xai_responses_cache_scope = Some(scope.into());
+            }),
+            None,
+            "{scope:?}"
+        );
         assert_eq!(xai_key(&[("MIXDOG_XAI_RESPONSES_CACHE_SCOPE", scope)], base(), session("s1")), None, "{scope:?} from the environment");
     }
 }
@@ -358,15 +417,21 @@ fn the_scope_comes_from_the_request_then_the_shared_flag_then_the_environment() 
     let by_env = xai_key(&env, base(), session("s1")).unwrap();
     assert_eq!(xai_key(&env, base(), session("s2")), Some(by_env.clone()), "the environment's prefix scope ignores the session");
     // The request's own scope outranks the environment.
-    assert_ne!(xai_key(&env, base(), |o| {
-        o.session_id = Some("s1".into());
-        o.xai_responses_cache_scope = Some("session".into());
-    }), Some(by_env.clone()));
+    assert_ne!(
+        xai_key(&env, base(), |o| {
+            o.session_id = Some("s1".into());
+            o.xai_responses_cache_scope = Some("session".into());
+        }),
+        Some(by_env.clone())
+    );
     // An empty request scope falls through.
-    assert_eq!(xai_key(&env, base(), |o| {
-        o.session_id = Some("s1".into());
-        o.xai_responses_cache_scope = Some(String::new());
-    }), Some(by_env));
+    assert_eq!(
+        xai_key(&env, base(), |o| {
+            o.session_id = Some("s1".into());
+            o.xai_responses_cache_scope = Some(String::new());
+        }),
+        Some(by_env)
+    );
     // `shared` outranks the environment's session scope.
     let shared = xai_key(&[("MIXDOG_XAI_RESPONSES_CACHE_SCOPE", "session")], base(), |o| {
         o.session_id = Some("s1".into());

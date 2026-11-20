@@ -145,10 +145,7 @@ pub(crate) fn powerpoint_layout(presentation: &Com, reference: &Value) -> Result
         index += 1;
     }
     let lookup = text::to_lower_invariant(reference_text.trim());
-    let type_name = DEFAULT_NAMES
-        .iter()
-        .find(|(name, _)| *name == lookup)
-        .map_or(reference_text.as_str(), |(_, type_name)| *type_name);
+    let type_name = DEFAULT_NAMES.iter().find(|(name, _)| *name == lookup).map_or(reference_text.as_str(), |(_, type_name)| *type_name);
     let wanted = TYPES.iter().position(|known| payload::names_equal(known, type_name)).map_or(0, |at| at as i32 + 1);
     if wanted > 0 {
         let mut index = 1;

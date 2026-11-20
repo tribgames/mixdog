@@ -12,7 +12,16 @@ fn credential_text_is_redacted() {
 
 #[test]
 fn only_credential_shaped_text_is_redacted_and_the_cut_comes_after_the_redaction() {
-    for secret in ["sk-abcdefghijkl", "pk-abcdefghijkl", "rk-abcdefghijkl", "xai-abcdefghijkl", "gsk-abcdefghijkl", "sess-abcdefghijkl", "Bearer abcdefgh", "AIzaabcdefghijklmnopqrst"] {
+    for secret in [
+        "sk-abcdefghijkl",
+        "pk-abcdefghijkl",
+        "rk-abcdefghijkl",
+        "xai-abcdefghijkl",
+        "gsk-abcdefghijkl",
+        "sess-abcdefghijkl",
+        "Bearer abcdefgh",
+        "AIzaabcdefghijklmnopqrst",
+    ] {
         assert_eq!(redacted_text(&format!("a {secret} b"), 100), "a [redacted] b", "{secret}");
     }
     for plain in ["sk-short", "Bearer abc", "AIzaTooShort", "ask-abcdefghijklmnop", "no secret here"] {
@@ -126,7 +135,12 @@ mod inlining {
     fn message(references: &[&str]) -> Message {
         let parts = references
             .iter()
-            .map(|r| ContentPart::File { source: BinarySource::AttachmentRef((*r).into()), mime_type: "application/pdf".into(), filename: Some("a.pdf".into()), text: None })
+            .map(|r| ContentPart::File {
+                source: BinarySource::AttachmentRef((*r).into()),
+                mime_type: "application/pdf".into(),
+                filename: Some("a.pdf".into()),
+                text: None,
+            })
             .collect();
         Message::new(Role::User, Content::Parts(parts))
     }
@@ -189,5 +203,3 @@ fn a_quota_reading_serves_a_model_only_on_measured_evidence() {
     // A window that names other models does not speak for this one.
     assert!(!serves(json!({ "quotaWindows": [{ "label": "5H", "usedPct": 10, "models": ["claude"] }] }), false));
 }
-
-

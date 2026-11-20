@@ -10,11 +10,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Blocked {
     /// A filesystem or SQLite operation failed (`migration_blocked{op, path, os_error}`).
-    Io {
-        op: &'static str,
-        path: PathBuf,
-        os_error: String,
-    },
+    Io { op: &'static str, path: PathBuf, os_error: String },
     /// `mixdog-config.json` (or another singleton store) does not parse; never quarantined.
     StoreSchema { key: String, detail: String },
     /// A source no longer matches its manifest hash; nothing of the item was deleted.
@@ -33,19 +29,11 @@ pub enum Blocked {
 
 impl Blocked {
     pub fn io(op: &'static str, path: &Path, error: io::Error) -> Self {
-        Blocked::Io {
-            op,
-            path: path.to_path_buf(),
-            os_error: error.to_string(),
-        }
+        Blocked::Io { op, path: path.to_path_buf(), os_error: error.to_string() }
     }
 
     pub fn sqlite(op: &'static str, path: &Path, error: rusqlite::Error) -> Self {
-        Blocked::Io {
-            op,
-            path: path.to_path_buf(),
-            os_error: error.to_string(),
-        }
+        Blocked::Io { op, path: path.to_path_buf(), os_error: error.to_string() }
     }
 
     /// A failed `mixdog_store::fsio` primitive.
@@ -67,9 +55,7 @@ impl Blocked {
     }
 
     pub fn journal(detail: impl Into<String>) -> Self {
-        Blocked::JournalDamage {
-            detail: detail.into(),
-        }
+        Blocked::JournalDamage { detail: detail.into() }
     }
 }
 
@@ -85,11 +71,7 @@ impl fmt::Display for Blocked {
             Blocked::SourceChanged { path } => {
                 write!(f, "migration_blocked{{source_changed, {}}}", path.display())
             }
-            Blocked::TargetConflict { key, path } => write!(
-                f,
-                "migration_blocked{{target_conflict, {key}, {}}}",
-                path.display()
-            ),
+            Blocked::TargetConflict { key, path } => write!(f, "migration_blocked{{target_conflict, {key}, {}}}", path.display()),
             Blocked::LedgerSchema { detail } => {
                 write!(f, "migration_blocked{{ledger_schema, {detail}}}")
             }

@@ -74,13 +74,12 @@ impl ImageSupply for VaultSupply {
 
     async fn bytes(&self, manifest: &Manifest, choice: Choice) -> Result<Arc<[u8]>, SupplyError> {
         let (vault, manifest) = (self.vault(), manifest.clone());
-        on_lane(self.durability, &CancellationToken::new(), move |lane| vault.bytes_for(lane, &manifest, choice))
-            .await
-            .map_err(unavailable)?
-            .map_err(|error| match error {
+        on_lane(self.durability, &CancellationToken::new(), move |lane| vault.bytes_for(lane, &manifest, choice)).await.map_err(unavailable)?.map_err(|error| {
+            match error {
                 ReadError::Missing => SupplyError::Missing,
                 ReadError::Corrupt => SupplyError::Corrupt,
-            })
+            }
+        })
     }
 }
 

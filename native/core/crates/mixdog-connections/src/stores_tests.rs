@@ -36,13 +36,7 @@ fn paths(dir: &Path) -> ConnectionsPaths {
 }
 
 fn host(id: &str, name: &str, target: &str, last: u64) -> SshHostRecord {
-    SshHostRecord {
-        id: id.to_string(),
-        name: name.to_string(),
-        target: target.to_string(),
-        last_connected_at: Some(last.into()),
-        settings: None,
-    }
+    SshHostRecord { id: id.to_string(), name: name.to_string(), target: target.to_string(), last_connected_at: Some(last.into()), settings: None }
 }
 
 fn ids(hosts: &[SshHostRecord]) -> Vec<String> {
@@ -157,7 +151,9 @@ async fn relay(answers: Vec<String>) -> (String, tokio::sync::mpsc::UnboundedRec
                 let wanted = text
                     .split("\r\n\r\n")
                     .next()
-                    .and_then(|head| head.lines().find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").map(|n| n.trim().parse::<usize>().unwrap_or(0))))
+                    .and_then(|head| {
+                        head.lines().find_map(|line| line.to_ascii_lowercase().strip_prefix("content-length:").map(|n| n.trim().parse::<usize>().unwrap_or(0)))
+                    })
                     .unwrap_or(0);
                 if read == 0 || text.split_once("\r\n\r\n").is_some_and(|(_, body)| body.len() >= wanted) {
                     let _ = seen.send(text);
@@ -228,14 +224,10 @@ async fn presence_reports_online_and_offline_hosts_and_skips_an_unreachable_rela
 fn pair_redeem_messages_are_translated_by_the_caller() {
     let upper = |key: &str| key.to_uppercase().replace("{{SECONDS}}", "{{seconds}}");
     assert_eq!(PairRedeemError::WrongOrExpired.message(&upper), "THE CODE IS WRONG OR HAS EXPIRED.");
-    assert_eq!(
-        PairRedeemError::TooManyAttempts { retry_after_seconds: "7".into() }.message(&upper),
-        "TOO MANY ATTEMPTS. TRY AGAIN IN 7 SECONDS."
-    );
+    assert_eq!(PairRedeemError::TooManyAttempts { retry_after_seconds: "7".into() }.message(&upper), "TOO MANY ATTEMPTS. TRY AGAIN IN 7 SECONDS.");
     assert_eq!(PairRedeemError::Request("boom".into()).message(&upper), "boom");
     assert_eq!(PairRedeemError::WrongOrExpired.to_string(), "The code is wrong or has expired.");
 }
-
 
 fn io() -> DurabilityIo {
     mixdog_rt::testing::tokens().durability_io
@@ -277,7 +269,8 @@ async fn unreadable_files_and_invalid_entries_load_as_an_empty_or_shorter_list()
     write(dir.path().join("ssh-hosts.json"), "{not json");
     assert!(SshHostStore::load(&paths(dir.path()), io()).await.list().is_empty());
     let rows = [host("a", "ok", "root@host", 1), host("b", "bad", "-oProxyCommand=x", 1), host("", "noid", "host", 1), host("c", "", "host", 1)];
-    let document = json!({ "hosts": rows.iter().map(|row| json!({ "id": row.id, "name": row.name, "target": row.target, "lastConnectedAt": 1 })).collect::<Vec<_>>() });
+    let document =
+        json!({ "hosts": rows.iter().map(|row| json!({ "id": row.id, "name": row.name, "target": row.target, "lastConnectedAt": 1 })).collect::<Vec<_>>() });
     write(dir.path().join("ssh-hosts.json"), document.to_string());
     assert_eq!(ids(&SshHostStore::load(&paths(dir.path()), io()).await.list()), ["a"]);
 }

@@ -60,10 +60,7 @@ impl SafeArray {
             }
         }
         let data = slots.into_iter().map(|slot| slot.unwrap_or(Value::Empty)).collect();
-        Some(SafeArray {
-            dims: vec![Dim { lbound: lbounds.0, len: row_count as u32 }, Dim { lbound: lbounds.1, len: columns as u32 }],
-            data,
-        })
+        Some(SafeArray { dims: vec![Dim { lbound: lbounds.0, len: row_count as u32 }, Dim { lbound: lbounds.1, len: columns as u32 }], data })
     }
 
     /// The 0-based 2-D array PowerShell passes for a bulk `Range.Value2` write (a 1 x 1 array for one cell).

@@ -3,13 +3,13 @@
 //! the slides with their relationships and notes, the master, the notes master and the media, created in the order
 //! pptxgenjs's `exportPresentation` creates them.
 
-
 use mixdog_ooxml::zipio::Package;
 
 use super::charts::{ChartData, ChartKind, ChartOptions};
 use super::slide::{Slide, SlideNumber};
 use super::theme::{
-    LAYOUT_RELS, MASTER_RELS, NOTES_MASTER, NOTES_MASTER_RELS, PRES_PROPS, ROOT_RELS, TABLE_STYLES, ThemeFonts, VIEW_PROPS, layout_xml, master_xml, notes_slide_rels_xml, theme_xml,
+    LAYOUT_RELS, MASTER_RELS, NOTES_MASTER, NOTES_MASTER_RELS, PRES_PROPS, ROOT_RELS, TABLE_STYLES, ThemeFonts, VIEW_PROPS, layout_xml, master_xml,
+    notes_slide_rels_xml, theme_xml,
 };
 use super::{CRLF, EMU, Layout, encode_xml_entities, round};
 
@@ -206,20 +206,29 @@ impl Presentation {
         }
         xml.push_str("<Default Extension=\"vml\" ContentType=\"application/vnd.openxmlformats-officedocument.vmlDrawing\"/>");
         xml.push_str("<Default Extension=\"xlsx\" ContentType=\"application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\"/>");
-        xml.push_str("<Override PartName=\"/ppt/presentation.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml\"/>");
+        xml.push_str(
+            "<Override PartName=\"/ppt/presentation.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.presentation.main+xml\"/>",
+        );
         xml.push_str("<Override PartName=\"/ppt/notesMasters/notesMaster1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesMaster+xml\"/>");
         for (at, slide) in self.slides.iter().enumerate() {
             let index = at + 1;
             xml.push_str(&format!("<Override PartName=\"/ppt/slideMasters/slideMaster{index}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideMaster+xml\"/>"));
-            xml.push_str(&format!("<Override PartName=\"/ppt/slides/slide{index}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/>"));
+            xml.push_str(&format!(
+                "<Override PartName=\"/ppt/slides/slide{index}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slide+xml\"/>"
+            ));
             for chart in slide.charts() {
-                xml.push_str(&format!("<Override PartName=\"{}\" ContentType=\"application/vnd.openxmlformats-officedocument.drawingml.chart+xml\"/>", chart.target()));
+                xml.push_str(&format!(
+                    "<Override PartName=\"{}\" ContentType=\"application/vnd.openxmlformats-officedocument.drawingml.chart+xml\"/>",
+                    chart.target()
+                ));
             }
         }
         xml.push_str("<Override PartName=\"/ppt/presProps.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.presProps+xml\"/>");
         xml.push_str("<Override PartName=\"/ppt/viewProps.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.viewProps+xml\"/>");
         xml.push_str("<Override PartName=\"/ppt/theme/theme1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.theme+xml\"/>");
-        xml.push_str("<Override PartName=\"/ppt/tableStyles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml\"/>");
+        xml.push_str(
+            "<Override PartName=\"/ppt/tableStyles.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.tableStyles+xml\"/>",
+        );
         xml.push_str("<Override PartName=\"/ppt/slideLayouts/slideLayout1.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.slideLayout+xml\"/>");
         for index in 1..=self.slides.len() {
             xml.push_str(&format!("<Override PartName=\"/ppt/notesSlides/notesSlide{index}.xml\" ContentType=\"application/vnd.openxmlformats-officedocument.presentationml.notesSlide+xml\"/>"));
@@ -372,8 +381,8 @@ fn iso_now() -> String {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use super::super::{Dim, ImageOptions, ShapeOptions};
+    use super::*;
 
     #[test]
     fn a_deck_has_pptxgenjs_part_names_in_its_order() {

@@ -1,8 +1,8 @@
 //! Embedding client and the embedding host's wire protocol. Only the host loads the runtime.
 
 use std::io::{BufRead, Write};
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -52,10 +52,7 @@ fn error(message: impl std::fmt::Display) -> MemoryError {
     MemoryError::Embedding(format!("embedding host: {message}"))
 }
 
-async fn run_pipe_job<R: Send + 'static>(
-    lane: mixdog_rt::CpuBulk,
-    job: impl FnOnce() -> R + Send + 'static,
-) -> std::result::Result<R, String> {
+async fn run_pipe_job<R: Send + 'static>(lane: mixdog_rt::CpuBulk, job: impl FnOnce() -> R + Send + 'static) -> std::result::Result<R, String> {
     #[cfg(not(test))]
     return run_on_lane(lane, job).await;
 
@@ -76,9 +73,13 @@ async fn run_pipe_job<R: Send + 'static>(
 #[cfg(not(test))]
 fn launch(config: &EmbedConfig) -> Result<HostLaunch> {
     let mut args = vec![
-        HOST_COMMAND.into(), "--cache-dir".into(), config.cache_dir.clone().into_os_string(),
-        "--model-id".into(), config.model_id.clone().into(),
-        "--ort-library".into(), config.ort_library.clone().into_os_string(),
+        HOST_COMMAND.into(),
+        "--cache-dir".into(),
+        config.cache_dir.clone().into_os_string(),
+        "--model-id".into(),
+        config.model_id.clone().into(),
+        "--ort-library".into(),
+        config.ort_library.clone().into_os_string(),
     ];
     if let Some(dtype) = &config.dtype {
         args.extend(["--dtype".into(), dtype.into()]);
@@ -139,11 +140,14 @@ impl Embedder {
             let ready = Arc::new(AtomicBool::new(false));
             let kill = pipes.kill.clone();
             let loaded = ready.clone();
-            let _alarm = mixdog_rt::ticker().register(std::time::Instant::now() + limits.cold, Box::new(move || {
-                if !loaded.load(Ordering::Acquire) {
-                    kill.cancel();
-                }
-            }));
+            let _alarm = mixdog_rt::ticker().register(
+                std::time::Instant::now() + limits.cold,
+                Box::new(move || {
+                    if !loaded.load(Ordering::Acquire) {
+                        kill.cancel();
+                    }
+                }),
+            );
             let first = pipes.receive().map_err(error)?;
             let device = match serde_json::from_str::<Reply>(&first).map_err(error)? {
                 Reply::Ready { device, .. } => device,
@@ -152,28 +156,56 @@ impl Embedder {
             };
             ready.store(true, Ordering::Release);
             let model_id = mixdog_js::js_trim(&config.model_id).to_owned();
-            Ok(Self { inner: Arc::new(Inner {
-                pipes, exchange: Mutex::new(()),
-                device: match device.as_str() { "cpu" => "cpu", "dml" => "dml", _ => return Err(error("unknown device")) },
-                dtype: config::normalize_dtype(&model_id, config.dtype.as_deref()),
-                model_id, lane: config.lane, request_limit: limits.request,
-                next_exchange: std::sync::atomic::AtomicU64::new(0), armed: Mutex::new((0, false)),
-            }) })
-        }).await.map_err(error)?
+            Ok(Self {
+                inner: Arc::new(Inner {
+                    pipes,
+                    exchange: Mutex::new(()),
+                    device: match device.as_str() {
+                        "cpu" => "cpu",
+                        "dml" => "dml",
+                        _ => return Err(error("unknown device")),
+                    },
+                    dtype: config::normalize_dtype(&model_id, config.dtype.as_deref()),
+                    model_id,
+                    lane: config.lane,
+                    request_limit: limits.request,
+                    next_exchange: std::sync::atomic::AtomicU64::new(0),
+                    armed: Mutex::new((0, false)),
+                }),
+            })
+        })
+        .await
+        .map_err(error)?
     }
 
-    pub fn alive(&self) -> bool { self.inner.pipes.alive() }
+    pub fn alive(&self) -> bool {
+        self.inner.pipes.alive()
+    }
     /// The host's lifecycle (Rule B): `Ended` only once its reaper read the exit.
-    pub(crate) fn lifecycle(&self) -> Lifecycle { self.inner.pipes.lifecycle() }
+    pub(crate) fn lifecycle(&self) -> Lifecycle {
+        self.inner.pipes.lifecycle()
+    }
     /// Resolves with the host's `Ended`.
-    pub(crate) async fn ended(&self) -> Lifecycle { self.inner.pipes.ended().await }
+    pub(crate) async fn ended(&self) -> Lifecycle {
+        self.inner.pipes.ended().await
+    }
     /// The provider ends this host by its own choice (idle release, disposal): Node's retired worker, whose exit is not counted.
-    pub(crate) fn retire(&self) { self.inner.pipes.retire() }
+    pub(crate) fn retire(&self) {
+        self.inner.pipes.retire()
+    }
     #[cfg(test)]
-    pub(crate) fn generation(&self) -> u64 { self.inner.pipes.generation() }
-    pub fn device(&self) -> &'static str { self.inner.device }
-    pub fn model_id(&self) -> &str { &self.inner.model_id }
-    pub fn dtype(&self) -> &str { &self.inner.dtype }
+    pub(crate) fn generation(&self) -> u64 {
+        self.inner.pipes.generation()
+    }
+    pub fn device(&self) -> &'static str {
+        self.inner.device
+    }
+    pub fn model_id(&self) -> &str {
+        &self.inner.model_id
+    }
+    pub fn dtype(&self) -> &str {
+        &self.inner.dtype
+    }
 
     pub async fn embed(&self, text: &str, input_type: InputType) -> Result<Arc<Vec<f32>>> {
         let request = Request { text: text.to_owned(), query: input_type == InputType::Query };
@@ -206,7 +238,9 @@ impl Embedder {
                 return Err(error(format!("request timed out after {}ms", this.inner.request_limit.as_millis())));
             }
             outcome
-        }).await.map_err(error)?
+        })
+        .await
+        .map_err(error)?
     }
 
     pub async fn embed_batch(&self, texts: &[String], input_type: InputType) -> Result<Vec<Arc<Vec<f32>>>> {
@@ -229,17 +263,15 @@ pub fn serve(config: EmbedConfig, runtime: &tokio::runtime::Handle, input: impl 
     serve_model(
         || runtime.block_on(super::engine::Embedder::load(config)),
         |model, request| runtime.block_on(model.embed(&request.text, if request.query { InputType::Query } else { InputType::Document })),
-        input, output,
+        input,
+        output,
     )
 }
 
-fn serve_model<M>(
-    load: impl FnOnce() -> Result<M>,
-    embed: impl Fn(&M, &Request) -> Result<Arc<Vec<f32>>>,
-    input: impl BufRead,
-    mut output: impl Write,
-) -> i32
-where M: Metadata {
+fn serve_model<M>(load: impl FnOnce() -> Result<M>, embed: impl Fn(&M, &Request) -> Result<Arc<Vec<f32>>>, input: impl BufRead, mut output: impl Write) -> i32
+where
+    M: Metadata,
+{
     let loaded = {
         let _capped = affinity::cap_for_load();
         load()
@@ -251,7 +283,9 @@ where M: Metadata {
             return 1;
         }
     };
-    if !send(&mut output, &Reply::Ready { dims: model.dims(), device: model.device().to_owned() }) { return 1; }
+    if !send(&mut output, &Reply::Ready { dims: model.dims(), device: model.device().to_owned() }) {
+        return 1;
+    }
     for line in input.lines() {
         let Ok(line) = line else { return 1 };
         let Ok(request) = serde_json::from_str(&line) else { return 1 };
@@ -259,7 +293,9 @@ where M: Metadata {
             Ok(vector) => Reply::Vector { vector: vector.as_ref().clone() },
             Err(error) => Reply::Failed { message: error.message() },
         };
-        if !send(&mut output, &reply) { return 1; }
+        if !send(&mut output, &reply) {
+            return 1;
+        }
     }
     0
 }
@@ -304,8 +340,12 @@ trait Metadata {
 }
 
 impl Metadata for super::engine::Embedder {
-    fn dims(&self) -> usize { self.dims() }
-    fn device(&self) -> &'static str { self.device() }
+    fn dims(&self) -> usize {
+        self.dims()
+    }
+    fn device(&self) -> &'static str {
+        self.device()
+    }
 }
 
 #[cfg(test)]

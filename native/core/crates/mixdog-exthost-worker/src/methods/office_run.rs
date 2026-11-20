@@ -208,7 +208,6 @@ mod tests {
         assert_eq!(text_param(&params, "missing"), "");
     }
 
-
     #[test]
     fn the_worker_guard_refuses_a_relative_path_without_a_folder() {
         let approved = vec![std::env::temp_dir().to_string_lossy().into_owned()];
@@ -217,7 +216,6 @@ mod tests {
         assert_eq!(error.code, "path_not_approved");
     }
 }
-
 
 pub(super) fn register(registry: &mut Registry) {
     registry.register("office.run", office_run);
@@ -304,11 +302,8 @@ pub(super) async fn office(cancel: &CancellationToken) -> Result<&'static Office
                 if cancel.is_cancelled() { CodedError::cancelled() } else { CodedError::failed(format!("the font scan failed: {error}")) }
             };
             let faces = Arc::clone(&fonts);
-            let svg = lanes
-                .interactive_io
-                .submit_wait(cancel, move |lane| SvgFonts::from_registry(lane, &faces))
-                .await
-                .map_err(|error| lost(error.to_string()))?;
+            let svg =
+                lanes.interactive_io.submit_wait(cancel, move |lane| SvgFonts::from_registry(lane, &faces)).await.map_err(|error| lost(error.to_string()))?;
             let svg_fonts = svg.await.map_err(|error| lost(error.to_string()))?;
             let data_dir = default_office_data_dir().unwrap_or_else(|_| std::env::temp_dir());
             let font_env = FontEnv::host();

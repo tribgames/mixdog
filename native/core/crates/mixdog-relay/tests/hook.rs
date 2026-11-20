@@ -62,8 +62,10 @@ struct Agent {
 }
 
 fn upgrade_head() -> Vec<u8> {
-    format!("GET /hookleg HTTP/1.1\r\nHost: relay\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {KEY}\r\nSec-WebSocket-Version: 13\r\n\r\n")
-        .into_bytes()
+    format!(
+        "GET /hookleg HTTP/1.1\r\nHost: relay\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {KEY}\r\nSec-WebSocket-Version: 13\r\n\r\n"
+    )
+    .into_bytes()
 }
 
 /// A client frame, masked: `first` is the FIN, RSV and opcode byte.

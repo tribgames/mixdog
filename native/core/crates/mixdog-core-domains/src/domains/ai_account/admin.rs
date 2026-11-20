@@ -38,8 +38,8 @@ use super::failure::Failure;
 use super::flows::Settle;
 use super::js::clean;
 use super::js::truthy;
-use mixdog_core_config::config::Config;
 use mixdog_core_base::support::on_lane;
+use mixdog_core_config::config::Config;
 
 /// `API_PROVIDERS` ids, in setup order.
 const API_PROVIDER_IDS: [&str; 7] = ["openrouter", "openai", "anthropic", "gemini", "vertex-ai", "deepseek", "xai"];
@@ -247,9 +247,7 @@ pub(crate) fn parse_account_change(change: &Value) -> Result<AccountChange, Fail
         out.auto = Some(auto.as_bool().ok_or_else(|| type_error("Automatic account switching must be boolean."))?);
     }
     if let Some(policy) = map.get("policy") {
-        out.policy = Some(
-            policy.as_str().and_then(Policy::parse).ok_or_else(|| type_error("Unknown account switching policy."))?,
-        );
+        out.policy = Some(policy.as_str().and_then(Policy::parse).ok_or_else(|| type_error("Unknown account switching policy."))?);
     }
     if let Some(credits) = map.get("useCredits") {
         out.use_credits = Some(credits.as_bool().ok_or_else(|| type_error("Credit use must be boolean."))?);
@@ -293,7 +291,6 @@ mod sweep_tests {
         assert_eq!(sweep_ttl_ms("account-7"), sweep_ttl_ms("account-7"), "an account keeps its age");
     }
 }
-
 
 fn vault_failure(error: mixdog_ai::registry::keys::VaultError) -> Failure {
     Failure::error(error.message)
@@ -452,9 +449,7 @@ impl ProviderAdmin {
         let id = mixdog_js::js_trim(provider);
         let oauth = self.oauth(id).ok_or_else(|| Failure::error(format!("unknown OAuth provider \"{id}\"")))?;
         let account = self.current_account_id(id).await?;
-        let flow = oauth
-            .login_flow(&account)
-            .ok_or_else(|| Failure::error(format!("{id} login did not complete")))?;
+        let flow = oauth.login_flow(&account).ok_or_else(|| Failure::error(format!("{id} login did not complete")))?;
         let session = flow.start().await.map_err(|e| Failure::error(format!("{e:?}")))?;
         open_sign_in_page(&*self.browser, local, &json!({}), &session.started());
         let done = loop {
@@ -495,10 +490,7 @@ impl ProviderAdmin {
     ) -> Result<(Box<dyn LoginSession>, Settle), Failure> {
         Self::require_local()?;
         let id = mixdog_js::js_trim(provider).to_owned();
-        let oauth = self
-            .oauth(&id)
-            .ok_or_else(|| Failure::error(format!("unknown OAuth provider \"{id}\"")))?
-            .clone();
+        let oauth = self.oauth(&id).ok_or_else(|| Failure::error(format!("unknown OAuth provider \"{id}\"")))?.clone();
         let empty = json!({});
         let options = if options.is_null() { &empty } else { options };
         let supports = oauth.login_flow("default").is_some();
@@ -512,9 +504,7 @@ impl ProviderAdmin {
         if let Some(requested) = requested {
             let disconnected = add_account || {
                 let listed = self.list_provider_accounts(&id).await?;
-                !listed["accounts"]
-                    .as_array()
-                    .is_some_and(|rows| rows.iter().any(|row| row.get("id") == Some(requested)))
+                !listed["accounts"].as_array().is_some_and(|rows| rows.iter().any(|row| row.get("id") == Some(requested)))
             };
             if disconnected {
                 return Err(Failure::type_error("Account is no longer connected."));
@@ -532,22 +522,16 @@ impl ProviderAdmin {
             return Err(Failure::error("At most 20 accounts can be connected."));
         }
         // `oauth.begin({ openBrowser })`: a host with no browser signs in by device code where the provider has one.
-        let flow = if options.get("openBrowser") == Some(&Value::Bool(false)) {
-            oauth.login_flow_without_browser(&account)
-        } else {
-            oauth.login_flow(&account)
-        }
-        .ok_or_else(|| Failure::error("login flow unavailable"))?;
+        let flow =
+            if options.get("openBrowser") == Some(&Value::Bool(false)) { oauth.login_flow_without_browser(&account) } else { oauth.login_flow(&account) }
+                .ok_or_else(|| Failure::error("login flow unavailable"))?;
         let session = flow.start().await.map_err(|e| Failure::error(format!("{e:?}")))?;
         open_sign_in_page(&*self.browser, local, options, &session.started());
         let label = options.get("label").and_then(Value::as_str).unwrap_or("").to_owned();
         let admin = self.clone();
         let settle: Settle = Box::new(move |via_code| {
             Box::pin(async move {
-                let signed_in = admin
-                    .settle(&oauth, &id, &account, add_account, include_default, &label)
-                    .await
-                    .map_err(|f| f.message().to_owned())?;
+                let signed_in = admin.settle(&oauth, &id, &account, add_account, include_default, &label).await.map_err(|f| f.message().to_owned())?;
                 if via_code {
                     admin.refresh.after_credential_change();
                 } else {
@@ -597,13 +581,7 @@ impl ProviderAdmin {
 
     /// The roster account (other than the implicit `default`) the fresh sign-in is the same real
     /// account as.
-    async fn roster_account_for_identity(
-        &self,
-        oauth: &Arc<dyn OAuthProvider>,
-        id: &str,
-        new_account: &str,
-        auth: &Value,
-    ) -> Result<Option<String>, Failure> {
+    async fn roster_account_for_identity(&self, oauth: &Arc<dyn OAuthProvider>, id: &str, new_account: &str, auth: &Value) -> Result<Option<String>, Failure> {
         let pool = self.accounts.pool(id).await.map_err(acct)?;
         let null = Value::Null;
         let identity = (auth.get("identityId").unwrap_or(&null), auth.get("email").unwrap_or(&null));
@@ -638,7 +616,11 @@ impl ProviderAdmin {
         } else {
             pool.accounts.clone()
         };
-        self.sweep_account_usage(provider, &pool.accounts, pool.selected_id.as_deref().filter(|id| !id.is_empty()).or_else(|| pool.accounts.first().map(|row| row.id.as_str())));
+        self.sweep_account_usage(
+            provider,
+            &pool.accounts,
+            pool.selected_id.as_deref().filter(|id| !id.is_empty()).or_else(|| pool.accounts.first().map(|row| row.id.as_str())),
+        );
         let now = chrono::Utc::now().timestamp_millis();
         let use_credits = pool.uses_credits();
         let mut accounts: Vec<Value> = Vec::with_capacity(rows.len());
@@ -711,7 +693,8 @@ impl ProviderAdmin {
             // The switch makes every later request use another credential: its quota is fetched
             // right away, not when the surface next asks.
             if let Some(id) = result["selectedId"].as_str().filter(|s| !s.is_empty())
-                && self.registry.registered(provider).is_some() {
+                && self.registry.registered(provider).is_some()
+            {
                 let oauth = self.oauth_usage.clone();
                 let route = RouteInfo { provider: provider.to_owned(), model: String::new(), account_id: id.to_owned() };
                 tokio::spawn(async move {
@@ -768,8 +751,7 @@ impl ProviderAdmin {
             }
             let location_patch = !location.is_empty() || express || location_option.is_some();
             let location_value = if location.is_empty() { Value::Null } else { json!(location) };
-            let project_valid = (1..=128).contains(&project_id.len())
-                && project_id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b));
+            let project_valid = (1..=128).contains(&project_id.len()) && project_id.bytes().all(|b| b.is_ascii_alphanumeric() || b"._:-".contains(&b));
             if !project_id.is_empty() && !project_valid {
                 return Err(Failure::error("Vertex AI project ID override is invalid"));
             }
@@ -853,9 +835,7 @@ impl ProviderAdmin {
             };
             if requested.is_some() {
                 let listed = self.list_provider_accounts(&id).await?;
-                let connected = listed["accounts"]
-                    .as_array()
-                    .is_some_and(|rows| rows.iter().any(|row| row["id"].as_str() == Some(account.as_str())));
+                let connected = listed["accounts"].as_array().is_some_and(|rows| rows.iter().any(|row| row["id"].as_str() == Some(account.as_str())));
                 if !connected {
                     return Err(Failure::type_error("Account is no longer connected."));
                 }
@@ -881,9 +861,8 @@ impl ProviderAdmin {
     /// `checkCustomProviderKeyEnv`: whether the named environment variable is set non-empty.
     pub fn check_custom_provider_key_env(name: &str) -> Result<Value, Failure> {
         let mut chars = name.chars();
-        let valid = chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-            && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
-            && name.len() <= 128;
+        let valid =
+            chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && chars.all(|c| c.is_ascii_alphanumeric() || c == '_') && name.len() <= 128;
         if !valid {
             return Err(Failure::type_error("environment variable name is invalid"));
         }

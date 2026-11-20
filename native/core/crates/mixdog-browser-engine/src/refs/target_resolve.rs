@@ -95,7 +95,10 @@ pub enum TargetError {
     /// No element matched (yet): the refusal a wait may outlast.
     Missing(String),
     /// Several elements matched: the message lists them, `candidates` carries them with their fresh refs.
-    Ambiguous { message: String, candidates: Vec<BrowserSnapshotElement> },
+    Ambiguous {
+        message: String,
+        candidates: Vec<BrowserSnapshotElement>,
+    },
     /// Anything else that ended the resolution for good.
     Failed(String),
     Host(HostCallError),
@@ -255,7 +258,11 @@ fn list_candidates(elements: &[&BrowserSnapshotElement]) -> String {
 /// `selectBrowserTarget`: the one element a target names among the candidates. Several matches are accepted only when
 /// exactly one carries the name verbatim or `nth` picks. `unfiltered` is how many candidates the observation had before it
 /// was narrowed, when it says.
-pub fn select_target<'a>(spec: &TargetSpec, elements: &'a [BrowserSnapshotElement], unfiltered: Option<usize>) -> Result<&'a BrowserSnapshotElement, TargetError> {
+pub fn select_target<'a>(
+    spec: &TargetSpec,
+    elements: &'a [BrowserSnapshotElement],
+    unfiltered: Option<usize>,
+) -> Result<&'a BrowserSnapshotElement, TargetError> {
     let by_role: Vec<&BrowserSnapshotElement> = elements.iter().filter(|element| spec.role_matches(element)).collect();
     let matches: Vec<&BrowserSnapshotElement> = by_role.iter().copied().filter(|element| spec.name_matches(element)).collect();
     let described = spec.describe();
@@ -275,7 +282,11 @@ pub fn select_target<'a>(spec: &TargetSpec, elements: &'a [BrowserSnapshotElemen
         let nth = nth as usize;
         return match matches.get(nth - 1) {
             Some(&element) => Ok(element),
-            None => Err(TargetError::Missing(format!("target {described} asked for match #{nth} but only {} matched:\n{}", matches.len(), list_candidates(&matches)))),
+            None => Err(TargetError::Missing(format!(
+                "target {described} asked for match #{nth} but only {} matched:\n{}",
+                matches.len(),
+                list_candidates(&matches)
+            ))),
         };
     }
     if let [only] = matches.as_slice() {
@@ -299,7 +310,11 @@ pub fn select_target<'a>(spec: &TargetSpec, elements: &'a [BrowserSnapshotElemen
     let last = refinements.pop().unwrap_or("nth");
     let hint = if refinements.is_empty() { last.to_string() } else { format!("{} or {last}", refinements.join(", ")) };
     Err(TargetError::Ambiguous {
-        message: format!("target {described} matched {} elements; add {hint}, or act on one of these refs from the fresh snapshot:\n{}", matches.len(), list_candidates(&matches)),
+        message: format!(
+            "target {described} matched {} elements; add {hint}, or act on one of these refs from the fresh snapshot:\n{}",
+            matches.len(),
+            list_candidates(&matches)
+        ),
         candidates: matches.into_iter().cloned().collect(),
     })
 }
@@ -325,7 +340,20 @@ struct SelectorMatch {
 
 /// A selector match the snapshot did not list, as an element carrying its minted ref.
 pub(crate) fn css_element(ref_id: String, role: String, name: String) -> BrowserSnapshotElement {
-    BrowserSnapshotElement { ref_id, role, name, tag: "css".to_string(), href: None, value: None, sensitive: None, filled: None, states: None, in_viewport: None, depth: None, match_field: None }
+    BrowserSnapshotElement {
+        ref_id,
+        role,
+        name,
+        tag: "css".to_string(),
+        href: None,
+        value: None,
+        sensitive: None,
+        filled: None,
+        states: None,
+        in_viewport: None,
+        depth: None,
+        match_field: None,
+    }
 }
 
 /// Where a resolution runs: the host, the page, the guard its calls carry and the cancel that ends them.
@@ -349,7 +377,11 @@ pub struct ResolvedTarget {
 
 /// `selectorCandidates`: the elements a selector names, with how many nodes the page matched. The count is final past the
 /// limit: a truncated list would hide a second match.
-async fn selector_candidates(cx: &TargetContext<'_>, selector: &str, snapshot: &HostBrowserSnapshotResult) -> Result<(Vec<BrowserSnapshotElement>, usize), TargetError> {
+async fn selector_candidates(
+    cx: &TargetContext<'_>,
+    selector: &str,
+    snapshot: &HostBrowserSnapshotResult,
+) -> Result<(Vec<BrowserSnapshotElement>, usize), TargetError> {
     let expression = SELECTOR_QUERY
         .replace("__LIMIT__", &MAX_SELECTOR_MATCHES.to_string())
         .replace("__SNAPSHOT_ID__", &json_string(&snapshot.snapshot_id))
@@ -375,8 +407,8 @@ async fn selector_candidates(cx: &TargetContext<'_>, selector: &str, snapshot: &
     if let Some(exception) = answer.exception {
         return Err(TargetError::Failed(exception.text));
     }
-    let report: SelectorReport =
-        serde_json::from_value(answer.value.unwrap_or(Value::Null)).map_err(|_| TargetError::Failed("the page did not answer the selector query".to_string()))?;
+    let report: SelectorReport = serde_json::from_value(answer.value.unwrap_or(Value::Null))
+        .map_err(|_| TargetError::Failed("the page did not answer the selector query".to_string()))?;
     if let Some(reason) = report.invalid {
         return Err(TargetError::Invalid(format!("target.selector is not a valid CSS selector: {}", redact_browser_text(&reason))));
     }
@@ -506,7 +538,10 @@ mod tests {
         assert!(error(json!({"name": "x", "exact": "yes"})).contains("exact must be a boolean"));
         assert!(error(json!([])).contains("must be an object"));
         assert!(error(json!(null)).contains("must be an object"));
-        assert_eq!(spec(json!({"role": " Button ", "name": "  Save  changes "})), TargetSpec { role: Some("button".into()), name: Some("Save changes".into()), ..TargetSpec::default() });
+        assert_eq!(
+            spec(json!({"role": " Button ", "name": "  Save  changes "})),
+            TargetSpec { role: Some("button".into()), name: Some("Save changes".into()), ..TargetSpec::default() }
+        );
         assert_eq!(spec(json!({"name": "x", "nth": 2.0})).nth, Some(2));
     }
 
@@ -553,7 +588,12 @@ mod tests {
         let TargetError::Ambiguous { candidates, .. } = ambiguous else { panic!("not ambiguous") };
         assert_eq!(candidates.iter().map(|candidate| candidate.ref_id.as_str()).collect::<Vec<_>>(), ["p1-s2-e1", "p1-s2-e2", "p1-s2-e3"]);
         let missing = message(select_target(&spec(json!({"role": "button", "name": "publish"})), &elements, Some(12)));
-        assert!(missing.contains("no element matched target button \"publish\" among 12 candidate element(s). Elements with role button: \"Save as draft\", \"Save\"."), "{missing}");
+        assert!(
+            missing.contains(
+                "no element matched target button \"publish\" among 12 candidate element(s). Elements with role button: \"Save as draft\", \"Save\"."
+            ),
+            "{missing}"
+        );
         assert!(message(select_target(&spec(json!({"role": "button", "name": "save", "nth": 5})), &elements, None)).contains("only 2 matched"));
         let without_save: Vec<_> = elements.iter().filter(|element| element.ref_id != "p1-s2-e2").cloned().collect();
         assert!(message(select_target(&spec(json!({"role": "button", "name": "save", "exact": true})), &without_save, None)).contains("no element matched"));
@@ -599,7 +639,17 @@ mod tests {
 
     #[test]
     fn a_name_written_as_a_regular_expression_is_not_a_query() {
-        for (name, shaped) in [("/a/", true), ("/a/i", true), ("/a/b/gi", true), ("//", false), ("/a", false), ("a/b/", false), ("/a/I", false), ("/a/ i", false), ("agree", false)] {
+        for (name, shaped) in [
+            ("/a/", true),
+            ("/a/i", true),
+            ("/a/b/gi", true),
+            ("//", false),
+            ("/a", false),
+            ("a/b/", false),
+            ("/a/I", false),
+            ("/a/ i", false),
+            ("agree", false),
+        ] {
             assert_eq!(regex_shaped(name), shaped, "{name}");
         }
     }
@@ -631,7 +681,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_lone_named_target_narrows_the_observation_with_its_name() {
-        let host = FakeHost::scripted(vec![snapshot_answer(checkbox_page(), None).with_params(json!({"pageId": "p1", "mode": "query", "query": "agree", "maxElements": 500}))]);
+        let host = FakeHost::scripted(vec![
+            snapshot_answer(checkbox_page(), None).with_params(json!({"pageId": "p1", "mode": "query", "query": "agree", "maxElements": 500})),
+        ]);
         let cancel = cancel();
         let cx = TargetContext { host: &host, page_id: "p1", expect: None, cancel: &cancel };
         let resolved = resolve_target(&cx, &json!({"role": "checkbox", "name": "agree"})).await.expect("resolved");
@@ -689,7 +741,14 @@ mod tests {
         assert_eq!((resolved.ref_id.as_str(), resolved.minted.is_none()), ("p1-s2-e2", true));
         let calls = host.calls();
         let expression = calls[1].params["expression"].as_str().expect("an expression");
-        assert!(expression.contains("\"input[name=agree]\"") && expression.contains("\"p1-s2\"") && !expression.contains("__SELECTOR__") && !expression.contains("__LIMIT__") && !expression.contains("__SNAPSHOT_ID__"), "{expression}");
+        assert!(
+            expression.contains("\"input[name=agree]\"")
+                && expression.contains("\"p1-s2\"")
+                && !expression.contains("__SELECTOR__")
+                && !expression.contains("__LIMIT__")
+                && !expression.contains("__SNAPSHOT_ID__"),
+            "{expression}"
+        );
         host.finish().expect("one mint after the query");
     }
 
@@ -701,7 +760,8 @@ mod tests {
             eval_answer(json!({"count": 1, "table": false, "matches": []})),
             mint_answer(1, json!([{"ref": "p1-s2-e2", "role": "checkbox", "name": "I agree"}])),
         ]);
-        let before = Precondition { document_id: "p1:1".into(), origin: None, url: None, child_sessions: None, receiver_key: None, snapshot_id: Some("p1-s1".into()) };
+        let before =
+            Precondition { document_id: "p1:1".into(), origin: None, url: None, child_sessions: None, receiver_key: None, snapshot_id: Some("p1-s1".into()) };
         let cx = TargetContext { host: &host, page_id: "p1", expect: Some(&before), cancel: &cancel };
         resolve_target(&cx, &json!({"selector": "input[name=agree]"})).await.expect("resolved");
         let calls = host.calls();
@@ -715,17 +775,29 @@ mod tests {
         let cancel = cancel();
         // A consent row the accessibility tree does not list: the host mints `p1-s2-t77` for it and the engine names it by that ref.
         let both = json!([{"ref": "p1-s2-e1", "role": "button", "name": "Cancel"}, {"ref": "p1-s2-t77", "role": "div", "name": "Consent row"}]);
-        let host = FakeHost::scripted(vec![snapshot_answer(checkbox_page(), None), eval_answer(json!({"count": 2, "table": false, "matches": []})), mint_answer(2, both.clone())]);
+        let host = FakeHost::scripted(vec![
+            snapshot_answer(checkbox_page(), None),
+            eval_answer(json!({"count": 2, "table": false, "matches": []})),
+            mint_answer(2, both.clone()),
+        ]);
         let cx = TargetContext { host: &host, page_id: "p1", expect: None, cancel: &cancel };
         let error = resolve_target(&cx, &json!({"selector": "button, div"})).await.expect_err("ambiguous");
         assert!(error.to_string().contains("[p1-s2-t77] div \"Consent row\""), "{error}");
-        let picked = FakeHost::scripted(vec![snapshot_answer(checkbox_page(), None), eval_answer(json!({"count": 2, "table": false, "matches": []})), mint_answer(2, both)]);
+        let picked = FakeHost::scripted(vec![
+            snapshot_answer(checkbox_page(), None),
+            eval_answer(json!({"count": 2, "table": false, "matches": []})),
+            mint_answer(2, both),
+        ]);
         let cx = TargetContext { host: &picked, page_id: "p1", expect: None, cancel: &cancel };
         let resolved = resolve_target(&cx, &json!({"selector": "button, div", "role": "div"})).await.expect("minted");
         assert_eq!(resolved.ref_id, "p1-s2-t77");
         let element = resolved.minted.expect("the minted element");
         assert_eq!((element.role.as_str(), element.name.as_str(), element.tag.as_str()), ("div", "Consent row", "css"));
-        let none = FakeHost::scripted(vec![snapshot_answer(checkbox_page(), None), eval_answer(json!({"count": 0, "table": false, "matches": []})), mint_answer(0, json!([]))]);
+        let none = FakeHost::scripted(vec![
+            snapshot_answer(checkbox_page(), None),
+            eval_answer(json!({"count": 0, "table": false, "matches": []})),
+            mint_answer(0, json!([])),
+        ]);
         let cx = TargetContext { host: &none, page_id: "p1", expect: None, cancel: &cancel };
         let error = resolve_target(&cx, &json!({"selector": "#nope"})).await.expect_err("nothing");
         assert_eq!(error.reason(), Some(ActionabilityReason::Missing));
@@ -749,7 +821,10 @@ mod tests {
         assert_eq!(minted.ref_id, "p1-s2-t1");
         let element = minted.minted.expect("the minted element");
         assert_eq!((element.role.as_str(), element.name.as_str(), element.tag.as_str()), ("div", "Consent row", "css"));
-        let known = FakeHost::scripted(vec![snapshot_answer(checkbox_page(), None), eval_answer(json!({"count": 1, "table": true, "matches": [{"ref": "p1-s2-e1", "role": "button", "name": "Cancel"}]}))]);
+        let known = FakeHost::scripted(vec![
+            snapshot_answer(checkbox_page(), None),
+            eval_answer(json!({"count": 1, "table": true, "matches": [{"ref": "p1-s2-e1", "role": "button", "name": "Cancel"}]})),
+        ]);
         let cx = TargetContext { host: &known, page_id: "p1", expect: None, cancel: &cancel };
         let reused = resolve_target(&cx, &json!({"selector": "button"})).await.expect("known");
         assert_eq!((reused.ref_id.as_str(), reused.minted.is_none()), ("p1-s2-e1", true));
@@ -785,6 +860,5 @@ mod tests {
         assert_eq!(resolve_target(&cx, &json!({"name": "x"})).await, Err(TargetError::Host(HostCallError::PageGone)));
     }
 }
-
 
 impl std::error::Error for TargetError {}

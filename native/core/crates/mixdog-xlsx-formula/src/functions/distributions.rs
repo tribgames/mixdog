@@ -195,16 +195,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
     match name {
         "BETA.DIST" => {
             let cumulative = flag!(a, 3);
-            let p = parsed!(nums(
-                &[
-                    arg(a, 0),
-                    arg(a, 1),
-                    arg(a, 2),
-                    default(a, 4, V::Number(0.0)),
-                    default(a, 5, V::Number(1.0))
-                ],
-                5
-            ));
+            let p = parsed!(nums(&[arg(a, 0), arg(a, 1), arg(a, 2), default(a, 4, V::Number(0.0)), default(a, 5, V::Number(1.0))], 5));
             if p[1] <= 0.0 || p[2] <= 0.0 || p[0] < p[3] || p[0] > p[4] || p[3] == p[4] {
                 return error(E::Num);
             }
@@ -220,23 +211,10 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 }
             }
             // the kernels take the worksheet x and both ends: the two distances are exact
-            cert(if cumulative {
-                cd::beta_cdf(p[0], p[1], p[2], p[3], p[4])
-            } else {
-                cd::beta_pdf(p[0], p[1], p[2], p[3], p[4])
-            })
+            cert(if cumulative { cd::beta_cdf(p[0], p[1], p[2], p[3], p[4]) } else { cd::beta_pdf(p[0], p[1], p[2], p[3], p[4]) })
         }
         "BETA.INV" => {
-            let p = parsed!(nums(
-                &[
-                    arg(a, 0),
-                    arg(a, 1),
-                    arg(a, 2),
-                    default(a, 3, V::Number(0.0)),
-                    default(a, 4, V::Number(1.0))
-                ],
-                5
-            ));
+            let p = parsed!(nums(&[arg(a, 0), arg(a, 1), arg(a, 2), default(a, 3, V::Number(0.0)), default(a, 4, V::Number(1.0))], 5));
             let q = flush(p[0]);
             if q <= 0.0 || q >= 1.0 || p[1] <= 0.0 || p[2] <= 0.0 || p[3] >= p[4] {
                 return error(E::Num);
@@ -262,19 +240,9 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             cert(if cumulative { cd2::binom_cdf(p[0], p[1], p[2], false) } else { cd2::binom_pmf(p[0], p[1], p[2]) })
         }
         "BINOM.DIST.RANGE" => {
-            let p = parsed!(nums(
-                &[arg(a, 0), arg(a, 1), arg(a, 2), default(a, 3, arg(a, 2))],
-                4
-            ));
+            let p = parsed!(nums(&[arg(a, 0), arg(a, 1), arg(a, 2), default(a, 3, arg(a, 2))], 4));
             let p = [p[0].trunc(), p[1], p[2].trunc(), p[3].trunc()];
-            if p[0] < 0.0
-                || p[1] < 0.0
-                || p[1] > 1.0
-                || p[2] < 0.0
-                || p[2] > p[0]
-                || p[3] < p[2]
-                || p[3] > p[0]
-            {
+            if p[0] < 0.0 || p[1] < 0.0 || p[1] > 1.0 || p[2] < 0.0 || p[2] > p[0] || p[3] < p[2] || p[3] > p[0] {
                 return error(E::Num);
             }
             // Excel: #NUM! from 2^31-1 trials upward (probed: 2147483646 answers, 2147483647 does not).
@@ -287,13 +255,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             let p = parsed!(nums(a, 3));
             let trials = p[0].trunc();
             // Excel: #NUM! from 2^31-1 trials upward, as for BINOM.DIST.RANGE.
-            if trials < 0.0
-                || trials >= 2_147_483_647.0
-                || p[1] <= 0.0
-                || p[1] >= 1.0
-                || p[2] <= 0.0
-                || p[2] >= 1.0
-            {
+            if trials < 0.0 || trials >= 2_147_483_647.0 || p[1] <= 0.0 || p[1] >= 1.0 || p[2] <= 0.0 || p[2] >= 1.0 {
                 return error(E::Num);
             }
             // the smallest count with P(X <= x) >= alpha: a double-precision estimate (the earlier bisection on the
@@ -436,13 +398,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             let inverse = name == "F.INV.RT";
             let p = [if inverse { flush(p[0]) } else { p[0] }, p[1].trunc(), p[2].trunc()];
             // Excel: both degrees of freedom from 1 to 10^10 inclusive.
-            if (inverse && (p[0] <= 0.0 || p[0] > 1.0))
-                || (!inverse && p[0] < 0.0)
-                || p[1] < 1.0
-                || p[2] < 1.0
-                || p[1] > 1e10
-                || p[2] > 1e10
-            {
+            if (inverse && (p[0] <= 0.0 || p[0] > 1.0)) || (!inverse && p[0] < 0.0) || p[1] < 1.0 || p[2] < 1.0 || p[1] > 1e10 || p[2] > 1e10 {
                 return error(E::Num);
             }
             if !inverse {
@@ -510,11 +466,8 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 let law = ci::Law::Gamma { a: p[1], scale: p[2] };
                 // the estimate in unit scale, then scaled: at a scale of DBL_MIN the scaled estimate underflowed to
                 // 0 and the search bisected the whole range (GAMMA.INV(0.5,1,2.2250738585072014E-308), 2.7 s)
-                let guess = j::gamma_inv(p[0], p[1], 1.0)
-                    .ok()
-                    .map(|t| t * p[2])
-                    .filter(|g| *g > 0.0 && g.is_finite())
-                    .or_else(|| gamma_guess(p[0], p[1], p[2]));
+                let guess =
+                    j::gamma_inv(p[0], p[1], 1.0).ok().map(|t| t * p[2]).filter(|g| *g > 0.0 && g.is_finite()).or_else(|| gamma_guess(p[0], p[1], p[2]));
                 cert(ci::quantile(law, &ci::Target::lower(p[0]), 0.0, f64::MAX, guess))
             } else if cumulative {
                 cert(cd::gamma_cdf(p[0], p[1], p[2], false))
@@ -560,11 +513,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return value(1.0);
             }
             // exact counts: the kernels never step a floating index
-            cert(if cumulative {
-                cd2::hypgeom_cdf(p[0], p[1], p[2], p[3])
-            } else {
-                cd2::hypgeom_pmf(p[0], p[1], p[2], p[3])
-            })
+            cert(if cumulative { cd2::hypgeom_cdf(p[0], p[1], p[2], p[3]) } else { cd2::hypgeom_pmf(p[0], p[1], p[2], p[3]) })
         }
         "LOGNORM.DIST" => {
             let cumulative = flag!(a, 3);
@@ -640,33 +589,14 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
         "NORMSDIST" if a.len() != 1 => error(E::Na),
         "NORMSDIST" => run("NORM.S.DIST", &[arg(a, 0), V::Bool(true)]),
         "LOGNORMDIST" if a.len() != 3 => error(E::Na),
-        "LOGNORMDIST" => run(
-            "LOGNORM.DIST",
-            &[arg(a, 0), arg(a, 1), arg(a, 2), V::Bool(true)],
-        ),
+        "LOGNORMDIST" => run("LOGNORM.DIST", &[arg(a, 0), arg(a, 1), arg(a, 2), V::Bool(true)]),
         "BETADIST" if !(3..=5).contains(&a.len()) => error(E::Na),
-        "BETADIST" => run(
-            "BETA.DIST",
-            &[
-                arg(a, 0),
-                arg(a, 1),
-                arg(a, 2),
-                V::Bool(true),
-                arg(a, 3),
-                arg(a, 4),
-            ],
-        ),
+        "BETADIST" => run("BETA.DIST", &[arg(a, 0), arg(a, 1), arg(a, 2), V::Bool(true), arg(a, 3), arg(a, 4)]),
         // Flagless legacy signatures: probability mass only.
         "HYPGEOMDIST" if a.len() != 4 => error(E::Na),
-        "HYPGEOMDIST" => run(
-            "HYPGEOM.DIST",
-            &[arg(a, 0), arg(a, 1), arg(a, 2), arg(a, 3), V::Bool(false)],
-        ),
+        "HYPGEOMDIST" => run("HYPGEOM.DIST", &[arg(a, 0), arg(a, 1), arg(a, 2), arg(a, 3), V::Bool(false)]),
         "NEGBINOMDIST" if a.len() != 3 => error(E::Na),
-        "NEGBINOMDIST" => run(
-            "NEGBINOM.DIST",
-            &[arg(a, 0), arg(a, 1), arg(a, 2), V::Bool(false)],
-        ),
+        "NEGBINOMDIST" => run("NEGBINOM.DIST", &[arg(a, 0), arg(a, 1), arg(a, 2), V::Bool(false)]),
         // Right-tail and two-tail legacy names answer exactly like the modern function they stand for
         // (checked in Excel 16.0 build 20527: the degrees-of-freedom ceilings are the same).
         "CHIDIST" | "CHIINV" | "FDIST" | "FINV" | "TINV" => run(
@@ -858,17 +788,8 @@ fn prob(a: &[V]) -> Result<V, Failure> {
         return error(E::Num);
     }
     // With no upper limit it is P(X = lower); otherwise P(lower <= X <= upper).
-    let (lo, hi) = if matches!(a.get(3), None | Some(V::Undefined)) {
-        (lo, lo)
-    } else {
-        (lo, hi)
-    };
-    value(
-        x.iter()
-            .zip(&p)
-            .filter(|(v, _)| **v >= lo && **v <= hi)
-            .fold(0.0, |total, (_, q)| total + *q),
-    )
+    let (lo, hi) = if matches!(a.get(3), None | Some(V::Undefined)) { (lo, lo) } else { (lo, hi) };
+    value(x.iter().zip(&p).filter(|(v, _)| **v >= lo && **v <= hi).fold(0.0, |total, (_, q)| total + *q))
 }
 fn f_test(a: &[V]) -> Result<V, Failure> {
     // Text, logicals and blanks are ignored; fewer than two numbers or a zero variance is #DIV/0!.
@@ -994,10 +915,7 @@ fn chisq_test(a: &[V]) -> Result<V, Failure> {
     };
     // Ranges of different shapes (or an empty one) are #N/A.
     let columns = observed.first().map_or(0, Vec::len);
-    if observed.is_empty()
-        || observed.len() != expected.len()
-        || observed.iter().chain(&expected).any(|r| r.len() != columns)
-    {
+    if observed.is_empty() || observed.len() != expected.len() || observed.iter().chain(&expected).any(|r| r.len() != columns) {
         return error(E::Na);
     }
     let rows = observed.len();

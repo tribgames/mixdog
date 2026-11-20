@@ -11,11 +11,15 @@ fn seed(data: &Path) {
         put(data, "desktop", &format!("{file}.bak"), br#"{"version":1,"hosts":[]}"#);
     }
 }
-fn bytes(data: &Path, root: &str, name: &str) -> Vec<u8> { std::fs::read(data.join(root).join(name)).unwrap() }
+fn bytes(data: &Path, root: &str, name: &str) -> Vec<u8> {
+    std::fs::read(data.join(root).join(name)).unwrap()
+}
 
 #[test]
 fn absent_current_stores_adopt_raw_families_and_keep_originals_and_private_recovery() {
-    let dir = tempfile::tempdir().unwrap(); let data = dir.path(); seed(data);
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    seed(data);
     run(data).unwrap();
     for file in FILES {
         for name in [file.to_owned(), format!("{file}.bak")] {
@@ -29,7 +33,8 @@ fn absent_current_stores_adopt_raw_families_and_keep_originals_and_private_recov
     // The recovery archive must not share the inode of the live store.
     std::fs::write(data.join("userdata/ssh-hosts.json"), b"newer write").unwrap();
     std::fs::remove_file(data.join("userdata/remote-hosts.json")).unwrap();
-    run(data).unwrap(); run(data).unwrap();
+    run(data).unwrap();
+    run(data).unwrap();
     assert_eq!(std::fs::read(data.join(MARKER)).unwrap(), marker);
     assert_eq!(bytes(data, "userdata", "ssh-hosts.json"), b"newer write");
     assert!(!data.join("userdata/remote-hosts.json").exists(), "no resurrection");
@@ -39,7 +44,9 @@ fn absent_current_stores_adopt_raw_families_and_keep_originals_and_private_recov
 #[test]
 fn any_current_family_evidence_wins_without_union_or_stale_backup_import() {
     for trace in ["main", "empty", "backup", "corrupt", "aside"] {
-        let dir = tempfile::tempdir().unwrap(); let data = dir.path(); seed(data);
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        seed(data);
         for file in FILES {
             let (name, body) = match trace {
                 "main" => (file.to_owned(), br#"{"version":1,"hosts":[{"id":"new"}],"enabled":false,"open":[]}"#.as_slice()),
@@ -50,25 +57,46 @@ fn any_current_family_evidence_wins_without_union_or_stale_backup_import() {
             };
             put(data, "userdata", &name, body);
         }
-        let before: Vec<_> = durable::walk_files(&data.join("userdata")).unwrap().into_iter()
-            .map(|name| { let body = bytes(data, "userdata", &name); (name, body) }).collect();
+        let before: Vec<_> = durable::walk_files(&data.join("userdata"))
+            .unwrap()
+            .into_iter()
+            .map(|name| {
+                let body = bytes(data, "userdata", &name);
+                (name, body)
+            })
+            .collect();
         run(data).unwrap();
-        let after: Vec<_> = durable::walk_files(&data.join("userdata")).unwrap().into_iter()
-            .map(|name| { let body = bytes(data, "userdata", &name); (name, body) }).collect();
+        let after: Vec<_> = durable::walk_files(&data.join("userdata"))
+            .unwrap()
+            .into_iter()
+            .map(|name| {
+                let body = bytes(data, "userdata", &name);
+                (name, body)
+            })
+            .collect();
         assert_eq!(after, before, "{trace}: preserve current family exactly, including missing main/backup");
-        for (name, body) in before { assert_eq!(bytes(data, &format!("{RECOVERY}/userdata"), &name), body); }
+        for (name, body) in before {
+            assert_eq!(bytes(data, &format!("{RECOVERY}/userdata"), &name), body);
+        }
     }
 }
 
 #[test]
 fn every_adoption_fault_resumes_without_losing_either_family() {
-    let baseline = tempfile::tempdir().unwrap(); seed(baseline.path());
+    let baseline = tempfile::tempdir().unwrap();
+    seed(baseline.path());
     put(baseline.path(), "userdata", "ssh-hosts.json", b"current opaque bytes");
     let points = RefCell::new(Vec::new());
-    run_with(baseline.path(), &|point| { points.borrow_mut().push(point.to_owned()); Ok(()) }).unwrap();
+    run_with(baseline.path(), &|point| {
+        points.borrow_mut().push(point.to_owned());
+        Ok(())
+    })
+    .unwrap();
     let expected = std::fs::read(baseline.path().join(MARKER)).unwrap();
     for point in points.into_inner() {
-        let dir = tempfile::tempdir().unwrap(); let data = dir.path(); seed(data);
+        let dir = tempfile::tempdir().unwrap();
+        let data = dir.path();
+        seed(data);
         put(data, "userdata", "ssh-hosts.json", b"current opaque bytes");
         let stopped = run_with(data, &|at| if at == point { Err(Blocked::Interrupted { point: at.into() }) } else { Ok(()) });
         assert!(stopped.is_err(), "{point}");
@@ -83,8 +111,10 @@ fn every_adoption_fault_resumes_without_losing_either_family() {
 
 #[test]
 fn a_late_profile_extends_only_unseen_families_and_never_resurrects_a_settled_one() {
-    let dir = tempfile::tempdir().unwrap(); let data = dir.path();
-    run(data).unwrap(); assert!(!data.join(MARKER).exists());
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    run(data).unwrap();
+    assert!(!data.join(MARKER).exists());
     put(data, "userdata", "ssh-hosts.json", br#"{"version":1,"hosts":[]}"#);
     run(data).unwrap();
     std::fs::remove_file(data.join("userdata/ssh-hosts.json")).unwrap();
@@ -97,7 +127,9 @@ fn a_late_profile_extends_only_unseen_families_and_never_resurrects_a_settled_on
 
 #[test]
 fn a_new_current_write_after_planning_is_not_replaced() {
-    let dir = tempfile::tempdir().unwrap(); let data = dir.path(); seed(data);
+    let dir = tempfile::tempdir().unwrap();
+    let data = dir.path();
+    seed(data);
     let stop = "connections-adoption:archive:desktop:ssh-hosts.json:before";
     assert!(run_with(data, &|at| if at == stop { Err(Blocked::Interrupted { point: at.into() }) } else { Ok(()) }).is_err());
     put(data, "userdata", "ssh-hosts.json", b"new authoritative write");

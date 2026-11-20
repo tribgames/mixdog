@@ -13,8 +13,8 @@
 use super::generic::{Hold, Port, Slot};
 use super::{Boundary, Receipt, Scope};
 use crate::platform::macos::ffi::{
-    cfstr, kAXErrorCannotComplete, kCGEventSourceUserData, kCGHIDEventTap, AXUIElementPerformAction, AXUIElementRef,
-    AXUIElementSetAttributeValue, CGEventPost, CGEventPostToPid, CGEventRef, CGEventSetFlags, CGEventSetIntegerValueField,
+    AXUIElementPerformAction, AXUIElementRef, AXUIElementSetAttributeValue, CGEventPost, CGEventPostToPid, CGEventRef, CGEventSetFlags,
+    CGEventSetIntegerValueField, cfstr, kAXErrorCannotComplete, kCGEventSourceUserData, kCGHIDEventTap,
 };
 use crate::platform::macos::input::{self, Route};
 use core_foundation::base::{CFRelease, CFType, TCFType};
@@ -103,7 +103,11 @@ pub(crate) fn post(event: CGEventRef, route: Route, flags: u64) -> Result<(), St
     let admitted = port().and_then(|port| port.admit(Boundary::Local));
     match admitted {
         Ok(_admitted) => {
-            if post_raw(event, route, flags) { Ok(()) } else { Err("input_delivery_failed: the event could not be created".into()) }
+            if post_raw(event, route, flags) {
+                Ok(())
+            } else {
+                Err("input_delivery_failed: the event could not be created".into())
+            }
         }
         Err(refused) => {
             free(event);

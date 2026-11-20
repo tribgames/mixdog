@@ -1,7 +1,4 @@
-#![allow(
-    clippy::disallowed_methods,
-    reason = "test setup: replaces data-dir entries under the owner"
-)]
+#![allow(clippy::disallowed_methods, reason = "test setup: replaces data-dir entries under the owner")]
 
 use std::sync::Arc;
 
@@ -97,10 +94,8 @@ mod across_processes {
         /// SIGKILL (`TerminateProcess` on Windows), the way the recording ended its holders.
         fn kill(mut self) {
             self.child.kill().unwrap();
-            while let Some(_line) = self
-                .lines
-                .recv_timeout(DEADLINE)
-                .unwrap_or_else(|_| panic!("a killed contender's stdout did not close within {DEADLINE:?}"))
+            while let Some(_line) =
+                self.lines.recv_timeout(DEADLINE).unwrap_or_else(|_| panic!("a killed contender's stdout did not close within {DEADLINE:?}"))
             {}
             self.child.wait().unwrap();
         }
@@ -123,14 +118,6 @@ mod across_processes {
     fn held_count(contenders: &mut [Contender]) -> usize {
         contenders.iter_mut().map(|c| c.verdict()["held"] == true).filter(|held| *held).count()
     }
-
-
-
-
-
-
-
-
 
     #[test]
     fn a_held_lock_refuses_every_other_process_and_a_killed_holder_frees_it_at_once() {
@@ -195,23 +182,16 @@ mod across_processes {
     }
 }
 
-
 #[test]
 fn one_core_per_data_dir() {
     let temp = TempData::new();
     let first = acquire(&temp.data()).expect("first core");
-    assert!(matches!(
-        acquire(&temp.data()),
-        Err(AcquireError::AlreadyOwned)
-    ));
+    assert!(matches!(acquire(&temp.data()), Err(AcquireError::AlreadyOwned)));
     assert_eq!(first.revalidate(), Ok(()));
     drop(first);
     let second = acquire(&temp.data()).expect("released with the handle");
     assert_ne!(second.instance_id(), "");
-    assert!(
-        temp.data().join(LOCK_FILE).is_file(),
-        "the lock file is never deleted"
-    );
+    assert!(temp.data().join(LOCK_FILE).is_file(), "the lock file is never deleted");
 }
 
 /// Holds the data dir with the barrier installed and pinned.
@@ -231,33 +211,18 @@ fn gate_8_windows_pins_the_lock_barrier_dir_and_ancestors() {
     let data = nested.join("data");
     let own = Arc::new(acquire(&data).unwrap());
     let mut gate = crate::verdict::tests::LaneGate::from(
-        crate::verdict::Gate::with_table(
-            own.clone(),
-            temp.runtime().join("daemon.json"),
-            crate::verdict::tests::record(),
-            Box::new(FakeTable::default()),
-        )
-        .unwrap(),
+        crate::verdict::Gate::with_table(own.clone(), temp.runtime().join("daemon.json"), crate::verdict::tests::record(), Box::new(FakeTable::default()))
+            .unwrap(),
     );
     assert!(matches!(gate.step().unwrap(), GateStep::Clear));
 
     let elsewhere = temp.root.path().join("moved");
     for path in [data.clone(), nested.clone(), temp.root.path().join("a")] {
-        assert!(
-            std::fs::rename(&path, &elsewhere).is_err(),
-            "rename of {} must fail",
-            path.display()
-        );
+        assert!(std::fs::rename(&path, &elsewhere).is_err(), "rename of {} must fail", path.display());
     }
     for name in [LOCK_FILE, CLAIM_LOCK_FILE] {
-        assert!(
-            std::fs::remove_file(data.join(name)).is_err(),
-            "delete of {name} must fail"
-        );
-        assert!(
-            std::fs::rename(data.join(name), data.join("x")).is_err(),
-            "rename of {name} must fail"
-        );
+        assert!(std::fs::remove_file(data.join(name)).is_err(), "delete of {name} must fail");
+        assert!(std::fs::rename(data.join(name), data.join("x")).is_err(), "rename of {name} must fail");
     }
     assert_eq!(own.revalidate(), Ok(()));
 }
@@ -281,11 +246,7 @@ fn gate_8_unix_barrier_removed_fences() {
     std::fs::remove_file(temp.data().join(CLAIM_LOCK_FILE)).unwrap();
     assert_eq!(own.revalidate(), Err(FenceReason::BarrierRemoved));
     std::fs::write(temp.data().join(CLAIM_LOCK_FILE), b"restored\n").unwrap();
-    assert_eq!(
-        own.revalidate(),
-        Err(FenceReason::BarrierRemoved),
-        "fencing is sticky"
-    );
+    assert_eq!(own.revalidate(), Err(FenceReason::BarrierRemoved), "fencing is sticky");
 }
 
 #[cfg(unix)]
@@ -299,10 +260,7 @@ fn gate_8_unix_renamed_data_dir_fences_and_new_core_works_in_a_new_inode() {
 
     // A new core at the old path works in a different directory.
     let new = installed(&temp);
-    assert_ne!(
-        std::fs::metadata(temp.data()).unwrap().ino(),
-        std::fs::metadata(&moved).unwrap().ino()
-    );
+    assert_ne!(std::fs::metadata(temp.data()).unwrap().ino(), std::fs::metadata(&moved).unwrap().ino());
     assert_eq!(new.revalidate(), Ok(()));
     // The old core's writes land only in the orphaned directory, and it fences.
     old.data_dir().create_new("old-core-write", b"x").unwrap();
@@ -310,11 +268,3 @@ fn gate_8_unix_renamed_data_dir_fences_and_new_core_works_in_a_new_inode() {
     assert!(!temp.data().join("old-core-write").exists());
     assert_eq!(old.revalidate(), Err(FenceReason::DataDirReplaced));
 }
-
-
-    
-    
-    
-    
-    
-    

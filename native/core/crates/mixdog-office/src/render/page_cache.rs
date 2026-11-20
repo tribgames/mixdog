@@ -96,11 +96,7 @@ pub fn pptx_page_signatures<P: ReadProof>(proof: &P, path: &Path) -> Result<Vec<
             }
             dependencies.sort_by(|left, right| utf16_order(left, right));
             let pairs: Vec<Value> = dependencies.iter().map(|part| json!([part, locals.get(part).cloned().unwrap_or_default()])).collect();
-            PageSignature {
-                page: index + 1,
-                slide_id: slide.id,
-                signature: sha256(json_stringify(&json!([seed, index, pairs]))),
-            }
+            PageSignature { page: index + 1, slide_id: slide.id, signature: sha256(json_stringify(&json!([seed, index, pairs]))) }
         })
         .collect())
 }
@@ -122,7 +118,8 @@ pub async fn reusable_pptx_pages<E: RenderEngine>(
     let pages = cache.get("pages").and_then(Value::as_array).map(Vec::as_slice).unwrap_or_default();
     for entry in signatures {
         let prior = pages.iter().find(|page| {
-            page.get("slideId").and_then(Value::as_f64) == Some(entry.slide_id) && page.get("signature").and_then(Value::as_str) == Some(entry.signature.as_str())
+            page.get("slideId").and_then(Value::as_f64) == Some(entry.slide_id)
+                && page.get("signature").and_then(Value::as_str) == Some(entry.signature.as_str())
         });
         let Some(image) = prior.and_then(|page| page.get("image")) else { continue };
         if !image.get("data").is_some_and(truthy) || !image.get("path").is_some_and(truthy) {

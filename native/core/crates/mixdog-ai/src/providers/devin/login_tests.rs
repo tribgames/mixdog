@@ -4,13 +4,10 @@
 
 use std::sync::Arc;
 
-
 use super::login::DevinLogin;
 use crate::oauth::http::testing::Scripted;
 use crate::oauth::{CredentialFile, CredentialIo, PkceProvider};
-use crate::transport::{HttpSend};
-
-
+use crate::transport::HttpSend;
 
 fn io() -> CredentialIo {
     let tokens = mixdog_rt::testing::tokens();
@@ -45,5 +42,3 @@ async fn an_exchange_that_outlives_its_timer_reads_as_nodes() {
     assert_transport("devinExchange", &transport);
     assert_thrown("devinExchange", login_message(&failure));
 }
-
-

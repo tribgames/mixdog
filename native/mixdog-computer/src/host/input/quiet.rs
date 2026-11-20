@@ -3,9 +3,9 @@
 //! window metadata only: the window set in z-order, the foreground window and
 //! each window's title, state and bounds.
 
-use super::super::{sleep_ms, Host, Res};
+use super::super::{Host, Res, sleep_ms};
 use crate::obj;
-use crate::protocol::{round_half_even, Obj, Req};
+use crate::protocol::{Obj, Req, round_half_even};
 use serde_json::json;
 use std::time::{Duration, Instant};
 
@@ -57,20 +57,7 @@ fn sample(host: &Host) -> Res<String> {
         .desktop
         .windows()?
         .iter()
-        .map(|w| {
-            format!(
-                "{}|{}|{}|{}|{}|{},{},{},{}",
-                w.id(),
-                w.title,
-                w.focused,
-                w.minimized,
-                w.maximized,
-                w.x,
-                w.y,
-                w.width,
-                w.height
-            )
-        })
+        .map(|w| format!("{}|{}|{}|{}|{}|{},{},{},{}", w.id(), w.title, w.focused, w.minimized, w.maximized, w.x, w.y, w.width, w.height))
         .collect();
     Ok(rows.join("\n"))
 }
@@ -78,11 +65,7 @@ fn sample(host: &Host) -> Res<String> {
 /// Wait-UntilQuiet. The requested time is a cap. A next sample only starts
 /// when a full interval plus a sample's cost still fits before it, so every
 /// compared pair is a full interval apart and no sample starts past the cap.
-fn until_quiet(
-    seconds: f64,
-    sample: &mut dyn FnMut() -> Res<String>,
-    clock: &dyn Clock,
-) -> Res<Outcome> {
+fn until_quiet(seconds: f64, sample: &mut dyn FnMut() -> Res<String>, clock: &dyn Clock) -> Res<Outcome> {
     let cap_ms = round_half_even(seconds * 1000.0) as f64;
     let mut previous: Option<String> = None;
     let mut equal_run = 0;
@@ -93,10 +76,7 @@ fn until_quiet(
         if previous.as_deref() == Some(current.as_str()) {
             equal_run += 1;
             if equal_run >= EQUAL_RUN {
-                return Ok(Outcome {
-                    quiet: true,
-                    waited_ms: round_half_even(clock.elapsed_ms()),
-                });
+                return Ok(Outcome { quiet: true, waited_ms: round_half_even(clock.elapsed_ms()) });
             }
         } else {
             equal_run = 0;
@@ -114,10 +94,7 @@ fn until_quiet(
         }
     }
     clock.sleep_until(cap_ms);
-    Ok(Outcome {
-        quiet: false,
-        waited_ms: round_half_even(clock.elapsed_ms()),
-    })
+    Ok(Outcome { quiet: false, waited_ms: round_half_even(clock.elapsed_ms()) })
 }
 
 /// Do-Wait's reply, which travels as the result's JSON text.

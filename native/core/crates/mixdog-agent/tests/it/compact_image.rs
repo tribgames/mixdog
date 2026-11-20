@@ -18,7 +18,6 @@ use mixdog_agent::compact::image::target_dimensions;
 use mixdog_agent::offload::ImageCompactor;
 use mixdog_agent::offload::ImageOutcome;
 
-
 /// Answers by script: the size the image decodes at, what each quality encodes to, and what a
 /// validation says. The calls made are recorded.
 struct Scripted {
@@ -52,8 +51,6 @@ impl ImageCodec for Scripted {
         self.validation.clone()
     }
 }
-
-
 
 /// A base64 text over the 256 KiB target.
 fn big() -> String {
@@ -138,7 +135,9 @@ async fn a_blob_image_of_a_tool_becomes_the_stores_reference_in_place() {
     let content = Content::Parts(vec![ContentPart::Text("shot".into(), None), ContentPart::Image(ImageSource::FileId(format!("sha256:{}", "12".repeat(32))))]);
     let Content::Parts(parts) = mixdog_agent::offload::compact_images(&compactor, &content).await else { panic!("parts") };
     assert_eq!(parts.len(), 2, "order and multiplicity stay");
-    assert!(matches!(&parts[1], ContentPart::File { source: BinarySource::AttachmentRef(r), mime_type, text: None, .. } if *r == "ef".repeat(32) && mime_type == "image/png"));
+    assert!(
+        matches!(&parts[1], ContentPart::File { source: BinarySource::AttachmentRef(r), mime_type, text: None, .. } if *r == "ef".repeat(32) && mime_type == "image/png")
+    );
     assert_eq!(*intake.seen.lock().unwrap(), vec!["12".repeat(32)], "the digest, without its algorithm prefix, names the blob");
 }
 
@@ -163,13 +162,22 @@ async fn a_reencoded_image_is_stored_as_reencoded_and_survives_a_store_that_cann
     let down = Arc::new(Intake { seen: Mutex::default(), answer: None });
     let outcome = ToolImageCompactor::new(codec).with_intake(down).compact(&big(), "image/png").await;
     assert!(matches!(outcome, ImageOutcome::Compacted { .. }));
-    let plain = ToolImageCompactor::new(Scripted::new(Err(CodecError::Invalid), vec![], Ok(()))).with_intake(Arc::new(Intake { seen: Mutex::default(), answer: None }));
+    let plain =
+        ToolImageCompactor::new(Scripted::new(Err(CodecError::Invalid), vec![], Ok(()))).with_intake(Arc::new(Intake { seen: Mutex::default(), answer: None }));
     assert!(matches!(plain.compact("AAAA", "image/png").await, ImageOutcome::Keep));
 }
 
 #[tokio::test]
 async fn only_png_jpeg_and_webp_are_reencoded_and_a_missing_type_reads_as_png() {
-    for (mime, probed) in [("image/gif", false), ("image/svg+xml", false), ("image/png; charset=x", false), ("image/jpg", true), ("IMAGE/WEBP", true), ("", true), ("image", true)] {
+    for (mime, probed) in [
+        ("image/gif", false),
+        ("image/svg+xml", false),
+        ("image/png; charset=x", false),
+        ("image/jpg", true),
+        ("IMAGE/WEBP", true),
+        ("", true),
+        ("image", true),
+    ] {
         let codec = Scripted::new(Ok(FROM), vec![(150_000, BOX)], Ok(()));
         ToolImageCompactor::new(codec.clone()).compact(&big(), mime).await;
         assert_eq!(codec.calls.lock().unwrap().first().is_some_and(|c| c == "probe"), probed, "{mime:?}");
@@ -193,5 +201,3 @@ async fn a_failed_probe_leaves_the_judgement_to_the_validation() {
     // Whether it decodes is the attachment store's verdict: the compactor only probed it.
     assert_eq!(*unknown.calls.lock().unwrap(), vec!["probe".to_owned()]);
 }
-
-

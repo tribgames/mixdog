@@ -10,7 +10,7 @@
 //!   - an agent's memory: that agent alone reads and writes it; the host and
 //!     human sessions may also list and delete it.
 
-use mixdog_js::{js_trim};
+use mixdog_js::js_trim;
 use serde_json::Value;
 
 use crate::memory::error::{MemoryError, Result};
@@ -61,12 +61,7 @@ impl MemoryCaller {
             Some("room-member") => CallerKind::RoomMember,
             _ => CallerKind::Headless,
         };
-        let agent_id = value
-            .get("agentId")
-            .and_then(Value::as_str)
-            .and_then(valid_agent_id)
-            .unwrap_or_default()
-            .to_owned();
+        let agent_id = value.get("agentId").and_then(Value::as_str).and_then(valid_agent_id).unwrap_or_default().to_owned();
         if kind == CallerKind::Agent && agent_id.is_empty() {
             return Self { kind: CallerKind::Headless, agent_id, interactive: false };
         }
@@ -81,9 +76,9 @@ impl MemoryCaller {
     /// Errors unless the caller may read agent `agent_id`'s pool (none: common/project).
     pub fn assert_read(&self, agent_id: Option<&str>) -> Result<()> {
         match agent_id {
-            Some(id) if self.agent_id != id && !self.may_manage_agents() => Err(MemoryError::rejected(format!(
-                "the memory of agent \"{id}\" is readable only by that agent"
-            ))),
+            Some(id) if self.agent_id != id && !self.may_manage_agents() => {
+                Err(MemoryError::rejected(format!("the memory of agent \"{id}\" is readable only by that agent")))
+            }
             _ => Ok(()),
         }
     }
@@ -94,9 +89,7 @@ impl MemoryCaller {
             if self.agent_id == agent_id || (op == "delete" && self.may_manage_agents()) {
                 return Ok(());
             }
-            return Err(MemoryError::rejected(format!(
-                "memory {op} refused: the memory of agent \"{agent_id}\" is written only by that agent"
-            )));
+            return Err(MemoryError::rejected(format!("memory {op} refused: the memory of agent \"{agent_id}\" is written only by that agent")));
         }
         if self.interactive {
             return Ok(());

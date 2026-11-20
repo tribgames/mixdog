@@ -90,7 +90,8 @@ pub fn unmask(data: &Path, value: &Value) -> Value {
 /// both sides) named `<ATTEMPT>` and its `verb` (the client's label, which the scenario's runtime has none of) `<VERB>`.
 fn mask(data: &Path, value: &Value) -> Value {
     let escaped = serde_json::to_string(&data.to_string_lossy()).expect("path");
-    let mut masked: Value = serde_json::from_str(&serde_json::to_string(value).expect("json").replace(&escaped[1..escaped.len() - 1], "<DATA>")).expect("masked");
+    let mut masked: Value =
+        serde_json::from_str(&serde_json::to_string(value).expect("json").replace(&escaped[1..escaped.len() - 1], "<DATA>")).expect("masked");
     mask_attempts(&mut masked);
     masked
 }
@@ -182,11 +183,17 @@ impl World {
         within("the session is created", creator.create_with_id(id.clone(), header, json!({}))).await.expect("create");
         if through_session {
             let created = within("the session opens", creator.open_handle(&id, &CallContext::internal("test"))).await.expect("open");
-            let request = CoreRequest { method: Method("thread/inheritedRows/append"), params: json!({ "threadId": id, "messages": transcript }), op: None, ctx: CallContext::internal("test") };
+            let request = CoreRequest {
+                method: Method("thread/inheritedRows/append"),
+                params: json!({ "threadId": id, "messages": transcript }),
+                op: None,
+                ctx: CallContext::internal("test"),
+            };
             within("the transcript is committed", created.request(request)).await.expect("rows appended");
             within("the creator lets the session go", creator.shutdown_for("seeded")).await;
         } else {
-            rig.store.seed(&id, transcript.as_array().expect("transcript").iter().enumerate().map(|(index, body)| item(format!("seed{index}"), body)).collect());
+            rig.store
+                .seed(&id, transcript.as_array().expect("transcript").iter().enumerate().map(|(index, body)| item(format!("seed{index}"), body)).collect());
         }
         let directory = Arc::new(SessionDirectory::new(deps(&rig)));
         let handle = within("the session opens", directory.open_handle(&id, &CallContext::internal("test"))).await.expect("open");
@@ -208,8 +215,17 @@ impl World {
 
     /// The compaction the scenario adopted, committed on the context it was planned on.
     pub async fn commit(&self) -> Result<CompactionCommit, CoreError> {
-        let snapshot = within("the context is read", self.directory.model_context(&self.handle.id).read()).await.expect("context").into_iter().map(|(iid, _)| iid).collect();
-        within("the commit answers", self.directory.commit_compaction(&self.handle.id, snapshot, compaction_of(self.data.path(), &self.case, self.clock_ms), Some(header()))).await
+        let snapshot = within("the context is read", self.directory.model_context(&self.handle.id).read())
+            .await
+            .expect("context")
+            .into_iter()
+            .map(|(iid, _)| iid)
+            .collect();
+        within(
+            "the commit answers",
+            self.directory.commit_compaction(&self.handle.id, snapshot, compaction_of(self.data.path(), &self.case, self.clock_ms), Some(header())),
+        )
+        .await
     }
 
     /// The running turn has ended.

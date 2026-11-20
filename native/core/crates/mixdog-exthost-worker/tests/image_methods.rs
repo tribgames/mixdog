@@ -24,19 +24,14 @@ fn pool() -> ExtHostPool {
         workers: 1,
         pending_cap: 64,
         spawn_io: mixdog_rt::testing::tokens().spawn_io,
-        render_browser: RenderBrowserConfig {
-            command: None,
-            profile_root: std::env::temp_dir().join("mixdog-exthost-worker-image-tests"),
-            no_sandbox: false,
-        },
+        render_browser: RenderBrowserConfig { command: None, profile_root: std::env::temp_dir().join("mixdog-exthost-worker-image-tests"), no_sandbox: false },
     })
     .expect("the pool starts")
 }
 
 async fn ask(pool: &ExtHostPool, method: &str, params: Value) -> Result<Value, ExtError> {
-    let mut stream = pool
-        .call(ExtCall { thread: ThreadId::from("image-methods"), method: method.to_owned(), params, paths: Vec::new() })
-        .expect("the call is accepted");
+    let mut stream =
+        pool.call(ExtCall { thread: ThreadId::from("image-methods"), method: method.to_owned(), params, paths: Vec::new() }).expect("the call is accepted");
     loop {
         if let ExtFrame::Done(outcome) = stream.next().await.expect("the stream ends with Done") {
             return outcome;
@@ -93,13 +88,7 @@ fn flat_png(width: u32, height: u32, rgb: [u8; 3]) -> Vec<u8> {
     zlib.extend_from_slice(&((b << 16) | a).to_be_bytes());
     let mut ihdr = [width.to_be_bytes(), height.to_be_bytes()].concat();
     ihdr.extend_from_slice(&[8, 2, 0, 0, 0]);
-    [
-        vec![0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a],
-        chunk(b"IHDR", &ihdr),
-        chunk(b"IDAT", &zlib),
-        chunk(b"IEND", &[]),
-    ]
-    .concat()
+    [vec![0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a], chunk(b"IHDR", &ihdr), chunk(b"IDAT", &zlib), chunk(b"IEND", &[])].concat()
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -126,9 +115,7 @@ async fn image_validate_accepts_a_decodable_image_and_refuses_other_bytes() {
 async fn image_jpeg_fits_the_box_and_enlarges_only_when_allowed() {
     let pool = pool();
     let png = flat_png(300, 200, [20, 200, 20]);
-    let reencode = |width: u32, height: u32, enlarge: bool, quality: u32| {
-        json!({"data": b64(&png), "width": width, "height": height, "allowEnlargement": enlarge, "quality": quality})
-    };
+    let reencode = |width: u32, height: u32, enlarge: bool, quality: u32| json!({"data": b64(&png), "width": width, "height": height, "allowEnlargement": enlarge, "quality": quality});
     let jpeg_of = |answer: &Value| STANDARD.decode(answer["ok"]["data"].as_str().expect("an encoded image")).unwrap();
 
     // A box the picture fills exactly: the same size comes back as a JPEG (it starts FF D8).

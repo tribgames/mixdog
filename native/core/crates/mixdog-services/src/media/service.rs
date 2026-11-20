@@ -170,7 +170,8 @@ mod tests {
         let store = Arc::new(MediaStore::new(dir.path(), mixdog_rt::testing::tokens().durability_io));
         let jobs = MediaJobs::new(store.clone(), Arc::new(NoLanes), None);
         let host = super::super::renditions::tests::scripted(super::super::renditions::tests::webp("AQID"), std::time::Duration::ZERO);
-        let renditions = StillRenditions::new(Arc::new(mixdog_exthost::ExtImageCodec::new(host)), mixdog_rt::testing::tokens().durability_io, store.renditions_dir());
+        let renditions =
+            StillRenditions::new(Arc::new(mixdog_exthost::ExtImageCodec::new(host)), mixdog_rt::testing::tokens().durability_io, store.renditions_dir());
         let service = MediaService::new(store, jobs, Processes::for_tests(), renditions);
 
         let board = value(call(&service, "media/createMediaBoard", json!({"opId": "o", "name": "Harness Board"})).await);
@@ -179,7 +180,10 @@ mod tests {
         assert_eq!(renamed["name"], "Renamed");
         assert_eq!(value(call(&service, "media/cancelMediaJob", json!({"opId": "o", "id": "j"})).await)["id"], "j");
         assert_eq!(value(call(&service, "media/deleteMediaAsset", json!({"opId": "o", "id": "a"})).await)["id"], "a");
-        assert_eq!(message(call(&service, "media/renameMediaBoard", json!({"opId": "o", "id": "nope", "name": "Renamed"})).await), (None, "board not found".to_owned()));
+        assert_eq!(
+            message(call(&service, "media/renameMediaBoard", json!({"opId": "o", "id": "nope", "name": "Renamed"})).await),
+            (None, "board not found".to_owned())
+        );
         let start = json!({"opId": "o", "input": {"kind": "image", "prompt": "harness", "lane": "harness-no-such-lane"}});
         assert_eq!(
             message(call(&service, "media/startMediaJob", start).await),
@@ -187,13 +191,20 @@ mod tests {
         );
     }
 
-
     const METHOD_TABLE: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-app-protocol/schema/method_table.json");
     const CLIENT_REQUEST: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("../mixdog-app-protocol/schema/client_request.json");
     /// The property names the protocol schema gives `method`'s params.
     fn schema_fields(method: &str) -> Vec<String> {
         let table: Value = serde_json::from_str(&METHOD_TABLE).unwrap();
-        let name = table["clientMethods"].as_array().unwrap().iter().find(|m| m["method"] == method).unwrap_or_else(|| panic!("{method} is not in the protocol"))["params"].as_str().unwrap().to_owned();
+        let name = table["clientMethods"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|m| m["method"] == method)
+            .unwrap_or_else(|| panic!("{method} is not in the protocol"))["params"]
+            .as_str()
+            .unwrap()
+            .to_owned();
         let requests: Value = serde_json::from_str(&CLIENT_REQUEST).unwrap();
         requests["definitions"][&name]["properties"].as_object().unwrap_or_else(|| panic!("no schema for {name}")).keys().cloned().collect()
     }
@@ -201,7 +212,13 @@ mod tests {
     fn the_object_methods_read_the_field_the_wire_carries_it_in() {
         // The wire shapes of the schema: `{ opId, threadId?, <field>: <the object Node's method takes> }`.
         let pin = json!({"kind": "image", "lane": "xai", "model": "grok-imagine-image"});
-        for (method, field) in [("media/setMediaPin", "input"), ("media/setMediaDefault", "input"), ("media/startMediaJob", "input"), ("media/deleteMediaAssets", "filter"), ("media/listMediaAssets", "options")] {
+        for (method, field) in [
+            ("media/setMediaPin", "input"),
+            ("media/setMediaDefault", "input"),
+            ("media/startMediaJob", "input"),
+            ("media/deleteMediaAssets", "filter"),
+            ("media/listMediaAssets", "options"),
+        ] {
             assert!(schema_fields(method).contains(&field.to_owned()), "{method}: the schema has no `{field}`");
             let wire = object(&[("opId", json!("op-1")), ("threadId", Value::Null), (field, pin.clone())]);
             assert_eq!(wire_args(method, &wire), pin, "{method}");
@@ -209,7 +226,8 @@ mod tests {
             assert_eq!(wire_args(method, &object(&[(field, Value::Null)])), json!({}), "{method}: a null object is `{{}}`");
         }
         // A start carries the account, session and source type inside `input`.
-        let start = json!({"opId": "op-2", "input": {"lane": "gemini", "kind": "image", "prompt": "p", "account": "work", "sessionId": "s", "sourceType": "lead"}});
+        let start =
+            json!({"opId": "op-2", "input": {"lane": "gemini", "kind": "image", "prompt": "p", "account": "work", "sessionId": "s", "sourceType": "lead"}});
         assert_eq!(wire_args("media/startMediaJob", &start)["account"], "work");
         assert_eq!(wire_args("media/listMediaAssets", &json!({"options": {"limit": 5, "offset": 10, "kind": "video", "boardId": "b"}}))["limit"], 5);
     }
@@ -240,12 +258,17 @@ mod tests {
     }
 }
 
-
 const OPENER_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(15);
 /// Hands the path to the OS opener under the shared process manager; whether it could be
 /// started is the answer, not how it exits (`explorer.exe` exits 1 after opening).
 async fn open_with_os(processes: &Processes, path: &Path, reveal: bool) -> bool {
-    let platform = if cfg!(windows) { "windows" } else if cfg!(target_os = "macos") { "macos" } else { "linux" };
+    let platform = if cfg!(windows) {
+        "windows"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else {
+        "linux"
+    };
     let (program, args) = open_command(path, reveal, platform);
     let cwd = std::env::temp_dir();
     let mut options = RunOptions::new(&cwd);
@@ -329,7 +352,9 @@ impl MediaService {
                     return Ok(json!({"path": root.to_string_lossy(), "opened": open_with_os(&self.processes, &root, false).await}));
                 }
                 match store.run(move |s| s.asset_path(&owned_id)).await?? {
-                    Some(path) => Ok(json!({"id": id, "path": path.parent().map(|p| p.to_string_lossy()), "opened": open_with_os(&self.processes, &path, true).await})),
+                    Some(path) => {
+                        Ok(json!({"id": id, "path": path.parent().map(|p| p.to_string_lossy()), "opened": open_with_os(&self.processes, &path, true).await}))
+                    }
                     None => Ok(json!({"id": id, "path": "", "opened": false})),
                 }
             }

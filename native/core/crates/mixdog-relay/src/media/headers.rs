@@ -21,16 +21,8 @@ const PASS_HEADERS: [(&str, &str); 8] = [
 ];
 
 /// Content types that would be an active document at the relay origin (`MEDIA_ACTIVE_TYPE`, a prefix match).
-const ACTIVE_TYPES: [&str; 8] = [
-    "text/html",
-    "application/xhtml",
-    "image/svg",
-    "text/xml",
-    "application/xml",
-    "text/javascript",
-    "application/javascript",
-    "application/ecmascript",
-];
+const ACTIVE_TYPES: [&str; 8] =
+    ["text/html", "application/xhtml", "image/svg", "text/xml", "application/xml", "text/javascript", "application/javascript", "application/ecmascript"];
 
 const OCTET_STREAM: &str = "application/octet-stream";
 

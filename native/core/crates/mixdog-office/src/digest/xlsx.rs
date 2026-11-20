@@ -122,9 +122,7 @@ fn sheet_digest(sheet: &Value, defaults: Option<&Object>) -> Value {
         remove(&mut digest, "freezePanes");
     }
     if let Some(Value::Object(setup)) = digest.get("pageSetup") {
-        let setup = filtered(setup, |key, entry| {
-            !is_str(Some(entry), "") && !is_bool(Some(entry), false) && !quiet_page_setup_entry(key, entry)
-        });
+        let setup = filtered(setup, |key, entry| !is_str(Some(entry), "") && !is_bool(Some(entry), false) && !quiet_page_setup_entry(key, entry));
         if setup.is_empty() {
             remove(&mut digest, "pageSetup");
         } else {

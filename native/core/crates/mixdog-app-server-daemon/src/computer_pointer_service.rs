@@ -92,10 +92,10 @@ mod tests {
     #[tokio::test]
     async fn a_request_of_the_notification_is_refused() {
         let (service, _, _) = service();
-        let request = CoreRequest { method: Method("computer/pointerReleased"), params: json!({"sessionThreadId": "t1"}), op: None, ctx: CallContext::internal("test") };
+        let request =
+            CoreRequest { method: Method("computer/pointerReleased"), params: json!({"sessionThreadId": "t1"}), op: None, ctx: CallContext::internal("test") };
         assert!(matches!(service.call(request).await, Err(CoreError::InvalidParams { .. })));
     }
-
 
     async fn quiet(receive: &mut mpsc::UnboundedReceiver<String>) -> bool {
         mixdog_rt::time::timeout(Duration::from_millis(150), receive.recv()).await.is_err()

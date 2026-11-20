@@ -124,7 +124,6 @@ mod tests {
         assert!(!wait.is_waiting());
     }
 
-
     #[tokio::test]
     async fn the_ceiling_ends_work_that_never_finishes() {
         let source = CancelSource::new();
@@ -183,7 +182,6 @@ mod tests {
     }
 }
 
-
 /// Ends when `timeout` of running time has passed; time while `wait` has a wait open does not count.
 async fn ceiling(timeout: Duration, wait: Option<&UserWait>) {
     let Some(wait) = wait else {
@@ -206,13 +204,7 @@ async fn ceiling(timeout: Duration, wait: Option<&UserWait>) {
 }
 /// Races `work` against the caller's cancellation and the ceiling (the work first, then the cancellation, when several are
 /// ready). The ceiling stands still while `wait` has a wait open. Dropping `work` on the error side abandons its calls.
-pub async fn bounded<T>(
-    work: impl Future<Output = T>,
-    timeout: Duration,
-    label: &str,
-    cancel: &CancelView,
-    wait: Option<&UserWait>,
-) -> Result<T, QueueError> {
+pub async fn bounded<T>(work: impl Future<Output = T>, timeout: Duration, label: &str, cancel: &CancelView, wait: Option<&UserWait>) -> Result<T, QueueError> {
     // A cancellation without a reason reads `<label> cancelled`, as `cdp-bounded.ts` reports it.
     let cancelled = || QueueError::from_reason(Some(cancel.reason().unwrap_or_else(|| format!("{label} cancelled").into())));
     if cancel.is_cancelled() {

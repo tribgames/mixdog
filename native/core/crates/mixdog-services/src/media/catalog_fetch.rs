@@ -185,7 +185,12 @@ impl CatalogCache for FileCatalogCache {
         let path = self.path(key);
         let record = json!({ "version": 1, "fetchedAt": (self.now)(), "models": rows });
         // Best-effort, as Node: a full disk never fails the lane.
-        let queued = self.lane.submit_wait(&mixdog_rt::CancellationToken::new(), move |proof| write_json(proof, &path, &record, &Opts { lock: true, fsync_dir: true, ..Opts::default() })).await;
+        let queued = self
+            .lane
+            .submit_wait(&mixdog_rt::CancellationToken::new(), move |proof| {
+                write_json(proof, &path, &record, &Opts { lock: true, fsync_dir: true, ..Opts::default() })
+            })
+            .await;
         if let Ok(job) = queued {
             let _ = job.await;
         }

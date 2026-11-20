@@ -1,7 +1,7 @@
 //! The accessibility tree over AT-SPI's D-Bus interfaces, mapped into the
 //! shared role vocabulary.
 
-use crate::a11y::{format_value, normalize_menu_label, Element, MenuOutcome, Node, NodeExtra};
+use crate::a11y::{Element, MenuOutcome, Node, NodeExtra, format_value, normalize_menu_label};
 use crate::obj;
 use crate::platform::{Wid, WindowInfo};
 use crate::protocol::Obj;
@@ -87,9 +87,7 @@ pub fn role_of(role: u32) -> &'static str {
 }
 
 fn has(states: &[u32], bit: u32) -> bool {
-    states
-        .get((bit / 32) as usize)
-        .is_some_and(|word| word & (1 << (bit % 32)) != 0)
+    states.get((bit / 32) as usize).is_some_and(|word| word & (1 << (bit % 32)) != 0)
 }
 
 #[derive(Clone)]
@@ -101,16 +99,9 @@ pub type Ref = (String, OwnedObjectPath);
 
 impl Atspi {
     pub fn connect() -> Result<Atspi, String> {
-        let session = Connection::session()
-            .map_err(|error| format!("accessibility_unavailable: no session bus ({error})"))?;
+        let session = Connection::session().map_err(|error| format!("accessibility_unavailable: no session bus ({error})"))?;
         // Toolkits build their trees only once an assistive client is announced.
-        let _ = session.call_method(
-            Some("org.a11y.Bus"),
-            "/org/a11y/bus",
-            Some(PROPERTIES),
-            "Set",
-            &("org.a11y.Status", "IsEnabled", Value::from(true)),
-        );
+        let _ = session.call_method(Some("org.a11y.Bus"), "/org/a11y/bus", Some(PROPERTIES), "Set", &("org.a11y.Status", "IsEnabled", Value::from(true)));
         let address: String = session
             .call_method(Some("org.a11y.Bus"), "/org/a11y/bus", Some("org.a11y.Bus"), "GetAddress", &())
             .map_err(|error| format!("accessibility_unavailable: the AT-SPI bus is not running ({error}); install at-spi2-core"))?
@@ -139,20 +130,8 @@ impl Atspi {
         B: serde::Serialize + DynamicType,
         R: for<'d> serde::Deserialize<'d> + Type,
     {
-        let reply = self
-            .bus
-            .call_method(
-                Some(node.0.as_str()),
-                node.1.as_str(),
-                Some(interface),
-                method,
-                body,
-            )
-            .map_err(|error| error.to_string())?;
-        reply
-            .body()
-            .deserialize::<R>()
-            .map_err(|error| error.to_string())
+        let reply = self.bus.call_method(Some(node.0.as_str()), node.1.as_str(), Some(interface), method, body).map_err(|error| error.to_string())?;
+        reply.body().deserialize::<R>().map_err(|error| error.to_string())
     }
 
     fn property(&self, node: &Ref, interface: &str, name: &str) -> Result<OwnedValue, String> {
@@ -160,21 +139,15 @@ impl Atspi {
     }
 
     fn string_property(&self, node: &Ref, interface: &str, name: &str) -> String {
-        self.property(node, interface, name)
-            .ok()
-            .and_then(|value| String::try_from(value).ok())
-            .unwrap_or_default()
+        self.property(node, interface, name).ok().and_then(|value| String::try_from(value).ok()).unwrap_or_default()
     }
 
     fn f64_property(&self, node: &Ref, interface: &str, name: &str) -> Option<f64> {
-        self.property(node, interface, name)
-            .ok()
-            .and_then(|value| f64::try_from(value).ok())
+        self.property(node, interface, name).ok().and_then(|value| f64::try_from(value).ok())
     }
 
     pub fn children(&self, node: &Ref) -> Vec<Ref> {
-        self.call::<_, Vec<(String, OwnedObjectPath)>>(node, ACCESSIBLE, "GetChildren", &())
-            .unwrap_or_default()
+        self.call::<_, Vec<(String, OwnedObjectPath)>>(node, ACCESSIBLE, "GetChildren", &()).unwrap_or_default()
     }
 
     pub fn role(&self, node: &Ref) -> Option<u32> {
@@ -182,13 +155,11 @@ impl Atspi {
     }
 
     pub fn states(&self, node: &Ref) -> Vec<u32> {
-        self.call(node, ACCESSIBLE, "GetState", &())
-            .unwrap_or_default()
+        self.call(node, ACCESSIBLE, "GetState", &()).unwrap_or_default()
     }
 
     fn interfaces(&self, node: &Ref) -> Vec<String> {
-        self.call(node, ACCESSIBLE, "GetInterfaces", &())
-            .unwrap_or_default()
+        self.call(node, ACCESSIBLE, "GetInterfaces", &()).unwrap_or_default()
     }
 
     pub fn name(&self, node: &Ref) -> String {
@@ -207,13 +178,7 @@ impl Atspi {
 
     fn pid_of(&self, bus_name: &str) -> Option<u32> {
         self.bus
-            .call_method(
-                Some("org.freedesktop.DBus"),
-                "/org/freedesktop/DBus",
-                Some("org.freedesktop.DBus"),
-                "GetConnectionUnixProcessID",
-                &(bus_name,),
-            )
+            .call_method(Some("org.freedesktop.DBus"), "/org/freedesktop/DBus", Some("org.freedesktop.DBus"), "GetConnectionUnixProcessID", &(bus_name,))
             .ok()?
             .body()
             .deserialize()
@@ -223,16 +188,8 @@ impl Atspi {
     /// The accessible frame for a native window: the window's application,
     /// matched by process, then its frame by title and geometry.
     pub fn frame_for(&self, window: &WindowInfo) -> Result<Ref, String> {
-        let root: Ref = (
-            "org.a11y.atspi.Registry".into(),
-            OwnedObjectPath::try_from("/org/a11y/atspi/accessible/root")
-                .map_err(|error| error.to_string())?,
-        );
-        let apps: Vec<Ref> = self
-            .children(&root)
-            .into_iter()
-            .filter(|app| self.pid_of(&app.0) == Some(window.pid as u32))
-            .collect();
+        let root: Ref = ("org.a11y.atspi.Registry".into(), OwnedObjectPath::try_from("/org/a11y/atspi/accessible/root").map_err(|error| error.to_string())?);
+        let apps: Vec<Ref> = self.children(&root).into_iter().filter(|app| self.pid_of(&app.0) == Some(window.pid as u32)).collect();
         let mut best: Option<(i64, Ref)> = None;
         for app in &apps {
             for frame in self.children(app) {
@@ -241,10 +198,7 @@ impl Atspi {
                     score += 1_000_000;
                 }
                 if let Some((x, y, width, height)) = self.extents(&frame) {
-                    let distance = (x - window.x).abs()
-                        + (y - window.y).abs()
-                        + (width - window.width).abs()
-                        + (height - window.height).abs();
+                    let distance = (x - window.x).abs() + (y - window.y).abs() + (width - window.width).abs() + (height - window.height).abs();
                     score -= distance as i64;
                 }
                 if has(&self.states(&frame), STATE_ACTIVE) && window.focused {
@@ -255,23 +209,13 @@ impl Atspi {
                 }
             }
         }
-        best.map(|(_, frame)| frame).ok_or_else(|| {
-            format!(
-                "window has no accessibility root: {} {} (the application exposes no AT-SPI tree)",
-                window.id(),
-                window.title
-            )
-        })
+        best.map(|(_, frame)| frame)
+            .ok_or_else(|| format!("window has no accessibility root: {} {} (the application exposes no AT-SPI tree)", window.id(), window.title))
     }
 
     fn actions(&self, node: &Ref) -> Vec<String> {
         self.call::<_, Vec<(String, String, String)>>(node, ACTION, "GetActions", &())
-            .map(|actions| {
-                actions
-                    .into_iter()
-                    .map(|(name, _, _)| name.to_lowercase())
-                    .collect()
-            })
+            .map(|actions| actions.into_iter().map(|(name, _, _)| name.to_lowercase()).collect())
             .unwrap_or_default()
     }
 
@@ -280,59 +224,28 @@ impl Atspi {
         if actions.is_empty() {
             return Err("a11y_action_failed: element exposes no action".into());
         }
-        let index = preferred
-            .iter()
-            .find_map(|wanted| actions.iter().position(|name| name == wanted))
-            .unwrap_or(0);
+        let index = preferred.iter().find_map(|wanted| actions.iter().position(|name| name == wanted)).unwrap_or(0);
         let done: bool = self.act(node, ACTION, "DoAction", &(index as i32,))?;
-        done.then_some(())
-            .ok_or_else(|| format!("a11y_action_failed: '{}' was refused", actions[index]))
+        done.then_some(()).ok_or_else(|| format!("a11y_action_failed: '{}' was refused", actions[index]))
     }
 
     /// Whether the focused element under `frame` hides what is typed.
     pub fn focused_masked(&self, frame: &Ref) -> bool {
         let focused_word = 1i32 << STATE_FOCUSED;
-        let rule = (
-            vec![focused_word, 0],
-            1i32,
-            HashMap::<String, String>::new(),
-            1i32,
-            Vec::<i32>::new(),
-            1i32,
-            Vec::<String>::new(),
-            1i32,
-            false,
-        );
-        match self.call::<_, Vec<(String, OwnedObjectPath)>>(
-            frame,
-            COLLECTION,
-            "GetMatches",
-            &(rule, 0u32, 1i32, true),
-        ) {
+        let rule = (vec![focused_word, 0], 1i32, HashMap::<String, String>::new(), 1i32, Vec::<i32>::new(), 1i32, Vec::<String>::new(), 1i32, false);
+        match self.call::<_, Vec<(String, OwnedObjectPath)>>(frame, COLLECTION, "GetMatches", &(rule, 0u32, 1i32, true)) {
             Ok(found) => match found.first() {
-                Some(node) => self
-                    .role(node)
-                    .is_none_or(|role| role == ROLE_PASSWORD_TEXT),
+                Some(node) => self.role(node).is_none_or(|role| role == ROLE_PASSWORD_TEXT),
                 None => false,
             },
             Err(_) => true,
         }
     }
 
-    pub fn snapshot(
-        &self,
-        window: &WindowInfo,
-        include_noninteractive: bool,
-        limit: usize,
-    ) -> Result<Vec<Node>, String> {
+    pub fn snapshot(&self, window: &WindowInfo, include_noninteractive: bool, limit: usize) -> Result<Vec<Node>, String> {
         let frame = self.frame_for(window)?;
         let mut nodes = Vec::new();
-        let mut stack: Vec<(Ref, u32)> = self
-            .children(&frame)
-            .into_iter()
-            .rev()
-            .map(|child| (child, 1))
-            .collect();
+        let mut stack: Vec<(Ref, u32)> = self.children(&frame).into_iter().rev().map(|child| (child, 1)).collect();
         while let Some((node, depth)) = stack.pop() {
             if nodes.len() >= limit {
                 break;
@@ -345,20 +258,14 @@ impl Atspi {
                 continue;
             }
             let role = role_of(role_number);
-            let emitted =
-                crate::a11y::is_interactive(role) || include_noninteractive || role == "Text";
+            let emitted = crate::a11y::is_interactive(role) || include_noninteractive || role == "Text";
             if emitted {
                 if let Some(built) = self.node(&node, role_number, &states, window.handle) {
                     nodes.push(built);
                 }
             }
             if depth < 64 {
-                stack.extend(
-                    self.children(&node)
-                        .into_iter()
-                        .rev()
-                        .map(|child| (child, depth + 1)),
-                );
+                stack.extend(self.children(&node).into_iter().rev().map(|child| (child, depth + 1)));
             }
         }
         Ok(nodes)
@@ -369,36 +276,18 @@ impl Atspi {
         let role = role_of(role_number);
         let interfaces = self.interfaces(reference);
         let name = self.name(reference);
-        let element = AtspiElement {
-            atspi: self.clone(),
-            node: reference.clone(),
-            window,
-            role: role_number,
-        };
+        let element = AtspiElement { atspi: self.clone(), node: reference.clone(), window, role: role_number };
         let toggleable = element.toggleable(states);
-        let toggle = if toggleable {
-            toggle_label(states)
-        } else {
-            String::new()
-        };
-        let value = if matches!(role, "Edit" | "ComboBox" | "Document") {
-            element.value().unwrap_or_default()
-        } else {
-            String::new()
-        };
-        let range = if matches!(role, "Slider" | "Spinner" | "ProgressBar")
-            && interfaces.iter().any(|name| name == VALUE)
-        {
-            self.f64_property(reference, VALUE, "CurrentValue")
-                .map(|value| format!("{value}"))
-                .unwrap_or_default()
+        let toggle = if toggleable { toggle_label(states) } else { String::new() };
+        let value = if matches!(role, "Edit" | "ComboBox" | "Document") { element.value().unwrap_or_default() } else { String::new() };
+        let range = if matches!(role, "Slider" | "Spinner" | "ProgressBar") && interfaces.iter().any(|name| name == VALUE) {
+            self.f64_property(reference, VALUE, "CurrentValue").map(|value| format!("{value}")).unwrap_or_default()
         } else {
             String::new()
         };
         let enabled = has(states, STATE_ENABLED) || has(states, STATE_SENSITIVE);
-        let can_set_value = (interfaces.iter().any(|name| name == EDITABLE_TEXT)
-            && has(states, STATE_EDITABLE))
-            || (!range.is_empty() && role != "ProgressBar");
+        let can_set_value =
+            (interfaces.iter().any(|name| name == EDITABLE_TEXT) && has(states, STATE_EDITABLE)) || (!range.is_empty() && role != "ProgressBar");
         Some(Node {
             element: Rc::new(element),
             role: role.to_string(),
@@ -406,26 +295,8 @@ impl Atspi {
             automation_id: String::new(),
             value,
             toggle: toggle.clone(),
-            selected: if has(states, STATE_SELECTABLE) {
-                if has(states, STATE_SELECTED) {
-                    "True"
-                } else {
-                    "False"
-                }
-                .into()
-            } else {
-                String::new()
-            },
-            expanded: if has(states, STATE_EXPANDABLE) {
-                if has(states, STATE_EXPANDED) {
-                    "Expanded"
-                } else {
-                    "Collapsed"
-                }
-                .into()
-            } else {
-                String::new()
-            },
+            selected: if has(states, STATE_SELECTABLE) { if has(states, STATE_SELECTED) { "True" } else { "False" }.into() } else { String::new() },
+            expanded: if has(states, STATE_EXPANDABLE) { if has(states, STATE_EXPANDED) { "Expanded" } else { "Collapsed" }.into() } else { String::new() },
             range,
             accelerator: String::new(),
             can_invoke: interfaces.iter().any(|name| name == ACTION),
@@ -449,11 +320,7 @@ impl Atspi {
                 return Some(node);
             }
             if depth < 5 {
-                queue.extend(
-                    self.children(&node)
-                        .into_iter()
-                        .map(|child| (child, depth + 1)),
-                );
+                queue.extend(self.children(&node).into_iter().map(|child| (child, depth + 1)));
             }
         }
         None
@@ -462,9 +329,7 @@ impl Atspi {
     /// The entries one level down from a menu item.
     fn submenu_items(&self, item: &Ref) -> Vec<Ref> {
         let children = self.children(item);
-        let nested = children
-            .iter()
-            .find(|child| matches!(self.role(child), Some(ROLE_MENU) | Some(ROLE_POPUP_MENU)));
+        let nested = children.iter().find(|child| matches!(self.role(child), Some(ROLE_MENU) | Some(ROLE_POPUP_MENU)));
         match nested {
             Some(menu) if self.role(item) != Some(ROLE_MENU) => self.children(menu),
             _ => children,
@@ -472,54 +337,23 @@ impl Atspi {
     }
 
     fn is_menu_entry(&self, node: &Ref) -> bool {
-        matches!(
-            self.role(node),
-            Some(ROLE_MENU)
-                | Some(ROLE_MENU_ITEM)
-                | Some(ROLE_CHECK_MENU_ITEM)
-                | Some(ROLE_RADIO_MENU_ITEM)
-        )
+        matches!(self.role(node), Some(ROLE_MENU) | Some(ROLE_MENU_ITEM) | Some(ROLE_CHECK_MENU_ITEM) | Some(ROLE_RADIO_MENU_ITEM))
     }
 
-    pub fn invoke_menu(
-        &self,
-        window: &WindowInfo,
-        path: &[String],
-        authorize: crate::platform::Authorize<'_>,
-    ) -> Result<MenuOutcome, String> {
+    pub fn invoke_menu(&self, window: &WindowInfo, path: &[String], authorize: crate::platform::Authorize<'_>) -> Result<MenuOutcome, String> {
         let frame = self.frame_for(window)?;
-        let bar = self
-            .menu_bar(&frame)
-            .ok_or_else(|| "menu_path_not_found: this window exposes no menu bar".to_string())?;
+        let bar = self.menu_bar(&frame).ok_or_else(|| "menu_path_not_found: this window exposes no menu bar".to_string())?;
         let mut items: Vec<Ref> = self.children(&bar);
         let mut walked: Vec<String> = Vec::new();
         for (index, segment) in path.iter().enumerate() {
             let wanted = normalize_menu_label(segment);
-            let matches: Vec<Ref> = items
-                .iter()
-                .filter(|item| {
-                    self.is_menu_entry(item) && normalize_menu_label(&self.name(item)) == wanted
-                })
-                .cloned()
-                .collect();
+            let matches: Vec<Ref> = items.iter().filter(|item| self.is_menu_entry(item) && normalize_menu_label(&self.name(item)) == wanted).cloned().collect();
             if matches.is_empty() {
-                let available: Vec<String> = items
-                    .iter()
-                    .map(|item| self.name(item))
-                    .filter(|name| !name.trim().is_empty())
-                    .take(20)
-                    .collect();
-                return Err(format!(
-                    "menu_path_not_found: no menu entry named '{segment}' after {}; entries: {}",
-                    walked.join(" > "),
-                    available.join(", ")
-                ));
+                let available: Vec<String> = items.iter().map(|item| self.name(item)).filter(|name| !name.trim().is_empty()).take(20).collect();
+                return Err(format!("menu_path_not_found: no menu entry named '{segment}' after {}; entries: {}", walked.join(" > "), available.join(", ")));
             }
             if matches.len() > 1 {
-                return Err(format!(
-                    "menu_path_ambiguous: '{segment}' matched {} entries; use a more exact path",
-                    matches.len()
-                ));
+                return Err(format!("menu_path_ambiguous: '{segment}' matched {} entries; use a more exact path", matches.len()));
             }
             let item = &matches[0];
             let states = self.states(item);
@@ -530,27 +364,17 @@ impl Atspi {
             let opens = self.role(item) == Some(ROLE_MENU);
             if index + 1 < path.len() {
                 if !opens {
-                    return Err(format!(
-                        "menu_path_not_found: '{segment}' opens no submenu for '{}'",
-                        path[index + 1]
-                    ));
+                    return Err(format!("menu_path_not_found: '{segment}' opens no submenu for '{}'", path[index + 1]));
                 }
                 items = self.submenu_items(item);
                 continue;
             }
             if opens {
-                return Err(format!(
-                    "menu_item_not_invokable: '{segment}' opens a submenu; name one of its entries"
-                ));
+                return Err(format!("menu_item_not_invokable: '{segment}' opens a submenu; name one of its entries"));
             }
             let _commit = authorize()?;
-            self.do_action(item, &["click", "activate", "press"])
-                .map_err(|error| format!("menu_item_not_invokable: '{segment}': {error}"))?;
-            return Ok(MenuOutcome {
-                path: "a11y_menu",
-                verified: false,
-                message: format!("invoked menu path: {}", walked.join(" > ")),
-            });
+            self.do_action(item, &["click", "activate", "press"]).map_err(|error| format!("menu_item_not_invokable: '{segment}': {error}"))?;
+            return Ok(MenuOutcome { path: "a11y_menu", verified: false, message: format!("invoked menu path: {}", walked.join(" > ")) });
         }
         Err("menu path must have 1..8 segments".into())
     }
@@ -575,16 +399,10 @@ pub struct AtspiElement {
 
 impl AtspiElement {
     fn toggleable(&self, states: &[u32]) -> bool {
-        matches!(
-            self.role,
-            ROLE_CHECK_BOX | ROLE_TOGGLE_BUTTON | ROLE_CHECK_MENU_ITEM
-        ) || has(states, STATE_CHECKABLE)
+        matches!(self.role, ROLE_CHECK_BOX | ROLE_TOGGLE_BUTTON | ROLE_CHECK_MENU_ITEM) || has(states, STATE_CHECKABLE)
     }
     fn has_interface(&self, name: &str) -> bool {
-        self.atspi
-            .interfaces(&self.node)
-            .iter()
-            .any(|interface| interface == name)
+        self.atspi.interfaces(&self.node).iter().any(|interface| interface == name)
     }
 }
 
@@ -596,9 +414,7 @@ impl Element for AtspiElement {
         self.window
     }
     fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
-        self.atspi
-            .extents(&self.node)
-            .map(|(x, y, width, height)| (x as f64, y as f64, width as f64, height as f64))
+        self.atspi.extents(&self.node).map(|(x, y, width, height)| (x as f64, y as f64, width as f64, height as f64))
     }
     fn enabled(&self) -> bool {
         let states = self.atspi.states(&self.node);
@@ -608,10 +424,7 @@ impl Element for AtspiElement {
         self.atspi.role(&self.node).is_some() && !has(&self.atspi.states(&self.node), STATE_DEFUNCT)
     }
     fn press(&self) -> Result<(), String> {
-        self.atspi.do_action(
-            &self.node,
-            &["click", "press", "activate", "jump", "toggle", "open"],
-        )
+        self.atspi.do_action(&self.node, &["click", "press", "activate", "jump", "toggle", "open"])
     }
     fn can_press(&self) -> bool {
         !self.atspi.actions(&self.node).is_empty()
@@ -622,86 +435,41 @@ impl Element for AtspiElement {
     }
     fn expand_state(&self) -> Option<String> {
         let states = self.atspi.states(&self.node);
-        has(&states, STATE_EXPANDABLE).then(|| {
-            if has(&states, STATE_EXPANDED) {
-                "Expanded"
-            } else {
-                "Collapsed"
-            }
-            .to_string()
-        })
+        has(&states, STATE_EXPANDABLE).then(|| if has(&states, STATE_EXPANDED) { "Expanded" } else { "Collapsed" }.to_string())
     }
     fn set_expanded(&self, _expanded: bool) -> Result<(), String> {
-        self.atspi.do_action(
-            &self.node,
-            &["expand or contract", "toggle", "activate", "click"],
-        )
+        self.atspi.do_action(&self.node, &["expand or contract", "toggle", "activate", "click"])
     }
     fn value(&self) -> Option<String> {
         if self.has_interface(TEXT) {
-            return self
-                .atspi
-                .call::<_, String>(&self.node, TEXT, "GetText", &(0i32, -1i32))
-                .ok();
+            return self.atspi.call::<_, String>(&self.node, TEXT, "GetText", &(0i32, -1i32)).ok();
         }
-        self.atspi
-            .f64_property(&self.node, VALUE, "CurrentValue")
-            .map(|value| format!("{value}"))
+        self.atspi.f64_property(&self.node, VALUE, "CurrentValue").map(|value| format!("{value}"))
     }
     fn settable(&self) -> bool {
         let interfaces = self.atspi.interfaces(&self.node);
-        (interfaces.iter().any(|name| name == EDITABLE_TEXT)
-            && has(&self.atspi.states(&self.node), STATE_EDITABLE))
+        (interfaces.iter().any(|name| name == EDITABLE_TEXT) && has(&self.atspi.states(&self.node), STATE_EDITABLE))
             || (interfaces.iter().any(|name| name == VALUE) && role_of(self.role) != "ProgressBar")
     }
     fn set_value(&self, text: &str) -> Result<(), String> {
         if self.has_interface(EDITABLE_TEXT) {
-            let done: bool =
-                self.atspi
-                    .act(&self.node, EDITABLE_TEXT, "SetTextContents", &(text,))?;
-            return done
-                .then_some(())
-                .ok_or_else(|| "a11y_value_failed: the text was refused".to_string());
+            let done: bool = self.atspi.act(&self.node, EDITABLE_TEXT, "SetTextContents", &(text,))?;
+            return done.then_some(()).ok_or_else(|| "a11y_value_failed: the text was refused".to_string());
         }
-        let number: f64 = text
-            .trim()
-            .parse()
-            .map_err(|_| format!("a11y_value_failed: '{text}' is not a number for this control"))?;
-        self.atspi.act::<_, ()>(
-            &self.node,
-            PROPERTIES,
-            "Set",
-            &(VALUE, "CurrentValue", Value::from(number)),
-        )
+        let number: f64 = text.trim().parse().map_err(|_| format!("a11y_value_failed: '{text}' is not a number for this control"))?;
+        self.atspi.act::<_, ()>(&self.node, PROPERTIES, "Set", &(VALUE, "CurrentValue", Value::from(number)))
     }
     fn can_select(&self) -> bool {
         has(&self.atspi.states(&self.node), STATE_SELECTABLE)
     }
     fn select(&self) -> Result<(), String> {
-        let parent = self
-            .atspi
-            .parent(&self.node)
-            .ok_or("a11y_action_failed: element has no parent to select it in")?;
-        let index: i32 = self
-            .atspi
-            .call(&self.node, ACCESSIBLE, "GetIndexInParent", &())?;
-        let done: bool = self
-            .atspi
-            .act(&parent, SELECTION, "SelectChild", &(index,))?;
-        done.then_some(())
-            .ok_or_else(|| "a11y_action_failed: selection was refused".to_string())
+        let parent = self.atspi.parent(&self.node).ok_or("a11y_action_failed: element has no parent to select it in")?;
+        let index: i32 = self.atspi.call(&self.node, ACCESSIBLE, "GetIndexInParent", &())?;
+        let done: bool = self.atspi.act(&parent, SELECTION, "SelectChild", &(index,))?;
+        done.then_some(()).ok_or_else(|| "a11y_action_failed: selection was refused".to_string())
     }
-    fn scroll(
-        &self,
-        horizontal: bool,
-        increments: i32,
-    ) -> Result<Option<(String, String)>, String> {
-        let bars: Vec<Ref> = self
-            .atspi
-            .children(&self.node)
-            .into_iter()
-            .filter(|child| self.atspi.role(child) == Some(ROLE_SCROLL_BAR))
-            .collect();
+    fn scroll(&self, horizontal: bool, increments: i32) -> Result<Option<(String, String)>, String> {
+        let bars: Vec<Ref> = self.atspi.children(&self.node).into_iter().filter(|child| self.atspi.role(child) == Some(ROLE_SCROLL_BAR)).collect();
         for bar in bars {
             let vertical = has(&self.atspi.states(&bar), 29);
             if vertical == horizontal {
@@ -716,16 +484,8 @@ impl Element for AtspiElement {
             };
             let step = ((maximum - minimum) * 0.05).max(1.0);
             let target = (before + increments as f64 * step).clamp(minimum, maximum);
-            self.atspi.act::<_, ()>(
-                &bar,
-                PROPERTIES,
-                "Set",
-                &(VALUE, "CurrentValue", Value::from(target)),
-            )?;
-            let after = self
-                .atspi
-                .f64_property(&bar, VALUE, "CurrentValue")
-                .unwrap_or(before);
+            self.atspi.act::<_, ()>(&bar, PROPERTIES, "Set", &(VALUE, "CurrentValue", Value::from(target)))?;
+            let after = self.atspi.f64_property(&bar, VALUE, "CurrentValue").unwrap_or(before);
             return Ok(Some((format!("{before}"), format!("{after}"))));
         }
         Ok(None)
@@ -761,8 +521,6 @@ impl Element for AtspiElement {
         }
     }
     fn range_value(&self) -> Option<String> {
-        self.atspi
-            .f64_property(&self.node, VALUE, "CurrentValue")
-            .map(|value| format!("{value}"))
+        self.atspi.f64_property(&self.node, VALUE, "CurrentValue").map(|value| format!("{value}"))
     }
 }

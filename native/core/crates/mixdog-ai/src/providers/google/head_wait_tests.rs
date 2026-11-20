@@ -24,9 +24,9 @@ use super::auth::ApiKeyAuth;
 use super::codec::GoogleCodec;
 use super::policy;
 use super::traits::CatalogGoogleTraits;
-use crate::providers::compat::adapter::CompatAdapter;
 use crate::providers::compat::CompatChatCodec;
 use crate::providers::compat::CompatConfig;
+use crate::providers::compat::adapter::CompatAdapter;
 use crate::providers::compat::profile::CompatProfile;
 use crate::providers::first_byte::FirstByteSettings;
 use crate::providers::key_source::ApiKeySource;
@@ -77,17 +77,30 @@ impl ApiKeySource for Key {
 }
 
 fn request(model: &str) -> Arc<ModelRequest> {
-    Arc::new(ModelRequest { model: model.to_owned(), messages: vec![Message::new(Role::User, mixdog_core_api::domain::provider::Content::Text("hi".into()))], tools: vec![], options: RequestOptions::default() })
+    Arc::new(ModelRequest {
+        model: model.to_owned(),
+        messages: vec![Message::new(Role::User, mixdog_core_api::domain::provider::Content::Text("hi".into()))],
+        tools: vec![],
+        options: RequestOptions::default(),
+    })
 }
 
 fn antigravity(http: Arc<dyn HttpSend>) -> GoogleAdapter {
     let settings = FirstByteSettings::default();
     let traits = Arc::new(CatalogGoogleTraits(Vec::new()));
-    GoogleAdapter::new(GoogleCodec::antigravity(super::auth::antigravity::ENDPOINT, "p", "2.19.1", traits), policy::antigravity_with(&settings), http, Arc::new(ApiKeyAuth::new("k")), String::new()).with_first_byte(settings)
+    GoogleAdapter::new(
+        GoogleCodec::antigravity(super::auth::antigravity::ENDPOINT, "p", "2.19.1", traits),
+        policy::antigravity_with(&settings),
+        http,
+        Arc::new(ApiKeyAuth::new("k")),
+        String::new(),
+    )
+    .with_first_byte(settings)
 }
 
 fn compat(profile: CompatProfile, http: Arc<dyn HttpSend>) -> CompatAdapter {
-    CompatAdapter::new(CompatChatCodec::new(profile, CompatConfig::default()), http, Some(Arc::new(Key) as Arc<dyn ApiKeySource>)).with_first_byte(FirstByteSettings::default())
+    CompatAdapter::new(CompatChatCodec::new(profile, CompatConfig::default()), http, Some(Arc::new(Key) as Arc<dyn ApiKeySource>))
+        .with_first_byte(FirstByteSettings::default())
 }
 
 /// What one attempt that meets a silent server comes to: the error, and how long it waited.
@@ -346,7 +359,8 @@ async fn every_gemini_exchange_begins_a_fresh_attempt() {
         let asked = request("gemini-3.6-flash");
         let _first = adapter.attempt(asked.clone()).await.ok().expect("answered");
         let _second = adapter.attempt(asked.clone()).await.ok().expect("answered");
-        let started: Vec<u64> = asked.options.send_identity.take_boundaries().into_iter().filter(|(_, b)| *b == Boundary::AttemptStarted).map(|(id, _)| id).collect();
+        let started: Vec<u64> =
+            asked.options.send_identity.take_boundaries().into_iter().filter(|(_, b)| *b == Boundary::AttemptStarted).map(|(id, _)| id).collect();
         assert_eq!(started.len(), 2, "one attempt per exchange");
         assert_ne!(started[0], started[1]);
         assert_eq!(asked.options.send_identity.attempt_context().id, started[1]);
@@ -357,7 +371,8 @@ async fn every_gemini_exchange_begins_a_fresh_attempt() {
 /// replace a refusal the decoder already had.
 #[tokio::test(start_paused = true)]
 async fn a_failure_decoded_with_a_text_delta_is_returned_before_the_body_is_waited_on() {
-    let both = "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"}}]}\n\ndata: {\"error\":{\"message\":\"refused\",\"code\":\"server_error\"}}\n\n";
+    let both =
+        "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"hi\"}}]}\n\ndata: {\"error\":{\"message\":\"refused\",\"code\":\"server_error\"}}\n\n";
     let (err, waited, seen) = read_to_failure(&compat(CompatProfile::deepseek(), Arc::new(Streaming(vec![(1, both)]))), &request("deepseek-v4-pro")).await;
     assert_eq!(waited, Duration::from_secs(1), "the open body is not waited on");
     assert_ne!(err.code.as_deref(), Some("ESTREAMSTALL"), "{err:?}");
@@ -445,10 +460,18 @@ async fn the_authorization_resend_is_a_fresh_attempt_with_the_whole_window() {
     use mixdog_core_api::domain::provider::Boundary;
     let settings = FirstByteSettings::default();
     let traits = Arc::new(CatalogGoogleTraits(Vec::new()));
-    let adapter = GoogleAdapter::new(GoogleCodec::antigravity(super::auth::antigravity::ENDPOINT, "p", "2.19.1", traits), policy::antigravity_with(&settings), Arc::new(UnauthorizedOnce(Default::default())), Arc::new(Replaceable), String::new()).with_first_byte(settings);
+    let adapter = GoogleAdapter::new(
+        GoogleCodec::antigravity(super::auth::antigravity::ENDPOINT, "p", "2.19.1", traits),
+        policy::antigravity_with(&settings),
+        Arc::new(UnauthorizedOnce(Default::default())),
+        Arc::new(Replaceable),
+        String::new(),
+    )
+    .with_first_byte(settings);
     let asked = request("gemini-3.8-flash");
     let _stream = adapter.attempt(asked.clone()).await.ok().expect("the resend is answered");
-    let started: Vec<u64> = asked.options.send_identity.take_boundaries().into_iter().filter(|(_, b)| *b == Boundary::AttemptStarted).map(|(id, _)| id).collect();
+    let started: Vec<u64> =
+        asked.options.send_identity.take_boundaries().into_iter().filter(|(_, b)| *b == Boundary::AttemptStarted).map(|(id, _)| id).collect();
     assert_eq!(started.len(), 2, "the first send and the resend");
     assert_ne!(started[0], started[1]);
     let ctx = asked.options.send_identity.attempt_context();

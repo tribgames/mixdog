@@ -6,8 +6,6 @@ use mixdog_ai::accounts::AccountStore;
 use mixdog_ai::oauth::CredentialIo;
 use serde_json::Value;
 
-
-
 /// A session that began as a device code and is already `Waiting` when it is registered.
 struct DeviceSession;
 
@@ -89,10 +87,7 @@ fn a_started_sign_in_opens_its_page_for_a_local_request_unless_it_asks_for_none(
     super::admin::open_sign_in_page(&opened, true, &serde_json::json!({}), &LoginState::Waiting);
     super::admin::open_sign_in_page(&opened, true, &serde_json::json!({ "openBrowser": false }), &authorize);
     super::admin::open_sign_in_page(&opened, false, &serde_json::json!({ "openBrowser": false }), &device);
-    assert_eq!(
-        *opened.0.lock().unwrap(),
-        ["https://auth.example/a", "https://auth.example/a", "https://auth.example/a", "https://auth.example/d"]
-    );
+    assert_eq!(*opened.0.lock().unwrap(), ["https://auth.example/a", "https://auth.example/a", "https://auth.example/a", "https://auth.example/d"]);
 }
 
 /// A provider's own login deadline (`LOGIN_TIMEOUT_MS`: two minutes for Command Code) ends the flow with that
@@ -105,10 +100,8 @@ async fn a_providers_login_deadline_ends_its_flow_before_the_registry_expiry() {
     use mixdog_core_api::mock::MockLimits;
     use mixdog_core_api::mock::MockScopedFeeds;
     let scoped = std::sync::Arc::new(MockScopedFeeds::new(MockLimits::default()));
-    let flows = super::flows::OAuthFlows::new(
-        std::time::Duration::from_millis(super::flows::DEFAULT_FLOW_TTL_MS),
-        std::sync::Arc::new(LoginFeeds::new(scoped)),
-    );
+    let flows =
+        super::flows::OAuthFlows::new(std::time::Duration::from_millis(super::flows::DEFAULT_FLOW_TTL_MS), std::sync::Arc::new(LoginFeeds::new(scoped)));
     let settle = || -> super::flows::Settle { Box::new(move |_| Box::pin(async move { Ok(true) })) };
     let started = flows.register("command-code-oauth", Box::new(LiveLoginSession::new(LoginState::Starting)), settle()).unwrap();
     let id = started["flowId"].as_str().unwrap().to_owned();
@@ -132,10 +125,8 @@ async fn a_device_login_keeps_its_kind_after_its_state_moves_on_and_a_newer_logi
     use mixdog_core_api::mock::MockLimits;
     use mixdog_core_api::mock::MockScopedFeeds;
     let scoped = std::sync::Arc::new(MockScopedFeeds::new(MockLimits::default()));
-    let flows = super::flows::OAuthFlows::new(
-        std::time::Duration::from_millis(super::flows::DEFAULT_FLOW_TTL_MS),
-        std::sync::Arc::new(LoginFeeds::new(scoped)),
-    );
+    let flows =
+        super::flows::OAuthFlows::new(std::time::Duration::from_millis(super::flows::DEFAULT_FLOW_TTL_MS), std::sync::Arc::new(LoginFeeds::new(scoped)));
     let settle = || -> super::flows::Settle { Box::new(move |_| Box::pin(async move { Ok(true) })) };
     let started = flows.register("openai-oauth", Box::new(DeviceSession), settle()).unwrap();
     let id = started["flowId"].as_str().unwrap().to_owned();
@@ -153,10 +144,7 @@ async fn a_device_login_keeps_its_kind_after_its_state_moves_on_and_a_newer_logi
 async fn an_unread_roster_is_not_the_default_account() {
     let dir = tempfile::tempdir().unwrap();
     let tokens = mixdog_rt::testing::tokens();
-    let store = AccountStore::new(
-        dir.path().to_path_buf(),
-        CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-    );
+    let store = AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
     {
         let _refused = mixdog_rt::testing::refuse_jobs_on_this_thread();
         let error = super::admin::selected_of(store.pool("openai-oauth").await).unwrap_err();
@@ -186,8 +174,8 @@ async fn the_producers_reading_does_not_seed_the_dashboard_cache() {
 /// The page is the start's, not the flow's current state: a login that is already waiting still opens it.
 #[tokio::test]
 async fn the_page_opens_although_the_flow_has_already_moved_past_authorize() {
-    use mixdog_core_api::domain::login::LoginState;
     use mixdog_ai::oauth::session::{FlowGuard, start_session};
+    use mixdog_core_api::domain::login::LoginState;
     mixdog_rt::testing::tokens();
     let flag = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let session = start_session(
@@ -207,5 +195,3 @@ async fn the_page_opens_although_the_flow_has_already_moved_past_authorize() {
     assert_eq!(*opened.0.lock().unwrap(), ["https://auth.example/a"]);
     session.cancel();
 }
-
-

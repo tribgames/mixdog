@@ -31,12 +31,7 @@ pub struct RouteGuard {
 impl ScopedRouteTable {
     /// Routes `section` for `key` to `publisher`; a `None` key answers for every key that has
     /// no route of its own. A second registration of the same slot replaces the first.
-    pub fn register(
-        self: &Arc<Self>,
-        section: SectionName,
-        key: Option<&str>,
-        publisher: Arc<dyn StatePublisher>,
-    ) -> RouteGuard {
+    pub fn register(self: &Arc<Self>, section: SectionName, key: Option<&str>, publisher: Arc<dyn StatePublisher>) -> RouteGuard {
         let slot = (section, key.map(str::to_owned));
         lock(&self.routes).insert(slot.clone(), publisher.clone());
         RouteGuard { table: self.clone(), slot, publisher }
@@ -55,9 +50,7 @@ impl Drop for RouteGuard {
 impl ScopedRoutes for ScopedRouteTable {
     fn route(&self, section: SectionName, key: Option<&str>) -> Option<Arc<dyn StatePublisher>> {
         let routes = lock(&self.routes);
-        key.and_then(|key| routes.get(&(section, Some(key.to_owned()))))
-            .or_else(|| routes.get(&(section, None)))
-            .cloned()
+        key.and_then(|key| routes.get(&(section, Some(key.to_owned())))).or_else(|| routes.get(&(section, None))).cloned()
     }
 }
 

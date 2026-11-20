@@ -9,8 +9,8 @@ use super::emit::Emitter;
 use super::emit::error_answer;
 use super::emit::panic_text;
 use super::handlers::OneShotHandler;
-use crate::ps::Value;
 use crate::ps::ObjectKind;
+use crate::ps::Value;
 use crate::ps::payload;
 
 /// `throw 'Office host received an empty request'`.
@@ -44,10 +44,7 @@ pub fn run(handler: &mut dyn OneShotHandler, out: &mut Emitter, text: &str) -> i
     if let Err(panic) = catch_unwind(AssertUnwindSafe(|| handler.finish(out))) {
         let failed = Value::object(
             ObjectKind::Ordered,
-            vec![
-                ("ok", Value::Bool(false)),
-                ("errors", Value::Array(vec![Value::String(format!("Cleanup failed: {}", panic_text(&*panic)))])),
-            ],
+            vec![("ok", Value::Bool(false)), ("errors", Value::Array(vec![Value::String(format!("Cleanup failed: {}", panic_text(&*panic)))]))],
         );
         out.cleanup_failure(&failed);
     }
@@ -98,10 +95,7 @@ mod tests {
             let (mut out, stdout, _) = emitter();
             let mut handler = Scripted::default();
             assert_eq!(run(&mut handler, &mut out, text), 1);
-            assert_eq!(
-                stdout.text(),
-                "{\"ok\":false,\"backend\":\"microsoft-office-com\",\"error\":\"Office host received an empty request\"}\r\n"
-            );
+            assert_eq!(stdout.text(), "{\"ok\":false,\"backend\":\"microsoft-office-com\",\"error\":\"Office host received an empty request\"}\r\n");
             assert_eq!(handler.finished, 1);
         }
     }
@@ -121,10 +115,7 @@ mod tests {
         let (mut out, stdout, _) = emitter();
         let mut handler = Scripted::default();
         assert_eq!(run(&mut handler, &mut out, "{\"action\":\"nope\"}"), 1);
-        assert_eq!(
-            stdout.text(),
-            "{\"ok\":false,\"backend\":\"microsoft-office-com\",\"error\":\"Unsupported Office host action: nope\"}\r\n"
-        );
+        assert_eq!(stdout.text(), "{\"ok\":false,\"backend\":\"microsoft-office-com\",\"error\":\"Unsupported Office host action: nope\"}\r\n");
         assert_eq!(handler.finished, 1);
     }
 

@@ -87,7 +87,13 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
         tool_result(&Value::String(format!("Error: {message}")), true, &[])
     }
 
-    async fn run_tool(&self, args: &Value, signal: Option<&CancellationToken>, started: Instant, active: &mut Option<SessionHandle>) -> Result<Value, TransactionError> {
+    async fn run_tool(
+        &self,
+        args: &Value,
+        signal: Option<&CancellationToken>,
+        started: Instant,
+        active: &mut Option<SessionHandle>,
+    ) -> Result<Value, TransactionError> {
         if signal.is_some_and(CancellationToken::is_cancelled) {
             return Err(CANCELLED.into());
         }
@@ -114,7 +120,10 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
         }
         *active = Some(handle.clone());
         let mut value = self.dispatch_session_action(&action, &handle, args, cwd, signal).await?;
-        if resolved.implicit && action != "close" && let Some(fields) = value.as_object_mut() {
+        if resolved.implicit
+            && action != "close"
+            && let Some(fields) = value.as_object_mut()
+        {
             fields.insert("implicitSession".to_owned(), Value::Bool(true));
         }
         let images = take_images(&mut value);

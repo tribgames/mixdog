@@ -26,12 +26,7 @@ use crate::lifecycle::StopReason;
 /// Read-only: no lock, nothing written.
 pub fn probe(args: &ProgramArgs, host: &dyn EnsureHost, access: &dyn CoreAccess) -> Result<Report, EnsureError> {
     let paths = RemotePaths::new(&host.home());
-    let spec = InstallSpec {
-        install_id: &args.install_id,
-        version: &args.version,
-        build: &args.build,
-        sha256: args.sha256.as_deref(),
-    };
+    let spec = InstallSpec { install_id: &args.install_id, version: &args.version, build: &args.build, sha256: args.sha256.as_deref() };
     let version_dir = paths.version_dir(&args.install_id)?;
     let report = Report::base(&paths, host.uid(), &version_dir, is_installed(&paths, &spec)?);
     Ok(match access.discovery()? {
@@ -71,8 +66,7 @@ pub fn cleanup(args: &ProgramArgs, host: &dyn EnsureHost, access: &dyn CoreAcces
         assert_install_idle(&paths, host)?;
         let user_data = paths.user_data.file_name().map(std::ffi::OsStr::to_owned);
         let lock_name = paths.lock.file_name().map(std::ffi::OsStr::to_owned);
-        let entries = fs::read_dir(&paths.root)
-            .map_err(|e| EnsureError::InstallFailed(format!("Cannot list {}: {e}", paths.root.display())))?;
+        let entries = fs::read_dir(&paths.root).map_err(|e| EnsureError::InstallFailed(format!("Cannot list {}: {e}", paths.root.display())))?;
         for entry in entries.filter_map(Result::ok) {
             let name = entry.file_name();
             if Some(&name) == lock_name.as_ref() {
@@ -134,4 +128,3 @@ fn assert_install_idle(paths: &RemotePaths, host: &dyn EnsureHost) -> Result<(),
         paths.root.display()
     )))
 }
-

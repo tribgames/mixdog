@@ -89,8 +89,16 @@ async fn rig() -> Rig {
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
     let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
     let agents = Arc::new(
-        AgentDefinitions::new(dir.path().join("shipped"), dir.path().join("data"), tokens.interactive_io, AgentRoutes::new(config, dir.path().join("data")), Arc::new(NoEvidence), Arc::new(|| Value::Null), dir.path().join("task"))
-            .with_writes(tokens.durability_io, Arc::new(NoEffects::default()), Arc::new(String::new)),
+        AgentDefinitions::new(
+            dir.path().join("shipped"),
+            dir.path().join("data"),
+            tokens.interactive_io,
+            AgentRoutes::new(config, dir.path().join("data")),
+            Arc::new(NoEvidence),
+            Arc::new(|| Value::Null),
+            dir.path().join("task"),
+        )
+        .with_writes(tokens.durability_io, Arc::new(NoEffects::default()), Arc::new(String::new)),
     );
     let services = world_services();
     let setup = DefinitionSetup::new(agents.clone(), Arc::new(Callers), services.clone(), services.clone());
@@ -141,7 +149,10 @@ async fn a_definition_names_only_its_kinds_fields_and_needs_a_body() {
         refused(json!({ "action": "create_definition", "definitionKind": "workflow", "definition": { "name": "X", "body": "b", "kind": "bot" } })).await,
         "kind is not a workflow definition field"
     );
-    assert_eq!(refused(json!({ "action": "create_definition", "definitionKind": "skill", "definition": { "id": "x", "body": "b" } })).await, "id is not a skill definition field");
+    assert_eq!(
+        refused(json!({ "action": "create_definition", "definitionKind": "skill", "definition": { "id": "x", "body": "b" } })).await,
+        "id is not a skill definition field"
+    );
     assert_eq!(refused(agent("create_definition", json!({ "name": "X" }))).await, "definition.body must not be empty");
     assert_eq!(refused(agent("create_definition", json!({ "name": "X", "body": "   " }))).await, "definition.body must not be empty");
 }
@@ -195,7 +206,12 @@ async fn deleting_an_agent_archives_it_and_restoring_brings_it_back() {
 
     let deleted = act(&rig, MIXY, json!({ "action": "delete_definition", "definitionKind": "agent", "name": "scout" })).await.unwrap();
     assert_eq!((deleted["id"].clone(), deleted["deleted"].clone(), deleted["revertedToBuiltIn"].clone()), (json!("scout"), json!(true), json!(false)));
-    assert!(deleted["recovery"].as_str().unwrap().starts_with("A custom agent or bot is archived with its chat; its schedules and webhooks are paused and hidden, unchanged."));
+    assert!(
+        deleted["recovery"]
+            .as_str()
+            .unwrap()
+            .starts_with("A custom agent or bot is archived with its chat; its schedules and webhooks are paused and hidden, unchanged.")
+    );
     assert_eq!(rig.agents.presence(&ids).await.unwrap()["scout"], mixdog_core_rooms::rooms::home::Presence::Deleted);
 
     let restored = act(&rig, MIXY, json!({ "action": "restore_definition", "definitionKind": "agent", "name": " scout " })).await.unwrap();
@@ -298,7 +314,11 @@ async fn a_built_in_skill_accepts_only_its_tool_dependencies() {
     assert_eq!(act(&rig, TASK, skill(json!({ "name": "tidy", "body": "x" }))).await.unwrap_err(), only);
     assert_eq!(act(&rig, TASK, skill(json!({ "name": "tidy", "toolDependencies": ["a"], "description": "x" }))).await.unwrap_err(), only);
     assert_eq!(act(&rig, TASK, skill(json!({ "name": "tidy", "whenToUse": "always" }))).await.unwrap_err(), only);
-    assert_eq!(act(&rig, TASK, skill(json!({ "originalName": "tidy", "name": "renamed", "toolDependencies": [] }))).await.unwrap_err(), only, "a rename is refused");
+    assert_eq!(
+        act(&rig, TASK, skill(json!({ "originalName": "tidy", "name": "renamed", "toolDependencies": [] }))).await.unwrap_err(),
+        only,
+        "a rename is refused"
+    );
     assert!(!rig.services.calls().contains(&"skills/saveSkill".to_owned()));
 
     // The one allowed edit: the same name may be sent along.

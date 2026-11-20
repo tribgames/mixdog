@@ -12,10 +12,7 @@
 //!
 //! The single-worker baseline, the throughput ratio and the fairness ratio are only asserted at
 //! full scale; the smoke run proves every call kind and the spin/stop mechanics work.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "a test driver: temp directories and process-wide environment"
-)]
+#![allow(clippy::disallowed_methods, reason = "a test driver: temp directories and process-wide environment")]
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -91,18 +88,21 @@ impl Drop for Scratch {
 }
 
 fn pool(scratch: &Scratch, workers: usize) -> Arc<ExtHostPool> {
-    Arc::new(ExtHostPool::new(ExtHostConfig {
-        program: env!("CARGO_BIN_EXE_ext_fake_worker").into(),
-        args: vec!["g8".into()],
-        workers,
-        pending_cap: 64,
-        spawn_io: mixdog_rt::testing::tokens().spawn_io,
-        render_browser: RenderBrowserConfig {
-            command: Some((env!("CARGO_BIN_EXE_ext_fake_browser").into(), vec!["endpoint".into()])),
-            profile_root: scratch.0.join("browsers"),
-            no_sandbox: false,
-        },
-    }).expect("the pool starts"))
+    Arc::new(
+        ExtHostPool::new(ExtHostConfig {
+            program: env!("CARGO_BIN_EXE_ext_fake_worker").into(),
+            args: vec!["g8".into()],
+            workers,
+            pending_cap: 64,
+            spawn_io: mixdog_rt::testing::tokens().spawn_io,
+            render_browser: RenderBrowserConfig {
+                command: Some((env!("CARGO_BIN_EXE_ext_fake_browser").into(), vec!["endpoint".into()])),
+                profile_root: scratch.0.join("browsers"),
+                no_sandbox: false,
+            },
+        })
+        .expect("the pool starts"),
+    )
 }
 
 /// Everything a call produces: its chunk bytes and its outcome.
@@ -124,12 +124,7 @@ struct Session {
 
 impl Session {
     fn call(&self, method: &str, params: Value) -> ExtCall {
-        ExtCall {
-            thread: self.thread.clone(),
-            method: method.into(),
-            params,
-            paths: vec![AbsPath::new(self.root.clone()).unwrap()],
-        }
+        ExtCall { thread: self.thread.clone(), method: method.into(), params, paths: vec![AbsPath::new(self.root.clone()).unwrap()] }
     }
 
     fn office(&self, args: Value) -> ExtCall {
@@ -147,21 +142,13 @@ impl Session {
 
     /// The open document sessions a measured call renders: one docx, one xlsx, one source pdf.
     async fn setup(&self, pool: &ExtHostPool) -> (String, String) {
-        let docx = self
-            .office_json(pool, json!({"action": "create", "path": "d.docx", "format": "docx", "mode": "portable"}))
-            .await["session"]
+        let docx = self.office_json(pool, json!({"action": "create", "path": "d.docx", "format": "docx", "mode": "portable"})).await["session"]
             .as_str()
             .unwrap()
             .to_owned();
-        self.office_json(
-            pool,
-            json!({"action": "batch", "session": docx, "operations": [{"op": "add_paragraph", "text": "G8 document"}]}),
-        )
-        .await;
+        self.office_json(pool, json!({"action": "batch", "session": docx, "operations": [{"op": "add_paragraph", "text": "G8 document"}]})).await;
         self.office_json(pool, json!({"action": "save", "session": docx})).await;
-        let xlsx = self
-            .office_json(pool, json!({"action": "create", "path": "x.xlsx", "format": "xlsx", "mode": "portable"}))
-            .await["session"]
+        let xlsx = self.office_json(pool, json!({"action": "create", "path": "x.xlsx", "format": "xlsx", "mode": "portable"})).await["session"]
             .as_str()
             .unwrap()
             .to_owned();
@@ -173,11 +160,7 @@ impl Session {
         )
         .await;
         self.office_json(pool, json!({"action": "save", "session": xlsx})).await;
-        self.office_json(
-            pool,
-            json!({"action": "create", "path": "s.pdf", "format": "pdf", "blocks": [{"type": "heading", "text": "G8 source"}]}),
-        )
-        .await;
+        self.office_json(pool, json!({"action": "create", "path": "s.pdf", "format": "pdf", "blocks": [{"type": "heading", "text": "G8 source"}]})).await;
         (docx, xlsx)
     }
 
@@ -270,15 +253,7 @@ fn rate(phase: &Phase) -> f64 {
 }
 
 fn plan_for(smoke: bool, per_kind: usize) -> Vec<Vec<(Kind, usize)>> {
-    (0..SESSIONS)
-        .map(|s| {
-            if smoke {
-                vec![(KINDS[s], 1)]
-            } else {
-                KINDS.iter().map(|&k| (k, per_kind)).collect()
-            }
-        })
-        .collect()
+    (0..SESSIONS).map(|s| if smoke { vec![(KINDS[s], 1)] } else { KINDS.iter().map(|&k| (k, per_kind)).collect() }).collect()
 }
 
 /// A call spinning synchronous JS holds one slot while the rest proceed; "stop worker" frees it
@@ -287,20 +262,11 @@ async fn spin_phase(scratch: &Scratch, smoke: bool) {
     let workers = workers();
     let pool = pool(scratch, workers);
     let spin_ms = env_usize("G8_SPIN_MS").unwrap_or(if smoke { 600_000 } else { 60_000 });
-    let spinner = Session {
-        thread: ThreadId::from("g8-spin"),
-        root: std::env::temp_dir(),
-        data: std::env::temp_dir(),
-    };
+    let spinner = Session { thread: ThreadId::from("g8-spin"), root: std::env::temp_dir(), data: std::env::temp_dir() };
     let mut stream = pool.call(spinner.call("test.spin", json!({"ms": spin_ms}))).expect("accepted");
     let spin = tokio::spawn(async move { finish(&mut stream).await.1 });
     let stuck = loop {
-        let busy: Vec<ExtWorkerId> = pool
-            .status()
-            .iter()
-            .filter(|s| matches!(s.state, ExtWorkerState::Busy { .. }))
-            .map(|s| s.id)
-            .collect();
+        let busy: Vec<ExtWorkerId> = pool.status().iter().filter(|s| matches!(s.state, ExtWorkerState::Busy { .. })).map(|s| s.id).collect();
         if let Some(id) = busy.first() {
             break *id;
         }
@@ -344,9 +310,7 @@ async fn result_latency_phase(scratch: &Scratch, smoke: bool) {
     }
     // The precondition, observed on the core's side: W-1 calls each have a whole window delivered
     // and untaken (the markers say the worker sent them; this says the core's reader has them).
-    while std::fs::read_dir(&markers).unwrap().count() < w - 1
-        || pool.outstanding_window_bytes().iter().filter(|&&b| b == CALL_WINDOW_BYTES).count() < w - 1
-    {
+    while std::fs::read_dir(&markers).unwrap().count() < w - 1 || pool.outstanding_window_bytes().iter().filter(|&&b| b == CALL_WINDOW_BYTES).count() < w - 1 {
         mixdog_rt::time::sleep(Duration::from_millis(10)).await;
     }
 

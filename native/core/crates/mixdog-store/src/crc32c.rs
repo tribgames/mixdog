@@ -10,11 +10,7 @@ const fn tables() -> [[u32; 256]; 8] {
         let mut crc = i as u32;
         let mut bit = 0;
         while bit < 8 {
-            crc = if crc & 1 == 1 {
-                (crc >> 1) ^ CRC32C_POLY_REFLECTED
-            } else {
-                crc >> 1
-            };
+            crc = if crc & 1 == 1 { (crc >> 1) ^ CRC32C_POLY_REFLECTED } else { crc >> 1 };
             bit += 1;
         }
         t[0][i] = crc;

@@ -158,9 +158,7 @@ mod sys {
             return false;
         }
         // A recycled numeric PID cannot redirect this signal after the check.
-        unsafe {
-            libc::syscall(libc::SYS_pidfd_send_signal, fd.as_raw_fd(), libc::SIGKILL, std::ptr::null::<libc::siginfo_t>(), 0) == 0
-        }
+        unsafe { libc::syscall(libc::SYS_pidfd_send_signal, fd.as_raw_fd(), libc::SIGKILL, std::ptr::null::<libc::siginfo_t>(), 0) == 0 }
     }
 
     fn pidfd_supported() -> bool {

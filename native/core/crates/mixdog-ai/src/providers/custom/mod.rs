@@ -19,7 +19,6 @@ use serde_json::Map;
 use serde_json::Value;
 
 use crate::catalog::CachedModelInfo;
-use crate::providers::connect::rewrite::Rewriter;
 use crate::providers::compat::CompatChatCodec;
 use crate::providers::compat::CompatConfig;
 use crate::providers::compat::CompatProfile;
@@ -27,6 +26,7 @@ use crate::providers::compat::profile::CredentialKind;
 use crate::providers::compat::profile::Wire;
 use crate::providers::compat::responses::CompatResponsesCodec;
 use crate::providers::compat::responses::session_cache_key;
+use crate::providers::connect::rewrite::Rewriter;
 use mixdog_core_api::domain::keepalive::TransportKind;
 use std::collections::HashSet;
 use std::sync::Mutex;
@@ -42,16 +42,29 @@ pub const REQUEST_BODY_MAX_CHARS: usize = 16384;
 const MAX_HEADER_TEXT: usize = 4096;
 /// Body fields the app builds itself.
 pub const RESERVED_BODY_KEYS: &[&str] = &[
-    "model", "messages", "input", "system", "instructions", "tools", "tool_choice", "parallel_tool_calls", "stream",
-    "stream_options", "previous_response_id", "store", "include", "prompt_cache_key", "max_tokens",
-    "max_output_tokens", "max_completion_tokens",
+    "model",
+    "messages",
+    "input",
+    "system",
+    "instructions",
+    "tools",
+    "tool_choice",
+    "parallel_tool_calls",
+    "stream",
+    "stream_options",
+    "previous_response_id",
+    "store",
+    "include",
+    "prompt_cache_key",
+    "max_tokens",
+    "max_output_tokens",
+    "max_completion_tokens",
 ];
 const UNSAFE_KEYS: &[&str] = &["__proto__", "constructor", "prototype"];
 /// Credentials belong to the API key field.
 const AUTH_HEADERS: &[&str] = &["authorization", "x-api-key", "api-key"];
 /// Transport headers the HTTP client owns.
-const MODEL_REFUSED_HEADERS: &[&str] =
-    &["content-type", "content-length", "host", "connection", "transfer-encoding", "proxy-authorization"];
+const MODEL_REFUSED_HEADERS: &[&str] = &["content-type", "content-length", "host", "connection", "transfer-encoding", "proxy-authorization"];
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
@@ -81,11 +94,7 @@ fn invalid(message: String) -> ProviderError {
 
 /// Validates a header map: tokens for names, visible ASCII for values, no
 /// credentials, no duplicates (case-insensitive), at most [`HEADER_LIMIT`].
-pub fn normalize_headers(
-    raw: &Map<String, Value>,
-    label: &str,
-    refused: &[&str],
-) -> Result<Vec<(String, String)>, ProviderError> {
+pub fn normalize_headers(raw: &Map<String, Value>, label: &str, refused: &[&str]) -> Result<Vec<(String, String)>, ProviderError> {
     if raw.len() > HEADER_LIMIT {
         return Err(invalid(format!("at most {HEADER_LIMIT} {label} are allowed")));
     }
@@ -170,9 +179,14 @@ impl ReasoningSource {
             projection.updates.iter().map(|(&index, effort)| (index, effort.clone())),
             &|effort| {
                 reasoning::resolve(&Protocol::OpenaiResponses, &row, Some(effort), &self.base_url)
-                    .fields.get("reasoning")?.get("effort")?.as_str().map(str::to_owned)
+                    .fields
+                    .get("reasoning")?
+                    .get("effort")?
+                    .as_str()
+                    .map(str::to_owned)
             },
-        ).map(Into::into)
+        )
+        .map(Into::into)
     }
 }
 
@@ -228,18 +242,13 @@ impl Rewriter for CustomRewriter {
         // replaces it only on the per-request path.
         let reasoned = self.wire == Protocol::OpenaiResponses;
         let reasoning = if reasoned { own.shift_remove("reasoning") } else { None };
-        let session = if reasoned {
-            session_cache_key(&request.options, self.config.responses_prompt_cache_key, true)
-        } else {
-            String::new()
-        };
+        let session = if reasoned { session_cache_key(&request.options, self.config.responses_prompt_cache_key, true) } else { String::new() };
         if !session.is_empty() {
             own.insert("prompt_cache_key".to_owned(), Value::String(session.clone()));
         }
         let model_extras = self.config.model_body.get(model).and_then(Value::as_object);
         if !own.is_empty() || !self.config.request_body.is_empty() || model_extras.is_some() || reasoned {
-            let mut body: Value = serde_json::from_slice(&wire.body)
-                .map_err(|_| invalid("request body is not JSON".to_owned()))?;
+            let mut body: Value = serde_json::from_slice(&wire.body).map_err(|_| invalid("request body is not JSON".to_owned()))?;
             if let Some(object) = body.as_object_mut() {
                 // Node sets the stream flags after these fields on the Chat and Messages wires (`params.stream`
                 // follows `applyCustomRequestBody`); the Responses body names `stream` among its first keys and
@@ -271,8 +280,7 @@ impl Rewriter for CustomRewriter {
         }
         // The Messages request's own `anthropic-beta` is a per-request header, over the provider's default headers and
         // the model's (`requestHeadersFor`, `customRequestHeaders`): a configured one goes out only when it names none.
-        let own_betas = self.wire == Protocol::Anthropic
-            && wire.headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"));
+        let own_betas = self.wire == Protocol::Anthropic && wire.headers.iter().any(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"));
         let configured = |name: &str| !(own_betas && name.eq_ignore_ascii_case("anthropic-beta"));
         let mut set = |name: &str, value: &str| {
             wire.headers.retain(|(n, _)| !n.eq_ignore_ascii_case(name));
@@ -288,9 +296,7 @@ impl Rewriter for CustomRewriter {
         }
         if let Some((_, headers)) = self.config.model_headers.iter().find(|(m, _)| m == model) {
             for (name, value) in headers.iter().filter(|(name, _)| configured(name)) {
-                if !AUTH_HEADERS.contains(&name.to_ascii_lowercase().as_str())
-                    && !MODEL_REFUSED_HEADERS.contains(&name.to_ascii_lowercase().as_str())
-                {
+                if !AUTH_HEADERS.contains(&name.to_ascii_lowercase().as_str()) && !MODEL_REFUSED_HEADERS.contains(&name.to_ascii_lowercase().as_str()) {
                     set(name, value);
                 }
             }
@@ -320,10 +326,7 @@ fn profile(id: &str, wire: Wire) -> CompatProfile {
 }
 
 fn config(profile: &CompatProfile, base_url: &str) -> CompatConfig {
-    CompatConfig {
-        base_url: Some(base_url.trim_end_matches('/').to_owned()),
-        ..CompatConfig::for_profile(profile)
-    }
+    CompatConfig { base_url: Some(base_url.trim_end_matches('/').to_owned()), ..CompatConfig::for_profile(profile) }
 }
 
 /// The `openai-chat` protocol's codec for the endpoint at `base_url`. `replay` decides per request whether the

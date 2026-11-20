@@ -55,17 +55,13 @@ fn simple_pytest_command(command: &str) -> bool {
 }
 
 fn pytest_success_summary(stdout: &str) -> Option<String> {
-    if stdout.len() < MIN_RAW_BYTES
-        || lazy_re!(r"\b(?:failed|errors?|warnings?|skipped|xfailed|xpassed|deselected|rerun)\b", "i")
-            .is_match(stdout)
-    {
+    if stdout.len() < MIN_RAW_BYTES || lazy_re!(r"\b(?:failed|errors?|warnings?|skipped|xfailed|xpassed|deselected|rerun)\b", "i").is_match(stdout) {
         return None;
     }
     let trimmed = js_trim(stdout);
     for line in split_lines(trimmed).iter().rev() {
         let line = js_trim(line);
-        let Some(m) = lazy_re!(r"^=*\s*(\d+)\s+passed(?:\s+in\s+([^=\r\n]+?))?\s*=*$", "").captures(line)
-        else {
+        let Some(m) = lazy_re!(r"^=*\s*(\d+)\s+passed(?:\s+in\s+([^=\r\n]+?))?\s*=*$", "").captures(line) else {
             continue;
         };
         let duration = m.get(2).map_or("", js_trim);
@@ -137,8 +133,7 @@ fn test_like_command(command: &str) -> bool {
 }
 
 fn has_diagnostic_hazard(value: &str) -> bool {
-    lazy_re!(r"\b(?:errors?|warnings?|failed|failure|panic|fatal|xpass|xfailed|cancelled|todo|skipped)\b", "i")
-        .is_match(value)
+    lazy_re!(r"\b(?:errors?|warnings?|failed|failure|panic|fatal|xpass|xfailed|cancelled|todo|skipped)\b", "i").is_match(value)
 }
 
 fn tap_count(text: &str, name: &str) -> Option<u64> {
@@ -147,13 +142,10 @@ fn tap_count(text: &str, name: &str) -> Option<u64> {
 }
 
 fn node_tap_success_summary(text: &str) -> Option<String> {
-    if !lazy_re!(r"^TAP version \d+", "m").is_match(text)
-        || lazy_re!(r"(?:^|\n)\s*not ok\b", "i").is_match(text)
-    {
+    if !lazy_re!(r"^TAP version \d+", "m").is_match(text) || lazy_re!(r"(?:^|\n)\s*not ok\b", "i").is_match(text) {
         return None;
     }
-    let diagnostics =
-        lazy_re!(r"^# (?:cancelled|skipped|todo) 0[ \t]*\r?$", "gm").replace_all_with(text, |_| String::new());
+    let diagnostics = lazy_re!(r"^# (?:cancelled|skipped|todo) 0[ \t]*\r?$", "gm").replace_all_with(text, |_| String::new());
     if has_diagnostic_hazard(&diagnostics) {
         return None;
     }
@@ -167,9 +159,7 @@ fn node_tap_success_summary(text: &str) -> Option<String> {
             return None;
         }
     }
-    let duration = lazy_re!(r"^# duration_ms ([\d.]+)\s*$", "m")
-        .captures(text)
-        .and_then(|m| m.get(1).map(str::to_owned));
+    let duration = lazy_re!(r"^# duration_ms ([\d.]+)\s*$", "m").captures(text).and_then(|m| m.get(1).map(str::to_owned));
     let tail = duration.map_or(String::new(), |d| format!(" in {d}ms"));
     Some(format!("Node tests: {} passed{tail}", passed?))
 }
@@ -180,12 +170,18 @@ fn jest_vitest_success_summary(text: &str) -> Option<String> {
     }
     let jest_suites = lazy_re!(r"Test Suites:\s+(\d+)\s+passed,\s+(\d+)\s+total", "i").captures(text);
     let jest_tests = lazy_re!(r"Tests:\s+(\d+)\s+passed,\s+(\d+)\s+total", "i").captures(text);
-    if let (Some(s), Some(t)) = (&jest_suites, &jest_tests) && s.get(1) == s.get(2) && t.get(1) == t.get(2) {
+    if let (Some(s), Some(t)) = (&jest_suites, &jest_tests)
+        && s.get(1) == s.get(2)
+        && t.get(1) == t.get(2)
+    {
         return Some(format!("Jest: {} passed in {} suites", t.get(1)?, s.get(1)?));
     }
     let files = lazy_re!(r"Test Files\s+(\d+)\s+passed\s+\((\d+)\)", "i").captures(text);
     let tests = lazy_re!(r"Tests\s+(\d+)\s+passed\s+\((\d+)\)", "i").captures(text);
-    if let (Some(f), Some(t)) = (&files, &tests) && f.get(1) == f.get(2) && t.get(1) == t.get(2) {
+    if let (Some(f), Some(t)) = (&files, &tests)
+        && f.get(1) == f.get(2)
+        && t.get(1) == t.get(2)
+    {
         return Some(format!("Vitest: {} passed in {} files", t.get(1)?, f.get(1)?));
     }
     None
@@ -201,11 +197,8 @@ fn cargo_test_success_summary(text: &str) -> Option<String> {
     }
     let (mut passed, mut duration) = (0u64, 0f64);
     for line in &result_lines {
-        let m = lazy_re!(
-            r"^test result: ok\.\s+(\d+) passed;\s+0 failed;\s+0 ignored;\s+\d+ measured;\s+\d+ filtered out(?:;\s+finished in ([\d.]+)s)?",
-            ""
-        )
-        .captures(line)?;
+        let m = lazy_re!(r"^test result: ok\.\s+(\d+) passed;\s+0 failed;\s+0 ignored;\s+\d+ measured;\s+\d+ filtered out(?:;\s+finished in ([\d.]+)s)?", "")
+            .captures(line)?;
         passed += m.get(1)?.parse::<u64>().ok()?;
         duration += m.get(2).map_or(0.0, |d| d.parse().unwrap_or(f64::NAN));
     }
@@ -220,10 +213,7 @@ fn go_test_success_summary(text: &str) -> Option<String> {
     {
         return None;
     }
-    let packages = split_lines(text)
-        .into_iter()
-        .filter(|l| lazy_re!(r"^ok\s+\S+\s+(?:\(cached\)|[\d.]+m?s)\b", "").is_match(js_trim(l)))
-        .count();
+    let packages = split_lines(text).into_iter().filter(|l| lazy_re!(r"^ok\s+\S+\s+(?:\(cached\)|[\d.]+m?s)\b", "").is_match(js_trim(l))).count();
     (packages > 0).then(|| format!("Go test: {packages} packages passed"))
 }
 
@@ -231,10 +221,7 @@ fn dotnet_test_success_summary(text: &str) -> Option<String> {
     if lazy_re!(r"Build FAILED|(?:^|\s)(?:warning|error)\s+[A-Z]+\d+", "i").is_match(text) {
         return None;
     }
-    let pattern = lazy_re!(
-        r"Passed!\s*-\s*Failed:\s*(\d+),\s*Passed:\s*(\d+),\s*Skipped:\s*(\d+),\s*Total:\s*(\d+)",
-        "gi"
-    );
+    let pattern = lazy_re!(r"Passed!\s*-\s*Failed:\s*(\d+),\s*Passed:\s*(\d+),\s*Skipped:\s*(\d+),\s*Total:\s*(\d+)", "gi");
     let (mut passed, mut count) = (0u64, 0usize);
     for m in pattern.captures_iter(text) {
         let n = |i| m.get(i).and_then(|v| v.parse::<u64>().ok());
@@ -339,14 +326,8 @@ mod tests {
 
     #[test]
     fn the_hint_names_each_archived_stream() {
-        let hint = recovery_hint(
-            "command-success",
-            &[Recovery { stream: "stdout", path: "/a/b.txt".into(), bytes: 7 }],
-        );
-        assert_eq!(
-            hint,
-            "[lossless compact: command-success; full captured output preserved]\n[full stdout: /a/b.txt (7 bytes) — use read to recover]"
-        );
+        let hint = recovery_hint("command-success", &[Recovery { stream: "stdout", path: "/a/b.txt".into(), bytes: 7 }]);
+        assert_eq!(hint, "[lossless compact: command-success; full captured output preserved]\n[full stdout: /a/b.txt (7 bytes) — use read to recover]");
     }
 
     #[test]
@@ -355,7 +336,6 @@ mod tests {
         assert_eq!(to_fixed_2(1.005), "1.00");
         assert_eq!(to_fixed_2(2.5), "2.50");
     }
-
 
     #[test]
     fn cargo_test_output_collapses_to_one_line() {
@@ -384,7 +364,6 @@ mod tests {
     }
 }
 
-
 /// `evaluateShellCompaction`: `stdout` and `stderr` are the ANSI-stripped streams.
 pub fn plan(command: &str, stdout: &str, stderr: &str, outcome: &Outcome) -> Option<Plan> {
     if !super::env::env_flag("MIXDOG_SHELL_LOSSLESS_COMPACT", true)
@@ -397,21 +376,21 @@ pub fn plan(command: &str, stdout: &str, stderr: &str, outcome: &Outcome) -> Opt
         return None;
     }
     if js_trim(stderr).is_empty() {
-        if let Some(json) = compact_structured_json(stdout) && worthwhile(stdout, stderr, &json, "") {
+        if let Some(json) = compact_structured_json(stdout)
+            && worthwhile(stdout, stderr, &json, "")
+        {
             return Some(Plan { kind: "structured-json", stdout: json, stderr: String::new() });
         }
-        if let Some(summary) = test_success_summary(command, stdout).or_else(|| build_success_summary(command, stdout)) && worthwhile(stdout, stderr, &summary, "") {
+        if let Some(summary) = test_success_summary(command, stdout).or_else(|| build_success_summary(command, stdout))
+            && worthwhile(stdout, stderr, &summary, "")
+        {
             return Some(Plan { kind: "command-success", stdout: summary, stderr: String::new() });
         }
     }
     if has_diagnostic_hazard(&format!("{stdout}\n{stderr}")) {
         return None;
     }
-    let fold = |text: &str| {
-        fold_carriage_return_frames(text)
-            .or_else(|| fold_consecutive_duplicate_lines(text))
-            .unwrap_or_else(|| text.to_owned())
-    };
+    let fold = |text: &str| fold_carriage_return_frames(text).or_else(|| fold_consecutive_duplicate_lines(text)).unwrap_or_else(|| text.to_owned());
     let (compact_out, compact_err) = (fold(stdout), fold(stderr));
     if (compact_out != stdout || compact_err != stderr) && worthwhile(stdout, stderr, &compact_out, &compact_err) {
         return Some(Plan { kind: "consecutive-duplicates", stdout: compact_out, stderr: compact_err });
@@ -420,10 +399,5 @@ pub fn plan(command: &str, stdout: &str, stderr: &str, outcome: &Outcome) -> Opt
 }
 /// The archive step's final gate: the published body, hint included, must still save enough.
 pub fn still_worthwhile(stdout: &str, stderr: &str, plan: &Plan, hint: &str) -> bool {
-    worthwhile(
-        &body_with_hint(stdout, stderr, ""),
-        "",
-        &body_with_hint(&plan.stdout, &plan.stderr, hint),
-        "",
-    )
+    worthwhile(&body_with_hint(stdout, stderr, ""), "", &body_with_hint(&plan.stdout, &plan.stderr, hint), "")
 }

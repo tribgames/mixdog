@@ -57,8 +57,7 @@ use super::surface::SessionSurface;
 /// go through the ordinary approval gate.
 const USER_PROMPT_TOOLS: [&str; 2] = ["ask_user", "handoff_user"];
 
-pub const CONNECTOR_APPROVAL_REASON: &str =
-    "This connector tool is set to ask before it runs for this agent.";
+pub const CONNECTOR_APPROVAL_REASON: &str = "This connector tool is set to ask before it runs for this agent.";
 
 /// A hook call as the hook runner sees it.
 pub struct HookCall<'a> {
@@ -190,21 +189,12 @@ fn denied(name: &str, code: ToolErrorCode, detail: &str) -> ToolError {
 }
 
 fn denied_by_hook(name: &str, reason: Option<&str>) -> ToolError {
-    let reason = reason
-        .filter(|reason| !reason.is_empty())
-        .map(|reason| format!(": {reason}"))
-        .unwrap_or_default();
+    let reason = reason.filter(|reason| !reason.is_empty()).map(|reason| format!(": {reason}")).unwrap_or_default();
     denied(name, ToolErrorCode::DeniedByHook, &format!(" by hook{reason}"))
 }
 
 fn check_failed(name: &str, message: &str) -> ToolError {
-    denied(
-        name,
-        ToolErrorCode::DeniedByPolicy {
-            rule: "check-failed".into(),
-        },
-        &format!(": PreToolUse policy check failed: {message}"),
-    )
+    denied(name, ToolErrorCode::DeniedByPolicy { rule: "check-failed".into() }, &format!(": PreToolUse policy check failed: {message}"))
 }
 
 fn cancelled() -> ToolError {
@@ -257,10 +247,7 @@ struct AskSpec<'a> {
 }
 
 impl ToolPolicy {
-    pub fn new(
-        store: Arc<dyn GrantStore>,
-        connectors: Arc<dyn ConnectorPermissions>,
-    ) -> Self {
+    pub fn new(store: Arc<dyn GrantStore>, connectors: Arc<dyn ConnectorPermissions>) -> Self {
         Self {
             hook: None,
             store,
@@ -325,11 +312,7 @@ impl ToolPolicy {
             return Err(refusal);
         }
         if USER_PROMPT_TOOLS.contains(&name) {
-            return Ok((Authorized {
-                name: name.to_owned(),
-                args: rq.args,
-                allow_not_saved: false,
-            }, None));
+            return Ok((Authorized { name: name.to_owned(), args: rq.args, allow_not_saved: false }, None));
         }
 
         let decision = self.run_hook(&rq).await?.unwrap_or_default();
@@ -352,9 +335,10 @@ impl ToolPolicy {
         // Bind the executable call, not the hook's input. No approval may precede
         // this resolution, and approval completion must never resolve it again.
         let bound = match accounts {
-            Some(accounts) => accounts.resolve_account(&call_name, &call_args).await.map_err(|message| {
-                ToolError::new(ToolErrorCode::DeniedByPolicy { rule: "connector-account".into() }, format!("Error: {message}"))
-            })?,
+            Some(accounts) => accounts
+                .resolve_account(&call_name, &call_args)
+                .await
+                .map_err(|message| ToolError::new(ToolErrorCode::DeniedByPolicy { rule: "connector-account".into() }, format!("Error: {message}")))?,
             None => None,
         };
         if let Some(bound) = &bound {
@@ -362,13 +346,9 @@ impl ToolPolicy {
             args.insert("account".into(), Value::String(bound.binding.name.clone()));
             call_args = Value::Object(args);
         }
-        let account = bound.as_ref().map(|bound| bound.label.as_str())
-            .or_else(|| rq.account.filter(|_| call_name == name));
+        let account = bound.as_ref().map(|bound| bound.label.as_str()).or_else(|| rq.account.filter(|_| call_name == name));
 
-        let kind = rq
-            .tools
-            .resolve(rq.surface.mcp_scope.as_deref(), &call_name)
-            .and_then(|tool| tool.outbound_kind(&call_args));
+        let kind = rq.tools.resolve(rq.surface.mcp_scope.as_deref(), &call_name).and_then(|tool| tool.outbound_kind(&call_args));
         let cx = GateCx {
             facts: rq.facts,
             settings: rq.settings,
@@ -380,14 +360,7 @@ impl ToolPolicy {
         let identity = self.connectors.tool_identity(&call_name);
         let verdict = decide(
             &cx,
-            &GateCall {
-                name: &call_name,
-                identity: &identity,
-                args: &call_args,
-                kind,
-                hook: decision.action,
-                hook_reason: decision.reason.as_deref(),
-            },
+            &GateCall { name: &call_name, identity: &identity, args: &call_args, kind, hook: decision.action, hook_reason: decision.reason.as_deref() },
         )
         .await
         .map_err(|error| check_failed(name, &error.0))?;
@@ -404,32 +377,12 @@ impl ToolPolicy {
         match verdict {
             GateVerdict::Run { remembered } => outbound_approved = remembered,
             GateVerdict::Deny { rule, reason } => {
-                return Err(denied(
-                    name,
-                    ToolErrorCode::DeniedByPolicy {
-                        rule: rule.name().into(),
-                    },
-                    &format!(" by hook: {reason}"),
-                ));
+                return Err(denied(name, ToolErrorCode::DeniedByPolicy { rule: rule.name().into() }, &format!(" by hook: {reason}")));
             }
             GateVerdict::Ask(plan) => {
-                let AskPlan {
-                    reason,
-                    request,
-                    audit,
-                } = *plan;
+                let AskPlan { reason, request, audit } = *plan;
                 let answer = self
-                    .ask(
-                        &rq,
-                        AskSpec {
-                            name: &call_name,
-                            args: &call_args,
-                            reason: &reason,
-                            request: Some(&request),
-                            audit: Some(&audit),
-                            account,
-                        },
-                    )
+                    .ask(&rq, AskSpec { name: &call_name, args: &call_args, reason: &reason, request: Some(&request), audit: Some(&audit), account })
                     .await?;
                 if let AskRequest::Outbound { card, .. } = &request {
                     // The user approved this very call on the richer outbound card.
@@ -441,14 +394,8 @@ impl ToolPolicy {
             }
         }
 
-        let allow_not_saved = self
-            .connector_approval(&rq, &call_name, &call_args, outbound_approved, account)
-            .await?;
-        Ok((Authorized {
-            name: call_name,
-            args: call_args,
-            allow_not_saved,
-        }, bound.map(|bound| bound.binding)))
+        let allow_not_saved = self.connector_approval(&rq, &call_name, &call_args, outbound_approved, account).await?;
+        Ok((Authorized { name: call_name, args: call_args, allow_not_saved }, bound.map(|bound| bound.binding)))
     }
 
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
@@ -456,13 +403,7 @@ impl ToolPolicy {
         let Some(hook) = &self.hook else {
             return Ok(None);
         };
-        let call = HookCall {
-            call_id: rq.call_id,
-            thread_id: rq.thread_id,
-            name: rq.name,
-            args: &rq.args,
-            cwd: rq.cwd,
-        };
+        let call = HookCall { call_id: rq.call_id, thread_id: rq.thread_id, name: rq.name, args: &rq.args, cwd: rq.cwd };
         tokio::select! {
             () = rq.cancel.cancelled() => Err(cancelled()),
             decided = hook.pre_tool(&call) => decided.map_err(|failure| check_failed(rq.name, &failure.0)),
@@ -482,39 +423,16 @@ impl ToolPolicy {
         account: Option<&str>,
     ) -> Result<bool, ToolError> {
         let facts = rq.facts;
-        if outbound_approved
-            || facts.acting_bot.is_none()
-            || rq.settings.allow_all_actions
-            || !self
-                .connectors
-                .needs_approval(&facts.connector_agent_id, name)
+        if outbound_approved || facts.acting_bot.is_none() || rq.settings.allow_all_actions || !self.connectors.needs_approval(&facts.connector_agent_id, name)
         {
             return Ok(false);
         }
         // "Allow for this agent" is offered only to the contact bot that is acting,
         // for its own policy entry of this one tool: never another bot or Mixy.
-        let bot = facts
-            .contact_bot
-            .as_deref()
-            .filter(|bot| *bot == facts.connector_agent_id);
+        let bot = facts.contact_bot.as_deref().filter(|bot| *bot == facts.connector_agent_id);
         let offered = offered_scopes(Card::ConnectorPolicy, None, None, facts.caller());
-        let request = bot.map(|bot| AskRequest::Connector {
-            agent_id: bot.to_owned(),
-            remember: offered.clone(),
-        });
-        let answer = self
-            .ask(
-                rq,
-                AskSpec {
-                    name,
-                    args,
-                    reason: CONNECTOR_APPROVAL_REASON,
-                    request: request.as_ref(),
-                    audit: None,
-                    account,
-                },
-            )
-            .await?;
+        let request = bot.map(|bot| AskRequest::Connector { agent_id: bot.to_owned(), remember: offered.clone() });
+        let answer = self.ask(rq, AskSpec { name, args, reason: CONNECTOR_APPROVAL_REASON, request: request.as_ref(), audit: None, account }).await?;
         match bot {
             Some(bot) if answer.remember == Some(ApprovalRemember::Agent) && offered.contains(&ApprovalRemember::Agent) => {
                 Ok(!self.connectors.allow_always(bot, name).await)
@@ -538,18 +456,11 @@ impl ToolPolicy {
             if forbidden {
                 return Err(denied(
                     spec.name,
-                    ToolErrorCode::DeniedByPolicy {
-                        rule: "run-forbidden".into(),
-                    },
-                    &format!(
-                        ": {RUN_FORBIDDEN_REASON} Report this to the user; do not retry it or reach the same result another way."
-                    ),
+                    ToolErrorCode::DeniedByPolicy { rule: "run-forbidden".into() },
+                    &format!(": {RUN_FORBIDDEN_REASON} Report this to the user; do not retry it or reach the same result another way."),
                 ));
             }
-            return Ok(Answer {
-                remember: None,
-                edited_args: None,
-            });
+            return Ok(Answer { remember: None, edited_args: None });
         }
 
         let resolution = rq.approvals.request(self.approval_ask(rq, &spec)).await;
@@ -564,24 +475,8 @@ impl ToolPolicy {
                 decision.reason.unwrap_or_default(),
                 false,
             ),
-            ApprovalResolution::TimedOut { .. } => (
-                false,
-                None,
-                None,
-                String::new(),
-                None,
-                "approval timed out".to_owned(),
-                true,
-            ),
-            ApprovalResolution::Withdrawn { .. } => (
-                false,
-                None,
-                None,
-                String::new(),
-                None,
-                "approval withdrawn".to_owned(),
-                false,
-            ),
+            ApprovalResolution::TimedOut { .. } => (false, None, None, String::new(), None, "approval timed out".to_owned(), true),
+            ApprovalResolution::Withdrawn { .. } => (false, None, None, String::new(), None, "approval withdrawn".to_owned(), false),
             // The run was stopped while it waited: nobody answered.
             ApprovalResolution::Interrupted { .. } | ApprovalResolution::Cancelled { .. } => {
                 return Err(cancelled());
@@ -590,26 +485,15 @@ impl ToolPolicy {
             // no approval, which `before-hook.mjs` still records, as a plain `deny` (`recordHumanDecision(gate, undefined)`).
             ApprovalResolution::Unavailable { .. } => {
                 if let Some(audit) = spec.audit {
-                    self.record_decision(rq, audit, false, "deny", None, "")
-                        .await
-                        .map_err(|error| check_failed(spec.name, &error))?;
+                    self.record_decision(rq, audit, false, "deny", None, "").await.map_err(|error| check_failed(spec.name, &error))?;
                 }
-                return Err(ToolError::new(
-                    ToolErrorCode::DeniedByHook,
-                    missing_approval_ui_denial(spec.name, spec.reason),
-                ));
+                return Err(ToolError::new(ToolErrorCode::DeniedByHook, missing_approval_ui_denial(spec.name, spec.reason)));
             }
         };
 
         if let Some(audit) = spec.audit {
-            let decision = if timed_out {
-                "timeout"
-            } else {
-                response.unwrap_or(if approved { "approve" } else { "deny" })
-            };
-            self.record_decision(rq, audit, approved && !timed_out, decision, remember, &device)
-                .await
-                .map_err(|error| check_failed(spec.name, &error))?;
+            let decision = if timed_out { "timeout" } else { response.unwrap_or(if approved { "approve" } else { "deny" }) };
+            self.record_decision(rq, audit, approved && !timed_out, decision, remember, &device).await.map_err(|error| check_failed(spec.name, &error))?;
         }
 
         if !approved {
@@ -619,16 +503,10 @@ impl ToolPolicy {
             let detail = if detail.is_empty() { "not approved" } else { detail };
             return Err(ToolError::new(
                 ToolErrorCode::PermissionDenied,
-                format!(
-                    "Error: tool \"{}\" was not approved: {detail}. Do not retry it or reach the same result another way; report it.",
-                    spec.name
-                ),
+                format!("Error: tool \"{}\" was not approved: {detail}. Do not retry it or reach the same result another way; report it.", spec.name),
             ));
         }
-        Ok(Answer {
-            remember,
-            edited_args,
-        })
+        Ok(Answer { remember, edited_args })
     }
 
     fn approval_ask(&self, rq: &AuthorizeRequest<'_>, spec: &AskSpec<'_>) -> ApprovalAsk {
@@ -640,12 +518,7 @@ impl ToolPolicy {
         });
         let fields = payload.as_object_mut().expect("object");
         let (remember, action_kind): (Vec<ApprovalRemember>, Option<ActionKind>) = match spec.request {
-            Some(AskRequest::Approval {
-                agent_id,
-                remember,
-                grant_action,
-                action_kind,
-            }) => {
+            Some(AskRequest::Approval { agent_id, remember, grant_action, action_kind }) => {
                 fields.insert("kind".into(), Card::HookAsk.kind().into());
                 fields.insert("agentId".into(), agent_id.clone().into());
                 if let Some(action) = grant_action {
@@ -662,11 +535,7 @@ impl ToolPolicy {
                 fields.insert("agentId".into(), agent_id.clone().into());
                 (remember.clone(), None)
             }
-            Some(AskRequest::Outbound {
-                agent_id,
-                card,
-                remember,
-            }) => {
+            Some(AskRequest::Outbound { agent_id, card, remember }) => {
                 fields.insert("kind".into(), Card::Outbound.kind().into());
                 fields.insert("agentId".into(), agent_id.clone().into());
                 // What every remembered choice on the card covers: this tool.
@@ -679,10 +548,7 @@ impl ToolPolicy {
             None => (Vec::new(), None),
         };
         if spec.request.is_some() {
-            fields.insert(
-                "remember".into(),
-                remember.iter().map(|s| remember_name(*s)).collect::<Vec<_>>().into(),
-            );
+            fields.insert("remember".into(), remember.iter().map(|s| remember_name(*s)).collect::<Vec<_>>().into());
             if rq.facts.caller() == Caller::Unattended {
                 fields.insert(row_fields::UNATTENDED.into(), true.into());
             }
@@ -697,19 +563,13 @@ impl ToolPolicy {
             action_kind,
             reason: Some(spec.reason.to_owned()),
             payload,
-            remember: remember
-                .into_iter()
-                .filter(|scope| *scope != ApprovalRemember::Once)
-                .collect(),
+            remember: remember.into_iter().filter(|scope| *scope != ApprovalRemember::Once).collect(),
             expires_after: None,
         }
     }
 
     async fn audit(&self, audit: &GateAudit, decision: &str, device: &str) -> Result<(), String> {
-        self.store
-            .record_audit(audit.entry(decision, device))
-            .await
-            .map_err(|error| error.0)
+        self.store.record_audit(audit.entry(decision, device)).await.map_err(|error| error.0)
     }
 
     /// Audits one answered request and stores its remembered grant: "this
@@ -752,16 +612,8 @@ impl ToolPolicy {
     ) -> Result<bool, String> {
         match scope {
             ApprovalRemember::Once => Ok(false),
-            ApprovalRemember::Session => Ok(rq
-                .facts
-                .life
-                .as_deref()
-                .is_some_and(|life| rq.session_grants.grant(&audit.agent_id, action, life))),
-            ApprovalRemember::Agent | ApprovalRemember::Always => self
-                .store
-                .grant(&audit.agent_id, action, scope, device)
-                .await
-                .map_err(|error| error.0),
+            ApprovalRemember::Session => Ok(rq.facts.life.as_deref().is_some_and(|life| rq.session_grants.grant(&audit.agent_id, action, life))),
+            ApprovalRemember::Agent | ApprovalRemember::Always => self.store.grant(&audit.agent_id, action, scope, device).await.map_err(|error| error.0),
         }
     }
 }
@@ -877,16 +729,7 @@ mod tests {
 
     fn decided(approved: bool, remember: Option<ApprovalRemember>) -> ApprovalResolution {
         ApprovalResolution::Decided {
-            decision: ToolApprovalDecision {
-                approved,
-                reason: None,
-                answers: None,
-                reply: None,
-                response: None,
-                edited_args: None,
-                remember,
-                scope: None,
-            },
+            decision: ToolApprovalDecision { approved, reason: None, answers: None, reply: None, response: None, edited_args: None, remember, scope: None },
             device: "Pixel".into(),
             connection_kind: ConnectionKind::Phone,
             at: 0,
@@ -937,13 +780,7 @@ mod tests {
             }
         }
 
-        async fn run(
-            &self,
-            policy: &ToolPolicy,
-            facts: &SessionFacts,
-            name: &str,
-            args: Value,
-        ) -> Result<Authorized, ToolError> {
+        async fn run(&self, policy: &ToolPolicy, facts: &SessionFacts, name: &str, args: Value) -> Result<Authorized, ToolError> {
             policy
                 .authorize(AuthorizeRequest {
                     call_id: &ToolCallId::from("call-1"),
@@ -1026,12 +863,8 @@ mod tests {
     #[tokio::test]
     async fn connector_and_project_switches_refuse_per_called_tool() {
         let mut h = Harness::new(Tools::default().with("mcp__a__b", None).with("mcp__a__c", None));
-        h.connectors = Arc::new(Connectors {
-            disabled: vec!["mcp__a__b".into()],
-            project_off: vec!["mcp__a__c".into()],
-            save_works: true,
-            ..Connectors::default()
-        });
+        h.connectors =
+            Arc::new(Connectors { disabled: vec!["mcp__a__b".into()], project_off: vec!["mcp__a__c".into()], save_works: true, ..Connectors::default() });
         let policy = h.policy(allow_hook());
         let off = h.run(&policy, &bot(), "mcp__a__b", json!({})).await.expect_err("agent off");
         assert_eq!(off.message_for_model, "Error: tool \"mcp__a__b\" is not available to this agent.");
@@ -1046,17 +879,11 @@ mod tests {
         let mut decision = decided(true, None);
         if let ApprovalResolution::Decided { decision: d, .. } = &mut decision {
             d.response = Some(HumanGateResponse::EditAndApprove);
-            d.edited_args = Some(BTreeMap::from([
-                ("body".to_owned(), "final text".to_owned()),
-                ("repo".to_owned(), "evil/x".to_owned()),
-            ]));
+            d.edited_args = Some(BTreeMap::from([("body".to_owned(), "final text".to_owned()), ("repo".to_owned(), "evil/x".to_owned())]));
         }
         h.answer(decision);
         let got = h.run(&h.policy(allow_hook()), &bot(), "github", comment_args()).await.expect("ok");
-        assert_eq!(
-            got.args,
-            json!({"action": "issue.comment", "repo": "o/r", "number": 3, "body": "final text"})
-        );
+        assert_eq!(got.args, json!({"action": "issue.comment", "repo": "o/r", "number": 3, "body": "final text"}));
         let asks = h.asks();
         assert_eq!(asks.len(), 1);
         assert_eq!(asks[0].action_kind, Some(ActionKind::Comment));
@@ -1064,10 +891,7 @@ mod tests {
         assert_eq!(asks[0].payload["outbound"]["payload"], "draft");
         assert_eq!(asks[0].payload["grantAction"], "tool:github", "the card says which tool a remembered choice covers");
         assert_eq!(asks[0].payload["account"], "work@example.com");
-        assert_eq!(
-            asks[0].remember,
-            [ApprovalRemember::Session, ApprovalRemember::Agent]
-        );
+        assert_eq!(asks[0].remember, [ApprovalRemember::Session, ApprovalRemember::Agent]);
         assert_eq!(h.store.audit()[0].decision, "edit-and-approve");
     }
 
@@ -1113,10 +937,7 @@ mod tests {
             args: Some(json!({"action": "issue.comment", "repo": "evil/x", "number": 9, "body": "other"})),
             reason: None,
         })));
-        let got = h
-            .run(&h.policy(Some(Arc::new(hook))), &bot(), "github", comment_args())
-            .await
-            .expect("ok");
+        let got = h.run(&h.policy(Some(Arc::new(hook))), &bot(), "github", comment_args()).await.expect("ok");
         assert_eq!((got.name.as_str(), got.args), ("github", comment_args()));
         assert_eq!(h.asks()[0].payload["outbound"]["payload"], "draft");
     }
@@ -1131,10 +952,7 @@ mod tests {
             err.message_for_model,
             "Error: tool \"github\" was not approved: This sends or posts on your behalf; it needs your approval. Do not retry it or reach the same result another way; report it."
         );
-        assert_eq!(
-            h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Comment), false).await,
-            Ok(PermissionMode::Ask)
-        );
+        assert_eq!(h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Comment), false).await, Ok(PermissionMode::Ask));
     }
 
     #[tokio::test]
@@ -1143,15 +961,8 @@ mod tests {
         h.answer(decided(true, Some(ApprovalRemember::Agent)));
         let policy = h.policy(None);
         h.run(&policy, &bot(), "github", comment_args()).await.expect("first");
-        assert_eq!(
-            h.store.mode_for("mailer", &GrantKey::tool("github").expect("key"), false).await,
-            Ok(PermissionMode::Allow)
-        );
-        assert_eq!(
-            h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Comment), false).await,
-            Ok(PermissionMode::Ask),
-            "the category is not allowed"
-        );
+        assert_eq!(h.store.mode_for("mailer", &GrantKey::tool("github").expect("key"), false).await, Ok(PermissionMode::Allow));
+        assert_eq!(h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Comment), false).await, Ok(PermissionMode::Ask), "the category is not allowed");
         h.run(&policy, &bot(), "github", comment_args()).await.expect("second");
         assert_eq!(h.asks().len(), 1);
         let decisions: Vec<_> = h.store.audit().into_iter().map(|e| e.decision).collect();
@@ -1207,11 +1018,8 @@ mod tests {
     #[tokio::test]
     async fn a_hook_ask_on_an_outbound_call_never_offers_or_stores_always() {
         let h = Harness::new(Tools::default().with("mcp__slack__post", Some(ActionKind::Message)));
-        let hook: Arc<dyn PreToolHook> = Arc::new(FixedHook(Ok(Some(HookDecision {
-            action: HookAction::Ask,
-            reason: Some("hook rule".into()),
-            ..HookDecision::default()
-        }))));
+        let hook: Arc<dyn PreToolHook> =
+            Arc::new(FixedHook(Ok(Some(HookDecision { action: HookAction::Ask, reason: Some("hook rule".into()), ..HookDecision::default() }))));
         let policy = h.policy(Some(hook));
         h.answer(decided(true, Some(ApprovalRemember::Always)));
         h.run(&policy, &bot(), "mcp__slack__post", json!({})).await.expect("approved once");
@@ -1267,34 +1075,21 @@ mod tests {
         let h = Harness::new(tools);
         h.answer(decided(true, Some(ApprovalRemember::Agent)));
         h.run(&h.policy(None), &bot(), "mcp__shop__buy", json!({"amount": 5})).await.expect("ok");
-        assert_eq!(
-            h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Payment), false).await,
-            Ok(PermissionMode::Ask)
-        );
-        assert_eq!(
-            h.store.mode_for("mailer", &GrantKey::Tool("mcp__shop__buy".into()), false).await,
-            Ok(PermissionMode::Ask)
-        );
+        assert_eq!(h.store.mode_for("mailer", &GrantKey::Kind(ActionKind::Payment), false).await, Ok(PermissionMode::Ask));
+        assert_eq!(h.store.mode_for("mailer", &GrantKey::Tool("mcp__shop__buy".into()), false).await, Ok(PermissionMode::Ask));
         assert_eq!(h.asks()[0].action_kind, Some(ActionKind::Payment));
     }
 
     #[tokio::test]
     async fn a_hook_deny_and_a_failing_hook_both_stop_the_call() {
         let h = Harness::new(github());
-        let deny = FixedHook(Ok(Some(HookDecision {
-            action: HookAction::Deny,
-            reason: Some("no".into()),
-            ..HookDecision::default()
-        })));
+        let deny = FixedHook(Ok(Some(HookDecision { action: HookAction::Deny, reason: Some("no".into()), ..HookDecision::default() })));
         let err = h.run(&h.policy(Some(Arc::new(deny))), &bot(), "github", comment_args()).await.expect_err("deny");
         assert_eq!(err.code, ToolErrorCode::DeniedByHook);
         assert_eq!(err.message_for_model, "Error: tool \"github\" denied by hook: no");
         let broken = FixedHook(Err(HookFailure("spawn failed".into())));
         let err = h.run(&h.policy(Some(Arc::new(broken))), &bot(), "github", comment_args()).await.expect_err("fails closed");
-        assert_eq!(
-            err.message_for_model,
-            "Error: tool \"github\" denied: PreToolUse policy check failed: spawn failed"
-        );
+        assert_eq!(err.message_for_model, "Error: tool \"github\" denied: PreToolUse policy check failed: spawn failed");
         assert!(h.asks().is_empty());
     }
 
@@ -1304,18 +1099,13 @@ mod tests {
         h.store.set_mode("mailer", &GrantKey::Kind(ActionKind::Comment), PermissionMode::Block);
         let err = h.run(&h.policy(None), &bot(), "github", comment_args()).await.expect_err("blocked");
         assert_eq!(err.code, ToolErrorCode::DeniedByPolicy { rule: "blocked".into() });
-        assert_eq!(
-            err.message_for_model,
-            "Error: tool \"github\" denied by hook: This agent's permission blocks this action."
-        );
+        assert_eq!(err.message_for_model, "Error: tool \"github\" denied by hook: This agent's permission blocks this action.");
         assert!(h.asks().is_empty());
     }
 
     #[tokio::test]
     async fn runs_are_answered_by_policy_never_by_a_card() {
-        let tools = Tools::default()
-            .with("github", Some(ActionKind::Comment))
-            .with("mcp__shop__buy", Some(ActionKind::Payment));
+        let tools = Tools::default().with("github", Some(ActionKind::Comment)).with("mcp__shop__buy", Some(ActionKind::Payment));
         let h = Harness::new(tools);
         let schedule = SessionFacts { run: Some(RunKind::Schedule), ..bot() };
         let policy = h.policy(None);
@@ -1333,11 +1123,8 @@ mod tests {
         let tools = Tools::default().with("shell", None);
         let h = Harness::new(tools);
         let lead = SessionFacts { agent_id: "lead".into(), life: Some("life".into()), ..SessionFacts::default() };
-        let hook: Arc<dyn PreToolHook> = Arc::new(FixedHook(Ok(Some(HookDecision {
-            action: HookAction::Ask,
-            reason: Some("shell needs a look".into()),
-            ..HookDecision::default()
-        }))));
+        let hook: Arc<dyn PreToolHook> =
+            Arc::new(FixedHook(Ok(Some(HookDecision { action: HookAction::Ask, reason: Some("shell needs a look".into()), ..HookDecision::default() }))));
         h.answer(decided(true, Some(ApprovalRemember::Always)));
         let policy = h.policy(Some(hook));
         h.run(&policy, &lead, "shell", json!({"command": "ls"})).await.expect("first");
@@ -1353,11 +1140,7 @@ mod tests {
     async fn a_connector_set_to_ask_asks_unless_the_outbound_card_did() {
         let tools = Tools::default().with("mcp__notes__append", None).with("github", Some(ActionKind::Comment));
         let mut h = Harness::new(tools);
-        h.connectors = Arc::new(Connectors {
-            needs: vec!["mcp__notes__append".into(), "github".into()],
-            save_works: false,
-            ..Connectors::default()
-        });
+        h.connectors = Arc::new(Connectors { needs: vec!["mcp__notes__append".into(), "github".into()], save_works: false, ..Connectors::default() });
         let policy = h.policy(None);
         h.answer(decided(true, Some(ApprovalRemember::Agent)));
         let got = h.run(&policy, &bot(), "mcp__notes__append", json!({})).await.expect("ok");
@@ -1381,10 +1164,7 @@ mod tests {
     async fn the_user_prompt_tools_bypass_the_gate() {
         let tools = Tools::default().with("ask_user", Some(ActionKind::Message));
         let h = Harness::new(tools);
-        let hook: Arc<dyn PreToolHook> = Arc::new(FixedHook(Ok(Some(HookDecision {
-            action: HookAction::Deny,
-            ..HookDecision::default()
-        }))));
+        let hook: Arc<dyn PreToolHook> = Arc::new(FixedHook(Ok(Some(HookDecision { action: HookAction::Deny, ..HookDecision::default() }))));
         h.run(&h.policy(Some(hook)), &bot(), "ask_user", json!({})).await.expect("bypassed");
         assert!(h.asks().is_empty());
     }
@@ -1413,10 +1193,7 @@ mod tests {
             missing_approval_ui_denial("shell", ""),
             "Error: tool \"shell\" denied by hook: approval required but no approval UI is available (approval requested by hook)"
         );
-        assert_eq!(
-            missing_approval_ui_denial("", " \u{a0}"),
-            "Error: tool \"tool\" denied by hook: approval required but no approval UI is available"
-        );
+        assert_eq!(missing_approval_ui_denial("", " \u{a0}"), "Error: tool \"tool\" denied by hook: approval required but no approval UI is available");
     }
 
     #[tokio::test]

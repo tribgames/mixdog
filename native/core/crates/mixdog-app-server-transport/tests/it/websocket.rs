@@ -44,14 +44,7 @@ async fn listen(limits: Limits) -> (ConnectionHub, WebSocketListener) {
 async fn listen_as(limits: Limits, origin: ListenerOrigin) -> (ConnectionHub, WebSocketListener) {
     install_rt();
     let hub = ConnectionHub::new(limits).unwrap();
-    let listener = WebSocketListener::bind(
-        "127.0.0.1:0".parse().unwrap(),
-        hub.clone(),
-        BearerAuth::new(TOKEN),
-        origin,
-    )
-    .await
-    .unwrap();
+    let listener = WebSocketListener::bind("127.0.0.1:0".parse().unwrap(), hub.clone(), BearerAuth::new(TOKEN), origin).await.unwrap();
     (hub, listener)
 }
 
@@ -65,24 +58,15 @@ struct Dial<'a> {
 
 impl Default for Dial<'_> {
     fn default() -> Self {
-        Self {
-            path: "/rpc",
-            token: Some(TOKEN),
-            origin: None,
-            peers: &[],
-        }
+        Self { path: "/rpc", token: Some(TOKEN), origin: None, peers: &[] }
     }
 }
 
 async fn dial(addr: SocketAddr, dial: Dial<'_>) -> Result<Client, WsError> {
     let tcp = TcpStream::connect(addr).await.unwrap();
-    let mut request = format!("ws://{addr}{}", dial.path)
-        .into_client_request()
-        .unwrap();
+    let mut request = format!("ws://{addr}{}", dial.path).into_client_request().unwrap();
     if let Some(token) = dial.token {
-        request
-            .headers_mut()
-            .insert("authorization", format!("Bearer {token}").parse().unwrap());
+        request.headers_mut().insert("authorization", format!("Bearer {token}").parse().unwrap());
     }
     if let Some(origin) = dial.origin {
         request.headers_mut().insert("origin", origin.parse().unwrap());
@@ -90,15 +74,10 @@ async fn dial(addr: SocketAddr, dial: Dial<'_>) -> Result<Client, WsError> {
     for peer in dial.peers {
         request.headers_mut().append("mixdog-relay-peer", peer.parse().unwrap());
     }
-    tokio_tungstenite::client_async(request, tcp)
-        .await
-        .map(|(client, _)| client)
+    tokio_tungstenite::client_async(request, tcp).await.map(|(client, _)| client)
 }
 
-async fn connected(
-    listener: &mut WebSocketListener,
-    dial_with: Dial<'_>,
-) -> (Client, AcceptedConnection) {
+async fn connected(listener: &mut WebSocketListener, dial_with: Dial<'_>) -> (Client, AcceptedConnection) {
     let client = dial(listener.local_addr(), dial_with).await.unwrap();
     let server = listener.accept().await.expect("listener open");
     (client, server)
@@ -131,10 +110,7 @@ async fn requests_and_responses_cross_the_socket() {
     let request = server.inbound.recv().await.unwrap();
     assert!(matches!(request, JsonRpcMessage::Request(r) if r.method == "initialize"));
 
-    server
-        .sink
-        .send_control(Bytes::from_static(br#"{"id":1,"result":{}}"#))
-        .unwrap();
+    server.sink.send_control(Bytes::from_static(br#"{"id":1,"result":{}}"#)).unwrap();
     let reply = client.next().await.unwrap().unwrap();
     assert_eq!(reply, Message::text(r#"{"id":1,"result":{}}"#));
 }
@@ -143,25 +119,13 @@ async fn requests_and_responses_cross_the_socket() {
 async fn upgrades_without_the_token_or_with_an_origin_are_refused() {
     let (_hub, listener) = listen(small_limits()).await;
     let addr = listener.local_addr();
-    let missing = Dial {
-        token: None,
-        ..Dial::default()
-    };
+    let missing = Dial { token: None, ..Dial::default() };
     assert_eq!(refused_with(dial(addr, missing).await), StatusCode::UNAUTHORIZED);
-    let wrong = Dial {
-        token: Some("other"),
-        ..Dial::default()
-    };
+    let wrong = Dial { token: Some("other"), ..Dial::default() };
     assert_eq!(refused_with(dial(addr, wrong).await), StatusCode::UNAUTHORIZED);
-    let browser = Dial {
-        origin: Some("http://example.test"),
-        ..Dial::default()
-    };
+    let browser = Dial { origin: Some("http://example.test"), ..Dial::default() };
     assert_eq!(refused_with(dial(addr, browser).await), StatusCode::FORBIDDEN);
-    let elsewhere = Dial {
-        path: "/other",
-        ..Dial::default()
-    };
+    let elsewhere = Dial { path: "/other", ..Dial::default() };
     assert_eq!(refused_with(dial(addr, elsewhere).await), StatusCode::NOT_FOUND);
 }
 
@@ -207,7 +171,10 @@ async fn the_relay_peer_header_never_raises_rights_or_works_off_the_ssh_listener
     // and `fileDownloadFinish` only in the relay's method table (`remote-methods.ts:874`, `fileDownloadRemoteMethods`), so the desktop's
     // own window and an SSH client never call them (`transfer/readRange` and `transfer/endRead` also serve their local reads).
     let phone_only = [
-        ("transfer/authorizeRead", serde_json::json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": "/outside/file.txt" }, "purpose": "save" })),
+        (
+            "transfer/authorizeRead",
+            serde_json::json!({ "sessionId": "s1", "source": { "kind": "sessionFile", "path": "/outside/file.txt" }, "purpose": "save" }),
+        ),
         ("transfer/redeemGrant", serde_json::json!({ "grantId": "00000000-0000-4000-8000-000000000001" })),
         ("transfer/finishRead", serde_json::json!({ "transferId": "00000000-0000-4000-8000-000000000002" })),
         ("transfer/grant/mint", serde_json::json!({ "path": "/outside/file.txt" })),
@@ -253,7 +220,15 @@ async fn answer_to(origin: ListenerOrigin, peers: &[&str], method: &'static str,
     let available = || CapabilityState::Available;
     let server = AppServer::new(
         Arc::new(MockCore::new(
-            &["transfer/authorizeRead", "transfer/redeemGrant", "transfer/finishRead", "transfer/grant/mint", "browser/stream", "browser/webrtcSignal", "browser/screenDisplays"],
+            &[
+                "transfer/authorizeRead",
+                "transfer/redeemGrant",
+                "transfer/finishRead",
+                "transfer/grant/mint",
+                "browser/stream",
+                "browser/webrtcSignal",
+                "browser/screenDisplays",
+            ],
             MockLimits::default(),
         )),
         Outgoing::new(),
@@ -323,33 +298,20 @@ async fn only_loopback_addresses_are_bound() {
     install_rt();
     let hub = ConnectionHub::new(small_limits()).unwrap();
     for addr in ["0.0.0.0:0", "192.0.2.1:0", "[::]:0"] {
-        let result = WebSocketListener::bind(
-            addr.parse().unwrap(),
-            hub.clone(),
-            BearerAuth::new(TOKEN),
-            ListenerOrigin::Loopback,
-        )
-        .await;
+        let result = WebSocketListener::bind(addr.parse().unwrap(), hub.clone(), BearerAuth::new(TOKEN), ListenerOrigin::Loopback).await;
         assert!(matches!(result, Err(ListenError::NotLoopback(_))), "{addr}");
     }
 }
 
 #[tokio::test]
 async fn the_upgrade_past_max_connections_answers_503() {
-    let (_hub, mut listener) = listen(Limits {
-        max_connections: 1,
-        ..small_limits()
-    })
-    .await;
+    let (_hub, mut listener) = listen(Limits { max_connections: 1, ..small_limits() }).await;
     let (_first, _server) = connected(&mut listener, Dial::default()).await;
     let refused = dial(listener.local_addr(), Dial::default()).await;
     match refused {
         Err(WsError::Http(response)) => {
             assert_eq!(response.status(), StatusCode::SERVICE_UNAVAILABLE);
-            assert_eq!(
-                response.body().as_deref(),
-                Some(br#"{"reason":"connectionLimit"}"#.as_slice())
-            );
+            assert_eq!(response.body().as_deref(), Some(br#"{"reason":"connectionLimit"}"#.as_slice()));
         }
         other => panic!("expected 503, got {:?}", other.map(|_| "connected")),
     }
@@ -382,10 +344,7 @@ impl HostMediaSink for Media {
 async fn binary_frames_close_1003_unless_the_connection_holds_the_host_role() {
     let (_hub, mut listener) = listen(small_limits()).await;
     let (mut client, _server) = connected(&mut listener, Dial::default()).await;
-    client
-        .send(Message::Binary(Bytes::from_static(&[1; 32])))
-        .await
-        .unwrap();
+    client.send(Message::Binary(Bytes::from_static(&[1; 32]))).await.unwrap();
     assert_eq!(close_code(&mut client).await, 1003);
 
     let (mut host, mut server) = connected(&mut listener, Dial::default()).await;
@@ -393,9 +352,7 @@ async fn binary_frames_close_1003_unless_the_connection_holds_the_host_role() {
     server.sink.grant_host_media(media.clone());
     let mut frame = vec![1, 0, 0, 0, 0, 7, 2, 128, 1, 224, 1, 0, 0, 0, 0, 0];
     frame.extend_from_slice(b"jpeg");
-    host.send(Message::Binary(Bytes::from(frame.clone())))
-        .await
-        .unwrap();
+    host.send(Message::Binary(Bytes::from(frame.clone()))).await.unwrap();
     // Ordered behind the media frame on the same socket.
     host.send(Message::text(REQUEST)).await.unwrap();
     server.inbound.recv().await.unwrap();
@@ -406,10 +363,7 @@ async fn binary_frames_close_1003_unless_the_connection_holds_the_host_role() {
 async fn close_after_a_response_delivers_both_and_the_code() {
     let (_hub, mut listener) = listen(small_limits()).await;
     let (mut client, server) = connected(&mut listener, Dial::default()).await;
-    server
-        .sink
-        .send_control(Bytes::from_static(br#"{"id":1,"error":{"code":-32600,"message":"x"}}"#))
-        .unwrap();
+    server.sink.send_control(Bytes::from_static(br#"{"id":1,"error":{"code":-32600,"message":"x"}}"#)).unwrap();
     server.sink.close(CloseCode::VersionRefused);
     assert!(matches!(client.next().await, Some(Ok(Message::Text(_)))));
     assert_eq!(close_code(&mut client).await, 4002);
@@ -440,14 +394,9 @@ async fn drain_closes_connections_with_1001_and_the_listener_stops_accepting() {
     assert!(listener.accept().await.is_none());
 }
 
-
 #[tokio::test]
 async fn link_log_refused_upgrade_leaves_a_structured_line_with_its_reason_and_no_secret() {
-    let (hub, mut listener) = listen(Limits {
-        max_connections: 1,
-        ..small_limits()
-    })
-    .await;
+    let (hub, mut listener) = listen(Limits { max_connections: 1, ..small_limits() }).await;
     let lines = Arc::new(Mutex::new(Vec::<String>::new()));
     let sink = lines.clone();
     hub.set_log(Arc::new(move |line: &str| sink.lock().unwrap().push(line.to_owned()))).ok().unwrap();

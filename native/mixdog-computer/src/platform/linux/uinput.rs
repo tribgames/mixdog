@@ -84,9 +84,7 @@ pub struct Device {
 pub(crate) fn event_bytes(kind: u16, code: u16, value: i32) -> Vec<u8> {
     let event = InputEvent { seconds: 0, microseconds: 0, kind, code, value };
     // SAFETY: InputEvent is plain data; its bytes are what the kernel reads.
-    unsafe {
-        std::slice::from_raw_parts(&event as *const InputEvent as *const u8, std::mem::size_of::<InputEvent>()).to_vec()
-    }
+    unsafe { std::slice::from_raw_parts(&event as *const InputEvent as *const u8, std::mem::size_of::<InputEvent>()).to_vec() }
 }
 
 fn ioctl(file: &File, request: libc::c_ulong, argument: libc::c_ulong) -> Result<(), String> {
@@ -94,10 +92,7 @@ fn ioctl(file: &File, request: libc::c_ulong, argument: libc::c_ulong) -> Result
     // or pointer-to-struct arguments of the documented layouts.
     let status = unsafe { libc::ioctl(file.as_raw_fd(), request as _, argument) };
     if status < 0 {
-        return Err(format!(
-            "input_unavailable: uinput setup failed: {}",
-            std::io::Error::last_os_error()
-        ));
+        return Err(format!("input_unavailable: uinput setup failed: {}", std::io::Error::last_os_error()));
     }
     Ok(())
 }
@@ -105,11 +100,7 @@ fn ioctl(file: &File, request: libc::c_ulong, argument: libc::c_ulong) -> Result
 impl Device {
     /// Creates the device spanning the desktop `(x, y, width, height)`.
     pub fn create(bounds: (i32, i32, i32, i32)) -> Result<Device, String> {
-        let file = OpenOptions::new()
-            .write(true)
-            .custom_flags(libc::O_NONBLOCK)
-            .open("/dev/uinput")
-            .map_err(|_| PERMISSION_HINT.to_string())?;
+        let file = OpenOptions::new().write(true).custom_flags(libc::O_NONBLOCK).open("/dev/uinput").map_err(|_| PERMISSION_HINT.to_string())?;
         for kind in [EV_KEY, EV_REL, EV_ABS, EV_SYN] {
             ioctl(&file, UI_SET_EVBIT, kind as _)?;
         }
@@ -121,42 +112,20 @@ impl Device {
         }
         for (code, maximum) in [(ABS_X, bounds.2 - 1), (ABS_Y, bounds.3 - 1)] {
             ioctl(&file, UI_SET_ABSBIT, code as _)?;
-            let setup = AbsSetup {
-                code,
-                info: AbsInfo {
-                    value: 0,
-                    minimum: 0,
-                    maximum: maximum.max(1),
-                    fuzz: 0,
-                    flat: 0,
-                    resolution: 0,
-                },
-            };
+            let setup = AbsSetup { code, info: AbsInfo { value: 0, minimum: 0, maximum: maximum.max(1), fuzz: 0, flat: 0, resolution: 0 } };
             ioctl(&file, UI_ABS_SETUP, &setup as *const AbsSetup as _)?;
         }
         let mut name = [0u8; 80];
         let label = b"Mixdog Computer Use";
         name[..label.len()].copy_from_slice(label);
-        let setup = Setup {
-            id: InputId {
-                bustype: 0x06,
-                vendor: 0x6d78,
-                product: 0x0001,
-                version: 1,
-            },
-            name,
-            ff_effects_max: 0,
-        };
+        let setup = Setup { id: InputId { bustype: 0x06, vendor: 0x6d78, product: 0x0001, version: 1 }, name, ff_effects_max: 0 };
         ioctl(&file, UI_DEV_SETUP, &setup as *const Setup as _)?;
         ioctl(&file, UI_DEV_CREATE, 0)?;
         // The compositor needs a moment to open a new input device; the wait holds nothing (the device sends nothing yet).
         std::thread::sleep(std::time::Duration::from_millis(400));
         let file = Arc::new(file);
         port::register_uinput(file.clone());
-        Ok(Device {
-            file,
-            origin: (bounds.0, bounds.1),
-        })
+        Ok(Device { file, origin: (bounds.0, bounds.1) })
     }
 
     pub fn move_to(&self, x: i32, y: i32) -> Result<(), String> {
@@ -170,11 +139,7 @@ impl Device {
 
     pub fn wheel(&self, clicks: i32, horizontal: bool) -> Result<(), String> {
         // The kernel's wheel is positive upward and rightward.
-        let (code, value) = if horizontal {
-            (REL_HWHEEL, clicks)
-        } else {
-            (REL_WHEEL, -clicks)
-        };
+        let (code, value) = if horizontal { (REL_HWHEEL, clicks) } else { (REL_WHEEL, -clicks) };
         for _ in 0..clicks.unsigned_abs() {
             port::uinput_frame(port::Frame::Wheel { code, value: value.signum() })?;
         }
@@ -222,12 +187,7 @@ pub fn code(key: Key) -> Result<u16, String> {
             },
         },
         Key::Char(glyph) => {
-            const ROWS: [(&str, u16); 4] = [
-                ("1234567890-=", 2),
-                ("qwertyuiop[]", 16),
-                ("asdfghjkl;'`", 30),
-                ("\\zxcvbnm,./", 43),
-            ];
+            const ROWS: [(&str, u16); 4] = [("1234567890-=", 2), ("qwertyuiop[]", 16), ("asdfghjkl;'`", 30), ("\\zxcvbnm,./", 43)];
             if glyph == ' ' {
                 return Ok(57);
             }

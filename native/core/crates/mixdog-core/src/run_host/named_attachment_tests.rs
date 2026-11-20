@@ -81,7 +81,10 @@ async fn an_attached_file_is_copied_under_its_picked_name_and_the_note_names_the
     let copy = w.copy_path(&reference, "photo.jpg");
     let path = copy.to_string_lossy().into_owned();
     assert_eq!(text, format!("[Attached files on this PC:\n- {path}\n]"), "a name without an extension takes its type's");
-    assert_eq!(meta, json!({ "kind": "files", "files": [{ "attachmentRef": reference, "name": "photo", "mimeType": "image/jpeg", "sizeBytes": 10, "path": path }] }));
+    assert_eq!(
+        meta,
+        json!({ "kind": "files", "files": [{ "attachmentRef": reference, "name": "photo", "mimeType": "image/jpeg", "sizeBytes": 10, "path": path }] })
+    );
     assert_eq!(std::fs::read(&copy).expect("the copy is there"), b"jpeg bytes");
     let blob = w.files.blob_path(&reference).expect("a blob path");
     assert_eq!(std::fs::read(blob).expect("the blob stays"), b"jpeg bytes", "the store itself stays content-addressed");
@@ -100,7 +103,8 @@ async fn a_pasted_text_is_not_listed_as_a_file_and_nothing_attached_is_no_note()
     let w = world();
     let pasted = w.plant(b"pasted words").await;
     let document = w.plant(b"doc bytes").await;
-    let (text, meta) = w.note(&[file(&pasted, "paste.txt", "text/plain", 12), file(&document, "doc.txt", "text/plain", 9)], &[pasted.as_str()]).await.expect("a note");
+    let (text, meta) =
+        w.note(&[file(&pasted, "paste.txt", "text/plain", 12), file(&document, "doc.txt", "text/plain", 9)], &[pasted.as_str()]).await.expect("a note");
     assert_eq!(meta["files"].as_array().expect("files").len(), 1);
     assert!(text.contains("doc.txt") && !text.contains("paste.txt"), "{text}");
     assert_eq!(w.note(&[], &[]).await, None);
@@ -111,7 +115,13 @@ async fn a_pasted_text_is_not_listed_as_a_file_and_nothing_attached_is_no_note()
 async fn a_file_whose_copy_cannot_be_made_is_left_out_of_the_note() {
     let w = world();
     let reference = w.plant(b"kept").await;
-    let (_, meta) = w.note(&[file(ABSENT, "gone.txt", "text/plain", 4), file("not a reference", "bad.txt", "text/plain", 4), file(&reference, "kept.txt", "text/plain", 4)], &[]).await.expect("a note");
+    let (_, meta) = w
+        .note(
+            &[file(ABSENT, "gone.txt", "text/plain", 4), file("not a reference", "bad.txt", "text/plain", 4), file(&reference, "kept.txt", "text/plain", 4)],
+            &[],
+        )
+        .await
+        .expect("a note");
     let names: Vec<&str> = meta["files"].as_array().expect("files").iter().map(|entry| entry["name"].as_str().expect("name")).collect();
     assert_eq!(names, ["kept.txt"]);
 }

@@ -13,9 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::effort_judge::model::{ModelConfig, available_on};
 use crate::lane::on_lane;
-use crate::model_install::{
-    InstallError, ProgressSink, Spec, download_to_file, fsio, sha256_file, write_file_atomic,
-};
+use crate::model_install::{InstallError, ProgressSink, Spec, download_to_file, fsio, sha256_file, write_file_atomic};
 
 const STAMP: &str = "install.json";
 /// Derived from `tokenizer.json` by older installs; stale once it is replaced.
@@ -70,7 +68,10 @@ impl Manifest {
 
 /// The release named by the stamp; empty when it is missing or damaged, so a
 /// damaged stamp reads as not installed.
-#[allow(clippy::disallowed_methods, reason = "a lane-job body: async callers go through `install_current_on`, the host's info reader runs it as a read-lane job")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "a lane-job body: async callers go through `install_current_on`, the host's info reader runs it as a read-lane job"
+)]
 pub fn stamped_release(dir: &Path) -> String {
     std::fs::read(dir.join(STAMP))
         .ok()
@@ -103,8 +104,7 @@ pub async fn invalidate_damaged(dir: &Path, manifest: &Manifest, lane: CpuBulk) 
     let mut bad = Vec::new();
     for (name, file) in manifest.files() {
         let target = dir.join(name);
-        let matches = fsio::exists(lane, &target).await.map_err(InstallError::io)?
-            && sha256_file(lane, &target).await? == file.sha256.to_lowercase();
+        let matches = fsio::exists(lane, &target).await.map_err(InstallError::io)? && sha256_file(lane, &target).await? == file.sha256.to_lowercase();
         if !matches {
             bad.push(name.clone());
         }
@@ -151,12 +151,8 @@ pub async fn install_model(
         let partial = partial_path(&target);
         let label = format!("effort judge {name}");
         let outcome = async {
-            download_to_file(
-                &Spec { url: &file.url, dest: &partial, max_bytes: file.size, expected_bytes: file.size, label: &label, lane },
-                progress,
-                cancel,
-            )
-            .await?;
+            download_to_file(&Spec { url: &file.url, dest: &partial, max_bytes: file.size, expected_bytes: file.size, label: &label, lane }, progress, cancel)
+                .await?;
             let actual = sha256_file(lane, &partial).await?;
             if actual != expected {
                 return Err(InstallError::Hash { label: label.clone(), expected: expected.clone(), actual });

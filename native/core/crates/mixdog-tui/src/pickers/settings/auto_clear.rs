@@ -101,11 +101,7 @@ impl AutoClearPicker {
                     item.marker = "\u{2713}".to_owned();
                 }
                 item.marker_color = Some(theme_color(Key::Success));
-                let window = if truthy(member(entry, "unlimited")) {
-                    "Unlimited".to_owned()
-                } else {
-                    duration_text(member(entry, "idleMs"))
-                };
+                let window = if truthy(member(entry, "unlimited")) { "Unlimited".to_owned() } else { duration_text(member(entry, "idleMs")) };
                 item.meta = format!("{window}{}", if truthy(member(entry, "custom")) { " custom" } else { "" });
                 item.description = format!("Default idle window for {name}. Enter to edit as text.");
                 item
@@ -146,18 +142,10 @@ impl AutoClearPicker {
             format!("{provider} default")
         };
         let idle = duration_text(&json!(idle_ms));
-        let clear_text = if unlimited {
-            format!("Never clear idle sessions ({source})")
-        } else {
-            format!("Clear idle sessions after {idle} ({source})")
-        };
+        let clear_text = if unlimited { format!("Never clear idle sessions ({source})") } else { format!("Clear idle sessions after {idle} ({source})") };
         let mut toggle = PickerItem::new("toggle", "Auto-clear");
         toggle.meta = if enabled { "On" } else { "Off" }.to_owned();
-        toggle.description = if enabled {
-            format!("{clear_text} \u{b7} lead cache TTL {cache_ttl}.")
-        } else {
-            "Idle auto-clear disabled.".to_owned()
-        };
+        toggle.description = if enabled { format!("{clear_text} \u{b7} lead cache TTL {cache_ttl}.") } else { "Idle auto-clear disabled.".to_owned() };
         let mut advanced = PickerItem::new("advanced", "Advanced");
         advanced.description = "Edit provider-paired default idle windows as text.".to_owned();
         let window = if enabled && !unlimited { format!("{idle} ({source})") } else { "never".to_owned() };
@@ -206,9 +194,7 @@ impl AutoClearPicker {
         let built_in = duration_input(member(entry, "builtInMs"), truthy(member(entry, "builtInUnlimited")));
         let mut prompt = TextPrompt::new("autoclear-provider");
         prompt.label = format!("Auto-clear \u{b7} {name}");
-        prompt.hint = format!(
-            "Type a duration like 10m, 1h, or 24h, or {UNLIMITED_INPUT} to never auto-clear. Empty resets to built-in {built_in}."
-        );
+        prompt.hint = format!("Type a duration like 10m, 1h, or 24h, or {UNLIMITED_INPUT} to never auto-clear. Empty resets to built-in {built_in}.");
         prompt.initial_value = Some(duration_input(member(entry, "idleMs"), truthy(member(entry, "unlimited"))));
         prompt.fields.insert("provider".to_owned(), provider.clone());
         if !member(entry, "builtInMs").is_null() {

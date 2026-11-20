@@ -7,10 +7,3 @@
 //! (usage-accounting.mjs:15-33, :140). The provider is built by the production builder and accounted as production
 //! accounts it, over the hub's clock: every request, the whole result (`generationMs` included), the callbacks in order
 //! and the ledger rows are compared with Node's.
-
-
-
-
-
-
-

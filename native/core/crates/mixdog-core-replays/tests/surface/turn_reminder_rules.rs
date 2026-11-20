@@ -60,7 +60,11 @@ fn a_turn_carries_every_pending_reminder_in_a_fixed_order_joined_by_a_blank_line
     let order = ["WORKFLOW-TEXT", "SETTINGS-TEXT", "MODE-TEXT", "# Working Folder Changed", "SETUP-TEXT", "# Current Time", "GOAL-TEXT"];
     let at: Vec<usize> = order.iter().map(|marker| reminders.block.find(marker).unwrap_or_else(|| panic!("{marker} is in the block"))).collect();
     assert!(at.windows(2).all(|pair| pair[0] < pair[1]), "workflow, settings, mode, folder, setup, time, goal: {at:?}");
-    assert!(reminders.block.starts_with("WORKFLOW-TEXT\n\nSETTINGS-TEXT\n\nMODE-TEXT\n\n<system-reminder>\n# Working Folder Changed\nThe working folder is now /new."));
+    assert!(
+        reminders
+            .block
+            .starts_with("WORKFLOW-TEXT\n\nSETTINGS-TEXT\n\nMODE-TEXT\n\n<system-reminder>\n# Working Folder Changed\nThe working folder is now /new.")
+    );
     assert!(reminders.block.ends_with("\n\nGOAL-TEXT"));
     assert_eq!(reminders.agent_listing, None);
 }
@@ -183,5 +187,8 @@ fn a_retried_turn_resends_its_message_and_acknowledges_only_its_settings_notice(
     let session = staged_session();
     let (resent, revisions) = resubmit(&message, &session, &[], None).expect("the retry builds");
     assert_eq!(resent, message, "no agent list change: the message goes again as it was");
-    assert_eq!((revisions.settings, revisions.workflow, revisions.orchestration, revisions.workspace, revisions.setup, revisions.deferred), (Some(3), None, None, None, None, None));
+    assert_eq!(
+        (revisions.settings, revisions.workflow, revisions.orchestration, revisions.workspace, revisions.setup, revisions.deferred),
+        (Some(3), None, None, None, None, None)
+    );
 }

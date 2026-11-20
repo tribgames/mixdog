@@ -14,9 +14,7 @@ use mixdog_pdf::{Obj, Ref};
 
 use crate::content_ops::{PageInk, Wrapped, form_error, plain};
 use crate::document::AnalysisError;
-use crate::forms::{
-    Field, FieldKind, PdfForm, Widget, button_value, field_name, widget_rectangle, widgets_of,
-};
+use crate::forms::{Field, FieldKind, PdfForm, Widget, button_value, field_name, widget_rectangle, widgets_of};
 
 /// The page a widget is on: the one its `P` names, else the one whose annotations list it.
 fn widget_page(document: &PdfDocument, widget: &Widget) -> Result<Ref, AnalysisError> {

@@ -4,6 +4,3 @@
 //! Responses). Each provider is built by the production builder from the recorded configuration and sends the recorded
 //! turn over the recorder's hub: every request is compared whole with Node's, the answer whole with Node's result, and
 //! the stream callbacks in order.
-
-
-

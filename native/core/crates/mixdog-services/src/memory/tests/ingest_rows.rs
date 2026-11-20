@@ -16,7 +16,8 @@ const NOW: i64 = 1_773_543_600_000;
 async fn open(pg: &TestPg) -> (Db, SessionIngest) {
     let db = pg.db(Schema::Memory).await;
     ensure_memory_schema(&db, 384, &json!({ "model": "test" })).await.expect("schema");
-    let ingest = SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, Arc::new(|| NOW), mixdog_rt::testing::tokens().durability_io);
+    let ingest =
+        SessionIngest::new(db.clone(), Arc::new(RawEmbedFlush::new(db.clone(), None)), None, Arc::new(|| NOW), mixdog_rt::testing::tokens().durability_io);
     (db, ingest)
 }
 
@@ -55,7 +56,10 @@ async fn a_transcript_is_stored_row_by_row_and_a_repeated_message_keeps_its_own_
     let (db, ingest) = open(&pg).await;
     assert_eq!(send(&ingest, "s1", Some(transcript())).await, "ingest_session: considered=4 inserted=4 session=s1");
     let stored = rows(&db, "s1").await;
-    assert_eq!(stored.iter().map(|(role, content, _)| (role.as_str(), content.as_str())).collect::<Vec<_>>(), [("user", "please deploy the staging cluster"), ("assistant", "Deploying the staging cluster now."), ("user", "thanks"), ("user", "thanks")]);
+    assert_eq!(
+        stored.iter().map(|(role, content, _)| (role.as_str(), content.as_str())).collect::<Vec<_>>(),
+        [("user", "please deploy the staging cluster"), ("assistant", "Deploying the staging cluster now."), ("user", "thanks"), ("user", "thanks")]
+    );
     assert!(stored.iter().all(|(_, _, embedded)| !embedded), "no model, no vectors");
 }
 

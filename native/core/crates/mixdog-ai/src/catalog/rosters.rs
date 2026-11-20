@@ -102,17 +102,10 @@ fn model_aliases(model: &str) -> Vec<String> {
     }
     let mut out = vec![text.to_owned()];
     let bytes = text.as_bytes();
-    let dashed = bytes.len() >= 11
-        && text.is_char_boundary(text.len() - 11)
-        && {
-            let tail = &text[text.len() - 11..];
-            tail.starts_with('-')
-                && all_digits(&tail[1..5])
-                && &tail[5..6] == "-"
-                && all_digits(&tail[6..8])
-                && &tail[8..9] == "-"
-                && all_digits(&tail[9..11])
-        };
+    let dashed = bytes.len() >= 11 && text.is_char_boundary(text.len() - 11) && {
+        let tail = &text[text.len() - 11..];
+        tail.starts_with('-') && all_digits(&tail[1..5]) && &tail[5..6] == "-" && all_digits(&tail[6..8]) && &tail[8..9] == "-" && all_digits(&tail[9..11])
+    };
     if dashed {
         out.push(text[..text.len() - 11].to_owned());
     }
@@ -223,10 +216,7 @@ impl Rosters {
     pub fn windows(&self, provider: &str, model: &str) -> Option<CachedWindows> {
         let row = self.row(provider, model)?;
         let window = |value: f64| if value.is_nan() { 0.0 } else { value };
-        let context_window = window(number(nullish(
-            nullish(row.get("contextWindow"), row.get("context_window")),
-            row.get("max_input_tokens"),
-        )));
+        let context_window = window(number(nullish(nullish(row.get("contextWindow"), row.get("context_window")), row.get("max_input_tokens"))));
         let max_context_window = window(number(nullish(row.get("maxContextWindow"), row.get("max_context_window"))));
         (context_window > 0.0 || max_context_window > 0.0).then_some(CachedWindows { context_window, max_context_window })
     }

@@ -32,15 +32,7 @@ struct Billed {
 
 impl DecodedStream {
     pub fn new(body: Box<dyn BodyStream>, decoder: Box<dyn WireDecoder>) -> Self {
-        Self {
-            body,
-            decoder,
-            queue: VecDeque::new(),
-            ended: false,
-            fault_code: None,
-            fault_prefix: None,
-            billed: None,
-        }
+        Self { body, decoder, queue: VecDeque::new(), ended: false, fault_code: None, fault_prefix: None, billed: None }
     }
 
     /// The words put before a body fault's `terminated` (undici's error for a `fetch` body whose socket failed); without

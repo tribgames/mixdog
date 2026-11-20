@@ -16,7 +16,7 @@ use serde_json::Value;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock};
 use std::time::Duration;
 use windows::Win32::System::Performance::{QueryPerformanceCounter, QueryPerformanceFrequency};
-use windows::Win32::UI::WindowsAndMessaging::{LockSetForegroundWindow, LSFW_LOCK, LSFW_UNLOCK};
+use windows::Win32::UI::WindowsAndMessaging::{LSFW_LOCK, LSFW_UNLOCK, LockSetForegroundWindow};
 
 /// Unlock attempts of one release of this process's own lock, 10 ms apart
 /// (MixForegroundLock.UnlockAttempts).
@@ -37,11 +37,7 @@ pub fn lease_now_ms() -> f64 {
     let mut count = 0i64;
     // SAFETY: the out pointer is a live local.
     let _ = unsafe { QueryPerformanceCounter(&mut count) };
-    if ticks_per_ms > 0.0 {
-        count as f64 / ticks_per_ms
-    } else {
-        0.0
-    }
+    if ticks_per_ms > 0.0 { count as f64 / ticks_per_ms } else { 0.0 }
 }
 
 /// A lease-clock value as the facts carry it, to 0.1 ms (MixLeaseClock.Round;
@@ -53,10 +49,7 @@ pub fn round1(value: f64) -> f64 {
 /// Wall-clock milliseconds, which line the lease-clock timestamps up with
 /// evidence taken outside this process (the requested_epoch_ms fact).
 fn epoch_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as u64)
-        .unwrap_or(0)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|elapsed| elapsed.as_millis() as u64).unwrap_or(0)
 }
 
 /// An unlock that did not unlock.
@@ -100,8 +93,7 @@ impl LockNative for SystemLock {
     }
     fn unlock(&self) -> Result<(), UnlockError> {
         // SAFETY: a plain value argument.
-        unsafe { LockSetForegroundWindow(LSFW_UNLOCK) }
-            .map_err(|error| UnlockError::NotHeld(win32_code(&error)))
+        unsafe { LockSetForegroundWindow(LSFW_UNLOCK) }.map_err(|error| UnlockError::NotHeld(win32_code(&error)))
     }
     fn now_ms(&self) -> f64 {
         lease_now_ms()
@@ -254,13 +246,8 @@ impl<N: LockNative> Inner<N> {
             };
             let left = state.deadline_at - self.native.now_ms();
             if left > 0.0 {
-                let wait = Duration::try_from_secs_f64(left.ceil() / 1000.0)
-                    .unwrap_or(Duration::from_millis(u64::from(UNLOCK_RETRY_MS)));
-                state = self
-                    .wake
-                    .wait_timeout(state, wait)
-                    .map(|(state, _)| state)
-                    .unwrap_or_else(|poisoned| poisoned.into_inner().0);
+                let wait = Duration::try_from_secs_f64(left.ceil() / 1000.0).unwrap_or(Duration::from_millis(u64::from(UNLOCK_RETRY_MS)));
+                state = self.wake.wait_timeout(state, wait).map(|(state, _)| state).unwrap_or_else(|poisoned| poisoned.into_inner().0);
                 continue;
             }
             state.armed = None;
@@ -301,10 +288,7 @@ impl<N: LockNative> ForegroundLock<N> {
     pub fn new(native: N) -> Self {
         let mut lock = Self::untimed(native);
         let inner = Arc::clone(&lock.inner);
-        lock.timed = std::thread::Builder::new()
-            .name("mixdog foreground lock deadline".into())
-            .spawn(move || inner.serve_deadlines())
-            .is_ok();
+        lock.timed = std::thread::Builder::new().name("mixdog foreground lock deadline".into()).spawn(move || inner.serve_deadlines()).is_ok();
         lock
     }
 
@@ -463,8 +447,8 @@ impl<N: LockNative> Drop for ForegroundLock<N> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU8, Ordering};
-    use std::sync::mpsc::{channel, Receiver, Sender};
+    use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU32, Ordering};
+    use std::sync::mpsc::{Receiver, Sender, channel};
 
     const WAIT: Duration = Duration::from_secs(10);
 
@@ -492,11 +476,7 @@ mod tests {
     impl LockNative for Arc<Fake> {
         fn lock(&self) -> Result<(), u32> {
             self.lock_calls.fetch_add(1, Ordering::SeqCst);
-            if self.lock_refused.load(Ordering::SeqCst) {
-                Err(5)
-            } else {
-                Ok(())
-            }
+            if self.lock_refused.load(Ordering::SeqCst) { Err(5) } else { Ok(()) }
         }
         fn unlock(&self) -> Result<(), UnlockError> {
             self.unlock_calls.fetch_add(1, Ordering::SeqCst);
@@ -578,16 +558,10 @@ mod tests {
 
     #[test]
     fn outcome_words_match_the_lease_protocol() {
-        let words: Vec<&str> = [
-            ReleaseOutcome::Released,
-            ReleaseOutcome::Unknown,
-            ReleaseOutcome::Failed,
-            ReleaseOutcome::NoAck,
-            ReleaseOutcome::None,
-        ]
-        .into_iter()
-        .map(ReleaseOutcome::as_str)
-        .collect();
+        let words: Vec<&str> = [ReleaseOutcome::Released, ReleaseOutcome::Unknown, ReleaseOutcome::Failed, ReleaseOutcome::NoAck, ReleaseOutcome::None]
+            .into_iter()
+            .map(ReleaseOutcome::as_str)
+            .collect();
         assert_eq!(words, ["released", "unknown", "failed", "no_ack", "none"]);
     }
 

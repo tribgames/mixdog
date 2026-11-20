@@ -9,11 +9,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use flate2::{Compress, Compression, Decompress, FlushCompress, FlushDecompress};
+use mixdog_rt::time::{Instant, timeout, timeout_at};
 use rustls::ClientConfig;
 use rustls::pki_types::ServerName;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
-use mixdog_rt::time::{Instant, timeout, timeout_at};
 use tokio_rustls::TlsConnector;
 use tokio_rustls::client::TlsStream;
 
@@ -27,11 +27,7 @@ pub struct Timeouts {
 
 impl Default for Timeouts {
     fn default() -> Self {
-        Self {
-            connection: Duration::from_millis(20_000),
-            greeting: Duration::from_millis(15_000),
-            socket: Duration::from_millis(60_000),
-        }
+        Self { connection: Duration::from_millis(20_000), greeting: Duration::from_millis(15_000), socket: Duration::from_millis(60_000) }
     }
 }
 
@@ -104,9 +100,7 @@ fn tls_failure(error: &io::Error) -> Failure {
         C::Expired | C::ExpiredContext { .. } => ("CERT_HAS_EXPIRED", "certificate has expired"),
         C::NotValidYet | C::NotValidYetContext { .. } => ("CERT_NOT_YET_VALID", "certificate is not yet valid"),
         C::UnknownIssuer => ("UNABLE_TO_VERIFY_LEAF_SIGNATURE", "unable to verify the first certificate"),
-        C::NotValidForName | C::NotValidForNameContext { .. } => {
-            ("ERR_TLS_CERT_ALTNAME_INVALID", "Hostname/IP does not match certificate's altnames")
-        }
+        C::NotValidForName | C::NotValidForNameContext { .. } => ("ERR_TLS_CERT_ALTNAME_INVALID", "Hostname/IP does not match certificate's altnames"),
         C::Revoked => ("CERT_REVOKED", "certificate revoked"),
         _ => return Failure::new("", error.to_string()),
     };
@@ -141,8 +135,7 @@ pub async fn connect(
             }
         }
         let tcp = tcp.ok_or_else(|| last.unwrap_or_default())?;
-        let name = ServerName::try_from(target.host.clone())
-            .map_err(|error| Failure::new("ERR_INVALID_ARG_VALUE", error.to_string()))?;
+        let name = ServerName::try_from(target.host.clone()).map_err(|error| Failure::new("ERR_INVALID_ARG_VALUE", error.to_string()))?;
         TlsConnector::from(tls.clone()).connect(name, tcp).await.map_err(|error| tls_failure(&error))
     };
     match timeout_at(deadline, work).await {
@@ -171,9 +164,7 @@ fn inflate(decompress: &mut Decompress, mut input: &[u8], out: &mut Vec<u8>) -> 
     loop {
         out.reserve(8192);
         let (read_before, written_before) = (decompress.total_in(), decompress.total_out());
-        decompress
-            .decompress_vec(input, out, FlushDecompress::Sync)
-            .map_err(|e| Failure::new("ZlibError", e.to_string()))?;
+        decompress.decompress_vec(input, out, FlushDecompress::Sync).map_err(|e| Failure::new("ZlibError", e.to_string()))?;
         let used = usize::try_from(decompress.total_in() - read_before).unwrap_or(input.len());
         input = &input[used..];
         let made_progress = used > 0 || decompress.total_out() > written_before;

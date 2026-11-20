@@ -135,13 +135,28 @@ mod tests {
 
     #[async_trait]
     impl Spawn for Fake {
-        async fn run(&self, _: &str, args: &[String], _: &Path, _: std::time::Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> ProcessResult {
+        async fn run(
+            &self,
+            _: &str,
+            args: &[String],
+            _: &Path,
+            _: std::time::Duration,
+            _: Option<&CancellationToken>,
+            _: Option<&HashMap<String, String>>,
+            _: Option<Vec<u8>>,
+        ) -> ProcessResult {
             (self.0)(args)
         }
     }
 
     fn request(files: &[&str], reply: impl Fn(&[String]) -> ProcessResult + Send + Sync + 'static) -> RunRequest {
-        RunRequest::new(Path::new(CWD), "engine", files.iter().map(|f| (*f).to_owned()).collect(), Arc::new(Fake(Box::new(reply))), mixdog_rt::testing::tokens().durability_io)
+        RunRequest::new(
+            Path::new(CWD),
+            "engine",
+            files.iter().map(|f| (*f).to_owned()).collect(),
+            Arc::new(Fake(Box::new(reply))),
+            mixdog_rt::testing::tokens().durability_io,
+        )
     }
 
     #[test]
@@ -164,9 +179,18 @@ mod tests {
     async fn findings_of_every_spawn_are_kept_and_a_file_shellcheck_could_not_open_is_unprocessed() {
         // One JSON document per spawn; exit 2 with the other files' findings still printed.
         let shellcheck = |args: &[String]| {
-            let rows: Vec<Value> = args.iter().filter(|a| a.starts_with("warn")).map(|a| serde_json::json!({"file": a, "line": 1, "column": 1, "code": 2086, "level": "info", "message": "Quote"})).collect();
+            let rows: Vec<Value> = args
+                .iter()
+                .filter(|a| a.starts_with("warn"))
+                .map(|a| serde_json::json!({"file": a, "line": 1, "column": 1, "code": 2086, "level": "info", "message": "Quote"}))
+                .collect();
             match args.iter().find(|a| a.starts_with("gone")) {
-                Some(gone) => ProcessResult { code: 2, stdout: Value::Array(rows).to_string(), stderr: format!("{gone}: openBinaryFile: does not exist"), ..Default::default() },
+                Some(gone) => ProcessResult {
+                    code: 2,
+                    stdout: Value::Array(rows).to_string(),
+                    stderr: format!("{gone}: openBinaryFile: does not exist"),
+                    ..Default::default()
+                },
                 None => ProcessResult { code: i32::from(!rows.is_empty()), stdout: Value::Array(rows).to_string(), ..Default::default() },
             }
         };
@@ -179,9 +203,15 @@ mod tests {
 
     #[tokio::test]
     async fn an_eslint_that_cannot_lint_is_a_failure_and_ignored_files_are_not_counted_as_checked() {
-        let fatal = |_: &[String]| ProcessResult { code: 2, stderr: "Oops! Something went wrong! ESLint couldn't find a configuration file.".into(), ..Default::default() };
+        let fatal = |_: &[String]| ProcessResult {
+            code: 2,
+            stderr: "Oops! Something went wrong! ESLint couldn't find a configuration file.".into(),
+            ..Default::default()
+        };
         assert!(Eslint.check(&request(&["a.js", "b.js"], fatal)).await.error.is_some_and(|e| e.contains("configuration file")));
-        let ignoring = |_: &[String]| ProcessResult { stdout: r#"[{"filePath":"/r/a.js","messages":[]},{"filePath":"/r/dist/c.js","messages":[{"ruleId":null,"severity":1,"message":"File ignored by default."}]}]"#.into(), ..Default::default() };
+        let ignoring = |_: &[String]| {
+            ProcessResult { stdout: r#"[{"filePath":"/r/a.js","messages":[]},{"filePath":"/r/dist/c.js","messages":[{"ruleId":null,"severity":1,"message":"File ignored by default."}]}]"#.into(), ..Default::default() }
+        };
         let out = Eslint.check(&request(&["a.js", "dist/c.js"], ignoring)).await;
         assert_eq!((out.files_checked, out.ignored.clone(), out.diagnostics.len()), (Some(1), vec!["dist/c.js".to_owned()], 0));
     }

@@ -74,11 +74,7 @@ pub fn xterm256_rgb(index: u8) -> Option<(u8, u8, u8)> {
 
 /// The codes of one SGR sequence; a sequence with no codes is a reset.
 fn parse_codes(parameters: &str) -> Vec<i64> {
-    let codes: Vec<i64> = parameters
-        .split(';')
-        .filter(|part| !part.is_empty())
-        .map(|part| part.parse::<i64>().unwrap_or(i64::MAX))
-        .collect();
+    let codes: Vec<i64> = parameters.split(';').filter(|part| !part.is_empty()).map(|part| part.parse::<i64>().unwrap_or(i64::MAX)).collect();
     if codes.is_empty() { vec![0] } else { codes }
 }
 
@@ -236,8 +232,7 @@ mod tests {
     #[test]
     fn named_colours_and_their_reset() {
         let lines = runs("a\x1b[31mb\x1b[39mc\x1b[92md\x1b[44me\x1b[49m");
-        let colours: Vec<(Option<SgrColor>, Option<SgrColor>)> =
-            lines[0].iter().map(|(_, style)| (style.foreground, style.background)).collect();
+        let colours: Vec<(Option<SgrColor>, Option<SgrColor>)> = lines[0].iter().map(|(_, style)| (style.foreground, style.background)).collect();
         assert_eq!(
             colours,
             [
@@ -306,8 +301,7 @@ mod tests {
     #[test]
     fn hyperlinks_become_the_link_of_their_runs() {
         let lines = parse_sgr("a\x1b]8;id=1;http://u/a;b\x07b\x1b[1mc\x1b]8;;\x07d");
-        let shape: Vec<(&str, Option<&str>)> =
-            lines[0].runs.iter().map(|run| (run.text.as_str(), run.link.as_ref().map(|l| l.uri.as_str()))).collect();
+        let shape: Vec<(&str, Option<&str>)> = lines[0].runs.iter().map(|run| (run.text.as_str(), run.link.as_ref().map(|l| l.uri.as_str()))).collect();
         assert_eq!(shape, [("a", None), ("b", Some("http://u/a;b")), ("c", Some("http://u/a;b")), ("d", None)]);
         assert_eq!(lines[0].runs[1].link.as_ref().map(|l| l.parameters.as_str()), Some("id=1"));
         let terminated = parse_sgr("\x1b]8;;http://u\x1b\\x");

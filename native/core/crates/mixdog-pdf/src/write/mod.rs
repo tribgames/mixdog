@@ -15,14 +15,14 @@
 //! Not carried over from `PDFDocument.save`: the update of form field appearances (forms are another module's) and
 //! `addDefaultPage` (the office code always passes `false`).
 
-pub mod info;
-pub mod object_streams;
-mod serialize;
-pub mod store;
 pub mod attachments;
 pub mod copy_pages;
+pub mod info;
+pub mod object_streams;
 pub mod outline;
 pub mod pages;
+mod serialize;
+pub mod store;
 
 use std::collections::HashSet;
 use std::fmt;
@@ -57,9 +57,7 @@ impl fmt::Display for WriteError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             WriteError::Pdf(error) => write!(f, "{error}"),
-            WriteError::Encrypted => f.write_str(
-                "Input document is encrypted: load it with ignore_encryption to read its structure",
-            ),
+            WriteError::Encrypted => f.write_str("Input document is encrypted: load it with ignore_encryption to read its structure"),
             WriteError::Invalid(message) => f.write_str(message),
         }
     }
@@ -93,9 +91,7 @@ pub struct SaveOptions {
 impl Default for SaveOptions {
     /// pdf-lib's default, and the office code's `SAVE_OPTIONS`.
     fn default() -> Self {
-        SaveOptions {
-            use_object_streams: true,
-        }
+        SaveOptions { use_object_streams: true }
     }
 }
 
@@ -116,14 +112,7 @@ impl Decryptor for CipheredAsStored {
         Ok(data.to_vec())
     }
 
-    fn decrypt_stream(
-        &self,
-        _num: i64,
-        _generation: i64,
-        data: &[u8],
-        _crypt_name: Option<&str>,
-        _embedded_file: bool,
-    ) -> crate::Result<Vec<u8>> {
+    fn decrypt_stream(&self, _num: i64, _generation: i64, data: &[u8], _crypt_name: Option<&str>, _embedded_file: bool) -> crate::Result<Vec<u8>> {
         Ok(data.to_vec())
     }
 }
@@ -173,18 +162,13 @@ fn read_objects(xref: &Xref, guard: &Guard, recovered: bool) -> Result<ObjectSto
     Ok(store)
 }
 
-
 impl std::error::Error for WriteError {}
 impl PdfDocument {
     /// `PDFDocument.load(bytes, { ignoreEncryption, updateMetadata: false })`.
     pub fn load(data: impl Into<Arc<[u8]>>, options: &LoadOptions) -> Result<PdfDocument, WriteError> {
         let xref = Xref::open(
             data.into(),
-            XrefOptions {
-                filters: options.filters.clone(),
-                decryptor: Some(Arc::new(CipheredAsStored)),
-                guard: options.guard.clone(),
-            },
+            XrefOptions { filters: options.filters.clone(), decryptor: Some(Arc::new(CipheredAsStored)), guard: options.guard.clone() },
         )?;
         let encrypted = xref.is_encrypted();
         if encrypted && !options.ignore_encryption {
@@ -204,9 +188,7 @@ impl PdfDocument {
                 Err(error) => return Err(error.into()),
             }
         };
-        let trailer = xref
-            .trailer()
-            .ok_or_else(|| WriteError::Invalid("the file has no trailer".to_owned()))?;
+        let trailer = xref.trailer().ok_or_else(|| WriteError::Invalid("the file has no trailer".to_owned()))?;
         let mut referenced = |key: &str| -> Option<Ref> {
             match trailer.get_raw(key)? {
                 Obj::Ref(r) => Some(*r),
@@ -225,21 +207,14 @@ impl PdfDocument {
             array @ Obj::Array(_) => Some(array),
             _ => None,
         };
-        store.trailer = TrailerInfo {
-            root,
-            encrypt,
-            info,
-            id,
-        };
+        store.trailer = TrailerInfo { root, encrypt, info, id };
         Ok(PdfDocument { store, encrypted })
     }
 
     /// `PDFDocument.create()` at the current time: a catalog and a page tree with no page, and the metadata a new
     /// document gets (`Producer`, `Creator`, `CreationDate`, `ModDate`).
     pub fn create() -> PdfDocument {
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |elapsed| i64::try_from(elapsed.as_secs()).unwrap_or(0));
+        let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |elapsed| i64::try_from(elapsed.as_secs()).unwrap_or(0));
         PdfDocument::create_at(now)
     }
 
@@ -256,10 +231,7 @@ impl PdfDocument {
         catalog.set("Pages", Obj::Ref(pages_ref));
         let catalog_ref = store.register(Obj::Dict(Arc::new(catalog)));
         store.trailer.root = Some(catalog_ref);
-        let mut document = PdfDocument {
-            store,
-            encrypted: false,
-        };
+        let mut document = PdfDocument { store, encrypted: false };
         document.update_info_dict(now_unix_seconds);
         document
     }
@@ -284,21 +256,12 @@ impl PdfDocument {
 
     /// `PDFDocument.save`: the whole file again.
     pub fn save(&self, options: SaveOptions) -> Vec<u8> {
-        if options.use_object_streams {
-            object_streams::save_with_object_streams(&self.store, self.encrypted)
-        } else {
-            serialize::save_classic(&self.store)
-        }
+        if options.use_object_streams { object_streams::save_with_object_streams(&self.store, self.encrypted) } else { serialize::save_classic(&self.store) }
     }
 
     /// The decoded data of the stream object `r` (decrypted data is not available here: an encrypted file's streams
     /// are ciphered, so this is meaningful for the streams of a plain file and the ones made by this crate).
-    pub fn decode_stream(
-        &self,
-        r: Ref,
-        filters: &dyn StreamFilters,
-        guard: &Guard,
-    ) -> Result<Vec<u8>, WriteError> {
+    pub fn decode_stream(&self, r: Ref, filters: &dyn StreamFilters, guard: &Guard) -> Result<Vec<u8>, WriteError> {
         match self.store.get(r) {
             Some(Obj::Stream(stream)) => Ok(stream.decode(filters, guard)?),
             _ => Err(WriteError::Invalid(format!("{r} is not a stream"))),
@@ -356,22 +319,12 @@ impl PdfDocument {
     /// `addPage([width, height])`: a page with an empty resource dictionary and the given `MediaBox`, appended to the
     /// root of the page tree.
     pub fn add_page(&mut self, width: f64, height: f64) -> Result<Ref, WriteError> {
-        let root = self
-            .pages_root()
-            .ok_or_else(|| WriteError::Invalid("the document has no page tree".to_owned()))?;
+        let root = self.pages_root().ok_or_else(|| WriteError::Invalid("the document has no page tree".to_owned()))?;
         let mut page = Dict::new();
         page.set("Type", Obj::name("Page"));
         page.set("Parent", Obj::Ref(root));
         page.set("Resources", Obj::Dict(Arc::new(Dict::new())));
-        page.set(
-            "MediaBox",
-            Obj::Array(Arc::new(vec![
-                Obj::Num(0.0),
-                Obj::Num(0.0),
-                Obj::Num(width),
-                Obj::Num(height),
-            ])),
-        );
+        page.set("MediaBox", Obj::Array(Arc::new(vec![Obj::Num(0.0), Obj::Num(0.0), Obj::Num(width), Obj::Num(height)])));
         let page_ref = self.store.register(Obj::Dict(Arc::new(page)));
         let counted = self.page_count() + 1;
         let attached = self.store.modify_dict(root, |tree| {
@@ -408,10 +361,7 @@ impl PdfDocument {
             return Err(WriteError::Invalid("a page box is not an array".to_owned()));
         };
         if items.len() != 4 {
-            return Err(WriteError::Invalid(format!(
-                "Tried to convert a PDFArray of length {} to a rectangle",
-                items.len()
-            )));
+            return Err(WriteError::Invalid(format!("Tried to convert a PDFArray of length {} to a rectangle", items.len())));
         }
         let mut corner = [0.0f64; 4];
         for (slot, item) in corner.iter_mut().zip(items.iter()) {
@@ -421,12 +371,7 @@ impl PdfDocument {
                 .and_then(Obj::as_num)
                 .ok_or_else(|| WriteError::Invalid("a page box holds a value that is not a number".to_owned()))?;
         }
-        Ok(Rect {
-            x: corner[0],
-            y: corner[1],
-            width: corner[2] - corner[0],
-            height: corner[3] - corner[1],
-        })
+        Ok(Rect { x: corner[0], y: corner[1], width: corner[2] - corner[0], height: corner[3] - corner[1] })
     }
 
     fn own_box(&self, page: Ref, key: &str) -> Result<Option<Rect>, WriteError> {

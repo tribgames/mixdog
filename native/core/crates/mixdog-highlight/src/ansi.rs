@@ -40,10 +40,7 @@ impl SgrStyle {
 
     /// `chalk.rgb(r, g, b)` at truecolor level: `ESC[38;2;r;g;bm` closed by `ESC[39m`.
     pub fn foreground_rgb(r: u8, g: u8, b: u8) -> Self {
-        Self::from_layers(vec![SgrPair {
-            open: format!("\u{1b}[38;2;{r};{g};{b}m"),
-            close: "\u{1b}[39m".to_string(),
-        }])
+        Self::from_layers(vec![SgrPair { open: format!("\u{1b}[38;2;{r};{g};{b}m"), close: "\u{1b}[39m".to_string() }])
     }
 
     /// chalk 5's `applyStyle` at a colour level above 0.
@@ -115,10 +112,7 @@ pub struct HighlightTheme {
 /// A node of the re-read HTML.
 enum Node {
     Text(String),
-    Tag {
-        class: Option<String>,
-        children: Vec<Node>,
-    },
+    Tag { class: Option<String>, children: Vec<Node> },
 }
 
 /// `parse5.parseFragment` of the markup highlight.js writes: `<span class="...">`, `</span>` and the five
@@ -127,13 +121,7 @@ enum Node {
 fn parse_fragment(html: &str) -> Vec<Node> {
     const OPEN: &str = "<span class=\"";
     const CLOSE: &str = "</span>";
-    const ENTITIES: [(&str, char); 5] = [
-        ("&amp;", '&'),
-        ("&lt;", '<'),
-        ("&gt;", '>'),
-        ("&quot;", '"'),
-        ("&#x27;", '\''),
-    ];
+    const ENTITIES: [(&str, char); 5] = [("&amp;", '&'), ("&lt;", '<'), ("&gt;", '>'), ("&quot;", '"'), ("&#x27;", '\'')];
 
     let mut stack: Vec<(Option<String>, Vec<Node>)> = vec![(None, Vec::new())];
     let mut text = String::new();
@@ -195,10 +183,7 @@ fn parse_fragment(html: &str) -> Vec<Node> {
             parent.1.push(Node::Tag { class, children });
         }
     }
-    stack
-        .pop()
-        .map(|(_, children)| children)
-        .unwrap_or_default()
+    stack.pop().map(|(_, children)| children).unwrap_or_default()
 }
 
 /// `/hljs-(\w+)/.exec(class)[1]`: the word after the first `hljs-` that has one.
@@ -207,9 +192,7 @@ fn hljs_token(class: &str) -> Option<&str> {
     let mut from = 0;
     while let Some(found) = class[from..].find("hljs-") {
         let start = from + found + "hljs-".len();
-        let word_len = class[start..]
-            .find(|c: char| !is_word(c))
-            .unwrap_or(class.len() - start);
+        let word_len = class[start..].find(|c: char| !is_word(c)).unwrap_or(class.len() - start);
         if word_len > 0 {
             return Some(&class[start..start + word_len]);
         }
@@ -229,30 +212,21 @@ fn colorize_node(node: &Node, theme: &HighlightTheme, in_token: bool) -> String 
         }
         Node::Tag { class, children } => match class.as_deref().and_then(hljs_token) {
             Some(token) => {
-                let data: String = children
-                    .iter()
-                    .map(|child| colorize_node(child, theme, true))
-                    .collect();
+                let data: String = children.iter().map(|child| colorize_node(child, theme, true)).collect();
                 match theme.classes.get(token) {
                     Some(style) => style.apply(&data),
                     None => data,
                 }
             }
             // A class that is not highlight.js's (a sub-language wrapper): its children are read afresh.
-            None => children
-                .iter()
-                .map(|child| colorize_node(child, theme, false))
-                .collect(),
+            None => children.iter().map(|child| colorize_node(child, theme, false)).collect(),
         },
     }
 }
 
 /// `colorize(code, theme)`: highlight.js HTML to ANSI.
 pub fn colorize(html: &str, theme: &HighlightTheme) -> String {
-    parse_fragment(html)
-        .iter()
-        .map(|node| colorize_node(node, theme, false))
-        .collect()
+    parse_fragment(html).iter().map(|node| colorize_node(node, theme, false)).collect()
 }
 
 #[cfg(test)]
@@ -268,10 +242,7 @@ mod tests {
         classes.insert("keyword".to_string(), red());
         classes.insert("string".to_string(), SgrStyle::foreground_rgb(0, 255, 0));
         classes.insert("meta".to_string(), SgrStyle::foreground_rgb(1, 2, 3));
-        HighlightTheme {
-            classes,
-            default: SgrStyle::foreground_rgb(9, 9, 9),
-        }
+        HighlightTheme { classes, default: SgrStyle::foreground_rgb(9, 9, 9) }
     }
 
     #[test]
@@ -285,36 +256,21 @@ mod tests {
     fn nested_styles_reopen_the_outer_one_after_the_inner_close() {
         let inner = SgrStyle::foreground_rgb(0, 255, 0).apply("b");
         let out = red().apply(&format!("a{inner}c"));
-        assert_eq!(
-            out,
-            "\u{1b}[38;2;255;0;0ma\u{1b}[38;2;0;255;0mb\u{1b}[39m\u{1b}[38;2;255;0;0mc\u{1b}[39m"
-        );
+        assert_eq!(out, "\u{1b}[38;2;255;0;0ma\u{1b}[38;2;0;255;0mb\u{1b}[39m\u{1b}[38;2;255;0;0mc\u{1b}[39m");
     }
 
     #[test]
     fn line_breaks_close_and_reopen_the_style() {
-        assert_eq!(
-            red().apply("a\r\nb\nc"),
-            "\u{1b}[38;2;255;0;0ma\u{1b}[39m\r\n\u{1b}[38;2;255;0;0mb\u{1b}[39m\n\u{1b}[38;2;255;0;0mc\u{1b}[39m"
-        );
+        assert_eq!(red().apply("a\r\nb\nc"), "\u{1b}[38;2;255;0;0ma\u{1b}[39m\r\n\u{1b}[38;2;255;0;0mb\u{1b}[39m\n\u{1b}[38;2;255;0;0mc\u{1b}[39m");
     }
 
     #[test]
     fn layers_of_a_chain_close_in_reverse_order() {
         let bold_red = SgrStyle::from_layers(vec![
-            SgrPair {
-                open: "\u{1b}[1m".to_string(),
-                close: "\u{1b}[22m".to_string(),
-            },
-            SgrPair {
-                open: "\u{1b}[31m".to_string(),
-                close: "\u{1b}[39m".to_string(),
-            },
+            SgrPair { open: "\u{1b}[1m".to_string(), close: "\u{1b}[22m".to_string() },
+            SgrPair { open: "\u{1b}[31m".to_string(), close: "\u{1b}[39m".to_string() },
         ]);
-        assert_eq!(
-            bold_red.apply("x"),
-            "\u{1b}[1m\u{1b}[31mx\u{1b}[39m\u{1b}[22m"
-        );
+        assert_eq!(bold_red.apply("x"), "\u{1b}[1m\u{1b}[31mx\u{1b}[39m\u{1b}[22m");
     }
 
     #[test]
@@ -330,10 +286,7 @@ mod tests {
     #[test]
     fn top_level_text_takes_the_default_style_and_a_known_class_its_own() {
         let html = "a <span class=\"hljs-keyword\">if</span> &lt;b&gt;";
-        assert_eq!(
-            colorize(html, &theme()),
-            "\u{1b}[38;2;9;9;9ma \u{1b}[39m\u{1b}[38;2;255;0;0mif\u{1b}[39m\u{1b}[38;2;9;9;9m <b>\u{1b}[39m"
-        );
+        assert_eq!(colorize(html, &theme()), "\u{1b}[38;2;9;9;9ma \u{1b}[39m\u{1b}[38;2;255;0;0mif\u{1b}[39m\u{1b}[38;2;9;9;9m <b>\u{1b}[39m");
     }
 
     #[test]
@@ -345,10 +298,7 @@ mod tests {
     #[test]
     fn a_wrapper_span_resets_the_context_to_default_text() {
         let html = "<span class=\"hljs-string\">'<span class=\"xml\">t</span>'</span>";
-        assert_eq!(
-            colorize(html, &theme()),
-            "\u{1b}[38;2;0;255;0m'\u{1b}[38;2;9;9;9mt\u{1b}[39m\u{1b}[38;2;0;255;0m'\u{1b}[39m"
-        );
+        assert_eq!(colorize(html, &theme()), "\u{1b}[38;2;0;255;0m'\u{1b}[38;2;9;9;9mt\u{1b}[39m\u{1b}[38;2;0;255;0m'\u{1b}[39m");
     }
 
     #[test]
@@ -359,9 +309,6 @@ mod tests {
 
     #[test]
     fn entities_decode_once() {
-        assert_eq!(
-            colorize("&amp;lt; &quot;&#x27;", &HighlightTheme::default()),
-            "&lt; \"'"
-        );
+        assert_eq!(colorize("&amp;lt; &quot;&#x27;", &HighlightTheme::default()), "&lt; \"'");
     }
 }

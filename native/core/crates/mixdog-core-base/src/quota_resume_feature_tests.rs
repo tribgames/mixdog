@@ -39,7 +39,10 @@ async fn a_schedule_queues_the_resume_under_the_next_generation_and_a_new_store_
         first.to_value(),
         json!({ "sessionId": "s1", "turnKey": "turn:a", "provider": "openai", "model": "gpt-5", "resetAt": 1_750_000_000_000u64, "attempts": 0, "generation": 1, "routeProvider": "anthropic", "routeModel": "claude-x" })
     );
-    assert_eq!(first.public(), json!({ "state": "waiting", "turnKey": "turn:a", "provider": "openai", "model": "gpt-5", "resetAt": 1_750_000_000_000u64, "attempts": 0 }));
+    assert_eq!(
+        first.public(),
+        json!({ "state": "waiting", "turnKey": "turn:a", "provider": "openai", "model": "gpt-5", "resetAt": 1_750_000_000_000u64, "attempts": 0 })
+    );
     assert_eq!(*heard.lock().unwrap(), [Some("s1".to_owned()), Some("s2".to_owned())]);
     let file = file_of(dir.path());
     assert_eq!((file["version"].clone(), file["generation"].clone()), (json!(1), json!(2)));

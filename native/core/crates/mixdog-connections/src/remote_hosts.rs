@@ -103,7 +103,9 @@ pub struct RedeemedPairCode {
 /// (in English; the key of each is its text) are all a person needs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PairRedeemError {
-    TooManyAttempts { retry_after_seconds: String },
+    TooManyAttempts {
+        retry_after_seconds: String,
+    },
     WrongOrExpired,
     /// An older relay: it answers without the fields of a redeemed code.
     NotAvailable,
@@ -152,12 +154,13 @@ pub async fn redeem_pair_code(relay_origin: &str, code: &str) -> Result<Redeemed
 fn redeemed_from(status: u16, body: &Value) -> Result<RedeemedPairCode, PairRedeemError> {
     let text = |name: &str| body.get(name).and_then(Value::as_str);
     if status == 200
-        && let (Some(device_id), Some(ticket)) = (text("deviceId"), text("ticket")) {
-            return Ok(RedeemedPairCode {
-                device_id: device_id.to_string(),
-                ticket: ticket.to_string(),
-                name: slice_utf16(text("name").unwrap_or(""), MAX_NAME_LENGTH),
-            });
+        && let (Some(device_id), Some(ticket)) = (text("deviceId"), text("ticket"))
+    {
+        return Ok(RedeemedPairCode {
+            device_id: device_id.to_string(),
+            ticket: ticket.to_string(),
+            name: slice_utf16(text("name").unwrap_or(""), MAX_NAME_LENGTH),
+        });
     }
     if status == 429 {
         let wait = body.get("retryAfter").map_or(0.0, js_number);
@@ -344,8 +347,7 @@ impl RemoteHostStore {
             if stored.len() >= MAX_SAVED_HOSTS {
                 return Err(StoreError::new("Too many saved computers. Forget one first."));
             }
-            let created =
-                StoredHost { id, name: label, alias: None, url: link.url.clone(), added_at: Number::from(now_ms()), last_connected_at: None };
+            let created = StoredHost { id, name: label, alias: None, url: link.url.clone(), added_at: Number::from(now_ms()), last_connected_at: None };
             let view = created.view();
             stored.push(created);
             Ok((view, true))

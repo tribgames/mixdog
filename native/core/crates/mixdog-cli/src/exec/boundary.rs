@@ -213,7 +213,14 @@ fn create_private_dir(path: &Path) -> std::io::Result<()> {
 
 /// The environment the run sees: every `MIXDOG_*` and credential variable of the host removed, the
 /// root's own paths, the contract's operational controls inherited, the guard variables forced.
-fn scrubbed_env(contract: &Value, host_env: &BTreeMap<String, String>, root: &Path, data: &Path, runtime: &Path, key_env: Option<&str>) -> BTreeMap<String, Option<String>> {
+fn scrubbed_env(
+    contract: &Value,
+    host_env: &BTreeMap<String, String>,
+    root: &Path,
+    data: &Path,
+    runtime: &Path,
+    key_env: Option<&str>,
+) -> BTreeMap<String, Option<String>> {
     let mut env: BTreeMap<String, Option<String>> = BTreeMap::new();
     for name in host_env.keys().filter(|name| name.starts_with("MIXDOG_")) {
         env.insert(name.clone(), None);
@@ -254,11 +261,7 @@ impl Boundary {
         let provider = clean(Some(request.provider)).to_owned();
         let model = clean(Some(request.model)).to_owned();
         let effort = clean(request.effort).to_lowercase();
-        let root_dir = tempfile::Builder::new()
-            .prefix("mixdog-headless-pristine-")
-            .tempdir_in(request.temp_dir)
-            .map_err(|err| err.to_string())?
-            .keep();
+        let root_dir = tempfile::Builder::new().prefix("mixdog-headless-pristine-").tempdir_in(request.temp_dir).map_err(|err| err.to_string())?.keep();
         let built = Self::populate(request, &contract, &provider, &model, &effort, &root_dir);
         if built.is_err() {
             // The root holds nothing but what this call wrote.
@@ -278,7 +281,8 @@ impl Boundary {
         if custom.is_none() && provider.starts_with("custom-") {
             return Err(format!("{provider} is a custom provider with no endpoint in a pristine run; pass --provider-config <file-or-json> to define it"));
         }
-        let api_key_env = contract["apiKeyProviders"].get(provider).and_then(Value::as_str).or_else(|| custom.as_ref().and_then(|entry| entry["apiKeyEnv"].as_str()));
+        let api_key_env =
+            contract["apiKeyProviders"].get(provider).and_then(Value::as_str).or_else(|| custom.as_ref().and_then(|entry| entry["apiKeyEnv"].as_str()));
         // Resolved before the environment is scrubbed: the selected provider may use any of its
         // standard names or its one keychain account, and nothing else is scanned.
         let api_key = match &custom {
@@ -292,7 +296,12 @@ impl Boundary {
         let mut credential = None;
         if let Some(oauth) = oauth {
             let credential_env = oauth["credentialPathEnv"].as_str().expect("credentialPathEnv");
-            let explicit = request.host_env.get(credential_env).filter(|path| !clean(Some(path)).is_empty()).map(|path| std::path::absolute(path).map_err(|err| err.to_string())).transpose()?;
+            let explicit = request
+                .host_env
+                .get(credential_env)
+                .filter(|path| !clean(Some(path)).is_empty())
+                .map(|path| std::path::absolute(path).map_err(|err| err.to_string()))
+                .transpose()?;
             let legacy = request.host_data_dir.join(oauth["credentialFile"].as_str().expect("credentialFile"));
             let source = explicit.unwrap_or_else(|| {
                 request
@@ -334,16 +343,7 @@ impl Boundary {
         }
         runtime_config["providers"] = json!({ provider: Value::Object(selected) });
         let audit = audit_document(contract, request, effort, config_bytes.as_bytes(), auth_mode, catalogs);
-        Ok(Self {
-            root_dir: root_dir.to_path_buf(),
-            data_dir,
-            runtime_root,
-            runtime_config,
-            credential,
-            env,
-            audit,
-            cleaned: AtomicBool::new(false),
-        })
+        Ok(Self { root_dir: root_dir.to_path_buf(), data_dir, runtime_root, runtime_config, credential, env, audit, cleaned: AtomicBool::new(false) })
     }
 
     /// Removes the root (once). Windows releases file handles a beat after the owner exits, so a

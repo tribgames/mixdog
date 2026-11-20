@@ -16,12 +16,12 @@ use std::sync::{Arc, Mutex};
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::host::HostBrowserSurfaceParams;
 use mixdog_app_protocol::v2::host::HostNotificationClickedParams;
-use mixdog_app_protocol::v2::host::UiOpenBrowser;
 use mixdog_app_protocol::v2::host::HostPowerParams;
 use mixdog_app_protocol::v2::host::HostRemoteTargetSetParams;
 use mixdog_app_protocol::v2::host::HostStateSetParams;
 use mixdog_app_protocol::v2::host::HostUpdateReportParams;
 use mixdog_app_protocol::v2::host::PowerEvent;
+use mixdog_app_protocol::v2::host::UiOpenBrowser;
 use mixdog_app_protocol::v2::screen_indicator::ScreenIndicatorStopParams;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
@@ -40,10 +40,10 @@ use serde_json::json;
 use url::Host;
 use url::Url;
 
+use mixdog_core_base::state::change_of;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::wrong_method;
-use mixdog_core_base::state::change_of;
 
 /// `hostState` key `remoteViewing`: the sessions a paired device views as a visualize panel,
 /// which Node answered per call as `visualizeRemoteViewing` (`viewsSessionLane`, rule in
@@ -58,9 +58,8 @@ pub fn remote_viewing_value(registry: &DeviceRegistry) -> Value {
 /// only for an enabled state whose id is at most 256 characters and a session id (`/^[A-Za-z0-9_-]+$/`). `enabled` and
 /// `cwd` are the rest of the state Node's `session.list` hands a client as `remoteSession` (`remote-state.mjs`).
 pub fn remote_session_value(enabled: bool, session_id: Option<&str>, cwd: Option<&str>) -> Value {
-    let kept = session_id.filter(|id| {
-        enabled && id.chars().count() <= 256 && !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-    });
+    let kept = session_id
+        .filter(|id| enabled && id.chars().count() <= 256 && !id.is_empty() && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-'));
     json!({ "enabled": kept.is_some(), "sessionId": kept, "cwd": cwd })
 }
 
@@ -154,16 +153,7 @@ impl HostService {
         screens: Arc<dyn ScreenEvents>,
         visualize: Arc<mixdog_exthost::VisualizePanes>,
     ) -> Arc<Self> {
-        Arc::new(Self {
-            publisher,
-            browser_dialog_marks: Mutex::default(),
-            bridge,
-            power,
-            clicks,
-            surfaces,
-            screens,
-            visualize,
-        })
+        Arc::new(Self { publisher, browser_dialog_marks: Mutex::default(), bridge, power, clicks, surfaces, screens, visualize })
     }
 
     pub fn connection_closed(&self, connection: ConnectionId) {
@@ -210,7 +200,9 @@ impl HostService {
             if let Value::String(text) = &value {
                 // The frame check saw one blob reference, not this text: a lone surrogate escape in it is judged here by the
                 // classes of the inline value (a label reads as U+FFFD, an id or path refuses), then read as U+FFFD.
-                if let Some(at) = mixdog_app_protocol::free_text::refused_in_text(mixdog_app_protocol::free_text::Kind::Request, "host/state/set", "/value", text) {
+                if let Some(at) =
+                    mixdog_app_protocol::free_text::refused_in_text(mixdog_app_protocol::free_text::Kind::Request, "host/state/set", "/value", text)
+                {
                     return Err(invalid("value", &format!("text without unpaired surrogates (a lone \\ud800-\\udfff escape) in {at}")));
                 }
                 let parsed = serde_json::from_str::<mixdog_app_protocol::v2::host::VisualizeHostValue>(&mixdog_js::json_well_formed_str(text))
@@ -312,8 +304,7 @@ impl DomainService for HostService {
             }
             "host/update/report" => {
                 if let Ok(HostUpdateReportParams { state }) = serde_json::from_value(params) {
-                    self.publisher
-                        .publish(SectionName::Update, None, change_of(&state));
+                    self.publisher.publish(SectionName::Update, None, change_of(&state));
                 }
             }
             "host/browser/surface" => {
@@ -329,9 +320,7 @@ impl DomainService for HostService {
                 }
             }
             "host/notification/clicked" => {
-                if let Ok(HostNotificationClickedParams { thread_id, .. }) =
-                    serde_json::from_value(params)
-                {
+                if let Ok(HostNotificationClickedParams { thread_id, .. }) = serde_json::from_value(params) {
                     self.clicks.clicked(&thread_id);
                 }
             }

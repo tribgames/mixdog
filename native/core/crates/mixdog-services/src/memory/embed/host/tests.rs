@@ -10,8 +10,12 @@ const LIMIT: Duration = Duration::from_secs(60);
 
 struct Scripted;
 impl Metadata for Scripted {
-    fn dims(&self) -> usize { 3 }
-    fn device(&self) -> &'static str { "cpu" }
+    fn dims(&self) -> usize {
+        3
+    }
+    fn device(&self) -> &'static str {
+        "cpu"
+    }
 }
 
 fn test_launch(mode: &str) -> HostLaunch {
@@ -69,13 +73,29 @@ async fn host_process_body() {
         std::thread::sleep(Duration::from_secs(3600));
         0
     } else {
-        serve_model(|| { assert_capped_while_loading(); Ok(Scripted) }, |_, request| {
-            if request.text == "crash" { std::process::exit(19); }
-            if request.text == "quit" { std::process::exit(0); }
-            if request.text == "cores" { return Ok(Arc::new(vec![affinity_cores() as f32])); }
-            if request.text == "hang" { std::thread::sleep(Duration::from_secs(3600)); }
-            Ok(Arc::new(vec![request.text.len() as f32, if request.query { 1.0 } else { 0.0 }, 0.25]))
-        }, std::io::stdin().lock(), std::io::stdout().lock())
+        serve_model(
+            || {
+                assert_capped_while_loading();
+                Ok(Scripted)
+            },
+            |_, request| {
+                if request.text == "crash" {
+                    std::process::exit(19);
+                }
+                if request.text == "quit" {
+                    std::process::exit(0);
+                }
+                if request.text == "cores" {
+                    return Ok(Arc::new(vec![affinity_cores() as f32]));
+                }
+                if request.text == "hang" {
+                    std::thread::sleep(Duration::from_secs(3600));
+                }
+                Ok(Arc::new(vec![request.text.len() as f32, if request.query { 1.0 } else { 0.0 }, 0.25]))
+            },
+            std::io::stdin().lock(),
+            std::io::stdout().lock(),
+        )
     };
     std::process::exit(code);
 }
@@ -134,8 +154,11 @@ async fn fixture_for(model_id: &str, limits: Limits, held_load: Option<(usize, A
     let cache = tempfile::tempdir().unwrap();
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let config = EmbedConfig {
-        model_id: model_id.to_owned(), cache_dir: cache.path().to_owned(),
-        ort_library: "unused".into(), dtype: None, sessions: 1,
+        model_id: model_id.to_owned(),
+        cache_dir: cache.path().to_owned(),
+        ort_library: "unused".into(),
+        dtype: None,
+        sessions: 1,
         lane: mixdog_rt::testing::tokens().cpu_bulk,
     };
     let mut launch = test_launch("scripted");
@@ -150,7 +173,8 @@ async fn fixture_for(model_id: &str, limits: Limits, held_load: Option<(usize, A
                 let below = stream.read_u8().await? == 1;
                 stream.write_all(&[1]).await?;
                 Ok((pid, below))
-            }.await;
+            }
+            .await;
             let failed = report.is_err();
             if send.send(report).is_err() || failed {
                 break;
@@ -187,9 +211,11 @@ async fn peer(f: &Fixture) -> (ChildExit, u64) {
 /// [`peer`], and whether the host reported that it started below normal priority.
 async fn peer_reporting(f: &Fixture) -> (ChildExit, u32, bool) {
     let (pid, below) = mixdog_rt::time::timeout(LIMIT, async { f.reports.inbox.lock().await.recv().await })
-        .await.expect("child report deadline").expect("child reporter ended").expect("read child report");
-    let child = mixdog_rt::time::timeout(LIMIT, async { f.exits.lock().await.recv().await })
-        .await.expect("host start deadline").expect("child exit observer");
+        .await
+        .expect("child report deadline")
+        .expect("child reporter ended")
+        .expect("read child report");
+    let child = mixdog_rt::time::timeout(LIMIT, async { f.exits.lock().await.recv().await }).await.expect("host start deadline").expect("child exit observer");
     assert_ne!(pid, std::process::id(), "inference belongs to a child");
     assert_eq!(pid, child.pid, "report belongs to the launched child");
     (child, pid, below)
@@ -274,7 +300,9 @@ async fn a_custom_schema_stays_cold_until_queued_indexing_then_reuses_vectors() 
                  SELECT 1, 'user', 'an actual record ' || n, $1::text || n, 'session'
                  FROM generate_series(1, 200) AS n",
                 &[&source],
-            ).await.unwrap();
+            )
+            .await
+            .unwrap();
         }
     };
     assert_eq!(f.loads.load(Ordering::SeqCst), 0);
@@ -297,10 +325,8 @@ async fn a_custom_schema_stays_cold_until_queued_indexing_then_reuses_vectors() 
     ended(&mut child).await;
     assert_eq!(f.loads.load(Ordering::SeqCst), 2, "the cold semantic query actually computed its vector");
     let literal = crate::memory::recall::hybrid::embedding_to_sql(&vector);
-    let check = || async {
-        db.query("SELECT count(*) FROM entries WHERE (embedding <=> $1::text::halfvec) < 0.1", &[&literal])
-            .await.unwrap()[0].get::<_, i64>(0)
-    };
+    let check =
+        || async { db.query("SELECT count(*) FROM entries WHERE (embedding <=> $1::text::halfvec) < 0.1", &[&literal]).await.unwrap()[0].get::<_, i64>(0) };
     assert_eq!(check().await, 400, "semantic distance works before the column is tightened");
     ensure_memory_schema_with_dims(&db, None, &identity).await.unwrap();
     assert_eq!(check().await, 400, "cold schema reopening retained the custom vectors");
@@ -330,10 +356,15 @@ async fn root_reindex_retires_after_a_full_final_claim_and_picks_up_late_visible
     let cancel = CancellationToken::new();
     // A producer can reserve an older id and publish it after this pass's lookahead.
     let reserved: i64 = db.query("SELECT nextval(pg_get_serial_sequence('entries', 'id'))", &[]).await.unwrap()[0].get(0);
-    let locked: i64 = db.query(
-        "INSERT INTO entries(ts, role, content, source_ref, session_id, is_root, summary)
-         VALUES (0, 'user', '', 'locked-root', 'roots', 1, 'another worker owns this') RETURNING id", &[],
-    ).await.unwrap()[0].get(0);
+    let locked: i64 = db
+        .query(
+            "INSERT INTO entries(ts, role, content, source_ref, session_id, is_root, summary)
+         VALUES (0, 'user', '', 'locked-root', 'roots', 1, 'another worker owns this') RETURNING id",
+            &[],
+        )
+        .await
+        .unwrap()[0]
+        .get(0);
     let locker = db.client().await.unwrap();
     locker.batch_execute("BEGIN").await.unwrap();
     locker.query_one("SELECT id FROM entries WHERE id = $1 FOR UPDATE", &[&locked]).await.unwrap();
@@ -345,7 +376,9 @@ async fn root_reindex_retires_after_a_full_final_claim_and_picks_up_late_visible
                  SELECT n, 'user', '', $1::text || n, 'roots', 1, 'root summary ' || n
                  FROM generate_series(1, 64) AS n",
                 &[&source],
-            ).await.unwrap();
+            )
+            .await
+            .unwrap();
         }
     };
     add("first-").await;
@@ -366,7 +399,9 @@ async fn root_reindex_retires_after_a_full_final_claim_and_picks_up_late_visible
         "INSERT INTO entries(id, ts, role, content, source_ref, session_id, is_root, summary)
          VALUES ($1, 0, 'user', '', 'late-root', 'roots', 1, 'late uncached root')",
         &[&reserved],
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
     release.add_permits(1);
     let pass = pass.await.unwrap().unwrap();
     assert_eq!((pass.attempted, pass.succeeded, pass.failed, pass.timed_out), (65, 65, vec![], false));
@@ -469,16 +504,22 @@ async fn a_host_that_never_answers_is_ended_at_its_request_limit_and_the_next_re
 async fn a_host_still_loading_is_given_the_cold_limit_not_the_request_limit() {
     let cache = tempfile::tempdir().unwrap();
     let config = EmbedConfig {
-        model_id: config::DEFAULT_MODEL_ID.to_owned(), cache_dir: cache.path().to_owned(),
-        ort_library: "unused".into(), dtype: None, sessions: 1,
+        model_id: config::DEFAULT_MODEL_ID.to_owned(),
+        cache_dir: cache.path().to_owned(),
+        ort_library: "unused".into(),
+        dtype: None,
+        sessions: 1,
         lane: mixdog_rt::testing::tokens().cpu_bulk,
     };
     let began = std::time::Instant::now();
-    let failure = mixdog_rt::time::timeout(LIMIT, Embedder::start_within(config, test_launch("silent"), Limits::new(Duration::from_millis(600), Duration::from_millis(100))))
-        .await
-        .expect("no hang")
-        .err()
-        .expect("a silent host never loads");
+    let failure = mixdog_rt::time::timeout(
+        LIMIT,
+        Embedder::start_within(config, test_launch("silent"), Limits::new(Duration::from_millis(600), Duration::from_millis(100))),
+    )
+    .await
+    .expect("no hang")
+    .err()
+    .expect("a silent host never loads");
     assert!(began.elapsed() >= Duration::from_millis(600), "ended at {:?} ({failure})", began.elapsed());
 }
 /// The host runs below normal priority, as Node's memory process did. The host reports its own class when it starts: a

@@ -8,9 +8,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 
 use mixdog_ai::accounts::AccountStore;
 use mixdog_ai::oauth::CredentialIo;
-use mixdog_core_api::{CoreRequest, DomainService, Reply};
 use mixdog_core_api::call::CallContext;
 use mixdog_core_api::ids::{Method, ThreadId};
+use mixdog_core_api::{CoreRequest, DomainService, Reply};
 use mixdog_core_ports::ports::threads::{Section, ThreadState};
 use mixdog_ledger::ledger::UsageLedger;
 use mixdog_ledger::reader::UsageReader;
@@ -57,7 +57,13 @@ impl ThreadState for Records {
     async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
         unreachable!("the usage read writes no header")
     }
-    async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+    async fn patch_header_if(
+        &self,
+        _: &ThreadId,
+        _: Map<String, Value>,
+        _: Map<String, Value>,
+        _: Vec<String>,
+    ) -> Result<Option<Map<String, Value>>, PortError> {
         unreachable!("the usage read writes no header")
     }
     async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
@@ -115,7 +121,8 @@ fn the_other_sessions_named_are_distinct_non_empty_and_at_most_sixty_four() {
 #[tokio::test]
 async fn a_thread_without_a_session_answers_null_until_a_route_gives_it_one() {
     let dir = tempfile::tempdir().unwrap();
-    let records = Arc::new(Records { unseated: Mutex::new(HashSet::from(["$control".to_owned()])), gone: HashSet::from(["sess_gone".to_owned()]), ..Records::default() });
+    let records =
+        Arc::new(Records { unseated: Mutex::new(HashSet::from(["$control".to_owned()])), gone: HashSet::from(["sess_gone".to_owned()]), ..Records::default() });
     let service = service(&dir, records.clone()).await;
     assert!(usage_of(&service, "$control", None).await.is_null(), "before a route has created the session");
     records.unseated.lock().unwrap().clear();

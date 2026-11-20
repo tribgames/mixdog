@@ -182,7 +182,10 @@ impl ListOverlay for LiveListOverlay {
             let header = handle.cell.header.load();
             let owner = clean_text(header.get("ownerSessionId").filter(|v| truthy(v)).or_else(|| header.get("parentSessionId")), false);
             let agent = clean_text(header.get("agent"), true);
-            if !owner.is_empty() && (clean_text(header.get("owner"), true) == "agent" || (!agent.is_empty() && agent != "lead")) && !live.agents.iter().any(|known| known.as_str() == owner) {
+            if !owner.is_empty()
+                && (clean_text(header.get("owner"), true) == "agent" || (!agent.is_empty() && agent != "lead"))
+                && !live.agents.iter().any(|known| known.as_str() == owner)
+            {
                 live.agents.push(ThreadId::from(owner));
             }
         }
@@ -270,7 +273,17 @@ pub trait ListFence: Send + Sync {
 
 impl ThreadListService {
     pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, rooms: Arc<dyn ListRooms>, task_workspace: Arc<dyn TaskWorkspace>) -> Self {
-        Self { store, overlay, rooms, task_workspace, observer: OnceLock::new(), fence: OnceLock::new(), on_row: OnceLock::new(), loaded: false.into(), announced: Default::default() }
+        Self {
+            store,
+            overlay,
+            rooms,
+            task_workspace,
+            observer: OnceLock::new(),
+            fence: OnceLock::new(),
+            on_row: OnceLock::new(),
+            loaded: false.into(),
+            announced: Default::default(),
+        }
     }
 
     /// Sends `thread` on the app feed, as `thread/started` when `started`, else as `thread/summary/updated`, unless it matches
@@ -491,8 +504,7 @@ impl ThreadListService {
         if params.sort_direction.is_some_and(|direction| direction != SortDirection::Desc) {
             return Err(invalid("sortDirection", "desc: the listing is newest activity first"));
         }
-        let after = decode_catalog_cursor(params.cursor.as_deref())
-            .map_err(|error| coded(DOMAIN, "EINVALIDCURSOR", error.to_string()))?;
+        let after = decode_catalog_cursor(params.cursor.as_deref()).map_err(|error| coded(DOMAIN, "EINVALIDCURSOR", error.to_string()))?;
         let workspace = self.workspace().await?;
         // Node's catalog is whole: the rooms it makes up rows for lead it, so they belong to the unfiltered first page.
         let whole = after.is_none() && params.archived.is_none() && params.cwd.is_none();
@@ -573,11 +585,7 @@ impl Drop for Background {
 }
 
 impl RoomSummaries {
-    pub fn new(
-        list: Arc<ThreadListService>,
-        app: Arc<mixdog_core_base::state::SectionFeedState>,
-        directory: Arc<super::SessionDirectory>,
-    ) -> Arc<Self> {
+    pub fn new(list: Arc<ThreadListService>, app: Arc<mixdog_core_base::state::SectionFeedState>, directory: Arc<super::SessionDirectory>) -> Arc<Self> {
         Arc::new(Self {
             list,
             app,
@@ -809,14 +817,9 @@ mod tests {
     struct Busy;
     impl ListOverlay for Busy {
         fn of(&self, thread: &ThreadId) -> RowOverlay {
-            if thread.as_str() == "s_a" {
-                RowOverlay { working: Some(true), ..RowOverlay::default() }
-            } else {
-                RowOverlay::default()
-            }
+            if thread.as_str() == "s_a" { RowOverlay { working: Some(true), ..RowOverlay::default() } } else { RowOverlay::default() }
         }
     }
-
 
     fn golden() -> Value {
         json!({ "sessions": [
@@ -918,10 +921,7 @@ mod tests {
             tokio::spawn(async move { value(&*service, request(LIST, json!({ "limit": 100 }), None)).await.expect("thread/list") })
         };
         // The list has to be at the gate before the projector applies the write, or it could read either row.
-        mixdog_rt::time::timeout(std::time::Duration::from_secs(10), waiting)
-            .await
-            .expect("the list never waited for the pending projection")
-            .expect("gate");
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(10), waiting).await.expect("the list never waited for the pending projection").expect("gate");
         // The projector applies the write, then lets the waiting list go.
         let mut header = entry["record"].as_object().expect("record").clone();
         header.shift_remove("messages");
@@ -946,7 +946,8 @@ mod tests {
             }
             value(&service, request(LIST, params, None))
         };
-        let ids = |answer: &Value| -> Vec<String> { answer["data"].as_array().expect("data").iter().map(|row| row["id"].as_str().expect("id").to_owned()).collect() };
+        let ids =
+            |answer: &Value| -> Vec<String> { answer["data"].as_array().expect("data").iter().map(|row| row["id"].as_str().expect("id").to_owned()).collect() };
 
         let whole = page(100, None).await.expect("list");
         assert_eq!(ids(&whole), ["s_c", "s_a", "s_b", "s_d"]);
@@ -1011,7 +1012,9 @@ mod tests {
     }
 
     /// [`room_rig`] with the app feed's section, for the index writes' notifications to share it.
-    fn room_rig_on(list: Arc<ThreadListService>) -> (Arc<RoomSummaries>, mixdog_core_api::mock::MockConnection, Arc<mixdog_core_base::state::SectionFeedState>) {
+    fn room_rig_on(
+        list: Arc<ThreadListService>,
+    ) -> (Arc<RoomSummaries>, mixdog_core_api::mock::MockConnection, Arc<mixdog_core_base::state::SectionFeedState>) {
         use mixdog_core_api::FeedSource;
         use mixdog_core_api::mock::MockConnection;
         use mixdog_core_api::mock::MockFeed;
@@ -1056,7 +1059,12 @@ mod tests {
         let (summaries, app, section) = room_rig_on(list.clone());
         let lookup = Arc::new(HeldLookup::default());
         let deletions = super::super::thread_edges::ThreadDeletions::new(section.clone());
-        let edges = super::super::thread_edges::ThreadEdges::start(super::super::thread_edges::ThreadEdgePublisher::new(list.clone(), section, deletions, lookup.clone()));
+        let edges = super::super::thread_edges::ThreadEdges::start(super::super::thread_edges::ThreadEdgePublisher::new(
+            list.clone(),
+            section,
+            deletions,
+            lookup.clone(),
+        ));
         list.store.observe_rows(edges.clone()).expect("the row sink");
         summaries.follow(edges.clone());
         drop(app.drain_text());
@@ -1203,7 +1211,12 @@ mod tests {
 
         let golden = golden();
         let data = crate::session::testing::DataDir::default();
-        let list = Arc::new(ThreadListService::new(service(&data, &golden).await.store, Arc::new(Busy), Arc::new(NoRooms), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))));
+        let list = Arc::new(ThreadListService::new(
+            service(&data, &golden).await.store,
+            Arc::new(Busy),
+            Arc::new(NoRooms),
+            Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks")),
+        ));
         let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), MockLimits::default()));
         let rig = crate::session::testing::Rig::new();
         let directory = Arc::new(crate::session::SessionDirectory::new(rig.deps()));
@@ -1217,7 +1230,9 @@ mod tests {
         let view = ThreadRoomView {
             busy: true,
             tool_approval: Some(json!({ "id": "7", "name": "ask_user", "kind": "question" })),
-            typing: Some(json!({ "kind": "notice", "id": "room-typing-n1", "tone": "info", "text": "Git Hub…", "room": { "kind": "typing", "speaker": "gh.bot", "name": "Git Hub" } })),
+            typing: Some(
+                json!({ "kind": "notice", "id": "room-typing-n1", "tone": "info", "text": "Git Hub…", "room": { "kind": "typing", "speaker": "gh.bot", "name": "Git Hub" } }),
+            ),
             deciding: None,
             handoff_questions: None,
         };
@@ -1228,8 +1243,13 @@ mod tests {
         })
         .await;
         assert_eq!(shown, view);
-        let sent: Vec<Value> =
-            rig.feeds.frames(thread.as_str()).into_iter().filter(|(_, method, _)| method == "thread/roomView/updated").map(|(_, _, params)| params["value"].clone()).collect();
+        let sent: Vec<Value> = rig
+            .feeds
+            .frames(thread.as_str())
+            .into_iter()
+            .filter(|(_, method, _)| method == "thread/roomView/updated")
+            .map(|(_, _, params)| params["value"].clone())
+            .collect();
         assert_eq!(sent, vec![serde_json::to_value(&view).unwrap()]);
 
         summaries.publish_room(&thread, None).await;
@@ -1251,7 +1271,8 @@ mod tests {
         let id = "sess_control_probe";
         // What `thread/start` writes: the creation times, no title, no preview, no message.
         let header = json!({ "id": id, "createdAt": 9_000_000_000_000_i64, "updatedAt": 9_000_000_000_000_i64 });
-        let head = |header: &Value| CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone() };
+        let head =
+            |header: &Value| CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone() };
         let listed = |answer: &Value| answer["data"].as_array().expect("data").iter().any(|row| row["id"] == id);
         service.store.upsert(head(&header), DirtyMark::Clear).await.expect("upsert");
         let answer = value(&service, request(LIST, json!({ "limit": 1000 }), None)).await.expect("list");
@@ -1277,7 +1298,8 @@ mod tests {
         let service = service(&data, &golden).await;
         let id = "sess_marked_probe";
         let header = json!({ "id": id, "createdAt": 9_000_000_000_000_i64, "updatedAt": 9_000_000_000_000_i64, "favoriteAt": 9_000_000_000_001_i64, "archivedAt": 9_000_000_000_002_i64 });
-        let head = |header: &Value| CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone() };
+        let head =
+            |header: &Value| CatalogHead { session: id.into(), log_id: "L".into(), base_session: None, header: header.as_object().expect("object").clone() };
         let row = |answer: &Value| answer["data"].as_array().expect("data").iter().find(|row| row["id"] == id).cloned();
         service.store.upsert(head(&header), DirtyMark::Clear).await.expect("upsert");
         for params in [json!({ "limit": 1000 }), json!({ "limit": 1000, "archived": true })] {
@@ -1423,10 +1445,21 @@ mod tests {
         fn read_log_id(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<String, CoreError> {
             self.inner.read_log_id(lane, id)
         }
-        fn read_window(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, head: &crate::session::seams::HeadRead) -> Result<crate::session::seams::WindowRead, CoreError> {
+        fn read_window(
+            &self,
+            lane: &InLane<InteractiveIo>,
+            id: &ThreadId,
+            head: &crate::session::seams::HeadRead,
+        ) -> Result<crate::session::seams::WindowRead, CoreError> {
             self.inner.read_window(lane, id, head)
         }
-        fn decode(&self, lane: &InLane<mixdog_rt::CpuInteractive>, id: &ThreadId, head: crate::session::seams::HeadRead, window: crate::session::seams::WindowRead) -> Result<crate::session::seams::OpenedLog, CoreError> {
+        fn decode(
+            &self,
+            lane: &InLane<mixdog_rt::CpuInteractive>,
+            id: &ThreadId,
+            head: crate::session::seams::HeadRead,
+            window: crate::session::seams::WindowRead,
+        ) -> Result<crate::session::seams::OpenedLog, CoreError> {
             self.inner.decode(lane, id, head, window)
         }
         fn user_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<mixdog_store::schema::record::ItemRecord>, CoreError> {
@@ -1441,13 +1474,23 @@ mod tests {
         fn fenced_ops(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError> {
             self.inner.fenced_ops(lane, id)
         }
-        fn history_row(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
+        fn history_row(
+            &self,
+            lane: &InLane<InteractiveIo>,
+            id: &ThreadId,
+            iid: &str,
+        ) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
             self.inner.history_row(lane, id, iid)
         }
         fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
             self.inner.compaction_entry(lane, id, iid)
         }
-        fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<crate::session::seams::ContextRead>) -> Result<crate::session::seams::ContextRead, CoreError> {
+        fn context_io(
+            &self,
+            lane: &InLane<InteractiveIo>,
+            id: &ThreadId,
+            read: Option<crate::session::seams::ContextRead>,
+        ) -> Result<crate::session::seams::ContextRead, CoreError> {
             self.inner.context_io(lane, id, read)
         }
         fn context_len(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
@@ -1471,7 +1514,11 @@ mod tests {
         fn record_offload_scan(&self, session: &str, ordinal: i64, sources: Vec<String>) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
             self.inner.record_offload_scan(session, ordinal, sources)
         }
-        fn context_cpu(&self, lane: &InLane<mixdog_rt::CpuInteractive>, read: crate::session::seams::ContextRead) -> Result<crate::session::seams::ContextStep, CoreError> {
+        fn context_cpu(
+            &self,
+            lane: &InLane<mixdog_rt::CpuInteractive>,
+            read: crate::session::seams::ContextRead,
+        ) -> Result<crate::session::seams::ContextStep, CoreError> {
             self.inner.context_cpu(lane, read)
         }
         fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError> {
@@ -1514,11 +1561,21 @@ mod tests {
         .expect("job ran")
         .expect("index");
         let index = data.index(index);
-        let list = Arc::new(ThreadListService::new(Arc::new(index.clone()), Arc::new(Busy), Arc::new(NoRooms), Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks"))));
+        let list = Arc::new(ThreadListService::new(
+            Arc::new(index.clone()),
+            Arc::new(Busy),
+            Arc::new(NoRooms),
+            Arc::new(crate::session::testing::FixedTaskWorkspace("/tasks")),
+        ));
         let threads = Arc::new(
-            crate::session::StoreThreads::over_data_dir(data.path(), index, Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), tokens.maintenance_io)
-                .await
-                .expect("the thread store"),
+            crate::session::StoreThreads::over_data_dir(
+                data.path(),
+                index,
+                Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
+                tokens.maintenance_io,
+            )
+            .await
+            .expect("the thread store"),
         );
         list.fence(threads.clone());
         let rig = crate::session::testing::Rig::new();

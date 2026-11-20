@@ -8,9 +8,7 @@
 
 use mixdog_js::math::{ceil, max, min, round, to_fixed};
 use mixdog_js::{js_to_lowercase, json_number, number_to_string, to_number, to_number_of, value_to_string};
-use mixdog_view_model::display::context_measurement::{
-    context_measurement_label, context_measurement_stats, measured_context_usage,
-};
+use mixdog_view_model::display::context_measurement::{context_measurement_label, context_measurement_stats, measured_context_usage};
 use serde_json::{Map, Value, json};
 
 use crate::slash::notices::truthy;
@@ -134,8 +132,7 @@ fn compact_elapsed(value: Option<&Value>) -> String {
 }
 
 fn compaction_running(compaction: &Value) -> bool {
-    field(compaction, "inProgress") == Some(&Value::Bool(true))
-        || field(compaction, "lastStage").and_then(Value::as_str) == Some("compacting")
+    field(compaction, "inProgress") == Some(&Value::Bool(true)) || field(compaction, "lastStage").and_then(Value::as_str) == Some("compacting")
 }
 
 fn compaction_state(compaction: &Value) -> String {
@@ -257,9 +254,8 @@ fn metrics<'a>(input: &ContextModelInput<'a>, defaults: &'a Defaults) -> Metrics
     let messages = member_or(context, "messages", &defaults.empty);
     let request = member_or(context, "request", &defaults.empty);
     let schema_breakdown = member_or(request, "toolSchemaBreakdown", &defaults.empty);
-    let schema_tokens_for = |buckets: &[&str]| -> f64 {
-        buckets.iter().fold(0.0, |sum, bucket| sum + number_or_zero(path(schema_breakdown, &[*bucket, "tokens"])))
-    };
+    let schema_tokens_for =
+        |buckets: &[&str]| -> f64 { buckets.iter().fold(0.0, |sum, bucket| sum + number_or_zero(path(schema_breakdown, &[*bucket, "tokens"]))) };
     let compaction = member_or(context, "compaction", &defaults.empty);
     let state_window = Some(input.state_context_window);
     let state_raw = Some(input.state_raw_context_window);
@@ -298,15 +294,13 @@ fn metrics<'a>(input: &ContextModelInput<'a>, defaults: &'a Defaults) -> Metrics
     let cached_read = last_tokens("lastCachedReadTokens");
     let cache_write = last_tokens("lastCacheWriteTokens");
     // Occupancy is a separate reading: it may include output or be all the provider knows.
-    let split = last_tokens("lastPromptTokens").zip(cached_read).zip(cache_write)
-        .filter(|((prompt, read), write)| *read + *write <= *prompt);
+    let split = last_tokens("lastPromptTokens").zip(cached_read).zip(cache_write).filter(|((prompt, read), write)| *read + *write <= *prompt);
     let fresh_input = split.map(|((prompt, read), write)| prompt - read - write);
     let cache_hit = split.and_then(|((prompt, read), _)| (prompt > 0.0).then(|| read / prompt));
     let compact_state = compaction_state(compaction);
     // lastDurationMs belongs to the previous, finished compaction: a running one shows no duration rather than one that
     // reads as its elapsed time.
-    let compact_duration =
-        if compaction_running(compaction) { String::new() } else { compact_elapsed(field(compaction, "lastDurationMs")) };
+    let compact_duration = if compaction_running(compaction) { String::new() } else { compact_elapsed(field(compaction, "lastDurationMs")) };
     let measured_source = measured.get("source").and_then(Value::as_str).unwrap_or("pending").to_owned();
     Metrics {
         tools,
@@ -332,16 +326,8 @@ fn metrics<'a>(input: &ContextModelInput<'a>, defaults: &'a Defaults) -> Metrics
         cache_hit_rate: cache_hit.map_or_else(|| "N/A".to_owned(), |rate| format!("{}%", to_fixed(rate * 100.0, 0))),
         cache_write_label: cache_write.map_or_else(String::new, |write| format!(" \u{b7} {} write", fmt_number(write))),
         context_source: context_measurement_label(&measured_source),
-        last_api_label: if truthy_of(field(context, "lastApiRequestStale")) {
-            "last API request (pre-compact)"
-        } else {
-            "last API request"
-        },
-        compact_description: if compact_duration.is_empty() {
-            compact_state.clone()
-        } else {
-            format!("{compact_state} \u{b7} {compact_duration}")
-        },
+        last_api_label: if truthy_of(field(context, "lastApiRequestStale")) { "last API request (pre-compact)" } else { "last API request" },
+        compact_description: if compact_duration.is_empty() { compact_state.clone() } else { format!("{compact_state} \u{b7} {compact_duration}") },
         compact_state,
         compact_pressure: number_of_first(&[field(compaction, "pressureTokens"), field(compaction, "currentEstimatedTokens")]),
         compact_reserve: number_or_zero(field(compaction, "reserveTokens")),
@@ -386,22 +372,12 @@ fn context_rows(m: &Metrics) -> Vec<Value> {
         row(
             "compaction",
             "Compaction",
-            format!(
-                "{} \u{b7} {} pressure \u{b7} {} reserve",
-                m.compact_description,
-                fmt(tokens_num(m.compact_pressure)),
-                fmt(tokens_num(m.compact_reserve))
-            ),
+            format!("{} \u{b7} {} pressure \u{b7} {} reserve", m.compact_description, fmt(tokens_num(m.compact_pressure)), fmt(tokens_num(m.compact_reserve))),
         ),
         row(
             "messages",
             "Messages",
-            format!(
-                "{} tokens ({}) \u{b7} {} messages",
-                fmt(messages_tokens),
-                pct(messages_tokens, window),
-                count_text(field(m.messages, "count"))
-            ),
+            format!("{} tokens ({}) \u{b7} {} messages", fmt(messages_tokens), pct(messages_tokens, window), count_text(field(m.messages, "count"))),
         ),
         row(
             "tools",
@@ -445,11 +421,7 @@ fn context_rows(m: &Metrics) -> Vec<Value> {
                 m.last_api_label
             ),
         ),
-        row(
-            "reasoning",
-            "Reasoning tokens",
-            format!("\u{2248}{} tokens ({}) \u{b7} current context estimate", fmt(reasoning), pct(reasoning, window)),
-        ),
+        row("reasoning", "Reasoning tokens", format!("\u{2248}{} tokens ({}) \u{b7} current context estimate", fmt(reasoning), pct(reasoning, window))),
         row(
             "cache",
             "Prompt cache",
@@ -464,12 +436,7 @@ fn context_rows(m: &Metrics) -> Vec<Value> {
         row(
             "free",
             "Free space",
-            format!(
-                "{} tokens ({}) \u{b7} raw window {}",
-                fmt(m.free_tokens),
-                pct(m.free_tokens, window),
-                fmt(tokens_num(m.raw_window_tokens))
-            ),
+            format!("{} tokens ({}) \u{b7} raw window {}", fmt(m.free_tokens), pct(m.free_tokens, window), fmt(tokens_num(m.raw_window_tokens))),
         ),
         row(
             "extensions",
@@ -513,11 +480,8 @@ fn context_detail(m: &Metrics) -> Value {
         Some(stage) if truthy(stage) => stage.clone(),
         _ => Value::String("pending".to_owned()),
     };
-    let pressure = number_of_first(&[
-        field(compaction, "lastPressureTokens"),
-        field(compaction, "pressureTokens"),
-        field(compaction, "currentEstimatedTokens"),
-    ]);
+    let pressure =
+        number_of_first(&[field(compaction, "lastPressureTokens"), field(compaction, "pressureTokens"), field(compaction, "currentEstimatedTokens")]);
     let measured_at = m.measured.get("updatedAt").cloned().unwrap_or(Value::Null);
     let measurement_source = m.measured.get("source").cloned().unwrap_or(Value::Null);
     let buffer = compact_buffer_tokens(compaction, m.compact_boundary, m.compact_trigger);
@@ -566,13 +530,7 @@ fn context_detail(m: &Metrics) -> Value {
                 ("count", some(field(m.tools, "count"))),
             ])),
         ),
-        (
-            "toolIo",
-            Some(object([
-                ("calls", some(field(m.messages, "toolCallCount"))),
-                ("results", some(field(m.messages, "toolResultCount"))),
-            ])),
-        ),
+        ("toolIo", Some(object([("calls", some(field(m.messages, "toolCallCount"))), ("results", some(field(m.messages, "toolResultCount")))]))),
         (
             "request",
             Some(object([
@@ -598,10 +556,7 @@ fn context_detail(m: &Metrics) -> Value {
                 ("writeTokens", tokens_member(m.cache_write)),
             ])),
         ),
-        (
-            "extensions",
-            Some(object([("skills", some(field(m.skills, "count"))), ("plugins", some(field(m.plugins, "count")))])),
-        ),
+        ("extensions", Some(object([("skills", some(field(m.skills, "count"))), ("plugins", some(field(m.plugins, "count")))]))),
         (
             "mcp",
             Some(object([

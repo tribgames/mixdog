@@ -11,11 +11,7 @@ const TOOL_MISSING_STUB: &str = "[Older tool result unavailable after context co
 
 /// The tool result answering `call_id`: first in the tool block right after
 /// the assistant turn, then anywhere later, then anywhere earlier.
-fn pick_result<'a>(
-    messages: &'a [AgentMessage],
-    assistant_idx: usize,
-    call_id: &str,
-) -> Option<&'a AgentMessage> {
+fn pick_result<'a>(messages: &'a [AgentMessage], assistant_idx: usize, call_id: &str) -> Option<&'a AgentMessage> {
     let mut after_block = assistant_idx + 1;
     while after_block < messages.len() && messages[after_block].role() == Role::Tool {
         if messages[after_block].tool_call_id() == Some(call_id) {
@@ -24,10 +20,7 @@ fn pick_result<'a>(
         after_block += 1;
     }
     let is_answer = |m: &&AgentMessage| m.role() == Role::Tool && m.tool_call_id() == Some(call_id);
-    messages[after_block.min(messages.len())..]
-        .iter()
-        .find(is_answer)
-        .or_else(|| messages[..assistant_idx].iter().find(is_answer))
+    messages[after_block.min(messages.len())..].iter().find(is_answer).or_else(|| messages[..assistant_idx].iter().find(is_answer))
 }
 
 /// Tool results are placed only by the assistant turn that called them: a
@@ -51,11 +44,7 @@ pub fn sanitize_tool_pairs(messages: &[AgentMessage]) -> Vec<AgentMessage> {
             match pick_result(messages, idx, &id) {
                 Some(result) => out.push(result.clone()),
                 None => {
-                    let mut stub = AgentMessage::tool_text(
-                        id.clone(),
-                        TOOL_MISSING_STUB,
-                        crate::message::ToolKind::Normal,
-                    );
+                    let mut stub = AgentMessage::tool_text(id.clone(), TOOL_MISSING_STUB, crate::message::ToolKind::Normal);
                     stub.tool_kind = None;
                     out.push(stub);
                 }
@@ -72,19 +61,13 @@ pub fn sanitize_tool_pairs(messages: &[AgentMessage]) -> Vec<AgentMessage> {
 /// how many messages were removed.
 fn ensure_pairing(messages: &mut Vec<AgentMessage>) -> usize {
     let mut popped = 0;
-    while let Some(last_assistant) = messages
-        .iter()
-        .rposition(|m| m.role() == Role::Assistant && !m.tool_calls().is_empty())
-    {
+    while let Some(last_assistant) = messages.iter().rposition(|m| m.role() == Role::Assistant && !m.tool_calls().is_empty()) {
         let mut block_end = last_assistant + 1;
         while block_end < messages.len() && messages[block_end].role() == Role::Tool {
             block_end += 1;
         }
         let block = &messages[last_assistant + 1..block_end];
-        let matched = messages[last_assistant]
-            .tool_calls()
-            .iter()
-            .all(|call| block.iter().any(|m| m.tool_call_id() == Some(call.id.as_str())));
+        let matched = messages[last_assistant].tool_calls().iter().all(|call| block.iter().any(|m| m.tool_call_id() == Some(call.id.as_str())));
         if matched {
             break;
         }
@@ -105,12 +88,7 @@ fn ensure_pairing(messages: &mut Vec<AgentMessage>) -> usize {
         while prev > 0 && messages[prev - 1].role() == Role::Tool {
             prev -= 1;
         }
-        let anchored = prev > 0
-            && messages[prev - 1].role() == Role::Assistant
-            && messages[prev - 1]
-                .tool_calls()
-                .iter()
-                .any(|call| call.id == call_id);
+        let anchored = prev > 0 && messages[prev - 1].role() == Role::Assistant && messages[prev - 1].tool_calls().iter().any(|call| call.id == call_id);
         if !anchored {
             messages.remove(i);
             popped += 1;
@@ -226,12 +204,7 @@ mod tests {
     use crate::message::ToolKind;
 
     fn call(id: &str) -> ToolCall {
-        ToolCall {
-            id: id.into(),
-            name: "read".into(),
-            arguments: JsonValue::Null,
-            native_type: None,
-        }
+        ToolCall { id: id.into(), name: "read".into(), arguments: JsonValue::Null, native_type: None }
     }
 
     #[test]
@@ -252,22 +225,14 @@ mod tests {
 
     #[test]
     fn orphan_tool_result_is_dropped() {
-        let mut messages = vec![
-            AgentMessage::user("go"),
-            AgentMessage::tool_result("zz", Content::Text("x".into()), ToolKind::Normal),
-        ];
+        let mut messages = vec![AgentMessage::user("go"), AgentMessage::tool_result("zz", Content::Text("x".into()), ToolKind::Normal)];
         assert!(repair_before_send(&mut messages));
         assert_eq!(messages.len(), 1);
     }
 
-
-
     #[test]
     fn reused_ids_get_the_smallest_free_suffix() {
-        let history = vec![
-            AgentMessage::assistant("", vec![call("call_0")]),
-            AgentMessage::tool_text("call_0", "r", ToolKind::Normal),
-        ];
+        let history = vec![AgentMessage::assistant("", vec![call("call_0")]), AgentMessage::tool_text("call_0", "r", ToolKind::Normal)];
         let mut ids = ToolCallIds::new(&history);
         let mut first = call("call_0");
         let mut second = call("call_0");
@@ -276,6 +241,4 @@ mod tests {
         assert_eq!(first.id, "call_0-2");
         assert_eq!(second.id, "call_0-3");
     }
-
-
 }

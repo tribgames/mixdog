@@ -12,13 +12,8 @@ use super::SessionDirectory;
 /// `sessionRef.clientHostPid`; `normalizeToolNotifyContext` keeps a positive pid only).
 impl CallerScopes for SessionDirectory {
     fn scope_of(&self, thread: &ThreadId) -> Scope {
-        let host_pid = self
-            .handle(thread)
-            .and_then(|handle| positive_int(handle.cell.header.load().get("clientHostPid")));
-        Scope {
-            caller_session_id: Some(thread.as_str().to_owned()),
-            host_pid,
-        }
+        let host_pid = self.handle(thread).and_then(|handle| positive_int(handle.cell.header.load().get("clientHostPid")));
+        Scope { caller_session_id: Some(thread.as_str().to_owned()), host_pid }
     }
 
     fn turn_hop(&self, thread: &ThreadId) -> u32 {
@@ -41,15 +36,8 @@ mod tests {
         let mut header = (**handle.cell.header.load()).clone();
         header.insert("clientHostPid".into(), json!(4242));
         handle.cell.header.store(std::sync::Arc::new(header));
-        assert_eq!(
-            directory.scope_of(&handle.id),
-            Scope { caller_session_id: Some(handle.id.as_str().to_owned()), host_pid: Some(4242) }
-        );
+        assert_eq!(directory.scope_of(&handle.id), Scope { caller_session_id: Some(handle.id.as_str().to_owned()), host_pid: Some(4242) });
         let gone = ThreadId::from("sess_gone");
-        assert_eq!(
-            directory.scope_of(&gone),
-            Scope { caller_session_id: Some("sess_gone".into()), host_pid: None }
-        );
+        assert_eq!(directory.scope_of(&gone), Scope { caller_session_id: Some("sess_gone".into()), host_pid: None });
     }
 }
-

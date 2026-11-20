@@ -103,42 +103,20 @@ async fn finished(active: &mut Option<Active>) -> Result<HandlerResult, JoinErro
     }
 }
 
-fn handle(
-    frame: Inbound,
-    registry: &Registry,
-    out: &Output,
-    active: &mut Option<Active>,
-) -> Result<Next, ProtocolError> {
+fn handle(frame: Inbound, registry: &Registry, out: &Output, active: &mut Option<Active>) -> Result<Next, ProtocolError> {
     match frame {
         Inbound::Call { id, request } => {
             if active.is_some() {
-                return Err(ProtocolError(
-                    "ext-host: a call arrived while another is running".to_owned(),
-                ));
+                return Err(ProtocolError("ext-host: a call arrived while another is running".to_owned()));
             }
-            let link = CallLink::new(
-                id,
-                out.clone(),
-                CancellationToken::new(),
-                wire::CALL_WINDOW_BYTES,
-            );
+            let link = CallLink::new(id, out.clone(), CancellationToken::new(), wire::CALL_WINDOW_BYTES);
             let handler = registry.handler(&request.method);
             let method = request.method.clone();
-            let ctx = CallCtx::new(
-                link.clone(),
-                request.method,
-                request.params,
-                request.paths,
-                request.thread,
-                request.cwd,
-            );
+            let ctx = CallCtx::new(link.clone(), request.method, request.params, request.paths, request.thread, request.cwd);
             let task = tokio::spawn(async move {
                 match handler {
                     Some(handler) => handler(ctx).await,
-                    None => Err(CodedError::new(
-                        "unknown_method",
-                        format!("unknown ext-host method {method}"),
-                    )),
+                    None => Err(CodedError::new("unknown_method", format!("unknown ext-host method {method}"))),
                 }
             });
             *active = Some(Active { link, task });
@@ -154,12 +132,8 @@ fn handle(
             }
         }
         Inbound::Browser { id, body } => {
-            if let Some(call) = active
-                .as_ref()
-                .filter(|call| call.link.id() == id && call.link.browser_pending())
-            {
-                let answer: Value = serde_json::from_slice(&body)
-                    .map_err(|e| ProtocolError(format!("ext-host: malformed browser body: {e}")))?;
+            if let Some(call) = active.as_ref().filter(|call| call.link.id() == id && call.link.browser_pending()) {
+                let answer: Value = serde_json::from_slice(&body).map_err(|e| ProtocolError(format!("ext-host: malformed browser body: {e}")))?;
                 call.link.answer_browser(browser_answer(&answer));
             }
         }
@@ -170,22 +144,10 @@ fn handle(
 
 /// `{error}` is a refusal with its reason; otherwise `{ws}` is the endpoint.
 fn browser_answer(answer: &Value) -> Result<String, String> {
-    let text = |value: &Value| {
-        value
-            .as_str()
-            .map_or_else(|| value.to_string(), str::to_owned)
-    };
+    let text = |value: &Value| value.as_str().map_or_else(|| value.to_string(), str::to_owned);
     match answer.get("error") {
-        Some(error)
-            if !error.is_null() && error != &Value::Bool(false) && error.as_str() != Some("") =>
-        {
-            Err(text(error))
-        }
-        _ => answer
-            .get("ws")
-            .filter(|ws| !ws.is_null())
-            .map(text)
-            .ok_or_else(|| "the pool answered without an endpoint".to_owned()),
+        Some(error) if !error.is_null() && error != &Value::Bool(false) && error.as_str() != Some("") => Err(text(error)),
+        _ => answer.get("ws").filter(|ws| !ws.is_null()).map(text).ok_or_else(|| "the pool answered without an endpoint".to_owned()),
     }
 }
 

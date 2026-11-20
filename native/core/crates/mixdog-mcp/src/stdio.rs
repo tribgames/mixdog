@@ -80,7 +80,14 @@ fn shell_command(file: &str, args: &[String]) -> Command {
 
 /// Starts the server the way Node's SDK does ([`cross_spawn`]); a failed start reads as Node's
 /// `spawn <command> <code>`.
-fn start(lane: &InLane<SpawnIo>, command: &str, args: &[String], cwd: Option<&str>, env: &BTreeMap<String, String>, stderr: std::process::Stdio) -> Result<(Child, Containment), TransportError> {
+fn start(
+    lane: &InLane<SpawnIo>,
+    command: &str,
+    args: &[String],
+    cwd: Option<&str>,
+    env: &BTreeMap<String, String>,
+    stderr: std::process::Stdio,
+) -> Result<(Child, Containment), TransportError> {
     let (shown, mut process) = match cross_spawn::parse(lane, command, args, cwd, env) {
         Launch::Direct { shown, program, args } => {
             let mut process = Command::new(program);
@@ -100,21 +107,14 @@ fn start(lane: &InLane<SpawnIo>, command: &str, args: &[String], cwd: Option<&st
 /// server would outlive its kill. The child of a failed attach (never resumed) is ended and handed back with the error.
 #[allow(clippy::result_large_err, reason = "Preserve child ownership on attach failure without a new allocation in the cleanup path")]
 fn spawn_contained(mut process: Command, shown: &str, stderr: std::process::Stdio) -> Result<(Child, Containment), (TransportError, Option<Child>)> {
-    process
-        .stdin(std::process::Stdio::piped())
-        .stdout(std::process::Stdio::piped())
-        .stderr(stderr)
-        .kill_on_drop(true);
+    process.stdin(std::process::Stdio::piped()).stdout(std::process::Stdio::piped()).stderr(stderr).kill_on_drop(true);
     #[cfg(unix)]
     process.process_group(0);
     // CREATE_NO_WINDOW | CREATE_SUSPENDED: the child joins its job before it runs (`Containment::attach`).
     #[cfg(windows)]
     process.creation_flags(0x0800_0000 | 0x0000_0004);
-    let spawn_error = |source: std::io::Error| TransportError::Spawn {
-        file: shown.to_owned(),
-        code: crate::uv_error::error_code(&source).unwrap_or("UNKNOWN"),
-        source,
-    };
+    let spawn_error =
+        |source: std::io::Error| TransportError::Spawn { file: shown.to_owned(), code: crate::uv_error::error_code(&source).unwrap_or("UNKNOWN"), source };
     let mut child = process.spawn().map_err(|source| (spawn_error(source), None))?;
     match Containment::attach(&child) {
         Ok(containment) => Ok((child, containment)),
@@ -192,8 +192,7 @@ impl StdioTransport {
         // Resolving the command and creating the process block, so both run on the spawn lane; the
         // child registers with this runtime's reactor.
         let runtime = tokio::runtime::Handle::current();
-        let (command, args, cwd, env) =
-            (spec.command.to_owned(), spec.args.to_vec(), spec.cwd.map(str::to_owned), spec.env.clone());
+        let (command, args, cwd, env) = (spec.command.to_owned(), spec.args.to_vec(), spec.cwd.map(str::to_owned), spec.env.clone());
         // `inherit` is piped as well: the child's stderr reaches the daemon's only through the redaction of `StderrSink`.
         let stderr = if spec.stderr == "ignore" { std::process::Stdio::null() } else { std::process::Stdio::piped() };
         let job = io
@@ -215,24 +214,14 @@ impl StdioTransport {
         if let Some(stdin) = stdin {
             mixdog_rt::spawn("mcp.stdio.write", TaskClass::Work, write_loop(stdin, outgoing_rx, shutdown.clone()));
         }
-        let reader = stdout.map(|out| {
-            mixdog_rt::spawn("mcp.stdio.read", TaskClass::Work, read_loop(out, incoming_tx.clone()))
-        });
+        let reader = stdout.map(|out| mixdog_rt::spawn("mcp.stdio.read", TaskClass::Work, read_loop(out, incoming_tx.clone())));
         let stderr_reader = stderr.map(|err| {
             let sink = StderrSink::new(spec.name, spec.secrets.to_vec(), tail.clone(), spec.log.clone());
             mixdog_rt::spawn("mcp.stdio.stderr", TaskClass::Work, stderr_loop(err, sink))
         });
         let stopped = CancellationToken::new();
         let stopped_on_exit = stopped.clone().drop_guard();
-        let supervising = supervise(
-            child,
-            containment,
-            shutdown.clone(),
-            spec.shutdown_grace,
-            (reader, stderr_reader),
-            tail.clone(),
-            incoming_tx,
-        );
+        let supervising = supervise(child, containment, shutdown.clone(), spec.shutdown_grace, (reader, stderr_reader), tail.clone(), incoming_tx);
         mixdog_rt::spawn("mcp.stdio.supervise", TaskClass::Work, async move {
             let _stopped_on_exit = stopped_on_exit;
             supervising.await;
@@ -241,11 +230,7 @@ impl StdioTransport {
     }
 }
 
-async fn write_loop(
-    mut stdin: tokio::process::ChildStdin,
-    mut rx: mpsc::UnboundedReceiver<Vec<u8>>,
-    shutdown: CancellationToken,
-) {
+async fn write_loop(mut stdin: tokio::process::ChildStdin, mut rx: mpsc::UnboundedReceiver<Vec<u8>>, shutdown: CancellationToken) {
     loop {
         tokio::select! {
             () = shutdown.cancelled() => break,
@@ -525,8 +510,7 @@ impl Drop for StdioTransport {
 #[async_trait]
 impl Transport for StdioTransport {
     async fn send(&self, message: Value, _liveness: Liveness) -> Result<(), TransportError> {
-        let mut bytes =
-            serde_json::to_vec(&message).map_err(|e| TransportError::Request(e.to_string()))?;
+        let mut bytes = serde_json::to_vec(&message).map_err(|e| TransportError::Request(e.to_string()))?;
         bytes.push(b'\n');
         self.outgoing.send(bytes).map_err(|_| TransportError::Closed)
     }
@@ -623,7 +607,10 @@ mod tests {
                 assert!(!text.contains(leaked), "{leaked:?} reached {text:?}");
             }
         }
-        assert_eq!(log, ["[mcp:srv:stderr] fetch https://api.example/v1?token=[redacted]&x=1 key=[redacted] done", "[mcp:srv:stderr] and ?access_token=[redacted]"]);
+        assert_eq!(
+            log,
+            ["[mcp:srv:stderr] fetch https://api.example/v1?token=[redacted]&x=1 key=[redacted] done", "[mcp:srv:stderr] and ?access_token=[redacted]"]
+        );
 
         let mut redactor = Redactor::new(vec!["sk-live-0123456789".to_owned()]);
         let mut out = redactor.push(&format!("{}sk-live-01", "word ".repeat(2000)));
@@ -765,11 +752,22 @@ mod tests {
         })
         .expect("the log's thread starts");
         #[cfg(windows)]
-        let (command, args) = ("cmd", vec!["/d".to_owned(), "/c".to_owned(), "(for /l %i in (1,1,3000) do @echo noise %i 1>&2) & ping -n 60 127.0.0.1 >nul".to_owned()]);
+        let (command, args) =
+            ("cmd", vec!["/d".to_owned(), "/c".to_owned(), "(for /l %i in (1,1,3000) do @echo noise %i 1>&2) & ping -n 60 127.0.0.1 >nul".to_owned()]);
         #[cfg(unix)]
         let (command, args) = ("sh", vec!["-c".to_owned(), "i=0; while [ $i -lt 3000 ]; do echo noise $i >&2; i=$((i+1)); done; sleep 60".to_owned()]);
         let env: BTreeMap<String, String> = std::env::vars().collect();
-        let spec = StdioSpec { command, args: &args, env: &env, cwd: None, shutdown_grace: Duration::from_secs(1), name: "flood", secrets: &[], stderr: "pipe", log: Some(log) };
+        let spec = StdioSpec {
+            command,
+            args: &args,
+            env: &env,
+            cwd: None,
+            shutdown_grace: Duration::from_secs(1),
+            name: "flood",
+            secrets: &[],
+            stderr: "pipe",
+            log: Some(log),
+        };
         let (transport, _incoming) = StdioTransport::spawn(mixdog_rt::testing::tokens().spawn_io, spec).await.expect("the child starts");
         mixdog_rt::time::timeout(Duration::from_secs(30), async {
             while !transport.stderr_tail().contains("noise") {
@@ -825,9 +823,6 @@ mod tests {
         };
         assert!(matches!(error, TransportError::Spawn { .. }), "{error:?}");
         let mut child = child.expect("the child was created");
-        mixdog_rt::time::timeout(Duration::from_secs(30), child.wait())
-            .await
-            .expect("the child of a failed attach ended in 30 s, not left suspended")
-            .unwrap();
+        mixdog_rt::time::timeout(Duration::from_secs(30), child.wait()).await.expect("the child of a failed attach ended in 30 s, not left suspended").unwrap();
     }
 }

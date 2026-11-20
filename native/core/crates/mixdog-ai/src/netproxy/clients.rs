@@ -57,10 +57,7 @@ impl RoutedClients {
     /// `build(None)` makes the direct client (it must ignore the environment's
     /// proxy variables); `build(Some(uri))` the client of one proxy, `uri` in
     /// the form `reqwest` takes (a SOCKS5 proxy is `socks5h:`).
-    pub fn new(
-        policy: Arc<NetworkProxy>,
-        build: impl Fn(Option<&str>) -> Result<reqwest::Client, reqwest::Error> + Send + Sync + 'static,
-    ) -> Self {
+    pub fn new(policy: Arc<NetworkProxy>, build: impl Fn(Option<&str>) -> Result<reqwest::Client, reqwest::Error> + Send + Sync + 'static) -> Self {
         let legs: Legs = Arc::default();
         let weak = Arc::downgrade(&legs);
         let retire = policy.on_change(Arc::new(move |_| {
@@ -113,11 +110,7 @@ impl RoutedClients {
     pub async fn client_for(&self, url: &str) -> Result<reqwest::Client, ClientError> {
         let epoch = self.policy.epoch();
         let target = Url::parse(url).map_err(|_| ClientError::Route(RouteError::InvalidTarget(url.to_owned())))?;
-        let route = self
-            .policy
-            .route_for_url(&target.origin().ascii_serialization())
-            .await
-            .map_err(ClientError::Route)?;
+        let route = self.policy.route_for_url(&target.origin().ascii_serialization()).await.map_err(ClientError::Route)?;
         // A decision that resolved after a change still serves its request, but
         // on a client that is not kept: it drains this request and closes.
         let stale = route.proxy.is_some() && epoch != self.policy.epoch();
@@ -165,6 +158,5 @@ mod flavour_tests {
         assert_eq!(routed_builds.load(Ordering::SeqCst), 0, "the routed builder is not asked");
     }
 }
-
 
 impl std::error::Error for ClientError {}

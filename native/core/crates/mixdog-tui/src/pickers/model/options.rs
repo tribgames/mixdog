@@ -32,9 +32,7 @@ fn re(pattern: &str) -> JsRegex {
 }
 
 static CLAUDE_VERSION: LazyLock<JsRegex> = LazyLock::new(|| re(r"^claude-[a-z]+-(\d+)(?:[-.](\d+))?"));
-static COMPACT_VERSION: LazyLock<JsRegex> = LazyLock::new(|| {
-    re(r"(?:^|[-_])(?:o|gpt|grok|qwen|llama|mistral|gemma|phi|glm)(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?")
-});
+static COMPACT_VERSION: LazyLock<JsRegex> = LazyLock::new(|| re(r"(?:^|[-_])(?:o|gpt|grok|qwen|llama|mistral|gemma|phi|glm)(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?"));
 static GENERIC_VERSION: LazyLock<JsRegex> = LazyLock::new(|| re(r"(?:^|[-_v])(\d+)(?:\.(\d+))?(?:\.(\d{1,3}))?"));
 static DATED_ID: LazyLock<JsRegex> = LazyLock::new(|| re(r"(?:^|-)(\d{4})(\d{2})(\d{2})(?:$|-)"));
 static CLAUDE_ID: LazyLock<JsRegex> = LazyLock::new(|| re(r"^claude-[a-z]+-"));
@@ -91,12 +89,8 @@ pub fn release_time(model: &Value) -> f64 {
     }
     let id = field_text(model, "id");
     let Some(dated) = DATED_ID.captures(&id) else { return 0.0 };
-    let parsed = mixdog_js::time::date_parse(&format!(
-        "{}-{}-{}",
-        dated.get(1).unwrap_or_default(),
-        dated.get(2).unwrap_or_default(),
-        dated.get(3).unwrap_or_default()
-    ));
+    let parsed =
+        mixdog_js::time::date_parse(&format!("{}-{}-{}", dated.get(1).unwrap_or_default(), dated.get(2).unwrap_or_default(), dated.get(3).unwrap_or_default()));
     if parsed.is_nan() { 0.0 } else { parsed }
 }
 
@@ -379,10 +373,8 @@ pub fn load_provider_catalog_failures(host: &mut dyn PickerHost) -> Vec<CatalogF
             let Some(failure) = entry.get("catalogError").filter(|failure| failure.get("message").is_some_and(truthy)) else {
                 continue;
             };
-            let presented = describe_error(
-                Some(&json!({"message": failure["message"], "errorKind": failure.get("errorKind").cloned().unwrap_or(Value::Null)})),
-                None,
-            );
+            let presented =
+                describe_error(Some(&json!({"message": failure["message"], "errorKind": failure.get("errorKind").cloned().unwrap_or(Value::Null)})), None);
             let text = [presented.summary, presented.recovery].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ");
             failures.push(CatalogFailure { id: field_text(entry, "id").trim().to_owned(), text });
         }
@@ -458,11 +450,8 @@ pub fn daybreak_blue_on(parameters: Option<&Value>) -> bool {
 /// The route's model name; Daybreak Blue reads as part of the model ("GPT-6 Sol Blue"), ahead of effort.
 fn route_model_display_name(route: &Value) -> String {
     let name = display_model_name(&field_text(route, "model"), &field_text(route, "modelDisplay"));
-    let blue = if field_text(route, "provider") == DAYBREAK_PROVIDER && daybreak_blue_on(route.get("modelParameters")) {
-        "Blue".to_owned()
-    } else {
-        String::new()
-    };
+    let blue =
+        if field_text(route, "provider") == DAYBREAK_PROVIDER && daybreak_blue_on(route.get("modelParameters")) { "Blue".to_owned() } else { String::new() };
     [name, blue].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ")
 }
 
@@ -479,11 +468,7 @@ fn route_speed_label(route: &Value) -> String {
 /// Model, effort, then Fast or Ultrafast, dropping the empty parts.
 fn route_model_details(route: &Value) -> String {
     let effort = if field_truthy(route, "effort") { effort_display_label(&field_text(route, "effort")) } else { String::new() };
-    [route_model_display_name(route), effort, route_speed_label(route)]
-        .into_iter()
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join(" \u{b7} ")
+    [route_model_display_name(route), effort, route_speed_label(route)].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" \u{b7} ")
 }
 
 /// `groupModelsByProvider`: the providers in list order (rank, then name, then id) and their models.
@@ -516,9 +501,9 @@ pub fn build_model_provider_items(models: &[Value], current_route: Option<&Value
     group_models_by_provider(models, names)
         .into_iter()
         .map(|(provider, provider_models)| {
-            let current_model = current_route.filter(|route| field_text(route, "provider") == provider).and_then(|route| {
-                provider_models.iter().find(|model| model.get("id") == route.get("model") && model.get("id").is_some())
-            });
+            let current_model = current_route
+                .filter(|route| field_text(route, "provider") == provider)
+                .and_then(|route| provider_models.iter().find(|model| model.get("id") == route.get("model") && model.get("id").is_some()));
             let mut item = PickerItem::new(&format!("provider:{provider}"), &resolve_provider_display_name(&provider, names));
             item.marker = if current_model.is_some() { "\u{2713}".to_owned() } else { String::new() };
             item.marker_color = Some(theme_color(Key::Success));
@@ -543,10 +528,7 @@ pub fn build_provider_model_items(models: &[Value], provider: &str, current_rout
             item.marker = if current { "\u{2713}".to_owned() } else { String::new() };
             item.marker_color = Some(theme_color(Key::Success));
             item.description = model_description(model);
-            PanelItem::new(
-                item,
-                json!({"_action": "select-model", "_provider": model_provider, "_modelId": id, "_model": model}),
-            )
+            PanelItem::new(item, json!({"_action": "select-model", "_provider": model_provider, "_modelId": id, "_model": model}))
         })
         .collect()
 }
@@ -577,11 +559,7 @@ pub fn agent_model_profile(route: &Value) -> String {
 pub fn agent_model_parts(route: &Value) -> Vec<MetaPart> {
     let model = if field_truthy(route, "model") { route_model_display_name(route) } else { String::new() };
     let effort = if field_truthy(route, "effort") { effort_display_label(&field_text(route, "effort")) } else { String::new() };
-    vec![
-        MetaPart { text: model, width: 17 },
-        MetaPart { text: effort, width: 6 },
-        MetaPart { text: route_speed_label(route), width: 9 },
-    ]
+    vec![MetaPart { text: model, width: 17 }, MetaPart { text: effort, width: 6 }, MetaPart { text: route_speed_label(route), width: 9 }]
 }
 
 /// `routeFromModel(model, effort)`: the route naming a model, with an effort other than `auto`.

@@ -24,9 +24,7 @@ fn spiller() -> (tempfile::TempDir, Spiller) {
 #[tokio::test]
 async fn an_embedded_resource_file_is_a_file_part_and_a_binary_is_saved() {
     let (_dir, spiller) = spiller();
-    let blob = |bytes: &[u8], mime: &str, uri: &str| {
-        json!({ "content": [{ "type": "resource", "resource": { "uri": uri, "mimeType": mime, "blob": base64::engine::general_purpose::STANDARD.encode(bytes) } }] })
-    };
+    let blob = |bytes: &[u8], mime: &str, uri: &str| json!({ "content": [{ "type": "resource", "resource": { "uri": uri, "mimeType": mime, "blob": base64::engine::general_purpose::STANDARD.encode(bytes) } }] });
     let docx = "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
     for (bytes, mime, uri, filename) in [
         (&b"a,b"[..], "text/csv", "file:///d/a.csv", "a.csv"),
@@ -153,4 +151,3 @@ async fn the_cap_counts_only_text_and_leaves_an_image_where_it_was() {
     assert_eq!(capped.len(), 2);
     assert_eq!(capped[0], image);
 }
-

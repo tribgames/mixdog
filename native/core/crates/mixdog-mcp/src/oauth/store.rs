@@ -83,11 +83,7 @@ impl MarkerFiles {
 
     /// Writes who the sign-in belongs to, or removes the file when signed out.
     #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
-    pub async fn write_identity(
-        &self,
-        account: &str,
-        identity: Option<(&Identity, Option<&str>)>,
-    ) -> Result<(), StoreError> {
+    pub async fn write_identity(&self, account: &str, identity: Option<(&Identity, Option<&str>)>) -> Result<(), StoreError> {
         let (dir, name) = (self.dir.clone(), format!("{account}.who"));
         let text = identity.map(|(who, authorization_endpoint)| {
             serde_json::to_string(&WhoFile {

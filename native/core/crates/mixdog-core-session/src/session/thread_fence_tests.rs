@@ -26,9 +26,6 @@ use super::tests::caught_up;
 use super::tests::echo;
 use super::tests::start_thread;
 
-
-
-
 /// A rig whose catalog lists every thread: a delete closes only a session the catalog lists (`isAvailableSession`).
 fn rig() -> Rig {
     let rig = Rig::new();
@@ -83,7 +80,6 @@ pub(super) struct MarkFail {
 /// the close between its fence and the durable close.
 type MarkHold = std::sync::Mutex<Option<(Arc<tokio::sync::Notify>, std::sync::mpsc::Receiver<()>)>>;
 
-
 /// The real store, its session logs holding a commit while [`MarkHold`] is armed.
 struct HeldStore {
     store: Arc<dyn super::ThreadStore>,
@@ -99,7 +95,11 @@ struct HeldLog {
 }
 
 impl super::seams::SessionLog for HeldLog {
-    fn commit(&mut self, lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>, batch: &[super::seams::CommitRecord]) -> Result<Vec<u64>, super::seams::BarrierError> {
+    fn commit(
+        &mut self,
+        lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>,
+        batch: &[super::seams::CommitRecord],
+    ) -> Result<Vec<u64>, super::seams::BarrierError> {
         use mixdog_store::schema::record::{MetaRecord, Record};
         let marks = batch.iter().any(|commit| {
             matches!(&*commit.record, Record::Meta(MetaRecord { change: mixdog_store::schema::blob::Slot::Inline(change), .. })
@@ -140,16 +140,31 @@ impl super::ThreadStore for HeldStore {
     fn read_log_id(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId) -> Result<String, CoreError> {
         self.store.read_log_id(lane, id)
     }
-    fn read_window(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId, head: &super::seams::HeadRead) -> Result<super::seams::WindowRead, CoreError> {
+    fn read_window(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>,
+        id: &ThreadId,
+        head: &super::seams::HeadRead,
+    ) -> Result<super::seams::WindowRead, CoreError> {
         self.store.read_window(lane, id, head)
     }
-    fn decode(&self, lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>, id: &ThreadId, head: super::seams::HeadRead, window: super::seams::WindowRead) -> Result<super::seams::OpenedLog, CoreError> {
+    fn decode(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>,
+        id: &ThreadId,
+        head: super::seams::HeadRead,
+        window: super::seams::WindowRead,
+    ) -> Result<super::seams::OpenedLog, CoreError> {
         self.store.decode(lane, id, head, window)
     }
     fn user_rows(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId) -> Result<Vec<mixdog_store::schema::record::ItemRecord>, CoreError> {
         self.store.user_rows(lane, id)
     }
-    fn history_rows(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId) -> Result<(u64, Vec<mixdog_store::schema::record::ItemRecord>), CoreError> {
+    fn history_rows(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>,
+        id: &ThreadId,
+    ) -> Result<(u64, Vec<mixdog_store::schema::record::ItemRecord>), CoreError> {
         self.store.history_rows(lane, id)
     }
     fn thread_op(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId, op: &str) -> Result<Option<super::seams::StoredOp>, CoreError> {
@@ -158,13 +173,28 @@ impl super::ThreadStore for HeldStore {
     fn fenced_ops(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId) -> Result<Vec<String>, CoreError> {
         self.store.fenced_ops(lane, id)
     }
-    fn history_row(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
+    fn history_row(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>,
+        id: &ThreadId,
+        iid: &str,
+    ) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
         self.store.history_row(lane, id, iid)
     }
-    fn compaction_entry(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
+    fn compaction_entry(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>,
+        id: &ThreadId,
+        iid: &str,
+    ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         self.store.compaction_entry(lane, id, iid)
     }
-    fn context_io(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId, read: Option<super::seams::ContextRead>) -> Result<super::seams::ContextRead, CoreError> {
+    fn context_io(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>,
+        id: &ThreadId,
+        read: Option<super::seams::ContextRead>,
+    ) -> Result<super::seams::ContextRead, CoreError> {
         self.store.context_io(lane, id, read)
     }
     fn context_len(&self, lane: &mixdog_rt::InLane<mixdog_rt::InteractiveIo>, id: &ThreadId) -> Result<usize, CoreError> {
@@ -188,14 +218,28 @@ impl super::ThreadStore for HeldStore {
     fn purge_deleted(&self) -> futures::future::BoxFuture<'static, Result<Vec<String>, CoreError>> {
         self.store.purge_deleted()
     }
-    fn context_cpu(&self, lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>, read: super::seams::ContextRead) -> Result<super::seams::ContextStep, CoreError> {
+    fn context_cpu(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>,
+        read: super::seams::ContextRead,
+    ) -> Result<super::seams::ContextStep, CoreError> {
         self.store.context_cpu(lane, read)
     }
-    fn open_log(&self, lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>, id: &ThreadId, at: super::seams::AppendPosition) -> Result<Box<dyn super::seams::SessionLog>, super::seams::BarrierError> {
+    fn open_log(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>,
+        id: &ThreadId,
+        at: super::seams::AppendPosition,
+    ) -> Result<Box<dyn super::seams::SessionLog>, super::seams::BarrierError> {
         let log = self.store.open_log(lane, id, at)?;
         Ok(Box::new(HeldLog { log, id: id.clone(), mark: self.mark.clone(), marks: self.marks.clone() }))
     }
-    fn create_log(&self, lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>, id: &ThreadId, session: &super::seams::CommitRecord) -> Result<(Box<dyn super::seams::SessionLog>, u64), super::seams::BarrierError> {
+    fn create_log(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::DurabilityIo>,
+        id: &ThreadId,
+        session: &super::seams::CommitRecord,
+    ) -> Result<(Box<dyn super::seams::SessionLog>, u64), super::seams::BarrierError> {
         let (log, ordinal) = self.store.create_log(lane, id, session)?;
         Ok((Box::new(HeldLog { log, id: id.clone(), mark: self.mark.clone(), marks: self.marks.clone() }), ordinal))
     }
@@ -242,8 +286,11 @@ pub(super) async fn real() -> Real {
     .expect("job ran")
     .expect("index");
     let index = data.index(index);
-    let threads =
-        Arc::new(super::StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+    let threads = Arc::new(
+        super::StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io)
+            .await
+            .expect("the thread store"),
+    );
     let store: Arc<dyn super::ThreadStore> = threads.clone();
     let mark = Arc::new(MarkHold::default());
     let marks = Arc::new(MarkFail::default());
@@ -252,9 +299,6 @@ pub(super) async fn real() -> Real {
     let directory = Arc::new(SessionDirectory::new(rig.deps_on(Arc::new(HeldStore { store, mark: mark.clone(), marks: marks.clone() }))));
     Real { directory, rig, index, mark, _data: data }
 }
-
-
-
 
 /// A thread whose first turn landed, so the catalog lists it (a close acts on a listed session, `isAvailableSession`),
 /// settled: no turn runs and nothing is queued.
@@ -269,9 +313,6 @@ async fn listed_thread(real: &Real) -> ThreadId {
     .await;
     id
 }
-
-
-
 
 /// A client's delete: each call its own op, as a client issues a new op per request.
 pub(super) async fn delete(directory: &SessionDirectory, id: &str) -> Result<bool, CoreError> {
@@ -304,18 +345,7 @@ async fn finished(directory: &SessionDirectory, id: &ThreadId, execution: &str, 
     mixdog_tools::exec::TaskNotifier::finished(directory, id, "shell", execution, "cancelled", text.to_owned()).await;
 }
 
-
 const COMPLETION: &str = "<task-notification><task-id>shell_1</task-id><status>cancelled</status></task-notification>";
-
-
-
-
-
-
-
-
-
-
 
 /// What a client sees of admission to the thread: the thread opens (`open`), is refused while its close runs (`closing`) or is
 /// gone (`terminal`).
@@ -494,7 +524,10 @@ async fn a_close_marks_the_session_closed_once_and_a_re_close_only_replaces_its_
     assert!(close.close(id.as_str(), "manual").await);
     let closed = stored(&real, &id).await;
     assert_eq!(generation(&closed), first + 2.0, "the detach and the close each bump");
-    assert_eq!((&closed["closed"], &closed["closedReason"], &closed["status"], &closed["updatedAt"]), (&json!(true), &json!("manual"), &json!("closed"), &json!(3000)));
+    assert_eq!(
+        (&closed["closed"], &closed["closedReason"], &closed["status"], &closed["updatedAt"]),
+        (&json!(true), &json!("manual"), &json!("closed"), &json!(3000))
+    );
 
     at_clock(&real, 4000);
     assert!(close.close(id.as_str(), "desktop-session-delete").await);

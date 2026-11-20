@@ -9,9 +9,9 @@
 
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
+use mixdog_term::KeyFlags;
 use mixdog_term::guard::TerminalRestorer;
 use mixdog_term::modes::MouseTrackingRestore;
-use mixdog_term::KeyFlags;
 use mixdog_tui_style::spinner_meta::Quiet;
 use mixdog_tui_widgets::Line;
 use mixdog_tui_widgets::sign_in_url::{CopyMethod, CopyStatus, copy_url, is_sign_in_copy_key};
@@ -46,7 +46,12 @@ fn text_member(value: &Value, key: &str) -> Option<String> {
 /// `spinner.quiet` (`{ since, wait, tool?, warnMs }`), none when the turn is not quiet.
 fn quiet_of(value: Option<&Value>) -> Option<Quiet> {
     let quiet = value.filter(|quiet| quiet.is_object())?;
-    Some(Quiet { since: number(quiet, "since"), wait: text_member(quiet, "wait").unwrap_or_default(), tool: text_member(quiet, "tool"), warn_ms: number(quiet, "warnMs") })
+    Some(Quiet {
+        since: number(quiet, "since"),
+        wait: text_member(quiet, "wait").unwrap_or_default(),
+        tool: text_member(quiet, "tool"),
+        warn_ms: number(quiet, "warnMs"),
+    })
 }
 
 /// The spinner state the row shows: the turn's own while it is active, else the command status that stands in for it.
@@ -246,16 +251,23 @@ impl AppState {
 
     /// The text-entry prompt on screen: the provider one first, as the floating panel orders them.
     fn active_text_prompt(&self) -> Option<(PromptSurface, &TextPrompt)> {
-        self.provider_prompt.as_ref().map(|prompt| (PromptSurface::Provider, prompt)).or_else(|| self.settings_prompt.as_ref().map(|prompt| (PromptSurface::Settings, prompt)))
+        self.provider_prompt
+            .as_ref()
+            .map(|prompt| (PromptSurface::Provider, prompt))
+            .or_else(|| self.settings_prompt.as_ref().map(|prompt| (PromptSurface::Settings, prompt)))
     }
 
     /// The editor follows the prompt: one per prompt on screen, remounted when the prompt is replaced.
     pub(crate) fn sync_text_entry(&mut self) {
-        let wanted = self.active_text_prompt().map(|(surface, prompt)| (surface, text_entry_identity(surface, prompt), prompt.initial_value.clone().unwrap_or_default()));
+        let wanted = self
+            .active_text_prompt()
+            .map(|(surface, prompt)| (surface, text_entry_identity(surface, prompt), prompt.initial_value.clone().unwrap_or_default()));
         match wanted {
             None => self.text_entry = None,
             Some((_, identity, _)) if self.text_entry.as_ref().is_some_and(|entry| entry.identity == identity) => {}
-            Some((surface, identity, seed)) => self.text_entry = Some(TextEntry { surface, identity, editor: TextEntryEditor::new(&seed), copy: CopyStatus::Idle }),
+            Some((surface, identity, seed)) => {
+                self.text_entry = Some(TextEntry { surface, identity, editor: TextEntryEditor::new(&seed), copy: CopyStatus::Idle })
+            }
         }
     }
 

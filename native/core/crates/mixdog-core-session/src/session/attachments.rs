@@ -47,13 +47,14 @@ impl mixdog_core_domains::domains::desktop_residual::AttachmentHost for DesktopA
         use mixdog_store::blobs::BlobError;
         let digest = mixdog_store::schema::bounded::Digest::try_from(format!("sha256:{id}")).ok()?;
         let store = self.store.clone();
-        let read = mixdog_core_base::support::on_lane(self.interactive, &tokio_util::sync::CancellationToken::new(), move |lane| match store.read(lane, &digest) {
-            Ok(bytes) => Some(bytes),
-            // A stored file that fails its hash is still handed over as stored: the caller's own integrity check names it `changed`.
-            Err(BlobError::Corrupt { .. }) => std::fs::read(store.path(&digest)).ok(),
-            Err(_) => None,
-        })
-        .await;
+        let read =
+            mixdog_core_base::support::on_lane(self.interactive, &tokio_util::sync::CancellationToken::new(), move |lane| match store.read(lane, &digest) {
+                Ok(bytes) => Some(bytes),
+                // A stored file that fails its hash is still handed over as stored: the caller's own integrity check names it `changed`.
+                Err(BlobError::Corrupt { .. }) => std::fs::read(store.path(&digest)).ok(),
+                Err(_) => None,
+            })
+            .await;
         read.ok().flatten()
     }
 }
@@ -105,22 +106,34 @@ mod tests {
         let (a, b, d, e, f) = (hex('a'), hex('b'), hex('d'), hex('e'), hex('f'));
         vec![
             // A prompt's files, and an image whose stored original is its `attachmentRef`.
-            item("u1", "user", json!({
-                "role": "user",
-                "content": [{ "type": "text", "text": "look" }, { "type": "image", "attachmentRef": b, "mimeType": "image/jpeg" }],
-                "meta": { "transcript": { "attachments": [attachment(&a, "notes.md", "text/markdown")] } },
-            })),
+            item(
+                "u1",
+                "user",
+                json!({
+                    "role": "user",
+                    "content": [{ "type": "text", "text": "look" }, { "type": "image", "attachmentRef": b, "mimeType": "image/jpeg" }],
+                    "meta": { "transcript": { "attachments": [attachment(&a, "notes.md", "text/markdown")] } },
+                }),
+            ),
             // A member's speech returns its files; a pass row names nothing.
-            item("s1", "assistant", json!({
-                "role": "assistant", "content": "here",
-                "meta": { "source": "agent-room", "room": { "kind": "speech", "speaker": "scout" },
-                          "transcript": { "messageId": "m1", "attachments": [attachment(&d, "chart.png", "image/png")] } },
-            })),
-            item("p1", "assistant", json!({
-                "role": "assistant", "content": "",
-                "meta": { "source": "agent-room", "room": { "kind": "pass", "speaker": "scout" },
-                          "transcript": { "messageId": "m2", "attachments": [attachment(&e, "x.txt", "text/plain")] } },
-            })),
+            item(
+                "s1",
+                "assistant",
+                json!({
+                    "role": "assistant", "content": "here",
+                    "meta": { "source": "agent-room", "room": { "kind": "speech", "speaker": "scout" },
+                              "transcript": { "messageId": "m1", "attachments": [attachment(&d, "chart.png", "image/png")] } },
+                }),
+            ),
+            item(
+                "p1",
+                "assistant",
+                json!({
+                    "role": "assistant", "content": "",
+                    "meta": { "source": "agent-room", "room": { "kind": "pass", "speaker": "scout" },
+                              "transcript": { "messageId": "m2", "attachments": [attachment(&e, "x.txt", "text/plain")] } },
+                }),
+            ),
             // An assistant's own text never names an attachment.
             item("a1", "assistant", json!({ "role": "assistant", "content": format!("see {f}") })),
         ]
@@ -189,4 +202,3 @@ mod tests {
         assert!(host.attachment_bytes("not a hash").await.is_none());
     }
 }
-

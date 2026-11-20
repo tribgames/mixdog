@@ -10,8 +10,7 @@ use mixdog_scm::error::ScmFailure;
 /// What the turn-start gate throws for a session whose worktree folder is gone
 /// (`worktree-intents.mjs` `prepareTurnWorkspace`); it replaces the default text of
 /// `WORKTREE_MISSING` there and only there.
-pub const RECOVERY_TURN_REFUSAL: &str =
-    "The worktree for this session no longer exists; pick a branch or remove the worktree to continue.";
+pub const RECOVERY_TURN_REFUSAL: &str = "The worktree for this session no longer exists; pick a branch or remove the worktree to continue.";
 
 const DEFAULTS: [(&str, &str); 23] = [
     ("WORKTREE_BUSY_JOBS", "The session has running jobs; wait for them or stop them before changing its workspace."),
@@ -23,14 +22,8 @@ const DEFAULTS: [(&str, &str); 23] = [
     ("WORKTREE_DISK_INSUFFICIENT", "Not enough free disk space to create the worktree."),
     ("WORKTREE_LARGE_REPO_CONFIRM", "The repository is large; confirm before creating a worktree."),
     ("WORKTREE_DIRTY", "The worktree has uncommitted changes."),
-    (
-        "WORKTREE_DIRTY_CHOICE",
-        "The project folder has uncommitted changes; choose whether to leave them there or carry them into the worktree.",
-    ),
-    (
-        "WORKTREE_FILE_RECOVERY",
-        "Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first.",
-    ),
+    ("WORKTREE_DIRTY_CHOICE", "The project folder has uncommitted changes; choose whether to leave them there or carry them into the worktree."),
+    ("WORKTREE_FILE_RECOVERY", "Retained file recovery records block worktree removal, including force. Inspect and explicitly delete them first."),
     ("WORKTREE_UNMERGED", "The worktree branch has commits that are not merged."),
     ("WORKTREE_MISSING", "The managed worktree no longer exists."),
     ("WORKTREE_UNSUPPORTED_REPO", "This repository does not support managed worktrees."),
@@ -41,10 +34,7 @@ const DEFAULTS: [(&str, &str); 23] = [
     ("WORKTREE_PROJECT_MISMATCH", "The retained worktree belongs to another project or repository."),
     ("WORKTREE_PARTIAL_TRANSITION", "The branch change failed part-way; the project folder stayed on the new branch."),
     ("WORKTREE_PROJECT_UNKNOWN", "Project is not available."),
-    (
-        "WORKTREE_REMOVAL_INCOMPLETE",
-        "The worktree was only partly removed (a file or folder is still in use); remove it again to finish.",
-    ),
+    ("WORKTREE_REMOVAL_INCOMPLETE", "The worktree was only partly removed (a file or folder is still in use); remove it again to finish."),
     ("WORKTREE_PATH_UNSAFE", "The worktree folder is not a managed checkout of this repository; nothing was deleted."),
     ("MERGE_CONFLICT", "The merge would conflict."),
     ("MERGE_TARGET_DIRTY", "The merge target has uncommitted changes."),

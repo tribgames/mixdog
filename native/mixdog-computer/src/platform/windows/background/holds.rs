@@ -94,11 +94,7 @@ fn hold(holders: &mut BTreeMap<Wid, usize>, styles: &dyn Styles, root: Wid) -> (
 
 /// ReleaseInactive (:120-149): the last holder clears the bit and reads it
 /// back; a bit that stays set stays counted so a later release can retry.
-fn release(
-    holders: &mut BTreeMap<Wid, usize>,
-    styles: &dyn Styles,
-    root: Wid,
-) -> Result<(), String> {
+fn release(holders: &mut BTreeMap<Wid, usize>, styles: &dyn Styles, root: Wid) -> Result<(), String> {
     let Some(count) = holders.get_mut(&root) else {
         return Ok(());
     };
@@ -114,10 +110,7 @@ fn release(
     }
     if !styles.clear_bit(root) {
         *count = 0;
-        return Err(
-            "input_cleanup_unconfirmed: the background target could not be made activatable again"
-                .into(),
-        );
+        return Err("input_cleanup_unconfirmed: the background target could not be made activatable again".into());
     }
     holders.remove(&root);
     styles.record(false, root);
@@ -144,9 +137,7 @@ pub fn hold_inactive(port: &WinPort, handle: Wid) -> Wid {
     if root == 0 {
         return 0;
     }
-    let mut holders = HOLDERS
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut holders = HOLDERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let (held, unprotected) = hold(&mut holders, &Live(port), root);
     if unprotected {
         UNPROTECTED.store(true, Ordering::SeqCst);
@@ -159,9 +150,7 @@ pub fn release_inactive(port: &WinPort, root: Wid) -> Result<(), String> {
     if root == 0 {
         return Ok(());
     }
-    let mut holders = HOLDERS
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut holders = HOLDERS.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     release(&mut holders, &Live(port), root)
 }
 
@@ -190,9 +179,7 @@ struct Scope {
 static SCOPES: Mutex<Vec<Scope>> = Mutex::new(Vec::new());
 
 fn scopes() -> MutexGuard<'static, Vec<Scope>> {
-    SCOPES
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    SCOPES.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 fn is_scoped(open: &[Scope], root: Wid) -> bool {
@@ -224,9 +211,7 @@ fn run_recovery(
         attempts += 1;
         if let Err(error) = guarded_restore() {
             // The person moved: the desktop is theirs, so nothing is restored.
-            if error.starts_with("user_input_active")
-                || error.starts_with("input_observation_unavailable")
-            {
+            if error.starts_with("user_input_active") || error.starts_with("input_observation_unavailable") {
                 break;
             }
             return Err(error);
@@ -240,12 +225,7 @@ fn run_recovery(
 /// is restored) or the observer was not watching (InactiveRestoreSkipped,
 /// :190-193; the not-ready return, :221).
 fn recovery_skipped(root: Wid, before: Wid, ready: bool) -> bool {
-    root == 0
-        || !ready
-        || !native::is_window(before)
-        || before == root
-        || native::root_of(before) == root
-        || native::is_owned_by(before, root)
+    root == 0 || !ready || !native::is_window(before) || before == root || native::root_of(before) == root || native::is_owned_by(before, root)
 }
 
 impl WinBackground {
@@ -253,11 +233,7 @@ impl WinBackground {
     /// the delivery only holds; otherwise it is a scope of its own, so the
     /// settle and the foreground recovery run once after it (WhileInactive,
     /// :260-274).
-    pub fn while_inactive<T>(
-        &self,
-        top: Wid,
-        deliver: impl FnOnce() -> Result<T, String>,
-    ) -> Result<T, String> {
+    pub fn while_inactive<T>(&self, top: Wid, deliver: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
         if is_scoped(&scopes(), inactive_root(top)) {
             let held = hold_inactive(&self.port, top);
             let outcome = deliver();
@@ -284,10 +260,7 @@ impl WinBackground {
         run_recovery(
             || {
                 let current = native::foreground();
-                current == root
-                    || native::root_of(current) == root
-                    || native::is_owned_by(current, root)
-                    || native::shares_process(current, root)
+                current == root || native::root_of(current) == root || native::is_owned_by(current, root) || native::shares_process(current, root)
             },
             || {
                 // Each try runs under BeginExpected + AssertContinue: input, a
@@ -370,13 +343,7 @@ mod tests {
 
     impl Fake {
         fn new() -> Fake {
-            Fake {
-                foreground: 99,
-                style: Cell::new(0),
-                refuses: false,
-                ledgered: true,
-                log: RefCell::new(Vec::new()),
-            }
+            Fake { foreground: 99, style: Cell::new(0), refuses: false, ledgered: true, log: RefCell::new(Vec::new()) }
         }
         fn bit(&self) -> bool {
             self.style.get() & WS_EX_NOACTIVATE != 0
@@ -416,22 +383,14 @@ mod tests {
         let (fake, mut holders) = (Fake::new(), BTreeMap::new());
         assert_eq!(hold(&mut holders, &fake, 1), (1, false));
         assert!(fake.bit());
-        assert_eq!(
-            hold(&mut holders, &fake, 1),
-            (1, false),
-            "an overlapping hold counts against the same root"
-        );
+        assert_eq!(hold(&mut holders, &fake, 1), (1, false), "an overlapping hold counts against the same root");
         release(&mut holders, &fake, 1).unwrap();
         assert!(fake.bit(), "kept while another holder needs it");
         release(&mut holders, &fake, 1).unwrap();
         assert!(!fake.bit());
         release(&mut holders, &fake, 1).unwrap();
         assert!(!fake.bit(), "a spare release changes nothing");
-        assert_eq!(
-            *fake.log.borrow(),
-            [(true, 1), (false, 1)],
-            "recorded before the write and after the clear"
-        );
+        assert_eq!(*fake.log.borrow(), [(true, 1), (false, 1)], "recorded before the write and after the clear");
     }
 
     #[test]
@@ -439,18 +398,10 @@ mod tests {
         let mut fake = Fake::new();
         let mut holders = BTreeMap::new();
         fake.foreground = 1;
-        assert_eq!(
-            hold(&mut holders, &fake, 1),
-            (0, false),
-            "the foreground needs no bit"
-        );
+        assert_eq!(hold(&mut holders, &fake, 1), (0, false), "the foreground needs no bit");
         fake.foreground = 99;
         fake.style.set(WS_EX_NOACTIVATE);
-        assert_eq!(
-            hold(&mut holders, &fake, 1),
-            (0, false),
-            "a bit someone else set is not needed"
-        );
+        assert_eq!(hold(&mut holders, &fake, 1), (0, false), "a bit someone else set is not needed");
         release(&mut holders, &fake, 0).unwrap();
         assert!(fake.bit(), "and it stays");
     }
@@ -510,15 +461,7 @@ mod tests {
     }
 
     fn scope(top: Wid, root: Wid) -> Scope {
-        Scope {
-            top,
-            root,
-            held: 0,
-            foreground_before: 0,
-            input_before: 0,
-            generation: String::new(),
-            ready: true,
-        }
+        Scope { top, root, held: 0, foreground_before: 0, input_before: 0, generation: String::new(), ready: true }
     }
 
     #[test]
@@ -529,16 +472,10 @@ mod tests {
         open.push(scope(1, 1));
         open.push(scope(2, 2));
         assert_eq!(take_scope(&mut open, 1).map(|scope| scope.root), Some(1));
-        assert!(
-            is_scoped(&open, 1),
-            "the outer scope on the root stays open"
-        );
+        assert!(is_scoped(&open, 1), "the outer scope on the root stays open");
         assert!(take_scope(&mut open, 1).is_some());
         assert!(!is_scoped(&open, 1) && is_scoped(&open, 2));
-        assert!(
-            take_scope(&mut open, 1).is_none(),
-            "a scope not open is left alone"
-        );
+        assert!(take_scope(&mut open, 1).is_none(), "a scope not open is left alone");
     }
 
     #[test]
@@ -568,11 +505,7 @@ mod tests {
             },
             |_| {},
         );
-        assert_eq!(
-            (attempts, tries.get()),
-            (Ok(1), 1),
-            "the second attempt finds the foreground given back"
-        );
+        assert_eq!((attempts, tries.get()), (Ok(1), 1), "the second attempt finds the foreground given back");
         tries.set(0);
         let attempts = run_recovery(
             || true,
@@ -583,20 +516,10 @@ mod tests {
             |_| {},
         );
         assert_eq!((attempts, tries.get()), (Ok(1), 1));
-        let attempts = run_recovery(
-            || true,
-            || Err("input_observation_unavailable: no".into()),
-            |_| {},
-        );
+        let attempts = run_recovery(|| true, || Err("input_observation_unavailable: no".into()), |_| {});
         assert_eq!(attempts, Ok(1));
-        assert_eq!(
-            run_recovery(|| true, || Err("other".into()), |_| {}),
-            Err("other".to_string())
-        );
-        assert_eq!(
-            run_recovery(|| false, || Err("never".into()), |_| {}),
-            Ok(0)
-        );
+        assert_eq!(run_recovery(|| true, || Err("other".into()), |_| {}), Err("other".to_string()));
+        assert_eq!(run_recovery(|| false, || Err("never".into()), |_| {}), Ok(0));
     }
 
     #[test]

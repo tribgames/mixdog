@@ -54,8 +54,7 @@ fn listed() -> Vec<ModelRecord> {
     astra.context_window = Some(272_000);
     astra.supports_reasoning = Some(true);
     astra.reasoning_levels = ["low", "medium", "high", "xhigh"].map(str::to_owned).to_vec();
-    astra.picker.reasoning_options =
-        vec![mixdog_core_api::domain::provider::ReasoningOption { kind: "effort".into(), values: astra.reasoning_levels.clone() }];
+    astra.picker.reasoning_options = vec![mixdog_core_api::domain::provider::ReasoningOption { kind: "effort".into(), values: astra.reasoning_levels.clone() }];
     astra.supports_reasoning_effort_updates = Some(true);
     vec![astra]
 }
@@ -115,11 +114,7 @@ impl ModelListing for Fetch {
             used.clone_into(&mut self.sampled.lock().unwrap());
         }
         let rows = self.answer.clone().map_err(|kind| ProviderError::new(kind, DeliveryState::NotSent))?;
-        Ok(ListedRoster {
-            rows,
-            provenance: if self.seed { Provenance::Seed } else { Provenance::Fetched },
-            identity: self.sampled.lock().unwrap().clone(),
-        })
+        Ok(ListedRoster { rows, provenance: if self.seed { Provenance::Seed } else { Provenance::Fetched }, identity: self.sampled.lock().unwrap().clone() })
     }
 }
 
@@ -307,7 +302,8 @@ async fn a_zero_filled_file_is_reported_damaged_and_replaced_by_a_fetch() {
 #[tokio::test]
 async fn an_unbundled_model_the_account_lists_reaches_its_ladder_and_the_label_says_auto() {
     let accounts = RosterAccounts::default();
-    let rig = setup_with(tempfile::tempdir().unwrap(), Fetch::new(Some(listed()), who("acct-a", "0.166.0")), FETCHED_AT, who("acct-a", "0.166.0"), accounts.clone());
+    let rig =
+        setup_with(tempfile::tempdir().unwrap(), Fetch::new(Some(listed()), who("acct-a", "0.166.0")), FETCHED_AT, who("acct-a", "0.166.0"), accounts.clone());
     rig.source.list().await.unwrap();
 
     // The saved roster is what `getCachedModelInfo` answers for the route.
@@ -413,7 +409,8 @@ async fn a_switch_during_a_failing_fetch_delivers_the_new_accounts_list() {
     let accounts = RosterAccounts::default();
     let dir = tempfile::tempdir().unwrap();
     // A's list, within its TTL but for an older client: what a failure of A's fetch would show.
-    let older = setup_with(tempfile::tempdir().unwrap(), Fetch::new(Some(listed()), who("acct-a", "0.160.0")), FETCHED_AT, who("acct-a", "0.160.0"), accounts.clone());
+    let older =
+        setup_with(tempfile::tempdir().unwrap(), Fetch::new(Some(listed()), who("acct-a", "0.160.0")), FETCHED_AT, who("acct-a", "0.160.0"), accounts.clone());
     older.source.list().await.unwrap();
     std::fs::copy(file_of(older.dir.path(), &a), file_of(dir.path(), &a)).unwrap();
 
@@ -659,7 +656,8 @@ async fn an_older_refresh_that_finishes_last_does_not_replace_a_newer_publicatio
     };
     for (older_clock, newer_clock, shared) in [(FETCHED_AT, FETCHED_AT, true), (FETCHED_AT, FETCHED_AT + 5, false)] {
         let _ = std::fs::remove_file(file_of(dir.path(), &identity));
-        let (older_accounts, newer_accounts) = if shared { (accounts.clone(), accounts.clone()) } else { (RosterAccounts::default(), RosterAccounts::default()) };
+        let (older_accounts, newer_accounts) =
+            if shared { (accounts.clone(), accounts.clone()) } else { (RosterAccounts::default(), RosterAccounts::default()) };
         let gate = Arc::new(tokio::sync::Notify::new());
         let mut older = Fetch::new(Some(private_model("older")), identity.clone());
         older.gate = Some(gate.clone());

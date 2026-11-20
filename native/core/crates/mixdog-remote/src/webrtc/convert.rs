@@ -25,29 +25,12 @@ struct Layout {
     b: usize,
 }
 
-const BGR_X: Layout = Layout {
-    bytes_per_pixel: 4,
-    r: 2,
-    g: 1,
-    b: 0,
-};
-const RGB: Layout = Layout {
-    bytes_per_pixel: 3,
-    r: 0,
-    g: 1,
-    b: 2,
-};
-const GRAY: Layout = Layout {
-    bytes_per_pixel: 1,
-    r: 0,
-    g: 0,
-    b: 0,
-};
+const BGR_X: Layout = Layout { bytes_per_pixel: 4, r: 2, g: 1, b: 0 };
+const RGB: Layout = Layout { bytes_per_pixel: 3, r: 0, g: 1, b: 2 };
+const GRAY: Layout = Layout { bytes_per_pixel: 1, r: 0, g: 0, b: 0 };
 
 fn invalid(reason: impl Into<String>) -> MediaError {
-    MediaError::InvalidFrame {
-        reason: reason.into(),
-    }
+    MediaError::InvalidFrame { reason: reason.into() }
 }
 
 impl I420Buf {
@@ -57,11 +40,7 @@ impl I420Buf {
 
     /// Fills the buffer from `frame`, sized to the frame.
     pub fn fill(&mut self, frame: &VideoFrame) -> Result<(), MediaError> {
-        if frame.width == 0
-            || frame.height == 0
-            || frame.width > MAX_DIMENSION
-            || frame.height > MAX_DIMENSION
-        {
+        if frame.width == 0 || frame.height == 0 || frame.width > MAX_DIMENSION || frame.height > MAX_DIMENSION {
             return Err(invalid("frame size out of bounds"));
         }
         let (width, height) = (frame.width as usize, frame.height as usize);
@@ -106,9 +85,7 @@ impl I420Buf {
 
     fn decode_jpeg_into(&mut self, data: &[u8]) -> Result<(), MediaError> {
         let mut decoder = jpeg_decoder::Decoder::new(data);
-        let pixels = decoder
-            .decode()
-            .map_err(|e| invalid(format!("jpeg: {e}")))?;
+        let pixels = decoder.decode().map_err(|e| invalid(format!("jpeg: {e}")))?;
         let info = decoder.info().ok_or_else(|| invalid("jpeg: no header"))?;
         let (width, height) = (usize::from(info.width), usize::from(info.height));
         if width == 0 || height == 0 {
@@ -128,11 +105,7 @@ impl I420Buf {
         let chroma_width = width.div_ceil(2);
         let pixel = |x: usize, y: usize| -> (i32, i32, i32) {
             let at = y * stride + x * layout.bytes_per_pixel;
-            (
-                i32::from(src[at + layout.r]),
-                i32::from(src[at + layout.g]),
-                i32::from(src[at + layout.b]),
-            )
+            (i32::from(src[at + layout.r]), i32::from(src[at + layout.g]), i32::from(src[at + layout.b]))
         };
         for row in 0..height {
             for col in 0..width {
@@ -173,15 +146,7 @@ mod tests {
     use super::*;
 
     fn frame(format: PixelFormat, width: u32, height: u32, stride: u32, data: Vec<u8>) -> VideoFrame {
-        VideoFrame {
-            width,
-            height,
-            stride,
-            format,
-            data: Bytes::from(data),
-            seq: 0,
-            captured_at: Duration::ZERO,
-        }
+        VideoFrame { width, height, stride, format, data: Bytes::from(data), seq: 0, captured_at: Duration::ZERO }
     }
 
     #[test]

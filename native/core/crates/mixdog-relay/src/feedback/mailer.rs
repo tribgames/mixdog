@@ -83,11 +83,7 @@ fn message(mail: FeedbackMail) -> Message {
         reply_to: mail.reply_to,
         subject: mail.subject,
         text: mail.text,
-        attachments: mail
-            .attachments
-            .into_iter()
-            .map(|a| Attachment { filename: a.filename, content: a.content, content_type: a.content_type })
-            .collect(),
+        attachments: mail.attachments.into_iter().map(|a| Attachment { filename: a.filename, content: a.content, content_type: a.content_type }).collect(),
         message_id: Some(mail.message_id),
     }
 }

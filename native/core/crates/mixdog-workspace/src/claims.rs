@@ -57,12 +57,8 @@ impl<K: Clone> Claims<K> {
         let (tx, rx) = watch::channel(());
         let (id, predecessors) = {
             let mut state = self.state.lock().expect("claims lock");
-            let predecessors: Vec<watch::Receiver<()>> = state
-                .entries
-                .iter()
-                .filter(|e| e.keys.iter().any(|l| keys.iter().any(|r| (self.conflicts)(l, r))))
-                .map(|e| e.done.clone())
-                .collect();
+            let predecessors: Vec<watch::Receiver<()>> =
+                state.entries.iter().filter(|e| e.keys.iter().any(|l| keys.iter().any(|r| (self.conflicts)(l, r)))).map(|e| e.done.clone()).collect();
             let id = state.next;
             state.next += 1;
             state.entries.push(Entry { id, keys, done: rx });

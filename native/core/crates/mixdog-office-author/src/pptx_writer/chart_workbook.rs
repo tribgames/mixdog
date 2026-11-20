@@ -7,7 +7,6 @@
 //! value column is an empty cell, the table range of a category chart ends in a stray quote, and every label cell of a
 //! row names the same shared string.
 
-
 use mixdog_ooxml::zipio::Package;
 
 use super::charts::{ChartData, ChartKind};
@@ -332,7 +331,9 @@ mod tests {
         let data = [series("Sales", &["Jan", "Feb"], &[Some(5.0), Some(0.0)]), series("Cost", &["Jan", "Feb"], &[Some(1.5), None])];
         let rows = sheet(ChartKind::Bar, &data);
         assert!(rows.contains("<dimension ref=\"A1:C3\"/>"));
-        assert!(rows.contains("<row r=\"1\" spans=\"1:3\"><c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\" t=\"s\"><v>1</v></c><c r=\"C1\" t=\"s\"><v>2</v></c></row>"));
+        assert!(
+            rows.contains("<row r=\"1\" spans=\"1:3\"><c r=\"A1\" t=\"s\"><v>0</v></c><c r=\"B1\" t=\"s\"><v>1</v></c><c r=\"C1\" t=\"s\"><v>2</v></c></row>")
+        );
         assert!(rows.contains("<row r=\"2\" spans=\"1:3\"><c r=\"A2\" t=\"s\"><v>3</v></c><c r=\"B2\"><v>5</v></c><c r=\"C2\"><v>1.5</v></c></row>"));
         assert!(rows.contains("<row r=\"3\" spans=\"1:3\"><c r=\"A3\" t=\"s\"><v>4</v></c><c r=\"B3\"><v></v></c><c r=\"C3\"><v></v></c></row>"));
         let strings = shared_strings(ChartKind::Bar, &data);
@@ -340,7 +341,9 @@ mod tests {
         assert!(strings.contains("<si><t xml:space=\"preserve\"></t></si><si><t>Sales</t></si><si><t>Cost</t></si><si><t>Jan</t></si><si><t>Feb</t></si>"));
         let columns = table(ChartKind::Bar, &data);
         assert!(columns.contains("ref=\"A1:C3'\""), "the stray quote of the range pptxgenjs writes");
-        assert!(columns.contains("<tableColumns count=\"3\"><tableColumn id=\"1\" name=\"Column1\"/><tableColumn id=\"2\" name=\"Sales\"/><tableColumn id=\"3\" name=\"Cost\"/>"));
+        assert!(columns.contains(
+            "<tableColumns count=\"3\"><tableColumn id=\"1\" name=\"Column1\"/><tableColumn id=\"2\" name=\"Sales\"/><tableColumn id=\"3\" name=\"Cost\"/>"
+        ));
     }
 
     #[test]
@@ -363,7 +366,15 @@ mod tests {
         let workbook = Package::load(&workbook_bytes(ChartKind::Line, &data).expect("a workbook")).expect("a package");
         let names = workbook.names();
         assert_eq!(names.first().map(String::as_str), Some("_rels/"));
-        for part in ["[Content_Types].xml", "xl/workbook.xml", "xl/sharedStrings.xml", "xl/tables/table1.xml", "xl/worksheets/sheet1.xml", "xl/theme/theme1.xml", "docProps/core.xml"] {
+        for part in [
+            "[Content_Types].xml",
+            "xl/workbook.xml",
+            "xl/sharedStrings.xml",
+            "xl/tables/table1.xml",
+            "xl/worksheets/sheet1.xml",
+            "xl/theme/theme1.xml",
+            "docProps/core.xml",
+        ] {
             assert!(names.iter().any(|name| name == part), "{part}");
         }
         assert!(!workbook.text("docProps/core.xml").contains("@@TIME@@"));

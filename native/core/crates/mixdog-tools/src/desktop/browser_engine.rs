@@ -109,8 +109,12 @@ fn reply_value(mut reply: BrowserToolReply) -> Value {
 fn row_answer(answer: &Result<BrowserToolReply, HostCommandError>) -> Result<&JsonValue, HostError> {
     match answer {
         Ok(reply) => Ok(&reply.value),
-        Err(HostCommandError::Rpc { code, message, timing }) => Err(HostError::Rpc { code: *code, message: message.clone(), data: timing.as_ref().map(|timing| serde_json::json!({ "timing": timing })) }),
-        Err(HostCommandError::Cancelled | HostCommandError::NoHost) => Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "cancelled".into() })),
+        Err(HostCommandError::Rpc { code, message, timing }) => {
+            Err(HostError::Rpc { code: *code, message: message.clone(), data: timing.as_ref().map(|timing| serde_json::json!({ "timing": timing })) })
+        }
+        Err(HostCommandError::Cancelled | HostCommandError::NoHost) => {
+            Err(HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "cancelled".into() }))
+        }
     }
 }
 
@@ -120,7 +124,13 @@ impl HostCommands for EngineHostCommands {
         self.browser_for_tool(thread, action, input, cancel).await.map(reply_value)
     }
 
-    async fn browser_for_tool(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<BrowserToolReply, HostCommandError> {
+    async fn browser_for_tool(
+        &self,
+        thread: &ThreadId,
+        action: &str,
+        input: JsonValue,
+        cancel: &CancellationToken,
+    ) -> Result<BrowserToolReply, HostCommandError> {
         let Some(switch) = &self.switch else {
             return self.browser_command(thread, action, input, cancel).await;
         };
@@ -343,7 +353,11 @@ mod tests {
         let live = CancellationToken::new();
         tx.send_replace(false);
         for action in ["list_tabs", "begin_turn"] {
-            assert_eq!(commands.browser(&thread, action, json!({}), &live).await, Err(HostCommandError::NoHost), "{action}: the engine's and the forwarded path both");
+            assert_eq!(
+                commands.browser(&thread, action, json!({}), &live).await,
+                Err(HostCommandError::NoHost),
+                "{action}: the engine's and the forwarded path both"
+            );
         }
         assert!(channel.sent().is_empty() && host.calls().is_empty(), "nothing was sent anywhere while it was off");
         tx.send_replace(true);
@@ -363,7 +377,10 @@ mod tests {
             tx.send_replace(false);
         };
         let (state_changing, _) = tokio::join!(commands.browser(&thread, "begin_turn", json!({}), &live), off);
-        assert!(matches!(&state_changing, Err(HostCommandError::Rpc { message, .. }) if message.contains("may have executed and was not replayed")), "{state_changing:?}");
+        assert!(
+            matches!(&state_changing, Err(HostCommandError::Rpc { message, .. }) if message.contains("may have executed and was not replayed")),
+            "{state_changing:?}"
+        );
         // An observation can be asked again: it reads as the missing desktop.
         assert_eq!(commands.browser(&thread, "list_tabs", json!({}), &live).await, Err(HostCommandError::NoHost));
     }
@@ -417,7 +434,6 @@ mod tests {
         let answer = commands(&channel, &host, Some("a person has this session")).browser(&ThreadId::from("s1"), "snapshot", json!({}), &cancel).await;
         assert_eq!(answer, Err(HostCommandError::Cancelled));
     }
-
 
     /// The loss of the host connection is the engine's typed cause; a page exception whose text equals the transport message is an
     /// ordinary failure the agent reads as it is.
@@ -476,7 +492,6 @@ mod tests {
     }
 }
 
-
 /// A failed command as the host's refusal of it: the tool words it with `Error: ` as it did the host's own message, and the
 /// refusal carries the timing of the part that ran. A command the caller's token ended is cancelled, whichever way the engine
 /// worded it.
@@ -493,7 +508,13 @@ fn command_failure(failure: CommandFailure, cancel: &CancellationToken, action: 
     HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: failure.error.message_for_model, timing }
 }
 impl EngineHostCommands {
-    async fn browser_command(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &CancellationToken) -> Result<BrowserToolReply, HostCommandError> {
+    async fn browser_command(
+        &self,
+        thread: &ThreadId,
+        action: &str,
+        input: JsonValue,
+        cancel: &CancellationToken,
+    ) -> Result<BrowserToolReply, HostCommandError> {
         if !self.runs_in_engine(action) {
             return self.forward.browser_for_tool(thread, action, input, cancel).await;
         }

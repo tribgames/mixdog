@@ -130,11 +130,7 @@ fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 impl TodoGuards {
     pub fn new(view: Arc<dyn TodoView>, hidden_agent: bool) -> Self {
-        Self {
-            view,
-            hidden_agent,
-            check: Mutex::new(Check::default()),
-        }
+        Self { view, hidden_agent, check: Mutex::new(Check::default()) }
     }
 
     /// The cycle state the session record carries (`session.todoCheck`), when it has any.
@@ -236,12 +232,7 @@ impl TurnGuards for TodoGuards {
         let mut lines = vec![
             "The todo list has not moved for a while. Advance past the steps that are finished, or set the list again if the plan changed, so the step in progress is the one you are on. Keep working; do not mention this reminder.".to_owned(),
         ];
-        lines.extend(
-            phases
-                .iter()
-                .flat_map(|p| &p.tasks)
-                .map(|t| format!("- [{}] {}", t.status.label(), t.content)),
-        );
+        lines.extend(phases.iter().flat_map(|p| &p.tasks).map(|t| format!("- [{}] {}", t.status.label(), t.content)));
         Some(reminder(lines))
     }
 
@@ -262,21 +253,14 @@ impl TurnGuards for TodoGuards {
         if check.awaiting_progress || check.user_wait || user_waiting {
             return None;
         }
-        let open: Vec<&TodoTask> = phases
-            .iter()
-            .flat_map(|p| &p.tasks)
-            .filter(|t| t.status.open())
-            .collect();
+        let open: Vec<&TodoTask> = phases.iter().flat_map(|p| &p.tasks).filter(|t| t.status.open()).collect();
         if !open.is_empty() {
             if check.reminders >= MAX_REMINDERS || background {
                 return None;
             }
             check.reminders += 1;
             check.awaiting_progress = true;
-            let mut lines = vec![format!(
-                "You ended the turn with {} open todo item(s):",
-                open.len()
-            )];
+            let mut lines = vec![format!("You ended the turn with {} open todo item(s):", open.len())];
             lines.extend(open.iter().map(|t| format!("- {}", t.content)));
             lines.push("Continue them, or close each with the todo tool (done or drop).".to_owned());
             lines.push(format!("(Reminder {}/{MAX_REMINDERS})", check.reminders));
@@ -422,23 +406,12 @@ mod tests {
     }
 
     fn open_list() -> Vec<TodoPhase> {
-        vec![TodoPhase {
-            tasks: vec![TodoTask {
-                content: "write".into(),
-                status: TodoStatus::InProgress,
-            }],
-        }]
+        vec![TodoPhase { tasks: vec![TodoTask { content: "write".into(), status: TodoStatus::InProgress }] }]
     }
 
     #[tokio::test]
     async fn open_items_remind_three_times_and_only_after_progress() {
-        let guards = TodoGuards::new(
-            Arc::new(View {
-                phases: open_list(),
-                goal: false,
-            }),
-            false,
-        );
+        let guards = TodoGuards::new(Arc::new(View { phases: open_list(), goal: false }), false);
         let first = guards.completion_reminder(false).await.unwrap();
         assert!(first.contains("1 open todo item(s)") && first.contains("(Reminder 1/3)"));
         assert!(guards.completion_reminder(false).await.is_none(), "no progress yet");
@@ -453,13 +426,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_denied_approval_makes_the_turn_wait_on_the_user() {
-        let guards = TodoGuards::new(
-            Arc::new(View {
-                phases: open_list(),
-                goal: false,
-            }),
-            false,
-        );
+        let guards = TodoGuards::new(Arc::new(View { phases: open_list(), goal: false }), false);
         guards.note_user_wait();
         assert!(guards.completion_reminder(false).await.is_none());
         guards.begin_turn(false);

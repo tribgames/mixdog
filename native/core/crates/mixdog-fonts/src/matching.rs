@@ -122,10 +122,7 @@ impl<'r> Chain<'r> {
 
     /// The position in [`Chain::ids`] of the face that sets `character`: the first whose cmap has it, else the first.
     pub fn slot_for(&self, character: char) -> usize {
-        self.parsed
-            .iter()
-            .position(|face| face.as_ref().is_some_and(|face| face.glyph_index(character).is_some()))
-            .unwrap_or(0)
+        self.parsed.iter().position(|face| face.as_ref().is_some_and(|face| face.glyph_index(character).is_some())).unwrap_or(0)
     }
 
     /// The face with this position in the chain, parsed.

@@ -7,9 +7,9 @@ pub mod ops;
 pub mod pricing;
 pub mod quota_resume;
 #[cfg(test)]
-mod quota_resume_tests;
-#[cfg(test)]
 mod quota_resume_feature_tests;
+#[cfg(test)]
+mod quota_resume_tests;
 pub mod rooms;
 pub mod state;
 pub mod support;

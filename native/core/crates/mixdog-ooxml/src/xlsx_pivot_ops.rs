@@ -160,7 +160,8 @@ fn format_pivot_values(zip: &mut Package, xml: &str, area: &Area, destination: &
         }
         let pattern = JsRegex::new(&format!(r#"(<dataField\b[^>]*\bfld="{field}")([^>]*?)(\/?>)"#), "")?;
         let rewritten = pattern.captures(&table).map(|found| {
-            let text = format!("{}{} numFmtId=\"{}\"{}", found.get(1).unwrap_or(""), found.get(2).unwrap_or(""), number_to_string(id), found.get(3).unwrap_or(""));
+            let text =
+                format!("{}{} numFmtId=\"{}\"{}", found.get(1).unwrap_or(""), found.get(2).unwrap_or(""), number_to_string(id), found.get(3).unwrap_or(""));
             (found.range(), text)
         });
         if let Some((whole, text)) = rewritten {
@@ -180,7 +181,8 @@ pub fn add_worksheet_pivot_table<P: ReadProof>(
     op: &Map<String, Value>,
 ) -> Result<Value, String> {
     let source = op.get("source");
-    let area = parse_area_range(&text_or_empty(source)).map_err(|error| if truthy(source) { error } else { format!("Unsupported range: {}", js_text(source)) })?;
+    let area =
+        parse_area_range(&text_or_empty(source)).map_err(|error| if truthy(source) { error } else { format!("Unsupported range: {}", js_text(source)) })?;
     if area.start_row == 0.0 || area.start_col == 0.0 || area.end_row <= area.start_row {
         return Err("add_pivot_table requires a bounded source range whose first row holds field names".to_owned());
     }
@@ -197,11 +199,7 @@ pub fn add_worksheet_pivot_table<P: ReadProof>(
         .into_iter()
         .find(|entry| entry.name == destination_name)
         .ok_or_else(|| format!("add_pivot_table destination sheet \"{destination_name}\" was not found"))?;
-    let pivot_name = if truthy(op.get("name")) {
-        js_text(op.get("name"))
-    } else {
-        format!("MixdogPivot{}", zip.files_matching(&PIVOT_TABLE_PART).len() + 1)
-    };
+    let pivot_name = if truthy(op.get("name")) { js_text(op.get("name")) } else { format!("MixdogPivot{}", zip.files_matching(&PIVOT_TABLE_PART).len() + 1) };
     let axes: Vec<usize> = names.rows.iter().chain(&names.columns).map(|name| field_index(name)).collect::<Result<_, _>>()?;
     let value_fields: Vec<usize> = names.values.iter().map(|name| field_index(name)).collect::<Result<_, _>>()?;
     let column_field = match names.columns.first() {

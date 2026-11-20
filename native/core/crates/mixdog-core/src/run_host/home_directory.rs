@@ -51,4 +51,3 @@ impl HomeDirectory for DefinitionsDirectory {
         self.definitions.mixy_exists().await.unwrap_or(true)
     }
 }
-

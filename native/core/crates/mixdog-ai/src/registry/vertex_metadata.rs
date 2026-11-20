@@ -24,29 +24,14 @@ const METADATA_URL: &str = "http://metadata.google.internal/computeMetadata/v1";
 const REFRESH_SKEW_MS: u64 = 5 * 60_000;
 
 fn get(url: String) -> WireRequest {
-    WireRequest {
-        transport: TransportKind::Http1,
-        method: "GET".into(),
-        url,
-        headers: vec![("Metadata-Flavor".into(), "Google".into())],
-        body: Vec::new(),
-    }
+    WireRequest { transport: TransportKind::Http1, method: "GET".into(), url, headers: vec![("Metadata-Flavor".into(), "Google".into())], body: Vec::new() }
 }
 
 /// Whether a metadata server answers, and its project. Only the server itself
 /// answers with the `Metadata-Flavor: Google` header; any failure is "none".
 pub async fn probe_project(http: &Arc<dyn HttpSend>) -> Option<String> {
-    let response = http
-        .send(
-            get(format!("{METADATA_URL}/project/project-id")),
-            VERTEX_METADATA,
-        )
-        .await
-        .ok()?;
-    let flavored = response
-        .headers
-        .iter()
-        .any(|(n, v)| n.eq_ignore_ascii_case("metadata-flavor") && v == "Google");
+    let response = http.send(get(format!("{METADATA_URL}/project/project-id")), VERTEX_METADATA).await.ok()?;
+    let flavored = response.headers.iter().any(|(n, v)| n.eq_ignore_ascii_case("metadata-flavor") && v == "Google");
     if !response.is_success() || !flavored {
         return None;
     }
@@ -96,13 +81,7 @@ fn detail(payload: &Value, status: u16) -> String {
 
 impl MetadataAuth {
     pub fn new(http: Arc<dyn HttpSend>, project: &str, now_ms: Box<dyn Fn() -> u64 + Send + Sync>) -> Self {
-        Self {
-            http,
-            identity: identity(project),
-            now_ms,
-            cached: Mutex::new(None),
-            minting: tokio::sync::Semaphore::new(1),
-        }
+        Self { http, identity: identity(project), now_ms, cached: Mutex::new(None), minting: tokio::sync::Semaphore::new(1) }
     }
 
     pub fn identity(&self) -> &str {
@@ -119,12 +98,7 @@ impl MetadataAuth {
         let now = (self.now_ms)();
         let response = self
             .http
-            .send(
-                get(format!(
-                    "{METADATA_URL}/instance/service-accounts/default/token"
-                )),
-                VERTEX_TOKEN,
-            )
+            .send(get(format!("{METADATA_URL}/instance/service-accounts/default/token")), VERTEX_TOKEN)
             .await
             .map_err(|e| auth_failure(if e.message.is_empty() { "token request failed" } else { &e.message }, None))?;
         let status = response.status;
@@ -157,10 +131,7 @@ impl RequestAuth for MetadataAuth {
                 }
             }
         };
-        Ok(Authorization {
-            headers: vec![("authorization".into(), format!("Bearer {token}"))],
-            identity: self.identity.clone(),
-        })
+        Ok(Authorization { headers: vec![("authorization".into(), format!("Bearer {token}"))], identity: self.identity.clone() })
     }
 
     /// Drops only the token the server rejected; a fresher one stays.

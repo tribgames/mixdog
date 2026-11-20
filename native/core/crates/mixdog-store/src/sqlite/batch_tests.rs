@@ -54,17 +54,13 @@ fn item(ordinal: u64) -> ProjectedFrame {
 
 fn project(w: &mut Writer, frames: Vec<ProjectedFrame>, model: &str) -> oneshot::Receiver<Result<(), DbError>> {
     let (ack, answer) = oneshot::channel();
-    w.take(Command::Project {
-        projection: Projection { session: SESSION.into(), frames, head: Arc::new(head(model)) },
-        ack: Some(ack),
-    });
+    w.take(Command::Project { projection: Projection { session: SESSION.into(), frames, head: Arc::new(head(model)) }, ack: Some(ack) });
     answer
 }
 
 /// The `model` of the session's list row.
 fn listed_model(w: &Writer) -> serde_json::Value {
-    let summary: String =
-        w.conn.query_row("SELECT summary FROM sessions WHERE id = ?1", [SESSION], |r| r.get(0)).expect("the row");
+    let summary: String = w.conn.query_row("SELECT summary FROM sessions WHERE id = ?1", [SESSION], |r| r.get(0)).expect("the row");
     serde_json::from_str::<serde_json::Value>(&summary).expect("json")["model"].clone()
 }
 

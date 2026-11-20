@@ -48,7 +48,6 @@ mod adc {
 
     use super::*;
 
-
     struct MapEnv(HashMap<String, String>);
 
     impl Environment for MapEnv {
@@ -79,7 +78,8 @@ mod adc {
     }
 
     const LOGIN_FILE: &str = "application_default_credentials.json";
-    const USER_LOGIN: &str = r#"{"type":"authorized_user","client_id":"id","client_secret":"secret","refresh_token":"refresh","quota_project_id":"quota-proj"}"#;
+    const USER_LOGIN: &str =
+        r#"{"type":"authorized_user","client_id":"id","client_secret":"secret","refresh_token":"refresh","quota_project_id":"quota-proj"}"#;
 
     #[tokio::test]
     async fn project_vertex_routes_use_the_selected_models_region_unless_pinned() {
@@ -114,9 +114,13 @@ mod adc {
             check(builder.build("vertex-ai", &pinned(service.clone())).await.unwrap().as_ref(), "service-proj", pin);
         }
         let path = dir.path().join(LOGIN_FILE);
-        mixdog_rt::testing::tokens().durability_io
+        mixdog_rt::testing::tokens()
+            .durability_io
             .submit(&CancellationToken::new(), move |lane| mixdog_statefile::write_file(lane, &path, USER_LOGIN.as_bytes(), &mixdog_statefile::Opts::default()))
-            .unwrap().await.unwrap().unwrap();
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
         check(builder.build("vertex-ai", &adc).await.unwrap().as_ref(), "quota-proj", None);
     }
 
@@ -166,15 +170,12 @@ mod adc {
 
     #[tokio::test]
     async fn an_impersonated_login_needs_a_valid_service_account_url() {
-        let (shown, _) = described(&[(LOGIN_FILE, r#"{"type":"impersonated_service_account","service_account_impersonation_url":"https://x/y"}"#)], &[], "").await;
+        let (shown, _) =
+            described(&[(LOGIN_FILE, r#"{"type":"impersonated_service_account","service_account_impersonation_url":"https://x/y"}"#)], &[], "").await;
         assert_eq!(shown["state"], "invalid");
         assert!(shown["message"].as_str().unwrap().contains("have no valid service_account_impersonation_url"));
     }
-
-
 }
-
-
 
 /// `MIXDOG_OAI_TRANSPORT` reaches the adapter's WebSocket mode as `resolveOpenAiTransportPolicy` resolves it: `ws-full`
 /// pins full frames (Node's `full_default`), `ws-delta` pins delta frames without the HTTP fallback.
@@ -300,7 +301,6 @@ mod account_keys {
     }
 }
 
-
 /// A keyless custom provider on `protocol` at a stand-in endpoint, not warmed, with `overrides` as its `modelOverrides`.
 fn custom_config(protocol: &str, overrides: Value) -> Value {
     json!({
@@ -312,12 +312,7 @@ fn custom_config(protocol: &str, overrides: Value) -> Value {
 /// A one-message request of `model` with `options`.
 fn custom_turn(model: &str, options: mixdog_core_api::domain::provider::RequestOptions) -> ModelRequest {
     use mixdog_core_api::domain::provider::{Content, Message, Role};
-    ModelRequest {
-        model: model.to_owned(),
-        messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
-        tools: Vec::new(),
-        options,
-    }
+    ModelRequest { model: model.to_owned(), messages: vec![Message::new(Role::User, Content::Text("hi".into()))], tools: Vec::new(), options }
 }
 
 #[tokio::test]
@@ -335,22 +330,25 @@ async fn custom_responses_retries_rejected_history_on_the_configured_wire_at_the
     }));
     let b = builder_over(&dir, Arc::new(ProcessEnv), Some(wire.clone()), Arc::new(SessionContext::new()));
     let model = "gateway/gpt-6";
-    let mut cfg = custom_config("openai-chat", json!({
-        "gateway/gpt-6": {"manual": true, "reasoning": {
-            "levels": ["low", "medium", "high"], "wireValues": {"low":"lite","medium":"lite","high":"deep"}
-        }}
-    }));
+    let mut cfg = custom_config(
+        "openai-chat",
+        json!({
+            "gateway/gpt-6": {"manual": true, "reasoning": {
+                "levels": ["low", "medium", "high"], "wireValues": {"low":"lite","medium":"lite","high":"deep"}
+            }}
+        }),
+    );
     cfg["wires"] = json!(["chat", "responses"]);
     cfg["modelWires"] = json!({"gateway/gpt-6":"responses"});
     let provider = b.build("custom-effort-history", &cfg).await.unwrap();
-    let mut request = custom_turn(model, RequestOptions {
-        effort: Some("high".into()),
-        effort_projection: Some(EffortProjection {
-            initial_effort: "low".into(),
-            updates: [(1, "medium".into()), (2, "high".into())].into(),
-        }),
-        ..RequestOptions::default()
-    });
+    let mut request = custom_turn(
+        model,
+        RequestOptions {
+            effort: Some("high".into()),
+            effort_projection: Some(EffortProjection { initial_effort: "low".into(), updates: [(1, "medium".into()), (2, "high".into())].into() }),
+            ..RequestOptions::default()
+        },
+    );
     request.messages.push(Message::new(Role::User, Content::Text("keep going".into())));
     request.messages.push(Message::new(Role::User, Content::Text("next".into())));
     for _ in 0..2 {
@@ -391,21 +389,13 @@ fn builder_over(dir: &tempfile::TempDir, env: Arc<dyn Environment>, http: Option
         bidi: link,
         dial: Arc::new(KeepaliveDialer::new(KeepaliveSchedule::SPEC)),
         keys: ApiKeyStore::new(Arc::new(MemoryVault::default()), env.clone(), false),
-        accounts: AccountStore::new(
-            dir.path().to_path_buf(),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        ),
+        accounts: AccountStore::new(dir.path().to_path_buf(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io }),
         anthropic_caps: Arc::new(|_| None),
         google_traits: Arc::new(Traits),
         route_traits: Arc::new(|_| None),
         openai_facts: Arc::new(NoFacts),
         openai_context: context,
-        codex_identity: CodexIdentity {
-            installation_id: "i".into(),
-            user_agent: "ua".into(),
-            version: "1".into(),
-            beta_features: String::new(),
-        },
+        codex_identity: CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: String::new() },
         pace: Arc::new(crate::oauth::pace::FakePace::default()),
         gzip_lane: tokens.cpu_bulk,
         client_version: "1.0.0".into(),
@@ -476,14 +466,15 @@ async fn mimo_region_discovery_errors_only_when_mimo_is_used() {
     }
     struct EmptyEnv;
     impl Environment for EmptyEnv {
-        fn var(&self, _: &str) -> Option<String> { None }
+        fn var(&self, _: &str) -> Option<String> {
+            None
+        }
     }
 
     let dir = tempfile::tempdir().unwrap();
     let network = Arc::new(NoNetwork(std::sync::atomic::AtomicUsize::new(0)));
     let builder = Arc::new(builder_over(&dir, Arc::new(EmptyEnv), Some(network.clone()), Arc::new(SessionContext::new())));
-    builder.env.accounts.credential_file("mimo-oauth", "default").unwrap()
-        .save(&json!({"apiKey":"tp-fixture","uid":"fixture"})).await.unwrap();
+    builder.env.accounts.credential_file("mimo-oauth", "default").unwrap().save(&json!({"apiKey":"tp-fixture","uid":"fixture"})).await.unwrap();
     let registry = super::super::providers::ProviderRegistry::new(builder);
     let config = json!({"mimo-oauth":{"enabled":true},"openai":{"enabled":true}});
     registry.init_providers(config.as_object().unwrap()).await.unwrap();
@@ -497,8 +488,8 @@ async fn mimo_region_discovery_errors_only_when_mimo_is_used() {
 
 #[tokio::test]
 async fn anthropic_subscription_messages_never_use_the_api_key_destination() {
-    use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError, RequestOptions, WireRequest};
     use crate::transport::{Exchange, HttpResponse, Redirect};
+    use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ProviderError, RequestOptions, WireRequest};
 
     struct EmptyEnv;
     impl Environment for EmptyEnv {
@@ -525,7 +516,9 @@ async fn anthropic_subscription_messages_never_use_the_api_key_destination() {
     let file = builder.file("anthropic-oauth").unwrap();
     file.save(&json!({"claudeAiOauth": {
         "accessToken": "fixture-subscription-token", "refreshToken": "fixture-refresh", "expiresAt": 4_000_000_000_000u64
-    }})).await.unwrap();
+    }}))
+    .await
+    .unwrap();
     let config = json!({"enabled": true, "baseURL": "https://gateway.example/custom/", "apiKey": "fixture-api-key"});
     let request = Arc::new(custom_turn("claude-sonnet-4-6", RequestOptions::default()));
     for provider in ["anthropic", "anthropic-oauth"] {
@@ -544,9 +537,7 @@ async fn anthropic_subscription_messages_never_use_the_api_key_destination() {
 
     let writes = network.0.lock().unwrap();
     assert_eq!(writes.len(), 2, "only the correctly routed requests reached transport");
-    let header = |wire: &WireRequest, name: &str| {
-        wire.headers.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, value)| value.clone())
-    };
+    let header = |wire: &WireRequest, name: &str| wire.headers.iter().find(|(key, _)| key.eq_ignore_ascii_case(name)).map(|(_, value)| value.clone());
     let (api, api_redirect) = &writes[0];
     assert_eq!(api.url, "https://gateway.example/custom/v1/messages");
     assert_eq!(header(api, "x-api-key").as_deref(), Some("fixture-api-key"));
@@ -575,13 +566,25 @@ async fn a_one_wire_custom_provider_routes_its_wire_like_node() {
     let dir = tempfile::tempdir().unwrap();
     let b = builder(&dir);
     let context = WireRouteContext { agent: true, ..WireRouteContext::default() };
-    let chat = b.build("custom-harness", &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"})).await.unwrap();
+    let chat = b
+        .build(
+            "custom-harness",
+            &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "http://localhost:1/v1/", "apiKey": "k"}),
+        )
+        .await
+        .unwrap();
     let route = chat.wire_routing().expect("an OpenAI-compatible custom provider routes").resolve_wire_route("harness-model", &context).await.unwrap().unwrap();
     assert_eq!((route.wire.as_str(), route.source.as_str(), route.profile_id.as_str()), ("chat", "default", "custom-harness:chat"));
     let responses = b.build("custom-r", &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-responses", "baseURL": "http://localhost:1/v1/", "apiKey": "k"})).await.unwrap();
     let route = responses.wire_routing().expect("routes").resolve_wire_route("m", &context).await.unwrap().unwrap();
     assert_eq!((route.wire.as_str(), route.profile_id.as_str()), ("responses", "custom-r:responses"));
-    let anthropic = b.build("custom-a", &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"})).await.unwrap();
+    let anthropic = b
+        .build(
+            "custom-a",
+            &json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "anthropic", "baseURL": "http://localhost:1", "apiKey": "k"}),
+        )
+        .await
+        .unwrap();
     assert!(anthropic.wire_routing().is_none());
 }
 /// `createCustomProvider` reads an unversioned entry through `normalizeCustomProviderConfig` (`migrateLegacy`): its `models`
@@ -595,7 +598,10 @@ async fn a_legacy_custom_entrys_models_are_its_manual_rows() {
     let parts = b.build_custom_parts("custom-legacy", &legacy).unwrap();
     let rows = parts.listing.cached_rows();
     let row = rows.iter().find(|row| row.id == "smoke").expect("the legacy model is a row");
-    assert_eq!((row.name.as_deref(), row.context_window, row.max_output_tokens, row.manual, row.hidden), (Some("Smoke Legacy"), Some(30_000), Some(1_234), true, false));
+    assert_eq!(
+        (row.name.as_deref(), row.context_window, row.max_output_tokens, row.manual, row.hidden),
+        (Some("Smoke Legacy"), Some(30_000), Some(1_234), true, false)
+    );
 }
 /// `createCustomProvider` throws what `normalizeCustomProviderConfig` throws: a nameless entry, a v2 entry with a field the normalizer
 /// does not know and a legacy entry with v2 fields are not built; `instantiateProvider` strips `customKeyIds` before the constructor.
@@ -629,10 +635,7 @@ async fn a_name_without_an_adapter_says_why() {
         async move { b.build(&name, &cfg).await.err().unwrap() }
     };
     assert_eq!(err("nope", json!({})).await, "unknown enabled provider: nope");
-    assert_eq!(
-        err("mixdog-local", json!({})).await,
-        "mixdog-local needs the managed local runtime, which this host does not have"
-    );
+    assert_eq!(err("mixdog-local", json!({})).await, "mixdog-local needs the managed local runtime, which this host does not have");
     let wires = |protocol: &str, extra: Value| {
         let mut cfg = json!({"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": protocol, "baseURL": "https://x/v1"});
         cfg.as_object_mut().unwrap().extend(extra.as_object().unwrap().clone());
@@ -640,10 +643,7 @@ async fn a_name_without_an_adapter_says_why() {
     };
     let bad = err("custom-1", wires("anthropic", json!({"wires": ["messages"]}))).await;
     assert_eq!(bad, "[custom-provider] wires requires an 'openai-chat' or 'openai-responses' protocol");
-    assert_eq!(
-        err("custom-1", wires("openai-chat", json!({"wires": ["responses"]}))).await,
-        "[custom-provider] wires must include the protocol wire: chat"
-    );
+    assert_eq!(err("custom-1", wires("openai-chat", json!({"wires": ["responses"]}))).await, "[custom-provider] wires must include the protocol wire: chat");
     assert_eq!(
         err("custom-1", wires("openai-chat", json!({"wires": ["chat", "messages"], "modelWires": {"m": "responses"}}))).await,
         "[custom-provider] modelWires[m] must be one of the served wires: chat, messages"
@@ -796,9 +796,8 @@ async fn a_custom_request_carries_its_model_rows_reasoning_at_the_turns_effort()
     assert!(body.get("reasoning").is_none(), "{body}");
 
     let anthropic = custom_config("anthropic", overrides);
-    let effort_beta = |headers: &HashMap<String, String>| {
-        headers.get("anthropic-beta").is_some_and(|betas| betas.split(',').any(|name| name == "effort-2025-11-24"))
-    };
+    let effort_beta =
+        |headers: &HashMap<String, String>| headers.get("anthropic-beta").is_some_and(|betas| betas.split(',').any(|name| name == "effort-2025-11-24"));
     let forced = |effort: &str| {
         let mut request = custom_turn("smoke", RequestOptions { tool_choice: Some("lookup".to_owned()), ..at(effort) });
         request.tools = vec![ToolDefinition {
@@ -870,11 +869,7 @@ async fn a_custom_requests_own_fields_sit_where_node_puts_them() {
     let overrides = json!({
         "smoke": {"manual": true, "reasoning": {"levels": ["none", "low", "medium", "high"]}, "requestBody": {"top_p": 0.5}},
     });
-    let options = RequestOptions {
-        effort: Some("high".to_owned()),
-        session_id: Some("sess-order".to_owned()),
-        ..RequestOptions::default()
-    };
+    let options = RequestOptions { effort: Some("high".to_owned()), session_id: Some("sess-order".to_owned()), ..RequestOptions::default() };
     let last = |body: &Value, n: usize| {
         let keys: Vec<&str> = body.as_object().unwrap().keys().map(String::as_str).collect();
         keys[keys.len().saturating_sub(n)..].iter().map(|k| (*k).to_owned()).collect::<Vec<_>>()
@@ -928,7 +923,6 @@ async fn a_custom_messages_requests_own_betas_win_over_configured_ones() {
     let (headers, _) = custom_request(&cfg, custom_turn("plain", at(Some("high")))).await;
     assert_eq!(beta(&headers).as_deref(), Some("provider-beta"), "{headers:?}");
 }
-
 
 /// The account whose credential a request puts on the wire is the account its continuation state was chosen for and the
 /// account the state it leaves is stamped with, through the adapter the builder registers.
@@ -1104,11 +1098,7 @@ mod pinned_credentials {
         let message = json!({"type": "message", "id": "msg_a", "role": "assistant", "status": "completed", "content": [{"type": "output_text", "text": "a", "annotations": []}]});
         let mut left = said(Role::Assistant, "a");
         left.push_replay(ProviderReplay { owner: mixdog_protocol::ProviderId::from("openai-responses"), items: json!([reasoning, message]) });
-        left.account_routing = Some(AccountRouting {
-            provider: OPENAI.into(),
-            account_id: ID_A.into(),
-            session_account_id: Some(ID_A.into()),
-        });
+        left.account_routing = Some(AccountRouting { provider: OPENAI.into(), account_id: ID_A.into(), session_account_id: Some(ID_A.into()) });
         left
     }
 
@@ -1117,13 +1107,20 @@ mod pinned_credentials {
     fn signed_in(store: &AccountStore, slot: &str, account: &str, tag: &str) {
         let path = store.credential_file(OPENAI, slot).unwrap().path().to_owned();
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
-        let login = json!({"access_token": token(account, tag), "refresh_token": refresh(account, tag), "expires_at": 4_102_444_800_000u64, "account_id": account});
+        let login =
+            json!({"access_token": token(account, tag), "refresh_token": refresh(account, tag), "expires_at": 4_102_444_800_000u64, "account_id": account});
         std::fs::write(path, login.to_string()).unwrap();
     }
 
     /// An `openai-oauth` adapter as the product builds it over `net`, its roster slots registered, `selected` selected,
     /// with the host's rotation bound when `bound`.
-    async fn openai(dir: &tempfile::TempDir, slots: &[&str], selected: &str, bound: bool, refuse_at: Option<usize>) -> (Arc<dyn ProviderAdapter>, AccountStore, Arc<Endpoint>) {
+    async fn openai(
+        dir: &tempfile::TempDir,
+        slots: &[&str],
+        selected: &str,
+        bound: bool,
+        refuse_at: Option<usize>,
+    ) -> (Arc<dyn ProviderAdapter>, AccountStore, Arc<Endpoint>) {
         let vars = Arc::new(Vars([("MIXDOG_OAI_TRANSPORT".to_owned(), "http-sse".to_owned())].into()));
         let probe = builder_over(dir, vars.clone(), None, Arc::new(SessionContext::new()));
         let store = probe.env.accounts.clone();
@@ -1134,7 +1131,11 @@ mod pinned_credentials {
         let net = endpoint(store.clone(), refuse_at);
         let b = builder_over(dir, vars, Some(net.clone() as Arc<dyn HttpSend>), Arc::new(SessionContext::new()));
         if bound {
-            b.bind_account_rotation(AccountRotation::new(store.clone(), Arc::new(crate::registry::key_pool::NoMeter), Arc::new(crate::oauth::pace::FakePace::default())));
+            b.bind_account_rotation(AccountRotation::new(
+                store.clone(),
+                Arc::new(crate::registry::key_pool::NoMeter),
+                Arc::new(crate::oauth::pace::FakePace::default()),
+            ));
         }
         (b.build(OPENAI, &json!({"enabled": true})).await.unwrap(), store, net)
     }
@@ -1158,13 +1159,15 @@ mod pinned_credentials {
             assert_eq!(sent[0].authorization, format!("Bearer {}", token("acct-a", "a")), "bound {bound}");
             assert_eq!(sent[1].authorization, format!("Bearer {}", token("acct-a", "a-renewed")), "bound {bound}: the resend renewed A's credential, not B's");
             assert!(sent.iter().all(|s| s.body.contains("enc-of-a")), "bound {bound}: A's requests carry A's replay");
-            let refreshes: Vec<String> = net.sent.lock().unwrap().iter().filter(|s| s.url == crate::providers::openai::oauth::TOKEN_URL).map(|s| s.body.clone()).collect();
-            assert!(!refreshes.is_empty() && refreshes.iter().all(|body| body.contains("refresh.acct-a.a") && !body.contains("acct-b")), "bound {bound}: {refreshes:?}");
+            let refreshes: Vec<String> =
+                net.sent.lock().unwrap().iter().filter(|s| s.url == crate::providers::openai::oauth::TOKEN_URL).map(|s| s.body.clone()).collect();
+            assert!(
+                !refreshes.is_empty() && refreshes.iter().all(|body| body.contains("refresh.acct-a.a") && !body.contains("acct-b")),
+                "bound {bound}: {refreshes:?}"
+            );
             assert_eq!(left.routing.map(|routing| routing.account_id), bound.then(|| ID_A.to_owned()), "bound {bound}: only a roster walk names the row");
             assert!(left.replay.items.to_string().contains("enc-from-a-renewed"), "bound {bound}: and is what A's credential was answered");
             assert!(left.state.is_none(), "bound {bound}: the Codex route keeps no provider state");
         }
     }
-
 }
-

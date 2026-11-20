@@ -152,8 +152,7 @@ struct Model {
 
 impl Model {
     fn set_model(&self, model: Option<&str>) {
-        *self.route.lock().unwrap() =
-            model.map(|model| MaintainerRoute { provider: "fake".into(), model: model.into(), effort: String::new(), fast: false });
+        *self.route.lock().unwrap() = model.map(|model| MaintainerRoute { provider: "fake".into(), model: model.into(), effort: String::new(), fast: false });
     }
 }
 
@@ -320,7 +319,6 @@ async fn run_for(r: &Rig, millis: i64) {
         }
     }
 }
-
 
 /// A heartbeat over the scripted sources, the Maintainer set to `model` (none: off).
 async fn rig(model: Option<&str>, seed: Option<Value>) -> Rig {
@@ -596,7 +594,10 @@ async fn three_unusable_replies_trip_the_breaker_with_one_notice_until_the_model
     let notices = r.notices(1).await;
     assert_eq!(notices.len(), 1);
     assert_eq!(notices[0].0, home);
-    assert_eq!(notices[0].1, json!({ "text": "Heartbeat: the Maintainer model gave 3 unusable replies in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.", "tone": "warn" }));
+    assert_eq!(
+        notices[0].1,
+        json!({ "text": "Heartbeat: the Maintainer model gave 3 unusable replies in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.", "tone": "warn" })
+    );
     r.model.set_model(Some("other"));
     r.world.rows.lock().unwrap().clear();
     r.world.held.store(1, Ordering::SeqCst);
@@ -615,7 +616,10 @@ async fn five_provider_failures_trip_it_and_a_failing_routine_still_wakes_mixy()
     }
     let notices = r.notices(1).await;
     assert_eq!(notices.len(), 1);
-    assert_eq!(notices[0].1["text"], "Heartbeat: the Maintainer model gave 5 failed calls in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile.");
+    assert_eq!(
+        notices[0].1["text"],
+        "Heartbeat: the Maintainer model gave 5 failed calls in a row, so heartbeat checks no longer ask it until Mixdog restarts or its model changes. Only failing routines wake Mixy meanwhile."
+    );
     r.world.failing(3, false);
     r.advance();
     r.reply("Reported.");

@@ -9,14 +9,14 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use async_trait::async_trait;
-use mixdog_rt::time::{timeout, Instant};
 use mixdog_rt::SerialChain;
+use mixdog_rt::time::{Instant, timeout};
 use serde_json::Value;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::watch;
 
-use crate::bootstrap::{bootstrap, BootstrapOptions, BootstrapPhase, RemoteReport, ServerPayloads};
+use crate::bootstrap::{BootstrapOptions, BootstrapPhase, RemoteReport, ServerPayloads, bootstrap};
 use crate::command::{FailureClass, SshError, SshTarget};
 use crate::connect_failure::ConnectError;
 use crate::context::{AttemptContext, ModelLogin, SshEnv};
@@ -522,7 +522,9 @@ impl RemoteSession {
         if let Some(slot) = state.slot.take() {
             let retiring = Retiring::new(slot.tunnel);
             state.retiring.push(retiring.clone());
-            tokio::spawn(async move { retiring.done.get_or_init(|| async { retiring.tunnel.stop().await }).await; });
+            tokio::spawn(async move {
+                retiring.done.get_or_init(|| async { retiring.tunnel.stop().await }).await;
+            });
         }
     }
 
@@ -693,11 +695,14 @@ impl RemoteSession {
         self.notify(id, SessionPhase::Connect);
         let force_restart = self.lock().force_restart;
         let progress = |phase: BootstrapPhase| {
-            self.notify(id, match phase {
-                BootstrapPhase::Check { detail } => SessionPhase::Check { detail },
-                BootstrapPhase::Install => SessionPhase::Install,
-                BootstrapPhase::Start => SessionPhase::Start,
-            });
+            self.notify(
+                id,
+                match phase {
+                    BootstrapPhase::Check { detail } => SessionPhase::Check { detail },
+                    BootstrapPhase::Install => SessionPhase::Install,
+                    BootstrapPhase::Start => SessionPhase::Start,
+                },
+            );
         };
         let report = self.transport.bootstrap(self.config.model_login, force_restart, &progress).await?;
         // The user's confirmation covered this open only: a later reconnect never stops a busy core on its own.

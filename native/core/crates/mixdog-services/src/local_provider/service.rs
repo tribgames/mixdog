@@ -43,12 +43,9 @@ impl From<ProviderError> for CoreError {
             // Node's `TypeError` text is what the window shows; `invalidParams` would drop it.
             ProviderError::Invalid(m) => failed("localProvider", m),
             // The `[local-provider] …` text is what Node's error carries to the caller.
-            ProviderError::Failed(message) => CoreError::DomainError {
-                domain: "localProvider".into(),
-                code: Some("localProviderFailed".into()),
-                message: Some(message.into()),
-                detail: None,
-            },
+            ProviderError::Failed(message) => {
+                CoreError::DomainError { domain: "localProvider".into(), code: Some("localProviderFailed".into()), message: Some(message.into()), detail: None }
+            }
         }
     }
 }
@@ -167,7 +164,9 @@ impl LocalProviderService {
                 Ok(self.tool_settings_view().await?)
             }
             "localProvider/discardLocalProviderInstallation" => {
-                let phase = text(&args, "phase").filter(|p| ["runtime", "model", "verify", "repair"].contains(p)).ok_or_else(|| failed("localProvider", "phase must be runtime, model, verify or repair."))?;
+                let phase = text(&args, "phase")
+                    .filter(|p| ["runtime", "model", "verify", "repair"].contains(p))
+                    .ok_or_else(|| failed("localProvider", "phase must be runtime, model, verify or repair."))?;
                 let model = text(&args, "modelId").filter(|m| !mixdog_js::js_trim(m).is_empty());
                 if phase != "runtime" && model.is_none() {
                     return Err(failed("localProvider", "modelId is required."));
@@ -177,7 +176,10 @@ impl LocalProviderService {
                 Ok(self.tool_settings_view().await?)
             }
             "localProvider/setLocalProviderIdleTtl" => {
-                let value = args.get("seconds").and_then(Value::as_i64).ok_or_else(|| failed("localProvider", "idleTtlSeconds must be an integer from 0 (disabled) to 86400."))?;
+                let value = args
+                    .get("seconds")
+                    .and_then(Value::as_i64)
+                    .ok_or_else(|| failed("localProvider", "idleTtlSeconds must be an integer from 0 (disabled) to 86400."))?;
                 let seconds = local_idle_ttl_seconds(value).map_err(|e| failed("localProvider", e.to_string()))?;
                 self.settings.persist_idle_ttl(seconds).await.map_err(|_| domain("settingsFailed"))?;
                 provider.queue.configure(seconds);
@@ -267,9 +269,21 @@ mod tests {
         call(&service, "localProvider/setLocalProviderIdleTtl", json!({"opId": "o", "seconds": 600})).await.unwrap();
         assert_eq!(*settings.0.lock().unwrap(), vec![600]);
         let refusals = [
-            ("localProvider/cancelLocalProviderInstallation", json!({"opId": "o", "jobId": "harness-no-such-job"}), "[local-provider] installation job not found; refresh status before cancelling"),
-            ("localProvider/discardLocalProviderInstallation", json!({"opId": "o", "phase": "model", "modelId": "harness-no-such-model"}), "[local-provider] unknown model"),
-            ("localProvider/startLocalProviderModelMaintenance", json!({"opId": "o", "modelId": "harness-no-such-model", "operation": "verify"}), "[local-provider] unknown model"),
+            (
+                "localProvider/cancelLocalProviderInstallation",
+                json!({"opId": "o", "jobId": "harness-no-such-job"}),
+                "[local-provider] installation job not found; refresh status before cancelling",
+            ),
+            (
+                "localProvider/discardLocalProviderInstallation",
+                json!({"opId": "o", "phase": "model", "modelId": "harness-no-such-model"}),
+                "[local-provider] unknown model",
+            ),
+            (
+                "localProvider/startLocalProviderModelMaintenance",
+                json!({"opId": "o", "modelId": "harness-no-such-model", "operation": "verify"}),
+                "[local-provider] unknown model",
+            ),
             ("localProvider/setLocalProviderContext", json!({"opId": "o", "modelId": "harness-no-such-model", "tokens": 4096}), "Unknown local model."),
         ];
         for (method, params, want) in refusals {
@@ -281,9 +295,13 @@ mod tests {
 
     #[async_trait]
     impl super::super::provider::ToolSettings for Owner {
-        fn runtime_activation_epoch(&self) -> u64 { 0 }
+        fn runtime_activation_epoch(&self) -> u64 {
+            0
+        }
 
-        async fn runtime_installed(&self, _: u64) -> Result<(), String> { Ok(()) }
+        async fn runtime_installed(&self, _: u64) -> Result<(), String> {
+            Ok(())
+        }
 
         async fn tool_module_settings(&self) -> Value {
             json!({"autoEffortBase": "medium"})

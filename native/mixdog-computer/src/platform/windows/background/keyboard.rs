@@ -2,12 +2,12 @@
 //! window's focused control.
 
 use super::super::native::{self, hwnd, wid};
-use super::{belongs_to_top, drops, is_chromium, refuse_dropped, send, with_release, Msg, MsgError, WinBackground};
-use crate::platform::{window_id, Wid};
+use super::{Msg, MsgError, WinBackground, belongs_to_top, drops, is_chromium, refuse_dropped, send, with_release};
+use crate::platform::{Wid, window_id};
 use crate::port::windows::{Message, WinPort};
 use windows::Win32::Foundation::LPARAM;
 use windows::Win32::UI::Input::KeyboardAndMouse::MapVirtualKeyW;
-use windows::Win32::UI::WindowsAndMessaging::{EnumChildWindows, GetGUIThreadInfo, GetParent, GUITHREADINFO};
+use windows::Win32::UI::WindowsAndMessaging::{EnumChildWindows, GUITHREADINFO, GetGUIThreadInfo, GetParent};
 
 pub(super) fn supports_keyboard_class(class: &str) -> bool {
     !(["ApplicationFrameWindow", "Windows.UI.Core.CoreWindow", "WinUIDesktopWin32WindowClass", "Microsoft.UI.Content.DesktopChildSiteBridge"]
@@ -59,22 +59,14 @@ impl KeyboardWorld for Live {
             }
             windows::core::BOOL(1)
         }
-        let mut search = Search {
-            top,
-            threads: vec![native::pid_thread(top).1],
-        };
+        let mut search = Search { top, threads: vec![native::pid_thread(top).1] };
         // SAFETY: the callback runs only during this call.
-        let _ = unsafe {
-            EnumChildWindows(Some(hwnd(top)), Some(visit), LPARAM(&mut search as *mut Search as isize))
-        };
+        let _ = unsafe { EnumChildWindows(Some(hwnd(top)), Some(visit), LPARAM(&mut search as *mut Search as isize)) };
         search.threads.sort_unstable();
         search.threads.dedup();
         let mut candidates = Vec::new();
         for thread in search.threads.into_iter().filter(|thread| *thread != 0) {
-            let mut info = GUITHREADINFO {
-                cbSize: std::mem::size_of::<GUITHREADINFO>() as u32,
-                ..Default::default()
-            };
+            let mut info = GUITHREADINFO { cbSize: std::mem::size_of::<GUITHREADINFO>() as u32, ..Default::default() };
             // SAFETY: info is initialised with its size.
             if unsafe { GetGUIThreadInfo(thread, &mut info) }.is_err() || !belongs_to_top(top, wid(info.hwndFocus)) {
                 continue;
@@ -110,9 +102,7 @@ fn select_deepest(top: Wid, candidates: Vec<(Wid, u32)>) -> Msg<Wid> {
         }
     }
     if ambiguous {
-        return Err(MsgError::plain(
-            "background_target_ambiguous|multiple focused child windows; use an exact native ref",
-        ));
+        return Err(MsgError::plain("background_target_ambiguous|multiple focused child windows; use an exact native ref"));
     }
     Ok(selected)
 }
@@ -121,28 +111,22 @@ fn select_deepest(top: Wid, candidates: Vec<(Wid, u32)>) -> Msg<Wid> {
 /// given, else the focused one (KeyboardTarget, MixWin32Keyboard.cs:370-394).
 fn keyboard_target_in(world: &dyn KeyboardWorld, top: Wid, preferred: Wid) -> Msg<Wid> {
     if !world.is_window(top) {
-        return Err(MsgError::plain(
-            "stale_target|background keyboard target is stale or invalid",
-        ));
+        return Err(MsgError::plain("stale_target|background keyboard target is stale or invalid"));
     }
     if preferred != 0 && !world.belongs_to_top(top, preferred) {
-        return Err(MsgError::plain(
-            "target_mismatch|background keyboard ref belongs to a different window",
-        ));
+        return Err(MsgError::plain("target_mismatch|background keyboard ref belongs to a different window"));
     }
     // The addressed child owns keyboard delivery, not the outer host's toolkit.
-    let focused = if preferred != 0 {
-        preferred
-    } else {
-        select_deepest(top, world.focus_candidates(top))?
-    };
+    let focused = if preferred != 0 { preferred } else { select_deepest(top, world.focus_candidates(top))? };
     if !supports_keyboard_class(&world.class_name(focused)) {
         return Err(MsgError::plain("background_unsupported|focused renderer does not accept posted keyboard input; no input sent"));
     }
     // An inactive Tk window keeps its focus to itself; keys sent to its frame
     // are discarded without an error.
     if focused == top && world.class_name(top).starts_with("Tk") {
-        return Err(MsgError::plain("background_unsupported|this Tk window has no focused control while inactive, so background keys would be discarded; use explicit foreground delivery; no input sent"));
+        return Err(MsgError::plain(
+            "background_unsupported|this Tk window has no focused control while inactive, so background keys would be discarded; use explicit foreground delivery; no input sent",
+        ));
     }
     Ok(focused)
 }
@@ -180,17 +164,9 @@ fn named_virtual_key(name: &str) -> Msg<u16> {
         "APPS" => 0x5D,
         "PRTSC" | "PRINTSCREEN" => 0x2C,
         "PAUSE" => 0x13,
-        other => match other
-            .strip_prefix('F')
-            .and_then(|digits| digits.parse::<u16>().ok())
-            .filter(|number| (1..=24).contains(number))
-        {
+        other => match other.strip_prefix('F').and_then(|digits| digits.parse::<u16>().ok()).filter(|number| (1..=24).contains(number)) {
             Some(number) => 0x6F + number,
-            None => {
-                return Err(MsgError::plain(format!(
-                    "background_unsupported|background keyboard does not support key token {{{other}}}"
-                )))
-            }
+            None => return Err(MsgError::plain(format!("background_unsupported|background keyboard does not support key token {{{other}}}"))),
         },
     };
     Ok(key)
@@ -245,7 +221,9 @@ pub(super) fn parse_keys(keys: &str) -> Msg<Vec<Stroke>> {
             if chars.len() == 1 {
                 strokes.push(Stroke::Char(glyph));
             } else {
-                return Err(MsgError::plain("background_unsupported|background keyboard does not support SendKeys modifiers/groups; use explicit foreground delivery"));
+                return Err(MsgError::plain(
+                    "background_unsupported|background keyboard does not support SendKeys modifiers/groups; use explicit foreground delivery",
+                ));
             }
         } else {
             strokes.push(Stroke::Char(glyph));
@@ -281,11 +259,7 @@ fn background_virtual_key(port: &WinPort, top: Wid, target: Wid, vk: u16) -> Res
     let state = 1 | (scan << 16) | if extended_virtual_key(vk) { 1 << 24 } else { 0 };
     // Tk derives the editing action from the key itself and repeats it for the
     // character, so it receives the key alone.
-    let translated = if native::class_name(target).starts_with("Tk") {
-        None
-    } else {
-        translated_character(vk)
-    };
+    let translated = if native::class_name(target).starts_with("Tk") { None } else { translated_character(vk) };
     with_release(port, top, target, Message::KeyDown { vk, lparam: state }, || {
         if let Some(character) = translated {
             send(port, top, target, Message::Char { unit: character, lparam: state })?;
@@ -347,16 +321,7 @@ mod tests {
     #[test]
     fn key_streams_parse_before_any_delivery() {
         let strokes = parse_keys("ab{ENTER 2}{{}").unwrap();
-        assert_eq!(
-            strokes,
-            vec![
-                Stroke::Char('a'),
-                Stroke::Char('b'),
-                Stroke::Key(0x0D),
-                Stroke::Key(0x0D),
-                Stroke::Char('{'),
-            ]
-        );
+        assert_eq!(strokes, vec![Stroke::Char('a'), Stroke::Char('b'), Stroke::Key(0x0D), Stroke::Key(0x0D), Stroke::Char('{'),]);
         assert!(parse_keys("^c").is_err());
         assert!(parse_keys("{WIN}").is_err());
         assert!(parse_keys("{NOPE}").is_err());

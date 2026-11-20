@@ -168,7 +168,14 @@ struct RouteKey {
 
 impl RouteKey {
     fn of(args: &RenderArgs) -> Self {
-        Self { session_id: args.session_id.clone(), provider: args.provider.clone(), model: args.model.clone(), effort: args.effort.clone(), fast: args.fast, ultra: args.ultra }
+        Self {
+            session_id: args.session_id.clone(),
+            provider: args.provider.clone(),
+            model: args.model.clone(),
+            effort: args.effort.clone(),
+            fast: args.fast,
+            ultra: args.ultra,
+        }
     }
 }
 
@@ -256,7 +263,8 @@ impl StatuslineText {
             ultra: args.ultra,
             cwd: args.cwd.clone(),
             stats: stats_signature(args.stats.as_ref()),
-            windows: [args.context_window, args.display_context_window, args.compact_boundary_tokens, args.auto_compact_token_limit, args.raw_context_window].map(bits),
+            windows: [args.context_window, args.display_context_window, args.compact_boundary_tokens, args.auto_compact_token_limit, args.raw_context_window]
+                .map(bits),
             resize_epoch: inputs.resize_epoch,
             agent_revision: inputs.agent_revision,
             workers: entries_signature(&args.agent_workers, &["tag", "agent", "name"], &["stage", "status"]),
@@ -339,7 +347,8 @@ impl StatuslineText {
     fn render_full(&mut self, now: f64) {
         let args = self.effect_args.clone();
         if !self.boot_full_done {
-            let remaining = boot_full_render_delay_remaining_ms(self.mount_at, now, &self.line, &args.agent_workers, &args.agent_jobs, args.active_tools.as_ref());
+            let remaining =
+                boot_full_render_delay_remaining_ms(self.mount_at, now, &self.line, &args.agent_workers, &args.agent_jobs, args.active_tools.as_ref());
             if remaining > 0.0 {
                 // Not eligible yet: a follow-up for the remaining boot delay keeps the first full render on schedule
                 // instead of waiting for the next refresh tick.

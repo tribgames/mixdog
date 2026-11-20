@@ -5,9 +5,9 @@
 use std::sync::LazyLock;
 
 use mixdog_core_api::domain::provider::Role;
+use mixdog_js::JsRegex;
 use mixdog_js::js_trim;
 use mixdog_js::js_trim_start;
-use mixdog_js::JsRegex;
 
 use crate::project::ACTIVE_TURN_CONTINUATION_ANCHOR;
 use crate::project::SUMMARY_PREFIX_ANCHOR;
@@ -15,8 +15,7 @@ use crate::project::is_internal_runtime_notification;
 use crate::project::is_model_visible_tool_completion_wrapper;
 
 static REFERENCE_FILES: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^Reference files:\s*", "i"));
-static SUMMARY_HEADER: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"\nmessages=\d+\s+(?:sha256=|compact_type=)", ""));
+static SUMMARY_HEADER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\nmessages=\d+\s+(?:sha256=|compact_type=)", ""));
 static ASYNC_HEAD: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^Async .+ finished\.", "i"));
 
 /// What the predicate reads of a row, whichever type the row has.
@@ -34,10 +33,8 @@ pub struct IngestView<'a> {
 fn excluded_user_text(view: &IngestView<'_>) -> bool {
     let text = view.first_text;
     let start = js_trim_start(text);
-    matches!(
-        view.meta_source,
-        "task-notification" | "compact-summary" | "compact-active-turn-continuation" | "compact-execution-recovery"
-    ) || REFERENCE_FILES.is_match(start)
+    matches!(view.meta_source, "task-notification" | "compact-summary" | "compact-active-turn-continuation" | "compact-execution-recovery")
+        || REFERENCE_FILES.is_match(start)
         || js_trim(text) == "(attachment)"
         || (text.starts_with(SUMMARY_PREFIX_ANCHOR) && SUMMARY_HEADER.is_match(text))
         || view.skill_body

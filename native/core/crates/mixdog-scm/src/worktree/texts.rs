@@ -18,11 +18,7 @@ pub fn format_byte_size(bytes: u64) -> String {
         value /= 1024.0;
         unit += 1;
     }
-    if value >= 10.0 || unit == 0 {
-        format!("{} {}", value.round() as u64, units[unit])
-    } else {
-        format!("{value:.1} {}", units[unit])
-    }
+    if value >= 10.0 || unit == 0 { format!("{} {}", value.round() as u64, units[unit]) } else { format!("{value:.1} {}", units[unit]) }
 }
 
 fn refusal_reason_text(reason: &str) -> Option<&'static str> {
@@ -41,13 +37,16 @@ fn refusal_reason_text(reason: &str) -> Option<&'static str> {
 /// shared reason that reason's text (`worktreeRefusal`).
 pub fn contract_message(code: &str, detail: Option<&DomainErrorDetail>) -> Option<&'static str> {
     if let (WORKTREE_BUSY_JOBS_CODE, Some(DomainErrorDetail::WorktreeBusyJobs { reason, .. })) = (code, detail)
-        && let Some(text) = refusal_reason_text(reason) {
+        && let Some(text) = refusal_reason_text(reason)
+    {
         return Some(text);
     }
     Some(match code {
         "WORKTREE_BUSY_JOBS" => "The session has running jobs; wait for them or stop them before changing its workspace.",
         "WORKTREE_BRANCH_OCCUPIED" => "The branch is checked out in another worktree.",
-        "WORKTREE_DEFAULT_BRANCH" => "The repository's default branch can't be opened in a worktree: the project folder could not switch to it while the worktree exists. Check it out in the project folder, or create a new branch for the worktree.",
+        "WORKTREE_DEFAULT_BRANCH" => {
+            "The repository's default branch can't be opened in a worktree: the project folder could not switch to it while the worktree exists. Check it out in the project folder, or create a new branch for the worktree."
+        }
         "WORKTREE_DISK_INSUFFICIENT" => "Not enough free disk space to create the worktree.",
         "WORKTREE_LARGE_REPO_CONFIRM" => "The repository is large; confirm before creating a worktree.",
         "WORKTREE_DIRTY" => "The worktree has uncommitted changes.",
@@ -217,7 +216,8 @@ pub fn failure_json(failure: &ScmFailure, raw: bool) -> Option<Value> {
     let detail = detail.as_deref();
     let mut out = json!({ "ok": false, "code": code, "error": error_text(failure, code, detail) });
     if let Some(detail) = detail
-        && let Ok(Value::Object(mut fields)) = serde_json::to_value(detail) {
+        && let Ok(Value::Object(mut fields)) = serde_json::to_value(detail)
+    {
         fields.shift_remove("type");
         if !fields.is_empty() {
             out["details"] = Value::Object(fields);
@@ -271,10 +271,7 @@ mod tests {
     #[test]
     fn busy_reasons_use_the_shared_text_and_sizes_read_like_the_desktop() {
         let failure = errors::busy(errors::RefusalReason::FolderShellJobs);
-        assert_eq!(
-            failure_json(&failure, false).unwrap()["error"],
-            "Background commands still use an affected folder. Wait for them or stop them first."
-        );
+        assert_eq!(failure_json(&failure, false).unwrap()["error"], "Background commands still use an affected folder. Wait for them or stop them first.");
         assert_eq!(format_byte_size(1536), "1.5 KB");
         assert_eq!(format_byte_size(20 * 1024 * 1024), "20 MB");
     }

@@ -7,5 +7,3 @@ mod design_review;
 mod document_brief;
 mod pipeline;
 mod structure;
-
-

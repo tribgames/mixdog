@@ -200,13 +200,47 @@ fn bare_document(world: &World, build: impl FnOnce(Builder) -> Builder) -> Obj {
 #[test]
 fn the_editor_serves_exactly_the_docx_operations_of_the_registry() {
     let listed = [
-        "add_bookmark", "add_comment", "add_comment_reply", "add_hyperlink", "add_image", "add_note", "add_page_numbers",
-        "add_provenance", "add_table", "append_text", "define_styles", "delete_comment", "delete_table_column",
-        "delete_table_row", "fill_template", "fit_table", "insert_break", "insert_table_column", "insert_table_row",
-        "insert_toc", "merge_table_cells", "move_paragraph", "normalize_runs", "remove_paragraph", "replace_text",
-        "resolve_revision", "resolve_revisions", "set_comment_resolved", "set_content_control", "set_document_font",
-        "set_font", "set_header_footer", "set_list", "set_page", "set_paragraph_format", "set_paragraph_style",
-        "set_paragraph_text", "set_table_cell", "set_table_cell_style", "set_table_style", "track_changes",
+        "add_bookmark",
+        "add_comment",
+        "add_comment_reply",
+        "add_hyperlink",
+        "add_image",
+        "add_note",
+        "add_page_numbers",
+        "add_provenance",
+        "add_table",
+        "append_text",
+        "define_styles",
+        "delete_comment",
+        "delete_table_column",
+        "delete_table_row",
+        "fill_template",
+        "fit_table",
+        "insert_break",
+        "insert_table_column",
+        "insert_table_row",
+        "insert_toc",
+        "merge_table_cells",
+        "move_paragraph",
+        "normalize_runs",
+        "remove_paragraph",
+        "replace_text",
+        "resolve_revision",
+        "resolve_revisions",
+        "set_comment_resolved",
+        "set_content_control",
+        "set_document_font",
+        "set_font",
+        "set_header_footer",
+        "set_list",
+        "set_page",
+        "set_paragraph_format",
+        "set_paragraph_style",
+        "set_paragraph_text",
+        "set_table_cell",
+        "set_table_cell_style",
+        "set_table_style",
+        "track_changes",
     ];
     assert_eq!(listed.len(), 41);
     assert_eq!(Editor.operation_names(), listed.as_slice());
@@ -391,7 +425,10 @@ fn revision(world: &World, author: &str, settled: &Rc<RefCell<Vec<String>>>, lab
 fn revisions_of_one_author_are_settled_one_by_one_from_the_last() {
     let world = World::new();
     let settled = Rc::new(RefCell::new(Vec::new()));
-    let revisions = world.obj().items(vec![revision(&world, "A", &settled, "one"), revision(&world, "B", &settled, "two"), revision(&world, "A", &settled, "three")]).build();
+    let revisions = world
+        .obj()
+        .items(vec![revision(&world, "A", &settled, "one"), revision(&world, "B", &settled, "two"), revision(&world, "A", &settled, "three")])
+        .build();
     let application = world.obj().prop("UserName", text("Owner")).build();
     let document = bare_document(&world, |document| document.child("Application", application.clone()).child("Revisions", revisions.clone()));
     let result = operate(&document, r#"{"op":"resolve_revisions","author":"a","resolution":"reject"}"#).expect("the operation");
@@ -403,7 +440,10 @@ fn revisions_of_one_author_are_settled_one_by_one_from_the_last() {
 fn an_author_that_matches_nobody_gets_the_reviewers_listed() {
     let world = World::new();
     let settled = Rc::new(RefCell::new(Vec::new()));
-    let revisions = world.obj().items(vec![revision(&world, "A", &settled, "one"), revision(&world, "B", &settled, "two"), revision(&world, "a", &settled, "three")]).build();
+    let revisions = world
+        .obj()
+        .items(vec![revision(&world, "A", &settled, "one"), revision(&world, "B", &settled, "two"), revision(&world, "a", &settled, "three")])
+        .build();
     let application = world.obj().prop("UserName", text("Owner")).build();
     let document = bare_document(&world, |document| document.child("Application", application.clone()).child("Revisions", revisions.clone()));
     let result = operate(&document, r#"{"op":"resolve_revisions","author":"Zed"}"#).expect("the operation");

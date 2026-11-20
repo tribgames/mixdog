@@ -213,7 +213,12 @@ mod tests {
         // The user's upload is in the store, as the prompt intake left it.
         let lane = mixdog_rt::testing::tokens().durability_io;
         let at = data.clone();
-        let id = lane.submit(&CancellationToken::new(), move |lane| store_attachment(&BlobStore::new(&at), lane, b"uploaded bytes")).unwrap().await.unwrap().unwrap();
+        let id = lane
+            .submit(&CancellationToken::new(), move |lane| store_attachment(&BlobStore::new(&at), lane, b"uploaded bytes"))
+            .unwrap()
+            .await
+            .unwrap()
+            .unwrap();
         let upload = json!({
             "role": "user",
             "content": [{ "type": "text", "text": "see" }],

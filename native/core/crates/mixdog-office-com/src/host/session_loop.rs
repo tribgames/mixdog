@@ -193,7 +193,13 @@ mod tests {
         let mut handler = Scripted::default();
         let (stdout, stderr) = serve(
             &mut handler,
-            &[OPEN, "", "   ", "{\"action\":\"echo\",\"session\":\"s1\",\"requestId\":\"r2\"}", "{\"action\":\"close_session\",\"session\":\"s1\",\"requestId\":\"r3\"}"],
+            &[
+                OPEN,
+                "",
+                "   ",
+                "{\"action\":\"echo\",\"session\":\"s1\",\"requestId\":\"r2\"}",
+                "{\"action\":\"close_session\",\"session\":\"s1\",\"requestId\":\"r3\"}",
+            ],
         );
         let lines: Vec<&str> = stdout.split("\r\n").collect();
         assert_eq!(lines[0], "{\"session\":\"s1\",\"lifecycle\":\"initializing\"}", "the identity line has no requestId");

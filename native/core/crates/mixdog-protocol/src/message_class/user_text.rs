@@ -61,16 +61,11 @@ pub const PASTED_LINE_READ_BUDGET_BYTES: u64 = 4 * 1024 * 1024;
 const TOOL_RESULT_PART_MAX_DEPTH: usize = 12;
 const TOOL_RESULT_JSON_FALLBACK_MAX: usize = 480;
 
-static IMAGE_METADATA_LINE: LazyLock<JsRegex> =
-    LazyLock::new(|| re(r"\[Image(?::| source:) [^\]\r\n]+\]\s*$", ""));
-static FEEDBACK_BLOCK: LazyLock<JsRegex> =
-    LazyLock::new(|| re(r"<visualize_feedback>\n([\s\S]*?)\n?<\/visualize_feedback>", "g"));
+static IMAGE_METADATA_LINE: LazyLock<JsRegex> = LazyLock::new(|| re(r"\[Image(?::| source:) [^\]\r\n]+\]\s*$", ""));
+static FEEDBACK_BLOCK: LazyLock<JsRegex> = LazyLock::new(|| re(r"<visualize_feedback>\n([\s\S]*?)\n?<\/visualize_feedback>", "g"));
 static CHOICE_LINE: LazyLock<JsRegex> = LazyLock::new(|| {
     let quoted = r#"("(?:[^"\\]|\\.)*")"#;
-    re(
-        &format!(r"· group: (?:{quoted}|\(none\)) → choice: {quoted}(?: \({quoted}\))?$"),
-        "",
-    )
+    re(&format!(r"· group: (?:{quoted}|\(none\)) → choice: {quoted}(?: \({quoted}\))?$"), "")
 });
 static TWEAK_CHANGE: LazyLock<JsRegex> = LazyLock::new(|| re(r"^ {4}(.+?) \([^)]*\): (.*) \(was (.*)\)$", ""));
 static PIN_HEAD: LazyLock<JsRegex> = LazyLock::new(|| re(r"^pin (\d+) · (.*)$", ""));
@@ -88,9 +83,7 @@ fn attachment_ref(part: &Value) -> Option<String> {
 
 /// `isMediaReferencePart(part)`.
 fn is_media_reference_part(part: &Value) -> bool {
-    str_of(part, "type") == Some("text")
-        && truthy(part.get("attachmentReference"))
-        && part.get("text").is_some_and(Value::is_string)
+    str_of(part, "type") == Some("text") && truthy(part.get("attachmentReference")) && part.get("text").is_some_and(Value::is_string)
 }
 
 fn unquote(value: Option<&str>) -> String {
@@ -138,11 +131,7 @@ fn feedback_display(body: &str) -> String {
             }
         }
         if let Some(head) = PIN_HEAD.captures(line) {
-            pins.push(Pin {
-                n: head.get(1).unwrap_or_default().to_owned(),
-                label: head.get(2).unwrap_or_default().to_owned(),
-                note: String::new(),
-            });
+            pins.push(Pin { n: head.get(1).unwrap_or_default().to_owned(), label: head.get(2).unwrap_or_default().to_owned(), note: String::new() });
             pin = Some(pins.len() - 1);
             note = false;
             in_choices = false;
@@ -170,10 +159,7 @@ fn feedback_display(body: &str) -> String {
             choices.push((unquote(choice.get(1)), unquote(choice.get(2)), unquote(choice.get(3))));
         }
     }
-    let mut lines: Vec<String> = pins
-        .iter()
-        .map(|p| format!("📌 {} · {} — {}", p.n, p.label, collapse_spaces(&p.note)))
-        .collect();
+    let mut lines: Vec<String> = pins.iter().map(|p| format!("📌 {} · {} — {}", p.n, p.label, collapse_spaces(&p.note))).collect();
     if !choices.is_empty() {
         let picks: Vec<String> = choices
             .iter()
@@ -201,12 +187,7 @@ fn with_visualize_feedback_display(text: String) -> String {
 // ── toolResultText ───────────────────────────────────────────────────────────
 
 fn join_part_texts(parts: &[Value], depth: usize) -> String {
-    parts
-        .iter()
-        .map(|part| tool_result_part_text(part, depth))
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
+    parts.iter().map(|part| tool_result_part_text(part, depth)).filter(|text| !text.is_empty()).collect::<Vec<_>>().join("\n")
 }
 
 /// `toolResultText(content)`.
@@ -283,10 +264,8 @@ fn tool_result_part_text(part: &Value, depth: usize) -> String {
     }
     let kind = str_of(part, "type");
     if matches!(kind, Some("image" | "input_image")) {
-        let media = [part.get("mimeType"), part.get("mediaType"), part.get("source").and_then(|s| s.get("media_type"))]
-            .into_iter()
-            .find(|v| truthy(*v))
-            .flatten();
+        let media =
+            [part.get("mimeType"), part.get("mediaType"), part.get("source").and_then(|s| s.get("media_type"))].into_iter().find(|v| truthy(*v)).flatten();
         return format!("[image: {}]", or_str(media, "image"));
     }
     if kind == Some("tool_result") {
@@ -357,10 +336,7 @@ pub struct UserText<'a> {
 
 impl<'a> UserText<'a> {
     pub fn new(blobs: &'a dyn Blobs) -> Self {
-        Self {
-            blobs,
-            remaining: PASTED_LINE_READ_BUDGET_BYTES,
-        }
+        Self { blobs, remaining: PASTED_LINE_READ_BUDGET_BYTES }
     }
 
     /// `offloadedPromptText(part, budget)`.

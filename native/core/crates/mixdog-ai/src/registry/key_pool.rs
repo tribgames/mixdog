@@ -162,11 +162,9 @@ impl AccountEngines for KeyEngines {
         match self.keys.iter().find(|(id, _)| id == account).map(|(_, engine)| engine) {
             Some(Ok(engine)) => Ok(engine.clone()),
             Some(Err(message)) => Err(plain(ErrorKind::Unknown, None, message.clone())),
-            None => Err(plain(
-                ErrorKind::Unknown,
-                None,
-                format!("An additional API key of {} is not readable; enter it again in its settings.", self.provider),
-            )),
+            None => {
+                Err(plain(ErrorKind::Unknown, None, format!("An additional API key of {} is not readable; enter it again in its settings.", self.provider)))
+            }
         }
     }
 
@@ -204,13 +202,7 @@ pub struct KeyPoolAdapter {
 
 impl KeyPoolAdapter {
     /// A custom provider's pool: `primary` answers everything but the send, `own` pins the configured key per request.
-    pub fn new(
-        provider: &str,
-        primary: Arc<dyn ProviderAdapter>,
-        own: Arc<dyn OwnKey>,
-        keys: Vec<(String, KeyEngine)>,
-        rotation: AccountRotation,
-    ) -> Self {
+    pub fn new(provider: &str, primary: Arc<dyn ProviderAdapter>, own: Arc<dyn OwnKey>, keys: Vec<(String, KeyEngine)>, rotation: AccountRotation) -> Self {
         let engines = Arc::new(KeyEngines { provider: provider.to_owned(), own, keys, rotation });
         Self::with_engines(provider, primary, engines)
     }
@@ -340,9 +332,7 @@ impl ModelStream for StampedStream {
             return Some(Ok(completed));
         }
         match self.inner.next().await? {
-            Ok(StreamEvent::ProviderState(state)) => {
-                Some(Ok(StreamEvent::ProviderState(stamped(state, &self.pool.provider, &self.account))))
-            }
+            Ok(StreamEvent::ProviderState(state)) => Some(Ok(StreamEvent::ProviderState(stamped(state, &self.pool.provider, &self.account)))),
             Ok(completed @ StreamEvent::Completed { .. }) => {
                 self.completed = Some(completed);
                 Some(Ok(self.pool.routing(&self.account, None)))
@@ -368,9 +358,7 @@ pub(super) fn plain(kind: ErrorKind, code: Option<&str>, message: String) -> Pro
 }
 
 pub(super) fn is_local_quota_refusal(error: &ProviderError) -> bool {
-    error.delivery == DeliveryState::NotSent
-        && error.status.is_none()
-        && error.code.as_deref() == Some("provider_accounts_exhausted")
+    error.delivery == DeliveryState::NotSent && error.status.is_none() && error.code.as_deref() == Some("provider_accounts_exhausted")
 }
 
 /// What a pool that ended without an answer throws (`accountsExhaustedError`, `accountsCoolingDownError`, or the
@@ -384,10 +372,8 @@ fn pool_error(error: PoolError) -> ProviderError {
             if let Some(proof) = &error.quota_exhausted {
                 provider.kind = ErrorKind::QuotaExhausted;
                 if provider.reset_at.is_none() {
-                    provider.reset_at = proof
-                        .reset_at
-                        .and_then(|ms| u64::try_from(ms).ok())
-                        .map(|ms| std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms));
+                    provider.reset_at =
+                        proof.reset_at.and_then(|ms| u64::try_from(ms).ok()).map(|ms| std::time::UNIX_EPOCH + std::time::Duration::from_millis(ms));
                 }
             }
             provider
@@ -471,18 +457,18 @@ async fn taken(queue: &Queue) {
 /// Output the caller was shown (`boundAccountSend`'s `emitted`: stream, text, tool-call and thinking callbacks).
 fn shows_output(event: &StreamEvent) -> bool {
     matches!(event, StreamEvent::ReturnedCalls(calls) if !calls.is_empty())
-    || matches!(
-        event,
-        StreamEvent::TextDelta(_)
-            | StreamEvent::ReasoningDelta(_)
-            | StreamEvent::ProgressDelta(_)
-            | StreamEvent::ToolCallStart { .. }
-            | StreamEvent::ToolCallArgsDelta { .. }
-            | StreamEvent::ToolCallDone(_)
-            | StreamEvent::ServerToolBlock(_)
-            | StreamEvent::FinalContent(_)
-            | StreamEvent::Progress(_)
-    )
+        || matches!(
+            event,
+            StreamEvent::TextDelta(_)
+                | StreamEvent::ReasoningDelta(_)
+                | StreamEvent::ProgressDelta(_)
+                | StreamEvent::ToolCallStart { .. }
+                | StreamEvent::ToolCallArgsDelta { .. }
+                | StreamEvent::ToolCallDone(_)
+                | StreamEvent::ServerToolBlock(_)
+                | StreamEvent::FinalContent(_)
+                | StreamEvent::Progress(_)
+        )
 }
 
 /// One key-bound attempt of the send.
@@ -535,9 +521,10 @@ impl AccountSender<()> for KeySend {
         }
         let mut emitted = false;
         loop {
-            let item = stream.next().await.unwrap_or_else(|| Err(ProviderError::transport(
-                mixdog_core_api::domain::provider::TransportFault::TruncatedStream, stream.delivery(),
-            )));
+            let item = stream
+                .next()
+                .await
+                .unwrap_or_else(|| Err(ProviderError::transport(mixdog_core_api::domain::provider::TransportFault::TruncatedStream, stream.delivery())));
             lock(&self.queue).delivery = stream.delivery();
             match item {
                 Ok(event @ StreamEvent::Completed { .. }) => {
@@ -828,9 +815,7 @@ impl ProviderAdapter for KeyPoolAdapter {
         let pool = self.pool.clone();
         let home = self.pool.engines.home().await;
         let sender = KeySend { pool: pool.clone(), request, queue: queue.clone(), home };
-        let walk: Walk = Box::pin(async move {
-            rotation.pool_send(&pool.provider, &context, &sender).await.map_err(pool_error)
-        });
+        let walk: Walk = Box::pin(async move { rotation.pool_send(&pool.provider, &context, &sender).await.map_err(pool_error) });
         let mut stream = KeyStream { walk: Some(walk), queue, failure: None };
         stream.advance().await;
         if lock(&stream.queue).queue.is_empty()

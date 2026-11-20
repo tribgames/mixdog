@@ -4,10 +4,10 @@
 
 use std::sync::Arc;
 
+use super::blob_reads::{BlobReads, with_blobs};
 use async_trait::async_trait;
 use mixdog_core_api::domain::provider::Usage;
 use mixdog_protocol::ProviderId;
-use super::blob_reads::{with_blobs, BlobReads};
 use mixdog_protocol::message_class::user_text::UserText;
 
 use super::conversation::conversation_compaction_input;
@@ -23,18 +23,17 @@ use super::fresh::FreshError;
 use super::fresh::FreshOptions;
 use super::fresh::fresh_context_compact_messages_with_skills;
 use super::skills::CurrentSkills;
-use crate::env::SummaryRouteUsed;
 use super::summary_run::ForkSource;
+use super::summary_run::Generated;
+use super::summary_run::RouteResolver;
+use super::summary_run::RouteStep;
+use super::summary_run::SummarizeContext;
+use super::summary_run::SummaryMode;
+use super::summary_run::elapsed_ms;
+use super::summary_run::plan_steps;
+use super::summary_run::summarize_on_plan;
 use super::triggers::ToolMediaMeter;
 use super::triggers::should_compact_for_request_media;
-use super::summary_run::RouteResolver;
-use super::summary_run::SummarizeContext;
-use super::summary_run::elapsed_ms;
-use super::summary_run::SummaryMode;
-use super::summary_run::plan_steps;
-use super::summary_run::Generated;
-use super::summary_run::RouteStep;
-use super::summary_run::summarize_on_plan;
 use crate::boundary::CompactPolicy;
 use crate::boundary::CompactSettings;
 use crate::env::CompactError;
@@ -42,6 +41,7 @@ use crate::env::CompactOutput;
 use crate::env::CompactRequest;
 use crate::env::Compactor;
 use crate::env::SeatedRoute;
+use crate::env::SummaryRouteUsed;
 use crate::message::AgentMessage;
 use crate::offload::ArtifactStore;
 
@@ -288,7 +288,17 @@ impl Compactor for FreshCompactor {
         let reduces = !request.require_reduction || meter.compact_messages(&result.messages) < meter.compact_messages(request.messages);
         let pipeline_ms = elapsed_ms(started);
         if !reduces {
-            return Ok(CompactOutput { messages: request.messages.to_vec(), usage, input_excludes_cache, dropped_count: 0, dropped: None, skipped: true, pipeline_ms, summary_ms, summary_route });
+            return Ok(CompactOutput {
+                messages: request.messages.to_vec(),
+                usage,
+                input_excludes_cache,
+                dropped_count: 0,
+                dropped: None,
+                skipped: true,
+                pipeline_ms,
+                summary_ms,
+                summary_route,
+            });
         }
         let (dropped_count, dropped) = if result.messages == request.messages {
             (0, None)
@@ -299,7 +309,17 @@ impl Compactor for FreshCompactor {
                 .await
                 .map_err(|unavailable| CompactError::Failed(unavailable.to_string()))?
         };
-        Ok(CompactOutput { messages: result.messages, usage, input_excludes_cache, dropped_count, dropped, skipped: false, pipeline_ms, summary_ms, summary_route })
+        Ok(CompactOutput {
+            messages: result.messages,
+            usage,
+            input_excludes_cache,
+            dropped_count,
+            dropped,
+            skipped: false,
+            pipeline_ms,
+            summary_ms,
+            summary_route,
+        })
     }
 
     async fn adopted(&self, messages: &[AgentMessage]) {
@@ -380,9 +400,9 @@ impl PlannedHandoff {
     fn threshold(&self) -> u64 {
         let window = self.config.context_window;
         self.config.conversation_threshold_tokens.filter(|t| *t > 0).unwrap_or_else(|| {
-            window.min(COMPACT_TARGET_MIN_TOKENS).max(
-                ((window as f64 * CONVERSATION_COMPACT_TRIGGER_RATIO).ceil() as u64).min(CONVERSATION_COMPACT_TRIGGER_MAX_TOKENS),
-            )
+            window
+                .min(COMPACT_TARGET_MIN_TOKENS)
+                .max(((window as f64 * CONVERSATION_COMPACT_TRIGGER_RATIO).ceil() as u64).min(CONVERSATION_COMPACT_TRIGGER_MAX_TOKENS))
         })
     }
 }
@@ -404,8 +424,20 @@ impl HandoffSource for PlannedHandoff {
 
     async fn handoff(&self, messages: &[AgentMessage], budget_tokens: u64) -> Result<Handoff, CompactError> {
         let (step, generated) = self.summarize(messages, budget_tokens).await?;
-        let route = SummaryRouteUsed { step: step.name(), forked: generated.mode == "shared-prefix", provider: generated.provider_name, model: generated.model, stop: generated.stop.as_ref().map(crate::response::stop_text) };
-        Ok(Handoff { text: generated.summary, usage: generated.usage, input_excludes_cache: generated.input_excludes_cache, summary_ms: generated.duration_ms, route: Some(route) })
+        let route = SummaryRouteUsed {
+            step: step.name(),
+            forked: generated.mode == "shared-prefix",
+            provider: generated.provider_name,
+            model: generated.model,
+            stop: generated.stop.as_ref().map(crate::response::stop_text),
+        };
+        Ok(Handoff {
+            text: generated.summary,
+            usage: generated.usage,
+            input_excludes_cache: generated.input_excludes_cache,
+            summary_ms: generated.duration_ms,
+            route: Some(route),
+        })
     }
 }
 

@@ -248,10 +248,15 @@ impl WsPool {
             let released = state.owners.remove(key).is_some();
             state.fresh.remove(key);
             state.http.remove(key);
-            let in_use: Vec<WsCloser> = state.leases.values_mut().filter(|lease| lease.key == key).filter_map(|lease| {
-                lease.revoked = true;
-                lease.closer.clone()
-            }).collect();
+            let in_use: Vec<WsCloser> = state
+                .leases
+                .values_mut()
+                .filter(|lease| lease.key == key)
+                .filter_map(|lease| {
+                    lease.revoked = true;
+                    lease.closer.clone()
+                })
+                .collect();
             (state.idle.remove(key), in_use, released)
         };
         if released {

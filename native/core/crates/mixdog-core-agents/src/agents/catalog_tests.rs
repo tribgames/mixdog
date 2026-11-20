@@ -120,7 +120,11 @@ async fn the_rows_list_the_fixed_services_then_the_custom_agents_with_their_rout
 
 #[tokio::test]
 async fn the_contacts_are_the_enabled_user_agents_marked_bot_or_greeted_in_their_chat() {
-    let (dir, agents) = world(json!({ "agents": { "ann": { "provider": "openai", "model": "gpt-ann" } }, "disabledAgents": ["bob"] }), Facts { greeted: vec!["dan"], ..Facts::default() }).await;
+    let (dir, agents) = world(
+        json!({ "agents": { "ann": { "provider": "openai", "model": "gpt-ann" } }, "disabledAgents": ["bob"] }),
+        Facts { greeted: vec!["dan"], ..Facts::default() },
+    )
+    .await;
     let (data, shipped) = (dir.path().join("data"), dir.path().join("shipped"));
     put(&data, "agents/ann/AGENT.md", &agent_md("bot"));
     put(&data, "agents/bob/AGENT.md", &agent_md("bot"));

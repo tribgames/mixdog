@@ -9,10 +9,10 @@ use std::net::SocketAddr;
 
 use super::error::FetchKind;
 use super::gai;
-use super::lanes;
-use super::lanes::WebLanes;
 use super::gai::LookupError;
 use super::gai::LookupKind;
+use super::lanes;
+use super::lanes::WebLanes;
 use reqwest::dns::Addrs;
 use reqwest::dns::Name;
 use reqwest::dns::Resolve;
@@ -148,10 +148,7 @@ impl AddressPolicy {
     /// every redirect hop).
     pub fn check_url(self, url: &Url) -> Result<(), FetchError> {
         if url.scheme() != "http" && url.scheme() != "https" {
-            return Err(FetchError::policy(format!(
-                "Blocked non-HTTP protocol: {}:",
-                url.scheme()
-            )));
+            return Err(FetchError::policy(format!("Blocked non-HTTP protocol: {}:", url.scheme())));
         }
         let host_text = url.host_str().unwrap_or_default().to_ascii_lowercase();
         if !url.username().is_empty() || url.password().is_some() {
@@ -190,9 +187,7 @@ impl AddressPolicy {
                 Some(named) => Err(blocked_private(&named)),
                 None => Ok(()),
             },
-            Self::LoopbackOnly if !ip.is_loopback() => {
-                Err(FetchError::policy(format!("Blocked non-loopback local_fetch resolution: {host}")))
-            }
+            Self::LoopbackOnly if !ip.is_loopback() => Err(FetchError::policy(format!("Blocked non-loopback local_fetch resolution: {host}"))),
             _ => Ok(()),
         }
     }
@@ -220,9 +215,7 @@ impl AddressPolicy {
 
     fn blocked(self, host: &str) -> FetchError {
         match self {
-            Self::LoopbackOnly => {
-                FetchError::policy(format!("Blocked non-loopback local_fetch target: {host}"))
-            }
+            Self::LoopbackOnly => FetchError::policy(format!("Blocked non-loopback local_fetch target: {host}")),
             _ => blocked_private(host),
         }
     }
@@ -263,13 +256,10 @@ impl Resolve for PolicyResolver {
                     return Err(Box::new(lookup_failure(&host, error)) as Box<dyn std::error::Error + Send + Sync>);
                 }
                 Err(error) => {
-                    return Err(Box::new(FetchError::new(FetchKind::Network, format!("fetch failed: {error}")))
-                        as Box<dyn std::error::Error + Send + Sync>);
+                    return Err(Box::new(FetchError::new(FetchKind::Network, format!("fetch failed: {error}"))) as Box<dyn std::error::Error + Send + Sync>);
                 }
             };
-            let found = policy
-                .validate_resolved(&host, &ips)
-                .map_err(|error| Box::new(error) as Box<dyn std::error::Error + Send + Sync>)?;
+            let found = policy.validate_resolved(&host, &ips).map_err(|error| Box::new(error) as Box<dyn std::error::Error + Send + Sync>)?;
             Ok(Box::new(found.into_iter()) as Addrs)
         })
     }

@@ -9,8 +9,8 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_core::run_host::code_graph_prewarm::PrewarmWorld;
-use mixdog_core_session::session::prewarm_signals::CodeGraphPrewarmSignals;
 use mixdog_core::run_host::compose_parts::LateDirectory;
+use mixdog_core_session::session::prewarm_signals::CodeGraphPrewarmSignals;
 use mixdog_services::task_reports::runtime_state::RuntimeLiveness;
 use mixdog_tools::code_graph::CodeGraphTool;
 use tokio_util::sync::CancellationToken;
@@ -93,7 +93,10 @@ impl PrewarmWorld for DaemonPrewarmWorld {
 
     /// `envDelayMs('MIXDOG_CODE_GRAPH_PREWARM_DELAY_MS', 250, { min: 0, max: 60_000 })`.
     fn delay(&self) -> Duration {
-        let parsed = (self.env)("MIXDOG_CODE_GRAPH_PREWARM_DELAY_MS").filter(|raw| !raw.is_empty()).map(|raw| mixdog_js::string_to_number(&raw)).filter(|n| n.is_finite());
+        let parsed = (self.env)("MIXDOG_CODE_GRAPH_PREWARM_DELAY_MS")
+            .filter(|raw| !raw.is_empty())
+            .map(|raw| mixdog_js::string_to_number(&raw))
+            .filter(|n| n.is_finite());
         Duration::from_millis(parsed.map_or(250.0, |n| n.floor().clamp(0.0, 60_000.0)) as u64)
     }
 

@@ -70,7 +70,10 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
-    #[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case."
+    )]
     async fn a_folder_going_away_disposes_the_terminals_inside_it_and_no_other() {
         let tokens = mixdog_rt::testing::tokens();
         let manager = LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default());

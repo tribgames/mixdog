@@ -113,8 +113,8 @@ mod tests {
     use std::collections::HashMap;
 
     use async_trait::async_trait;
-    use mixdog_core_api::FeedSource;
     use mixdog_core_api::AfterAnswer;
+    use mixdog_core_api::FeedSource;
     use mixdog_core_api::domain::mock::MockOwnership;
     use mixdog_core_api::ids::ConnectionId;
     use mixdog_core_api::mock::MockConnection;
@@ -124,20 +124,20 @@ mod tests {
     use mixdog_core_base::support::testing::value;
     use mixdog_core_base::support::testing::with_op;
     use mixdog_core_rooms::rooms::catalog_rows::MemberNames;
+    use mixdog_core_rooms::rooms::home::Presence;
     use mixdog_core_rooms::rooms::ready::RoomsReady;
     use mixdog_core_rooms::rooms::records::RoomDoc;
     use mixdog_core_rooms::rooms::records::RoomStore;
     use mixdog_core_rooms::rooms::records::Rooms;
     use mixdog_core_rooms::rooms::service::RoomService;
-    use mixdog_core_rooms::rooms::home::Presence;
     use mixdog_core_rooms::rooms::sessions::SessionHomePorts;
     use mixdog_core_rooms::rooms::store::StateRoomStore;
     use mixdog_core_session::session::StoreThreads;
+    use mixdog_core_session::session::testing::Rig;
     use mixdog_core_session::session::thread_list::LIST;
     use mixdog_core_session::session::thread_list::ListOverlay;
     use mixdog_core_session::session::thread_list::RowOverlay;
     use mixdog_core_session::session::thread_state::SessionThreads;
-    use mixdog_core_session::session::testing::Rig;
     use mixdog_protocol::ThreadId;
     use serde_json::Value;
     use serde_json::json;
@@ -257,8 +257,7 @@ mod tests {
     struct HeldLabels {
         armed: std::sync::Mutex<Option<tokio::sync::oneshot::Sender<()>>>,
     }
-    impl HeldLabels {
-    }
+    impl HeldLabels {}
 
     /// No user message is sent in these tests.
     struct NoSends;
@@ -406,9 +405,11 @@ mod tests {
     }
     /// The arming end of [`Saves`].
     #[derive(Clone, Default)]
-    struct SaveGate(Arc<std::sync::Mutex<Option<SaveStop>>>, Arc<std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>>);
-    impl SaveGate {
-    }
+    struct SaveGate(
+        Arc<std::sync::Mutex<Option<SaveStop>>>,
+        Arc<std::sync::Mutex<Option<(tokio::sync::oneshot::Sender<()>, tokio::sync::oneshot::Receiver<()>)>>>,
+    );
+    impl SaveGate {}
     #[async_trait]
     impl RoomStore for Saves {
         async fn load(&self) -> Result<RoomDoc, RoomError> {
@@ -496,7 +497,6 @@ mod tests {
     }
 
     impl Composed {
-
         /// Waits until the index writes acknowledged so far are in the index (the list's fence) and their row edges published
         /// (`ThreadEdges::settled`): a write the store acknowledged reaches the index behind it, and its edge only then.
         async fn settled(&self, what: &str) {
@@ -507,11 +507,15 @@ mod tests {
                 }
                 self.edges.settled().await;
             };
-            mixdog_rt::time::timeout(DEADLINE, settled).await.unwrap_or_else(|_| panic!("{what}: the index writes acknowledged so far were not all in the index and published"));
+            mixdog_rt::time::timeout(DEADLINE, settled)
+                .await
+                .unwrap_or_else(|_| panic!("{what}: the index writes acknowledged so far were not all in the index and published"));
         }
         async fn create(&self) -> tokio::task::JoinHandle<Result<Value, mixdog_core_api::CoreError>> {
             let service = self.service.clone();
-            tokio::spawn(async move { value(&*service, request("room/create", with_op(json!({ "input": { "name": "Release", "members": ["gh", "rel"] } }), 1), Some(1))).await })
+            tokio::spawn(async move {
+                value(&*service, request("room/create", with_op(json!({ "input": { "name": "Release", "members": ["gh", "rel"] } }), 1), Some(1))).await
+            })
         }
 
         /// One room call through the service, its `input` as given, as the server dispatches it: once it has answered, its reply is
@@ -558,7 +562,6 @@ mod tests {
             value(self.list.as_ref(), request(LIST, json!({ "limit": 1000 }), None)).await.expect("thread/list");
             assert!(self.list.catalog_loaded());
         }
-
     }
 
     fn log_of(created: &Value) -> String {
@@ -577,7 +580,8 @@ mod tests {
         mixdog_rt::time::timeout(DEADLINE, arrived).await.expect("the room create never published the catalog").expect("gate");
         assert!(!creating.is_finished(), "the room create answered while its publish was held");
         open.send(()).expect("the publish waits at the gate");
-        let created = mixdog_rt::time::timeout(DEADLINE, creating).await.expect("room/create answered within the deadline").expect("task").expect("room/create");
+        let created =
+            mixdog_rt::time::timeout(DEADLINE, creating).await.expect("room/create answered within the deadline").expect("task").expect("room/create");
         let room = log_of(&created);
         // The row reached the feed once, by the log's write or by the publish: a catalog the feed already holds is not handed again.
         let sent: Vec<String> = world
@@ -614,7 +618,8 @@ mod tests {
             .expect("no room pass waited for the room create's writes to be announced")
             .expect("the waits are held by the edges");
         open.send(()).expect("the announcement waits at the stop");
-        let created = mixdog_rt::time::timeout(DEADLINE, creating).await.expect("room/create answered within the deadline").expect("task").expect("room/create");
+        let created =
+            mixdog_rt::time::timeout(DEADLINE, creating).await.expect("room/create answered within the deadline").expect("task").expect("room/create");
         world.settled("the room create").await;
         let room = log_of(&created);
         let frames: Vec<String> = world
@@ -673,9 +678,7 @@ mod tests {
         .expect("the update never deleted the removed member's session");
         // The room's row went to the feed when the room was made, and the listing's copy of it is the one Node's catalog channel
         // does not hand again (`session-host-publication.ts:141`): what shows the listing published is that it has ended.
-        mixdog_rt::time::timeout(DEADLINE, world.summaries.background_ended())
-            .await
-            .expect("the listing had not ended when the deletion began");
+        mixdog_rt::time::timeout(DEADLINE, world.summaries.background_ended()).await.expect("the listing had not ended when the deletion began");
         assert!(world.list.catalog_loaded(), "the listing had not been answered when the deletion began");
         assert!(!updating.is_finished(), "the update answered before its deletion went on");
 
@@ -777,7 +780,9 @@ mod tests {
         .expect("job ran")
         .expect("index");
         let index = data.index(index);
-        let store = Arc::new(StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("thread store"));
+        let store = Arc::new(
+            StoreThreads::over_data_dir(data.path(), index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("thread store"),
+        );
         let rig = Rig::new();
         let limits = MockLimits::default();
         let feed = Arc::new(MockFeed::new("app".into(), mixdog_core_api::mock::epoch(1), Arc::new(mixdog_core_api::mock::EchoView), limits));
@@ -792,7 +797,9 @@ mod tests {
         parts.deletion = Arc::new(AppDeletion { inner: parts.deletion.clone(), app: sections.clone() });
         let directory = Arc::new(SessionDirectory::new(Arc::new(parts)));
         std::fs::create_dir_all(data.path().join("state")).expect("state dir");
-        let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &data.path().join("state").join("core.sqlite")).expect("core state");
+        let (state, _) =
+            mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &data.path().join("state").join("core.sqlite"))
+                .expect("core state");
         let rooms = Arc::new(Rooms::new(Saves { inner: StateRoomStore::new(data.state(state)), armed: saves.0.clone(), load: saves.1.clone() }));
         let deletes = Arc::new(Deletes {
             inner: Arc::new(DirectorySessions::new(directory.clone(), Arc::new(SessionThreads::new(directory.clone())))),
@@ -843,7 +850,10 @@ mod tests {
                 now: Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| since.as_millis() as i64)),
             },
         );
-        let calls =mixdog_core_rooms::rooms::calls::RoomCalls::new(Arc::new(mixdog_core_rooms::rooms::exchange_run::ExchangeRunner::new(live.clone())), room_log(&logged));
+        let calls = mixdog_core_rooms::rooms::calls::RoomCalls::new(
+            Arc::new(mixdog_core_rooms::rooms::exchange_run::ExchangeRunner::new(live.clone())),
+            room_log(&logged),
+        );
         live.bind_relays(Arc::new({
             let calls = Arc::downgrade(&calls);
             move |room: &str, error: &str| {
@@ -879,5 +889,3 @@ mod tests {
         }
     }
 }
-
-

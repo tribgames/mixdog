@@ -1,10 +1,10 @@
 //! Pipe adapter for the desktop's one-action elevation supervisor. No input is
 //! dispatched here: Windows owns the UAC process, receipts and cleanup.
+use serde_json::{Value, json};
 use std::io::{BufRead, Write};
+use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
-use std::path::PathBuf;
-use serde_json::{json, Value};
 
 pub const MAX_REQUEST: usize = 16 * 1024 * 1024;
 
@@ -16,26 +16,36 @@ pub struct Cancellation {
     word: std::sync::OnceLock<Arc<dyn crate::port::AdmissionWord>>,
 }
 impl Cancellation {
-    pub fn requested(&self) -> bool { self.requested.load(Ordering::SeqCst) }
+    pub fn requested(&self) -> bool {
+        self.requested.load(Ordering::SeqCst)
+    }
     pub fn cancel(&self) {
         // Serialize arming and signalling: cancellation during a blocking UAC
         // prompt must already be visible when the elevated process starts.
         let marker = self.marker.lock().unwrap_or_else(|error| error.into_inner());
         self.requested.store(true, Ordering::SeqCst);
         // The worker's admission closes here, whatever its supervisor does.
-        if let Some(word) = self.word.get() { crate::port::close_word(word.word()); }
-        if let Some(path) = marker.as_ref() { let _ = std::fs::write(path, b"cancel"); }
+        if let Some(word) = self.word.get() {
+            crate::port::close_word(word.word());
+        }
+        if let Some(path) = marker.as_ref() {
+            let _ = std::fs::write(path, b"cancel");
+        }
     }
     /// The worker's admission word, set once before the launch; closed at once when the cancellation already came.
     #[cfg_attr(not(windows), allow(dead_code))]
     pub fn fence(&self, word: Arc<dyn crate::port::AdmissionWord>) -> Result<(), String> {
         let _marker = self.marker.lock().unwrap_or_else(|error| error.into_inner());
-        if self.requested() { crate::port::close_word(word.word()); }
+        if self.requested() {
+            crate::port::close_word(word.word());
+        }
         self.word.set(word).map_err(|_| "privileged worker admission was set twice".to_string())
     }
     pub fn arm(&self, path: PathBuf) -> Result<(), String> {
         let mut marker = self.marker.lock().unwrap_or_else(|error| error.into_inner());
-        if self.requested() { std::fs::write(&path, b"cancel").map_err(|error| error.to_string())?; }
+        if self.requested() {
+            std::fs::write(&path, b"cancel").map_err(|error| error.to_string())?;
+        }
         *marker = Some(path);
         Ok(())
     }
@@ -55,13 +65,19 @@ pub fn read_line(reader: &mut impl BufRead, limit: usize) -> Result<Vec<u8>, Str
     let mut line = Vec::new();
     loop {
         let bytes = reader.fill_buf().map_err(|error| error.to_string())?;
-        if bytes.is_empty() { return Ok(line); }
+        if bytes.is_empty() {
+            return Ok(line);
+        }
         let count = bytes.iter().position(|byte| *byte == b'\n').map_or(bytes.len(), |at| at + 1);
-        if line.len() + count > limit { return Err("computer_capacity_exhausted: worker request budget exceeded; input was not dispatched".into()); }
+        if line.len() + count > limit {
+            return Err("computer_capacity_exhausted: worker request budget exceeded; input was not dispatched".into());
+        }
         let complete = bytes[count - 1] == b'\n';
         line.extend_from_slice(&bytes[..count]);
         reader.consume(count);
-        if complete { return Ok(line); }
+        if complete {
+            return Ok(line);
+        }
     }
 }
 
@@ -73,11 +89,13 @@ pub fn emit(value: Value) {
 
 pub fn run() -> i32 {
     let mut input = std::io::BufReader::new(std::io::stdin());
-    let request = read_line(&mut input, MAX_REQUEST)
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).map_err(|error| error.to_string()));
+    let request = read_line(&mut input, MAX_REQUEST).and_then(|bytes| serde_json::from_slice::<Value>(&bytes).map_err(|error| error.to_string()));
     let request = match request {
         Ok(Value::Object(value)) => Value::Object(value),
-        _ => { emit(json!({"kind":"result", "stopped":true, "error":"privileged worker request is not an object"})); return 1; }
+        _ => {
+            emit(json!({"kind":"result", "stopped":true, "error":"privileged worker request is not an object"}));
+            return 1;
+        }
     };
     let cancelled = Arc::new(Cancellation::default());
     let signal = cancelled.clone();
@@ -96,11 +114,19 @@ pub fn run() -> i32 {
 }
 
 pub fn process_start_ticks(arg: &str) -> i32 {
-    let Some(pid) = arg.parse::<u32>().ok().filter(|pid| *pid > 0) else { return 2; };
+    let Some(pid) = arg.parse::<u32>().ok().filter(|pid| *pid > 0) else {
+        return 2;
+    };
     match crate::platform::process_start_ticks(pid) {
-        Ok(Some(ticks)) => { println!("{ticks}"); 0 }
+        Ok(Some(ticks)) => {
+            println!("{ticks}");
+            0
+        }
         Ok(None) => 0,
-        Err(error) => { eprintln!("{error}"); 1 }
+        Err(error) => {
+            eprintln!("{error}");
+            1
+        }
     }
 }
 
@@ -120,15 +146,22 @@ mod tests {
     }
     #[test]
     fn cancellation_is_visible_during_a_blocked_launch_in_either_arming_order() {
-        let root = std::env::temp_dir().join(format!("mixdog-cancel-unit-{}-{}", std::process::id(),
-            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let root = std::env::temp_dir().join(format!(
+            "mixdog-cancel-unit-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()
+        ));
         std::fs::create_dir(&root).unwrap();
         for cancel_first in [false, true] {
             let signal = Cancellation::default();
             let path = root.join(if cancel_first { "before" } else { "during" });
-            if cancel_first { signal.cancel(); }
+            if cancel_first {
+                signal.cancel();
+            }
             signal.arm(path.clone()).unwrap();
-            if !cancel_first { signal.cancel(); }
+            if !cancel_first {
+                signal.cancel();
+            }
             // No launch/wait loop ran: an elevated process starting now already sees cancellation.
             assert!(signal.requested());
             assert_eq!(std::fs::read(path).unwrap(), b"cancel");

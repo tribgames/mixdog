@@ -123,7 +123,6 @@ mod tests {
         assert_eq!(outlined, rels[..CANCEL_CHECK_BATCH], "only the first batch was outlined");
     }
 
-
     fn source() -> GraphOutlineSource {
         GraphOutlineSource::new(mixdog_rt::testing::tokens().cpu_bulk)
     }
@@ -144,11 +143,17 @@ mod tests {
         assert_eq!((records[0]["rel"].as_str(), records[0]["lang"].as_str()), (Some("a.rs"), Some("rust")));
         let symbols = records[0]["symbols"].as_array().unwrap();
         let find = |name: &str| symbols.iter().find(|s| s["name"] == name).unwrap_or_else(|| panic!("{name} in {symbols:?}"));
-        assert_eq!((find("short")["kind"].clone(), find("short")["startLine"].clone(), find("short")["endLine"].clone()), (json!("function"), json!(3), json!(3)));
+        assert_eq!(
+            (find("short")["kind"].clone(), find("short")["startLine"].clone(), find("short")["endLine"].clone()),
+            (json!("function"), json!(3), json!(3))
+        );
         assert_eq!(find("long_one")["kind"], "function");
         assert_eq!((find("long_one")["startLine"].clone(), find("long_one")["endLine"].clone()), (json!(13), json!(18)));
         // A method is a member of its impl, with the lines of its own declaration.
-        assert_eq!((find("method")["kind"].clone(), find("method")["startLine"].clone(), find("method")["endLine"].clone()), (json!("method"), json!(8), json!(10)));
+        assert_eq!(
+            (find("method")["kind"].clone(), find("method")["startLine"].clone(), find("method")["endLine"].clone()),
+            (json!("method"), json!(8), json!(10))
+        );
         assert!(symbols.iter().all(|s| s["name"] != "fmt" && s["startLine"].as_u64().unwrap() >= 1), "imports are not symbols");
     }
     #[tokio::test]

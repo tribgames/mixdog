@@ -54,10 +54,7 @@ pub struct LaneKey {
 
 impl LaneKey {
     pub fn new(provider: ProviderId, account: impl Into<Arc<str>>) -> Self {
-        Self {
-            provider,
-            account: account.into(),
-        }
+        Self { provider, account: account.into() }
     }
 }
 
@@ -84,12 +81,7 @@ pub struct LaneSettings {
 
 impl Default for LaneSettings {
     fn default() -> Self {
-        Self {
-            concurrency: None,
-            max_queue: DEFAULT_MAX_QUEUE,
-            adaptive: false,
-            unattended_lease: None,
-        }
+        Self { concurrency: None, max_queue: DEFAULT_MAX_QUEUE, adaptive: false, unattended_lease: None }
     }
 }
 
@@ -120,10 +112,7 @@ pub struct RunLiveness {
 impl RunLiveness {
     /// A run that starts now.
     pub fn new(attended: bool) -> Arc<Self> {
-        let (fact, _) = watch::channel(Fact {
-            attended,
-            last_progress: Instant::now(),
-        });
+        let (fact, _) = watch::channel(Fact { attended, last_progress: Instant::now() });
         Arc::new(Self { fact })
     }
 
@@ -151,13 +140,7 @@ impl RunLiveness {
 /// Returns `permit` to the lane once its owner is no longer alive. The run
 /// keeps its cancellation token and is not ended here. Exits when the permit
 /// is released or dropped (`ended` closes).
-async fn watch_owner(
-    lane: Arc<Lane>,
-    permit: u64,
-    lease: Duration,
-    liveness: Arc<RunLiveness>,
-    mut ended: oneshot::Receiver<()>,
-) {
+async fn watch_owner(lane: Arc<Lane>, permit: u64, lease: Duration, liveness: Arc<RunLiveness>, mut ended: oneshot::Receiver<()>) {
     let mut facts = liveness.fact.subscribe();
     loop {
         let fact = *facts.borrow_and_update();
@@ -286,9 +269,7 @@ impl State {
     }
 
     fn cooling(&self, now: Instant) -> Option<Duration> {
-        self.cooldown_until
-            .and_then(|until| until.checked_duration_since(now))
-            .filter(|left| !left.is_zero())
+        self.cooldown_until.and_then(|until| until.checked_duration_since(now)).filter(|left| !left.is_zero())
     }
 
     fn has_room(&self) -> bool {
@@ -304,11 +285,7 @@ impl State {
                 owners.push(&waiter.owner);
             }
         }
-        let chosen = match self
-            .fair_cursor
-            .as_ref()
-            .and_then(|last| owners.iter().position(|owner| *owner == last))
-        {
+        let chosen = match self.fair_cursor.as_ref().and_then(|last| owners.iter().position(|owner| *owner == last)) {
             Some(prior) if owners.len() > 1 => owners[(prior + 1) % owners.len()].clone(),
             _ => owners[0].clone(),
         };
@@ -330,14 +307,7 @@ fn locked<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
 
 impl Lane {
     fn new(key: LaneKey, settings: LaneSettings) -> Arc<Self> {
-        Arc::new(Self {
-            key,
-            settings,
-            state: Mutex::new(State {
-                limit: settings.concurrency,
-                ..State::default()
-            }),
-        })
+        Arc::new(Self { key, settings, state: Mutex::new(State { limit: settings.concurrency, ..State::default() }) })
     }
 
     pub fn key(&self) -> &LaneKey {
@@ -391,12 +361,7 @@ impl Lane {
 
     /// Claims the slot a grant already counted for a new permit, and starts
     /// watching its owner when the lane has a lease and the run a progress fact.
-    fn admit(
-        self: &Arc<Self>,
-        st: &mut State,
-        queue_wait: Duration,
-        liveness: Option<Arc<RunLiveness>>,
-    ) -> Permit {
+    fn admit(self: &Arc<Self>, st: &mut State, queue_wait: Duration, liveness: Option<Arc<RunLiveness>>) -> Permit {
         let id = st.next_permit;
         st.next_permit += 1;
         st.holding.insert(id);
@@ -406,21 +371,12 @@ impl Lane {
             liveness.progress();
             let (ended, watching) = oneshot::channel();
             lease_ended = Some(ended);
-            mixdog_rt::spawn(
-                "ai.admission.lease",
-                TaskClass::Control,
-                watch_owner(self.clone(), id, lease, liveness.clone(), watching),
-            );
+            mixdog_rt::spawn("ai.admission.lease", TaskClass::Control, watch_owner(self.clone(), id, lease, liveness.clone(), watching));
         }
         Permit {
             lane: self.clone(),
             id,
-            metrics: AdmissionMetrics {
-                queue_wait,
-                active: st.active,
-                queued: st.queued(),
-                limit: st.limit,
-            },
+            metrics: AdmissionMetrics { queue_wait, active: st.active, queued: st.queued(), limit: st.limit },
             rate_limit_reported: false,
             released: false,
             liveness,
@@ -521,10 +477,7 @@ impl Permit {
     pub fn finish(mut self, outcome: Outcome) {
         match outcome {
             Outcome::Success if !self.rate_limit_reported => self.lane.record_success(),
-            Outcome::Failure {
-                status: Some(429),
-                retry_after,
-            } if !self.rate_limit_reported => {
+            Outcome::Failure { status: Some(429), retry_after } if !self.rate_limit_reported => {
                 self.lane.record_rate_limit(retry_after);
             }
             _ => {}
@@ -584,9 +537,7 @@ impl Default for Admission {
 
 impl Admission {
     pub fn new() -> Self {
-        Self {
-            lanes: ArcSwap::from_pointee(HashMap::new()),
-        }
+        Self { lanes: ArcSwap::from_pointee(HashMap::new()) }
     }
 
     /// The lane for `key`, created with `settings` on first use. Settings of
@@ -607,12 +558,7 @@ impl Admission {
 
     /// Waits for a slot on `lane`. Ends early with `Cancelled` when `cancel`
     /// fires; dropping the future also leaves the queue.
-    pub async fn acquire(
-        &self,
-        lane: &Arc<Lane>,
-        request: AdmissionRequest,
-        cancel: &CancellationToken,
-    ) -> Result<Permit, AdmissionError> {
+    pub async fn acquire(&self, lane: &Arc<Lane>, request: AdmissionRequest, cancel: &CancellationToken) -> Result<Permit, AdmissionError> {
         if cancel.is_cancelled() {
             return Err(AdmissionError::Cancelled);
         }
@@ -627,29 +573,15 @@ impl Admission {
                 return Ok(lane.admit(&mut st, Duration::ZERO, request.liveness.clone()));
             }
             if st.queued() >= lane.settings.max_queue {
-                return Err(AdmissionError::QueueFull {
-                    lane: lane.key.to_string(),
-                    max_queue: lane.settings.max_queue,
-                });
+                return Err(AdmissionError::QueueFull { lane: lane.key.to_string(), max_queue: lane.settings.max_queue });
             }
             let (grant, granted) = oneshot::channel();
             let id = st.next_id;
             st.next_id += 1;
-            st.queues[request.priority.rank()].push_back(Waiter {
-                id,
-                owner: request.owner.clone(),
-                queued_at: now,
-                grant,
-            });
+            st.queues[request.priority.rank()].push_back(Waiter { id, owner: request.owner.clone(), queued_at: now, grant });
             lane.drain(&mut st);
             let parked_for = st.cooling(now).filter(|left| *left > COOLDOWN_NOTICE_MIN);
-            let queued = Queued {
-                lane: lane.clone(),
-                id,
-                granted,
-                queued_at: now,
-                claimed: false,
-            };
+            let queued = Queued { lane: lane.clone(), id, granted, queued_at: now, claimed: false };
             (queued, parked_for)
         };
         if let (Some(left), Some(notice)) = (parked_for, &request.on_cooldown_wait) {
@@ -729,13 +661,7 @@ impl Admission {
                     owners: owners.len(),
                     limit: st.limit,
                     cooldown: st.cooling(now).unwrap_or_default(),
-                    oldest_wait: st
-                        .queues
-                        .iter()
-                        .flatten()
-                        .map(|w| now.saturating_duration_since(w.queued_at))
-                        .max()
-                        .unwrap_or_default(),
+                    oldest_wait: st.queues.iter().flatten().map(|w| now.saturating_duration_since(w.queued_at)).max().unwrap_or_default(),
                 }
             })
             .collect()

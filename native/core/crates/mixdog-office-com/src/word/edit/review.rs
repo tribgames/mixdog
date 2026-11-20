@@ -224,6 +224,9 @@ mod tests {
     #[test]
     fn a_note_that_names_nothing_to_settle_has_fixed_text() {
         let value = normalize_runs();
-        assert_eq!(crate::ps::json::to_json(&value, 4), "{\"op\":\"normalize_runs\",\"changed\":false,\"merged\":0,\"note\":\"Word searches text across runs itself; nothing to normalize in a Microsoft Office session.\"}");
+        assert_eq!(
+            crate::ps::json::to_json(&value, 4),
+            "{\"op\":\"normalize_runs\",\"changed\":false,\"merged\":0,\"note\":\"Word searches text across runs itself; nothing to normalize in a Microsoft Office session.\"}"
+        );
     }
 }

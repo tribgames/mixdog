@@ -24,11 +24,7 @@ enum Step {
     Stop,
 }
 
-pub(crate) async fn read_loop<R: SocketRead>(
-    shared: Arc<Shared>,
-    mut socket: R,
-    inbound: mpsc::Sender<JsonRpcMessage>,
-) {
+pub(crate) async fn read_loop<R: SocketRead>(shared: Arc<Shared>, mut socket: R, inbound: mpsc::Sender<JsonRpcMessage>) {
     loop {
         let incoming = tokio::select! {
             () = shared.abort.cancelled() => break,
@@ -49,11 +45,7 @@ pub(crate) async fn read_loop<R: SocketRead>(
     shared.begin_close(Closing::Peer, false);
 }
 
-async fn handle(
-    shared: &Shared,
-    inbound: &mpsc::Sender<JsonRpcMessage>,
-    incoming: Incoming,
-) -> Step {
+async fn handle(shared: &Shared, inbound: &mpsc::Sender<JsonRpcMessage>, incoming: Incoming) -> Step {
     match incoming {
         Incoming::Activity => Step::Continue,
         Incoming::Close => {

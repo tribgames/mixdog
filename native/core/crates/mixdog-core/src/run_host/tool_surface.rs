@@ -15,17 +15,18 @@ use mixdog_tools::policy::Withdrawal;
 
 use mixdog_agent::env::Clock;
 use mixdog_core_api::domain::tool::StoredTool;
-use mixdog_js::{js_trim, locale_compare, JsRegex};
-use serde_json::{json, Map, Value};
+use mixdog_js::{JsRegex, js_trim, locale_compare};
+use serde_json::{Map, Value, json};
 
 use super::deferred_manifest::{apply_initial_manifest, listed_deferred_tool_names};
 use super::tool_exposure::{
-    bridge_surface_outdated, deferred_provider_mode, is_bridge_tool_definition, is_tool_bridge_enabled, native_provider_family, session_tool_exposure,
-    tool_exposure_mode_for_provider, LoadToolDef, TOOL_EXPOSURE_BRIDGE, TOOL_EXPOSURE_NATIVE,
+    LoadToolDef, TOOL_EXPOSURE_BRIDGE, TOOL_EXPOSURE_NATIVE, bridge_surface_outdated, deferred_provider_mode, is_bridge_tool_definition,
+    is_tool_bridge_enabled, native_provider_family, session_tool_exposure, tool_exposure_mode_for_provider,
 };
 
 /// Canonical route order: locator, path, content, symbol, read, edit, execute.
-pub(super) const ROUTE_TOOL_ORDER: [&str; 13] = ["explore", "find", "glob", "list", "grep", "code_graph", "read", "edit", "apply_patch", "git", "github", "shell", "task"];
+pub(super) const ROUTE_TOOL_ORDER: [&str; 13] =
+    ["explore", "find", "glob", "list", "grep", "code_graph", "read", "edit", "apply_patch", "git", "github", "shell", "task"];
 
 /// Measured call counts (3-day trace window): order the unrouted tail and feed `deferredToolUsage`.
 const MEASURED_TOOL_USAGE: [(&str, u64); 15] = [
@@ -46,10 +47,28 @@ const MEASURED_TOOL_USAGE: [(&str, u64); 15] = [
     ("web_fetch", 2),
 ];
 
-const DEFAULT_FULL_TOOLS: [&str; 12] = ["find", "glob", "list", "grep", "code_graph", "read", "edit", "apply_patch", "web_search", "todo", "Skill", "load_tool"];
+const DEFAULT_FULL_TOOLS: [&str; 12] =
+    ["find", "glob", "list", "grep", "code_graph", "read", "edit", "apply_patch", "web_search", "todo", "Skill", "load_tool"];
 const DEFAULT_READONLY_TOOLS: [&str; 10] = ["find", "glob", "list", "grep", "code_graph", "read", "web_search", "todo", "Skill", "load_tool"];
 pub(crate) const DEFAULT_LEAD_TOOLS: [&str; 19] = [
-    "explore", "find", "glob", "list", "grep", "code_graph", "read", "edit", "apply_patch", "git", "shell", "task", "agent", "ask_user", "react", "web_search", "todo", "Skill",
+    "explore",
+    "find",
+    "glob",
+    "list",
+    "grep",
+    "code_graph",
+    "read",
+    "edit",
+    "apply_patch",
+    "git",
+    "shell",
+    "task",
+    "agent",
+    "ask_user",
+    "react",
+    "web_search",
+    "todo",
+    "Skill",
     "load_tool",
 ];
 
@@ -172,12 +191,7 @@ fn measured_usage(name: &str) -> u64 {
 
 /// `sortedNamesByMeasuredUsage`: canonical route order first; measured usage orders the unrouted tail.
 pub fn sorted_names_by_measured_usage(mut names: Vec<String>) -> Vec<String> {
-    names.sort_by(|a, b| {
-        route_rank(a)
-            .cmp(&route_rank(b))
-            .then_with(|| measured_usage(b).cmp(&measured_usage(a)))
-            .then_with(|| locale_compare(a, b))
-    });
+    names.sort_by(|a, b| route_rank(a).cmp(&route_rank(b)).then_with(|| measured_usage(b).cmp(&measured_usage(a))).then_with(|| locale_compare(a, b)));
     names
 }
 
@@ -314,8 +328,7 @@ pub(super) fn fixed_surface_session(session: &Value) -> bool {
 }
 
 pub(super) fn fixed_surface_mode(mode: Option<&Value>, exposure: Option<&Value>) -> bool {
-    matches!(mode.and_then(Value::as_str), Some("full" | "manifest" | "canonical"))
-        && exposure.and_then(Value::as_str) != Some(TOOL_EXPOSURE_BRIDGE)
+    matches!(mode.and_then(Value::as_str), Some("full" | "manifest" | "canonical")) && exposure.and_then(Value::as_str) != Some(TOOL_EXPOSURE_BRIDGE)
 }
 
 // ---- model edit dialect --------------------------------------------------------------------------
@@ -408,10 +421,11 @@ pub struct ToolSurface<'a> {
 
 impl ToolSurface<'_> {
     fn load_tool_def(&self) -> LoadToolDef {
-        self.host.bridge_tools().iter().find(|t| t.get("name").and_then(Value::as_str) == Some("load_tool")).map_or_else(
-            || LoadToolDef { description: String::new(), input_schema: Value::Null },
-            LoadToolDef::from_def,
-        )
+        self.host
+            .bridge_tools()
+            .iter()
+            .find(|t| t.get("name").and_then(Value::as_str) == Some("load_tool"))
+            .map_or_else(|| LoadToolDef { description: String::new(), input_schema: Value::Null }, LoadToolDef::from_def)
     }
 
     /// `deferredCatalogUnion`: definition history, the boot catalog with refreshed MCP definitions
@@ -504,7 +518,14 @@ impl ToolSurface<'_> {
                 removed = true;
             }
         }
-        for key in ["deferredSelectedTools", "deferredDiscoveredTools", "deferredCallableTools", "deferredDefaultTools", "deferredAnnouncedTools", "nativeDeferredDiscovery"] {
+        for key in [
+            "deferredSelectedTools",
+            "deferredDiscoveredTools",
+            "deferredCallableTools",
+            "deferredDefaultTools",
+            "deferredAnnouncedTools",
+            "nativeDeferredDiscovery",
+        ] {
             if let Some(Value::Array(items)) = map.get_mut(key) {
                 let before = items.len();
                 items.retain(|name| name.as_str().is_none_or(|name| !lost.contains(name) && (name.starts_with("mcp__") || self.host.defined(name))));
@@ -679,7 +700,8 @@ impl ToolSurface<'_> {
 
     /// Keeps the prompt's deferred-tool block and the announced set in step with the surface.
     pub(super) fn refresh_manifest(&self, session: &mut Value, exposure_changed: bool) {
-        let has_system = |s: &Value| s.get("messages").and_then(Value::as_array).is_some_and(|m| m.iter().any(|m| m.get("role").and_then(Value::as_str) == Some("system")));
+        let has_system =
+            |s: &Value| s.get("messages").and_then(Value::as_array).is_some_and(|m| m.iter().any(|m| m.get("role").and_then(Value::as_str) == Some("system")));
         let scope = session.get("mcpScopeId").and_then(Value::as_str).map(str::to_owned);
         if exposure_changed && has_system(session) {
             // Replace the previous exposure's fixed block once: the native deferred manifest, or
@@ -750,7 +772,8 @@ impl ToolSurface<'_> {
         // An existing surface built for another exposure is migrated, not merely re-selected; a
         // surface an earlier bridge revision built is rebuilt once, the same rewrite.
         let previous = session_tool_exposure(session);
-        let exposure_changed = retired || previous.as_deref().is_some_and(|p| p != exposure || (bridge && bridge_surface_outdated(session, &self.load_tool_def())));
+        let exposure_changed =
+            retired || previous.as_deref().is_some_and(|p| p != exposure || (bridge && bridge_surface_outdated(session, &self.load_tool_def())));
         // The one native <-> bridge transition, whoever triggers it: leaving native keeps its
         // discoveries aside, and the way back restores them below.
         if previous.as_deref() == Some(TOOL_EXPOSURE_NATIVE) && bridge {
@@ -832,7 +855,10 @@ pub(super) fn rendered_manifest(session: &Value) -> String {
         .and_then(Value::as_array)
         .into_iter()
         .flatten()
-        .find(|m| m.get("role").and_then(Value::as_str) == Some("system") && m.get("content").and_then(Value::as_str).is_some_and(|c| c.contains("<available-deferred-tools>")))
+        .find(|m| {
+            m.get("role").and_then(Value::as_str) == Some("system")
+                && m.get("content").and_then(Value::as_str).is_some_and(|c| c.contains("<available-deferred-tools>"))
+        })
         .and_then(|m| m.get("content").and_then(Value::as_str))
         .unwrap_or_default()
         .to_owned()
@@ -1052,20 +1078,34 @@ mod tests {
         surface.apply(&mut session, "lead", &[], &ApplyOptions::default());
         surface.rebuild_for_provider(&mut rebuilt, "anthropic");
         surface.rebuild_for_provider(&mut routed, "openai");
-        let held = |session: &Value, key: &str, name: &str| session[key].as_array().expect("a list").iter().any(|entry| entry == name || tool_name(entry) == name);
+        let held =
+            |session: &Value, key: &str, name: &str| session[key].as_array().expect("a list").iter().any(|entry| entry == name || tool_name(entry) == name);
         for (which, session) in [("apply", &session), ("rebuild", &rebuilt), ("route change", &routed)] {
             assert!(surface.retired_names(session).is_empty(), "{which}");
             assert!(held(session, "deferredToolCatalog", "computer") && held(session, "deferredToolCatalog", "eagerone"), "{which}: definitions stay");
-            assert!(!held(session, "deferredToolCatalog", "machine") && !held(session, "deferredDiscoveredTools", "machine"), "{which}: a retired name is removed");
-            assert!(!held(session, "tools", "machine") && !held(session, "deferredCallableTools", "machine") && !held(session, "deferredSelectedTools", "machine"), "{which}");
+            assert!(
+                !held(session, "deferredToolCatalog", "machine") && !held(session, "deferredDiscoveredTools", "machine"),
+                "{which}: a retired name is removed"
+            );
+            assert!(
+                !held(session, "tools", "machine") && !held(session, "deferredCallableTools", "machine") && !held(session, "deferredSelectedTools", "machine"),
+                "{which}"
+            );
         }
-        assert!(held(&session, "deferredDiscoveredTools", "computer") && held(&rebuilt, "deferredDiscoveredTools", "computer"), "the selection stays on the same provider");
+        assert!(
+            held(&session, "deferredDiscoveredTools", "computer") && held(&rebuilt, "deferredDiscoveredTools", "computer"),
+            "the selection stays on the same provider"
+        );
         assert!(held(&session, "deferredLateToolCatalog", "computer"), "and in the late catalog");
         let listed = |session: &mut Value| -> Value {
-            serde_json::from_str(&super::super::deferred_select::render_tool_search(&surface, session, &json!({ "names": [] }), "lead", &[], &Value::Null)).expect("json")
+            serde_json::from_str(&super::super::deferred_select::render_tool_search(&surface, session, &json!({ "names": [] }), "lead", &[], &Value::Null))
+                .expect("json")
         };
         let before = listed(&mut session);
-        assert!(!before.to_string().contains("computer") && !before["activeTools"].to_string().contains("eagerone"), "nothing advertised names it while it cannot run: {before}");
+        assert!(
+            !before.to_string().contains("computer") && !before["activeTools"].to_string().contains("eagerone"),
+            "nothing advertised names it while it cannot run: {before}"
+        );
         // It becomes runnable: listed again with no new load, and a load finds it already known.
         attached.store(true, std::sync::atomic::Ordering::SeqCst);
         let after = listed(&mut session);
@@ -1225,7 +1265,24 @@ mod tests {
         let tool = |name: &str| json!({ "name": name, "description": format!("{name}."), "inputSchema": schema });
         let host = Host(vec![tool("load_tool"), tool("call_tool")]);
         let surface = ToolSurface { host: &host, clock: &Fixed };
-        let eager = ["find", "glob", "list", "grep", "code_graph", "read", "edit", "git", "shell", "task", "agent", "ask_user", "web_search", "todo", "Skill", "load_tool"];
+        let eager = [
+            "find",
+            "glob",
+            "list",
+            "grep",
+            "code_graph",
+            "read",
+            "edit",
+            "git",
+            "shell",
+            "task",
+            "agent",
+            "ask_user",
+            "web_search",
+            "todo",
+            "Skill",
+            "load_tool",
+        ];
         let gated = ["browser", "browser_devtools", "memory", "recall"];
         for (provider, bridge) in [("custom-11111111-1111-4111-8111-111111111111", true), ("anthropic", false)] {
             let held: Vec<Value> = eager.iter().chain(gated.iter()).chain(["computer"].iter()).map(|name| tool(name)).collect();
@@ -1282,7 +1339,12 @@ mod tests {
             assert_eq!(sent(&resumed), stored, "resumed with the gate open: {open}");
             if !open {
                 let surface_of = mixdog_tools::policy::SessionSurface::from_header(resumed.as_object().expect("object"), Vec::new());
-                let set = super::super::assemble::with_surface_registry(mixdog_agent::tools::ToolSet::new(Vec::new()), std::sync::Arc::new(Nothing), None, &surface_of);
+                let set = super::super::assemble::with_surface_registry(
+                    mixdog_agent::tools::ToolSet::new(Vec::new()),
+                    std::sync::Arc::new(Nothing),
+                    None,
+                    &surface_of,
+                );
                 assert!(set.unknown_message("web_search").contains("unavailable"), "{}", set.unknown_message("web_search"));
             }
         }
@@ -1324,6 +1386,4 @@ mod tests {
             assert!(names(&session).contains(&"web_search".to_owned()), "{provider}: back at a later boundary");
         }
     }
-
-
 }

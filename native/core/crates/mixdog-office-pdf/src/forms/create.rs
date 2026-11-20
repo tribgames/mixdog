@@ -15,9 +15,9 @@ use super::appearance::{Color, draw_new_widget};
 use super::fill::{checkbox_on, choice_values_of};
 use super::lint::truthy;
 use super::{
-    ANNOT_PRINT, FLAG_COMBO, FLAG_RADIO, FLAG_RADIOS_IN_UNISON, FLAG_READ_ONLY, FLAG_REQUIRED, Field, FieldKind, FormError, FormFont,
-    FormResult, PdfForm, default_appearance, delete_key, has_flag, is_non_terminal, latin1_object, partial_name, push_array, set_flag_to,
-    set_key, text_object, widget_on_value, widgets_of,
+    ANNOT_PRINT, FLAG_COMBO, FLAG_RADIO, FLAG_RADIOS_IN_UNISON, FLAG_READ_ONLY, FLAG_REQUIRED, Field, FieldKind, FormError, FormFont, FormResult, PdfForm,
+    default_appearance, delete_key, has_flag, is_non_terminal, latin1_object, partial_name, push_array, set_flag_to, set_key, text_object, widget_on_value,
+    widgets_of,
 };
 use super::{FLAG_EDIT, FLAG_MULTI_SELECT};
 
@@ -74,9 +74,7 @@ fn split_field_name(name: &str) -> FormResult<(Vec<String>, String)> {
     }
     let mut parts: Vec<String> = name.split('.').map(str::to_owned).collect();
     if parts.iter().any(String::is_empty) {
-        return Err(FormError::new(format!(
-            "Periods in PDF field names must be separated by at least one character: \"{name}\""
-        )));
+        return Err(FormError::new(format!("Periods in PDF field names must be separated by at least one character: \"{name}\"")));
     }
     let terminal = parts.pop().unwrap_or_default();
     Ok((parts, terminal))
@@ -163,10 +161,7 @@ fn create_field(form: &PdfForm, doc: &mut PdfDocument, kind: FieldKind, name: &s
     dict.set("Kids", Obj::Array(Arc::new(Vec::new())));
     let reference = store.register(Obj::Dict(Arc::new(dict)));
     set_key(store, reference, "T", text_object(&terminal));
-    if children(store, parent, parent_is_form)
-        .into_iter()
-        .any(|child| partial_name(store, child).as_deref() == Some(terminal.as_str()))
-    {
+    if children(store, parent, parent_is_form).into_iter().any(|child| partial_name(store, child).as_deref() == Some(terminal.as_str())) {
         return Err(already_exists(&terminal));
     }
     push_array(store, parent, if parent_is_form { "Fields" } else { "Kids" }, Obj::Ref(reference));

@@ -13,7 +13,12 @@ fn state(route: Value, meta: Value) -> ContextState {
 }
 
 fn of(percent: f64, default_percent: f64, selected: f64, tokens: Option<f64>) -> ContextState {
-    ContextState { context_percent: Some(percent), context_default_percent: Some(default_percent), selected_context_window: Some(selected), context_tokens: tokens }
+    ContextState {
+        context_percent: Some(percent),
+        context_default_percent: Some(default_percent),
+        selected_context_window: Some(selected),
+        context_tokens: tokens,
+    }
 }
 
 #[test]

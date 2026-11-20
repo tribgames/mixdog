@@ -21,8 +21,8 @@ use tokio_util::sync::CancellationToken;
 use super::adapter_http::{JsonPost, PostReply};
 use super::download::AdapterError;
 use super::image_api::truthy;
-use super::references::{References, Target};
 use super::lanes::LaneError;
+use super::references::{References, Target};
 use super::upstream::{Headers, UsageLimit, decode_base64_media, upstream_error, usage_limit_error, usage_limit_from_response, usage_limit_info};
 use super::usage::{reported_usage, responses_usage};
 
@@ -239,7 +239,8 @@ fn collect_image(event: &Value, state: &mut StreamState) {
     }
     if kind == Some("response.image_generation_call.partial_image")
         && let Some(partial) = event.get("partial_image_b64").and_then(Value::as_str)
-        && partial.encode_utf16().count() > state.partial.encode_utf16().count() {
+        && partial.encode_utf16().count() > state.partial.encode_utf16().count()
+    {
         state.partial = partial.to_owned();
     }
 }
@@ -326,7 +327,15 @@ async fn via_responses(
 
 /// `generateImage({ model, prompt, options, references, signal })`.
 #[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
-pub async fn generate_image(http: &dyn JsonPost, session: &dyn CodexSession, model: &str, prompt: &str, options: &Value, references: &References, cancel: &CancellationToken) -> Result<CodexImage, AdapterError> {
+pub async fn generate_image(
+    http: &dyn JsonPost,
+    session: &dyn CodexSession,
+    model: &str,
+    prompt: &str,
+    options: &Value,
+    references: &References,
+    cancel: &CancellationToken,
+) -> Result<CodexImage, AdapterError> {
     let unsupported = |message: &str| AdapterError::from(LaneError { message: message.to_owned(), code: "MEDIA_OPTION_UNSUPPORTED", status: 400 });
     if ["size", "quality", "resolution", "aspectRatio"].iter().any(|key| truthy(options.get(*key)) && options[*key] != "auto") {
         return Err(unsupported("ChatGPT selects image output settings; explicit size and quality are not supported on this connection."));
@@ -350,7 +359,8 @@ fn exhausted_reset_at(rate_limit: &Value) -> Option<i64> {
     if !truthy(Some(rate_limit)) || !(rate_limit.is_object() || rate_limit.is_array()) {
         return None;
     }
-    let windows: Vec<&Value> = ["primary_window", "secondary_window"].iter().filter_map(|key| rate_limit.get(*key)).filter(|w| to_number_of(w.get("reset_at")) > 0.0).collect();
+    let windows: Vec<&Value> =
+        ["primary_window", "secondary_window"].iter().filter_map(|key| rate_limit.get(*key)).filter(|w| to_number_of(w.get("reset_at")) > 0.0).collect();
     let full: Vec<&Value> = windows.iter().copied().filter(|w| to_number_of(w.get("used_percent")) >= 100.0).collect();
     let candidates = if !full.is_empty() {
         full
@@ -368,9 +378,15 @@ pub fn limit_reset_from_usage(payload: &Value, limit_id: &str) -> Option<i64> {
     let extra: &[Value] = payload.get("additional_rate_limits").and_then(Value::as_array).map_or(&[], Vec::as_slice);
     let id = limit_id.to_lowercase();
     let names = |entry: &Value| -> Vec<String> {
-        ["metered_feature", "limit_name"].iter().map(|key| entry.get(*key).filter(|v| truthy(Some(v))).map(value_to_string).unwrap_or_default().to_lowercase()).collect()
+        ["metered_feature", "limit_name"]
+            .iter()
+            .map(|key| entry.get(*key).filter(|v| truthy(Some(v))).map(value_to_string).unwrap_or_default().to_lowercase())
+            .collect()
     };
-    let named = (!id.is_empty()).then(|| extra.iter().find(|entry| names(entry).contains(&id))).flatten().or_else(|| extra.iter().find(|entry| names(entry).iter().any(|n| n.contains("image"))));
+    let named = (!id.is_empty())
+        .then(|| extra.iter().find(|entry| names(entry).contains(&id)))
+        .flatten()
+        .or_else(|| extra.iter().find(|entry| names(entry).iter().any(|n| n.contains("image"))));
     exhausted_reset_at(match named {
         Some(entry) => entry.get("rate_limit").unwrap_or(&Value::Null),
         None => payload.get("rate_limit").unwrap_or(&Value::Null),

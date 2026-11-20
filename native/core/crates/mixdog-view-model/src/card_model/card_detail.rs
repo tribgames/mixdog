@@ -88,13 +88,7 @@ fn non_shell_detail(base: &CardBase, surface: &CardSurface, display: &DisplayedR
 }
 
 /// Agent cards only keep their detail row for failures; the brief replaces it.
-fn agent_detail_line(
-    base: &CardBase,
-    collapsed_detail: &str,
-    pending_detail_placeholder: &str,
-    agent_surface_brief: &str,
-    status: &CardStatus,
-) -> String {
+fn agent_detail_line(base: &CardBase, collapsed_detail: &str, pending_detail_placeholder: &str, agent_surface_brief: &str, status: &CardStatus) -> String {
     let width = AGENT_SURFACE_BRIEF_MAX.min(base.max_result_chars);
     let fallback = if !collapsed_detail.is_empty() {
         collapsed_detail
@@ -133,10 +127,7 @@ pub fn derive_card_detail(base: &CardBase, surface: &CardSurface, display: &Disp
     let collapsed_detail = if base.pending {
         pending_detail_placeholder.clone()
     } else if *is_shell_surface {
-        prefix_elapsed(
-            &merge_terminal_detail(status.shell_status, shell_collapsed_summary.as_deref().unwrap_or_default()),
-            &status.shell_elapsed,
-        )
+        prefix_elapsed(&merge_terminal_detail(status.shell_status, shell_collapsed_summary.as_deref().unwrap_or_default()), &status.shell_elapsed)
     } else {
         merge_terminal_detail(status.terminal_status, &non_shell_detail(base, surface, display, status, &image_detail))
     };
@@ -220,8 +211,13 @@ mod tests {
     #[test]
     fn an_output_tool_without_a_summary_shows_its_status_and_a_view_image_its_path() {
         // Node's generic row never reads the first result line (it asks the displayed result for a field it lacks).
-        let search = detail_of("custom", "Search", json!({}), json!({ "result": "first
-second" }));
+        let search = detail_of(
+            "custom",
+            "Search",
+            json!({}),
+            json!({ "result": "first
+second" }),
+        );
         assert_eq!(search.detail_line, "Finished");
         let failed = detail_of("custom", "Custom", json!({}), json!({ "result": "first", "isError": true }));
         assert!(failed.detail_line.starts_with("Failed"), "{}", failed.detail_line);

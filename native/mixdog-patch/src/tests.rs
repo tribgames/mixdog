@@ -1,17 +1,11 @@
 use super::*;
 
 fn hunk(old_start: usize, lines: &[&str]) -> Hunk {
-    Hunk {
-        old_start,
-        lines: lines.iter().map(|s| (*s).to_string()).collect(),
-    }
+    Hunk { old_start, lines: lines.iter().map(|s| (*s).to_string()).collect() }
 }
 
 fn temp_dir(tag: &str) -> PathBuf {
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0);
+    let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     let dir = env::temp_dir().join(format!("mixdog-patch-test-{tag}-{nanos}"));
     fs::create_dir_all(&dir).expect("temp dir");
     dir
@@ -24,20 +18,11 @@ fn create_new_refuses_an_existing_target_and_keeps_its_content() {
     atomic_write_create_new(&path, b"first\n").expect("first create");
     assert_eq!(fs::read(&path).unwrap(), b"first\n");
     let err = atomic_write_create_new(&path, b"second\n").expect_err("no overwrite");
-    assert!(
-        err.contains("create target already exists"),
-        "unexpected: {err}"
-    );
+    assert!(err.contains("create target already exists"), "unexpected: {err}");
     assert_eq!(fs::read(&path).unwrap(), b"first\n");
     // Rollback of a create is still a plain removal.
-    let plan = PlannedWrite {
-        kind: EntryKind::Create,
-        path: path.clone(),
-        original: None,
-        next: Some(b"first\n".to_vec()),
-        snapshot: None,
-        content_hash: None,
-    };
+    let plan =
+        PlannedWrite { kind: EntryKind::Create, path: path.clone(), original: None, next: Some(b"first\n".to_vec()), snapshot: None, content_hash: None };
     rollback_plan(&plan).expect("created file is removed");
     assert!(!path.exists());
     fs::remove_dir_all(&dir).ok();
@@ -50,11 +35,7 @@ fn add_file_plans_an_existing_regular_target_as_atomic_replace() {
     fs::write(&path, b"old\n").unwrap();
     let planned = plan_entry(
         &fs::canonicalize(&dir).unwrap(),
-        Entry {
-            old_file: "/dev/null".to_string(),
-            new_file: "f.txt".to_string(),
-            hunks: vec![hunk(0, &["+new"])],
-        },
+        Entry { old_file: "/dev/null".to_string(), new_file: "f.txt".to_string(), hunks: vec![hunk(0, &["+new"])] },
         2,
         "f.txt".to_string(),
     )
@@ -71,16 +52,10 @@ fn rollback_failures_are_aggregated_into_the_batch_error() {
     assert_eq!(format_rollback_failure("write failed", &[]), "write failed");
     let many: Vec<String> = (0..7).map(|i| format!("rollback a{i}: denied")).collect();
     let msg = format_rollback_failure("write failed", &many);
-    assert!(
-        msg.starts_with("write failed; rollback incomplete"),
-        "unexpected: {msg}"
-    );
+    assert!(msg.starts_with("write failed; rollback incomplete"), "unexpected: {msg}");
     assert!(msg.contains("rollback a0: denied"), "unexpected: {msg}");
     assert!(msg.contains("(+2 more)"), "unexpected: {msg}");
-    assert!(
-        !msg.contains("rollback a5"),
-        "report must stay bounded: {msg}"
-    );
+    assert!(!msg.contains("rollback a5"), "report must stay bounded: {msg}");
 }
 
 #[test]
@@ -89,30 +64,18 @@ fn a_failed_create_whose_cleanup_also_fails_reports_the_partial_file() {
     let path = dir.join("partial.txt");
     // Write fails, and the cleanup removal fails too: both must be named,
     // and the partial file really is still on disk afterwards.
-    let err = atomic_write_create_new_with(
-        &path,
-        b"payload\n",
-        |_file, _bytes| Err(io::Error::other("disk full")),
-        |_path| Err(io::Error::other("remove denied")),
-    )
-    .expect_err("failed write must be reported");
+    let err =
+        atomic_write_create_new_with(&path, b"payload\n", |_file, _bytes| Err(io::Error::other("disk full")), |_path| Err(io::Error::other("remove denied")))
+            .expect_err("failed write must be reported");
     assert!(err.contains("disk full"), "unexpected: {err}");
     assert!(err.contains("cleanup incomplete"), "unexpected: {err}");
     assert!(err.contains("remove denied"), "unexpected: {err}");
-    assert!(
-        path.exists(),
-        "the report must match the disk: partial file kept"
-    );
+    assert!(path.exists(), "the report must match the disk: partial file kept");
 
     // Cleanup that succeeds leaves no partial file and no cleanup clause.
     let path2 = dir.join("cleaned.txt");
-    let err2 = atomic_write_create_new_with(
-        &path2,
-        b"payload\n",
-        |_file, _bytes| Err(io::Error::other("disk full")),
-        |path: &Path| fs::remove_file(path),
-    )
-    .expect_err("failed write must be reported");
+    let err2 = atomic_write_create_new_with(&path2, b"payload\n", |_file, _bytes| Err(io::Error::other("disk full")), |path: &Path| fs::remove_file(path))
+        .expect_err("failed write must be reported");
     assert!(err2.contains("disk full"), "unexpected: {err2}");
     assert!(!err2.contains("cleanup incomplete"), "unexpected: {err2}");
     assert!(!path2.exists());
@@ -126,14 +89,7 @@ fn a_failed_batch_rolls_back_what_it_can_and_reports_what_it_cannot() {
     fs::write(&created, b"ours\n").unwrap();
     let plans = vec![
         // Restorable: the file this batch created is removed again.
-        PlannedWrite {
-            kind: EntryKind::Create,
-            path: created.clone(),
-            original: None,
-            next: Some(b"ours\n".to_vec()),
-            snapshot: None,
-            content_hash: None,
-        },
+        PlannedWrite { kind: EntryKind::Create, path: created.clone(), original: None, next: Some(b"ours\n".to_vec()), snapshot: None, content_hash: None },
         // Unrestorable: its parent directory does not exist.
         PlannedWrite {
             kind: EntryKind::Modify,
@@ -145,42 +101,21 @@ fn a_failed_batch_rolls_back_what_it_can_and_reports_what_it_cannot() {
         },
     ];
     let errors = rollback_applied(&plans, vec![0, 1]);
-    assert_eq!(
-        errors.len(),
-        1,
-        "only the unrestorable entry reports: {errors:?}"
-    );
-    assert!(
-        !created.exists(),
-        "the restorable entry must be rolled back"
-    );
+    assert_eq!(errors.len(), 1, "only the unrestorable entry reports: {errors:?}");
+    assert!(!created.exists(), "the restorable entry must be rolled back");
     let msg = format_rollback_failure("persist failed", &errors);
-    assert!(
-        msg.starts_with("persist failed; rollback incomplete"),
-        "unexpected: {msg}"
-    );
-    assert!(
-        msg.contains("f.txt"),
-        "the unrestored path must be named: {msg}"
-    );
+    assert!(msg.starts_with("persist failed; rollback incomplete"), "unexpected: {msg}");
+    assert!(msg.contains("f.txt"), "the unrestored path must be named: {msg}");
     fs::remove_dir_all(&dir).ok();
 }
 
 #[cfg(windows)]
 #[test]
 fn windows_atomic_replace_retries_only_lock_style_errors() {
-    assert!(is_transient_windows_replace_error(
-        &io::Error::from_raw_os_error(5)
-    ));
-    assert!(is_transient_windows_replace_error(
-        &io::Error::from_raw_os_error(32)
-    ));
-    assert!(is_transient_windows_replace_error(
-        &io::Error::from_raw_os_error(33)
-    ));
-    assert!(!is_transient_windows_replace_error(
-        &io::Error::from_raw_os_error(2)
-    ));
+    assert!(is_transient_windows_replace_error(&io::Error::from_raw_os_error(5)));
+    assert!(is_transient_windows_replace_error(&io::Error::from_raw_os_error(32)));
+    assert!(is_transient_windows_replace_error(&io::Error::from_raw_os_error(33)));
+    assert!(!is_transient_windows_replace_error(&io::Error::from_raw_os_error(2)));
 }
 
 #[test]
@@ -195,20 +130,10 @@ fn normalized_tier_matches_typographic_interior_context() {
     let entry = Entry {
         old_file: "f".to_string(),
         new_file: "f".to_string(),
-        hunks: vec![hunk(
-            1,
-            &[
-                "-old first",
-                "+new first",
-                " config - \"value\"",
-                "-old last",
-                "+new last",
-            ],
-        )],
+        hunks: vec![hunk(1, &["-old first", "+new first", " config - \"value\"", "-old last", "+new last"])],
     };
 
-    let applied = apply_exact_bytes(source.as_bytes(), &entry, 2)
-        .expect("ASCII patch should apply against typographic source");
+    let applied = apply_exact_bytes(source.as_bytes(), &entry, 2).expect("ASCII patch should apply against typographic source");
 
     // The context line is copied verbatim from the source (typography
     // preserved); only the surrounding delete/add lines change.
@@ -237,56 +162,31 @@ fn far_exact_block_beats_nearer_normalized_block() {
         "config - \"x\"\n", // idx 5: exact ASCII, FAR
         "omega\n",
     );
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(2, &["-config - \"x\"", "+config - \"y\""])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(2, &["-config - \"x\"", "+config - \"y\""])] };
 
-    let applied = apply_exact_bytes(source.as_bytes(), &entry, 2)
-        .expect("hunk should apply via the far exact block");
+    let applied = apply_exact_bytes(source.as_bytes(), &entry, 2).expect("hunk should apply via the far exact block");
 
     // The FAR exact block (idx 5) must be the one replaced; the NEAR
     // typographic line (idx 1) must remain byte-for-byte untouched.
-    let expected = concat!(
-        "alpha\n",
-        "config \u{2014} \u{201C}x\u{201D}\n",
-        "beta\n",
-        "gamma\n",
-        "delta\n",
-        "config - \"y\"\n",
-        "omega\n",
-    );
+    let expected = concat!("alpha\n", "config \u{2014} \u{201C}x\u{201D}\n", "beta\n", "gamma\n", "delta\n", "config - \"y\"\n", "omega\n",);
     assert_eq!(String::from_utf8_lossy(&applied.bytes), expected);
 }
 
 #[test]
 fn append_after_eof_line_without_trailing_newline() {
     let source = b"line1\nline2-nonl";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(2, &[" line2-nonl", "+line3"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(2, &[" line2-nonl", "+line3"])] };
 
-    let applied =
-        apply_exact_bytes(source, &entry, 2).expect("append after no-trailing-newline EOF line");
+    let applied = apply_exact_bytes(source, &entry, 2).expect("append after no-trailing-newline EOF line");
     // The source had no final newline and the patch says nothing about it,
     // so the rewritten tail must not invent one (JS dispatcher parity).
-    assert_eq!(
-        String::from_utf8_lossy(&applied.bytes),
-        "line1\nline2-nonl\nline3"
-    );
+    assert_eq!(String::from_utf8_lossy(&applied.bytes), "line1\nline2-nonl\nline3");
 }
 
 #[test]
 fn insert_only_at_eof_without_trailing_newline_adds_a_separator() {
     let source = b"root";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(1, &["+A"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &["+A"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("insert at EOF");
     assert_eq!(String::from_utf8_lossy(&applied.bytes), "root\nA");
@@ -295,11 +195,7 @@ fn insert_only_at_eof_without_trailing_newline_adds_a_separator() {
 #[test]
 fn two_insert_only_hunks_at_eof_keep_source_order() {
     let source = b"root\n";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(1, &["+A"]), hunk(1, &["+B"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &["+A"]), hunk(1, &["+B"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("two EOF inserts");
     assert_eq!(String::from_utf8_lossy(&applied.bytes), "root\nA\nB\n");
@@ -308,27 +204,16 @@ fn two_insert_only_hunks_at_eof_keep_source_order() {
 #[test]
 fn insert_only_at_eof_crlf_without_trailing_newline_uses_crlf() {
     let source = b"one\r\ntwo";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(2, &["+three"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(2, &["+three"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("insert at CRLF EOF");
-    assert_eq!(
-        String::from_utf8_lossy(&applied.bytes),
-        "one\r\ntwo\r\nthree"
-    );
+    assert_eq!(String::from_utf8_lossy(&applied.bytes), "one\r\ntwo\r\nthree");
 }
 
 #[test]
 fn cr_only_update_preserves_cr() {
     let source = b"hello\rworld\r";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(1, &[" hello", "-world", "+WORLD"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &[" hello", "-world", "+WORLD"])] };
     let applied = apply_exact_bytes(source, &entry, 2).expect("cr-only update");
     assert_eq!(&applied.bytes, b"hello\rWORLD\r");
 }
@@ -338,11 +223,7 @@ fn deleting_the_unterminated_eof_line_keeps_the_previous_terminator() {
     // "a\r\nb" with no final newline: deleting `b` must leave "a\r\n".
     // The CRLF belongs to the untouched line `a`.
     for (source, expected) in [(&b"a\r\nb"[..], &b"a\r\n"[..]), (&b"a\nb"[..], &b"a\n"[..])] {
-        let entry = Entry {
-            old_file: "f".to_string(),
-            new_file: "f".to_string(),
-            hunks: vec![hunk(1, &[" a", "-b"])],
-        };
+        let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &[" a", "-b"])] };
         let applied = apply_exact_bytes(source, &entry, 2).expect("tail delete");
         assert_eq!(&applied.bytes, expected);
     }
@@ -353,11 +234,7 @@ fn replacement_keeps_the_replaced_line_terminator_in_a_mixed_eol_file() {
     // Context is CRLF, the replaced line is LF: the rewrite must keep that
     // line's own LF instead of folding the block onto one anchor EOL.
     let source = b"ctx\r\nold\nkeep\r\n";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(1, &[" ctx", "-old", "+NEW", " keep"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &[" ctx", "-old", "+NEW", " keep"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("mixed-eol update");
     assert_eq!(&applied.bytes, b"ctx\r\nNEW\nkeep\r\n");
@@ -365,21 +242,14 @@ fn replacement_keeps_the_replaced_line_terminator_in_a_mixed_eol_file() {
 
 #[test]
 fn the_engine_contract_marker_is_embedded_verbatim() {
-    assert_eq!(
-        std::str::from_utf8(&MIXDOG_PATCH_ENGINE_CONTRACT).expect("ascii marker"),
-        ENGINE_CONTRACT_MARKER,
-    );
+    assert_eq!(std::str::from_utf8(&MIXDOG_PATCH_ENGINE_CONTRACT).expect("ascii marker"), ENGINE_CONTRACT_MARKER,);
 }
 
 #[test]
 fn a_utf8_bom_is_a_file_prefix_not_line_content() {
     // Updating the FIRST line must match `alpha`, and the BOM must survive.
     let source = b"\xEF\xBB\xBFalpha\nkeep\n";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(1, &["-alpha", "+omega", " keep"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &["-alpha", "+omega", " keep"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("bom first-line update");
     assert_eq!(&applied.bytes, b"\xEF\xBB\xBFomega\nkeep\n");
@@ -388,11 +258,7 @@ fn a_utf8_bom_is_a_file_prefix_not_line_content() {
 #[test]
 fn an_insertion_lands_after_a_bom_only_prefix() {
     let source = b"\xEF\xBB\xBFalpha\n";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(0, &["+first"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(0, &["+first"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("insert at top of bom file");
     assert_eq!(&applied.bytes, b"\xEF\xBB\xBFfirst\nalpha\n");
@@ -402,11 +268,7 @@ fn an_insertion_lands_after_a_bom_only_prefix() {
 fn duplicate_deletes_are_claimed_in_order() {
     // D/X/D → X/D must take the FINAL D's LF, not the first D's CRLF.
     let source = b"D\r\nX\nD\nT\n";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(1, &["-D", "-X", "-D", "+X", "+D", " T"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &["-D", "-X", "-D", "+X", "+D", " T"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("duplicate deletes");
     assert_eq!(&applied.bytes, b"X\nD\nT\n");
@@ -416,11 +278,7 @@ fn duplicate_deletes_are_claimed_in_order() {
 fn a_backward_move_across_two_contexts_keeps_its_own_terminator() {
     // `+A` precedes its `-A`: the identity pool must span the whole hunk.
     let source = b"C1\nC2\nA\r\n";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(1, &["+A", " C1", " C2", "-A"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &["+A", " C1", " C2", "-A"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("backward move");
     assert_eq!(&applied.bytes, b"A\r\nC1\nC2\n");
@@ -430,11 +288,7 @@ fn a_backward_move_across_two_contexts_keeps_its_own_terminator() {
 fn a_move_across_context_keeps_its_own_terminator() {
     // `-A`, ` MID`, `+A`: A is the same line, so it keeps its CRLF.
     let source = b"A\r\nMID\nT\n";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(1, &["-A", " MID", "+A", " T"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &["-A", " MID", "+A", " T"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("move across context");
     assert_eq!(&applied.bytes, b"MID\nA\r\nT\n");
@@ -445,11 +299,7 @@ fn a_multi_run_hunk_keeps_every_untouched_terminator() {
     // Two change runs around interior context: only op-wise mapping puts
     // MID's CRLF and T's LF back where they belong.
     let source = b"H\r\nA\nMID\r\nC\nT\n";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(1, &[" H", "-A", "+A2", " MID", "-C", "+C2", " T"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &[" H", "-A", "+A2", " MID", "-C", "+C2", " T"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("multi-run hunk");
     assert_eq!(&applied.bytes, b"H\r\nA2\nMID\r\nC2\nT\n");
@@ -458,11 +308,7 @@ fn a_multi_run_hunk_keeps_every_untouched_terminator() {
 #[test]
 fn a_moved_line_does_not_drag_a_neighbouring_terminator() {
     let source = b"H\r\nA\nMID\r\nT\n";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(1, &[" H", "-A", " MID", "+A", " T"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &[" H", "-A", " MID", "+A", " T"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("moved line");
     assert_eq!(&applied.bytes, b"H\r\nMID\r\nA\nT\n");
@@ -472,27 +318,11 @@ fn a_moved_line_does_not_drag_a_neighbouring_terminator() {
 fn the_exact_and_fuzzy_paths_agree_byte_for_byte() {
     let source = b"H\r\nA\nMID\r\nC\nT\n";
     let lines = [" H", "-A", "+A2", " MID", "-C", "+C2", " T"];
-    let exact = apply_exact_bytes(
-        source,
-        &Entry {
-            old_file: "f".to_string(),
-            new_file: "f".to_string(),
-            hunks: vec![hunk(1, &lines)],
-        },
-        2,
-    )
-    .expect("exact path");
+    let exact =
+        apply_exact_bytes(source, &Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &lines)] }, 2).expect("exact path");
     // An out-of-range anchor forces the fuzzy seek for the same hunk.
-    let fuzzy = apply_exact_bytes(
-        source,
-        &Entry {
-            old_file: "f".to_string(),
-            new_file: "f".to_string(),
-            hunks: vec![hunk(99, &lines)],
-        },
-        2,
-    )
-    .expect("fuzzy path");
+    let fuzzy =
+        apply_exact_bytes(source, &Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(99, &lines)] }, 2).expect("fuzzy path");
 
     assert_eq!(exact.bytes, fuzzy.bytes);
     assert_eq!(&exact.bytes, b"H\r\nA2\nMID\r\nC2\nT\n");
@@ -503,11 +333,7 @@ fn a_shrinking_hunk_keeps_the_following_context_terminator() {
     // Two mixed-EOL lines collapse into one: the trailing context `keep`
     // must keep its own LF instead of inheriting a deleted line's CRLF.
     let source = b"ctx\r\nold1\nold2\r\nkeep\n";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(1, &[" ctx", "-old1", "-old2", "+NEW", " keep"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &[" ctx", "-old1", "-old2", "+NEW", " keep"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("shrinking mixed-eol hunk");
     assert_eq!(&applied.bytes, b"ctx\r\nNEW\nkeep\n");
@@ -518,11 +344,7 @@ fn fuzzy_replacement_keeps_the_replaced_line_terminator() {
     // An out-of-range anchor forces the fuzzy seek; the replaced line's LF
     // must survive there too.
     let source = b"ctx\r\nold\nkeep\r\n";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(9, &[" ctx", "-old", "+NEW", " keep"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(9, &[" ctx", "-old", "+NEW", " keep"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("fuzzy mixed-eol update");
     assert_eq!(&applied.bytes, b"ctx\r\nNEW\nkeep\r\n");
@@ -531,14 +353,7 @@ fn fuzzy_replacement_keeps_the_replaced_line_terminator() {
 #[test]
 fn explicit_no_newline_marker_on_the_new_side_is_respected() {
     let source = b"one\ntwo\n";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(
-            2,
-            &["-two", "+two-nonl", "\\ No newline at end of file"],
-        )],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(2, &["-two", "+two-nonl", "\\ No newline at end of file"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("explicit marker");
     assert_eq!(String::from_utf8_lossy(&applied.bytes), "one\ntwo-nonl");
@@ -565,11 +380,7 @@ fn insertion_sharing_a_position_with_a_replacement_is_rejected() {
 #[test]
 fn adjacent_replacements_still_apply() {
     let source = b"one\ntwo\nthree\n";
-    let entry = Entry {
-        old_file: "f".to_string(),
-        new_file: "f".to_string(),
-        hunks: vec![hunk(1, &["-one", "+ONE"]), hunk(2, &["-two", "+TWO"])],
-    };
+    let entry = Entry { old_file: "f".to_string(), new_file: "f".to_string(), hunks: vec![hunk(1, &["-one", "+ONE"]), hunk(2, &["-two", "+TWO"])] };
 
     let applied = apply_exact_bytes(source, &entry, 2).expect("adjacent hunks");
     assert_eq!(String::from_utf8_lossy(&applied.bytes), "ONE\nTWO\nthree\n");
@@ -577,16 +388,8 @@ fn adjacent_replacements_still_apply() {
 
 #[test]
 fn normalize_typographic_maps_dashes_quotes_spaces() {
-    assert_eq!(
-        normalize_typographic("\u{2014}a\u{00A0}b\u{2019}c\u{201D}".as_bytes()),
-        "-a b'c\""
-    );
-    assert_eq!(
-        normalize_typographic(
-            "\u{2018}\u{2019}\u{201A}\u{201B}\u{201C}\u{201D}\u{201E}\u{201F}".as_bytes()
-        ),
-        "''''\"\"\"\""
-    );
+    assert_eq!(normalize_typographic("\u{2014}a\u{00A0}b\u{2019}c\u{201D}".as_bytes()), "-a b'c\"");
+    assert_eq!(normalize_typographic("\u{2018}\u{2019}\u{201A}\u{201B}\u{201C}\u{201D}\u{201E}\u{201F}".as_bytes()), "''''\"\"\"\"");
 }
 
 #[test]

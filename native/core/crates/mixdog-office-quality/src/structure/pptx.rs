@@ -82,12 +82,10 @@ const PRINT_CHROME_MIN_PT: f64 = 7.0;
 /// Slide-number fields (master placeholders) carry their size in the field run, which the snapshot does not always
 /// surface; the numeral itself is the chrome.
 static PPTX_PAGE_NUMBER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\s*(?:\d+\s*(?:\/|of)\s*\d+|\d{1,3})\s*$", "i"));
-static PEER_SLOT: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^((?:column|metric|step)-(?:title|body|value|label|detail))-\d+$", ""));
+static PEER_SLOT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^((?:column|metric|step)-(?:title|body|value|label|detail))-\d+$", ""));
 static LINE_BREAK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[\r\n]", ""));
 static ANY_DIGIT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\d", ""));
-static CITED_SOURCE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"(?:source\s*:|[\w .-]+!\$?[A-Z]{1,3}\$?\d+|출처\s*:)", "i"));
+static CITED_SOURCE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(?:source\s*:|[\w .-]+!\$?[A-Z]{1,3}\$?\d+|출처\s*:)", "i"));
 
 /// The numbers of a shape's frame (`Number(shape.left)` and the like).
 #[derive(Clone, Copy)]
@@ -99,12 +97,7 @@ struct Frame {
 }
 
 fn frame_of(shape: &Value) -> Frame {
-    Frame {
-        left: num(field(shape, "left")),
-        top: num(field(shape, "top")),
-        width: num(field(shape, "width")),
-        height: num(field(shape, "height")),
-    }
+    Frame { left: num(field(shape, "left")), top: num(field(shape, "top")), width: num(field(shape, "width")), height: num(field(shape, "height")) }
 }
 
 /// `hasFrame(shape)`.
@@ -208,10 +201,7 @@ fn solid_shape_fill(shape: Option<&Value>) -> Option<&Value> {
     let fill = shape.and_then(|inner| field(inner, "fill"));
     let color = coalesce(shape.and_then(|inner| field(inner, "fillColor")), field_of(fill, "color"));
     let zero = Value::from(0);
-    let transparency = num(coalesce(
-        shape.and_then(|inner| field(inner, "fillTransparency")),
-        coalesce(field_of(fill, "transparency"), Some(&zero)),
-    ));
+    let transparency = num(coalesce(shape.and_then(|inner| field(inner, "fillTransparency")), coalesce(field_of(fill, "transparency"), Some(&zero))));
     if office_color_rgb(color).is_none() || !transparency.is_finite() || transparency >= 0.2 { None } else { color }
 }
 
@@ -283,8 +273,7 @@ fn is_pptx_picture(shape: &Value) -> bool {
 /// A picture is `p:pic` in the portable snapshot and msoPicture (13) in the COM one; PowerPoint reports a picture that
 /// carries an SVG source (the kit's icons) as msoGraphic (28).
 fn is_pptx_inline_icon(shape: &Value) -> bool {
-    (is_pptx_picture(shape) || num(field(shape, "type")) == 28.0)
-        && f64::max(num0(field(shape, "width")), num0(field(shape, "height"))) <= PPTX_INLINE_ICON_PT
+    (is_pptx_picture(shape) || num(field(shape, "type")) == 28.0) && f64::max(num0(field(shape, "width")), num0(field(shape, "height"))) <= PPTX_INLINE_ICON_PT
 }
 
 /// The kit signs the glow it draws under a hero object; it is a gradient that ends at zero alpha, not a plane.
@@ -330,9 +319,7 @@ fn placed_axes(placed: &Placed<'_>) -> Vec<(&'static str, f64)> {
         axes.push(("bottom edge", frame.top + frame.height));
     }
     axes.push(("middle", frame.top + frame.height / 2.0));
-    axes.retain(|(kind, _)| {
-        !(placed.spans_height && PPTX_VERTICAL_AXES.contains(kind)) && !(placed.spans_width && PPTX_HORIZONTAL_AXES.contains(kind))
-    });
+    axes.retain(|(kind, _)| !(placed.spans_height && PPTX_VERTICAL_AXES.contains(kind)) && !(placed.spans_width && PPTX_HORIZONTAL_AXES.contains(kind)));
     axes
 }
 
@@ -476,12 +463,7 @@ fn review_alignment(slide: &Slide<'_>, issues: &mut Vec<Value>, canvas: &Canvas)
         issues.push(warn(
             "axis_drift",
             slide.path_of(shape.shape),
-            format!(
-                "The {} sits {} pt off the axis the slide shares at {} pt.",
-                drift.name,
-                math::to_fixed(drift.offset, 1),
-                math::to_fixed(drift.axis, 1)
-            ),
+            format!("The {} sits {} pt off the axis the slide shares at {} pt.", drift.name, math::to_fixed(drift.offset, 1), math::to_fixed(drift.axis, 1)),
         ));
     }
     for row in pptx_peer_rows(&placed) {
@@ -558,22 +540,11 @@ fn review_chart_series_naming(slide: &Slide<'_>, at: usize, issues: &mut Vec<Val
     if field(chart, "legend") != Some(&Value::Bool(false)) || field(chart, "seriesNamesShown") == Some(&Value::Bool(true)) {
         return;
     }
-    let names: Vec<String> = list(field(chart, "series"))
-        .iter()
-        .map(|series| trimmed(field(series, "name")))
-        .filter(|name| length(name) > 1)
-        .collect();
+    let names: Vec<String> = list(field(chart, "series")).iter().map(|series| trimmed(field(series, "name"))).filter(|name| length(name) > 1).collect();
     if names.len() < 2 {
         return;
     }
-    let words = slide
-        .shapes
-        .iter()
-        .enumerate()
-        .filter(|(other, _)| *other != at)
-        .map(|(_, entry)| text(field(entry, "text")))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let words = slide.shapes.iter().enumerate().filter(|(other, _)| *other != at).map(|(_, entry)| text(field(entry, "text"))).collect::<Vec<_>>().join("\n");
     if names.iter().all(|name| words.contains(name.as_str())) {
         return;
     }
@@ -719,13 +690,7 @@ fn review_charts(slide: &Slide<'_>, issues: &mut Vec<Value>) {
         if let Some(chart) = field(shape, "chart").filter(|chart| is_truthy(Some(*chart)))
             && num(field(chart, "seriesCount")) == 0.0
         {
-            issues.push(record(
-                "empty_chart",
-                Some(slide.chart_path(shape, chart)),
-                "Chart has no persisted data series.".into(),
-                "format-review",
-                "error",
-            ));
+            issues.push(record("empty_chart", Some(slide.chart_path(shape, chart)), "Chart has no persisted data series.".into(), "format-review", "error"));
         }
         review_chart_series_naming(slide, at, issues);
     }
@@ -755,9 +720,7 @@ fn review_text_shape(slide: &Slide<'_>, shape: &Text<'_>, canvas: &Canvas, issue
         issues.push(warn("small_font", slide.path_of(shape.shape), format!("Body text is smaller than {} pt.", number_to_string(floors.body))));
     }
     let surface = containing_surface(shape, &slide.shapes);
-    let background = solid_shape_fill(Some(shape.shape))
-        .or_else(|| solid_shape_fill(surface))
-        .or_else(|| nested(slide.value, "background", "color"));
+    let background = solid_shape_fill(Some(shape.shape)).or_else(|| solid_shape_fill(surface)).or_else(|| nested(slide.value, "background", "color"));
     let contrast = color_contrast_ratio(nested(shape.shape, "font", "color"), background);
     // A table's words stand on its cells' fills, each read against its own. Read against the slide, a dark-headed
     // table's white header was reported as text indistinguishable from its surface.
@@ -782,11 +745,7 @@ fn review_text_shape(slide: &Slide<'_>, shape: &Text<'_>, canvas: &Canvas, issue
         && canvas.height > 0.0
         && (frame.left < margin || frame.top < margin || frame.left + frame.width > canvas.width - margin || frame.top + frame.height > canvas.height - margin)
     {
-        issues.push(warn(
-            "edge_margin",
-            slide.path_of(shape.shape),
-            format!("Text is within {} pt of a slide edge.", number_to_string(margin)),
-        ));
+        issues.push(warn("edge_margin", slide.path_of(shape.shape), format!("Text is within {} pt of a slide edge.", number_to_string(margin))));
     }
 }
 
@@ -1073,11 +1032,7 @@ fn review_number_sources(slide: &Slide<'_>, text_shapes: &[Text<'_>], issues: &m
     if CITED_SOURCE.is_match(&text(field(slide.value, "notes"))) {
         return;
     }
-    issues.push(warn(
-        "number_without_source",
-        Some(slide.at()),
-        "Slide contains numbers but its notes do not cite a workbook cell or source.".into(),
-    ));
+    issues.push(warn("number_without_source", Some(slide.at()), "Slide contains numbers but its notes do not cite a workbook cell or source.".into()));
 }
 
 /// `reviewPptxStructure(document, auditProfile)`.
@@ -1087,9 +1042,7 @@ pub fn review_pptx_structure(document: &Value, audit_profile: &str) -> Vec<Value
     let floors = type_floors(document, canvas.height);
     // A deck read from the file carries no slots; the roles come from the same induction the snapshot uses, and
     // annotating twice changes nothing.
-    let has_slots = list(field(document, "slides"))
-        .iter()
-        .any(|slide| list(field(slide, "shapes")).iter().any(|shape| is_truthy(field(shape, "slot"))));
+    let has_slots = list(field(document, "slides")).iter().any(|slide| list(field(slide, "shapes")).iter().any(|shape| is_truthy(field(shape, "slot"))));
     let annotated;
     let document = if has_slots {
         document
@@ -1106,10 +1059,8 @@ pub fn review_pptx_structure(document: &Value, audit_profile: &str) -> Vec<Value
         }
         // A shape the slide hides is not on the page; measuring it reports defects no reader can see and sends the
         // next fix round after an invisible box.
-        let slide = Slide {
-            value: source,
-            shapes: list(field(source, "shapes")).iter().filter(|shape| field(shape, "hidden") != Some(&Value::Bool(true))).collect(),
-        };
+        let slide =
+            Slide { value: source, shapes: list(field(source, "shapes")).iter().filter(|shape| field(shape, "hidden") != Some(&Value::Bool(true))).collect() };
         review_peer_type(&slide, &mut issues);
         review_text_wall(&slide, canvas.width, canvas.height, &mut issues);
         review_hierarchy(&slide, &mut issues);

@@ -143,14 +143,7 @@ pub struct AcquireOptions {
 impl AcquireOptions {
     pub fn new(languages: impl Into<String>, ocr_root: impl Into<PathBuf>) -> Self {
         let ocr_root = ocr_root.into();
-        AcquireOptions {
-            languages: languages.into(),
-            cache_path: ocr_root.join("languages"),
-            lang_path: None,
-            ocr_root,
-            cancel: None,
-            timeout: START_TIMEOUT,
-        }
+        AcquireOptions { languages: languages.into(), cache_path: ocr_root.join("languages"), lang_path: None, ocr_root, cancel: None, timeout: START_TIMEOUT }
     }
 }
 

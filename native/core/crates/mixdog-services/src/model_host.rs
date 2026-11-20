@@ -3,8 +3,8 @@
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Stdio;
-use std::sync::{Arc, Mutex, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, mpsc};
 
 use mixdog_exthost::Containment;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
@@ -44,8 +44,14 @@ pub(crate) struct ChildExit {
 #[cfg(test)]
 impl ChildExit {
     pub(crate) async fn wait(&mut self) -> std::process::ExitStatus {
-        self.result.wait_for(Option::is_some).await.expect("child reaper stopped without reporting exit")
-            .as_ref().expect("exit published").clone().expect("waiting for the child failed")
+        self.result
+            .wait_for(Option::is_some)
+            .await
+            .expect("child reaper stopped without reporting exit")
+            .as_ref()
+            .expect("exit published")
+            .clone()
+            .expect("waiting for the child failed")
     }
 }
 
@@ -85,10 +91,14 @@ impl Pipes {
     fn start_at(launch: &HostLaunch, tag: &'static str, runtime: &tokio::runtime::Handle, below_normal: bool) -> Result<Self, String> {
         let _context = runtime.enter();
         let mut command = tokio::process::Command::new(&launch.program);
-        command.args(&launch.args)
+        command
+            .args(&launch.args)
             .envs(launch.env.iter().map(|(k, v)| (k.as_str(), v.as_str())))
             .env("MIXDOG_EFFORT_JUDGE_PARENT", std::process::id().to_string())
-            .stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::null()).kill_on_drop(true);
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::null())
+            .kill_on_drop(true);
         // Containment must be attached before the child executes, including during model loading.
         #[cfg(windows)]
         command.creation_flags(0x0800_0000 | 0x0000_0004 | if below_normal { 0x0000_4000 } else { 0 });
@@ -141,7 +151,12 @@ impl Pipes {
         let publish = Arc::new(publish);
         // EOF, a writer failure or a kill request: the host is stopping, nothing more (the reaper alone says how it ended).
         let stopping = |publish: &tokio::sync::watch::Sender<Lifecycle>| {
-            publish.send_if_modified(|state| matches!(state, Lifecycle::Running) && { *state = Lifecycle::Stopping; true });
+            publish.send_if_modified(|state| {
+                matches!(state, Lifecycle::Running) && {
+                    *state = Lifecycle::Stopping;
+                    true
+                }
+            });
         };
         let (to_host, mut lines) = tokio::sync::mpsc::unbounded_channel::<String>();
         let (replies_tx, replies) = mpsc::channel();
@@ -232,7 +247,11 @@ impl Pipes {
         let mut state = self.state.clone();
         let ended = state.wait_for(|state| matches!(state, Lifecycle::Ended { .. })).await.map(|state| state.clone());
         // The sender lives in the reaper until it publishes; it never drops without `Ended`.
-        ended.unwrap_or_else(|_| Lifecycle::Ended { generation: self.generation, exit: Err(WaitError::from("the reaper ended without the exit")), retired: false })
+        ended.unwrap_or_else(|_| Lifecycle::Ended {
+            generation: self.generation,
+            exit: Err(WaitError::from("the reaper ended without the exit")),
+            retired: false,
+        })
     }
 
     /// The owner ends the host (an idle release, a disposal): its end is then `retired` and never counted as a failure or a clean exit.
@@ -246,8 +265,7 @@ impl Pipes {
     }
 
     pub(crate) fn receive(&self) -> Result<String, String> {
-        self.replies.lock().unwrap_or_else(std::sync::PoisonError::into_inner).recv()
-            .map_err(|_| "model host exited while waiting for a reply".to_owned())
+        self.replies.lock().unwrap_or_else(std::sync::PoisonError::into_inner).recv().map_err(|_| "model host exited while waiting for a reply".to_owned())
     }
 
     /// Callers serialize whole exchanges, not only the receive half.

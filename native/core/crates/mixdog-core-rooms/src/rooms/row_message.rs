@@ -257,6 +257,4 @@ mod tests {
         let keys: Vec<_> = message["meta"]["room"].as_object().unwrap().keys().cloned().collect();
         assert_eq!(keys, ["kind", "speaker", "name", "to", "toName"]);
     }
-
-
 }

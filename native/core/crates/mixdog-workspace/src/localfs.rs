@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (`on`) or on a stream's own producer thread (`streamed`); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (`on`) or on a stream's own producer thread (`streamed`); the service never calls them on an async thread"
+)]
 //! The real [`FileService`] (DS §4.2) for the agent tools and the tidy write host, over absolute
 //! paths on the local disk.
 //!
@@ -37,6 +41,14 @@ use std::sync::OnceLock;
 use std::sync::PoisonError;
 use std::time::Duration;
 
+use crate::ident::StatVersion;
+use crate::ident::names_equal;
+use crate::ident::stat_version;
+use crate::ident::stat_with_version;
+use crate::ident::{handle_stat_with_version, regular_leaf, stat_leaf_with_version};
+use crate::lanes::counted;
+use crate::pathguard::canonical;
+use crate::pathguard::lexical;
 use async_trait::async_trait;
 use grep::matcher::Matcher;
 use grep::printer::StandardBuilder;
@@ -66,22 +78,14 @@ use mixdog_core_api::domain::fs::SearchRequest;
 use mixdog_core_api::domain::fs::WalkRequest;
 use mixdog_core_api::domain::fs::WritePrecondition;
 use mixdog_core_api::domain::fs::WriteRequest;
-use crate::ident::StatVersion;
-use crate::ident::{handle_stat_with_version, regular_leaf, stat_leaf_with_version};
-use crate::ident::names_equal;
-use crate::ident::stat_version;
-use crate::ident::stat_with_version;
-use crate::pathguard::canonical;
-use crate::pathguard::lexical;
-use crate::lanes::counted;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
 use mixdog_rt::MaintenanceIo;
 use std::sync::atomic::AtomicBool;
+use std::sync::atomic::AtomicU8;
 #[cfg(test)]
 use std::sync::atomic::AtomicU64;
-use std::sync::atomic::AtomicU8;
 #[cfg(any(test, feature = "replay-controls"))]
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
@@ -271,7 +275,10 @@ enum Expect {
     /// The target must still be this version (mtime, ctime, size, inode, device: Node's `fileVersion`).
     Version(StatVersion),
     /// Keep the verified original open until the last name/version check.
-    EditVersion { version: StatVersion, original: File },
+    EditVersion {
+        version: StatVersion,
+        original: File,
+    },
 }
 
 #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
@@ -308,9 +315,8 @@ fn checked_handle(target: &Path, file: &File, expected: StatVersion) -> bool {
 
 #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
 fn evaluate_edit(target: &Path, stat: &FileStat, expected: &[u8]) -> Result<Expect, FsError> {
-    let (meta, version) = stat_leaf_with_version(target).map_err(|e| {
-        if e.kind() == io::ErrorKind::NotFound { changed_edit(target) } else { io_error(&e, target) }
-    })?;
+    let (meta, version) =
+        stat_leaf_with_version(target).map_err(|e| if e.kind() == io::ErrorKind::NotFound { changed_edit(target) } else { io_error(&e, target) })?;
     if !regular_leaf(&meta) || stat_from_version(&meta, &version) != *stat || !checked_name(target, version) {
         return Err(changed_edit(target));
     }
@@ -327,9 +333,7 @@ fn evaluate_edit(target: &Path, stat: &FileStat, expected: &[u8]) -> Result<Expe
         use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_OPEN_REPARSE_POINT;
         options.custom_flags(FILE_FLAG_OPEN_REPARSE_POINT);
     }
-    let mut original = options.open(target).map_err(|e| {
-        if checked_name(target, version) { io_error(&e, target) } else { changed_edit(target) }
-    })?;
+    let mut original = options.open(target).map_err(|e| if checked_name(target, version) { io_error(&e, target) } else { changed_edit(target) })?;
     if !checked_handle(target, &original, version) {
         return Err(changed_edit(target));
     }
@@ -367,9 +371,7 @@ fn evaluate(target: &Path, precondition: &WritePrecondition) -> Result<Expect, F
         (WritePrecondition::Unconditional, _) => Ok(Expect::Nothing),
         (WritePrecondition::Absent, None) => Ok(Expect::Absent),
         (WritePrecondition::Absent, Some(_)) => Err(precondition_failed(target)),
-        (WritePrecondition::ContentEquals(_), None) => {
-            Err(plain(FsErrorKind::PreconditionFailed { actual: None }, target))
-        }
+        (WritePrecondition::ContentEquals(_), None) => Err(plain(FsErrorKind::PreconditionFailed { actual: None }, target)),
         (WritePrecondition::ContentEquals(expected), Some(_)) => {
             // Version first, content second: a change in between fails the check at the rename.
             let (meta, version) = stat_with_version(target).map_err(|e| io_error(&e, target))?;
@@ -377,11 +379,7 @@ fn evaluate(target: &Path, precondition: &WritePrecondition) -> Result<Expect, F
                 return Err(plain(FsErrorKind::PreconditionFailed { actual: None }, target));
             }
             let actual = fs::read(target).map_err(|e| io_error(&e, target))?;
-            if &actual == expected {
-                Ok(Expect::Version(version))
-            } else {
-                Err(plain(FsErrorKind::PreconditionFailed { actual: Some(actual) }, target))
-            }
+            if &actual == expected { Ok(Expect::Version(version)) } else { Err(plain(FsErrorKind::PreconditionFailed { actual: Some(actual) }, target)) }
         }
         (WritePrecondition::FileEquals { .. }, _) => unreachable!("checked on the opened file above"),
     }
@@ -439,7 +437,8 @@ fn cleanup_empty_placeholder(target: &Path) -> io::Result<()> {
 fn cancelled_write(target: &Path, tmp: &Path, placeholder: bool) -> FsError {
     let mut left = Vec::new();
     if let Err(e) = fs::remove_file(tmp)
-        && e.kind() != io::ErrorKind::NotFound {
+        && e.kind() != io::ErrorKind::NotFound
+    {
         left.push(AbsPath::new(tmp).expect("a resolved target is absolute"));
     }
     if placeholder && cleanup_empty_placeholder(target).is_err() {
@@ -498,7 +497,8 @@ mod publish_barrier {
 /// Makes the rename itself durable across power loss; unsupported on Windows (Node: best effort).
 fn sync_directory(target: &Path) {
     if let Some(dir) = target.parent()
-        && let Ok(handle) = File::open(dir) {
+        && let Ok(handle) = File::open(dir)
+    {
         let _ = handle.sync_all();
     }
 }
@@ -1588,7 +1588,6 @@ mod cancel_io {
     #[cfg(not(any(windows, unix)))]
     fn cancel(_: &JoinHandle<()>, _: Option<&Interrupt>) {}
 
-
     struct Abandoned {
         /// Held, not detached, while it is cancelled: its handle stays valid for `CancelSynchronousIo` until then.
         thread: JoinHandle<()>,
@@ -1912,7 +1911,6 @@ pub mod deadline_script {
         pub(super) _search: Box<dyn Send>,
     }
 
-
     #[derive(Clone, Copy, Debug)]
     pub enum Script {
         /// The soft deadline passes once this many files with matches were searched, or when the search ends (a
@@ -1956,9 +1954,8 @@ pub mod deadline_script {
             const ERROR_IO_PENDING: i32 = 997;
             let wide: Vec<u16> = path.as_os_str().encode_wide().chain(Some(0)).collect();
             // SAFETY: `wide` is a NUL-terminated path; the handle returned is owned here.
-            let file = unsafe {
-                CreateFileW(wide.as_ptr(), GENERIC_READ, SHARE_ALL, std::ptr::null(), OPEN_EXISTING, FILE_FLAG_OVERLAPPED, std::ptr::null_mut())
-            };
+            let file =
+                unsafe { CreateFileW(wide.as_ptr(), GENERIC_READ, SHARE_ALL, std::ptr::null(), OPEN_EXISTING, FILE_FLAG_OVERLAPPED, std::ptr::null_mut()) };
             if file == INVALID_HANDLE_VALUE {
                 return Err(std::io::Error::last_os_error());
             }
@@ -2310,7 +2307,17 @@ mod tests {
     }
 
     fn listing_request(root: &AbsPath, prune: Vec<AbsPath>) -> WalkRequest {
-        WalkRequest { root: root.clone(), recursive: true, include_hidden: false, respect_ignore: true, require_git: true, include_dirs: true, prune, descent: Default::default(), server: None }
+        WalkRequest {
+            root: root.clone(),
+            recursive: true,
+            include_hidden: false,
+            respect_ignore: true,
+            require_git: true,
+            include_dirs: true,
+            prune,
+            descent: Default::default(),
+            server: None,
+        }
     }
 
     /// Counts the folders a walk reads.
@@ -2403,7 +2410,6 @@ mod tests {
             (listing, open, in_read, Box::new(()))
         }
     }
-
 
     fn lanes() -> FsLanes {
         let tokens = mixdog_rt::testing::tokens();
@@ -2663,7 +2669,11 @@ mod tests {
                 }
             })
         };
-        let request = |path: &Path, content: &[u8]| WriteRequest { path: AbsPath::new(path).unwrap(), content: content.to_vec(), precondition: WritePrecondition::Unconditional };
+        let request = |path: &Path, content: &[u8]| WriteRequest {
+            path: AbsPath::new(path).unwrap(),
+            content: content.to_vec(),
+            precondition: WritePrecondition::Unconditional,
+        };
         let requests = [request(&a, b"a1"), request(&b, b"b1")];
         let error = write_batch_resolved(&Arc::new(PathLocks::default()), &requests, Some(&cancel)).unwrap_err();
         assert!(matches!(error.kind, FsErrorKind::Cancelled { .. }), "{error:?}");
@@ -2903,7 +2913,20 @@ mod tests {
         };
         assert_eq!(search(root.clone()).await, vec!["a.txt"]);
         assert_eq!(search(root.join(".git")).await, vec!["config"]);
-        let mut walk = fs.walk(l.maintenance, WalkRequest { root: root.clone(), recursive: true, include_dirs: true, include_hidden: true, respect_ignore: false, require_git: true, prune: Vec::new(), descent: Default::default(), server: None });
+        let mut walk = fs.walk(
+            l.maintenance,
+            WalkRequest {
+                root: root.clone(),
+                recursive: true,
+                include_dirs: true,
+                include_hidden: true,
+                respect_ignore: false,
+                require_git: true,
+                prune: Vec::new(),
+                descent: Default::default(),
+                server: None,
+            },
+        );
         let mut names = Vec::new();
         while let Some(e) = walk.next().await {
             names.push(e.unwrap().path.as_path().file_name().unwrap().to_string_lossy().into_owned());
@@ -2948,7 +2971,9 @@ mod tests {
         let (real, link) = (root.join("real.txt"), root.join("link.txt"));
         std::fs::write(real.as_path(), b"one").unwrap();
         std::os::unix::fs::symlink(real.as_path(), link.as_path()).unwrap();
-        fs.write(lanes().durability, WriteRequest { path: link.clone(), content: b"two".to_vec(), precondition: WritePrecondition::Unconditional }).await.unwrap();
+        fs.write(lanes().durability, WriteRequest { path: link.clone(), content: b"two".to_vec(), precondition: WritePrecondition::Unconditional })
+            .await
+            .unwrap();
         assert!(std::fs::symlink_metadata(link.as_path()).unwrap().file_type().is_symlink());
         assert_eq!(std::fs::read(real.as_path()).unwrap(), b"two");
     }
@@ -3023,7 +3048,12 @@ mod tests {
         let spanning = run(SearchRequest { pattern: r"a1\nb1".into(), multiline: true, ..base.clone() }).await;
         assert_eq!(
             spanning,
-            vec![("a.txt".into(), 1, "a1".into(), 1), ("a.txt".into(), 2, "b1".into(), 0), ("a.txt".into(), 4, "a1".into(), 1), ("a.txt".into(), 5, "b1".into(), 0)]
+            vec![
+                ("a.txt".into(), 1, "a1".into(), 1),
+                ("a.txt".into(), 2, "b1".into(), 0),
+                ("a.txt".into(), 4, "a1".into(), 1),
+                ("a.txt".into(), 5, "b1".into(), 0)
+            ]
         );
         let lookahead = SearchRequest { pattern: "needle(?= in)".into(), pcre2: true, ..base };
         assert_eq!(run(SearchRequest { binary_as_text: true, ..lookahead.clone() }).await, vec![("bin.dat".into(), 1, "\u{0}\u{1} needle in".into(), 1)]);
@@ -3136,12 +3166,25 @@ mod tests {
     }
 
     /// `request`'s search of its real tree through `open`, on several threads too when `parallel`.
-    fn searched(producers: &Arc<Producers>, request: &SearchRequest, summary: bool, open: SharedOpener, parallel: bool) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+    fn searched(
+        producers: &Arc<Producers>,
+        request: &SearchRequest,
+        summary: bool,
+        open: SharedOpener,
+        parallel: bool,
+    ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
         searched_in(producers, request, text_listing(request, Box::new(tree::RealDirs)).unwrap(), summary, open, parallel)
     }
 
     /// [`searched`] of the walk `walked`.
-    fn searched_in(producers: &Arc<Producers>, request: &SearchRequest, walked: Walked, summary: bool, open: SharedOpener, parallel: bool) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+    fn searched_in(
+        producers: &Arc<Producers>,
+        request: &SearchRequest,
+        walked: Walked,
+        summary: bool,
+        open: SharedOpener,
+        parallel: bool,
+    ) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
         let alone = open.clone();
         search_with_output(producers, request, walked, Box::new(move |path| alone(path)), summary, parallel.then_some(open))
     }
@@ -3249,7 +3292,10 @@ mod tests {
             (spanning, true),
         ];
         for (request, summary) in shapes {
-            let shape = format!("{} limit {:?} first {} multiline {} pcre2 {} text {} summary {summary}", request.pattern, request.limit, request.first_per_file, request.multiline, request.pcre2, request.binary_as_text);
+            let shape = format!(
+                "{} limit {:?} first {} multiline {} pcre2 {} text {} summary {summary}",
+                request.pattern, request.limit, request.first_per_file, request.multiline, request.pcre2, request.binary_as_text
+            );
             let alone = drained(searched(&producers, &request, summary, parity_opener(Arc::default()), false)).await;
             let opens = Arc::new(Mutex::new(Opens::default()));
             let parallel = drained(searched(&producers, &request, summary, parity_opener(opens.clone()), true)).await;
@@ -3448,9 +3494,11 @@ mod tests {
             let name = std::ffi::CString::new(fifo.as_os_str().as_bytes()).unwrap();
             // SAFETY: a NUL-terminated path.
             assert_eq!(unsafe { libc::mkfifo(name.as_ptr(), 0o600) }, 0, "{}", io::Error::last_os_error());
-            Arc::new(move |path: &Path| {
-                if path.file_name().unwrap().to_string_lossy().into_owned() < from { open_to_search(path) } else { open_to_search(&fifo) }
-            })
+            Arc::new(
+                move |path: &Path| {
+                    if path.file_name().unwrap().to_string_lossy().into_owned() < from { open_to_search(path) } else { open_to_search(&fifo) }
+                },
+            )
         }
     }
 
@@ -3610,7 +3658,8 @@ mod tests {
         let listing: Listing = Box::new(std::iter::from_fn(move || {
             let next = listing.next();
             if let Some(Ok(Some(file))) = &next
-                && file.file_name().is_some_and(|name| name == held.as_str()) {
+                && file.file_name().is_some_and(|name| name == held.as_str())
+            {
                 entered.open();
                 release.hold();
             }
@@ -4580,7 +4629,8 @@ mod tests {
         for dir in ["node_modules/pkg/deep", "node_modules/foo/inner", ".dot/sub", "src/foo/in", "src/other"] {
             std::fs::create_dir_all(root.join(dir).as_path()).unwrap();
         }
-        let rule = mixdog_core_api::domain::fs::NameGuard { fragment: Some("foo".into()), noise: vec!["node_modules".into()], dotted: true, ..Default::default() };
+        let rule =
+            mixdog_core_api::domain::fs::NameGuard { fragment: Some("foo".into()), noise: vec!["node_modules".into()], dotted: true, ..Default::default() };
         let count = |guard: Option<mixdog_core_api::domain::fs::NameGuard>| {
             let reads = Arc::new(AtomicUsize::new(0));
             let descent = mixdog_core_api::domain::fs::Descent { guard, ..Default::default() };
@@ -4593,7 +4643,8 @@ mod tests {
         // `node_modules/pkg`, `node_modules/foo/inner` (inside noise, no match) and `.dot` fail and stay unread.
         assert_eq!(count(Some(rule)), 7);
         let bad = mixdog_core_api::domain::fs::NameGuard { whole: Some("(".into()), ..Default::default() };
-        let request = WalkRequest { descent: mixdog_core_api::domain::fs::Descent { guard: Some(bad), ..Default::default() }, ..listing_request(&root, Vec::new()) };
+        let request =
+            WalkRequest { descent: mixdog_core_api::domain::fs::Descent { guard: Some(bad), ..Default::default() }, ..listing_request(&root, Vec::new()) };
         assert!(matches!(walking(&request, Box::new(tree::RealDirs)), Err(e) if matches!(e.kind, FsErrorKind::InvalidPattern { .. })));
     }
     /// A walk that requires no repository honours a `.gitignore` outside one (Node's fuzzy inventory, `--no-require-git`).
@@ -4622,7 +4673,15 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn excluded_children_are_never_listed_typed_or_opened() {
         let (_dir, root) = root();
-        let files = [("a.txt", "needle\n"), ("b/c.txt", "needle\n"), ("z/d.txt", "needle\n"), (".h/e.txt", "needle\n"), ("q/f.txt", "needle\n"), ("dead/g.txt", "needle\n"), (".ignore", "q\ndead/\n")];
+        let files = [
+            ("a.txt", "needle\n"),
+            ("b/c.txt", "needle\n"),
+            ("z/d.txt", "needle\n"),
+            (".h/e.txt", "needle\n"),
+            ("q/f.txt", "needle\n"),
+            ("dead/g.txt", "needle\n"),
+            (".ignore", "q\ndead/\n"),
+        ];
         for (path, text) in files {
             let path = root.join(path).as_path().to_path_buf();
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
@@ -4845,7 +4904,17 @@ mod tests {
             std::fs::File::create(dir.as_path().join(format!("{i:04}.txt"))).unwrap();
         }
         let fs = LocalFileService::new();
-        let request = WalkRequest { root: root.clone(), recursive: true, include_dirs: false, include_hidden: true, respect_ignore: false, require_git: true, prune: Vec::new(), descent: Default::default(), server: None };
+        let request = WalkRequest {
+            root: root.clone(),
+            recursive: true,
+            include_dirs: false,
+            include_hidden: true,
+            respect_ignore: false,
+            require_git: true,
+            prune: Vec::new(),
+            descent: Default::default(),
+            server: None,
+        };
         let mut walk = fs.walk(lanes().maintenance, request);
         let mut names = Vec::new();
         while let Some(entry) = walk.next().await {
@@ -4856,7 +4925,6 @@ mod tests {
         assert_eq!(names, expected);
     }
 }
-
 
 /// `fs.stat` of `path` (links followed). The change time, inode and device are `fileVersion`'s own
 /// reading (`stat_version`), so the two never disagree.
@@ -5004,10 +5072,8 @@ fn atomic_write(target: &Path, content: &[u8], expect: &Expect, cancel: Option<&
     let written = (|| -> Result<(), (FsStep, io::Error)> {
         let open_step = || FsStep::Open { path: AbsPath::new(&tmp).expect("a resolved target is absolute") };
         let mut file = create_temp(&tmp, existing.as_ref()).map_err(|e| (open_step(), e))?;
-        let result = file
-            .write_all(content)
-            .map_err(|e| (FsStep::Write, e))
-            .and_then(|()| if fsync { sync(&file).map_err(|e| (FsStep::Fsync, e)) } else { Ok(()) });
+        let result =
+            file.write_all(content).map_err(|e| (FsStep::Write, e)).and_then(|()| if fsync { sync(&file).map_err(|e| (FsStep::Fsync, e)) } else { Ok(()) });
         drop(file);
         if result.is_err() {
             let _ = fs::remove_file(&tmp);
@@ -5101,7 +5167,8 @@ impl FileService for LocalFileService {
             let meta = fs::metadata(p);
             let meta = meta.map_err(|e| io_error(&e, p))?;
             Ok(LocatorStat { kind: entry_kind(meta.file_type()), len: meta.len(), modified: meta.modified().ok(), readonly: meta.permissions().readonly() })
-        }).await?
+        })
+        .await?
     }
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
@@ -5110,7 +5177,8 @@ impl FileService for LocalFileService {
             let p = path.as_path();
             let meta = fs::symlink_metadata(p).map_err(|e| io_error(&e, p))?;
             Ok(LocatorStat { kind: entry_kind(meta.file_type()), len: meta.len(), modified: meta.modified().ok(), readonly: meta.permissions().readonly() })
-        }).await?
+        })
+        .await?
     }
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
@@ -5159,7 +5227,8 @@ impl FileService for LocalFileService {
                 order_entries(&mut entries);
             }
             Ok((entries, unsorted))
-        }).await?
+        })
+        .await?
     }
 
     #[allow(clippy::result_large_err, reason = "preserve the canonical FileService FsError payload and public error contract")]
@@ -5208,9 +5277,7 @@ impl FileService for LocalFileService {
             }
             match fs::rename(f, t) {
                 Ok(()) => Ok(()),
-                Err(e) if crosses_devices(&e) => {
-                    copy_tree(f, t).and_then(|()| remove_any(f)).map_err(|e| io_error(&e, f))
-                }
+                Err(e) if crosses_devices(&e) => copy_tree(f, t).and_then(|()| remove_any(f)).map_err(|e| io_error(&e, f)),
                 Err(e) => Err(io_error(&e, f)),
             }
         })
@@ -5313,7 +5380,9 @@ fn text_listing(request: &SearchRequest, dirs: Box<dyn tree::Dirs>) -> Result<Wa
     let volumes = Volumes::shared(root);
     // A refused call is the search's answer; a call after the producer was given up ends the walk.
     let listing: Listing = Box::new(tree::Tree::new(root, rules, None, dirs, volumes.clone()).map_while(move |item| match item {
-        Ok(entry) => Some(Ok((entry.kind == EntryKind::File && includes.as_ref().is_none_or(|g| g.matched(&entry.path, false).is_ignore())).then_some(entry.path))),
+        Ok(entry) => {
+            Some(Ok((entry.kind == EntryKind::File && includes.as_ref().is_none_or(|g| g.matched(&entry.path, false).is_ignore())).then_some(entry.path)))
+        }
         Err(error) => match halt_of(&error) {
             Some(Halt::Refused(refusal)) => Some(Err(FsError::new(refusal.clone(), None))),
             Some(_) => None,
@@ -5329,21 +5398,11 @@ struct Walked {
 }
 /// `request`'s search of the files `listing` names, each read through `open`, its producer counted in `producers`.
 #[cfg_attr(not(test), allow(dead_code))]
-fn search_over(
-    producers: &Arc<Producers>,
-    request: &SearchRequest,
-    listing: Listing,
-    open: Opener,
-) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+fn search_over(producers: &Arc<Producers>, request: &SearchRequest, listing: Listing, open: Opener) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
     search_with(producers, request, Walked { listing, volumes: Volumes::shared(request.root.as_path()) }, open)
 }
 /// [`search_over`] of a walk that names the volumes of its calls ([`Walked`], [`Volumes`]).
-fn search_with(
-    producers: &Arc<Producers>,
-    request: &SearchRequest,
-    walked: Walked,
-    open: Opener,
-) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
+fn search_with(producers: &Arc<Producers>, request: &SearchRequest, walked: Walked, open: Opener) -> Box<dyn EventSource<Result<SearchMatch, FsError>>> {
     search_with_output(producers, request, walked, open, false, None)
 }
 
@@ -5455,8 +5514,7 @@ impl SchedulerConfig {
         let available = std::thread::available_parallelism().map_or(2, |n| n.get());
         let total = positive_env("MIXDOG_SEARCH_SERVER_MAX_INFLIGHT").unwrap_or_else(|| available.clamp(2, 8)).clamp(1, 16);
         let queue = bounded_env("MIXDOG_SEARCH_SERVER_QUEUE_CAPACITY", 2_048, 1, 8_192);
-        let priority_reserve =
-            if queue <= 1 { 0 } else { bounded_env("MIXDOG_SEARCH_PRIORITY_QUEUE_RESERVE", queue.div_ceil(8).clamp(1, 64), 1, queue - 1) };
+        let priority_reserve = if queue <= 1 { 0 } else { bounded_env("MIXDOG_SEARCH_PRIORITY_QUEUE_RESERVE", queue.div_ceil(8).clamp(1, 64), 1, queue - 1) };
         Self {
             total,
             interactive_reserve: env_usize("MIXDOG_SEARCH_INTERACTIVE_RESERVE").unwrap_or(1).min(total),
@@ -5837,9 +5895,7 @@ impl Producers {
         let first = s.next_reader;
         s.next_reader += free;
         let mut readers = locked(&ticket.readers);
-        (first..first + free)
-            .inspect(|&id| readers.push(ReaderThread { id, thread: None, interrupt: None, mark: None }))
-            .collect()
+        (first..first + free).inspect(|&id| readers.push(ReaderThread { id, thread: None, interrupt: None, mark: None })).collect()
     }
 
     /// `window`'s readers are told when a search starts waiting ([`Producers::dispatch`]).
@@ -5881,7 +5937,8 @@ impl Producers {
             return Err(refusal);
         }
         if let Some(class) = ticket.class
-            && (full || s.queue_depth() >= self.config.admission(class)) {
+            && (full || s.queue_depth() >= self.config.admission(class))
+        {
             #[cfg(feature = "count-jobs")]
             probe::answered(ticket.seq);
             return Err(FsErrorKind::Saturated);
@@ -6495,7 +6552,8 @@ impl Scan {
             // delivered in the same order.
             if files == PARALLEL_AFTER
                 && let Some(parallel) = parallel.take()
-                && let Some(readers) = parallel.start(path.clone(), matcher, searcher, link, out, how) {
+                && let Some(readers) = parallel.start(path.clone(), matcher, searcher, link, out, how)
+            {
                 return deliver(&readers, out, left);
             }
             files += 1;
@@ -6560,22 +6618,9 @@ fn search_file<M: Matcher, R: Read>(
         return Ok(false);
     }
     let printed = Printed::default();
-    let mut printer = StandardBuilder::new()
-        .heading(false)
-        .path(false)
-        .max_columns(Some(MAX_COLUMNS))
-        .max_columns_preview(true)
-        .build_no_color(printed.clone());
-    let mut sink = Collect {
-        printer: printer.sink(matcher),
-        printed,
-        matcher,
-        path,
-        turn,
-        first_per_file: how.first_per_file,
-        sent: 0,
-        closed: false,
-    };
+    let mut printer =
+        StandardBuilder::new().heading(false).path(false).max_columns(Some(MAX_COLUMNS)).max_columns_preview(true).build_no_color(printed.clone());
+    let mut sink = Collect { printer: printer.sink(matcher), printed, matcher, path, turn, first_per_file: how.first_per_file, sent: 0, closed: false };
     let searched = searcher.search_reader(matcher, reader, &mut sink);
     *sent = sink.sent;
     searched.map(|()| sink.closed)
@@ -6823,7 +6868,11 @@ enum Work {
     Running,
     /// Searched: whether it opened, its outcome ([`search_file`]) and, if its turn came, the budget it left and the
     /// items it queued.
-    Finished { opened: bool, searched: io::Result<bool>, turn: Option<(Option<usize>, usize)> },
+    Finished {
+        opened: bool,
+        searched: io::Result<bool>,
+        turn: Option<(Option<usize>, usize)>,
+    },
 }
 
 /// An entry's place in the [`Window`].
@@ -6951,7 +7000,8 @@ impl Window {
                 return Err(io::Error::other(Halt::Stopped));
             }
             if win.turn.as_ref().is_some_and(|(at, _)| *at == seq)
-                && let Some((_, grant)) = win.turn.take() {
+                && let Some((_, grant)) = win.turn.take()
+            {
                 return Ok(grant);
             }
             win = self.wait(win);
@@ -6985,7 +7035,8 @@ fn walk_into(window: &Window, listing: &mut Listing, mut own: Box<dyn ReadFiles>
                     break None;
                 }
                 if win.alive == 0
-                    && let Some(file) = win.take() {
+                    && let Some(file) = win.take()
+                {
                     break Some(Some(file));
                 }
                 if !walked && win.slots.len() < WINDOW {
@@ -7476,7 +7527,8 @@ impl<T: Weigh + Send + 'static> EventSource<Result<T, FsError>> for Streamed<T> 
         // Counted before the wait, so a caller that drops this `close` leaves the count right.
         self.producers.release(&self.ticket, self.thread.take(), self.interrupt.take());
         if let Some(finished) = self.finished.take()
-            && tokio::time::timeout(self.producers.config.grace, finished).await.is_err() {
+            && tokio::time::timeout(self.producers.config.grace, finished).await.is_err()
+        {
             self.producers.give_up(&self.ticket);
         }
     }

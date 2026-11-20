@@ -2,39 +2,32 @@
 //! decides whether a call may happen; `WinPort` does, and it is the only caller.
 
 use super::{A11y, Broker, Message, Posted, Refusal, Reply, Staged, WinDriver};
-use crate::port::{Boundary, Scope};
 use crate::platform::windows::input::{self as tracked, Section};
 use crate::platform::windows::native::{self, hwnd};
 use crate::platform::windows_input::Event;
 use crate::platform::{Wid, WinState};
+use crate::port::{Boundary, Scope};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use windows::core::{HSTRING, PCWSTR};
 use windows::Win32::Foundation::{
-    CloseHandle, GetLastError, GlobalFree, SetLastError, E_POINTER, ERROR_ACCESS_DENIED, HANDLE, HGLOBAL, HWND, LPARAM, LRESULT,
-    WPARAM,
+    CloseHandle, E_POINTER, ERROR_ACCESS_DENIED, GetLastError, GlobalFree, HANDLE, HGLOBAL, HWND, LPARAM, LRESULT, SetLastError, WPARAM,
 };
-use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_ALL};
+use windows::Win32::System::Com::{CLSCTX_ALL, CoCreateInstance};
 use windows::Win32::System::DataExchange::{EmptyClipboard, SetClipboardData};
-use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
-use windows::Win32::System::Threading::{
-    AttachThreadInput, GetCurrentThreadId, GetProcessId, TerminateProcess, PROCESS_TERMINATE,
-};
+use windows::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc, GlobalLock, GlobalUnlock};
+use windows::Win32::System::Threading::{AttachThreadInput, GetCurrentThreadId, GetProcessId, PROCESS_TERMINATE, TerminateProcess};
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    EnableWindow, SendInput, SetActiveWindow, SetFocus, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE,
-    KEYBDINPUT, KEYBD_EVENT_FLAGS, KEYEVENTF_KEYUP, MOUSEINPUT, MOUSE_EVENT_FLAGS, VIRTUAL_KEY,
+    EnableWindow, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBD_EVENT_FLAGS, KEYBDINPUT, KEYEVENTF_KEYUP, MOUSE_EVENT_FLAGS, MOUSEINPUT, SendInput,
+    SetActiveWindow, SetFocus, VIRTUAL_KEY,
 };
-use windows::Win32::UI::Shell::{
-    ApplicationActivationManager, ShellExecuteExW, AO_NOERRORUI, SEE_MASK_FLAG_NO_UI,
-    SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
-};
+use windows::Win32::UI::Shell::{AO_NOERRORUI, ApplicationActivationManager, SEE_MASK_FLAG_NO_UI, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW, ShellExecuteExW};
 use windows::Win32::UI::WindowsAndMessaging::{
-    BringWindowToTop, GetWindowLongW, IsHungAppWindow, PeekMessageW, PostMessageW, SendMessageCallbackW,
-    SendMessageTimeoutW, SetForegroundWindow, SetWindowLongW, SetWindowPos, ShowWindowAsync, GWL_EXSTYLE, MSG,
-    PM_NOREMOVE, SMTO_ABORTIFHUNG, SMTO_BLOCK, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOZORDER, SW_MAXIMIZE, SW_MINIMIZE,
-    SW_RESTORE, SW_SHOWNOACTIVATE, WM_CLOSE, WM_COMMAND,
+    BringWindowToTop, GWL_EXSTYLE, GetWindowLongW, IsHungAppWindow, MSG, PM_NOREMOVE, PeekMessageW, PostMessageW, SMTO_ABORTIFHUNG, SMTO_BLOCK, SW_MAXIMIZE,
+    SW_MINIMIZE, SW_RESTORE, SW_SHOWNOACTIVATE, SWP_ASYNCWINDOWPOS, SWP_NOACTIVATE, SWP_NOZORDER, SendMessageCallbackW, SendMessageTimeoutW,
+    SetForegroundWindow, SetWindowLongW, SetWindowPos, ShowWindowAsync, WM_CLOSE, WM_COMMAND,
 };
+use windows::core::{HSTRING, PCWSTR};
 
 const WS_EX_NOACTIVATE: i32 = 0x0800_0000;
 const CF_UNICODETEXT: u32 = 13;
@@ -49,28 +42,11 @@ fn send_input(events: &[Event], marker: usize) -> u32 {
         .map(|event| match *event {
             Event::Key { vk, scan, flags } => INPUT {
                 r#type: INPUT_KEYBOARD,
-                Anonymous: INPUT_0 {
-                    ki: KEYBDINPUT {
-                        wVk: VIRTUAL_KEY(vk),
-                        wScan: scan,
-                        dwFlags: KEYBD_EVENT_FLAGS(flags),
-                        time: 0,
-                        dwExtraInfo: marker,
-                    },
-                },
+                Anonymous: INPUT_0 { ki: KEYBDINPUT { wVk: VIRTUAL_KEY(vk), wScan: scan, dwFlags: KEYBD_EVENT_FLAGS(flags), time: 0, dwExtraInfo: marker } },
             },
             Event::Mouse { flags, dx, dy, data } => INPUT {
                 r#type: INPUT_MOUSE,
-                Anonymous: INPUT_0 {
-                    mi: MOUSEINPUT {
-                        dx,
-                        dy,
-                        mouseData: data as u32,
-                        dwFlags: MOUSE_EVENT_FLAGS(flags),
-                        time: 0,
-                        dwExtraInfo: marker,
-                    },
-                },
+                Anonymous: INPUT_0 { mi: MOUSEINPUT { dx, dy, mouseData: data as u32, dwFlags: MOUSE_EVENT_FLAGS(flags), time: 0, dwExtraInfo: marker } },
             },
         })
         .collect();
@@ -174,8 +150,7 @@ impl WinDriver for Real {
             Posted::MenuCommand(id) => (WM_COMMAND, (id & 0xFFFF) as usize),
         };
         // SAFETY: plain value arguments.
-        unsafe { PostMessageW(Some(hwnd(window)), message, WPARAM(wparam), LPARAM(0)) }
-            .map_err(|error| refusal(error.code().0 as u32 & 0xFFFF))
+        unsafe { PostMessageW(Some(hwnd(window)), message, WPARAM(wparam), LPARAM(0)) }.map_err(|error| refusal(error.code().0 as u32 & 0xFFFF))
     }
 
     fn foreground(&self) -> Wid {
@@ -234,14 +209,12 @@ impl WinDriver for Real {
 
     fn place_async(&self, window: Wid, x: i32, y: i32, width: i32, height: i32) -> bool {
         // SAFETY: plain value arguments.
-        unsafe {
-            SetWindowPos(hwnd(window), None, x, y, width, height, SWP_ASYNCWINDOWPOS | SWP_NOZORDER | SWP_NOACTIVATE).is_ok()
-        }
+        unsafe { SetWindowPos(hwnd(window), None, x, y, width, height, SWP_ASYNCWINDOWPOS | SWP_NOZORDER | SWP_NOACTIVATE).is_ok() }
     }
 
     fn terminate(&self, pid: u32) -> Result<(), String> {
-        let process = native::Process::open(pid, PROCESS_TERMINATE.0)
-            .ok_or_else(|| format!("could not open pid {pid}: {}", std::io::Error::last_os_error()))?;
+        let process =
+            native::Process::open(pid, PROCESS_TERMINATE.0).ok_or_else(|| format!("could not open pid {pid}: {}", std::io::Error::last_os_error()))?;
         // SAFETY: the handle carries PROCESS_TERMINATE.
         unsafe { TerminateProcess(process.0, 1) }.map_err(|error| error.to_string())
     }
@@ -382,15 +355,7 @@ pub(crate) fn read_message(window: Wid, read: ReadMessage<'_>) -> Result<usize, 
     // SAFETY: the call can fail without setting an error, so it is cleared first; a text buffer outlives the call.
     let sent = unsafe {
         SetLastError(Default::default());
-        SendMessageTimeoutW(
-            hwnd(window),
-            message,
-            WPARAM(wparam),
-            LPARAM(lparam),
-            SMTO_BLOCK | SMTO_ABORTIFHUNG,
-            1000,
-            Some(&mut result),
-        )
+        SendMessageTimeoutW(hwnd(window), message, WPARAM(wparam), LPARAM(lparam), SMTO_BLOCK | SMTO_ABORTIFHUNG, 1000, Some(&mut result))
     };
     if sent.0 != 0 {
         return Ok(result);
@@ -408,9 +373,7 @@ pub(crate) fn send_unmarked(events: &[Event]) -> u32 {
 /// supervisor, the cursor watchdog): only the releases the receipt records, never anything else.
 pub(crate) fn release_recorded(marker: i64) -> Result<(), String> {
     match Section::open(marker) {
-        Some(section) => {
-            section.receipt().release_owned(&mut |events| Ok(send_input(events, marker as usize)), &tracked::key_down)
-        }
+        Some(section) => section.receipt().release_owned(&mut |events| Ok(send_input(events, marker as usize)), &tracked::key_down),
         None => tracked::release_without_receipt(&tracked::key_down),
     }
 }

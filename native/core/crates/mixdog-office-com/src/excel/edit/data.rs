@@ -90,10 +90,7 @@ pub(super) fn sort_range(book: &Com, op: &Value) -> Result<Value> {
         }
     }
     if key_column < 1 || key_column > columns_of(&target)? {
-        return Err(Error::host(format!(
-            "XLSX sort_range by \"{declared}\" is outside {}; name a column the range covers.",
-            text_of(op, "range")
-        )));
+        return Err(Error::host(format!("XLSX sort_range by \"{declared}\" is outside {}; name a column the range covers.", text_of(op, "range"))));
     }
     // The two refusals of the portable writer, so a sheet sorts the same way on either backend: a filtered row would keep its flag
     // while the values move under it, and a merged cell cannot travel with one row.
@@ -123,18 +120,8 @@ pub(super) fn sort_range(book: &Com, op: &Value) -> Result<Value> {
     let sort_order = if descending { 2 } else { 1 };
     let header_flag = if has_header { 1 } else { 2 };
     let key_range = get_with(&target, "Columns", &[Com::I4(key_column)])?;
-    target.call_member(
-        "Sort",
-        &[key_range, Com::I4(sort_order), Com::Null, Com::Null, Com::I4(1), Com::Null, Com::I4(1), Com::I4(header_flag)],
-    )?;
-    Ok(record_of(
-        "sort_range",
-        true,
-        vec![
-            ("range", Value::String(text_of(op, "range"))),
-            ("order", Value::string(if descending { "desc" } else { "asc" })),
-        ],
-    ))
+    target.call_member("Sort", &[key_range, Com::I4(sort_order), Com::Null, Com::Null, Com::I4(1), Com::Null, Com::I4(1), Com::I4(header_flag)])?;
+    Ok(record_of("sort_range", true, vec![("range", Value::String(text_of(op, "range"))), ("order", Value::string(if descending { "desc" } else { "asc" }))]))
 }
 
 /// `[int]$range.Columns.Count`.
@@ -244,12 +231,7 @@ pub(super) fn add_validation(book: &Com, op: &Value) -> Result<Value> {
         let choices = formula1.strip_prefix('=').unwrap_or(&formula1).to_owned();
         if let Some(captures) = quoted_list().captures(&choices) {
             formula1 = captures[1].to_owned();
-        } else if !formula1.starts_with('=')
-            && is_match(
-                &choices,
-                r"^(?:'[^']+'!|[A-Za-z_][\w.]*!)?\$?[A-Za-z]{1,3}\$?\d+(?::\$?[A-Za-z]{1,3}\$?\d+)?$",
-            )?
-        {
+        } else if !formula1.starts_with('=') && is_match(&choices, r"^(?:'[^']+'!|[A-Za-z_][\w.]*!)?\$?[A-Za-z]{1,3}\$?\d+(?::\$?[A-Za-z]{1,3}\$?\d+)?$")? {
             formula1 = format!("={choices}");
         }
     } else if validation_type == 7 && !formula1.starts_with('=') {

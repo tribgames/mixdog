@@ -5,10 +5,7 @@ use std::sync::LazyLock;
 
 use regex::Regex;
 
-static CSI_OSC: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][\s\S]*?(?:\x07|\x1b\\|\x{9c})")
-        .expect("static pattern")
-});
+static CSI_OSC: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\x1b\[[0-?]*[ -/]*[@-~]|\x1b\][\s\S]*?(?:\x07|\x1b\\|\x{9c})").expect("static pattern"));
 
 // Node's `stripVTControlCharacters` pattern.
 static VT: LazyLock<Regex> = LazyLock::new(|| {
@@ -29,11 +26,7 @@ pub fn strip_ansi(text: &str) -> String {
 
 /// A line redrawn with `\r` shows only its last non-empty frame.
 fn last_visible_frame<'a>(frames: impl DoubleEndedIterator<Item = &'a str>) -> String {
-    frames
-        .rev()
-        .find(|frame| !frame.is_empty())
-        .unwrap_or("")
-        .to_owned()
+    frames.rev().find(|frame| !frame.is_empty()).unwrap_or("").to_owned()
 }
 
 /// `\r` folding for output that arrives in chunks: the line still open at a chunk's end keeps its
@@ -62,11 +55,7 @@ impl CarriageReturnFolder {
                 (*line).to_owned()
             };
             if index == last {
-                self.open = if index == 0 && !redraw {
-                    format!("{}{line}", self.open)
-                } else {
-                    visible.clone()
-                };
+                self.open = if index == 0 && !redraw { format!("{}{line}", self.open) } else { visible.clone() };
             }
             out.push(visible);
         }
@@ -108,10 +97,7 @@ fn is_harness_name(rest: &str) -> bool {
         Some(c) if c.is_ascii_alphabetic() => {}
         _ => return false,
     }
-    let run_end = rest
-        .char_indices()
-        .find(|(_, c)| !is_word(*c))
-        .map_or(rest.len(), |(i, _)| i);
+    let run_end = rest.char_indices().find(|(_, c)| !is_word(*c)).map_or(rest.len(), |(i, _)| i);
     let run = &rest[..run_end];
     if run[1..].contains('_') {
         return true;

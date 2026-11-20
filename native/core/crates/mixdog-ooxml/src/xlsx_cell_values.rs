@@ -14,8 +14,7 @@ use crate::cells::{CellRecord, CellValue, cell_records, shared_strings};
 use crate::sheet_styles::resolve_cell_styles;
 use crate::zipio::Package;
 
-const MONTHS: [&str; 12] =
-    ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const MONTHS: [&str; 12] = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
 
 /// `Date.UTC(1899, 11, 30)`: the day serial 0 of a workbook, in milliseconds since 1970.
 const SERIAL_ORIGIN_MS: f64 = -2_209_161_600_000.0;
@@ -196,10 +195,7 @@ mod tests {
         assert_eq!(formatted_date_text(0.0, "yyyy-mm-dd").unwrap(), Some("1899-12-30".to_owned()));
         assert_eq!(formatted_date_text(-1.0, "mmmm d, yyyy").unwrap(), Some("December 29, 1899".to_owned()));
         assert_eq!(formatted_date_text(f64::NAN, "yyyy").unwrap(), None);
-        assert_eq!(
-            formatted_date_text(1e12, "yyyy").unwrap_err(),
-            "Cannot read properties of undefined (reading 'slice')"
-        );
+        assert_eq!(formatted_date_text(1e12, "yyyy").unwrap_err(), "Cannot read properties of undefined (reading 'slice')");
         assert_eq!(formatted_date_text(1e12, "\"x\"y").unwrap(), Some("xy".to_owned()));
     }
 }

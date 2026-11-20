@@ -273,7 +273,10 @@ fn what_a_command_needs_follows_its_action_its_delivery_and_whether_it_names_a_w
         (json!({"action": "invoke"}), vec!["semanticActions"]),
         (json!({"action": "invoke_menu"}), vec!["semanticActions", "windows"]),
         (json!({"action": "wait"}), vec![]),
-        (json!({"action": "sequence", "window_id": "w", "steps": [{"action": "click"}, {"action": "type"}, "not a step", {"action": "click"}]}), vec!["windows", "pointer", "keyboard"]),
+        (
+            json!({"action": "sequence", "window_id": "w", "steps": [{"action": "click"}, {"action": "type"}, "not a step", {"action": "click"}]}),
+            vec!["windows", "pointer", "keyboard"],
+        ),
     ] {
         assert_eq!(required_capabilities(&command(input.clone())), want, "{input}");
     }
@@ -379,15 +382,14 @@ async fn a_session_with_no_display_refuses_everything_as_one_display_problem() {
     let _one = serial().await;
     let none = env(&[("XDG_SESSION_TYPE", "x11")]);
     let refused = refusal(&none, Stub::default(), json!({"action": "list_windows"})).await.expect("refused");
-    assert_eq!(
-        refused.missing,
-        vec![json!({"capability": "windows", "state": "unsupported", "code": "display_unavailable", "message": DISPLAY_HINT})]
-    );
+    assert_eq!(refused.missing, vec![json!({"capability": "windows", "state": "unsupported", "code": "display_unavailable", "message": DISPLAY_HINT})]);
     reset_probe();
     let refused = refusal(&none, Stub::default(), json!({"action": "capture"})).await.expect("refused");
     assert_eq!(
         refused.message,
-        format!("computer_capability_unavailable: Computer Use cannot run this action on this Linux session (capture, windows) — nothing was executed.\n- {DISPLAY_HINT} [capture, windows]")
+        format!(
+            "computer_capability_unavailable: Computer Use cannot run this action on this Linux session (capture, windows) — nothing was executed.\n- {DISPLAY_HINT} [capture, windows]"
+        )
     );
 }
 
@@ -403,7 +405,9 @@ async fn a_semantic_action_is_refused_for_whichever_of_window_control_and_access
     assert_eq!(refused.capabilities(), vec!["accessibility", "semanticActions"]);
     assert_eq!(
         refused.message,
-        format!("computer_capability_unavailable: Computer Use cannot run this action on this Linux session (accessibility, semanticActions) — nothing was executed.\n- {ACCESSIBILITY_HINT} [accessibility, semanticActions]")
+        format!(
+            "computer_capability_unavailable: Computer Use cannot run this action on this Linux session (accessibility, semanticActions) — nothing was executed.\n- {ACCESSIBILITY_HINT} [accessibility, semanticActions]"
+        )
     );
     // The window helper has not been loaded by the shell yet: the sign-in hint names the windows.
     reset_probe();
@@ -577,7 +581,19 @@ async fn the_session_bus_is_there_when_its_address_is_set_or_its_socket_exists_a
 
 #[tokio::test(start_paused = true)]
 async fn the_window_helper_version_is_read_from_the_shells_answer_and_nothing_else_is_a_version() {
-    let ask = ["gdbus", "call", "--session", "--dest", "org.gnome.Shell", "--object-path", "/io/mixdog/Windows", "--method", "org.freedesktop.DBus.Properties.Get", "io.mixdog.Windows", "Version"];
+    let ask = [
+        "gdbus",
+        "call",
+        "--session",
+        "--dest",
+        "org.gnome.Shell",
+        "--object-path",
+        "/io/mixdog/Windows",
+        "--method",
+        "org.freedesktop.DBus.Properties.Get",
+        "io.mixdog.Windows",
+        "Version",
+    ];
     for (answer, want) in [((0, "(<uint32 3>,)\n"), Some(3)), ((0, "(<uint32 12>,)"), Some(12)), ((1, ""), None), ((0, "(<'x'>,)"), None), ((0, ""), None)] {
         let manager = Script::new(move |_, _| (answer.0, answer.1.to_owned()));
         assert_eq!(SystemProbes::new(manager.clone(), env(&[])).window_helper_version().await, want, "{answer:?}");

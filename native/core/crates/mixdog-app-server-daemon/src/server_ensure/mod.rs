@@ -4,13 +4,11 @@
 
 // server-ensure is a one-shot synchronous program run over ssh, with no async runtime: blocking
 // std::fs and process calls are its whole job (RL §13).
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "one-shot synchronous ssh program, no runtime"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "one-shot synchronous ssh program, no runtime")]
 
 mod args;
+#[cfg(test)]
+mod args_parity_tests;
 mod error;
 mod flow;
 mod host;
@@ -20,13 +18,11 @@ mod layout;
 mod lock;
 mod manage;
 mod os;
-#[cfg(windows)]
-mod winlist;
 mod report;
 #[cfg(test)]
-mod args_parity_tests;
-#[cfg(test)]
 mod tests;
+#[cfg(windows)]
+mod winlist;
 
 pub use args::CleanupPhase;
 pub use args::Mode;

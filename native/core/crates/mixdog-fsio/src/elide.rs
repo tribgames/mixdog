@@ -35,8 +35,7 @@ mod switch {
         if REAL.load(Ordering::Relaxed) {
             return false;
         }
-        ASKED.load(Ordering::Relaxed)
-            || *FROM_ENV.get_or_init(|| std::env::var_os("MIXDOG_TEST_ELIDE_SYNCS").is_some_and(|v| v == "1"))
+        ASKED.load(Ordering::Relaxed) || *FROM_ENV.get_or_init(|| std::env::var_os("MIXDOG_TEST_ELIDE_SYNCS").is_some_and(|v| v == "1"))
     }
 }
 

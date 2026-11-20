@@ -147,7 +147,11 @@ pub fn review_pptx_visual_critique(args: &Value) -> Value {
                 "Visual critique requires five integer scores from 1-5 and a slide-specific note of at least 40 characters.".to_owned()
             };
             issues.push(critique_issue("visual_critique_incomplete", &path, &message));
-        } else if verdict != "pass" || !fixes.is_empty() || (0..PPTX_CRITIQUE_AXES.len()).any(|at| gated(at) && scores[at] < 4.0) || checks.iter().any(|(_, pass)| !pass) {
+        } else if verdict != "pass"
+            || !fixes.is_empty()
+            || (0..PPTX_CRITIQUE_AXES.len()).any(|at| gated(at) && scores[at] < 4.0)
+            || checks.iter().any(|(_, pass)| !pass)
+        {
             issues.push(critique_issue(
                 "visual_critique_needs_polish",
                 &path,

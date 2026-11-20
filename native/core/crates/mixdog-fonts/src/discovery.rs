@@ -185,13 +185,7 @@ mod tests {
     use super::*;
 
     fn env(os: Os) -> HostEnv {
-        HostEnv {
-            os,
-            home: PathBuf::from("/home/ann"),
-            windir: None,
-            local_app_data: None,
-            xdg_data_home: None,
-        }
+        HostEnv { os, home: PathBuf::from("/home/ann"), windir: None, local_app_data: None, xdg_data_home: None }
     }
 
     #[test]

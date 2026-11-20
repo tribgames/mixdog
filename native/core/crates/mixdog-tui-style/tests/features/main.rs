@@ -11,8 +11,7 @@ use mixdog_tui_style::figures;
 use mixdog_tui_style::palette::THEME_ALIASES;
 use mixdog_tui_style::spinner_verbs::{SPINNER_VERBS, mode_override_verb, spinner_verb_for, spinner_verb_in};
 use mixdog_tui_style::theme::{
-    Color, current_palette, get_theme_setting, get_theme_version, list_themes, osc_background_sequence, set_theme,
-    terminal_background_sequence,
+    Color, current_palette, get_theme_setting, get_theme_version, list_themes, osc_background_sequence, set_theme, terminal_background_sequence,
 };
 use mixdog_tui_style::time_format::{DurationOptions, format_duration, format_elapsed};
 use serde_json::json;

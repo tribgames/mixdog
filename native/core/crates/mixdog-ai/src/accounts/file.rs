@@ -45,11 +45,7 @@ fn validate(value: &Value) -> Result<(), Invalid> {
         if !is_account_provider(provider) {
             continue;
         }
-        let Some(accounts) = pool
-            .get("accounts")
-            .and_then(Value::as_array)
-            .filter(|a| a.len() <= MAX_ACCOUNTS)
-        else {
+        let Some(accounts) = pool.get("accounts").and_then(Value::as_array).filter(|a| a.len() <= MAX_ACCOUNTS) else {
             return Err(damaged("Invalid provider account list."));
         };
         let mut ids = Vec::new();
@@ -86,11 +82,8 @@ pub(crate) async fn read_roster(io: &CredentialIo, path: PathBuf) -> io::Result<
         Peek::Value(value) => Ok(value),
         Peek::Absent | Peek::Unsupported => Ok(empty_roster()),
         Peek::Damaged(_) => {
-            let recovered = io
-                .write_job(move |lane| {
-                    mixdog_statefile::read_json(lane, &path, Some(&validate), &Opts { secret: true, ..Opts::default() })
-                })
-                .await?;
+            let recovered =
+                io.write_job(move |lane| mixdog_statefile::read_json(lane, &path, Some(&validate), &Opts { secret: true, ..Opts::default() })).await?;
             Ok(recovered.unwrap_or_else(empty_roster))
         }
     }

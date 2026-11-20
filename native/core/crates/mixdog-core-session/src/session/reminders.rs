@@ -133,7 +133,9 @@ fn workspace_move_lines(movement: Option<&Value>, cwd: &str) -> Vec<String> {
         Some("left") => format!("Uncommitted changes were left in {from}; they are not present here."),
         _ => String::new(),
     };
-    let substitute = format!("For continued work, substitute {cwd} for the project root {from} in paths mentioned earlier; absolute paths are not remapped automatically. Re-read affected files before editing them.");
+    let substitute = format!(
+        "For continued work, substitute {cwd} for the project root {from} in paths mentioned earlier; absolute paths are not remapped automatically. Re-read affected files before editing them."
+    );
     [changes, substitute].into_iter().filter(|line| !line.is_empty()).collect()
 }
 

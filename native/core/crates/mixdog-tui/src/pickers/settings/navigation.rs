@@ -76,8 +76,7 @@ pub fn open_row(host: &mut dyn PickerHost, own: &mut Own, action: &str, system_s
         own.close(host);
         let mut prompt = TextPrompt::new("system-shell");
         prompt.label = "System shell".to_owned();
-        prompt.hint = "Enter a shell command, or leave empty for automatic selection. Windows accepts powershell.exe or pwsh."
-            .to_owned();
+        prompt.hint = "Enter a shell command, or leave empty for automatic selection. Windows accepts powershell.exe or pwsh.".to_owned();
         let command = system_shell.get("command").filter(|command| truthy(command)).map(value_text);
         prompt.initial_value = Some(command.unwrap_or_default());
         host.set_prompt(PromptSurface::Settings, Some(prompt));

@@ -136,7 +136,9 @@ async fn an_elevated_op_runs_the_bridge_through_powershell_runas_and_returns_its
     assert_eq!(program, PathBuf::from("powershell"));
     assert_eq!(&args[..5], strings(&["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command"]).as_slice());
     let script = &args[5];
-    assert!(script.contains("Start-Process -FilePath 'C:\\app\\mixdog-secure-desktop.exe' -ArgumentList @('install','--controller-key','k1','--revoke-key','r1') -Verb RunAs"));
+    assert!(script.contains(
+        "Start-Process -FilePath 'C:\\app\\mixdog-secure-desktop.exe' -ArgumentList @('install','--controller-key','k1','--revoke-key','r1') -Verb RunAs"
+    ));
     assert!(script.contains("NativeErrorCode -eq 1223) { exit 1223 }"));
     assert!(script.ends_with("$p.WaitForExit()\nexit $p.ExitCode"));
     assert!(stdin.is_none());

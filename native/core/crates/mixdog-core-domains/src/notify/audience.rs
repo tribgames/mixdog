@@ -9,18 +9,15 @@ use async_trait::async_trait;
 use mixdog_app_protocol::v2::host::HostNotificationStatus;
 use mixdog_core_api::host::{HostCapability, HostChannel};
 use mixdog_core_api::ids::Method;
-use mixdog_protocol::config::{
-    ConversationNotificationOverride, ConversationNotificationSetting, NotificationDevicePreferences,
-    NotificationScope, NotificationTargetKind,
-};
 use mixdog_protocol::ConfigWriteMode;
+use mixdog_protocol::config::{
+    ConversationNotificationOverride, ConversationNotificationSetting, NotificationDevicePreferences, NotificationScope, NotificationTargetKind,
+};
 use serde_json::Value;
 use serde_json::json;
 
-use super::decision::{
-    ConversationOverride, DESKTOP_ACTIVE_WINDOW_SECONDS, DevicePreferences, OverrideSetting, PreferencesView,
-    TargetKind,
-};use super::engine::{Audience, HostConnection, PairedDevice};
+use super::decision::{ConversationOverride, DESKTOP_ACTIVE_WINDOW_SECONDS, DevicePreferences, OverrideSetting, PreferencesView, TargetKind};
+use super::engine::{Audience, HostConnection, PairedDevice};
 use super::service::AudienceSource;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigEdit;
@@ -101,9 +98,7 @@ impl Preferences for Config {
     }
 
     fn migrated_at(&self) -> i64 {
-        self.get("notifications")
-            .and_then(|doc| doc.get("migratedAt")?.as_i64())
-            .unwrap_or(0)
+        self.get("notifications").and_then(|doc| doc.get("migratedAt")?.as_i64()).unwrap_or(0)
     }
 
     fn overrides(&self) -> Vec<ConversationNotificationOverride> {
@@ -117,16 +112,13 @@ impl Preferences for Config {
         }
         let value = serde_json::to_value(prefs).expect("config types serialize");
         // A failed write leaves the computed default in force for this notification.
-        let _ = self
-            .write(&format!("notifications.devices.{client_id}"), value, ConfigWriteMode::InitializeIfMissing)
-            .await;
+        let _ = self.write(&format!("notifications.devices.{client_id}"), value, ConfigWriteMode::InitializeIfMissing).await;
     }
 }
 
 /// Both sides use the same wire names, so the typed forms convert through their JSON.
 fn decision_prefs(prefs: &NotificationDevicePreferences) -> DevicePreferences {
-    serde_json::from_value(serde_json::to_value(prefs).expect("config types serialize"))
-        .expect("the decision's preferences read the config's shape")
+    serde_json::from_value(serde_json::to_value(prefs).expect("config types serialize")).expect("the decision's preferences read the config's shape")
 }
 
 fn decision_override(entry: &ConversationNotificationOverride) -> ConversationOverride {
@@ -219,9 +211,7 @@ impl AudienceSource for LiveAudience {
             _ => Vec::new(),
         };
         // `idleSeconds !== null && idleSeconds < DESKTOP_ACTIVE_WINDOW_SECONDS`
-        let desktop_active = status
-            .and_then(|status| status.idle_seconds)
-            .is_some_and(|idle| idle < DESKTOP_ACTIVE_WINDOW_SECONDS as f64);
+        let desktop_active = status.and_then(|status| status.idle_seconds).is_some_and(|idle| idle < DESKTOP_ACTIVE_WINDOW_SECONDS as f64);
         let mut devices = Vec::new();
         for client in self.presence.paired() {
             devices.push(PairedDevice {
@@ -336,9 +326,7 @@ mod tests {
             client("no-record-time", true, None),
         ];
         let prefs = Arc::new(Prefs::new(vec![], 100));
-        let audience = LiveAudience::new(prefs.clone(), Arc::new(live(paired)), Arc::new(Host(Err(()))))
-            .audience("t1")
-            .await;
+        let audience = LiveAudience::new(prefs.clone(), Arc::new(live(paired)), Arc::new(Host(Err(())))).audience("t1").await;
         // Written once for each device with a pairing record, never for one without.
         assert_eq!(
             *prefs.remembered.lock().unwrap(),
@@ -358,13 +346,7 @@ mod tests {
     #[tokio::test]
     async fn a_stored_entry_wins_over_the_pairing_default_and_overrides_reach_every_view() {
         let stored = NotificationDevicePreferences { scope: NotificationScope::Off, ..Default::default() };
-        let audience = source(
-            Prefs::new(vec![("new-app", stored)], 0),
-            live(vec![client("new-app", true, Some(5))]),
-            Err(()),
-        )
-        .audience("t1")
-        .await;
+        let audience = source(Prefs::new(vec![("new-app", stored)], 0), live(vec![client("new-app", true, Some(5))]), Err(())).audience("t1").await;
         assert_eq!(audience.devices[0].view.preferences.scope, Scope::Off);
         for overrides in [&audience.devices[0].view.overrides, &audience.pc.overrides] {
             assert_eq!(overrides.len(), 1);

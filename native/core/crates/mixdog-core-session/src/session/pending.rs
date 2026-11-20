@@ -33,9 +33,23 @@ pub(crate) fn groups(entries: &[(QueuedId, Value)]) -> Vec<SteerInput> {
             continue;
         };
         if completions::is_notification(entry) {
-            out.push(input(vec![submission_of(id.clone(), entry)], merged, SteerMode::TaskNotification, completions::execution(entry), 0, meta_of(entry).cloned()));
+            out.push(input(
+                vec![submission_of(id.clone(), entry)],
+                merged,
+                SteerMode::TaskNotification,
+                completions::execution(entry),
+                0,
+                meta_of(entry).cloned(),
+            ));
         } else {
-            out.push(input(vec![submission_of(id.clone(), entry)], merged, SteerMode::Prompt, None, super::staged_originals::lost_in_entry(entry), prompt_meta(entry)));
+            out.push(input(
+                vec![submission_of(id.clone(), entry)],
+                merged,
+                SteerMode::Prompt,
+                None,
+                super::staged_originals::lost_in_entry(entry),
+                prompt_meta(entry),
+            ));
         }
     }
     out
@@ -130,7 +144,14 @@ pub(crate) fn steered_meta(entry: &Value) -> Option<&Value> {
     meta_of(entry)
 }
 
-fn input(queued_ids: Vec<QueuedId>, merged: Normalized, mode: SteerMode, execution: Option<Value>, originals_missing: u32, transcript_meta: Option<Value>) -> SteerInput {
+fn input(
+    queued_ids: Vec<QueuedId>,
+    merged: Normalized,
+    mode: SteerMode,
+    execution: Option<Value>,
+    originals_missing: u32,
+    transcript_meta: Option<Value>,
+) -> SteerInput {
     SteerInput {
         queued_ids,
         content: merged.content,
@@ -151,10 +172,45 @@ pub(crate) struct Normalized {
 
 /// The names and aliases of the registered slash commands (`SLASH_COMMANDS`, `tui/app/slash-commands.mjs`).
 const SLASH_TOKENS: &[&str] = &[
-    "clear", "new", "project", "projects", "compact", "btw", "goal", "autoclear", "resume", "context", "shells", "stop",
-    "fork", "inherit", "usage", "model", "websearch", "workflow", "outputstyle", "output-style", "style", "theme",
-    "agents", "effort", "fast", "mcp", "skills", "memory", "plugins", "providers", "settings", "setting", "config",
-    "profile", "update", "doctor", "quit", "exit", "q",
+    "clear",
+    "new",
+    "project",
+    "projects",
+    "compact",
+    "btw",
+    "goal",
+    "autoclear",
+    "resume",
+    "context",
+    "shells",
+    "stop",
+    "fork",
+    "inherit",
+    "usage",
+    "model",
+    "websearch",
+    "workflow",
+    "outputstyle",
+    "output-style",
+    "style",
+    "theme",
+    "agents",
+    "effort",
+    "fast",
+    "mcp",
+    "skills",
+    "memory",
+    "plugins",
+    "providers",
+    "settings",
+    "setting",
+    "config",
+    "profile",
+    "update",
+    "doctor",
+    "quit",
+    "exit",
+    "q",
 ];
 
 /// `isSlashQueuedEntry` (`queue-helpers.mjs`): the entry is not marked `skipSlashCommands` (JS truthiness) and its
@@ -171,11 +227,7 @@ pub(crate) fn is_slash_entry(entry: &Value) -> bool {
     if skipped {
         return false;
     }
-    let content = ["content", "message", "text"]
-        .iter()
-        .find_map(|key| entry.get(*key).filter(|value| !value.is_null()))
-        .cloned()
-        .unwrap_or(Value::Null);
+    let content = ["content", "message", "text"].iter().find_map(|key| entry.get(*key).filter(|value| !value.is_null())).cloned().unwrap_or(Value::Null);
     recognised_slash_token(&content_text(&content)).is_some()
 }
 
@@ -187,13 +239,7 @@ pub(crate) fn recognised_slash_token(text: &str) -> Option<String> {
 }
 
 #[cfg(test)]
-mod slash_tests {
-
-
-}
-
-
-
+mod slash_tests {}
 
 /// `promptContentText`.
 pub(crate) fn content_text(content: &Value) -> String {
@@ -267,11 +313,7 @@ fn merge(normalized: &[Normalized]) -> Option<Normalized> {
         .collect::<Vec<_>>()
         .join("\n");
     if normalized.iter().all(|entry| entry.content.is_string()) {
-        let content = normalized
-            .iter()
-            .filter_map(|entry| entry.content.as_str().filter(|text| !text.is_empty()))
-            .collect::<Vec<_>>()
-            .join("\n");
+        let content = normalized.iter().filter_map(|entry| entry.content.as_str().filter(|text| !text.is_empty())).collect::<Vec<_>>().join("\n");
         // `merged?.content`: an empty join carries nothing.
         return (!content.is_empty()).then(|| Normalized { content: Value::String(content), text: display });
     }
@@ -322,7 +364,10 @@ mod tests {
             (id("u1"), json!({ "message": "먼저 이것", "enqueuedAt": 10 })),
             (id("n1"), json!({ "message": "Async shell task job_recovery_1 (failed, exit n/a) finished.", "mode": "task-notification", "execution": shell })),
             (id("u2"), json!({ "message": "그리고 저것", "enqueuedAt": 30 })),
-            (id("n2"), json!({ "message": "Async agent task task_2 (completed) finished.\n\nResult:\n> done", "mode": "task-notification", "execution": agent })),
+            (
+                id("n2"),
+                json!({ "message": "Async agent task task_2 (completed) finished.\n\nResult:\n> done", "mode": "task-notification", "execution": agent }),
+            ),
         ];
         let groups = groups(&entries);
         assert_eq!(groups.len(), 4);
@@ -385,10 +430,7 @@ mod tests {
     /// A delivered entry names the client's submission (Node's `submissionIds`), else its queue id.
     #[test]
     fn an_entry_is_named_by_its_client_submission() {
-        let entries = [
-            (id("q1"), json!({ "message": "a", "options": { "clientSubmissionId": "sub-1" } })),
-            (id("q2"), json!({ "message": "b" })),
-        ];
+        let entries = [(id("q1"), json!({ "message": "a", "options": { "clientSubmissionId": "sub-1" } })), (id("q2"), json!({ "message": "b" }))];
         let [first, second] = groups(&entries).try_into().expect("two inputs");
         assert_eq!(first.queued_ids, [id("sub-1")]);
         assert_eq!(second.queued_ids, [id("q2")]);

@@ -133,7 +133,8 @@ impl PathLock {
         let token = format!("{}.{unique:016x}", std::process::id());
         let deadline = std::time::Instant::now() + timeout;
         let mut stale_retry_used = false;
-        let timed_out = |file: &Path, pid: i64| ScmFailure::git(format!("Error: advisory lock timeout: {} ({}) held by pid {pid}", target.display(), file.display()));
+        let timed_out =
+            |file: &Path, pid: i64| ScmFailure::git(format!("Error: advisory lock timeout: {} ({}) held by pid {pid}", target.display(), file.display()));
         loop {
             let (root, owned, mine) = (dir.to_path_buf(), target.to_path_buf(), token.clone());
             let attempt = on_lane(lane, cancel, move || -> std::io::Result<Attempt> {

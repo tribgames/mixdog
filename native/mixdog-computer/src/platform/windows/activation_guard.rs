@@ -8,7 +8,7 @@
 
 use super::activation_restore;
 use super::background::{hold_inactive, is_chromium, release_inactive};
-use super::foreground_lock::{self, round1, Acquired};
+use super::foreground_lock::{self, Acquired, round1};
 use super::ledger;
 use super::native;
 use crate::lease_api::{ForegroundLease, LeaseAnswer};
@@ -18,8 +18,8 @@ use crate::port::windows::WinPort;
 use crate::protocol::Obj;
 use serde_json::Value;
 use std::sync::atomic::{AtomicU32, Ordering};
-use windows::core::w;
 use windows::Win32::UI::WindowsAndMessaging::FindWindowExW;
+use windows::core::w;
 
 /// How long a self-activating host's hold lasts, and any other's
 /// (`$lockMs`, :53).
@@ -63,13 +63,7 @@ trait GuardPlatform {
     fn revoked(&self) -> bool {
         false
     }
-    fn restore(
-        &self,
-        target: Wid,
-        before: Wid,
-        observed: &Snapshot,
-        release: &mut dyn FnMut() -> String,
-    ) -> String;
+    fn restore(&self, target: Wid, before: Wid, observed: &Snapshot, release: &mut dyn FnMut() -> String) -> String;
 }
 
 struct Live<'a> {
@@ -95,15 +89,8 @@ impl GuardPlatform for Live<'_> {
         // A WinUI 3 app keeps its own top-level class and hosts its content
         // in this island, which raises the app on invoke.
         // SAFETY: plain child lookup on a window that exists.
-        let island = unsafe {
-            FindWindowExW(
-                Some(native::hwnd(target)),
-                None,
-                w!("Microsoft.UI.Content.DesktopChildSiteBridge"),
-                None,
-            )
-        }
-        .is_ok_and(|child| !child.is_invalid());
+        let island = unsafe { FindWindowExW(Some(native::hwnd(target)), None, w!("Microsoft.UI.Content.DesktopChildSiteBridge"), None) }
+            .is_ok_and(|child| !child.is_invalid());
         island || self_activating_class(&native::class_name(target))
     }
     fn observe(&self) -> Snapshot {
@@ -171,31 +158,14 @@ impl GuardPlatform for Live<'_> {
     fn revoked(&self) -> bool {
         self.port.scope().is_revoked()
     }
-    fn restore(
-        &self,
-        target: Wid,
-        before: Wid,
-        observed: &Snapshot,
-        release: &mut dyn FnMut() -> String,
-    ) -> String {
-        activation_restore::restore(
-            self.shared,
-            self.port,
-            &observed.generation,
-            observed.sequence,
-            target,
-            before,
-            release,
-        )
-        .as_text()
+    fn restore(&self, target: Wid, before: Wid, observed: &Snapshot, release: &mut dyn FnMut() -> String) -> String {
+        activation_restore::restore(self.shared, self.port, &observed.generation, observed.sequence, target, before, release).as_text()
     }
 }
 
 /// SelfActivatesOnSemanticInput's class half (MixWin32Keyboard.cs:12-23).
 fn self_activating_class(class: &str) -> bool {
-    ["ApplicationFrameWindow", "Windows.UI.Core.CoreWindow", "WinUIDesktopWin32WindowClass"]
-        .iter()
-        .any(|name| class.eq_ignore_ascii_case(name))
+    ["ApplicationFrameWindow", "Windows.UI.Core.CoreWindow", "WinUIDesktopWin32WindowClass"].iter().any(|name| class.eq_ignore_ascii_case(name))
         || is_chromium(class)
 }
 
@@ -206,7 +176,12 @@ enum Holder {
     Own,
     /// `lease` is 0 while the host may still take the lock after no answer
     /// arrived; `deadline_at` is on the lease clock.
-    Host { action: i64, seq: u32, lease: u32, deadline_at: Option<f64> },
+    Host {
+        action: i64,
+        seq: u32,
+        lease: u32,
+        deadline_at: Option<f64>,
+    },
 }
 
 struct Hold {
@@ -218,12 +193,7 @@ struct Hold {
 impl Hold {
     /// The acquire half of MixForegroundLock.Acquire: the own lock first,
     /// then the host's lease when this process is refused (:90-194).
-    fn acquire(
-        platform: &dyn GuardPlatform,
-        lease: &dyn ForegroundLease,
-        request_id: i64,
-        hold_ms: u32,
-    ) -> (Hold, bool) {
+    fn acquire(platform: &dyn GuardPlatform, lease: &dyn ForegroundLease, request_id: i64, hold_ms: u32) -> (Hold, bool) {
         let none = || Hold { holder: Holder::None, ended: None };
         match platform.lock(hold_ms) {
             Acquired::Held => return (Hold { holder: Holder::Own, ended: None }, true),
@@ -245,17 +215,12 @@ impl Hold {
         let answer = lease.acquire(request_id, seq, hold_ms, answer_by);
         platform.mark("answered_at");
         platform.note("host_answer", answer.as_str().into());
-        let host = |lease: u32, deadline_at: Option<f64>| Hold {
-            holder: Holder::Host { action: request_id, seq, lease, deadline_at },
-            ended: None,
-        };
+        let host = |lease: u32, deadline_at: Option<f64>| Hold { holder: Holder::Host { action: request_id, seq, lease, deadline_at }, ended: None };
         match answer {
             // The host may take the lock after this wait; its deadline ends it,
             // and the release asks it to end it sooner.
             LeaseAnswer::NoAnswer => (host(0, None), false),
-            LeaseAnswer::NotOffered | LeaseAnswer::NoRequest | LeaseAnswer::Refused(_) => {
-                (none(), false)
-            }
+            LeaseAnswer::NotOffered | LeaseAnswer::NoRequest | LeaseAnswer::Refused(_) => (none(), false),
             LeaseAnswer::ExpiredOnArrival { lease, deadline_at } => {
                 platform.note("lease", lease.into());
                 platform.note("deadline_at", round1(deadline_at).into());
@@ -285,9 +250,7 @@ impl Hold {
         match self.holder {
             Holder::None => false,
             Holder::Own => platform.lock_held(),
-            Holder::Host { lease, deadline_at, .. } => {
-                lease > 0 && deadline_at.is_some_and(|deadline| platform.now_ms() < deadline)
-            }
+            Holder::Host { lease, deadline_at, .. } => lease > 0 && deadline_at.is_some_and(|deadline| platform.now_ms() < deadline),
         }
     }
 
@@ -346,9 +309,7 @@ fn run(
     // The host's answer can take a moment, and the person may act in it: a
     // restore must not later undo a choice made before the action began.
     if locked && can_restore {
-        let superseded = platform.superseded(&observed, target).or_else(|| {
-            (platform.foreground() != before).then(|| "foreground_moved".to_string())
-        });
+        let superseded = platform.superseded(&observed, target).or_else(|| (platform.foreground() != before).then(|| "foreground_moved".to_string()));
         if let Some(reason) = superseded {
             can_restore = false;
             restored = format!("skipped:{reason}");
@@ -487,11 +448,7 @@ mod tests {
                 self.foreground.set(TARGET);
             }
         }
-        fn run(
-            &self,
-            lease: &dyn ForegroundLease,
-            op: &mut dyn FnMut() -> Result<Obj, String>,
-        ) -> (Result<Obj, String>, Option<Value>) {
+        fn run(&self, lease: &dyn ForegroundLease, op: &mut dyn FnMut() -> Result<Obj, String>) -> (Result<Obj, String>, Option<Value>) {
             run(self, lease, TARGET, 5, op)
         }
     }
@@ -515,15 +472,7 @@ mod tests {
             self.self_activating
         }
         fn observe(&self) -> Snapshot {
-            Snapshot {
-                ready: self.ready,
-                reason: "",
-                generation: "g".into(),
-                sequence: 7,
-                relevant_sequence: 7,
-                tick: 0,
-                own_tick: 0,
-            }
+            Snapshot { ready: self.ready, reason: "", generation: "g".into(), sequence: 7, relevant_sequence: 7, tick: 0, own_tick: 0 }
         }
         fn superseded(&self, _observed: &Snapshot, _target: Wid) -> Option<String> {
             self.superseded.map(str::to_string)
@@ -578,13 +527,7 @@ mod tests {
         fn sleep_ms(&self, ms: u32) {
             self.clock.set(self.clock.get() + f64::from(ms));
         }
-        fn restore(
-            &self,
-            target: Wid,
-            before: Wid,
-            _observed: &Snapshot,
-            release: &mut dyn FnMut() -> String,
-        ) -> String {
+        fn restore(&self, target: Wid, before: Wid, _observed: &Snapshot, release: &mut dyn FnMut() -> String) -> String {
             self.log("restore");
             release();
             if took_focus(self, target) && self.restore_answer == "restored" {

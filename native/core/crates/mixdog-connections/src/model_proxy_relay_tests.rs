@@ -3,13 +3,9 @@
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use mixdog_app_protocol::v2::model_proxy::{
-    ProxyAnswer, ProxyCall, ProxyDelivery, ProxyErrorKind, ProxyEvent, ProxyFailure, ProxyOutcome,
-};
+use mixdog_app_protocol::v2::model_proxy::{ProxyAnswer, ProxyCall, ProxyDelivery, ProxyErrorKind, ProxyEvent, ProxyFailure, ProxyOutcome};
 use mixdog_app_server_client::mock::{MockConn, MockNetwork};
-use mixdog_app_server_client::{
-    Clock, ConnectOptions, DEFAULT_LADDER, InitializeCapabilities, ProtocolClient, Target, connect,
-};
+use mixdog_app_server_client::{Clock, ConnectOptions, DEFAULT_LADDER, InitializeCapabilities, ProtocolClient, Target, connect};
 use serde_json::{Value, json};
 use tokio::sync::{mpsc, oneshot};
 use tokio::task::JoinHandle;
@@ -17,10 +13,7 @@ use tokio_util::sync::CancellationToken;
 
 use super::{AllowedProviders, CallOutcome, LocalModelProxy, ModelProxyRelay, ProxyEventSink};
 
-const OPTIONS: &str = include_str!(concat!(
-    env!("CARGO_MANIFEST_DIR"),
-    "/../../../../packages/protocol-client/conformance/options.json"
-));
+const OPTIONS: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/protocol-client/conformance/options.json"));
 
 struct PausedClock;
 
@@ -248,10 +241,7 @@ async fn a_failed_call_answers_as_the_error_of_the_request_with_the_failure_as_i
         subset(&frame(&rig.conn).await, &["id", "error"]),
         json!({ "id": 4, "error": { "code": -32000, "message": "slow down", "data": serde_json::to_value(&failed).unwrap() } })
     );
-    assert_eq!(
-        subset(&frame(&rig.conn).await, &["id", "error"]),
-        json!({ "id": 5, "error": { "code": -32000, "message": "the local core is gone" } })
-    );
+    assert_eq!(subset(&frame(&rig.conn).await, &["id", "error"]), json!({ "id": 5, "error": { "code": -32000, "message": "the local core is gone" } }));
 }
 
 #[tokio::test(flavor = "current_thread", start_paused = true)]
@@ -305,7 +295,6 @@ async fn every_call_settles_once_with_its_provider_and_outcome() {
     settle().await;
     assert!(settled.try_recv().is_err(), "an abandoned call settles once");
 }
-
 
 #[async_trait]
 impl Clock for PausedClock {

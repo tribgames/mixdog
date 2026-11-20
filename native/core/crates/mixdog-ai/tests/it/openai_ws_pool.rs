@@ -66,11 +66,7 @@ struct Http {
 
 #[async_trait]
 impl HttpSend for Http {
-    async fn send(
-        &self,
-        request: WireRequest,
-        _exchange: mixdog_ai::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: WireRequest, _exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
         // A HEAD is the provider's connection warm-up, not a turn: answered empty and recorded apart.
         if request.method == "HEAD" {
             self.warmups.lock().unwrap().push(request);
@@ -190,17 +186,13 @@ impl WsDial for Dial {
         match next {
             Dialed::Stuck => std::future::pending().await,
             Dialed::Reset => Err(ConnectError::Transport(TransportFault::Reset)),
-            Dialed::Socket(frames) => Ok((
-                Box::new(Socket { sent: self.sent.clone(), frames: frames.into(), silent: false }),
-                Response::builder().status(101).body(None).unwrap(),
-            )),
-            Dialed::Silent(frames) => Ok((
-                Box::new(Socket { sent: self.sent.clone(), frames: frames.into(), silent: true }),
-                Response::builder().status(101).body(None).unwrap(),
-            )),
-            Dialed::Rejected(status) => {
-                Err(ConnectError::Rejected(Response::builder().status(status).body(Some(b"{}".to_vec())).unwrap()))
+            Dialed::Socket(frames) => {
+                Ok((Box::new(Socket { sent: self.sent.clone(), frames: frames.into(), silent: false }), Response::builder().status(101).body(None).unwrap()))
             }
+            Dialed::Silent(frames) => {
+                Ok((Box::new(Socket { sent: self.sent.clone(), frames: frames.into(), silent: true }), Response::builder().status(101).body(None).unwrap()))
+            }
+            Dialed::Rejected(status) => Err(ConnectError::Rejected(Response::builder().status(status).body(Some(b"{}".to_vec())).unwrap())),
         }
     }
 }
@@ -224,15 +216,9 @@ fn adapter(codex: bool, http: Arc<Http>, dial: Arc<Dial>) -> OpenAiAdapter {
 fn adapter_with(codex: bool, http: Arc<Http>, dial: Arc<Dial>, facts: Arc<dyn ModelFactsSource>) -> OpenAiAdapter {
     // Node's recorder advances the clock by each backoff, not by each clock read.
     let clock = dial.clone();
-    let context = Arc::new(SessionContext::with_sources(move || clock.now.load(Ordering::Relaxed), || "request-id".into())
-        .with_retry_pace(dial.clone()));
+    let context = Arc::new(SessionContext::with_sources(move || clock.now.load(Ordering::Relaxed), || "request-id".into()).with_retry_pace(dial.clone()));
     let config = if codex {
-        let identity = CodexIdentity {
-            installation_id: "i".into(),
-            user_agent: "ua".into(),
-            version: "1".into(),
-            beta_features: "b".into(),
-        };
+        let identity = CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: "b".into() };
         OpenAiConfig::codex(false, identity, facts, context.clone())
     } else {
         OpenAiConfig::api_key(false, facts, context.clone())
@@ -256,12 +242,7 @@ fn request(messages: Vec<ChatMessage>) -> Arc<ModelRequest> {
         options: RequestOptions {
             session_id: Some("session-1".into()),
             prompt_cache_key: Some("lane".into()),
-            thread: Some(RequestThread {
-                id: "thread".into(),
-                window: 0,
-                turn: Some("turn".into()),
-                turn_started_at_ms: Some(1_789_999_000_000),
-            }),
+            thread: Some(RequestThread { id: "thread".into(), window: 0, turn: Some("turn".into()), turn_started_at_ms: Some(1_789_999_000_000) }),
             ..Default::default()
         },
     })
@@ -305,14 +286,18 @@ fn assert_same_request(first: &Value, retry: &Value) {
     if let Some(metadata) = first.get_mut("client_metadata").and_then(Value::as_object_mut) {
         let before = metadata.remove("x-codex-ws-stream-request-start-ms").unwrap();
         let after = retry["client_metadata"].as_object_mut().unwrap().remove("x-codex-ws-stream-request-start-ms").unwrap();
-        assert!(after.as_str().unwrap().parse::<u64>().unwrap() > before.as_str().unwrap().parse::<u64>().unwrap(),
-            "Node re-stamps the stream start on each attempt");
+        assert!(
+            after.as_str().unwrap().parse::<u64>().unwrap() > before.as_str().unwrap().parse::<u64>().unwrap(),
+            "Node re-stamps the stream start on each attempt"
+        );
     }
     assert_eq!(first, retry, "same model, request and logical turn identity");
 }
 
 fn connection_limit() -> Result<Message, TransportFault> {
-    Ok(Message::text(r#"{"type":"error","status":400,"error":{"code":"websocket_connection_limit_reached","type":"invalid_request_error","message":"connection retired"}}"#))
+    Ok(Message::text(
+        r#"{"type":"error","status":400,"error":{"code":"websocket_connection_limit_reached","type":"invalid_request_error","message":"connection retired"}}"#,
+    ))
 }
 
 #[tokio::test]
@@ -403,7 +388,10 @@ async fn connection_limit_between_tool_calls_replays_history_without_the_old_cha
             "id":"resp_tools","status":"completed","output":[call],
             "usage":{"input_tokens":1,"output_tokens":1}
         }}),
-    ].into_iter().map(|event| Ok(Message::text(event.to_string()))).collect();
+    ]
+    .into_iter()
+    .map(|event| Ok(Message::text(event.to_string())))
+    .collect();
     retired.push(connection_limit());
     let dial = Dial::with(vec![Dialed::Socket(retired), Dialed::Socket(answer("resp_new", "used the result"))]);
     let http = Arc::new(Http::default());
@@ -411,7 +399,10 @@ async fn connection_limit_between_tool_calls_replays_history_without_the_old_cha
     drain(&adapter, request(vec![say(Role::User, "read then answer")])).await.unwrap();
     let mut assistant = say(Role::Assistant, "");
     assistant.tool_calls.push(mixdog_core_api::domain::provider::ToolCall {
-        id: "call_1".into(), name: "read".into(), arguments: serde_json::json!({}), native_type: None,
+        id: "call_1".into(),
+        name: "read".into(),
+        arguments: serde_json::json!({}),
+        native_type: None,
     });
     let mut result = say(Role::Tool, "already executed");
     result.tool_call_id = Some("call_1".into());
@@ -440,11 +431,7 @@ async fn connection_limit_between_tool_calls_replays_history_without_the_old_cha
 async fn connection_limit_in_a_fork_does_not_replace_the_leads_connection() {
     let mut lead_frames = answer("resp_lead", "first");
     lead_frames.extend(answer("resp_lead_next", "second"));
-    let dial = Dial::with(vec![
-        Dialed::Socket(lead_frames),
-        Dialed::Socket(vec![connection_limit()]),
-        Dialed::Socket(answer("resp_fork", "summary")),
-    ]);
+    let dial = Dial::with(vec![Dialed::Socket(lead_frames), Dialed::Socket(vec![connection_limit()]), Dialed::Socket(answer("resp_fork", "summary"))]);
     let adapter = adapter(true, Arc::default(), dial.clone());
     drain(&adapter, request(vec![say(Role::User, "hi")])).await.unwrap();
     let mut fork = (*request(vec![say(Role::User, "summarize")])).clone();
@@ -460,21 +447,17 @@ async fn connection_limit_in_a_fork_does_not_replace_the_leads_connection() {
 
 #[tokio::test(start_paused = true)]
 async fn websocket_retries_keep_turn_metadata_and_restamp_each_frame() {
-    let dial = Dial::with(vec![
-        Dialed::Reset,
-        Dialed::Socket(vec![connection_limit()]),
-        Dialed::Socket(vec![Err(TransportFault::Reset)]),
-        Dialed::Rejected(404),
-    ]);
+    let dial =
+        Dial::with(vec![Dialed::Reset, Dialed::Socket(vec![connection_limit()]), Dialed::Socket(vec![Err(TransportFault::Reset)]), Dialed::Rejected(404)]);
     let http = Arc::new(Http::default());
     let adapter = adapter(true, http.clone(), dial.clone());
     drain(&adapter, request(vec![say(Role::User, "continue")])).await.unwrap();
     assert_eq!(*dial.dials.lock().unwrap(), 4);
-    assert_eq!(*dial.waits.lock().unwrap(), vec![
-        (1, Duration::from_millis(200)),
-        (2, Duration::from_millis(400)),
-        (3, Duration::from_millis(800)),
-    ], "handshake, retirement and stream loss share one backoff schedule; 404 switches immediately");
+    assert_eq!(
+        *dial.waits.lock().unwrap(),
+        vec![(1, Duration::from_millis(200)), (2, Duration::from_millis(400)), (3, Duration::from_millis(800)),],
+        "handshake, retirement and stream loss share one backoff schedule; 404 switches immediately"
+    );
     let sent = frames(&dial);
     assert_eq!(sent.len(), 2);
     assert_eq!(sent[0]["client_metadata"]["x-codex-ws-stream-request-start-ms"], "1790000000200");
@@ -499,8 +482,7 @@ async fn websocket_retries_keep_turn_metadata_and_restamp_each_frame() {
     assert_eq!(body["model"], sent[0]["model"]);
     assert_eq!(body["input"], sent[0]["input"]);
     assert!(body.get("client_metadata").is_none(), "HTTP does not carry the WS identity block");
-    assert!(posts[0].headers.iter().all(|(name, _)| !matches!(name.as_str(),
-        "x-codex-turn-metadata" | "x-codex-ws-stream-request-start-ms")));
+    assert!(posts[0].headers.iter().all(|(name, _)| !matches!(name.as_str(), "x-codex-turn-metadata" | "x-codex-ws-stream-request-start-ms")));
 }
 
 #[tokio::test(start_paused = true)]
@@ -512,13 +494,17 @@ async fn connection_limit_after_five_handshake_failures_surfaces_the_current_ret
     let provider = adapter(true, http.clone(), dial.clone());
     let error = drain(&provider, request(vec![say(Role::User, "hi")])).await.unwrap_err();
     assert_eq!(*dial.dials.lock().unwrap(), 6);
-    assert_eq!(*dial.waits.lock().unwrap(), vec![
-        (1, Duration::from_millis(200)),
-        (2, Duration::from_millis(400)),
-        (3, Duration::from_millis(800)),
-        (4, Duration::from_millis(1600)),
-        (5, Duration::from_millis(3200)),
-    ], "one wait before each fresh acquire and none after exhaustion");
+    assert_eq!(
+        *dial.waits.lock().unwrap(),
+        vec![
+            (1, Duration::from_millis(200)),
+            (2, Duration::from_millis(400)),
+            (3, Duration::from_millis(800)),
+            (4, Duration::from_millis(1600)),
+            (5, Duration::from_millis(3200)),
+        ],
+        "one wait before each fresh acquire and none after exhaustion"
+    );
     assert!(http.seen.lock().unwrap().is_empty(), "retirement is not a transport-switch reason");
     assert_eq!(error.status, Some(400), "no stale 503 for the route fallback to admit");
     assert_eq!(error.code.as_deref(), Some("websocket_connection_limit_reached"));
@@ -553,7 +539,9 @@ async fn connection_limit_does_not_replay_exposed_output_or_match_message_text()
     for prefix in [
         vec![r#"{"type":"response.output_text.delta","output_index":0,"item_id":"msg_1","delta":"visible"}"#],
         vec![r#"{"type":"response.reasoning_summary_text.delta","delta":"thinking"}"#],
-        vec![r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":""}}"#],
+        vec![
+            r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"function_call","id":"fc_1","call_id":"call_1","name":"read","arguments":""}}"#,
+        ],
     ] {
         let mut events: Vec<_> = prefix.into_iter().map(|event| Ok(Message::text(event))).collect();
         events.push(connection_limit());
@@ -563,7 +551,8 @@ async fn connection_limit_does_not_replay_exposed_output_or_match_message_text()
         assert_eq!(error.code.as_deref(), Some("websocket_connection_limit_reached"));
         assert_eq!(*dial.dials.lock().unwrap(), 1, "Node's replay safety gate still applies");
     }
-    let not_a_limit = Ok(Message::text(r#"{"type":"error","status":400,"error":{"code":"invalid_request_error","message":"websocket_connection_limit_reached"}}"#));
+    let not_a_limit =
+        Ok(Message::text(r#"{"type":"error","status":400,"error":{"code":"invalid_request_error","message":"websocket_connection_limit_reached"}}"#));
     let dial = Dial::with(vec![Dialed::Socket(vec![not_a_limit])]);
     let adapter = adapter(true, Arc::default(), dial.clone());
     let error = drain(&adapter, request(vec![say(Role::User, "hi")])).await.unwrap_err();
@@ -644,8 +633,7 @@ async fn a_response_abandoned_mid_stream_never_returns_its_socket_to_the_pool() 
 }
 
 #[tokio::test]
-async fn a_refused_upgrade_moves_an_oauth_session_to_http_for_good()
- {
+async fn a_refused_upgrade_moves_an_oauth_session_to_http_for_good() {
     let http = Arc::new(Http::default());
     let dial = Dial::with(vec![Dialed::Rejected(404)]);
     let adapter = adapter(true, http.clone(), dial.clone());
@@ -695,10 +683,7 @@ impl Roster {
 
 impl ModelFactsSource for Roster {
     fn facts(&self, _model: &str) -> ModelFacts {
-        ModelFacts {
-            access_programs: (self.refreshes() > 0).then(|| serde_json::json!(["cyber-fresh"])),
-            ..ModelFacts::default()
-        }
+        ModelFacts { access_programs: (self.refreshes() > 0).then(|| serde_json::json!(["cyber-fresh"])), ..ModelFacts::default() }
     }
 
     fn refresh<'a>(&'a self) -> std::pin::Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>> {
@@ -713,7 +698,8 @@ fn text_frame(frame: &str) -> Result<Message, TransportFault> {
 }
 
 const CREATED: &str = r#"{"type":"response.created","response":{"id":"resp_gone","model":"m"}}"#;
-const RETIRED: &str = r#"{"type":"response.failed","response":{"id":"resp_gone","status":"failed","error":{"code":"model_not_found","message":"Model not found: gpt-fixture"}}}"#;
+const RETIRED: &str =
+    r#"{"type":"response.failed","response":{"id":"resp_gone","status":"failed","error":{"code":"model_not_found","message":"Model not found: gpt-fixture"}}}"#;
 
 /// A socket that opens, accepts the response and then reports the model retired, after `output` frames.
 fn retired_after(output: &[&str]) -> Dialed {
@@ -876,7 +862,8 @@ async fn a_second_unknown_model_refusal_surfaces() {
 #[tokio::test]
 async fn the_refresh_is_shared_by_the_refusal_before_the_stream_and_the_one_inside_it() {
     let roster = Arc::new(Roster::default());
-    let before_open = Dialed::Socket(vec![text_frame(r#"{"type":"error","status":404,"error":{"code":"model_not_found","message":"Model not found: gpt-fixture"}}"#)]);
+    let before_open =
+        Dialed::Socket(vec![text_frame(r#"{"type":"error","status":404,"error":{"code":"model_not_found","message":"Model not found: gpt-fixture"}}"#)]);
     let dial = Dial::with(vec![before_open, retired_after(&[])]);
     let adapter = adapter_with(true, Arc::new(Http::default()), dial.clone(), roster.clone());
     let error = answer_text(&adapter).await.unwrap_err();
@@ -967,7 +954,6 @@ async fn a_server_close_1009_keeps_the_session_on_http() {
 #[allow(dead_code)]
 fn unused(_: StreamEvent) {}
 
-
 /// One acquire of a socket against the scripted dials, on the paused clock: what it ended in, when, and how many dials it made. A
 /// dial the script does not name never answers its upgrade.
 async fn acquire(mut script: Vec<Dialed>) -> (Result<(), ProviderError>, std::time::Duration, u32) {
@@ -1022,4 +1008,3 @@ async fn a_reset_beside_a_stuck_dial_does_not_end_the_acquire_but_an_answered_up
     let error = outcome.expect_err("the server refuses the upgrade");
     assert_eq!((waited, dials, error.status), (std::time::Duration::from_secs(3), 2, Some(403)));
 }
-

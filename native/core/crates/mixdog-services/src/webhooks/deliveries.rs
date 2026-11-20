@@ -6,9 +6,7 @@ use sha2::{Digest, Sha256};
 use super::signature::Headers;
 
 pub fn extract_delivery_id(headers: &Headers) -> Option<&str> {
-    ["x-github-delivery", "x-delivery-id", "x-request-id"]
-        .into_iter()
-        .find_map(|h| headers.get(h).map(String::as_str).filter(|v| !v.is_empty()))
+    ["x-github-delivery", "x-delivery-id", "x-request-id"].into_iter().find_map(|h| headers.get(h).map(String::as_str).filter(|v| !v.is_empty()))
 }
 
 pub fn content_delivery_id(raw_body: &[u8]) -> String {
@@ -36,9 +34,7 @@ pub fn headers_summary(headers: &Headers) -> Value {
     if let Some(id) = extract_delivery_id(headers) {
         summary.insert("delivery_id".into(), id.into());
     }
-    let signed = ["x-hub-signature-256", "x-signature-256", "stripe-signature", "sentry-hook-signature"]
-        .into_iter()
-        .any(|h| non_empty(h).is_some());
+    let signed = ["x-hub-signature-256", "x-signature-256", "stripe-signature", "sentry-hook-signature"].into_iter().any(|h| non_empty(h).is_some());
     summary.insert("signature_present".into(), signed.into());
     if let Some(ct) = non_empty("content-type") {
         summary.insert("content_type".into(), ct.clone().into());
@@ -65,10 +61,7 @@ mod tests {
     #[test]
     fn summary_reports_signature_presence_without_values() {
         let s = headers_summary(&h(&[("x-github-event", "push"), ("x-hub-signature-256", "sha256=x"), ("content-type", "application/json")]));
-        assert_eq!(
-            s,
-            serde_json::json!({"event_type":"push","signature_present":true,"content_type":"application/json"})
-        );
+        assert_eq!(s, serde_json::json!({"event_type":"push","signature_present":true,"content_type":"application/json"}));
         assert_eq!(headers_summary(&h(&[])), serde_json::json!({"signature_present":false}));
     }
 }

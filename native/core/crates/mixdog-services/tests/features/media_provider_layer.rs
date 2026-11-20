@@ -12,7 +12,9 @@ use mixdog_services::media::adapter_http::{JsonPost, PostReply};
 use mixdog_services::media::catalog::CatalogFailure;
 use mixdog_services::media::catalog_fetch::{Auth, HttpFailure};
 use mixdog_services::media::lanes::CatalogRows;
-use mixdog_services::media::provider_layer::{ANTIGRAVITY_GATEWAY, CODEX_NOT_AUTHENTICATED, CodexProviderSession, LateProbe, PROBE_UNBOUND, antigravity_headers, antigravity_rows, codex_row};
+use mixdog_services::media::provider_layer::{
+    ANTIGRAVITY_GATEWAY, CODEX_NOT_AUTHENTICATED, CodexProviderSession, LateProbe, PROBE_UNBOUND, antigravity_headers, antigravity_rows, codex_row,
+};
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 

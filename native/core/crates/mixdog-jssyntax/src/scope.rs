@@ -37,13 +37,7 @@ struct Scope {
 
 impl Scope {
     fn new(kind: ScopeKind) -> Self {
-        Self {
-            kind,
-            lexical: HashSet::new(),
-            vars: HashSet::new(),
-            funcs: HashMap::new(),
-            params: HashSet::new(),
-        }
+        Self { kind, lexical: HashSet::new(), vars: HashSet::new(), funcs: HashMap::new(), params: HashSet::new() }
     }
 }
 
@@ -78,11 +72,7 @@ impl Scopes {
     /// `let`, `const`, `class`.
     pub fn declare_lexical(&mut self, name: &str) -> Result<(), Reason> {
         let Some(scope) = self.stack.last_mut() else { return Ok(()) };
-        if scope.lexical.contains(name)
-            || scope.vars.contains(name)
-            || scope.params.contains(name)
-            || scope.funcs.contains_key(name)
-        {
+        if scope.lexical.contains(name) || scope.vars.contains(name) || scope.params.contains(name) || scope.funcs.contains_key(name) {
             return Err(redeclared(name));
         }
         scope.lexical.insert(name.to_owned());

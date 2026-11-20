@@ -36,4 +36,3 @@ impl SetupUiSurface for SessionSetupUi {
         self.directory.settle_setup_ui(thread, request_id).await;
     }
 }
-

@@ -18,12 +18,11 @@ use tokio::sync::mpsc;
 
 use super::settings::{AccessSettings, SettingsView};
 use crate::bridge::{Bridge, Dialer, Frame, PhoneSink, ToPhone};
-use crate::transport::coordinator::WriteGate;
-use crate::clients::{ClaimBindings, ClaimRequest, ClaimStep, ClientTable, Received, ReadyContext, challenge_flags, parse_client_list, revoke_payload};
+use crate::clients::{ClaimBindings, ClaimRequest, ClaimStep, ClientTable, ReadyContext, Received, challenge_flags, parse_client_list, revoke_payload};
 use crate::e2ee::{Sealed, ServerIdentity};
 use crate::identity::{
-    ClientInfo, ControllerKeyRecord, DeviceFiles, DeviceIdentity, OwedAccess, Roster, SecretError, load_or_create_e2ee_identity,
-    load_or_create_pairing_token, rotate_e2ee_identity, rotate_pairing_token,
+    ClientInfo, ControllerKeyRecord, DeviceFiles, DeviceIdentity, OwedAccess, Roster, SecretError, load_or_create_e2ee_identity, load_or_create_pairing_token,
+    rotate_e2ee_identity, rotate_pairing_token,
 };
 use crate::leg::caps::{NativePlatform, RelayCaps};
 use crate::leg::control::{ControlError, ControlRequests};
@@ -32,11 +31,12 @@ use crate::leg::inbound::Inbound;
 use crate::leg::socket::{LegConfig, LegEvent, Outgoing, run_leg, validated_relay_url};
 use crate::leg::{MAX_WS_PAYLOAD_BYTES, open_envelopes};
 use crate::pair_code::{NotHeld, PairCode, PairCodeEffects, PairCodeView, PairOwner};
+use crate::push::native::{NativePushInput, NativePushStore, NativePushSubscription, bind_envelope, invalid_token_of, unbind_envelope};
 use crate::push::native_crypto::{NativePushContent, Reason, collapse_key, encrypt_native_push_fresh};
 use crate::push::web::{RelayWebPush, WebPushTarget, encrypt_for_target};
-use crate::push::native::{NativePushInput, NativePushStore, NativePushSubscription, bind_envelope, invalid_token_of, unbind_envelope};
 use crate::registry::DeviceRegistry;
 use crate::section::{RemoteSection, claim_value};
+use crate::transport::coordinator::WriteGate;
 
 /// A claim that nobody answered is denied this long after it arrived (`REMOTE_CLAIM_TIMEOUT_MS`).
 pub const CLAIM_TIMEOUT_MS: u64 = 295_000;
@@ -349,10 +349,7 @@ impl crate::transport::session::SessionEnv for SessionEnvironment {
             let Some(inner) = inner else { return Vec::new() };
             let runtime = RemoteRuntime { inner };
             let servers = runtime.resolve_ice().await;
-            servers
-                .into_iter()
-                .map(|s| crate::webrtc::config::IceServer { urls: s.urls, username: s.username, credential: s.credential })
-                .collect()
+            servers.into_iter().map(|s| crate::webrtc::config::IceServer { urls: s.urls, username: s.username, credential: s.credential }).collect()
         })
     }
 
@@ -448,10 +445,7 @@ mod tests {
             relay_payload_rejected_frame(Some(70_000_000), Some(67_108_864)),
             json!({ "event": "relayPayloadRejected", "payload": { "bytes": 70_000_000, "limit": 67_108_864 } })
         );
-        assert_eq!(
-            relay_payload_rejected_frame(None, None),
-            json!({ "event": "relayPayloadRejected", "payload": { "bytes": null, "limit": null } })
-        );
+        assert_eq!(relay_payload_rejected_frame(None, None), json!({ "event": "relayPayloadRejected", "payload": { "bytes": null, "limit": null } }));
     }
 
     /// The decode of the recorded cases (native/core/fixtures/inbound-lone-surrogate: alias-invalid-byte,
@@ -612,7 +606,6 @@ impl PhoneSink for RuntimeSink {
     }
 }
 
-
 /// A native push row's `createdAt`. A debug build (never a release one) reads `MIXDOG_FIXED_NOW_MS` as a pinned instant, as
 /// `mixdog_workspace::editorcfg::now_ms` does, so a replay gives the stored row the virtual clock the Node recording ran on.
 fn registered_at_ms() -> u64 {
@@ -641,11 +634,7 @@ impl Inner {
 
     /// Runs `job` on the durability lane (the secret files and the roster live there).
     async fn durable<R: Send + 'static>(&self, job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> Result<R, RemoteError> {
-        let handle = self
-            .cfg
-            .durability
-            .submit(&CancellationToken::new(), job)
-            .map_err(|_| RemoteError::Failed("The durability lane is full.".into()))?;
+        let handle = self.cfg.durability.submit(&CancellationToken::new(), job).map_err(|_| RemoteError::Failed("The durability lane is full.".into()))?;
         handle.await.map_err(|_| RemoteError::Failed("The durability lane dropped the job.".into()))
     }
 
@@ -671,10 +660,7 @@ impl Inner {
     }
 
     /// Runs a roster mutation on the durability lane.
-    async fn with_roster<R: Send + 'static>(
-        &self,
-        job: impl FnOnce(&mut Roster, &InLane<DurabilityIo>) -> R + Send + 'static,
-    ) -> Result<R, RemoteError> {
+    async fn with_roster<R: Send + 'static>(&self, job: impl FnOnce(&mut Roster, &InLane<DurabilityIo>) -> R + Send + 'static) -> Result<R, RemoteError> {
         let roster = self.roster().await?;
         self.durable(move |lane| job(&mut lock(&roster), lane)).await
     }
@@ -684,8 +670,7 @@ impl Inner {
         let (running, connected, claims, live, online) = {
             let state = self.state();
             let now = now_ms();
-            let claims: Vec<Value> =
-                state.pending_claims.values().filter(|p| p.request.expires_at > now).map(|p| claim_value(&p.request)).collect();
+            let claims: Vec<Value> = state.pending_claims.values().filter(|p| p.request.expires_at > now).map(|p| claim_value(&p.request)).collect();
             (state.live.is_some(), state.connected && state.listed, claims, state.live.clone(), state.online.clone())
         };
         let settings = self.cfg.settings.read();
@@ -716,8 +701,7 @@ impl Inner {
     /// The clients with a native push registration, sorted.
     fn native_push_clients(&self) -> Vec<String> {
         let store = self.state().native.clone();
-        let mut ids: Vec<String> =
-            store.map(|store| lock(&store).list().iter().map(|row| row.client_id.clone()).collect()).unwrap_or_default();
+        let mut ids: Vec<String> = store.map(|store| lock(&store).list().iter().map(|row| row.client_id.clone()).collect()).unwrap_or_default();
         ids.sort();
         ids.dedup();
         ids
@@ -742,12 +726,8 @@ impl Inner {
     fn info(&self, settings: &SettingsView, running: bool, connected: bool, live: Option<&Live>, clients: &[Value]) -> Value {
         match live {
             Some(live) => {
-                let client_url = self
-                    .cfg
-                    .relay_url
-                    .as_deref()
-                    .and_then(|url| crate::leg::socket::relay_client_url(url, &live.device.device_id).ok())
-                    .unwrap_or_default();
+                let client_url =
+                    self.cfg.relay_url.as_deref().and_then(|url| crate::leg::socket::relay_client_url(url, &live.device.device_id).ok()).unwrap_or_default();
                 json!({ "relay": { "clientUrl": client_url, "token": live.pairing_token, "clients": clients }, "enabled": true, "connected": connected })
             }
             None if !settings.enabled || !running => {
@@ -1183,11 +1163,7 @@ impl RemoteRuntime {
         if self.inner.state().live.is_none() {
             let roster = self.inner.roster().await?;
             let clients = self.inner.with_aliases(lock(&roster).list());
-            return Ok(if settings.enabled {
-                Value::Null
-            } else {
-                json!({ "relay": { "clientUrl": "", "token": "", "clients": clients }, "enabled": false })
-            });
+            return Ok(if settings.enabled { Value::Null } else { json!({ "relay": { "clientUrl": "", "token": "", "clients": clients }, "enabled": false }) });
         }
         let Ok(clients) = self.list_clients().await else { return Ok(Value::Null) };
         let live = self.inner.live()?;
@@ -1399,8 +1375,7 @@ impl RemoteRuntime {
             let mut state = self.inner.state();
             // One container can have only one live prompt: a newer request replaces an older key
             // its reloaded page can no longer use.
-            let stale: Vec<String> =
-                state.pending_claims.iter().filter(|(_, p)| p.request.client_id == request.client_id).map(|(id, _)| id.clone()).collect();
+            let stale: Vec<String> = state.pending_claims.iter().filter(|(_, p)| p.request.client_id == request.client_id).map(|(id, _)| id.clone()).collect();
             let replaced = stale.iter().filter_map(|id| state.pending_claims.remove(id)).collect();
             state.pending_claims.insert(request.claim_id.clone(), PendingClaim { request: request.clone(), cancel: cancel.clone() });
             replaced
@@ -1535,21 +1510,13 @@ impl RemoteRuntime {
     /// The client ids (paired credentials) of every phone that is not awaiting removal; empty
     /// until the roster has loaded (`prepare`).
     pub fn paired_devices(&self) -> Vec<String> {
-        self.inner
-            .roster
-            .get()
-            .map(|roster| lock(roster).list().into_iter().filter(|row| !row.pending_removal).map(|row| row.id).collect())
-            .unwrap_or_default()
+        self.inner.roster.get().map(|roster| lock(roster).list().into_iter().filter(|row| !row.pending_removal).map(|row| row.id).collect()).unwrap_or_default()
     }
 
     /// The paired devices with their roster rows (`id`, `browser`, `created_at`, ...), without
     /// those pending removal. Empty until `prepare()` has loaded the roster.
     pub fn paired_clients(&self) -> Vec<ClientInfo> {
-        self.inner
-            .roster
-            .get()
-            .map(|roster| lock(roster).list().into_iter().filter(|row| !row.pending_removal).collect())
-            .unwrap_or_default()
+        self.inner.roster.get().map(|roster| lock(roster).list().into_iter().filter(|row| !row.pending_removal).collect()).unwrap_or_default()
     }
 
     /// Whether an attached connection of the paired credential `client_id` is painting

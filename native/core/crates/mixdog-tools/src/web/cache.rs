@@ -13,9 +13,9 @@ use mixdog_rt::MaintenanceIo;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
-use tokio_util::sync::CancellationToken;
 use sha2::Digest;
 use sha2::Sha256;
+use tokio_util::sync::CancellationToken;
 
 const MAX_ENTRIES: usize = 500;
 const MAX_BYTES: usize = 8 * 1024 * 1024;
@@ -31,9 +31,7 @@ pub fn node_cache_key(namespace: &str, payload: &Value) -> String {
 /// Node `approxEntryBytes` without the key: the `JSON.stringify` length (UTF-16 units) of the
 /// entry Node stores, `{ cachedAt, expiresAt, payload }`.
 pub fn node_entry_size(payload: &Value, ttl: Duration) -> usize {
-    let cached_at = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(0));
+    let cached_at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(0));
     let expires_at = cached_at + u64::try_from(ttl.as_millis()).unwrap_or(0);
     let entry = json!({ "cachedAt": cached_at, "expiresAt": expires_at, "payload": payload });
     mixdog_js::utf16_len(&mixdog_js::json_stringify(&entry))
@@ -51,9 +49,7 @@ pub struct CacheFile {
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(0))
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |since| u64::try_from(since.as_millis()).unwrap_or(0))
 }
 
 /// Node `approxEntryBytes`: the key's length plus the entry's `JSON.stringify` length.
@@ -121,12 +117,7 @@ impl State {
     }
 
     fn prune_expired(&mut self, now: u64) -> bool {
-        let expired: Vec<String> = self
-            .entries
-            .iter()
-            .filter(|(_, entry)| entry_expired(entry, now))
-            .map(|(key, _)| key.clone())
-            .collect();
+        let expired: Vec<String> = self.entries.iter().filter(|(_, entry)| entry_expired(entry, now)).map(|(key, _)| key.clone()).collect();
         for key in &expired {
             self.remove(key);
         }
@@ -136,10 +127,7 @@ impl State {
 
 /// `entry.expiresAt && entry.expiresAt <= now`.
 fn entry_expired(entry: &Value, now: u64) -> bool {
-    entry
-        .get("expiresAt")
-        .and_then(Value::as_f64)
-        .is_some_and(|at| at != 0.0 && at <= now as f64)
+    entry.get("expiresAt").and_then(Value::as_f64).is_some_and(|at| at != 0.0 && at <= now as f64)
 }
 
 #[derive(Default)]
@@ -165,12 +153,7 @@ fn locked<T>(mutex: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
 
 impl NodeCache {
     pub fn new(file: Option<CacheFile>) -> Self {
-        Self {
-            file,
-            state: Mutex::new(State::default()),
-            loaded: tokio::sync::OnceCell::new(),
-            writer: Mutex::new(Writer::default()),
-        }
+        Self { file, state: Mutex::new(State::default()), loaded: tokio::sync::OnceCell::new(), writer: Mutex::new(Writer::default()) }
     }
 
     /// `loadCacheState`: read once, then drop what expired and enforce the bounds. A file that
@@ -181,13 +164,11 @@ impl NodeCache {
                 let stored = match &self.file {
                     Some(file) => {
                         let path = file.path.clone();
-                        on_lane(file.lane, move |lane| {
-                            mixdog_statefile::read_json(lane, &path, None, &mixdog_statefile::Opts::default())
-                        })
-                        .await
-                        .and_then(|read| read)
-                        .ok()
-                        .flatten()
+                        on_lane(file.lane, move |lane| mixdog_statefile::read_json(lane, &path, None, &mixdog_statefile::Opts::default()))
+                            .await
+                            .and_then(|read| read)
+                            .ok()
+                            .flatten()
                     }
                     None => None,
                 };
@@ -290,10 +271,8 @@ impl NodeCache {
         };
         let path = file.path.clone();
         let opts = mixdog_statefile::Opts { lock: true, fsync_dir: true, ..mixdog_statefile::Opts::default() };
-        let written = on_lane(file.lane, move |lane| {
-            mixdog_statefile::write_json(lane, &path, &doc, &opts).map(|_| ()).map_err(|error| error.to_string())
-        })
-        .await;
+        let written =
+            on_lane(file.lane, move |lane| mixdog_statefile::write_json(lane, &path, &doc, &opts).map(|_| ()).map_err(|error| error.to_string())).await;
         let Err(failure) = written.map_err(|error| error.to_string()).and_then(|inner| inner) else {
             return;
         };
@@ -313,13 +292,7 @@ impl NodeCache {
     }
 }
 
-async fn on_lane<T: Send + 'static>(
-    lane: MaintenanceIo,
-    work: impl FnOnce(&InLane<MaintenanceIo>) -> T + Send + 'static,
-) -> Result<T, std::io::Error> {
-    let job = lane
-        .submit_wait(&CancellationToken::new(), work)
-        .await
-        .map_err(|error| std::io::Error::other(format!("lane job was not queued: {error:?}")))?;
+async fn on_lane<T: Send + 'static>(lane: MaintenanceIo, work: impl FnOnce(&InLane<MaintenanceIo>) -> T + Send + 'static) -> Result<T, std::io::Error> {
+    let job = lane.submit_wait(&CancellationToken::new(), work).await.map_err(|error| std::io::Error::other(format!("lane job was not queued: {error:?}")))?;
     job.await.map_err(|_| std::io::Error::other("lane job was dropped"))
 }

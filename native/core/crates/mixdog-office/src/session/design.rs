@@ -7,11 +7,11 @@
 
 use std::path::Path;
 
+use mixdog_fsio::WriteProof;
 use mixdog_office_base::values::{plain_object, truthy};
 use mixdog_office_design::design_system::resolve_office_design;
 use mixdog_office_design::library::{Context, ResolveRequest, persist_office_design_binding, resolve_office_design_library};
 use mixdog_office_design::native_design::{native_office_design, uses_native_office_design};
-use mixdog_fsio::WriteProof;
 use serde_json::{Map, Value, json};
 
 use super::{DesignState, Session};
@@ -192,10 +192,7 @@ mod tests {
             Some(&json!({ "profile": "clean", "palette": { "a": 1, "b": 2 }, "typography": { "h": "x" } })),
             Some(&json!({ "profile": "bold", "palette": { "b": 3 }, "review": false })),
         );
-        assert_eq!(
-            mixdog_js::json_stringify(&merged),
-            r#"{"profile":"bold","palette":{"a":1,"b":3},"typography":{"h":"x"},"review":false}"#
-        );
+        assert_eq!(mixdog_js::json_stringify(&merged), r#"{"profile":"bold","palette":{"a":1,"b":3},"typography":{"h":"x"},"review":false}"#);
     }
 
     #[test]

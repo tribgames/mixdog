@@ -51,11 +51,7 @@ fn fdot(value: f32) -> i32 {
 /// `diff_to_shift`: how many halvings of a curve bring its distance from its chord under the accuracy Skia wants.
 fn diff_to_shift(dx: i32, dy: i32, shift_aa: i32) -> i32 {
     let (dx, dy) = (dx.abs(), dy.abs());
-    let dist = if dx > dy {
-        dx + (dy >> 1)
-    } else {
-        dy + (dx >> 1)
-    };
+    let dist = if dx > dy { dx + (dy >> 1) } else { dy + (dx >> 1) };
     let dist = (dist + (1 << 4)) >> (3 + shift_aa);
     let bits = 32 - (dist.max(0) as u32).leading_zeros() as i32;
     bits >> 1
@@ -75,11 +71,7 @@ fn valid_unit_divide(mut numer: f32, mut denom: f32) -> Option<f32> {
         return None;
     }
     let ratio = numer / denom;
-    if ratio.is_nan() || ratio == 0.0 {
-        None
-    } else {
-        Some(ratio)
-    }
+    if ratio.is_nan() || ratio == 0.0 { None } else { Some(ratio) }
 }
 
 /// `SkFindUnitQuadRoots`: the roots of `a t^2 + b t + c` strictly between 0 and 1, ascending and distinct.
@@ -95,11 +87,7 @@ fn unit_quad_roots(a: f32, b: f32, c: f32) -> Vec<f32> {
     if !root.is_finite() {
         return Vec::new();
     }
-    let q = if b < 0.0 {
-        -(b - root) / 2.0
-    } else {
-        -(b + root) / 2.0
-    };
+    let q = if b < 0.0 { -(b - root) / 2.0 } else { -(b + root) / 2.0 };
     let mut roots: Vec<f32> = Vec::new();
     roots.extend(valid_unit_divide(q, a));
     roots.extend(valid_unit_divide(c, q));
@@ -222,11 +210,7 @@ fn put(edges: &mut Vec<Edge>, a: (i32, i32), b: (i32, i32), down: bool) {
     put_slope(edges, a, b, down, slope);
 }
 fn put_slope(edges: &mut Vec<Edge>, a: (i32, i32), b: (i32, i32), down: bool, slope: i32) {
-    let (top, bottom, down) = if a.1 <= b.1 {
-        (a, b, down)
-    } else {
-        (b, a, !down)
-    };
+    let (top, bottom, down) = if a.1 <= b.1 { (a, b, down) } else { (b, a, !down) };
     let rise = (bottom.1 - top.1) >> 10;
     if rise == 0 {
         return;
@@ -242,10 +226,7 @@ fn put_slope(edges: &mut Vec<Edge>, a: (i32, i32), b: (i32, i32), down: bool, sl
     };
     edges.push(Edge {
         top,
-        bottom: (
-            top.0.wrapping_add(fixed_mul(slope, bottom.1 - top.1)),
-            bottom.1,
-        ),
+        bottom: (top.0.wrapping_add(fixed_mul(slope, bottom.1 - top.1)), bottom.1),
         dx: slope,
         dy,
         down,
@@ -307,14 +288,7 @@ fn quick_div(a: i32, b: i32) -> i32 {
 fn quad_edges(edges: &mut Vec<Edge>, piece: [Point; 3]) {
     let group = edges.len();
     let mut down = true;
-    let mut q = [
-        fdot(piece[0].0),
-        fdot(piece[0].1),
-        fdot(piece[1].0),
-        fdot(piece[1].1),
-        fdot(piece[2].0),
-        fdot(piece[2].1),
-    ];
+    let mut q = [fdot(piece[0].0), fdot(piece[0].1), fdot(piece[1].0), fdot(piece[1].1), fdot(piece[2].0), fdot(piece[2].1)];
     if q[1] > q[5] {
         q.swap(0, 4);
         q.swap(1, 5);
@@ -347,31 +321,19 @@ fn quad_edges(edges: &mut Vec<Edge>, piece: [Point; 3]) {
         if count > 0 {
             new_x = old_x.wrapping_add(cdx >> (shift - 1));
             new_y = old_y.wrapping_add(cdy >> (shift - 1));
-            if (cdy >> (shift - 1)).abs() >= 2 << 16
-                && (i64::from(cdy.abs()) << 6) > i64::from(cdx.abs())
-            {
+            if (cdy >> (shift - 1)).abs() >= 2 << 16 && (i64::from(cdy.abs()) << 6) > i64::from(cdx.abs()) {
                 let rise = (new_y - snapped_y) >> 10;
                 slope_y = new_y;
-                let slope = if rise != 0 {
-                    quick_div((new_x - snapped_x) >> 10, rise)
-                } else {
-                    i32::MAX
-                };
+                let slope = if rise != 0 { quick_div((new_x - snapped_x) >> 10, rise) } else { i32::MAX };
                 edge_slope = slope;
                 new_snapped_y = last_y.min((new_y.wrapping_add(0x8000)) & !0xFFFF);
-                new_snapped_x = new_x.wrapping_sub(
-                    ((i64::from(slope) * i64::from(new_y - new_snapped_y)) >> 16) as i32,
-                );
+                new_snapped_x = new_x.wrapping_sub(((i64::from(slope) * i64::from(new_y - new_snapped_y)) >> 16) as i32);
             } else {
                 new_snapped_y = last_y.min(snap_fixed(new_y));
                 new_snapped_x = new_x;
                 let rise = (new_snapped_y - snapped_y) >> 10;
                 slope_y = new_snapped_y;
-                edge_slope = if rise == 0 {
-                    i32::MAX
-                } else {
-                    quick_div((new_x - snapped_x) >> 10, rise)
-                };
+                edge_slope = if rise == 0 { i32::MAX } else { quick_div((new_x - snapped_x) >> 10, rise) };
             }
             cdx = cdx.wrapping_add(ddx);
             cdy = cdy.wrapping_add(ddy);
@@ -382,29 +344,14 @@ fn quad_edges(edges: &mut Vec<Edge>, piece: [Point; 3]) {
             new_snapped_x = new_x;
             let rise = (new_y - snapped_y) >> 10;
             slope_y = new_y;
-            edge_slope = if rise == 0 {
-                i32::MAX
-            } else {
-                quick_div((new_x - snapped_x) >> 10, rise)
-            };
+            edge_slope = if rise == 0 { i32::MAX } else { quick_div((new_x - snapped_x) >> 10, rise) };
         }
         if (new_snapped_y - snapped_y) >> 10 != 0 {
-            put_slope(
-                edges,
-                (snapped_x, snapped_y),
-                (new_snapped_x, new_snapped_y),
-                down,
-                edge_slope,
-            );
+            put_slope(edges, (snapped_x, snapped_y), (new_snapped_x, new_snapped_y), down, edge_slope);
             if let Some(e) = edges.last_mut() {
                 e.group = group;
-                e.step = CurveStep::Quad {
-                    to: (new_x, slope_y),
-                };
-                e.smooth = count > 0
-                    && (cdx.abs() >> 1) >= ddx.abs()
-                    && (cdy.abs() >> 1) >= ddy.abs()
-                    && ((cdy - ddy) >> (shift - 1)) >= ONE;
+                e.step = CurveStep::Quad { to: (new_x, slope_y) };
+                e.smooth = count > 0 && (cdx.abs() >> 1) >= ddx.abs() && (cdy.abs() >> 1) >= ddy.abs() && ((cdy - ddy) >> (shift - 1)) >= ONE;
             }
             snapped_x = new_snapped_x;
             snapped_y = new_snapped_y;
@@ -423,16 +370,8 @@ fn quad_edges(edges: &mut Vec<Edge>, piece: [Point; 3]) {
 fn cubic_edges(edges: &mut Vec<Edge>, piece: [Point; 4]) {
     let group = edges.len();
     let mut down = true;
-    let mut c = [
-        fdot(piece[0].0),
-        fdot(piece[0].1),
-        fdot(piece[1].0),
-        fdot(piece[1].1),
-        fdot(piece[2].0),
-        fdot(piece[2].1),
-        fdot(piece[3].0),
-        fdot(piece[3].1),
-    ];
+    let mut c =
+        [fdot(piece[0].0), fdot(piece[0].1), fdot(piece[1].0), fdot(piece[1].1), fdot(piece[2].0), fdot(piece[2].1), fdot(piece[3].0), fdot(piece[3].1)];
     if c[1] > c[7] {
         c.swap(0, 6);
         c.swap(1, 7);
@@ -444,10 +383,7 @@ fn cubic_edges(edges: &mut Vec<Edge>, piece: [Point; 4]) {
     if ((y0 + 32) >> 6) == ((y3 + 32) >> 6) {
         return;
     }
-    let (dx, dy) = (
-        cubic_delta_from_line(x0, x1, x2, x3),
-        cubic_delta_from_line(y0, y1, y2, y3),
-    );
+    let (dx, dy) = (cubic_delta_from_line(x0, x1, x2, x3), cubic_delta_from_line(y0, y1, y2, y3));
     let shift = (diff_to_shift(dx, dy, 2) + 1).min(6);
     let (mut up_shift, mut down_shift) = (6, shift + 6 - 10);
     if down_shift < 0 {
@@ -574,40 +510,20 @@ fn axis_rect(path: &Path) -> Option<(f32, f32, f32, f32)> {
     if points.len() == 5 && points[4] == points[0] {
         points.pop();
     }
-    if points.len() != 4
-        || !(0..4)
-            .all(|i| points[i].0 == points[(i + 1) % 4].0 || points[i].1 == points[(i + 1) % 4].1)
-    {
+    if points.len() != 4 || !(0..4).all(|i| points[i].0 == points[(i + 1) % 4].0 || points[i].1 == points[(i + 1) % 4].1) {
         return None;
     }
-    let (left, right) = (
-        points.iter().map(|p| p.0).fold(f32::INFINITY, f32::min),
-        points.iter().map(|p| p.0).fold(f32::NEG_INFINITY, f32::max),
-    );
-    let (top, bottom) = (
-        points.iter().map(|p| p.1).fold(f32::INFINITY, f32::min),
-        points.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max),
-    );
-    if (right.floor() - left.ceil()) < 1.0
-        || points[0].0 == points[2].0
-        || points[0].1 == points[2].1
-    {
+    let (left, right) = (points.iter().map(|p| p.0).fold(f32::INFINITY, f32::min), points.iter().map(|p| p.0).fold(f32::NEG_INFINITY, f32::max));
+    let (top, bottom) = (points.iter().map(|p| p.1).fold(f32::INFINITY, f32::min), points.iter().map(|p| p.1).fold(f32::NEG_INFINITY, f32::max));
+    if (right.floor() - left.ceil()) < 1.0 || points[0].0 == points[2].0 || points[0].1 == points[2].1 {
         return None;
     }
     Some((left, top, right, bottom))
 }
 
 /// `AntiFillRect`: the share of each pixel the rectangle covers, in 255ths, rounded down.
-fn exact_rect(
-    rect: (f32, f32, f32, f32),
-    left: usize,
-    top: usize,
-    width: usize,
-    height: usize,
-) -> Raster {
-    let overlap = |from: f32, to: f32, at: usize| {
-        (to.min(at as f32 + 1.0) - from.max(at as f32)).clamp(0.0, 1.0)
-    };
+fn exact_rect(rect: (f32, f32, f32, f32), left: usize, top: usize, width: usize, height: usize) -> Raster {
+    let overlap = |from: f32, to: f32, at: usize| (to.min(at as f32 + 1.0) - from.max(at as f32)).clamp(0.0, 1.0);
     let mut data = vec![0_u8; width * height];
     for row in 0..height {
         let vertical = overlap(rect.1, rect.3, top + row);
@@ -616,23 +532,12 @@ fn exact_rect(
             data[row * width + column] = (share * 255.0 + 0.001) as u8;
         }
     }
-    Raster {
-        left,
-        top,
-        width,
-        height,
-        data,
-    }
+    Raster { left, top, width, height, data }
 }
 
 /// The coverage of `path` in device pixels, computed by fixed-point winding intervals
 /// and the pinned Skia row blitter; `None` when the path touches no pixel.
-pub(crate) fn coverage(
-    path: &Path,
-    rule: FillRule,
-    canvas_width: usize,
-    canvas_height: usize,
-) -> Option<Raster> {
+pub(crate) fn coverage(path: &Path, rule: FillRule, canvas_width: usize, canvas_height: usize) -> Option<Raster> {
     let bounds = path.bounds();
     let left = (bounds.left().floor().max(0.0) as usize).min(canvas_width);
     let right = (bounds.right().ceil().max(0.0) as usize).min(canvas_width);
@@ -645,13 +550,7 @@ pub(crate) fn coverage(
     if let Some(rect) = axis_rect(path) {
         return Some(exact_rect(rect, left, top, width, height));
     }
-    let mut raster = Raster {
-        left,
-        top,
-        width,
-        height,
-        data: vec![0; width * height],
-    };
+    let mut raster = Raster { left, top, width, height, data: vec![0; width * height] };
     let edges = edges(path);
     if convex(path) && edges.len() >= 2 {
         walk_convex(&mut raster, edges);
@@ -791,9 +690,7 @@ fn walk_convex(raster: &mut Raster, edges: Vec<Edge>) {
                 if side[k].1 + 1 < groups[side[k].0].len() {
                     side[k].1 += 1;
                 } else {
-                    if pending >= groups.len()
-                        || edges[groups[pending][0]].top.1 >> 16 >= stop >> 16
-                    {
+                    if pending >= groups.len() || edges[groups[pending][0]].top.1 >> 16 >= stop >> 16 {
                         return;
                     }
                     side[k] = (pending, 0);
@@ -826,8 +723,7 @@ fn walk_convex(raster: &mut Raster, edges: Vec<Edge>) {
                 e.smooth
             } else {
                 let n = &edges[groups[successor][0]];
-                n.dx.saturating_sub(e.dx).unsigned_abs() <= ONE as u32
-                    && n.bottom.1 - n.top.1 >= ONE
+                n.dx.saturating_sub(e.dx).unsigned_abs() <= ONE as u32 && n.bottom.1 - n.top.1 >= ONE
             }
         };
         if pending < groups.len() && edges[groups[pending][0]].top.1 < stop {
@@ -837,11 +733,7 @@ fn walk_convex(raster: &mut Raster, edges: Vec<Edge>) {
                 smooth(1, pending)
             } else if pending + 1 < groups.len() && edges[groups[pending + 1][0]].top.1 < stop {
                 let (a, b) =
-                    if edges[groups[pending + 1][0]].top.0 < edges[groups[pending][0]].top.0 {
-                        (pending + 1, pending)
-                    } else {
-                        (pending, pending + 1)
-                    };
+                    if edges[groups[pending + 1][0]].top.0 < edges[groups[pending][0]].top.0 { (pending + 1, pending) } else { (pending, pending + 1) };
                 smooth(0, a) && smooth(1, b)
             } else {
                 false
@@ -864,15 +756,8 @@ fn walk_convex(raster: &mut Raster, edges: Vec<Edge>) {
                 if y >> 16 >= raster.top as i32 && right > left {
                     let from = left >> 16;
                     let to = ceil_int(right);
-                    let mut row = Row {
-                        raster,
-                        y: y >> 16,
-                        full: fixed_alpha(h),
-                        no_real: false,
-                    };
-                    for px in from.max(row.raster.left as i32)
-                        ..to.min((row.raster.left + row.raster.width) as i32)
-                    {
+                    let mut row = Row { raster, y: y >> 16, full: fixed_alpha(h), no_real: false };
+                    for px in from.max(row.raster.left as i32)..to.min((row.raster.left + row.raster.width) as i32) {
                         let width = right.min((px + 1) << 16) - left.max(px << 16);
                         row.pixel(px, fixed_alpha(fixed_mul(h, width)), false);
                     }
@@ -890,12 +775,7 @@ fn walk_convex(raster: &mut Raster, edges: Vec<Edge>) {
                 let mask = !((ONE >> 4) - 1);
                 if y >> 16 >= raster.top as i32 {
                     trapezoid(
-                        &mut Row {
-                            raster,
-                            y: y >> 16,
-                            full: fixed_alpha(h),
-                            no_real: false,
-                        },
+                        &mut Row { raster, y: y >> 16, full: fixed_alpha(h), no_real: false },
                         left & mask,
                         right & mask,
                         nl & mask,
@@ -948,40 +828,23 @@ struct Row<'a> {
 }
 impl Row<'_> {
     fn pixel(&mut self, x: i32, alpha: u8, replace: bool) {
-        let (x, y) = (
-            i64::from(x) - self.raster.left as i64,
-            i64::from(self.y) - self.raster.top as i64,
-        );
+        let (x, y) = (i64::from(x) - self.raster.left as i64, i64::from(self.y) - self.raster.top as i64);
         if x < 0 || y < 0 || x >= self.raster.width as i64 || y >= self.raster.height as i64 {
             return;
         }
         let value = &mut self.raster.data[y as usize * self.raster.width + x as usize];
-        *value = if replace {
-            alpha
-        } else {
-            value.saturating_add(alpha)
-        };
+        *value = if replace { alpha } else { value.saturating_add(alpha) };
     }
     fn single(&mut self, x: i32, alpha: u8) {
         let replace = self.full == 255 && !self.no_real;
-        self.pixel(
-            x,
-            if replace {
-                alpha
-            } else {
-                partial(alpha, self.full)
-            },
-            replace,
-        );
+        self.pixel(x, if replace { alpha } else { partial(alpha, self.full) }, replace);
     }
     fn pair(&mut self, x: i32, a: u8, b: u8) {
         self.pixel(x, a, false);
         self.pixel(x + 1, b, false);
     }
     fn full(&mut self, from: i32, to: i32) {
-        for x in
-            from.max(self.raster.left as i32)..to.min((self.raster.left + self.raster.width) as i32)
-        {
+        for x in from.max(self.raster.left as i32)..to.min((self.raster.left + self.raster.width) as i32) {
             self.pixel(x, self.full, false);
         }
     }
@@ -996,14 +859,7 @@ fn line_alphas(l: i32, r: i32, dy: i32, full: u8, above: bool) -> Vec<u8> {
         return out;
     }
     if count == 1 {
-        out[0] = partial(
-            if above {
-                ((2 * ONE - l - r) >> 9) as u8
-            } else {
-                trapezoid_alpha(l, r)
-            },
-            full,
-        );
+        out[0] = partial(if above { ((2 * ONE - l - r) >> 9) as u8 } else { trapezoid_alpha(l, r) }, full);
     } else {
         let first = ONE - l;
         let last = r - ((count as i32 - 1) << 16);
@@ -1048,10 +904,7 @@ fn aaa_trapezoid(row: &mut Row<'_>, ul: i32, ur: i32, ll: i32, lr: i32, ldy: i32
         alphas[0] = alphas[0].saturating_sub(row.full.wrapping_sub(triangle_alpha(first, ldy)));
         alphas[1] = alphas[1].saturating_sub(triangle_alpha(second, ldy));
     } else {
-        for (i, a) in line_alphas(ul - (u_l << 16), ll - (u_l << 16), ldy, row.full, false)
-            .into_iter()
-            .enumerate()
-        {
+        for (i, a) in line_alphas(ul - (u_l << 16), ll - (u_l << 16), ldy, row.full, false).into_iter().enumerate() {
             if let Some(value) = alphas.get_mut((u_l - left) as usize + i) {
                 *value = value.saturating_sub(a);
             }
@@ -1061,15 +914,10 @@ fn aaa_trapezoid(row: &mut Row<'_>, ul: i32, ur: i32, ll: i32, lr: i32, ldy: i32
     if u_r + 2 == l_r {
         let first = (u_r << 16) + ONE - ur;
         let second = lr - ur - first;
-        alphas[len as usize - 2] =
-            alphas[len as usize - 2].saturating_sub(triangle_alpha(first, rdy));
-        alphas[len as usize - 1] = alphas[len as usize - 1]
-            .saturating_sub(row.full.wrapping_sub(triangle_alpha(second, rdy)));
+        alphas[len as usize - 2] = alphas[len as usize - 2].saturating_sub(triangle_alpha(first, rdy));
+        alphas[len as usize - 1] = alphas[len as usize - 1].saturating_sub(row.full.wrapping_sub(triangle_alpha(second, rdy)));
     } else {
-        for (i, a) in line_alphas(ur - (u_r << 16), lr - (u_r << 16), rdy, row.full, true)
-            .into_iter()
-            .enumerate()
-        {
+        for (i, a) in line_alphas(ur - (u_r << 16), lr - (u_r << 16), rdy, row.full, true).into_iter().enumerate() {
             if let Some(value) = alphas.get_mut((u_r - left) as usize + i) {
                 *value = value.saturating_sub(a);
             }
@@ -1080,15 +928,7 @@ fn aaa_trapezoid(row: &mut Row<'_>, ul: i32, ur: i32, ll: i32, lr: i32, ldy: i32
     }
 }
 
-fn trapezoid(
-    row: &mut Row<'_>,
-    mut ul: i32,
-    mut ur: i32,
-    mut ll: i32,
-    mut lr: i32,
-    ldy: i32,
-    rdy: i32,
-) {
+fn trapezoid(row: &mut Row<'_>, mut ul: i32, mut ur: i32, mut ll: i32, mut lr: i32, ldy: i32, rdy: i32) {
     if ul > ur {
         return;
     }
@@ -1121,11 +961,7 @@ fn trapezoid(
             2 => {
                 let first = join_l - ONE - ul;
                 let second = ll - ul - first;
-                row.pair(
-                    ul >> 16,
-                    triangle_alpha(first, ldy),
-                    row.full.wrapping_sub(triangle_alpha(second, ldy)),
-                );
+                row.pair(ul >> 16, triangle_alpha(first, ldy), row.full.wrapping_sub(triangle_alpha(second, ldy)));
             }
             _ => aaa_trapezoid(row, ul, join_l, ll, join_l, ldy, i32::MAX),
         }
@@ -1139,11 +975,7 @@ fn trapezoid(
             2 => {
                 let first = join_r + ONE - ur;
                 let second = lr - ur - first;
-                row.pair(
-                    join_r >> 16,
-                    row.full.wrapping_sub(triangle_alpha(first, rdy)),
-                    triangle_alpha(second, rdy),
-                );
+                row.pair(join_r >> 16, row.full.wrapping_sub(triangle_alpha(first, rdy)), triangle_alpha(second, rdy));
             }
             _ => aaa_trapezoid(row, join_r, ur, join_r, lr, i32::MAX, rdy),
         }
@@ -1169,15 +1001,13 @@ impl Edge {
                     return;
                 }
                 self.dx = quick_div((to.0 - start_x) >> 10, slope_rise);
-                self.raw_bottom.0 =
-                    to.0.wrapping_sub(fixed_mul(self.dx, to.1 - self.raw_bottom.1));
+                self.raw_bottom.0 = to.0.wrapping_sub(fixed_mul(self.dx, to.1 - self.raw_bottom.1));
             }
             CurveStep::Cubic { last } => {
                 if !last {
                     self.raw_bottom.0 = self.raw_bottom.0.wrapping_add(dx);
                 }
-                self.dx = ((i64::from((self.raw_bottom.0 - start_x) >> 10) << 16) / i64::from(rise))
-                    as i32;
+                self.dx = ((i64::from((self.raw_bottom.0 - start_x) >> 10) << 16) / i64::from(rise)) as i32;
             }
         }
         let run = (self.raw_bottom.0 - start_x) >> 10;
@@ -1206,10 +1036,7 @@ fn insert_new_edge_after_cursor(active: &mut Vec<(usize, i32)>, edge: (usize, i3
 }
 
 fn walk_edges(raster: &mut Raster, mut edges: Vec<Edge>, rule: FillRule, skip_intersect: bool) {
-    let (clip_l, clip_r) = (
-        (raster.left as i32) << 16,
-        ((raster.left + raster.width) as i32) << 16,
-    );
+    let (clip_l, clip_r) = ((raster.left as i32) << 16, ((raster.left + raster.width) as i32) << 16);
     let stop = ((raster.top + raster.height) as i32) << 16;
     let mut final_x = vec![None; edges.len()];
     edges.sort_by_key(|e| (e.top.1, e.top.0, e.dx));
@@ -1265,9 +1092,8 @@ fn walk_edges(raster: &mut Raster, mut edges: Vec<Edge>, rule: FillRule, skip_in
                     inserted_intersection |= i64::from(px) + i64::from(edges[previous].dx) > i64::from(x) + i64::from(edges[i].dx);
                 }
                 if backward {
-                    let next_edge = active.get(at + 1).map(|&(j, nx)| (nx, edges[j].dx))
-                        .or_else(|| inserted.get(n + 1).map(|&(j, nx)| (nx, edges[j].dx)))
-                        .or(future);
+                    let next_edge =
+                        active.get(at + 1).map(|&(j, nx)| (nx, edges[j].dx)).or_else(|| inserted.get(n + 1).map(|&(j, nx)| (nx, edges[j].dx))).or(future);
                     if let Some((nx, ndx)) = next_edge {
                         inserted_intersection |= i64::from(x) + i64::from(edges[i].dx) > i64::from(nx) + i64::from(ndx);
                     }
@@ -1307,17 +1133,9 @@ fn walk_edges(raster: &mut Raster, mut edges: Vec<Edge>, rule: FillRule, skip_in
             let (i, x) = active[pos];
             let e = &edges[i];
             let new_x = x.wrapping_add(e.dx >> shift);
-            let was_inside = if rule == FillRule::EvenOdd {
-                winding & 1 != 0
-            } else {
-                winding != 0
-            };
+            let was_inside = if rule == FillRule::EvenOdd { winding & 1 != 0 } else { winding != 0 };
             winding += if e.down { 1 } else { -1 };
-            let inside = if rule == FillRule::EvenOdd {
-                winding & 1 != 0
-            } else {
-                winding != 0
-            };
+            let inside = if rule == FillRule::EvenOdd { winding & 1 != 0 } else { winding != 0 };
             if inside && !was_inside {
                 left = Some((i, x.max(clip_l), new_x.max(clip_l)));
             }
@@ -1325,26 +1143,10 @@ fn walk_edges(raster: &mut Raster, mut edges: Vec<Edge>, rule: FillRule, skip_in
                 if let Some((li, ul, ll)) = left.take() {
                     let ur = x.min(clip_r);
                     let lr = new_x.min(clip_r);
-                    let next_close = active.get(pos + 1).is_some_and(|&(ni, nx)| {
-                        i64::from(x) + i64::from(ONE)
-                            >= i64::from(nx) - i64::from(edges[ni].dx).abs()
-                    });
-                    let no_real = full == 255
-                        && (previous_right > ul >> 16 || previous_right > ll >> 16 || next_close);
-                    trapezoid(
-                        &mut Row {
-                            raster,
-                            y: y >> 16,
-                            full,
-                            no_real,
-                        },
-                        ul,
-                        ur,
-                        ll,
-                        lr,
-                        edges[li].dy,
-                        e.dy,
-                    );
+                    let next_close =
+                        active.get(pos + 1).is_some_and(|&(ni, nx)| i64::from(x) + i64::from(ONE) >= i64::from(nx) - i64::from(edges[ni].dx).abs());
+                    let no_real = full == 255 && (previous_right > ul >> 16 || previous_right > ll >> 16 || next_close);
+                    trapezoid(&mut Row { raster, y: y >> 16, full, no_real }, ul, ur, ll, lr, edges[li].dy, e.dy);
                     previous_right = ceil_int(ur.max(new_x));
                 }
             }
@@ -1483,9 +1285,11 @@ mod tests {
         builder.quad_to(0.60595703, 0.18261719, 0.62036133, 0.234375);
         builder.quad_to(0.63476562, 0.28613281, 0.63476562, 0.34716797);
         builder.close();
-        let path = builder.finish().expect("Q path").transform(tiny_skia::Transform::from_row(
-            17.201988, 0.0, 0.0, -17.201988, 83.87689, 840.62897,
-        )).expect("device Q");
+        let path = builder
+            .finish()
+            .expect("Q path")
+            .transform(tiny_skia::Transform::from_row(17.201988, 0.0, 0.0, -17.201988, 83.87689, 840.62897))
+            .expect("device Q");
         let raster = coverage(&path, FillRule::Winding, 640, 906).expect("Q coverage");
         assert_eq!(at(&raster, 96, 832), 23);
     }
@@ -1528,7 +1332,6 @@ mod tests {
         assert_eq!(at(&raster, 7, 15), 255);
         assert_eq!(at(&raster, 15, 15), 0);
     }
-
 
     #[test]
     fn a_vertical_edge_leaves_the_exact_share_of_its_pixel_held_to_a_256th() {

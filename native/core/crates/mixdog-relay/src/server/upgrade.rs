@@ -9,9 +9,9 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use bytes::Bytes;
 use tokio::io::AsyncWriteExt;
 
+use crate::hook::HookHub;
 use crate::http1::util::{client_ip, request_url};
 use crate::http1::{HeaderValue, Headers, PrefixedIo, UpgradeRequest, refusal_bytes};
-use crate::hook::HookHub;
 use crate::legs::desktop::run_desktop_leg;
 use crate::legs::hub::Hub;
 use crate::legs::phone::{PhoneLegs, PhoneRequest};

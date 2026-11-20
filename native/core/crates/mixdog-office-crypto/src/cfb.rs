@@ -101,13 +101,7 @@ struct Chain {
 
 impl Chain {
     fn new(first: u32, limit: u64) -> Self {
-        Self {
-            first,
-            limit,
-            sectors: Vec::new(),
-            seen: HashSet::new(),
-            ended: false,
-        }
+        Self { first, limit, sectors: Vec::new(), seen: HashSet::new(), ended: false }
     }
 
     fn get<R: Read + Seek>(&mut self, file: &mut CompoundFile<R>, index: usize) -> Result<Option<u32>> {
@@ -165,9 +159,7 @@ pub struct CompoundFile<R> {
 impl<R: Read + Seek> CompoundFile<R> {
     /// Reads the header and the directory sector chain, and lists the streams directly under the root storage.
     pub fn open(mut reader: R) -> Result<Self> {
-        let file_size = reader
-            .seek(SeekFrom::End(0))
-            .map_err(|_| CfbError::new("truncated compound file"))?;
+        let file_size = reader.seek(SeekFrom::End(0)).map_err(|_| CfbError::new("truncated compound file"))?;
         let header = read_exactly(&mut reader, file_size, 0, HEADER_SIZE as u64)?;
         let major_version = u16_at(&header, 26);
         let sector_shift = u16_at(&header, 30);
@@ -195,15 +187,7 @@ impl<R: Read + Seek> CompoundFile<R> {
         if fat_sector_count.max(mini_fat_sector_count).max(difat_sector_count) > sectors_in_file {
             return refuse("sector counts beyond the file");
         }
-        let placeholder = Entry {
-            name: String::new(),
-            kind: 0,
-            left: 0,
-            right: 0,
-            child: 0,
-            start: 0,
-            size: 0,
-        };
+        let placeholder = Entry { name: String::new(), kind: 0, left: 0, right: 0, child: 0, start: 0, size: 0 };
         let mut file = Self {
             reader,
             file_size,
@@ -275,10 +259,7 @@ impl<R: Read + Seek> CompoundFile<R> {
         if name_bytes > 64 {
             return refuse("directory entry name too long");
         }
-        let units: Vec<u16> = directory[at..at + name_bytes.saturating_sub(2)]
-            .chunks_exact(2)
-            .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-            .collect();
+        let units: Vec<u16> = directory[at..at + name_bytes.saturating_sub(2)].chunks_exact(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).collect();
         Ok(Entry {
             name: stream_key(&String::from_utf16_lossy(&units)),
             kind: directory[at + 66],
@@ -287,11 +268,7 @@ impl<R: Read + Seek> CompoundFile<R> {
             child: u32_at(directory, at + 76),
             start: u32_at(directory, at + 116),
             // Version 3 files may leave the high half of the size uninitialized; it is ignored there.
-            size: if self.major_version == 3 {
-                u64::from(u32_at(directory, at + 120))
-            } else {
-                u64_at(directory, at + 120)
-            },
+            size: if self.major_version == 3 { u64::from(u32_at(directory, at + 120)) } else { u64_at(directory, at + 120) },
         })
     }
 
@@ -299,12 +276,7 @@ impl<R: Read + Seek> CompoundFile<R> {
         if sector > MAX_REGULAR_SECTOR || u64::from(sector) >= self.sectors_in_file {
             return refuse("sector number out of range");
         }
-        read_exactly(
-            &mut self.reader,
-            self.file_size,
-            (u64::from(sector) + 1) * self.sector_size + offset,
-            length,
-        )
+        read_exactly(&mut self.reader, self.file_size, (u64::from(sector) + 1) * self.sector_size + offset, length)
     }
 
     fn read_u32(&mut self, sector: u32, offset: u64) -> Result<u32> {

@@ -3,17 +3,16 @@
 //! sent PNG).
 
 use std::ffi::c_void;
-use windows::core::{GUID, PWSTR};
 use windows::Win32::Foundation::HGLOBAL;
 use windows::Win32::Graphics::Imaging::{
-    CLSID_WICImagingFactory, GUID_ContainerFormatJpeg, GUID_WICPixelFormat24bppBGR, IWICImagingFactory,
-    WICBitmapEncoderNoCache,
+    CLSID_WICImagingFactory, GUID_ContainerFormatJpeg, GUID_WICPixelFormat24bppBGR, IWICImagingFactory, WICBitmapEncoderNoCache,
 };
 use windows::Win32::System::Com::{
-    CoCreateInstance, StructuredStorage::{CreateStreamOnHGlobal, PROPBAG2}, CLSCTX_INPROC_SERVER,
-    STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET,
+    CLSCTX_INPROC_SERVER, CoCreateInstance, STATFLAG_NONAME, STATSTG, STREAM_SEEK_SET,
+    StructuredStorage::{CreateStreamOnHGlobal, PROPBAG2},
 };
 use windows::Win32::System::Variant::VARIANT;
+use windows::core::{GUID, PWSTR};
 
 /// An encoded image: its MIME type and bytes.
 pub type Encoded = (&'static str, Vec<u8>);
@@ -25,10 +24,7 @@ pub fn encode(rgba: &[u8], width: u32, height: u32, quality: u8) -> Option<Encod
 }
 
 /// A JPEG that came out empty is as good as one that failed.
-fn choose(
-    jpeg: Result<Vec<u8>, String>,
-    png: impl FnOnce() -> Result<Vec<u8>, String>,
-) -> Option<Encoded> {
+fn choose(jpeg: Result<Vec<u8>, String>, png: impl FnOnce() -> Result<Vec<u8>, String>) -> Option<Encoded> {
     match jpeg {
         Ok(bytes) if !bytes.is_empty() => Some(("image/jpeg", bytes)),
         _ => png().ok().map(|bytes| ("image/png", bytes)),
@@ -61,24 +57,16 @@ fn jpeg(rgba: &[u8], width: u32, height: u32, quality: u8) -> Result<Vec<u8>, St
         return Err("wic: frame size does not match its pixels".into());
     }
     unsafe {
-        let factory: IWICImagingFactory =
-            CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER).map_err(wic)?;
+        let factory: IWICImagingFactory = CoCreateInstance(&CLSID_WICImagingFactory, None, CLSCTX_INPROC_SERVER).map_err(wic)?;
         let stream = CreateStreamOnHGlobal(HGLOBAL::default(), true).map_err(wic)?;
-        let encoder = factory
-            .CreateEncoder(&GUID_ContainerFormatJpeg, std::ptr::null::<GUID>())
-            .map_err(wic)?;
+        let encoder = factory.CreateEncoder(&GUID_ContainerFormatJpeg, std::ptr::null::<GUID>()).map_err(wic)?;
         encoder.Initialize(&stream, WICBitmapEncoderNoCache).map_err(wic)?;
         let (mut frame, mut options) = (None, None);
         encoder.CreateNewFrame(&mut frame, &mut options).map_err(wic)?;
         let (frame, options) = frame.zip(options).ok_or("wic: no frame encoder")?;
         let mut name: Vec<u16> = "ImageQuality\0".encode_utf16().collect();
-        let property = PROPBAG2 {
-            pstrName: PWSTR(name.as_mut_ptr()),
-            ..Default::default()
-        };
-        options
-            .Write(1, &property, &VARIANT::from(f32::from(quality.min(100)) / 100.0))
-            .map_err(wic)?;
+        let property = PROPBAG2 { pstrName: PWSTR(name.as_mut_ptr()), ..Default::default() };
+        options.Write(1, &property, &VARIANT::from(f32::from(quality.min(100)) / 100.0)).map_err(wic)?;
         frame.Initialize(&options).map_err(wic)?;
         frame.SetSize(width, height).map_err(wic)?;
         let mut format = GUID_WICPixelFormat24bppBGR;
@@ -94,10 +82,7 @@ fn jpeg(rgba: &[u8], width: u32, height: u32, quality: u8) -> Result<Vec<u8>, St
         stream.Seek(0, STREAM_SEEK_SET, None).map_err(wic)?;
         let mut bytes = vec![0u8; stat.cbSize as usize];
         let mut read = 0u32;
-        stream
-            .Read(bytes.as_mut_ptr() as *mut c_void, bytes.len() as u32, Some(&mut read))
-            .ok()
-            .map_err(wic)?;
+        stream.Read(bytes.as_mut_ptr() as *mut c_void, bytes.len() as u32, Some(&mut read)).ok().map_err(wic)?;
         bytes.truncate(read as usize);
         Ok(bytes)
     }
@@ -106,12 +91,10 @@ fn jpeg(rgba: &[u8], width: u32, height: u32, quality: u8) -> Result<Vec<u8>, St
 #[cfg(test)]
 mod tests {
     use super::*;
-    use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
+    use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
 
     fn rgba(width: usize, height: usize) -> Vec<u8> {
-        (0..width * height)
-            .flat_map(|i| [(i % width) as u8 * 8, (i / width) as u8 * 8, 90, 255])
-            .collect()
+        (0..width * height).flat_map(|i| [(i % width) as u8 * 8, (i / width) as u8 * 8, 90, 255]).collect()
     }
 
     #[test]

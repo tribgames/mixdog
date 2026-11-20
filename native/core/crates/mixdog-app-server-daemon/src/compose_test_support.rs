@@ -139,9 +139,9 @@ pub(crate) struct Setup {
 impl Setup {
     /// The composed tests': `pg_ctl` of `MIXDOG_PG_RUNTIME`.
     fn composed() -> Self {
-        let pg_ctl = std::env::var_os("MIXDOG_PG_RUNTIME").map(PathBuf::from).map(|runtime| {
-            (runtime.join("bin").join(if cfg!(windows) { "pg_ctl.exe" } else { "pg_ctl" }), runtime.join("lib"))
-        });
+        let pg_ctl = std::env::var_os("MIXDOG_PG_RUNTIME")
+            .map(PathBuf::from)
+            .map(|runtime| (runtime.join("bin").join(if cfg!(windows) { "pg_ctl.exe" } else { "pg_ctl" }), runtime.join("lib")));
         Self { budget: BUDGET, pg_ctl, fault: None, lost: Duration::ZERO }
     }
 }
@@ -374,7 +374,9 @@ pub(crate) fn run(test: &str, setup: &Setup) -> Report {
         }
     } else {
         let why = if heard.output_closed { "ended its output before it reached its gate" } else { "did not reach its gate by the start step's deadline" };
-        report.failures.push(format!("the start step: the child (pid {pid}) {why} (share {} s); it was killed and never put in its process tree", budget.start));
+        report
+            .failures
+            .push(format!("the start step: the child (pid {pid}) {why} (share {} s); it was killed and never put in its process tree", budget.start));
         let _ = child.kill();
         false
     };
@@ -391,8 +393,11 @@ pub(crate) fn run(test: &str, setup: &Setup) -> Report {
         }
         let ended = heard.wait(&events, clock.step(budget.child), |heard| heard.exited.is_some() || heard.marker);
         if !ended || heard.marker {
-            let why =
-                if heard.marker { "was killed at its test's request".to_owned() } else { format!("ran over the child step's time (share {} s) and was killed", budget.child) };
+            let why = if heard.marker {
+                "was killed at its test's request".to_owned()
+            } else {
+                format!("ran over the child step's time (share {} s) and was killed", budget.child)
+            };
             report.failures.push(format!("the child step: the child (pid {pid}) {why} with its process tree{}", kill_failure(tree.kill(setup.fault))));
             killed = true;
         }
@@ -403,7 +408,9 @@ pub(crate) fn run(test: &str, setup: &Setup) -> Report {
     heard.wait(&events, ending_deadline, |heard| heard.exited.is_some());
     let child_ended = matches!(heard.exited, Some(Ok(())));
     match &heard.exited {
-        None => report.failures.push(format!("the ending step: the child (pid {pid}) was still running when the step's time ran out (share {} s)", budget.ending)),
+        None => {
+            report.failures.push(format!("the ending step: the child (pid {pid}) was still running when the step's time ran out (share {} s)", budget.ending))
+        }
         Some(Err(error)) => report.failures.push(format!("the ending step: the child (pid {pid}) could not be waited for: {error}")),
         Some(Ok(())) => {}
     }
@@ -413,7 +420,8 @@ pub(crate) fn run(test: &str, setup: &Setup) -> Report {
     let mut tree_ended = false;
     if held {
         // A kill this step makes keeps the grace it may need.
-        let mut emptied = tree.wait_empty(if killed { ending_deadline } else { ending_deadline.checked_sub(KILL_GRACE).unwrap_or(ending_deadline) }, child_ended);
+        let mut emptied =
+            tree.wait_empty(if killed { ending_deadline } else { ending_deadline.checked_sub(KILL_GRACE).unwrap_or(ending_deadline) }, child_ended);
         if emptied.is_err() && !killed {
             report.failures.push(format!(
                 "the ending step: processes the child started were still running after it ended ({}); its process tree was killed{}",
@@ -426,13 +434,19 @@ pub(crate) fn run(test: &str, setup: &Setup) -> Report {
         match emptied {
             Ok(()) => tree_ended = child_ended,
             Err(error) => {
-                report.failures.push(format!("the ending step: the child's process tree was not proven empty when the step's time ran out (share {} s): {error}", budget.ending));
+                report.failures.push(format!(
+                    "the ending step: the child's process tree was not proven empty when the step's time ran out (share {} s): {error}",
+                    budget.ending
+                ));
                 report.left.push(tree.describe());
             }
         }
         report.job_processes = tree.processes_ever();
         if !heard.wait(&events, ending_deadline, |heard| heard.output_closed) {
-            report.failures.push(format!("the ending step: the child's output was still held open by a process it started when the step's time ran out (share {} s)", budget.ending));
+            report.failures.push(format!(
+                "the ending step: the child's output was still held open by a process it started when the step's time ran out (share {} s)",
+                budget.ending
+            ));
             report.left.push("a process holding the child's output (outside its process tree)".to_owned());
             tree_ended = false;
         }
@@ -755,7 +769,9 @@ fn examine_clusters(dir: &Path, setup: &Setup, deadline: Instant, trust_not_runn
                 Err("pg_ctl status says no server runs, which does not prove it after this end (a postmaster may still be starting)".to_owned())
             }
             Ok(output) if output.status.success() => {
-                report.failures.push(format!("the clusters step: a cluster was still running in {shown} after the child ended; it is stopped by its data directory"));
+                report
+                    .failures
+                    .push(format!("the clusters step: a cluster was still running in {shown} after the child ended; it is stopped by its data directory"));
                 if time_left() {
                     let seconds = deadline.saturating_duration_since(Instant::now()).saturating_sub(KILL_GRACE).as_secs().max(1).to_string();
                     let stop = pg(&["stop", "-m", "fast", "-w", "-t", &seconds]);
@@ -863,7 +879,12 @@ impl Tree {
         // SAFETY: the job handle is valid and each structure is passed with its own size.
         let set = unsafe {
             SetInformationJobObject(job, JobObjectExtendedLimitInformation, std::ptr::addr_of!(limits).cast(), std::mem::size_of_val(&limits) as u32) != 0
-                && SetInformationJobObject(job, JobObjectAssociateCompletionPortInformation, std::ptr::addr_of!(association).cast(), std::mem::size_of_val(&association) as u32) != 0
+                && SetInformationJobObject(
+                    job,
+                    JobObjectAssociateCompletionPortInformation,
+                    std::ptr::addr_of!(association).cast(),
+                    std::mem::size_of_val(&association) as u32,
+                ) != 0
         };
         if set { Ok(tree) } else { Err(std::io::Error::last_os_error()) }
     }
@@ -910,7 +931,15 @@ impl Tree {
         use windows_sys::Win32::System::JobObjects::*;
         let mut info = JOBOBJECT_BASIC_ACCOUNTING_INFORMATION::default();
         // SAFETY: the job handle is valid and the structure is passed with its own size.
-        let got = unsafe { QueryInformationJobObject(self.job, JobObjectBasicAccountingInformation, std::ptr::addr_of_mut!(info).cast(), std::mem::size_of_val(&info) as u32, std::ptr::null_mut()) };
+        let got = unsafe {
+            QueryInformationJobObject(
+                self.job,
+                JobObjectBasicAccountingInformation,
+                std::ptr::addr_of_mut!(info).cast(),
+                std::mem::size_of_val(&info) as u32,
+                std::ptr::null_mut(),
+            )
+        };
         (got != 0).then_some(info)
     }
 
@@ -1200,7 +1229,10 @@ fn exits_by(pid: libc::pid_t, _group: libc::pid_t, deadline: Instant) -> Result<
         let mut event: libc::kevent = unsafe { std::mem::zeroed() };
         loop {
             let left = deadline.saturating_duration_since(Instant::now());
-            let timeout = libc::timespec { tv_sec: libc::time_t::try_from(left.as_secs()).unwrap_or(libc::time_t::MAX), tv_nsec: libc::c_long::from(left.subsec_nanos()) };
+            let timeout = libc::timespec {
+                tv_sec: libc::time_t::try_from(left.as_secs()).unwrap_or(libc::time_t::MAX),
+                tv_nsec: libc::c_long::from(left.subsec_nanos()),
+            };
             // SAFETY: no changes; one event slot and the timeout, locals.
             match unsafe { libc::kevent(queue, std::ptr::null(), 0, &mut event, 1, &timeout) } {
                 0 => break Ok(Exit::Running),
@@ -1233,11 +1265,15 @@ fn descendants_step(deadline: Instant, share: u64, report: &mut Report) -> bool 
     std::thread::spawn(move || {
         let _ = said.send(reap_all());
     });
-    let reaped = answer.recv_timeout(deadline.saturating_duration_since(Instant::now())).unwrap_or_else(|_| Err("a process descended from the test was still running".to_owned()));
+    let reaped = answer
+        .recv_timeout(deadline.saturating_duration_since(Instant::now()))
+        .unwrap_or_else(|_| Err("a process descended from the test was still running".to_owned()));
     match reaped {
         Ok(()) => true,
         Err(error) => {
-            report.failures.push(format!("the descendants step: {error} when the step's time ran out (share {share} s, or the run's end); every data directory is kept"));
+            report
+                .failures
+                .push(format!("the descendants step: {error} when the step's time ran out (share {share} s, or the run's end); every data directory is kept"));
             report.left.push("a process descended from the test (a postmaster still starting is one)".to_owned());
             false
         }

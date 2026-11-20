@@ -102,7 +102,10 @@ async fn the_status_counts_roots_raw_rows_categories_core_memory_and_the_age_of_
     let text = "entries: total=10 roots=4 cycle1_raw=6 (unchunked leaves)\nstatus: pending:4\ncategories: decision:3, fact:1\ncore_memory: user=1\nembedding_index: ready dims=384\nbootstrap: complete\nlast_cycle1: 5m ago";
     assert_eq!(reply.text, text);
     assert!(!reply.is_error);
-    assert_eq!(serde_json::from_str::<Value>(&reply.envelope()).unwrap(), json!({ "text": text, "content": [{ "type": "text", "text": text }], "isError": false }));
+    assert_eq!(
+        serde_json::from_str::<Value>(&reply.envelope()).unwrap(),
+        json!({ "text": text, "content": [{ "type": "text", "text": text }], "isError": false })
+    );
     assert_eq!(memory.memory(json!({ "action": "status" })).await, text, "the module's route answers the same readout");
     scheduler.shutdown().await;
 }

@@ -147,9 +147,7 @@ impl TaskState {
         if tail.len() > TAIL_LIMIT {
             tail.drain(..tail.len() - TAIL_LIMIT);
         }
-        self.stdout_bytes
-            .saturating_add(self.stderr_bytes)
-            .gt(&(self.output_limit as u64))
+        self.stdout_bytes.saturating_add(self.stderr_bytes).gt(&(self.output_limit as u64))
     }
 
     pub(crate) fn snapshot(&self, request_id: u64, pid: u32) -> Option<TaskSnapshot> {
@@ -218,11 +216,8 @@ impl ProcessControl {
             return Err(std::io::Error::last_os_error());
         }
         let mut limits = JOBOBJECT_EXTENDED_LIMIT_INFORMATION::default();
-        limits.BasicLimitInformation.LimitFlags = if contained {
-            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-        } else {
-            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK
-        };
+        limits.BasicLimitInformation.LimitFlags =
+            if contained { JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE } else { JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK };
         let configured = unsafe {
             SetInformationJobObject(
                 handle,
@@ -247,10 +242,7 @@ impl ProcessControl {
     /// Kill every process in the job. False when no kill was issued: the
     /// descendants are preserved, or the OS refused it.
     pub(crate) fn terminate(&self) -> bool {
-        let preserve_descendants = self
-            .preserve_descendants
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let preserve_descendants = self.preserve_descendants.lock().unwrap_or_else(|e| e.into_inner());
         if *preserve_descendants {
             return false;
         }
@@ -304,10 +296,7 @@ impl ProcessControl {
     /// closes, breakaway allowed again, and every later kill refused. Err
     /// when the job's limits could not be changed: breakaway is not restored.
     pub(crate) fn preserve_descendants(&self) -> std::io::Result<()> {
-        let mut preserve_descendants = self
-            .preserve_descendants
-            .lock()
-            .unwrap_or_else(|e| e.into_inner());
+        let mut preserve_descendants = self.preserve_descendants.lock().unwrap_or_else(|e| e.into_inner());
         if *preserve_descendants {
             return Ok(());
         }
@@ -425,10 +414,7 @@ impl ManagedProcess {
     }
 
     pub(crate) fn snapshot(&self) -> Option<TaskSnapshot> {
-        self.state
-            .lock()
-            .ok()
-            .and_then(|state| state.snapshot(self.request_id, self.pid))
+        self.state.lock().ok().and_then(|state| state.snapshot(self.request_id, self.pid))
     }
 
     /// The state lock, recovered from poisoning: every tree transition takes
@@ -462,12 +448,7 @@ pub(crate) struct Manager {
 
 impl Manager {
     pub(crate) fn new() -> Self {
-        Self {
-            live: Mutex::new(HashMap::new()),
-            used_ids: Mutex::new(HashSet::new()),
-            closed: AtomicBool::new(false),
-            jobs: Mutex::new(HashMap::new()),
-        }
+        Self { live: Mutex::new(HashMap::new()), used_ids: Mutex::new(HashSet::new()), closed: AtomicBool::new(false), jobs: Mutex::new(HashMap::new()) }
     }
 
     /// The registry. A poisoned registry is recovered: a panic elsewhere must
@@ -482,12 +463,7 @@ impl Manager {
     /// registered under it.
     pub(crate) fn reserve(&self, id: u64) -> bool {
         let live = self.lock_live();
-        !live.contains_key(&id)
-            && self
-                .used_ids
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(id)
+        !live.contains_key(&id) && self.used_ids.lock().unwrap_or_else(|e| e.into_inner()).insert(id)
     }
 
     /// Register a command under its reserved id. True when the shutdown reap
@@ -520,15 +496,12 @@ impl Manager {
     /// The registered command whose task id is `job_id`.
     pub(crate) fn entry_of_job(&self, job_id: &str) -> Option<Arc<ManagedProcess>> {
         let entries: Vec<Arc<ManagedProcess>> = self.lock_live().values().cloned().collect();
-        entries
-            .into_iter()
-            .find(|managed| managed.lock_state().job_id.as_deref() == Some(job_id))
+        entries.into_iter().find(|managed| managed.lock_state().job_id.as_deref() == Some(job_id))
     }
 
     /// The command of request `id` while its completion is not yet reported.
     pub(crate) fn live_process(&self, id: u64) -> Option<Arc<ManagedProcess>> {
-        self.entry(id)
-            .filter(|managed| !managed.lock_state().reported)
+        self.entry(id).filter(|managed| !managed.lock_state().reported)
     }
 
     /// The tracked task `job_id`.
@@ -587,11 +560,7 @@ mod tests {
     fn lookups_recover_a_poisoned_registry() {
         let manager = Arc::new(Manager::new());
         manager.live.lock().unwrap().insert(7, managed());
-        manager
-            .jobs
-            .lock()
-            .unwrap()
-            .insert("job_7".to_string(), managed());
+        manager.jobs.lock().unwrap().insert("job_7".to_string(), managed());
         let poisoner = Arc::clone(&manager);
         let _ = thread::spawn(move || {
             let _live = poisoner.live.lock().unwrap();

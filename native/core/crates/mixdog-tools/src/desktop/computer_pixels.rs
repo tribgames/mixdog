@@ -23,9 +23,9 @@ use super::computer_capture::DEFAULT_MAX_WIDTH;
 use super::computer_capture::DEFAULT_QUALITY;
 use super::computer_capture::MAX_ELEMENTS;
 use super::computer_capture::MAX_MAX_WIDTH;
+use super::computer_capture::MIN_MAX_WIDTH;
 use super::computer_capture::OTHER_MAX_ELEMENTS;
 use super::computer_capture::STATE_MAX_ELEMENTS;
-use super::computer_capture::MIN_MAX_WIDTH;
 use super::computer_capture::bounded_integer;
 use super::computer_frames::DisplaySource;
 use super::computer_frames::Frame;
@@ -418,11 +418,15 @@ mod tests {
     fn a_display_capture_issues_a_frame_a_click_can_name() {
         let desktop = Desktop::new(displays(), reply());
         let frames = FrameStore::default();
-        let (parts, frame) = run(capture_display(&desktop, &blobs(), &frames, None, &command(json!({"screen": 1, "mode": "state"})), &CancellationToken::new())).unwrap();
+        let (parts, frame) =
+            run(capture_display(&desktop, &blobs(), &frames, None, &command(json!({"screen": 1, "mode": "state"})), &CancellationToken::new())).unwrap();
         assert_eq!((frame.window_id.clone(), frame.origin_x, frame.origin_y, frame.physical_width, frame.capture_width), (None, -1920, -200, 1920, 960));
         let ToolPart::Text(text) = &parts[0] else { panic!("text first") };
         let text: Value = serde_json::from_str(text).unwrap();
-        assert_eq!((text["action"].as_str(), text["mode"].as_str(), text["ok"].as_bool(), text["width"].as_i64()), (Some("capture"), Some("state"), Some(true), Some(960)));
+        assert_eq!(
+            (text["action"].as_str(), text["mode"].as_str(), text["ok"].as_bool(), text["width"].as_i64()),
+            (Some("capture"), Some("state"), Some(true), Some(960))
+        );
         assert!(text["description"].as_str().unwrap().starts_with("Screenshot of screen 2/2 (960x540, 4 bytes, JPEG quality 55); frame_id=frame-"));
         assert_eq!(parts[1], ToolPart::Image { mime: "image/jpeg".into(), data: ImageData::Bytes(b"jpeg".to_vec()), width: Some(960), height: Some(540) });
         // The host was asked for that display, at the bounded size and quality.
@@ -456,23 +460,54 @@ mod tests {
         let found = json!({"language": "en-US", "words": [word], "lines": [], "total_words": 1, "truncated_words": 0}).as_object().cloned().unwrap();
         let recognizer = Recognizer(Ok(found), Default::default());
         let frames = FrameStore::default();
-        let (parts, frame) = run(capture_display(&Desktop::new(displays(), reply()), &blobs(), &frames, Some(&recognizer), &command(json!({"screen": 1, "include_ocr": true, "ocr_language": "en-US"})), &CancellationToken::new())).unwrap();
+        let (parts, frame) = run(capture_display(
+            &Desktop::new(displays(), reply()),
+            &blobs(),
+            &frames,
+            Some(&recognizer),
+            &command(json!({"screen": 1, "include_ocr": true, "ocr_language": "en-US"})),
+            &CancellationToken::new(),
+        ))
+        .unwrap();
         let ToolPart::Text(text) = &parts[0] else { panic!("text first") };
         let text: Value = serde_json::from_str(text).unwrap();
         assert_eq!(
-            (text["coordinate_space"].clone(), text["pixel_status"].clone(), text["accessibility_status"].clone(), text["total_elements"].clone(), text["returned_elements"].clone()),
+            (
+                text["coordinate_space"].clone(),
+                text["pixel_status"].clone(),
+                text["accessibility_status"].clone(),
+                text["total_elements"].clone(),
+                text["returned_elements"].clone()
+            ),
             (json!("frame"), json!("available"), json!("empty"), json!(1), json!(1))
         );
         assert_eq!(recognizer.1.lock().unwrap().clone(), vec![(Some("en-US".to_owned()), 300)]);
         let ToolPart::Text(listed) = &parts[2] else { panic!("the recognized text after the image") };
         assert!(listed.contains(&format!("[ocr:{}:1] Text \"Save\"", frame.id)), "{listed}");
-        let vision = run(capture_display(&Desktop::new(displays(), reply()), &blobs(), &FrameStore::default(), None, &command(json!({"screen": 1, "mode": "vision"})), &CancellationToken::new())).unwrap().0;
+        let vision = run(capture_display(
+            &Desktop::new(displays(), reply()),
+            &blobs(),
+            &FrameStore::default(),
+            None,
+            &command(json!({"screen": 1, "mode": "vision"})),
+            &CancellationToken::new(),
+        ))
+        .unwrap()
+        .0;
         let ToolPart::Text(vision) = &vision[0] else { panic!("text first") };
         let vision: Value = serde_json::from_str(vision).unwrap();
         assert_eq!((vision["accessibility_status"].clone(), vision.get("elements").cloned()), (json!("not_requested"), None));
         // A recognizer that fails leaves the capture whole and says why.
         let broken = Recognizer(Err(ComputerError::Failed { code: "x".into(), message: "OCR offline".into() }), Default::default());
-        let (parts, _) = run(capture_display(&Desktop::new(displays(), reply()), &blobs(), &FrameStore::default(), Some(&broken), &command(json!({"screen": 1, "include_ocr": true})), &CancellationToken::new())).unwrap();
+        let (parts, _) = run(capture_display(
+            &Desktop::new(displays(), reply()),
+            &blobs(),
+            &FrameStore::default(),
+            Some(&broken),
+            &command(json!({"screen": 1, "include_ocr": true})),
+            &CancellationToken::new(),
+        ))
+        .unwrap();
         assert!(matches!(&parts[2], ToolPart::Text(text) if text == "OCR failed: OCR offline"), "{parts:?}");
     }
 
@@ -485,12 +520,14 @@ mod tests {
         shown["captureHeight"] = json!(600);
         shown["source"] = json!({"x": 0, "y": 0, "width": 800, "height": 600, "scaleFactor": 1.0, "displayId": "11", "windowId": null});
         let desktop = Desktop::new(one, shown);
-        let (parts, _) = run(capture_display(&desktop, &blobs(), &FrameStore::default(), None, &command(json!({"quality": 0})), &CancellationToken::new())).unwrap();
+        let (parts, _) =
+            run(capture_display(&desktop, &blobs(), &FrameStore::default(), None, &command(json!({"quality": 0})), &CancellationToken::new())).unwrap();
         let ToolPart::Text(text) = &parts[0] else { panic!("text first") };
         assert!(text.contains("Screenshot of primary screen"), "{text}");
         let asked = desktop.asked.lock().unwrap().clone();
         assert_eq!(asked.iter().find(|(method, _)| method == PIXELS).unwrap().1["quality"], json!(1));
-        let bad = run(capture_display(&desktop, &blobs(), &FrameStore::default(), None, &command(json!({"screen": 2})), &CancellationToken::new())).unwrap_err();
+        let bad =
+            run(capture_display(&desktop, &blobs(), &FrameStore::default(), None, &command(json!({"screen": 2})), &CancellationToken::new())).unwrap_err();
         assert_eq!(message(bad), "screen must be an integer from 0 to 0");
     }
 
@@ -498,7 +535,8 @@ mod tests {
     #[test]
     fn the_hosts_refusals_keep_their_codes() {
         let desktop = Desktop::new(displays(), reply());
-        *desktop.pixels.lock().unwrap() = Err(HostError::Rpc { code: -32000, message: "no permission".into(), data: Some(json!({"code": "computer_capture_permission"})) });
+        *desktop.pixels.lock().unwrap() =
+            Err(HostError::Rpc { code: -32000, message: "no permission".into(), data: Some(json!({"code": "computer_capture_permission"})) });
         let error = run(capture_display(&desktop, &blobs(), &FrameStore::default(), None, &Map::new(), &CancellationToken::new())).unwrap_err();
         assert_eq!(error, ComputerError::Failed { code: "computer_capture_permission".into(), message: "no permission".into() });
         *desktop.pixels.lock().unwrap() = Err(HostError::Rpc { code: METHOD_NOT_FOUND, message: "Method not found".into(), data: None });
@@ -514,7 +552,6 @@ mod tests {
         assert!(pixels_request(&display, 1000, 70, None).get("region").is_none());
     }
 
-
     /// A reply that is not what was asked, whole and shaped, is refused and leaves no frame.
     #[test]
     fn a_reply_that_is_not_the_display_asked_for_is_refused() {
@@ -522,7 +559,8 @@ mod tests {
             let mut bad = reply();
             edit(&mut bad);
             let frames = FrameStore::default();
-            let error = run(capture_display(&Desktop::new(displays(), bad), &blob, &frames, None, &command(json!({"screen": 1})), &CancellationToken::new())).unwrap_err();
+            let error = run(capture_display(&Desktop::new(displays(), bad), &blob, &frames, None, &command(json!({"screen": 1})), &CancellationToken::new()))
+                .unwrap_err();
             assert!(frames.lookup(None, std::time::Instant::now()).unwrap().is_none());
             message(error)
         };

@@ -6,9 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_ai::catalog::{CatalogService, ProviderReadiness, is_known_provider};
 use mixdog_ai::service::admin_models::{model_proxy_client_mode, provider_available};
-use mixdog_ai::service::admin_route::{
-    Obj, clean, ensure_provider_enabled, finish_chain_entry, resolve_route, start_chain_entry, window_meta_of,
-};
+use mixdog_ai::service::admin_route::{Obj, clean, ensure_provider_enabled, finish_chain_entry, resolve_route, start_chain_entry, window_meta_of};
 
 use serde_json::Value;
 

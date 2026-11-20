@@ -25,37 +25,18 @@ fn coefficient(value: &V, imaginary: bool) -> V {
         if imaginary && (s == "i" || s == "j") {
             return numeric(1.0);
         }
-        if !imaginary
-            && [
-                "i", "+i", "1i", "+1i", "-i", "-1i", "j", "+j", "1j", "+1j", "-j", "-1j",
-            ]
-            .contains(&s.as_str())
-        {
+        if !imaginary && ["i", "+i", "1i", "+1i", "-i", "-1i", "j", "+j", "1j", "+1j", "-j", "-1j"].contains(&s.as_str()) {
             return numeric(0.0);
         }
     }
-    let Ok(mut s) = String::from_utf16(&to_js_utf16(value)) else { return V::Error(E::Num); };
+    let Ok(mut s) = String::from_utf16(&to_js_utf16(value)) else {
+        return V::Error(E::Num);
+    };
     if imaginary {
-        s = s
-            .replacen("+i", "+1i", 1)
-            .replacen("-i", "-1i", 1)
-            .replacen("+j", "+1j", 1)
-            .replacen("-j", "-1j", 1)
+        s = s.replacen("+i", "+1i", 1).replacen("-i", "-1i", 1).replacen("+j", "+1j", 1).replacen("-j", "-1j", 1)
     }
-    let plus = s.find('+').and_then(|i| {
-        if i == 0 {
-            s[1..].find('+').map(|i| i + 1)
-        } else {
-            Some(i)
-        }
-    });
-    let minus = s.find('-').and_then(|i| {
-        if i == 0 {
-            s[1..].find('-').map(|i| i + 1)
-        } else {
-            Some(i)
-        }
-    });
+    let plus = s.find('+').and_then(|i| if i == 0 { s[1..].find('+').map(|i| i + 1) } else { Some(i) });
+    let minus = s.find('-').and_then(|i| if i == 0 { s[1..].find('-').map(|i| i + 1) } else { Some(i) });
     let unit = s.ends_with(['i', 'j']);
     if let Some(at) = plus.or(minus) {
         if !unit {
@@ -66,11 +47,7 @@ fn coefficient(value: &V, imaginary: bool) -> V {
         if a.is_nan() || b.is_nan() {
             return V::Error(E::Num);
         }
-        return numeric(if imaginary {
-            if plus.is_some() { b } else { -b }
-        } else {
-            a
-        });
+        return numeric(if imaginary { if plus.is_some() { b } else { -b } } else { a });
     }
     if unit {
         let s = &s[..s.len() - 1];
@@ -96,9 +73,7 @@ fn suffix(v: &V, label: &str) -> Result<&'static str, Failure> {
     match v {
         V::Text(s) => Ok(if s.ends_with('j') { "j" } else { "i" }),
         V::Utf16(units) => Ok(if units.last() == Some(&u16::from(b'j')) { "j" } else { "i" }),
-        _ => Err(Failure::thrown(format!(
-            "{label}.substring is not a function"
-        ))),
+        _ => Err(Failure::thrown(format!("{label}.substring is not a function"))),
     }
 }
 fn complex(real: &V, imaginary: &V, suffix: &V) -> V {
@@ -123,11 +98,7 @@ fn complex(real: &V, imaginary: &V, suffix: &V) -> V {
     if r == 0.0 && i == 0.0 {
         return numeric(0.0);
     }
-    let im = if i == 1.0 {
-        suffix.into()
-    } else {
-        to_js_string(&imaginary) + suffix
-    };
+    let im = if i == 1.0 { suffix.into() } else { to_js_string(&imaginary) + suffix };
     if r == 0.0 {
         V::Text(im)
     } else if i == 0.0 {
@@ -141,13 +112,7 @@ fn result(real: f64, imaginary: f64, unit: &str) -> V {
 }
 fn modulus(value: &V) -> V {
     let (x, y) = parts(value);
-    if any_is_error(&[x.clone(), y.clone()]) {
-        V::Error(E::Value)
-    } else {
-        numeric(m::sqrt(
-            m::pow(to_js_number(&x), 2.0) + m::pow(to_js_number(&y), 2.0),
-        ))
-    }
+    if any_is_error(&[x.clone(), y.clone()]) { V::Error(E::Value) } else { numeric(m::sqrt(m::pow(to_js_number(&x), 2.0) + m::pow(to_js_number(&y), 2.0))) }
 }
 fn argument(value: &V) -> V {
     let (x, y) = parts(value);
@@ -190,12 +155,7 @@ fn binary(name: &str, left: &V, right: &V) -> Result<V, Failure> {
     if name == "IMDIV" && zero(&c) && zero(&d) {
         return Ok(V::Error(E::Num));
     }
-    let (a, b, c, d) = (
-        to_js_number(&a),
-        to_js_number(&b),
-        to_js_number(&c),
-        to_js_number(&d),
-    );
+    let (a, b, c, d) = (to_js_number(&a), to_js_number(&b), to_js_number(&c), to_js_number(&d));
     Ok(if name == "IMSUB" {
         result(a - c, b - d, u)
     } else {
@@ -268,12 +228,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 if any_is_error(&[a.clone(), b.clone(), c.clone(), d.clone()]) {
                     return Ok(V::Error(E::Value));
                 }
-                let (a, b, c, d) = (
-                    to_js_number(&a),
-                    to_js_number(&b),
-                    to_js_number(&c),
-                    to_js_number(&d),
-                );
+                let (a, b, c, d) = (to_js_number(&a), to_js_number(&b), to_js_number(&c), to_js_number(&d));
                 value = result(a * c - b * d, a * d + b * c, "i")
             }
             return Ok(value);
@@ -285,13 +240,8 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
     }
     let (x, y) = parts(&value);
     let power = parse_number(&arg(a, 1));
-    if any_is_error(&[x.clone(), y.clone()]) || (name == "IMPOWER" && matches!(power, V::Error(_)))
-    {
-        return Ok(V::Error(if matches!(name, "IMCSC" | "IMCSCH") {
-            E::Num
-        } else {
-            E::Value
-        }));
+    if any_is_error(&[x.clone(), y.clone()]) || (name == "IMPOWER" && matches!(power, V::Error(_))) {
+        return Ok(V::Error(if matches!(name, "IMCSC" | "IMCSCH") { E::Num } else { E::Value }));
     }
     // Reciprocal wrappers call their underlying function first; they do not
     // inspect a suffix themselves. Inner calls can return a numeric zero and
@@ -312,34 +262,14 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
     }
     let unit = suffix(&value, "inumber")?;
     if name == "IMCONJUGATE" {
-        return Ok(if !zero(&y) {
-            complex(&x, &numeric(-to_js_number(&y)), &V::Text(unit.into()))
-        } else {
-            value
-        });
+        return Ok(if !zero(&y) { complex(&x, &numeric(-to_js_number(&y)), &V::Text(unit.into())) } else { value });
     }
     let (x, y) = (to_js_number(&x), to_js_number(&y));
     let result = match name {
-        "IMCOS" => result(
-            (m::cos(x) * (m::exp(y) + m::exp(-y))) / 2.0,
-            (-m::sin(x) * (m::exp(y) - m::exp(-y))) / 2.0,
-            unit,
-        ),
-        "IMCOSH" => result(
-            (m::cos(y) * (m::exp(x) + m::exp(-x))) / 2.0,
-            (m::sin(y) * (m::exp(x) - m::exp(-x))) / 2.0,
-            unit,
-        ),
-        "IMSIN" => result(
-            (m::sin(x) * (m::exp(y) + m::exp(-y))) / 2.0,
-            (m::cos(x) * (m::exp(y) - m::exp(-y))) / 2.0,
-            unit,
-        ),
-        "IMSINH" => result(
-            (m::cos(y) * (m::exp(x) - m::exp(-x))) / 2.0,
-            (m::sin(y) * (m::exp(x) + m::exp(-x))) / 2.0,
-            unit,
-        ),
+        "IMCOS" => result((m::cos(x) * (m::exp(y) + m::exp(-y))) / 2.0, (-m::sin(x) * (m::exp(y) - m::exp(-y))) / 2.0, unit),
+        "IMCOSH" => result((m::cos(y) * (m::exp(x) + m::exp(-x))) / 2.0, (m::sin(y) * (m::exp(x) - m::exp(-x))) / 2.0, unit),
+        "IMSIN" => result((m::sin(x) * (m::exp(y) + m::exp(-y))) / 2.0, (m::cos(x) * (m::exp(y) - m::exp(-y))) / 2.0, unit),
+        "IMSINH" => result((m::cos(y) * (m::exp(x) - m::exp(-x))) / 2.0, (m::sin(y) * (m::exp(x) + m::exp(-x))) / 2.0, unit),
         "IMEXP" => {
             let e = m::exp(x);
             result(e * m::cos(y), e * m::sin(y), unit)
@@ -347,11 +277,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
         "IMLN" => result(m::ln(m::sqrt(x * x + y * y)), m::atan(y / x), unit),
         "IMLOG10" | "IMLOG2" => {
             let denominator = m::ln(if name == "IMLOG10" { 10.0 } else { 2.0 });
-            result(
-                m::ln(m::sqrt(x * x + y * y)) / denominator,
-                m::atan(y / x) / denominator,
-                unit,
-            )
+            result(m::ln(m::sqrt(x * x + y * y)) / denominator, m::atan(y / x) / denominator, unit)
         }
         "IMPOWER" => {
             let number = to_js_number(&power);

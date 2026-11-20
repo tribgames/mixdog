@@ -45,11 +45,5 @@ pub trait OpIndex: Send + Sync {
     /// One status per id, in order. With `fence`, every id not found and newer than the
     /// watermark is recorded fenced before the answer, so a later arrival is refused
     /// `opFenced`.
-    async fn status(
-        &self,
-        scope: &OpScope,
-        ids: &[OpId],
-        fence: bool,
-        ctx: &CallContext,
-    ) -> Result<Vec<OpStatus>, CoreError>;
+    async fn status(&self, scope: &OpScope, ids: &[OpId], fence: bool, ctx: &CallContext) -> Result<Vec<OpStatus>, CoreError>;
 }

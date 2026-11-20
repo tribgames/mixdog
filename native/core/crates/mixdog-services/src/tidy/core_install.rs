@@ -34,11 +34,13 @@ const HOST_MODULE_PROBE_TTL: Duration = Duration::from_secs(60);
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "runs as a durability-lane job")]
 fn dir_bytes(dir: &Path) -> i64 {
     let Ok(rd) = std::fs::read_dir(dir) else { return 0 };
-    rd.flatten().map(|e| match e.metadata() {
-        Ok(m) if m.is_dir() => dir_bytes(&e.path()),
-        Ok(m) => m.len() as i64,
-        Err(_) => 0,
-    }).sum()
+    rd.flatten()
+        .map(|e| match e.metadata() {
+            Ok(m) if m.is_dir() => dir_bytes(&e.path()),
+            Ok(m) => m.len() as i64,
+            Err(_) => 0,
+        })
+        .sum()
 }
 
 /// On-disk size of one installed managed engine version, 0 when absent.
@@ -58,7 +60,11 @@ fn existing_dir_bytes(dir: &Path) -> i64 {
 /// PSScriptAnalyzer is a PowerShell module: without a host there is nothing to install it into.
 async fn power_shell_host(lane: DurabilityIo, env: Option<&HashMap<String, String>>) -> bool {
     let env = env.cloned();
-    on_lane(lane, move || engine_entry("psscriptanalyzer").is_some_and(|e| std::iter::once(&e.bin).chain(e.alt_bins.iter()).any(|n| which(n, env.as_ref(), None).is_some()))).await.unwrap_or(false)
+    on_lane(lane, move || {
+        engine_entry("psscriptanalyzer").is_some_and(|e| std::iter::once(&e.bin).chain(e.alt_bins.iter()).any(|n| which(n, env.as_ref(), None).is_some()))
+    })
+    .await
+    .unwrap_or(false)
 }
 
 async fn core_installable(lane: DurabilityIo, id: &str, manifest: &Value, env: Option<&HashMap<String, String>>) -> bool {
@@ -83,15 +89,19 @@ impl EngineResolver for SystemEngineResolver {
     }
 
     async fn resolve_all(&self) -> Vec<ResolvedEngine> {
-        let resolution = resolve_engines(&self.processes, &self.scope(), ResolveOptions {
-            engine_ids: engines().iter().map(|e| e.id.clone()).collect(),
-            plugin_data: self.plugin_data.clone(),
-            manifest: Some(self.manifest.clone()),
-            env: self.env.clone(),
-            probe_versions: false,
-            host_module_probe: Some(self.cached_probe()),
-            ..Default::default()
-        })
+        let resolution = resolve_engines(
+            &self.processes,
+            &self.scope(),
+            ResolveOptions {
+                engine_ids: engines().iter().map(|e| e.id.clone()).collect(),
+                plugin_data: self.plugin_data.clone(),
+                manifest: Some(self.manifest.clone()),
+                env: self.env.clone(),
+                probe_versions: false,
+                host_module_probe: Some(self.cached_probe()),
+                ..Default::default()
+            },
+        )
         .await;
         let mut out = Vec::with_capacity(resolution.engines.len());
         for e in &resolution.engines {
@@ -103,15 +113,25 @@ impl EngineResolver for SystemEngineResolver {
                 _ => ResolvedSource::Host,
             };
             // The host probe has not answered: pending, neither installed nor missing.
-            let probing = e.unavailable.is_some() || (catalog.is_some_and(|c| c.managed_module) && source == ResolvedSource::Missing && !e.command.is_empty() && !self.host_module_probed(&e.command));
+            let probing = e.unavailable.is_some()
+                || (catalog.is_some_and(|c| c.managed_module)
+                    && source == ResolvedSource::Missing
+                    && !e.command.is_empty()
+                    && !self.host_module_probed(&e.command));
             out.push(ResolvedEngine {
                 id: e.id.clone(),
                 source,
                 version: e.version.clone(),
                 install_hint: Some(e.install_hint.clone()).filter(|h| !h.is_empty()),
                 probing,
-                installable: source == ResolvedSource::Missing && !probing && core_installable(self.processes.durability(), &e.id, &self.manifest, self.env.as_ref()).await,
-                bytes: if source == ResolvedSource::Managed { managed_engine_bytes(self.processes.durability(), &self.plugin_data, &e.id, &e.version).await.max(0) as u64 } else { 0 },
+                installable: source == ResolvedSource::Missing
+                    && !probing
+                    && core_installable(self.processes.durability(), &e.id, &self.manifest, self.env.as_ref()).await,
+                bytes: if source == ResolvedSource::Managed {
+                    managed_engine_bytes(self.processes.durability(), &self.plugin_data, &e.id, &e.version).await.max(0) as u64
+                } else {
+                    0
+                },
             });
         }
         out
@@ -168,20 +188,25 @@ pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -
         turn = job.install_turn() => turn,
     };
     let manifest = options.manifest.clone().unwrap_or_else(read_engines_manifest);
-    let tools_dir = if options.plugin_data.as_os_str().is_empty() { String::new() } else { managed_tools_dir(options.plugin_data).to_string_lossy().into_owned() };
+    let tools_dir =
+        if options.plugin_data.as_os_str().is_empty() { String::new() } else { managed_tools_dir(options.plugin_data).to_string_lossy().into_owned() };
     assert!(job.begin(&wanted), "the install turn owns the progress slot");
     // Settle the slot even if the caller drops the future; release the turn only after cleanup.
     let finish = FinishInstall(job);
     let resolver = SystemEngineResolver::new(options.processes.clone(), options.plugin_data, Some(manifest.clone()), options.env.clone());
-    let resolved = resolve_engines(&options.processes, &resolver.scope(), ResolveOptions {
-        engine_ids: wanted.iter().map(|s| (*s).to_owned()).collect(),
-        plugin_data: options.plugin_data.to_owned(),
-        manifest: Some(manifest.clone()),
-        env: options.env.clone(),
-        probe_versions: false,
-        cancel: Some(options.cancel.clone()),
-        ..Default::default()
-    })
+    let resolved = resolve_engines(
+        &options.processes,
+        &resolver.scope(),
+        ResolveOptions {
+            engine_ids: wanted.iter().map(|s| (*s).to_owned()).collect(),
+            plugin_data: options.plugin_data.to_owned(),
+            manifest: Some(manifest.clone()),
+            env: options.env.clone(),
+            probe_versions: false,
+            cancel: Some(options.cancel.clone()),
+            ..Default::default()
+        },
+    )
     .await;
     let mut pending: Vec<String> = Vec::new();
     for id in &wanted {
@@ -196,7 +221,11 @@ pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -
             continue;
         }
         if let Some(engine) = engine.filter(|e| !e.missing) {
-            let bytes = if engine.source == "managed" { managed_engine_bytes(options.processes.durability(), options.plugin_data, id, &engine.version).await } else { 0 };
+            let bytes = if engine.source == "managed" {
+                managed_engine_bytes(options.processes.durability(), options.plugin_data, id, &engine.version).await
+            } else {
+                0
+            };
             let version = engine.version.clone();
             job.settle(id, |e| {
                 e.status = "present".into();
@@ -222,7 +251,19 @@ pub async fn run_core_install(job: &Arc<InstallJob>, options: CoreInstall<'_>) -
         };
         // An explicit Install is the approval: policy gating exists for the model-driven tool
         // path, not for a button the user just pressed.
-        let outcome = install_engines(&options.processes, &pending, Some(&manifest), options.plugin_data, "auto", true, options.fetcher, &options.cancel, Some(progress), None).await;
+        let outcome = install_engines(
+            &options.processes,
+            &pending,
+            Some(&manifest),
+            options.plugin_data,
+            "auto",
+            true,
+            options.fetcher,
+            &options.cancel,
+            Some(progress),
+            None,
+        )
+        .await;
         for item in outcome["installed"].as_array().into_iter().flatten() {
             let id = item["id"].as_str().unwrap_or("");
             let version = item["version"].as_str().unwrap_or("").to_owned();
@@ -282,7 +323,12 @@ mod tests {
     impl Fetcher for ByUrl {
         async fn get(&self, url: &str, _: i64) -> Result<Fetched, String> {
             let body = self.0.get(url).cloned().ok_or_else(|| "404".to_owned())?;
-            Ok(Fetched { status: 200, content_length: Some(body.len() as i64), https: true, body: Box::new(Chunks(body.chunks(4).map(<[u8]>::to_vec).collect())) })
+            Ok(Fetched {
+                status: 200,
+                content_length: Some(body.len() as i64),
+                https: true,
+                body: Box::new(Chunks(body.chunks(4).map(<[u8]>::to_vec).collect())),
+            })
         }
     }
 
@@ -306,11 +352,27 @@ mod tests {
         // ruff's bytes differ from its pinned digest; shfmt/shellcheck have no asset; PowerShell is absent.
         let fetcher = ByUrl(HashMap::from([("https://x/biome".to_owned(), b"biome-bin".to_vec()), ("https://x/ruff".to_owned(), b"tampered".to_vec())]));
         let job = Arc::new(InstallJob::default());
-        let out = run_core_install(&job, CoreInstall { processes: Processes::for_tests(), plugin_data: data.path(), manifest: Some(manifest), env: Some(env), fetcher: &fetcher, cancel: CancellationToken::new(), only: None }).await.unwrap();
+        let out = run_core_install(
+            &job,
+            CoreInstall {
+                processes: Processes::for_tests(),
+                plugin_data: data.path(),
+                manifest: Some(manifest),
+                env: Some(env),
+                fetcher: &fetcher,
+                cancel: CancellationToken::new(),
+                only: None,
+            },
+        )
+        .await
+        .unwrap();
         let status_of = |id: &str| out["engines"].as_array().unwrap().iter().find(|e| e["id"] == id).unwrap()["status"].as_str().unwrap().to_owned();
         assert_eq!(status_of("biome"), "installed");
         assert_eq!(status_of("ruff"), "failed");
-        assert_eq!((status_of("shfmt"), status_of("shellcheck"), status_of("psscriptanalyzer")), ("skipped".to_owned(), "skipped".to_owned(), "skipped".to_owned()));
+        assert_eq!(
+            (status_of("shfmt"), status_of("shellcheck"), status_of("psscriptanalyzer")),
+            ("skipped".to_owned(), "skipped".to_owned(), "skipped".to_owned())
+        );
         let live = job.status();
         assert_eq!((live["active"].clone(), live["percent"].clone()), (json!(false), json!(100)));
         assert!(managed_engine_dir(data.path(), "biome", "1.0.0").join("tool-bin").exists());
@@ -319,15 +381,20 @@ mod tests {
     #[tokio::test]
     async fn a_mixed_request_with_an_unknown_engine_is_rejected_before_progress_starts() {
         let job = Arc::new(InstallJob::default());
-        let error = run_core_install(&job, CoreInstall {
-            processes: Processes::for_tests(),
-            plugin_data: Path::new(""),
-            manifest: Some(json!({"engines": {}})),
-            env: Some(HashMap::from([("PATH".to_owned(), String::new())])),
-            fetcher: &ByUrl(HashMap::new()),
-            cancel: CancellationToken::new(),
-            only: Some(vec!["biome".into(), "not-an-engine".into()]),
-        }).await.unwrap_err();
+        let error = run_core_install(
+            &job,
+            CoreInstall {
+                processes: Processes::for_tests(),
+                plugin_data: Path::new(""),
+                manifest: Some(json!({"engines": {}})),
+                env: Some(HashMap::from([("PATH".to_owned(), String::new())])),
+                fetcher: &ByUrl(HashMap::new()),
+                cancel: CancellationToken::new(),
+                only: Some(vec!["biome".into(), "not-an-engine".into()]),
+            },
+        )
+        .await
+        .unwrap_err();
         assert!(error.contains("not-an-engine"));
         assert!(job.status().is_null());
     }
@@ -360,10 +427,7 @@ mod tests {
         let fetcher = HeldFetch {
             entered: Semaphore::new(0),
             release: Semaphore::new(0),
-            inner: ByUrl(HashMap::from([
-                ("https://x/biome".to_owned(), b"biome-bin".to_vec()),
-                ("https://x/ruff".to_owned(), b"ruff-bin".to_vec()),
-            ])),
+            inner: ByUrl(HashMap::from([("https://x/biome".to_owned(), b"biome-bin".to_vec()), ("https://x/ruff".to_owned(), b"ruff-bin".to_vec())])),
         };
         let job = Arc::new(InstallJob::default());
         let options = |id: &str| CoreInstall {
@@ -382,7 +446,8 @@ mod tests {
             poll_fn(|cx| {
                 assert!(request.as_mut().poll(cx).is_pending(), "the queued request must not report completion");
                 Poll::Ready(())
-            }).await;
+            })
+            .await;
             let active = job.status();
             assert_eq!(active["active"], true);
             assert_eq!(active["engines"][0]["id"], "biome");
@@ -419,7 +484,6 @@ mod tests {
         assert!(resolver.tools_dir().ends_with("tools"));
     }
 }
-
 
 impl SystemEngineResolver {
     pub fn new(processes: Processes, plugin_data: &Path, manifest: Option<Value>, env: Option<HashMap<String, String>>) -> Self {

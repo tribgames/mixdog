@@ -14,8 +14,7 @@ pub const DEFAULT_GOAL_DEADLINE_WARNING_MS: [f64; 2] = [10.0 * 60_000.0, 5.0 * 6
 pub const NO_DEADLINE_WARNING_MS: f64 = 9_007_199_254_740_991.0;
 pub const GOAL_FILE_VERSION: i64 = 1;
 pub const GOAL_LIVE_HEARTBEAT_MS: f64 = 60_000.0;
-pub const GOAL_STATUS_VALUES: [&str; 7] =
-    ["active", "paused", "blocked", "usage_limited", "duration_reached", "complete", "stopped"];
+pub const GOAL_STATUS_VALUES: [&str; 7] = ["active", "paused", "blocked", "usage_limited", "duration_reached", "complete", "stopped"];
 
 const MAX_OBJECTIVE_LENGTH: usize = 4_000;
 const MAX_GOAL_BLOCKER_LENGTH: usize = 1_000;
@@ -338,7 +337,8 @@ pub fn public_goal(goal: Option<&Goal>, now: f64) -> Option<Goal> {
     put_num(&mut out, "warningRevision", count(goal, "warningRevision"));
     copy(&mut out, goal, "sessionId");
     copy(&mut out, goal, "objective");
-    let title = if truthy(goal.get("title")) { goal.get("title").cloned() } else { Some(json!(compact_session_title(&clean_for_string(goal.get("objective"))))) };
+    let title =
+        if truthy(goal.get("title")) { goal.get("title").cloned() } else { Some(json!(compact_session_title(&clean_for_string(goal.get("objective"))))) };
     out.insert("title".into(), title.unwrap_or(Value::Null));
     copy(&mut out, goal, "status");
     put_num(&mut out, "turnCount", count(goal, "turnCount"));
@@ -389,11 +389,8 @@ pub fn completed_goal_expired(goal: Option<&Goal>, at: f64, ttl_ms: f64) -> bool
     if string(goal, "status") != "complete" {
         return false;
     }
-    let completed = [number(goal, "completedAt"), number(goal, "updatedAt"), number(goal, "createdAt")]
-        .into_iter()
-        .map(|n| or(n, 0.0))
-        .find(|n| *n != 0.0)
-        .unwrap_or(0.0);
+    let completed =
+        [number(goal, "completedAt"), number(goal, "updatedAt"), number(goal, "createdAt")].into_iter().map(|n| or(n, 0.0)).find(|n| *n != 0.0).unwrap_or(0.0);
     completed > 0.0 && at - completed >= normalized_completed_goal_ttl_ms(ttl_ms)
 }
 
@@ -435,9 +432,7 @@ pub fn resume_goal_state(goal: &mut Goal, at: f64, added: Option<f64>) -> GoalRe
         put_num(goal, "deadlineWarnedMs", NO_DEADLINE_WARNING_MS);
     }
     if number(goal, "timeLimitMs") > 0.0 && number(goal, "timeLimitMs") <= number(goal, "timeUsedMs") {
-        return Err(GoalError::new(
-            "Goal time budget is exhausted; extend the time budget before resuming with user-approved time_limit_minutes",
-        ));
+        return Err(GoalError::new("Goal time budget is exhausted; extend the time budget before resuming with user-approved time_limit_minutes"));
     }
     activate_goal(goal, at);
     put_num(goal, "updatedAt", at);

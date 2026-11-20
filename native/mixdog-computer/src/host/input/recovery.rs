@@ -1,10 +1,10 @@
 //! Idle and recovery reads, restore and release of held input.
 
-use crate::host::{sleep_ms, Host, Res};
+use crate::host::{Host, Res, sleep_ms};
 use crate::keys;
 use crate::obj;
 use crate::observer::now_ms;
-use crate::platform::{parse_window_id, window_id, Background, Desktop, Wid};
+use crate::platform::{Background, Desktop, Wid, parse_window_id, window_id};
 use crate::protocol::{Obj, Req};
 use std::collections::BTreeMap;
 
@@ -66,33 +66,14 @@ impl Host {
         if target == 0 || (!exists && !req.bool_true("after_input")) {
             return Err("foreground input target is unavailable before dispatch".into());
         }
-        let owner = if exists {
-            self.desktop
-                .info(target)
-                .map(|info| info.owner_id())
-                .unwrap_or_default()
-        } else {
-            String::new()
-        };
+        let owner = if exists { self.desktop.info(target).map(|info| info.owner_id()).unwrap_or_default() } else { String::new() };
         let foreground = self.desktop.foreground();
         let original = self.session(|session| session.original_focus);
-        let restore = if self.is_window(original) {
-            original
-        } else {
-            foreground
-        };
-        let restore_owner = self
-            .desktop
-            .info(restore)
-            .map(|info| info.owner_id())
-            .unwrap_or_default();
+        let restore = if self.is_window(original) { original } else { foreground };
+        let restore_owner = self.desktop.info(restore).map(|info| info.owner_id()).unwrap_or_default();
         let (cx, cy) = self.desktop.cursor();
         let evidence = self.observer.read();
-        let foreground_pid = self
-            .desktop
-            .info(foreground)
-            .map(|info| info.pid)
-            .unwrap_or(0);
+        let foreground_pid = self.desktop.info(foreground).map(|info| info.pid).unwrap_or(0);
         let target_pid = self.desktop.info(target).map(|info| info.pid).unwrap_or(-1);
         Ok(obj! {
             "text" => "foreground input recovery state captured",
@@ -118,22 +99,13 @@ impl Host {
         let evidence = self.observer.read();
         let monitor = req.text("expected_input_monitor_id");
         let Some(sequence) = req.int("expected_input_user_sequence") else {
-            return Err(
-                "input_observation_unavailable: cannot establish the original input observation"
-                    .into(),
-            );
+            return Err("input_observation_unavailable: cannot establish the original input observation".into());
         };
         if !evidence.ready || monitor.is_empty() || evidence.generation != monitor {
-            return Err(
-                "input_observation_unavailable: cannot establish the original input observation"
-                    .into(),
-            );
+            return Err("input_observation_unavailable: cannot establish the original input observation".into());
         }
         if evidence.sequence != sequence {
-            return Err(
-                "user_input_active: desktop input changed; recovery must not override the user"
-                    .into(),
-            );
+            return Err("user_input_active: desktop input changed; recovery must not override the user".into());
         }
         Ok(())
     }
@@ -142,11 +114,7 @@ impl Host {
         self.assert_recovery_unchanged(req)?;
         {
             let mut scope = self.scope.borrow_mut();
-            scope.begin_expected(
-                &self.observer,
-                &req.text("expected_input_monitor_id"),
-                req.int("expected_input_user_sequence").unwrap_or(-1),
-            )?;
+            scope.begin_expected(&self.observer, &req.text("expected_input_monitor_id"), req.int("expected_input_user_sequence").unwrap_or(-1))?;
         }
         let outcome = self.restore_body(req);
         self.scope.borrow_mut().end();
@@ -156,11 +124,7 @@ impl Host {
     fn restore_body(&self, req: &Req) -> Res<Obj> {
         let mut restore_focus = !req.bool_false("restore_focus");
         let mut restore = parse_window_id(&req.text("restore_window_id"));
-        let mut restored = if restore_focus {
-            "original"
-        } else {
-            "preserved"
-        };
+        let mut restored = if restore_focus { "original" } else { "preserved" };
         if restore_focus && !self.is_window(restore) {
             let owner = parse_window_id(&req.text("restore_owner_window_id"));
             if !self.is_window(owner) {
@@ -172,11 +136,7 @@ impl Host {
         if restore_focus && req.has("held_window_ids") {
             // A restore may only take focus from a window the session held
             // (Restore-InputRecoveryState).
-            let held: Vec<Wid> = req
-                .strings("held_window_ids")
-                .iter()
-                .map(|id| parse_window_id(id))
-                .collect();
+            let held: Vec<Wid> = req.strings("held_window_ids").iter().map(|id| parse_window_id(id)).collect();
             if !self.foreground_is_held(restore, &held) {
                 return Err("foreground_changed: another window holds the foreground; the desktop was not restored".into());
             }
@@ -222,9 +182,7 @@ impl Host {
     /// the held windows is left (a fallback focus is nobody's to protect).
     fn foreground_is_held(&self, restore: Wid, held: &[Wid]) -> bool {
         let foreground = self.desktop.foreground();
-        foreground == restore
-            || !held.iter().any(|window| self.is_window(*window))
-            || in_held(&*self.desktop, foreground, held)
+        foreground == restore || !held.iter().any(|window| self.is_window(*window)) || in_held(&*self.desktop, foreground, held)
     }
 
     /// Ends a session: returns focus when nothing else moved it, then
@@ -238,19 +196,8 @@ impl Host {
         let current = self.desktop.foreground();
         let observed = self.observer.read();
         let (original, monitor, sequence, own) = self.session(|session| {
-            let own: Vec<Wid> = [
-                session.last_focus,
-                session.restore_point.map_or(0, |point| point.target),
-            ]
-            .into_iter()
-            .filter(|window| *window != 0)
-            .collect();
-            (
-                session.original_focus,
-                session.original_focus_monitor.clone(),
-                session.original_focus_sequence,
-                own,
-            )
+            let own: Vec<Wid> = [session.last_focus, session.restore_point.map_or(0, |point| point.target)].into_iter().filter(|window| *window != 0).collect();
+            (session.original_focus, session.original_focus_monitor.clone(), session.original_focus_sequence, own)
         });
         let mut held = own.clone();
         held.extend(req.strings("handed_window_ids").iter().map(|id| parse_window_id(id)));
@@ -309,19 +256,12 @@ impl Host {
     }
 
     fn release_held_pointer(&self) -> Res<()> {
-        let (held, roots) = self.session(|session| {
-            (
-                std::mem::take(&mut session.held_pointer),
-                std::mem::take(&mut session.held_pointer_roots),
-            )
-        });
+        let (held, roots) = self.session(|session| (std::mem::take(&mut session.held_pointer), std::mem::take(&mut session.held_pointer_roots)));
         if held.is_empty() && roots.is_empty() {
             return Ok(());
         }
         let Some(background) = self.desktop.background() else {
-            return Err(
-                "input_cleanup_unconfirmed: a held pointer button could not be released".into(),
-            );
+            return Err("input_cleanup_unconfirmed: a held pointer button could not be released".into());
         };
         let mut pending = BTreeMap::new();
         let released = release_buttons(background, held, roots, &mut pending);
@@ -374,15 +314,11 @@ impl Host {
 
 /// What a background release that a busy target never answered reports
 /// (MixWin32Message.WithBackgroundRelease).
-const UNACKNOWLEDGED: &str =
-    "input_cleanup_unconfirmed: background input release was not acknowledged";
+const UNACKNOWLEDGED: &str = "input_cleanup_unconfirmed: background input release was not acknowledged";
 
 /// Whether `window` is one of the held windows or drawn over one of them.
 fn in_held(desktop: &dyn Desktop, window: Wid, held: &[Wid]) -> bool {
-    window != 0
-        && held
-            .iter()
-            .any(|held| *held != 0 && (window == *held || desktop.is_owned_by(window, *held)))
+    window != 0 && held.iter().any(|held| *held != 0 && (window == *held || desktop.is_owned_by(window, *held)))
 }
 
 /// Release-HeldPointerButtons (input-pointer.ps1:167-204): every held button is
@@ -419,11 +355,7 @@ fn release_buttons(
 /// release is sent once more. Returns those still unacknowledged and how many
 /// targets closed first; a closed target holds nothing, so it is reported once
 /// and not retried again.
-fn retry_pending(
-    background: &dyn Background,
-    pending: BTreeMap<String, (i32, i32)>,
-    is_window: impl Fn(Wid) -> bool,
-) -> (BTreeMap<String, (i32, i32)>, usize) {
+fn retry_pending(background: &dyn Background, pending: BTreeMap<String, (i32, i32)>, is_window: impl Fn(Wid) -> bool) -> (BTreeMap<String, (i32, i32)>, usize) {
     let mut remaining = BTreeMap::new();
     let mut gone = 0;
     for (id, (x, y)) in pending {
@@ -481,11 +413,7 @@ mod tests {
         }
         fn release_hold(&self, root: Wid) -> Result<(), String> {
             self.log.borrow_mut().push(format!("unhold:{root}"));
-            if self.hold_fails.contains(&root) {
-                Err("input_cleanup_unconfirmed: bit".into())
-            } else {
-                Ok(())
-            }
+            if self.hold_fails.contains(&root) { Err("input_cleanup_unconfirmed: bit".into()) } else { Ok(()) }
         }
     }
 
@@ -499,18 +427,11 @@ mod tests {
 
     #[test]
     fn every_button_and_hold_is_released_even_when_one_fails() {
-        let recorder = Recorder {
-            unreachable: vec![1],
-            hold_fails: vec![102],
-            ..Default::default()
-        };
+        let recorder = Recorder { unreachable: vec![1], hold_fails: vec![102], ..Default::default() };
         let mut pending = BTreeMap::new();
         let released = release_buttons(&recorder, held(&[1, 2]), roots(&[1, 2]), &mut pending);
         assert!(!released);
-        assert_eq!(
-            *recorder.log.borrow(),
-            ["release:1", "unhold:101", "release:2", "unhold:102"]
-        );
+        assert_eq!(*recorder.log.borrow(), ["release:1", "unhold:101", "release:2", "unhold:102"]);
         assert!(pending.is_empty(), "a refused release is not a pending one");
     }
 
@@ -524,10 +445,7 @@ mod tests {
 
     #[test]
     fn an_unacknowledged_release_is_kept_then_confirmed_on_retry() {
-        let recorder = Recorder {
-            unanswered: RefCell::new(vec![4]),
-            ..Default::default()
-        };
+        let recorder = Recorder { unanswered: RefCell::new(vec![4]), ..Default::default() };
         let mut pending = BTreeMap::new();
         assert!(!release_buttons(&recorder, held(&[4]), roots(&[4]), &mut pending));
         assert_eq!(pending.get(&window_id(4)), Some(&(5, 6)));

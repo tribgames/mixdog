@@ -131,10 +131,7 @@ impl DigestBytes {
     fn from_slice(source: &[u8]) -> Self {
         let mut bytes = [0u8; MAX_DIGEST];
         bytes[..source.len()].copy_from_slice(source);
-        Self {
-            bytes,
-            len: source.len(),
-        }
+        Self { bytes, len: source.len() }
     }
 }
 
@@ -170,9 +167,7 @@ impl Hasher {
             HashAlgorithm::Md5 => Ok(Self::Md5(Md5::new())),
             HashAlgorithm::Ripemd160 => Ok(Self::Ripemd160(Ripemd160::new())),
             // `unsupported` answered for these above.
-            HashAlgorithm::Md4 | HashAlgorithm::Md2 | HashAlgorithm::Ripemd128 | HashAlgorithm::Whirlpool => {
-                Err(HashError::NotCompiledIn)
-            }
+            HashAlgorithm::Md4 | HashAlgorithm::Md2 | HashAlgorithm::Ripemd128 | HashAlgorithm::Whirlpool => Err(HashError::NotCompiledIn),
         }
     }
 
@@ -248,24 +243,20 @@ pub struct Ripemd160 {
 }
 
 const LEFT_WORD: [usize; 80] = [
-    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 7, 4, 13, 1, 10, 6, 15, 3, 12, 0, 9, 5, 2, 14, 11, 8, 3, 10,
-    14, 4, 9, 15, 8, 1, 2, 7, 0, 6, 13, 11, 5, 12, 1, 9, 11, 10, 0, 8, 12, 4, 13, 3, 7, 15, 14, 5, 6, 2, 4, 0, 5, 9, 7,
-    12, 2, 10, 14, 1, 3, 8, 11, 6, 15, 13,
+    0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 7, 4, 13, 1, 10, 6, 15, 3, 12, 0, 9, 5, 2, 14, 11, 8, 3, 10, 14, 4, 9, 15, 8, 1, 2, 7, 0, 6, 13, 11,
+    5, 12, 1, 9, 11, 10, 0, 8, 12, 4, 13, 3, 7, 15, 14, 5, 6, 2, 4, 0, 5, 9, 7, 12, 2, 10, 14, 1, 3, 8, 11, 6, 15, 13,
 ];
 const RIGHT_WORD: [usize; 80] = [
-    5, 14, 7, 0, 9, 2, 11, 4, 13, 6, 15, 8, 1, 10, 3, 12, 6, 11, 3, 7, 0, 13, 5, 10, 14, 15, 8, 12, 4, 9, 1, 2, 15, 5,
-    1, 3, 7, 14, 6, 9, 11, 8, 12, 2, 10, 0, 4, 13, 8, 6, 4, 1, 3, 11, 15, 0, 5, 12, 2, 13, 9, 7, 10, 14, 12, 15, 10, 4,
-    1, 5, 8, 7, 6, 2, 13, 14, 0, 3, 9, 11,
+    5, 14, 7, 0, 9, 2, 11, 4, 13, 6, 15, 8, 1, 10, 3, 12, 6, 11, 3, 7, 0, 13, 5, 10, 14, 15, 8, 12, 4, 9, 1, 2, 15, 5, 1, 3, 7, 14, 6, 9, 11, 8, 12, 2, 10, 0,
+    4, 13, 8, 6, 4, 1, 3, 11, 15, 0, 5, 12, 2, 13, 9, 7, 10, 14, 12, 15, 10, 4, 1, 5, 8, 7, 6, 2, 13, 14, 0, 3, 9, 11,
 ];
 const LEFT_SHIFT: [u32; 80] = [
-    11, 14, 15, 12, 5, 8, 7, 9, 11, 13, 14, 15, 6, 7, 9, 8, 7, 6, 8, 13, 11, 9, 7, 15, 7, 12, 15, 9, 11, 7, 13, 12, 11,
-    13, 6, 7, 14, 9, 13, 15, 14, 8, 13, 6, 5, 12, 7, 5, 11, 12, 14, 15, 14, 15, 9, 8, 9, 14, 5, 6, 8, 6, 5, 12, 9, 15,
-    5, 11, 6, 8, 13, 12, 5, 12, 13, 14, 11, 8, 5, 6,
+    11, 14, 15, 12, 5, 8, 7, 9, 11, 13, 14, 15, 6, 7, 9, 8, 7, 6, 8, 13, 11, 9, 7, 15, 7, 12, 15, 9, 11, 7, 13, 12, 11, 13, 6, 7, 14, 9, 13, 15, 14, 8, 13, 6,
+    5, 12, 7, 5, 11, 12, 14, 15, 14, 15, 9, 8, 9, 14, 5, 6, 8, 6, 5, 12, 9, 15, 5, 11, 6, 8, 13, 12, 5, 12, 13, 14, 11, 8, 5, 6,
 ];
 const RIGHT_SHIFT: [u32; 80] = [
-    8, 9, 9, 11, 13, 15, 15, 5, 7, 7, 8, 11, 14, 14, 12, 6, 9, 13, 15, 7, 12, 8, 9, 11, 7, 7, 12, 7, 6, 15, 13, 11, 9,
-    7, 15, 11, 8, 6, 6, 14, 12, 13, 5, 14, 13, 13, 7, 5, 15, 5, 8, 11, 14, 14, 6, 14, 6, 9, 12, 9, 12, 5, 15, 8, 8, 5,
-    12, 9, 12, 5, 14, 6, 8, 13, 6, 5, 15, 13, 11, 11,
+    8, 9, 9, 11, 13, 15, 15, 5, 7, 7, 8, 11, 14, 14, 12, 6, 9, 13, 15, 7, 12, 8, 9, 11, 7, 7, 12, 7, 6, 15, 13, 11, 9, 7, 15, 11, 8, 6, 6, 14, 12, 13, 5, 14,
+    13, 13, 7, 5, 15, 5, 8, 11, 14, 14, 6, 14, 6, 9, 12, 9, 12, 5, 15, 8, 8, 5, 12, 9, 12, 5, 14, 6, 8, 13, 6, 5, 15, 13, 11, 11,
 ];
 const LEFT_CONSTANT: [u32; 5] = [0, 0x5A82_7999, 0x6ED9_EBA1, 0x8F1B_BCDC, 0xA953_FD4E];
 const RIGHT_CONSTANT: [u32; 5] = [0x50A2_8BE6, 0x5C4D_D124, 0x6D70_3EF3, 0x7A6D_76E9, 0];
@@ -283,12 +274,7 @@ fn round_function(round: usize, x: u32, y: u32, z: u32) -> u32 {
 impl Ripemd160 {
     #[must_use]
     pub fn new() -> Self {
-        Self {
-            state: [0x6745_2301, 0xEFCD_AB89, 0x98BA_DCFE, 0x1032_5476, 0xC3D2_E1F0],
-            block: [0; 64],
-            filled: 0,
-            length: 0,
-        }
+        Self { state: [0x6745_2301, 0xEFCD_AB89, 0x98BA_DCFE, 0x1032_5476, 0xC3D2_E1F0], block: [0; 64], filled: 0, length: 0 }
     }
 
     pub fn update(&mut self, mut data: &[u8]) {
@@ -409,10 +395,7 @@ mod tests {
             (HashAlgorithm::Md5, "900150983cd24fb0d6963f7d28e17f72"),
             (HashAlgorithm::Sha1, "a9993e364706816aba3e25717850c26c9cd0d89d"),
             (HashAlgorithm::Sha256, "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"),
-            (
-                HashAlgorithm::Sha384,
-                "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7",
-            ),
+            (HashAlgorithm::Sha384, "cb00753f45a35e8bb5a03d699ac65007272c32ab0eded1631a8b605a43ff5bed8086072ba1e7cc2358baeca134c825a7"),
             (
                 HashAlgorithm::Sha512,
                 "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
@@ -426,32 +409,21 @@ mod tests {
     fn hmac_matches_the_published_vectors_and_a_key_longer_than_a_block_is_hashed_first() {
         // RFC 2202 case 1 (SHA-1) and RFC 4231 case 1 (SHA-256): key 0x0b repeated, data "Hi There".
         let key20 = [0x0bu8; 20];
-        assert_eq!(
-            hex(&hmac(HashAlgorithm::Sha1, &key20, b"Hi There").expect("computed")),
-            "b617318655057264e28bc0b6fb378c8ef146be00"
-        );
+        assert_eq!(hex(&hmac(HashAlgorithm::Sha1, &key20, b"Hi There").expect("computed")), "b617318655057264e28bc0b6fb378c8ef146be00");
         assert_eq!(
             hex(&hmac(HashAlgorithm::Sha256, &key20, b"Hi There").expect("computed")),
             "b0344c61d8db38535ca8afceaf0bf12b881dc200c9833da726e9376c2e32cff7"
         );
         // RFC 2202 case 6: an 80-byte key (longer than the 64-byte block) with a 54-byte message.
         assert_eq!(
-            hex(&hmac(
-                HashAlgorithm::Sha1,
-                &[0xaau8; 80],
-                b"Test Using Larger Than Block-Size Key - Hash Key First"
-            )
-            .expect("computed")),
+            hex(&hmac(HashAlgorithm::Sha1, &[0xaau8; 80], b"Test Using Larger Than Block-Size Key - Hash Key First").expect("computed")),
             "aa4ae5e15272d00e95705637ce8a3b55ed402112"
         );
     }
 
     #[test]
     fn hmac_over_an_algorithm_that_cannot_be_computed_says_why() {
-        assert_eq!(
-            hmac(HashAlgorithm::Md2, b"k", b"d").err().map(|error| error.to_string()).as_deref(),
-            Some("Invalid digest: md2")
-        );
+        assert_eq!(hmac(HashAlgorithm::Md2, b"k", b"d").err().map(|error| error.to_string()).as_deref(), Some("Invalid digest: md2"));
         assert_eq!(
             hmac(HashAlgorithm::Md4, b"k", b"d").err().map(|error| error.to_string()).as_deref(),
             Some("error:0308010C:digital envelope routines::unsupported")
@@ -472,16 +444,10 @@ mod tests {
         let cases: [(&[u8], &str); 3] = [
             (b"", "9c1185a5c5e9fc54612808977ee8f548b2258d31"),
             (b"abc", "8eb208f7e05d987a9b044a8e98c6b087f15a0bfc"),
-            (
-                b"12345678901234567890123456789012345678901234567890123456789012345678901234567890",
-                "9b752e45573d4b39f4dbd3323cab82bf63326bfb",
-            ),
+            (b"12345678901234567890123456789012345678901234567890123456789012345678901234567890", "9b752e45573d4b39f4dbd3323cab82bf63326bfb"),
         ];
         for (input, expected) in cases {
-            assert_eq!(
-                hex(&hash(HashAlgorithm::Ripemd160, &[input]).expect("computed")),
-                expected
-            );
+            assert_eq!(hex(&hash(HashAlgorithm::Ripemd160, &[input]).expect("computed")), expected);
         }
         // A message fed in pieces across the 64-byte block boundary equals the whole.
         let long = vec![0x61u8; 200];
@@ -489,34 +455,21 @@ mod tests {
         for piece in long.chunks(37) {
             pieces.update(piece);
         }
-        assert_eq!(
-            &*pieces.finish(),
-            &*hash(HashAlgorithm::Ripemd160, &[&long]).expect("computed")
-        );
+        assert_eq!(&*pieces.finish(), &*hash(HashAlgorithm::Ripemd160, &[&long]).expect("computed"));
     }
 
     #[test]
     fn hashes_that_cannot_be_computed_carry_their_error_text() {
         for (algorithm, text) in [
-            (
-                HashAlgorithm::Md4,
-                "error:0308010C:digital envelope routines::unsupported",
-            ),
-            (
-                HashAlgorithm::Whirlpool,
-                "error:0308010C:digital envelope routines::unsupported",
-            ),
+            (HashAlgorithm::Md4, "error:0308010C:digital envelope routines::unsupported"),
+            (HashAlgorithm::Whirlpool, "error:0308010C:digital envelope routines::unsupported"),
             (HashAlgorithm::Md2, "Digest method not supported"),
             (HashAlgorithm::Ripemd128, "Digest method not supported"),
         ] {
             assert_eq!(algorithm.digest_length(), None);
-            assert_eq!(
-                Hasher::new(algorithm).err().map(|error| error.to_string()).as_deref(),
-                Some(text)
-            );
+            assert_eq!(Hasher::new(algorithm).err().map(|error| error.to_string()).as_deref(), Some(text));
         }
     }
 }
-
 
 impl std::error::Error for HashError {}

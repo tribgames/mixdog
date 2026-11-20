@@ -54,7 +54,8 @@ mod tests {
     fn only_the_thread_is_required_and_the_names_are_camel_case() {
         let params: StatuslineReadParams = serde_json::from_str(r#"{"sessionId":"s1"}"#).unwrap();
         assert_eq!(params, StatuslineReadParams { session_id: "s1".into(), ..Default::default() });
-        let params: StatuslineReadParams = serde_json::from_str(r#"{"sessionId":"s1","clientHostPid":42,"activeContextTokens":1500.5,"providerOut":{"usage":{}}}"#).unwrap();
+        let params: StatuslineReadParams =
+            serde_json::from_str(r#"{"sessionId":"s1","clientHostPid":42,"activeContextTokens":1500.5,"providerOut":{"usage":{}}}"#).unwrap();
         assert_eq!((params.client_host_pid, params.active_context_tokens), (Some(42), Some(1500.5)));
         let result = StatuslineReadResult { status: Some(serde_json::json!({ "model": "m" })), limits: None };
         assert_eq!(serde_json::to_value(&result).unwrap(), serde_json::json!({ "status": { "model": "m" }, "limits": null }));

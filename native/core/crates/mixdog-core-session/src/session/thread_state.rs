@@ -93,10 +93,7 @@ impl SessionThreads {
     async fn call(&self, thread: &ThreadId, method: &'static str, params: Value) -> Result<Value, PortError> {
         let ctx = CallContext::internal("ports");
         let handle = self.directory.open_handle(thread, &ctx).await.map_err(port_error)?;
-        let reply = handle
-            .request(CoreRequest { method: Method(method), params, op: None, ctx })
-            .await
-            .map_err(port_error)?;
+        let reply = handle.request(CoreRequest { method: Method(method), params, op: None, ctx }).await.map_err(port_error)?;
         match reply {
             Reply::Value(value) => Ok(value),
             Reply::Subscribe(_) => Err(PortError::Failed { capability: "session".into(), message: format!("{method} subscribed") }),
@@ -167,9 +164,7 @@ impl ThreadState for SessionThreads {
         set: Map<String, Value>,
         unset: Vec<String>,
     ) -> Result<Option<Map<String, Value>>, PortError> {
-        let reply = self
-            .call(thread, "thread/header/patch", json!({ "threadId": thread, "expect": expect, "set": set, "unset": unset }))
-            .await?;
+        let reply = self.call(thread, "thread/header/patch", json!({ "threadId": thread, "expect": expect, "set": set, "unset": unset })).await?;
         self.directory.deps().store.indexed(thread).await.map_err(port_error)?;
         Ok(reply.get("conflict").and_then(Value::as_object).cloned())
     }

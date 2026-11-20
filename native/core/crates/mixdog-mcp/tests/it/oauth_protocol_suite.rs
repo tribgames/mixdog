@@ -23,7 +23,8 @@ fn discovery(metadata: Option<serde_json::Value>) -> Discovery {
 
 #[test]
 fn a_challenge_names_its_metadata_scope_and_error_and_a_missing_header_names_nothing() {
-    let header = r#"Bearer realm="mcp", resource_metadata="https://x.example/.well-known/oauth-protected-resource", scope="read write", error="insufficient_scope""#;
+    let header =
+        r#"Bearer realm="mcp", resource_metadata="https://x.example/.well-known/oauth-protected-resource", scope="read write", error="insufficient_scope""#;
     assert_eq!(
         parse_challenge(Some(header)),
         Challenge {

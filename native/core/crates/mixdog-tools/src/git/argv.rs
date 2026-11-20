@@ -14,18 +14,47 @@ const GUI_OPERATIONS: [&str; 5] = ["gui", "citool", "gitk", "difftool", "mergeto
 const SERVER_OPERATIONS: [&str; 2] = ["daemon", "instaweb"];
 
 const ALWAYS_READ: [&str; 36] = [
-    "blame", "cat-file", "check-attr", "check-ignore", "check-ref-format", "cherry", "count-objects",
-    "describe", "diff", "diff-files", "diff-index", "diff-tree", "for-each-ref", "fsck", "grep", "help",
-    "log", "ls-files", "ls-remote", "ls-tree", "merge-base", "merge-tree", "name-rev", "range-diff",
-    "rev-list", "rev-parse", "shortlog", "show", "show-branch", "show-ref", "status", "verify-commit",
-    "verify-pack", "verify-tag", "version", "whatchanged",
+    "blame",
+    "cat-file",
+    "check-attr",
+    "check-ignore",
+    "check-ref-format",
+    "cherry",
+    "count-objects",
+    "describe",
+    "diff",
+    "diff-files",
+    "diff-index",
+    "diff-tree",
+    "for-each-ref",
+    "fsck",
+    "grep",
+    "help",
+    "log",
+    "ls-files",
+    "ls-remote",
+    "ls-tree",
+    "merge-base",
+    "merge-tree",
+    "name-rev",
+    "range-diff",
+    "rev-list",
+    "rev-parse",
+    "shortlog",
+    "show",
+    "show-branch",
+    "show-ref",
+    "status",
+    "verify-commit",
+    "verify-pack",
+    "verify-tag",
+    "version",
+    "whatchanged",
 ];
 
 const GLOBAL_VALUE_FLAGS: [&str; 5] = ["-c", "--config-env", "--git-dir", "--work-tree", "--namespace"];
-const GLOBAL_BARE_FLAGS: [&str; 7] = [
-    "--no-pager", "--paginate", "--bare", "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs",
-    "--icase-pathspecs",
-];
+const GLOBAL_BARE_FLAGS: [&str; 7] =
+    ["--no-pager", "--paginate", "--bare", "--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs"];
 
 /// `git --version` / `-v` / `--help` / `-h` arrive in global-flag position.
 fn operation_alias(raw: &str) -> &str {
@@ -55,8 +84,7 @@ pub(super) fn resolve(base: &Path, rel: &str) -> PathBuf {
 pub(super) fn is_git_program(token: &str) -> bool {
     let lower = token.to_lowercase();
     let stem = lower.strip_suffix(".exe").unwrap_or(&lower);
-    stem.strip_suffix("git")
-        .is_some_and(|head| head.is_empty() || head.ends_with('/') || head.ends_with('\\'))
+    stem.strip_suffix("git").is_some_and(|head| head.is_empty() || head.ends_with('/') || head.ends_with('\\'))
 }
 
 /// Quote-aware argv split that keeps Windows backslashes literal (non-strict form).
@@ -198,11 +226,7 @@ pub(super) fn skip_git_global_flags(tokens: &[String]) -> (usize, Vec<GlobalFlag
         } else if GLOBAL_VALUE_FLAGS.contains(&token) {
             events.push(GlobalFlag::Value(token.to_owned(), tokens.get(index + 1).cloned()));
             index += 2;
-        } else if ["--git-dir=", "--work-tree=", "--namespace=", "--config-env="]
-            .iter()
-            .any(|p| token.starts_with(p))
-            || GLOBAL_BARE_FLAGS.contains(&token)
-        {
+        } else if ["--git-dir=", "--work-tree=", "--namespace=", "--config-env="].iter().any(|p| token.starts_with(p)) || GLOBAL_BARE_FLAGS.contains(&token) {
             events.push(GlobalFlag::Bare(token.to_owned()));
             index += 1;
         } else {
@@ -243,9 +267,7 @@ pub(super) fn plan_is_read_only(operation: &str, args: &[String]) -> bool {
         "stash" => ["list", "show"].contains(&action),
         "worktree" | "sparse-checkout" => action == "list",
         "remote" => ["list", "get-url", "show"].contains(&action),
-        "clean" => args
-            .iter()
-            .any(|v| v == "-n" || v == "--dry-run" || matches_re(r"^-[^-]*n", v)),
+        "clean" => args.iter().any(|v| v == "-n" || v == "--dry-run" || matches_re(r"^-[^-]*n", v)),
         "bundle" => ["list-heads", "verify"].contains(&action),
         "notes" => ["", "list", "show"].contains(&action),
         "replace" => args.is_empty() || args.iter().any(|v| v == "--list"),
@@ -266,23 +288,15 @@ pub(super) fn plan_is_read_only(operation: &str, args: &[String]) -> bool {
             if args.iter().any(|v| matches_re(writes, v)) {
                 return false;
             }
-            let list: &[&str] = if operation == "tag" {
-                &["--list", "-l"]
-            } else {
-                &["--list", "-l", "-a", "--all", "-r", "--remotes"]
-            };
+            let list: &[&str] = if operation == "tag" { &["--list", "-l"] } else { &["--list", "-l", "-a", "--all", "-r", "--remotes"] };
             args.is_empty() || args.iter().any(|v| list.contains(&v.as_str()))
         }
         "config" => {
-            const MUTATION: [&str; 7] = [
-                "--add", "--edit", "--rename-section", "--remove-section", "--replace-all", "--unset", "--unset-all",
-            ];
+            const MUTATION: [&str; 7] = ["--add", "--edit", "--rename-section", "--remove-section", "--replace-all", "--unset", "--unset-all"];
             if args.iter().any(|v| MUTATION.contains(&v.as_str())) {
                 return false;
             }
-            let read_flag = args.iter().any(|v| {
-                matches_re(r"^--(?:get|get-all|get-regexp|get-urlmatch|list|show-origin|show-scope)$", v)
-            });
+            let read_flag = args.iter().any(|v| matches_re(r"^--(?:get|get-all|get-regexp|get-urlmatch|list|show-origin|show-scope)$", v));
             let positional: Vec<&String> = args.iter().filter(|v| !v.starts_with('-')).collect();
             let first = positional.first().map(|v| v.as_str());
             if ["set", "unset", "rename-section", "remove-section"].contains(&first.unwrap_or("\0")) {
@@ -302,9 +316,7 @@ pub(super) fn plan_is_read_only(operation: &str, args: &[String]) -> bool {
 /// (`ResultReuse::after_call`); an unparsable command counts as a mutation.
 pub fn git_call_mutates(args: &JsonValue) -> bool {
     let args = match args {
-        JsonValue::String(text) => {
-            serde_json::from_str::<JsonValue>(text).unwrap_or_else(|_| serde_json::json!({ "command": text }))
-        }
+        JsonValue::String(text) => serde_json::from_str::<JsonValue>(text).unwrap_or_else(|_| serde_json::json!({ "command": text })),
         other => other.clone(),
     };
     if args.get("action").is_some_and(|a| !a.is_null() && a.as_str() != Some("command")) {
@@ -360,8 +372,7 @@ fn unwrap_quoted_command(command: &str) -> String {
 pub(super) fn parse_command(raw_command: &str, work_dir: &Path) -> Result<Plan, String> {
     let command = unwrap_quoted_command(raw_command);
     if command_has_shell_syntax(&command) {
-        let unquoted = Regex::new(r#""(?:\\.|[^"\\])*"|'[^']*'"#)
-            .map_or_else(|_| command.clone(), |re| re.replace_all(&command, "").into_owned());
+        let unquoted = Regex::new(r#""(?:\\.|[^"\\])*"|'[^']*'"#).map_or_else(|_| command.clone(), |re| re.replace_all(&command, "").into_owned());
         return Err(format!(
             "git command must not contain shell operators or substitution; multiple commands belong in the command array.{}",
             if unquoted.contains('|') { " For | head/tail use output_limit, for | grep use the grep tool" } else { "" }
@@ -403,14 +414,10 @@ pub(super) fn parse_command(raw_command: &str, work_dir: &Path) -> Result<Plan, 
         return Err("git manual help can open an external viewer; use the subcommand -h form for terminal usage".to_owned());
     }
     if GUI_OPERATIONS.contains(&operation.as_str()) {
-        return Err(format!(
-            "git {operation} opens an interactive GUI and would never return here; use its non-interactive form (diff, merge, add -p)"
-        ));
+        return Err(format!("git {operation} opens an interactive GUI and would never return here; use its non-interactive form (diff, merge, add -p)"));
     }
     if SERVER_OPERATIONS.contains(&operation.as_str()) {
-        return Err(format!(
-            "git {operation} is a long-running server; start it with the shell tool so it becomes a background task"
-        ));
+        return Err(format!("git {operation} is a long-running server; start it with the shell tool so it becomes a background task"));
     }
     Ok(Plan { command, cwd, global_args, operation, args })
 }
@@ -510,9 +517,7 @@ pub(super) fn parse_stringified_array(value: &JsonValue) -> JsonValue {
         return value.clone();
     }
     match serde_json::from_str::<JsonValue>(text) {
-        Ok(JsonValue::Array(items)) if !items.is_empty() && items.iter().all(JsonValue::is_string) => {
-            JsonValue::Array(items)
-        }
+        Ok(JsonValue::Array(items)) if !items.is_empty() && items.iter().all(JsonValue::is_string) => JsonValue::Array(items),
         _ => value.clone(),
     }
 }
@@ -574,10 +579,7 @@ mod tests {
 
     #[test]
     fn chains_prefix_and_stringified_arrays() {
-        assert_eq!(
-            split_chained_git_commands("git add a && git commit -m 'x && y'").unwrap(),
-            ["git add a", "git commit -m 'x && y'"]
-        );
+        assert_eq!(split_chained_git_commands("git add a && git commit -m 'x && y'").unwrap(), ["git add a", "git commit -m 'x && y'"]);
         assert!(split_chained_git_commands("git status").is_none());
         assert_eq!(with_git_prefix("status --short"), "git status --short");
         assert_eq!(with_git_prefix("\"git diff\""), "\"git diff\"");

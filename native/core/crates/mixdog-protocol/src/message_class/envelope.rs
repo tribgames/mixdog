@@ -11,13 +11,13 @@ use mixdog_js::js_trim;
 use serde_json::Map;
 use serde_json::Value;
 
-use crate::text_class::parse_task_notification;
 use super::js::Obj;
 use super::js::or_str;
 use super::js::re;
 use super::js::replace_first;
 use super::js::split_lines;
 use super::js::truthy;
+use crate::text_class::parse_task_notification;
 
 /// A parsed envelope: the fields `restoredNotificationToolItem` reads.
 #[derive(Debug, Clone, PartialEq)]
@@ -49,8 +49,7 @@ pub fn agent_job_ids(text: &str) -> Option<(String, String)> {
     parse_agent_job(text).map(|job| (job.task_id, job.status))
 }
 
-static TERMINAL_ERROR_STATUS: LazyLock<JsRegex> =
-    LazyLock::new(|| re(r"^(failed|error|timeout|cancelled|canceled|killed|denied)$", "i"));
+static TERMINAL_ERROR_STATUS: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(failed|error|timeout|cancelled|canceled|killed|denied)$", "i"));
 static AGENT_RESULT_HEAD: LazyLock<JsRegex> = LazyLock::new(|| re(r"^agent result\b", "i"));
 static AGENT_RESULT_LINE: LazyLock<JsRegex> = LazyLock::new(|| re(r"^agent result[^\n]*(?:\n|$)", "i"));
 static SYNTHETIC_TAGS: LazyLock<JsRegex> = LazyLock::new(|| {
@@ -71,10 +70,8 @@ static ASYNC_PREAMBLE: LazyLock<JsRegex> = LazyLock::new(|| re(r"^Async \S+.* fi
 static QUOTED_LINE: LazyLock<JsRegex> = LazyLock::new(|| re(r"^> ", ""));
 static QUOTE_MARK: LazyLock<JsRegex> = LazyLock::new(|| re(r"^> ?", ""));
 static INLINE_STATUS: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(?:status|state):\s*([^\s·,;]+)", "im"));
-static ERROR_TOOL_STATUS: LazyLock<JsRegex> =
-    LazyLock::new(|| re(r"^(failed|error|timeout|cancelled|canceled|killed)$", "i"));
-static SHELL_ERROR_STATUS: LazyLock<JsRegex> =
-    LazyLock::new(|| re(r"^(failed|error|timeout|cancelled|killed)$", "i"));
+static ERROR_TOOL_STATUS: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(failed|error|timeout|cancelled|canceled|killed)$", "i"));
+static SHELL_ERROR_STATUS: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(failed|error|timeout|cancelled|killed)$", "i"));
 static JOB_AGENT_TASK: LazyLock<JsRegex> = LazyLock::new(|| re(r"^agent task:\s*([^\s]+)", "m"));
 static JOB_TASK_ID: LazyLock<JsRegex> = LazyLock::new(|| re(r"^task_id:\s*([^\s]+)", "m"));
 static JOB_STATUS: LazyLock<JsRegex> = LazyLock::new(|| re(r"^status:\s*([^\s(]+)", "m"));
@@ -93,8 +90,7 @@ static JOB_FAST: LazyLock<JsRegex> = LazyLock::new(|| re(r"^fast:\s*(on|off|true
 static FAST_ON: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(on|true)$", "i"));
 static RESULTISH_ACTION: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(notification|result|completion)$", "i"));
 static ERROR_LINE: LazyLock<JsRegex> = LazyLock::new(|| re(r"^error:\s*", "i"));
-static STRIP_ERROR_PREFIX: LazyLock<JsRegex> =
-    LazyLock::new(|| re(r"^\s*(?:\[[^\]]*error[^\]]*\]|error)\s*[:-]\s*", "i"));
+static STRIP_ERROR_PREFIX: LazyLock<JsRegex> = LazyLock::new(|| re(r"^\s*(?:\[[^\]]*error[^\]]*\]|error)\s*[:-]\s*", "i"));
 
 const RESULT_SPLIT: &str = "\n\nResult:\n";
 
@@ -105,10 +101,7 @@ fn lower(value: &str) -> String {
 /// `textBetweenTag(text, tag)`.
 pub fn text_between_tag(text: &str, tag: &str) -> String {
     let pattern = JsRegex::new_static(&format!(r"<{tag}[^>]*>([\s\S]*?)<\/{tag}>"), "i");
-    pattern
-        .captures(text)
-        .map(|c| js_trim(c.get(1).unwrap_or_default()).to_owned())
-        .unwrap_or_default()
+    pattern.captures(text).map(|c| js_trim(c.get(1).unwrap_or_default()).to_owned()).unwrap_or_default()
 }
 
 fn strip_synthetic_agent_tags(text: &str) -> String {
@@ -267,10 +260,7 @@ pub fn parse_background_task_envelope(text: &str) -> Option<Parsed> {
     let mut fields: HashMap<String, String> = HashMap::new();
     for line in head_lines {
         if let Some(caps) = FIELD_LINE.captures(js_trim(line)) {
-            fields.insert(
-                lower(caps.get(1).unwrap_or_default()),
-                js_trim(caps.get(2).unwrap_or_default()).to_owned(),
-            );
+            fields.insert(lower(caps.get(1).unwrap_or_default()), js_trim(caps.get(2).unwrap_or_default()).to_owned());
         }
     }
     let field = |name: &str| fields.get(name).map(String::as_str).unwrap_or("");
@@ -336,10 +326,7 @@ pub fn parse_background_task_envelope(text: &str) -> Option<Parsed> {
 }
 
 fn unquote_lines(section: &str) -> String {
-    let lines: Vec<String> = split_lines(section)
-        .into_iter()
-        .map(|line| replace_first(&QUOTE_MARK, line, ""))
-        .collect();
+    let lines: Vec<String> = split_lines(section).into_iter().map(|line| replace_first(&QUOTE_MARK, line, "")).collect();
     js_trim(&lines.join("\n")).to_owned()
 }
 
@@ -363,11 +350,7 @@ pub fn parse_model_visible_completion_wrapper(text: &str) -> Option<Parsed> {
 
 fn bracket_field(text: &str, name: &str) -> String {
     let pattern = JsRegex::new_static(&format!(r"^\[{name}:\s*([^\]]*)\]"), "mi");
-    pattern
-        .captures(text)
-        .and_then(|c| c.get(1))
-        .map(|v| js_trim(v).to_owned())
-        .unwrap_or_default()
+    pattern.captures(text).and_then(|c| c.get(1)).map(|v| js_trim(v).to_owned()).unwrap_or_default()
 }
 
 fn tool_result_status(value: &str) -> String {
@@ -379,11 +362,7 @@ fn tool_result_status(value: &str) -> String {
     if !bracketed.is_empty() {
         return bracketed;
     }
-    INLINE_STATUS
-        .captures(value)
-        .and_then(|c| c.get(1))
-        .map(|v| js_trim(v).to_owned())
-        .unwrap_or_default()
+    INLINE_STATUS.captures(value).and_then(|c| c.get(1)).map(|v| js_trim(v).to_owned()).unwrap_or_default()
 }
 
 /// `completionCardFromExecution(execution, text)`.
@@ -409,11 +388,7 @@ pub fn completion_card_from_execution(execution: Option<&Value>, text: &str) -> 
         Some(id) if truthy(Some(id)) => Some(id.clone()),
         _ => Some(bracket_field(&body, "task_id")).filter(|t| !t.is_empty()).map(Value::String),
     };
-    let args = Obj::default()
-        .put("type", "result")
-        .non_empty("status", &status)
-        .maybe("task_id", task_id)
-        .put("surface", surface);
+    let args = Obj::default().put("type", "result").non_empty("status", &status).maybe("task_id", task_id).put("surface", surface);
     let is_error = is_error_tool_status(&status) || ERROR_PREFIX.is_match(&body);
     Some(Parsed {
         name,
@@ -441,23 +416,14 @@ struct AgentJob {
 /// `parseAgentJob` for a text that is not a task notification.
 fn parse_agent_job(value: &str) -> Option<AgentJob> {
     let id = JOB_AGENT_TASK.captures(value).or_else(|| JOB_TASK_ID.captures(value))?;
-    let group = |pattern: &JsRegex| -> String {
-        pattern
-            .captures(value)
-            .and_then(|c| c.get(1).map(str::to_owned))
-            .unwrap_or_default()
-    };
-    let is_agent_envelope = JOB_AGENT_TASK_ANY.is_match(value)
-        || JOB_AGENT_RESULT.is_match(value)
-        || JOB_SURFACE_AGENT.is_match(value);
+    let group = |pattern: &JsRegex| -> String { pattern.captures(value).and_then(|c| c.get(1).map(str::to_owned)).unwrap_or_default() };
+    let is_agent_envelope = JOB_AGENT_TASK_ANY.is_match(value) || JOB_AGENT_RESULT.is_match(value) || JOB_SURFACE_AGENT.is_match(value);
     let provider_line = if is_agent_envelope { group(&JOB_PROVIDER) } else { String::new() };
     let model_line = if is_agent_envelope { group(&JOB_MODEL) } else { String::new() };
     let model_trimmed = js_trim(&model_line).to_owned();
     let provider_model = JOB_PROVIDER_MODEL.captures(&model_trimmed);
     let pm = |g: usize| provider_model.as_ref().and_then(|c| c.get(g)).unwrap_or("").to_owned();
-    let fast = JOB_FAST
-        .captures(value)
-        .and_then(|c| c.get(1).map(|v| FAST_ON.is_match(v)));
+    let fast = JOB_FAST.captures(value).and_then(|c| c.get(1).map(|v| FAST_ON.is_match(v)));
     Some(AgentJob {
         task_id: id.get(1).unwrap_or_default().to_owned(),
         status: lower(&group(&JOB_STATUS)),
@@ -549,9 +515,8 @@ pub fn is_status_only_agent_completion(text: &str) -> bool {
 
 /// `hasAgentResponseResultText(text)`.
 fn has_agent_response_result_text(text: &str) -> bool {
-    static STATUS_LINE: LazyLock<JsRegex> = LazyLock::new(|| {
-        re(r"^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$", "i")
-    });
+    static STATUS_LINE: LazyLock<JsRegex> =
+        LazyLock::new(|| re(r"^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$", "i"));
     static HEADER: LazyLock<JsRegex> = LazyLock::new(|| re(r"^(?:background task\b|agent task:|task_id:)", "i"));
     static BODY: LazyLock<JsRegex> = LazyLock::new(|| re(r"\n\s*\n[\s\S]*\S", ""));
     let value = js_trim(text);
@@ -579,14 +544,7 @@ pub fn parse_synthetic_agent_message(text: &str) -> Option<Parsed> {
     let final_answer = text_between_tag(value, "final-answer");
     if !final_answer.is_empty() {
         let args = Obj::default().put("type", "read").put("description", "agent result");
-        return Some(Parsed {
-            name: "agent".into(),
-            label: "final".into(),
-            args: args.0,
-            result: final_answer,
-            raw_result: None,
-            is_error: None,
-        });
+        return Some(Parsed { name: "agent".into(), label: "final".into(), args: args.0, result: final_answer, raw_result: None, is_error: None });
     }
     if let Some(parsed) = parse_agent_result_envelope(value, &Fallback::default()) {
         return Some(parsed);
@@ -606,18 +564,8 @@ pub fn parse_synthetic_agent_message(text: &str) -> Option<Parsed> {
         } else {
             Value::Bool(exit != "0" && exit != "n/a")
         };
-        let args = Obj::default()
-            .put("type", "result")
-            .put("task_id", shell_task_id)
-            .put("command", command);
-        return Some(Parsed {
-            name: "shell".into(),
-            label: status,
-            args: args.0,
-            result: value.to_owned(),
-            raw_result: None,
-            is_error: Some(is_error),
-        });
+        let args = Obj::default().put("type", "result").put("task_id", shell_task_id).put("command", command);
+        return Some(Parsed { name: "shell".into(), label: status, args: args.0, result: value.to_owned(), raw_result: None, is_error: Some(is_error) });
     }
     let job = parse_agent_job(value)?;
     if job.task_id.is_empty() {
@@ -641,9 +589,7 @@ pub fn parse_synthetic_agent_message(text: &str) -> Option<Parsed> {
 /// times come from the row itself).
 pub fn card(parsed: Parsed, text: &str, error_label: &JsRegex) -> Value {
     let label = if parsed.label.is_empty() { "notification".to_owned() } else { parsed.label };
-    let is_error = parsed
-        .is_error
-        .unwrap_or_else(|| Value::Bool(error_label.is_match(&label)));
+    let is_error = parsed.is_error.unwrap_or_else(|| Value::Bool(error_label.is_match(&label)));
     let name = if parsed.name.is_empty() { "agent".to_owned() } else { parsed.name };
     Obj::default()
         .put("name", name)

@@ -127,10 +127,7 @@ async fn a_slow_cleanup_of_one_key_does_not_hold_up_a_key_in_the_same_shard() {
     // A queued request of a connection that has since closed, whose drop is slow.
     let (dropping_tx, dropping) = oneshot::channel::<()>();
     let (unblock, blocked) = std::sync::mpsc::channel::<()>();
-    let guard = SlowDrop {
-        dropping: Some(dropping_tx),
-        release: blocked,
-    };
+    let guard = SlowDrop { dropping: Some(dropping_tx), release: blocked };
     let closed = CancellationToken::new();
     queues.enqueue(
         global("a"),
@@ -161,9 +158,7 @@ async fn a_slow_cleanup_of_one_key_does_not_hold_up_a_key_in_the_same_shard() {
             }),
         );
     });
-    let b_ran = mixdog_rt::time::timeout(std::time::Duration::from_secs(5), finished_b)
-        .await
-        .is_ok();
+    let b_ran = mixdog_rt::time::timeout(std::time::Duration::from_secs(5), finished_b).await.is_ok();
     unblock.send(()).unwrap();
     enqueue_b.join().unwrap();
     assert!(b_ran, "key b waited for the cleanup of key a");
@@ -256,10 +251,7 @@ async fn exclusive_requests_of_one_key_run_in_arrival_order() {
     while log.lock().unwrap().len() < 4 {
         all_done.notified().await;
     }
-    assert_eq!(
-        *log.lock().unwrap(),
-        ["first start", "first end", "second", "third"]
-    );
+    assert_eq!(*log.lock().unwrap(), ["first start", "first end", "second", "third"]);
 }
 
 #[tokio::test]
@@ -315,12 +307,7 @@ async fn requests_of_a_closed_connection_are_dropped_unrun() {
     let closed = CancellationToken::new();
     {
         let log = log.clone();
-        queues.enqueue(
-            global("k"),
-            Access::Exclusive,
-            closed.clone(),
-            Box::pin(async move { push(&log, "closed connection's request") }),
-        );
+        queues.enqueue(global("k"), Access::Exclusive, closed.clone(), Box::pin(async move { push(&log, "closed connection's request") }));
     }
     let (done, finished) = oneshot::channel::<()>();
     queues.enqueue(
@@ -340,12 +327,7 @@ async fn requests_of_a_closed_connection_are_dropped_unrun() {
 #[tokio::test]
 async fn a_panicking_request_frees_its_key() {
     let queues = setup();
-    queues.enqueue(
-        global("k"),
-        Access::Exclusive,
-        CancellationToken::new(),
-        Box::pin(async { panic!("handler bug") }),
-    );
+    queues.enqueue(global("k"), Access::Exclusive, CancellationToken::new(), Box::pin(async { panic!("handler bug") }));
     let (done, finished) = oneshot::channel::<()>();
     queues.enqueue(
         global("k"),

@@ -83,8 +83,8 @@ pub struct Cycle1Dispatch {
 
 #[cfg(test)]
 mod tests {
-    use std::sync::Mutex;
     use super::*;
+    use std::sync::Mutex;
 
     /// The host: records the payload it receives and answers the case's recorded behaviour.
     struct Host {
@@ -153,10 +153,7 @@ mod tests {
         let seen = host.seen.lock().unwrap();
         assert_ne!(seen[0].dispatch_id, seen[1].dispatch_id);
     }
-
-
 }
-
 
 impl Cycle1Dispatch {
     pub fn new(host: Arc<dyn AgentDispatch>) -> Self {

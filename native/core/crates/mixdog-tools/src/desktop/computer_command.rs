@@ -102,10 +102,7 @@ fn list_error(input: &Map<String, Value>) -> Result<(), String> {
 }
 
 fn menu_error(input: &Map<String, Value>) -> Result<(), String> {
-    let bad = input
-        .get("path")
-        .and_then(Value::as_array)
-        .is_some_and(|path| path.iter().any(|segment| segment.as_str().is_none_or(|s| js_trim(s).is_empty())));
+    let bad = input.get("path").and_then(Value::as_array).is_some_and(|path| path.iter().any(|segment| segment.as_str().is_none_or(|s| js_trim(s).is_empty())));
     if bad { Err("Computer Use menu path segments must be non-empty labels".into()) } else { Ok(()) }
 }
 
@@ -169,8 +166,11 @@ fn launch_error(input: &Map<String, Value>) -> Result<(), String> {
         return Err("Computer Use launch app must be one executable, file, or URL without command syntax".into());
     }
     if !http
-        && (compile(r#"(?:^|[\\/"'])\s*(?:cmd|powershell|pwsh|wt|wsl|bash|sh|zsh|fish|nu|wscript|cscript|mshta|rundll32|regsvr32)(?:\.exe)?(?:["'\s]|$)"#, "i")?
-            .is_match(&app)
+        && (compile(
+            r#"(?:^|[\\/"'])\s*(?:cmd|powershell|pwsh|wt|wsl|bash|sh|zsh|fish|nu|wscript|cscript|mshta|rundll32|regsvr32)(?:\.exe)?(?:["'\s]|$)"#,
+            "i",
+        )?
+        .is_match(&app)
             || compile(r#"\.(?:bat|cmd|ps1|vbs|vbe|js|jse|wsf|wsh|hta|lnk|url|appref-ms)(?:["']?\s*)$"#, "i")?.is_match(&app))
     {
         return Err("Computer Use launch blocks shells, script hosts, and shortcut files; use an exact non-shell executable, document, or URL".into());
@@ -250,8 +250,13 @@ pub(super) fn host_command(action: ComputerAction, input: &Map<String, Value>) -
             command.insert("delivery".into(), delivery);
             let frame = input.get("frame_id").filter(|frame| frame.as_str().is_none_or(|f| !f.is_empty()));
             let step_delivery = input.get("delivery").and_then(Value::as_str).unwrap_or(DEFAULT_DELIVERY);
-            let steps =
-                input.get("actions").and_then(Value::as_array).into_iter().flatten().map(|step| host_step(step, frame, step_delivery)).collect::<Result<Vec<Value>, _>>()?;
+            let steps = input
+                .get("actions")
+                .and_then(Value::as_array)
+                .into_iter()
+                .flatten()
+                .map(|step| host_step(step, frame, step_delivery))
+                .collect::<Result<Vec<Value>, _>>()?;
             command.insert("steps".into(), Value::Array(steps));
             if let Some(mode) = input.get("observe").filter(|m| m.as_str().is_none_or(|m| !m.is_empty())) {
                 command.insert("capture_after_mode".into(), mode.clone());
@@ -328,10 +333,7 @@ mod tests {
     fn cross_field_rules_match_the_node_messages() {
         let err = |action, value: Value| validate(action, &input(value)).unwrap_err();
         assert_eq!(err(ComputerAction::Window, json!({"operation":"focus"})), "Computer Use window requires exactly one of window_id or app");
-        assert_eq!(
-            err(ComputerAction::Capture, json!({"mode":"zoom"})),
-            "Computer Use capture mode=\"zoom\" requires input field(s): frame_id, region"
-        );
+        assert_eq!(err(ComputerAction::Capture, json!({"mode":"zoom"})), "Computer Use capture mode=\"zoom\" requires input field(s): frame_id, region");
         assert_eq!(err(ComputerAction::List, json!({"limit":3})), "Computer Use list limit applies to kind=\"history\"");
         assert!(err(ComputerAction::Launch, json!({"app":"powershell.exe"})).starts_with("Computer Use launch blocks shells"));
         assert!(err(ComputerAction::Launch, json!({"app":"a && b"})).ends_with("without command syntax"));

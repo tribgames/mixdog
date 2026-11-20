@@ -10,30 +10,30 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use mixdog_core_base::feed::CoreScopedFeeds;
-use mixdog_services::effort_judge::judge::EffortJudgeModel;
-use mixdog_services::effort_judge::judge::JudgeOptions;
-use mixdog_services::effort_judge::JudgeTiming;
-use mixdog_services::effort_judge::model::{ModelConfig, OrtRuntime};
-use mixdog_services::memory::embed::config::EmbedEnv;
-use mixdog_services::memory::embed::engine::EmbedConfig;
-use mixdog_services::memory::embed::provider::EmbeddingProvider;
-use mixdog_services::tidy::process::Processes;
-use mixdog_services::tool_state::StateTick;
 use mixdog_core_api::domain::fs::FileService;
+use mixdog_core_api::domain::process::ProcessManager;
+use mixdog_core_api::feed::ScopedFeeds;
+use mixdog_core_base::feed::CoreScopedFeeds;
 use mixdog_exthost::DEFAULT_PENDING_CAP;
-use mixdog_workspace::localfs::LocalFileService;
 use mixdog_exthost::ExtHostConfig;
 use mixdog_exthost::ExtHostError;
 use mixdog_exthost::ExtHostPool;
 use mixdog_exthost::RenderBrowserConfig;
 use mixdog_exthost::worker_count;
 use mixdog_mcp::launcher::SkillRuntime;
-use mixdog_tools::exec::SkillRuntime as ExecSkillRuntime;
-use mixdog_core_api::domain::process::ProcessManager;
-use mixdog_core_api::feed::ScopedFeeds;
+use mixdog_services::effort_judge::JudgeTiming;
+use mixdog_services::effort_judge::judge::EffortJudgeModel;
+use mixdog_services::effort_judge::judge::JudgeOptions;
+use mixdog_services::effort_judge::model::{ModelConfig, OrtRuntime};
+use mixdog_services::memory::embed::config::EmbedEnv;
+use mixdog_services::memory::embed::engine::EmbedConfig;
+use mixdog_services::memory::embed::provider::EmbeddingProvider;
+use mixdog_services::tidy::process::Processes;
+use mixdog_services::tool_state::StateTick;
 use mixdog_spawn::LocalProcessManager;
 use mixdog_spawn::ProcessConfig;
+use mixdog_tools::exec::SkillRuntime as ExecSkillRuntime;
+use mixdog_workspace::localfs::LocalFileService;
 
 use crate::catalog::CatalogError;
 use crate::catalog::CatalogHost;
@@ -41,32 +41,32 @@ use crate::catalog::build_catalog;
 use crate::domain_seams::settings_effects::ConfiguredShell;
 use crate::exec::Exec;
 use crate::exec::build_exec;
+use mixdog_core_api::CoreError;
+use mixdog_core_api::ops::OpScope;
 use mixdog_core_base::ops::CoreOpIndex;
 use mixdog_core_base::ops::OpGate;
 use mixdog_core_base::ops::StateOpStore;
-use mixdog_core_api::CoreError;
-use mixdog_core_api::ops::OpScope;
 use mixdog_store::sqlite::DbError;
 use mixdog_store::state::CoreState;
 
-use mixdog_core_domains::domains::DomainsError;
-use mixdog_app_protocol::v2::host::CoreDrainParams;
-use mixdog_core_base::feed::CoreFeed;
-use mixdog_core_base::feed::FeedLimits;
-use mixdog_core_base::state::empty_view;
-use mixdog_core_api::CoreHandle;
-use mixdog_core_api::ids::FeedEpoch;
-use mixdog_core_api::ids::FeedId;
-use mixdog_rt::LaneTokens;
 use crate::lifecycle::new_instance_id;
+use mixdog_app_protocol::limits::Limits;
+use mixdog_app_protocol::v2::host::CoreDrainParams;
+use mixdog_app_server::HostMedia;
+use mixdog_core_api::CoreHandle;
 use mixdog_core_api::CoreState as LifecycleState;
 use mixdog_core_api::DomainService;
 use mixdog_core_api::FeedSource;
-use mixdog_app_protocol::limits::Limits;
-use mixdog_app_server::HostMedia;
 use mixdog_core_api::HostMediaSink;
 use mixdog_core_api::OpIndex;
 use mixdog_core_api::ThreadDirectory;
+use mixdog_core_api::ids::FeedEpoch;
+use mixdog_core_api::ids::FeedId;
+use mixdog_core_base::feed::CoreFeed;
+use mixdog_core_base::feed::FeedLimits;
+use mixdog_core_base::state::empty_view;
+use mixdog_core_domains::domains::DomainsError;
+use mixdog_rt::LaneTokens;
 use tokio::sync::watch;
 
 /// The app feed's ring (SPEC §3.1: 1 MiB for the app feed, 4 MiB per thread feed).
@@ -184,7 +184,10 @@ impl Drop for CallCount {
 
 /// The work counts of a composed core, read from what the daemon already counts (the calls in flight, and the lifecycle's running work: a `Turn` is a busy
 /// session, a `SubAgent` a memory agent in flight). `queuedCalls` is the transport's queue, which the server crate does not expose to the daemon: it reads 0 here.
-fn work_counts(lifecycle: Arc<crate::late_lifecycle::LateLifecycle>, calls: Arc<std::sync::atomic::AtomicU64>) -> Arc<dyn Fn() -> crate::telemetry::WorkCounts + Send + Sync> {
+fn work_counts(
+    lifecycle: Arc<crate::late_lifecycle::LateLifecycle>,
+    calls: Arc<std::sync::atomic::AtomicU64>,
+) -> Arc<dyn Fn() -> crate::telemetry::WorkCounts + Send + Sync> {
     Arc::new(move || {
         let (mut busy_sessions, mut busy_memory_agents) = (0, 0);
         if let Some(lifecycle) = lifecycle.get() {
@@ -266,15 +269,15 @@ pub fn ext_host_config(js: &JsRuntime, data_dir: &Path, tokens: &LaneTokens) -> 
 }
 
 #[cfg(test)]
-mod state_set_aside_tests;
+mod bot_send_tests;
 #[cfg(test)]
 mod config_watch_tests;
 #[cfg(test)]
 mod limits_tests;
 #[cfg(test)]
-mod bot_send_tests;
-#[cfg(test)]
 mod session_project_flow_tests;
+#[cfg(test)]
+mod state_set_aside_tests;
 
 #[cfg(test)]
 mod tests {
@@ -289,7 +292,8 @@ mod tests {
 
     /// [`config`] over a data directory of the caller's own (with the runtime installed in it).
     pub(super) fn config_in(data: &Path, dir: &Path, log: crate::daemon_log::DaemonLog, stop: tokio_util::sync::CancellationToken) -> ComposeConfig {
-        ComposeConfig { rebuild: Default::default(),
+        ComposeConfig {
+            rebuild: Default::default(),
             data_dir: data.to_path_buf(),
             user_data_dir: dir.join("userdata"),
             runtime_root: dir.join("runtime"),
@@ -330,107 +334,133 @@ mod tests {
     #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     fn release_runs_the_barriers_then_the_stop_steps_once() {
-        crate::compose_test_support::in_child(module_path!(), "release_runs_the_barriers_then_the_stop_steps_once", tokio::runtime::Builder::new_current_thread(), |dir| async move {
-            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
-            let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log, mixdog_rt::CancellationToken::new())).await.unwrap();
-            let order = Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
-            for name in ["first", "second"] {
-                let order = order.clone();
-                core.on_final_barrier(name, Arc::new(move || order.lock().unwrap().push(name)));
-            }
-            let steps = order.clone();
-            core.on_stop("step", async move { steps.lock().unwrap().push("step") });
-            // The release states the reason before its first step (`release_started`); the directory's and the channels' steps read it.
-            core.set_stop_reason("test");
-            core.run_final_barriers();
-            core.run_stop_steps().await;
-            core.run_final_barriers();
-            core.run_stop_steps().await;
-            assert_eq!(*order.lock().unwrap(), ["first", "second", "step"]);
-        });
+        crate::compose_test_support::in_child(
+            module_path!(),
+            "release_runs_the_barriers_then_the_stop_steps_once",
+            tokio::runtime::Builder::new_current_thread(),
+            |dir| async move {
+                let log =
+                    crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
+                let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log, mixdog_rt::CancellationToken::new())).await.unwrap();
+                let order = Arc::new(std::sync::Mutex::new(Vec::<&'static str>::new()));
+                for name in ["first", "second"] {
+                    let order = order.clone();
+                    core.on_final_barrier(name, Arc::new(move || order.lock().unwrap().push(name)));
+                }
+                let steps = order.clone();
+                core.on_stop("step", async move { steps.lock().unwrap().push("step") });
+                // The release states the reason before its first step (`release_started`); the directory's and the channels' steps read it.
+                core.set_stop_reason("test");
+                core.run_final_barriers();
+                core.run_stop_steps().await;
+                core.run_final_barriers();
+                core.run_stop_steps().await;
+                assert_eq!(*order.lock().unwrap(), ["first", "second", "step"]);
+            },
+        );
     }
 
     /// Closing is requested when the release begins, before any budgeted step: whether a later step runs over its budget (and so skips
     /// the stop steps, with the late session-directory step) cannot matter to the warm-ups waiting on the close.
     #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
-    #[allow(clippy::disallowed_methods, reason = "Test-only exit recorder waits on a blocking fixture signal while the independent lifecycle release completes")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "Test-only exit recorder waits on a blocking fixture signal while the independent lifecycle release completes"
+    )]
     fn the_release_has_requested_closing_before_its_first_budgeted_step() {
-        crate::compose_test_support::in_child(module_path!(), "the_release_has_requested_closing_before_its_first_budgeted_step", tokio::runtime::Builder::new_current_thread(), |dir| async move {
-            use crate::lifecycle::testing::Recorder;
-            use crate::lifecycle::{CorePort, DrainNotice, Lifecycle, LifecycleConfig, Ports, ReleaseBudgets, Running};
-            use std::sync::atomic::{AtomicBool, Ordering};
-            use std::time::Duration;
+        crate::compose_test_support::in_child(
+            module_path!(),
+            "the_release_has_requested_closing_before_its_first_budgeted_step",
+            tokio::runtime::Builder::new_current_thread(),
+            |dir| async move {
+                use crate::lifecycle::testing::Recorder;
+                use crate::lifecycle::{CorePort, DrainNotice, Lifecycle, LifecycleConfig, Ports, ReleaseBudgets, Running};
+                use std::sync::atomic::{AtomicBool, Ordering};
+                use std::time::Duration;
 
-            /// The recorder, except that the release states its reason to the real core (as `serving.rs` wires `release_started`), and
-            /// the first budgeted step (`finalBarriers`) notes whether closing was already requested when it started.
-            struct Entry {
-                core: Arc<ComposedCore>,
-                inner: Arc<Recorder>,
-                requested_at_first_step: Arc<AtomicBool>,
-            }
-            impl CorePort for Entry {
-                fn drain_notice(&self, notice: &DrainNotice) {
-                    self.inner.drain_notice(notice);
+                /// The recorder, except that the release states its reason to the real core (as `serving.rs` wires `release_started`), and
+                /// the first budgeted step (`finalBarriers`) notes whether closing was already requested when it started.
+                struct Entry {
+                    core: Arc<ComposedCore>,
+                    inner: Arc<Recorder>,
+                    requested_at_first_step: Arc<AtomicBool>,
                 }
-                fn health(&self, stalled_ms: u64) {
-                    self.inner.health(stalled_ms);
+                impl CorePort for Entry {
+                    fn drain_notice(&self, notice: &DrainNotice) {
+                        self.inner.drain_notice(notice);
+                    }
+                    fn health(&self, stalled_ms: u64) {
+                        self.inner.health(stalled_ms);
+                    }
+                    fn cancel_running(&self, running: &[Running]) {
+                        self.inner.cancel_running(running);
+                    }
+                    fn cut_new_tasks(&self) {
+                        self.inner.cut_new_tasks();
+                    }
+                    fn release_decision(&self, pid: u32) {
+                        self.inner.release_decision(pid);
+                    }
+                    fn release_started(&self, reason: &str) {
+                        self.core.set_stop_reason(reason);
+                    }
+                    fn final_barriers(&self) {
+                        self.requested_at_first_step.store(self.core.real.close_requested.is_cancelled(), Ordering::SeqCst);
+                        self.inner.final_barriers();
+                    }
+                    fn close_connections(&self) {
+                        self.inner.close_connections();
+                    }
+                    fn close_ext_host(&self) {
+                        self.inner.close_ext_host();
+                    }
+                    fn close_data_handles(&self, drain: &crate::lifecycle::ManagedDrain) {
+                        self.inner.close_data_handles(drain);
+                    }
+                    fn flush_log(&self) {
+                        self.inner.flush_log();
+                    }
                 }
-                fn cancel_running(&self, running: &[Running]) {
-                    self.inner.cancel_running(running);
-                }
-                fn cut_new_tasks(&self) {
-                    self.inner.cut_new_tasks();
-                }
-                fn release_decision(&self, pid: u32) {
-                    self.inner.release_decision(pid);
-                }
-                fn release_started(&self, reason: &str) {
-                    self.core.set_stop_reason(reason);
-                }
-                fn final_barriers(&self) {
-                    self.requested_at_first_step.store(self.core.real.close_requested.is_cancelled(), Ordering::SeqCst);
-                    self.inner.final_barriers();
-                }
-                fn close_connections(&self) {
-                    self.inner.close_connections();
-                }
-                fn close_ext_host(&self) {
-                    self.inner.close_ext_host();
-                }
-                fn close_data_handles(&self, drain: &crate::lifecycle::ManagedDrain) {
-                    self.inner.close_data_handles(drain);
-                }
-                fn flush_log(&self) {
-                    self.inner.flush_log();
-                }
-            }
 
-            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
-            let core = Arc::new(compose(&mixdog_rt::testing::tokens(), config(&dir, log, mixdog_rt::CancellationToken::new())).await.unwrap());
-            assert!(!core.real.close_requested.is_cancelled());
-            let requested_at_first_step = Arc::new(AtomicBool::new(false));
-            let recorder = Arc::new(Recorder::default());
-            let ample = Duration::from_secs(3600);
-            let budgets = ReleaseBudgets { final_barriers: ample, close_connections: ample, close_ext_host: ample, record_exit: ample, withdraw_discovery: ample, close_data_handles: ample };
-            let lifecycle = Lifecycle::with_grace(
-                LifecycleConfig { instance_id: "instance-1".into(), version: "1.4.6".into(), runtime_root: dir.clone() },
-                Ports { core: Arc::new(Entry { core: core.clone(), inner: recorder.clone(), requested_at_first_step: requested_at_first_step.clone() }), discovery: recorder.clone(), exiter: recorder.clone() },
-                budgets,
-                crate::lifecycle::ClientGrace::immediate(),
-                crate::lifecycle::testing::ManualTimer::new(),
-            );
-            lifecycle.set_serving().unwrap();
-            drop(lifecycle.connection(crate::lifecycle::ClientKind::Session));
-            // wait_exit blocks the thread; the release runs on its own.
-            tokio::task::spawn_blocking({
-                let recorder = recorder.clone();
-                move || recorder.wait_exit()
-            })
-            .await
-            .unwrap();
-            assert!(requested_at_first_step.load(Ordering::SeqCst), "closing was already requested when the first budgeted step started");
-        });
+                let log =
+                    crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
+                let core = Arc::new(compose(&mixdog_rt::testing::tokens(), config(&dir, log, mixdog_rt::CancellationToken::new())).await.unwrap());
+                assert!(!core.real.close_requested.is_cancelled());
+                let requested_at_first_step = Arc::new(AtomicBool::new(false));
+                let recorder = Arc::new(Recorder::default());
+                let ample = Duration::from_secs(3600);
+                let budgets = ReleaseBudgets {
+                    final_barriers: ample,
+                    close_connections: ample,
+                    close_ext_host: ample,
+                    record_exit: ample,
+                    withdraw_discovery: ample,
+                    close_data_handles: ample,
+                };
+                let lifecycle = Lifecycle::with_grace(
+                    LifecycleConfig { instance_id: "instance-1".into(), version: "1.4.6".into(), runtime_root: dir.clone() },
+                    Ports {
+                        core: Arc::new(Entry { core: core.clone(), inner: recorder.clone(), requested_at_first_step: requested_at_first_step.clone() }),
+                        discovery: recorder.clone(),
+                        exiter: recorder.clone(),
+                    },
+                    budgets,
+                    crate::lifecycle::ClientGrace::immediate(),
+                    crate::lifecycle::testing::ManualTimer::new(),
+                );
+                lifecycle.set_serving().unwrap();
+                drop(lifecycle.connection(crate::lifecycle::ClientKind::Session));
+                // wait_exit blocks the thread; the release runs on its own.
+                tokio::task::spawn_blocking({
+                    let recorder = recorder.clone();
+                    move || recorder.wait_exit()
+                })
+                .await
+                .unwrap();
+                assert!(requested_at_first_step.load(Ordering::SeqCst), "closing was already requested when the first budgeted step started");
+            },
+        );
     }
 
     /// A core composed for `mixdog exec` binds its in-process lifecycle before its first request: the request is counted and the daemon log
@@ -439,21 +469,26 @@ mod tests {
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     #[allow(clippy::disallowed_methods, reason = "reads the log file the test just had written")]
     fn an_exec_core_counts_its_requests_and_logs_no_unbound_lifecycle() {
-        crate::compose_test_support::in_child(module_path!(), "an_exec_core_counts_its_requests_and_logs_no_unbound_lifecycle", tokio::runtime::Builder::new_current_thread(), |dir| async move {
-            let stop = tokio_util::sync::CancellationToken::new();
-            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, stop.clone());
-            log.enable_file_logging();
-            let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log, stop)).await.unwrap();
-            core.late_lifecycle().bind_in_process().unwrap();
-            let before = core.late_lifecycle().get().unwrap().status().seq_of_snapshot;
-            let guard = core.request_started("thread/list", &serde_json::json!({}));
-            assert!(core.late_lifecycle().get().unwrap().status().seq_of_snapshot > before, "the request is counted by the lifecycle");
-            drop(guard);
-            core.flush_log().await;
-            // A log with no line in it was never created.
-            let text = std::fs::read_to_string(dir.join("daemon.log")).unwrap_or_default();
-            assert!(!text.contains("admitted before the lifecycle was bound"), "{text}");
-        });
+        crate::compose_test_support::in_child(
+            module_path!(),
+            "an_exec_core_counts_its_requests_and_logs_no_unbound_lifecycle",
+            tokio::runtime::Builder::new_current_thread(),
+            |dir| async move {
+                let stop = tokio_util::sync::CancellationToken::new();
+                let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, stop.clone());
+                log.enable_file_logging();
+                let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log, stop)).await.unwrap();
+                core.late_lifecycle().bind_in_process().unwrap();
+                let before = core.late_lifecycle().get().unwrap().status().seq_of_snapshot;
+                let guard = core.request_started("thread/list", &serde_json::json!({}));
+                assert!(core.late_lifecycle().get().unwrap().status().seq_of_snapshot > before, "the request is counted by the lifecycle");
+                drop(guard);
+                core.flush_log().await;
+                // A log with no line in it was never created.
+                let text = std::fs::read_to_string(dir.join("daemon.log")).unwrap_or_default();
+                assert!(!text.contains("admitted before the lifecycle was bound"), "{text}");
+            },
+        );
     }
 
     /// The stop procedure writes the log out before the run token ends: a line a step logs is on disk when it returns.
@@ -461,30 +496,27 @@ mod tests {
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     #[allow(clippy::disallowed_methods, reason = "reads the log file the test just had written")]
     fn the_stop_steps_flush_the_daemon_log_and_then_end_the_run_token() {
-        crate::compose_test_support::in_child(module_path!(), "the_stop_steps_flush_the_daemon_log_and_then_end_the_run_token", tokio::runtime::Builder::new_current_thread(), |dir| async move {
-            let stop = tokio_util::sync::CancellationToken::new();
-            let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, stop.clone());
-            log.enable_file_logging();
-            let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log.clone(), stop.clone())).await.unwrap();
-            let writer = log.clone();
-            core.on_stop("log a line", async move { writer.log("closing") });
-            assert!(!stop.is_cancelled());
-            core.set_stop_reason("test");
-            core.run_stop_steps().await;
-            assert!(stop.is_cancelled());
-            let text = std::fs::read_to_string(dir.join("daemon.log")).unwrap();
-            assert!(text.contains("[daemon] closing"), "{text}");
-        });
+        crate::compose_test_support::in_child(
+            module_path!(),
+            "the_stop_steps_flush_the_daemon_log_and_then_end_the_run_token",
+            tokio::runtime::Builder::new_current_thread(),
+            |dir| async move {
+                let stop = tokio_util::sync::CancellationToken::new();
+                let log = crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, stop.clone());
+                log.enable_file_logging();
+                let core = compose(&mixdog_rt::testing::tokens(), config(&dir, log.clone(), stop.clone())).await.unwrap();
+                let writer = log.clone();
+                core.on_stop("log a line", async move { writer.log("closing") });
+                assert!(!stop.is_cancelled());
+                core.set_stop_reason("test");
+                core.run_stop_steps().await;
+                assert!(stop.is_cancelled());
+                let text = std::fs::read_to_string(dir.join("daemon.log")).unwrap();
+                assert!(text.contains("[daemon] closing"), "{text}");
+            },
+        );
     }
-
-
-
-
-
 }
-
-
-
 
 #[cfg(test)]
 mod telemetry_work_tests {
@@ -512,14 +544,16 @@ mod telemetry_work_tests {
         late.bind(fx.lifecycle.clone()).unwrap();
         calls.store(2, Ordering::Release);
         let turn = late.busy(&ThreadId::from("thread-1"), "a turn");
-        let memory = late.begin_work(ActivityInfo { kind: ActivityKind::SubAgent, thread_id: None, turn_id: None, title: "memory agent".into() }, MEMORY_AGENT_ACTIVITY_CHANGED);
+        let memory = late.begin_work(
+            ActivityInfo { kind: ActivityKind::SubAgent, thread_id: None, turn_id: None, title: "memory agent".into() },
+            MEMORY_AGENT_ACTIVITY_CHANGED,
+        );
         assert_eq!(work(), WorkCounts { active_calls: 2, queued_calls: 0, busy_sessions: 1, busy_memory_agents: 1 });
         drop(turn);
         drop(memory);
         calls.store(0, Ordering::Release);
         assert_eq!(work(), WorkCounts::default());
     }
-
 
     #[tokio::test]
     async fn a_call_counts_from_its_start_to_its_settle_and_is_activity_at_both() {
@@ -560,12 +594,30 @@ mod telemetry_work_tests {
     }
 }
 
-
 /// The non-thread op scopes (protocol §9.2); each has a gate over its rows in state/core.sqlite.
 pub(crate) const OP_SCOPES: [&str; 22] = [
-    "config", "account", "agent", "project", "media", "channel", "mcp", "skills", "plugins",
-    "localProvider", "terminal", "git", "remoteAccess", "core", "workflow", "notify", "room", "thread",
-    "update", "diagnostics", "feedback", "instructions",
+    "config",
+    "account",
+    "agent",
+    "project",
+    "media",
+    "channel",
+    "mcp",
+    "skills",
+    "plugins",
+    "localProvider",
+    "terminal",
+    "git",
+    "remoteAccess",
+    "core",
+    "workflow",
+    "notify",
+    "room",
+    "thread",
+    "update",
+    "diagnostics",
+    "feedback",
+    "instructions",
 ];
 pub struct ComposeConfig {
     /// This boot's index rebuild reporter (`DiscoveryPublication::rebuild_progress`): the catalog index open advances it, and the discovery document names it.
@@ -790,21 +842,23 @@ pub(crate) fn build_models(tokens: &LaneTokens, data_dir: &Path, ort_library: Or
     let tick = StateTick::default();
     let embed_env = EmbedEnv::from_process();
     let embeddings = match &ort_library {
-        OrtRuntime::Library(library) => Some(Arc::new(EmbeddingProvider::with_tick(
-        EmbedConfig {
-            model_id: embed_env.model_id(),
-            // Node's model cache (`MODEL_CACHE_DIR = join(resolvePluginData(), 'memory-models')`, embedding-worker.mjs:80), where 1.4.5
-            // left the installed model. `models` is the effort judge's folder: looked for there, the embedding model read as not
-            // installed and no memory was embedded since the core took over.
-            cache_dir: data_dir.join("memory-models"),
-            ort_library: library.clone(),
-            dtype: embed_env.dtype.clone(),
-            sessions: EMBED_SESSIONS,
-            lane: tokens.cpu_bulk,
-        },
-        tick.clone(),
-        )
-        .with_compaction(mixdog_services::memory::embed::compress::compact_with(processes.clone())))),
+        OrtRuntime::Library(library) => Some(Arc::new(
+            EmbeddingProvider::with_tick(
+                EmbedConfig {
+                    model_id: embed_env.model_id(),
+                    // Node's model cache (`MODEL_CACHE_DIR = join(resolvePluginData(), 'memory-models')`, embedding-worker.mjs:80), where 1.4.5
+                    // left the installed model. `models` is the effort judge's folder: looked for there, the embedding model read as not
+                    // installed and no memory was embedded since the core took over.
+                    cache_dir: data_dir.join("memory-models"),
+                    ort_library: library.clone(),
+                    dtype: embed_env.dtype.clone(),
+                    sessions: EMBED_SESSIONS,
+                    lane: tokens.cpu_bulk,
+                },
+                tick.clone(),
+            )
+            .with_compaction(mixdog_services::memory::embed::compress::compact_with(processes.clone())),
+        )),
         OrtRuntime::NoBinding => None,
     };
     let effort_judge = EffortJudgeModel::with_options(
@@ -821,13 +875,22 @@ pub async fn compose(tokens: &LaneTokens, config: ComposeConfig) -> Result<Compo
 }
 /// [`compose`], whose slow waits (the PostgreSQL install and start) end when `interrupt` is cancelled: `serve` cancels it when a stop arrives meanwhile. A composition that
 /// fails, interrupted or not, gives back what it had acquired before it returns the error (`Acquired`), so no PostgreSQL is left running.
-pub async fn compose_interruptible(tokens: &LaneTokens, config: ComposeConfig, interrupt: tokio_util::sync::CancellationToken) -> Result<ComposedCore, ComposeError> {
+pub async fn compose_interruptible(
+    tokens: &LaneTokens,
+    config: ComposeConfig,
+    interrupt: tokio_util::sync::CancellationToken,
+) -> Result<ComposedCore, ComposeError> {
     // The core's wire limits are constructed here, once: the composed services read them from it (`Built.limits`) and the server
     // that serves the core advertises the same value (`Running::build` reads `ComposedCore::limits`).
     compose_with_limits(tokens, config, interrupt, Limits::default()).await
 }
 /// [`compose_interruptible`] for the wire limits `limits`: the one value the services and the advertisement both take.
-pub async fn compose_with_limits(tokens: &LaneTokens, config: ComposeConfig, interrupt: tokio_util::sync::CancellationToken, limits: Limits) -> Result<ComposedCore, ComposeError> {
+pub async fn compose_with_limits(
+    tokens: &LaneTokens,
+    config: ComposeConfig,
+    interrupt: tokio_util::sync::CancellationToken,
+    limits: Limits,
+) -> Result<ComposedCore, ComposeError> {
     compose_inner(tokens, config, interrupt, limits, None).await
 }
 
@@ -840,21 +903,42 @@ pub(crate) struct Cutover {
 pub(crate) type LegacyHomes = std::collections::BTreeMap<String, mixdog_core_session::session::agent_evidence::HomeEvidence>;
 
 pub(crate) async fn compose_for_cutover(
-    tokens: &LaneTokens, config: ComposeConfig, interrupt: tokio_util::sync::CancellationToken, cutover: Option<Cutover>,
+    tokens: &LaneTokens,
+    config: ComposeConfig,
+    interrupt: tokio_util::sync::CancellationToken,
+    cutover: Option<Cutover>,
 ) -> Result<ComposedCore, ComposeError> {
     compose_inner(tokens, config, interrupt, Limits::default(), cutover).await
 }
 
 async fn compose_inner(
-    tokens: &LaneTokens, config: ComposeConfig, interrupt: tokio_util::sync::CancellationToken, limits: Limits, cutover: Option<Cutover>,
+    tokens: &LaneTokens,
+    config: ComposeConfig,
+    interrupt: tokio_util::sync::CancellationToken,
+    limits: Limits,
+    cutover: Option<Cutover>,
 ) -> Result<ComposedCore, ComposeError> {
-    let ComposeConfig { rebuild, data_dir, user_data_dir, runtime_root, js_runtime, ort_library, outgoing, ownership, log, stop, catalog_http, #[cfg(test)] pg_install } = config;
+    let ComposeConfig {
+        rebuild,
+        data_dir,
+        user_data_dir,
+        runtime_root,
+        js_runtime,
+        ort_library,
+        outgoing,
+        ownership,
+        log,
+        stop,
+        catalog_http,
+        #[cfg(test)]
+        pg_install,
+    } = config;
     let data_dir = data_dir.as_path();
     log.boot_mark("compose-start");
     let state_dir = data_dir.join("state");
     create_dir(tokens, state_dir.clone()).await.map_err(ComposeError::StateDir)?;
-    let (state, _, set_aside) = CoreState::open_or_set_aside(tokens.sqlite_writer_thread, tokens.interactive_io, &state_dir.join("core.sqlite"))
-        .map_err(ComposeError::State)?;
+    let (state, _, set_aside) =
+        CoreState::open_or_set_aside(tokens.sqlite_writer_thread, tokens.interactive_io, &state_dir.join("core.sqlite")).map_err(ComposeError::State)?;
     log.boot_mark("core-state-open");
     // Node carries on with a state file it finds corrupt; so does the daemon, and says once what it kept.
     if let Some((kept, why)) = &set_aside.file {
@@ -865,22 +949,17 @@ async fn compose_inner(
     if set_aside.project_rows > 0 {
         log.log(&format!("{} unreadable project row(s) of state/core.sqlite kept in its meta table (corrupt:projects:<path>)", set_aside.project_rows));
     }
-    let feed_index = Arc::new(CoreScopedFeeds::new(
-        FeedLimits { ring_bytes: APP_RING_BYTES, max_snapshot_bytes: MAX_SNAPSHOT_BYTES },
-        tokens.cpu_interactive,
-    ));
+    let feed_index = Arc::new(CoreScopedFeeds::new(FeedLimits { ring_bytes: APP_RING_BYTES, max_snapshot_bytes: MAX_SNAPSHOT_BYTES }, tokens.cpu_interactive));
     let scoped_feeds: Arc<dyn ScopedFeeds> = feed_index.clone();
     let js = &js_runtime;
     // The `mixdog-skill-node` launchers start the core executable as `skill-run`: it runs a shipped script itself and hands any
     // other script to the install's script interpreter.
     let core_program = js.core_program.to_string_lossy().into_owned();
-    let skill_runtime = ExecSkillRuntime { platform: node_platform().to_owned(), interpreter: core_program.clone(), entry: "skill-run".to_owned(), electron: false };
+    let skill_runtime =
+        ExecSkillRuntime { platform: node_platform().to_owned(), interpreter: core_program.clone(), entry: "skill-run".to_owned(), electron: false };
     let skills = SkillRuntime::new(core_program, "skill-run", false);
-    let skill_launcher_dir =
-        skills.ensure_dir(tokens.durability_io, data_dir).await.map_err(ComposeError::Launcher)?;
-    let ext_host = Arc::new(
-        ExtHostPool::new(ext_host_config(js, data_dir, tokens)).map_err(ComposeError::ExtHost)?,
-    );
+    let skill_launcher_dir = skills.ensure_dir(tokens.durability_io, data_dir).await.map_err(ComposeError::Launcher)?;
+    let ext_host = Arc::new(ExtHostPool::new(ext_host_config(js, data_dir, tokens)).map_err(ComposeError::ExtHost)?);
     let local_processes = LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default());
     let process_manager: Arc<dyn ProcessManager> = Arc::new(local_processes.clone());
     let tidy_processes = Processes::new(process_manager.clone(), tokens.durability_io);
@@ -892,8 +971,7 @@ async fn compose_inner(
     // when it lands, until then only the models.dev metadata is refreshed.
     let catalog = build_catalog(tokens, data_dir, Vec::new(), catalog_http).await.map_err(ComposeError::Catalog)?;
     log.boot_mark("catalog-built");
-    let shell_path =
-        crate::shell_name::resolve_program_current_on(tokens.interactive_io).await.map_err(ComposeError::Shell)?;
+    let shell_path = crate::shell_name::resolve_program_current_on(tokens.interactive_io).await.map_err(ComposeError::Shell)?;
     // The one `ConfiguredShell`: every spawn reads it, and the flip hands `exec.configured_shell` to
     // `DaemonSettingsEffects::new`, which sets the boot value from `config.shell` on it and follows every later adoption of the document (`ShellFollow`).
     let (exec, exec_events) = build_exec(
@@ -919,11 +997,7 @@ async fn compose_inner(
     let mut gates = Vec::with_capacity(OP_SCOPES.len());
     for scope in OP_SCOPES {
         let store = Arc::new(StateOpStore::new(state.clone(), scope.into()));
-        gates.push(
-            OpGate::domain(OpScope::Domain(scope.into()), store)
-                .await
-                .map_err(|error| ComposeError::OpGate { scope, error })?,
-        );
+        gates.push(OpGate::domain(OpScope::Domain(scope.into()), store).await.map_err(|error| ComposeError::OpGate { scope, error })?);
     }
     log.boot_mark("op-gates-open");
     let thread_gates = Arc::new(crate::late_seams::LateThreadGates::default());
@@ -993,7 +1067,9 @@ async fn compose_inner(
             Err(error) => log.log(&format!("rebuilding the project rows failed: {error}")),
         }
         match mixdog_core_rooms::rooms::rebuild::rebuild_rooms(&state, &real.catalog_index).await {
-            Ok(done) => log.log(&format!("rebuilt {} room(s) from their logs and member sessions; {} room log(s) had too little left", done.rooms, done.skipped)),
+            Ok(done) => {
+                log.log(&format!("rebuilt {} room(s) from their logs and member sessions; {} room log(s) had too little left", done.rooms, done.skipped))
+            }
             Err(error) => log.log(&format!("rebuilding the room rows failed: {error}")),
         }
     }
@@ -1045,7 +1121,12 @@ async fn compose_inner(
         stop_steps: StopSteps::default(),
         final_barriers: std::sync::Mutex::new(Vec::new()),
         #[cfg(feature = "replay-controls")]
-        stores_settled: crate::replay_stores_settled::StoresSettled::new(real.directory.clone(), real.replay_writers.clone(), real.gateway_usage.clone(), real.ledgers.clone()),
+        stores_settled: crate::replay_stores_settled::StoresSettled::new(
+            real.directory.clone(),
+            real.replay_writers.clone(),
+            real.gateway_usage.clone(),
+            real.ledgers.clone(),
+        ),
         real,
         log,
         stop,
@@ -1320,8 +1401,6 @@ impl ComposedCore {
     pub fn close_data_files(&self) {
         self.real.close_data_files();
     }
-
-
 
     /// The memory database handle, for the readiness test that makes a first use.
     #[cfg(test)]

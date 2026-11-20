@@ -134,10 +134,7 @@ fn plan(c: &Connection, lineage: &[LineageLevel], cut: Option<u64>) -> Result<Ve
             (start, None)
         } else {
             let bound = l.end.unwrap_or(u64::MAX).min(cut.unwrap_or(u64::MAX));
-            let start: Option<i64> = c
-                .prepare_cached(CONTEXT_BASE_START_SQL)?
-                .query_row(params![l.session, sql_ordinal(bound)], |r| r.get(0))
-                .optional()?;
+            let start: Option<i64> = c.prepare_cached(CONTEXT_BASE_START_SQL)?.query_row(params![l.session, sql_ordinal(bound)], |r| r.get(0)).optional()?;
             (start, Some(bound))
         };
         spans.push(Span { level, from: start.map_or(0, |s| s as u64), as_of });
@@ -169,11 +166,7 @@ pub(crate) fn rows_on(
     limit: usize,
 ) -> Result<(Vec<ContextRow>, Option<ContextCursor>), DbError> {
     let tx = c.unchecked_transaction()?;
-    let rev: i64 = tx
-        .prepare_cached("SELECT history_rev FROM sessions WHERE id = ?1")?
-        .query_row([&lineage[0].session], |r| r.get(0))
-        .optional()?
-        .unwrap_or(0);
+    let rev: i64 = tx.prepare_cached("SELECT history_rev FROM sessions WHERE id = ?1")?.query_row([&lineage[0].session], |r| r.get(0)).optional()?.unwrap_or(0);
     let spans = plan(&tx, lineage, cut)?;
     let first = &spans[0];
     let start = (first.level, first.from);
@@ -215,9 +208,7 @@ pub(crate) fn rows_on(
                 }
                 // A full fetch may have cut the last row's versions short.
                 if more && let Some(last) = latest.last_mut() {
-                    *last = tx
-                        .prepare_cached(CONTEXT_BASE_ROW_SQL)?
-                        .query_row(params![session, last.0, last.1, sql_ordinal(as_of)], raw)?;
+                    *last = tx.prepare_cached(CONTEXT_BASE_ROW_SQL)?.query_row(params![session, last.0, last.1, sql_ordinal(as_of)], raw)?;
                 }
                 (latest, more)
             }
@@ -341,11 +332,7 @@ fn slot(s: &Slot<Value>) -> Pending {
 }
 
 /// Step 3 (interactive I/O): the out-of-line bodies of `page`, each read once and verified.
-pub fn read_context_blobs(
-    lane: &InLane<InteractiveIo>,
-    blobs: &BlobStore,
-    page: &DecodedContext,
-) -> Result<ContextBlobs, ContextError> {
+pub fn read_context_blobs(lane: &InLane<InteractiveIo>, blobs: &BlobStore, page: &DecodedContext) -> Result<ContextBlobs, ContextError> {
     let mut out = ContextBlobs::default();
     for b in page.blobs() {
         let digest = &b.descriptor().digest;
@@ -357,11 +344,7 @@ pub fn read_context_blobs(
 }
 
 /// Step 4 (interactive CPU): the page's messages, in context order.
-pub fn finish_context(
-    _lane: &InLane<CpuInteractive>,
-    page: DecodedContext,
-    blobs: ContextBlobs,
-) -> Result<Vec<ContextMessage>, ContextError> {
+pub fn finish_context(_lane: &InLane<CpuInteractive>, page: DecodedContext, blobs: ContextBlobs) -> Result<Vec<ContextMessage>, ContextError> {
     let mut entries: HashMap<String, Vec<crate::schema::record::ReplacementEntry>> = HashMap::new();
     let mut out = Vec::with_capacity(page.messages.len());
     for (iid, pos, pending) in page.messages {

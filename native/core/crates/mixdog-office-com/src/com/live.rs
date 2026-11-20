@@ -202,17 +202,7 @@ struct IDispatchVtbl {
     get_type_info_count: unsafe extern "system" fn(*mut c_void, *mut u32) -> i32,
     get_type_info: unsafe extern "system" fn(*mut c_void, u32, u32, *mut *mut c_void) -> i32,
     get_ids_of_names: unsafe extern "system" fn(*mut c_void, *const Guid, *const *const u16, u32, u32, *mut i32) -> i32,
-    invoke: unsafe extern "system" fn(
-        *mut c_void,
-        i32,
-        *const Guid,
-        u32,
-        u16,
-        *mut DispParams,
-        *mut Variant,
-        *mut ExcepInfo,
-        *mut u32,
-    ) -> i32,
+    invoke: unsafe extern "system" fn(*mut c_void, i32, *const Guid, u32, u16, *mut DispParams, *mut Variant, *mut ExcepInfo, *mut u32) -> i32,
 }
 
 /// `ITypeInfo`: slots 4 to 18 are not used here.
@@ -349,13 +339,7 @@ impl Drop for OwnedVariant {
 
 fn bad_argument(message: impl Into<String>) -> ComError {
     let message = message.into();
-    ComError {
-        hresult: errtext::WRAPPED_HRESULT,
-        inner_hresult: E_INVALIDARG,
-        message: message.clone(),
-        inner_message: message,
-        unknown_member: false,
-    }
+    ComError { hresult: errtext::WRAPPED_HRESULT, inner_hresult: E_INVALIDARG, message: message.clone(), inner_message: message, unknown_member: false }
 }
 
 fn utf16(text: &str) -> Vec<u16> {
@@ -466,11 +450,7 @@ fn into_raw(iface: Iface) -> *mut c_void {
 }
 
 fn live_of(object: &Obj) -> Result<&LiveObject, ComError> {
-    object
-        .backend()
-        .as_any()
-        .downcast_ref::<LiveObject>()
-        .ok_or_else(|| bad_argument("only an object of this backend can be passed to a COM call"))
+    object.backend().as_any().downcast_ref::<LiveObject>().ok_or_else(|| bad_argument("only an object of this backend can be passed to a COM call"))
 }
 
 /// What a VARIANT holds, by value; a `VT_BYREF` is read through. An interface in it is cloned (`AddRef`), the VARIANT
@@ -728,8 +708,8 @@ impl LiveObject {
     /// by the identifier the type information gives. Only a property read with no argument that returns a 32-bit integer.
     fn vtable_long_get(dispatch: &Iface, name: &str) -> Option<i32> {
         use windows::Win32::System::Com::IDispatch;
-        use windows::Win32::System::Com::ITypeInfo;
         use windows::Win32::System::Com::INVOKE_PROPERTYGET;
+        use windows::Win32::System::Com::ITypeInfo;
         use windows::Win32::System::Com::TKIND_DISPATCH;
         use windows::Win32::System::Variant::VT_I4;
         use windows::Win32::System::Variant::VT_INT;
@@ -963,15 +943,17 @@ impl ComObject for LiveObject {
             match self.invoke_id(dispatch, member_id, flags, &mut arguments, &mut named_ids) {
                 // PowerPoint's `GetIDsOfNames` names a member its `Invoke` then does not find (the HWND of its application): it is
                 // read through the vtable of the interface the type library names.
-                Err(raw) if raw.hresult == DISP_E_MEMBERNOTFOUND && flags == DISPATCH_PROPERTYGET && arguments.is_empty() => match Self::vtable_long_get(dispatch, call.member) {
-                    Some(value) => {
-                        let mut variant = Variant::empty();
-                        variant.vt = VT_I4;
-                        variant.data.l = value;
-                        Ok(OwnedVariant(variant))
+                Err(raw) if raw.hresult == DISP_E_MEMBERNOTFOUND && flags == DISPATCH_PROPERTYGET && arguments.is_empty() => {
+                    match Self::vtable_long_get(dispatch, call.member) {
+                        Some(value) => {
+                            let mut variant = Variant::empty();
+                            variant.vt = VT_I4;
+                            variant.data.l = value;
+                            Ok(OwnedVariant(variant))
+                        }
+                        None => Err(raw),
                     }
-                    None => Err(raw),
-                },
+                }
                 other => other,
             }
         };

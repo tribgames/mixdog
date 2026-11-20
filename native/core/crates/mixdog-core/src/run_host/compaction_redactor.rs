@@ -44,6 +44,4 @@ mod tests {
         assert_eq!(SensitiveRedactor::new(store.clone(), "a").redact(vec![row.clone()]), [json!({ "role": "user", "content": "[redacted]" })]);
         assert_eq!(SensitiveRedactor::new(store, "b").redact(vec![row.clone()]), [row]);
     }
-
-
 }

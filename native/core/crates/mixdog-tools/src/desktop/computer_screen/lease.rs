@@ -57,8 +57,7 @@ use super::installer::SecureDesktopInstaller;
 use super::router::BoxFuture;
 
 /// A latched decline's answer to a later request.
-pub(super) const DECLINED_ON_PC: &str =
-    "the helper install was refused on the PC; restart Mixdog on the PC before asking again";
+pub(super) const DECLINED_ON_PC: &str = "the helper install was refused on the PC; restart Mixdog on the PC before asking again";
 
 /// Challenges the helper keeps open: one issued every 2 s, each kept through an age of 6 s inclusive, so at
 /// most floor(6 / 2) + 1 = 4, issued at 0, 2, 4 and 6 s. Older ones the helper has dropped.
@@ -530,9 +529,7 @@ impl<F: Clone + Send + Sync + 'static> Core<F> {
 
     fn declined_answer(self: &Arc<Self>, controller_key: &str) -> BoxFuture<InstallResult> {
         let asked = self.deps.installer.state(Some(controller_key.to_string()));
-        Box::pin(async move {
-            InstallResult { outcome: InstallOutcome::Declined, state: asked.await, detail: Some(DECLINED_ON_PC.to_string()) }
-        })
+        Box::pin(async move { InstallResult { outcome: InstallOutcome::Declined, state: asked.await, detail: Some(DECLINED_ON_PC.to_string()) } })
     }
 
     fn request_install(self: &Arc<Self>, controller_key: &str) -> BoxFuture<InstallResult> {
@@ -559,11 +556,7 @@ impl<F: Clone + Send + Sync + 'static> Core<F> {
                 (state.disposed, state.adapter_serial, state.current.clone())
             };
             let changed = before != InstallState::Installed || !current.installed();
-            if !disposed
-                && changed
-                && serial == current_serial
-                && matches!(outcome.outcome, InstallOutcome::Installed | InstallOutcome::Updated)
-            {
+            if !disposed && changed && serial == current_serial && matches!(outcome.outcome, InstallOutcome::Installed | InstallOutcome::Updated) {
                 core.rebuild();
             }
             outcome
@@ -673,7 +666,6 @@ impl<F: Clone + Send + Sync + 'static> SecureDesktopLease<F> {
             self.core.declare(self.data.id, epoch);
         }
     }
-
 
     pub(super) fn on_frame(&self, listener: Listener<F>) -> Unsub {
         self.data.frame.add(listener)

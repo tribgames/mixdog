@@ -36,8 +36,7 @@ pub(crate) enum DecisionFault {
 /// The continuation decisions a test holds, by session: `arrived` is told, then the decision ends as `go` says (a dropped `go`
 /// lets it run as usual).
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) static DECISION_HOLDS: std::sync::Mutex<Vec<DecisionHold>> =
-    std::sync::Mutex::new(Vec::new());
+pub(crate) static DECISION_HOLDS: std::sync::Mutex<Vec<DecisionHold>> = std::sync::Mutex::new(Vec::new());
 
 #[cfg(any(test, feature = "test-support"))]
 pub(crate) async fn decision_hold(thread: &str) -> Option<DecisionFault> {
@@ -178,7 +177,9 @@ pub fn is_closeout(entry: &Value) -> bool {
 /// `shouldRunGoalContinuation`'s closeout half: the closeout runs only while the lane's Goal
 /// (`refreshGoalState()`) is still at its duration and is the entry's.
 pub fn closeout_still_due(entry: &Value, goal: Option<&Goal>) -> bool {
-    goal.is_some_and(|goal| mixdog_core_goal::goal::js::string(goal, "status") == "duration_reached" && mixdog_core_goal::goal::js::clean(entry.get("goalId")) == id_of(goal))
+    goal.is_some_and(|goal| {
+        mixdog_core_goal::goal::js::string(goal, "status") == "duration_reached" && mixdog_core_goal::goal::js::clean(entry.get("goalId")) == id_of(goal)
+    })
 }
 
 /// `shouldRunGoalContinuation`'s continuation half: the runtime still decides to run, for the
@@ -281,7 +282,6 @@ pub fn settle_detail(status: &str, error: Option<&mixdog_protocol::TurnError>, a
         "preserveGoalState": false,
     })
 }
-
 
 /// A Goal refusal as the wire carries it: Node's plain `Error`, its message the whole answer.
 pub fn failure(error: &mixdog_core_goal::goal::GoalError) -> mixdog_core_api::error::CoreError {

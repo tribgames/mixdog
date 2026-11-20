@@ -15,12 +15,7 @@ use tokio_util::sync::CancellationToken;
 async fn load(cache: &Arc<DeclarationCache>, root: &Path) -> PluginMcpDeclarations {
     let tokens = mixdog_rt::testing::tokens();
     let (cache, root) = (Arc::clone(cache), root.to_path_buf());
-    tokens
-        .maintenance_io
-        .submit(&CancellationToken::new(), move |lane| cache.load(lane, &root))
-        .unwrap()
-        .await
-        .unwrap()
+    tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| cache.load(lane, &root)).unwrap().await.unwrap()
 }
 
 #[tokio::test]
@@ -99,12 +94,16 @@ async fn the_skill_list_follows_edits_made_outside_the_app() {
         &data,
         &file,
         Some(&serde_json::json!([{"type": "tool", "value": "read"}])),
-    ).await.unwrap();
+    )
+    .await
+    .unwrap();
     mixdog_rt::time::timeout(Duration::from_secs(10), async {
         while !catalog.skills().await.unwrap().iter().any(|s| s.tool_dependencies.manifest_names() == ["read"]) {
             changes.changed().await.unwrap();
         }
-    }).await.expect("the peer's tool-link override is seen");
+    })
+    .await
+    .expect("the peer's tool-link override is seen");
     std::fs::remove_dir_all(file.parent().unwrap()).unwrap();
     alpha_becomes(&catalog, &mut changes, None).await;
 }
@@ -166,23 +165,29 @@ async fn an_override_root_created_during_registration_does_not_leave_a_stale_cat
     let watch = Arc::new(SkillsWatch::new());
     let tokens = mixdog_rt::testing::tokens();
     let catalog = mixdog_mcp::skill_catalog::SkillCatalog::new(
-        data.clone(), tokens.maintenance_io,
-        mixdog_mcp::mcp_glue::McpGlue::skill_roots(admin.clone(), defaults.clone()), Arc::new(NoSettings), &watch,
+        data.clone(),
+        tokens.maintenance_io,
+        mixdog_mcp::mcp_glue::McpGlue::skill_roots(admin.clone(), defaults.clone()),
+        Arc::new(NoSettings),
+        &watch,
     );
     watch.attach(Arc::new(FolderWatcher::new(watch.sink()).unwrap()));
     let targets = mixdog_mcp::mcp_glue::McpGlue::skill_watch_targets(admin, defaults);
     let first = AtomicBool::new(true);
-    catalog.watch_roots(watch, Arc::new(move |lane| {
-        let sampled = targets(lane);
-        if first.swap(false, Ordering::Relaxed) {
-            std::fs::create_dir(&overrides).unwrap();
-        }
-        sampled
-    }));
+    catalog.watch_roots(
+        watch,
+        Arc::new(move |lane| {
+            let sampled = targets(lane);
+            if first.swap(false, Ordering::Relaxed) {
+                std::fs::create_dir(&overrides).unwrap();
+            }
+            sampled
+        }),
+    );
     assert!(catalog.skills().await.unwrap()[0].tool_dependencies.manifest_names().is_empty());
-    mixdog_mcp::skill_deps::save_skill_tool_dependencies(
-        tokens.durability_io, &data, &file, Some(&serde_json::json!([{"type": "tool", "value": "read"}])),
-    ).await.unwrap();
+    mixdog_mcp::skill_deps::save_skill_tool_dependencies(tokens.durability_io, &data, &file, Some(&serde_json::json!([{"type": "tool", "value": "read"}])))
+        .await
+        .unwrap();
     assert_eq!(catalog.skills().await.unwrap()[0].tool_dependencies.manifest_names(), ["read"]);
 }
 
@@ -200,7 +205,11 @@ async fn a_nested_manifest_edit_adding_a_skills_root_is_seen() {
     std::fs::create_dir_all(skill.parent().unwrap()).unwrap();
     std::fs::write(&skill, "---\nname: beta\ndescription: b\n---\nbody\n").unwrap();
     std::fs::create_dir_all(data.join("plugins")).unwrap();
-    std::fs::write(data.join("plugins").join("registry.json"), serde_json::json!({"plugins": [{"id": "p", "root": plugin.to_string_lossy(), "enabled": true}]}).to_string()).unwrap();
+    std::fs::write(
+        data.join("plugins").join("registry.json"),
+        serde_json::json!({"plugins": [{"id": "p", "root": plugin.to_string_lossy(), "enabled": true}]}).to_string(),
+    )
+    .unwrap();
     let admin = Arc::new(mixdog_mcp::plugin_admin::PluginAdmin::new(data.clone(), Arc::new(NoGit), Arc::new(|| {})));
     let defaults = base.join("defaults");
     let skills = Arc::new(SkillsWatch::new());
@@ -251,10 +260,7 @@ async fn a_skill_written_under_a_watched_root_pushes_a_change() {
     let mut changes = skills.subscribe();
     std::fs::create_dir_all(root.join("alpha")).unwrap();
     std::fs::write(root.join("alpha").join("SKILL.md"), "---\nname: alpha\n---\n").unwrap();
-    mixdog_rt::time::timeout(Duration::from_secs(10), changes.changed())
-        .await
-        .expect("the change is pushed")
-        .unwrap();
+    mixdog_rt::time::timeout(Duration::from_secs(10), changes.changed()).await.expect("the change is pushed").unwrap();
     assert!(*changes.borrow() > 0);
 }
 

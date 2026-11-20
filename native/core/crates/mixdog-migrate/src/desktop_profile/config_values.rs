@@ -23,8 +23,8 @@ use super::source;
 use super::source::Parsed;
 use crate::durable;
 use crate::error::Blocked;
-use crate::json;
 use crate::framework::ItemContext;
+use crate::json;
 
 pub(super) const CONFIG_FILE: &str = "mixdog-config.json";
 
@@ -34,13 +34,7 @@ fn schema_violation(detail: &str) -> ApplyError {
 
 /// `agentGreetingsFileStore.read`: the string ids of `seen`, written back sorted and unique.
 pub fn greeted(value: &Value) -> Value {
-    let mut ids: Vec<&str> = value
-        .get("seen")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .collect();
+    let mut ids: Vec<&str> = value.get("seen").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).collect();
     ids.sort_unstable();
     ids.dedup();
     ids.into_iter().map(Value::from).collect()
@@ -67,19 +61,10 @@ pub fn retention_state(value: &Value) -> Value {
 /// 1.4.5 saw the stamp's presence, not its contents. Keep a real timestamp
 /// when available; use a fixed positive marker otherwise (including on replay).
 fn remote_activated(value: &Value) -> Value {
-    value
-        .get("activatedAt")
-        .and_then(jsvalue::positive)
-        .map(|at| Value::Number(at.clone()))
-        .unwrap_or_else(|| Value::from(1))
+    value.get("activatedAt").and_then(jsvalue::positive).map(|at| Value::Number(at.clone())).unwrap_or_else(|| Value::from(1))
 }
 
-const EVENTS: [(&str, bool); 4] = [
-    ("finished", true),
-    ("question", true),
-    ("approval", true),
-    ("error", false),
-];
+const EVENTS: [(&str, bool); 4] = [("finished", true), ("question", true), ("approval", true), ("error", false)];
 
 fn flag(raw: Option<&Value>, fallback: bool) -> bool {
     raw.and_then(Value::as_bool).unwrap_or(fallback)
@@ -98,10 +83,7 @@ fn is_clock_time(text: &str) -> bool {
 }
 
 fn clock(raw: Option<&Value>, fallback: &str) -> String {
-    raw.and_then(Value::as_str)
-        .filter(|text| is_clock_time(text))
-        .unwrap_or(fallback)
-        .to_owned()
+    raw.and_then(Value::as_str).filter(|text| is_clock_time(text)).unwrap_or(fallback).to_owned()
 }
 
 /// `storedPreferences`: each field falls back to the default when missing or invalid.
@@ -112,10 +94,7 @@ fn device_preferences(value: &Value) -> Value {
     let quiet = field("quietHours").and_then(jsvalue::object);
     let quiet_field = |name: &str| quiet.and_then(|quiet| quiet.get(name));
     let choice = |raw: Option<&Value>, allowed: &[&str], fallback: &str| {
-        raw.and_then(Value::as_str)
-            .filter(|text| allowed.contains(text))
-            .unwrap_or(fallback)
-            .to_owned()
+        raw.and_then(Value::as_str).filter(|text| allowed.contains(text)).unwrap_or(fallback).to_owned()
     };
     let events: Map<String, Value> = EVENTS
         .iter()
@@ -132,26 +111,17 @@ fn device_preferences(value: &Value) -> Value {
     quiet_hours.insert("enabled".into(), flag(quiet_field("enabled"), false).into());
     quiet_hours.insert("start".into(), clock(quiet_field("start"), "23:00").into());
     quiet_hours.insert("end".into(), clock(quiet_field("end"), "08:00").into());
-    quiet_hours.insert(
-        "days".into(),
-        choice(quiet_field("days"), &["every", "weekdays", "weekends"], "every").into(),
-    );
+    quiet_hours.insert("days".into(), choice(quiet_field("days"), &["every", "weekdays", "weekends"], "every").into());
     quiet_hours.insert("allowWaiting".into(), flag(quiet_field("allowWaiting"), false).into());
     prefs.insert("quietHours".into(), Value::Object(quiet_hours));
-    prefs.insert(
-        "holdWhileDesktopActive".into(),
-        flag(field("holdWhileDesktopActive"), true).into(),
-    );
+    prefs.insert("holdWhileDesktopActive".into(), flag(field("holdWhileDesktopActive"), true).into());
     prefs.insert("taskbarFlash".into(), flag(field("taskbarFlash"), true).into());
     Value::Object(prefs)
 }
 
 /// `^[\w.:-]{1,200}$`.
 fn is_target_id(text: &str) -> bool {
-    (1..=200).contains(&text.len())
-        && text
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+    (1..=200).contains(&text.len()) && text.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
 }
 
 /// `storedOverride`: an entry the desktop would drop is dropped.
@@ -187,20 +157,9 @@ pub fn notifications(value: &Value) -> Result<Value, ApplyError> {
     if doc.get("version").and_then(jsvalue::safe_integer) != Some(1) {
         return Err(schema_violation("the notification preferences are not version 1"));
     }
-    let devices: Map<String, Value> = doc
-        .get("devices")
-        .and_then(jsvalue::object)
-        .into_iter()
-        .flatten()
-        .map(|(id, prefs)| (id.clone(), device_preferences(prefs)))
-        .collect();
-    let overrides: Vec<Value> = doc
-        .get("overrides")
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(stored_override)
-        .collect();
+    let devices: Map<String, Value> =
+        doc.get("devices").and_then(jsvalue::object).into_iter().flatten().map(|(id, prefs)| (id.clone(), device_preferences(prefs))).collect();
+    let overrides: Vec<Value> = doc.get("overrides").and_then(Value::as_array).into_iter().flatten().filter_map(stored_override).collect();
     let migrated_at = doc.get("migratedAt").and_then(jsvalue::safe_integer).unwrap_or(0);
     Ok(serde_json::json!({
         "migratedAt": migrated_at,
@@ -220,9 +179,7 @@ fn config_key(item: &ManifestItem) -> Result<&str, ApplyError> {
 fn config_value(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<(Value, u64)> {
     if item.kind == ItemKind::UnclassifiedWorkspace {
         let path = super::profile_dir(cx)?.join("workspace").join("unclassified");
-        let text = path
-            .to_str()
-            .ok_or_else(|| schema_violation("the unclassified workspace path is not UTF-8"))?;
+        let text = path.to_str().ok_or_else(|| schema_violation("the unclassified workspace path is not UTF-8"))?;
         return Ok((Value::String(text.to_owned()), 0));
     }
     let bytes = source::read_source(cx, super::single_source(item)?)?;
@@ -232,10 +189,7 @@ fn config_value(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<(Value, u64)>
             Err(_) => (remote_activated(&Value::Null), 0),
         });
     }
-    let Parsed {
-        value,
-        replaced_surrogates,
-    } = source::parse_json(&bytes)?;
+    let Parsed { value, replaced_surrogates } = source::parse_json(&bytes)?;
     let converted = match item.kind {
         ItemKind::AgentGreetings => greeted(&value),
         ItemKind::NotificationPreferences => notifications(&value)?,
@@ -259,12 +213,7 @@ fn read_config(data: &Path) -> Result<(Value, Option<String>), ApplyError> {
     // A config that does not parse is never quarantined here: the run stops (SM §11.5). The daemon's boot and `mixdogd migrate` keep a file
     // `JSON.parse` refuses aside and restore its newest backup before the migration starts (`recover_malformed_config`), so this stops only
     // on a config that is not an object (`null` included). The read is Node's: invalid UTF-8, deep nesting and huge numbers parse.
-    let schema = |detail: String| {
-        ApplyError::Blocked(Blocked::StoreSchema {
-            key: CONFIG_FILE.to_owned(),
-            detail,
-        })
-    };
+    let schema = |detail: String| ApplyError::Blocked(Blocked::StoreSchema { key: CONFIG_FILE.to_owned(), detail });
     // A profile title a phone sent cut inside an emoji is stored by Node with half of it: U+FFFD here.
     let doc = json::parse_config(&bytes).map_err(schema)?.value;
     if !doc.is_object() {
@@ -277,9 +226,7 @@ fn set_path(doc: &mut Value, key: &str, value: Value, path: &Path) -> Result<(),
     let mut parts = key.split('.').peekable();
     let mut node = doc;
     while let Some(part) = parts.next() {
-        let map = node
-            .as_object_mut()
-            .ok_or_else(|| ApplyError::blocked("write", path, "a config key on the path is not an object"))?;
+        let map = node.as_object_mut().ok_or_else(|| ApplyError::blocked("write", path, "a config key on the path is not an object"))?;
         if parts.peek().is_none() {
             map.insert(part.to_owned(), value);
             return Ok(());
@@ -310,10 +257,7 @@ pub(super) fn stage(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<Staged> {
     let path = cx.stage_dir(item.key.as_str()).join(CONFIG_FILE);
     // The config may hold credentials of other features: the replacement is owner-only.
     fsx::write_new(&path, &bytes, true).map_err(|error| ApplyError::io("write", &path, error))?;
-    Ok(Staged {
-        output_sha256: durable::sha256_hex(&bytes),
-        replaced_surrogates,
-    })
+    Ok(Staged { output_sha256: durable::sha256_hex(&bytes), replaced_surrogates })
 }
 
 /// Replaces the config with the staged file, unless it already is that file.
@@ -360,10 +304,7 @@ pub(super) fn verify(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<Digest> 
     let (expected, _) = config_value(cx, item)?;
     let (doc, _) = read_config(&cx.roots.data)?;
     if get_path(&doc, key).map(source::canonical_text) != Some(source::canonical_text(&expected)) {
-        return Err(ApplyError::quarantine(
-            QuarantineCode::DigestMismatch,
-            format!("config key {key} differs from the source"),
-        ));
+        return Err(ApplyError::quarantine(QuarantineCode::DigestMismatch, format!("config key {key} differs from the source")));
     }
     Ok(source::digest_value(&expected))
 }
@@ -432,7 +373,6 @@ mod tests {
         assert_eq!(get_path(&doc, "desktop.zoom"), Some(&json("1")));
         assert!(set_path(&mut doc, "desktop.zoom.x", json("1"), Path::new("c")).is_err());
     }
-
 
     /// A config holding a profile title a phone sent cut inside an emoji (a lone surrogate escape): the migration reads
     /// the document with the half emoji as U+FFFD instead of stopping the run, and stages the same document when it

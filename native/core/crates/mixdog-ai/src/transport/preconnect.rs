@@ -78,9 +78,7 @@ pub fn preconnect(http: &Arc<dyn HttpSend>, origin: &str, now: u64, keepalive: O
             Ok(response) => response.read_all().await.is_ok(),
             Err(_) => false,
         };
-        if !warmed
-            && let Some(stamps) = PRECONNECTED_AT.lock().unwrap_or_else(PoisonError::into_inner).as_mut()
-        {
+        if !warmed && let Some(stamps) = PRECONNECTED_AT.lock().unwrap_or_else(PoisonError::into_inner).as_mut() {
             stamps.remove(&origin);
         }
     });

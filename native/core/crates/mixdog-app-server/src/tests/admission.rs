@@ -1,4 +1,4 @@
-//! Admission through the call lanes, on the wire: a control
+//! Admission through the call lanes, on the wire: a control
 //! call is answered at once while reads wait, and a backlog past the lane's queue is refused with the message Node's lane gives.
 
 use mixdog_core_api::ids::ThreadId;
@@ -61,7 +61,6 @@ async fn a_started_request_is_a_call_in_flight_until_its_slot_is_freed() {
     assert!(answered.iter().all(|wire| wire.body.get("result").is_some()));
     assert_eq!(rig.core.mock.requests_in_flight(), 0, "the slots are free before the responses are written");
 }
-
 
 /// The refusal for the 1025th call of one owner in the normal lane.
 fn recorded_queue_full() -> String {

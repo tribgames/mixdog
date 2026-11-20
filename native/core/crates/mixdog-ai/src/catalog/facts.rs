@@ -18,19 +18,18 @@ use mixdog_protocol::ProviderId;
 use serde_json::Value;
 use serde_json::json;
 
+use super::lookup::Obj;
+use super::lookup::enrich_model;
 use super::record::Capability;
 use super::record::ModelRecord;
-use super::lookup::enrich_model;
 use super::record::Thinking;
-use super::lookup::Obj;
 use super::rosters::CachedWindows;
-use super::service::CatalogService;
 use super::route_meta::RouteProvider;
+use super::service::CatalogService;
 use crate::service::admin_route::clean;
 use crate::service::admin_route::truthy;
 
-const FAST_CAPABLE_PROVIDERS: [&str; 6] =
-    ["anthropic", "anthropic-oauth", "openai", "openai-oauth", "cursor-oauth", "cursor-api"];
+const FAST_CAPABLE_PROVIDERS: [&str; 6] = ["anthropic", "anthropic-oauth", "openai", "openai-oauth", "cursor-oauth", "cursor-api"];
 
 fn flag(c: Capability) -> Option<bool> {
     match c {
@@ -85,7 +84,7 @@ pub(super) struct MetaMemo {
     /// `observedCatalogRevision`.
     revision: u64,
     rows: HashMap<String, Arc<Value>>,
-   /// Keys holding only the bare-id placeholder: a fetching lookup replaces them.
+    /// Keys holding only the bare-id placeholder: a fetching lookup replaces them.
     placeholders: HashSet<String>,
 }
 
@@ -162,12 +161,9 @@ fn year_or_end(rest: &str) -> bool {
 
 /// `PRE_CATALOG_GPT_56_PLUS` or `PRE_CATALOG_EARLIER_FAST`.
 fn documented_fast(id: &str) -> bool {
-    const PLUS: [&str; 7] =
-        ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
+    const PLUS: [&str; 7] = ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
     PLUS.iter().any(|base| id.strip_prefix(base).is_some_and(dated_or_end))
-        || id
-            .strip_prefix("gpt-5.")
-            .is_some_and(|tail| ["5", "4", "4-mini"].iter().any(|v| tail.strip_prefix(v).is_some_and(year_or_end)))
+        || id.strip_prefix("gpt-5.").is_some_and(|tail| ["5", "4", "4-mini"].iter().any(|v| tail.strip_prefix(v).is_some_and(year_or_end)))
 }
 
 /// `PRE_CATALOG_ULTRAFAST`.
@@ -177,11 +173,8 @@ fn documented_ultrafast(id: &str) -> bool {
 
 /// `KNOWN_FAST_MODE_MODELS`: `^claude-opus-(?:4-8|5)(?:$|[-@])`.
 fn known_anthropic_fast(id: &str) -> bool {
-    id.strip_prefix("claude-opus-").is_some_and(|tail| {
-        ["4-8", "5"]
-            .iter()
-            .any(|v| tail.strip_prefix(v).is_some_and(|r| r.is_empty() || r.starts_with(['-', '@'])))
-    })
+    id.strip_prefix("claude-opus-")
+        .is_some_and(|tail| ["4-8", "5"].iter().any(|v| tail.strip_prefix(v).is_some_and(|r| r.is_empty() || r.starts_with(['-', '@']))))
 }
 
 /// `SNAPSHOT_SUFFIX` removed: `-\d{4}-\d{2}-\d{2}$`.
@@ -278,10 +271,7 @@ impl CatalogService {
             }
         };
         let Ok(rows) = listing.list_rows().await else { return placeholder(provider, model) };
-        let meta = rows
-            .into_iter()
-            .find(|row| row.get("id").and_then(Value::as_str) == Some(model))
-            .unwrap_or_else(|| Arc::new(placeholder(provider, model)));
+        let meta = rows.into_iter().find(|row| row.get("id").and_then(Value::as_str) == Some(model)).unwrap_or_else(|| Arc::new(placeholder(provider, model)));
         let mut memo = self.memo();
         if revision == self.catalog_revision() && seq == self.load_seq() {
             memo.placeholders.remove(&key);
@@ -422,11 +412,7 @@ impl CatalogService {
 
 /// The Cursor branch of `fastCapableFor`: fast variants by effort and parameters.
 fn cursor_fast(model: &Value, effort: Option<&str>, params: &Value) -> bool {
-    let fast_efforts: Vec<String> = model
-        .get("fastEfforts")
-        .and_then(Value::as_array)
-        .map(|a| a.iter().map(|v| clean(Some(v))).collect())
-        .unwrap_or_default();
+    let fast_efforts: Vec<String> = model.get("fastEfforts").and_then(Value::as_array).map(|a| a.iter().map(|v| clean(Some(v))).collect()).unwrap_or_default();
     if model.get("fastCapable") != Some(&Value::Bool(true)) && fast_efforts.is_empty() {
         return false;
     }
@@ -436,12 +422,8 @@ fn cursor_fast(model: &Value, effort: Option<&str>, params: &Value) -> bool {
         let parameters = params.as_object().unwrap_or(&empty);
         return variants.iter().any(|variant| {
             variant.get("fast").and_then(Value::as_str) == Some("true")
-                && (selected.is_empty()
-                    || !truthy(variant.get("effort"))
-                    || clean(variant.get("effort")) == selected)
-                && parameters
-                    .iter()
-                    .all(|(key, value)| !truthy(variant.get(key)) || clean(variant.get(key)) == clean(Some(value)))
+                && (selected.is_empty() || !truthy(variant.get("effort")) || clean(variant.get("effort")) == selected)
+                && parameters.iter().all(|(key, value)| !truthy(variant.get(key)) || clean(variant.get(key)) == clean(Some(value)))
         });
     }
     selected.is_empty() || fast_efforts.is_empty() || fast_efforts.contains(&selected)
@@ -462,10 +444,7 @@ pub(super) mod tests {
             &self,
             _: mixdog_core_api::domain::provider::WireRequest,
             _exchange: crate::transport::Exchange,
-        ) -> Result<
-            crate::transport::http::HttpResponse,
-            mixdog_core_api::domain::provider::ProviderError,
-        > {
+        ) -> Result<crate::transport::http::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
             Err(mixdog_core_api::domain::provider::ProviderError::new(
                 mixdog_core_api::domain::provider::ErrorKind::Transient,
                 mixdog_core_api::domain::provider::DeliveryState::NotSent,
@@ -488,12 +467,6 @@ pub(super) mod tests {
         assert_eq!(without_snapshot("gpt-5-2025-08-07"), "gpt-5");
         assert_eq!(without_snapshot("gpt-5-20250807"), "gpt-5-20250807");
     }
-
-
-
-
-
-
 
     pub(in crate::catalog) fn io() -> crate::oauth::CredentialIo {
         let tokens = mixdog_rt::testing::tokens();
@@ -531,7 +504,12 @@ pub(super) mod tests {
         assert!(s.cached_windows("openai-oauth", "gpt-5.5").is_none(), "no file yet");
         write_roster(dir.path(), "openai-oauth-models.json", r#"{"models":[{"id":"gpt-5.5","contextWindow":64000}]}"#).await;
         assert!(s.cached_windows("openai-oauth", "gpt-5.5").is_none(), "the 1.4.5 file names no account and is not read");
-        write_roster(dir.path(), &file, r#"{"account":"acct-1","provenance":"fetched","models":[{"id":"gpt-5.5","contextWindow":272000,"maxContextWindow":1000000}]}"#).await;
+        write_roster(
+            dir.path(),
+            &file,
+            r#"{"account":"acct-1","provenance":"fetched","models":[{"id":"gpt-5.5","contextWindow":272000,"maxContextWindow":1000000}]}"#,
+        )
+        .await;
         let w = s.cached_windows("openai-oauth", "gpt-5.5").unwrap();
         assert_eq!(serde_json::to_value(w).unwrap(), json!({"contextWindow": 272000.0, "maxContextWindow": 1000000.0}));
         assert!(s.cached_windows("openai-oauth", "other").is_none());
@@ -557,6 +535,4 @@ pub(super) mod tests {
         assert!(!s.fast_capable("cursor-oauth", &variants, Some("high"), &json!({"thinking": "off"})));
         assert!(!s.fast_capable("cursor-oauth", &variants, Some("low"), &json!({})));
     }
-
-
 }

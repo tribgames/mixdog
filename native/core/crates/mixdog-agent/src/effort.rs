@@ -82,13 +82,7 @@ impl EffortSnapshot {
             "custom" => EffortMode::Custom,
             _ => return None,
         };
-        Some(Self {
-            provider: text("provider")?,
-            model: text("model")?,
-            mode,
-            initial_effort: text("initialEffort")?,
-            effort: text("effort")?,
-        })
+        Some(Self { provider: text("provider")?, model: text("model")?, mode, initial_effort: text("initialEffort")?, effort: text("effort")? })
     }
 
     /// The snapshot as a message's `meta.effortConfiguration` stores it.
@@ -105,10 +99,8 @@ impl EffortSnapshot {
 /// `claude-opus-5.5-20260101` → `claude-opus-5-5`: trimmed, lowercase, without
 /// a trailing date, dots folded to dashes.
 pub fn model_key(model: &str) -> String {
-    static DASHED_DATE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"-\d{4}-\d{2}-\d{2}$").expect("static pattern"));
-    static COMPACT_DATE: LazyLock<Regex> =
-        LazyLock::new(|| Regex::new(r"-\d{8}$").expect("static pattern"));
+    static DASHED_DATE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"-\d{4}-\d{2}-\d{2}$").expect("static pattern"));
+    static COMPACT_DATE: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"-\d{8}$").expect("static pattern"));
     let lower = mixdog_js::js_trim(model).to_lowercase();
     let lower = DASHED_DATE.replace(&lower, "");
     let lower = COMPACT_DATE.replace(&lower, "");
@@ -157,11 +149,7 @@ impl EffortRoute {
             .filter_map(|(i, m)| m.effort.as_ref().map(|s| (i, s)))
             .filter(|(_, s)| self.valid(s, mode))
             .collect();
-        let seed = marked
-            .first()
-            .map(|(_, s)| (*s).clone())
-            .or_else(|| self.seed.clone())
-            .filter(|s| self.valid(s, mode))?;
+        let seed = marked.first().map(|(_, s)| (*s).clone()).or_else(|| self.seed.clone()).filter(|s| self.valid(s, mode))?;
         let mut current = seed.initial_effort.clone();
         let mut changes: Vec<(usize, String)> = Vec::new();
         for (index, snapshot) in &marked {
@@ -185,11 +173,7 @@ impl EffortRoute {
 /// `ProviderAdapter` is `attempt_with(request, None)`.
 #[async_trait]
 pub trait EffortAdapter: Send + Sync {
-    async fn attempt_with(
-        &self,
-        request: Arc<ModelRequest>,
-        effort: Option<EffortProjection>,
-    ) -> Result<Box<dyn ModelStream>, ProviderError>;
+    async fn attempt_with(&self, request: Arc<ModelRequest>, effort: Option<EffortProjection>) -> Result<Box<dyn ModelStream>, ProviderError>;
 }
 
 /// The [`EffortAdapter`] of every provider that reads `RequestOptions.effort_projection`
@@ -209,11 +193,7 @@ impl ProjectingAdapter {
 
 #[async_trait]
 impl EffortAdapter for ProjectingAdapter {
-    async fn attempt_with(
-        &self,
-        request: Arc<ModelRequest>,
-        effort: Option<EffortProjection>,
-    ) -> Result<Box<dyn ModelStream>, ProviderError> {
+    async fn attempt_with(&self, request: Arc<ModelRequest>, effort: Option<EffortProjection>) -> Result<Box<dyn ModelStream>, ProviderError> {
         let mut request = Arc::unwrap_or_clone(request);
         request.options.effort_projection = effort.map(Into::into);
         self.provider.attempt(Arc::new(request)).await
@@ -275,10 +255,7 @@ mod tests {
         ];
         let projection = route().project(&messages).unwrap();
         assert_eq!(projection.initial_effort, "low");
-        assert_eq!(
-            projection.updates.into_iter().collect::<Vec<_>>(),
-            [(2, "high".to_owned()), (4, "low".to_owned())]
-        );
+        assert_eq!(projection.updates.into_iter().collect::<Vec<_>>(), [(2, "high".to_owned()), (4, "low".to_owned())]);
     }
 
     #[test]

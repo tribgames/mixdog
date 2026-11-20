@@ -93,11 +93,7 @@ fn encode(value: &RemoteSectionValue) -> Bytes {
 }
 
 fn publish(publisher: &dyn StatePublisher, value: &RemoteSectionValue, bytes: &Bytes) {
-    let change = if bytes.len() > INLINE_MAX {
-        SectionChange::Stub { count: value.clients.len() as u64 }
-    } else {
-        SectionChange::Set(bytes.clone())
-    };
+    let change = if bytes.len() > INLINE_MAX { SectionChange::Stub { count: value.clients.len() as u64 } } else { SectionChange::Set(bytes.clone()) };
     publisher.publish(SectionName::Remote, None, change);
 }
 

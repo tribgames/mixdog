@@ -8,7 +8,6 @@ use serde_json::{Value, json};
 
 use crate::memory::sensitive::SensitiveStore;
 
-
 /// The attached-files note keeps a record of each file beside its text (`attachedFilesNote`,
 /// `attachment-reference.mjs:184-197`): the row stores it and its clients receive it. A marked value in the file's
 /// name (and so in its path, which ends in the name) is stored redacted there as in the note's text, as the patched
@@ -26,11 +25,14 @@ fn a_marked_value_in_an_attached_files_name_and_path_is_stored_redacted() {
     }] });
     let stored = store.redact_messages(session, &[note]);
     let redacted = "C:\\attachments\\ab\\[redacted]-notes.pdf";
-    assert_eq!(stored[0]["content"], json!([{
-        "type": "text",
-        "text": format!("[Attached files on this PC:\n- {redacted}\n]"),
-        "attachmentReference": { "kind": "files", "files": [{ "attachmentRef": "a".repeat(64), "name": "[redacted]-notes.pdf", "mimeType": "application/pdf", "sizeBytes": 4, "path": redacted }] },
-    }]));
+    assert_eq!(
+        stored[0]["content"],
+        json!([{
+            "type": "text",
+            "text": format!("[Attached files on this PC:\n- {redacted}\n]"),
+            "attachmentReference": { "kind": "files", "files": [{ "attachmentRef": "a".repeat(64), "name": "[redacted]-notes.pdf", "mimeType": "application/pdf", "sizeBytes": 4, "path": redacted }] },
+        }])
+    );
 }
 
 /// The patched Node's `transcript-writer-sensitive.test.mjs` ("a value split across three streamed deltas"): the same deltas,
@@ -38,7 +40,10 @@ fn a_marked_value_in_an_attached_files_name_and_path_is_stored_redacted() {
 #[test]
 fn a_value_split_across_three_streamed_deltas_is_held_back_until_whole() {
     let store = SensitiveStore::default();
-    assert!(store.remember("sess_sensitive_deltas", &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": "hunter2" } } })]));
+    assert!(store.remember(
+        "sess_sensitive_deltas",
+        &[json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "text": "hunter2" } } })]
+    ));
     let mut text = String::new();
     let settled: Vec<String> = ["say hu", "nte", "r2 ok"]
         .iter()
@@ -110,7 +115,11 @@ fn a_carried_session_takes_the_values_its_source_holds_and_gains_up_the_chain() 
     store.carry("parent", "child");
     assert!(store.remember("grandchild", &[fill("after")]));
     for session in ["grandchild", "child", "parent"] {
-        assert_eq!(store.redact_text(session, "before after"), if session == "grandchild" { "before [redacted]" } else { "[redacted] [redacted]" }, "{session}");
+        assert_eq!(
+            store.redact_text(session, "before after"),
+            if session == "grandchild" { "before [redacted]" } else { "[redacted] [redacted]" },
+            "{session}"
+        );
     }
     assert_eq!(heard.load(Ordering::SeqCst), store.version("parent"));
     // A marking session with no listener of its own (no turn to rewrite its log) is told too.
@@ -167,7 +176,8 @@ fn only_a_sensitive_browser_fill_marks_a_value_and_a_value_seen_before_marks_not
 fn a_fill_whose_arguments_are_a_json_string_or_that_lists_fields_marks_every_value() {
     let store = SensitiveStore::default();
     let as_string = json!({ "name": "browser", "arguments": "{\"action\":\"fill\",\"input\":{\"sensitive\":true,\"text\":\"alpha\"}}" });
-    let fields = json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "fields": [{ "text": "beta" }, { "value": "gamma" }] } } });
+    let fields =
+        json!({ "name": "browser", "arguments": { "action": "fill", "input": { "sensitive": true, "fields": [{ "text": "beta" }, { "value": "gamma" }] } } });
     assert!(store.remember("s", &[as_string, fields]));
     assert_eq!(store.redact_text("s", "alpha beta gamma delta"), "[redacted] [redacted] [redacted] delta");
 }
@@ -209,4 +219,3 @@ fn a_session_with_no_marked_value_stores_its_messages_as_they_are() {
     assert_eq!(store.redact_messages("clean", &messages), messages);
     assert_eq!(store.version("clean"), store.version("also clean"));
 }
-

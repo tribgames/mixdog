@@ -73,7 +73,8 @@ const CONFIG_NAMES: [&str; 2] = ["rustfmt.toml", ".rustfmt.toml"];
 /// Named as a directory, rustfmt picks the configuration file in it as it would on its own.
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn config_dir(cwd: &Path, file: &Path) -> Option<String> {
-    let dir = file.ancestors().skip(1).take_while(|dir| *dir != cwd && dir.starts_with(cwd)).find(|dir| CONFIG_NAMES.iter().any(|name| dir.join(name).is_file()))?;
+    let dir =
+        file.ancestors().skip(1).take_while(|dir| *dir != cwd && dir.starts_with(cwd)).find(|dir| CONFIG_NAMES.iter().any(|name| dir.join(name).is_file()))?;
     Some(to_rel(cwd, &dir.to_string_lossy()))
 }
 
@@ -161,14 +162,26 @@ mod tests {
             ("plain/d.rs", "d"),
         ];
         let calls = flags(&tree, &["old/a.rs", "new/src/b.rs", "loose.rs", "plain/d.rs"]).await;
-        assert_eq!(calls, pairs(&[("a", "--edition 2021 --emit stdout"), ("b", "--edition 2024 --emit stdout"), ("c", "--emit stdout"), ("d", "--emit stdout")]));
+        assert_eq!(
+            calls,
+            pairs(&[("a", "--edition 2021 --emit stdout"), ("b", "--edition 2024 --emit stdout"), ("c", "--emit stdout"), ("d", "--emit stdout")])
+        );
     }
 
     #[tokio::test]
     async fn a_configuration_below_the_project_is_named_and_what_the_project_already_says_is_not_said_twice() {
-        let tree = [("rustfmt.toml", ""), ("a.rs", "a"), ("sub/.rustfmt.toml", ""), ("sub/Cargo.toml", "[package]\nname = \"s\"\nedition = \"2021\"\n"), ("sub/src/deep/b.rs", "b")];
+        let tree = [
+            ("rustfmt.toml", ""),
+            ("a.rs", "a"),
+            ("sub/.rustfmt.toml", ""),
+            ("sub/Cargo.toml", "[package]\nname = \"s\"\nedition = \"2021\"\n"),
+            ("sub/src/deep/b.rs", "b"),
+        ];
         // rustfmt finds the project's own configuration from where it runs; only the nested one needs naming.
-        assert_eq!(flags(&tree, &["a.rs", "sub/src/deep/b.rs"]).await, pairs(&[("a", "--emit stdout"), ("b", "--edition 2021 --config-path sub --emit stdout")]));
+        assert_eq!(
+            flags(&tree, &["a.rs", "sub/src/deep/b.rs"]).await,
+            pairs(&[("a", "--emit stdout"), ("b", "--edition 2021 --config-path sub --emit stdout")])
+        );
         let (_dir, spawn, mut req) = project(&tree, &["sub/src/deep/b.rs"], clean);
         req.args = ["--edition=2018", "--config-path", "rustfmt.toml"].map(String::from).to_vec();
         assert_eq!(Rustfmt.check(&req).await.files_checked, Some(1));
@@ -198,7 +211,13 @@ mod tests {
 
     #[tokio::test]
     async fn a_manifest_that_cannot_be_used_leaves_its_files_unformatted_and_the_rest_checked() {
-        let tree = [("bad/Cargo.toml", "[package\n"), ("bad/a.rs", "a"), ("orphan/Cargo.toml", "[package]\nname = \"o\"\nedition.workspace = true\n"), ("orphan/b.rs", "b"), ("ok.rs", "c")];
+        let tree = [
+            ("bad/Cargo.toml", "[package\n"),
+            ("bad/a.rs", "a"),
+            ("orphan/Cargo.toml", "[package]\nname = \"o\"\nedition.workspace = true\n"),
+            ("orphan/b.rs", "b"),
+            ("ok.rs", "c"),
+        ];
         let (_dir, spawn, req) = project(&tree, &["bad/a.rs", "orphan/b.rs", "ok.rs"], clean);
         let out = Rustfmt.check(&req).await;
         assert_eq!((out.files_checked, out.error.clone()), (Some(1), None));

@@ -7,7 +7,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use mixdog_services::bots::delivery::env::{DeliveryConfig, HomeAgent, HomeDirectory, HomeThreads, LiveSlot, Presence, RetryTimer, RoomRelay, ThreadSnapshot, WakeFollow};
+use mixdog_services::bots::delivery::env::{
+    DeliveryConfig, HomeAgent, HomeDirectory, HomeThreads, LiveSlot, Presence, RetryTimer, RoomRelay, ThreadSnapshot, WakeFollow,
+};
 use mixdog_services::bots::delivery::home::{AgentHomeDelivery, TaskReport};
 use mixdog_services::bots::delivery::queue::{Handoffs, QUEUE_CAPS, RoutineResultQueue};
 use mixdog_services::bots::delivery::rows::message_id_of;
@@ -170,11 +172,26 @@ fn rig() -> Rig {
 }
 
 fn result(run_id: &str) -> DeliveryItem {
-    DeliveryItem { run_id: run_id.to_owned(), kind: RoutineKind::Schedule, ok: true, text: format!("output of {run_id}"), run_session_id: None, reason: None, paused: None }
+    DeliveryItem {
+        run_id: run_id.to_owned(),
+        kind: RoutineKind::Schedule,
+        ok: true,
+        text: format!("output of {run_id}"),
+        run_session_id: None,
+        reason: None,
+        paused: None,
+    }
 }
 
 fn report(run_id: &str, status: &str) -> TaskReport {
-    TaskReport { run_id: run_id.to_owned(), task_session_id: "sess_task_1".to_owned(), title: "Task".to_owned(), status: status.to_owned(), text: "all done".to_owned(), ..TaskReport::default() }
+    TaskReport {
+        run_id: run_id.to_owned(),
+        task_session_id: "sess_task_1".to_owned(),
+        title: "Task".to_owned(),
+        status: status.to_owned(),
+        text: "all done".to_owned(),
+        ..TaskReport::default()
+    }
 }
 
 impl Rig {
@@ -199,7 +216,13 @@ impl Rig {
     }
 
     fn posted(&self, home: &str) -> Vec<String> {
-        self.world.threads.lock().unwrap().get(home).map(|m| m.iter().filter_map(|m| m.pointer("/meta/transcript/messageId").and_then(Value::as_str).map(str::to_owned)).collect()).unwrap_or_default()
+        self.world
+            .threads
+            .lock()
+            .unwrap()
+            .get(home)
+            .map(|m| m.iter().filter_map(|m| m.pointer("/meta/transcript/messageId").and_then(Value::as_str).map(str::to_owned)).collect())
+            .unwrap_or_default()
     }
 
     async fn queued(&self, home: &str) -> usize {
@@ -449,7 +472,11 @@ async fn rows_that_wake_nobody_are_posted_before_the_next_turn_takes_its_prompt(
     r.quiesce(CRITIC).await;
     assert!(r.posted(CRITIC).is_empty());
     r.delivery.post_before_agent_turn(CRITIC).await;
-    assert_eq!(r.posted(CRITIC), vec![message_id_of("r1")], "the routine result goes first; the report that wakes the agent waits for the drain after the turn");
+    assert_eq!(
+        r.posted(CRITIC),
+        vec![message_id_of("r1")],
+        "the routine result goes first; the report that wakes the agent waits for the drain after the turn"
+    );
     assert_eq!(r.queued(CRITIC).await, 1);
     r.delivery.post_before_agent_turn("sess_other_session").await;
     assert_eq!(r.posted("sess_other_session").len(), 0);

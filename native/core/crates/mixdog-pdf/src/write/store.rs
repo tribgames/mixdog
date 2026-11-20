@@ -49,13 +49,7 @@ impl ObjectStore {
     /// The object read from a file: not dirty.
     pub(crate) fn insert_loaded(&mut self, r: Ref, obj: Obj) {
         self.largest = self.largest.max(r.num);
-        self.slots.insert(
-            r.num,
-            Slot {
-                generation: r.generation,
-                obj,
-            },
-        );
+        self.slots.insert(r.num, Slot { generation: r.generation, obj });
     }
 
     /// `PDFContext.nextRef`: the next free object number, generation 0.
@@ -73,13 +67,7 @@ impl ObjectStore {
     pub fn assign(&mut self, r: Ref, obj: Obj) {
         self.largest = self.largest.max(r.num);
         self.dirty.insert(r.num);
-        self.slots.insert(
-            r.num,
-            Slot {
-                generation: r.generation,
-                obj,
-            },
-        );
+        self.slots.insert(r.num, Slot { generation: r.generation, obj });
     }
 
     /// `PDFContext.register`: `obj` under a new reference.
@@ -99,17 +87,12 @@ impl ObjectStore {
     }
 
     fn holds(&self, r: Ref) -> bool {
-        self.slots
-            .get(&r.num)
-            .is_some_and(|slot| slot.generation == r.generation)
+        self.slots.get(&r.num).is_some_and(|slot| slot.generation == r.generation)
     }
 
     /// The object `r` names, a reference left as it is.
     pub fn get(&self, r: Ref) -> Option<&Obj> {
-        self.slots
-            .get(&r.num)
-            .filter(|slot| slot.generation == r.generation)
-            .map(|slot| &slot.obj)
+        self.slots.get(&r.num).filter(|slot| slot.generation == r.generation).map(|slot| &slot.obj)
     }
 
     /// `PDFContext.lookup`: follows references to the object (a dangling reference is `None`, JavaScript's
@@ -159,9 +142,7 @@ impl ObjectStore {
 
     /// The objects in ascending number order (pdf-lib's `enumerateIndirectObjects`).
     pub fn iter(&self) -> impl Iterator<Item = (Ref, &Obj)> {
-        self.slots
-            .iter()
-            .map(|(num, slot)| (Ref::new(*num, slot.generation), &slot.obj))
+        self.slots.iter().map(|(num, slot)| (Ref::new(*num, slot.generation), &slot.obj))
     }
 
     pub fn len(&self) -> usize {

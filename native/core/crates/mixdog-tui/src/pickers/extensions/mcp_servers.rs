@@ -4,9 +4,7 @@
 use serde_json::{Value, json};
 
 use super::Extensions;
-use super::panel::{
-    Action, ExtItem, ExtPanel, ExtensionsHost, Handler, MarkerTone, claim, or_text, read_status, status_list, with_scope,
-};
+use super::panel::{Action, ExtItem, ExtPanel, ExtensionsHost, Handler, MarkerTone, claim, or_text, read_status, status_list, with_scope};
 use crate::slash::host::{PromptSurface, Tone};
 use crate::slash::notices::truthy;
 
@@ -23,13 +21,10 @@ fn server_description(server: &Value, pending: Option<bool>) -> String {
     if let Some(enabled) = pending {
         return format!("{}\u{2026} \u{b7} {transport}", if enabled { "enabling" } else { "disabling" });
     }
-    let error = server.get("error").filter(|error| truthy(error)).map_or_else(String::new, |error| format!(" \u{b7} {}", crate::slash::notices::value_text(error)));
+    let error =
+        server.get("error").filter(|error| truthy(error)).map_or_else(String::new, |error| format!(" \u{b7} {}", crate::slash::notices::value_text(error)));
     let name = or_text(server, "name", "");
-    let sign_in = if server.get("authRequired").is_some_and(truthy) {
-        format!(" \u{b7} sign-in required: /mcp login {name}")
-    } else {
-        String::new()
-    };
+    let sign_in = if server.get("authRequired").is_some_and(truthy) { format!(" \u{b7} sign-in required: /mcp login {name}") } else { String::new() };
     let tools = or_text(server, "toolCount", "0");
     with_scope(
         &format!(

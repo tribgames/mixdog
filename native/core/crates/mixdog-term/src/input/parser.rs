@@ -34,7 +34,10 @@ enum Parsed {
     /// A reply the terminal gave to one of our queries; no key produces one.
     Response,
     Click(MouseReport),
-    Key { sequence: String, wheel: Option<WheelDirection> },
+    Key {
+        sequence: String,
+        wheel: Option<WheelDirection>,
+    },
     Paste(String),
 }
 
@@ -100,13 +103,7 @@ impl Default for Decoder {
 
 impl Decoder {
     pub fn new() -> Self {
-        Self {
-            utf8: Utf8Carry::default(),
-            tokenizer: Tokenizer::new(true),
-            in_paste: false,
-            paste_buffer: String::new(),
-            deadline: None,
-        }
+        Self { utf8: Utf8Carry::default(), tokenizer: Tokenizer::new(true), in_paste: false, paste_buffer: String::new(), deadline: None }
     }
 
     /// Decode one read of the terminal's input. `now` is the time of the read; a pending-escape flush that fell due before
@@ -154,10 +151,7 @@ impl Decoder {
     /// indefinitely.
     pub fn has_pending_escape(&self) -> bool {
         let pending = self.tokenizer.buffer();
-        !self.in_paste
-            && pending.first() == Some(&0x1b)
-            && !starts_with_ascii(pending, PASTE_START)
-            && !equals_ascii(pending, "\x1b[200")
+        !self.in_paste && pending.first() == Some(&0x1b) && !starts_with_ascii(pending, PASTE_START) && !equals_ascii(pending, "\x1b[200")
     }
 
     /// Force the buffered incomplete sequence out as keys (typically a lone Escape).
@@ -308,12 +302,7 @@ fn is_orphan_sgr_tail(text: &str) -> bool {
 /// `^\[M[\x60-\x7f][\x20-￿]{2}$`, over UTF-16 units.
 fn is_orphan_x10_tail(text: &str) -> bool {
     let units: Vec<u16> = text.encode_utf16().collect();
-    units.len() == 5
-        && units[0] == 0x5b
-        && units[1] == 0x4d
-        && (0x60..=0x7f).contains(&units[2])
-        && units[3] >= 0x20
-        && units[4] >= 0x20
+    units.len() == 5 && units[0] == 0x5b && units[1] == 0x4d && (0x60..=0x7f).contains(&units[2]) && units[3] >= 0x20 && units[4] >= 0x20
 }
 
 /// Cut a text run at every DEL/BS character. A held backspace arrives as one chunk (`\x7f\x7f\x7f`) and must land as three
@@ -342,10 +331,7 @@ fn split_editing_bytes(text: &str) -> Vec<String> {
 fn is_terminal_response(s: &str) -> bool {
     if let Some(rest) = s.strip_prefix("\x1b[") {
         if let Some(private) = rest.strip_prefix('?') {
-            return is_decrpm(private)
-                || is_device_attributes(private)
-                || is_kitty_flags(private)
-                || is_cursor_position(private);
+            return is_decrpm(private) || is_device_attributes(private) || is_kitty_flags(private) || is_cursor_position(private);
         }
         return rest.strip_prefix('>').is_some_and(is_device_attributes);
     }
@@ -373,9 +359,7 @@ fn all_digits(s: &str) -> bool {
 
 /// `\d+;\d+` followed by `suffix`, as the whole of `s`.
 fn is_number_pair_then(s: &str, suffix: &str) -> bool {
-    s.strip_suffix(suffix)
-        .and_then(|pair| pair.split_once(';'))
-        .is_some_and(|(a, b)| all_digits(a) && all_digits(b))
+    s.strip_suffix(suffix).and_then(|pair| pair.split_once(';')).is_some_and(|(a, b)| all_digits(a) && all_digits(b))
 }
 
 /// `\d+;\d+$y`

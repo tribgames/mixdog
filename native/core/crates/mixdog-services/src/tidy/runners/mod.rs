@@ -62,7 +62,6 @@ pub fn runner_for(id: &str) -> Option<Box<dyn Runner>> {
     })
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -75,4 +74,3 @@ mod tests {
         assert!(runner_for("").is_none());
     }
 }
-

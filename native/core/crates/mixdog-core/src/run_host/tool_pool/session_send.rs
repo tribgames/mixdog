@@ -110,9 +110,11 @@ impl AgentNames for DefinitionNames {
     async fn name(&self, agent_id: &str) -> String {
         if agent_id == mixdog_core_base::rooms::ids::MIXY_AGENT_ID {
             let dir = self.data_dir.clone();
-            return mixdog_core_base::support::on_lane(self.io, &mixdog_rt::CancellationToken::new(), move |lane| mixdog_core_config::config::mixy_display_name(lane, &dir))
-                .await
-                .unwrap_or_else(|_| agent_id.to_owned());
+            return mixdog_core_base::support::on_lane(self.io, &mixdog_rt::CancellationToken::new(), move |lane| {
+                mixdog_core_config::config::mixy_display_name(lane, &dir)
+            })
+            .await
+            .unwrap_or_else(|_| agent_id.to_owned());
         }
         let named = match self.definitions.load(agent_id).await {
             Ok(Some(definition)) => definition.name.split(mixdog_js::is_js_space).filter(|w| !w.is_empty()).collect::<Vec<_>>().join(" "),
@@ -170,7 +172,9 @@ impl TurnSubmit for DirectorySubmit {
             return Ok(Some(rx));
         }
         drop(mixdog_rt::spawn("session-send-settle", mixdog_rt::TaskClass::Work, async move {
-            let end = settled.await.map_or_else(|_| TurnEnd { status: "cancelled".into(), text: String::new() }, |s| TurnEnd { status: s.status.to_owned(), text: s.text });
+            let end = settled
+                .await
+                .map_or_else(|_| TurnEnd { status: "cancelled".into(), text: String::new() }, |s| TurnEnd { status: s.status.to_owned(), text: s.text });
             let _ = tx.send(end);
         }));
         Ok(Some(rx))
@@ -244,7 +248,9 @@ impl TurnSubmit for RoomSubmit {
                 }
             }) as Arc<dyn Fn(&mixdog_core_rooms::rooms::calls::Settled) + Send + Sync>
         });
-        let follow = submission.follow.map(|follow| Arc::new(RoomFollow { chain: submission.bot_chain.clone(), follow }) as Arc<dyn mixdog_core_rooms::rooms::calls::CallFollow>);
+        let follow = submission
+            .follow
+            .map(|follow| Arc::new(RoomFollow { chain: submission.bot_chain.clone(), follow }) as Arc<dyn mixdog_core_rooms::rooms::calls::CallFollow>);
         let ask = Ask {
             agent_id: self.agent_id.clone(),
             prompt: content,
@@ -310,9 +316,14 @@ pub fn check_effort(value: &Value, provider: &str, model: &str, rows: &[Value]) 
     };
     let row = rows.iter().find(|row| row.get("provider").and_then(Value::as_str) == Some(provider) && row_id(row).to_lowercase() == lower(Some(&json!(model))));
     let allowed: Option<Vec<String>> = row.map(|row| {
-        row.get("effortOptions").and_then(Value::as_array).map(|options| options.iter().map(|o| o.get("value").map(mixdog_js::value_to_string).unwrap_or_else(|| "undefined".into())).collect()).unwrap_or_default()
+        row.get("effortOptions")
+            .and_then(Value::as_array)
+            .map(|options| options.iter().map(|o| o.get("value").map(mixdog_js::value_to_string).unwrap_or_else(|| "undefined".into())).collect())
+            .unwrap_or_default()
     });
-    let offer = allowed.as_ref().map_or(String::new(), |allowed| format!("; {provider}/{model} supports: auto{}", allowed.iter().map(|l| format!(", {l}")).collect::<String>()));
+    let offer = allowed
+        .as_ref()
+        .map_or(String::new(), |allowed| format!("; {provider}/{model} supports: auto{}", allowed.iter().map(|l| format!(", {l}")).collect::<String>()));
     let level = normalize_effort_input(Some(value)).map_err(|error| format!("session: {error}{offer}"))?;
     if let (Some(level), Some(allowed)) = (&level, &allowed)
         && !allowed.contains(level)
@@ -408,7 +419,13 @@ impl SessionSend {
         let prompt = handoff_content(text, &call.attachment_parts);
         let turn_session = room.as_ref().map_or(session_id, |room| room.session_id.as_str()).to_owned();
         let submit = room.as_ref().map(|room| {
-            Arc::new(RoomSubmit { host: room.host.clone(), room_session: session_id.to_owned(), agent_id: room.agent_id.clone(), from_session: caller.to_owned(), from_agent: agent_id.to_owned() })
+            Arc::new(RoomSubmit {
+                host: room.host.clone(),
+                room_session: session_id.to_owned(),
+                agent_id: room.agent_id.clone(),
+                from_session: caller.to_owned(),
+                from_agent: agent_id.to_owned(),
+            })
         });
         let to = room.as_ref().map(|room| room.agent_id.as_str());
         let mut origin = self.report_origin(&turn_session, agent_id, caller).await;
@@ -488,7 +505,10 @@ impl SessionSend {
     /// through the room host; refused when no host is attached or no member resolves.
     async fn room_addressee(&self, session_id: &str, args: &Value) -> Result<RoomAddressee, String> {
         let host = self.rooms.active_ask().map_err(|error| format!("session: cannot send to {session_id}: {error}"))?;
-        let member = host.member(session_id, args.get("to").unwrap_or(&Value::Null), args.get("prompt").unwrap_or(&Value::Null)).await.map_err(|error| format!("session: {error}"))?;
+        let member = host
+            .member(session_id, args.get("to").unwrap_or(&Value::Null), args.get("prompt").unwrap_or(&Value::Null))
+            .await
+            .map_err(|error| format!("session: {error}"))?;
         let Addressee { agent_id, session_id, text, .. } = member;
         Ok(RoomAddressee { host, agent_id, session_id, text })
     }

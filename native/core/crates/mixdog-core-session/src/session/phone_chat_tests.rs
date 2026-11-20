@@ -24,11 +24,11 @@ use super::handle::SessionHandle;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::awaiting_for;
-use crate::eventually_on;
 use super::tests::caught_up;
 use super::tests::idle;
 use super::tests::rows;
 use super::tests::start_thread;
+use crate::eventually_on;
 
 fn from(connection: u64) -> CallContext {
     CallContext::connection(ConnectionId(connection), mixdog_protocol::Origin::Local, CancellationToken::new())
@@ -263,26 +263,6 @@ async fn a_refused_first_prompt_leaves_no_thread() {
     assert_eq!(directory.loaded_ids(), Vec::<ThreadId>::new());
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 /// A running thread whose rows are the stored records' own (`RecordTranscript`), as the daemon shows them: the rig's text-only
 /// transcript would drop the body's `meta.transcript` (the device, the display text) that the replay compares.
 async fn running_on_records(rig: &Rig) -> (SessionDirectory, Arc<SessionHandle>) {
@@ -310,7 +290,11 @@ async fn a_withheld_wait_fails_at_the_real_deadline_with_the_paused_clock_untouc
     });
     let wake = tokio::sync::Notify::new();
     let started = tokio::time::Instant::now();
-    let failed = tokio::spawn(async move { awaiting_for(std::time::Duration::from_millis(200), || "the withheld thing".to_owned(), eventually_on!(&[&wake], || None::<()>)).await }).await.expect_err("the wait fails");
+    let failed = tokio::spawn(async move {
+        awaiting_for(std::time::Duration::from_millis(200), || "the withheld thing".to_owned(), eventually_on!(&[&wake], || None::<()>)).await
+    })
+    .await
+    .expect_err("the wait fails");
     let message = failed.into_panic().downcast::<String>().map(|text| *text).unwrap_or_default();
     assert!(message.contains("waiting for the withheld thing"), "{message}");
     assert_eq!(tokio::time::Instant::now(), started, "the paused clock did not move");
@@ -467,7 +451,10 @@ async fn a_receipt_outlives_the_memory_and_the_window() {
     eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && settled(&handle)).then_some(())).await;
     let view = handle.cell.view.load_full();
     assert!(
-        !view.items.iter().any(|item| matches!(item.as_ref(), mixdog_protocol::ThreadItem::UserMessage { display_text, .. } if display_text == "the old prompt")),
+        !view
+            .items
+            .iter()
+            .any(|item| matches!(item.as_ref(), mixdog_protocol::ThreadItem::UserMessage { display_text, .. } if display_text == "the old prompt")),
         "the old prompt's row is out of the window"
     );
     directory.shutdown().await;
@@ -494,5 +481,3 @@ async fn a_queued_prompts_receipt_survives_a_restart() {
     assert_eq!(enqueued(&rig, &id, "subQ"), 1, "queued once");
     reloaded.shutdown().await;
 }
-
-

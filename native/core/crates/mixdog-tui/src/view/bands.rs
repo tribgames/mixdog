@@ -3,9 +3,9 @@
 
 use mixdog_term::frame::Rect;
 use mixdog_term::paint::{Painter, TextWrap};
+use mixdog_tui_style::Key;
 use mixdog_tui_widgets::hint_overprint::prompt_status_key;
 use mixdog_tui_widgets::themed;
-use mixdog_tui_style::Key;
 
 use super::format::center_line;
 

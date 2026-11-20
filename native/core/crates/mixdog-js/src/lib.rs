@@ -3,14 +3,14 @@
 //! error text. Ported from V8 / the Node product; each piece is tested against Node's output.
 
 mod array_sort;
+mod date_string;
+mod default_locale;
 pub mod device_paths;
 mod json;
 mod json_error;
 mod json_parse;
 mod json_well_formed;
 mod locale_compare;
-mod date_string;
-mod default_locale;
 pub mod math;
 pub mod nodepath;
 mod number;
@@ -22,6 +22,8 @@ pub mod token_estimate;
 pub mod uv_error;
 
 pub use array_sort::js_sort_by;
+pub use date_string::date_to_string;
+pub use default_locale::{default_locale_id, default_locale_tag};
 pub use json::ordered_keys as js_object_keys;
 pub use json::quote as json_quote;
 pub use json::quoted_cut_utf16_len as json_cut_utf16_len;
@@ -42,25 +44,23 @@ pub use json_well_formed::lone_surrogates as json_lone_surrogates;
 pub use json_well_formed::well_formed as json_well_formed;
 pub use json_well_formed::well_formed_str as json_well_formed_str;
 pub use json_well_formed::without_lone_surrogates as json_without_lone_surrogates;
-pub use default_locale::{default_locale_id, default_locale_tag};
-pub use date_string::date_to_string;
-pub use locale_compare::locale_compare_utf16;
-pub use regex::regex_is_match_utf16;
 pub use locale_compare::locale_compare;
 pub use locale_compare::locale_compare_en;
 pub use locale_compare::locale_compare_en_base;
 pub use locale_compare::locale_compare_en_numeric;
+pub use locale_compare::locale_compare_utf16;
 pub use number::json_number;
 pub use number::number_to_string;
-pub use number::{number_to_radix, parse_int_radix};
 pub use number::string_to_number;
 pub use number::to_number;
 pub use number::to_number_of;
 pub use number::value_to_string;
+pub use number::{number_to_radix, parse_int_radix};
 pub use regex::Caps;
 pub use regex::JsRegex;
 #[cfg(feature = "prefilter-probe")]
 pub use regex::prefilter_probe;
+pub use regex::regex_is_match_utf16;
 pub use regex_error::js_regex_error;
 pub use text::Utf16Cut;
 pub use text::cut_utf16;

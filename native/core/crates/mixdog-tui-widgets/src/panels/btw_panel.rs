@@ -278,7 +278,15 @@ pub fn paint_btw_panel(painter: &mut Painter, x: i32, y: i32, props: &BtwPanelPr
     used += body_rows.min(usize::from(u16::MAX)) as u16;
     let total = props.total();
     let position = if scrollable { format!("PgUp/PgDn scroll ({}-{}/{total}) \u{b7} ", top + 1, total.min(top + body_rows)) } else { String::new() };
-    used += put(painter, cx, y + i32::from(used), &format!("{position}Esc to close \u{b7} not saved to the conversation"), themed(Key::Inactive), inner, TextWrap::Wrap);
+    used += put(
+        painter,
+        cx,
+        y + i32::from(used),
+        &format!("{position}Esc to close \u{b7} not saved to the conversation"),
+        themed(Key::Inactive),
+        inner,
+        TextWrap::Wrap,
+    );
     paint_frame(painter, x, y, columns, used + 1);
     used + 1
 }

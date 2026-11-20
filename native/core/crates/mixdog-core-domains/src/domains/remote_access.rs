@@ -15,10 +15,10 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::params::{
-    RemoteAccessActivateParams, RemoteAccessDeliverScreenControllerKeyParams, RemoteAccessRegisterNativePushParams, RemoteAccessRemoveNativePushParams,
-    RemoteAccessRegisterPushSubscriptionParams, RemoteAccessRemovePushSubscriptionParams,
-    RemoteAccessPairCodeParams, RemoteAccessResolveClaimParams, RemoteAccessRevokeClientParams, RemoteAccessSetClientAliasParams,
-    RemoteAccessSetEnabledParams, RemoteAccessSetNameParams, RemoteAccessSettleOwedControllerKeysParams,
+    RemoteAccessActivateParams, RemoteAccessDeliverScreenControllerKeyParams, RemoteAccessPairCodeParams, RemoteAccessRegisterNativePushParams,
+    RemoteAccessRegisterPushSubscriptionParams, RemoteAccessRemoveNativePushParams, RemoteAccessRemovePushSubscriptionParams, RemoteAccessResolveClaimParams,
+    RemoteAccessRevokeClientParams, RemoteAccessSetClientAliasParams, RemoteAccessSetEnabledParams, RemoteAccessSetNameParams,
+    RemoteAccessSettleOwedControllerKeysParams,
 };
 use mixdog_core_api::call::Caller;
 use mixdog_core_api::ids::{ConnectionId, Method};
@@ -65,26 +65,30 @@ fn arguments(input: &Value) -> &[Value] {
 /// A notification roster, not a provisioning descriptor. Allow-list scalar fields even inside each row.
 fn notification_roster(state: &RemoteSectionValue) -> Value {
     let mut ids = std::collections::HashSet::new();
-    let clients: Vec<_> = state.clients.iter().filter_map(|client| {
-        let text = |field: &str| client.get(field).and_then(Value::as_str);
-        let id = text("id").filter(|id| !id.is_empty())?;
-        if client.get("pendingRemoval").and_then(Value::as_bool) == Some(true) {
-            return None;
-        }
-        ids.insert(id);
-        let mut summary = json!({
-            "id": id,
-            "name": text("name").unwrap_or_default(),
-            "platform": text("platform").unwrap_or_default(),
-            "browser": text("browser").unwrap_or_default(),
-            "createdAt": client.get("createdAt").and_then(Value::as_i64),
-            "online": client.get("online").and_then(Value::as_bool).unwrap_or_default(),
-        });
-        if let Some(alias) = text("alias").filter(|alias| !alias.is_empty()) {
-            summary["alias"] = json!(alias);
-        }
-        Some(summary)
-    }).collect();
+    let clients: Vec<_> = state
+        .clients
+        .iter()
+        .filter_map(|client| {
+            let text = |field: &str| client.get(field).and_then(Value::as_str);
+            let id = text("id").filter(|id| !id.is_empty())?;
+            if client.get("pendingRemoval").and_then(Value::as_bool) == Some(true) {
+                return None;
+            }
+            ids.insert(id);
+            let mut summary = json!({
+                "id": id,
+                "name": text("name").unwrap_or_default(),
+                "platform": text("platform").unwrap_or_default(),
+                "browser": text("browser").unwrap_or_default(),
+                "createdAt": client.get("createdAt").and_then(Value::as_i64),
+                "online": client.get("online").and_then(Value::as_bool).unwrap_or_default(),
+            });
+            if let Some(alias) = text("alias").filter(|alias| !alias.is_empty()) {
+                summary["alias"] = json!(alias);
+            }
+            Some(summary)
+        })
+        .collect();
     let push_registered: Vec<_> = state.push_registered.iter().filter(|id| ids.contains(id.as_str())).collect();
     json!({
         "settings": { "name": state.settings.get("name").and_then(Value::as_str).unwrap_or_default() },
@@ -261,29 +265,36 @@ mod tests {
             "alias": "Pocket", "createdAt": 100, "lastSeenAt": 200, "online": true,
             "extra": { "token": "test-private-field" }
         });
-        let (service, _) = rig_with_section(dir.path(), RemoteSectionValue {
-            settings: json!({ "name": "Desk", "defaultName": "Test host", "enabled": true }),
-            info: json!({ "relay": { "token": "test-pairing-token" } }),
-            claims: vec![json!({ "claimId": "test-claim" })],
-            pair_code: Some(mixdog_protocol::RemotePairCode { code: "012345".into(), expires_at: 500 }),
-            clients: vec![active.clone(), json!({ "id": "revoking", "pendingRemoval": true })],
-            push_registered: vec!["phone".into(), "revoking".into(), "stale".into()],
-            ..RemoteSectionValue::default()
-        }).await;
+        let (service, _) = rig_with_section(
+            dir.path(),
+            RemoteSectionValue {
+                settings: json!({ "name": "Desk", "defaultName": "Test host", "enabled": true }),
+                info: json!({ "relay": { "token": "test-pairing-token" } }),
+                claims: vec![json!({ "claimId": "test-claim" })],
+                pair_code: Some(mixdog_protocol::RemotePairCode { code: "012345".into(), expires_at: 500 }),
+                clients: vec![active.clone(), json!({ "id": "revoking", "pendingRemoval": true })],
+                push_registered: vec!["phone".into(), "revoking".into(), "stale".into()],
+                ..RemoteSectionValue::default()
+            },
+        )
+        .await;
 
         for origin in [Origin::Local, Origin::Ssh, Origin::Relay] {
             let mut req = request("remoteAccess/state", json!({}), None);
             req.ctx = mixdog_core_api::CallContext::connection(ConnectionId(1), origin, Default::default());
             let state = value(&service, req).await.unwrap();
             if origin == Origin::Relay {
-                assert_eq!(state, json!({
-                    "settings": { "name": "Desk" },
-                    "clients": [{
-                        "id": "phone", "name": "Phone", "platform": "Android", "browser": "Mixdog App",
-                        "alias": "Pocket", "createdAt": 100, "online": true
-                    }],
-                    "pushRegistered": ["phone"],
-                }));
+                assert_eq!(
+                    state,
+                    json!({
+                        "settings": { "name": "Desk" },
+                        "clients": [{
+                            "id": "phone", "name": "Phone", "platform": "Android", "browser": "Mixdog App",
+                            "alias": "Pocket", "createdAt": 100, "online": true
+                        }],
+                        "pushRegistered": ["phone"],
+                    })
+                );
             } else {
                 assert_eq!(state["info"]["relay"]["token"], "test-pairing-token");
                 assert_eq!(state["claims"][0]["claimId"], "test-claim");
@@ -306,12 +317,9 @@ mod tests {
         .await
         .unwrap_err();
         assert!(sentence(&register).contains(unavailable), "{register:?}");
-        let remove = value(
-            &service,
-            request("remoteAccess/removePushSubscription", with_op(json!({ "endpoint": "https://push.example/x" }), 4), Some(4)),
-        )
-        .await
-        .unwrap_err();
+        let remove = value(&service, request("remoteAccess/removePushSubscription", with_op(json!({ "endpoint": "https://push.example/x" }), 4), Some(4)))
+            .await
+            .unwrap_err();
         assert!(sentence(&remove).contains(unavailable), "{remove:?}");
     }
 
@@ -320,24 +328,16 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (service, _) = rig(dir.path()).await;
         // The caller is no phone: there is no credential to register a token for.
-        let native = value(&service, request("remoteAccess/registerNativePush", with_op(json!({ "input": {} }), 5), Some(5)))
-            .await
-            .unwrap_err();
+        let native = value(&service, request("remoteAccess/registerNativePush", with_op(json!({ "input": {} }), 5), Some(5))).await.unwrap_err();
         assert!(sentence(&native).contains("Native push needs a paired client."), "{native:?}");
         // A claim nobody is asking about is not resolved.
         let claim = value(&service, request("remoteAccess/resolveClaim", with_op(json!({ "claimId": "nope", "approve": true }), 6), Some(6))).await.unwrap();
         assert_eq!(claim, json!(false));
-        let owed = value(
-            &service,
-            request("remoteAccess/settleOwedControllerKeys", with_op(json!({ "input": [["k"], "x"] }), 7), Some(7)),
-        )
-        .await
-        .unwrap_err();
+        let owed = value(&service, request("remoteAccess/settleOwedControllerKeys", with_op(json!({ "input": [["k"], "x"] }), 7), Some(7))).await.unwrap_err();
         assert!(sentence(&owed).contains("The settled marker is not a count."), "{owed:?}");
         assert!(matches!(service.call(request("remoteAccess/nope", json!({}), None)).await, Err(CoreError::InvalidParams { .. })));
     }
 }
-
 
 impl RemoteAccessService {
     pub fn new(runtime: Arc<RemoteRuntime>, registry: Arc<DeviceRegistry>, ops: OpScopes) -> Self {
@@ -368,24 +368,14 @@ impl RemoteAccessService {
     async fn set_enabled(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let params: RemoteAccessSetEnabledParams = decode(req)?;
         self.ops
-            .run(
-                req,
-                None,
-                || async { view(self.runtime.set_enabled(params.enabled).await.map_err(refused)?) },
-                || async { view(self.runtime.settings()) },
-            )
+            .run(req, None, || async { view(self.runtime.set_enabled(params.enabled).await.map_err(refused)?) }, || async { view(self.runtime.settings()) })
             .await
     }
 
     async fn set_name(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
         let params: RemoteAccessSetNameParams = decode(req)?;
         self.ops
-            .run(
-                req,
-                None,
-                || async { view(self.runtime.set_name(&params.name).await.map_err(refused)?) },
-                || async { view(self.runtime.settings()) },
-            )
+            .run(req, None, || async { view(self.runtime.set_name(&params.name).await.map_err(refused)?) }, || async { view(self.runtime.settings()) })
             .await
     }
 
@@ -474,19 +464,10 @@ impl RemoteAccessService {
         // closes (`ctx.cancel` is cancelled before the runtime's `ConnectionOwner` hook runs). A caller with no
         // connection owns nothing and is refused by the runtime.
         let owner = match &req.ctx.caller {
-            mixdog_core_api::call::Caller::Connection(id) => {
-                Some(mixdog_remote::pair_code::PairOwner { id: id.0, alive: req.ctx.cancel.clone() })
-            }
+            mixdog_core_api::call::Caller::Connection(id) => Some(mixdog_remote::pair_code::PairOwner { id: id.0, alive: req.ctx.cancel.clone() }),
             mixdog_core_api::call::Caller::Internal(_) => None,
         };
-        self.ops
-            .run(
-                req,
-                None,
-                || async { self.runtime.pair_code(&params.action, owner.clone()).await.map_err(refused) },
-                || async { Ok(Value::Null) },
-            )
-            .await
+        self.ops.run(req, None, || async { self.runtime.pair_code(&params.action, owner.clone()).await.map_err(refused) }, || async { Ok(Value::Null) }).await
     }
 
     async fn revoke_client(&self, req: &CoreRequest) -> Result<Reply, CoreError> {

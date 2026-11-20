@@ -11,54 +11,54 @@
 
 mod agent_settings;
 mod agents_status;
-mod definitions;
-mod mcp;
-mod requests;
 mod config_status;
+mod definitions;
 mod domain_settings;
-mod media_default;
 mod features_status;
+mod mcp;
+mod media_default;
 mod models;
+mod requests;
 mod settings;
 mod status;
 mod summary_status;
-mod workflow_status;
 #[cfg(test)]
 #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup")]
 mod tests;
+mod workflow_status;
 
+pub use agent_settings::ACTIONS as AGENT_SETTINGS_ACTIONS;
 pub use agent_settings::AgentSettingsSetup;
 pub(crate) use agent_settings::Approval;
-pub use agent_settings::ACTIONS as AGENT_SETTINGS_ACTIONS;
-pub use agent_settings::GateWidenCards;
 pub use agent_settings::CardAnswer;
 pub use agent_settings::CardOutcome;
+pub use agent_settings::GateWidenCards;
 pub use agent_settings::ProjectSwitches;
 pub use agent_settings::WidenCard;
 pub use agent_settings::WidenCards;
 pub use agents_status::AgentsStatus;
 pub use agents_status::RoutePositions;
+pub use config_status::ConfigStatus;
 pub use definitions::DefinitionSetup;
+pub use domain_settings::DomainCalls;
+pub use domain_settings::DomainSettings;
+pub use features_status::FeatureActivity;
+pub use features_status::FeatureStatus;
 pub use mcp::McpSetup;
+pub use media_default::MediaDefaultSetup;
+pub use media_default::ProviderAccounts;
 pub use requests::SetupRequests;
 pub use requests::SetupRequestsService;
 pub use requests::SetupUiSurface;
-pub use config_status::ConfigStatus;
-pub use domain_settings::DomainCalls;
-pub use features_status::FeatureActivity;
-pub use media_default::MediaDefaultSetup;
-pub use media_default::ProviderAccounts;
-pub use features_status::FeatureStatus;
-pub use domain_settings::DomainSettings;
 pub use settings::QuotaAutoResume;
+pub use settings::SettingsSetup;
+pub use settings::UpdateSettings;
 pub use status::StatusReader;
 pub use summary_status::LiveRoute;
 pub use summary_status::ModelStatus;
 pub use summary_status::SummaryStatus;
 pub use workflow_status::WorkflowFacts;
 pub use workflow_status::WorkflowStatus;
-pub use settings::SettingsSetup;
-pub use settings::UpdateSettings;
 
 use mixdog_core_ports::ports::setup_actions::{CallerScope, SetupActions, SetupCall, SetupCallers};
 use std::collections::HashMap;
@@ -107,26 +107,35 @@ pub trait SetupVoice: Send + Sync {
 }
 
 /// `SETUP_BUILTIN_TOGGLE_FEATURES` and `SETUP_INSTALLABLE_FEATURES`.
-const TOGGLE_FEATURES: [&str; 10] = [
-    "git", "office", "tidy", "localProvider", "autoEffort", "browser", "computer", "voice",
-    "visualize", "media",
-];
-const INSTALLABLE_FEATURES: [&str; 9] = [
-    "git", "memory", "office", "tidy", "localProvider", "autoEffort", "browser", "computer", "voice",
-];
+const TOGGLE_FEATURES: [&str; 10] = ["git", "office", "tidy", "localProvider", "autoEffort", "browser", "computer", "voice", "visualize", "media"];
+const INSTALLABLE_FEATURES: [&str; 9] = ["git", "memory", "office", "tidy", "localProvider", "autoEffort", "browser", "computer", "voice"];
 const DESKTOP_HOSTED: [&str; 2] = ["browser", "computer"];
 /// A request no window takes keeps the runtime-only install.
 const DESKTOP_PREPARED: [&str; 2] = ["git", "office"];
 
 const READ_ONLY: [&str; 11] = [
-    "status", "open", "list_models", "get_mcp_server", "connect_connector", "read_definition",
-    "search_local_models", "inspect_hf_model", "local_model_details", "read_agent_settings",
+    "status",
+    "open",
+    "list_models",
+    "get_mcp_server",
+    "connect_connector",
+    "read_definition",
+    "search_local_models",
+    "inspect_hf_model",
+    "local_model_details",
+    "read_agent_settings",
     "read_project_connectors",
 ];
 /// Actions that start or steer work rather than saving a setting.
 const BACKGROUND: [&str; 9] = [
-    "start_local_installation", "maintain_local_model", "cancel_local_installation", "reconnect_mcp",
-    "run_automation", "reset_route_fallback", "continue_in_model", "schedule_quota_resume",
+    "start_local_installation",
+    "maintain_local_model",
+    "cancel_local_installation",
+    "reconnect_mcp",
+    "run_automation",
+    "reset_route_fallback",
+    "continue_in_model",
+    "schedule_quota_resume",
     "cancel_quota_resume",
 ];
 /// `AGENT_DEFINITION_ACTIONS`.
@@ -134,16 +143,11 @@ const AGENT_DEFINITION: [&str; 4] = ["create_definition", "save_definition", "de
 /// `OWN_AGENT_ACTIONS`: actions on one agent's own settings.
 const OWN_AGENT: [&str; 4] = ["set_agent_route", "set_agent_permission", "set_agent_connector", "set_agent_connector_tool"];
 /// What an unattended run may still change.
-const UNATTENDED_OWN: [&str; 5] = [
-    "save_automation", "set_automation_enabled", "delete_automation", "run_automation",
-    "set_agent_route",
-];
+const UNATTENDED_OWN: [&str; 5] = ["save_automation", "set_automation_enabled", "delete_automation", "run_automation", "set_agent_route"];
 
 /// SETUP_DESKTOP_ACTIONS: the desktop window runs these; the executor only forwards the request.
-const DESKTOP_ROUTED: [&str; 6] = [
-    "set_desktop_settings", "set_appearance", "save_project", "remove_project", "revoke_linked_device",
-    "set_activity_rail_pins",
-];
+const DESKTOP_ROUTED: [&str; 6] =
+    ["set_desktop_settings", "set_appearance", "save_project", "remove_project", "revoke_linked_device", "set_activity_rail_pins"];
 
 /// `SETUP_OPEN_TARGETS` with `OPEN_TARGET_HINTS` :
 /// the surfaces `open` can take the user to, and what it tells the model when no UI is attached.
@@ -172,11 +176,24 @@ const OPEN_TARGETS: [(&str, &str); 21] = [
 ];
 
 const NATIVE: [&str; 19] = [
-    "open", "status",
-    "set_memory_enabled", "set_recap_enabled", "set_web_search_enabled", "set_instruction_files",
-    "set_auto_effort_base", "set_builtin_enabled", "install_builtin", "set_worktree_settings",
-    "set_bot_order", "set_cache_warming_enabled", "set_output_style",
-    "set_desktop_settings", "set_appearance", "save_project", "remove_project", "revoke_linked_device",
+    "open",
+    "status",
+    "set_memory_enabled",
+    "set_recap_enabled",
+    "set_web_search_enabled",
+    "set_instruction_files",
+    "set_auto_effort_base",
+    "set_builtin_enabled",
+    "install_builtin",
+    "set_worktree_settings",
+    "set_bot_order",
+    "set_cache_warming_enabled",
+    "set_output_style",
+    "set_desktop_settings",
+    "set_appearance",
+    "save_project",
+    "remove_project",
+    "revoke_linked_device",
     "set_activity_rail_pins",
 ];
 
@@ -184,9 +201,15 @@ const NATIVE: [&str; 19] = [
 fn applies_to(action: &str) -> &'static str {
     const NEXT_TURN: &str = "every conversation, this one included, from its next turn";
     match action {
-        "set_route" => "new sessions (an established conversation keeps its model); a changed fallback chain reaches running sessions on that route from their next fallback hop ([] stops further hops at once; the turn ends with the provider error): Lead conversations and agents that inherit Main",
-        "set_agent_route" => "the bot's chats from their next turn (a running turn finishes on the old model); a changed fallback chain reaches running sessions on that route from their next fallback hop ([] stops further hops at once; the turn ends with the provider error): its chats and sub-agents; an agent switched on or off reaches open conversations from their next turn as an agent list reminder",
-        "reset_route_fallback" => "each listed session from its next turn (a running turn finishes on its fallback model): it returns to its primary and its chain starts over",
+        "set_route" => {
+            "new sessions (an established conversation keeps its model); a changed fallback chain reaches running sessions on that route from their next fallback hop ([] stops further hops at once; the turn ends with the provider error): Lead conversations and agents that inherit Main"
+        }
+        "set_agent_route" => {
+            "the bot's chats from their next turn (a running turn finishes on the old model); a changed fallback chain reaches running sessions on that route from their next fallback hop ([] stops further hops at once; the turn ends with the provider error): its chats and sub-agents; an agent switched on or off reaches open conversations from their next turn as an agent list reminder"
+        }
+        "reset_route_fallback" => {
+            "each listed session from its next turn (a running turn finishes on its fallback model): it returns to its primary and its chain starts over"
+        }
         "continue_in_model" => "that session now; its stopped turn is not resent",
         "schedule_quota_resume" => "that session's stopped turn, resent at the provider's reset time",
         "cancel_quota_resume" => "that session: its pending resume is dropped; the turn stays stopped",
@@ -197,7 +220,9 @@ fn applies_to(action: &str) -> &'static str {
         "set_project_connector" => "the next connector tool call of sessions in that Project",
         "restore_definition" => "now: the bot, its chat and its routines (as they were) return",
         "set_bot_order" => "the Bots page and the Sessions bot section on every device",
-        "set_orchestration_mode" => "new sessions and an empty current one (the default mode); a conversation keeps its own mode until it is switched with the composer's mode selector",
+        "set_orchestration_mode" => {
+            "new sessions and an empty current one (the default mode); a conversation keeps its own mode until it is switched with the composer's mode selector"
+        }
         "set_recap_enabled" => "background Memory cycles; no restart required",
         "set_auto_update" => "subsequent automatic update checks",
         "set_ai_session_titles" => "titles generated from now on; existing titles are unchanged",
@@ -205,11 +230,20 @@ fn applies_to(action: &str) -> &'static str {
         "set_model_preferences" => "the /model picker and model management lists",
         "set_heartbeat_enabled" => "Mixy's next heartbeat check; no restart required",
         "set_heartbeat_interval" => "Mixy's heartbeat from the next tick: the next check is due the new interval after the last one; no restart required",
-        "set_reactions_enabled" => "bots' chats, this conversation included, from their next turn; while off a reaction is refused at once; reactions already left stay visible",
-        "set_profile" | "set_instruction_files" | "set_memory_enabled" | "set_web_search_enabled"
-        | "set_builtin_enabled" | "install_builtin" | "set_output_style" => NEXT_TURN,
+        "set_reactions_enabled" => {
+            "bots' chats, this conversation included, from their next turn; while off a reaction is refused at once; reactions already left stay visible"
+        }
+        "set_profile"
+        | "set_instruction_files"
+        | "set_memory_enabled"
+        | "set_web_search_enabled"
+        | "set_builtin_enabled"
+        | "install_builtin"
+        | "set_output_style" => NEXT_TURN,
         "set_worktree_settings" => "new tasks and worktrees created afterwards; existing worktrees are unchanged",
-        "set_network_proxy" => "the next request of every provider path; pooled connections opened under the old route are closed, and a request already in flight finishes on its connection",
+        "set_network_proxy" => {
+            "the next request of every provider path; pooled connections opened under the old route are closed, and a request already in flight finishes on its connection"
+        }
         "set_system_shell" => "subsequent shell calls",
         "save_automation" => "the automation worker; scheduled runs follow the saved timing",
         "delete_automation" | "set_automation_enabled" => "future automation runs",
@@ -230,28 +264,18 @@ fn invalid(field: &str, reason: impl Into<String>) -> PortError {
 
 fn require_enum<'a>(args: &'a Value, field: &str, allowed: &[&str]) -> Result<&'a str, PortError> {
     let value = args.get(field).and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or_default();
-    if allowed.contains(&value) {
-        Ok(value)
-    } else {
-        Err(invalid(field, format!("{field} must be one of {}", allowed.join(", "))))
-    }
+    if allowed.contains(&value) { Ok(value) } else { Err(invalid(field, format!("{field} must be one of {}", allowed.join(", ")))) }
 }
 
 fn require_boolean(args: &Value, field: &str) -> Result<bool, PortError> {
-    args.get(field)
-        .and_then(Value::as_bool)
-        .ok_or_else(|| invalid(field, format!("{field} (boolean) is required")))
+    args.get(field).and_then(Value::as_bool).ok_or_else(|| invalid(field, format!("{field} (boolean) is required")))
 }
 
 fn from_modules(error: ToolModulesError) -> PortError {
     match error {
         ToolModulesError::InvalidArgument(message) => invalid("args", message),
-        ToolModulesError::Failed(message) => {
-            PortError::Failed { capability: "setup".into(), message }
-        }
-        ToolModulesError::Config(error) => {
-            PortError::Failed { capability: "config".into(), message: error.to_string() }
-        }
+        ToolModulesError::Failed(message) => PortError::Failed { capability: "setup".into(), message },
+        ToolModulesError::Config(error) => PortError::Failed { capability: "config".into(), message: error.to_string() },
     }
 }
 
@@ -270,7 +294,8 @@ pub struct SetupService {
 
 /// The `appliesTo` of a saved `lead` permission row: the row is Mixy's own policy (the gate reads it for her sessions and
 /// unattended runs and never for a coding Lead), so the receipt says where it is enforced and where it is not.
-const LEAD_PERMISSION_APPLIES_TO: &str = "Mixy's next action of the kind, in her sessions and her unattended runs; coding Lead sessions have no outbound rule here (they pass unless a hook asks)";
+const LEAD_PERMISSION_APPLIES_TO: &str =
+    "Mixy's next action of the kind, in her sessions and her unattended runs; coding Lead sessions have no outbound rule here (they pass unless a hook asks)";
 
 fn receipt(action: &str, result: Value) -> String {
     let mut out = Map::new();
@@ -321,20 +346,12 @@ impl ToolService for SetupService {
         } else if let Some(owner) = self.owners.get(action) {
             owner.run(&setup).await?
         } else {
-            return Err(PortError::Unavailable {
-                capability: format!("setup.{action}"),
-                message: format!("setup {action} has no owner registered"),
-            });
+            return Err(PortError::Unavailable { capability: format!("setup.{action}"), message: format!("setup {action} has no owner registered") });
         };
-        let text = if READ_ONLY.contains(&action) {
-            serde_json::to_string(&result).expect("results serialize")
-        } else {
-            receipt(action, result)
-        };
+        let text = if READ_ONLY.contains(&action) { serde_json::to_string(&result).expect("results serialize") } else { receipt(action, result) };
         Ok(vec![ToolPart::Text(text)])
     }
 }
-
 
 impl SetupService {
     /// Registers the `status` domains a reader answers (the state is its owner's).
@@ -425,9 +442,7 @@ impl SetupService {
                 CallerScope::Agent { agent_id, .. } if OWN_AGENT.contains(&action) => {
                     let named = args.get("agent").map(mixdog_js::value_to_string).unwrap_or_default();
                     if mixdog_js::js_trim(&named) != agent_id {
-                        return Err(PortError::Denied(format!(
-                            "This thread manages only its own agent's settings (setup {action})"
-                        )));
+                        return Err(PortError::Denied(format!("This thread manages only its own agent's settings (setup {action})")));
                     }
                 }
                 _ => {}
@@ -448,26 +463,13 @@ impl SetupService {
         let args = call.args;
         let modules = &self.tool_modules;
         match call.action {
-            "set_memory_enabled" => modules
-                .set_memory_tools_enabled(require_boolean(args, "enabled")?)
-                .await
-                .map_err(from_modules),
-            "set_recap_enabled" => modules
-                .set_recap_enabled(require_boolean(args, "enabled")?)
-                .await
-                .map_err(from_modules),
-            "set_web_search_enabled" => modules
-                .set_web_search_enabled(require_boolean(args, "enabled")?)
-                .await
-                .map_err(from_modules),
-            "set_instruction_files" => modules
-                .set_instruction_files(require_enum(args, "instructionFiles", &INSTRUCTION_FILES_MODES)?)
-                .await
-                .map_err(from_modules),
-            "set_auto_effort_base" => modules
-                .set_auto_effort_base(require_enum(args, "autoEffortBase", &AUTO_EFFORT_BASES)?)
-                .await
-                .map_err(from_modules),
+            "set_memory_enabled" => modules.set_memory_tools_enabled(require_boolean(args, "enabled")?).await.map_err(from_modules),
+            "set_recap_enabled" => modules.set_recap_enabled(require_boolean(args, "enabled")?).await.map_err(from_modules),
+            "set_web_search_enabled" => modules.set_web_search_enabled(require_boolean(args, "enabled")?).await.map_err(from_modules),
+            "set_instruction_files" => {
+                modules.set_instruction_files(require_enum(args, "instructionFiles", &INSTRUCTION_FILES_MODES)?).await.map_err(from_modules)
+            }
+            "set_auto_effort_base" => modules.set_auto_effort_base(require_enum(args, "autoEffortBase", &AUTO_EFFORT_BASES)?).await.map_err(from_modules),
             "set_builtin_enabled" => {
                 let name = require_enum(args, "name", &TOGGLE_FEATURES)?;
                 if DESKTOP_HOSTED.contains(&name) {
@@ -476,10 +478,7 @@ impl SetupService {
                 if name == "voice" {
                     return self.set_voice(require_boolean(args, "enabled")?).await;
                 }
-                modules
-                    .set_builtin_tool_enabled(name, require_boolean(args, "enabled")?)
-                    .await
-                    .map_err(from_modules)
+                modules.set_builtin_tool_enabled(name, require_boolean(args, "enabled")?).await.map_err(from_modules)
             }
             "install_builtin" => {
                 let name = require_enum(args, "name", &INSTALLABLE_FEATURES)?;
@@ -498,14 +497,10 @@ impl SetupService {
             }
             "set_worktree_settings" => {
                 let patch = args.get("worktree").cloned().unwrap_or(Value::Null);
-                mixdog_core_config::config::set_worktree_settings(&self.config, &patch)
-                    .await
-                    .map_err(|error| match error {
-                        mixdog_core_api::CoreError::InvalidParams { path, expected } => {
-                            invalid(&path, expected.to_string())
-                        }
-                        other => PortError::Failed { capability: "config".into(), message: format!("{other:?}") },
-                    })
+                mixdog_core_config::config::set_worktree_settings(&self.config, &patch).await.map_err(|error| match error {
+                    mixdog_core_api::CoreError::InvalidParams { path, expected } => invalid(&path, expected.to_string()),
+                    other => PortError::Failed { capability: "config".into(), message: format!("{other:?}") },
+                })
             }
             "set_bot_order" => {
                 let settings = self.settings()?;
@@ -514,17 +509,14 @@ impl SetupService {
             }
             "set_cache_warming_enabled" => {
                 let settings = self.settings()?;
-                let view = settings
-                    .set_cache_warming_enabled(args.get("enabled").unwrap_or(&Value::Null))
-                    .await
-                    .map_err(from_modules)?;
+                let view = settings.set_cache_warming_enabled(args.get("enabled").unwrap_or(&Value::Null)).await.map_err(from_modules)?;
                 Ok(serde_json::json!({ "promptCacheWarming": view["enabled"] }))
             }
             "set_output_style" => {
-                let styles = self.output_styles.as_ref().ok_or_else(|| PortError::Unavailable {
-                    capability: "config.outputStyle".into(),
-                    message: "the output styles are not wired".into(),
-                })?;
+                let styles = self
+                    .output_styles
+                    .as_ref()
+                    .ok_or_else(|| PortError::Unavailable { capability: "config.outputStyle".into(), message: "the output styles are not wired".into() })?;
                 let style = args.get("style").map(mixdog_js::value_to_string).map(|s| mixdog_js::js_trim(&s).to_owned()).unwrap_or_default();
                 if style.is_empty() {
                     return Err(invalid("style", "style is required"));
@@ -536,7 +528,11 @@ impl SetupService {
                 }))
             }
             "status" => {
-                let domain = args.get("domain").map(|v| mixdog_js::js_trim(&mixdog_js::value_to_string(v)).to_owned()).filter(|d| !d.is_empty()).unwrap_or_else(|| "summary".to_owned());
+                let domain = args
+                    .get("domain")
+                    .map(|v| mixdog_js::js_trim(&mixdog_js::value_to_string(v)).to_owned())
+                    .filter(|d| !d.is_empty())
+                    .unwrap_or_else(|| "summary".to_owned());
                 let Some(domain) = status::STATUS_DOMAINS.iter().copied().find(|name| *name == domain) else {
                     return Err(invalid("domain", format!("domain must be one of {}", status::STATUS_DOMAINS.join(", "))));
                 };
@@ -562,7 +558,8 @@ impl SetupService {
                     out.extend(fields);
                 }
                 Ok(Value::Object(out))
-            }            "open" => {
+            }
+            "open" => {
                 let target = args.get("target").map(|v| mixdog_js::js_trim(&mixdog_js::value_to_string(v)).to_owned()).unwrap_or_default();
                 let Some((command, hint)) = OPEN_TARGETS.iter().find(|(name, _)| *name == target) else {
                     let names: Vec<&str> = OPEN_TARGETS.iter().map(|(name, _)| *name).collect();
@@ -579,19 +576,16 @@ impl SetupService {
                     format!("No interactive UI is attached to this session. Tell the user where to go: {hint}")
                 };
                 Ok(serde_json::json!({ "opened": handled, "target": command, "note": note }))
-            }            action if DESKTOP_ROUTED.contains(&action) => self.hosted(call).await,
-            other => Err(PortError::Unavailable {
-                capability: format!("setup.{other}"),
-                message: format!("setup {other} is not served by the config actor"),
-            }),
+            }
+            action if DESKTOP_ROUTED.contains(&action) => self.hosted(call).await,
+            other => Err(PortError::Unavailable { capability: format!("setup.{other}"), message: format!("setup {other} is not served by the config actor") }),
         }
     }
 
     fn settings(&self) -> Result<&Settings, PortError> {
-        self.settings.as_ref().ok_or_else(|| PortError::Unavailable {
-            capability: "config.settings".into(),
-            message: "the scalar settings are not wired".into(),
-        })
+        self.settings
+            .as_ref()
+            .ok_or_else(|| PortError::Unavailable { capability: "config.settings".into(), message: "the scalar settings are not wired".into() })
     }
 
     /// Browser and computer run in the desktop window; nobody claiming is an error.
@@ -608,17 +602,9 @@ impl SetupService {
         let status = answer.get("status").cloned().unwrap_or(Value::Null);
         let is = |field: &str| status.get(field) == Some(&Value::Bool(true));
         if is("enabled") != enabled || (enabled && !is("installed")) {
-            let reason = answer
-                .get("error")
-                .and_then(Value::as_str)
-                .filter(|error| !error.is_empty())
-                .map(|error| format!(": {error}"))
-                .unwrap_or_default();
+            let reason = answer.get("error").and_then(Value::as_str).filter(|error| !error.is_empty()).map(|error| format!(": {error}")).unwrap_or_default();
             let state = if enabled { "installed and enabled" } else { "disabled" };
-            return Err(PortError::Failed {
-                capability: "setup".into(),
-                message: format!("Voice did not reach the requested {state} state{reason}"),
-            });
+            return Err(PortError::Failed { capability: "setup".into(), message: format!("Voice did not reach the requested {state} state{reason}") });
         }
         let mut voice = Map::new();
         voice.insert("enabled".into(), Value::Bool(is("enabled")));
@@ -628,5 +614,4 @@ impl SetupService {
         }
         Ok(serde_json::json!({ "voice": voice, "appliesTo": VOICE_APPLIES_TO }))
     }
-
 }

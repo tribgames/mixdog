@@ -68,7 +68,9 @@ fn redacted(messages: &[Value]) -> Vec<Value> {
 }
 
 fn is_fresh_id(reference: &str, session_id: &str) -> bool {
-    reference.strip_prefix(&format!("session:{session_id}:")).is_some_and(|hex| hex.len() == 24 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+    reference
+        .strip_prefix(&format!("session:{session_id}:"))
+        .is_some_and(|hex| hex.len() == 24 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
 }
 
 async fn open(pg: &TestPg) -> (SessionSearchDb, Db) {
@@ -89,9 +91,16 @@ async fn replacing_a_marked_value_rewrites_only_the_rows_that_hold_it_keeping_or
     assert_eq!(db.replace("s", &plain, &redacted(&plain), &redact).await.unwrap(), 1);
     let after = stored(&raw, "s").await;
     assert_eq!(contents(&after), ["Finish the sign-up.", "The code is [redacted].", "Thanks, done"]);
-    assert_eq!(after.iter().map(|r| (r.ordinal, r.role.as_str(), r.ts)).collect::<Vec<_>>(), [(0, "user", Some(10)), (1, "assistant", Some(20)), (2, "user", Some(30))]);
+    assert_eq!(
+        after.iter().map(|r| (r.ordinal, r.role.as_str(), r.ts)).collect::<Vec<_>>(),
+        [(0, "user", Some(10)), (1, "assistant", Some(20)), (2, "user", Some(30))]
+    );
     assert_eq!((&before[0].reference, &before[2].reference), (&after[0].reference, &after[2].reference), "an untouched row keeps its identity");
-    assert_eq!(after[1].reference, search_rows("s", &redacted(&plain))[1].source_ref, "a replaced row of the transcript has the identity of its redacted message");
+    assert_eq!(
+        after[1].reference,
+        search_rows("s", &redacted(&plain))[1].source_ref,
+        "a replaced row of the transcript has the identity of its redacted message"
+    );
     assert_eq!(contents(&stored(&raw, "other").await), [format!("Someone else's {SECRET}").as_str()], "another session is not touched");
 }
 

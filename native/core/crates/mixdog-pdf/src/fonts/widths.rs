@@ -24,10 +24,7 @@ pub type GlyphWidths = Option<&'static [(&'static str, u16)]>;
 
 /// `normalizeFontName(name)`: `,` and `_` become `-`, white space goes.
 pub fn normalize_font_name(name: &str) -> String {
-    name.chars()
-        .filter(|ch| !data::is_js_whitespace(*ch))
-        .map(|ch| if ch == ',' || ch == '_' { '-' } else { ch })
-        .collect()
+    name.chars().filter(|ch| !data::is_js_whitespace(*ch)).map(|ch| if ch == ',' || ch == '_' { '-' } else { ch }).collect()
 }
 
 /// `getStandardFontName(name)`.
@@ -38,8 +35,7 @@ pub fn get_standard_font_name(name: &str) -> Option<&'static str> {
 /// `isSerifFont(baseFontName)`: the name before the first `-` is a serif face or says "serif".
 pub fn is_serif_font(base_font_name: &str) -> bool {
     let without_style = base_font_name.split('-').next().unwrap_or("");
-    data::contains_name(&SERIF_FONTS, without_style)
-        || without_style.to_lowercase().contains("serif")
+    data::contains_name(&SERIF_FONTS, without_style) || without_style.to_lowercase().contains("serif")
 }
 
 /// What `getBaseFontMetrics` returns.
@@ -56,24 +52,12 @@ pub fn get_base_font_metrics(name: &str) -> BaseFontMetrics {
     let normalized = normalize_font_name(name);
     let font_name = data::lookup(&STD_FONT_MAP, &normalized).unwrap_or(&normalized);
     let metrics = data::metrics_of(font_name).unwrap_or_else(|| {
-        let fallback = if is_serif_font(name) {
-            "Times-Roman"
-        } else {
-            "Helvetica"
-        };
+        let fallback = if is_serif_font(name) { "Times-Roman" } else { "Helvetica" };
         data::metrics_of(fallback).expect("the Standard 14 table holds Times-Roman and Helvetica")
     });
     match metrics {
-        Metrics::Fixed(width) => BaseFontMetrics {
-            default_width: f64::from(width),
-            monospace: true,
-            widths: None,
-        },
-        Metrics::Glyphs(table) => BaseFontMetrics {
-            default_width: 0.0,
-            monospace: false,
-            widths: Some(table),
-        },
+        Metrics::Fixed(width) => BaseFontMetrics { default_width: f64::from(width), monospace: true, widths: None },
+        Metrics::Glyphs(table) => BaseFontMetrics { default_width: 0.0, monospace: false, widths: Some(table) },
     }
 }
 
@@ -84,21 +68,12 @@ fn glyph_width(widths: GlyphWidths, glyph_name: &str) -> Option<f64> {
 
 /// `buildCharCodeToWidth(widthsByGlyphName, properties)`: the width of each code 0 to 255 by the glyph the font's
 /// `/Differences` or its base encoding gives it.
-pub fn build_char_code_to_width(
-    widths_by_glyph_name: GlyphWidths,
-    properties: &Properties,
-) -> BTreeMap<i64, f64> {
+pub fn build_char_code_to_width(widths_by_glyph_name: GlyphWidths, properties: &Properties) -> BTreeMap<i64, f64> {
     let mut widths = BTreeMap::new();
     for char_code in 0..256_i64 {
-        let from_differences = properties
-            .differences
-            .get(char_code)
-            .and_then(|glyph| glyph_width(widths_by_glyph_name, glyph));
+        let from_differences = properties.differences.get(char_code).and_then(|glyph| glyph_width(widths_by_glyph_name, glyph));
         let width = from_differences.or_else(|| {
-            usize::try_from(char_code)
-                .ok()
-                .and_then(|code| properties.default_encoding.get(code))
-                .and_then(|glyph| glyph_width(widths_by_glyph_name, glyph))
+            usize::try_from(char_code).ok().and_then(|code| properties.default_encoding.get(code)).and_then(|glyph| glyph_width(widths_by_glyph_name, glyph))
         });
         if let Some(width) = width {
             widths.insert(char_code, width);
@@ -187,11 +162,7 @@ fn vertical_metrics(xref: &Xref, items: &[Obj], out: &mut BTreeMap<i64, [f64; 3]
         if let Obj::Array(values) = &code {
             let mut j = 0;
             while j < values.len() {
-                let triple = [
-                    fetch(xref, values.get(j))?,
-                    fetch(xref, values.get(j + 1))?,
-                    fetch(xref, values.get(j + 2))?,
-                ];
+                let triple = [fetch(xref, values.get(j))?, fetch(xref, values.get(j + 1))?, fetch(xref, values.get(j + 2))?];
                 if let Some(metric) = number_array(&triple, Some(3)) {
                     out.insert(start, [metric[0], metric[1], metric[2]]);
                 }
@@ -199,11 +170,7 @@ fn vertical_metrics(xref: &Xref, items: &[Obj], out: &mut BTreeMap<i64, [f64; 3]
                 j += 3;
             }
         } else if let Some(end) = integer_of(&code) {
-            let triple = [
-                fetch(xref, items.get(i + 1))?,
-                fetch(xref, items.get(i + 2))?,
-                fetch(xref, items.get(i + 3))?,
-            ];
+            let triple = [fetch(xref, items.get(i + 1))?, fetch(xref, items.get(i + 2))?, fetch(xref, items.get(i + 3))?];
             i += 3;
             if let Some(metric) = number_array(&triple, Some(3)) {
                 check_range(start, end)?;
@@ -221,12 +188,7 @@ fn vertical_metrics(xref: &Xref, items: &[Obj], out: &mut BTreeMap<i64, [f64; 3]
 
 /// `extractWidths(dict, descriptor, properties)`: fills `widths`, `default_width`, `vmetrics` and
 /// `default_vmetrics`, and sets or clears the fixed-pitch flag by whether every glyph has the same width.
-pub fn extract_widths(
-    xref: &Xref,
-    dict: &Dict,
-    descriptor: &Dict,
-    properties: &mut Properties,
-) -> Result<()> {
+pub fn extract_widths(xref: &Xref, dict: &Dict, descriptor: &Dict, properties: &mut Properties) -> Result<()> {
     let mut glyph_widths: BTreeMap<i64, f64> = BTreeMap::new();
     let mut default_width = 0.0;
     let mut glyph_vmetrics: BTreeMap<i64, [f64; 3]> = BTreeMap::new();
@@ -298,10 +260,7 @@ mod tests {
 
     #[test]
     fn font_names_are_normalised_like_pdfjs() {
-        assert_eq!(
-            normalize_font_name("Times New Roman,Bold"),
-            "TimesNewRoman-Bold"
-        );
+        assert_eq!(normalize_font_name("Times New Roman,Bold"), "TimesNewRoman-Bold");
         assert_eq!(normalize_font_name("Arial_Black"), "Arial-Black");
     }
 

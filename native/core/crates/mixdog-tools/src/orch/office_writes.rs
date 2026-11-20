@@ -20,7 +20,10 @@ pub enum ReviewSide {
     Bytes(Vec<u8>),
     /// The file changed but its bytes were not captured: the review shows an explicit omitted
     /// marker (never empty bytes) and offers no undo.
-    Omitted { size: u64, reason: Option<String> },
+    Omitted {
+        size: u64,
+        reason: Option<String>,
+    },
 }
 
 /// A file a tool call changed, for the thread's turn review.
@@ -60,10 +63,7 @@ fn side(side: WriteSide) -> ReviewSide {
 #[async_trait]
 impl OfficeWrites for TurnReviewWrites {
     async fn record(&self, thread: &ThreadId, call: &ToolCallId, writes: Vec<WriteReceipt>) {
-        let changes: Vec<ReviewChange> = writes
-            .into_iter()
-            .map(|w| ReviewChange { path: w.path, before: side(w.before), after: side(w.after) })
-            .collect();
+        let changes: Vec<ReviewChange> = writes.into_iter().map(|w| ReviewChange { path: w.path, before: side(w.before), after: side(w.after) }).collect();
         if !changes.is_empty() {
             self.recorder.record(thread, call, changes).await;
         }

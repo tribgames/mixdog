@@ -9,9 +9,8 @@ use serde_json::Value;
 const FLOW_FIELDS: [&str; 6] = ["before", "after", "x", "width", "color", "align"];
 
 /// The block types in the order the refusal names them (`Object.keys(BLOCK_FIELDS)`).
-pub const BLOCK_KINDS: [&str; 15] = [
-    "paragraph", "heading", "list", "table", "image", "pagebreak", "cover", "callout", "quote", "caption", "stats", "chart", "rule", "field", "fieldRow",
-];
+pub const BLOCK_KINDS: [&str; 15] =
+    ["paragraph", "heading", "list", "table", "image", "pagebreak", "cover", "callout", "quote", "caption", "stats", "chart", "rule", "field", "fieldRow"];
 
 type Definition = (Vec<&'static str>, Vec<&'static str>);
 
@@ -25,7 +24,17 @@ fn definition(kind: &str) -> Option<Definition> {
         "table" => (
             vec!["rows"],
             flow(&[
-                "headers", "columnWidths", "columnAlignments", "fontSize", "rowHeight", "headerFill", "headerColor", "zebraFill", "borderColor", "repeatHeader", "grid",
+                "headers",
+                "columnWidths",
+                "columnAlignments",
+                "fontSize",
+                "rowHeight",
+                "headerFill",
+                "headerColor",
+                "zebraFill",
+                "borderColor",
+                "repeatHeader",
+                "grid",
                 "totalRow",
             ]),
         ),
@@ -36,10 +45,7 @@ fn definition(kind: &str) -> Option<Definition> {
         "quote" => (vec!["text"], flow(&["attribution", "size", "lineHeight", "accent"])),
         "caption" => (vec!["text"], flow(&["size"])),
         "stats" => (vec!["items"], flow(&["size", "labelSize", "accent", "rule"])),
-        "chart" => (
-            vec!["categories", "values"],
-            flow(&["chartType", "title", "unit", "highlight", "forecast", "height", "size", "accent"]),
-        ),
+        "chart" => (vec!["categories", "values"], flow(&["chartType", "title", "unit", "highlight", "forecast", "height", "size", "accent"])),
         "rule" => (vec![], flow(&["thickness"])),
         "field" => (
             vec!["name"],
@@ -169,11 +175,7 @@ fn chart_shape_faults(block: &Value, at: &str) -> Vec<String> {
         faults.push(format!("PDF {at} (chart) values must be a non-empty array of numbers, zero or more."));
     } else if let (Some(Value::Array(categories)), Some(Value::Array(values))) = (categories, values) {
         if categories.len() != values.len() {
-            faults.push(format!(
-                "PDF {at} (chart) has {} categories and {} values; give one value per category.",
-                categories.len(),
-                values.len()
-            ));
+            faults.push(format!("PDF {at} (chart) has {} categories and {} values; give one value per category.", categories.len(), values.len()));
         }
     }
     if let Some(kind) = block.get("chartType") {
@@ -183,11 +185,7 @@ fn chart_shape_faults(block: &Value, at: &str) -> Vec<String> {
     }
     // A projection named wrong would be drawn as a counted figure without a word: every one must name a bar.
     if let (Some(_), Some(Value::Array(categories))) = (block.get("forecast"), categories) {
-        let unknown: Vec<String> = forecast_entries(block)
-            .into_iter()
-            .filter(|entry| forecast_index(categories, entry) < 0)
-            .map(json_stringify)
-            .collect();
+        let unknown: Vec<String> = forecast_entries(block).into_iter().filter(|entry| forecast_index(categories, entry) < 0).map(json_stringify).collect();
         if !unknown.is_empty() {
             faults.push(format!(
                 "PDF {at} (chart) forecast names {}, not a category or its index; name the projected bars as categories names them.",
@@ -318,10 +316,7 @@ mod tests {
     #[test]
     fn a_block_the_writer_cannot_read_is_refused_by_name() {
         assert_eq!(refused(json!([{ "kind": "table" }])), "PDF block 1 names its block with kind; the field is type: { type: 'table' }.");
-        assert_eq!(
-            refused(json!([{ "type": "pie" }])),
-            format!("PDF block 1 has unknown type \"pie\". Use one of: {}.", BLOCK_KINDS.join(", "))
-        );
+        assert_eq!(refused(json!([{ "type": "pie" }])), format!("PDF block 1 has unknown type \"pie\". Use one of: {}.", BLOCK_KINDS.join(", ")));
         assert_eq!(refused(json!([5])), format!("PDF block 1 must be an object with type: {}.", BLOCK_KINDS.join(", ")));
         assert_eq!(refused(json!([{ "type": "table" }])), "PDF block 1 (table) is missing: rows.");
     }
@@ -351,10 +346,7 @@ mod tests {
     #[test]
     fn a_projection_must_name_a_bar() {
         let message = refused(json!([{ "type": "chart", "categories": ["Q1", "Q2"], "values": [1, 2], "forecast": ["Q3", 1, 5] }]));
-        assert_eq!(
-            message,
-            "PDF block 1 (chart) forecast names \"Q3\", 5, not a category or its index; name the projected bars as categories names them."
-        );
+        assert_eq!(message, "PDF block 1 (chart) forecast names \"Q3\", 5, not a category or its index; name the projected bars as categories names them.");
         assert_eq!(forecast_index(&[json!("Q1"), json!("Q2")], &json!("Q2")), 1);
         assert_eq!(forecast_index(&[json!("Q1")], &json!(1.5)), -1);
     }

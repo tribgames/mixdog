@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
+)]
 //! File identity (volume + file index): the same through every hard link.
 //! One definition for claims, recovery journals and transfer versions.
 
@@ -69,10 +73,7 @@ pub fn file_id(file: &File) -> io::Result<FileId> {
     if ok == 0 {
         return Err(io::Error::last_os_error());
     }
-    Ok(FileId {
-        volume: u64::from(info.dwVolumeSerialNumber),
-        index: (u128::from(info.nFileIndexHigh) << 32) | u128::from(info.nFileIndexLow),
-    })
+    Ok(FileId { volume: u64::from(info.dwVolumeSerialNumber), index: (u128::from(info.nFileIndexHigh) << 32) | u128::from(info.nFileIndexLow) })
 }
 
 #[cfg(test)]
@@ -151,8 +152,8 @@ pub(crate) fn regular_leaf(meta: &Metadata) -> bool {
 
 /// Match an open file to the current leaf without following a replacement link or opening its data.
 pub fn is_current_regular_leaf(file: &File, path: &Path) -> bool {
-    handle_stat_with_version(file).is_ok_and(|(meta, version)| regular_leaf(&meta)
-        && stat_leaf_with_version(path).is_ok_and(|(named, seen)| regular_leaf(&named) && version == seen))
+    handle_stat_with_version(file)
+        .is_ok_and(|(meta, version)| regular_leaf(&meta) && stat_leaf_with_version(path).is_ok_and(|(named, seen)| regular_leaf(&named) && version == seen))
 }
 
 /// `fs.stat` and `fileVersion` of `path` from one call: the one `metadata` on Unix, the one handle
@@ -207,8 +208,7 @@ pub(crate) fn open_attributes(path: &Path, flags: u32) -> io::Result<File> {
     use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
     use windows_sys::Win32::Storage::FileSystem::FILE_READ_ATTRIBUTES;
     // Attributes only, like libuv's fs.stat; a no-share data handle does not refuse this.
-    std::fs::OpenOptions::new().access_mode(FILE_READ_ATTRIBUTES)
-        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS | flags).open(path)
+    std::fs::OpenOptions::new().access_mode(FILE_READ_ATTRIBUTES).custom_flags(FILE_FLAG_BACKUP_SEMANTICS | flags).open(path)
 }
 
 #[cfg(windows)]
@@ -242,11 +242,7 @@ pub(crate) fn handle_stat_with_version(file: &File) -> io::Result<(Metadata, Sta
 /// resolved path text, lowercased on win32 only and exact elsewhere
 /// (`tools/builtin/path-locks.mjs:5-7`, `advisory-lock.mjs:47`); one rule, no probing.
 pub fn names_equal(a: &std::ffi::OsStr, b: &std::ffi::OsStr) -> bool {
-    if cfg!(windows) {
-        a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase()
-    } else {
-        a == b
-    }
+    if cfg!(windows) { a.to_string_lossy().to_lowercase() == b.to_string_lossy().to_lowercase() } else { a == b }
 }
 
 /// Where an OPEN file lives, read from the handle itself and never from the path it was opened by (Node's `openedFilePath`,

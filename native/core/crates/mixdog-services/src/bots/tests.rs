@@ -16,9 +16,7 @@ use tokio_util::sync::CancellationToken;
 use super::owned::never_cancelled;
 use super::*;
 use crate::channels::running::RunningWork;
-use crate::scheduler::{
-    MemoryScheduleStore, RunOutcome, Schedule, ScheduleRecords, ScheduleRunner, ScheduleStore, SystemClock,
-};
+use crate::scheduler::{MemoryScheduleStore, RunOutcome, Schedule, ScheduleRecords, ScheduleRunner, ScheduleStore, SystemClock};
 use crate::webhooks::signature::Headers;
 use crate::webhooks::{Claim, EndpointRecord, EndpointRecords, StateWebhookStore, WebhookDispatch, WebhookStore};
 
@@ -137,13 +135,7 @@ pub(crate) async fn fixture() -> Fixture {
 }
 
 pub(crate) fn sched(name: &str) -> Schedule {
-    Schedule {
-        name: name.into(),
-        prompt: "Check the build".into(),
-        when_cron: Some("0 9 * * *".into()),
-        owner_agent_id: "gh-bot".into(),
-        ..Default::default()
-    }
+    Schedule { name: name.into(), prompt: "Check the build".into(), when_cron: Some("0 9 * * *".into()), owner_agent_id: "gh-bot".into(), ..Default::default() }
 }
 
 async fn fire(f: &Fixture, schedule: &Schedule) -> RunOutcome {
@@ -446,7 +438,10 @@ async fn recovery_requeues_every_routines_results_and_retry_validates_its_target
     let f = fixture().await;
     seeded_with_result(&f).await;
     f.webhooks.upsert(&EndpointRecord { name: "gh".into(), instructions: "x".into(), ..Default::default() }).await.unwrap();
-    f.webhooks.record_delivery("gh", "r2", Some(json!({"state": "pending", "at": "2025-01-02T00:00:00Z", "result": {"ok": false, "text": "x"}}))).await.unwrap();
+    f.webhooks
+        .record_delivery("gh", "r2", Some(json!({"state": "pending", "at": "2025-01-02T00:00:00Z", "result": {"ok": false, "text": "x"}})))
+        .await
+        .unwrap();
     assert_eq!(f.rt.recover_routine_deliveries().await, Ok(0));
     let ids: Vec<_> = f.host.delivered.lock().unwrap().iter().map(|i| (i.run_id.clone(), i.kind)).collect();
     assert_eq!(ids, vec![("r1".to_string(), RoutineKind::Schedule), ("r2".to_string(), RoutineKind::Webhook)]);
@@ -561,10 +556,7 @@ async fn a_rule_delivery_is_accepted_only_after_enqueue_and_a_failed_write_can_b
     let queue = Arc::new(FailingQueue::default());
     let work = RunningWork::new();
     let dispatch = HomeWebhookDispatch::new(f.rt.clone(), f.webhooks.clone(), Some(queue.clone()), work.clone());
-    let config = WebhookConfig {
-        endpoints: [("rule".into(), Endpoint { allow_unsigned: Some(true), ..Default::default() })].into(),
-        ..Default::default()
-    };
+    let config = WebhookConfig { endpoints: [("rule".into(), Endpoint { allow_unsigned: Some(true), ..Default::default() })].into(), ..Default::default() };
     let webhook = WebhookService::new(f.webhooks.clone(), Arc::new(dispatch), config, work, Arc::new(|| 0));
     let headers = headers(&[("content-type", "application/json"), ("x-delivery-id", "d1")]);
     let post = || webhook.handle_post("/webhook/rule", &headers, b"{}");
@@ -699,5 +691,3 @@ async fn a_failed_or_overlapping_webhook_run_marks_its_delivery_and_endpoint() {
     assert_eq!(outcome.0, "skipped");
     assert!(f.webhooks.load("gh").await.unwrap().unwrap().last_skipped_at.is_some());
 }
-
-

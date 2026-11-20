@@ -19,40 +19,31 @@ use regex::Regex;
 use crate::message::AgentMessage;
 use crate::message::Source;
 
-pub const SUMMARY_PREFIX_ANCHOR: &str =
-    "A previous model worked on this task and produced the compacted handoff summary below.";
+pub const SUMMARY_PREFIX_ANCHOR: &str = "A previous model worked on this task and produced the compacted handoff summary below.";
 pub const ACTIVE_TURN_CONTINUATION_ANCHOR: &str = "<active-turn-continuation>";
 const TAG: &str = "mixdog-runtime";
 const PROCESS_RESTART_MARKER: &str = "[Request interrupted by process restart]";
-const PROCESS_RESTART_WIRE_TEXT: &str =
-    "[mixdog-runtime] The app restarted mid-turn. Continue from where you left off.";
+const PROCESS_RESTART_WIRE_TEXT: &str = "[mixdog-runtime] The app restarted mid-turn. Continue from where you left off.";
 
 fn re(pattern: &str) -> Regex {
     Regex::new(pattern).expect("static pattern")
 }
 
-static COMPACT_STATE_TEXT: LazyLock<Regex> = LazyLock::new(|| {
-    re(r"(?i)^(?:A previous model worked on this task and produced the compacted handoff summary below\b|Re-attached after compaction\b)")
-});
-static CONTEXT_ATTACHMENT_TEXT: LazyLock<Regex> = LazyLock::new(|| {
-    re(r"(?i)^(?:Reference files:\s|<(?:skill|memory-context|mcp-instructions|available-deferred-tools)\b)")
-});
-static RUNTIME_CONTROL_TEXT: LazyLock<Regex> = LazyLock::new(|| {
-    re(r"(?i)^(?:Output token limit hit\.|\[mixdog-runtime\]|\[request interrupted\b|Async \S+ task \S+ \([^)]*\) finished\.)")
-});
+static COMPACT_STATE_TEXT: LazyLock<Regex> =
+    LazyLock::new(|| re(r"(?i)^(?:A previous model worked on this task and produced the compacted handoff summary below\b|Re-attached after compaction\b)"));
+static CONTEXT_ATTACHMENT_TEXT: LazyLock<Regex> =
+    LazyLock::new(|| re(r"(?i)^(?:Reference files:\s|<(?:skill|memory-context|mcp-instructions|available-deferred-tools)\b)"));
+static RUNTIME_CONTROL_TEXT: LazyLock<Regex> =
+    LazyLock::new(|| re(r"(?i)^(?:Output token limit hit\.|\[mixdog-runtime\]|\[request interrupted\b|Async \S+ task \S+ \([^)]*\) finished\.)"));
 static ENVELOPE_OPEN: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"(?i)^\s*<{TAG}\b")));
-static SUMMARY_HEADER: LazyLock<Regex> =
-    LazyLock::new(|| re(r"\nmessages=\d+\s+(?:sha256=|compact_type=)"));
+static SUMMARY_HEADER: LazyLock<Regex> = LazyLock::new(|| re(r"\nmessages=\d+\s+(?:sha256=|compact_type=)"));
 static REFERENCE_FILES: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)^Reference files:\s*"));
-static SYNTHETIC_CONTROL: LazyLock<Regex> = LazyLock::new(|| {
-    re(r"(?i)^(?:\[mixdog-runtime\]|\[request interrupted(?: by user(?: for tool use)?| by process restart)?\])(?:\s|$)")
-});
-static CONTROL_MARKER: LazyLock<Regex> = LazyLock::new(|| {
-    re(r"(?i)^\[(?:truncated|request interrupted(?: by user(?: for tool use)?| by process restart)?)\]$")
-});
-static BRACKETED_SHELL_STATUS: LazyLock<Regex> = LazyLock::new(|| {
-    re(r"(?im)^\[status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled|error|timeout|done|success)\]")
-});
+static SYNTHETIC_CONTROL: LazyLock<Regex> =
+    LazyLock::new(|| re(r"(?i)^(?:\[mixdog-runtime\]|\[request interrupted(?: by user(?: for tool use)?| by process restart)?\])(?:\s|$)"));
+static CONTROL_MARKER: LazyLock<Regex> =
+    LazyLock::new(|| re(r"(?i)^\[(?:truncated|request interrupted(?: by user(?: for tool use)?| by process restart)?)\]$"));
+static BRACKETED_SHELL_STATUS: LazyLock<Regex> =
+    LazyLock::new(|| re(r"(?im)^\[status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled|error|timeout|done|success)\]"));
 static ASYNC_HEADER: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)^Async .+ finished\."));
 
 /// A user message's text: string content, or the text blocks joined.
@@ -126,10 +117,7 @@ pub fn parse_task_notification(text: &str) -> Option<TaskNotification> {
         }
     }
     let (task_id, status, summary) = (task_id?, status?, summary?);
-    if task_id.is_empty()
-        || summary.is_empty()
-        || !matches!(status.as_str(), "completed" | "failed" | "cancelled")
-    {
+    if task_id.is_empty() || summary.is_empty() || !matches!(status.as_str(), "completed" | "failed" | "cancelled") {
         return None;
     }
     let surface = if summary.starts_with("Agent \"") {
@@ -138,9 +126,7 @@ pub fn parse_task_notification(text: &str) -> Option<TaskNotification> {
         "shell".to_owned()
     } else {
         static SURFACE: LazyLock<Regex> = LazyLock::new(|| re(r"^(\S+) task "));
-        SURFACE
-            .captures(&summary)
-            .map_or_else(|| "tool".to_owned(), |c| c[1].to_owned())
+        SURFACE.captures(&summary).map_or_else(|| "tool".to_owned(), |c| c[1].to_owned())
     };
     Some(TaskNotification { surface })
 }
@@ -167,12 +153,8 @@ pub fn is_internal_runtime_notification(text: &str) -> bool {
     }
     static BACKGROUND: LazyLock<Regex> = LazyLock::new(|| re(r"(?i)^background task\b"));
     static TASK_ID: LazyLock<Regex> = LazyLock::new(|| re(r"(?im)^task_id:\s*\S+"));
-    static STATUS: LazyLock<Regex> = LazyLock::new(|| {
-        re(r"(?im)^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b")
-    });
-    static DETAIL: LazyLock<Regex> = LazyLock::new(|| {
-        re(r"(?im)^(?:surface|operation|type|target|role|agent|preset|model|effort|fast|notification):\s*")
-    });
+    static STATUS: LazyLock<Regex> = LazyLock::new(|| re(r"(?im)^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)\b"));
+    static DETAIL: LazyLock<Regex> = LazyLock::new(|| re(r"(?im)^(?:surface|operation|type|target|role|agent|preset|model|effort|fast|notification):\s*"));
     (BACKGROUND.is_match(value) && TASK_ID.is_match(value) && STATUS.is_match(value))
         || (TASK_ID.is_match(value) && STATUS.is_match(value) && DETAIL.is_match(value))
 }
@@ -184,12 +166,8 @@ fn completion_wrapper_quoted_lines(text: &str) -> Option<Vec<String>> {
     if preamble.is_empty() || !ASYNC_HEADER.is_match(preamble) {
         return None;
     }
-    let quoted: Vec<String> = value[split + "\n\nResult:\n".len()..]
-        .split('\n')
-        .map(|l| l.strip_suffix('\r').unwrap_or(l))
-        .filter(|l| !l.is_empty())
-        .map(str::to_owned)
-        .collect();
+    let quoted: Vec<String> =
+        value[split + "\n\nResult:\n".len()..].split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).filter(|l| !l.is_empty()).map(str::to_owned).collect();
     (!quoted.is_empty()).then_some(quoted)
 }
 
@@ -221,7 +199,9 @@ pub fn is_control_marker(text: &str) -> bool {
 /// permits slicing a request, while `is_protected_context_user` also recognizes legacy envelope-only
 /// rows. Leaving an unmarked row unsliced does not make it a retainable instruction.
 pub(crate) fn strip_runtime_user_context(message: &AgentMessage) -> AgentMessage {
-    let context = message.stored.as_ref()
+    let context = message
+        .stored
+        .as_ref()
         .filter(|_| message.role() == Role::User)
         .and_then(|row| row.get("meta"))
         .and_then(|meta| meta.get("runtimeUserContext"))
@@ -263,10 +243,7 @@ pub(crate) fn stripped_content(content: &Content, prefix: &str, suffix: &str) ->
 pub fn is_summary_message(m: &AgentMessage) -> bool {
     m.role() == Role::User
         && !is_imported(m)
-        && (m.source == Some(Source::CompactSummary)
-            || string_content(m).is_some_and(|c| {
-                c.starts_with(SUMMARY_PREFIX_ANCHOR) && SUMMARY_HEADER.is_match(c)
-            }))
+        && (m.source == Some(Source::CompactSummary) || string_content(m).is_some_and(|c| c.starts_with(SUMMARY_PREFIX_ANCHOR) && SUMMARY_HEADER.is_match(c)))
 }
 
 /// A non-imported user turn made only of `<system-reminder>` envelopes, including legacy rows
@@ -299,8 +276,7 @@ pub fn is_injected_skill_body(m: &AgentMessage) -> bool {
     if m.role() != Role::User || is_imported(m) {
         return false;
     }
-    m.source == Some(Source::Skill)
-        || string_content(m).is_some_and(|c| mixdog_js::js_trim_start(c).starts_with("<skill>"))
+    m.source == Some(Source::Skill) || string_content(m).is_some_and(|c| mixdog_js::js_trim_start(c).starts_with("<skill>"))
 }
 
 fn is_synthetic_source(source: Option<Source>) -> bool {
@@ -324,11 +300,7 @@ fn is_synthetic_source(source: Option<Source>) -> bool {
 /// The human's own instruction, as opposed to summaries and runtime-injected
 /// turns.
 pub fn is_actual_user_instruction(m: &AgentMessage) -> bool {
-    if m.role() != Role::User
-        || is_summary_message(m)
-        || is_protected_context_user(m)
-        || is_injected_skill_body(m)
-    {
+    if m.role() != Role::User || is_summary_message(m) || is_protected_context_user(m) || is_injected_skill_body(m) {
         return false;
     }
     let text = user_text(m);
@@ -377,15 +349,7 @@ pub fn classify_synthetic_user(m: &AgentMessage) -> Option<SyntheticKind> {
         return None;
     }
     let trimmed = mixdog_js::js_trim_start(&text);
-    let control_source = matches!(
-        m.source,
-        Some(
-            Source::MaxOutputRecovery
-                | Source::RefusalRecovery
-                | Source::StreamCutRecovery
-                | Source::TaskNotification
-        )
-    );
+    let control_source = matches!(m.source, Some(Source::MaxOutputRecovery | Source::RefusalRecovery | Source::StreamCutRecovery | Source::TaskNotification));
     if control_source || RUNTIME_CONTROL_TEXT.is_match(trimmed) {
         return Some(SyntheticKind::RuntimeControl);
     }
@@ -417,12 +381,7 @@ fn envelope_content(content: &Content, kind: SyntheticKind) -> Content {
     match content {
         Content::Text(text) => Content::Text(format!("{}{text}{}", open_tag(kind), close_tag())),
         Content::Parts(parts) => {
-            let texts: Vec<usize> = parts
-                .iter()
-                .enumerate()
-                .filter(|(_, p)| matches!(p, ContentPart::Text(_, _)))
-                .map(|(i, _)| i)
-                .collect();
+            let texts: Vec<usize> = parts.iter().enumerate().filter(|(_, p)| matches!(p, ContentPart::Text(_, _))).map(|(i, _)| i).collect();
             let (Some(&first), Some(&last)) = (texts.first(), texts.last()) else {
                 return content.clone();
             };

@@ -50,14 +50,7 @@ pub mod testing {
 
     impl Seam {
         const fn new() -> Self {
-            Self {
-                state: std::sync::Mutex::new(Window {
-                    armed: false,
-                    entered: false,
-                    released: false,
-                }),
-                changed: std::sync::Condvar::new(),
-            }
+            Self { state: std::sync::Mutex::new(Window { armed: false, entered: false, released: false }), changed: std::sync::Condvar::new() }
         }
 
         fn window(&self) -> std::sync::MutexGuard<'_, Window> {
@@ -65,10 +58,7 @@ pub mod testing {
         }
 
         fn arm(&self) {
-            *self.window() = Window {
-                armed: true,
-                ..Window::default()
-            };
+            *self.window() = Window { armed: true, ..Window::default() };
         }
 
         fn wait_entered(&self) {
@@ -126,8 +116,7 @@ pub mod testing {
     static ANSWER_WINDOW: Seam = Seam::new();
     static CREATED_WINDOW: Seam = Seam::new();
 
-    static WAITER_FAILURE: std::sync::Mutex<Option<(mixdog_protocol::ProcessHandle, tokio::sync::oneshot::Sender<u32>)>> =
-        std::sync::Mutex::new(None);
+    static WAITER_FAILURE: std::sync::Mutex<Option<(mixdog_protocol::ProcessHandle, tokio::sync::oneshot::Sender<u32>)>> = std::sync::Mutex::new(None);
 
     /// Refuse waiter creation for this launch, after its real child exists.
     pub fn refuse_waiter(handle: mixdog_protocol::ProcessHandle) -> tokio::sync::oneshot::Receiver<u32> {
@@ -240,9 +229,7 @@ pub mod testing {
 
     #[cfg(any(windows, target_os = "linux", target_os = "macos"))]
     pub fn wait_root_exit_window_entered(limit: std::time::Duration) -> bool {
-        let (state, _) = ROOT_EXIT_WINDOW.changed.wait_timeout_while(
-            ROOT_EXIT_WINDOW.window(), limit, |state| !state.entered,
-        ).unwrap();
+        let (state, _) = ROOT_EXIT_WINDOW.changed.wait_timeout_while(ROOT_EXIT_WINDOW.window(), limit, |state| !state.entered).unwrap();
         state.entered
     }
 

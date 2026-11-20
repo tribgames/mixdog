@@ -49,9 +49,8 @@ fn protect(plain: &[u8]) -> Result<Vec<u8>, SecretError> {
     let input = CRYPT_INTEGER_BLOB { cbData: plain.len() as u32, pbData: plain.as_ptr().cast_mut() };
     let mut output = CRYPT_INTEGER_BLOB { cbData: 0, pbData: std::ptr::null_mut() };
     // SAFETY: `input` borrows `plain` for the call; every optional argument is null.
-    let ok = unsafe {
-        CryptProtectData(&input, std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut output)
-    };
+    let ok =
+        unsafe { CryptProtectData(&input, std::ptr::null(), std::ptr::null(), std::ptr::null(), std::ptr::null(), CRYPTPROTECT_UI_FORBIDDEN, &mut output) };
     if ok == 0 {
         let code = std::io::Error::last_os_error().raw_os_error().unwrap_or_default();
         return Err(SecretError::new(format!("[keychain] DPAPI encrypt failed (error {code})")));

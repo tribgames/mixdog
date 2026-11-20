@@ -49,22 +49,30 @@ async fn readout(db: &Db, now: f64) -> Result<String> {
     let row = &counts[0];
     let (total, roots, unchunked, core) = (row.get::<_, i64>(0), row.get::<_, i64>(1), row.get::<_, i64>(2), row.get::<_, i64>(3));
     let by_status = db.query("SELECT status::text, COUNT(*) c FROM entries WHERE is_root = 1 GROUP BY status", &[]).await?;
-    let by_category =
-        db.query("SELECT category, COUNT(*) c FROM entries WHERE is_root = 1 GROUP BY category ORDER BY c DESC", &[]).await?;
+    let by_category = db.query("SELECT category, COUNT(*) c FROM entries WHERE is_root = 1 GROUP BY category ORDER BY c DESC", &[]).await?;
     let last = read_last_run(db).await;
     let (dims, dims_error) = embedding_dims(db).await;
-    let has_index = db.query(
-        "SELECT EXISTS (
+    let has_index = db
+        .query(
+            "SELECT EXISTS (
            SELECT 1 FROM pg_index
            WHERE indrelid = 'memory.entries'::regclass
              AND indexrelid = to_regclass('memory.idx_entries_embedding_hnsw')
              AND indisready AND indisvalid AND indislive
          )",
-        &[],
-    ).await?[0].get::<_, bool>(0);
+            &[],
+        )
+        .await?[0]
+        .get::<_, bool>(0);
     let bootstrap = if is_bootstrap_complete(db).await { "complete" } else { "incomplete" };
     let dims_error = dims_error.map(|e| format!(" (meta_read_error: {e})")).unwrap_or_default();
-    let index = if has_index { "ready" } else if dims > 0.0 { "exact-only" } else { "pending" };
+    let index = if has_index {
+        "ready"
+    } else if dims > 0.0 {
+        "exact-only"
+    } else {
+        "pending"
+    };
     Ok([
         format!("entries: total={total} roots={roots} cycle1_raw={unchunked} (unchunked leaves)"),
         format!("status: {}", pairs(&by_status, "?")),

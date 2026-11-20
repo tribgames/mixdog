@@ -23,7 +23,8 @@ async fn a_settings_change_reaches_every_app_feed_subscriber_whatever_its_origin
     let tokens = mixdog_rt::testing::tokens();
     let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
     // An absent file is an empty document: opening reads it and writes nothing.
-    let (config, _) = Config::open(std::env::temp_dir().join("mixdog-settings-change-feed-absent").join("mixdog-config.json"), app.clone(), lanes).await.unwrap();
+    let (config, _) =
+        Config::open(std::env::temp_dir().join("mixdog-settings-change-feed-absent").join("mixdog-config.json"), app.clone(), lanes).await.unwrap();
     let announcer = app.clone();
     config.announce_to(Arc::new(move |method, params| announcer.notify(method, &params)));
     assert!(mixdog_protocol::SectionFeed::App.ordered(), "the app feed never drops an event");

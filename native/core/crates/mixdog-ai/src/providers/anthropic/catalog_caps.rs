@@ -5,11 +5,11 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use mixdog_protocol::ProviderId;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::{CapsLookup, ModelCaps};
 use crate::catalog::CatalogService;
-use crate::claude_floors::{claude_generation, ADAPTIVE_FLOOR, MANUAL_REJECTED_FLOOR, MAX_FLOOR, XHIGH_FLOOR};
+use crate::claude_floors::{ADAPTIVE_FLOOR, MANUAL_REJECTED_FLOOR, MAX_FLOOR, XHIGH_FLOOR, claude_generation};
 use crate::registry::keys::Environment;
 
 const LEVEL_ORDER: [&str; 6] = ["none", "low", "medium", "high", "xhigh", "max"];
@@ -17,9 +17,11 @@ const CONTROL_KEYS: [&str; 3] = ["supported", "enabled", "default"];
 
 /// `_effortLevelsOf(reasoningOptions)`, in the canonical low-to-max order.
 fn ladder_of(options: Option<&Value>) -> Vec<String> {
-    let first = options.and_then(Value::as_array).into_iter().flatten().find(|o| {
-        o.get("type").map(|t| mixdog_js::js_trim(&mixdog_js::value_to_string(t)).to_lowercase()) == Some("effort".to_owned())
-    });
+    let first = options
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .find(|o| o.get("type").map(|t| mixdog_js::js_trim(&mixdog_js::value_to_string(t)).to_lowercase()) == Some("effort".to_owned()));
     let mut levels: Vec<String> = first
         .and_then(|o| o.get("values"))
         .and_then(Value::as_array)

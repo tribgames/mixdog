@@ -116,9 +116,7 @@ where
     }
     context.attempted.insert(source_ref.to_string());
     if host.page_url().await.map_err(RecoveryFailure::Host)? != source.url {
-        return Err(RecoveryFailure::Message(format!(
-            "ref {source_ref} became stale after navigation; automatic recovery will not cross URLs"
-        )));
+        return Err(RecoveryFailure::Message(format!("ref {source_ref} became stale after navigation; automatic recovery will not cross URLs")));
     }
     // Recovery runs before the gesture is dispatched.
     if let Some(dialog) = host.dialog_text() {
@@ -133,10 +131,9 @@ where
         }
     }
     match Recovery::refind(&source, &fresh.refs) {
-        Refind::Stopped(reason) => Err(RecoveryFailure::Message(format!(
-            "ref {source_ref} became stale; automatic recovery stopped because {reason}.\n\n{}",
-            fresh.report
-        ))),
+        Refind::Stopped(reason) => {
+            Err(RecoveryFailure::Message(format!("ref {source_ref} became stale; automatic recovery stopped because {reason}.\n\n{}", fresh.report)))
+        }
         Refind::Found(found) => {
             context.replacements.insert(source_ref.to_string(), found.clone());
             context.notes.push(format!("{source_ref} -> {found}"));
@@ -201,10 +198,7 @@ mod tests {
         assert_eq!(outcome, Ok("p1-s2-e1".to_string()));
         assert_eq!(*ran.lock().unwrap(), ["p1-s1-e1", "p1-s2-e1"]);
         assert_eq!(context.effective_ref("p1-s1-e1"), "p1-s2-e1");
-        assert_eq!(
-            decorate_recovery("body", &context),
-            "Automatic ref recovery before input dispatch (no action replay): p1-s1-e1 -> p1-s2-e1\n\nbody"
-        );
+        assert_eq!(decorate_recovery("body", &context), "Automatic ref recovery before input dispatch (no action replay): p1-s1-e1 -> p1-s2-e1\n\nbody");
     }
 
     #[tokio::test]
@@ -244,6 +238,5 @@ mod tests {
         assert_eq!(outcome, Err(RecoveryFailure::Message("A dialog is open".into())));
     }
 }
-
 
 impl std::error::Error for RecoveryFailure {}

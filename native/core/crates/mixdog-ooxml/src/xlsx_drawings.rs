@@ -14,11 +14,11 @@ use serde_json::{Map, Value};
 
 use crate::cells::Sheet;
 use crate::opc::{
-    IMAGE_CONTENT_TYPES, PIXELS_TO_POINTS, add_package_relationship, ensure_default_content_type, image_content_type, image_pixel_size,
-    part_relationship_path, posix, relationship_target_by_type, remove_content_type_override, remove_package_relationship,
+    IMAGE_CONTENT_TYPES, PIXELS_TO_POINTS, add_package_relationship, ensure_default_content_type, image_content_type, image_pixel_size, part_relationship_path,
+    posix, relationship_target_by_type, remove_content_type_override, remove_package_relationship,
 };
 use crate::package::os_message;
-use crate::sheet_page::{fit_drawing_sheet_one_page_wide, worksheet_geometry, workbook_digit_width};
+use crate::sheet_page::{fit_drawing_sheet_one_page_wide, workbook_digit_width, worksheet_geometry};
 use crate::sheet_parts::ensure_worksheet_drawing;
 use crate::slide_shapes::{replace_first_with, to_emu, to_emu_of};
 use crate::text_metrics::TextMeasurer;
@@ -126,11 +126,7 @@ fn store_image_media<P: ReadProof>(proof: &P, zip: &mut Package, op: &Value) -> 
     let extension = image_extension(&path_text);
     let Some(content_type) = image_content_type(&extension) else {
         let known: Vec<&str> = IMAGE_CONTENT_TYPES.iter().map(|(name, _)| *name).collect();
-        return Err(format!(
-            "Unsupported image type: .{}. Use {}",
-            if extension.is_empty() { "unknown" } else { extension.as_str() },
-            known.join(", ")
-        ));
+        return Err(format!("Unsupported image type: .{}. Use {}", if extension.is_empty() { "unknown" } else { extension.as_str() }, known.join(", ")));
     };
     let path = match path_value {
         Some(Value::String(path)) => path.clone(),
@@ -292,8 +288,10 @@ fn select_drawing<'a>(anchors: &'a [DrawingAnchor], op: &Value) -> Result<&'a Dr
     if let Some(found) = found {
         return Ok(found);
     }
-    let known: Vec<String> =
-        anchors.iter().map(|anchor| format!("{}: {}", anchor.index, if anchor.name.is_empty() { anchor.kind.as_str() } else { anchor.name.as_str() })).collect();
+    let known: Vec<String> = anchors
+        .iter()
+        .map(|anchor| format!("{}: {}", anchor.index, if anchor.name.is_empty() { anchor.kind.as_str() } else { anchor.name.as_str() }))
+        .collect();
     Err(format!(
         "Drawing not found: {}. This sheet holds {}.",
         value_to_string(wanted),
@@ -368,10 +366,8 @@ struct CellMarker {
 }
 
 fn marker_of(body: &str, tag: &str) -> CellMarker {
-    let value = compiled(&format!(r"<xdr:{tag}>([\s\S]*?)<\/xdr:{tag}>"), "")
-        .captures(body)
-        .and_then(|found| found.get(1).map(str::to_owned))
-        .unwrap_or_default();
+    let value =
+        compiled(&format!(r"<xdr:{tag}>([\s\S]*?)<\/xdr:{tag}>"), "").captures(body).and_then(|found| found.get(1).map(str::to_owned)).unwrap_or_default();
     let number = |name: &str| {
         let read = compiled(&format!(r"<xdr:{name}>(-?\d+)<\/xdr:{name}>"), "")
             .captures(&value)
@@ -453,13 +449,7 @@ fn move_two_cell_anchor<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip: &Pack
 
 /// `setWorksheetDrawing(zip, sheet, xml, op)`: moves or resizes a chart or picture already on the sheet; positions are
 /// points, the same unit add_chart places one with.
-pub fn set_worksheet_drawing<P: ReadProof>(
-    measurer: &TextMeasurer<'_, P>,
-    zip: &mut Package,
-    sheet: &Sheet,
-    xml: &str,
-    op: &Value,
-) -> Result<Value, String> {
+pub fn set_worksheet_drawing<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip: &mut Package, sheet: &Sheet, xml: &str, op: &Value) -> Result<Value, String> {
     let part = worksheet_drawing_part(zip, sheet)?;
     let drawing_xml = zip.text(&part);
     let anchors = drawing_anchors(&drawing_xml);
@@ -497,7 +487,10 @@ pub fn set_worksheet_drawing<P: ReadProof>(
         return Err(format!("XLSX {} needs left, top, width, or height", op.get("op").map_or_else(|| "undefined".to_owned(), value_to_string)));
     }
     zip.set(&part, format!("{}{}{}", &drawing_xml[..target.start], body, &drawing_xml[target.end..]));
-    Ok(report(op, vec![("changed", Value::Bool(true)), ("sheet", Value::from(sheet.name.as_str())), ("drawing", label), ("kind", Value::from(target.kind.as_str()))]))
+    Ok(report(
+        op,
+        vec![("changed", Value::Bool(true)), ("sheet", Value::from(sheet.name.as_str())), ("drawing", label), ("kind", Value::from(target.kind.as_str()))],
+    ))
 }
 
 /// `deleteWorksheetDrawing(zip, sheet, xml, op)`: takes a chart or picture off the sheet with the parts only it owned.

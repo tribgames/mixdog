@@ -13,22 +13,14 @@ use super::reason;
 const RESOLVE: Method = Method("host/systemProxy/resolve");
 
 fn unavailable(detail: &str) -> HostError {
-    HostError::Core(CoreError::CapabilityUnavailable {
-        capability: "desktopHost".into(),
-        detail: detail.into(),
-    })
+    HostError::Core(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: detail.into() })
 }
 
 async fn claimed(rig: &Rig, id: u64) -> super::Client {
     claimed_as(rig, id, "pc", json!({ "systemProxy": true, "notifications": true })).await
 }
 
-async fn claimed_as(
-    rig: &Rig,
-    id: u64,
-    host_id: &str,
-    declared: serde_json::Value,
-) -> super::Client {
+async fn claimed_as(rig: &Rig, id: u64, host_id: &str, declared: serde_json::Value) -> super::Client {
     let host = rig.ready(id, json!({ "host": declared }));
     host.request(1, "host/claim", json!({ "hostId": host_id }));
     assert_eq!(host.response(1).await["result"], json!({}));
@@ -45,10 +37,7 @@ async fn a_claim_that_runs_after_its_connection_closed_is_not_recorded() {
     let conn = rig.outgoing.connection(ConnectionId(1)).unwrap();
     rig.outgoing.unregister(&conn);
     rig.outgoing.claim(HostId::from("pc"), &conn, None, None);
-    assert_eq!(
-        rig.outgoing.request(HostCapability::Browser, BROWSER, json!({})).await,
-        Err(unavailable("noClaimant"))
-    );
+    assert_eq!(rig.outgoing.request(HostCapability::Browser, BROWSER, json!({})).await, Err(unavailable("noClaimant")));
     drop(host);
 }
 
@@ -66,11 +55,7 @@ async fn a_host_request_is_answered_by_the_claimant() {
     let rig = Rig::new();
     let host = claimed(&rig, 1).await;
     let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move {
-        outgoing
-            .request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "https://example.com" }))
-            .await
-    });
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "https://example.com" })).await });
     let request = host.frames(1).await.remove(0).body;
     assert_eq!(request["method"], json!("host/systemProxy/resolve"));
     assert_eq!(request["params"], json!({ "url": "https://example.com" }));
@@ -85,21 +70,10 @@ async fn a_host_answer_holding_a_lone_surrogate_fails_the_request() {
     let rig = Rig::new();
     let host = claimed(&rig, 1).await;
     let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move {
-        outgoing
-            .request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" }))
-            .await
-    });
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" })).await });
     let request = host.frames(1).await.remove(0).body;
     host.send_text(&format!(r#"{{"id":{},"result":{{"rules":"PROXY a\ud800"}}}}"#, request["id"]));
-    assert_eq!(
-        call.await.unwrap(),
-        Err(HostError::Rpc {
-            code: -32602,
-            message: "The answer contains unpaired Unicode surrogates.".into(),
-            data: None,
-        })
-    );
+    assert_eq!(call.await.unwrap(), Err(HostError::Rpc { code: -32602, message: "The answer contains unpaired Unicode surrogates.".into(), data: None }));
 }
 
 /// An error answer whose message or data held a lone surrogate fails the request as an answer holding one does: the
@@ -109,21 +83,10 @@ async fn a_host_error_answer_holding_a_lone_surrogate_fails_the_request() {
     let rig = Rig::new();
     let host = claimed(&rig, 1).await;
     let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move {
-        outgoing
-            .request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" }))
-            .await
-    });
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" })).await });
     let request = host.frames(1).await.remove(0).body;
     host.send_text(&format!(r#"{{"id":{},"error":{{"code":-32603,"message":"no","data":{{"path":"a\ud800"}}}}}}"#, request["id"]));
-    assert_eq!(
-        call.await.unwrap(),
-        Err(HostError::Rpc {
-            code: -32602,
-            message: "The answer contains unpaired Unicode surrogates.".into(),
-            data: None,
-        })
-    );
+    assert_eq!(call.await.unwrap(), Err(HostError::Rpc { code: -32602, message: "The answer contains unpaired Unicode surrogates.".into(), data: None }));
 }
 
 #[tokio::test(start_paused = true)]
@@ -131,63 +94,38 @@ async fn a_failed_host_request_is_a_domain_error() {
     let rig = Rig::new();
     let host = claimed(&rig, 1).await;
     let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move {
-        outgoing
-            .request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" }))
-            .await
-    });
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" })).await });
     let request = host.frames(1).await.remove(0).body;
     host.send(json!({ "id": request["id"], "error": { "code": -32603, "message": "no" } }));
-    assert_eq!(
-        call.await.unwrap(),
-        Err(HostError::Rpc {
-            code: -32603,
-            message: "no".into(),
-            data: None,
-        })
-    );
+    assert_eq!(call.await.unwrap(), Err(HostError::Rpc { code: -32603, message: "no".into(), data: None }));
 }
 
 #[tokio::test(start_paused = true)]
 async fn without_a_claimant_or_after_it_leaves_the_host_is_unavailable() {
     let rig = Rig::new();
     let params = json!({ "url": "u" });
-    assert_eq!(
-        rig.outgoing.request(HostCapability::SystemProxy, RESOLVE, params.clone()).await,
-        Err(unavailable("noClaimant"))
-    );
+    assert_eq!(rig.outgoing.request(HostCapability::SystemProxy, RESOLVE, params.clone()).await, Err(unavailable("noClaimant")));
 
     let host = claimed(&rig, 1).await;
     let outgoing = rig.outgoing.clone();
     let waiting = {
         let params = params.clone();
-        tokio::spawn(async move {
-            outgoing.request(HostCapability::SystemProxy, RESOLVE, params).await
-        })
+        tokio::spawn(async move { outgoing.request(HostCapability::SystemProxy, RESOLVE, params).await })
     };
     host.frames(1).await;
     drop(host);
     assert_eq!(waiting.await.unwrap(), Err(unavailable("claimantClosed")));
-    assert_eq!(
-        rig.outgoing.request(HostCapability::SystemProxy, RESOLVE, params).await,
-        Err(unavailable("noClaimant"))
-    );
+    assert_eq!(rig.outgoing.request(HostCapability::SystemProxy, RESOLVE, params).await, Err(unavailable("noClaimant")));
 }
 
 #[tokio::test(start_paused = true)]
 async fn a_capability_the_claimant_did_not_declare_is_unavailable_at_once() {
     let rig = Rig::new();
     let _host = claimed(&rig, 1).await;
-    assert_eq!(
-        rig.outgoing.request(HostCapability::Browser, BROWSER, json!({})).await,
-        Err(unavailable("noClaimant"))
-    );
+    assert_eq!(rig.outgoing.request(HostCapability::Browser, BROWSER, json!({})).await, Err(unavailable("noClaimant")));
     assert_eq!(
         rig.outgoing.notify(HostCapability::Visualize, Method("host/x"), json!({})),
-        Err(CoreError::CapabilityUnavailable {
-            capability: "desktopHost".into(),
-            detail: "noClaimant".into(),
-        })
+        Err(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "noClaimant".into() })
     );
 }
 
@@ -198,9 +136,7 @@ async fn the_latest_claim_of_a_capability_serves_it_and_an_earlier_one_takes_ove
     let new = claimed_as(&rig, 2, "new", json!({ "browser": true, "visualize": true })).await;
 
     let outgoing = rig.outgoing.clone();
-    let first = tokio::spawn(async move {
-        outgoing.request(HostCapability::Browser, BROWSER, json!({ "n": 1 })).await
-    });
+    let first = tokio::spawn(async move { outgoing.request(HostCapability::Browser, BROWSER, json!({ "n": 1 })).await });
     let request = new.frames(1).await.remove(0).body;
     assert!(old.drain().is_empty(), "only the latest claimant is asked");
     new.send(json!({ "id": request["id"], "result": "new" }));
@@ -208,9 +144,7 @@ async fn the_latest_claim_of_a_capability_serves_it_and_an_earlier_one_takes_ove
 
     drop(new);
     let outgoing = rig.outgoing.clone();
-    let second = tokio::spawn(async move {
-        outgoing.request(HostCapability::Browser, BROWSER, json!({ "n": 2 })).await
-    });
+    let second = tokio::spawn(async move { outgoing.request(HostCapability::Browser, BROWSER, json!({ "n": 2 })).await });
     let request = old.frames(1).await.remove(0).body;
     old.send(json!({ "id": request["id"], "result": "old" }));
     assert_eq!(second.await.unwrap(), Ok(json!("old")));
@@ -223,20 +157,14 @@ async fn each_capability_goes_to_the_latest_claimant_that_declared_it() {
     let browser_only = claimed_as(&rig, 2, "b", json!({ "browser": true })).await;
 
     let outgoing = rig.outgoing.clone();
-    let viz = tokio::spawn(async move {
-        outgoing
-            .request(HostCapability::Visualize, Method("host/visualize/command"), json!({}))
-            .await
-    });
+    let viz = tokio::spawn(async move { outgoing.request(HostCapability::Visualize, Method("host/visualize/command"), json!({})).await });
     let request = both.frames(1).await.remove(0).body;
     assert!(browser_only.drain().is_empty(), "a later claimant without the capability is skipped");
     both.send(json!({ "id": request["id"], "result": "viz" }));
     assert_eq!(viz.await.unwrap(), Ok(json!("viz")));
 
     let outgoing = rig.outgoing.clone();
-    let browser = tokio::spawn(async move {
-        outgoing.request(HostCapability::Browser, BROWSER, json!({})).await
-    });
+    let browser = tokio::spawn(async move { outgoing.request(HostCapability::Browser, BROWSER, json!({})).await });
     let request = browser_only.frames(1).await.remove(0).body;
     assert!(both.drain().is_empty());
     browser_only.send(json!({ "id": request["id"], "result": "br" }));
@@ -249,9 +177,7 @@ async fn a_reclaimed_host_id_replaces_its_stale_connection() {
     let stale = claimed_as(&rig, 1, "pc", json!({ "browser": true })).await;
     let fresh = claimed_as(&rig, 2, "pc", json!({ "browser": true })).await;
     let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move {
-        outgoing.request(HostCapability::Browser, BROWSER, json!({})).await
-    });
+    let call = tokio::spawn(async move { outgoing.request(HostCapability::Browser, BROWSER, json!({})).await });
     let request = fresh.frames(1).await.remove(0).body;
     fresh.send(json!({ "id": request["id"], "result": 1 }));
     assert_eq!(call.await.unwrap(), Ok(json!(1)));
@@ -262,13 +188,7 @@ async fn a_reclaimed_host_id_replaces_its_stale_connection() {
 async fn a_host_notification_goes_to_the_claimant() {
     let rig = Rig::new();
     let host = claimed(&rig, 1).await;
-    rig.outgoing
-        .notify(
-            HostCapability::Notifications,
-            Method("host/notification/show"),
-            json!({ "title": "t", "body": "b" }),
-        )
-        .unwrap();
+    rig.outgoing.notify(HostCapability::Notifications, Method("host/notification/show"), json!({ "title": "t", "body": "b" })).unwrap();
     let frames = host.drain();
     assert_eq!(frames[0].body["method"], json!("host/notification/show"));
     assert!(frames[0].body.get("id").is_none());
@@ -307,9 +227,7 @@ async fn a_model_proxy_serves_from_initialize_and_streams_its_events_ahead_of_th
     let outgoing = rig.outgoing.clone();
     let call = tokio::spawn(async move {
         let mut seen = Vec::new();
-        let result = outgoing
-            .request_streamed(HostCapability::ModelProxy, EXECUTE, json!({ "call": 1 }), &mut |e| seen.push(e))
-            .await;
+        let result = outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({ "call": 1 }), &mut |e| seen.push(e)).await;
         (result, seen)
     });
     let request = pc.frames(1).await.remove(0).body;
@@ -358,28 +276,18 @@ async fn a_model_proxy_that_closes_mid_call_is_a_closed_claimant() {
     let rig = Rig::new();
     let pc = rig.ready(1, json!({ "modelProxy": true }));
     let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move {
-        outgoing
-            .request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {})
-            .await
-    });
+    let call = tokio::spawn(async move { outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await });
     pc.frames(1).await;
     drop(pc);
     assert_eq!(call.await.unwrap(), Err(unavailable("claimantClosed")));
-    assert_eq!(
-        rig.outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await,
-        Err(unavailable("noClaimant"))
-    );
+    assert_eq!(rig.outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await, Err(unavailable("noClaimant")));
 }
 
 #[tokio::test(start_paused = true)]
 async fn only_a_connection_that_declared_model_proxy_serves_it() {
     let rig = Rig::new();
     let _host = claimed(&rig, 1).await;
-    assert_eq!(
-        rig.outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await,
-        Err(unavailable("noClaimant"))
-    );
+    assert_eq!(rig.outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await, Err(unavailable("noClaimant")));
 }
 
 #[tokio::test]
@@ -390,10 +298,7 @@ async fn a_notification_reaches_its_connection_by_id() {
     let pc = rig.ready(1, json!({}));
     ConnectionNotifier::notify(rig.outgoing.as_ref(), ConnectionId(1), Method("modelProxy/run/event"), json!({ "runId": "r" })).unwrap();
     assert_eq!(pc.drain()[0].body["method"], json!("modelProxy/run/event"));
-    assert_eq!(
-        ConnectionNotifier::notify(rig.outgoing.as_ref(), ConnectionId(9), Method("x"), json!({})),
-        Err(CoreError::ConnectionClosed)
-    );
+    assert_eq!(ConnectionNotifier::notify(rig.outgoing.as_ref(), ConnectionId(9), Method("x"), json!({})), Err(CoreError::ConnectionClosed));
 }
 
 #[tokio::test(start_paused = true)]
@@ -401,9 +306,7 @@ async fn a_model_proxy_call_given_up_is_cancelled_on_the_connection_and_an_answe
     let rig = Rig::new();
     let pc = rig.ready(1, json!({ "modelProxy": true }));
     let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move {
-        outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await
-    });
+    let call = tokio::spawn(async move { outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await });
     let request = pc.frames(1).await.remove(0).body;
     call.abort();
     let _ = call.await;
@@ -412,9 +315,7 @@ async fn a_model_proxy_call_given_up_is_cancelled_on_the_connection_and_an_answe
     assert_eq!(cancel["params"], json!({ "requestId": request["id"] }));
 
     let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move {
-        outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await
-    });
+    let call = tokio::spawn(async move { outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await });
     let request = pc.frames(1).await.remove(0).body;
     pc.send(json!({ "id": request["id"], "result": 1 }));
     assert_eq!(call.await.unwrap(), Ok(json!(1)));
@@ -512,7 +413,11 @@ impl Drop for Guard {
 }
 
 impl crate::ClaimHook for Attach {
-    fn claimed(&self, serves: &[HostCapability], _resources: Option<&mixdog_app_protocol::v2::connections::HostClaimResources>) -> Option<Box<dyn std::any::Any + Send>> {
+    fn claimed(
+        &self,
+        serves: &[HostCapability],
+        _resources: Option<&mixdog_app_protocol::v2::connections::HostClaimResources>,
+    ) -> Option<Box<dyn std::any::Any + Send>> {
         if !serves.contains(&HostCapability::SystemProxy) {
             return None;
         }
@@ -563,10 +468,7 @@ async fn claimed_serving(rig: &Rig, id: u64, host_id: &str, declared: serde_json
 async fn claim_serves_unlisted_method_fails_fast() {
     let rig = Rig::new();
     let host = claimed_serving(&rig, 1, "pc", json!({ "systemProxy": true }), Some(&["host/systemProxy/other"])).await;
-    assert_eq!(
-        rig.outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" })).await,
-        Err(unavailable("unsupportedMethod"))
-    );
+    assert_eq!(rig.outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({ "url": "u" })).await, Err(unavailable("unsupportedMethod")));
     assert!(host.drain().is_empty(), "nothing was sent to the claimant");
     // A capability nobody declared is still no claimant.
     assert_eq!(rig.outgoing.request(HostCapability::Browser, BROWSER, json!({})).await, Err(unavailable("noClaimant")));
@@ -638,12 +540,8 @@ async fn non_claimant_connection_list_ignored() {
     let rig = Rig::new();
     let _bystander = rig.ready(1, json!({ "host": { "systemProxy": true } }));
     let _claimant = claimed_serving(&rig, 2, "pc", json!({ "browser": true }), Some(&["host/browser/command"])).await;
-    assert_eq!(
-        rig.outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({})).await,
-        Err(unavailable("noClaimant"))
-    );
+    assert_eq!(rig.outgoing.request(HostCapability::SystemProxy, RESOLVE, json!({})).await, Err(unavailable("noClaimant")));
 }
-
 
 /// Every free-text field of a `host/*` answer ([`FREE_TEXT`], a model proxy's provider text): a lone surrogate in it answers
 /// the request with U+FFFD there, whole as with a real U+FFFD; the same answer holding one outside them fails the request.
@@ -682,9 +580,7 @@ async fn a_model_proxy_call_nobody_claims_is_given_up_at_the_claim_window_and_th
     let rig = Rig::new();
     let pc = rig.ready(1, json!({ "modelProxy": true }));
     let outgoing = rig.outgoing.clone();
-    let call = tokio::spawn(async move {
-        outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await
-    });
+    let call = tokio::spawn(async move { outgoing.request_streamed(HostCapability::ModelProxy, EXECUTE, json!({}), &mut |_| {}).await });
     let request = pc.frames(1).await.remove(0).body;
     tokio::time::advance(Duration::from_secs(9)).await;
     tokio::task::yield_now().await;

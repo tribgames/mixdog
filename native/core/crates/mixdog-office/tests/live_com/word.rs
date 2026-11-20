@@ -159,13 +159,20 @@ fn word_placed_list_items_hung_clauses_set_paragraph_format_lists_and_a_contents
     let read = |mode: &str| -> Value {
         let name = format!("lists-{mode}.docx");
         let created = live.create(&name, "docx", mode, operations.clone());
-        let levels = items(&created["batch"]["results"]).iter().find(|result| result["op"] == "insert_toc").map_or(Value::Null, |result| result["levels"].clone());
+        let levels =
+            items(&created["batch"]["results"]).iter().find(|result| result["op"] == "insert_toc").map_or(Value::Null, |result| result["levels"].clone());
         let document = live.document(&created["session"]);
         let paragraphs: Vec<Value> = items(&document["paragraphs"])
             .iter()
             .skip(3)
             .take(4)
-            .map(|paragraph| json!([paragraph["text"], if paragraph["list"]["kind"].as_str().is_some_and(|kind| !kind.is_empty()) { paragraph["list"]["kind"].clone() } else { Value::Null }, paragraph["style"]]))
+            .map(|paragraph| {
+                json!([
+                    paragraph["text"],
+                    if paragraph["list"]["kind"].as_str().is_some_and(|kind| !kind.is_empty()) { paragraph["list"]["kind"].clone() } else { Value::Null },
+                    paragraph["style"]
+                ])
+            })
             .collect();
         live.close(&created["session"]);
         let xml = live.package(&name).text("word/document.xml");
@@ -177,7 +184,8 @@ fn word_placed_list_items_hung_clauses_set_paragraph_format_lists_and_a_contents
             .map(|text| {
                 let paragraph = find(text);
                 let indent = capture(r"<w:ind\b([^>]*)/>", "", &paragraph, 1).unwrap_or_default();
-                let read = |name: &str| capture(&format!(r#"\bw:{name}="(\d+)""#), "", &indent, 1).and_then(|digits| digits.parse::<f64>().ok()).unwrap_or(f64::NAN);
+                let read =
+                    |name: &str| capture(&format!(r#"\bw:{name}="(\d+)""#), "", &indent, 1).and_then(|digits| digits.parse::<f64>().ok()).unwrap_or(f64::NAN);
                 // Word leaves out a hang the item's list already gives it (18 pt on both backends' lists).
                 let mut hanging = if matches(r"<w:numPr>", "", &paragraph) { 360.0 } else { 0.0 };
                 if matches(r"\bw:hanging=", "", &indent) {
@@ -196,7 +204,12 @@ fn word_placed_list_items_hung_clauses_set_paragraph_format_lists_and_a_contents
     assert_eq!(word["indents"], json!([[360, 360], [600, 360], [360, 360]]));
     assert_eq!(
         word["paragraphs"],
-        json!([["①\t걸린 조항", null, "Normal"], ["상자 안의 항목", "bullet", "ListParagraph"], ["목록이 될 문단", "number", "Normal"], ["목록에서 뺄 문단", null, "ListParagraph"]])
+        json!([
+            ["①\t걸린 조항", null, "Normal"],
+            ["상자 안의 항목", "bullet", "ListParagraph"],
+            ["목록이 될 문단", "number", "Normal"],
+            ["목록에서 뺄 문단", null, "ListParagraph"]
+        ])
     );
     assert_eq!(word, read("portable"));
 }
@@ -244,7 +257,8 @@ fn word_a_korean_list_counts_1_ga_1_any_other_1_a_i_and_lists_join_and_open_as_t
             .collect();
         let level_of = |num_id: &str, level: &str| -> String {
             let abstract_id = abstract_of.get(num_id).cloned().unwrap_or_else(|| "undefined".to_owned());
-            let found = capture(&format!(r#"<w:abstractNum\b[^>]*\bw:abstractNumId="{abstract_id}"[^>]*>[\s\S]*?</w:abstractNum>"#), "", &numbering, 0).unwrap_or_default();
+            let found = capture(&format!(r#"<w:abstractNum\b[^>]*\bw:abstractNumId="{abstract_id}"[^>]*>[\s\S]*?</w:abstractNum>"#), "", &numbering, 0)
+                .unwrap_or_default();
             let lvl = capture(&format!(r#"<w:lvl\b[^>]*\bw:ilvl="{level}"[^>]*>[\s\S]*?</w:lvl>"#), "", &found, 0).unwrap_or_default();
             format!(
                 "{} {}",
@@ -256,7 +270,13 @@ fn word_a_korean_list_counts_1_ga_1_any_other_1_a_i_and_lists_join_and_open_as_t
         // with, the ids themselves being each writer's own.
         let entries: Vec<(String, Option<String>, String)> = all_matches(r"<w:p[ >][\s\S]*?</w:p>", &document)
             .iter()
-            .map(|xml| (paragraph_text(xml), capture(r#"<w:numId w:val="(\d+)""#, "", xml, 1), capture(r#"<w:ilvl w:val="(\d+)""#, "", xml, 1).unwrap_or_else(|| "0".to_owned())))
+            .map(|xml| {
+                (
+                    paragraph_text(xml),
+                    capture(r#"<w:numId w:val="(\d+)""#, "", xml, 1),
+                    capture(r#"<w:ilvl w:val="(\d+)""#, "", xml, 1).unwrap_or_else(|| "0".to_owned()),
+                )
+            })
             .filter(|entry| !entry.0.is_empty())
             .collect();
         let mut first_of: HashMap<String, String> = HashMap::new();
@@ -304,7 +324,8 @@ fn word_a_korean_list_counts_1_ga_1_any_other_1_a_i_and_lists_join_and_open_as_t
 fn word_a_background_word_session_writes_the_header_the_picture_and_the_page_number_where_the_portable_writer_does() {
     let Some(live) = Live::start() else { return };
     let picture = live.path("dot.png");
-    std::fs::write(&picture, base64_decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==")).expect("the picture");
+    std::fs::write(&picture, base64_decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="))
+        .expect("the picture");
     let created = live.create(
         "stories.docx",
         "docx",
@@ -378,9 +399,19 @@ fn word_a_background_word_session_reports_and_settles_a_redline_like_the_portabl
     assert!(tracked.iter().all(|paragraph| items(&paragraph["revisions"]).len() == 2));
     // A revision in a table names its cell, as the portable reader does, not the body-wide paragraph count Word keeps.
     let at: Vec<Value> = items(&before["revisions"]).iter().map(|revision| revision["at"].clone()).collect();
-    let expected = vec![tracked[0]["path"].clone(), tracked[0]["path"].clone(), tracked[1]["path"].clone(), tracked[1]["path"].clone(), json!("/body/tbl[1]/row[2]/cell[2]"), json!("/body/tbl[1]/row[2]/cell[2]")];
+    let expected = vec![
+        tracked[0]["path"].clone(),
+        tracked[0]["path"].clone(),
+        tracked[1]["path"].clone(),
+        tracked[1]["path"].clone(),
+        json!("/body/tbl[1]/row[2]/cell[2]"),
+        json!("/body/tbl[1]/row[2]/cell[2]"),
+    ];
     assert_eq!(at, expected);
-    assert_eq!(before["revisionAuthors"], json!([{ "author": "Alice", "insertions": 1, "deletions": 1 }, { "author": "Bob", "insertions": 2, "deletions": 2 }]));
+    assert_eq!(
+        before["revisionAuthors"],
+        json!([{ "author": "Alice", "insertions": 1, "deletions": 1 }, { "author": "Bob", "insertions": 2, "deletions": 2 }])
+    );
     let cells = &before["tables"][0]["rows"][1]["cells"];
     assert_eq!(json!([cells[1]["text"], cells[1]["deletedText"], cells[1]["tracked"]]), json!(["new", "old", true]));
     assert!(cells[0]["tracked"].is_null(), "a revision touching only the neighbouring cell does not flag this one");
@@ -392,11 +423,13 @@ fn word_a_background_word_session_reports_and_settles_a_redline_like_the_portabl
     }));
     assert_eq!(nobody["results"][0]["changed"], false);
     assert!(matches(r#""Alice", "Bob""#, "", nobody["results"][0]["note"].as_str().unwrap_or_default()));
-    let bob = live.call(json!({ "action": "batch", "session": session, "operations": [{ "op": "resolve_revisions", "resolution": "accept", "author": "Bob" }] }));
+    let bob =
+        live.call(json!({ "action": "batch", "session": session, "operations": [{ "op": "resolve_revisions", "resolution": "accept", "author": "Bob" }] }));
     assert_eq!(bob["results"][0]["resolved"], 4);
     let after = live.document(&session);
     assert_eq!(after["revisionAuthors"], json!([{ "author": "Alice", "insertions": 1, "deletions": 1 }]));
-    let texts: Vec<Value> = items(&after["paragraphs"]).iter().filter(|paragraph| super::truthy(&paragraph["tracked"])).map(|paragraph| paragraph["text"].clone()).collect();
+    let texts: Vec<Value> =
+        items(&after["paragraphs"]).iter().filter(|paragraph| super::truthy(&paragraph["tracked"])).map(|paragraph| paragraph["text"].clone()).collect();
     assert_eq!(Value::Array(texts), json!(["Alpha uno."]));
     let cell = &after["tables"][0]["rows"][1]["cells"][1];
     assert_eq!(json!([cell["text"], cell["tracked"]]), json!(["new", null]));
@@ -410,10 +443,16 @@ fn word_move_paragraph_moves_the_paragraph_instead_of_deleting_it() {
     let operations: Vec<Value> = ["A", "B", "C", "D"].iter().map(|text| json!({ "op": "append_text", "text": text })).collect();
     let created = live.create("move.docx", "docx", "background", Value::Array(operations));
     let texts = || -> Vec<String> {
-        items(&live.document(&created["session"])["paragraphs"]).iter().map(|paragraph| paragraph["text"].as_str().unwrap_or_default().to_owned()).filter(|text| !text.is_empty()).collect()
+        items(&live.document(&created["session"])["paragraphs"])
+            .iter()
+            .map(|paragraph| paragraph["text"].as_str().unwrap_or_default().to_owned())
+            .filter(|text| !text.is_empty())
+            .collect()
     };
     let moved = |paragraph: i64, index: i64| {
-        live.call(json!({ "action": "batch", "session": created["session"], "operations": [{ "op": "move_paragraph", "paragraph": paragraph, "index": index }] }));
+        live.call(
+            json!({ "action": "batch", "session": created["session"], "operations": [{ "op": "move_paragraph", "paragraph": paragraph, "index": index }] }),
+        );
     };
     // Before the index-th paragraph that remains, or after the last one, as the portable writer moves it.
     moved(4, 2);
@@ -469,7 +508,11 @@ fn word_a_page_or_column_break_stands_in_a_plain_paragraph_of_its_own_as_the_por
         );
         let document = live.document(&created["session"]);
         live.close(&created["session"]);
-        items(&document["paragraphs"]).iter().take(3).map(|paragraph| format!("{}:{}", paragraph["text"].as_str().unwrap_or_default(), paragraph["style"].as_str().unwrap_or_default())).collect()
+        items(&document["paragraphs"])
+            .iter()
+            .take(3)
+            .map(|paragraph| format!("{}:{}", paragraph["text"].as_str().unwrap_or_default(), paragraph["style"].as_str().unwrap_or_default()))
+            .collect()
     };
     for kind in ["page", "column"] {
         let word = broken("background", kind);
@@ -502,7 +545,12 @@ fn word_set_list_numbers_and_nests_items_at_the_level_asked_as_the_portable_writ
         let document = live.document(&created["session"]);
         live.close(&created["session"]);
         let shown = |value: &Value| if value.is_null() { "undefined".to_owned() } else { value.as_str().map_or_else(|| value.to_string(), str::to_owned) };
-        items(&document["paragraphs"]).iter().skip(1).take(3).map(|paragraph| format!("{}:{}:{}", shown(&paragraph["text"]), shown(&paragraph["list"]["kind"]), shown(&paragraph["list"]["level"]))).collect()
+        items(&document["paragraphs"])
+            .iter()
+            .skip(1)
+            .take(3)
+            .map(|paragraph| format!("{}:{}:{}", shown(&paragraph["text"]), shown(&paragraph["list"]["kind"]), shown(&paragraph["list"]["level"])))
+            .collect()
     };
     let word = listed("background");
     assert_eq!(word, ["접수:number:0", "분류:number:0", "야간 분류:number:1"]);
@@ -526,7 +574,8 @@ fn word_a_column_inserted_one_past_the_last_lands_at_the_end_and_one_further_is_
                 { "op": "set_table_cell", "table": 1, "row": 1, "col": 3, "text": "증가율" }
             ]),
         );
-        let refused = live.raw(json!({ "action": "batch", "session": created["session"], "operations": [{ "op": "insert_table_column", "table": 1, "column": 5 }] }));
+        let refused =
+            live.raw(json!({ "action": "batch", "session": created["session"], "operations": [{ "op": "insert_table_column", "table": 1, "column": 5 }] }));
         let document = live.document(&created["session"]);
         live.close(&created["session"]);
         let table = &document["tables"][0];
@@ -591,7 +640,8 @@ fn word_two_tables_added_in_a_row_stay_two_tables() {
 fn word_appended_blocks_read_as_the_portable_writer_lays_them_out() {
     let Some(live) = Live::start() else { return };
     let picture = live.path("dot.png");
-    std::fs::write(&picture, base64_decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==")).expect("the picture");
+    std::fs::write(&picture, base64_decode("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=="))
+        .expect("the picture");
     let operations = json!([
         { "op": "append_text", "text": "제목", "style": "Heading 1" },
         { "op": "append_text", "text": "항목", "properties": { "listKind": "bullet" } },
@@ -613,7 +663,14 @@ fn word_appended_blocks_read_as_the_portable_writer_lays_them_out() {
     for mode in ["portable", "background"] {
         let created = live.create(&format!("{mode}.docx"), "docx", mode, operations.clone());
         let document = live.document(&created["session"]);
-        read.insert(mode, items(&document["paragraphs"]).iter().filter(|paragraph| !super::truthy(&paragraph["inTable"])).map(|paragraph| paragraph["text"].clone()).collect());
+        read.insert(
+            mode,
+            items(&document["paragraphs"])
+                .iter()
+                .filter(|paragraph| !super::truthy(&paragraph["inTable"]))
+                .map(|paragraph| paragraph["text"].clone())
+                .collect(),
+        );
         sections.insert(mode, document["sections"].clone());
         live.close(&created["session"]);
     }
@@ -623,7 +680,9 @@ fn word_appended_blocks_read_as_the_portable_writer_lays_them_out() {
     assert_eq!(sections["background"], sections["portable"]);
     let stories: Vec<Value> = items(&sections["portable"])
         .iter()
-        .map(|section| Value::Array(items(&section["stories"]).iter().map(|story| json!([story["location"], story["text"], story["linkToPrevious"] == true])).collect()))
+        .map(|section| {
+            Value::Array(items(&section["stories"]).iter().map(|story| json!([story["location"], story["text"], story["linkToPrevious"] == true])).collect())
+        })
         .collect();
     assert_eq!(
         Value::Array(stories),
@@ -648,7 +707,8 @@ fn word_consecutive_paragraphs_append_as_one_block_and_read_back_one_by_one_in_t
     };
     // compose_document names Normal on its list items, and the portable writer keeps it; Word moved them to List Paragraph, whose
     // contextual spacing took away each item's spacing. An item naming no style takes List Paragraph on both paths.
-    let bullet = |text: &str| json!({ "op": "append_text", "text": text, "style": "Normal", "properties": with(json!({ "spacingAfter": 3, "listKind": "bullet" })) });
+    let bullet =
+        |text: &str| json!({ "op": "append_text", "text": text, "style": "Normal", "properties": with(json!({ "spacingAfter": 3, "listKind": "bullet" })) });
     let operations = json!([
         { "op": "append_text", "text": "현황", "style": "Heading 1" },
         { "op": "append_text", "text": "첫째 문단입니다.", "properties": body },
@@ -672,12 +732,22 @@ fn word_consecutive_paragraphs_append_as_one_block_and_read_back_one_by_one_in_t
             mode,
             items(&document["paragraphs"])
                 .iter()
-                .map(|paragraph| json!([paragraph["text"], paragraph["list"]["kind"].as_str().unwrap_or(""), paragraph["font"]["size"], paragraph["style"], super::truthy(&paragraph["font"]["bold"])]))
+                .map(|paragraph| {
+                    json!([
+                        paragraph["text"],
+                        paragraph["list"]["kind"].as_str().unwrap_or(""),
+                        paragraph["font"]["size"],
+                        paragraph["style"],
+                        super::truthy(&paragraph["font"]["bold"])
+                    ])
+                })
                 .collect(),
         );
         live.close(&created["session"]);
     }
-    let column = |mode: &str, indexes: &[usize], skip: usize| -> Vec<Value> { read[mode].iter().skip(skip).map(|entry| Value::Array(indexes.iter().map(|at| entry[*at].clone()).collect())).collect() };
+    let column = |mode: &str, indexes: &[usize], skip: usize| -> Vec<Value> {
+        read[mode].iter().skip(skip).map(|entry| Value::Array(indexes.iter().map(|at| entry[*at].clone()).collect())).collect()
+    };
     assert_eq!(column("background", &[0, 1], 0), column("portable", &[0, 1], 0));
     let sizes: Vec<Value> = read["background"].iter().skip(1).map(|entry| entry[2].clone()).collect();
     assert_eq!(Value::Array(sizes), json!([10.5, 10.5, 10.5, 10.5, 10.5, 10.5, 10.5, 12]));
@@ -726,10 +796,7 @@ fn word_excel_an_unlabelled_picture_is_reported_on_the_office_backend_as_it_is_p
     let picture = live.path("logo.png");
     std::fs::write(&picture, png_pixel()).expect("the picture");
     let placed = [
-        (
-            "docx",
-            json!([{ "op": "append_text", "text": "로고" }, { "op": "add_image", "path": picture, "width": 40 }]),
-        ),
+        ("docx", json!([{ "op": "append_text", "text": "로고" }, { "op": "add_image", "path": picture, "width": 40 }])),
         (
             "xlsx",
             json!([{ "op": "set_cell", "sheet": "Sheet1", "cell": "A1", "value": "로고" }, { "op": "add_image", "sheet": "Sheet1", "path": picture, "cell": "C2", "width": 40 }]),
@@ -820,7 +887,11 @@ fn word_a_row_or_table_the_document_lacks_is_refused_with_the_tables_it_holds_as
     };
     let (messages, rows) = refusals("background");
     let message = |at: usize| messages[at].clone().unwrap_or_default();
-    assert!(matches(r#"DOCX table 1 is 2×2 starting "184,200건", so it has no row 4: insert_table_row row is the position the new row takes, 1 to 3"#, "", &message(0)));
+    assert!(matches(
+        r#"DOCX table 1 is 2×2 starting "184,200건", so it has no row 4: insert_table_row row is the position the new row takes, 1 to 3"#,
+        "",
+        &message(0)
+    ));
     assert!(matches(r#"DOCX table 1 is 2×2 starting "184,200건", so it has no row 5$"#, "", &message(1)));
     assert!(matches(r#"DOCX table 3 not found: the document holds 2 table\(s\) \(1: 2×2 starting "184,200건"; 2: 4×2 starting "권역"\)"#, "", &message(2)));
     assert_eq!(rows, 5);
@@ -850,7 +921,9 @@ fn word_a_two_level_header_merges_right_to_left_and_a_shifted_cell_is_explained(
         ]),
     );
     assert_eq!(items(&created["batch"]["results"]).iter().filter(|entry| entry["op"] == "merge_table_cells").count(), 3);
-    let message = live.refused(json!({ "action": "batch", "session": created["session"], "operations": [{ "op": "set_table_cell", "table": 1, "row": 1, "col": 5, "text": "지연" }] }));
+    let message = live.refused(
+        json!({ "action": "batch", "session": created["session"], "operations": [{ "op": "set_table_cell", "table": 1, "row": 1, "col": 5, "text": "지연" }] }),
+    );
     assert!(matches(r"row 1 holds 3 cell\(s\)[\s\S]*merge a row from its right end first", "", &message), "{message}");
     live.close(&created["session"]);
     // Both header rows are the header, as the portable writer sets them: bold, on their bottom edge, and repeated.

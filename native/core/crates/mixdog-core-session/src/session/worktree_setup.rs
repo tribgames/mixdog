@@ -94,8 +94,7 @@ impl WorktreeSetup {
             object.insert("sessionId".into(), session_id.into());
             object.insert("cwd".into(), cwd.into());
         }
-        let listeners: Vec<SetupListener> =
-            self.listeners.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().map(|(_, l)| l.clone()).collect();
+        let listeners: Vec<SetupListener> = self.listeners.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().map(|(_, l)| l.clone()).collect();
         for listener in listeners {
             let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| listener(value.clone())));
         }
@@ -148,11 +147,8 @@ impl WorktreeSetup {
             Ok(plan) => {
                 dependency_notes = plan.notes;
                 if !plan.commands.is_empty() {
-                    installs = Some(
-                        self.runner
-                            .run(plan.commands, cancel, &RunOptions::default(), &mut |event| self.emit(&event, &id, session_id, &here.cwd))
-                            .await,
-                    );
+                    installs =
+                        Some(self.runner.run(plan.commands, cancel, &RunOptions::default(), &mut |event| self.emit(&event, &id, session_id, &here.cwd)).await);
                 }
             }
             Err(error) => {
@@ -164,7 +160,15 @@ impl WorktreeSetup {
         Ok(self.finish(&root, &claimed.prepared, &dependency_notes, installs.as_ref(), &notes, cancel.is_cancelled()))
     }
 
-    fn finish(&self, root: &str, prepared: &Option<Value>, dependency_notes: &[String], installs: Option<&SetupReport>, notes: &[String], cancelled: bool) -> SetupRun {
+    fn finish(
+        &self,
+        root: &str,
+        prepared: &Option<Value>,
+        dependency_notes: &[String],
+        installs: Option<&SetupReport>,
+        notes: &[String],
+        cancelled: bool,
+    ) -> SetupRun {
         let content = worktree_preparation_note(&PreparationReport { root, prepared: prepared.as_ref(), dependency_notes, installs, notes });
         SetupRun { notice: Some(SetupNotice { revision: now_ms(), content }), cancelled }
     }

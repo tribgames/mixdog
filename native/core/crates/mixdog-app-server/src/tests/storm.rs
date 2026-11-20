@@ -57,12 +57,7 @@ struct CountingView {
 }
 
 impl FeedView for CountingView {
-    fn encode_snapshot(
-        &self,
-        lane: &InLane<CpuInteractive>,
-        at: FeedPosition,
-        window: &Window,
-    ) -> Bytes {
+    fn encode_snapshot(&self, lane: &InLane<CpuInteractive>, at: FeedPosition, window: &Window) -> Bytes {
         self.encodes.fetch_add(1, Ordering::AcqRel);
         EchoView.encode_snapshot(lane, at, window)
     }
@@ -96,12 +91,7 @@ fn resume(class: usize) -> Resume {
         start_seq: seq + 1,
         lane_frames: (seq + 1..=HEAD).map(|n| format!("evt@{n}")).collect(),
     };
-    let snapshot = |from: Value| Resume {
-        from,
-        mode: "snapshot",
-        start_seq: HEAD + 1,
-        lane_frames: vec![format!("snapshot@{HEAD}")],
-    };
+    let snapshot = |from: Value| Resume { from, mode: "snapshot", start_seq: HEAD + 1, lane_frames: vec![format!("snapshot@{HEAD}")] };
     match class {
         0 => replay(HEAD),
         1 => replay(HISTORY),
@@ -113,21 +103,11 @@ fn resume(class: usize) -> Resume {
 
 /// One client reconnecting: it resumes `thread` from the position of its `class` and checks the
 /// answer. Returns the live connection.
-async fn reconnect(
-    rig: Arc<Rig>,
-    n: u64,
-    thread: usize,
-    class: usize,
-    connected: Arc<AtomicUsize>,
-) -> Client {
+async fn reconnect(rig: Arc<Rig>, n: u64, thread: usize, class: usize, connected: Arc<AtomicUsize>) -> Client {
     let client = rig.ready(1_000 + n, json!({}));
     connected.fetch_add(1, Ordering::AcqRel);
     let expected = resume(class);
-    client.request(
-        1,
-        "thread/resume",
-        json!({ "threadId": format!("t{thread}"), "window": window(), "resumeFrom": expected.from }),
-    );
+    client.request(1, "thread/resume", json!({ "threadId": format!("t{thread}"), "window": window(), "resumeFrom": expected.from }));
     let frames = client.frames(1 + expected.lane_frames.len()).await;
     let subscription = &frames[0].body["result"]["subscription"];
     assert_eq!(subscription["mode"], json!(expected.mode), "client {n} class {class}");
@@ -149,28 +129,15 @@ async fn g5_reconnect_storm_replays_by_position_loads_once_and_keeps_its_bounds(
         let feed: Arc<dyn FeedSource> = thread.feed().clone();
         // The thread answers a resume with its feed and the position the client stated.
         thread.set_handler(Arc::new(move |req: &CoreRequest| {
-            let resume_from = req.params.get("resumeFrom").map(|position| ResumeFrom {
-                position: serde_json::from_value(position.clone()).expect("a feed position"),
-                window: Window::LastItems(10),
-            });
-            Ok(Reply::Subscribe(Subscribe {
-                result: json!({}),
-                feed: feed.clone(),
-                window: Window::LastItems(10),
-                resume_from,
-            }))
+            let resume_from = req
+                .params
+                .get("resumeFrom")
+                .map(|position| ResumeFrom { position: serde_json::from_value(position.clone()).expect("a feed position"), window: Window::LastItems(10) });
+            Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: feed.clone(), window: Window::LastItems(10), resume_from }))
         }));
         let counter = Arc::new(AtomicUsize::new(0));
         let history: Vec<_> = (1..=HISTORY).map(event).collect();
-        thread
-            .feed()
-            .publish(
-                &history,
-                Some(Arc::new(CountingView {
-                    encodes: counter.clone(),
-                })),
-            )
-            .unwrap();
+        thread.feed().publish(&history, Some(Arc::new(CountingView { encodes: counter.clone() }))).unwrap();
         let handle: Arc<dyn ThreadHandle> = thread.clone();
         rig.core.cold(&id, move || handle.clone());
         threads.push(thread);
@@ -182,11 +149,7 @@ async fn g5_reconnect_storm_replays_by_position_loads_once_and_keeps_its_bounds(
     let mut first = Vec::new();
     for n in 0..CLIENTS {
         let client = rig.ready(n + 1, json!({}));
-        client.request(
-            1,
-            "thread/resume",
-            json!({ "threadId": format!("t{}", n as usize % THREADS), "window": window() }),
-        );
+        client.request(1, "thread/resume", json!({ "threadId": format!("t{}", n as usize % THREADS), "window": window() }));
         first.push(client);
     }
     for client in &first {
@@ -223,11 +186,11 @@ async fn g5_reconnect_storm_replays_by_position_loads_once_and_keeps_its_bounds(
     aborter.request(7, "turn/interrupt", json!({ "threadId": "t0", "turnId": "turn1" }));
     let reply = aborter.response(7).await;
     let abort_took = asked.elapsed();
-    assert_eq!(reply["result"], json!({ "cancelRequested": true, "turnId": "turn1", "aborted": true, "restoreText": "", "pastedImages": null, "pastedTexts": null, "discardPastedImages": null, "discardPastedTexts": null, "restoredSubmissionIds": [] }));
-    assert!(
-        abort_took <= ABORT_REPLY_WITHIN,
-        "the abort reply took {abort_took:?} during the storm"
+    assert_eq!(
+        reply["result"],
+        json!({ "cancelRequested": true, "turnId": "turn1", "aborted": true, "restoreText": "", "pastedImages": null, "pastedTexts": null, "discardPastedImages": null, "discardPastedTexts": null, "restoredSubmissionIds": [] })
     );
+    assert!(abort_took <= ABORT_REPLY_WITHIN, "the abort reply took {abort_took:?} during the storm");
 
     let mut again = Vec::new();
     for task in tasks {
@@ -256,8 +219,5 @@ async fn g5_reconnect_storm_replays_by_position_loads_once_and_keeps_its_bounds(
         assert_eq!(lanes(&client.drain()), [format!("evt@{}", HEAD + 1)]);
     }
     let live_after = storm.elapsed();
-    assert!(
-        live_after <= SUBSCRIPTIONS_LIVE_WITHIN,
-        "subscriptions were live after {live_after:?}"
-    );
+    assert!(live_after <= SUBSCRIPTIONS_LIVE_WITHIN, "subscriptions were live after {live_after:?}");
 }

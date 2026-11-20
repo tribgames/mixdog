@@ -11,13 +11,17 @@ use serde_json::{Map, Value, json};
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
-use super::quality::{Row, cycle1_source_budget, partition_cycle1_rows, InvalidChunk};
-use crate::bots::delivery::env::RetryTimer;
-use super::requests::{RetryRunner, RetryTimers, consume_cycle_requests, mark_cycle_request, resolve_coalesce_max_drains, resolve_coalesce_max_retries, spawn_in};
-use super::rows::{MAX_PACKETS, PACKET_MAX_ROWS, PlanOptions, count_pending_rows, count_raw_unchunked_rows, fetch_cycle1_rows, group_rows_by_session, resolve_cycle1_plan};
+use super::quality::{InvalidChunk, Row, cycle1_source_budget, partition_cycle1_rows};
+use super::requests::{
+    RetryRunner, RetryTimers, consume_cycle_requests, mark_cycle_request, resolve_coalesce_max_drains, resolve_coalesce_max_retries, spawn_in,
+};
+use super::rows::{
+    MAX_PACKETS, PACKET_MAX_ROWS, PlanOptions, count_pending_rows, count_raw_unchunked_rows, fetch_cycle1_rows, group_rows_by_session, resolve_cycle1_plan,
+};
 use super::signature::make_cycle_request_signature;
 use super::window::{Timing, WindowEnv, WindowResult, invalid_json, process_cycle1_window};
 use super::{Cycle1Llm, CycleConfig, CycleEmbeddings, log};
+use crate::bots::delivery::env::RetryTimer;
 use crate::memory::error::{MemoryError, Result};
 use crate::memory::ingest::NowMs;
 use crate::memory::pg::db::Db;
@@ -337,7 +341,14 @@ pub struct Cycle1Runner {
 }
 
 impl Cycle1Runner {
-    pub fn new(db: Db, llm: Arc<dyn Cycle1Llm>, embeddings: Arc<dyn CycleEmbeddings>, config: Arc<dyn CycleConfig>, now: NowMs, timer: Arc<dyn RetryTimer>) -> Arc<Self> {
+    pub fn new(
+        db: Db,
+        llm: Arc<dyn Cycle1Llm>,
+        embeddings: Arc<dyn CycleEmbeddings>,
+        config: Arc<dyn CycleConfig>,
+        now: NowMs,
+        timer: Arc<dyn RetryTimer>,
+    ) -> Arc<Self> {
         let retries = RetryTimers::new(timer, db.scope().clone());
         Arc::new(Self { db, llm, embeddings, config, now, retries, running: Mutex::new(false), logged_at: Mutex::default() })
     }
@@ -389,15 +400,8 @@ impl Cycle1Runner {
 
     fn schedule_retry(self: &Arc<Self>, config: &Value, options: &Cycle1Options, signature: &str) {
         let (runner, config_owned) = (Arc::clone(self), config.clone());
-        let next = Cycle1Options {
-            cancel: CancellationToken::new(),
-            coalesced_retry: true,
-            retry_attempt: options.retry_attempt + 1,
-            ..options.clone()
-        };
-        let job: RetryRunner = Box::new(move || {
-            Box::pin(async move { runner.run_cycle1(config_owned, next).await.map(|_| ()).map_err(|e| e.message()) })
-        });
+        let next = Cycle1Options { cancel: CancellationToken::new(), coalesced_retry: true, retry_attempt: options.retry_attempt + 1, ..options.clone() };
+        let job: RetryRunner = Box::new(move || Box::pin(async move { runner.run_cycle1(config_owned, next).await.map(|_| ()).map_err(|e| e.message()) }));
         if let Err(error) = self.retries.schedule("cycle1", signature, config, job) {
             log(&format!("[cycle1] retry not scheduled: {}\n", error.message()));
         }
@@ -560,7 +564,13 @@ impl Cycle1Runner {
         let too_few = pending.is_some_and(|p| (p as f64) < plan.min_batch) && !bypass;
         if too_few || rows_desc.is_empty() {
             let show = |n: Option<i64>| n.map_or("na".to_owned(), |n| n.to_string());
-            log(&format!("[cycle1] quick-exit pending={} eligible={} due={} min_batch={}\n", show(raw), show(pending), rows_desc.len(), number_to_string(plan.min_batch)));
+            log(&format!(
+                "[cycle1] quick-exit pending={} eligible={} due={} min_batch={}\n",
+                show(raw),
+                show(pending),
+                rows_desc.len(),
+                number_to_string(plan.min_batch)
+            ));
             aborted()?;
             self.flush_after(cancel, true);
             return Ok(empty_result(pending));

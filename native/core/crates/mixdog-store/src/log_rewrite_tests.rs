@@ -43,8 +43,12 @@ fn write_log(data: &Path) -> Digest {
     frame(&mut first, 1, item("a", &format!("{SECRET} is the code")));
     let context = frame(&mut first, 2, item("b", "sign in"));
     let mut second = Vec::new();
-    frame(&mut second, 3, json!({"k":"checkpoint","state":{"inline":{"log_id":LOG_ID,"covers_ordinal":3,"history_rev":0,"rows":2,
-        "visible_rows":2,"context":{"ordinal":2,"file_no":0,"offset":context},"runs":[],"approvals":[],"queue":[],"header":{"title":"t"}}}}));
+    frame(
+        &mut second,
+        3,
+        json!({"k":"checkpoint","state":{"inline":{"log_id":LOG_ID,"covers_ordinal":3,"history_rev":0,"rows":2,
+        "visible_rows":2,"context":{"ordinal":2,"file_no":0,"offset":context},"runs":[],"approvals":[],"queue":[],"header":{"title":"t"}}}}),
+    );
     frame(&mut second, 4, item("c", &format!("yes, {SECRET} was accepted")));
     let long = format!("{} {SECRET}", "x".repeat(mixdog_protocol::INLINE_MAX));
     let digest = blob_frame(data, &mut second, 5, item("d", &long));
@@ -93,8 +97,6 @@ fn last_record(data: &Path) -> Record {
         }
     }
 }
-
-
 
 fn rewritten(data: &Path) {
     let blobs = BlobStore::new(data);

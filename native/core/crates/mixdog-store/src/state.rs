@@ -51,16 +51,9 @@ impl OpRowState {
     }
 
     fn parse(s: &str) -> Option<Self> {
-        [
-            OpRowState::InProgress,
-            OpRowState::Applied,
-            OpRowState::Rejected,
-            OpRowState::Fenced,
-            OpRowState::ExternalPending,
-            OpRowState::ExternalUnknown,
-        ]
-        .into_iter()
-        .find(|v| v.as_str() == s)
+        [OpRowState::InProgress, OpRowState::Applied, OpRowState::Rejected, OpRowState::Fenced, OpRowState::ExternalPending, OpRowState::ExternalUnknown]
+            .into_iter()
+            .find(|v| v.as_str() == s)
     }
 }
 
@@ -128,9 +121,7 @@ impl StateTx<'_> {
     /// Writes the room document (JSON text).
     pub fn put_room(&self, room_id: &str, doc: &str) -> Result<(), DbError> {
         self.tx
-            .prepare_cached(
-                "INSERT INTO rooms (room_id, doc) VALUES (?1, ?2) ON CONFLICT(room_id) DO UPDATE SET doc = excluded.doc",
-            )?
+            .prepare_cached("INSERT INTO rooms (room_id, doc) VALUES (?1, ?2) ON CONFLICT(room_id) DO UPDATE SET doc = excluded.doc")?
             .execute([room_id, doc])?;
         Ok(())
     }
@@ -141,11 +132,7 @@ impl StateTx<'_> {
 
     /// `meta` key/value (`job:<id>` cursors, `migration:<item key>`).
     pub fn put_meta(&self, key: &str, value: &str) -> Result<(), DbError> {
-        self.tx
-            .prepare_cached(
-                "INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value",
-            )?
-            .execute([key, value])?;
+        self.tx.prepare_cached("INSERT INTO meta (key, value) VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value = excluded.value")?.execute([key, value])?;
         Ok(())
     }
 
@@ -165,10 +152,7 @@ impl StateTx<'_> {
 
     /// Deletes every `meta` entry whose key starts with `prefix`; returns how many.
     pub fn delete_meta_prefix(&self, prefix: &str) -> Result<usize, DbError> {
-        Ok(self
-            .tx
-            .prepare_cached("DELETE FROM meta WHERE key >= ?1 AND key < ?2")?
-            .execute([prefix, &prefix_end(prefix)])?)
+        Ok(self.tx.prepare_cached("DELETE FROM meta WHERE key >= ?1 AND key < ?2")?.execute([prefix, &prefix_end(prefix)])?)
     }
 
     /// Writes `row` for `(scope, op_id)`, replacing any record of it.
@@ -182,16 +166,7 @@ impl StateTx<'_> {
                    outcome = excluded.outcome, created_at = excluded.created_at,
                    completed_at = excluded.completed_at",
             )?
-            .execute(params![
-                scope,
-                op_id,
-                row.method,
-                row.payload_digest,
-                row.state.as_str(),
-                row.outcome,
-                row.created_at,
-                row.completed_at
-            ])?;
+            .execute(params![scope, op_id, row.method, row.payload_digest, row.state.as_str(), row.outcome, row.created_at, row.completed_at])?;
         Ok(())
     }
 
@@ -427,14 +402,7 @@ pub fn dump_tables(path: &Path) -> Vec<(String, Vec<Vec<String>>)> {
 const PROJECT_SELECT: &str = "SELECT path, alias, hidden, hidden_rank, last_used_at, name FROM projects";
 
 fn project_row(r: &rusqlite::Row<'_>) -> rusqlite::Result<ProjectRow> {
-    Ok(ProjectRow {
-        name: r.get(5)?,
-        path: r.get(0)?,
-        alias: r.get(1)?,
-        hidden: r.get(2)?,
-        hidden_rank: r.get(3)?,
-        last_used_at: r.get(4)?,
-    })
+    Ok(ProjectRow { name: r.get(5)?, path: r.get(0)?, alias: r.get(1)?, hidden: r.get(2)?, hidden_rank: r.get(3)?, last_used_at: r.get(4)? })
 }
 
 /// Cloneable handle on `state/core.sqlite`; the writer thread exits with the last handle.
@@ -486,10 +454,7 @@ impl CoreState {
             // Every page is read once now: a file cut short or damaged below the header would open and then fail table by table.
             let verdict: String = conn.query_row("PRAGMA quick_check(1)", [], |r| r.get(0))?;
             if verdict != "ok" {
-                return Err(DbError::Sqlite(rusqlite::Error::SqliteFailure(
-                    rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT),
-                    Some(verdict),
-                )));
+                return Err(DbError::Sqlite(rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(rusqlite::ffi::SQLITE_CORRUPT), Some(verdict))));
             }
         }
         let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -604,12 +569,7 @@ impl CoreState {
 
     pub async fn project(&self, path: &str) -> Result<Option<ProjectRow>, DbError> {
         let path = path.to_owned();
-        self.read(move |c| {
-            Ok(c.prepare_cached(&format!("{PROJECT_SELECT} WHERE path = ?1"))?
-                .query_row([&path], project_row)
-                .optional()?)
-        })
-        .await
+        self.read(move |c| Ok(c.prepare_cached(&format!("{PROJECT_SELECT} WHERE path = ?1"))?.query_row([&path], project_row).optional()?)).await
     }
 
     /// Every project preference row, by path.
@@ -624,12 +584,7 @@ impl CoreState {
 
     pub async fn room(&self, room_id: &str) -> Result<Option<String>, DbError> {
         let room_id = room_id.to_owned();
-        self.read(move |c| {
-            Ok(c.prepare_cached("SELECT doc FROM rooms WHERE room_id = ?1")?
-                .query_row([&room_id], |r| r.get(0))
-                .optional()?)
-        })
-        .await
+        self.read(move |c| Ok(c.prepare_cached("SELECT doc FROM rooms WHERE room_id = ?1")?.query_row([&room_id], |r| r.get(0)).optional()?)).await
     }
 
     /// Every room `(room_id, doc)`, by id.
@@ -644,12 +599,7 @@ impl CoreState {
 
     pub async fn meta(&self, key: &str) -> Result<Option<String>, DbError> {
         let key = key.to_owned();
-        self.read(move |c| {
-            Ok(c.prepare_cached("SELECT value FROM meta WHERE key = ?1")?
-                .query_row([&key], |r| r.get(0))
-                .optional()?)
-        })
-        .await
+        self.read(move |c| Ok(c.prepare_cached("SELECT value FROM meta WHERE key = ?1")?.query_row([&key], |r| r.get(0)).optional()?)).await
     }
 
     /// Every `meta` entry whose key starts with `prefix`, by key.
@@ -671,9 +621,7 @@ impl CoreState {
                 Ok(OpRow {
                     method: r.get(0)?,
                     payload_digest: r.get(1)?,
-                    state: OpRowState::parse(&state).ok_or_else(|| {
-                        rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, state.into())
-                    })?,
+                    state: OpRowState::parse(&state).ok_or_else(|| rusqlite::Error::FromSqlConversionFailure(2, rusqlite::types::Type::Text, state.into()))?,
                     outcome: r.get(3)?,
                     created_at: r.get(4)?,
                     completed_at: r.get(5)?,
@@ -688,14 +636,9 @@ impl CoreState {
     pub async fn watermark(&self, scope: &str) -> Result<Option<u64>, DbError> {
         let scope = scope.to_owned();
         let text: Option<String> = self
-            .read(move |c| {
-                Ok(c.prepare_cached("SELECT watermark FROM op_watermarks WHERE scope = ?1")?
-                    .query_row([&scope], |r| r.get(0))
-                    .optional()?)
-            })
+            .read(move |c| Ok(c.prepare_cached("SELECT watermark FROM op_watermarks WHERE scope = ?1")?.query_row([&scope], |r| r.get(0)).optional()?))
             .await?;
-        text.map(|t| v7_ms(&t).ok_or_else(|| DbError::Write(format!("watermark {t:?} is not a UUIDv7"))))
-            .transpose()
+        text.map(|t| v7_ms(&t).ok_or_else(|| DbError::Write(format!("watermark {t:?} is not a UUIDv7")))).transpose()
     }
 
     /// The millisecond of the scope's `n`-th newest op (1-based); `None` below `n` ops.
@@ -711,8 +654,7 @@ impl CoreState {
                     .optional()?)
             })
             .await?;
-        id.map(|t| v7_ms(&t).ok_or_else(|| DbError::Write(format!("op id {t:?} is not a UUIDv7"))))
-            .transpose()
+        id.map(|t| v7_ms(&t).ok_or_else(|| DbError::Write(format!("op id {t:?} is not a UUIDv7")))).transpose()
     }
 
     /// Durably reserves `count` values of counter `name` (meta key `seq:<name>`):
@@ -721,11 +663,7 @@ impl CoreState {
     pub async fn reserve_ids(&self, name: &str, count: u64) -> Result<std::ops::Range<u64>, DbError> {
         let key = format!("seq:{name}");
         self.write(move |tx| {
-            let next: Option<String> = tx
-                .tx
-                .prepare_cached("SELECT value FROM meta WHERE key = ?1")?
-                .query_row([&key], |r| r.get(0))
-                .optional()?;
+            let next: Option<String> = tx.tx.prepare_cached("SELECT value FROM meta WHERE key = ?1")?.query_row([&key], |r| r.get(0)).optional()?;
             let start = match next {
                 Some(text) => text.parse::<u64>().map_err(|e| DbError::Write(format!("{key}: {e}")))?,
                 None => 1,
@@ -847,14 +785,7 @@ mod tests {
     }
 
     fn row(state: OpRowState) -> OpRow {
-        OpRow {
-            method: "rooms/update".into(),
-            payload_digest: "sha256:00".into(),
-            state,
-            outcome: None,
-            created_at: 1,
-            completed_at: None,
-        }
+        OpRow { method: "rooms/update".into(), payload_digest: "sha256:00".into(), state, outcome: None, created_at: 1, completed_at: None }
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

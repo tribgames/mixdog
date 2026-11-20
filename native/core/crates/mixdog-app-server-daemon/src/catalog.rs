@@ -65,12 +65,7 @@ pub fn production_http() -> Result<Arc<dyn HttpSend>, CatalogError> {
 /// domain supplies it). The cold start reads no network; the first warm-up runs at Node's boot
 /// delay (`modelCatalogWarmupDelayMs`) and fetches both price tables, through `http`, whatever the disk
 /// holds, then every six hours.
-pub async fn build_catalog(
-    tokens: &LaneTokens,
-    data_dir: &Path,
-    sources: Vec<ModelSource>,
-    http: Arc<dyn HttpSend>,
-) -> Result<CatalogHost, CatalogError> {
+pub async fn build_catalog(tokens: &LaneTokens, data_dir: &Path, sources: Vec<ModelSource>, http: Arc<dyn HttpSend>) -> Result<CatalogHost, CatalogError> {
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let initial = read_snapshot(tokens, data_dir.join("catalogs").join("snapshot.json")).await;
     let service = Arc::new(CatalogService::composed(initial, sources, http, data_dir.to_path_buf(), io).await);
@@ -113,7 +108,8 @@ impl CatalogRefresh for MetadataRefresh {
 /// `MIXDOG_DISABLE_MODEL_CATALOG_WARMUP` turns the loop off.
 fn first_warm_delay(env: &dyn Fn(&str) -> Option<String>) -> Option<Duration> {
     const DEFAULT_MS: f64 = 200.0;
-    let disabled = env("MIXDOG_DISABLE_MODEL_CATALOG_WARMUP").is_some_and(|raw| matches!(mixdog_js::js_trim(&raw).to_lowercase().as_str(), "1" | "true" | "yes" | "on"));
+    let disabled =
+        env("MIXDOG_DISABLE_MODEL_CATALOG_WARMUP").is_some_and(|raw| matches!(mixdog_js::js_trim(&raw).to_lowercase().as_str(), "1" | "true" | "yes" | "on"));
     if disabled {
         return None;
     }
@@ -249,11 +245,7 @@ async fn read_snapshot(tokens: &LaneTokens, path: PathBuf) -> CatalogSnapshot {
     let Ok(job) = tokens.interactive_io.submit(&CancellationToken::new(), move |_lane| std::fs::read(path)) else {
         return CatalogSnapshot::default();
     };
-    job.await
-        .ok()
-        .and_then(Result::ok)
-        .and_then(|bytes| CatalogSnapshot::from_json(&bytes))
-        .unwrap_or_default()
+    job.await.ok().and_then(Result::ok).and_then(|bytes| CatalogSnapshot::from_json(&bytes)).unwrap_or_default()
 }
 
 #[cfg(test)]
@@ -395,6 +387,4 @@ mod tests {
         settle().await;
         assert_eq!(http.0.load(Ordering::SeqCst), 0);
     }
-
-
 }

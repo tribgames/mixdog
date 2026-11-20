@@ -3,10 +3,7 @@
 use mixdog_imaging::avif::{decode_avif, encode_avif};
 use mixdog_imaging::encode::{encode_in_format, encode_jpeg};
 use mixdog_imaging::resize::fit_inside;
-use mixdog_imaging::{
-    Branch, DECODE_PIXEL_LIMIT, ErrorClass, Format, Raster, ResizeOptions, decode, decoded_dimensions, probe,
-    resize_image_buffer,
-};
+use mixdog_imaging::{Branch, DECODE_PIXEL_LIMIT, ErrorClass, Format, Raster, ResizeOptions, decode, decoded_dimensions, probe, resize_image_buffer};
 
 /// A `width` x `height` opaque RGB raster; `colour(x, y)` gives each pixel.
 fn rgb(width: u32, height: u32, colour: impl Fn(u32, u32) -> [u8; 3]) -> Raster {
@@ -280,7 +277,8 @@ mod container {
         let version = iloc[body];
         let (offset_size, length_size) = ((iloc[body + 4] >> 4) as usize, (iloc[body + 4] & 15) as usize);
         let (base_size, index_size) = ((iloc[body + 5] >> 4) as usize, (iloc[body + 5] & 15) as usize);
-        let (count, mut at) = if version < 2 { (u16::from_be_bytes([iloc[body + 6], iloc[body + 7]]) as usize, body + 8) } else { (be32(iloc, body + 6), body + 10) };
+        let (count, mut at) =
+            if version < 2 { (u16::from_be_bytes([iloc[body + 6], iloc[body + 7]]) as usize, body + 8) } else { (be32(iloc, body + 6), body + 10) };
         for _ in 0..count {
             at += if version < 2 { 2 } else { 4 };
             if version >= 1 {
@@ -594,7 +592,18 @@ fn an_svg_nested_past_the_depth_bound_is_refused_not_recursed_into() {
 
 #[test]
 fn file_extensions_name_the_codecs_formats_and_browsers_draw_all_but_tiff() {
-    for (extension, format) in [("png", Format::Png), ("JPG", Format::Jpeg), ("jpeg", Format::Jpeg), ("jfif", Format::Jpeg), ("gif", Format::Gif), ("webp", Format::Webp), ("tif", Format::Tiff), ("TIFF", Format::Tiff), ("svg", Format::Svg), ("avif", Format::Avif)] {
+    for (extension, format) in [
+        ("png", Format::Png),
+        ("JPG", Format::Jpeg),
+        ("jpeg", Format::Jpeg),
+        ("jfif", Format::Jpeg),
+        ("gif", Format::Gif),
+        ("webp", Format::Webp),
+        ("tif", Format::Tiff),
+        ("TIFF", Format::Tiff),
+        ("svg", Format::Svg),
+        ("avif", Format::Avif),
+    ] {
         assert_eq!(Format::from_extension(extension), Some(format), "{extension}");
     }
     for extension in ["bmp", "heic", "txt", ""] {

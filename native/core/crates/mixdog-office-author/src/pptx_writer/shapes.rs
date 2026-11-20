@@ -315,7 +315,8 @@ pub(crate) fn color_element(color: &str, inner: &str) -> String {
     let value = color.replacen('#', "", 1);
     let hex = value.len() == 6 && value.chars().all(|ch| ch.is_ascii_hexdigit());
     let value = if hex || SCHEME_COLORS.contains(&value.as_str()) { value } else { DEFAULT_FONT_COLOR.to_owned() };
-    let (tag, shown) = if value.len() == 6 && value.chars().all(|ch| ch.is_ascii_hexdigit()) { ("srgbClr", value.to_uppercase()) } else { ("schemeClr", value) };
+    let (tag, shown) =
+        if value.len() == 6 && value.chars().all(|ch| ch.is_ascii_hexdigit()) { ("srgbClr", value.to_uppercase()) } else { ("schemeClr", value) };
     if inner.is_empty() { format!("<a:{tag} val=\"{shown}\"/>") } else { format!("<a:{tag} val=\"{shown}\">{inner}</a:{tag}>") }
 }
 
@@ -561,7 +562,18 @@ mod tests {
 
     #[test]
     fn a_shape_without_a_line_writes_an_empty_ln_and_a_no_fill() {
-        let object = ShapeObject::new("rect", ShapeOptions { x: Some(Dim::Number(1.0)), y: Some(Dim::Number(2.0)), w: Some(Dim::Number(3.0)), h: Some(Dim::Number(0.5)), ..ShapeOptions::default() }, 0).expect("shape");
+        let object = ShapeObject::new(
+            "rect",
+            ShapeOptions {
+                x: Some(Dim::Number(1.0)),
+                y: Some(Dim::Number(2.0)),
+                w: Some(Dim::Number(3.0)),
+                h: Some(Dim::Number(0.5)),
+                ..ShapeOptions::default()
+            },
+            0,
+        )
+        .expect("shape");
         let xml = shape_xml(&object, 0, &wide());
         assert!(xml.contains("<p:cNvPr id=\"2\" name=\"Shape 0\"></p:cNvPr>"));
         assert!(xml.contains("<a:off x=\"914400\" y=\"1828800\"/><a:ext cx=\"2743200\" cy=\"457200\"/>"));
@@ -586,7 +598,14 @@ mod tests {
 
     #[test]
     fn a_rounded_corner_and_a_rotation_are_written() {
-        let options = ShapeOptions { w: Some(Dim::Number(2.0)), h: Some(Dim::Number(1.0)), rect_radius: Some(0.25), rotate: Some(15.0), flip_h: true, ..ShapeOptions::default() };
+        let options = ShapeOptions {
+            w: Some(Dim::Number(2.0)),
+            h: Some(Dim::Number(1.0)),
+            rect_radius: Some(0.25),
+            rotate: Some(15.0),
+            flip_h: true,
+            ..ShapeOptions::default()
+        };
         let xml = shape_xml(&ShapeObject::new("roundRect", options, 3).expect("shape"), 1, &wide());
         assert!(xml.contains("name=\"Shape 3\""));
         assert!(xml.contains("<a:xfrm flipH=\"1\" rot=\"900000\">"));
@@ -604,10 +623,15 @@ mod tests {
 
     #[test]
     fn a_picture_shadow_is_corrected_and_closed_by_its_type() {
-        let options = ImageOptions { shadow: Some(Shadow { kind: Some("weird".to_owned()), angle: Some(400.0), color: Some("#112233".to_owned()), ..Shadow::default() }), ..ImageOptions::default() };
+        let options = ImageOptions {
+            shadow: Some(Shadow { kind: Some("weird".to_owned()), angle: Some(400.0), color: Some("#112233".to_owned()), ..Shadow::default() }),
+            ..ImageOptions::default()
+        };
         let object = ImageObject::new(options, "preencoded.png".to_owned(), 1, 0);
         let xml = image_xml(&object, 0, &wide());
-        assert!(xml.contains("<a:outerShdw sx=\"100000\" sy=\"100000\" kx=\"0\" ky=\"0\" algn=\"bl\" rotWithShape=\"0\" blurRad=\"101600\" dist=\"50800\" dir=\"16200000\">"));
+        assert!(xml.contains(
+            "<a:outerShdw sx=\"100000\" sy=\"100000\" kx=\"0\" ky=\"0\" algn=\"bl\" rotWithShape=\"0\" blurRad=\"101600\" dist=\"50800\" dir=\"16200000\">"
+        ));
         assert!(xml.contains("<a:srgbClr val=\"112233\"><a:alpha val=\"75000\"/></a:srgbClr></a:outerShdw>"));
     }
 

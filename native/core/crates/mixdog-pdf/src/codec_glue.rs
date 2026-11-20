@@ -10,10 +10,7 @@
 use std::io::Read;
 use std::sync::Arc;
 
-use mixdog_pdf_codec::security::{
-    CipherTransform, CipherTransformFactory, CryptFilter, CryptFilterMethod, CryptFilterName,
-    EncryptDict, SecurityError,
-};
+use mixdog_pdf_codec::security::{CipherTransform, CipherTransformFactory, CryptFilter, CryptFilterMethod, CryptFilterName, EncryptDict, SecurityError};
 use mixdog_pdf_codec::{CodecError, Filter, PredictorParams, decode_chain};
 
 use crate::error::{PdfError, Result};
@@ -26,42 +23,23 @@ use crate::xref::Xref;
 pub struct CodecFilters;
 
 impl StreamFilters for CodecFilters {
-    fn decode(
-        &self,
-        name: &str,
-        data: &[u8],
-        params: Option<&Dict>,
-        _length: Option<usize>,
-        max_output: usize,
-    ) -> FilterResult {
+    fn decode(&self, name: &str, data: &[u8], params: Option<&Dict>, _length: Option<usize>, max_output: usize) -> FilterResult {
         let filter = match name {
             "Fl" | "FlateDecode" => Filter::from_name(name, predictor_params(params), None),
-            "LZW" | "LZWDecode" => Filter::from_name(
-                name,
-                predictor_params(params),
-                params
-                    .and_then(|p| p.get_raw("EarlyChange"))
-                    .and_then(Obj::as_num)
-                    .map(|n| n as i64),
-            ),
-            "A85" | "ASCII85Decode" | "AHx" | "ASCIIHexDecode" | "RL" | "RunLengthDecode" => {
-                Filter::from_name(name, None, None)
+            "LZW" | "LZWDecode" => {
+                Filter::from_name(name, predictor_params(params), params.and_then(|p| p.get_raw("EarlyChange")).and_then(Obj::as_num).map(|n| n as i64))
             }
+            "A85" | "ASCII85Decode" | "AHx" | "ASCIIHexDecode" | "RL" | "RunLengthDecode" => Filter::from_name(name, None, None),
             "BrotliDecode" => return brotli_decode(data, max_output).map(Some),
-            "DCT" | "DCTDecode" | "JPX" | "JPXDecode" | "CCF" | "CCITTFaxDecode"
-            | "JBIG2Decode" => {
+            "DCT" | "DCTDecode" | "JPX" | "JPXDecode" | "CCF" | "CCITTFaxDecode" | "JBIG2Decode" => {
                 if data.len() > max_output {
-                    return Err(PdfError::ResourceLimit(format!(
-                        "decoded stream longer than {max_output} bytes"
-                    )));
+                    return Err(PdfError::ResourceLimit(format!("decoded stream longer than {max_output} bytes")));
                 }
                 return Ok(Some(data.to_vec()));
             }
             _ => return Ok(None),
         };
-        decode_chain(data, &[filter], max_output)
-            .map(Some)
-            .map_err(from_codec)
+        decode_chain(data, &[filter], max_output).map(Some).map_err(from_codec)
     }
 }
 
@@ -80,18 +58,11 @@ fn predictor_params(params: Option<&Dict>) -> Option<PredictorParams> {
 /// `BrotliStream`: the whole stream is one Brotli data. The decoder stops one byte past `max_output`, so the caller
 /// sees that the limit was passed.
 fn brotli_decode(data: &[u8], max_output: usize) -> Result<Vec<u8>> {
-    let limit = u64::try_from(max_output)
-        .unwrap_or(u64::MAX)
-        .saturating_add(1);
+    let limit = u64::try_from(max_output).unwrap_or(u64::MAX).saturating_add(1);
     let mut out = Vec::new();
-    brotli::Decompressor::new(data, 4096)
-        .take(limit)
-        .read_to_end(&mut out)
-        .map_err(|e| PdfError::Format(e.to_string()))?;
+    brotli::Decompressor::new(data, 4096).take(limit).read_to_end(&mut out).map_err(|e| PdfError::Format(e.to_string()))?;
     if out.len() > max_output {
-        return Err(PdfError::ResourceLimit(format!(
-            "decoded stream longer than {max_output} bytes"
-        )));
+        return Err(PdfError::ResourceLimit(format!("decoded stream longer than {max_output} bytes")));
     }
     Ok(out)
 }
@@ -99,22 +70,15 @@ fn brotli_decode(data: &[u8], max_output: usize) -> Result<Vec<u8>> {
 fn from_codec(error: CodecError) -> PdfError {
     match error {
         CodecError::Format(message) => PdfError::Format(message),
-        CodecError::ResourceLimit { limit } => {
-            PdfError::ResourceLimit(format!("decoded stream longer than {limit} bytes"))
-        }
+        CodecError::ResourceLimit { limit } => PdfError::ResourceLimit(format!("decoded stream longer than {limit} bytes")),
     }
 }
 
 fn from_security(error: SecurityError) -> PdfError {
     match error {
-        SecurityError::Password { code, message } => PdfError::Password {
-            message: message.to_owned(),
-            code,
-        },
+        SecurityError::Password { code, message } => PdfError::Password { message: message.to_owned(), code },
         SecurityError::Format(message) => PdfError::Format(message),
-        SecurityError::ResourceLimit { limit } => {
-            PdfError::ResourceLimit(format!("decrypted stream longer than {limit} bytes"))
-        }
+        SecurityError::ResourceLimit { limit } => PdfError::ResourceLimit(format!("decrypted stream longer than {limit} bytes")),
     }
 }
 
@@ -128,10 +92,7 @@ pub struct CodecDecryptorFactory {
 impl CodecDecryptorFactory {
     /// `max_bytes` bounds what one decrypted stream may produce.
     pub fn new(password: Option<String>, max_bytes: usize) -> Self {
-        CodecDecryptorFactory {
-            password,
-            max_bytes,
-        }
+        CodecDecryptorFactory { password, max_bytes }
     }
 }
 
@@ -140,11 +101,7 @@ impl DecryptorFactory for CodecDecryptorFactory {
         let (mut dict, cf) = encrypt_dict(xref, encrypt)?;
         let cf_missing = !encrypt.has("CF");
         let factory = match CipherTransformFactory::new(&dict, file_id, self.password.as_deref()) {
-            Err(SecurityError::Password { code: 1, .. })
-                if dict.v.is_some_and(|v| v >= 4)
-                    && is_identity(&dict.stm_f)
-                    && is_identity(&dict.str_f) =>
-            {
+            Err(SecurityError::Password { code: 1, .. }) if dict.v.is_some_and(|v| v >= 4) && is_identity(&dict.stm_f) && is_identity(&dict.str_f) => {
                 // AuthEvent is read only on the no-password EFOpen path, after key derivation fails.
                 let eff = dict.eff.as_ref().or(dict.stm_f.as_ref());
                 let name = match eff {
@@ -157,11 +114,7 @@ impl DecryptorFactory for CodecDecryptorFactory {
                 } else if matches!(cf, Obj::Dict(_)) {
                     // A non-Name's .name is undefined, not the empty PDF Name.
                     // Map.get(undefined) misses even when the dictionary has /.
-                    if matches!(eff, Some(CryptFilterName::Invalid)) {
-                        Obj::Null
-                    } else {
-                        cf_handler(xref, &cf, name, cf_missing)?
-                    }
+                    if matches!(eff, Some(CryptFilterName::Invalid)) { Obj::Null } else { cf_handler(xref, &cf, name, cf_missing)? }
                 } else {
                     return Err(PdfError::Format("this.cf?.get is not a function".into()));
                 };
@@ -169,30 +122,15 @@ impl DecryptorFactory for CodecDecryptorFactory {
                     Obj::Null => None,
                     Obj::Dict(handler) => name_of(&xref.get(&handler, "AuthEvent")?),
                     _ => {
-                        return Err(PdfError::Format(
-                            "effCF?.get is not a function".into(),
-                        ));
+                        return Err(PdfError::Format("effCF?.get is not a function".into()));
                     }
                 };
-                dict.cf = Some(vec![(
-                    name.to_owned(),
-                    CryptFilter {
-                        auth_event,
-                        ..Default::default()
-                    },
-                )]);
-                CipherTransformFactory::new(&dict, file_id, self.password.as_deref())
-                    .map_err(from_security)?
+                dict.cf = Some(vec![(name.to_owned(), CryptFilter { auth_event, ..Default::default() })]);
+                CipherTransformFactory::new(&dict, file_id, self.password.as_deref()).map_err(from_security)?
             }
             result => result.map_err(from_security)?,
         };
-        Ok(Arc::new(CodecDecryptor {
-            factory: Arc::new(factory),
-            cf,
-            max_bytes: self.max_bytes,
-            cf_missing,
-            transform: None,
-        }))
+        Ok(Arc::new(CodecDecryptor { factory: Arc::new(factory), cf, max_bytes: self.max_bytes, cf_missing, transform: None }))
     }
 }
 
@@ -206,24 +144,11 @@ struct CodecDecryptor {
 }
 impl CodecDecryptor {
     fn transform(&self, num: i64, generation: i64) -> CipherTransform {
-        self.transform.clone().unwrap_or_else(|| {
-            self.factory
-                .create_cipher_transform(num as u32, generation as u32)
-        })
+        self.transform.clone().unwrap_or_else(|| self.factory.create_cipher_transform(num as u32, generation as u32))
     }
-    fn prepare(
-        &self,
-        num: i64,
-        generation: i64,
-        explicit: Option<&str>,
-        embedded: bool,
-        string: bool,
-        xref: Option<&Xref>,
-    ) -> Result<CipherTransform> {
+    fn prepare(&self, num: i64, generation: i64, explicit: Option<&str>, embedded: bool, string: bool, xref: Option<&Xref>) -> Result<CipherTransform> {
         let transform = self.transform(num, generation);
-        if !transform.uses_crypt_filters()
-            || transform.has_cached_constructor(string, explicit, embedded)
-        {
+        if !transform.uses_crypt_filters() || transform.has_cached_constructor(string, explicit, embedded) {
             return Ok(transform);
         }
         let name = if string {
@@ -231,18 +156,13 @@ impl CodecDecryptor {
         } else if let Some(name) = explicit {
             Some(name)
         } else {
-            transform
-                .stream_filter_name(embedded)
-                .map_err(from_security)?
+            transform.stream_filter_name(embedded).map_err(from_security)?
         };
         let name = name.expect("version 4/5 has a selected crypt filter");
-        let xref = xref
-            .ok_or_else(|| PdfError::Format("Crypt filter resolution requires an xref.".into()))?;
+        let xref = xref.ok_or_else(|| PdfError::Format("Crypt filter resolution requires an xref.".into()))?;
         let handler = cf_handler(xref, &self.cf, name, self.cf_missing)?;
         let filter = crypt_filter(xref, &handler)?;
-        Ok(transform
-            .clone()
-            .with_crypt_filters(vec![(name.to_owned(), filter)]))
+        Ok(transform.clone().with_crypt_filters(vec![(name.to_owned(), filter)]))
     }
 }
 impl Decryptor for CodecDecryptor {
@@ -252,54 +172,23 @@ impl Decryptor for CodecDecryptor {
             cf: self.cf.clone(),
             cf_missing: self.cf_missing,
             max_bytes: self.max_bytes,
-            transform: Some(
-                self.factory
-                    .create_cipher_transform(num as u32, generation as u32),
-            ),
+            transform: Some(self.factory.create_cipher_transform(num as u32, generation as u32)),
         }))
     }
     fn uses_embedded_filter(&self) -> bool {
-        self.factory
-            .create_cipher_transform(0, 0)
-            .uses_crypt_filters()
+        self.factory.create_cipher_transform(0, 0).uses_crypt_filters()
     }
-    fn decrypt_string(
-        &self,
-        num: i64,
-        generation: i64,
-        data: &[u8],
-        xref: Option<&Xref>,
-    ) -> Result<Vec<u8>> {
-        self.prepare(num, generation, None, false, true, xref)?
-            .decrypt_string(data)
-            .map_err(from_security)
+    fn decrypt_string(&self, num: i64, generation: i64, data: &[u8], xref: Option<&Xref>) -> Result<Vec<u8>> {
+        self.prepare(num, generation, None, false, true, xref)?.decrypt_string(data).map_err(from_security)
     }
-    fn validate_stream(
-        &self,
-        num: i64,
-        generation: i64,
-        crypt_name: Option<&str>,
-        embedded_file: bool,
-        xref: Option<&Xref>,
-    ) -> Result<()> {
+    fn validate_stream(&self, num: i64, generation: i64, crypt_name: Option<&str>, embedded_file: bool, xref: Option<&Xref>) -> Result<()> {
         let transform = self.prepare(num, generation, crypt_name, embedded_file, false, xref)?;
-        transform
-            .validate_stream(crypt_name, embedded_file)
-            .map_err(from_security)?;
+        transform.validate_stream(crypt_name, embedded_file).map_err(from_security)?;
         Ok(())
     }
-    fn decrypt_stream(
-        &self,
-        num: i64,
-        generation: i64,
-        data: &[u8],
-        crypt_name: Option<&str>,
-        embedded_file: bool,
-    ) -> Result<Vec<u8>> {
+    fn decrypt_stream(&self, num: i64, generation: i64, data: &[u8], crypt_name: Option<&str>, embedded_file: bool) -> Result<Vec<u8>> {
         let transform = self.transform(num, generation);
-        transform
-            .decrypt_stream(data, crypt_name, embedded_file, self.max_bytes)
-            .map_err(from_security)
+        transform.decrypt_stream(data, crypt_name, embedded_file, self.max_bytes).map_err(from_security)
     }
 }
 fn is_identity(name: &Option<CryptFilterName>) -> bool {
@@ -365,24 +254,12 @@ fn encrypt_dict(xref: &Xref, encrypt: &Dict) -> Result<(EncryptDict, Obj)> {
         return Err(PdfError::Format("unsupported encryption algorithm".into()));
     }
     let length_obj = get("Length")?;
-    let mut length = if is_falsy(&length_obj) {
-        0
-    } else {
-        length_obj.as_int().unwrap_or(-1)
-    };
+    let mut length = if is_falsy(&length_obj) { 0 } else { length_obj.as_int().unwrap_or(-1) };
     if length != 0 && (length < 40 || length % 8 != 0) {
         return Err(PdfError::Format("invalid key length".into()));
     }
-    let cf = if v.unwrap() >= 4 {
-        get("CF")?
-    } else {
-        Obj::Null
-    };
-    let stm_value = if v.unwrap() >= 4 {
-        get("StmF")?
-    } else {
-        Obj::Null
-    };
+    let cf = if v.unwrap() >= 4 { get("CF")? } else { Obj::Null };
+    let stm_value = if v.unwrap() >= 4 { get("StmF")? } else { Obj::Null };
     if length == 0 {
         if v.unwrap() <= 3 {
             length = 40;
@@ -394,24 +271,14 @@ fn encrypt_dict(xref: &Xref, encrypt: &Dict) -> Result<(EncryptDict, Obj)> {
                 Obj::Null => Obj::Null,
                 Obj::Dict(handler) => xref.get(&handler, "Length")?,
                 _ => {
-                    return Err(PdfError::Format(
-                        "handlerDict?.get is not a function".into(),
-                    ));
+                    return Err(PdfError::Format("handlerDict?.get is not a function".into()));
                 }
             };
-            let value = if is_falsy(&value) {
-                Obj::Num(128.0)
-            } else {
-                value
-            };
+            let value = if is_falsy(&value) { Obj::Num(128.0) } else { value };
             let numeric = crate::page::object_number(&value);
             length = if numeric < 40.0 {
                 // JavaScript's <<= 3 first performs ToInt32, including numeric strings/arrays.
-                let bits = if numeric.is_finite() {
-                    numeric.trunc().rem_euclid(4_294_967_296.0) as u32
-                } else {
-                    0
-                };
+                let bits = if numeric.is_finite() { numeric.trunc().rem_euclid(4_294_967_296.0) as u32 } else { 0 };
                 i64::from(bits.wrapping_shl(3) as i32)
             } else {
                 value.as_int().unwrap_or(-1)
@@ -422,16 +289,8 @@ fn encrypt_dict(xref: &Xref, encrypt: &Dict) -> Result<(EncryptDict, Obj)> {
         return Err(PdfError::Format("invalid key length".into()));
     }
     let stm_f = selector(&stm_value);
-    let str_f = if v.unwrap() >= 4 {
-        selector(&get("StrF")?)
-    } else {
-        None
-    };
-    let eff = if v.unwrap() >= 4 {
-        selector(&get("EFF")?)
-    } else {
-        None
-    };
+    let str_f = if v.unwrap() >= 4 { selector(&get("StrF")?) } else { None };
+    let eff = if v.unwrap() >= 4 { selector(&get("EFF")?) } else { None };
     let o = bytes_of(&get("O")?);
     let u = bytes_of(&get("U")?);
     let p = get("P")?.as_num().map_or(0, |n| n as i64);
@@ -444,15 +303,8 @@ fn encrypt_dict(xref: &Xref, encrypt: &Dict) -> Result<(EncryptDict, Obj)> {
     } else {
         None
     };
-    let (oe, ue, perms) = if v == Some(5) {
-        (
-            bytes_of(&get("OE")?),
-            bytes_of(&get("UE")?),
-            bytes_of(&get("Perms")?),
-        )
-    } else {
-        (Vec::new(), Vec::new(), Vec::new())
-    };
+    let (oe, ue, perms) =
+        if v == Some(5) { (bytes_of(&get("OE")?), bytes_of(&get("UE")?), bytes_of(&get("Perms")?)) } else { (Vec::new(), Vec::new(), Vec::new()) };
     Ok((
         EncryptDict {
             filter,
@@ -482,9 +334,7 @@ fn crypt_filter(xref: &Xref, handler: &Obj) -> Result<CryptFilter> {
         return Ok(CryptFilter::default());
     }
     let Obj::Dict(handler) = handler else {
-        return Err(PdfError::Format(
-            "cryptFilter?.get is not a function".into(),
-        ));
+        return Err(PdfError::Format("cryptFilter?.get is not a function".into()));
     };
     let cfm = match xref.get(handler, "CFM")? {
         value if is_falsy(&value) => None,
@@ -497,8 +347,5 @@ fn crypt_filter(xref: &Xref, handler: &Obj) -> Result<CryptFilter> {
         }),
         _ => Some(CryptFilterMethod::Other(String::new())),
     };
-    Ok(CryptFilter {
-        cfm,
-        ..Default::default()
-    })
+    Ok(CryptFilter { cfm, ..Default::default() })
 }

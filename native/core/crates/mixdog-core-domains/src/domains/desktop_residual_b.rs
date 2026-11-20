@@ -115,15 +115,32 @@ fn holds_no_data(text: &str) -> bool {
 
 const EXECUTABLE_PACKAGE_EXTENSIONS: &[&str] = &["exe", "msi", "msix", "msixbundle", "appx", "appxbundle", "dmg", "pkg", "app"];
 const FILE_LAUNCH_EXTENSIONS: &[&str] = &[
-    "com", "scr", "bat", "cmd", "ps1", "vbs", "vbe", "js", "jse", "wsf", "wsh", "hta", "lnk", "url", "appref-ms", "scf", "sh", "command", "desktop",
+    "com",
+    "scr",
+    "bat",
+    "cmd",
+    "ps1",
+    "vbs",
+    "vbe",
+    "js",
+    "jse",
+    "wsf",
+    "wsh",
+    "hta",
+    "lnk",
+    "url",
+    "appref-ms",
+    "scf",
+    "sh",
+    "command",
+    "desktop",
     "appimage",
 ];
 const OS_DOCUMENT_EXTENSIONS: &[&str] = &[
     "zip", "7z", "rar", "iso", "pptx", "ppt", "pdf", "docx", "doc", "dotx", "xlsx", "xls", "rtf", "odt", "ods", "odp", "png", "jpg", "jpeg", "jfif", "gif",
     "webp", "avif", "svg", "bmp", "tif", "tiff", "ico", "mp3", "wav", "ogg", "flac", "m4a", "mp4", "m4v", "mov", "webm", "mkv",
 ];
-const DOCUMENT_PREVIEW_FORMATS: &[&str] =
-    &["docx", "doc", "docm", "dotx", "rtf", "odt", "xlsx", "xls", "xlsm", "ods", "pptx", "ppt", "pptm", "odp"];
+const DOCUMENT_PREVIEW_FORMATS: &[&str] = &["docx", "doc", "docm", "dotx", "rtf", "odt", "xlsx", "xls", "xlsm", "ods", "pptx", "ppt", "pptm", "odp"];
 
 /// `requiresFileLaunchConfirmation`: a file the OS would run needs Mixdog's confirmation before it is handed over.
 pub fn requires_file_launch_confirmation(path: &str) -> bool {
@@ -354,7 +371,8 @@ const MIME_EXTENSIONS: &[(&str, &str)] = &[
 /// the OS from a file this process just wrote.
 const OPENABLE_ATTACHMENT_EXTENSIONS: &[&str] = &[
     "png", "jpg", "jpeg", "gif", "webp", "bmp", "avif", "tif", "tiff", "heic", "ico", "pdf", "doc", "docx", "dot", "dotx", "xls", "xlsx", "ppt", "pptx", "odt",
-    "ods", "odp", "rtf", "txt", "md", "csv", "tsv", "json", "log", "yaml", "yml", "toml", "ini", "mp3", "wav", "ogg", "flac", "m4a", "mp4", "webm", "mov", "mkv",
+    "ods", "odp", "rtf", "txt", "md", "csv", "tsv", "json", "log", "yaml", "yml", "toml", "ini", "mp3", "wav", "ogg", "flac", "m4a", "mp4", "webm", "mov",
+    "mkv",
 ];
 
 /// `decodeDataUrl`: the lower-cased mime and the bytes of a base64 or percent-encoded `data:` URL.
@@ -718,9 +736,7 @@ pub fn write_user_file(lane: &InLane<DurabilityIo>, path: &Path, data: &[u8]) ->
         // A new file takes the ordinary creation mode (0o666 minus the umask), not the owner-only mode of a state file.
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
             let opts = mixdog_statefile::Opts { mode: 0o666, ..mixdog_statefile::Opts::default() };
-            return mixdog_statefile::write_file_stepped(lane, path, data, &opts)
-                .map(drop)
-                .map_err(|failure| format!("{}: {}", path.display(), failure.error));
+            return mixdog_statefile::write_file_stepped(lane, path, data, &opts).map(drop).map_err(|failure| format!("{}: {}", path.display(), failure.error));
         }
         Err(error) => return Err(format!("{}: {error}", path.display())),
     };
@@ -835,9 +851,7 @@ impl InputAccessProbe for SystemInputAccess {
 
 /// None is a lane failure, never evidence that permission is missing: do not prompt on an unperformed probe.
 async fn input_probe(probe: Arc<dyn InputAccessProbe>, lane: DurabilityIo, device: bool) -> Option<bool> {
-    on_lane_wait(lane, &mixdog_rt::CancellationToken::new(), move |_| {
-        if device { probe.device_exists() } else { probe.can_access() }
-    }).await.ok()
+    on_lane_wait(lane, &mixdog_rt::CancellationToken::new(), move |_| if device { probe.device_exists() } else { probe.can_access() }).await.ok()
 }
 
 async fn repair_input_access(probe: Arc<dyn InputAccessProbe>, lane: DurabilityIo) -> Value {
@@ -905,7 +919,9 @@ impl InputAccessRequests {
                         Some(false) => repair_input_access(probe, lane).await,
                         None => json!({ "ok": false, "reason": "failed" }),
                     }
-                }.boxed().shared();
+                }
+                .boxed()
+                .shared();
                 *slot = Some(pending.clone());
                 pending
             }
@@ -1230,7 +1246,11 @@ fn interface_addresses() -> Vec<(String, String, bool)> {
             if record.OperStatus != IfOperStatusUp {
                 continue;
             }
-            let name = if record.AdapterName.is_null() { String::new() } else { CStr::from_ptr(record.AdapterName.cast::<core::ffi::c_char>()).to_string_lossy().into_owned() };
+            let name = if record.AdapterName.is_null() {
+                String::new()
+            } else {
+                CStr::from_ptr(record.AdapterName.cast::<core::ffi::c_char>()).to_string_lossy().into_owned()
+            };
             let mut unicast = record.FirstUnicastAddress;
             while !unicast.is_null() {
                 let entry = &*unicast;
@@ -1277,7 +1297,8 @@ pub fn network_snapshot() -> NetworkSnapshot {
     };
     let v4 = local("0.0.0.0:0", "1.1.1.1:53");
     let v6 = local("[::]:0", "[2606:4700:4700::1111]:53");
-    let routes: Vec<(&str, &str)> = [("route4", v4.as_deref()), ("route6", v6.as_deref())].into_iter().filter_map(|(name, address)| address.map(|address| (name, address))).collect();
+    let routes: Vec<(&str, &str)> =
+        [("route4", v4.as_deref()), ("route6", v6.as_deref())].into_iter().filter_map(|(name, address)| address.map(|address| (name, address))).collect();
     snapshot_of(&routes, &interface_addresses())
 }
 
@@ -1363,7 +1384,9 @@ pub fn extract_login_shell_environment(output: &str) -> Option<BTreeMap<String, 
     Some(
         fields[start + 1..end]
             .iter()
-            .filter_map(|field| field.find('=').filter(|separator| *separator > 0).map(|separator| (field[..separator].to_owned(), field[separator + 1..].to_owned())))
+            .filter_map(|field| {
+                field.find('=').filter(|separator| *separator > 0).map(|separator| (field[..separator].to_owned(), field[separator + 1..].to_owned()))
+            })
             .collect(),
     )
 }
@@ -1418,7 +1441,10 @@ fn login_shell_candidates() -> Vec<String> {
 }
 
 #[cfg(unix)]
-#[allow(clippy::disallowed_types, reason = "the login shell starts in a session of its own (pre_exec) and its read ends on a mark; the wait is bounded by `timeout`")]
+#[allow(
+    clippy::disallowed_types,
+    reason = "the login shell starts in a session of its own (pre_exec) and its read ends on a mark; the wait is bounded by `timeout`"
+)]
 fn read_shell(shell: &str, timeout: Duration) -> Result<BTreeMap<String, String>, String> {
     use std::io::Read;
     use std::os::unix::process::CommandExt;
@@ -1683,14 +1709,17 @@ impl DomainService for DesktopResidualBService {
             }
             "desktop/attachment/thumbnail" => {
                 let params: ThumbnailParams = decode(&req)?;
-                let Some(attachment_ref) = params.attachment_ref.as_str().filter(|text| is_attachment_ref(text)) else { return reply(json!({ "dataUrl": null })) };
+                let Some(attachment_ref) = params.attachment_ref.as_str().filter(|text| is_attachment_ref(text)) else {
+                    return reply(json!({ "dataUrl": null }));
+                };
                 let Some(bytes) = self.attachments.attachment_bytes(attachment_ref).await else { return reply(json!({ "dataUrl": null })) };
                 let url = self.on_lane(&req, move |_| thumbnail_of(&bytes, THUMBNAIL_FALLBACK_MAX_BYTES)).await?;
                 reply(json!({ "dataUrl": url }))
             }
             "desktop/launchVersion/record" => {
                 let params: LaunchRecordParams = decode(&req)?;
-                let (announce, error) = self.on_lane(&req, move |lane| record_launch_version(lane, Path::new(&params.path), &params.version, &params.argv)).await?;
+                let (announce, error) =
+                    self.on_lane(&req, move |lane| record_launch_version(lane, Path::new(&params.path), &params.version, &params.argv)).await?;
                 reply(with_write_error(json!({ "announce": announce }), error))
             }
             "desktop/launchVersion/acknowledge" => {

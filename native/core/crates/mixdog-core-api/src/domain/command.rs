@@ -26,10 +26,7 @@ pub fn spawn_form(program: &str, args: &[String]) -> (String, Vec<String>) {
 }
 
 fn path_dirs(env: Option<&HashMap<String, String>>) -> Vec<PathBuf> {
-    let value = env
-        .and_then(|e| e.get("PATH").or_else(|| e.get("Path")).cloned())
-        .or_else(|| std::env::var("PATH").ok())
-        .unwrap_or_default();
+    let value = env.and_then(|e| e.get("PATH").or_else(|| e.get("Path")).cloned()).or_else(|| std::env::var("PATH").ok()).unwrap_or_default();
     std::env::split_paths(&value).filter(|p| !p.as_os_str().is_empty()).collect()
 }
 
@@ -38,7 +35,9 @@ fn executable_candidates(name: &str) -> Vec<String> {
         return vec![name.to_owned()];
     }
     let pathext = std::env::var("PATHEXT").unwrap_or_else(|_| ".COM;.EXE;.BAT;.CMD".into());
-    std::iter::once(name.to_owned()).chain(pathext.split(';').map(mixdog_js::js_trim).filter(|e| !e.is_empty()).map(|e| format!("{name}{}", e.to_lowercase()))).collect()
+    std::iter::once(name.to_owned())
+        .chain(pathext.split(';').map(mixdog_js::js_trim).filter(|e| !e.is_empty()).map(|e| format!("{name}{}", e.to_lowercase())))
+        .collect()
 }
 
 fn name_key(value: &str) -> String {

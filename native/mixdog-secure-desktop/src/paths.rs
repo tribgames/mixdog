@@ -20,10 +20,7 @@ pub const PIPE_NAME: &str = r"\\.\pipe\mixdog-secure-desktop";
 /// after it has released all held input, just before it exits. `Global\` so the
 /// session-0 service and the console-session helper name the same objects.
 pub fn shutdown_event_names(token: &str) -> (String, String) {
-    (
-        format!(r"Global\MixdogSecureDesktop-stop-{token}"),
-        format!(r"Global\MixdogSecureDesktop-ack-{token}"),
-    )
+    (format!(r"Global\MixdogSecureDesktop-stop-{token}"), format!(r"Global\MixdogSecureDesktop-ack-{token}"))
 }
 
 /// Schema version of the on-disk install state. Independent of the wire
@@ -35,9 +32,7 @@ pub const STATE_SCHEMA_VERSION: u32 = 1;
 /// Mixdog directories are created; it is itself never created or
 /// re-permissioned by the installer.
 pub fn program_data_root() -> PathBuf {
-    std::env::var_os("ProgramData")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
+    std::env::var_os("ProgramData").map(PathBuf::from).unwrap_or_else(|| PathBuf::from(r"C:\ProgramData"))
 }
 
 /// `%ProgramData%\Mixdog\SecureDesktop`. ProgramData is machine-wide and

@@ -43,12 +43,21 @@ pub struct HandoffQuestionsHub {
 
 impl HandoffQuestionsHub {
     pub fn new(host: Arc<DelegatedApprovalHost>) -> Arc<Self> {
-        Arc::new(Self { host, threads: OnceLock::new(), held: Mutex::default(), #[cfg(any(test, feature = "test-support"))] publishers: Mutex::default() })
+        Arc::new(Self {
+            host,
+            threads: OnceLock::new(),
+            held: Mutex::default(),
+            #[cfg(any(test, feature = "test-support"))]
+            publishers: Mutex::default(),
+        })
     }
 
     /// Takes the drain tasks of every publisher started so far.
     #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
     fn take_publishers(&self) -> Vec<tokio::task::JoinHandle<()>> {
         std::mem::take(&mut *self.publishers.lock().unwrap_or_else(|poisoned| poisoned.into_inner()))
     }

@@ -16,9 +16,7 @@ pub(super) fn receipts<'a>(
     wire_id: impl Fn(&str) -> String,
     uses: impl Iterator<Item = (usize, &'a str, WireUse<'a>)>,
 ) -> Vec<(usize, String)> {
-    let plain_result = |message: &Message| {
-        message.role == Role::Tool && !message.is_error && message.native_tool_search.is_none()
-    };
+    let plain_result = |message: &Message| message.role == Role::Tool && !message.is_error && message.native_tool_search.is_none();
     if !messages.iter().any(|m| m.scoped_cache_source.is_some()) {
         return Vec::new();
     }

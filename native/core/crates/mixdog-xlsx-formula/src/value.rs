@@ -126,8 +126,7 @@ impl Value {
     /// Explicit UTF-8 output boundary, equivalent to Buffer.from(str, "utf8").
     /// Never use this for intermediate formula string operations.
     pub fn text_to_utf8_lossy(&self) -> Option<String> {
-        self.text_units()
-            .map(|units| String::from_utf16_lossy(&units))
+        self.text_units().map(|units| String::from_utf16_lossy(&units))
     }
 
     /// An empty cell or empty text: what Excel reads as blank (`isBlank` of the Node engine).
@@ -208,9 +207,7 @@ pub enum Failure {
 impl Failure {
     /// `UnsupportedFormula` with `reason`.
     pub fn unsupported(reason: impl Into<String>) -> Self {
-        Self::Unsupported(UnsupportedFormula {
-            reason: reason.into(),
-        })
+        Self::Unsupported(UnsupportedFormula { reason: reason.into() })
     }
 
     pub fn thrown(message: impl Into<String>) -> Self {
@@ -242,16 +239,7 @@ mod tests {
 
     #[test]
     fn cell_errors_are_the_eight_the_engine_reads() {
-        for text in [
-            "#REF!",
-            "#DIV/0!",
-            "#VALUE!",
-            "#NAME?",
-            "#N/A",
-            "#NUM!",
-            "#NULL!",
-            "#GETTING_DATA",
-        ] {
+        for text in ["#REF!", "#DIV/0!", "#VALUE!", "#NAME?", "#N/A", "#NUM!", "#NULL!", "#GETTING_DATA"] {
             assert!(cell_error_of(text).is_some(), "{text}");
             assert!(Value::text(text).is_formula_error(), "{text}");
         }
@@ -264,30 +252,17 @@ mod tests {
 
     #[test]
     fn canonical_turns_error_text_into_the_error_inside_arrays_too() {
-        let value = Value::Array(vec![
-            Value::text("#N/A"),
-            Value::Array(vec![Value::text("#DIV/0!"), Value::text("x")]),
-        ]);
-        let Value::Array(items) = value.canonical() else {
-            panic!("array")
-        };
+        let value = Value::Array(vec![Value::text("#N/A"), Value::Array(vec![Value::text("#DIV/0!"), Value::text("x")])]);
+        let Value::Array(items) = value.canonical() else { panic!("array") };
         assert!(matches!(items[0], Value::Error(ErrorValue::Na)));
-        let Value::Array(inner) = &items[1] else {
-            panic!("inner")
-        };
+        let Value::Array(inner) = &items[1] else { panic!("inner") };
         assert!(matches!(inner[0], Value::Error(ErrorValue::Div0)));
         assert!(matches!(&inner[1], Value::Text(text) if text == "x"));
     }
 
     #[test]
     fn blank_is_null_undefined_or_empty_text() {
-        assert!(
-            Value::Null.is_blank() && Value::Undefined.is_blank() && Value::text("").is_blank()
-        );
-        assert!(
-            !Value::text(" ").is_blank()
-                && !Value::Number(0.0).is_blank()
-                && !Value::Bool(false).is_blank()
-        );
+        assert!(Value::Null.is_blank() && Value::Undefined.is_blank() && Value::text("").is_blank());
+        assert!(!Value::text(" ").is_blank() && !Value::Number(0.0).is_blank() && !Value::Bool(false).is_blank());
     }
 }

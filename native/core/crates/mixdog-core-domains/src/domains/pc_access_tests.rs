@@ -268,11 +268,10 @@ async fn approve_installs_with_unknown_revocations_and_settles_the_marker() {
 
 #[tokio::test]
 async fn approve_enrolls_every_missing_phone_in_one_call() {
-    let installer = FakeInstaller::new(HelperState::Installed, KeyOutcome::Enrolled).with_key(KEY_B, HelperState::NotEnrolled).with_key(KEY_C, HelperState::NotEnrolled);
-    let roster = FakeRoster::new(
-        vec![paired("a", KEY_A, false), paired("b", KEY_B, false), paired("c", KEY_C, false)],
-        Owed { keys: strings(&[KEY_D]), unknown: 0 },
-    );
+    let installer =
+        FakeInstaller::new(HelperState::Installed, KeyOutcome::Enrolled).with_key(KEY_B, HelperState::NotEnrolled).with_key(KEY_C, HelperState::NotEnrolled);
+    let roster =
+        FakeRoster::new(vec![paired("a", KEY_A, false), paired("b", KEY_B, false), paired("c", KEY_C, false)], Owed { keys: strings(&[KEY_D]), unknown: 0 });
     let service = PcAccessService::new(installer.clone(), roster.clone());
     assert_eq!(call(&service, "pcAccess/approve").await, json!({ "outcome": "enrolled" }));
     assert_eq!(*installer.enrolls.lock().unwrap(), vec![(strings(&[KEY_B, KEY_C]), revoking(&[KEY_D]))]);
@@ -442,10 +441,8 @@ async fn the_password_path_installs_with_the_password_and_passes_the_logon_refus
 #[tokio::test]
 async fn the_password_path_refuses_a_phone_that_is_not_paired_under_that_key() {
     let installer = FakeInstaller::new(HelperState::NotInstalled, KeyOutcome::Installed);
-    let roster = FakeRoster::new(
-        vec![paired("a", KEY_A, false), paired("c", KEY_C, true), paired("d", KEY_D, false)],
-        Owed { keys: strings(&[KEY_D]), unknown: 0 },
-    );
+    let roster =
+        FakeRoster::new(vec![paired("a", KEY_A, false), paired("c", KEY_C, true), paired("d", KEY_D, false)], Owed { keys: strings(&[KEY_D]), unknown: 0 });
     let service = PcAccessService::new(installer.clone(), roster);
     for (client, key) in [("a", KEY_B), ("zzz", KEY_A), ("c", KEY_C), ("d", KEY_D)] {
         let answer = service.approve_with_credential(password_request(client, key)).await.unwrap();
@@ -542,7 +539,6 @@ async fn nothing_overlaps_in_the_access_queue() {
     assert_eq!(delivery, Ok(Delivery::Nothing));
     assert!(installer.delegated_enrolls.lock().unwrap().is_empty());
 }
-
 
 #[tokio::test]
 async fn an_unpair_returns_its_answer_then_tries_the_revoke_before_any_delivery_runs() {

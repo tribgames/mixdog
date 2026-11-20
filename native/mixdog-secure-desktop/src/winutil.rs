@@ -5,22 +5,16 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use windows::core::PWSTR;
-use windows::Win32::Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL};
-use windows::Win32::Security::Authorization::{
-    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW,
-};
-use windows::Win32::Security::{
-    GetTokenInformation, RevertToSelf, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES,
-    TOKEN_QUERY, TOKEN_USER,
-};
+use windows::Win32::Foundation::{CloseHandle, HANDLE, HLOCAL, LocalFree};
+use windows::Win32::Security::Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW};
+use windows::Win32::Security::{GetTokenInformation, PSECURITY_DESCRIPTOR, RevertToSelf, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser};
 use windows::Win32::System::Pipes::ImpersonateNamedPipeClient;
 use windows::Win32::System::RemoteDesktop::WTSQueryUserToken;
 use windows::Win32::System::StationsAndDesktops::{CloseDesktop, HDESK};
 use windows::Win32::System::Threading::{
-    GetCurrentProcess, GetCurrentThread, OpenProcess, OpenProcessToken, OpenThreadToken,
-    PROCESS_QUERY_LIMITED_INFORMATION,
+    GetCurrentProcess, GetCurrentThread, OpenProcess, OpenProcessToken, OpenThreadToken, PROCESS_QUERY_LIMITED_INFORMATION,
 };
+use windows::core::PWSTR;
 
 /// `true` if a Win32 call's error carries this plain Win32 error code (the
 /// error is stored as `HRESULT_FROM_WIN32`, i.e. `0x8007_0000 | code`).
@@ -35,10 +29,7 @@ pub fn wide(value: &str) -> Vec<u16> {
 
 /// Milliseconds since the Unix epoch.
 pub fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0)
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0)
 }
 
 /// Owns a HANDLE and closes it on drop. Construction rejects the null and
@@ -47,11 +38,7 @@ pub struct OwnedHandle(HANDLE);
 
 impl OwnedHandle {
     pub fn new(handle: HANDLE) -> Option<Self> {
-        if handle.is_invalid() {
-            None
-        } else {
-            Some(OwnedHandle(handle))
-        }
+        if handle.is_invalid() { None } else { Some(OwnedHandle(handle)) }
     }
 
     pub fn get(&self) -> HANDLE {
@@ -72,11 +59,7 @@ pub struct OwnedDesktop(HDESK);
 
 impl OwnedDesktop {
     pub fn new(desktop: HDESK) -> Option<Self> {
-        if desktop.is_invalid() {
-            None
-        } else {
-            Some(OwnedDesktop(desktop))
-        }
+        if desktop.is_invalid() { None } else { Some(OwnedDesktop(desktop)) }
     }
 
     pub fn get(&self) -> HDESK {
@@ -155,20 +138,12 @@ unsafe fn token_user_sid(token: HANDLE) -> windows::core::Result<String> {
         return Err(windows::core::Error::from_thread());
     }
     let mut buffer = vec![0u8; needed as usize];
-    GetTokenInformation(
-        token,
-        TokenUser,
-        Some(buffer.as_mut_ptr() as *mut _),
-        needed,
-        &mut needed,
-    )?;
+    GetTokenInformation(token, TokenUser, Some(buffer.as_mut_ptr() as *mut _), needed, &mut needed)?;
 
     let token_user = &*(buffer.as_ptr() as *const TOKEN_USER);
     let mut string_sid = PWSTR::null();
     ConvertSidToStringSidW(token_user.User.Sid, &mut string_sid)?;
-    let sid = string_sid
-        .to_string()
-        .map_err(|_| windows::core::Error::from_thread())?;
+    let sid = string_sid.to_string().map_err(|_| windows::core::Error::from_thread())?;
     let _ = LocalFree(Some(HLOCAL(string_sid.0 as *mut _)));
     Ok(sid)
 }
@@ -220,8 +195,7 @@ pub fn client_user_sid(pipe: HANDLE) -> Option<String> {
 /// the pipe server process is SYSTEM before trusting it with the secret.
 pub fn process_user_sid(pid: u32) -> Option<String> {
     unsafe {
-        let process =
-            OwnedHandle::new(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?)?;
+        let process = OwnedHandle::new(OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid).ok()?)?;
         let mut raw = HANDLE::default();
         OpenProcessToken(process.get(), TOKEN_QUERY, &mut raw).ok()?;
         let token = OwnedHandle::new(raw)?;

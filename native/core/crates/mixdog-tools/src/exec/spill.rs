@@ -5,11 +5,7 @@
 //! Only the two whole-folder passes beside the calls do, on the lane their caller hands them: the
 //! expired-log sweep ([`sweep_expired`]) and the start-up read of every record
 //! ([`read_records`] from `ExecRuntime::reconcile_lost_jobs`); either may wait behind those loops.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "lane job bodies are the sanctioned home of blocking file I/O (clippy.toml)"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "lane job bodies are the sanctioned home of blocking file I/O (clippy.toml)")]
 
 use std::io::Write;
 use std::path::Path;
@@ -64,8 +60,7 @@ fn rewrite_record(shared: &Shared, owner: &Path) -> std::io::Result<()> {
 
 /// Whether `id` can name a job's files: a shell task id, nothing that reaches outside the folder (`validJobId`).
 fn job_file_id(id: &str) -> bool {
-    id.strip_prefix("task-")
-        .is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')))
+    id.strip_prefix("task-").is_some_and(|rest| !rest.is_empty() && rest.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '-' | '.')))
 }
 
 /// The two logs of job `id` in `dir` (stdout, stderr).
@@ -82,12 +77,7 @@ fn parse_record(path: &Path) -> Option<serde_json::Map<String, serde_json::Value
 
 /// The ownership record of job `id` in `dir`, for a runtime that does not hold the job (`readShellJobRecord`). `None` when
 /// there is none, it cannot be read, or `id` cannot name a job's files.
-pub async fn read_record(
-    lane: impl LaneToken,
-    cancel: &CancellationToken,
-    dir: &Path,
-    id: &str,
-) -> Option<serde_json::Map<String, serde_json::Value>> {
+pub async fn read_record(lane: impl LaneToken, cancel: &CancellationToken, dir: &Path, id: &str) -> Option<serde_json::Map<String, serde_json::Value>> {
     if !job_file_id(id) {
         return None;
     }
@@ -130,13 +120,7 @@ pub async fn read_records(
 
 /// Writes job `id`'s ownership record in `dir` as `record` (`completeShellJobRecord` of a job a runtime that is gone left
 /// running). Best effort, as Node's.
-pub async fn write_record(
-    lane: impl LaneToken,
-    cancel: &CancellationToken,
-    dir: &Path,
-    id: &str,
-    record: serde_json::Map<String, serde_json::Value>,
-) {
+pub async fn write_record(lane: impl LaneToken, cancel: &CancellationToken, dir: &Path, id: &str, record: serde_json::Map<String, serde_json::Value>) {
     if !job_file_id(id) {
         return;
     }
@@ -176,26 +160,28 @@ pub(super) async fn read_capture_logs(
     sizes: [u64; 2],
     oems: [Option<Label>; 2],
 ) -> Option<(String, String)> {
-    let job = lane.submit(cancel, move |_| {
-        let read = |i: usize| {
-            let bytes = match capture_log(&logs[i], sizes[i]) {
-                Ok(bytes) => bytes?,
-                Err(_) if sizes[i] == 0 => Vec::new(),
-                Err(_) => return None,
-            };
-            // Reuse the log buffer when its encoding needs no conversion.
-            Some(match String::from_utf8(bytes) {
-                Ok(mut text) => {
-                    if oems[i].is_some() && text.starts_with('\u{feff}') {
-                        text.drain(..'\u{feff}'.len_utf8());
+    let job = lane
+        .submit(cancel, move |_| {
+            let read = |i: usize| {
+                let bytes = match capture_log(&logs[i], sizes[i]) {
+                    Ok(bytes) => bytes?,
+                    Err(_) if sizes[i] == 0 => Vec::new(),
+                    Err(_) => return None,
+                };
+                // Reuse the log buffer when its encoding needs no conversion.
+                Some(match String::from_utf8(bytes) {
+                    Ok(mut text) => {
+                        if oems[i].is_some() && text.starts_with('\u{feff}') {
+                            text.drain(..'\u{feff}'.len_utf8());
+                        }
+                        text
                     }
-                    text
-                }
-                Err(error) => decode_shell_bytes(error.as_bytes(), oems[i]),
-            })
-        };
-        Some((read(0)?, read(1)?))
-    }).ok()?;
+                    Err(error) => decode_shell_bytes(error.as_bytes(), oems[i]),
+                })
+            };
+            Some((read(0)?, read(1)?))
+        })
+        .ok()?;
     job.await.ok()?
 }
 
@@ -240,8 +226,7 @@ pub async fn sweep_expired(lane: impl LaneToken, cancel: &CancellationToken, dir
             if !(aged(&owner) && logs.iter().all(|log| aged(log))) {
                 continue;
             }
-            let finished =
-                parse_record(&owner).is_some_and(|record| record.get("state").and_then(serde_json::Value::as_str) == Some("finished"));
+            let finished = parse_record(&owner).is_some_and(|record| record.get("state").and_then(serde_json::Value::as_str) == Some("finished"));
             if finished {
                 for log in &logs {
                     let _ = std::fs::remove_file(log);
@@ -263,11 +248,7 @@ pub async fn sweep_expired(lane: impl LaneToken, cancel: &CancellationToken, dir
 /// indexed once.
 fn unowned_logs(names: &[String]) -> usize {
     let owned: std::collections::HashSet<&str> = names.iter().filter_map(|name| name.strip_suffix(OWNER_SUFFIX)).collect();
-    names
-        .iter()
-        .filter_map(|name| [STDOUT_SUFFIX, STDERR_SUFFIX].iter().find_map(|suffix| name.strip_suffix(suffix)))
-        .filter(|id| !owned.contains(id))
-        .count()
+    names.iter().filter_map(|name| [STDOUT_SUFFIX, STDERR_SUFFIX].iter().find_map(|suffix| name.strip_suffix(suffix))).filter(|id| !owned.contains(id)).count()
 }
 
 #[cfg(test)]
@@ -738,10 +719,7 @@ pub(crate) mod write_gate {
     impl Gate {
         /// Waits until drains have reached the gate `count` times.
         pub(crate) fn wait_reached(&self, count: usize) {
-            let (state, waited) = self
-                .changed
-                .wait_timeout_while(self.state.lock().unwrap(), GATE_WAIT, |state| state.1 < count)
-                .unwrap();
+            let (state, waited) = self.changed.wait_timeout_while(self.state.lock().unwrap(), GATE_WAIT, |state| state.1 < count).unwrap();
             assert!(!waited.timed_out(), "a log drain reaches the gate {count} time(s); it reached it {}", state.1);
         }
 
@@ -757,29 +735,17 @@ static HOIST_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU6
 /// A unique file name `mixdog-inline-<pid>-<uuid-shaped hex><extension>` in the temp directory.
 fn hoist_file_name(extension: &str) -> String {
     use sha2::Digest;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let n = HOIST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let digest = sha2::Sha256::digest(format!("{}:{nanos}:{n}", std::process::id()));
     let hex: String = digest.iter().take(16).map(|b| format!("{b:02x}")).collect();
-    format!(
-        "mixdog-inline-{}-{}-{}-{}-{}-{}{extension}",
-        std::process::id(),
-        &hex[0..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..32]
-    )
+    format!("mixdog-inline-{}-{}-{}-{}-{}-{}{extension}", std::process::id(), &hex[0..8], &hex[8..12], &hex[12..16], &hex[16..20], &hex[20..32])
 }
 
 /// Eight hex characters, unique per call (`randomUUID().slice(0, 8)`).
 pub fn fresh_token() -> String {
     use sha2::Digest;
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     let n = HOIST_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let digest = sha2::Sha256::digest(format!("tee:{}:{nanos}:{n}", std::process::id()));
     digest.iter().take(4).map(|b| format!("{b:02x}")).collect()
@@ -788,23 +754,12 @@ pub fn fresh_token() -> String {
 /// Writes a hoisted script to a new file in the temp directory (the exclusive flag refuses a
 /// name that exists). A PowerShell script gets a BOM: Windows PowerShell 5.1 reads UTF-8 without
 /// one as the active ANSI code page.
-pub async fn write_hoist_file(
-    lane: SpawnIo,
-    cancel: &CancellationToken,
-    extension: &'static str,
-    body: &str,
-) -> Option<PathBuf> {
+pub async fn write_hoist_file(lane: SpawnIo, cancel: &CancellationToken, extension: &'static str, body: &str) -> Option<PathBuf> {
     let path = std::env::temp_dir().join(hoist_file_name(extension));
     let content = if extension == ".ps1" { format!("\u{feff}{body}") } else { body.to_owned() };
     let target = path.clone();
     let job = lane
-        .submit(cancel, move |_| {
-            std::fs::OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(&target)
-                .and_then(|mut file| file.write_all(content.as_bytes()))
-        })
+        .submit(cancel, move |_| std::fs::OpenOptions::new().write(true).create_new(true).open(&target).and_then(|mut file| file.write_all(content.as_bytes())))
         .ok()?;
     matches!(job.await, Ok(Ok(()))).then_some(path)
 }
@@ -875,21 +830,10 @@ fn write_launchers(plan: &LauncherPlan) -> std::io::Result<()> {
 
 /// Writes or refreshes the skill launcher files of the installation (best effort) and answers
 /// their directory.
-pub async fn ensure_launchers(
-    lane: SpawnIo,
-    cancel: &CancellationToken,
-    kept: &KeptLaunchers,
-    rt: &SkillRuntime,
-    data_dir: &Path,
-) -> PathBuf {
+pub async fn ensure_launchers(lane: SpawnIo, cancel: &CancellationToken, kept: &KeptLaunchers, rt: &SkillRuntime, data_dir: &Path) -> PathBuf {
     let plan = kept
         .plan
-        .get_or_init(|| {
-            Arc::new(LauncherPlan {
-                dir: PathBuf::from(skill_launcher_dir(rt, &data_dir.to_string_lossy())),
-                files: skill_launcher_files(rt),
-            })
-        })
+        .get_or_init(|| Arc::new(LauncherPlan { dir: PathBuf::from(skill_launcher_dir(rt, &data_dir.to_string_lossy())), files: skill_launcher_files(rt) }))
         .clone();
     let checked = plan.clone();
     if let Ok(job) = lane.submit(cancel, move |_| write_launchers(&checked)) {

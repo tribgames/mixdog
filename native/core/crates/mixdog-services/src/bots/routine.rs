@@ -98,10 +98,7 @@ pub fn routine_executor_header(kind: RoutineKind, name: &str, project: &str, now
 /// only relays its report.
 pub fn routine_relay_header(kind: RoutineKind, name: &str, executor: &str, project: &str, now: DateTime<Utc>, tz: Tz) -> String {
     assemble(
-        format!(
-            "{HEADER_PREFIX} Your {} \"{name}\" fired and its sub-agent \"{executor}\" already carried it out; its final report is below.",
-            kind.word()
-        ),
+        format!("{HEADER_PREFIX} Your {} \"{name}\" fired and its sub-agent \"{executor}\" already carried it out; its final report is below.", kind.word()),
         now,
         tz,
         &[

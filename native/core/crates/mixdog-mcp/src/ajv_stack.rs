@@ -65,8 +65,7 @@ fn subschemas(node: &Value) -> Vec<&Value> {
     for (key, value) in map {
         match (key.as_str(), value) {
             (
-                "additionalItems" | "items" | "contains" | "additionalProperties" | "propertyNames" | "not" | "if"
-                | "then" | "else",
+                "additionalItems" | "items" | "contains" | "additionalProperties" | "propertyNames" | "not" | "if" | "then" | "else",
                 Value::Object(_) | Value::Bool(_),
             ) => out.push(value),
             ("items" | "allOf" | "anyOf" | "oneOf", Value::Array(items)) => out.extend(items),
@@ -219,10 +218,42 @@ pub(crate) trait Keywords {
 
 /// The keywords Ajv draft-07 has a rule for (`RULES.all`): a schema with none of them always passes, without a call.
 const RULES: [&str; 37] = [
-    "$comment", "id", "$ref", "maximum", "minimum", "exclusiveMaximum", "exclusiveMinimum", "multipleOf", "maxLength",
-    "minLength", "pattern", "maxProperties", "minProperties", "required", "maxItems", "minItems", "uniqueItems", "type",
-    "nullable", "const", "enum", "not", "anyOf", "oneOf", "allOf", "if", "then", "else", "propertyNames",
-    "additionalProperties", "dependencies", "properties", "patternProperties", "additionalItems", "items", "contains",
+    "$comment",
+    "id",
+    "$ref",
+    "maximum",
+    "minimum",
+    "exclusiveMaximum",
+    "exclusiveMinimum",
+    "multipleOf",
+    "maxLength",
+    "minLength",
+    "pattern",
+    "maxProperties",
+    "minProperties",
+    "required",
+    "maxItems",
+    "minItems",
+    "uniqueItems",
+    "type",
+    "nullable",
+    "const",
+    "enum",
+    "not",
+    "anyOf",
+    "oneOf",
+    "allOf",
+    "if",
+    "then",
+    "else",
+    "propertyNames",
+    "additionalProperties",
+    "dependencies",
+    "properties",
+    "patternProperties",
+    "additionalItems",
+    "items",
+    "contains",
     "format",
 ];
 
@@ -234,13 +265,7 @@ const TYPED: [(Kind, &[&str]); 4] = [
     (Kind::Number, &["maximum", "minimum", "exclusiveMaximum", "exclusiveMinimum", "multipleOf", "format"]),
     (Kind::String, &["maxLength", "minLength", "pattern", "format"]),
     (Kind::Array, &["maxItems", "minItems", "additionalItems", "items", "contains", "uniqueItems"]),
-    (
-        Kind::Object,
-        &[
-            "maxProperties", "minProperties", "required", "propertyNames", "additionalProperties", "dependencies",
-            "properties", "patternProperties",
-        ],
-    ),
+    (Kind::Object, &["maxProperties", "minProperties", "required", "propertyNames", "additionalProperties", "dependencies", "properties", "patternProperties"]),
 ];
 /// The core's own bound on nested subschemas on one path, references or not (Ajv inlines a subschema into its caller's
 /// code, so only references are V8 frames): a path that long holds more than 780 references between subschemas nested
@@ -335,7 +360,12 @@ fn has_type(name: &str, data: Data<'_>) -> bool {
 /// A map's entries in JavaScript's own-key order (`for … in`, `Object.keys`): array indices ascending, then the rest as
 /// written.
 fn js_order(map: &serde_json::Map<String, Value>) -> Vec<(&String, &Value)> {
-    let index = |k: &str| (k == "0" || (!k.starts_with('0') && k.bytes().all(|b| b.is_ascii_digit()))).then(|| k.parse::<u64>().ok()).flatten().filter(|n| *n < u64::from(u32::MAX));
+    let index = |k: &str| {
+        (k == "0" || (!k.starts_with('0') && k.bytes().all(|b| b.is_ascii_digit())))
+            .then(|| k.parse::<u64>().ok())
+            .flatten()
+            .filter(|n| *n < u64::from(u32::MAX))
+    };
     let mut indices: Vec<(u64, (&String, &Value))> = map.iter().filter_map(|entry| Some((index(entry.0)?, entry))).collect();
     indices.sort_by_key(|(n, _)| *n);
     indices.into_iter().map(|(_, entry)| entry).chain(map.iter().filter(|(k, _)| index(k).is_none())).collect()
@@ -422,8 +452,7 @@ impl<'s, K: Keywords> Walk<'_, 's, K> {
         };
         let uses = |keywords: &[&str]| keywords.iter().any(|k| map.contains_key(*k));
         // `coerceAndCheckDataType`: the type is checked first unless it is one type whose group the schema uses.
-        let first = !types.is_empty()
-            && !(types.len() == 1 && TYPED.iter().any(|(kind, keywords)| has_type_name(types[0], *kind) && uses(keywords)));
+        let first = !types.is_empty() && !(types.len() == 1 && TYPED.iter().any(|(kind, keywords)| has_type_name(types[0], *kind) && uses(keywords)));
         let mut valid = !(first && !types.iter().any(|name| has_type(name, data)));
         valid &= self.group(place, map, &UNTYPED, data, all)?;
         if !all && !valid {

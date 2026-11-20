@@ -152,36 +152,17 @@ impl Engine {
             let root = &raw.objects[raw.root];
             let superset_of = root.string("supersetOf").map(str::to_string);
             let disable_autodetect = root.flag("disableAutodetect");
-            slots.insert(
-                raw.name.clone(),
-                Slot {
-                    raw,
-                    superset_of,
-                    disable_autodetect,
-                    compiled: OnceCell::new(),
-                },
-            );
+            slots.insert(raw.name.clone(), Slot { raw, superset_of, disable_autodetect, compiled: OnceCell::new() });
         }
         // The registration order of highlight.js, restricted to the carried languages.
-        let order: Vec<String> = order
-            .into_iter()
-            .filter(|name| slots.contains_key(name))
-            .collect();
-        Self {
-            slots,
-            order,
-            aliases: aliases.into_iter().collect(),
-        }
+        let order: Vec<String> = order.into_iter().filter(|name| slots.contains_key(name)).collect();
+        Self { slots, order, aliases: aliases.into_iter().collect() }
     }
 
     /// `getLanguage(name)`: a name or an alias, case-insensitively.
     fn get_language(&self, name: &str) -> Option<&Slot> {
         let lower = mixdog_js::js_to_lowercase(name);
-        self.slots.get(&lower).or_else(|| {
-            self.aliases
-                .get(&lower)
-                .and_then(|target| self.slots.get(target))
-        })
+        self.slots.get(&lower).or_else(|| self.aliases.get(&lower).and_then(|target| self.slots.get(target)))
     }
 
     pub(crate) fn supports_language(&self, name: &str) -> bool {
@@ -193,32 +174,20 @@ impl Engine {
     }
 
     fn compiled(&self, slot: &Slot) -> Result<Rc<CompiledLanguage>, String> {
-        slot.compiled
-            .get_or_init(|| compile_language(&slot.raw).map(Rc::new))
-            .clone()
+        slot.compiled.get_or_init(|| compile_language(&slot.raw).map(Rc::new)).clone()
     }
 
     /// `highlight(code, { language, ignoreIllegals })`.
-    pub(crate) fn highlight(
-        &self,
-        code: &str,
-        language: &str,
-        ignore_illegals: bool,
-    ) -> Result<HighlightResult, HighlightError> {
+    pub(crate) fn highlight(&self, code: &str, language: &str, ignore_illegals: bool) -> Result<HighlightResult, HighlightError> {
         let text: Vec<u16> = code.encode_utf16().collect();
         let outcome = self.run(language, &text, ignore_illegals, None)?;
         Ok(self.finish(outcome, &text))
     }
 
     /// `highlightAuto(code, languageSubset)`.
-    pub(crate) fn highlight_auto(
-        &self,
-        code: &str,
-        subset: Option<&[&str]>,
-    ) -> Result<HighlightResult, HighlightError> {
+    pub(crate) fn highlight_auto(&self, code: &str, subset: Option<&[&str]>) -> Result<HighlightResult, HighlightError> {
         let text: Vec<u16> = code.encode_utf16().collect();
-        let subset: Option<Vec<String>> =
-            subset.map(|names| names.iter().map(|n| (*n).to_string()).collect());
+        let subset: Option<Vec<String>> = subset.map(|names| names.iter().map(|n| (*n).to_string()).collect());
         let outcome = self.auto(&text, subset.as_deref())?;
         Ok(self.finish(outcome, &text))
     }
@@ -240,13 +209,7 @@ impl Engine {
     fn just_text(code: &[u16]) -> Outcome {
         let mut emitter = Emitter::new();
         emitter.add_text(code);
-        Outcome {
-            relevance: 0,
-            emitter,
-            language: None,
-            top: None,
-            status: Status::Plain,
-        }
+        Outcome { relevance: 0, emitter, language: None, top: None, status: Status::Plain }
     }
 
     fn auto(&self, code: &[u16], subset: Option<&[String]>) -> Result<Outcome, HighlightError> {
@@ -265,9 +228,7 @@ impl Engine {
             results.push(self.run(name, code, false, None)?);
         }
         let mut order: Vec<usize> = (0..results.len()).collect();
-        mixdog_js::js_sort_by(&mut order, |&a, &b| {
-            self.compare_results(&results[a], &results[b])
-        });
+        mixdog_js::js_sort_by(&mut order, |&a, &b| self.compare_results(&results[a], &results[b]));
         let best = order[0];
         Ok(results.swap_remove(best))
     }
@@ -281,17 +242,9 @@ impl Engine {
             && !a_name.is_empty()
             && !b_name.is_empty()
         {
-            if self
-                .get_language(a_name)
-                .and_then(|s| s.superset_of.as_deref())
-                == Some(b_name.as_str())
-            {
+            if self.get_language(a_name).and_then(|s| s.superset_of.as_deref()) == Some(b_name.as_str()) {
                 return 1.0;
-            } else if self
-                .get_language(b_name)
-                .and_then(|s| s.superset_of.as_deref())
-                == Some(a_name.as_str())
-            {
+            } else if self.get_language(b_name).and_then(|s| s.superset_of.as_deref()) == Some(a_name.as_str()) {
                 return -1.0;
             }
         }
@@ -299,28 +252,10 @@ impl Engine {
     }
 
     /// `_highlight(languageName, code, ignoreIllegals, continuation)`.
-    fn run(
-        &self,
-        language_name: &str,
-        code: &[u16],
-        ignore_illegals: bool,
-        continuation: Option<Rc<Frame>>,
-    ) -> Result<Outcome, HighlightError> {
-        let slot = self
-            .get_language(language_name)
-            .ok_or_else(|| HighlightError::UnknownLanguage(language_name.to_string()))?;
-        let lang = self
-            .compiled(slot)
-            .map_err(|message| HighlightError::Compile {
-                language: slot.raw.name.clone(),
-                message,
-            })?;
-        let top = continuation.unwrap_or_else(|| {
-            Rc::new(Frame {
-                mode: lang.root,
-                parent: None,
-            })
-        });
+    fn run(&self, language_name: &str, code: &[u16], ignore_illegals: bool, continuation: Option<Rc<Frame>>) -> Result<Outcome, HighlightError> {
+        let slot = self.get_language(language_name).ok_or_else(|| HighlightError::UnknownLanguage(language_name.to_string()))?;
+        let lang = self.compiled(slot).map_err(|message| HighlightError::Compile { language: slot.raw.name.clone(), message })?;
+        let top = continuation.unwrap_or_else(|| Rc::new(Frame { mode: lang.root, parent: None }));
         let mut run = Run {
             engine: self,
             lang,
@@ -345,20 +280,10 @@ impl Engine {
                 top: Some(run.top),
                 status: Status::Ok,
             },
-            Some(Stop::Illegal) => Outcome {
-                relevance: 0,
-                emitter: run.emitter,
-                language: None,
-                top: None,
-                status: Status::Illegal,
-            },
-            Some(Stop::Raised) => Outcome {
-                relevance: 0,
-                emitter: run.emitter,
-                language: Some(language_name.to_string()),
-                top: Some(run.top),
-                status: Status::Raised,
-            },
+            Some(Stop::Illegal) => Outcome { relevance: 0, emitter: run.emitter, language: None, top: None, status: Status::Illegal },
+            Some(Stop::Raised) => {
+                Outcome { relevance: 0, emitter: run.emitter, language: Some(language_name.to_string()), top: Some(run.top), status: Status::Raised }
+            }
         })
     }
 }
@@ -450,11 +375,7 @@ impl Run<'_> {
     }
 
     /// `processLexeme(textBeforeMatch, match)`.
-    fn process_lexeme(
-        &mut self,
-        text_before: &[u16],
-        found: Option<&LexMatch>,
-    ) -> Result<usize, Stop> {
+    fn process_lexeme(&mut self, text_before: &[u16], found: Option<&LexMatch>) -> Result<usize, Stop> {
         self.mode_buffer.extend_from_slice(text_before);
         let Some(found) = found else {
             self.process_buffer()?;
@@ -475,10 +396,7 @@ impl Run<'_> {
             }
             return Ok(1);
         }
-        self.last_match = Some(LastMatch {
-            kind: found.kind,
-            index: found.index,
-        });
+        self.last_match = Some(LastMatch { kind: found.kind, index: found.index });
 
         match found.kind {
             RuleKind::Begin(rule) => return self.do_begin_match(found, rule),
@@ -508,10 +426,7 @@ impl Run<'_> {
         if let Some(class_name) = &lang.modes[mode].class_name {
             self.emitter.open_node(lang.class_alias(class_name));
         }
-        self.top = Rc::new(Frame {
-            mode,
-            parent: Some(self.top.clone()),
-        });
+        self.top = Rc::new(Frame { mode, parent: Some(self.top.clone()) });
     }
 
     /// `doIgnore(lexeme)`.
@@ -537,20 +452,10 @@ impl Run<'_> {
         let new_mode = &lang.modes[rule];
 
         // First the internal callback, then the public one.
-        for hook in [new_mode.before_begin, new_mode.on_begin]
-            .into_iter()
-            .flatten()
-        {
-            let view = MatchView {
-                input: code,
-                index: found.index,
-                found,
-            };
+        for hook in [new_mode.before_begin, new_mode.on_begin].into_iter().flatten() {
+            let view = MatchView { input: code, index: found.index, found };
             let mut data = new_mode.data.borrow_mut();
-            let mut response = Response {
-                ignored: false,
-                data: &mut data,
-            };
+            let mut response = Response { ignored: false, data: &mut data };
             hook(&view, &mut response);
             if response.ignored {
                 drop(data);
@@ -574,11 +479,7 @@ impl Run<'_> {
             }
         }
         self.start_new_mode(rule);
-        Ok(if new_mode.return_begin {
-            0
-        } else {
-            lexeme.len()
-        })
+        Ok(if new_mode.return_begin { 0 } else { lexeme.len() })
     }
 
     /// `startsWith(re, text)`: the expression matches at the start of the text.
@@ -591,27 +492,15 @@ impl Run<'_> {
     }
 
     /// `endOfMode(mode, match, matchPlusRemainder)`: the frame whose mode this match ends, if any.
-    fn end_of_mode(
-        &self,
-        frame: &Rc<Frame>,
-        found: &LexMatch,
-        rest: &[u16],
-    ) -> Result<Option<Rc<Frame>>, Stop> {
+    fn end_of_mode(&self, frame: &Rc<Frame>, found: &LexMatch, rest: &[u16]) -> Result<Option<Rc<Frame>>, Stop> {
         let mode = self.mode(frame);
         let end_re = mode.end_re.borrow().clone();
         let mut matched = Self::starts_with(&end_re, rest)?;
         if matched {
             if let Some(hook) = mode.on_end {
-                let view = MatchView {
-                    input: self.code,
-                    index: found.index,
-                    found,
-                };
+                let view = MatchView { input: self.code, index: found.index, found };
                 let mut data = mode.data.borrow_mut();
-                let mut response = Response {
-                    ignored: false,
-                    data: &mut data,
-                };
+                let mut response = Response { ignored: false, data: &mut data };
                 hook(&view, &mut response);
                 if response.ignored {
                     matched = false;
@@ -726,11 +615,7 @@ impl Run<'_> {
             buf.extend_from_slice(&buffer[last_index.min(found.start())..found.start()]);
             let text = &buffer[found.start()..found.end()];
             let key = String::from_utf16_lossy(text);
-            let key = if case_insensitive {
-                mixdog_js::js_to_lowercase(&key)
-            } else {
-                key
-            };
+            let key = if case_insensitive { mixdog_js::js_to_lowercase(&key) } else { key };
             if let Some((kind, keyword_relevance)) = table.get(&key) {
                 self.emitter.add_text(&buf);
                 buf.clear();
@@ -746,11 +631,7 @@ impl Run<'_> {
             }
             last_index = found.end();
             // A pattern that matches nothing would leave `lastIndex` where it is and never end.
-            search_from = if found.end() == found.start() {
-                found.end() + 1
-            } else {
-                found.end()
-            };
+            search_from = if found.end() == found.start() { found.end() + 1 } else { found.end() };
         }
         buf.extend_from_slice(buffer.get(last_index..).unwrap_or(&[]));
         self.emitter.add_text(&buf);
@@ -772,22 +653,13 @@ impl Run<'_> {
                     return Ok(());
                 }
                 let continuation = self.continuations.get(name).cloned().flatten();
-                let outcome = self
-                    .engine
-                    .run(name, &buffer, true, continuation)
-                    .map_err(|_| Stop::Raised)?;
+                let outcome = self.engine.run(name, &buffer, true, continuation).map_err(|_| Stop::Raised)?;
                 self.continuations.insert(name.clone(), outcome.top.clone());
                 outcome
             }
             Some(SubLanguage::List(list)) => {
-                let subset = if list.is_empty() {
-                    None
-                } else {
-                    Some(list.as_slice())
-                };
-                self.engine
-                    .auto(&buffer, subset)
-                    .map_err(|_| Stop::Raised)?
+                let subset = if list.is_empty() { None } else { Some(list.as_slice()) };
+                self.engine.auto(&buffer, subset).map_err(|_| Stop::Raised)?
             }
             None => return Ok(()),
         };
@@ -795,14 +667,12 @@ impl Run<'_> {
         if mode.relevance > 0.0 {
             self.relevance += result.relevance as f64;
         }
-        self.emitter
-            .add_sublanguage(result.emitter, result.language.as_deref());
+        self.emitter.add_sublanguage(result.emitter, result.language.as_deref());
         Ok(())
     }
 }
 
 #[cfg(test)]
 mod tests;
-
 
 impl std::error::Error for HighlightError {}

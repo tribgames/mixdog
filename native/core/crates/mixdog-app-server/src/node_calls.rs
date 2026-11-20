@@ -260,7 +260,6 @@ const READ_ACTIONS: [&str; 86] = [
     "tools/toolsStatus",
 ];
 
-
 /// Node `session.configure` actions the table names without that sentence: `clear`, `compact`, `deleteSession`, `goalControl`,
 /// `inheritFrom`, `continueSessionInModel`, `scheduleQuotaResume`, `cancelQuotaResume`, `renameSessionTitle`, `restoreQueued`,
 /// `rewindToItem`, `setRoute`/`setFast`, `stopShellJob`/`stopShellJobs`/`releaseShellJob`, and the read `session.read` carries for

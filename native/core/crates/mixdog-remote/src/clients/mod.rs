@@ -7,7 +7,7 @@ pub mod table;
 use serde_json::{Map, Value, json};
 
 pub use claims::{ClaimBindings, ClaimMethod, ClaimRequest, ClaimStep};
-pub use table::{ClientTable, MAX_CLIENTS, MediaGrant, Received, ReadyContext, Revocation};
+pub use table::{ClientTable, MAX_CLIENTS, MediaGrant, ReadyContext, Received, Revocation};
 
 use crate::identity::ClientInfo;
 

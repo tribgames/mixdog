@@ -32,7 +32,8 @@ fn world() -> World {
     let log = HookEventLog::new(data.clone());
     let status = HookStatus::new(data.clone(), tokens.maintenance_io, log.clone(), log.clone());
     let setup = HookRuleSetup::new(data.join("hooks.json"), tokens.maintenance_io, status, log);
-    let bus = HookBus::new(data.clone(), tokens.maintenance_io, Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default())), None, None, None);
+    let bus =
+        HookBus::new(data.clone(), tokens.maintenance_io, Arc::new(LocalProcessManager::new(tokens.spawn_io, ProcessConfig::default())), None, None, None);
     World { setup, bus, data, _dir: dir }
 }
 
@@ -67,7 +68,10 @@ async fn a_rule_saved_while_a_session_is_open_decides_the_next_call_and_deleting
     assert_eq!(world.decision("shell").await, Value::Null, "no rule, no opinion");
     let added = world.add(json!({ "tool": "shell", "action": "deny", "reason": "no shell here" })).await.unwrap();
     let row = &added["rules"][0];
-    assert_eq!((row["index"].clone(), row["tool"].clone(), row["action"].clone(), row["enabled"].clone()), (json!(0), json!("shell"), json!("deny"), json!(true)));
+    assert_eq!(
+        (row["index"].clone(), row["tool"].clone(), row["action"].clone(), row["enabled"].clone()),
+        (json!(0), json!("shell"), json!("deny"), json!(true))
+    );
     assert_eq!(row["hasArgumentEdit"], false);
     assert_eq!(world.file()["toolBefore"][0]["tool"], "shell");
     assert_eq!(world.decision("shell").await, json!("deny"));
@@ -78,7 +82,11 @@ async fn a_rule_saved_while_a_session_is_open_decides_the_next_call_and_deleting
     assert_eq!(deleted["rules"], json!([]));
     assert_eq!(deleted["recovery"], "The rule is removed from the hook rules file; re-adding it with add_hook_rule restores it.");
     assert_eq!(world.decision("shell").await, Value::Null);
-    assert!(Path::new(&world.data.join("hooks.json.bak")).exists() || std::fs::read_dir(&world.data).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().contains("bak")), "the replaced file is kept as a backup");
+    assert!(
+        Path::new(&world.data.join("hooks.json.bak")).exists()
+            || std::fs::read_dir(&world.data).unwrap().any(|entry| entry.unwrap().file_name().to_string_lossy().contains("bak")),
+        "the replaced file is kept as a backup"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -98,12 +106,23 @@ async fn a_rule_switched_off_says_nothing_and_switched_on_decides_again() {
 async fn a_bad_rule_or_an_unknown_index_is_refused_with_its_reason() {
     let world = world();
     let refused = |result: Result<Value, String>| result.expect_err("refused");
-    assert!(refused(world.add(json!({ "tool": "shell", "action": "maybe" })).await).contains("hook rule action must be allow, deny, block, modify, rewrite, or ask"));
+    assert!(
+        refused(world.add(json!({ "tool": "shell", "action": "maybe" })).await)
+            .contains("hook rule action must be allow, deny, block, modify, rewrite, or ask")
+    );
     assert!(refused(world.add(json!({ "tool": "shell", "action": "modify" })).await).contains("hookRule.modify requires exactly one of patch or args"));
-    assert!(refused(world.add(json!({ "tool": "shell", "action": "allow", "patch": {} })).await).contains("hookRule.patch applies only to modify or rewrite rules"));
+    assert!(
+        refused(world.add(json!({ "tool": "shell", "action": "allow", "patch": {} })).await).contains("hookRule.patch applies only to modify or rewrite rules")
+    );
     assert!(!world.data.join("hooks.json").exists(), "a refused rule writes nothing");
-    assert!(refused(world.run("delete_hook_rule", json!({ "action": "delete_hook_rule", "ruleIndex": 5 })).await).contains("hook rule 5 not found; read status hooks"));
-    assert!(refused(world.run("set_hook_rule_enabled", json!({ "action": "set_hook_rule_enabled", "ruleIndex": -1, "enabled": true })).await).contains("hook rule -1 not found"));
+    assert!(
+        refused(world.run("delete_hook_rule", json!({ "action": "delete_hook_rule", "ruleIndex": 5 })).await)
+            .contains("hook rule 5 not found; read status hooks")
+    );
+    assert!(
+        refused(world.run("set_hook_rule_enabled", json!({ "action": "set_hook_rule_enabled", "ruleIndex": -1, "enabled": true })).await)
+            .contains("hook rule -1 not found")
+    );
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -130,7 +149,14 @@ impl World {
 
 /// The rows an answer lists: index, enabled, tool, action.
 fn listed(answer: &Value) -> Vec<(i64, bool, String, String)> {
-    answer["rules"].as_array().unwrap().iter().map(|r| (r["index"].as_i64().unwrap(), r["enabled"].as_bool().unwrap(), r["tool"].as_str().unwrap().to_owned(), r["action"].as_str().unwrap().to_owned())).collect()
+    answer["rules"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|r| {
+            (r["index"].as_i64().unwrap(), r["enabled"].as_bool().unwrap(), r["tool"].as_str().unwrap().to_owned(), r["action"].as_str().unwrap().to_owned())
+        })
+        .collect()
 }
 
 fn row(index: i64, enabled: bool, tool: &str, action: &str) -> (i64, bool, String, String) {
@@ -142,10 +168,18 @@ async fn a_hooks_file_that_is_a_list_of_rules_is_read_toggled_and_written_back_a
     let world = world();
     world.start_from(r#"[{"tool":"read","action":"deny","reason":"no reads"},{"tool":"bash*","action":"modify","match":"rm -rf","patch":{"dry":true,"apiToken":"sekret"},"enabled":false},{"name":"edit","decision":"ask","contains":["a","b"],"message":"check edits","cwd":"/work"}]"#);
     let off = world.toggle(0, false).await.unwrap();
-    assert_eq!(listed(&off), vec![row(0, false, "read", "deny"), row(1, false, "bash*", "modify"), row(2, true, "edit", "ask")], "a rule may name its tool `name` and its action `decision`");
+    assert_eq!(
+        listed(&off),
+        vec![row(0, false, "read", "deny"), row(1, false, "bash*", "modify"), row(2, true, "edit", "ask")],
+        "a rule may name its tool `name` and its action `decision`"
+    );
     assert_eq!(off["rules"][1]["hasArgumentEdit"], true);
     assert!(!off.to_string().contains("sekret"), "an argument edit's contents are never shown");
-    assert_eq!(world.file()[0], json!({ "tool": "read", "action": "deny", "reason": "no reads", "enabled": false }), "the file stays a list and the toggle is written in place");
+    assert_eq!(
+        world.file()[0],
+        json!({ "tool": "read", "action": "deny", "reason": "no reads", "enabled": false }),
+        "the file stays a list and the toggle is written in place"
+    );
     assert_eq!(world.file().as_array().unwrap().len(), 3);
     assert_eq!(listed(&world.toggle(0, true).await.unwrap())[0], row(0, true, "read", "deny"));
 }
@@ -172,7 +206,9 @@ async fn a_hooks_file_with_no_usable_rule_list_gets_one_and_keeps_the_rest_of_it
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_rule_list_in_force_is_the_first_of_toolbefore_beforetool_and_hooks_toolbefore_and_the_others_stay_untouched() {
     let world = world();
-    world.start_from(r#"{"toolBefore":[{"action":"deny","tool":"a"}],"beforeTool":[{"action":"deny","tool":"b"}],"hooks":{"toolBefore":[{"action":"deny","tool":"c"}]}}"#);
+    world.start_from(
+        r#"{"toolBefore":[{"action":"deny","tool":"a"}],"beforeTool":[{"action":"deny","tool":"b"}],"hooks":{"toolBefore":[{"action":"deny","tool":"c"}]}}"#,
+    );
     let added = world.add(json!({ "action": "allow" })).await.unwrap();
     assert_eq!(listed(&added), vec![row(0, true, "a", "deny"), row(1, true, "*", "allow")]);
     assert_eq!(listed(&world.delete(0).await.unwrap()), vec![row(0, true, "*", "allow")]);
@@ -181,7 +217,11 @@ async fn the_rule_list_in_force_is_the_first_of_toolbefore_beforetool_and_hooks_
     assert_eq!(file["hooks"]["toolBefore"], json!([{ "action": "deny", "tool": "c" }]));
 
     let world = world_with(r#"{"beforeTool":[{"action":"deny","tool":"b"}],"hooks":{"toolBefore":[{"action":"deny","tool":"c"}]}}"#);
-    assert_eq!(listed(&world.add(json!({ "action": "allow" })).await.unwrap()), vec![row(0, true, "b", "deny"), row(1, true, "*", "allow")], "beforeTool wins over hooks.toolBefore");
+    assert_eq!(
+        listed(&world.add(json!({ "action": "allow" })).await.unwrap()),
+        vec![row(0, true, "b", "deny"), row(1, true, "*", "allow")],
+        "beforeTool wins over hooks.toolBefore"
+    );
 }
 
 fn world_with(text: &str) -> World {
@@ -234,7 +274,9 @@ async fn a_toggle_that_cannot_be_written_is_refused_and_leaves_the_file_as_it_wa
 /// `reason` the first truthy of `reason`, `message`; an argument edit is any non-null `patch` or `args` (`public_rule` reports only that).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn rules_with_unusual_fields_are_summarised_as_the_summary_reads_them() {
-    let world = world_with(r#"[{"tools":["a","b"],"decision":"deny","contains":"x","message":"m"},{"action":"","tool":""},{"enabled":0,"action":"deny"},{"enabled":false}]"#);
+    let world = world_with(
+        r#"[{"tools":["a","b"],"decision":"deny","contains":"x","message":"m"},{"action":"","tool":""},{"enabled":0,"action":"deny"},{"enabled":false}]"#,
+    );
     let blank = |index: i64, enabled: bool, tool: Value, action: &str| json!({ "index": index, "enabled": enabled, "tool": tool, "action": action, "match": null, "cwd": null, "reason": null, "hasArgumentEdit": false });
     let rows = world.toggle(0, false).await.unwrap()["rules"].clone();
     assert_eq!(

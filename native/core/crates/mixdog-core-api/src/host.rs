@@ -139,11 +139,7 @@ pub enum HostError {
     /// The claimant answered with a JSON-RPC error, passed through intact. `message` is as
     /// the host wrote it (already redacted); `data` (e.g. `data.timing`) is diagnostics for
     /// logs, never model text.
-    Rpc {
-        code: i64,
-        message: String,
-        data: Option<Value>,
-    },
+    Rpc { code: i64, message: String, data: Option<Value> },
 }
 
 impl From<CoreError> for HostError {
@@ -159,22 +155,11 @@ pub trait HostChannel: Send + Sync {
     /// once it is gone. Without one, or if the claimant closes before answering:
     /// `HostError::Core(capabilityUnavailable{capability:"desktopHost"})` at once, never a wait;
     /// a JSON-RPC error answer: `HostError::Rpc`. Dropping the future abandons the request.
-    async fn request(
-        &self,
-        capability: HostCapability,
-        method: Method,
-        params: Value,
-    ) -> Result<Value, HostError>;
+    async fn request(&self, capability: HostCapability, method: Method, params: Value) -> Result<Value, HostError>;
 
     /// [`HostChannel::request`] that also ends when `cancel` fires, as
     /// `capabilityUnavailable{desktopHost, cancelled}`, and abandons the request.
-    async fn request_scoped(
-        &self,
-        capability: HostCapability,
-        method: Method,
-        params: Value,
-        cancel: &CancellationToken,
-    ) -> Result<Value, HostError> {
+    async fn request_scoped(&self, capability: HostCapability, method: Method, params: Value, cancel: &CancellationToken) -> Result<Value, HostError> {
         match Scope::new().cancel(cancel).run(self.request(capability, method, params)).await {
             Scoped::Done(answer) => answer,
             _ => Err(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "cancelled".into() }.into()),
@@ -205,12 +190,7 @@ pub trait HostChannel: Send + Sync {
     }
 
     /// A `host/*` notification to the claimant serving `capability`.
-    fn notify(
-        &self,
-        capability: HostCapability,
-        method: Method,
-        params: Value,
-    ) -> Result<(), CoreError>;
+    fn notify(&self, capability: HostCapability, method: Method, params: Value) -> Result<(), CoreError>;
 
     /// [`HostChannel::request`] whose claimant streams events while it works (`model/proxy/execute`
     /// answers with `model/proxy/event{requestId, event}` notifications ahead of its response).
@@ -226,11 +206,7 @@ pub trait HostChannel: Send + Sync {
         on_event: &mut (dyn FnMut(Value) + Send),
     ) -> Result<Value, HostError> {
         let _ = (capability, method, params, on_event);
-        Err(CoreError::CapabilityUnavailable {
-            capability: "desktopHost".into(),
-            detail: "noClaimant".into(),
-        }
-        .into())
+        Err(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "noClaimant".into() }.into())
     }
 
     /// [`HostChannel::request_streamed`] whose caller also speaks to the claimant while it works: each value `back` yields
@@ -246,11 +222,7 @@ pub trait HostChannel: Send + Sync {
         back: tokio::sync::mpsc::UnboundedReceiver<Value>,
     ) -> Result<Value, HostError> {
         let _ = (capability, method, params, on_event, back_method, back);
-        Err(CoreError::CapabilityUnavailable {
-            capability: "desktopHost".into(),
-            detail: "noClaimant".into(),
-        }
-        .into())
+        Err(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "noClaimant".into() }.into())
     }
 
     /// One streamed event of request `request` arrived from `from`. `false` when that connection
@@ -283,23 +255,12 @@ pub struct HostClaim {
 #[async_trait]
 pub trait ClaimedHostChannel: HostChannel {
     /// [`HostChannel::request`], also naming the claim that served it.
-    async fn request_claimed(
-        &self,
-        capability: HostCapability,
-        method: Method,
-        params: Value,
-    ) -> Result<(HostClaim, Value), HostError>;
+    async fn request_claimed(&self, capability: HostCapability, method: Method, params: Value) -> Result<(HostClaim, Value), HostError>;
 
     /// [`HostChannel::request`] addressed to `claim` alone: refused as
     /// `capabilityUnavailable{desktopHost}` unless `claim` is still the one serving
     /// `capability` (a newer claimant, or a reconnect, ends it), checked as the request is sent.
-    async fn request_to(
-        &self,
-        claim: &HostClaim,
-        capability: HostCapability,
-        method: Method,
-        params: Value,
-    ) -> Result<Value, HostError>;
+    async fn request_to(&self, claim: &HostClaim, capability: HostCapability, method: Method, params: Value) -> Result<Value, HostError>;
 }
 
 /// A notification to one connection by id (the `@connection` delivery of the method table, for

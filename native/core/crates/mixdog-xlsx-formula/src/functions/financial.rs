@@ -4,10 +4,7 @@
 //! table, not duplicated as alternative day-count formulas here.
 //! Some original inputs do not terminate. Product evaluation must stay in the
 //! externally cancellable owned ext-worker process, never on a daemon thread.
-use crate::coerce::{
-    flatten, is_defined, is_truthy, parse_date, parse_date_array, parse_number,
-    parse_number_array, to_js_number, to_js_utf16,
-};
+use crate::coerce::{flatten, is_defined, is_truthy, parse_date, parse_date_array, parse_number, parse_number_array, to_js_number, to_js_utf16};
 use crate::registry::{Table, library};
 use crate::value::{ErrorValue as E, Failure, Value as V};
 use mixdog_js::time::{date_parse, local_fields, local_to_utc_ms};
@@ -88,9 +85,7 @@ fn add_values(left: V, right: V) -> V {
 }
 
 fn calendar(name: &str, a: &[V]) -> Result<f64, Failure> {
-    let function = library().resolve(name).ok_or_else(|| {
-        Failure::unsupported(format!("financial dependency {name} is not registered"))
-    })?;
+    let function = library().resolve(name).ok_or_else(|| Failure::unsupported(format!("financial dependency {name} is not registered")))?;
     function(a).map(|v| to_js_number(&v))
 }
 fn primitive(v: &V) -> V {
@@ -133,11 +128,7 @@ fn ensure_date(v: &V) -> f64 {
         V::Array(_) | V::Error(_) => mixdog_js::time::date_parse_utf16(&to_js_utf16(v)),
         _ => {
             let t = to_js_number(v);
-            if t.is_finite() && t.abs() <= 8.64e15 {
-                t.trunc()
-            } else {
-                f64::NAN
-            }
+            if t.is_finite() && t.abs() <= 8.64e15 { t.trunc() } else { f64::NAN }
         }
     }
 }
@@ -147,15 +138,7 @@ fn set_date(t: f64, year: Option<i64>, month: Option<i64>) -> f64 {
     };
     let mon = month.unwrap_or(i64::from(f.month) - 1);
     let yr = year.unwrap_or(i64::from(f.year)) + mon.div_euclid(12);
-    local_to_utc_ms(
-        yr,
-        mon.rem_euclid(12) + 1,
-        i64::from(f.day),
-        i64::from(f.hour),
-        i64::from(f.minute),
-        i64::from(f.second),
-        i64::from(f.millisecond),
-    )
+    local_to_utc_ms(yr, mon.rem_euclid(12) + 1, i64::from(f.day), i64::from(f.hour), i64::from(f.minute), i64::from(f.second), i64::from(f.millisecond))
 }
 fn coupon_days(a: &[V]) -> Result<V, Failure> {
     let basis = numeric(&arg(a, 3));
@@ -165,10 +148,7 @@ fn coupon_days(a: &[V]) -> Result<V, Failure> {
     let (Ok(basis), Ok(frequency)) = (basis, frequency) else {
         return error(E::Num);
     };
-    if ![0.0, 1.0, 2.0, 3.0, 4.0].contains(&basis)
-        || ![1.0, 2.0, 4.0].contains(&frequency)
-        || settlement >= maturity
-    {
+    if ![0.0, 1.0, 2.0, 3.0, 4.0].contains(&basis) || ![1.0, 2.0, 4.0].contains(&frequency) || settlement >= maturity {
         return error(E::Num);
     }
     if basis != 1.0 {
@@ -176,8 +156,7 @@ fn coupon_days(a: &[V]) -> Result<V, Failure> {
     }
     // lastCoupDateBeforeSettlement reparses maturity and calls setFullYear;
     // NaN Dates coming from whitespace retain the source's TypeError path.
-    let mut current = date(&V::Date(maturity))
-        .map_err(|_| Failure::thrown("date.setFullYear is not a function"))?;
+    let mut current = date(&V::Date(maturity)).map_err(|_| Failure::thrown("date.setFullYear is not a function"))?;
     current = match local_fields(settlement) {
         Some(f) => set_date(current, Some(i64::from(f.year)), None),
         None => f64::NAN,
@@ -188,25 +167,11 @@ fn coupon_days(a: &[V]) -> Result<V, Failure> {
     }
     while current > settlement {
         let f = local_fields(current).expect("finite date");
-        current = set_date(
-            current,
-            None,
-            Some(i64::from(f.month) - 1 - (12.0 / frequency) as i64),
-        );
+        current = set_date(current, None, Some(i64::from(f.month) - 1 - (12.0 / frequency) as i64));
     }
-    let next = date(&V::Date(current))
-        .map_err(|_| Failure::thrown("nextDate.getMonth is not a function"))?;
-    let next = local_fields(next).map_or(f64::NAN, |f| {
-        set_date(
-            next,
-            None,
-            Some(i64::from(f.month) - 1 + (12.0 / frequency) as i64),
-        )
-    });
-    num(calendar(
-        "DATEDIF",
-        &[V::Date(current), V::Date(next), V::text("D")],
-    )?)
+    let next = date(&V::Date(current)).map_err(|_| Failure::thrown("nextDate.getMonth is not a function"))?;
+    let next = local_fields(next).map_or(f64::NAN, |f| set_date(next, None, Some(i64::from(f.month) - 1 + (12.0 / frequency) as i64)));
+    num(calendar("DATEDIF", &[V::Date(current), V::Date(next), V::text("D")])?)
 }
 
 fn run(name: &str, a: &[V]) -> Result<V, Failure> {
@@ -220,8 +185,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             let (Ok(frequency), Ok(basis)) = (frequency, basis) else {
                 return error(E::Num);
             };
-            if ![1.0, 2.0, 4.0].contains(&frequency) || ![0.0, 1.0, 2.0, 3.0, 4.0].contains(&basis)
-            {
+            if ![1.0, 2.0, 4.0].contains(&frequency) || ![0.0, 1.0, 2.0, 3.0, 4.0].contains(&basis) {
                 return error(E::Num);
             }
             if !issue.is_finite() || !first.is_finite() || !settlement.is_finite() {
@@ -233,12 +197,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return error(E::Num);
             }
             let par = to_js_number(&truthy_default(par, 0.0));
-            num(par
-                * rate
-                * calendar(
-                    "YEARFRAC",
-                    &[V::Date(issue), V::Date(settlement), V::Number(basis)],
-                )?)
+            num(par * rate * calendar("YEARFRAC", &[V::Date(issue), V::Date(settlement), V::Number(basis)])?)
         }
         "COUPDAYS" => coupon_days(a),
         "CUMIPMT" | "CUMPRINC" => {
@@ -247,13 +206,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             let mut start = arg(a, 3);
             let end = arg(a, 4);
             let kind = arg(a, 5);
-            if rate <= 0.0
-                || nper <= 0.0
-                || pv <= 0.0
-                || less(&start, &V::Number(1.0))
-                || less(&end, &V::Number(1.0))
-                || less(&end, &start)
-            {
+            if rate <= 0.0 || nper <= 0.0 || pv <= 0.0 || less(&start, &V::Number(1.0)) || less(&end, &V::Number(1.0)) || less(&end, &start) {
                 return error(E::Num);
             }
             let V::Number(kind) = kind else {
@@ -276,53 +229,23 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             }
             while less_equal(&start, &end) {
                 let i = to_js_number(&start);
-                let future = run(
-                    "FV",
-                    &[
-                        V::Number(rate),
-                        V::Number(i - if kind == 1.0 { 2.0 } else { 1.0 }),
-                        payment.clone(),
-                        V::Number(pv),
-                        V::Number(kind),
-                    ],
-                )?;
-                let interest = if kind == 1.0 {
-                    V::Number(to_js_number(&future) - to_js_number(&payment))
-                } else {
-                    future
-                };
-                let term = if name == "CUMIPMT" {
-                    interest
-                } else {
-                    V::Number(to_js_number(&payment) - m::mul(to_js_number(&interest), rate))
-                };
+                let future =
+                    run("FV", &[V::Number(rate), V::Number(i - if kind == 1.0 { 2.0 } else { 1.0 }), payment.clone(), V::Number(pv), V::Number(kind)])?;
+                let interest = if kind == 1.0 { V::Number(to_js_number(&future) - to_js_number(&payment)) } else { future };
+                let term = if name == "CUMIPMT" { interest } else { V::Number(to_js_number(&payment) - m::mul(to_js_number(&interest), rate)) };
                 total = add_values(total, term);
                 start = V::Number(m::add(i, 1.0));
             }
-            if name == "CUMIPMT" {
-                num(m::mul(to_js_number(&total), rate))
-            } else {
-                Ok(total)
-            }
+            if name == "CUMIPMT" { num(m::mul(to_js_number(&total), rate)) } else { Ok(total) }
         }
         "DB" | "DDB" => {
-            let raw = [
-                arg(a, 0),
-                arg(a, 1),
-                arg(a, 2),
-                arg(a, 3),
-                default(a, 4, if name == "DB" { 12.0 } else { 2.0 }),
-            ];
+            let raw = [arg(a, 0), arg(a, 1), arg(a, 2), arg(a, 3), default(a, 4, if name == "DB" { 12.0 } else { 2.0 })];
             let p = value_error!(nums(&raw));
             let (cost, salvage, life, period, extra) = (p[0], p[1], p[2], p[3], p[4]);
             if cost < 0.0 || salvage < 0.0 || life < 0.0 || period < 0.0 {
                 return error(E::Num);
             }
-            if (name == "DB" && !(1.0..=12.0).contains(&extra))
-                || (name == "DB" && extra.fract() != 0.0)
-                || (name == "DDB" && extra <= 0.0)
-                || period > life
-            {
+            if (name == "DB" && !(1.0..=12.0).contains(&extra)) || (name == "DB" && extra.fract() != 0.0) || (name == "DDB" && extra <= 0.0) || period > life {
                 return error(E::Num);
             }
             if salvage >= cost {
@@ -359,11 +282,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             let maturity = value_error!(date(&arg(a, 1)));
             let p = value_error!(nums(&[arg(a, 2), arg(a, 3), arg(a, 4)]));
             let (price, redemption) = (p[0], p[1]);
-            let basis = if p[2] == 0.0 || p[2].is_nan() {
-                0.0
-            } else {
-                p[2]
-            };
+            let basis = if p[2] == 0.0 || p[2].is_nan() { 0.0 } else { p[2] };
             if price <= 0.0 || redemption <= 0.0 {
                 return error(E::Num);
             }
@@ -371,17 +290,8 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return error(E::Value);
             }
             let (basis_days, difference) = match basis {
-                0.0 | 4.0 => (
-                    360.0,
-                    calendar(
-                        "DAYS360",
-                        &[V::Date(s), V::Date(maturity), V::Bool(basis == 4.0)],
-                    )?,
-                ),
-                1.0 | 2.0 | 3.0 => (
-                    if basis == 2.0 { 360.0 } else { 365.0 },
-                    calendar("DATEDIF", &[V::Date(s), V::Date(maturity), V::text("D")])?,
-                ),
+                0.0 | 4.0 => (360.0, calendar("DAYS360", &[V::Date(s), V::Date(maturity), V::Bool(basis == 4.0)])?),
+                1.0 | 2.0 | 3.0 => (if basis == 2.0 { 360.0 } else { 365.0 }, calendar("DATEDIF", &[V::Date(s), V::Date(maturity), V::text("D")])?),
                 _ => return error(E::Num),
             };
             num(if name == "DISC" {
@@ -405,24 +315,12 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             // V8's remainder of an infinite dollar by 1 is the negative canonical NaN.
             let fractional = if dollar.is_infinite() { f64::from_bits(0xfff8_0000_0000_0000) } else { dollar % 1.0 };
             if name == "DOLLARDE" {
-                let decimal = m::mul(
-                    fractional,
-                    m::pow(10.0, m::ceil(m::ln(fraction) / std::f64::consts::LN_10)),
-                ) / fraction;
+                let decimal = m::mul(fractional, m::pow(10.0, m::ceil(m::ln(fraction) / std::f64::consts::LN_10))) / fraction;
                 result = m::add(result, decimal);
-                let power = m::pow(
-                    10.0,
-                    m::add(m::ceil(m::ln(fraction) / std::f64::consts::LN_2), 1.0),
-                );
+                let power = m::pow(10.0, m::add(m::ceil(m::ln(fraction) / std::f64::consts::LN_2), 1.0));
                 result = m::round(m::mul(result, power)) / power;
             } else {
-                let decimal = m::mul(
-                    m::mul(
-                        fractional,
-                        m::pow(10.0, -m::ceil(m::ln(fraction) / std::f64::consts::LN_10)),
-                    ),
-                    fraction,
-                );
+                let decimal = m::mul(m::mul(fractional, m::pow(10.0, -m::ceil(m::ln(fraction) / std::f64::consts::LN_10))), fraction);
                 result = m::add(result, decimal);
             }
             num(result)
@@ -434,11 +332,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return error(E::Num);
             }
             let periods = parse_int(periods);
-            num(if name == "EFFECT" {
-                m::pow(1.0 + rate / periods, periods) - 1.0
-            } else {
-                (m::pow(rate + 1.0, 1.0 / periods) - 1.0) * periods
-            })
+            num(if name == "EFFECT" { m::pow(1.0 + rate / periods, periods) - 1.0 } else { (m::pow(rate + 1.0, 1.0 / periods) - 1.0) * periods })
         }
         "FV" | "PMT" | "PV" => {
             let p = value_error!(annuity_args(a, 5, 3, 4));
@@ -447,33 +341,18 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return num(if rate == 0.0 {
                     -payment * nper - last
                 } else {
-                    (((1.0 - m::pow(1.0 + rate, nper)) / rate) * payment * (1.0 + rate * kind)
-                        - last)
-                        / m::pow(1.0 + rate, nper)
+                    (((1.0 - m::pow(1.0 + rate, nper)) / rate) * payment * (1.0 + rate * kind) - last) / m::pow(1.0 + rate, nper)
                 });
             }
             let result = if rate == 0.0 {
-                if name == "FV" {
-                    last + payment * nper
-                } else {
-                    (payment + last) / nper
-                }
+                if name == "FV" { last + payment * nper } else { (payment + last) / nper }
             } else {
                 let term = m::pow(1.0 + rate, nper);
                 if name == "FV" {
-                    if kind == 1.0 {
-                        last * term + (payment * (1.0 + rate) * (term - 1.0)) / rate
-                    } else {
-                        last * term + (payment * (term - 1.0)) / rate
-                    }
+                    if kind == 1.0 { last * term + (payment * (1.0 + rate) * (term - 1.0)) / rate } else { last * term + (payment * (term - 1.0)) / rate }
                 } else {
-                    let value =
-                        (last * rate) / (term - 1.0) + (payment * rate) / (1.0 - 1.0 / term);
-                    if kind == 1.0 {
-                        value / (1.0 + rate)
-                    } else {
-                        value
-                    }
+                    let value = (last * rate) / (term - 1.0) + (payment * rate) / (1.0 - 1.0 / term);
+                    if kind == 1.0 { value / (1.0 + rate) } else { value }
                 }
             };
             num(-result)
@@ -501,25 +380,9 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             num(interest * rate)
         }
         "PPMT" => {
-            let p = value_error!(nums(&[
-                arg(a, 0),
-                arg(a, 2),
-                arg(a, 3),
-                truthy_default(arg(a, 4), 0.0),
-                truthy_default(arg(a, 5), 0.0)
-            ]));
+            let p = value_error!(nums(&[arg(a, 0), arg(a, 2), arg(a, 3), truthy_default(arg(a, 4), 0.0), truthy_default(arg(a, 5), 0.0)]));
             let payment = internal("PMT", &number_values(&p))?;
-            let interest = internal(
-                "IPMT",
-                &[
-                    V::Number(p[0]),
-                    arg(a, 1),
-                    V::Number(p[1]),
-                    V::Number(p[2]),
-                    V::Number(p[3]),
-                    V::Number(p[4]),
-                ],
-            )?;
+            let interest = internal("IPMT", &[V::Number(p[0]), arg(a, 1), V::Number(p[1]), V::Number(p[2]), V::Number(p[3]), V::Number(p[4])])?;
             num(payment - interest)
         }
         "IRR" => irr(a),
@@ -534,30 +397,14 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             let mut incomes = Vec::new();
             let n = values.len() as f64;
             for value in values {
-                if value < 0.0 {
-                    payments.push(V::Number(value))
-                } else {
-                    incomes.push(V::Number(value))
-                }
+                if value < 0.0 { payments.push(V::Number(value)) } else { incomes.push(V::Number(value)) }
             }
-            let numerator = m::mul(
-                -internal("NPV", &[V::Number(rates[1]), V::Array(incomes)])?,
-                m::pow(m::add(1.0, rates[1]), n - 1.0),
-            );
-            let denominator = m::mul(
-                internal("NPV", &[V::Number(rates[0]), V::Array(payments)])?,
-                m::add(1.0, rates[0]),
-            );
+            let numerator = m::mul(-internal("NPV", &[V::Number(rates[1]), V::Array(incomes)])?, m::pow(m::add(1.0, rates[1]), n - 1.0));
+            let denominator = m::mul(internal("NPV", &[V::Number(rates[0]), V::Array(payments)])?, m::add(1.0, rates[0]));
             num(m::pow(numerator / denominator, 1.0 / (n - 1.0)) - 1.0)
         }
         "NPER" => {
-            let p = value_error!(nums(&[
-                arg(a, 0),
-                arg(a, 1),
-                arg(a, 2),
-                default(a, 3, 0.0),
-                default(a, 4, 0.0)
-            ]));
+            let p = value_error!(nums(&[arg(a, 0), arg(a, 1), arg(a, 2), default(a, 3, 0.0), default(a, 4, 0.0)]));
             let (r, pmt, pv, fv, kind) = (p[0], p[1], p[2], p[3], p[4]);
             num(if r == 0.0 {
                 -(pv + fv) / pmt
@@ -611,8 +458,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             let s = value_error!(date(&arg(a, 0)));
             let maturity = value_error!(date(&arg(a, 1)));
             let discount = value_error!(numeric(&arg(a, 2)));
-            if discount <= 0.0 || s > maturity || maturity - s > 365.0 * 24.0 * 60.0 * 60.0 * 1000.0
-            {
+            if discount <= 0.0 || s > maturity || maturity - s > 365.0 * 24.0 * 60.0 * 60.0 * 1000.0 {
                 return error(E::Num);
             }
             let days = calendar("DAYS360", &[V::Date(s), V::Date(maturity), V::Bool(false)])?;
@@ -627,20 +473,9 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
     }
 }
 fn rate(a: &[V]) -> Result<V, Failure> {
-    let p = value_error!(nums(&[
-        arg(a, 0),
-        arg(a, 1),
-        arg(a, 2),
-        default(a, 3, 0.0),
-        default(a, 4, 0.0),
-        default(a, 5, 0.1)
-    ]));
+    let p = value_error!(nums(&[arg(a, 0), arg(a, 1), arg(a, 2), default(a, 3, 0.0), default(a, 4, 0.0), default(a, 5, 0.1)]));
     let (nper, pmt, pv, fv, raw_kind) = (p[0], p[1], p[2], p[3], p[4]);
-    let kind = if raw_kind != 0.0 && !raw_kind.is_nan() {
-        1.0
-    } else {
-        0.0
-    };
+    let kind = if raw_kind != 0.0 && !raw_kind.is_nan() { 1.0 } else { 0.0 };
     let mut rate = p[5];
     let eps = 1e-10;
     for _ in 0..100 {
@@ -673,10 +508,7 @@ fn irr(a: &[V]) -> Result<V, Failure> {
         V::Undefined => 0.1,
         v => value_error!(numeric(&v)),
     };
-    let defined: Vec<_> = flatten(&[arg(a, 0)])
-        .into_iter()
-        .filter(is_defined)
-        .collect();
+    let defined: Vec<_> = flatten(&[arg(a, 0)]).into_iter().filter(is_defined).collect();
     let cash = value_error!(numbers(&[V::Array(defined)]));
     if !cash.iter().any(|n| *n > 0.0) || !cash.iter().any(|n| *n < 0.0) {
         return error(E::Num);
@@ -694,14 +526,7 @@ fn irr(a: &[V]) -> Result<V, Failure> {
         if let Some(v) = cache.get(&key) {
             return *v;
         }
-        let r = m::add(
-            1.0,
-            if rounded <= -1.0 {
-                -0.999999999
-            } else {
-                rounded
-            },
-        );
+        let r = m::add(1.0, if rounded <= -1.0 { -0.999999999 } else { rounded });
         let mut result = cash[0];
         let mut factor = 1.0;
         for v in cash.iter().skip(1) {
@@ -773,26 +598,16 @@ fn irr(a: &[V]) -> Result<V, Failure> {
         if m::abs(value) < eps || m::abs(right - left) < eps {
             return num(middle);
         }
-        if m::mul(value, npv(left)) < 0.0 {
-            right = middle
-        } else {
-            left = middle
-        }
+        if m::mul(value, npv(left)) < 0.0 { right = middle } else { left = middle }
     }
     num(middle)
 }
 fn dated_cashflows(name: &str, a: &[V]) -> Result<V, Failure> {
     let offset = usize::from(name == "XNPV");
-    let mut rate = if offset == 1 {
-        value_error!(numeric(&arg(a, 0)))
-    } else {
-        value_error!(numeric(&arg(a, 2)))
-    };
+    let mut rate = if offset == 1 { value_error!(numeric(&arg(a, 0))) } else { value_error!(numeric(&arg(a, 2))) };
     let values = value_error!(numbers(&[arg(a, offset)]));
     let dates = value_error!(parse_date_array(&flatten(&[arg(a, offset + 1)])));
-    let fraction = |i: usize| -> Result<f64, Failure> {
-        Ok(calendar("DAYS", &[arg(&dates, i), arg(&dates, 0)])? / 365.0)
-    };
+    let fraction = |i: usize| -> Result<f64, Failure> { Ok(calendar("DAYS", &[arg(&dates, i), arg(&dates, 0)])? / 365.0) };
     if name == "XNPV" {
         let mut result = 0.0;
         for (i, v) in values.iter().enumerate() {
@@ -832,9 +647,8 @@ macro_rules! functions {($($name:ident),+$(,)?)=>{$(fn $name(a:&[V])->Result<V,F
 mod exports {
     use super::*;
     functions!(
-        ACCRINT, COUPDAYS, CUMIPMT, CUMPRINC, DB, DDB, DISC, DOLLARDE, DOLLARFR, EFFECT, FV,
-        FVSCHEDULE, IPMT, IRR, ISPMT, MIRR, NOMINAL, NPER, NPV, PDURATION, PMT, PPMT, PRICEDISC,
-        PV, RATE, RRI, SLN, SYD, TBILLEQ, TBILLPRICE, TBILLYIELD, XIRR, XNPV
+        ACCRINT, COUPDAYS, CUMIPMT, CUMPRINC, DB, DDB, DISC, DOLLARDE, DOLLARFR, EFFECT, FV, FVSCHEDULE, IPMT, IRR, ISPMT, MIRR, NOMINAL, NPER, NPV, PDURATION,
+        PMT, PPMT, PRICEDISC, PV, RATE, RRI, SLN, SYD, TBILLEQ, TBILLPRICE, TBILLYIELD, XIRR, XNPV
     );
 }
 pub use exports::FUNCTIONS;

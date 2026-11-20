@@ -21,20 +21,8 @@ pub struct Window {
 }
 
 pub enum FetchItem {
-    Success {
-        url: String,
-        title: String,
-        window: Window,
-        failures: Vec<Failure>,
-        attempts: Vec<Attempt>,
-    },
-    Error {
-        url: String,
-        error: String,
-        error_code: String,
-        failures: Vec<Failure>,
-        attempts: Vec<Attempt>,
-    },
+    Success { url: String, title: String, window: Window, failures: Vec<Failure>, attempts: Vec<Attempt> },
+    Error { url: String, error: String, error_code: String, failures: Vec<Failure>, attempts: Vec<Attempt> },
 }
 
 /// `text[start..end]` in UTF-16 units; a window edge inside a surrogate pair
@@ -48,11 +36,7 @@ fn slice_utf16(text: &str, start: usize, end: usize) -> String {
 }
 
 fn utf16_length(text: &str) -> usize {
-    if text.is_ascii() {
-        text.len()
-    } else {
-        text.encode_utf16().count()
-    }
+    if text.is_ascii() { text.len() } else { text.encode_utf16().count() }
 }
 
 fn is_high(unit: u16) -> bool {
@@ -64,11 +48,7 @@ fn is_low(unit: u16) -> bool {
 }
 
 pub fn clip(text: &str, cap: usize) -> String {
-    if utf16_length(text) > cap {
-        format!("{}…", slice_utf16(text, 0, cap))
-    } else {
-        text.to_string()
-    }
+    if utf16_length(text) > cap { format!("{}…", slice_utf16(text, 0, cap)) } else { text.to_string() }
 }
 
 /// `max_length`: `None` = default window, `Some(0)` = unlimited.
@@ -76,16 +56,7 @@ pub fn paginate(content: &str, start_index: u64, max_length: Option<u64>) -> Win
     let total = utf16_length(content) as u64;
     let start = start_index;
     if start >= total {
-        return Window {
-            content: String::new(),
-            bytes: 0,
-            total_length: total,
-            start,
-            end: start,
-            has_more: false,
-            next_start: None,
-            capped: false,
-        };
+        return Window { content: String::new(), bytes: 0, total_length: total, start, end: start, has_more: false, next_start: None, capped: false };
     }
     let limit = match max_length {
         None => DEFAULT_FETCH_MAX_LENGTH,
@@ -96,11 +67,7 @@ pub fn paginate(content: &str, start_index: u64, max_length: Option<u64>) -> Win
     let end = if raw_end < total && !content.is_ascii() {
         let units: Vec<u16> = content.encode_utf16().collect();
         let (high, low) = (units[raw_end as usize - 1], units[raw_end as usize]);
-        if is_high(high) && is_low(low) {
-            if raw_end - 1 > start { raw_end - 1 } else { raw_end + 1 }
-        } else {
-            raw_end
-        }
+        if is_high(high) && is_low(low) { if raw_end - 1 > start { raw_end - 1 } else { raw_end + 1 } } else { raw_end }
     } else {
         raw_end
     };
@@ -125,10 +92,7 @@ pub fn continuation(window: &Window) -> String {
     };
     let (start, end, total) = (window.start, window.end, window.total_length);
     if window.capped {
-        format!(
-            "\n\n[output capped at {} chars; chars {start}-{end} of {total}; startIndex:{next} for more]",
-            end - start
-        )
+        format!("\n\n[output capped at {} chars; chars {start}-{end} of {total}; startIndex:{next} for more]", end - start)
     } else {
         format!("\n\n[chars {start}-{end} of {total}; startIndex:{next} for more]")
     }
@@ -139,22 +103,10 @@ fn diagnostics(error_code: Option<&str>, is_error: bool, failures: &[Failure], a
     if let Some(code) = error_code {
         lines.push(format!("errorCode: {code}"));
     }
-    let noteworthy = error_code.is_some()
-        || is_error
-        || !failures.is_empty()
-        || attempts.iter().any(|attempt| !attempt.ok);
+    let noteworthy = error_code.is_some() || is_error || !failures.is_empty() || attempts.iter().any(|attempt| !attempt.ok);
     if !attempts.is_empty() && noteworthy {
-        let rendered: Vec<String> = attempts
-            .iter()
-            .map(|attempt| {
-                format!(
-                    "{}={} ({}ms)",
-                    attempt.stage,
-                    attempt.code.as_deref().unwrap_or("success"),
-                    attempt.elapsed_ms
-                )
-            })
-            .collect();
+        let rendered: Vec<String> =
+            attempts.iter().map(|attempt| format!("{}={} ({}ms)", attempt.stage, attempt.code.as_deref().unwrap_or("success"), attempt.elapsed_ms)).collect();
         lines.push(format!("attempts: {}", rendered.join(" -> ")));
     }
     for failure in failures {
@@ -169,41 +121,19 @@ pub fn format_fetch(items: &[&FetchItem], urls_truncated: usize) -> String {
     if items.is_empty() {
         return "(no fetch results)".to_string();
     }
-    let note = if urls_truncated > 0 {
-        format!(
-            "[fetched first {} of {urls_truncated} URLs; raise FETCH_URL_CAP for more]\n\n",
-            items.len()
-        )
-    } else {
-        String::new()
-    };
+    let note =
+        if urls_truncated > 0 { format!("[fetched first {} of {urls_truncated} URLs; raise FETCH_URL_CAP for more]\n\n", items.len()) } else { String::new() };
     let rendered: Vec<String> = items
         .iter()
         .copied()
         .map(|item| match item {
-            FetchItem::Error {
-                url,
-                error,
-                error_code,
-                failures,
-                attempts,
-            } => {
+            FetchItem::Error { url, error, error_code, failures, attempts } => {
                 let mut lines = vec![format!("[{url}]"), format!("(error: {error})")];
                 lines.extend(diagnostics(Some(error_code), true, failures, attempts));
                 lines.join("\n")
             }
-            FetchItem::Success {
-                url,
-                title,
-                window,
-                failures,
-                attempts,
-            } => {
-                let meta = [
-                    format!("{} bytes", window.bytes),
-                    format!("range={}..{}/{}", window.start, window.end, window.total_length),
-                ]
-                .join(", ");
+            FetchItem::Success { url, title, window, failures, attempts } => {
+                let meta = [format!("{} bytes", window.bytes), format!("range={}..{}/{}", window.start, window.end, window.total_length)].join(", ");
                 let header = format!("{url} ({meta})");
                 let title = mixdog_js::js_words(title).collect::<Vec<_>>().join(" ");
                 let mut head = vec![header];

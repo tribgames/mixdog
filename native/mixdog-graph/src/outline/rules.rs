@@ -10,11 +10,11 @@
 use std::collections::{HashMap, HashSet};
 use std::sync::{LazyLock, RwLock};
 
-use ast_grep_outline::extractor::{parse_outline_rules, SerializableOutlineRule};
 use ast_grep_outline::DEFAULT_OUTLINE_RULES;
+use ast_grep_outline::extractor::{SerializableOutlineRule, parse_outline_rules};
 
 use super::extractors::extractors_for;
-use crate::scan_lang::{graph_lang_scan_langs, ScanLang};
+use crate::scan_lang::{ScanLang, graph_lang_scan_langs};
 
 /// Our parity rules (registered before the ast-grep defaults).
 const PARITY_RULES: &str = include_str!("../outline_rules/parity.yml");
@@ -121,18 +121,14 @@ fn declared_kind_of(doc: &str) -> Option<DeclaredKind> {
 /// (`# mixdog-kind:`, `# mixdog-call-kind:`, `# mixdog-call-recv:`), or
 /// `None` when the document carries no such line.
 pub(crate) fn marker_value<'d>(doc: &'d str, marker: &str) -> Option<&'d str> {
-    doc.lines()
-        .filter_map(|line| line.trim().strip_prefix(marker))
-        .next_back()
-        .map(str::trim)
+    doc.lines().filter_map(|line| line.trim().strip_prefix(marker)).next_back().map(str::trim)
 }
 
 /// Graph kinds are `&'static str` in the FileRecord, and a rule file may name
 /// a kind this crate has never seen (a new language's vocabulary). Interning
 /// leaks at most one small string per distinct kind, once per process.
 pub(super) fn intern_kind(token: &str) -> &'static str {
-    static INTERNED: LazyLock<RwLock<HashSet<&'static str>>> =
-        LazyLock::new(|| RwLock::new(HashSet::new()));
+    static INTERNED: LazyLock<RwLock<HashSet<&'static str>>> = LazyLock::new(|| RwLock::new(HashSet::new()));
     if let Some(found) = INTERNED.read().expect("kind intern").get(token) {
         return found;
     }
@@ -181,10 +177,7 @@ fn parse_rule_document(
     match parse_outline_rules::<ScanLang>(doc) {
         Ok(parsed) => {
             if parsed.len() > 1 {
-                let ids: Vec<&str> = parsed
-                    .iter()
-                    .map(|rule| rule.common().id.as_str())
-                    .collect();
+                let ids: Vec<&str> = parsed.iter().map(|rule| rule.common().id.as_str()).collect();
                 errors.push(format!(
                     "{origin}: document {number}: {} rules in one YAML document ({}); \
                      split them with `---` so `# mixdog-kind:` binds to one rule",
@@ -225,23 +218,11 @@ pub(crate) fn tsx_variant(doc: &str) -> Option<String> {
 
 /// Parse our own rules, adding the derived TSX copy of every TypeScript
 /// document right after it so both grammars keep identical rule order.
-fn parse_parity_stream(
-    source: &str,
-    rules: &mut Vec<SerializableOutlineRule<ScanLang>>,
-    kinds: &mut HashMap<String, DeclaredKind>,
-    errors: &mut Vec<String>,
-) {
+fn parse_parity_stream(source: &str, rules: &mut Vec<SerializableOutlineRule<ScanLang>>, kinds: &mut HashMap<String, DeclaredKind>, errors: &mut Vec<String>) {
     for (index, doc) in split_yaml_documents(source).into_iter().enumerate() {
         parse_rule_document(doc, "parity.yml", index + 1, rules, kinds, errors);
         if let Some(tsx) = tsx_variant(doc) {
-            parse_rule_document(
-                &tsx,
-                "parity.yml (tsx copy)",
-                index + 1,
-                rules,
-                kinds,
-                errors,
-            );
+            parse_rule_document(&tsx, "parity.yml (tsx copy)", index + 1, rules, kinds, errors);
         }
     }
 }
@@ -276,13 +257,7 @@ fn load_rules() -> LoadedRules {
     // rule by reusing its id (so the default's member rules keep attaching to
     // it), and dropping by id must not take the replacement with it.
     let mut defaults = Vec::new();
-    parse_rule_stream(
-        DEFAULT_OUTLINE_RULES,
-        "ast-grep defaults",
-        &mut defaults,
-        &mut kinds,
-        &mut errors,
-    );
+    parse_rule_stream(DEFAULT_OUTLINE_RULES, "ast-grep defaults", &mut defaults, &mut kinds, &mut errors);
     // Upstream defaults stay loaded for every language parity.yml touches:
     // dropping them per language was measured and loses symbols in ALL of them
     // (rust 888, csharp 307, python 231, kotlin 12, swift 11, c 8, ruby 8,
@@ -292,19 +267,9 @@ fn load_rules() -> LoadedRules {
     defaults.retain(|rule| !DISABLED_DEFAULT_RULES.contains(&rule.common().id.as_str()));
     rules.extend(defaults);
 
-    parse_rule_stream(
-        BUNDLED_RULES,
-        "rules/outline",
-        &mut rules,
-        &mut kinds,
-        &mut errors,
-    );
+    parse_rule_stream(BUNDLED_RULES, "rules/outline", &mut rules, &mut kinds, &mut errors);
 
-    LoadedRules {
-        rules,
-        kinds,
-        errors,
-    }
+    LoadedRules { rules, kinds, errors }
 }
 
 pub(super) static RULES: LazyLock<LoadedRules> = LazyLock::new(load_rules);
@@ -328,10 +293,7 @@ pub fn rule_errors() -> &'static [String] {
 /// no `kind:` to index the walk on). Compiling is cached, so this is cheap
 /// after the first call for the language.
 pub fn language_rule_errors(graph_lang: &str) -> Vec<String> {
-    let mut errors: Vec<String> = graph_lang_scan_langs(graph_lang)
-        .iter()
-        .flat_map(|lang| extractors_for(*lang).errors.clone())
-        .collect();
+    let mut errors: Vec<String> = graph_lang_scan_langs(graph_lang).iter().flat_map(|lang| extractors_for(*lang).errors.clone()).collect();
     errors.extend(crate::calls::language_rule_errors(graph_lang));
     errors
 }
@@ -342,9 +304,7 @@ pub fn language_rule_errors(graph_lang: &str) -> Vec<String> {
 /// rules are gone or stop compiling — and starts being one the moment
 /// `rules/outline/*.yml` covers it.
 pub fn has_rules(graph_lang: &str) -> bool {
-    graph_lang_scan_langs(graph_lang)
-        .iter()
-        .any(|lang| !extractors_for(*lang).is_empty())
+    graph_lang_scan_langs(graph_lang).iter().any(|lang| !extractors_for(*lang).is_empty())
 }
 
 #[cfg(test)]
@@ -363,26 +323,14 @@ mod tests {
         let mut errors = Vec::new();
         parse_rule_stream(BUNDLED_RULES, "bundle", &mut rules, &mut kinds, &mut errors);
         assert!(errors.is_empty(), "bundled rules must parse: {errors:?}");
-        let files = BUNDLED_RULES
-            .lines()
-            .filter(|line| line.starts_with("# file: "))
-            .count();
+        let files = BUNDLED_RULES.lines().filter(|line| line.starts_with("# file: ")).count();
         // build.rs bundles exactly one marker per source file it concatenated.
-        assert_eq!(
-            files,
-            env!("MIXDOG_OUTLINE_RULE_FILES")
-                .parse::<usize>()
-                .expect("rule file count"),
-        );
+        assert_eq!(files, env!("MIXDOG_OUTLINE_RULE_FILES").parse::<usize>().expect("rule file count"),);
         if !rules.is_empty() {
             assert!(files > 0, "a non-empty bundle must carry file markers");
             // Every authored rule declares its graph kind.
             for rule in &rules {
-                assert!(
-                    kinds.contains_key(&rule.common().id),
-                    "rules/outline rule `{}` is missing a `# mixdog-kind:` marker",
-                    rule.common().id
-                );
+                assert!(kinds.contains_key(&rule.common().id), "rules/outline rule `{}` is missing a `# mixdog-kind:` marker", rule.common().id);
             }
         }
     }
@@ -396,17 +344,8 @@ mod tests {
             if info.extract_extensions.is_empty() {
                 continue;
             }
-            assert!(
-                has_rules(info.id),
-                "{} has graph extensions but no compiled outline rule",
-                info.id
-            );
-            assert!(
-                language_rule_errors(info.id).is_empty(),
-                "{} has rules that do not compile: {:?}",
-                info.id,
-                language_rule_errors(info.id)
-            );
+            assert!(has_rules(info.id), "{} has graph extensions but no compiled outline rule", info.id);
+            assert!(language_rule_errors(info.id).is_empty(), "{} has rules that do not compile: {:?}", info.id, language_rule_errors(info.id));
         }
     }
 
@@ -444,25 +383,14 @@ mod tests {
                 .iter()
                 .filter(|rule| rule.common().language == lang)
                 .map(|rule| rule.common().id.clone())
-                .filter(|id| {
-                    id.starts_with("mixdog-ts-")
-                        || matches!(id.as_str(), "ts-class" | "ts-interface" | "ts-enum")
-                })
+                .filter(|id| id.starts_with("mixdog-ts-") || matches!(id.as_str(), "ts-class" | "ts-interface" | "ts-enum"))
                 .collect::<Vec<_>>()
         };
         assert!(!ours(ts).is_empty());
-        assert_eq!(
-            ours(ts),
-            ours(tsx),
-            "every parity rule exists for both grammars"
-        );
+        assert_eq!(ours(ts), ours(tsx), "every parity rule exists for both grammars");
         // And the mirrored rules actually run against a .tsx file.
         assert_eq!(
-            kinds(
-                "typescript",
-                "tsx",
-                "export class Panel {\n  render() { return null; }\n}\nexport const view = <div />;\n"
-            ),
+            kinds("typescript", "tsx", "export class Panel {\n  render() { return null; }\n}\nexport const view = <div />;\n"),
             named(&[("class", "Panel"), ("method", "render"), ("variable", "view")])
         );
     }
@@ -483,14 +411,8 @@ mod tests {
 
     #[test]
     fn declared_kind_marker_is_read_from_the_rule_document() {
-        assert_eq!(
-            declared_kind_of("# mixdog-kind: union\nid: x\n"),
-            Some(DeclaredKind::Symbol("union"))
-        );
-        assert_eq!(
-            declared_kind_of("# mixdog-kind: import\nid: x\n"),
-            Some(DeclaredKind::Import)
-        );
+        assert_eq!(declared_kind_of("# mixdog-kind: union\nid: x\n"), Some(DeclaredKind::Symbol("union")));
+        assert_eq!(declared_kind_of("# mixdog-kind: import\nid: x\n"), Some(DeclaredKind::Import));
         assert_eq!(declared_kind_of("id: x\n"), None);
     }
 }

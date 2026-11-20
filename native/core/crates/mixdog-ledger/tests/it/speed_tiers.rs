@@ -14,14 +14,7 @@ fn assert_models(rows: &Value, expected: &[ExpectedModel]) {
     let rows = rows.as_array().unwrap();
     let actual: Vec<_> = rows
         .iter()
-        .map(|row| {
-            (
-                row["speedTier"].as_str().unwrap(),
-                row["turns"].as_u64().unwrap(),
-                row["tokens"].as_u64().unwrap(),
-                row["costUsd"].as_f64().unwrap(),
-            )
-        })
+        .map(|row| (row["speedTier"].as_str().unwrap(), row["turns"].as_u64().unwrap(), row["tokens"].as_u64().unwrap(), row["costUsd"].as_f64().unwrap()))
         .collect();
     assert_eq!(actual, expected);
     for row in rows {
@@ -60,10 +53,7 @@ async fn the_dispatched_tier_groups_calls_and_a_reported_default_still_downgrade
         .unwrap();
         writer.record_queued(record).await.unwrap();
     }
-    let stats = reader
-        .usage_stats(serde_json::from_value(json!({"days": 7})).unwrap(), ts + 60_000)
-        .await
-        .unwrap();
+    let stats = reader.usage_stats(serde_json::from_value(json!({"days": 7})).unwrap(), ts + 60_000).await.unwrap();
     let rows: Vec<(&str, u64, u64)> = stats["providers"][0]["models"]
         .as_array()
         .unwrap()
@@ -79,8 +69,7 @@ async fn model_speed_tiers_reconcile_to_stats_and_subscription_totals() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ledger.sqlite");
     let tokens = mixdog_rt::testing::tokens();
-    let writer =
-        UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
+    let writer = UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
     writer.sums_built().await.unwrap();
     let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
 
@@ -117,10 +106,7 @@ async fn model_speed_tiers_reconcile_to_stats_and_subscription_totals() {
 
     let api_models = [("standard", 4, 148, 0.75), ("fast", 2, 134, 1.0), ("ultrafast", 1, 82, 2.0)];
     let oauth_models = [("standard", 1, 22, 0.125), ("fast", 1, 32, 0.25), ("ultrafast", 1, 42, 0.5)];
-    let stats = reader
-        .usage_stats(serde_json::from_value(json!({"days": 7})).unwrap(), now)
-        .await
-        .unwrap();
+    let stats = reader.usage_stats(serde_json::from_value(json!({"days": 7})).unwrap(), now).await.unwrap();
     let providers = stats["providers"].as_array().unwrap();
     assert_eq!(providers.len(), 2);
     let (api, oauth) = (&providers[0], &providers[1]);
@@ -141,20 +127,12 @@ async fn model_speed_tiers_reconcile_to_stats_and_subscription_totals() {
             provider: "openai-oauth".into(),
             account: "acct".into(),
             label: "5H".into(),
-            sample: QuotaSample {
-                ts: now,
-                used_pct: 70.0,
-                reset_at: Some(ts + 4 * 3_600_000),
-            },
+            sample: QuotaSample { ts: now, used_pct: 70.0, reset_at: Some(ts + 4 * 3_600_000) },
         }])
         .await
         .unwrap();
     let quota = reader
-        .quota_history(
-            serde_json::from_value(json!({"provider": "openai-oauth", "account": "acct", "window": "5H"})).unwrap(),
-            BTreeMap::new(),
-            now,
-        )
+        .quota_history(serde_json::from_value(json!({"provider": "openai-oauth", "account": "acct", "window": "5H"})).unwrap(), BTreeMap::new(), now)
         .await
         .unwrap();
     assert_models(&quota["models"], &oauth_models);

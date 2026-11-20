@@ -448,7 +448,9 @@ fn chart_data_block(chart: &Value, start: usize) -> (Vec<Vec<Value>>, String) {
         }
     };
     let labels = items(spec, "labels");
-    let header = std::iter::once(json!("")).chain(series.iter().map(|entry| entry.get("name").filter(|name| truthy(name)).cloned().unwrap_or_else(|| json!("")))).collect();
+    let header = std::iter::once(json!(""))
+        .chain(series.iter().map(|entry| entry.get("name").filter(|name| truthy(name)).cloned().unwrap_or_else(|| json!(""))))
+        .collect();
     let mut block: Vec<Vec<Value>> = vec![header];
     for (index, label) in labels.iter().enumerate() {
         let figures = series.iter().map(|entry| {
@@ -468,7 +470,11 @@ pub fn xlsx_operations_from_sheets(sheets: &[Value], captures: &BTreeMap<usize, 
     for (sheet_index, sheet) in sheets.iter().enumerate() {
         let name = value_to_string(sheet.get("name").unwrap_or(&Value::Null));
         let name = name.as_str();
-        out.first.push(if sheet_index == 0 { json!({ "op": "rename_sheet", "sheet": "Sheet1", "name": name }) } else { json!({ "op": "add_sheet", "name": name }) });
+        out.first.push(if sheet_index == 0 {
+            json!({ "op": "rename_sheet", "sheet": "Sheet1", "name": name })
+        } else {
+            json!({ "op": "add_sheet", "name": name })
+        });
         let tables = items(sheet, "tables");
         let cells: Vec<&Value> = tables.iter().flat_map(|table| items(table, "rows")).flat_map(|row| row.as_array().into_iter().flatten()).collect();
         let (texts, boxes, charts, pictures) = (items(sheet, "texts"), items(sheet, "boxes"), items(sheet, "charts"), items(sheet, "pictures"));
@@ -620,7 +626,13 @@ pub fn xlsx_operations_from_sheets(sheets: &[Value], captures: &BTreeMap<usize, 
 /// Writes the measured sheets (`measure["sheets"]`) as an .xlsx. `captures` are the picture files of the photographed
 /// elements by capture number; the pictures are read through `proof` and `registry` holds the faces the workbook batch
 /// measures in.
-pub fn build_xlsx_from_sheets<P: ReadProof>(proof: &P, registry: &Registry, measure: &Value, captures: &BTreeMap<usize, PathBuf>, title: &str) -> Result<BuiltXlsx, String> {
+pub fn build_xlsx_from_sheets<P: ReadProof>(
+    proof: &P,
+    registry: &Registry,
+    measure: &Value,
+    captures: &BTreeMap<usize, PathBuf>,
+    title: &str,
+) -> Result<BuiltXlsx, String> {
     let sheets = items(measure, "sheets");
     if sheets.is_empty() {
         return Err("The HTML holds no <section data-sheet=\"이름\">; every worksheet is one section with its sheet name.".to_owned());
@@ -651,7 +663,10 @@ mod tests {
     }
 
     fn text(value: &str, rect: Value, extra: Value) -> Value {
-        with(json!({ "rect": rect, "text": value, "font": "Malgun Gothic", "size": 9, "bold": false, "italic": false, "color": "374151", "align": "left", "lines": 1, "indent": 0 }), extra)
+        with(
+            json!({ "rect": rect, "text": value, "font": "Malgun Gothic", "size": 9, "bold": false, "italic": false, "color": "374151", "align": "left", "lines": 1, "indent": 0 }),
+            extra,
+        )
     }
 
     fn sheet(name: &str, texts: Vec<Value>) -> Value {
@@ -715,7 +730,15 @@ mod tests {
     #[test]
     fn a_figure_is_a_number_in_the_format_it_was_written_in() {
         let cell = |text: &str, extra: Value| cell_content(&with(json!({ "text": text }), extra), true);
-        let cases = [("184,200", json!(184200), "#,##0"), ("1234", json!(1234), "#,##0"), ("12", json!(12), "0"), ("+12.0%", json!(0.12), "+0.0%;-0.0%;0.0%"), ("\u{2212}5", json!(-5), "0"), ("3.50", json!(3.5), "0.00"), ("2026-09-30", json!("2026-09-30"), "yyyy-mm-dd")];
+        let cases = [
+            ("184,200", json!(184200), "#,##0"),
+            ("1234", json!(1234), "#,##0"),
+            ("12", json!(12), "0"),
+            ("+12.0%", json!(0.12), "+0.0%;-0.0%;0.0%"),
+            ("\u{2212}5", json!(-5), "0"),
+            ("3.50", json!(3.5), "0.00"),
+            ("2026-09-30", json!("2026-09-30"), "yyyy-mm-dd"),
+        ];
         for (source, value, format) in cases {
             let content = cell(source, json!({}));
             assert_eq!((content.value, content.format), (Some(value), Some(json!(format))), "{source}");
@@ -736,15 +759,22 @@ mod tests {
     fn one_set_apart_colour_makes_a_highlight() {
         let chart = json!({ "rect": rect(0.0, 0.0, 300.0, 200.4), "title": "대기", "spec": { "type": "COL", "colors": ["#C9CED6", "#1F5E4B", "C9CED6"], "format": "0\"분\"" } });
         let op = chart_operation(&chart, "보고", "E5", "H12", "'보고'!B2:B3");
-        assert_eq!((op["chartType"].clone(), op["highlight"].clone(), op["mutedColor"].clone(), op["seriesColors"].clone()), (json!("column"), json!(1), json!("C9CED6"), json!(["1F5E4B"])));
-        assert_eq!((op["height"].clone(), op["showValues"].clone(), op["showLegend"].clone(), op["valueAxis"].clone(), op["valueNumberFormat"].clone()), (json!(150), json!(true), json!(false), json!(false), json!("0\"분\"")));
+        assert_eq!(
+            (op["chartType"].clone(), op["highlight"].clone(), op["mutedColor"].clone(), op["seriesColors"].clone()),
+            (json!("column"), json!(1), json!("C9CED6"), json!(["1F5E4B"]))
+        );
+        assert_eq!(
+            (op["height"].clone(), op["showValues"].clone(), op["showLegend"].clone(), op["valueAxis"].clone(), op["valueNumberFormat"].clone()),
+            (json!(150), json!(true), json!(false), json!(false), json!("0\"분\""))
+        );
         let pie = chart_operation(&json!({ "rect": rect(0.0, 0.0, 1.0, 1.0), "spec": { "type": "pie", "colors": ["a", "b", "b"] } }), "S", "A1", "B2", "A1:B2");
         assert!(pie.get("highlight").is_none() && pie["seriesColors"] == json!(["a", "b", "b"]));
     }
 
     #[test]
     fn texts_become_cells_on_a_grid_cut_at_their_edges() {
-        let sheets = vec![sheet("보고", vec![text("제목", rect(24.0, 24.0, 876.0, 54.0), json!({})), text("값", rect(24.0, 60.0, 124.0, 90.0), json!({ "lines": 2 }))])];
+        let sheets =
+            vec![sheet("보고", vec![text("제목", rect(24.0, 24.0, 876.0, 54.0), json!({})), text("값", rect(24.0, 60.0, 124.0, 90.0), json!({ "lines": 2 }))])];
         let mut notes = Vec::new();
         let operations = xlsx_operations_from_sheets(&sheets, &BTreeMap::new(), &mut notes);
         assert_eq!(operations[0], json!({ "op": "rename_sheet", "sheet": "Sheet1", "name": "보고" }));
@@ -769,7 +799,8 @@ mod tests {
     #[test]
     fn a_chart_without_a_range_keeps_its_data_in_the_hidden_sheet() {
         let mut chart_sheet = sheet("A", vec![text("t", rect(0.0, 0.0, 100.0, 20.0), json!({}))]);
-        chart_sheet["charts"] = json!([{ "rect": rect(0.0, 30.0, 300.0, 200.0), "title": "처리량", "spec": { "type": "bar", "labels": ["x", "y"], "values": [1, "2"] } }]);
+        chart_sheet["charts"] =
+            json!([{ "rect": rect(0.0, 30.0, 300.0, 200.0), "title": "처리량", "spec": { "type": "bar", "labels": ["x", "y"], "values": [1, "2"] } }]);
         let mut notes = Vec::new();
         let operations = xlsx_operations_from_sheets(&[chart_sheet], &BTreeMap::new(), &mut notes);
         let data = operations.iter().find(|op| op["sheet"] == json!(CHART_DATA_SHEET) && op["op"] == json!("set_range")).expect("the data block");

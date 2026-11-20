@@ -12,9 +12,7 @@ use mixdog_office_base::values::truthy;
 use serde_json::{Map, Value};
 
 use crate::opc::{posix, relationship_map};
-use crate::xml::{
-    compiled, container_body, element_spans, paragraph_texts, set_xml_attribute, xml_decode, xml_encode,
-};
+use crate::xml::{compiled, container_body, element_spans, paragraph_texts, set_xml_attribute, xml_decode, xml_encode};
 use crate::zipio::Package;
 
 /// How a workbook hides a sheet (`SHEET_VISIBILITY`): a sheet that is neither is `visible`.
@@ -90,8 +88,7 @@ impl CellValue {
     }
 }
 
-static NUMERIC_CELL_LITERAL: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$", ""));
+static NUMERIC_CELL_LITERAL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^-?(?:\d+(?:\.\d+)?|\.\d+)(?:[eE][+-]?\d+)?$", ""));
 
 /// A stored numeric literal is the number it encodes; anything else (a date serial written as text, an unexpected token)
 /// stays exactly as the file wrote it rather than being coerced into a number the sheet does not hold.
@@ -151,12 +148,7 @@ fn snapshot_range_bounds(reference: &str) -> Result<Option<Bounds>, String> {
     let Some(found) = RANGE_PARTS.captures(js_trim(reference)) else { return Ok(None) };
     let start = parse_cell_ref(found.get(1).unwrap_or(""))?;
     let end = parse_cell_ref(found.get(2).unwrap_or(""))?;
-    Ok(Some(Bounds {
-        start_row: start.row,
-        end_row: end.row,
-        start_col: column_number(&start.col),
-        end_col: column_number(&end.col),
-    }))
+    Ok(Some(Bounds { start_row: start.row, end_row: end.row, start_col: column_number(&start.col), end_col: column_number(&end.col) }))
 }
 
 fn cell_in_bounds(reference: &str, bounds: Option<&Bounds>) -> Result<bool, String> {
@@ -177,9 +169,8 @@ pub struct SheetCell<'a> {
 // A body is read as "anything up to the first `</c>`" in the form `(?:[^<]|<(?!\/c>))*`, the text a lazy `[\s\S]*?` takes: the
 // engine runs a lazy any-character loop to the end of the text before it tries the first stop, so every match of a sheet cost
 // the length of the sheet (20,001 formula cells took minutes).
-static SHEET_CELL: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r#"<c\b([^>]*?\br="([A-Z]+\d+)"[^>]*?)\/>|<c\b([^>]*\br="([A-Z]+\d+)"[^>]*)>((?:[^<]|<(?!\/c>))*)<\/c>"#, "g")
-});
+static SHEET_CELL: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r#"<c\b([^>]*?\br="([A-Z]+\d+)"[^>]*?)\/>|<c\b([^>]*\br="([A-Z]+\d+)"[^>]*)>((?:[^<]|<(?!\/c>))*)<\/c>"#, "g"));
 
 /// `iterateSheetCells(xml)`.
 pub fn iterate_sheet_cells(xml: &str) -> Vec<SheetCell<'_>> {
@@ -200,8 +191,7 @@ pub struct SheetRow<'a> {
     pub body: &'a str,
 }
 
-static SHEET_ROW: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"<row\b([^>]*?)\/>|<row\b([^>]*)>((?:[^<]|<(?!\/row>))*)<\/row>", "g"));
+static SHEET_ROW: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<row\b([^>]*?)\/>|<row\b([^>]*)>((?:[^<]|<(?!\/row>))*)<\/row>", "g"));
 
 /// `iterateSheetRows(xml)`.
 pub fn iterate_sheet_rows(xml: &str) -> Vec<SheetRow<'_>> {
@@ -215,8 +205,7 @@ static FORMULA_OPEN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"
 static FORMULA_ANY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<f\b", ""));
 static ARRAY_TYPE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"\bt="array""#, ""));
 static REF_ATTRIBUTE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"\bref="([^"]+)""#, ""));
-static VALUE_ELEMENT: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"<v(?:\s[^>]*)?>([\s\S]*?)<\/v>|<v(?:\s[^>]*)?\/>", ""));
+static VALUE_ELEMENT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<v(?:\s[^>]*)?>([\s\S]*?)<\/v>|<v(?:\s[^>]*)?\/>", ""));
 static TYPE_ATTRIBUTE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"\bt="([^"]*)""#, ""));
 static FORMULA_TEXT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<f(?:\s[^>]*)?>([\s\S]*?)<\/f>", ""));
 static VALUE_TEXT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<v(?:\s[^>]*)?>([\s\S]*?)<\/v>", ""));
@@ -280,8 +269,7 @@ pub fn computed_cell_values(xml: &str, strings: &[String]) -> Result<Vec<(String
 
 static CELL_ELEMENT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)", "g"));
 static CELL_REF: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"\br="([A-Z]+\d+)""#, ""));
-static FORMULA_ELEMENT: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"<f(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/f>)", ""));
+static FORMULA_ELEMENT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<f(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/f>)", ""));
 static TYPE_WITH_SPACE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"\st="[^"]*""#, "g"));
 static TRAILING_SLASH: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\s*\/$", ""));
 
@@ -366,11 +354,7 @@ fn cell_record(cell: &SheetCell<'_>, strings: &[String], styles: Option<&[Value]
     // (IF(C7=0,"",...)) is written as <v></v> by Excel and LibreOffice alike, and that is a computed value, not a workbook
     // waiting for its first recalculation. Excel itself writes that empty result as a self-closing <v/>.
     let empty_string_cache = raw.is_empty() && cell_type == "str" && VALUE_OPEN.is_match(body);
-    let cached_value = if raw.is_empty() {
-        if empty_string_cache { Some(CellValue::Text(String::new())) } else { None }
-    } else {
-        Some(value.clone())
-    };
+    let cached_value = if raw.is_empty() { if empty_string_cache { Some(CellValue::Text(String::new())) } else { None } } else { Some(value.clone()) };
     let cache_state = if raw.is_empty() && !empty_string_cache { "missing" } else { "present" };
     // Style index 0 is the workbook default; only an explicit style is reported.
     let style_index = group_one(&STYLE_ATTRIBUTE, attrs).and_then(|digits| digits.parse::<usize>().ok()).unwrap_or(0);
@@ -507,9 +491,7 @@ pub struct FormulaReference {
     pub path: String,
 }
 
-static FORMULA_REFERENCE: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"(?:(?:'([^']+)'|([A-Za-z0-9_ .-]+))!)?\$?([A-Z]{1,3})\$?([1-9]\d*)", "g")
-});
+static FORMULA_REFERENCE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(?:(?:'([^']+)'|([A-Za-z0-9_ .-]+))!)?\$?([A-Z]{1,3})\$?([1-9]\d*)", "g"));
 
 /// `formulaReferences(formula, currentSheet)`: the cells a formula names, each once (the sheet and cell compared without
 /// regard to case), in the order they appear; a cell without a sheet is on `current_sheet`.
@@ -576,11 +558,7 @@ pub fn force_workbook_recalculation(xml: &str) -> String {
     }
     static WORKBOOK_CLOSE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<\/workbook>", "i"));
     match WORKBOOK_CLOSE.find(xml) {
-        Some(range) => format!(
-            "{}<calcPr calcMode=\"auto\" fullCalcOnLoad=\"1\" forceFullCalc=\"1\"/></workbook>{}",
-            &xml[..range.start],
-            &xml[range.end..]
-        ),
+        Some(range) => format!("{}<calcPr calcMode=\"auto\" fullCalcOnLoad=\"1\" forceFullCalc=\"1\"/></workbook>{}", &xml[..range.start], &xml[range.end..]),
         None => xml.to_owned(),
     }
 }
@@ -589,8 +567,7 @@ static TRAILING_SPACE_SLASH: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_s
 static ROW_OPEN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^<row\b([^>]*?)(?:\/>|>)", ""));
 static CELL_REF_ANY_CASE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"\br="([A-Za-z]+\d+)""#, ""));
 static ROW_INDEX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"\br="(\d+)""#, ""));
-static SHEET_DATA: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"<sheetData(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/sheetData>)", ""));
+static SHEET_DATA: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<sheetData(?:\s[^>]*)?(?:\/>|>[\s\S]*?<\/sheetData>)", ""));
 
 /// The upper-cased reference an element's attributes carry (`r="a1"` reads as `A1`); empty when it carries none.
 fn element_reference(attrs: &str) -> String {
@@ -637,17 +614,17 @@ fn place_cell_in_sheet(xml: &str, reference: &str, cell: &str) -> Result<String,
     let column = column_number(&parsed.col);
     let data = sheet_data_of(xml)?;
     let inner = container_body(&xml[data.clone()], "sheetData");
-    let rows: Vec<(crate::xml::Span, u64)> = element_spans(&inner, "row").into_iter().map(|span| {
-        let index = row_index(&span.attrs);
-        (span, index)
-    }).collect();
+    let rows: Vec<(crate::xml::Span, u64)> = element_spans(&inner, "row")
+        .into_iter()
+        .map(|span| {
+            let index = row_index(&span.attrs);
+            (span, index)
+        })
+        .collect();
     let next_inner = match rows.iter().find(|(_, index)| *index == parsed.row) {
-        Some((existing, _)) => format!(
-            "{}{}{}",
-            &inner[..existing.start],
-            set_row_cell(&existing.xml, &parsed.reference, column, cell)?,
-            &inner[existing.end..]
-        ),
+        Some((existing, _)) => {
+            format!("{}{}{}", &inner[..existing.start], set_row_cell(&existing.xml, &parsed.reference, column, cell)?, &inner[existing.end..])
+        }
         None => {
             let position = rows.iter().find(|(_, index)| *index > parsed.row).map_or(inner.len(), |(span, _)| span.start);
             format!("{}<row r=\"{}\">{cell}</row>{}", &inner[..position], parsed.row, &inner[position..])
@@ -731,12 +708,7 @@ pub fn set_cells_in_sheet(xml: &str, entries: &[CellEntry<'_>]) -> Result<String
         let parsed = parse_cell_ref(entry.reference)?;
         let column = column_number(&parsed.col) as u64;
         let row = rows.entry(parsed.row).or_insert_with(|| HeldRow { attrs: format!(" r=\"{}\"", parsed.row), cells: BTreeMap::new() });
-        let style = row
-            .cells
-            .get(&column)
-            .and_then(|cell| group_one(&STYLE_ATTRIBUTE, &cell.attrs))
-            .and_then(|digits| digits.parse::<u64>().ok())
-            .unwrap_or(0);
+        let style = row.cells.get(&column).and_then(|cell| group_one(&STYLE_ATTRIBUTE, &cell.attrs)).and_then(|digits| digits.parse::<u64>().ok()).unwrap_or(0);
         row.cells.insert(column, HeldCell { attrs: String::new(), xml: cell_xml(&parsed.reference, entry.value, entry.formula, Some(&style.to_string())) });
     }
     Ok(write_sheet_rows(xml, &data, &rows))
@@ -765,7 +737,9 @@ pub fn set_formulas_in_sheet(xml: &str, entries: &[(String, String)]) -> Result<
     for span in element_spans(&inner, "row") {
         let index = row_index(&span.attrs);
         // Rows that did not exist and come before this one are made in row order.
-        while index != 0 && let Some(next) = wanted.keys().next().copied().filter(|next| *next < index) {
+        while index != 0
+            && let Some(next) = wanted.keys().next().copied().filter(|next| *next < index)
+        {
             let cells = wanted.remove(&next).unwrap_or_default();
             body.push_str(&inner[taken..span.start]);
             taken = span.start;
@@ -1078,7 +1052,13 @@ mod tests {
                 ("B1".to_owned(), CachedValue { kind: String::new(), text: "3".into() }),
             ]
         );
-        let written = write_cached_values(xml, &[("B1".to_owned(), CachedValue { kind: "str".into(), text: "ok".into() }), ("D1".to_owned(), CachedValue { kind: "e".into(), text: "#N/A".into() })]);
+        let written = write_cached_values(
+            xml,
+            &[
+                ("B1".to_owned(), CachedValue { kind: "str".into(), text: "ok".into() }),
+                ("D1".to_owned(), CachedValue { kind: "e".into(), text: "#N/A".into() }),
+            ],
+        );
         assert_eq!(
             written,
             "<sheetData><row r=\"1\"><c r=\"A1\" t=\"s\"><f>X</f><v>1</v></c><c r=\"B1\" t=\"str\"><f>Y</f><v>ok</v></c><c r=\"C1\"><v>5</v></c><c r=\"D1\" t=\"e\"><v>#N/A</v></c></row></sheetData>"
@@ -1096,10 +1076,7 @@ mod tests {
     fn calculation_flags_and_forcing_a_recalculation() {
         let workbook = "<workbook><calcPr calcMode=\"manual\" fullCalcOnLoad=\"true\"/></workbook>";
         assert_eq!(workbook_calculation(workbook), Calculation { mode: "manual".into(), full_calc_on_load: true, force_full_calc: false });
-        assert_eq!(
-            force_workbook_recalculation(workbook),
-            "<workbook><calcPr calcMode=\"auto\" fullCalcOnLoad=\"1\" forceFullCalc=\"1\"/></workbook>"
-        );
+        assert_eq!(force_workbook_recalculation(workbook), "<workbook><calcPr calcMode=\"auto\" fullCalcOnLoad=\"1\" forceFullCalc=\"1\"/></workbook>");
         assert_eq!(
             force_workbook_recalculation("<workbook></workbook>"),
             "<workbook><calcPr calcMode=\"auto\" fullCalcOnLoad=\"1\" forceFullCalc=\"1\"/></workbook>"
@@ -1114,11 +1091,7 @@ mod tests {
         let summary: Vec<(&str, &str, &str)> = found.iter().map(|f| (f.sheet.as_str(), f.reference.as_str(), f.path.as_str())).collect();
         assert_eq!(
             summary,
-            [
-                ("Main", "A1", "/sheet[Main]/cell[A1]"),
-                ("Main", "B2", "/sheet[Main]/cell[B2]"),
-                ("Q1 Sales", "C3", "/sheet[Q1 Sales]/cell[C3]"),
-            ]
+            [("Main", "A1", "/sheet[Main]/cell[A1]"), ("Main", "B2", "/sheet[Main]/cell[B2]"), ("Q1 Sales", "C3", "/sheet[Q1 Sales]/cell[C3]"),]
         );
     }
 
@@ -1177,10 +1150,7 @@ mod tests {
 
     #[test]
     fn a_range_is_expanded_and_a_single_cell_is_one() {
-        assert_eq!(
-            expand_range(" b2:D5 ").unwrap(),
-            RangeBounds { start_col: 2.0, start_row: 2.0, end_col: 4.0, end_row: 5.0 }
-        );
+        assert_eq!(expand_range(" b2:D5 ").unwrap(), RangeBounds { start_col: 2.0, start_row: 2.0, end_col: 4.0, end_row: 5.0 });
         assert_eq!(expand_range("A10").unwrap(), RangeBounds { start_col: 1.0, start_row: 10.0, end_col: 1.0, end_row: 10.0 });
         assert_eq!(expand_range("A1:B").unwrap_err(), "Invalid range: A1:B");
     }

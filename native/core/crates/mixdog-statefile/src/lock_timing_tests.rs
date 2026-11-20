@@ -38,12 +38,7 @@ impl LockClock for Virtual {
 /// An ownerless lock file last modified at millisecond `at_ms` of the epoch, and a clock reading `now_ms`.
 fn contended(lock: &Path, at_ms: u64, now_ms: u64) -> Virtual {
     mixdog_testkit::write(lock, "");
-    mixdog_fsio::File::options()
-        .write(true)
-        .open(&Unlaned, lock)
-        .unwrap()
-        .set_modified(&Unlaned, UNIX_EPOCH + Duration::from_millis(at_ms))
-        .unwrap();
+    mixdog_fsio::File::options().write(true).open(&Unlaned, lock).unwrap().set_modified(&Unlaned, UNIX_EPOCH + Duration::from_millis(at_ms)).unwrap();
     Virtual { now_ns: Cell::new(i128::from(now_ms) * 1_000_000), sleeps_ms: RefCell::default() }
 }
 

@@ -141,8 +141,7 @@ pub fn merge_servers(input: Option<&Value>) -> (Map<String, Value>, Vec<Group>) 
             continue;
         }
         names.sort_by(|a, b| natural_order(a, b));
-        let grouped: Vec<&String> =
-            names.iter().filter(|name| servers[name.as_str()].get("accounts").is_some_and(Value::is_array)).collect();
+        let grouped: Vec<&String> = names.iter().filter(|name| servers[name.as_str()].get("accounts").is_some_and(Value::is_array)).collect();
         if names.len() == 1 && grouped.len() == 1 {
             continue;
         }
@@ -151,8 +150,7 @@ pub fn merge_servers(input: Option<&Value>) -> (Map<String, Value>, Vec<Group>) 
             None if names.iter().any(|name| name == entry.id) => entry.id.to_owned(),
             None => names[0].clone(),
         };
-        let order: Vec<String> =
-            std::iter::once(target.clone()).chain(names.iter().filter(|name| **name != target).cloned()).collect();
+        let order: Vec<String> = std::iter::once(target.clone()).chain(names.iter().filter(|name| **name != target).cloned()).collect();
         let off = order.iter().all(|name| servers[name.as_str()].get("enabled") == Some(&Value::Bool(false)));
         let mut accounts = Vec::new();
         let mut seen_names = HashSet::new();
@@ -160,11 +158,7 @@ pub fn merge_servers(input: Option<&Value>) -> (Map<String, Value>, Vec<Group>) 
         let mut seen_connections = HashSet::new();
         for name in &order {
             let cfg = &servers[name.as_str()];
-            let own = if cfg.get("accounts").is_some_and(Value::is_array) {
-                accounts_of(cfg)
-            } else {
-                vec![account_entry(name, cfg)]
-            };
+            let own = if cfg.get("accounts").is_some_and(Value::is_array) { accounts_of(cfg) } else { vec![account_entry(name, cfg)] };
             // A merged server that was off keeps its accounts off, unless the whole connector
             // is off.
             let server_off = !off && cfg.get("enabled") == Some(&Value::Bool(false));
@@ -172,10 +166,7 @@ pub fn merge_servers(input: Option<&Value>) -> (Map<String, Value>, Vec<Group>) 
                 let account_name = account.get("name").and_then(Value::as_str).unwrap_or_default().to_owned();
                 let address = gmail_app_password_account(&account_server(cfg, &account));
                 let connection = connection_of(cfg, &account);
-                if seen_names.contains(&account_name)
-                    || (!address.is_empty() && seen_addresses.contains(&address))
-                    || seen_connections.contains(&connection)
-                {
+                if seen_names.contains(&account_name) || (!address.is_empty() && seen_addresses.contains(&address)) || seen_connections.contains(&connection) {
                     continue;
                 }
                 seen_names.insert(account_name);
@@ -261,12 +252,8 @@ fn bind_in_use(stored: &Map<String, Value>, servers: &Map<String, Value>) -> Opt
     next.insert(IDS_MIGRATED.into(), Value::Bool(true));
     for (connector, name) in stored {
         let Some(name) = name.as_str().filter(|name| !name.is_empty()) else { continue };
-        let cfg = servers.values().find(|one| {
-            connector_of_server(one).is_some_and(|c| c.id == connector) && !accounts_of(one).is_empty()
-        });
-        let account = cfg.and_then(|cfg| {
-            accounts_of(cfg).into_iter().find(|account| account.get("name").and_then(Value::as_str) == Some(name))
-        });
+        let cfg = servers.values().find(|one| connector_of_server(one).is_some_and(|c| c.id == connector) && !accounts_of(one).is_empty());
+        let account = cfg.and_then(|cfg| accounts_of(cfg).into_iter().find(|account| account.get("name").and_then(Value::as_str) == Some(name)));
         if let Some(account) = account.filter(has_id) {
             next.insert(connector.clone(), json!({ "name": name, "id": account["id"] }));
         }
@@ -277,9 +264,7 @@ fn bind_in_use(stored: &Map<String, Value>, servers: &Map<String, Value>) -> Opt
 // ── Stores naming a server (`connector-merge-migration.mjs`) ──────────────────────────────────
 
 fn named(policy: &Policy, server: &str) -> bool {
-    policy.off.contains(server)
-        || policy.allow.as_ref().is_some_and(|allow| allow.contains(server))
-        || policy.tools.contains_key(server)
+    policy.off.contains(server) || policy.allow.as_ref().is_some_and(|allow| allow.contains(server)) || policy.tools.contains_key(server)
 }
 
 /// The policy with every merged-away server mapped onto its surviving one; `None` when it
@@ -298,8 +283,7 @@ pub fn map_policy(policy: &Policy, groups: &[Group]) -> Option<Policy> {
         let first = from.iter().find(|server| named(&current, server)).expect("a merged-away server is named");
         let on = current.enabled(first);
         let mut off: BTreeSet<String> = current.off.iter().filter(|server| !from.contains(server)).cloned().collect();
-        let mut allow: Option<BTreeSet<String>> =
-            current.allow.as_ref().map(|allow| allow.iter().filter(|server| !from.contains(server)).cloned().collect());
+        let mut allow: Option<BTreeSet<String>> = current.allow.as_ref().map(|allow| allow.iter().filter(|server| !from.contains(server)).cloned().collect());
         match &mut allow {
             Some(allow) if on => {
                 allow.insert(name.clone());
@@ -388,8 +372,7 @@ fn rename_tool_pattern(value: &str, renames: &Renames) -> String {
     for (gone, name) in renames {
         let pattern = format!(r"(^|\|)(\^?)mcp__{}(?=__|(?![A-Za-z0-9_-]))", escape_reg_exp(gone));
         let identifier = JsRegex::new(&pattern, "").expect("an escaped name is a literal");
-        next = identifier
-            .replace_all_with(&next, |caps| format!("{}{}mcp__{name}", caps.get(1).unwrap_or(""), caps.get(2).unwrap_or("")));
+        next = identifier.replace_all_with(&next, |caps| format!("{}{}mcp__{name}", caps.get(1).unwrap_or(""), caps.get(2).unwrap_or("")));
     }
     next
 }
@@ -681,22 +664,13 @@ pub fn plan(roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
         return Ok(());
     }
     let sources = if pending { vec![sink.source(Root::Data, PENDING_FILE, false)?] } else { Vec::new() };
-    sink.add_item(plan::item(
-        ITEM,
-        KindGroup::Data,
-        ItemKind::Settings,
-        Contract::Convert,
-        sources,
-        Some(Target::ConfigKey { key: TARGET_KEY.into() }),
-    )?)
+    sink.add_item(plan::item(ITEM, KindGroup::Data, ItemKind::Settings, Contract::Convert, sources, Some(Target::ConfigKey { key: TARGET_KEY.into() }))?)
 }
 
 /// Every rewritten file under the stage dir, with the index naming each one's target and
 /// SHA-256; the index's SHA-256 is the output. A file of a quarantined store is not rewritten.
 pub fn stage(cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
-    let writable = |rel: &str| {
-        owner(rel).is_none_or(|kind| cx.state(&stores::store_key(kind)) != Some(ItemState::Quarantined))
-    };
+    let writable = |rel: &str| owner(rel).is_none_or(|kind| cx.state(&stores::store_key(kind)) != Some(ItemState::Quarantined));
     let conversion = convert(&cx.roots.data, &writable)?;
     let dir = cx.stage_dir(item.key.as_str());
     let mut index = Vec::new();
@@ -706,10 +680,7 @@ pub fn stage(cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged> {
     }
     let index = serde_json::to_vec(&index).expect("an index encodes");
     durable::write_synced(&dir.join(INDEX_FILE), &index)?;
-    Ok(Staged::Output {
-        output_sha256: durable::sha256_hex(&index),
-        replaced_surrogates: conversion.replaced,
-    })
+    Ok(Staged::Output { output_sha256: durable::sha256_hex(&index), replaced_surrogates: conversion.replaced })
 }
 
 /// The staged index: each target path and the SHA-256 it is published with.
@@ -761,10 +732,7 @@ pub fn verify(cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Verdict> {
     let (sha256, index) = staged_index(cx, item)?;
     for (rel, want) in &index {
         if !holds(&cx.roots.data.join(rel), want)? {
-            return Ok(Verdict::Quarantine {
-                code: QuarantineCode::DigestMismatch,
-                detail: format!("{rel} does not hold its converted bytes"),
-            });
+            return Ok(Verdict::Quarantine { code: QuarantineCode::DigestMismatch, detail: format!("{rel} does not hold its converted bytes") });
         }
     }
     Ok(Verdict::Verified { digest: Some(json::hex_digest(&sha256)) })

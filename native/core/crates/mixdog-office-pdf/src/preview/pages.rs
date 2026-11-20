@@ -47,11 +47,7 @@ fn sha16(text: &str) -> String {
 fn revision_of(pdf: &Path, identity: Identity) -> Revision {
     let path = mixdog_js::nodepath::resolve_host(&[&pdf.to_string_lossy()]);
     let (mtime, size) = (mixdog_js::number_to_string(identity.mtime_ms), identity.size);
-    Revision {
-        memory: format!("{path}\0{mtime}\0{size}"),
-        directory: format!("{}-{}", sha16(&path), sha16(&format!("{mtime}\0{size}"))),
-        owner: sha16(&path),
-    }
+    Revision { memory: format!("{path}\0{mtime}\0{size}"), directory: format!("{}-{}", sha16(&path), sha16(&format!("{mtime}\0{size}"))), owner: sha16(&path) }
 }
 
 /// The pages in memory, most recently used last.
@@ -164,7 +160,14 @@ fn store_file<P: WriteProof>(proof: &P, file: &Path, stored: &Stored) -> io::Res
     written
 }
 
-async fn store_page(preview: &DocumentPreview, revision: &Revision, cache_root: &str, entry: &PreviewPage, page_count: u64, max_width: u32) -> Result<(), PreviewError> {
+async fn store_page(
+    preview: &DocumentPreview,
+    revision: &Revision,
+    cache_root: &str,
+    entry: &PreviewPage,
+    page_count: u64,
+    max_width: u32,
+) -> Result<(), PreviewError> {
     let stored = Stored { entry: entry.clone(), page_count };
     preview.state.pages.remember(&memory_key(revision, entry.page, max_width), stored.clone());
     if cache_root.is_empty() {
@@ -271,7 +274,10 @@ pub(super) async fn preview_pages(preview: &DocumentPreview, pdf: &Path, options
             }
             found.insert(entry.page, entry);
         }
-        if unchanged && !cache_root.is_empty() && let Some(revision) = revision {
+        if unchanged
+            && !cache_root.is_empty()
+            && let Some(revision) = revision
+        {
             let root = Path::new(&cache_root).join(PAGE_CACHE_DIRECTORY);
             job(preview.lanes.durability_io, move |lane: &InLane<DurabilityIo>| prune_page_cache(lane, &root, &revision)).await?;
         }

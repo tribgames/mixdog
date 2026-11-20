@@ -25,7 +25,6 @@ async fn refuse_startup(mut socket: tokio::net::TcpStream) -> std::io::Result<()
     socket.shutdown().await
 }
 
-
 /// The port the start asks `healthcheckPg` through: a postmaster that answers once `up` is set. Every question is counted and announced on `seen`, so a test knows
 /// the step the start has reached (the two reuse checks, then the first question of the recovery wait) without any wait of its own.
 struct Probe {
@@ -137,7 +136,6 @@ fn initdb_skips_its_flushes_exactly_where_this_process_elides_its_own() {
     assert_eq!(initdb_args(data, Some(Path::new("share")), false)[..4], ["-D", "pgdata", "-L", "share"]);
 }
 
-
 /// A start over the profile `dir` (whose cluster exists and which holds no runtime: a start that gets as far as running `pg_ctl` fails there), run as a task.
 fn start_in(dir: &Path, probe: &Arc<Probe>, recovery_wait: Duration, lock_wait: Duration, cancel: &CancellationToken) -> Starting {
     std::fs::write(pgdata(dir).join("PG_VERSION"), "16\n").unwrap();
@@ -178,7 +176,10 @@ async fn a_start_waits_thirty_seconds_for_an_alive_postmaster_and_then_refuses()
     step(&mut seen).await;
     assert_eq!(probe.calls(), 123, "the last question is the one at 30 s");
     let refused = awaiting("the refusal at 30 s", starting).await.unwrap().err().expect("refused");
-    assert_eq!(refused.message(), format!("postgres runtime: [supervisor-pg] existing postmaster PID {} remains alive but unhealthy; refusing concurrent start", postmaster.id()));
+    assert_eq!(
+        refused.message(),
+        format!("postgres runtime: [supervisor-pg] existing postmaster PID {} remains alive but unhealthy; refusing concurrent start", postmaster.id())
+    );
     assert!(dir.path().join("pgdata").join("postmaster.pid").exists(), "the file of an alive postmaster stays");
 }
 /// The same wait, the postmaster coming up at 10 s: the next question attaches to it and the start starts nothing.
@@ -246,7 +247,11 @@ async fn a_second_starter_is_refused_while_the_spawn_lock_is_held() {
     assert!(lock_file.exists(), "the lock is Node's file: <dataDir>/pg-spawn.lock");
     pid_file(&pgdata(dir.path()), dead_pid(dir.path()), 55_907);
     let (probe, _seen) = Probe::new();
-    let refused = awaiting("the refused start", start_in(dir.path(), &probe, RECOVERY_WAIT, Duration::ZERO, &CancellationToken::new())).await.unwrap().err().expect("refused");
+    let refused = awaiting("the refused start", start_in(dir.path(), &probe, RECOVERY_WAIT, Duration::ZERO, &CancellationToken::new()))
+        .await
+        .unwrap()
+        .err()
+        .expect("refused");
     assert!(refused.message().contains("atomic lock contended (try-once)"), "{}", refused.message());
     assert!(dir.path().join("pgdata").join("postmaster.pid").exists(), "the refused starter did not touch the directory");
     assert_eq!(probe.calls(), 1, "only the check before the lock ran");
@@ -269,7 +274,11 @@ async fn a_fresh_start_rotates_a_log_over_ten_megabytes_into_the_one_archive() {
         std::fs::write(&log, &content).unwrap();
         std::fs::write(&archive, b"the older archive").unwrap();
         let (probe, _seen) = Probe::new();
-        let failed = awaiting("the start to fail at pg_ctl", start_in(dir.path(), &probe, RECOVERY_WAIT, SPAWN_LOCK_WAIT, &CancellationToken::new())).await.unwrap().err().expect("no runtime to start");
+        let failed = awaiting("the start to fail at pg_ctl", start_in(dir.path(), &probe, RECOVERY_WAIT, SPAWN_LOCK_WAIT, &CancellationToken::new()))
+            .await
+            .unwrap()
+            .err()
+            .expect("no runtime to start");
         assert!(failed.message().contains("pg_ctl"), "{}", failed.message());
         if rotated {
             assert!(!log.exists(), "a log over 10 MB is moved aside");
@@ -309,11 +318,7 @@ async fn pg_ctl_start_is_spawned_below_normal_priority() {
     let runtime = PgRuntime::new(dir.path());
     let image = runtime.bin("pg_ctl");
     std::fs::create_dir_all(image.parent().unwrap()).unwrap();
-    let (source, args): (&str, &[&str]) = if cfg!(windows) {
-        (r"C:\Windows\System32\PING.EXE", &["-n", "3", "127.0.0.1"])
-    } else {
-        ("/bin/sleep", &["2"])
-    };
+    let (source, args): (&str, &[&str]) = if cfg!(windows) { (r"C:\Windows\System32\PING.EXE", &["-n", "3", "127.0.0.1"]) } else { ("/bin/sleep", &["2"]) };
     std::fs::copy(source, &image).unwrap();
     let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
     let (run, _output) = spawn_start(&runtime, &args).unwrap();

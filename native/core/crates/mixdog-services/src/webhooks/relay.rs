@@ -61,11 +61,7 @@ impl RelayTunnelStarter {
     async fn identity(&self) -> DeviceIdentity {
         let files = DeviceFiles::at(self.data_dir.clone(), IDENTITY_FILE);
         let loaded = async {
-            let job = self
-                .lane
-                .submit_wait(&CancellationToken::new(), move |lane| files.load_or_create(lane))
-                .await
-                .map_err(|e| e.to_string())?;
+            let job = self.lane.submit_wait(&CancellationToken::new(), move |lane| files.load_or_create(lane)).await.map_err(|e| e.to_string())?;
             job.await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())
         };
         loaded.await.unwrap_or_else(|error| {
@@ -237,7 +233,6 @@ mod tests {
         assert_eq!(hook_public_base("ws://127.0.0.1:9800/x?y#z", "dev-1").unwrap(), "http://127.0.0.1:9800/hook/dev-1");
     }
 
-
     fn starter(dir: &std::path::Path, url: &str) -> RelayTunnelStarter {
         RelayTunnelStarter::new(mixdog_rt::testing::tokens().durability_io, dir.to_path_buf(), Some(url.to_owned()))
     }
@@ -307,7 +302,10 @@ mod tests {
         assert_eq!(leg.authorization, format!("Basic {}", B64.encode(format!("{id}:{}", identity["deviceSecret"].as_str().unwrap()))));
 
         let reply = leg.round_trip(http_frame("req-1", r#"{"hello":1}"#)).await;
-        assert_eq!(reply, json!({"type": "http-response", "id": "req-1", "status": 201, "headers": {"content-type": "text/plain"}, "body": B64.encode("stored")}));
+        assert_eq!(
+            reply,
+            json!({"type": "http-response", "id": "req-1", "status": 201, "headers": {"content-type": "text/plain"}, "body": B64.encode("stored")})
+        );
         let request = seen.await.unwrap();
         assert!(request.starts_with("POST /webhook/demo HTTP/1.1\r\n") && request.contains("x-demo: yes\r\n"));
 

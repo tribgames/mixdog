@@ -23,17 +23,8 @@ use serde_json::json;
 use super::AgentsError;
 
 /// `BROWSER_AUDIT_DECISIONS`, in Node's order.
-const AUDIT_DECISIONS: [&str; 9] = [
-    "approve",
-    "deny",
-    "granted",
-    "remembered",
-    SESSION_GRANTED_DECISION,
-    SESSION_REMEMBERED_DECISION,
-    "run-allowed",
-    "blocked",
-    DEV_ALLOW_ALL_DECISION,
-];
+const AUDIT_DECISIONS: [&str; 9] =
+    ["approve", "deny", "granted", "remembered", SESSION_GRANTED_DECISION, SESSION_REMEMBERED_DECISION, "run-allowed", "blocked", DEV_ALLOW_ALL_DECISION];
 
 /// The length an agent id may have (`FIELD_LIMIT`).
 const FIELD_LIMIT: usize = 200;

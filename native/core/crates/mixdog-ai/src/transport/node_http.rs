@@ -160,11 +160,7 @@ pub fn head(request: &WireRequest, url: &url::Url, writer: Writer) -> (Vec<u8>, 
         Some(port) => format!("{}:{port}", url.host_str().unwrap_or_default()),
         None => url.host_str().unwrap_or_default().to_owned(),
     };
-    let text = format!(
-        "{} {target} HTTP/1.1\r\nhost: {authority}\r\nconnection: {}\r\n",
-        request.method,
-        if close { "close" } else { "keep-alive" }
-    );
+    let text = format!("{} {target} HTTP/1.1\r\nhost: {authority}\r\nconnection: {}\r\n", request.method, if close { "close" } else { "keep-alive" });
     // Node writes a header's value as Latin-1 (`check_headers` admits nothing above U+00FF).
     let mut bytes = text.into_bytes();
     for (name, value) in &headers {
@@ -294,9 +290,7 @@ fn tunnel_error(err: TunnelError, surface: Surface) -> ProviderError {
         TunnelError::Tls(failure) => (None, Some(tls_code(&failure).to_owned()), failure.error.to_string()),
         TunnelError::Dropped(io) => (None, Some("UND_ERR_SOCKET".to_owned()), io.to_string()),
         TunnelError::TimedOut => (None, Some("UND_ERR_HEADERS_TIMEOUT".to_owned()), "proxy timed out".to_owned()),
-        refused @ TunnelError::Refused { .. } => {
-            (None, Some(refused.socket_code().unwrap_or("EPROXY").to_owned()), refused.to_string())
-        }
+        refused @ TunnelError::Refused { .. } => (None, Some(refused.socket_code().unwrap_or("EPROXY").to_owned()), refused.to_string()),
     };
     let mut error = match fault {
         Some(fault) => ProviderError::transport(fault, DeliveryState::NotSent),
@@ -431,7 +425,6 @@ mod tests {
         Stream,
     }
 
-
     // H2 (recheck): a route change while a request dials retires the connection it dials. Held at the dial, the route
     // changes; the connection serves its request and is then closed, not pooled under the old route.
     #[tokio::test]
@@ -454,14 +447,10 @@ mod tests {
         let client = NodeClient::pinned(KeepaliveSchedule::SPEC.tcp, Pinned { addr, tls });
         let pool = client.pool.clone();
         client.pool.hook(pool::At::Dial, move || pool.clear());
-        let request = WireRequest {
-            transport: TransportKind::Http1,
-            method: "GET".into(),
-            url: "http://pinned.test/x".into(),
-            headers: Vec::new(),
-            body: Vec::new(),
-        };
-        let mut response = mixdog_rt::time::timeout(WITHIN, client.send(&request, Writer::Fetch, Surface::Fetch)).await.expect("an answer within 20 s").unwrap();
+        let request =
+            WireRequest { transport: TransportKind::Http1, method: "GET".into(), url: "http://pinned.test/x".into(), headers: Vec::new(), body: Vec::new() };
+        let mut response =
+            mixdog_rt::time::timeout(WITHIN, client.send(&request, Writer::Fetch, Surface::Fetch)).await.expect("an answer within 20 s").unwrap();
         while let Some(chunk) = mixdog_rt::time::timeout(WITHIN, response.body.next()).await.expect("the body within 20 s") {
             chunk.unwrap();
         }
@@ -585,7 +574,6 @@ mod tests {
         assert_eq!(offered, 1);
     }
 }
-
 
 /// The pin of a process a replay spawns: every connect goes to `REPLAY_PROVIDER_PIN` (the stand-in's address) and
 /// trusts the DER certificate at `REPLAY_PROVIDER_PIN_CERT` alone, so the real binary runs against a stand-in
@@ -718,13 +706,9 @@ impl NodeClient {
             Box::new(socket)
         } else {
             match proxy {
-                Some(proxy) => Box::new(
-                    open_proxy_tunnel(proxy, &bare, port, &self.tcp).await.map_err(|e| tunnel_error(e, surface))?,
-                ),
+                Some(proxy) => Box::new(open_proxy_tunnel(proxy, &bare, port, &self.tcp).await.map_err(|e| tunnel_error(e, surface))?),
                 None => {
-                    let addrs = tokio::net::lookup_host((bare.as_str(), port))
-                        .await
-                        .map_err(|_| dns_error(surface))?;
+                    let addrs = tokio::net::lookup_host((bare.as_str(), port)).await.map_err(|_| dns_error(surface))?;
                     let mut failure = None;
                     let mut connected = None;
                     for addr in addrs {
@@ -739,10 +723,7 @@ impl NodeClient {
                     match connected {
                         Some(socket) => Box::new(socket),
                         None => {
-                            return Err(failure.map_or_else(
-                                || dns_error(surface),
-                                |e| io_error(&e, true, DeliveryState::NotSent, surface),
-                            ));
+                            return Err(failure.map_or_else(|| dns_error(surface), |e| io_error(&e, true, DeliveryState::NotSent, surface)));
                         }
                     }
                 }
@@ -755,8 +736,7 @@ impl NodeClient {
             Some(config) => config,
             None => tls_config().map_err(|e| io_error(&e, true, DeliveryState::NotSent, surface))?,
         };
-        let name = rustls::pki_types::ServerName::try_from(bare)
-            .map_err(|_| ProviderError::transport(TransportFault::Tls, DeliveryState::NotSent))?;
+        let name = rustls::pki_types::ServerName::try_from(bare).map_err(|_| ProviderError::transport(TransportFault::Tls, DeliveryState::NotSent))?;
         let tls = tokio_rustls::TlsConnector::from(config).connect(name, tcp_stream).await.map_err(|e| {
             // A socket reset during the handshake is the socket's fault, as undici reports it (`ECONNRESET`), not TLS's.
             if matches!(e.kind(), io::ErrorKind::ConnectionReset | io::ErrorKind::ConnectionAborted) {
@@ -850,9 +830,7 @@ impl NodeClient {
                         let guard = self.pool.put_h2(key.clone(), id, send.clone(), generation);
                         self.exchange_h2(&key, id, send, guard, request, &url, writer, surface).await
                     } else {
-                        let mut conn = h1::Conn::open(io, born, generation)
-                            .await
-                            .map_err(|e| chain_error(&e, DeliveryState::NotSent, surface))?;
+                        let mut conn = h1::Conn::open(io, born, generation).await.map_err(|e| chain_error(&e, DeliveryState::NotSent, surface))?;
                         conn.track(&self.pool, &key);
                         conn.flight = Some(flight.clone());
                         self.exchange_h1(conn, &key, request, &url, writer, surface).await
@@ -878,9 +856,7 @@ impl NodeClient {
         surface: Surface,
     ) -> Result<HttpResponse, Failure> {
         let (head, close) = head(request, url, writer);
-        conn.ready()
-            .await
-            .map_err(|e| Failure { error: chain_error(&e, DeliveryState::NotSent, surface), replay: true })?;
+        conn.ready().await.map_err(|e| Failure { error: chain_error(&e, DeliveryState::NotSent, surface), replay: true })?;
         super::model_driver::connected();
         // Once the first byte may have left, the request is never sent again: undici fails the request that was running
         // when its socket dies (`client-h1.js` `onHttpSocketClose`) and re-queues only those not yet written. A write
@@ -903,11 +879,8 @@ impl NodeClient {
             return Err(Failure { error: io_error(&framing, false, DeliveryState::Ambiguous, surface), replay: false });
         }
         let status = parts.status.as_u16();
-        let headers: Vec<(String, String)> = parts
-            .headers
-            .iter()
-            .map(|(name, value)| (name.as_str().to_owned(), String::from_utf8_lossy(value.as_bytes()).into_owned()))
-            .collect();
+        let headers: Vec<(String, String)> =
+            parts.headers.iter().map(|(name, value)| (name.as_str().to_owned(), String::from_utf8_lossy(value.as_bytes()).into_owned())).collect();
         let find = |name: &str| headers.iter().find(|(known, _)| known == name).map(|(_, value)| value.as_str());
         let tokens = |name: &str| find(name).map(str::to_ascii_lowercase).unwrap_or_default();
         let (connection, old) = (tokens("connection"), parts.version == hyper::Version::HTTP_10);
@@ -977,13 +950,14 @@ impl NodeClient {
             Ok(response) => response.map_err(|e| failed(&e, false))?,
         };
         let status = response.status().as_u16();
-        let list: Vec<(String, String)> = response
-            .headers()
-            .iter()
-            .map(|(k, v)| (k.as_str().to_owned(), String::from_utf8_lossy(v.as_bytes()).into_owned()))
-            .collect();
+        let list: Vec<(String, String)> =
+            response.headers().iter().map(|(k, v)| (k.as_str().to_owned(), String::from_utf8_lossy(v.as_bytes()).into_owned())).collect();
         let decoder = decoding(&list, &request.method, status)?;
-        Ok(HttpResponse { status, headers: list, body: super::link::replay_counted(url, Box::new(H2Body { stream: response.into_body(), decoder, ended: false, id, _guard: guard })) })
+        Ok(HttpResponse {
+            status,
+            headers: list,
+            body: super::link::replay_counted(url, Box::new(H2Body { stream: response.into_body(), decoder, ended: false, id, _guard: guard })),
+        })
     }
 }
 #[async_trait]

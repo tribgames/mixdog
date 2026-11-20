@@ -364,9 +364,8 @@ impl Shard {
             let slot = &self.slots[index];
             let held = slot.address.load(Ordering::Relaxed);
             if held == 0 || held == address {
-                let replaced = (held == address).then(|| {
-                    (slot.site.load(Ordering::Relaxed), slot.bytes.load(Ordering::Relaxed), slot.blocks.load(Ordering::Relaxed) as usize)
-                });
+                let replaced = (held == address)
+                    .then(|| (slot.site.load(Ordering::Relaxed), slot.bytes.load(Ordering::Relaxed), slot.blocks.load(Ordering::Relaxed) as usize));
                 if held == 0 {
                     if self.len.load(Ordering::Relaxed) >= SHARD_SLOTS / 4 * 3 {
                         return None;
@@ -573,9 +572,20 @@ fn render(elapsed_secs: u64, live: &[(Vec<String>, i64, i64)], previous: &mut Ta
     let exact = LIVE_BYTES.load(Ordering::Relaxed).max(0);
     let blocks = LIVE_BLOCKS.load(Ordering::Relaxed).max(0);
     let sampled: i64 = live.iter().map(|row| row.1).sum();
-    let _ = write!(out, "== t+{elapsed_secs}s live {} MiB in {blocks} blocks (unsampled counters, including profiler; concurrent snapshot); sampled estimate {} MiB", mib(exact as i64), mib(sampled));
+    let _ = write!(
+        out,
+        "== t+{elapsed_secs}s live {} MiB in {blocks} blocks (unsampled counters, including profiler; concurrent snapshot); sampled estimate {} MiB",
+        mib(exact as i64),
+        mib(sampled)
+    );
     if let Some((private, working)) = process_bytes() {
-        let _ = write!(out, "; private {} MiB, working set {} MiB, private minus live {} MiB (allocator-held or foreign)", mib(private as i64), mib(working as i64), mib(private as i64 - exact as i64));
+        let _ = write!(
+            out,
+            "; private {} MiB, working set {} MiB, private minus live {} MiB (allocator-held or foreign)",
+            mib(private as i64),
+            mib(working as i64),
+            mib(private as i64 - exact as i64)
+        );
     }
     out.push('\n');
     let _ = writeln!(
@@ -714,13 +724,9 @@ mod tests {
         assert!(!loader_lock_held());
     }
 
-
     #[test]
     fn the_report_ranks_by_size_and_shows_growth_since_the_last_one() {
-        let rows = vec![
-            (vec!["mixdog_ai::catalog::load".to_owned()], 3_145_728, 3),
-            (vec!["mixdog_store::log::append".to_owned()], 1_048_576, 9),
-        ];
+        let rows = vec![(vec!["mixdog_ai::catalog::load".to_owned()], 3_145_728, 3), (vec!["mixdog_store::log::append".to_owned()], 1_048_576, 9)];
         let mut previous = Table::default();
         let first = render(60, &rows, &mut previous);
         let load = first.lines().position(|line| line.ends_with("mixdog_ai::catalog::load")).unwrap();
@@ -731,7 +737,6 @@ mod tests {
         assert!(second.contains("stack bytes=4194304 delta=+1048576 blocks=4"), "{second}");
     }
 }
-
 
 /// Starts sampling and the report thread (`serve` only).
 pub fn enable_from_env() {

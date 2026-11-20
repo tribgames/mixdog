@@ -15,14 +15,26 @@ use serde_json::{Map, Value, json};
 use super::admin::ChannelAdmin;
 use crate::bots::ids::MIXY_AGENT_ID;
 
-pub const AUTOMATION_ACTIONS: &[&str] =
-    &["save_automation", "delete_automation", "set_automation_enabled", "run_automation", "set_webhook_config"];
+pub const AUTOMATION_ACTIONS: &[&str] = &["save_automation", "delete_automation", "set_automation_enabled", "run_automation", "set_webhook_config"];
 
 /// `SETUP_EXTENDED_PROPERTIES.entry.properties`, in declaration order: the keys an automation
 /// entry carries (the order is the order of the result's keys).
 const ENTRY_KEYS: [&str; 15] = [
-    "name", "newName", "description", "instructions", "time", "at", "timezone", "days", "parser", "cwd",
-    "attachments", "enabled", "owner", "executorAgentId", "overwrite",
+    "name",
+    "newName",
+    "description",
+    "instructions",
+    "time",
+    "at",
+    "timezone",
+    "days",
+    "parser",
+    "cwd",
+    "attachments",
+    "enabled",
+    "owner",
+    "executorAgentId",
+    "overwrite",
 ];
 
 /// `scheduleCallerScope` of the calling session.
@@ -164,29 +176,21 @@ pub(crate) fn assert_access(
         }));
     };
     let requested = mixdog_js::js_trim(owner);
-    let saved = current
-        .map(|c| c.get("owner").and_then(Value::as_str).filter(|o| !o.is_empty()).unwrap_or(MIXY_AGENT_ID))
-        .unwrap_or("");
+    let saved = current.map(|c| c.get("owner").and_then(Value::as_str).filter(|o| !o.is_empty()).unwrap_or(MIXY_AGENT_ID)).unwrap_or("");
     if let AccessScope::Agent { agent_id } = scope {
         if let Some(c) = current
             && saved != agent_id
         {
             let label = if kind == "webhook" { "Webhook" } else { "Schedule" };
             let name = c.get("name").map(mixdog_js::value_to_string).unwrap_or_default();
-            return Err(denied(format!(
-                "{label} \"{name}\" belongs to another agent; this thread manages only its own {kind}s"
-            )));
+            return Err(denied(format!("{label} \"{name}\" belongs to another agent; this thread manages only its own {kind}s")));
         }
         if !requested.is_empty() && requested != agent_id {
             return Err(denied(format!("This thread cannot give a {kind} to another agent")));
         }
         return Ok(());
     }
-    if !requested.is_empty()
-        && requested != saved
-        && requested != MIXY_AGENT_ID
-        && !agent_ids.iter().any(|id| id == requested)
-    {
+    if !requested.is_empty() && requested != saved && requested != MIXY_AGENT_ID && !agent_ids.iter().any(|id| id == requested) {
         return Err(denied(format!("Agent \"{requested}\" does not exist")));
     }
     Ok(())
@@ -195,9 +199,7 @@ pub(crate) fn assert_access(
 /// `new Date(whenAt).toISOString()`.
 fn iso(value: &str) -> Option<String> {
     let ms = mixdog_js::time::date_parse(value);
-    DateTime::<Utc>::from_timestamp_millis(ms as i64)
-        .filter(|_| ms.is_finite())
-        .map(|t| t.to_rfc3339_opts(SecondsFormat::Millis, true))
+    DateTime::<Utc>::from_timestamp_millis(ms as i64).filter(|_| ms.is_finite()).map(|t| t.to_rfc3339_opts(SecondsFormat::Millis, true))
 }
 
 impl AutomationSetup {
@@ -217,20 +219,9 @@ impl AutomationSetup {
     }
 
     /// `authorizeAutomation`.
-    async fn authorize(
-        &self,
-        scope: &AccessScope,
-        kind: &str,
-        action: &str,
-        current: Option<&Value>,
-        owner: &str,
-    ) -> Result<(), PortError> {
+    async fn authorize(&self, scope: &AccessScope, kind: &str, action: &str, current: Option<&Value>, owner: &str) -> Result<(), PortError> {
         let transfer = mixdog_js::js_trim(owner);
-        let agents = if !transfer.is_empty() && *scope == AccessScope::Human {
-            self.agents.agent_ids().await.map_err(failed)?
-        } else {
-            Vec::new()
-        };
+        let agents = if !transfer.is_empty() && *scope == AccessScope::Human { self.agents.agent_ids().await.map_err(failed)? } else { Vec::new() };
         assert_access(scope, kind, action, current, transfer, &agents)
     }
 
@@ -311,10 +302,9 @@ impl AutomationSetup {
                 let status = self.admin.get_channel_setup().await.map_err(failed)?;
                 Ok(json!({"webhook": Value::Object(pick(&status["webhook"], &["enabled", "port", "domain"]))}))
             }
-            other => Err(PortError::Unavailable {
-                capability: format!("setup.{other}"),
-                message: format!("setup {other} is not served by the automation owner"),
-            }),
+            other => {
+                Err(PortError::Unavailable { capability: format!("setup.{other}"), message: format!("setup {other} is not served by the automation owner") })
+            }
         }
     }
 

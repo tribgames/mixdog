@@ -91,11 +91,7 @@ impl Host {
         match self.desktop.cursor_theme_end() {
             Err(error) => *outcome = Err(error),
             Ok(_) if run.acquired && run.applied => {
-                let feedback = outcome
-                    .as_mut()
-                    .ok()
-                    .and_then(|result| result.get_mut("cursor_feedback"))
-                    .and_then(|feedback| feedback.as_object_mut());
+                let feedback = outcome.as_mut().ok().and_then(|result| result.get_mut("cursor_feedback")).and_then(|feedback| feedback.as_object_mut());
                 if let Some(feedback) = feedback {
                     feedback.insert("system_theme_restored".into(), json!(true));
                 }

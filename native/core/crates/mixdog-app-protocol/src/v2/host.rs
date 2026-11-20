@@ -60,7 +60,10 @@ impl HostStateSetParams {
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(untagged)]
 // The inline enum footprint is bounded; variable-size fields keep their owned storage.
-#[allow(clippy::large_enum_variant, reason = "Keep the public untagged host-value DTO by value; boxing Event would add an allocation and change its public constructors")]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "Keep the public untagged host-value DTO by value; boxing Event would add an allocation and change its public constructors"
+)]
 pub enum VisualizeHostValue {
     Snapshot(Vec<VisualizeHostState>),
     Event(VisualizeHostEvent),

@@ -14,7 +14,18 @@ const ARRAY_DROP_NOTE: &str = "This provider accepts a single value here, not an
 const ARRAY_ONLY_NOTE: &str = "Pass one or more values as an array.";
 const SCHEMA_MAP_KEYWORDS: [&str; 5] = ["properties", "patternProperties", "$defs", "definitions", "dependentSchemas"];
 const SCHEMA_VALUED_KEYWORDS: [&str; 12] = [
-    "items", "prefixItems", "additionalProperties", "contains", "allOf", "not", "if", "then", "else", "propertyNames", "unevaluatedProperties", "unevaluatedItems",
+    "items",
+    "prefixItems",
+    "additionalProperties",
+    "contains",
+    "allOf",
+    "not",
+    "if",
+    "then",
+    "else",
+    "propertyNames",
+    "unevaluatedProperties",
+    "unevaluatedItems",
 ];
 
 /// The `TypeError` Node's flatten throws on an input (V8's message); the send fails before anything is sent.
@@ -90,7 +101,11 @@ fn js_join(items: &[Value], separator: &str) -> Js<String> {
 /// `String.prototype.trim`: JavaScript's white space and line terminators (U+FEFF is one, U+0085 is not).
 fn js_trim(text: &str) -> &str {
     text.trim_matches(|c: char| {
-        matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
+        matches!(
+            c,
+            '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2000}'
+                ..='\u{200a}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
+        )
     })
 }
 
@@ -459,7 +474,8 @@ fn merge_object_branch_properties(branches: &[Value], marker: &str) -> Js<Props>
             let merged = if every_reading(&deduped, "type", |_, v| type_is(v, "object") || truthy(get(v, "properties")))? {
                 // Only an object has `type: 'object'` or a truthy `properties`.
                 let first = deduped[0].as_object().cloned().unwrap_or_default();
-                let required: Vec<Value> = required_keys(&deduped[0]).into_iter().filter(|key| deduped.iter().all(|v| required_keys(v).contains(key))).collect();
+                let required: Vec<Value> =
+                    required_keys(&deduped[0]).into_iter().filter(|key| deduped.iter().all(|v| required_keys(v).contains(key))).collect();
                 let mut out = spread(without(&first, &["required", "properties"]), &Map::from_iter([("type".to_owned(), json!("object"))]));
                 out.insert("properties".into(), Value::Object(merge_object_branch_properties(&deduped, marker)?.own));
                 if !required.is_empty() {
@@ -542,7 +558,8 @@ fn normalize_property_schema(schema: &Value) -> Js<Value> {
     for key in SCHEMA_MAP_KEYWORDS {
         match map.get(key) {
             Some(Value::Object(children)) => {
-                let normalized = children.iter().map(|(name, child)| Ok((name.clone(), normalize_property_schema(child)?))).collect::<Js<Map<String, Value>>>()?;
+                let normalized =
+                    children.iter().map(|(name, child)| Ok((name.clone(), normalize_property_schema(child)?))).collect::<Js<Map<String, Value>>>()?;
                 result.insert(key.to_owned(), Value::Object(normalized));
             }
             // `Object.fromEntries(Object.entries(array))`, taken only when a child changed: an object keyed by index.
@@ -695,7 +712,11 @@ fn union_required(root: &Value, object_branches: &[Value]) -> Vec<Value> {
         })
         .collect();
     let mut out = Vec::new();
-    for key in required_keys(root).into_iter().chain(in_every.iter().cloned()).chain(if in_every.is_empty() { first_exclusive_required(object_branches) } else { Vec::new() }) {
+    for key in required_keys(root).into_iter().chain(in_every.iter().cloned()).chain(if in_every.is_empty() {
+        first_exclusive_required(object_branches)
+    } else {
+        Vec::new()
+    }) {
         push_set_member(&mut out, key);
     }
     out
@@ -782,4 +803,3 @@ pub fn flatten_tools(body: &mut Value) -> Js<Flattened> {
     }
     Ok(Flattened { changed, marker })
 }
-

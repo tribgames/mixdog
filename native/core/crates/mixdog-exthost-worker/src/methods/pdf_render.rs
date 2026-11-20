@@ -12,8 +12,8 @@ use mixdog_fonts::discovery::{HostEnv, scan};
 use mixdog_fonts::registry::Registry as FontRegistry;
 use mixdog_office_base::write_note::NoWriteNote;
 use mixdog_office_pdf::{AnalysisError, RenderPagesOptions, render_pdf_pages};
-use mixdog_rt::{CancellationToken, LaneToken, LaneTokens};
 use mixdog_rt::exec::{Executors, RtConfig, boot};
+use mixdog_rt::{CancellationToken, LaneToken, LaneTokens};
 use serde_json::Value;
 
 use super::js_string;
@@ -35,9 +35,8 @@ static FONTS: tokio::sync::OnceCell<Arc<FontRegistry>> = tokio::sync::OnceCell::
 
 /// The lane tokens of this process, starting its executors the first time.
 pub(super) fn lanes() -> Result<LaneTokens, CodedError> {
-    let started = LANES.get_or_init(|| {
-        boot(RtConfig::detect()).map(|(executors, tokens)| Lanes { tokens, _executors: executors }).map_err(|error| error.to_string())
-    });
+    let started =
+        LANES.get_or_init(|| boot(RtConfig::detect()).map(|(executors, tokens)| Lanes { tokens, _executors: executors }).map_err(|error| error.to_string()));
     match started {
         Ok(lanes) => Ok(lanes.tokens),
         Err(reason) => Err(CodedError::failed(reason.clone())),
@@ -104,7 +103,6 @@ mod tests {
         assert_eq!(pages(Some(&json!([]))), Some(Vec::new()));
     }
 
-
     #[tokio::test]
     async fn concurrent_callers_share_one_font_scan() {
         let lanes = lanes().expect("lanes");
@@ -113,7 +111,6 @@ mod tests {
         assert!(Arc::ptr_eq(&a.unwrap(), &b.unwrap()));
     }
 }
-
 
 pub(super) fn register(registry: &mut Registry) {
     registry.register("pdf.render", render);
@@ -124,14 +121,12 @@ pub(super) async fn fonts(lanes: LaneTokens, cancel: &CancellationToken) -> Resu
     // One scan at a time: callers arriving while it runs wait for it, so no second registry is ever built.
     FONTS
         .get_or_try_init(|| async {
-            let lost = |error: String| if cancel.is_cancelled() { CodedError::cancelled() } else { CodedError::failed(format!("the font scan failed: {error}")) };
+            let lost =
+                |error: String| if cancel.is_cancelled() { CodedError::cancelled() } else { CodedError::failed(format!("the font scan failed: {error}")) };
             let home = std::env::home_dir().unwrap_or_default();
             let env = HostEnv::current(&|name| std::env::var(name).ok(), &home);
-            let job = lanes
-                .interactive_io
-                .submit_wait(cancel, move |lane| Arc::new(scan(lane, &env).registry))
-                .await
-                .map_err(|error| lost(error.to_string()))?;
+            let job =
+                lanes.interactive_io.submit_wait(cancel, move |lane| Arc::new(scan(lane, &env).registry)).await.map_err(|error| lost(error.to_string()))?;
             job.await.map_err(|error| lost(error.to_string()))
         })
         .await

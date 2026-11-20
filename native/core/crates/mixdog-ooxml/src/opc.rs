@@ -49,7 +49,6 @@ pub mod posix {
         path.trim_end_matches('/').rsplit('/').next().unwrap_or("").to_owned()
     }
 
-
     /// `posix.normalize`.
     pub fn normalize(path: &str) -> String {
         nodepath::normalize(Style::Posix, path)
@@ -181,10 +180,7 @@ pub fn image_pixel_size(data: &[u8]) -> Option<PixelSize> {
         }
     }
     if data.len() > 10 && &data[..3] == b"GIF" {
-        return Some(PixelSize {
-            width: u32::from(u16::from_le_bytes([data[6], data[7]])),
-            height: u32::from(u16::from_le_bytes([data[8], data[9]])),
-        });
+        return Some(PixelSize { width: u32::from(u16::from_le_bytes([data[6], data[7]])), height: u32::from(u16::from_le_bytes([data[8], data[9]])) });
     }
     None
 }
@@ -193,10 +189,7 @@ static RELATIONSHIP_ID_NUMBER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new
 
 /// `nextRelationshipId(rels)`: `rId` and one more than the highest `rId` number present.
 pub fn next_relationship_id(rels: &str) -> String {
-    let highest = RELATIONSHIP_ID_NUMBER
-        .captures_iter(rels)
-        .map(|found| mixdog_js::string_to_number(found.get(1).unwrap_or("")))
-        .fold(0.0_f64, f64::max);
+    let highest = RELATIONSHIP_ID_NUMBER.captures_iter(rels).map(|found| mixdog_js::string_to_number(found.get(1).unwrap_or(""))).fold(0.0_f64, f64::max);
     format!("rId{}", number_to_string(highest + 1.0))
 }
 
@@ -239,11 +232,7 @@ pub fn ensure_default_content_type(zip: &mut Package, extension: &str, content_t
     }
     static TYPES_OPEN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<Types\b[^>]*>", ""));
     let next = match TYPES_OPEN.find(&xml) {
-        Some(range) => format!(
-            "{}<Default Extension=\"{extension}\" ContentType=\"{content_type}\"/>{}",
-            &xml[..range.end],
-            &xml[range.end..]
-        ),
+        Some(range) => format!("{}<Default Extension=\"{extension}\" ContentType=\"{content_type}\"/>{}", &xml[..range.end], &xml[range.end..]),
         None => xml,
     };
     zip.set(CONTENT_TYPES_PART, next);
@@ -261,15 +250,10 @@ pub fn add_package_relationship(zip: &mut Package, rels_path: &str, relationship
             ensure_default_content_type(zip, "rels", RELATIONSHIPS_CONTENT_TYPE);
         }
     }
-    let xml = if existing.is_empty() {
-        format!("{XML_HEADER}<Relationships xmlns=\"{PACKAGE_RELATIONSHIP_NS}\"></Relationships>")
-    } else {
-        existing
-    };
+    let xml = if existing.is_empty() { format!("{XML_HEADER}<Relationships xmlns=\"{PACKAGE_RELATIONSHIP_NS}\"></Relationships>") } else { existing };
     let id = next_relationship_id(&xml);
     let mode_attribute = if mode.is_empty() { String::new() } else { format!(" TargetMode=\"{mode}\"") };
-    let relationship =
-        format!("<Relationship Id=\"{id}\" Type=\"{relationship_type}\" Target=\"{}\"{mode_attribute}/>", xml_encode(target));
+    let relationship = format!("<Relationship Id=\"{id}\" Type=\"{relationship_type}\" Target=\"{}\"{mode_attribute}/>", xml_encode(target));
     zip.set(rels_path, replace_first(&xml, "</Relationships>", &format!("{relationship}</Relationships>")));
     id
 }
@@ -293,8 +277,7 @@ pub fn part_relationship_path(part: &str) -> String {
 /// rels part writes it (relative to the owning part, or absolute from the package root); empty when the part declares
 /// none.
 pub fn relationship_target_by_type(relationships_xml: &str, relationship_type: &str) -> String {
-    let pattern =
-        compiled(&format!(r#"<Relationship\b[^>]*\bType="[^"]*/{}"[^>]*\bTarget="([^"]+)""#, tag_pattern(relationship_type)), "");
+    let pattern = compiled(&format!(r#"<Relationship\b[^>]*\bType="[^"]*/{}"[^>]*\bTarget="([^"]+)""#, tag_pattern(relationship_type)), "");
     pattern.captures(relationships_xml).and_then(|found| found.get(1).map(str::to_owned)).unwrap_or_default()
 }
 
@@ -431,10 +414,9 @@ fn content_type_rule(types_xml: &str, source_path: &str) -> Option<ContentTypeRu
     }
     let extension = js_to_lowercase(&part_naming(source_path).1);
     let default_pattern = compiled(&format!(r#"<Default\b[^>]*\bExtension="{extension}"[^>]*\/>"#), "i");
-    default_pattern.find(types_xml).map(|range| ContentTypeRule::Default {
-        extension: extension.clone(),
-        content_type: xml_attribute(&types_xml[range], "ContentType"),
-    })
+    default_pattern
+        .find(types_xml)
+        .map(|range| ContentTypeRule::Default { extension: extension.clone(), content_type: xml_attribute(&types_xml[range], "ContentType") })
 }
 
 /// `copyPartContentType`'s writing: the target part is declared the way the source part was.
@@ -473,9 +455,8 @@ fn retarget(output: &str, block: &str, rewritten: &str) -> String {
 static SHARED_ON_CLONE: LazyLock<JsRegex> =
     LazyLock::new(|| JsRegex::new_static(r"\/(image|media|video|audio|theme|slideLayout|slideMaster|notesMaster|notesSlide|hyperlink)$", ""));
 
-static OWNED_BY_SLIDE: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"\/(chart|chartEx|diagramData|diagramLayout|diagramColors|diagramQuickStyle|diagramDrawing|comments)$", "")
-});
+static OWNED_BY_SLIDE: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"\/(chart|chartEx|diagramData|diagramLayout|diagramColors|diagramQuickStyle|diagramDrawing|comments)$", ""));
 
 /// Slide layout ids live above 2^31 by the OOXML convention PowerPoint writes.
 const FIRST_SLIDE_LAYOUT_ID: f64 = 2_147_483_648.0;
@@ -486,10 +467,7 @@ pub fn relationship_owner(rel_path: &str) -> String {
         return String::new();
     }
     static OWNED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(.*)\/_rels\/([^/]+)\.rels$", "i"));
-    OWNED
-        .captures(rel_path)
-        .map(|found| format!("{}/{}", found.get(1).unwrap_or(""), found.get(2).unwrap_or("")))
-        .unwrap_or_default()
+    OWNED.captures(rel_path).map(|found| format!("{}/{}", found.get(1).unwrap_or(""), found.get(2).unwrap_or(""))).unwrap_or_default()
 }
 
 /// `decodeURIComponent`; `None` for a malformed escape or a sequence that is not UTF-8 (a `URIError`).
@@ -523,7 +501,9 @@ mod tests {
     use super::*;
 
     fn types(extra: &str) -> String {
-        format!("{XML_HEADER}<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"xml\" ContentType=\"application/xml\"/>{extra}</Types>")
+        format!(
+            "{XML_HEADER}<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\"><Default Extension=\"xml\" ContentType=\"application/xml\"/>{extra}</Types>"
+        )
     }
 
     #[test]
@@ -599,12 +579,14 @@ mod tests {
             "<Relationships><Relationship Id=\"rId1\" Type=\"x/chart\" Target=\"../charts/chart1.xml\"/><Relationship Id=\"rId2\" Type=\"x/image\" Target=\"../media/image1.png\"/></Relationships>",
         );
         zip.set("ppt/charts/chart1.xml", "<c:chart/>");
-        zip.set("ppt/charts/_rels/chart1.xml.rels", "<Relationships><Relationship Id=\"rId1\" Type=\"x/package\" Target=\"../embeddings/book1.xlsx\"/></Relationships>");
+        zip.set(
+            "ppt/charts/_rels/chart1.xml.rels",
+            "<Relationships><Relationship Id=\"rId1\" Type=\"x/package\" Target=\"../embeddings/book1.xlsx\"/></Relationships>",
+        );
         zip.set("ppt/embeddings/book1.xlsx", vec![1_u8, 2, 3]);
         zip.set("ppt/media/image1.png", vec![9_u8]);
         zip
     }
-
 
     #[test]
     fn posix_paths_follow_node() {
@@ -671,8 +653,7 @@ mod tests {
         let layout = "<Relationships><Relationship Id=\"rId1\" Type=\"x/slideLayout\" Target=\"../slideLayouts/slideLayout1.xml\"/></Relationships>";
         let mut layouts = deck();
         layouts.set("ppt/slideLayouts/slideLayout1.xml", "<p:sldLayout/>");
-        let refused =
-            rewrite_imported_relationships(&layouts, &mut target, "ppt/slides/slide1.xml", "ppt/slides/slide3.xml", layout, &mut HashMap::new());
+        let refused = rewrite_imported_relationships(&layouts, &mut target, "ppt/slides/slide1.xml", "ppt/slides/slide3.xml", layout, &mut HashMap::new());
         assert_eq!(
             refused.unwrap_err(),
             "import_slides cannot place the layout of ppt/slideLayouts/slideLayout1.xml: this presentation has no slide master to adopt it"
@@ -687,7 +668,6 @@ mod tests {
         assert_eq!(result.unwrap_err(), "import_slides source package is missing ppt/media/none.png");
     }
 }
-
 
 /// `relationshipTargetsByType(relationshipsXml, owner, type)`: every relationship of one type, as its Id and the package
 /// path it points at (a Target is written relative to the owning part unless it starts at the package root).
@@ -729,10 +709,7 @@ fn import_part_tree(source: &Package, zip: &mut Package, source_path: &str, cach
     let digest = sha1_hex(&data);
     let directory = posix::dirname(source_path);
     let (prefix, extension) = part_naming(source_path);
-    let sibling = compiled(
-        &format!("^{}/{}\\d*\\.{}$", tag_pattern(&directory), tag_pattern(&prefix), tag_pattern(&extension)),
-        "i",
-    );
+    let sibling = compiled(&format!("^{}/{}\\d*\\.{}$", tag_pattern(&directory), tag_pattern(&prefix), tag_pattern(&extension)), "i");
     let reused = find_matching_part(zip, &sibling, &digest);
     if !reused.is_empty() {
         cache.insert(source_path.to_owned(), reused.clone());
@@ -856,21 +833,15 @@ fn register_layout_on_master(zip: &mut Package, master: &str, target_path: &str)
     );
     let master_xml = zip.text(master);
     static LAYOUT_ID: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"<p:sldLayoutId\b[^>]*\bid="(\d+)""#, "g"));
-    let highest = LAYOUT_ID
-        .captures_iter(&master_xml)
-        .map(|found| mixdog_js::string_to_number(found.get(1).unwrap_or("")))
-        .fold(FIRST_SLIDE_LAYOUT_ID, f64::max);
+    let highest =
+        LAYOUT_ID.captures_iter(&master_xml).map(|found| mixdog_js::string_to_number(found.get(1).unwrap_or(""))).fold(FIRST_SLIDE_LAYOUT_ID, f64::max);
     let entry = format!("<p:sldLayoutId id=\"{}\" r:id=\"{relationship_id}\"/>", number_to_string(highest + 1.0));
     let next = if master_xml.contains("</p:sldLayoutIdLst>") {
         replace_first(&master_xml, "</p:sldLayoutIdLst>", &format!("{entry}</p:sldLayoutIdLst>"))
     } else {
         static COLOUR_MAP: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(<p:clrMap\b[^>]*\/>)", ""));
         match COLOUR_MAP.find(&master_xml) {
-            Some(range) => format!(
-                "{}<p:sldLayoutIdLst>{entry}</p:sldLayoutIdLst>{}",
-                &master_xml[..range.end],
-                &master_xml[range.end..]
-            ),
+            Some(range) => format!("{}<p:sldLayoutIdLst>{entry}</p:sldLayoutIdLst>{}", &master_xml[..range.end], &master_xml[range.end..]),
             None => master_xml,
         }
     };
@@ -924,9 +895,7 @@ pub fn rewrite_imported_relationships(
                 mapped = adopt_imported_layout(source, zip, &resolved, cache)?;
             }
             if mapped.is_empty() {
-                return Err(format!(
-                    "import_slides cannot place the layout of {resolved}: this presentation has no slide master to adopt it"
-                ));
+                return Err(format!("import_slides cannot place the layout of {resolved}: this presentation has no slide master to adopt it"));
             }
             mapped
         } else if relationship_type.ends_with("/slide") {

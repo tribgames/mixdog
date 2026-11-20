@@ -88,24 +88,23 @@ async fn a_learned_cli_minimum_updates_the_messages_replay_listing_and_token_exc
     assert_eq!(text_of(&adapter, ask("m", RequestOptions::default())).await.expect("the replay completes"), "fine");
     adapter.list_rows().await.expect("model list");
     let login = crate::providers::anthropic::AnthropicLogin::new(store.file.clone(), http.clone()).with_cli_version_source(version);
-    login.authorize_url(&crate::oauth::AuthorizeRequest {
-        redirect_uri: "http://localhost/callback",
-        code_challenge: "challenge",
-        state: "state",
-    });
+    login.authorize_url(&crate::oauth::AuthorizeRequest { redirect_uri: "http://localhost/callback", code_challenge: "challenge", state: "state" });
     assert!(login.exchange("code", "verifier", "http://localhost/callback").await.is_ok());
 
     let sent = http.sent();
     let requests: Vec<_> = sent.iter().map(|wire| (url::Url::parse(&wire.url).unwrap().path().to_owned(), find(&wire.headers, "user-agent"))).collect();
     let learned = Some("claude-cli/2.9.120 (external, sdk-cli)");
-    assert_eq!(requests, [
-        ("/v1/messages".to_owned(), Some("claude-cli/2.1.317 (external, sdk-cli)")),
-        ("/v1/messages".to_owned(), learned),
-        ("/v1/oauth/token".to_owned(), learned),
-        ("/v1/messages".to_owned(), learned),
-        ("/v1/models".to_owned(), learned),
-        ("/v1/oauth/token".to_owned(), learned),
-    ]);
+    assert_eq!(
+        requests,
+        [
+            ("/v1/messages".to_owned(), Some("claude-cli/2.1.317 (external, sdk-cli)")),
+            ("/v1/messages".to_owned(), learned),
+            ("/v1/oauth/token".to_owned(), learned),
+            ("/v1/messages".to_owned(), learned),
+            ("/v1/models".to_owned(), learned),
+            ("/v1/oauth/token".to_owned(), learned),
+        ]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -182,7 +181,13 @@ async fn an_error_event_after_text_ends_the_subscription_stream_with_its_typed_e
     let (adapter, http, _store) = subscription(caps_config(sonnet_caps()), vec![Scripted::body(200, body)]);
     let mut stream = adapter.attempt(ask("claude-sonnet-4-6", RequestOptions::default())).await.unwrap();
     let items = drain(stream.as_mut()).await;
-    let texts: String = items.iter().filter_map(|i| match i { Ok(StreamEvent::TextDelta(t)) => Some(t.as_str()), _ => None }).collect();
+    let texts: String = items
+        .iter()
+        .filter_map(|i| match i {
+            Ok(StreamEvent::TextDelta(t)) => Some(t.as_str()),
+            _ => None,
+        })
+        .collect();
     assert_eq!(texts, "partial");
     let err = items.last().unwrap().as_ref().expect_err("the stream ends in the error");
     assert_eq!(err.kind, ErrorKind::Overloaded);
@@ -226,7 +231,8 @@ fn display_caps() -> ModelCaps {
 async fn a_refused_thinking_display_is_replayed_once_without_it_and_remembered_for_this_route_only() {
     let model = "claude-sonnet-5-6";
     let refused = refusal_body("invalid_request_error", "thinking.adaptive.display: Extra inputs are not permitted");
-    let (adapter, http, _store) = subscription(caps_config(display_caps()), vec![Scripted::body(400, &refused), Scripted::body(200, OK), Scripted::body(200, OK)]);
+    let (adapter, http, _store) =
+        subscription(caps_config(display_caps()), vec![Scripted::body(400, &refused), Scripted::body(200, OK), Scripted::body(200, OK)]);
     assert_eq!(text_of(&adapter, ask(model, RequestOptions::default())).await.unwrap(), "fine");
     let sent = http.sent();
     assert_eq!(sent.len(), 2);

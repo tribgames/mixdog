@@ -1,6 +1,6 @@
 //! Paged listing of curated memory with its public addresses.
 
-use mixdog_js::{js_trim};
+use mixdog_js::js_trim;
 use serde::Serialize;
 use serde_json::Value;
 
@@ -70,9 +70,7 @@ pub async fn list(db: &Db, options: ListOptions<'_>) -> Result<Page> {
         Some(_) => return Err(MemoryError::rejected("include_inactive must be a boolean")),
     };
     if args.get("project_paths").is_some() {
-        let paths_ok = args["project_paths"]
-            .as_array()
-            .is_some_and(|paths| paths.iter().all(|path| path.as_str().is_some_and(|p| !js_trim(p).is_empty())));
+        let paths_ok = args["project_paths"].as_array().is_some_and(|paths| paths.iter().all(|path| path.as_str().is_some_and(|p| !js_trim(p).is_empty())));
         if options.scope != Some("*") || !paths_ok {
             return Err(MemoryError::rejected("project_paths requires an all-project list and non-empty paths"));
         }
@@ -82,12 +80,9 @@ pub async fn list(db: &Db, options: ListOptions<'_>) -> Result<Page> {
     let directory = index::sync(db).await?;
     // Order before pagination by the persisted scoped address, not the hidden
     // database key: moving an old record into a scope appends it there.
-    let cases: Vec<String> = directory
-        .values()
-        .flat_map(|state| state.record_ids.iter().enumerate().map(|(i, id)| format!("WHEN {id} THEN {}", i + 1)))
-        .collect();
-    let public_order =
-        if cases.is_empty() { "id".to_owned() } else { format!("CASE id {} ELSE id END", cases.join(" ")) };
+    let cases: Vec<String> =
+        directory.values().flat_map(|state| state.record_ids.iter().enumerate().map(|(i, id)| format!("WHEN {id} THEN {}", i + 1))).collect();
+    let public_order = if cases.is_empty() { "id".to_owned() } else { format!("CASE id {} ELSE id END", cases.join(" ")) };
     let scope_only = args.get("scope_only") == Some(&Value::Bool(true));
     // Node's statement text (core-memory-management.mjs), byte for byte.
     let sql = format!(
@@ -102,30 +97,16 @@ pub async fn list(db: &Db, options: ListOptions<'_>) -> Result<Page> {
     #[cfg(test)]
     index::observe(
         &sql,
-        Some(vec![
-            options.scope.into(),
-            (limit + 1).into(),
-            offset.into(),
-            include_inactive.into(),
-            scope_only.into(),
-            options.agent_id.into(),
-        ]),
+        Some(vec![options.scope.into(), (limit + 1).into(), offset.into(), include_inactive.into(), scope_only.into(), options.agent_id.into()]),
         false,
     );
-    let rows = db
-        .query(&sql, &[&options.scope, &(limit + 1), &offset, &include_inactive, &scope_only, &options.agent_id])
-        .await?;
+    let rows = db.query(&sql, &[&options.scope, &(limit + 1), &offset, &include_inactive, &scope_only, &options.agent_id]).await?;
     let has_more = rows.len() as i64 > limit;
-    let entries: Vec<ListEntry> =
-        rows.iter().take(limit as usize).map(|row| indexed(&directory, row)).collect();
+    let entries: Vec<ListEntry> = rows.iter().take(limit as usize).map(|row| indexed(&directory, row)).collect();
     if entries.iter().any(|entry| entry.injection_enabled && entry.id.is_none()) {
         return Err(MemoryError::rejected("memory indices changed during listing; list memories again"));
     }
-    Ok(Page {
-        entries,
-        next_offset: has_more.then_some(offset + limit),
-        project_scopes: options.project_scopes,
-    })
+    Ok(Page { entries, next_offset: has_more.then_some(offset + limit), project_scopes: options.project_scopes })
 }
 
 fn indexed(directory: &Directory, row: &tokio_postgres::Row) -> ListEntry {
@@ -158,16 +139,11 @@ pub fn format(page: &Page) -> String {
             let version = row.index_revision.as_ref().map_or(String::new(), |rev| format!(" index_revision={rev}"));
             let pool = Pool { project_id: row.project_id.as_deref(), agent_id: row.agent_id.as_deref() }.label();
             let injection = if row.injection_enabled { "enabled" } else { "disabled" };
-            format!(
-                "{id} source=curated {pool} status={} injection={injection}{version} {} — {}",
-                row.status, row.element, row.summary
-            )
+            format!("{id} source=curated {pool} status={} injection={injection}{version} {} — {}", row.status, row.element, row.summary)
         })
         .collect();
     if let Some(next) = page.next_offset {
-        lines.push(format!(
-            "More memories: call list with offset={next} and the same project scope/include_inactive."
-        ));
+        lines.push(format!("More memories: call list with offset={next} and the same project scope/include_inactive."));
     }
     if lines.is_empty() { "memory: empty".to_owned() } else { lines.join("\n") }
 }

@@ -69,11 +69,8 @@ pub fn snapshot(header: &Header, goal: Option<Goal>, todo: &mixdog_tools::state:
         goal = None;
     }
     // Compaction drops the todo tool results too: the open list rides once.
-    let todo_block = if revision != 0.0 && marked == "compaction" {
-        todo.context_block("Context was compacted; your todo list:", false)
-    } else {
-        String::new()
-    };
+    let todo_block =
+        if revision != 0.0 && marked == "compaction" { todo.context_block("Context was compacted; your todo list:", false) } else { String::new() };
     let clear = |change: &mut HeaderChange| {
         if header.contains_key("pendingGoalReminder") {
             unset(change, "pendingGoalReminder");
@@ -185,7 +182,9 @@ mod tests {
     }
 
     fn goal(status: &str) -> Goal {
-        object(json!({ "id": "g1", "objective": "Ship it", "title": "Ship it", "status": status, "turnCount": 3, "remainingMs": 1000, "timeLimitMs": 600000, "timeUsedMs": 1 }))
+        object(
+            json!({ "id": "g1", "objective": "Ship it", "title": "Ship it", "status": status, "turnCount": 3, "remainingMs": 1000, "timeLimitMs": 600000, "timeUsedMs": 1 }),
+        )
     }
 
     #[test]

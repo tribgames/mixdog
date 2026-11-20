@@ -24,7 +24,7 @@ use std::time::Duration;
 use mixdog_fonts::registry::Registry;
 use mixdog_fsio::WriteProof;
 use mixdog_js::{json_number, to_number, value_to_string};
-use mixdog_office_author::review_artifacts::{ReviewSession, Receipts, pptx_review_artifacts};
+use mixdog_office_author::review_artifacts::{Receipts, ReviewSession, pptx_review_artifacts};
 use mixdog_office_base::values::truthy;
 use mixdog_office_base::write_note::WriteNote;
 use mixdog_office_com::{CallOptions, OfficeCom};
@@ -64,7 +64,8 @@ pub trait RenderEngine {
     /// page numbers from the PDF layout).
     fn export_document(&self, session: &View, output: &Path) -> impl Future<Output = Result<(), String>>;
     /// `renderPdfPages(output, { pages, maxWidth, signal })`: `{ pageCount, images, visualCoverage }` as Node returns it.
-    fn rasterize(&self, output: &Path, pages: Option<&[f64]>, max_width: f64, cancel: Option<CancellationToken>) -> impl Future<Output = Result<Value, String>>;
+    fn rasterize(&self, output: &Path, pages: Option<&[f64]>, max_width: f64, cancel: Option<CancellationToken>)
+    -> impl Future<Output = Result<Value, String>>;
     /// `recalculatePortableWorkbook(path, { force, signal })`.
     fn recalculate_workbook(&self, target: &Path, force: bool, cancel: Option<CancellationToken>) -> impl Future<Output = Result<Value, String>>;
     /// `applyPortableOoxmlBatch(path, 'xlsx', operations)`: the operations applied to the workbook and the package saved.
@@ -145,7 +146,11 @@ pub async fn render<E: RenderEngine, P: WriteProof>(
         let session = lock(handle);
         (
             session.format == "pptx" || session.authored.frame,
-            ReviewSession { authored_frame: session.authored.frame, frame_receipt: session.authored.frame_receipt.clone(), authored: session.authored.authored },
+            ReviewSession {
+                authored_frame: session.authored.frame,
+                frame_receipt: session.authored.frame_receipt.clone(),
+                authored: session.authored.authored,
+            },
         )
     };
     // A PDF of designed pages is reviewed as the deck it was measured as: receipt and contact sheet.
@@ -286,10 +291,8 @@ impl RenderEngine for SystemRender {
         let (soffice, note, target) = (self.soffice, Arc::clone(&self.note), target.to_path_buf());
         let follow = cancel.as_ref().map(CancelFlag::follow);
         let flag = follow.as_ref().map(|follow| Arc::clone(&follow.flag));
-        let done = lane_job(self.lanes.maintenance_io, move |lane| {
-            recalculate_portable_workbook(lane, note.as_ref(), soffice, &target, force, flag.as_deref())
-        })
-        .await;
+        let done =
+            lane_job(self.lanes.maintenance_io, move |lane| recalculate_portable_workbook(lane, note.as_ref(), soffice, &target, force, flag.as_deref())).await;
         drop(follow);
         done?
     }

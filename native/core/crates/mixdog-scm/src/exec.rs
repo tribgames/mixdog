@@ -43,9 +43,18 @@ pub struct ExecSpec {
 
 /// Node's `childEnvironment` (env-scrub.mjs `scrubRuntimeRootVars`): the host's own identity never reaches a child.
 pub fn child_env_removed() -> Vec<String> {
-    ["MIXDOG_ROOT", "NODE_ENV", "MIXDOG_DAEMON_HOST", "MIXDOG_WORKER_MODE", "MIXDOG_DAEMON_SPAWNED_FOR", "MIXDOG_SUPERVISOR_PID", "MIXDOG_SERVER_PID", "ELECTRON_RUN_AS_NODE"]
-        .map(String::from)
-        .to_vec()
+    [
+        "MIXDOG_ROOT",
+        "NODE_ENV",
+        "MIXDOG_DAEMON_HOST",
+        "MIXDOG_WORKER_MODE",
+        "MIXDOG_DAEMON_SPAWNED_FOR",
+        "MIXDOG_SUPERVISOR_PID",
+        "MIXDOG_SERVER_PID",
+        "ELECTRON_RUN_AS_NODE",
+    ]
+    .map(String::from)
+    .to_vec()
 }
 
 impl ExecSpec {
@@ -104,30 +113,17 @@ pub struct Exec {
 impl Exec {
     pub fn new(processes: Arc<dyn ProcessManager>) -> Self {
         crate::seam::start();
-        Self {
-            processes,
-            next: AtomicU64::new(0),
-            prefix: format!("scm-{}", std::process::id()),
-        }
+        Self { processes, next: AtomicU64::new(0), prefix: format!("scm-{}", std::process::id()) }
     }
 
     fn handle(&self) -> ProcessHandle {
-        ProcessHandle(format!(
-            "{}-{}",
-            self.prefix,
-            self.next.fetch_add(1, Ordering::Relaxed)
-        ))
+        ProcessHandle(format!("{}-{}", self.prefix, self.next.fetch_add(1, Ordering::Relaxed)))
     }
 
     /// Spawns, feeds stdin, collects both streams until the exit event. `cancel` tree-kills
     /// the child and answers [`ScmFailure::Cancelled`]; the run limit answers `TimedOut`.
-    pub async fn run(
-        &self,
-        spec: ExecSpec,
-        cancel: &CancellationToken,
-    ) -> Result<ExecOutput, ScmFailure> {
-        let cwd = AbsPath::new(&spec.cwd)
-            .ok_or_else(|| ScmFailure::invalid("cwd", "an absolute directory"))?;
+    pub async fn run(&self, spec: ExecSpec, cancel: &CancellationToken) -> Result<ExecOutput, ScmFailure> {
+        let cwd = AbsPath::new(&spec.cwd).ok_or_else(|| ScmFailure::invalid("cwd", "an absolute directory"))?;
         let attempt = crate::seam::attempt_begin(&spec.program, &spec.args, false, &spec.cwd, &spec.env_set, &spec.env_remove);
         let result = self.run_attempt(spec, cwd, cancel, &attempt).await;
         attempt.done(&match &result {
@@ -139,13 +135,7 @@ impl Exec {
         result
     }
 
-    async fn run_attempt(
-        &self,
-        spec: ExecSpec,
-        cwd: AbsPath,
-        cancel: &CancellationToken,
-        attempt: &crate::seam::Attempt,
-    ) -> Result<ExecOutput, ScmFailure> {
+    async fn run_attempt(&self, spec: ExecSpec, cwd: AbsPath, cancel: &CancellationToken, attempt: &crate::seam::Attempt) -> Result<ExecOutput, ScmFailure> {
         let asked = std::time::Instant::now();
         let handle = self.handle();
         let stdin_piped = spec.stdin.is_some();
@@ -155,16 +145,9 @@ impl Exec {
         let command = command_label(&spec.program, &spec.args);
         let request = SpawnRequest {
             handle: handle.clone(),
-            command: CommandSpec::Argv {
-                program: spec.program,
-                args: spec.args,
-            },
+            command: CommandSpec::Argv { program: spec.program, args: spec.args },
             cwd,
-            env: EnvSpec {
-                inherit: true,
-                set: spec.env_set,
-                remove: spec.env_remove,
-            },
+            env: EnvSpec { inherit: true, set: spec.env_set, remove: spec.env_remove },
             pty: None,
             stdin_piped,
             output: OutputMode::Separate,
@@ -173,16 +156,10 @@ impl Exec {
         };
         let starting = std::time::Instant::now();
         let spawned = self.processes.spawn(request).await;
-        let timing = SpawnTiming {
-            queue_ms: starting.duration_since(asked).as_secs_f64() * 1000.0,
-            spawn_ms: starting.elapsed().as_secs_f64() * 1000.0,
-        };
+        let timing = SpawnTiming { queue_ms: starting.duration_since(asked).as_secs_f64() * 1000.0, spawn_ms: starting.elapsed().as_secs_f64() * 1000.0 };
         attempt.spawned(spawned.is_ok());
         spawned.map_err(|error| spawn_failure(error, &program, timing))?;
-        let mut events = self
-            .processes
-            .subscribe(&handle, Some(0))
-            .map_err(|error| spawn_failure(error, &program, timing))?;
+        let mut events = self.processes.subscribe(&handle, Some(0)).map_err(|error| spawn_failure(error, &program, timing))?;
         if let Some(input) = spec.stdin {
             // A child that exits before reading its input reports through its exit status.
             if !input.is_empty() {
@@ -234,20 +211,11 @@ impl Exec {
             return Err(ScmFailure::Cancelled);
         }
         if too_large {
-            return Err(ScmFailure::OutputTooLarge {
-                command,
-                limit: spec.max_output,
-            });
+            return Err(ScmFailure::OutputTooLarge { command, limit: spec.max_output });
         }
-        let exit = exit.ok_or_else(|| ScmFailure::Io {
-            os_code: None,
-            message: "process events ended without an exit".into(),
-        })?;
+        let exit = exit.ok_or_else(|| ScmFailure::Io { os_code: None, message: "process events ended without an exit".into() })?;
         if limit_reached || exit.killed == Some(KillReason::TimeLimit) {
-            return Err(ScmFailure::TimedOut {
-                command,
-                millis: spec.time_limit.map_or(0, |limit| limit.as_millis() as u64),
-            });
+            return Err(ScmFailure::TimedOut { command, millis: spec.time_limit.map_or(0, |limit| limit.as_millis() as u64) });
         }
         out.code = match exit.status {
             ExitStatus::Code(code) => Some(code),
@@ -270,22 +238,14 @@ pub fn spawn_message(program: &str, code: &str) -> String {
 
 fn spawn_failure(error: ProcessError, program: &str, timing: SpawnTiming) -> ScmFailure {
     match error {
-        ProcessError::ProgramNotFound { .. } => ScmFailure::Unavailable {
-            capability: program.to_owned(),
-        },
+        ProcessError::ProgramNotFound { .. } => ScmFailure::Unavailable { capability: program.to_owned() },
         // Node rejects a start the operating system refused with `spawn <code>`, the code libuv names the OS error with: a file
         // the loader cannot run is EFTYPE (ERROR_BAD_EXE_FORMAT) or UNKNOWN (ERROR_EXE_MACHINE_TYPE_MISMATCH), an executable that
         // needs elevation EACCES. Each caller words it as its Node counterpart does.
         ProcessError::Io { os_code: Some(code) } => ScmFailure::Spawn { code: mixdog_js::uv_error::os_name(code), timing },
         // The manager folds the access-denied OS error into its own variant: libuv names it EPERM on Windows, EACCES elsewhere.
         ProcessError::PermissionDenied => ScmFailure::Spawn { code: if cfg!(windows) { "EPERM" } else { "EACCES" }, timing },
-        ProcessError::Io { os_code: None } => ScmFailure::Io {
-            os_code: None,
-            message: format!("could not start {program}"),
-        },
-        other => ScmFailure::Io {
-            os_code: None,
-            message: format!("could not start {program}: {other:?}"),
-        },
+        ProcessError::Io { os_code: None } => ScmFailure::Io { os_code: None, message: format!("could not start {program}") },
+        other => ScmFailure::Io { os_code: None, message: format!("could not start {program}: {other:?}") },
     }
 }

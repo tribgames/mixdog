@@ -8,9 +8,7 @@
 //! The rendered air of `quality/render-air.mjs` joins through [`attach_rendered_air`]; what a session has already sent is
 //! held in a [`DeliveredReceipt`] that [`receipt_for_delivery`] reads and replaces.
 
-use mixdog_js::{
-    is_js_space, js_trim, json_number, json_stringify, math, number_to_string, string_to_number, to_number, to_number_of, value_to_string,
-};
+use mixdog_js::{is_js_space, js_trim, json_number, json_stringify, math, number_to_string, string_to_number, to_number, to_number_of, value_to_string};
 use mixdog_office_base::values::truthy;
 use mixdog_office_design::discipline::{is_picture_shape, relative_luminance};
 use mixdog_office_quality::render_air::{Air, Balance};
@@ -208,12 +206,8 @@ fn text_colors_of(shape: &Value) -> Vec<String> {
 
 /// The type sizes of a shape: every run size the portable or COM snapshot lists, else the box's font size.
 fn type_sizes_of(shape: &Value) -> Vec<f64> {
-    let listed: Vec<f64> = as_list(field(shape, "sizes"))
-        .into_iter()
-        .chain(as_list(field_of(field(shape, "runs"), "sizes")))
-        .map(to_number)
-        .filter(|size| *size > 0.0)
-        .collect();
+    let listed: Vec<f64> =
+        as_list(field(shape, "sizes")).into_iter().chain(as_list(field_of(field(shape, "runs"), "sizes"))).map(to_number).filter(|size| *size > 0.0).collect();
     if !listed.is_empty() {
         return distinct(listed);
     }
@@ -313,16 +307,7 @@ impl Frame {
     }
 
     fn relation_box(&self) -> RelationBox {
-        RelationBox {
-            slide: 0.0,
-            shape: 0.0,
-            left: self.left,
-            top: self.top,
-            width: self.width,
-            height: self.height,
-            relation: None,
-            relation_error: None,
-        }
+        RelationBox { slide: 0.0, shape: 0.0, left: self.left, top: self.top, width: self.width, height: self.height, relation: None, relation_error: None }
     }
 }
 
@@ -331,12 +316,7 @@ fn is_in(list: &[Frame], frame: &Frame) -> bool {
 }
 
 fn geometry_of(shape: &Value) -> [f64; 4] {
-    [
-        to_number_of(field(shape, "left")),
-        to_number_of(field(shape, "top")),
-        to_number_of(field(shape, "width")),
-        to_number_of(field(shape, "height")),
-    ]
+    [to_number_of(field(shape, "left")), to_number_of(field(shape, "top")), to_number_of(field(shape, "width")), to_number_of(field(shape, "height"))]
 }
 
 fn footprint(shape: &Value, id: usize) -> Option<Frame> {
@@ -491,10 +471,8 @@ fn centroid_of(boxes: &[Frame], page: Page) -> Option<([f64; 2], f64)> {
 fn body_top_of(boxes: &[Frame], title: Option<&Frame>, page: Page) -> (Option<f64>, Option<f64>) {
     let Some(title) = title else { return (None, None) };
     let title_bottom = title.bottom();
-    let below: Vec<&Frame> = boxes
-        .iter()
-        .filter(|frame| frame.id != title.id && frame.top >= title_bottom - 2.0 && frame.area() < page.width * page.height * 0.9)
-        .collect();
+    let below: Vec<&Frame> =
+        boxes.iter().filter(|frame| frame.id != title.id && frame.top >= title_bottom - 2.0 && frame.area() < page.width * page.height * 0.9).collect();
     if below.is_empty() {
         return (None, None);
     }
@@ -765,17 +743,12 @@ fn observe(read: &Read, labels: &[Frame], page: Page) -> Option<Value> {
     let centroid = centroid_of(&boxes, page);
     // Body top and gaps read the content (text, charts, tables, pictures, contours), never a surface field or a rule.
     let title = read.title_box.map(|title| {
-        read.content
-            .iter()
-            .find(|frame| frame.left == title.left && frame.top == title.top && frame.width == title.width)
-            .copied()
-            .unwrap_or(title)
+        read.content.iter().find(|frame| frame.left == title.left && frame.top == title.top && frame.width == title.width).copied().unwrap_or(title)
     });
     let (body_top, body_fill) = body_top_of(&read.content, title.as_ref(), page);
     let (mid_x, mid_y) = (all.cols / 2, all.rows / 2);
     let canvas = page.width * page.height;
-    let mut fills: Vec<(&String, f64)> =
-        read.fills.iter().map(|(color, area)| (color, fixed(area / canvas, 2))).filter(|(_, share)| *share > 0.0).collect();
+    let mut fills: Vec<(&String, f64)> = read.fills.iter().map(|(color, area)| (color, fixed(area / canvas, 2))).filter(|(_, share)| *share > 0.0).collect();
     fills.sort_by(|a, b| b.1.total_cmp(&a.1));
     fills.truncate(3);
     // Presence: the share of the canvas the largest carrier takes: a chart, table, picture, group, or a drawn
@@ -823,10 +796,7 @@ fn observe(read: &Read, labels: &[Frame], page: Page) -> Option<Value> {
             "labels": labels.len(),
         }),
     );
-    out.insert(
-        "fills".into(),
-        Value::Array(fills.iter().map(|(color, share)| json!({ "color": color, "share": json_number(*share) })).collect()),
-    );
+    out.insert("fills".into(), Value::Array(fills.iter().map(|(color, share)| json!({ "color": color, "share": json_number(*share) })).collect()));
     out.insert("largestTextTop".into(), optional(read.title_box.map(|title| fixed(title.top / 72.0, 2))));
     out.insert("bodyTop".into(), optional(body_top));
     out.insert("bodyFill".into(), optional(body_fill));
@@ -866,10 +836,7 @@ pub fn slide_receipt(slide: &Value, page: Page) -> Value {
     if !read.specs.is_empty() {
         let mut specs = Map::new();
         for (name, entry) in &read.specs {
-            specs.insert(
-                name.clone(),
-                json!({ "count": entry.count, "variants": strings(&entry.variants), "anatomies": strings(&entry.anatomies) }),
-            );
+            specs.insert(name.clone(), json!({ "count": entry.count, "variants": strings(&entry.variants), "anatomies": strings(&entry.anatomies) }));
         }
         receipt.insert("specs".into(), Value::Object(specs));
     }
@@ -914,12 +881,8 @@ fn merge_numbers(slides: &[&Value], key: &str) -> Vec<f64> {
 /// and the plan lines whose named carriers the snapshot cannot see.
 pub fn composition_receipt(document: &Value, brief: Option<&Value>) -> Value {
     let page = canvas_of(document);
-    let mut slides: Vec<Value> = field(document, "slides")
-        .and_then(Value::as_array)
-        .map_or(&[][..], Vec::as_slice)
-        .iter()
-        .map(|slide| slide_receipt(slide, page))
-        .collect();
+    let mut slides: Vec<Value> =
+        field(document, "slides").and_then(Value::as_array).map_or(&[][..], Vec::as_slice).iter().map(|slide| slide_receipt(slide, page)).collect();
     let mut deck = Map::new();
     deck.insert("slides".into(), json!(slides.len()));
     let total = |family: &str| -> f64 {
@@ -1308,18 +1271,15 @@ pub fn receipt_for_delivery(receipt: &Value, session: Option<&mut DeliveredRecei
         }
     }
     *session = next;
-    let collapsed = slides.iter().any(|slide| field(slide, "unchanged").is_some_and(truthy))
-        || deck.as_ref().and_then(|deck| field(deck, "unchanged")).is_some_and(truthy);
+    let collapsed =
+        slides.iter().any(|slide| field(slide, "unchanged").is_some_and(truthy)) || deck.as_ref().and_then(|deck| field(deck, "unchanged")).is_some_and(truthy);
     let mut out = entries_of(Some(receipt));
     out.insert("slides".into(), Value::Array(slides));
     if let Some(deck) = deck {
         out.insert("deck".into(), deck);
     }
     if collapsed {
-        out.insert(
-            "unchangedMeans".into(),
-            json!("unchanged: this part matches the receipt this session sent last; only render readings are new."),
-        );
+        out.insert("unchangedMeans".into(), json!("unchanged: this part matches the receipt this session sent last; only render readings are new."));
     }
     Value::Object(out)
 }
@@ -1463,7 +1423,11 @@ mod tests {
             // The BGR long 8813582 is 14 + 124 * 256 + 134 * 65536: 0E7C86.
             { "geometry": "rect", "left": 480, "top": 0, "width": 480, "height": 540, "fillColor": 8813582, "fillVisible": true },
         ] }));
-        assert_eq!(com["observe"]["fills"], json!([{ "color": "0E7C86", "share": 0.5 }]), "a COM fill is read from its BGR long; an invisible fill is not a surface");
+        assert_eq!(
+            com["observe"]["fills"],
+            json!([{ "color": "0E7C86", "share": 0.5 }]),
+            "a COM fill is read from its BGR long; an invisible fill is not a surface"
+        );
         let positionless = receipt_of(document()["slides"][0].clone());
         assert!(positionless.get("observe").is_none(), "no footprint, no observation");
     }
@@ -1532,10 +1496,7 @@ mod tests {
         assert_eq!(receipt["deck"]["slides"], 4);
         assert_eq!(receipt["deck"]["charts"], 1);
         assert_eq!(receipt["deck"]["presets"], 1);
-        assert_eq!(
-            receipt["deck"]["textOnly"], 2,
-            "the cover (type only) and the paragraph slide are text-only; the receipt reports, the author decides"
-        );
+        assert_eq!(receipt["deck"]["textOnly"], 2, "the cover (type only) and the paragraph slide are text-only; the receipt reports, the author decides");
         assert_eq!(receipt["deck"]["backgrounds"], json!(["dark", "light"]));
         assert_eq!(receipt["absent"], json!(["tables", "pictures"]));
         assert!(receipt["slides"][1].get("missing").is_none());
@@ -1670,7 +1631,13 @@ mod tests {
         assert!(first.get("unchangedMeans").is_none());
 
         let mut rendered = receipt(60);
-        attach_rendered_air(&mut rendered, &[(1.0, PageRead { air: Some(0.58), colour: Some(14.0), ..PageRead::default() }), (2.0, PageRead { air: Some(0.4), colour: Some(50.0), ..PageRead::default() })]);
+        attach_rendered_air(
+            &mut rendered,
+            &[
+                (1.0, PageRead { air: Some(0.58), colour: Some(14.0), ..PageRead::default() }),
+                (2.0, PageRead { air: Some(0.4), colour: Some(50.0), ..PageRead::default() }),
+            ],
+        );
         let again = receipt_for_delivery(&rendered, Some(&mut session));
         assert_eq!(again["slides"][0], json!({ "slide": 1, "unchanged": true, "observe": { "renderAir": 0.58, "renderColour": 14 } }));
         assert_eq!(again["deck"]["unchanged"], true);

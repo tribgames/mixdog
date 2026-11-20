@@ -38,8 +38,8 @@ use crate::netproxy::ProxyConfigError;
 use crate::netproxy::RouteError;
 use crate::netproxy::tunnel::Conn;
 use crate::netproxy::tunnel::TunnelError;
-use crate::netproxy::tunnel::tls_code;
 use crate::netproxy::tunnel::open_proxy_tunnel;
+use crate::netproxy::tunnel::tls_code;
 
 use base64::Engine;
 use tokio::io::AsyncRead;
@@ -47,12 +47,12 @@ use tokio::io::AsyncReadExt;
 use tokio::io::AsyncWrite;
 use tokio::io::AsyncWriteExt;
 
-use super::wsio::CLOSE_FLUSH;
-use super::wsio::Extension;
-use super::wsio::WsIo;
 use super::fault::fault_from_io;
 use super::fault::fault_from_ws_error;
 use super::tcp;
+use super::wsio::CLOSE_FLUSH;
+use super::wsio::Extension;
+use super::wsio::WsIo;
 
 pub use tokio_tungstenite::tungstenite::Message;
 
@@ -235,10 +235,7 @@ pub struct WsConnection {
 /// running from the first frame. Returns the upgrade response so callers can
 /// read its headers.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-pub async fn connect(
-    request: impl IntoClientRequest,
-    schedule: &KeepaliveSchedule,
-) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
+pub async fn connect(request: impl IntoClientRequest, schedule: &KeepaliveSchedule) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
     connect_via(request, schedule, None).await
 }
 
@@ -246,13 +243,7 @@ pub async fn connect(
 /// network proxy policy names a proxy for it, through a tunnel. A proxy that
 /// cannot be reached or refuses the tunnel is an error, never a direct connect.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-async fn open_stream(
-    host: &str,
-    port: u16,
-    target: &str,
-    schedule: &KeepaliveSchedule,
-    policy: Option<&NetworkProxy>,
-) -> Result<Conn, ConnectError> {
+async fn open_stream(host: &str, port: u16, target: &str, schedule: &KeepaliveSchedule, policy: Option<&NetworkProxy>) -> Result<Conn, ConnectError> {
     if let Some(policy) = policy {
         let route = policy.route_for_url(target).await.map_err(|error| ConnectError::Proxy {
             code: match &error {
@@ -267,21 +258,16 @@ async fn open_stream(
                 TunnelError::Dns => ConnectError::Transport(TransportFault::Dns),
                 TunnelError::Connect(io) => ConnectError::Transport(fault_from_io(&io, true)),
                 TunnelError::Io(io) => ConnectError::Transport(fault_from_io(&io, false)),
-                TunnelError::Tls(failure) => {
-                    ConnectError::Proxy { code: tls_code(&failure).to_owned(), message: failure.error.to_string() }
-                }
+                TunnelError::Tls(failure) => ConnectError::Proxy { code: tls_code(&failure).to_owned(), message: failure.error.to_string() },
                 TunnelError::Dropped(io) => ConnectError::Proxy { code: "UND_ERR_SOCKET".into(), message: io.to_string() },
                 TunnelError::TimedOut => ConnectError::Proxy { code: "UND_ERR_HEADERS_TIMEOUT".into(), message: err.to_string() },
-                refused @ TunnelError::Refused { .. } => ConnectError::Proxy {
-                    code: refused.socket_code().unwrap_or("EPROXY").to_owned(),
-                    message: refused.to_string(),
-                },
+                refused @ TunnelError::Refused { .. } => {
+                    ConnectError::Proxy { code: refused.socket_code().unwrap_or("EPROXY").to_owned(), message: refused.to_string() }
+                }
             });
         }
     }
-    let addrs = tokio::net::lookup_host((host, port))
-        .await
-        .map_err(|_| ConnectError::Transport(TransportFault::Dns))?;
+    let addrs = tokio::net::lookup_host((host, port)).await.map_err(|_| ConnectError::Transport(TransportFault::Dns))?;
     let mut failure = TransportFault::Dns;
     for addr in addrs {
         match tcp::connect(addr, &schedule.tcp).await {
@@ -299,14 +285,9 @@ pub async fn connect_via(
     schedule: &KeepaliveSchedule,
     policy: Option<&NetworkProxy>,
 ) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
-    let request = request
-        .into_client_request()
-        .map_err(|err| ConnectError::Transport(fault_from_ws_error(&err)))?;
+    let request = request.into_client_request().map_err(|err| ConnectError::Transport(fault_from_ws_error(&err)))?;
     let uri = request.uri();
-    let host = uri
-        .host()
-        .ok_or(ConnectError::Transport(TransportFault::Dns))?
-        .to_owned();
+    let host = uri.host().ok_or(ConnectError::Transport(TransportFault::Dns))?.to_owned();
     let port = uri.port_u16().unwrap_or(match uri.scheme_str() {
         Some("wss") => 443,
         _ => 80,
@@ -315,7 +296,6 @@ pub async fn connect_via(
     let stream = open_stream(&host, port, &target, schedule, policy).await?;
     connect_over(request, stream, schedule, None).await
 }
-
 
 /// The upgrade of `request` over the TCP connection to `addr` instead of the one its host names, trusting `tls` alone:
 /// the request (url, `Host`, SNI) and everything after the connect are the production path, so a loopback server
@@ -328,10 +308,7 @@ pub async fn connect_pinned(
     schedule: &KeepaliveSchedule,
     tls: Arc<rustls::ClientConfig>,
 ) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
-    let stream = tcp::connect(addr, &schedule.tcp)
-        .await
-        .map(Conn::Tcp)
-        .map_err(|err| ConnectError::Transport(fault_from_io(&err, true)))?;
+    let stream = tcp::connect(addr, &schedule.tcp).await.map(Conn::Tcp).map_err(|err| ConnectError::Transport(fault_from_io(&err, true)))?;
     connect_over(request, stream, schedule, Some(tls)).await
 }
 
@@ -349,10 +326,7 @@ pub struct ScriptedKey(pub String);
 
 #[cfg(any(test, feature = "test-support"))]
 fn upgrade_key(request: &tungstenite::handshake::client::Request) -> String {
-    request
-        .extensions()
-        .get::<ScriptedKey>()
-        .map_or_else(tungstenite::handshake::client::generate_key, |key| key.0.clone())
+    request.extensions().get::<ScriptedKey>().map_or_else(tungstenite::handshake::client::generate_key, |key| key.0.clone())
 }
 
 #[cfg(not(any(test, feature = "test-support")))]
@@ -371,11 +345,7 @@ fn upgrade_bytes(request: &tungstenite::handshake::client::Request, key: &str) -
     let caller = match request.extensions().get::<CallerHeaders>() {
         Some(CallerHeaders(list)) => list,
         None => {
-            fallback = request
-                .headers()
-                .iter()
-                .map(|(n, v)| (n.as_str().to_owned(), String::from_utf8_lossy(v.as_bytes()).into_owned()))
-                .collect::<Vec<_>>();
+            fallback = request.headers().iter().map(|(n, v)| (n.as_str().to_owned(), String::from_utf8_lossy(v.as_bytes()).into_owned())).collect::<Vec<_>>();
             &fallback
         }
     };
@@ -421,11 +391,7 @@ async fn upgrade<S: AsyncRead + AsyncWrite + Unpin>(
         let mut parsed = httparse::Response::new(&mut slots);
         match parsed.parse(&buf) {
             Ok(httparse::Status::Complete(len)) => {
-                let headers = parsed
-                    .headers
-                    .iter()
-                    .map(|h| (h.name.to_owned(), h.value.to_vec()))
-                    .collect::<Vec<_>>();
+                let headers = parsed.headers.iter().map(|h| (h.name.to_owned(), h.value.to_vec())).collect::<Vec<_>>();
                 break (parsed.code.unwrap_or(0), headers, len);
             }
             Ok(httparse::Status::Partial) if buf.len() < RESPONSE_LIMIT => {}
@@ -436,12 +402,7 @@ async fn upgrade<S: AsyncRead + AsyncWrite + Unpin>(
     for (name, value) in &headers {
         builder = builder.header(name.as_str(), value.as_slice());
     }
-    let find = |name: &str| {
-        headers
-            .iter()
-            .find(|(n, _)| n.eq_ignore_ascii_case(name))
-            .map(|(_, v)| String::from_utf8_lossy(v).trim().to_owned())
-    };
+    let find = |name: &str| headers.iter().find(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| String::from_utf8_lossy(v).trim().to_owned());
     let mut rest = buf.split_off(head_len);
     if status != 101 {
         let wanted = find("content-length").and_then(|v| v.parse::<usize>().ok());
@@ -455,17 +416,11 @@ async fn upgrade<S: AsyncRead + AsyncWrite + Unpin>(
         let response = builder.body(Some(rest)).map_err(|_| ConnectError::Transport(TransportFault::Closed))?;
         return Err(ConnectError::Rejected(response));
     }
-    let digest = ring::digest::digest(
-        &ring::digest::SHA1_FOR_LEGACY_USE_ONLY,
-        format!("{key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11").as_bytes(),
-    );
+    let digest = ring::digest::digest(&ring::digest::SHA1_FOR_LEGACY_USE_ONLY, format!("{key}258EAFA5-E914-47DA-95CA-C5AB0DC85B11").as_bytes());
     // Node joins repeated header lines with ", " (`_http_incoming.js` `matchKnownFields`), and `ws` reads the joined value.
     let joined = |name: &str| {
-        let values: Vec<String> = headers
-            .iter()
-            .filter(|(n, _)| n.eq_ignore_ascii_case(name))
-            .map(|(_, v)| String::from_utf8_lossy(v).trim().to_owned())
-            .collect();
+        let values: Vec<String> =
+            headers.iter().filter(|(n, _)| n.eq_ignore_ascii_case(name)).map(|(_, v)| String::from_utf8_lossy(v).trim().to_owned()).collect();
         (!values.is_empty()).then(|| values.join(", "))
     };
     let accepted = joined("sec-websocket-accept") == Some(base64::engine::general_purpose::STANDARD.encode(digest.as_ref()));
@@ -500,12 +455,8 @@ async fn connect_over(
             None => crate::netproxy::tunnel::tls_config().map_err(|e| ConnectError::Transport(fault_from_io(&e, true)))?,
         };
         let host = request.uri().host().unwrap_or_default().trim_start_matches('[').trim_end_matches(']').to_owned();
-        let name = rustls::pki_types::ServerName::try_from(host)
-            .map_err(|_| ConnectError::Transport(TransportFault::Tls))?;
-        let secured = tokio_rustls::TlsConnector::from(config)
-            .connect(name, stream)
-            .await
-            .map_err(|_| ConnectError::Transport(TransportFault::Tls))?;
+        let name = rustls::pki_types::ServerName::try_from(host).map_err(|_| ConnectError::Transport(TransportFault::Tls))?;
+        let secured = tokio_rustls::TlsConnector::from(config).connect(name, stream).await.map_err(|_| ConnectError::Transport(TransportFault::Tls))?;
         MaybeTlsStream::Rustls(secured)
     } else {
         MaybeTlsStream::Plain(stream)
@@ -523,10 +474,7 @@ pub async fn connect_redirected(
     addr: std::net::SocketAddr,
     schedule: &KeepaliveSchedule,
 ) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
-    let stream = tcp::connect(addr, &schedule.tcp)
-        .await
-        .map(Conn::Tcp)
-        .map_err(|err| ConnectError::Transport(fault_from_io(&err, true)))?;
+    let stream = tcp::connect(addr, &schedule.tcp).await.map(Conn::Tcp).map_err(|err| ConnectError::Transport(fault_from_io(&err, true)))?;
     upgrade_and_start(request, MaybeTlsStream::Plain(stream), schedule).await
 }
 
@@ -538,12 +486,7 @@ async fn upgrade_and_start(
     schedule: &KeepaliveSchedule,
 ) -> Result<(WsConnection, Response<Option<Vec<u8>>>), ConnectError> {
     let (response, early, extension) = upgrade(&mut stream, &request).await?;
-    let socket = WebSocketStream::from_raw_socket(
-        WsIo::new(stream, early, extension),
-        tungstenite::protocol::Role::Client,
-        None,
-    )
-    .await;
+    let socket = WebSocketStream::from_raw_socket(WsIo::new(stream, early, extension), tungstenite::protocol::Role::Client, None).await;
     Ok((start(socket, schedule), response.map(|body| body)))
 }
 
@@ -614,10 +557,7 @@ impl WsConnection {
         if let Some(fault) = self.link.fault() {
             return Err(fault);
         }
-        self.out
-            .send(message)
-            .await
-            .map_err(|_| self.link.fault().unwrap_or(TransportFault::Closed))
+        self.out.send(message).await.map_err(|_| self.link.fault().unwrap_or(TransportFault::Closed))
     }
 
     /// The next data frame, or the one fault that ended the link, then `None`.
@@ -765,7 +705,11 @@ async fn write_loop<S: AsyncRead + AsyncWrite + Unpin>(
 
 /// The close a violation started (`WsIo`'s flush runs it), given up at ws's closeTimeout from `at`; the socket is
 /// dropped then (`setCloseTimer`: `socket.destroy()`). Frames queued after the violation are refused.
-async fn close_after_violation<S: AsyncRead + AsyncWrite + Unpin>(mut sink: SplitSink<Socket<S>, Message>, queued: mpsc::Receiver<Message>, at: tokio::time::Instant) {
+async fn close_after_violation<S: AsyncRead + AsyncWrite + Unpin>(
+    mut sink: SplitSink<Socket<S>, Message>,
+    queued: mpsc::Receiver<Message>,
+    at: tokio::time::Instant,
+) {
     drop(queued);
     let _ = mixdog_rt::time::timeout_at(at + CLOSE_FLUSH, sink.flush()).await;
 }
@@ -788,7 +732,8 @@ mod tests {
             far.write_all(answer(&key).as_bytes()).await.unwrap();
         });
         let request = "ws://example.test/".into_client_request().unwrap();
-        let outcome = mixdog_rt::time::timeout(WITHIN, upgrade(&mut near, &request)).await.expect("the upgrade's outcome within 20 s").map(|(_, _, extension)| extension);
+        let outcome =
+            mixdog_rt::time::timeout(WITHIN, upgrade(&mut near, &request)).await.expect("the upgrade's outcome within 20 s").map(|(_, _, extension)| extension);
         mixdog_rt::time::timeout(WITHIN, server).await.expect("the server's answer within 20 s").unwrap();
         outcome
     }
@@ -827,13 +772,17 @@ mod tests {
     #[tokio::test]
     async fn extension_lines_are_read_together() {
         // Two lines are one list to `ws`: the first configuration is used...
-        let outcome = upgrade_against(|k| answer(k, "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=10\r\nSec-WebSocket-Extensions: permessage-deflate\r\n")).await;
+        let outcome = upgrade_against(|k| {
+            answer(k, "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=10\r\nSec-WebSocket-Extensions: permessage-deflate\r\n")
+        })
+        .await;
         assert_eq!(outcome.unwrap().unwrap().client_max_window_bits, 10);
         // ...and a second line that is not the offered extension fails the handshake though the first is fine.
         let outcome = upgrade_against(|k| answer(k, "Sec-WebSocket-Extensions: permessage-deflate\r\nSec-WebSocket-Extensions: x-other\r\n")).await;
         assert!(outcome.is_err());
         // Conflicting repeated parameters are refused.
-        let outcome = upgrade_against(|k| answer(k, "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=10; client_max_window_bits=11\r\n")).await;
+        let outcome =
+            upgrade_against(|k| answer(k, "Sec-WebSocket-Extensions: permessage-deflate; client_max_window_bits=10; client_max_window_bits=11\r\n")).await;
         assert!(outcome.is_err());
     }
 
@@ -890,7 +839,11 @@ mod tests {
         assert_eq!(begin.elapsed(), std::time::Duration::ZERO, "the error comes at once, not after the close");
         assert_eq!(
             connection.ending(),
-            Some(WsEnding::Violation { message: "Invalid WebSocket frame: RSV2 and RSV3 must be clear".into(), code: "WS_ERR_UNEXPECTED_RSV_2_3", close_code: 1002 })
+            Some(WsEnding::Violation {
+                message: "Invalid WebSocket frame: RSV2 and RSV3 must be clear".into(),
+                code: "WS_ERR_UNEXPECTED_RSV_2_3",
+                close_code: 1002
+            })
         );
         drop(connection);
         // More than the four bytes the pipe toward the client holds: the client reads nothing while its close is stuck,
@@ -956,7 +909,6 @@ mod tests {
         assert!(keys[0] != keys[1] && keys[1] != keys[2] && keys[0] != keys[2], "{keys:?}");
     }
 
-
     // W6, the close handshake (`ws_close.json`): for each
     // close frame a server sends, the frames the client writes and its end of the TCP stream, in order. `ws` echoes the
     // code and the reason (`websocket.js` `receiverOnConclude`: `close(code, reason)`; none for an empty close), closes
@@ -1012,7 +964,8 @@ mod tests {
                 events
             });
             let request = format!("ws://{addr}/").into_client_request().unwrap();
-            let (mut connection, _) = mixdog_rt::time::timeout(WITHIN, connect(request, &KeepaliveSchedule::SPEC)).await.expect("the upgrade within 20 s").unwrap();
+            let (mut connection, _) =
+                mixdog_rt::time::timeout(WITHIN, connect(request, &KeepaliveSchedule::SPEC)).await.expect("the upgrade within 20 s").unwrap();
             // The connection is held: its end on the wire comes from the close handshake, not from a drop.
             let events = mixdog_rt::time::timeout(WITHIN, server).await.expect("the client ends its side within 20 s").unwrap();
             // What the owner hears, up to the first error or close: Node's stream handler acts on that one and ignores

@@ -48,11 +48,7 @@ pub(super) fn render_vertical_lines(token: &Token, width: usize) -> Vec<String> 
             lines.push(separator.clone());
         }
         for (column, cell) in row.iter().enumerate() {
-            let label = headers
-                .get(column)
-                .filter(|label| !label.is_empty())
-                .cloned()
-                .unwrap_or_else(|| format!("Column {}", column + 1));
+            let label = headers.get(column).filter(|label| !label.is_empty()).cloned().unwrap_or_else(|| format!("Column {}", column + 1));
             let formatted = format_cell(&cell.tokens);
             let value = collapse_whitespace(formatted.trim_end_matches(is_js_space));
             let prefix = format!("{ANSI_BOLD_START}{label}:{ANSI_BOLD_END} ");

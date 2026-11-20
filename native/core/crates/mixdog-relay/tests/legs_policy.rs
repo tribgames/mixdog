@@ -6,8 +6,8 @@ use std::time::{Duration, Instant};
 use mixdog_relay::close_codes::{RELAY_BUSY, SLOW_PEER};
 use mixdog_relay::legs::envelope::{self, InvalidClientId};
 use mixdog_relay::legs::policy::{
-    self, Admission, FrameQuery, InflightMeter, LegCharge, MAX_FRAME_BYTES, MAX_INFLIGHT_BYTES, MAX_UPLINK_CAPACITY_BYTES,
-    MAX_WS_PAYLOAD_BYTES, Outbound, Oversize, PhoneLeg, Pressure, Release, SendFailed, UNDECLARED_CAPACITY_BYTES, UplinkLeg, UplinkPath,
+    self, Admission, FrameQuery, InflightMeter, LegCharge, MAX_FRAME_BYTES, MAX_INFLIGHT_BYTES, MAX_UPLINK_CAPACITY_BYTES, MAX_WS_PAYLOAD_BYTES, Outbound,
+    Oversize, PhoneLeg, Pressure, Release, SendFailed, UNDECLARED_CAPACITY_BYTES, UplinkLeg, UplinkPath,
 };
 
 const MEGABYTE: usize = 1024 * 1024;
@@ -210,14 +210,7 @@ fn the_json_wrapper_is_what_json_stringify_writes() {
 
 #[test]
 fn frame_admission_bounds_every_leg_without_stalling_its_neighbours() {
-    let query = |queued, size, droppable, inflight| FrameQuery {
-        queued,
-        size,
-        budget: 8 * MEGABYTE,
-        droppable,
-        inflight,
-        ..FrameQuery::default()
-    };
+    let query = |queued, size, droppable, inflight| FrameQuery { queued, size, budget: 8 * MEGABYTE, droppable, inflight, ..FrameQuery::default() };
     // An idle leg may always take one frame of any supported size.
     assert_eq!(policy::admit_frame(&query(0, MAX_FRAME_BYTES, false, 0)), Admission::Send);
     // A leg that is not draining does not get another one, and the decision is taken BEFORE the enqueue.
@@ -489,10 +482,7 @@ fn oversize_notices_have_their_published_bytes() {
         policy::desktop_oversize_notice(8192, 4096, text.as_bytes(), false),
         format!(r#"{{"type":"frame-too-large","clientId":"{ID}","bytes":8192,"limit":4096}}"#)
     );
-    assert_eq!(
-        policy::desktop_oversize_notice(8192, 4096, br#"{"clientId":5}...."#, false),
-        r#"{"type":"frame-too-large","bytes":8192,"limit":4096}"#
-    );
+    assert_eq!(policy::desktop_oversize_notice(8192, 4096, br#"{"clientId":5}...."#, false), r#"{"type":"frame-too-large","bytes":8192,"limit":4096}"#);
     let binary = envelope::encode_frame(ID, &[1, 1, 1], false, false).unwrap();
     assert_eq!(
         policy::desktop_oversize_notice(8192, 4096, &binary, true),
@@ -559,11 +549,7 @@ fn a_refusal_names_the_client_the_router_itself_would_have_used() {
 fn no_padding_length_lets_a_decoy_id_outrank_the_routed_id() {
     let decoy = uuid(0xdec0);
     for padding in [0usize, 600, 4 * 1024, 64 * 1024, 512 * 1024] {
-        let frame = format!(
-            r#"{{"type":"frame","clientId":"{decoy}","pad":"{}","clientId":"{ID}","data":"{}"}}"#,
-            "p".repeat(padding),
-            "y".repeat(8192)
-        );
+        let frame = format!(r#"{{"type":"frame","clientId":"{decoy}","pad":"{}","clientId":"{ID}","data":"{}"}}"#, "p".repeat(padding), "y".repeat(8192));
         let named = policy::routed_client_id(frame.as_bytes());
         assert_eq!(named.as_deref(), Some(ID), "padding {padding}");
         assert_ne!(named.as_deref(), Some(decoy.as_str()));
@@ -618,14 +604,8 @@ fn attribution_costs_one_pass_over_the_frame_whatever_shape_it_is() {
     let shapes: Vec<(&str, String)> = vec![
         ("payload-string", format!(r#"{{"type":"frame","clientId":"{ID}","data":"{}"}}"#, repeat_to("y", size))),
         ("numeric-token", format!(r#"{{"type":"frame","clientId":"{ID}","n":{}}}"#, repeat_to("9", size))),
-        (
-            "many-eight-byte-keys",
-            format!(r#"{{"clientId":"{decoy}",{}"clientId":"{ID}","data":"x"}}"#, repeat_to("\"kkkkkkkk\":1,", size)),
-        ),
-        (
-            "many-client-ids",
-            format!(r#"{{"type":"frame",{}"clientId":"{ID}","data":"x"}}"#, repeat_to(&format!("\"clientId\":\"{decoy}\","), size)),
-        ),
+        ("many-eight-byte-keys", format!(r#"{{"clientId":"{decoy}",{}"clientId":"{ID}","data":"x"}}"#, repeat_to("\"kkkkkkkk\":1,", size))),
+        ("many-client-ids", format!(r#"{{"type":"frame",{}"clientId":"{ID}","data":"x"}}"#, repeat_to(&format!("\"clientId\":\"{decoy}\","), size))),
     ];
     let mut timings = Vec::new();
     for (shape, text) in &shapes {

@@ -4,7 +4,7 @@
 
 use crate::a11y::Element;
 use crate::host::windows::effect;
-use crate::host::{sleep_ms, Host, Res};
+use crate::host::{Host, Res, sleep_ms};
 use crate::observer::Snapshot;
 use crate::platform::{Background, Wid};
 use crate::protocol::{Obj, Req};
@@ -37,11 +37,7 @@ fn route(activates: bool, enabled: bool, read_only: bool, preferred: Wid, keyboa
     if read_only {
         return Route::Refused("element_read_only", "is read-only");
     }
-    if preferred != 0 && keyboard_ok() {
-        Route::Keys(preferred)
-    } else {
-        Route::Pattern
-    }
+    if preferred != 0 && keyboard_ok() { Route::Keys(preferred) } else { Route::Pattern }
 }
 
 /// A typed line break is an Enter key, which each editor stores in its own
@@ -79,10 +75,7 @@ fn note_activation(known: &mut HashMap<Wid, String>, top: Wid, raised: bool, ide
 /// later change is never attributed to the write. `outside` says the
 /// foreground before was a real window other than the target.
 fn raised_by_write(before: &Snapshot, after: &Snapshot, outside: bool, inside_after: bool) -> Option<bool> {
-    let unchanged = before.ready
-        && after.ready
-        && before.generation == after.generation
-        && before.sequence == after.sequence;
+    let unchanged = before.ready && after.ready && before.generation == after.generation && before.sequence == after.sequence;
     (unchanged && outside).then_some(inside_after)
 }
 
@@ -100,14 +93,7 @@ enum Replaced {
 /// Write-ValueByKeys). No key that deletes goes out until the control itself
 /// reports its whole text selected, and nothing is typed until it reports
 /// itself empty. `deleted` says whether Delete may have gone out.
-fn replace_text(
-    background: &dyn Background,
-    top: Wid,
-    preferred: Wid,
-    has_text: bool,
-    typed: &str,
-    deleted: &Cell<bool>,
-) -> Res<Replaced> {
+fn replace_text(background: &dyn Background, top: Wid, preferred: Wid, has_text: bool, typed: &str, deleted: &Cell<bool>) -> Res<Replaced> {
     let end = background.select_all(top, preferred, has_text)?;
     if end < 0 {
         return Ok(Replaced::Unproven);
@@ -147,21 +133,18 @@ impl Host {
         let reference = req.text("ref");
         let (element, window) = self.ref_record(&reference)?;
         let id = Some(window);
-        let refuse = |message: String, code: &str| {
-            Ok(self.background_unavailable("set_value", &message, id.clone(), code, false))
-        };
+        let refuse = |message: String, code: &str| Ok(self.background_unavailable("set_value", &message, id.clone(), code, false));
         if element.source() == "msaa" {
             return self.set_msaa_value(&reference, &*element, text, id);
         }
         if element.value().is_none() && !element.settable() {
-            return refuse(
-                format!("element {reference} exposes no ValuePattern; no keystroke fallback was attempted"),
-                "background_unavailable",
-            );
+            return refuse(format!("element {reference} exposes no ValuePattern; no keystroke fallback was attempted"), "background_unavailable");
         }
         if element.ignores_value_write() {
             return refuse(
-                format!("element {reference} is an Excel cell, which echoes an accessibility value write without entering it; select the cell and type with explicit foreground delivery; no value was set"),
+                format!(
+                    "element {reference} is an Excel cell, which echoes an accessibility value write without entering it; select the cell and type with explicit foreground delivery; no value was set"
+                ),
                 "value_write_ignored",
             );
         }
@@ -170,9 +153,7 @@ impl Host {
         let identity = |window: Wid| self.desktop.window_owner_identity(window);
         let activating = self.session(|session| activates(&mut session.value_write_activators, top, &identity));
         let preferred = if activating { element.native_handle() } else { 0 };
-        let keyboard_ok = || {
-            background.is_some_and(|background| background.validate_target(top, preferred, "type", Some("")).is_ok())
-        };
+        let keyboard_ok = || background.is_some_and(|background| background.validate_target(top, preferred, "type", Some("")).is_ok());
         let route = route(activating, element.enabled(), element.read_only(), preferred, keyboard_ok);
         if let Route::Refused(code, state) = route {
             return refuse(format!("element {reference} {state}; no input was sent"), code);
@@ -180,7 +161,9 @@ impl Host {
         self.authorize_current(0)?;
         if let Err(scope) = element.exclusive_selection() {
             return refuse(
-                format!("element {reference} belongs to an item that could not be made the only selection, and the write would apply to every selected item ({scope}); no value was set"),
+                format!(
+                    "element {reference} belongs to an item that could not be made the only selection, and the write would apply to every selected item ({scope}); no value was set"
+                ),
                 "selection_not_exclusive",
             );
         }
@@ -211,16 +194,7 @@ impl Host {
         }
         let (prefix, tree) = self.semantic_words();
         let (verified, message) = written_value_verdict(&reference, &format!("through {tree}"), actual == text, self.is_web_page(top));
-        Ok(self.action_result(
-            "set_value",
-            &format!("{prefix}_value"),
-            effect(verified),
-            verified,
-            &message,
-            None,
-            "background",
-            id,
-        ))
+        Ok(self.action_result("set_value", &format!("{prefix}_value"), effect(verified), verified, &message, None, "background", id))
     }
 
     fn is_web_page(&self, window: Wid) -> bool {
@@ -230,10 +204,7 @@ impl Host {
     /// An MSAA ref's value write (Do-SetValue, the msaa branch): the element's
     /// own state is honoured before any write, and the readback is ordinal.
     fn set_msaa_value(&self, reference: &str, element: &dyn Element, text: &str, id: Option<String>) -> Res<Obj> {
-        for (refused, code, state) in [
-            (!element.enabled(), "element_disabled", "is disabled"),
-            (element.read_only(), "element_read_only", "is read-only"),
-        ] {
+        for (refused, code, state) in [(!element.enabled(), "element_disabled", "is disabled"), (element.read_only(), "element_read_only", "is read-only")] {
             if refused {
                 let message = format!("element {reference} {state}; no input was sent");
                 return Ok(self.background_unavailable("set_value", &message, id, code, false));
@@ -280,25 +251,22 @@ impl Host {
         // break is sent as the Enter it stands for.
         let typed = typed_line_breaks(text);
         let deleted = Cell::new(false);
-        let replaced = self.within_scope(background, top, || {
-            replace_text(background, top, preferred, !before.is_empty(), &typed, &deleted)
-        });
+        let replaced = self.within_scope(background, top, || replace_text(background, top, preferred, !before.is_empty(), &typed, &deleted));
         match replaced {
             Err(error) => self.background_failure("set_value", &error, id, deleted.get()).map(Some),
             Ok(Replaced::Unproven) => Ok(None),
             Ok(Replaced::Kept) => {
-                let message = format!("sent Delete to the selected text of {reference}, but the control still holds text, so nothing was typed; refresh state before writing again");
+                let message = format!(
+                    "sent Delete to the selected text of {reference}, but the control still holds text, so nothing was typed; refresh state before writing again"
+                );
                 let mut kept = self.action_result("set_value", "win32_message", "unverifiable", false, &message, None, "background", id);
                 kept.insert("input_may_have_executed".into(), json!(true));
                 Ok(Some(kept))
             }
             Ok(Replaced::Typed) => {
                 let verified = typed_line_breaks(&element.value().unwrap_or_default()) == typed;
-                let readback = if verified {
-                    "readback=True"
-                } else {
-                    "it does not read back as the requested text; refresh state before treating it as complete"
-                };
+                let readback =
+                    if verified { "readback=True" } else { "it does not read back as the requested text; refresh state before treating it as complete" };
                 let message = format!("replaced {reference} value with native keyboard messages; {readback}");
                 Ok(Some(self.action_result("set_value", "win32_message", effect(verified), verified, &message, None, "background", id)))
             }

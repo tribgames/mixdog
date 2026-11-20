@@ -416,8 +416,6 @@ fn a_turn_hears_the_newest_live_registration_of_its_session() {
     drop(third);
 }
 
-
-
 /// Cases that differ only in the thread's Main route: the route and the candidates it resolves to.
 fn main_route_cases() -> Vec<Value> {
     vec![

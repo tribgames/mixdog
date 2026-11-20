@@ -114,17 +114,13 @@ pub struct TailContext {
 
 fn rule_matches(rule: &TailRule, context: &TailContext, model: &str) -> bool {
     let family = provider_family(&context.provider);
-    if !rule.provider.is_empty()
-        && !rule.provider.iter().any(|p| *p == context.provider || family == Some(*p))
-    {
+    if !rule.provider.is_empty() && !rule.provider.iter().any(|p| *p == context.provider || family == Some(*p)) {
         return false;
     }
     if !rule.model.is_empty() && !rule.model.contains(&model_family_id(model).as_str()) {
         return false;
     }
-    if !rule.language.is_empty()
-        && !context.language.as_ref().is_some_and(|l| rule.language.contains(&l.id.as_str()))
-    {
+    if !rule.language.is_empty() && !context.language.as_ref().is_some_and(|l| rule.language.contains(&l.id.as_str())) {
         return false;
     }
     rule.role.is_empty() || rule.role.contains(&context.role.name())
@@ -134,11 +130,7 @@ fn rule_matches(rule: &TailRule, context: &TailContext, model: &str) -> bool {
 /// `None` (`matchTailReminder`).
 pub fn match_tail_reminder(context: &TailContext, model: &str, rules: &[TailRule]) -> Option<String> {
     let name = context.language.as_ref().map_or("", |l| l.name.as_str());
-    let texts: Vec<String> = rules
-        .iter()
-        .filter(|rule| rule_matches(rule, context, model))
-        .map(|rule| rule.text.replace("{language}", name))
-        .collect();
+    let texts: Vec<String> = rules.iter().filter(|rule| rule_matches(rule, context, model)).map(|rule| rule.text.replace("{language}", name)).collect();
     (!texts.is_empty()).then(|| format!("<system-reminder>{}</system-reminder>", texts.join("\n")))
 }
 

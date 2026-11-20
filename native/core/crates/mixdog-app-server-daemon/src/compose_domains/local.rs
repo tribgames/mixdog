@@ -4,6 +4,8 @@
 use std::path::Path;
 use std::sync::Arc;
 
+use crate::domain_seams::media_status::MediaStatus;
+use mixdog_core_agents::setup::SetupVoice;
 use mixdog_core_api::DomainService;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLocalProviderSettings;
@@ -11,8 +13,6 @@ use mixdog_core_config::config::ConfigVoiceEnabled;
 use mixdog_core_config::config::ConfigVoiceSettings;
 use mixdog_core_config::tool_modules::HostParts;
 use mixdog_core_config::tool_modules::ServicesToolModulesHost;
-use mixdog_core_agents::setup::SetupVoice;
-use crate::domain_seams::media_status::MediaStatus;
 use mixdog_exthost::ExtImageCodec;
 use mixdog_rt::TaskClass;
 use mixdog_services::effort_judge::install::Manifest;
@@ -28,9 +28,9 @@ use mixdog_services::local_provider::server_process::Timing;
 use mixdog_services::media::MediaAssetSource;
 use mixdog_services::media::MediaGenerator;
 use mixdog_services::media::MediaJobs;
-use mixdog_services::media::MediaUsageLedger;
 use mixdog_services::media::MediaService;
 use mixdog_services::media::MediaStore;
+use mixdog_services::media::MediaUsageLedger;
 use mixdog_services::media::StillRenditions;
 use mixdog_services::tidy::InstallJob;
 use mixdog_services::tidy::TidyService;
@@ -210,19 +210,31 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
 
     let store = Arc::new(MediaStore::new(data_dir, tokens.durability_io));
     let renditions = StillRenditions::new(Arc::new(ExtImageCodec::new(inputs.ext_host.clone())), tokens.durability_io, store.renditions_dir());
-    let jobs = MediaJobs::with_ledger(store.clone(), seams.media_generator.clone(), media_max_active(&inputs.env), Some(renditions.clone()), seams.media_ledger.clone());
+    let jobs = MediaJobs::with_ledger(
+        store.clone(),
+        seams.media_generator.clone(),
+        media_max_active(&inputs.env),
+        Some(renditions.clone()),
+        seams.media_ledger.clone(),
+    );
     let media_service = Arc::new(MediaService::new(store.clone(), jobs.clone(), processes.clone(), renditions.clone()));
     services.push(media_service.clone());
     // The `mediaJobs` section, keyed by job id, on the scoped feed `media:<jobId>` (SPEC R14).
-    mixdog_services::media::section::spawn_media_section(&jobs, inputs.state.publisher.clone(), inputs.state.scoped_sections(inputs.scoped_feeds.clone()), inputs.cancel.clone());
+    mixdog_services::media::section::spawn_media_section(
+        &jobs,
+        inputs.state.publisher.clone(),
+        inputs.state.scoped_sections(inputs.scoped_feeds.clone()),
+        inputs.cancel.clone(),
+    );
     let media_status = Arc::new(MediaStatus::new(store.clone()));
     transfer_sources.push(Arc::new(MediaAssetSource::new(store.clone())));
-
 
     let manifest = voice_manifest(inputs)?;
     // A video's poster is ffmpeg's frame: `MIXDOG_FFMPEG_PATH`, else the ffmpeg of the managed voice runtime.
     let (poster_dir, poster_manifest, poster_env) = (data_dir.to_owned(), manifest.clone(), inputs.env.clone());
-    renditions.enable_video_posters(processes.clone(), move || mixdog_services::media::managed_ffmpeg(poster_env("MIXDOG_FFMPEG_PATH").as_deref(), &poster_dir, &poster_manifest));
+    renditions.enable_video_posters(processes.clone(), move || {
+        mixdog_services::media::managed_ffmpeg(poster_env("MIXDOG_FFMPEG_PATH").as_deref(), &poster_dir, &poster_manifest)
+    });
     let pipeline = Arc::new(VoicePipeline::new(
         data_dir.to_owned(),
         manifest,
@@ -234,5 +246,15 @@ pub(super) async fn build(inputs: &DomainInputs, config: &Config) -> Result<Loca
     let setup = Arc::new(VoiceSetup::new(pipeline.clone(), Arc::new(ConfigVoiceEnabled::new(config.clone())), seams.voice_installer.clone()));
     services.push(Arc::new(VoiceService::new(pipeline, setup.clone(), seams.voice_progress.clone())));
 
-    Ok(Local { media_status, voice_setup: setup, media_jobs: jobs, media_store: store, media_service, services, transfer_sources, tool_modules_host, service: local_service })
+    Ok(Local {
+        media_status,
+        voice_setup: setup,
+        media_jobs: jobs,
+        media_store: store,
+        media_service,
+        services,
+        transfer_sources,
+        tool_modules_host,
+        service: local_service,
+    })
 }

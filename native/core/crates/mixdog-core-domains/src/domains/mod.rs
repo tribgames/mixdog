@@ -36,23 +36,11 @@ pub mod visualize_export;
 /// [`DomainService`]. `initialize`/`app`/`feed`/`op` are connection-level; `thread`, `turn` and
 /// `approval` address the thread directory and `RunControl`. (`initialized` is the handshake
 /// notification, which the table lists as a method.)
-pub const CORE_NAMESPACES: &[&str] = &[
-    "app",
-    "approval",
-    "feed",
-    "initialize",
-    "initialized",
-    "op",
-    "thread",
-    "turn",
-];
+pub const CORE_NAMESPACES: &[&str] = &["app", "approval", "feed", "initialize", "initialized", "op", "thread", "turn"];
 
 /// Every request and client notification of the method table, in table order.
 fn table_methods() -> impl Iterator<Item = &'static str> {
-    CLIENT_METHODS
-        .iter()
-        .map(|spec| spec.method)
-        .chain(CLIENT_NOTIFICATIONS.iter().map(|spec| spec.method))
+    CLIENT_METHODS.iter().map(|spec| spec.method).chain(CLIENT_NOTIFICATIONS.iter().map(|spec| spec.method))
 }
 
 #[derive(Debug, thiserror::Error, PartialEq, Eq)]
@@ -140,9 +128,7 @@ mod tests {
         builder.register(update.clone()).unwrap();
         builder.register(config.clone()).unwrap();
         let domains = builder.build();
-        let same = |found: Option<&dyn DomainService>, expected: &Arc<dyn DomainService>| {
-            std::ptr::addr_eq(found.unwrap(), Arc::as_ptr(expected))
-        };
+        let same = |found: Option<&dyn DomainService>, expected: &Arc<dyn DomainService>| std::ptr::addr_eq(found.unwrap(), Arc::as_ptr(expected));
         assert!(same(domains.get("config/getUpdateSettings"), &update));
         assert!(same(domains.get("config/read"), &config));
         assert!(domains.get("config/getNetworkProxy").is_none());
@@ -152,24 +138,15 @@ mod tests {
     fn register_refuses_a_duplicate_claim_and_claims_nothing() {
         let mut builder = DomainsBuilder::new();
         builder.register(serving(&["git/status"])).unwrap();
-        assert_eq!(
-            builder.register(serving(&["git/log", "git/status"])).err(),
-            Some(DomainsError::Duplicate("git/status"))
-        );
-        assert_eq!(
-            builder.register(serving(&["git/log", "git/log"])).err(),
-            Some(DomainsError::Duplicate("git/log"))
-        );
+        assert_eq!(builder.register(serving(&["git/log", "git/status"])).err(), Some(DomainsError::Duplicate("git/status")));
+        assert_eq!(builder.register(serving(&["git/log", "git/log"])).err(), Some(DomainsError::Duplicate("git/log")));
         assert!(builder.build().get("git/log").is_none());
     }
 
     #[test]
     fn register_refuses_a_method_outside_the_table() {
         let mut builder = DomainsBuilder::new();
-        assert_eq!(
-            builder.register(serving(&["config/nope"])).err(),
-            Some(DomainsError::UnknownMethod("config/nope"))
-        );
+        assert_eq!(builder.register(serving(&["config/nope"])).err(), Some(DomainsError::UnknownMethod("config/nope")));
     }
 
     #[test]

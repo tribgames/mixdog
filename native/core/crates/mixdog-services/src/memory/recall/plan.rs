@@ -5,9 +5,7 @@ use mixdog_js::{js_trim, value_to_string};
 use serde_json::Value;
 
 use crate::memory::recall::period::{Clock, Temporal, Window, infer_recall_period, parse_period};
-use crate::memory::recall::ranking::{
-    has_latest_recall_intent, has_recall_entity, has_timeline_intent, latest_recall_search_terms,
-};
+use crate::memory::recall::ranking::{has_latest_recall_intent, has_recall_entity, has_timeline_intent, latest_recall_search_terms};
 
 pub const RECALL_LIMIT_CAP: usize = 100;
 pub const RECALL_OFFSET_CAP: usize = 500;
@@ -93,9 +91,10 @@ impl SearchPlan {
 /// directory (`resolved`), else COMMON.
 pub fn resolve_query_project_scope(args: &SearchArgs, resolved: Option<&str>) -> String {
     if let Some(Value::String(scope)) = args.get("projectScope")
-        && !scope.is_empty() {
-            return scope.clone();
-        }
+        && !scope.is_empty()
+    {
+        return scope.clone();
+    }
     resolved.unwrap_or("common").to_owned()
 }
 
@@ -132,11 +131,7 @@ fn page_bounds(args: &SearchArgs) -> Page {
     }
 }
 
-pub fn resolve_search_plan(
-    clock: &Clock,
-    args: &SearchArgs,
-    resolved_scope: Option<&str>,
-) -> SearchPlan {
+pub fn resolve_search_plan(clock: &Clock, args: &SearchArgs, resolved_scope: Option<&str>) -> SearchPlan {
     let query = args.text("query");
     let query_period = infer_recall_period(&query);
     let explicit_period = args.text("period");
@@ -147,10 +142,7 @@ pub fn resolve_search_plan(
     let latest_terms = if latest_intent { latest_recall_search_terms(&query) } else { Vec::new() };
     let retrieval_query = if latest_terms.is_empty() { query.clone() } else { latest_terms.join(" ") };
     let latest_entity_mode = no_sort && latest_intent && has_recall_entity(&query);
-    let latest_root_mode = no_sort
-        && !timeline_mode
-        && !latest_entity_mode
-        && ((query_period.is_some() && !has_recall_entity(&query)) || latest_intent);
+    let latest_root_mode = no_sort && !timeline_mode && !latest_entity_mode && ((query_period.is_some() && !has_recall_entity(&query)) || latest_intent);
     let structured_time_mode = timeline_mode || latest_root_mode;
     let page = page_bounds(args);
     let has_query = !query.is_empty();

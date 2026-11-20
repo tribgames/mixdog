@@ -91,7 +91,16 @@ mod tests {
     }
 
     fn props(settled: &[Value], revision: u64, scroll_offset: f64) -> FrameProps<'_> {
-        FrameProps { settled, structure_revision: revision, streaming_tail: None, columns: 40, tool_output_expanded: false, content_height: 6, floating_panel_rows: 0, scroll_offset }
+        FrameProps {
+            settled,
+            structure_revision: revision,
+            streaming_tail: None,
+            columns: 40,
+            tool_output_expanded: false,
+            content_height: 6,
+            floating_panel_rows: 0,
+            scroll_offset,
+        }
     }
 
     #[test]

@@ -70,7 +70,11 @@ pub enum InspectorEffect {
     /// `onRefresh()`.
     Refresh,
     /// `onInspect(id, revision)`: fetch the preview and give the answer to [`InspectorState::finish_inspect`] with `token`.
-    Inspect { id: Value, revision: Value, token: u64 },
+    Inspect {
+        id: Value,
+        revision: Value,
+        token: u64,
+    },
 }
 
 /// How a fetch of a preview ended.
@@ -138,10 +142,7 @@ impl InspectorState {
 
     fn preview_lines(&self, width: usize) -> Vec<String> {
         match &self.preview {
-            Some(preview) => wrap_ansi(&preview.text, width, WrapOptions { hard: true, word_wrap: true, trim: false })
-                .split('\n')
-                .map(str::to_owned)
-                .collect(),
+            Some(preview) => wrap_ansi(&preview.text, width, WrapOptions { hard: true, word_wrap: true, trim: false }).split('\n').map(str::to_owned).collect(),
             None => Vec::new(),
         }
     }
@@ -174,9 +175,7 @@ impl InspectorState {
             InspectOutcome::Failed => Preview::message("Preview unavailable. Press R to retry."),
             InspectOutcome::Answer(answer) => match answer.as_ref().filter(|answer| truthy(Some(*answer))) {
                 Some(answer) if truthy(field(Some(answer), "stale")) => Preview::message("Context changed. Press R to refresh."),
-                Some(answer) => {
-                    Preview { text: text_or_empty(field(Some(answer), "text")), truncated: truthy(field(Some(answer), "truncated")) }
-                }
+                Some(answer) => Preview { text: text_or_empty(field(Some(answer), "text")), truncated: truthy(field(Some(answer), "truncated")) },
                 None => Preview::message("Preview unavailable."),
             },
         });
@@ -379,15 +378,9 @@ pub fn paint_context_inspector(painter: &mut Painter, x: i32, y: i32, props: &In
             let map_columns = 4.max(32.min(width));
             let tokens: Vec<CategoryTokens> = categories
                 .iter()
-                .map(|category| CategoryTokens {
-                    key: text_or_empty(field(Some(category), "key")),
-                    tokens: to_number_of(field(Some(category), "tokens")),
-                })
+                .map(|category| CategoryTokens { key: text_or_empty(field(Some(category), "key")), tokens: to_number_of(field(Some(category), "tokens")) })
                 .collect();
-            let map = build_context_map(
-                &tokens,
-                ContextMapOptions { window_tokens: props.window_tokens, cells: (map_columns * 3) as f64, fit: state.fit() },
-            );
+            let map = build_context_map(&tokens, ContextMapOptions { window_tokens: props.window_tokens, cells: (map_columns * 3) as f64, fit: state.fit() });
             let overflow = if map.overflow { " \u{b7} over window" } else { "" };
             let composition = format!("Estimated composition \u{b7} {}{overflow}", if state.fit() { "Fit" } else { "Window" });
             line(painter, &fit_line(&composition, width), subtle);
@@ -424,7 +417,8 @@ pub fn paint_context_inspector(painter: &mut Painter, x: i32, y: i32, props: &In
 /// text's position down). A shrunk text is still drawn whole, so the texts that land on the same row overprint each other
 /// in order, and the box clips what is past its last row.
 fn paint_column(painter: &mut Painter, x: i32, y: i32, rows: usize, width: usize, children: &[(String, Style)]) {
-    let asked: Vec<usize> = children.iter().map(|(text, _)| if text.is_empty() { 0 } else { crate::fitted_rows(text, width, TextWrap::Wrap) as usize }).collect();
+    let asked: Vec<usize> =
+        children.iter().map(|(text, _)| if text.is_empty() { 0 } else { crate::fitted_rows(text, width, TextWrap::Wrap) as usize }).collect();
     let total: usize = asked.iter().sum();
     let mut top = 0.0f64;
     for ((text, style), rows_asked) in children.iter().zip(&asked) {

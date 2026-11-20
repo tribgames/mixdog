@@ -10,13 +10,8 @@ use super::*;
 /// `current` marks the branch checked out in the project folder, `committedAt` becomes
 /// `lastCommitAt`.
 fn branch_menu_entries(menu: &JsonValue) -> Vec<JsonValue> {
-    let current: Vec<&str> = menu["occupancy"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|row| row["kind"] == "current")
-        .filter_map(|row| row["branch"].as_str())
-        .collect();
+    let current: Vec<&str> =
+        menu["occupancy"].as_array().into_iter().flatten().filter(|row| row["kind"] == "current").filter_map(|row| row["branch"].as_str()).collect();
     menu["branches"]
         .as_array()
         .into_iter()
@@ -54,11 +49,7 @@ impl Inner {
             }
             Err(failure) => return Err(failure),
         };
-        let selected = if workspace.is_bound() {
-            self.ops.worktree_containing(&workspace.cwd, cancel).await?.map(|record| entry_json(&record))
-        } else {
-            None
-        };
+        let selected = if workspace.is_bound() { self.ops.worktree_containing(&workspace.cwd, cancel).await?.map(|record| entry_json(&record)) } else { None };
         // A session outside a managed worktree is on whatever its folder has checked out now;
         // a detached checkout shows branch null with the commit in baseCommit.
         let view = if workspace.is_bound() {

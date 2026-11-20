@@ -6,13 +6,15 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 use mixdog_core_api::domain::command::spawn_form;
 use mixdog_core_api::domain::common::AbsPath;
-use mixdog_core_api::domain::process::{CommandSpec, EnvSpec, ExitStatus, KillReason, OutputMode, OutputStream, ProcessError, ProcessEvent, ProcessManager, ProcessOwner, SpawnRequest};
+use mixdog_core_api::domain::process::{
+    CommandSpec, EnvSpec, ExitStatus, KillReason, OutputMode, OutputStream, ProcessError, ProcessEvent, ProcessManager, ProcessOwner, SpawnRequest,
+};
 use mixdog_protocol::ProcessHandle;
 use mixdog_rt::DurabilityIo;
 use tokio_util::sync::CancellationToken;
@@ -102,7 +104,11 @@ mod tests {
     #[tokio::test]
     async fn output_is_captured_and_a_missing_binary_is_reported_not_thrown() {
         let dir = temp();
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "echo hi & echo err 1>&2 & exit 3".into()]) } else { ("sh", vec!["-c".into(), "echo hi; echo err >&2; exit 3".into()]) };
+        let (bin, args): (&str, Vec<String>) = if cfg!(windows) {
+            ("cmd.exe", vec!["/C".into(), "echo hi & echo err 1>&2 & exit 3".into()])
+        } else {
+            ("sh", vec!["-c".into(), "echo hi; echo err >&2; exit 3".into()])
+        };
         let result = Processes::for_tests().run(bin, &args, RunOptions::new(dir.path())).await;
         assert_eq!(result.code, 3);
         assert_eq!(result.stdout.trim(), "hi");
@@ -116,7 +122,8 @@ mod tests {
     fn dropping_the_run_before_its_kill_job_is_submitted_still_kills_the_child() {
         use futures::FutureExt;
         let dir = temp();
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 60 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 60".into()]) };
+        let (bin, args): (&str, Vec<String>) =
+            if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 60 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 60".into()]) };
         let cancel = CancellationToken::new();
         cancel.cancel();
         let mut options = RunOptions::new(dir.path());
@@ -150,19 +157,25 @@ mod tests {
         assert!(manager.list()[0].exit.is_some());
     }
 
-
     #[tokio::test]
     async fn a_timeout_kills_the_child_and_output_is_capped() {
         let dir = temp();
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 30 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 30".into()]) };
+        let (bin, args): (&str, Vec<String>) =
+            if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 30 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 30".into()]) };
         let mut options = RunOptions::new(dir.path());
         options.timeout = Duration::from_millis(300);
         let started = std::time::Instant::now();
         let result = Processes::for_tests().run(bin, &args, options).await;
-        assert!(result.timed_out && started.elapsed() < Duration::from_secs(10),
-            "command={bin:?} args={args:?} elapsed={:?} result={result:?} environment={:?}", started.elapsed(),
-            std::env::vars_os().filter(|(key, _)| ["PATH", "ComSpec", "SystemRoot", "TEMP"].iter().any(|allowed| key.eq_ignore_ascii_case(allowed))).collect::<Vec<_>>());
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "echo 0123456789".into()]) } else { ("sh", vec!["-c".into(), "echo 0123456789".into()]) };
+        assert!(
+            result.timed_out && started.elapsed() < Duration::from_secs(10),
+            "command={bin:?} args={args:?} elapsed={:?} result={result:?} environment={:?}",
+            started.elapsed(),
+            std::env::vars_os()
+                .filter(|(key, _)| ["PATH", "ComSpec", "SystemRoot", "TEMP"].iter().any(|allowed| key.eq_ignore_ascii_case(allowed)))
+                .collect::<Vec<_>>()
+        );
+        let (bin, args): (&str, Vec<String>) =
+            if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "echo 0123456789".into()]) } else { ("sh", vec!["-c".into(), "echo 0123456789".into()]) };
         let mut options = RunOptions::new(dir.path());
         options.max_capture = 4;
         let capped = Processes::for_tests().run(bin, &args, options).await;
@@ -189,7 +202,8 @@ mod tests {
         let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(2)).unwrap();
         let lane = tokens.durability_io;
         let dir = temp();
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 60 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 60".into()]) };
+        let (bin, args): (&str, Vec<String>) =
+            if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 60 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 60".into()]) };
         mixdog_spawn::testing::arm_kill_window();
         mixdog_spawn::testing::arm_exit_window();
         let cancel = CancellationToken::new();
@@ -214,13 +228,17 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn a_kill_the_lane_refuses_is_issued_inline_and_the_run_returns() {
         let dir = temp();
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 60 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 60".into()]) };
+        let (bin, args): (&str, Vec<String>) =
+            if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 60 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 60".into()]) };
         let cancel = CancellationToken::new();
         cancel.cancel();
         let mut options = RunOptions::new(dir.path());
         options.cancel = Some(&cancel);
         let tokens = mixdog_rt::testing::tokens();
-        let manager = Arc::new(RefusesAfterSpawn { inner: mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()), refusing: std::sync::Mutex::new(None) });
+        let manager = Arc::new(RefusesAfterSpawn {
+            inner: mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()),
+            refusing: std::sync::Mutex::new(None),
+        });
         let result = Processes::new(manager, tokens.durability_io).run(bin, &args, options).await;
         assert_ne!(result.code, 0, "the child must end by the kill, not by its own exit: {result:?}");
         assert!(result.error.is_empty() && !result.timed_out, "{result:?}");
@@ -238,7 +256,11 @@ mod tests {
             *self.refusing.lock().unwrap() = Some(mixdog_rt::testing::refuse_jobs_on_this_thread());
             Ok(spawned)
         }
-        fn subscribe(&self, handle: &ProcessHandle, from_seq: Option<u64>) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<ProcessEvent>>, ProcessError> {
+        fn subscribe(
+            &self,
+            handle: &ProcessHandle,
+            from_seq: Option<u64>,
+        ) -> Result<Box<dyn mixdog_core_api::domain::common::EventSource<ProcessEvent>>, ProcessError> {
             self.inner.subscribe(handle, from_seq)
         }
         async fn write_stdin(&self, handle: &ProcessHandle, bytes: Vec<u8>) -> Result<(), ProcessError> {
@@ -271,7 +293,8 @@ mod tests {
         use mixdog_spawn::testing as seam;
         let (_executors, tokens) = mixdog_rt::exec::boot(mixdog_rt::exec::RtConfig::for_cores(2)).unwrap();
         let dir = temp();
-        let (bin, args): (&str, Vec<String>) = if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 30 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 30".into()]) };
+        let (bin, args): (&str, Vec<String>) =
+            if cfg!(windows) { ("cmd.exe", vec!["/C".into(), "ping -n 30 127.0.0.1 >nul".into()]) } else { ("sh", vec!["-c".into(), "sleep 30".into()]) };
         let manager: Arc<dyn ProcessManager> = Arc::new(mixdog_spawn::LocalProcessManager::new(tokens.spawn_io, mixdog_spawn::ProcessConfig::default()));
         let processes = Processes::new(manager.clone(), tokens.durability_io);
         seam::arm_answer_window();
@@ -321,7 +344,6 @@ mod tests {
         assert_eq!(out, vec![6, 2, 4]);
     }
 }
-
 
 impl Processes {
     pub fn new(manager: Arc<dyn ProcessManager>, durability: DurabilityIo) -> Self {
@@ -378,7 +400,12 @@ async fn feed_stdin(processes: Arc<dyn ProcessManager>, handle: ProcessHandle, i
 async fn run_process(processes: &Arc<dyn ProcessManager>, lane: DurabilityIo, bin: &str, args: &[String], options: RunOptions<'_>) -> ProcessResult {
     let (program, argv) = spawn_form(bin, args);
     let Some(cwd) = AbsPath::new(std::path::absolute(options.cwd).unwrap_or_else(|_| options.cwd.to_owned())) else {
-        return ProcessResult { code: -1, error: format!("working directory {} is not absolute", options.cwd.display()), error_code: "InvalidInput".into(), ..Default::default() };
+        return ProcessResult {
+            code: -1,
+            error: format!("working directory {} is not absolute", options.cwd.display()),
+            error_code: "InvalidInput".into(),
+            ..Default::default()
+        };
     };
     let handle = ProcessHandle(format!("tidy-{}-{}", std::process::id(), NEXT_HANDLE.fetch_add(1, Ordering::Relaxed)));
     let env = match options.env {

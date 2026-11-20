@@ -35,10 +35,7 @@ pub fn ensure_private_root(root: &Path) -> io::Result<()> {
         let meta = std::fs::symlink_metadata(root)?;
         // SAFETY: getuid has no preconditions.
         if !meta.is_dir() || meta.uid() != unsafe { libc::getuid() } {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                format!("runtime root is not owned by the current user: {}", root.display()),
-            ));
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied, format!("runtime root is not owned by the current user: {}", root.display())));
         }
         std::fs::set_permissions(root, std::fs::Permissions::from_mode(0o700))
     }
@@ -138,10 +135,9 @@ pub struct Discovery {
 
 /// Whether discovery bytes name core instance `instance_id`.
 pub fn names_instance(bytes: &[u8], instance_id: &str) -> bool {
-    serde_json::from_slice::<serde_json::Value>(bytes).ok().is_some_and(|value| {
-        value.get("core").and_then(|core| core.get("instanceId")).and_then(serde_json::Value::as_str)
-            == Some(instance_id)
-    })
+    serde_json::from_slice::<serde_json::Value>(bytes)
+        .ok()
+        .is_some_and(|value| value.get("core").and_then(|core| core.get("instanceId")).and_then(serde_json::Value::as_str) == Some(instance_id))
 }
 
 /// Node's `RETRY_MAX_MS` (`runtime/shared/file-lock.mjs`).
@@ -205,8 +201,10 @@ enum WatchSignal {
 
 fn signal_watch_event(root: &Path, events: &std::sync::mpsc::Sender<WatchSignal>, event: notify::Result<notify::Event>) {
     let relevant = match event {
-        Ok(event) => event.need_rescan() || (!matches!(event.kind, notify::EventKind::Access(_))
-            && event.paths.iter().any(|p| p == &path(root) || p == root || root.starts_with(p))),
+        Ok(event) => {
+            event.need_rescan()
+                || (!matches!(event.kind, notify::EventKind::Access(_)) && event.paths.iter().any(|p| p == &path(root) || p == root || root.starts_with(p)))
+        }
         Err(error) => {
             tracing::warn!(%error, "discovery watch lost; waiting for an ancestor event");
             true
@@ -263,9 +261,7 @@ fn refresh_watch(watcher: Option<&mut notify::RecommendedWatcher>, watching: &mu
 /// daemon-owner.mjs discoveryOf applies Number(pid), not strict JSON type checks.
 /// A same-pid document is left alone even when its other fields were overwritten.
 fn names_pid(bytes: &[u8], pid: u32) -> bool {
-    mixdog_js::json_parse(&String::from_utf8_lossy(bytes))
-        .ok()
-        .is_some_and(|value| mixdog_js::to_number_of(value.get("pid")) == f64::from(pid))
+    mixdog_js::json_parse(&String::from_utf8_lossy(bytes)).ok().is_some_and(|value| mixdog_js::to_number_of(value.get("pid")) == f64::from(pid))
 }
 
 #[cfg(unix)]
@@ -277,12 +273,7 @@ mod sys {
     use std::path::Path;
 
     pub(super) fn create_owner_only(path: &Path) -> io::Result<File> {
-        OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC)
-            .open(path)
+        OpenOptions::new().write(true).create_new(true).mode(0o600).custom_flags(libc::O_NOFOLLOW | libc::O_CLOEXEC).open(path)
     }
 
     pub(super) fn replace(from: &Path, to: &Path) -> io::Result<()> {
@@ -350,15 +341,7 @@ mod sys {
             let mut buffer = vec![0u64; 64];
             let mut needed = 0u32;
             // SAFETY: valid token; the buffer is its length in bytes, 8-byte aligned.
-            let ok = unsafe {
-                GetTokenInformation(
-                    token,
-                    TokenUser,
-                    buffer.as_mut_ptr().cast(),
-                    (buffer.len() * 8) as u32,
-                    &mut needed,
-                )
-            };
+            let ok = unsafe { GetTokenInformation(token, TokenUser, buffer.as_mut_ptr().cast(), (buffer.len() * 8) as u32, &mut needed) };
             if ok == 0 {
                 return Err(io::Error::last_os_error());
             }
@@ -388,35 +371,14 @@ mod sys {
         let sddl: Vec<u16> = format!("D:P(A;;FA;;;{})", user_sid()?).encode_utf16().chain(std::iter::once(0)).collect();
         let mut descriptor: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
         // SAFETY: NUL-terminated SDDL and an out-pointer.
-        let ok = unsafe {
-            ConvertStringSecurityDescriptorToSecurityDescriptorW(
-                sddl.as_ptr(),
-                SDDL_REVISION_1,
-                &mut descriptor,
-                std::ptr::null_mut(),
-            )
-        };
+        let ok = unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, std::ptr::null_mut()) };
         if ok == 0 {
             return Err(io::Error::last_os_error());
         }
-        let attributes = SECURITY_ATTRIBUTES {
-            nLength: size_of::<SECURITY_ATTRIBUTES>() as u32,
-            lpSecurityDescriptor: descriptor,
-            bInheritHandle: 0,
-        };
+        let attributes = SECURITY_ATTRIBUTES { nLength: size_of::<SECURITY_ATTRIBUTES>() as u32, lpSecurityDescriptor: descriptor, bInheritHandle: 0 };
         let wide = dir_wide(path);
         // SAFETY: valid path, attributes and descriptor.
-        let handle = unsafe {
-            CreateFileW(
-                wide.as_ptr(),
-                FILE_GENERIC_WRITE,
-                0,
-                &attributes,
-                CREATE_NEW,
-                FILE_ATTRIBUTE_NORMAL,
-                std::ptr::null_mut(),
-            )
-        };
+        let handle = unsafe { CreateFileW(wide.as_ptr(), FILE_GENERIC_WRITE, 0, &attributes, CREATE_NEW, FILE_ATTRIBUTE_NORMAL, std::ptr::null_mut()) };
         let error = io::Error::last_os_error();
         // SAFETY: the descriptor was allocated by the conversion and is freed once.
         unsafe { LocalFree(descriptor) };
@@ -462,10 +424,6 @@ mod sys {
     }
 }
 
-
-
-
-
 #[cfg(test)]
 mod tests;
 /// Node's `os.tmpdir()`, which 1.4.5 roots the runtime directory in.
@@ -486,8 +444,7 @@ fn node_tmpdir() -> PathBuf {
     }
     #[cfg(unix)]
     {
-        let path: OsString =
-            var("TMPDIR").or_else(|| var("TMP")).or_else(|| var("TEMP")).unwrap_or_else(|| "/tmp".into());
+        let path: OsString = var("TMPDIR").or_else(|| var("TMP")).or_else(|| var("TEMP")).unwrap_or_else(|| "/tmp".into());
         let text = path.to_string_lossy();
         if text.len() > 1 && text.ends_with('/') {
             return PathBuf::from(&text[..text.len() - 1]);
@@ -521,12 +478,7 @@ pub fn publish(root: &Path, discovery: &Discovery) -> io::Result<()> {
 }
 /// The retry loop of Node's `renameWithRetry`: attempt `n` that fails with a transient error (not against a read-only destination)
 /// pauses `backoffs[n]` plus a jitter below `min(50, max(1, backoffs[n]))` ms, and the error of the last attempt is the result.
-fn replace_with_retry(
-    from: &Path,
-    to: &Path,
-    replace: &dyn Fn(&Path, &Path) -> io::Result<()>,
-    pause: &dyn Fn(std::time::Duration),
-) -> io::Result<()> {
+fn replace_with_retry(from: &Path, to: &Path, replace: &dyn Fn(&Path, &Path) -> io::Result<()>, pause: &dyn Fn(std::time::Duration)) -> io::Result<()> {
     let backoffs = replace_backoffs_ms();
     for backoff in backoffs {
         match replace(from, to) {
@@ -545,12 +497,7 @@ fn replace_with_retry(
     replace(from, to)
 }
 /// [`publish`] with the replace and the pause between attempts supplied.
-fn publish_with(
-    root: &Path,
-    discovery: &Discovery,
-    replace: &dyn Fn(&Path, &Path) -> io::Result<()>,
-    pause: &dyn Fn(std::time::Duration),
-) -> io::Result<()> {
+fn publish_with(root: &Path, discovery: &Discovery, replace: &dyn Fn(&Path, &Path) -> io::Result<()>, pause: &dyn Fn(std::time::Duration)) -> io::Result<()> {
     let mut bytes = serde_json::to_vec(discovery).map_err(io::Error::other)?;
     bytes.push(b'\n');
     let staging = root.join(format!("{DISCOVERY_FILE}.{}.tmp", discovery.core.instance_id));
@@ -643,8 +590,7 @@ impl OwnedDiscovery {
             held.document = None;
         }
         publish(&self.root, document)?;
-        held.document =
-            matches!(document.core.state, CoreState::Migrating | CoreState::Serving).then(|| document.clone());
+        held.document = matches!(document.core.state, CoreState::Migrating | CoreState::Serving).then(|| document.clone());
         held.failing = false;
         // Explicit post-publish recheck closes the missing->missing baseline race,
         // including a deletion before the watch thread has installed its handles.

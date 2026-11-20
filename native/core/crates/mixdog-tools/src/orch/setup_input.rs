@@ -39,12 +39,8 @@ pub fn validate(args: &Value, schema: &Value) -> Result<(), ToolError> {
         return Err(refuse(format!("action must be one of {}", names.join(", "))));
     };
     let action = given;
-    if action == "connect_connector"
-        && args.get("connector").and_then(Value::as_str).is_some_and(|c| mixdog_js::js_trim(c).to_lowercase() == "github")
-    {
-        return Err(refuse(
-            "GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.".to_owned(),
-        ));
+    if action == "connect_connector" && args.get("connector").and_then(Value::as_str).is_some_and(|c| mixdog_js::js_trim(c).to_lowercase() == "github") {
+        return Err(refuse("GitHub uses the signed-in GitHub CLI; no connector needed. Use the github tool or Settings → Git.".to_owned()));
     }
     let empty = Map::new();
     let object = args.as_object().unwrap_or(&empty);
@@ -71,9 +67,7 @@ pub fn validate(args: &Value, schema: &Value) -> Result<(), ToolError> {
             return Err(refuse("route.disabled is only accepted by set_agent_route".to_owned()));
         }
         if has("fallbacks") && !["set_route", "set_agent_route", "set_web_search_route"].contains(&action) {
-            return Err(refuse(
-                "route.fallbacks is only accepted by set_route, set_agent_route and set_web_search_route".to_owned(),
-            ));
+            return Err(refuse("route.fallbacks is only accepted by set_route, set_agent_route and set_web_search_route".to_owned()));
         }
         for field in ["contextPercent", "contextTokens", "autoEffort"] {
             if action != "set_route" && action != "set_agent_route" && has(field) {
@@ -106,17 +100,29 @@ mod tests {
         for (args, want) in [
             (json!({"action": "install_local_model"}), "[tool-input-validation] modelId is required for setup.install_local_model"),
             (json!({"action": "install_local_model", "modelId": 12}), "[tool-input-validation] setup.modelId must be a string"),
-            (json!({"action": "start_local_installation", "modelId": "m1", "phase": " model "}), "[tool-input-validation] setup.phase must be one of: runtime, model"),
+            (
+                json!({"action": "start_local_installation", "modelId": "m1", "phase": " model "}),
+                "[tool-input-validation] setup.phase must be one of: runtime, model",
+            ),
             (json!({"action": "set_local_idle_ttl", "idleTtlSeconds": 86401}), "[tool-input-validation] setup.idleTtlSeconds must be at most 86400"),
-            (json!({"action": "inspect_hf_model", "contextWindow": 100, "repository": "owner/name"}), "[tool-input-validation] setup.contextWindow must be at least 16384"),
-            (json!({"action": "register_hf_model", "licenseAccepted": "yes", "previewId": "x"}), "[tool-input-validation] setup.licenseAccepted must be a boolean"),
+            (
+                json!({"action": "inspect_hf_model", "contextWindow": 100, "repository": "owner/name"}),
+                "[tool-input-validation] setup.contextWindow must be at least 16384",
+            ),
+            (
+                json!({"action": "register_hf_model", "licenseAccepted": "yes", "previewId": "x"}),
+                "[tool-input-validation] setup.licenseAccepted must be a boolean",
+            ),
             (json!({"action": "register_hf_model", "licenseAccepted": true}), "[tool-input-validation] previewId is required for setup.register_hf_model"),
             (json!({"action": "set_heartbeat_interval", "minutes": "5"}), "[tool-input-validation] setup.minutes must be one of: 30, 60, 120, 240"),
             (json!({"action": "set_memory_enabled"}), "[tool-input-validation] enabled is required for setup.set_memory_enabled"),
             (json!({"action": "status", "bogus": 1}), "[tool-input-validation] setup does not accept field(s): bogus"),
             (json!({"action": "open"}), "[tool-input-validation] target is required for setup.open"),
             (json!({"action": "set_workflow", "route": {"x": 1}}), "[tool-input-validation] setup.route does not accept field(s): x"),
-            (json!({"action": "set_web_search_route", "route": {"contextPercent": 5}}), "[tool-input-validation] setup.route.contextPercent must be at least 10"),
+            (
+                json!({"action": "set_web_search_route", "route": {"contextPercent": 5}}),
+                "[tool-input-validation] setup.route.contextPercent must be at least 10",
+            ),
         ] {
             assert_eq!(refusal(args.clone()), want, "{args}");
         }
@@ -141,5 +147,3 @@ mod tests {
         }
     }
 }
-
-

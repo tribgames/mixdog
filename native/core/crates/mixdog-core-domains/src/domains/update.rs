@@ -104,13 +104,7 @@ impl RegistryHttp for ReqwestRegistry {
 
 /// The registry GET over `http`, under the update check's own window.
 async fn get_through(http: &dyn HttpSend, url: &str) -> Option<RegistryAnswer> {
-    let request = WireRequest {
-        transport: TransportKind::Http1,
-        method: "GET".to_owned(),
-        url: url.to_owned(),
-        headers: Vec::new(),
-        body: Vec::new(),
-    };
+    let request = WireRequest { transport: TransportKind::Http1, method: "GET".to_owned(), url: url.to_owned(), headers: Vec::new(), body: Vec::new() };
     let response = http.send(request, UPDATE_CHECK).await.ok()?;
     let success = response.is_success();
     if !success {
@@ -133,16 +127,11 @@ pub trait AutoUpdateSwitch: Send + Sync {
 #[async_trait]
 impl AutoUpdateSwitch for Settings {
     async fn set(&self, enabled: &Value) -> Result<(), CoreError> {
-        self.set_auto_update(enabled)
-            .await
-            .map_err(|error| match error {
-                ToolModulesError::InvalidArgument(message) => CoreError::InvalidParams {
-                    path: "params".into(),
-                    expected: message.into(),
-                },
-                ToolModulesError::Failed(message) => failed("config", message),
-                ToolModulesError::Config(error) => failed("config", error.to_string()),
-            })
+        self.set_auto_update(enabled).await.map_err(|error| match error {
+            ToolModulesError::InvalidArgument(message) => CoreError::InvalidParams { path: "params".into(), expected: message.into() },
+            ToolModulesError::Failed(message) => failed("config", message),
+            ToolModulesError::Config(error) => failed("config", error.to_string()),
+        })
     }
 }
 
@@ -169,10 +158,7 @@ fn parse_semver(value: &str) -> (Vec<f64>, Vec<String>) {
     let text = trimmed.strip_prefix(['v', 'V']).unwrap_or(trimmed);
     let text = text.split('+').next().unwrap_or("");
     let (core, pre) = match text.find('-') {
-        Some(dash) => (
-            &text[..dash],
-            text[dash + 1..].split('.').map(str::to_owned).collect(),
-        ),
+        Some(dash) => (&text[..dash], text[dash + 1..].split('.').map(str::to_owned).collect()),
         None => (text, Vec::new()),
     };
     let mut parts: Vec<f64> = core
@@ -214,11 +200,7 @@ pub fn compare_semver(a: &str, b: &str) -> Ordering {
     for i in 0..3 {
         let (x, y) = (a_core[i], b_core[i]);
         if x != y {
-            return if x > y {
-                Ordering::Greater
-            } else {
-                Ordering::Less
-            };
+            return if x > y { Ordering::Greater } else { Ordering::Less };
         }
     }
     if a_pre.is_empty() || b_pre.is_empty() {
@@ -238,17 +220,11 @@ pub fn compare_semver(a: &str, b: &str) -> Ordering {
 }
 
 fn is_newer(latest: Option<&str>, current: &str) -> bool {
-    latest.is_some_and(|latest| {
-        !latest.is_empty()
-            && !current.is_empty()
-            && compare_semver(latest, current) == Ordering::Greater
-    })
+    latest.is_some_and(|latest| !latest.is_empty() && !current.is_empty() && compare_semver(latest, current) == Ordering::Greater)
 }
 
 fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
 /// The result of `checkLatestVersion`.
@@ -268,16 +244,11 @@ struct Cache {
 
 #[allow(clippy::disallowed_methods, reason = "body of an interactive-io lane job")]
 fn read_cache(dir: &std::path::Path) -> Option<Cache> {
-    let Ok(Value::Object(raw)) = serde_json::from_slice(&std::fs::read(dir.join(CACHE_FILE)).ok()?)
-    else {
+    let Ok(Value::Object(raw)) = serde_json::from_slice(&std::fs::read(dir.join(CACHE_FILE)).ok()?) else {
         return None;
     };
     Some(Cache {
-        latest_version: raw
-            .get("latestVersion")
-            .and_then(Value::as_str)
-            .filter(|v| !v.is_empty())
-            .map(str::to_owned),
+        latest_version: raw.get("latestVersion").and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned),
         last_checked_at: raw.get("lastCheckedAt").cloned().unwrap_or(Value::Null),
     })
 }
@@ -326,11 +297,7 @@ struct ProcessState {
 
 impl ProcessState {
     fn idle() -> Self {
-        Self {
-            phase: Phase::Idle,
-            version: None,
-            error: None,
-        }
+        Self { phase: Phase::Idle, version: None, error: None }
     }
 
     fn json(&self) -> Map<String, Value> {
@@ -378,12 +345,7 @@ impl UpdateService {
             interactive: tokens.interactive_io,
             durability: tokens.durability_io,
             state: Mutex::new(State {
-                check: CheckState {
-                    current_version: None,
-                    latest_version: None,
-                    update_available: false,
-                    last_checked_at: json!(0),
-                },
+                check: CheckState { current_version: None, latest_version: None, update_available: false, last_checked_at: json!(0) },
                 process: ProcessState::idle(),
             }),
         })
@@ -407,21 +369,14 @@ impl UpdateService {
     }
 
     /// `checkLatestVersion({force})`: never fails.
-    pub async fn check_latest(
-        &self,
-        cancel: &mixdog_rt::CancellationToken,
-        force: bool,
-    ) -> Checked {
+    pub async fn check_latest(&self, cancel: &mixdog_rt::CancellationToken, force: bool) -> Checked {
         let current = self.config.current_version.clone();
         let dir = self.config.data_dir.clone();
         let cache = if force {
             None
         } else {
             let dir = dir.clone();
-            on_lane(self.interactive, cancel, move |_| read_cache(&dir))
-                .await
-                .ok()
-                .flatten()
+            on_lane(self.interactive, cancel, move |_| read_cache(&dir)).await.ok().flatten()
         };
         let now = now_ms();
         if let Some(cache) = &cache
@@ -438,10 +393,7 @@ impl UpdateService {
         }
         if let Some(latest) = self.fetch_latest().await {
             let (to, version) = (dir.clone(), latest.clone());
-            let _ = on_lane(self.durability, cancel, move |lane| {
-                write_cache(lane, &to, &version, now)
-            })
-            .await;
+            let _ = on_lane(self.durability, cancel, move |lane| write_cache(lane, &to, &version, now)).await;
             return Checked {
                 update_available: is_newer(Some(&latest), &current),
                 latest_version: Some(latest),
@@ -453,10 +405,7 @@ impl UpdateService {
         // Registry unreachable: a stale cache, read again for a forced call, beats no answer.
         let stale = match cache {
             Some(cache) => Some(cache),
-            None => on_lane(self.interactive, cancel, move |_| read_cache(&dir))
-                .await
-                .ok()
-                .flatten(),
+            None => on_lane(self.interactive, cancel, move |_| read_cache(&dir)).await.ok().flatten(),
         };
         if let Some(stale) = stale
             && stale.latest_version.is_some()
@@ -473,13 +422,7 @@ impl UpdateService {
                 current_version: current,
             };
         }
-        Checked {
-            current_version: current,
-            latest_version: None,
-            update_available: false,
-            last_checked_at: json!(now),
-            from_cache: false,
-        }
+        Checked { current_version: current, latest_version: None, update_available: false, last_checked_at: json!(now), from_cache: false }
     }
 
     /// `checkForUpdate({force})` of the controller: remembers the result, moves the phase
@@ -579,30 +522,18 @@ impl UpdateService {
                 return Value::Object(busy);
             }
             if self.installer.managed_by_desktop() {
-                state.process = ProcessState {
-                    phase: Phase::Failed,
-                    version: None,
-                    error: Some(MANAGED_BY_DESKTOP.into()),
-                };
+                state.process = ProcessState { phase: Phase::Failed, version: None, error: Some(MANAGED_BY_DESKTOP.into()) };
                 return Self::with_ok(&state.process);
             }
             if self.installer.is_dev_install() {
-                state.process = ProcessState {
-                    phase: Phase::Failed,
-                    version: None,
-                    error: Some("dev install — update skipped".into()),
-                };
+                state.process = ProcessState { phase: Phase::Failed, version: None, error: Some("dev install — update skipped".into()) };
                 return Self::with_ok(&state.process);
             }
             let latest = state.check.latest_version.clone();
             let available = state.check.update_available;
             match latest.filter(|_| available) {
                 Some(version) => {
-                    state.process = ProcessState {
-                        phase: Phase::Installing,
-                        version: Some(version.clone()),
-                        error: None,
-                    };
+                    state.process = ProcessState { phase: Phase::Installing, version: Some(version.clone()), error: None };
                     version
                 }
                 None => {
@@ -619,20 +550,8 @@ impl UpdateService {
         let result = self.installer.stage(&latest).await;
         let mut state = self.state();
         state.process = match result {
-            Ok(staged) => ProcessState {
-                phase: Phase::Installed,
-                version: Some(staged.unwrap_or(latest)),
-                error: None,
-            },
-            Err(error) => ProcessState {
-                phase: Phase::Failed,
-                version: None,
-                error: Some(if error.is_empty() {
-                    "update failed".into()
-                } else {
-                    error
-                }),
-            },
+            Ok(staged) => ProcessState { phase: Phase::Installed, version: Some(staged.unwrap_or(latest)), error: None },
+            Err(error) => ProcessState { phase: Phase::Failed, version: None, error: Some(if error.is_empty() { "update failed".into() } else { error }) },
         };
         Self::with_ok(&state.process)
     }
@@ -643,13 +562,7 @@ impl UpdateService {
         Value::Object(state)
     }
 
-    async fn ops_run<E, EF, R, RF>(
-        &self,
-        req: &CoreRequest,
-        external: Option<(&'static str, String)>,
-        execute: E,
-        reproduce: R,
-    ) -> Result<Value, CoreError>
+    async fn ops_run<E, EF, R, RF>(&self, req: &CoreRequest, external: Option<(&'static str, String)>, execute: E, reproduce: R) -> Result<Value, CoreError>
     where
         E: FnOnce() -> EF,
         EF: std::future::Future<Output = Result<Value, CoreError>>,
@@ -662,9 +575,7 @@ impl UpdateService {
     fn value_of(reply: Reply) -> Result<Value, CoreError> {
         match reply {
             Reply::Value(value) => Ok(value),
-            Reply::Subscribe(_) => Err(CoreError::Internal {
-                incident_id: "update-subscribe".into(),
-            }),
+            Reply::Subscribe(_) => Err(CoreError::Internal { incident_id: "update-subscribe".into() }),
         }
     }
 
@@ -682,24 +593,12 @@ impl UpdateService {
             req,
             Some(("host.update.command", action.to_owned())),
             || async {
-                match self
-                    .host
-                    .request_scoped(
-                        HostCapability::Updater,
-                        Method("host/update/command"),
-                        command.clone(),
-                        &req.ctx.cancel,
-                    )
-                    .await
-                {
+                match self.host.request_scoped(HostCapability::Updater, Method("host/update/command"), command.clone(), &req.ctx.cancel).await {
                     Ok(value) => Ok(value),
                     Err(HostError::Core(error)) => Err(error),
-                    Err(HostError::Rpc { message, .. }) => Err(CoreError::DomainError {
-                        domain: DOMAIN.into(),
-                        code: None,
-                        message: Some(message.into()),
-                        detail: None,
-                    }),
+                    Err(HostError::Rpc { message, .. }) => {
+                        Err(CoreError::DomainError { domain: DOMAIN.into(), code: None, message: Some(message.into()), detail: None })
+                    }
                 }
             },
             || async { Ok(json!({})) },
@@ -715,8 +614,7 @@ impl DomainService for UpdateService {
             "update/getUpdateStatus" => Value::Object(self.state().process.json()),
             "update/checkForUpdate" => {
                 let params: UpdateCheckForUpdateParams = decode(&req)?;
-                let force = params.options.as_ref().and_then(|o| o.get("force"))
-                    == Some(&Value::Bool(true));
+                let force = params.options.as_ref().and_then(|o| o.get("force")) == Some(&Value::Bool(true));
                 self.ops_run(
                     &req,
                     None,
@@ -749,10 +647,7 @@ impl DomainService for UpdateService {
                             &req,
                             None,
                             || async {
-                                self.config
-                                    .auto_switch
-                                    .set(&Value::Bool(params.enabled))
-                                    .await?;
+                                self.config.auto_switch.set(&Value::Bool(params.enabled)).await?;
                                 Ok(self.settings())
                             },
                             || async { Ok(self.settings()) },

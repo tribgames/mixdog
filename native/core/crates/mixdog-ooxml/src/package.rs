@@ -149,12 +149,7 @@ pub fn create_portable_ooxml_document<P: WriteProof>(
     let title = if options.title.is_empty() { "Untitled" } else { options.title };
     let parts = blank_parts(family, title, &kind, options.sheet_name).unwrap_or_default();
     save_package(proof, note, &package_of(&parts), path)?;
-    Ok(CreatedDocument {
-        path: path.display().to_string(),
-        format: family,
-        file_kind: kind,
-        parts: parts.into_iter().map(|(name, _)| name).collect(),
-    })
+    Ok(CreatedDocument { path: path.display().to_string(), format: family, file_kind: kind, parts: parts.into_iter().map(|(name, _)| name).collect() })
 }
 
 #[cfg(test)]
@@ -169,7 +164,9 @@ mod tests {
     #[test]
     fn the_library_aside_and_its_links_do_not_travel_with_the_reason() {
         assert_eq!(
-            without_library_aside("Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"),
+            without_library_aside(
+                "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html"
+            ),
             "Can't find end of central directory"
         );
         assert_eq!(without_library_aside("Bad entry, see https://example.org/a and retry: "), "Bad entry, and retry");

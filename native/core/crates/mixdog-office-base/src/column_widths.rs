@@ -24,11 +24,7 @@ fn total(list: &[f64]) -> f64 {
 
 /// `naturalColumnWidths(rows, measure, available)`: `measure(text, row_index, column)` is one line's printed width
 /// in the table's own face, padding included. `None` when the table has no column or nothing is available.
-pub fn natural_column_widths<R, S>(
-    rows: &[R],
-    mut measure: impl FnMut(&str, usize, usize) -> f64,
-    available: f64,
-) -> Option<Vec<f64>>
+pub fn natural_column_widths<R, S>(rows: &[R], mut measure: impl FnMut(&str, usize, usize) -> f64, available: f64) -> Option<Vec<f64>>
 where
     R: AsRef<[S]>,
     S: AsRef<str>,

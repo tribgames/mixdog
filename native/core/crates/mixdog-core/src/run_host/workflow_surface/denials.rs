@@ -61,9 +61,9 @@ fn explore_route_configured(config: &Map<String, Value>) -> bool {
         return false;
     }
     let route = config.get("agents").and_then(Value::as_object).and_then(|agents| agents.get("explore"));
-    route.and_then(Value::as_object).is_some_and(|route| {
-        !js_trim(&text_of(route.get("provider"))).is_empty() && !js_trim(&text_of(route.get("model"))).is_empty()
-    })
+    route
+        .and_then(Value::as_object)
+        .is_some_and(|route| !js_trim(&text_of(route.get("provider"))).is_empty() && !js_trim(&text_of(route.get("model"))).is_empty())
 }
 
 /// `featureDisallowedToolsFor(config, ...)` over the config as the runtime holds it (builtins
@@ -102,7 +102,8 @@ pub fn feature_disallowed_tools(config: &Map<String, Value>, facts: &FeatureFact
     // Headless exec uses the Lead surface: when only its eager defaults remain, neither schemas nor
     // loader guidance help.
     if profile == ToolProfile::Headless
-        && model_tool_allowlist(profile).is_some_and(|listed| listed.iter().all(|name| denied.iter().any(|d| d.as_str() == *name) || DEFAULT_LEAD_TOOLS.contains(name)))
+        && model_tool_allowlist(profile)
+            .is_some_and(|listed| listed.iter().all(|name| denied.iter().any(|d| d.as_str() == *name) || DEFAULT_LEAD_TOOLS.contains(name)))
     {
         denied.push("load_tool".to_owned());
     }

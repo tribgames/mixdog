@@ -13,8 +13,7 @@ pub(crate) const KIND: &str = "completion_notification";
 
 /// `pendingEntryMode(entry) === PENDING_MODE_TASK_NOTIFICATION`.
 pub fn is_notification(entry: &Value) -> bool {
-    entry.get("mode").and_then(Value::as_str) == Some(MODE)
-        || entry.get("notificationKind").and_then(Value::as_str) == Some(KIND)
+    entry.get("mode").and_then(Value::as_str) == Some(MODE) || entry.get("notificationKind").and_then(Value::as_str) == Some(KIND)
 }
 
 /// A queued completion: its id and the persisted entry without it (`markCompletionEntry`
@@ -137,7 +136,11 @@ pub fn batch_row(entries: &[Value]) -> Value {
     // carries `meta.transcript`, which the turn's assistant rows take their message id, time and route from (`TurnStamp::of`).
     let consumed: Vec<Value> = entries
         .iter()
-        .map(|entry| execution(entry).and_then(|execution| execution.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(|id| json!(id))).unwrap_or(Value::Null))
+        .map(|entry| {
+            execution(entry)
+                .and_then(|execution| execution.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()).map(|id| json!(id)))
+                .unwrap_or(Value::Null)
+        })
         .collect();
     transcript.insert("consumedExecutionIds".into(), json!(consumed));
     // A batch of several keeps its entries as data, each located in the joined text above (UTF-16 offsets, the unit a JavaScript
@@ -270,7 +273,6 @@ mod tests {
         assert!(plain.get("transcriptMeta").is_none());
     }
 
-
     /// `promptOriginOf` and the origin on the input row's meta (`ask-turn-prepare.mjs:223-225`).
     #[test]
     fn a_known_origin_rides_the_input_row_and_a_channel_entry_is_not_held_back() {
@@ -285,6 +287,4 @@ mod tests {
         assert_eq!(input_row(&unknown)["meta"], json!({ "source": "task-notification" }));
         assert!(channel_entry("  ", 5).is_none());
     }
-
-
 }

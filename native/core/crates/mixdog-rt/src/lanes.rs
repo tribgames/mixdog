@@ -121,10 +121,7 @@ struct TicketState {
 
 impl Ticket {
     pub(crate) fn new() -> Self {
-        Self(std::sync::Arc::new(TicketState {
-            end: std::sync::atomic::AtomicU8::new(TICKET_WAITING),
-            changed: tokio::sync::Notify::new(),
-        }))
+        Self(std::sync::Arc::new(TicketState { end: std::sync::atomic::AtomicU8::new(TICKET_WAITING), changed: tokio::sync::Notify::new() }))
     }
 
     pub(crate) fn settle(&self, end: TicketEnd) {
@@ -252,18 +249,8 @@ pub enum JobRun {
 }
 
 impl QueuedJob {
-    pub(crate) fn new(
-        lane: LaneKind,
-        cancel: CancellationToken,
-        run: Box<dyn FnOnce(Answer) + Send>,
-    ) -> Self {
-        Self {
-            lane,
-            enqueued_at: Instant::now(),
-            tool: TOOL_CALL.try_with(|tool| *tool).ok(),
-            cancel,
-            run,
-        }
+    pub(crate) fn new(lane: LaneKind, cancel: CancellationToken, run: Box<dyn FnOnce(Answer) + Send>) -> Self {
+        Self { lane, enqueued_at: Instant::now(), tool: TOOL_CALL.try_with(|tool| *tool).ok(), cancel, run }
     }
 
     /// The same job, submitted at `at` (a `submit_wait` retry keeps its first attempt's time).
@@ -354,9 +341,7 @@ impl<R> Future for JobHandle<R> {
     type Output = Result<R, JobDropped>;
 
     fn poll(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Self::Output> {
-        Pin::new(&mut self.rx)
-            .poll(cx)
-            .map(|r| r.unwrap_or(Err(JobDropped::Dropped)))
+        Pin::new(&mut self.rx).poll(cx).map(|r| r.unwrap_or(Err(JobDropped::Dropped)))
     }
 }
 
@@ -376,7 +361,6 @@ mod tests {
         assert_eq!(queued().tool(), None);
     }
 }
-
 
 impl std::error::Error for LaneFull {}
 impl std::error::Error for LaneWedged {}

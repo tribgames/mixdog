@@ -13,8 +13,7 @@ use serde_json::{Value, json};
 
 use super::options::text_of;
 use crate::pickers::common::{
-    CallerConfirm, ConfirmSpec, Onboarding, Own, PanelItem, PickerFn, PickerHandler, PickerHost, PickerPanel, check_row,
-    picker_help, reset_surfaces,
+    CallerConfirm, ConfirmSpec, Onboarding, Own, PanelItem, PickerFn, PickerHandler, PickerHost, PickerPanel, check_row, picker_help, reset_surfaces,
 };
 use crate::slash::host::Tone;
 use crate::slash::notices::{theme_notice, truthy};
@@ -78,11 +77,8 @@ pub fn open_theme_picker(host: &mut dyn PickerHost, options: ThemeOptions) {
     panel.label_width = Some(22);
     panel.initial_index = Some(items.iter().position(|item| item.item.value == current_id).unwrap_or(0));
     panel.items = items;
-    panel.confirm = if onboarding {
-        Some(ConfirmSpec::back_next())
-    } else {
-        options.confirm_bar.as_ref().map(|confirm| ConfirmSpec { buttons: confirm.buttons.clone() })
-    };
+    panel.confirm =
+        if onboarding { Some(ConfirmSpec::back_next()) } else { options.confirm_bar.as_ref().map(|confirm| ConfirmSpec { buttons: confirm.buttons.clone() }) };
     panel.handler = Some(Rc::new(ThemeHandler { own: Rc::clone(&own), options, highlighted: RefCell::new(current_id.clone()), current_id }));
     own.paint(host, Some(panel));
 }

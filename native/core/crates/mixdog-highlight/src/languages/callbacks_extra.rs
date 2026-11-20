@@ -31,8 +31,7 @@ fn system_symbols() -> &'static HashSet<&'static str> {
 /// mathematica's `on:begin`: `if (!SYSTEM_SYMBOLS_SET.has(match[0])) response.ignoreMatch()`. A symbol is
 /// ASCII (`[a-zA-Z$][a-zA-Z0-9$]*`), so a lexeme with any other unit is not in the set.
 fn mathematica_builtin_symbol(m: &MatchView<'_>, response: &mut Response<'_>) {
-    let known = String::from_utf16(m.lexeme())
-        .is_ok_and(|symbol| system_symbols().contains(symbol.as_str()));
+    let known = String::from_utf16(m.lexeme()).is_ok_and(|symbol| system_symbols().contains(symbol.as_str()));
     if !known {
         response.ignore_match();
     }
@@ -52,9 +51,7 @@ mod tests {
 
     #[test]
     fn a_system_symbol_is_a_builtin_symbol_and_another_name_a_plain_symbol() {
-        let html = crate::highlight("Plot[x, y] + myVar", "mathematica", true)
-            .expect("highlights")
-            .value;
+        let html = crate::highlight("Plot[x, y] + myVar", "mathematica", true).expect("highlights").value;
         assert!(html.contains("<span class=\"hljs-built_in\">Plot</span>"));
         assert!(html.contains("<span class=\"hljs-variable\">myVar</span>"));
         assert!(!html.contains("hljs-built_in\">myVar"));

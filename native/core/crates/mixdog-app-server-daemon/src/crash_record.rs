@@ -6,11 +6,7 @@
 //! makes. The next core settles the boots that ended without running any of these (killed from outside, an abort, a
 //! power loss) as `unrecorded-termination`, so no capture stays silent.
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the record is written by the exiting thread, with no runtime left"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the record is written by the exiting thread, with no runtime left")]
 
 use std::io::Write;
 use std::path::Path;
@@ -79,15 +75,13 @@ fn open(record: &Map<String, Value>) -> bool {
 
 /// `findCaptureRecordFor(pid)`: the newest still-open sidecar the launcher published for `pid`.
 pub fn find_capture_record_for(dir: &Path, pid: u32) -> Option<PathBuf> {
-    let mut names: Vec<String> = std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(|entry| entry.ok()?.file_name().into_string().ok())
-        .filter(|name| is_capture_record(name))
-        .collect();
+    let mut names: Vec<String> =
+        std::fs::read_dir(dir).ok()?.filter_map(|entry| entry.ok()?.file_name().into_string().ok()).filter(|name| is_capture_record(name)).collect();
     names.sort_unstable_by(|a, b| b.cmp(a));
-    names.into_iter().map(|name| dir.join(name)).find(|file| {
-        read_record(file).is_some_and(|record| record.get("pid").and_then(Value::as_u64) == Some(u64::from(pid)) && open(&record))
-    })
+    names
+        .into_iter()
+        .map(|name| dir.join(name))
+        .find(|file| read_record(file).is_some_and(|record| record.get("pid").and_then(Value::as_u64) == Some(u64::from(pid)) && open(&record)))
 }
 
 /// `writeJsonAtomicSync`: a reader never sees a half-written document.
@@ -212,7 +206,11 @@ pub fn reconcile_lost(dir: &Path, self_pid: u32, alive: &dyn Fn(u32) -> bool, at
 /// `<message> at <file:line:col> (thread <name>)` for a panic.
 pub fn panic_text(info: &std::panic::PanicHookInfo<'_>) -> String {
     let payload = info.payload();
-    let message = payload.downcast_ref::<&str>().map(|s| (*s).to_owned()).or_else(|| payload.downcast_ref::<String>().cloned()).unwrap_or_else(|| "Box<dyn Any>".to_owned());
+    let message = payload
+        .downcast_ref::<&str>()
+        .map(|s| (*s).to_owned())
+        .or_else(|| payload.downcast_ref::<String>().cloned())
+        .unwrap_or_else(|| "Box<dyn Any>".to_owned());
     let at = info.location().map(|l| format!(" at {}:{}:{}", l.file(), l.line(), l.column())).unwrap_or_default();
     let thread = std::thread::current();
     format!("panicked{at}: {message} (thread {})", thread.name().unwrap_or("<unnamed>"))

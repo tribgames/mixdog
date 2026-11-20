@@ -9,7 +9,6 @@ use mixdog_fsio::OpenOptions;
 use mixdog_fsio::ReadProof;
 use mixdog_fsio::WriteProof;
 
-
 /// Who may open a new file.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Access {
@@ -183,8 +182,7 @@ pub fn verbatim_wide(path: &Path) -> io::Result<Vec<u16>> {
     let mut full = vec![0u16; input.len() + 64];
     loop {
         // SAFETY: `input` is NUL-terminated; `full` holds `full.len()` units.
-        let n = unsafe { GetFullPathNameW(input.as_ptr(), full.len() as u32, full.as_mut_ptr(), std::ptr::null_mut()) }
-            as usize;
+        let n = unsafe { GetFullPathNameW(input.as_ptr(), full.len() as u32, full.as_mut_ptr(), std::ptr::null_mut()) } as usize;
         if n == 0 {
             return Err(io::Error::last_os_error());
         }
@@ -225,25 +223,25 @@ mod owner_only {
     use windows_sys::Win32::Foundation::HANDLE;
     use windows_sys::Win32::Foundation::INVALID_HANDLE_VALUE;
     use windows_sys::Win32::Foundation::LocalFree;
+    use windows_sys::Win32::Security::ACL;
+    use windows_sys::Win32::Security::ACL_REVISION;
     use windows_sys::Win32::Security::Authorization::ConvertSecurityDescriptorToStringSecurityDescriptorW;
     use windows_sys::Win32::Security::Authorization::ConvertSidToStringSidW;
     use windows_sys::Win32::Security::Authorization::ConvertStringSecurityDescriptorToSecurityDescriptorW;
     use windows_sys::Win32::Security::Authorization::GetNamedSecurityInfoW;
     use windows_sys::Win32::Security::Authorization::SDDL_REVISION_1;
-    use windows_sys::Win32::Security::ACL;
-    use windows_sys::Win32::Security::ACL_REVISION;
     use windows_sys::Win32::Security::Authorization::SE_FILE_OBJECT;
     use windows_sys::Win32::Security::Authorization::SetNamedSecurityInfoW;
     use windows_sys::Win32::Security::DACL_SECURITY_INFORMATION;
     use windows_sys::Win32::Security::GetSecurityDescriptorDacl;
+    use windows_sys::Win32::Security::GetTokenInformation;
     use windows_sys::Win32::Security::InitializeAcl;
     use windows_sys::Win32::Security::PROTECTED_DACL_SECURITY_INFORMATION;
-    use windows_sys::Win32::Security::UNPROTECTED_DACL_SECURITY_INFORMATION;
-    use windows_sys::Win32::Security::GetTokenInformation;
     use windows_sys::Win32::Security::SECURITY_ATTRIBUTES;
     use windows_sys::Win32::Security::TOKEN_QUERY;
     use windows_sys::Win32::Security::TOKEN_USER;
     use windows_sys::Win32::Security::TokenUser;
+    use windows_sys::Win32::Security::UNPROTECTED_DACL_SECURITY_INFORMATION;
     use windows_sys::Win32::Storage::FileSystem::CREATE_NEW;
     use windows_sys::Win32::Storage::FileSystem::CreateDirectoryW;
     use windows_sys::Win32::Storage::FileSystem::CreateFileW;
@@ -318,17 +316,11 @@ mod owner_only {
         let sddl = wide(std::ffi::OsStr::new(&owner_only_sddl(true)?));
         let mut descriptor = null_mut();
         // SAFETY: `sddl` is NUL-terminated; the descriptor is freed below.
-        if unsafe {
-            ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, null_mut())
-        } == 0
-        {
+        if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, null_mut()) } == 0 {
             return Err(io::Error::last_os_error());
         }
-        let attributes = SECURITY_ATTRIBUTES {
-            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
-            lpSecurityDescriptor: descriptor,
-            bInheritHandle: 0,
-        };
+        let attributes =
+            SECURITY_ATTRIBUTES { nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32, lpSecurityDescriptor: descriptor, bInheritHandle: 0 };
         let name = super::verbatim_wide(path)?;
         // SAFETY: `name` is NUL-terminated and `attributes` outlives the call.
         let created = unsafe { CreateDirectoryW(name.as_ptr(), &attributes) };
@@ -383,17 +375,11 @@ mod owner_only {
         let sddl = wide(std::ffi::OsStr::new(&owner_only_sddl(false)?));
         let mut descriptor = null_mut();
         // SAFETY: `sddl` is NUL-terminated; the descriptor is freed below.
-        if unsafe {
-            ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, null_mut())
-        } == 0
-        {
+        if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, null_mut()) } == 0 {
             return Err(io::Error::last_os_error());
         }
-        let attributes = SECURITY_ATTRIBUTES {
-            nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
-            lpSecurityDescriptor: descriptor,
-            bInheritHandle: 0,
-        };
+        let attributes =
+            SECURITY_ATTRIBUTES { nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32, lpSecurityDescriptor: descriptor, bInheritHandle: 0 };
         let name = super::verbatim_wide(path)?;
         // SAFETY: `name` is NUL-terminated and `attributes` outlives the call. The sharing
         // mode matches std's, so readers and renames are not blocked.
@@ -423,31 +409,15 @@ mod owner_only {
         let mut descriptor = null_mut();
         // SAFETY: `name` is NUL-terminated; the descriptor is freed below.
         let status = unsafe {
-            GetNamedSecurityInfoW(
-                name.as_ptr(),
-                SE_FILE_OBJECT,
-                DACL_SECURITY_INFORMATION,
-                null_mut(),
-                null_mut(),
-                null_mut(),
-                null_mut(),
-                &mut descriptor,
-            )
+            GetNamedSecurityInfoW(name.as_ptr(), SE_FILE_OBJECT, DACL_SECURITY_INFORMATION, null_mut(), null_mut(), null_mut(), null_mut(), &mut descriptor)
         };
         if status != 0 {
             return Err(io::Error::from_raw_os_error(status as i32));
         }
         let mut text: *mut u16 = null_mut();
         // SAFETY: `descriptor` was just returned by the call above.
-        let converted = unsafe {
-            ConvertSecurityDescriptorToStringSecurityDescriptorW(
-                descriptor,
-                SDDL_REVISION_1,
-                DACL_SECURITY_INFORMATION,
-                &mut text,
-                null_mut(),
-            )
-        };
+        let converted =
+            unsafe { ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, SDDL_REVISION_1, DACL_SECURITY_INFORMATION, &mut text, null_mut()) };
         let error = io::Error::last_os_error();
         // SAFETY: allocated by GetNamedSecurityInfoW.
         unsafe { LocalFree(descriptor) };

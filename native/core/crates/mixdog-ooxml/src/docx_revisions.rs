@@ -36,11 +36,7 @@ pub fn revision_owner(author: &str) -> String {
 /// The text Word draws for one `w:t` / `w:delText`: without `xml:space="preserve"` the edge whitespace never reaches the page.
 pub fn rendered_word_text(attrs: &str, raw: &str) -> String {
     let value = xml_decode(raw);
-    if compiled(r#"\bxml:space="preserve""#, "").is_match(attrs) {
-        value
-    } else {
-        value.trim_matches(|c| matches!(c, ' ' | '\t' | '\r' | '\n')).to_owned()
-    }
+    if compiled(r#"\bxml:space="preserve""#, "").is_match(attrs) { value } else { value.trim_matches(|c| matches!(c, ' ' | '\t' | '\r' | '\n')).to_owned() }
 }
 
 fn excerpt(text: &str) -> String {
@@ -473,9 +469,10 @@ impl StoriesAudit {
             Value::Object(object)
         });
         map.insert("foreignAuthors".into(), Value::Array(foreign.collect()));
-        let parts = self.parts.iter().map(|(part, ok, insertions, deletions)| {
-            json!({ "part": part, "ok": ok, "newChanges": { "insertions": insertions, "deletions": deletions } })
-        });
+        let parts = self
+            .parts
+            .iter()
+            .map(|(part, ok, insertions, deletions)| json!({ "part": part, "ok": ok, "newChanges": { "insertions": insertions, "deletions": deletions } }));
         map.insert("parts".into(), Value::Array(parts.collect()));
         map.insert("addedParts".into(), json!(self.added_parts));
         map.insert("reason".into(), json!(self.reason));
@@ -604,16 +601,28 @@ fn lint_story_revisions(part: &str, source: &str, findings: &mut Vec<LintFinding
         findings.push(LintFinding { severity, code, message, extra: vec![("count", json!(number)), ("part", json!(part))] });
     };
     if text_in_deletion > 0 {
-        add("error", "text_in_deletion", format!("{text_in_deletion} <w:t> element(s) sit inside <w:del>; deleted text must be <w:delText>."), text_in_deletion);
+        add(
+            "error",
+            "text_in_deletion",
+            format!("{text_in_deletion} <w:t> element(s) sit inside <w:del>; deleted text must be <w:delText>."),
+            text_in_deletion,
+        );
     }
     if instr_in_deletion > 0 {
-        add("error", "instr_text_in_deletion", format!("{instr_in_deletion} <w:instrText> element(s) sit inside <w:del>; use <w:delInstrText>."), instr_in_deletion);
+        add(
+            "error",
+            "instr_text_in_deletion",
+            format!("{instr_in_deletion} <w:instrText> element(s) sit inside <w:del>; use <w:delInstrText>."),
+            instr_in_deletion,
+        );
     }
     if deleted_in_insertion > 0 {
         add(
             "error",
             "deleted_text_in_insertion",
-            format!("{deleted_in_insertion} <w:delText> element(s) sit inside <w:ins> without a <w:del>; deleted text inside an insertion needs its own <w:del>."),
+            format!(
+                "{deleted_in_insertion} <w:delText> element(s) sit inside <w:ins> without a <w:del>; deleted text inside an insertion needs its own <w:del>."
+            ),
             deleted_in_insertion,
         );
     }
@@ -853,9 +862,7 @@ mod tests {
     }
 
     fn deletion(id: &str, author: &str, text: &str) -> String {
-        format!(
-            r#"<w:del w:id="{id}" w:author="{author}" w:date="2026-01-01T00:00:00Z"><w:r><w:delText xml:space="preserve">{text}</w:delText></w:r></w:del>"#
-        )
+        format!(r#"<w:del w:id="{id}" w:author="{author}" w:date="2026-01-01T00:00:00Z"><w:r><w:delText xml:space="preserve">{text}</w:delText></w:r></w:del>"#)
     }
 
     fn body(paragraphs: &[String]) -> String {
@@ -943,11 +950,19 @@ mod tests {
         let xml = format!(
             r#"<w:body><w:del w:id="1"><w:r><w:t>kept</w:t><w:instrText>x</w:instrText></w:r></w:del><w:ins w:id="2"><w:r><w:delText>y</w:delText></w:r></w:ins><w:r><w:t> pad</w:t></w:r><w:commentRangeStart w:id="7"/><w:commentReference w:id="8"/></w:body>"#
         );
-        let findings = lint_docx_revisions(&[Story { part: "word/document.xml", xml: &xml }], r#"<w:comments><w:comment w:id="7"/><w:comment w:id="9"/></w:comments>"#);
+        let findings =
+            lint_docx_revisions(&[Story { part: "word/document.xml", xml: &xml }], r#"<w:comments><w:comment w:id="7"/><w:comment w:id="9"/></w:comments>"#);
         let codes: Vec<&str> = findings.iter().map(|finding| finding.code).collect();
         assert_eq!(
             codes,
-            ["text_in_deletion", "instr_text_in_deletion", "deleted_text_in_insertion", "whitespace_not_preserved", "comment_not_anchored", "comment_marker_mismatch"]
+            [
+                "text_in_deletion",
+                "instr_text_in_deletion",
+                "deleted_text_in_insertion",
+                "whitespace_not_preserved",
+                "comment_not_anchored",
+                "comment_marker_mismatch"
+            ]
         );
         let mismatch = findings.last().map(LintFinding::to_value).unwrap_or(Value::Null);
         assert_eq!(mismatch["message"], "commentRangeStart 7 has no commentRangeEnd; marker 8 references no comment");

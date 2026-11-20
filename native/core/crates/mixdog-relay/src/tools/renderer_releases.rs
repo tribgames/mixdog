@@ -26,8 +26,7 @@ use serde_json::{Value, json};
 use crate::js;
 use crate::rate_limit::now_ms;
 use crate::web::releases::{
-    DeviceReport, DeviceSeen, LEGACY_RELEASE_ID, RELEASE_INDEX_FILE, ReleaseEntry, ReleaseIndex, ReleaseIndexError,
-    RetentionOptions, is_desktop_version,
+    DeviceReport, DeviceSeen, LEGACY_RELEASE_ID, RELEASE_INDEX_FILE, ReleaseEntry, ReleaseIndex, ReleaseIndexError, RetentionOptions, is_desktop_version,
 };
 
 /// Why a deploy step failed; the messages are the ones the Node tool prints.
@@ -175,10 +174,7 @@ pub fn read_reporting_devices(devices_path: Option<&Path>) -> Result<Vec<DeviceS
             let app_version = row.get("appVersion")?.as_str()?;
             let seen_at = row.get("versionSeenAt")?.as_f64().filter(|seen| seen.is_finite())?;
             let renderer_release = row.get("rendererRelease").and_then(Value::as_str).unwrap_or_default();
-            Some(DeviceSeen {
-                report: DeviceReport { app_version: app_version.to_owned(), renderer_release: renderer_release.to_owned() },
-                seen_at,
-            })
+            Some(DeviceSeen { report: DeviceReport { app_version: app_version.to_owned(), renderer_release: renderer_release.to_owned() }, seen_at })
         })
         .collect())
 }

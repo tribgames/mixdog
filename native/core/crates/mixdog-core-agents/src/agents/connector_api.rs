@@ -27,14 +27,14 @@ use super::AgentDefinitions;
 use super::AgentsError;
 use super::connectors::ApprovedToolChange;
 use super::connectors::Parsed;
+use super::connectors::Stored;
 use super::connectors::TOOL_ALREADY;
 use super::connectors::TOOL_NARROWED;
-use super::connectors::rank;
-use crate::setup::Approval;
-use super::connectors::Stored;
 use super::connectors::assert_not_widened;
+use super::connectors::rank;
 use super::connectors::stored_policy;
 use super::connectors::tool_entries;
+use crate::setup::Approval;
 
 /// What the MCP service knows of the connectors: the installed ones and their tools.
 #[async_trait]
@@ -86,12 +86,7 @@ impl ConnectorCatalog for McpConnectors {
 
     async fn tool_names(&self, connector_id: &str) -> Result<Vec<String>, String> {
         let tools = self.ask("connector/listConnectorTools", json!({ "connectorId": connector_id })).await?;
-        Ok(tools
-            .as_array()
-            .into_iter()
-            .flatten()
-            .map(|tool| tool.get("name").map_or_else(String::new, mixdog_js::value_to_string))
-            .collect())
+        Ok(tools.as_array().into_iter().flatten().map(|tool| tool.get("name").map_or_else(String::new, mixdog_js::value_to_string)).collect())
     }
 
     fn connector_of(&self, server: &str) -> Option<String> {
@@ -176,10 +171,7 @@ impl AgentConnectors {
         let id = require_id(connector_id, "connector id")?;
         let Value::Bool(enabled) = *enabled else { return Err(refused("enabled must be a boolean")) };
         self.edit(agent_id, no_widen, move |off, tools| {
-            let off = if enabled {
-                off.into_iter().filter(|entry| *entry != id).collect()
-            } else {                off.into_iter().chain([id]).collect()
-            };
+            let off = if enabled { off.into_iter().filter(|entry| *entry != id).collect() } else { off.into_iter().chain([id]).collect() };
             (off, tools)
         })
         .await?;

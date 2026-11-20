@@ -51,10 +51,7 @@ impl ExitWatch {
     pub(crate) fn open(identity: ProcessIdentity) -> io::Result<Option<Self>> {
         #[cfg(test)]
         if crate::verdict::tests::exit_watch_denied() {
-            return Err(io::Error::new(
-                io::ErrorKind::PermissionDenied,
-                "exit watch denied by the test",
-            ));
+            return Err(io::Error::new(io::ErrorKind::PermissionDenied, "exit watch denied by the test"));
         }
         Ok(sys::ExitWatch::open(identity)?.map(Self))
     }
@@ -82,14 +79,6 @@ pub enum Wake {
 
 /// Blocks until one of the given sources fires. Exit wins over a change, a
 /// change over an interrupt; an interrupt not reported stays pending.
-pub(crate) fn wait(
-    interrupt: &Interrupt,
-    dir: Option<&DirWatch>,
-    exit: Option<&ExitWatch>,
-) -> io::Result<Wake> {
-    sys::wait(
-        &interrupt.0,
-        dir.map(|watch| &watch.0),
-        exit.map(|watch| &watch.0),
-    )
+pub(crate) fn wait(interrupt: &Interrupt, dir: Option<&DirWatch>, exit: Option<&ExitWatch>) -> io::Result<Wake> {
+    sys::wait(&interrupt.0, dir.map(|watch| &watch.0), exit.map(|watch| &watch.0))
 }

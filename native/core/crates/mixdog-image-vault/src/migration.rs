@@ -6,8 +6,8 @@
 
 use mixdog_image_egress::Manifest;
 use mixdog_image_egress::admission::Cancel;
-use mixdog_statefile::IoLane;
 use mixdog_rt::InLane;
+use mixdog_statefile::IoLane;
 
 use crate::vault::ImageVault;
 use crate::vault::ImportError;
@@ -58,18 +58,16 @@ impl Report {
 
     /// Images that need repair: a failure that is not transient.
     pub fn needs_repair(&self) -> Vec<&str> {
-        self.results.iter().filter(|(_, r)| matches!(r, ItemResult::Failed(ImportError::Storage(_) | ImportError::Missing(_) | ImportError::Invalid(_)))).map(|(k, _)| k.as_str()).collect()
+        self.results
+            .iter()
+            .filter(|(_, r)| matches!(r, ItemResult::Failed(ImportError::Storage(_) | ImportError::Missing(_) | ImportError::Invalid(_))))
+            .map(|(k, _)| k.as_str())
+            .collect()
     }
 }
 
 /// Import every image of `items`. Equal images are imported once (the vault keys by content).
-pub fn migrate<L: IoLane>(
-    vault: &ImageVault,
-    lane: &InLane<L>,
-    items: &[LegacyImage],
-    cancel: &Cancel,
-    on_progress: &mut dyn FnMut(Progress),
-) -> Report {
+pub fn migrate<L: IoLane>(vault: &ImageVault, lane: &InLane<L>, items: &[LegacyImage], cancel: &Cancel, on_progress: &mut dyn FnMut(Progress)) -> Report {
     let total = items.len();
     let mut results = Vec::with_capacity(total);
     let mut cancelled = false;
@@ -152,7 +150,8 @@ mod tests {
             .await
             .unwrap()
         };
-        let items = vec![item("m1/0", LegacySource::Base64(b64(&a))), item("m2/0", LegacySource::BlobRef(reference)), item("m3/0", LegacySource::Base64(b64(&a)))];
+        let items =
+            vec![item("m1/0", LegacySource::Base64(b64(&a))), item("m2/0", LegacySource::BlobRef(reference)), item("m3/0", LegacySource::Base64(b64(&a)))];
         let (report, progress) = run(dir.path(), items.clone(), Cancel::default()).await;
         assert!(report.complete(), "{report:?}");
         assert_eq!(progress.last(), Some(&Progress { done: 3, total: 3 }));

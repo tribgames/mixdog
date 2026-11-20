@@ -72,10 +72,7 @@ pub fn render_prompt(view: &PromptView<'_>) -> PromptRender {
     });
     if value.is_empty() && !view.hint.is_empty() {
         let fg = hint_color(view.hint_tone);
-        let rows = wrap_text(view.hint, width, WrapMode::Wrap)
-            .split('\n')
-            .map(|line| vec![Span { text: line.to_owned(), fg, bg: None }])
-            .collect();
+        let rows = wrap_text(view.hint, width, WrapMode::Wrap).split('\n').map(|line| vec![Span { text: line.to_owned(), fg, bg: None }]).collect();
         return PromptRender { rows, caret };
     }
     let mut display = if view.mask { mask_value(value) } else { value.clone() };

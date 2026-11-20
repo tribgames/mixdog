@@ -124,16 +124,9 @@ fn safe_integer(value: &Value) -> Option<u64> {
 
 /// `githubText`.
 pub fn github_text(value: &Value, name: &str, maximum: usize, empty: bool) -> Result<(), ScmFailure> {
-    let ok = value.as_str().is_some_and(|text| {
-        (empty || !mixdog_js::js_trim(text).is_empty())
-            && mixdog_js::utf16_len(text) <= maximum
-            && !text.contains('\0')
-    });
-    if ok {
-        Ok(())
-    } else {
-        Err(type_error(format!("{name} must be {} string of at most {maximum} characters.", if empty { "a" } else { "a non-empty" })))
-    }
+    let ok =
+        value.as_str().is_some_and(|text| (empty || !mixdog_js::js_trim(text).is_empty()) && mixdog_js::utf16_len(text) <= maximum && !text.contains('\0'));
+    if ok { Ok(()) } else { Err(type_error(format!("{name} must be {} string of at most {maximum} characters.", if empty { "a" } else { "a non-empty" }))) }
 }
 
 /// `githubNumber`: a safe integer from 1 to `maximum` (Node's default maximum is the largest safe integer).
@@ -149,25 +142,12 @@ pub fn github_repository(value: &str) -> Result<(), ScmFailure> {
     let valid = value.len() <= 250 && {
         let mut parts = value.splitn(2, '/');
         let (owner, name) = (parts.next().unwrap_or(""), parts.next().unwrap_or(""));
-        let owner_ok = owner
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_alphanumeric())
-            && owner.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
-        let name_ok = name
-            .chars()
-            .next()
-            .is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
-            && name
-                .chars()
-                .all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
+        let owner_ok = owner.chars().next().is_some_and(|c| c.is_ascii_alphanumeric()) && owner.chars().all(|c| c.is_ascii_alphanumeric() || c == '-');
+        let name_ok = name.chars().next().is_some_and(|c| c.is_ascii_alphanumeric() || c == '_')
+            && name.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '_' | '.' | '-'));
         owner_ok && name_ok && owner != "." && owner != ".." && name != "." && name != ".."
     };
-    if valid {
-        Ok(())
-    } else {
-        Err(type_error("repo must be an explicit owner/name, not a URL or command."))
-    }
+    if valid { Ok(()) } else { Err(type_error("repo must be an explicit owner/name, not a URL or command.")) }
 }
 
 fn valid_hostname(value: &str) -> bool {
@@ -177,15 +157,8 @@ fn valid_hostname(value: &str) -> bool {
     let Some((head, tld)) = value.rsplit_once('.') else {
         return false;
     };
-    let alnum_edges = head
-        .chars()
-        .next()
-        .zip(head.chars().last())
-        .is_some_and(|(a, b)| a.is_ascii_alphanumeric() && b.is_ascii_alphanumeric());
-    alnum_edges
-        && head.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-')
-        && tld.len() >= 2
-        && tld.chars().all(|c| c.is_ascii_alphabetic())
+    let alnum_edges = head.chars().next().zip(head.chars().last()).is_some_and(|(a, b)| a.is_ascii_alphanumeric() && b.is_ascii_alphanumeric());
+    alnum_edges && head.chars().all(|c| c.is_ascii_alphanumeric() || c == '.' || c == '-') && tld.len() >= 2 && tld.chars().all(|c| c.is_ascii_alphabetic())
 }
 
 fn is_name(value: &str, first: impl Fn(char) -> bool, rest: impl Fn(char) -> bool, max: usize) -> bool {
@@ -216,7 +189,8 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
         github_repository(repo.as_str().unwrap_or(""))?;
     }
     if let Some(host) = object.get("hostname")
-        && !host.as_str().is_some_and(valid_hostname) {
+        && !host.as_str().is_some_and(valid_hostname)
+    {
         return Err(type_error("hostname must be a GitHub or GitHub Enterprise DNS name."));
     }
     for key in ["number", "id", "page", "limit"] {
@@ -254,19 +228,23 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
         }
     }
     if let Some(state) = object.get("state")
-        && !matches!(state.as_str(), Some("open" | "closed" | "all")) {
+        && !matches!(state.as_str(), Some("open" | "closed" | "all"))
+    {
         return Err(type_error("Invalid state."));
     }
     if let Some(visibility) = object.get("visibility")
-        && !matches!(visibility.as_str(), Some("private" | "public")) {
+        && !matches!(visibility.as_str(), Some("private" | "public"))
+    {
         return Err(type_error("Invalid visibility."));
     }
     if let Some(method) = object.get("method")
-        && !matches!(method.as_str(), Some("merge" | "squash" | "rebase")) {
+        && !matches!(method.as_str(), Some("merge" | "squash" | "rebase"))
+    {
         return Err(type_error("Invalid merge method."));
     }
     if let Some(event) = object.get("event")
-        && !matches!(event.as_str(), Some("COMMENT" | "APPROVE" | "REQUEST_CHANGES")) {
+        && !matches!(event.as_str(), Some("COMMENT" | "APPROVE" | "REQUEST_CHANGES"))
+    {
         return Err(type_error("Invalid review event."));
     }
     if let Some(sha) = object.get("sha") {
@@ -278,9 +256,7 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
     }
     for key in ["owner", "organization"] {
         if let Some(value) = object.get(key) {
-            let ok = value.as_str().is_some_and(|name| {
-                is_name(name, |c| c.is_ascii_alphanumeric(), |c| c.is_ascii_alphanumeric() || c == '-', 100)
-            });
+            let ok = value.as_str().is_some_and(|name| is_name(name, |c| c.is_ascii_alphanumeric(), |c| c.is_ascii_alphanumeric() || c == '-', 100));
             if !ok {
                 return Err(type_error(format!("Invalid {key}.")));
             }
@@ -300,22 +276,14 @@ pub fn validate(input: &Value) -> Result<GithubRequest, ScmFailure> {
             return Err(type_error("inputs must contain at most 25 named values."));
         };
         for (key, value) in map {
-            let name_ok = is_name(
-                key,
-                |c| c.is_ascii_alphabetic() || c == '_',
-                |c| c.is_ascii_alphanumeric() || c == '_' || c == '-',
-                100,
-            );
+            let name_ok = is_name(key, |c| c.is_ascii_alphabetic() || c == '_', |c| c.is_ascii_alphanumeric() || c == '_' || c == '-', 100);
             if !name_ok {
                 return Err(type_error("Invalid workflow input name."));
             }
             github_text(value, "workflow input", 10_000, true)?;
         }
     }
-    Ok(GithubRequest {
-        def,
-        fields: object.clone(),
-    })
+    Ok(GithubRequest { def, fields: object.clone() })
 }
 
 #[cfg(test)]

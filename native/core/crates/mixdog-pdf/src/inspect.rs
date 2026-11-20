@@ -205,12 +205,7 @@ fn run_placement(run: &Run<'_>) -> Option<Placement> {
         return None;
     }
     let size = [d.abs(), a.abs()].into_iter().find(|value| *value != 0.0).unwrap_or(1.0);
-    Some(Placement {
-        line: mixdog_js::math::round(f * 10.0) / 10.0,
-        start: e,
-        end: e + if run.width.is_finite() { run.width } else { 0.0 },
-        size,
-    })
+    Some(Placement { line: mixdog_js::math::round(f * 10.0) / 10.0, start: e, end: e + if run.width.is_finite() { run.width } else { 0.0 }, size })
 }
 
 /// One page's text. pdf.js marks where each text line ends; keeping that as a newline preserves paragraphs and table rows
@@ -239,11 +234,7 @@ pub fn page_body_text<'a>(runs: impl IntoIterator<Item = Run<'a>>) -> String {
                 (Some(now), Some(before)) if !new_line => now.start - before.end > before.size * 0.22,
                 (now, before) => now.is_none() || before.is_none(),
             };
-            let glued = body.is_empty()
-                || body.ends_with('\n')
-                || body.ends_with(' ')
-                || run.text.starts_with(' ')
-                || !separated;
+            let glued = body.is_empty() || body.ends_with('\n') || body.ends_with(' ') || run.text.starts_with(' ') || !separated;
             if !glued {
                 body.push(' ');
             }
@@ -296,12 +287,7 @@ fn tidy(body: &str) -> String {
 /// The page text of a `getTextContent` answer.
 fn content_text(content: &TextContent) -> String {
     let texts: Vec<String> = content.items.iter().map(|item| item.text()).collect();
-    page_body_text(content.items.iter().zip(&texts).map(|(item, text)| Run {
-        text,
-        transform: item.transform,
-        width: item.width,
-        has_eol: item.has_eol,
-    }))
+    page_body_text(content.items.iter().zip(&texts).map(|(item, text)| Run { text, transform: item.transform, width: item.width, has_eol: item.has_eol }))
 }
 
 /// `pageHasTextLayer`: whether one page's extracted text is a real text layer. The count is of UTF-16 units, as `length` of
@@ -365,11 +351,7 @@ pub fn inspect_pdf_buffer(buffer: &[u8], options: &InspectOptions) -> Result<Ins
 
 /// Inspects owned or shared PDF bytes without first copying them into a temporary `Vec`.
 /// `bound_page_text` limits the per-page payload to what a caller's output budget could display.
-pub fn inspect_pdf_input(
-    buffer: impl Into<Arc<[u8]>>,
-    options: &InspectOptions,
-    bound_page_text: bool,
-) -> Result<Inspection, InspectError> {
+pub fn inspect_pdf_input(buffer: impl Into<Arc<[u8]>>, options: &InspectOptions, bound_page_text: bool) -> Result<Inspection, InspectError> {
     let deadline = options.timeout_ms.filter(|ms| *ms > 0.0).and_then(|ms| {
         let span = Duration::try_from_secs_f64(ms / 1000.0).ok()?;
         Some((Instant::now().checked_add(span)?, ms))
@@ -478,10 +460,7 @@ fn extract(document: &Document, page_count: u64, options: &InspectOptions, watch
     if truncated {
         let room = (byte_limit - TRUNCATION_SUFFIX.len() as f64).max(0.0);
         let bounded = bounded_utf8(&joined, room);
-        return Ok(Inspection {
-            page_count,
-            detail: Detail::Text { text: format!("{}{TRUNCATION_SUFFIX}", bounded.text), truncated: true, pages },
-        });
+        return Ok(Inspection { page_count, detail: Detail::Text { text: format!("{}{TRUNCATION_SUFFIX}", bounded.text), truncated: true, pages } });
     }
     Ok(Inspection { page_count, detail: Detail::Text { text: joined, truncated: false, pages } })
 }
@@ -523,11 +502,7 @@ mod tests {
 
     #[test]
     fn runs_of_one_line_join_without_a_space_unless_the_page_leaves_a_gap() {
-        let runs = [
-            run("2026", 0.0, 100.0, 10.0, 20.0, false),
-            run("년", 20.5, 100.0, 10.0, 10.0, false),
-            run("end", 40.0, 100.0, 10.0, 15.0, false),
-        ];
+        let runs = [run("2026", 0.0, 100.0, 10.0, 20.0, false), run("년", 20.5, 100.0, 10.0, 10.0, false), run("end", 40.0, 100.0, 10.0, 15.0, false)];
         assert_eq!(page_body_text(runs), "2026년 end");
     }
 
@@ -626,6 +601,5 @@ mod tests {
         assert_eq!(inspect_pdf_input(Input(&cancelled), &options, false), Err(InspectError::Cancelled));
     }
 }
-
 
 impl std::error::Error for InspectError {}

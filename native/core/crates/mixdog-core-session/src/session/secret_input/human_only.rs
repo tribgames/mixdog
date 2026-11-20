@@ -467,7 +467,6 @@ mod tests {
         assert_eq!(lock.refusal(), None);
     }
 
-
     /// `host/humanOnly/begin` holds Computer Use at once but answers only once the operation already
     /// running ended (`withHumanOnlyApproval` waits for `activeComputerOperations`); `end` frees it.
     #[tokio::test]

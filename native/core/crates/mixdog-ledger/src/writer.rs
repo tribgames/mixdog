@@ -135,19 +135,10 @@ fn stamp(conn: &Connection) -> Result<String> {
 
 /// Appends every queued record of `group` in one transaction and answers each caller with the
 /// outcomes of its own records. Returns the records that were new, in commit order.
-fn commit_records(
-    conn: &mut Connection,
-    marks: &mixdog_rt::WriteMarks,
-    group: Vec<(Vec<UsageRecord>, ReplyTx<Vec<Appended>>, u64)>,
-) -> Vec<UsageRecord> {
+fn commit_records(conn: &mut Connection, marks: &mixdog_rt::WriteMarks, group: Vec<(Vec<UsageRecord>, ReplyTx<Vec<Appended>>, u64)>) -> Vec<UsageRecord> {
     let all: Vec<UsageRecord> = group.iter().flat_map(|(rows, _, _)| rows.clone()).collect();
     let outcomes = append_rows(conn, &all);
-    let inserted = all
-        .iter()
-        .zip(&outcomes)
-        .filter(|(_, o)| matches!(o, Appended::Inserted))
-        .map(|(row, _)| row.clone())
-        .collect();
+    let inserted = all.iter().zip(&outcomes).filter(|(_, o)| matches!(o, Appended::Inserted)).map(|(row, _)| row.clone()).collect();
     let mut outcomes = outcomes.into_iter();
     for (rows, reply, mark) in group {
         let own: Vec<Appended> = outcomes.by_ref().take(rows.len()).collect();
@@ -171,9 +162,7 @@ pub trait UsageChanged: Send + Sync {
 }
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
 }
 
 /// What the writer thread needs besides its connection and queue.
@@ -225,10 +214,7 @@ impl Build {
         let snapshot = open_reader(&context.path).and_then(|conn| {
             conn.execute_batch("BEGIN")?;
             // The first read fixes the snapshot.
-            let next: i64 =
-                conn.query_row("SELECT next FROM usage_session_days_state", [], |r| {
-                    r.get(0)
-                })?;
+            let next: i64 = conn.query_row("SELECT next FROM usage_session_days_state", [], |r| r.get(0))?;
             Ok((conn, next))
         });
         let Ok((conn, from_next)) = snapshot else {
@@ -245,10 +231,7 @@ impl Build {
         };
         match context.maintenance.submit(&CancellationToken::new(), job) {
             Ok(_) => {
-                self.flight = Some(Flight {
-                    late: Vec::new(),
-                    stale: false,
-                });
+                self.flight = Some(Flight { late: Vec::new(), stale: false });
             }
             Err(_) => self.blocked = true,
         }
@@ -258,13 +241,11 @@ impl Build {
     fn built(&mut self, conn: &mut Connection, result: Result<Snapshot>) {
         let flight = self.flight.take();
         match (result, flight) {
-            (Ok(snapshot), Some(flight)) if !flight.stale => {
-                match apply(conn, &snapshot, &flight.late) {
-                    Ok(Applied::Done(true)) => self.finish(),
-                    Ok(_) => {}
-                    Err(_) => self.blocked = true,
-                }
-            }
+            (Ok(snapshot), Some(flight)) if !flight.stale => match apply(conn, &snapshot, &flight.late) {
+                Ok(Applied::Done(true)) => self.finish(),
+                Ok(_) => {}
+                Err(_) => self.blocked = true,
+            },
             // Out of date: it is summed again.
             (Ok(_), _) => {}
             (Err(_), _) => self.blocked = true,
@@ -277,14 +258,9 @@ impl Build {
         };
         for row in rows {
             let id = encode_usage_id(&row.id);
-            let session =
-                conn.query_row("SELECT session FROM usage_events WHERE id=?1", [&id], |r| {
-                    r.get::<_, i64>(0)
-                });
+            let session = conn.query_row("SELECT session FROM usage_events WHERE id=?1", [&id], |r| r.get::<_, i64>(0));
             match session {
-                Ok(session) if flight.late.len() < MAX_LATE => {
-                    flight.late.push(Late { session, id })
-                }
+                Ok(session) if flight.late.len() < MAX_LATE => flight.late.push(Late { session, id }),
                 _ => {
                     flight.stale = true;
                     return;
@@ -303,12 +279,7 @@ fn apply(conn: &mut Connection, snapshot: &Snapshot, late: &[Late]) -> Result<Ap
 
 fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context) {
     let mut held: Option<Command> = None;
-    let mut build = Build {
-        complete: sums_complete(&conn).unwrap_or(true),
-        flight: None,
-        blocked: false,
-        waiters: Vec::new(),
-    };
+    let mut build = Build { complete: sums_complete(&conn).unwrap_or(true), flight: None, blocked: false, waiters: Vec::new() };
     // Rollup days to recompute: at boot, and after a commit. The owner reads at startup itself, so boot is not a change
     // to tell it of; `moved` is what a commit or repair changed since the owner was last told.
     let mut stale = context.changed.is_some();
@@ -356,9 +327,7 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
                 // of another kind ends the group so order is kept.
                 loop {
                     match commands.try_recv() {
-                        Ok(Command::Record { rows, reply, mark })
-                            if total + rows.len() <= MAX_APPEND_ROWS =>
-                        {
+                        Ok(Command::Record { rows, reply, mark }) if total + rows.len() <= MAX_APPEND_ROWS => {
                             total += rows.len();
                             group.push((rows, reply, mark));
                         }
@@ -376,11 +345,7 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
                     moved = true;
                 }
             }
-            Command::Quota {
-                samples,
-                reply,
-                mark,
-            } => {
+            Command::Quota { samples, reply, mark } => {
                 let recorded = record_quota_samples(&mut conn, &samples);
                 match &recorded {
                     Ok(_) => context.marks.written(mark),
@@ -389,15 +354,8 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
                 reply.send(recorded);
             }
             Command::Stamp { reply } => reply.send(stamp(&conn)),
-            Command::Repair {
-                report,
-                changes,
-                options,
-                now_ms,
-                reply,
-            } => {
-                let applied =
-                    apply_repair_if_unchanged(&mut conn, report, &changes, &options, now_ms);
+            Command::Repair { report, changes, options, now_ms, reply } => {
+                let applied = apply_repair_if_unchanged(&mut conn, report, &changes, &options, now_ms);
                 if let Some(flight) = build.flight.as_mut() {
                     flight.stale = true;
                 }
@@ -429,16 +387,10 @@ fn run(mut conn: Connection, commands: mpsc::Receiver<Command>, context: Context
                 use crate::db::OptionalExtension as _;
                 let done = match value {
                     Some(value) => conn
-                        .execute(
-                            "INSERT INTO metadata VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                            crate::db::params![key, value],
-                        )
+                        .execute("INSERT INTO metadata VALUES (?1, ?2) ON CONFLICT(key) DO UPDATE SET value=excluded.value", crate::db::params![key, value])
                         .map(|_| None)
                         .map_err(Into::into),
-                    None => conn
-                        .query_row("SELECT value FROM metadata WHERE key = ?1", [key], |r| r.get(0))
-                        .optional()
-                        .map_err(Into::into),
+                    None => conn.query_row("SELECT value FROM metadata WHERE key = ?1", [key], |r| r.get(0)).optional().map_err(Into::into),
                 };
                 reply.send(done);
             }
@@ -458,41 +410,24 @@ impl UsageWriter {
     /// Opens (and, if it is a recognized older shape, upgrades) the ledger, then starts its
     /// writer thread. Boot work, before the core serves. `maintenance` runs the day-sum
     /// build's aggregation.
-    pub fn open(
-        thread: SqliteWriterThread,
-        maintenance: MaintenanceIo,
-        path: &Path,
-    ) -> Result<Arc<Self>> {
+    pub fn open(thread: SqliteWriterThread, maintenance: MaintenanceIo, path: &Path) -> Result<Arc<Self>> {
         Self::start(thread, maintenance, path, None, BUILD_BUDGET)
     }
 
     /// [`open`](Self::open) with another size for a day-sum batch (records, at least; it ends
     /// with the session that reaches it; the default is 500).
-    pub fn open_with_build_budget(
-        thread: SqliteWriterThread,
-        maintenance: MaintenanceIo,
-        path: &Path,
-        build_budget: i64,
-    ) -> Result<Arc<Self>> {
+    pub fn open_with_build_budget(thread: SqliteWriterThread, maintenance: MaintenanceIo, path: &Path, build_budget: i64) -> Result<Arc<Self>> {
         Self::start(thread, maintenance, path, None, build_budget)
     }
 
     /// [`open`](Self::open), and the writer also tells `changed` when the statistics moved:
     /// once the queue is idle after a commit it recomputes stale rollup days in bounded steps
     /// (`maintain_usage`) and then signals. It recomputes at boot too, but does not signal for it.
-    pub fn open_publishing(
-        thread: SqliteWriterThread,
-        maintenance: MaintenanceIo,
-        path: &Path,
-        changed: Arc<dyn UsageChanged>,
-    ) -> Result<Arc<Self>> {
+    pub fn open_publishing(thread: SqliteWriterThread, maintenance: MaintenanceIo, path: &Path, changed: Arc<dyn UsageChanged>) -> Result<Arc<Self>> {
         Self::start(thread, maintenance, path, Some(changed), BUILD_BUDGET)
     }
 
-    #[allow(
-        clippy::disallowed_methods,
-        reason = "boot-time open of the ledger file, before any lane serves"
-    )]
+    #[allow(clippy::disallowed_methods, reason = "boot-time open of the ledger file, before any lane serves")]
     fn start(
         thread: SqliteWriterThread,
         maintenance: MaintenanceIo,
@@ -501,24 +436,12 @@ impl UsageWriter {
         build_budget: i64,
     ) -> Result<Arc<Self>> {
         let mut conn = Connection::open(path)?;
-        conn.execute_batch(
-            "PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL",
-        )?;
+        conn.execute_batch("PRAGMA busy_timeout=5000; PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL")?;
         prepare(&mut conn)?;
         let (commands, receiver) = mpsc::sync_channel(QUEUE);
         let marks = Arc::new(mixdog_rt::WriteMarks::new("the usage ledger"));
-        let inner = Arc::new(Inner {
-            commands,
-            marks: marks.clone(),
-        });
-        let context = Context {
-            path: path.to_path_buf(),
-            maintenance,
-            inner: Arc::downgrade(&inner),
-            changed,
-            build_budget,
-            marks,
-        };
+        let inner = Arc::new(Inner { commands, marks: marks.clone() });
+        let context = Context { path: path.to_path_buf(), maintenance, inner: Arc::downgrade(&inner), changed, build_budget, marks };
         thread.spawn_thread("mixdog-usage-writer", move |_| run(conn, receiver, context))?;
         Ok(Arc::new(Self { inner }))
     }
@@ -526,13 +449,10 @@ impl UsageWriter {
     /// Queues `command` now, so queue order is call order.
     fn enqueue<T>(&self, make: impl FnOnce(ReplyTx<T>) -> Command) -> Result<ReplyRx<T>> {
         let (tx, rx) = reply();
-        self.inner
-            .commands
-            .try_send(make(tx))
-            .map_err(|e| match e {
-                mpsc::TrySendError::Full(_) => LedgerError::Busy { queue: QUEUE_NAME },
-                mpsc::TrySendError::Disconnected(_) => LedgerError::Stopped,
-            })?;
+        self.inner.commands.try_send(make(tx)).map_err(|e| match e {
+            mpsc::TrySendError::Full(_) => LedgerError::Busy { queue: QUEUE_NAME },
+            mpsc::TrySendError::Disconnected(_) => LedgerError::Stopped,
+        })?;
         Ok(rx)
     }
 
@@ -555,15 +475,8 @@ impl UsageWriter {
     /// Queues one record (`recordQueued`): it is enqueued by this call, in call order, and the
     /// future resolves once the record is durable, or with the error that failed it. A
     /// duplicate id is not an error.
-    pub fn record_queued(
-        &self,
-        row: UsageRecord,
-    ) -> impl Future<Output = Result<()>> + Send + 'static + use<> {
-        let queued = self.enqueue_write(|reply, mark| Command::Record {
-            rows: vec![row],
-            reply,
-            mark,
-        });
+    pub fn record_queued(&self, row: UsageRecord) -> impl Future<Output = Result<()>> + Send + 'static + use<> {
+        let queued = self.enqueue_write(|reply, mark| Command::Record { rows: vec![row], reply, mark });
         async move {
             match queued?.await?.pop() {
                 Some(Appended::Failed(error)) => Err(error),
@@ -573,15 +486,8 @@ impl UsageWriter {
     }
 
     /// Queues quota readings (`recordQuotaQueued`); resolves with how many were taken.
-    pub fn record_quota_queued(
-        &self,
-        samples: Vec<QuotaReading>,
-    ) -> impl Future<Output = Result<usize>> + Send + 'static + use<> {
-        let queued = self.enqueue_write(|reply, mark| Command::Quota {
-            samples,
-            reply,
-            mark,
-        });
+    pub fn record_quota_queued(&self, samples: Vec<QuotaReading>) -> impl Future<Output = Result<usize>> + Send + 'static + use<> {
+        let queued = self.enqueue_write(|reply, mark| Command::Quota { samples, reply, mark });
         async move { queued?.await? }
     }
 
@@ -600,15 +506,8 @@ impl UsageWriter {
 
     /// Commits an import of the earlier daemon's history; it runs on the writer thread, in order
     /// with the records queued around it.
-    pub(crate) fn import_history(
-        &self,
-        write: HistoryWrite,
-    ) -> impl Future<Output = Result<HistoryOutcome>> + Send + 'static + use<> {
-        let queued = self.enqueue_write(|reply, mark| Command::History {
-            write: Box::new(write),
-            mark,
-            reply,
-        });
+    pub(crate) fn import_history(&self, write: HistoryWrite) -> impl Future<Output = Result<HistoryOutcome>> + Send + 'static + use<> {
+        let queued = self.enqueue_write(|reply, mark| Command::History { write: Box::new(write), mark, reply });
         async move { queued?.await? }
     }
 
@@ -646,13 +545,7 @@ impl UsageWriter {
         options: RepairOptions,
         now_ms: i64,
     ) -> impl Future<Output = Result<RepairReport>> + Send + 'static + use<> {
-        let queued = self.enqueue(|reply| Command::Repair {
-            report,
-            changes,
-            options,
-            now_ms,
-            reply,
-        });
+        let queued = self.enqueue(|reply| Command::Repair { report, changes, options, now_ms, reply });
         async move { queued?.await? }
     }
 }

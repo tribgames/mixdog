@@ -32,9 +32,7 @@ pub(super) fn not_a(kind: &str, key: &str) -> WriteError {
 /// pdf-lib's `assertRange(value, name, 0, max)` (a `max` below the minimum is the minimum).
 pub(super) fn assert_range(value: usize, name: &str, max: usize) -> Result<(), WriteError> {
     if value > max {
-        return Err(invalid(format!(
-            "`{name}` must be at least 0 and at most {max}, but was actually {value}"
-        )));
+        return Err(invalid(format!("`{name}` must be at least 0 and at most {max}, but was actually {value}")));
     }
     Ok(())
 }
@@ -51,10 +49,7 @@ pub(super) fn edit_child_dict<T>(
 ) -> Result<T, WriteError> {
     match parent.get_raw(key).cloned() {
         Some(Obj::Ref(r)) => {
-            let mut child = store
-                .dict(r)
-                .map(|dict| (**dict).clone())
-                .ok_or_else(|| not_a("PDFDict", key))?;
+            let mut child = store.dict(r).map(|dict| (**dict).clone()).ok_or_else(|| not_a("PDFDict", key))?;
             let out = edit(store, &mut child)?;
             store.modify_dict(r, |slot| *slot = child);
             Ok(out)
@@ -111,11 +106,7 @@ pub(super) fn edit_child_array<T>(
 /// the entry is a reference to an array, else inline in `owner`.
 pub(super) fn write_array(store: &mut ObjectStore, owner: Ref, key: &str, items: Vec<Obj>) {
     let array = Obj::Array(Arc::new(items));
-    let indirect = store
-        .dict(owner)
-        .and_then(|dict| dict.get_raw(key))
-        .and_then(Obj::as_ref_value)
-        .filter(|r| matches!(store.get(*r), Some(Obj::Array(_))));
+    let indirect = store.dict(owner).and_then(|dict| dict.get_raw(key)).and_then(Obj::as_ref_value).filter(|r| matches!(store.get(*r), Some(Obj::Array(_))));
     match indirect {
         Some(r) => {
             store.modify(r, |slot| *slot = array);
@@ -135,28 +126,15 @@ enum NodeKind {
 }
 
 fn corrupt_tree(target: i64, operation: &str) -> WriteError {
-    invalid(format!(
-        "Failed to {operation} at targetIndex={target} due to corrupt page tree: It is likely that one or more 'Count' entries are invalid"
-    ))
+    invalid(format!("Failed to {operation} at targetIndex={target} due to corrupt page tree: It is likely that one or more 'Count' entries are invalid"))
 }
 
 impl PdfDocument {
     /// Runs `edit` on a detached copy of the catalog, which is written back afterwards; what `edit` changes
     /// under a key that holds an indirect object goes to the store at once.
-    pub(super) fn edit_catalog<T>(
-        &mut self,
-        edit: impl FnOnce(&mut ObjectStore, &mut Dict) -> Result<T, WriteError>,
-    ) -> Result<T, WriteError> {
-        let root = self
-            .store
-            .trailer
-            .root
-            .ok_or_else(|| invalid("the file has no catalog"))?;
-        let mut catalog = self
-            .store
-            .dict(root)
-            .map(|dict| (**dict).clone())
-            .ok_or_else(|| not_a("PDFDict", "Root"))?;
+    pub(super) fn edit_catalog<T>(&mut self, edit: impl FnOnce(&mut ObjectStore, &mut Dict) -> Result<T, WriteError>) -> Result<T, WriteError> {
+        let root = self.store.trailer.root.ok_or_else(|| invalid("the file has no catalog"))?;
+        let mut catalog = self.store.dict(root).map(|dict| (**dict).clone()).ok_or_else(|| not_a("PDFDict", "Root"))?;
         let out = edit(&mut self.store, &mut catalog)?;
         self.store.modify_dict(root, |slot| *slot = catalog);
         Ok(out)
@@ -200,11 +178,7 @@ impl PdfDocument {
             };
             let count = self.tree_count(node)?;
             self.store.modify_dict(node, |dict| dict.set("Count", Obj::Num((count + delta) as f64)));
-            current = self
-                .store
-                .dict(node)
-                .and_then(|dict| dict.get_raw("Parent"))
-                .and_then(Obj::as_ref_value);
+            current = self.store.dict(node).and_then(|dict| dict.get_raw("Parent")).and_then(Obj::as_ref_value);
         }
         Err(invalid("the page tree nests too deeply"))
     }
@@ -240,9 +214,7 @@ impl PdfDocument {
         let kids = self.tree_kids(node)?;
         let count = self.tree_count(node)?;
         if target > count {
-            return Err(invalid(format!(
-                "Invalid targetIndex specified: targetIndex={target} must be less than Count={count}"
-            )));
+            return Err(invalid(format!("Invalid targetIndex specified: targetIndex={target} must be less than Count={count}")));
         }
         let mut remaining = target;
         for (at, kid) in kids.iter().enumerate() {
@@ -278,9 +250,7 @@ impl PdfDocument {
         let kids = self.tree_kids(node)?;
         let count = self.tree_count(node)?;
         if target >= count {
-            return Err(invalid(format!(
-                "Invalid targetIndex specified: targetIndex={target} must be less than Count={count}"
-            )));
+            return Err(invalid(format!("Invalid targetIndex specified: targetIndex={target} must be less than Count={count}")));
         }
         let mut remaining = target;
         for (at, kid) in kids.iter().enumerate() {
@@ -319,12 +289,8 @@ impl PdfDocument {
         if self.node_kind(&Obj::Ref(page)) != NodeKind::Leaf {
             return Err(invalid(format!("{page} is not a page")));
         }
-        let root = self
-            .pages_root()
-            .ok_or_else(|| invalid("the document has no page tree"))?;
-        let parent = self
-            .insert_leaf_node(root, page, index as i64, 0)?
-            .unwrap_or(root);
+        let root = self.pages_root().ok_or_else(|| invalid("the document has no page tree"))?;
+        let parent = self.insert_leaf_node(root, page, index as i64, 0)?.unwrap_or(root);
         self.store.modify_dict(page, |dict| dict.set("Parent", Obj::Ref(parent)));
         Ok(())
     }
@@ -338,28 +304,19 @@ impl PdfDocument {
     pub fn remove_page(&mut self, index: usize) -> Result<Ref, WriteError> {
         let pages = self.pages();
         assert_range(index, "index", pages.len().saturating_sub(1))?;
-        let root = self
-            .pages_root()
-            .ok_or_else(|| invalid("the document has no page tree"))?;
+        let root = self.pages_root().ok_or_else(|| invalid("the document has no page tree"))?;
         self.remove_leaf_node(root, index as i64, 0)?;
-        pages
-            .get(index)
-            .copied()
-            .ok_or_else(|| corrupt_tree(index as i64, "removeLeafNode"))
+        pages.get(index).copied().ok_or_else(|| corrupt_tree(index as i64, "removeLeafNode"))
     }
 
     fn set_page_entry(&mut self, page: Ref, key: &str, value: Obj) -> Result<(), WriteError> {
-        self.store
-            .modify_dict(page, |dict| dict.set(key, value))
-            .ok_or_else(|| invalid(format!("{page} is not a page")))
+        self.store.modify_dict(page, |dict| dict.set(key, value)).ok_or_else(|| invalid(format!("{page} is not a page")))
     }
 
     /// `setRotation(degrees(angle))`: `Rotate` of the page itself; the angle must be a multiple of 90.
     pub fn set_rotation(&mut self, page: Ref, angle: f64) -> Result<(), WriteError> {
         if !angle.is_finite() || angle % 90.0 != 0.0 {
-            return Err(invalid(format!(
-                "`degreesAngle` must be a multiple of 90, but was actually {angle}"
-            )));
+            return Err(invalid(format!("`degreesAngle` must be a multiple of 90, but was actually {angle}")));
         }
         self.set_page_entry(page, "Rotate", Obj::Num(angle))
     }

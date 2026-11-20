@@ -445,7 +445,8 @@ impl AccessBook {
 
     /// Tells the client's listeners, none of the book's locks held.
     fn notify(&self, client: &str, ended: Option<ScreenAccessEnd>) {
-        let listeners: Vec<AccessListener> = self.state().listeners.get(client).map(|held| held.iter().map(|(_, listener)| listener.clone()).collect()).unwrap_or_default();
+        let listeners: Vec<AccessListener> =
+            self.state().listeners.get(client).map(|held| held.iter().map(|(_, listener)| listener.clone()).collect()).unwrap_or_default();
         for listener in listeners {
             listener(&ended);
         }
@@ -547,7 +548,12 @@ fn screen_display(index: usize, monitor: &Monitor, primary: bool) -> ScreenDispl
         label: monitor.label.clone().unwrap_or_else(|| format!("Display {}", index + 1)),
         primary,
         scale_factor: scale,
-        bounds: DipRect { x: f64::from(info.x) / scale, y: f64::from(info.y) / scale, width: f64::from(info.width) / scale, height: f64::from(info.height) / scale },
+        bounds: DipRect {
+            x: f64::from(info.x) / scale,
+            y: f64::from(info.y) / scale,
+            width: f64::from(info.width) / scale,
+            height: f64::from(info.height) / scale,
+        },
         physical: PixelRect { x: i64::from(info.x), y: i64::from(info.y), width: i64::from(info.width), height: i64::from(info.height) },
         capture_source_id: format!("screen:{}", info.id.0),
     }
@@ -768,7 +774,13 @@ impl ScreenPcAccess for PcAccessAdapter {
         self.0.account_is_admin()
     }
 
-    fn approve_with_credential(&self, client_id: &str, public_key: &str, credential: SharedCredential, signal: AbortSignal) -> BoxFuture<Result<CredentialResult, String>> {
+    fn approve_with_credential(
+        &self,
+        client_id: &str,
+        public_key: &str,
+        credential: SharedCredential,
+        signal: AbortSignal,
+    ) -> BoxFuture<Result<CredentialResult, String>> {
         // The session empties its copy once the request ended; the port owns the one it is handed.
         let handed = lock(&credential).clone();
         let answered = self.0.approve_with_credential(client_id.to_string(), public_key.to_string(), handed, Arc::new(move || signal.aborted()));
@@ -810,7 +822,13 @@ impl VideoSink<HelperPicture> for SinkAdapter {
     fn frame(&self, key: &str, frame: SinkFrame<HelperPicture>) {
         self.0.frame(
             key,
-            ScreenFrame { document_id: frame.document_id, geometry: frame.geometry, epoch: frame.epoch, mime_type: frame.mime_type, picture: helper_picture_frame(frame.picture) },
+            ScreenFrame {
+                document_id: frame.document_id,
+                geometry: frame.geometry,
+                epoch: frame.epoch,
+                mime_type: frame.mime_type,
+                picture: helper_picture_frame(frame.picture),
+            },
         );
     }
 }
@@ -1188,7 +1206,12 @@ impl ScreenSources {
             client_label: label,
             screen_id: screen_id.to_string(),
             displays: parts.displays.clone(),
-            authorization: Arc::new(SessionAccess { book: parts.book.clone(), client: client.to_string(), connection, ended: Arc::new(Mutex::new(ScreenAccessEnd::Revoked)) }),
+            authorization: Arc::new(SessionAccess {
+                book: parts.book.clone(),
+                client: client.to_string(),
+                connection,
+                ended: Arc::new(Mutex::new(ScreenAccessEnd::Revoked)),
+            }),
             create_input_host: Box::new(move || Arc::new(InputHostAdapter(make_host())) as Arc<dyn ScreenHost>),
             secure_desktop: lease.clone(),
             pc_access: parts.pc_access.clone(),
@@ -1304,7 +1327,12 @@ mod tests {
     struct Whoami(Mutex<Vec<Result<super::super::installer_port::Exit, String>>>);
 
     impl ProcessRunner for Whoami {
-        fn run(&self, _program: std::path::PathBuf, _args: Vec<String>, _stdin: Option<String>) -> BoxFuture<Result<super::super::installer_port::Exit, String>> {
+        fn run(
+            &self,
+            _program: std::path::PathBuf,
+            _args: Vec<String>,
+            _stdin: Option<String>,
+        ) -> BoxFuture<Result<super::super::installer_port::Exit, String>> {
             let next = self.0.lock().expect("the script").remove(0);
             Box::pin(async move { next })
         }
@@ -1475,7 +1503,15 @@ mod tests {
 
     impl DisplayPixels for Pixels {
         fn frame(&self, _: DisplayId) -> BoxFuture<Result<VideoFrame, MediaError>> {
-            done(Ok(VideoFrame { width: 2, height: 2, stride: 0, format: PixelFormat::Jpeg, data: bytes::Bytes::from_static(b"jpeg"), seq: 99, captured_at: Duration::ZERO }))
+            done(Ok(VideoFrame {
+                width: 2,
+                height: 2,
+                stride: 0,
+                format: PixelFormat::Jpeg,
+                data: bytes::Bytes::from_static(b"jpeg"),
+                seq: 99,
+                captured_at: Duration::ZERO,
+            }))
         }
     }
 
@@ -1511,7 +1547,12 @@ mod tests {
     }
 
     fn session_access(book: &Arc<AccessBook>, client: &str, connection: &str) -> SessionAccess {
-        SessionAccess { book: book.clone(), client: client.to_string(), connection: connection.to_string(), ended: Arc::new(Mutex::new(ScreenAccessEnd::Revoked)) }
+        SessionAccess {
+            book: book.clone(),
+            client: client.to_string(),
+            connection: connection.to_string(),
+            ended: Arc::new(Mutex::new(ScreenAccessEnd::Revoked)),
+        }
     }
 
     // ---- access
@@ -1610,7 +1651,10 @@ mod tests {
         assert_eq!(second.scale_factor, 2.0);
         assert_eq!(second.bounds, DipRect { x: 960.0, y: 0.0, width: 1920.0, height: 1080.0 });
         assert_eq!(second.physical, PixelRect { x: 1920, y: 0, width: 3840, height: 2160 });
-        assert_eq!(summarize_display(second), json!({"screenId": "2", "label": "Display 1", "primary": false, "pixelWidth": 3840, "pixelHeight": 2160, "scaleFactor": 2}));
+        assert_eq!(
+            summarize_display(second),
+            json!({"screenId": "2", "label": "Display 1", "primary": false, "pixelWidth": 3840, "pixelHeight": 2160, "scaleFactor": 2})
+        );
     }
 
     #[test]
@@ -1634,7 +1678,11 @@ mod tests {
         ]);
         let listed = monitors(reply).expect("a list");
         assert_eq!(listed.len(), 3);
-        assert_eq!(listed[0].info, DisplayInfo { id: DisplayId(2528732444), x: 0, y: 0, width: 3840, height: 2160, scale_percent: 150 }, "the DIP size times the scale");
+        assert_eq!(
+            listed[0].info,
+            DisplayInfo { id: DisplayId(2528732444), x: 0, y: 0, width: 3840, height: 2160, scale_percent: 150 },
+            "the DIP size times the scale"
+        );
         assert_eq!((listed[0].label.as_deref(), listed[0].primary), (Some("Built-in"), Some(true)));
         assert_eq!((listed[1].info.id, listed[1].info.x, listed[1].info.y, listed[1].label.clone()), (DisplayId(1), -1920, -200, None));
         assert_eq!((listed[2].info.scale_percent, listed[2].info.width), (100, 800), "a scale that is not positive reads as 1");
@@ -1663,7 +1711,10 @@ mod tests {
     #[tokio::test]
     async fn the_phone_lists_the_displays_with_their_size_and_scale() {
         let (sources, _) = sources();
-        assert_eq!(sources.displays().await, vec![json!({"screenId": "0", "label": "Display 1", "primary": true, "pixelWidth": 1920, "pixelHeight": 1080, "scaleFactor": 1})]);
+        assert_eq!(
+            sources.displays().await,
+            vec![json!({"screenId": "0", "label": "Display 1", "primary": true, "pixelWidth": 1920, "pixelHeight": 1080, "scaleFactor": 1})]
+        );
     }
 
     #[tokio::test]
@@ -1757,7 +1808,6 @@ mod tests {
         assert!(matches!(sources.capture("0"), Err(ComputerError::Unavailable { .. })));
     }
 
-
     async fn next_event(received: &mut UnboundedReceiver<Told>) -> Told {
         mixdog_rt::time::timeout(Duration::from_secs(10), received.recv()).await.expect("the sink was told in time").expect("the sink is open")
     }
@@ -1819,7 +1869,6 @@ mod tests {
         assert!(sources.resolve("0", "phone-a", true).is_none());
     }
 }
-
 
 impl AccountAdmin {
     pub async fn is_admin(&self) -> Option<bool> {

@@ -3,8 +3,8 @@
 
 use mixdog_view_model::card_model::terminal_status::OutcomeToneInput;
 use mixdog_view_model::card_model::{
-    clamp_failure_count, derive_tool_outcome_tone, display_terminal_status, merge_terminal_detail, normalize_terminal_status,
-    shell_result_elapsed, shell_result_status, strip_leading_status_marker_from_text,
+    clamp_failure_count, derive_tool_outcome_tone, display_terminal_status, merge_terminal_detail, normalize_terminal_status, shell_result_elapsed,
+    shell_result_status, strip_leading_status_marker_from_text,
 };
 use mixdog_view_model::display::model_display::{
     canonical_model_display, display_model_name, effort_display_label, gateway_brand_display, shorten_model_name, title_model_part,

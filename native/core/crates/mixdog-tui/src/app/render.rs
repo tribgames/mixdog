@@ -10,11 +10,10 @@ use serde_json::{Map, Value, json};
 
 use super::AppState;
 use crate::slash::host::{PromptSurface, TextPrompt};
-use crate::surface::layout::{
-    BtwPanel, HintText, PickerLayout, QueuedCommand, ShellLayoutInput, ShellState, StreamingTail, TextEntryPrompt, TranscriptTail,
-    compute_shell_layout,
-};
 use crate::slash::palette::{PaletteItem, PaletteKind};
+use crate::surface::layout::{
+    BtwPanel, HintText, PickerLayout, QueuedCommand, ShellLayoutInput, ShellState, StreamingTail, TextEntryPrompt, TranscriptTail, compute_shell_layout,
+};
 use crate::transcript::scroll::anchor::Geometry;
 use crate::transcript::scroll::lock::{CommitFrame, RowIndex as LockRows};
 use crate::transcript::window::heights::{HeightParams, item_id, item_kind};
@@ -68,10 +67,11 @@ fn shell_state(state: &Value, items: &[Value]) -> ShellState {
         command_status_active: active(state, "commandStatus"),
         latest_toast: state.get("toasts").and_then(Value::as_array).and_then(|toasts| toasts.last()).and_then(hint_text),
         progress_hint: state.get("progressHint").and_then(hint_text),
-        streaming_tail: state
-            .get("streamingTail")
-            .filter(|tail| tail.is_object())
-            .map(|tail| StreamingTail { kind: item_kind(tail).to_owned(), streaming: tail.get("streaming") == Some(&Value::Bool(true)), text: text(tail, "text") }),
+        streaming_tail: state.get("streamingTail").filter(|tail| tail.is_object()).map(|tail| StreamingTail {
+            kind: item_kind(tail).to_owned(),
+            streaming: tail.get("streaming") == Some(&Value::Bool(true)),
+            text: text(tail, "text"),
+        }),
         transcript_view_active: state.get("transcriptViewItems").is_some_and(Value::is_array),
     }
 }
@@ -85,10 +85,7 @@ impl AppState {
         let frame_columns = columns_used.saturating_sub(1).max(1);
         self.view_columns = frame_columns;
         let view_items = state.get("transcriptViewItems").filter(|items| items.is_array());
-        let items: &[Value] = view_items
-            .or_else(|| state.get("items"))
-            .and_then(Value::as_array)
-            .map_or(&[], Vec::as_slice);
+        let items: &[Value] = view_items.or_else(|| state.get("items")).and_then(Value::as_array).map_or(&[], Vec::as_slice);
         let tail = if view_items.is_some() { None } else { state.get("streamingTail").filter(|tail| tail.is_object()) };
         let list = Items::new(items, tail);
         if self.take_follow_request() {
@@ -133,7 +130,8 @@ impl AppState {
 
         let params = HeightParams { columns: frame_columns, tool_output_expanded: self.tool_output_expanded };
         let revision = state.get("structureRevision").and_then(Value::as_u64).unwrap_or(0);
-        let ids: Vec<Value> = (0..list.len()).map(|at| list.get(at).and_then(|item| item.get("id")).filter(|id| !id.is_null()).cloned().unwrap_or(Value::Null)).collect();
+        let ids: Vec<Value> =
+            (0..list.len()).map(|at| list.get(at).and_then(|item| item.get("id")).filter(|id| !id.is_null()).cloned().unwrap_or(Value::Null)).collect();
         let session = text(&state, "sessionId");
         if session != self.window_session {
             // A resumed or new session replaces the transcript: the window returns to its tail.
@@ -145,11 +143,22 @@ impl AppState {
         self.scroll.swap_reset(&ids);
         let index = self.row_index.build(&list, &mut self.heights, &params, revision);
         let view_rows = layout.transcript_content_height.max(1);
-        let render_offset = self.scroll.resolve_render_scroll_offset(&ids, LockRows { total_rows: index.total_rows, prefix_rows: Some(&index.prefix_rows) }, view_rows, layout.floating_panel_rows);
+        let render_offset = self.scroll.resolve_render_scroll_offset(
+            &ids,
+            LockRows { total_rows: index.total_rows, prefix_rows: Some(&index.prefix_rows) },
+            view_rows,
+            layout.floating_panel_rows,
+        );
         let window = transcript_render_window(index, render_offset, layout.transcript_content_height as f64, &WindowTuning::current());
         // The commit of the frame: the geometry a manual scroll reads, then the anchor lock and the follow rule against it.
         let previous_total_rows = std::mem::replace(&mut self.prev_total_rows, window.total_rows);
-        self.scroll.geom = Geometry { prefix_rows: Some(index.prefix_rows.clone()), ids: ids.clone(), total_rows: window.total_rows, view_rows, render_offset: window.effective_scroll_offset as f64 };
+        self.scroll.geom = Geometry {
+            prefix_rows: Some(index.prefix_rows.clone()),
+            ids: ids.clone(),
+            total_rows: window.total_rows,
+            view_rows,
+            render_offset: window.effective_scroll_offset as f64,
+        };
         self.scroll.max_scroll_rows = window.max_scroll_rows;
         self.scroll.bottom_slack_rows = layout.transcript_bottom_slack_rows;
         let offset_before = (self.scroll.scroll_offset, self.scroll.target.to_bits());
@@ -203,7 +212,11 @@ impl AppState {
         let palette_query = palette.active_slash_query.clone().unwrap_or_default();
         let approval_request = state.get("toolApproval").filter(|approval| approval.is_object());
         let panels = PanelSlots {
-            tool_approval: approval_request.map(|request| ToolApprovalSlot { request, selected: self.approval_selected, question: self.question_state.as_ref() }),
+            tool_approval: approval_request.map(|request| ToolApprovalSlot {
+                request,
+                selected: self.approval_selected,
+                question: self.question_state.as_ref(),
+            }),
             slash_palette: palette.slash_palette_open.then_some(PaletteSlot {
                 commands: &palette_commands,
                 selected: palette_selected,

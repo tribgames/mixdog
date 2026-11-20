@@ -142,7 +142,13 @@ pub async fn download_public_media(fetch: &dyn PublicFetch, input: &str, limits:
 /// `downloadGeminiMedia(input, { key, signal, label, maxBytes })`: the key travels in a header and
 /// a redirect is refused.
 #[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
-pub async fn download_gemini_media(fetch: &dyn PublicFetch, input: &str, key: &str, limits: &Limits<'_>, cancel: &CancellationToken) -> Result<Vec<u8>, AdapterError> {
+pub async fn download_gemini_media(
+    fetch: &dyn PublicFetch,
+    input: &str,
+    key: &str,
+    limits: &Limits<'_>,
+    cancel: &CancellationToken,
+) -> Result<Vec<u8>, AdapterError> {
     let url = gemini_media_download_url(&serde_json::Value::String(input.to_owned()))?;
     let mut response = fetch.get(&url, &[("x-goog-api-key".to_owned(), key.to_owned())], cancel).await?;
     if redirect_target(response.as_ref(), &url)?.is_some() {

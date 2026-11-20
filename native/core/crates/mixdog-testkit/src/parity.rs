@@ -46,9 +46,15 @@ fn parse(name: &str, path: &Path, text: &str) -> Vec<Case> {
     let rows = file.get("cases").and_then(Value::as_array).unwrap_or_else(|| panic!("parity: {}: \"cases\" is not an array", path.display()));
     let mut out: Vec<Case> = Vec::with_capacity(rows.len());
     for (index, row) in rows.iter().enumerate() {
-        let id = row.get("id").and_then(Value::as_str).filter(|id| !id.is_empty()).unwrap_or_else(|| panic!("parity: {}: case {index} has no string \"id\"", path.display()));
+        let id = row
+            .get("id")
+            .and_then(Value::as_str)
+            .filter(|id| !id.is_empty())
+            .unwrap_or_else(|| panic!("parity: {}: case {index} has no string \"id\"", path.display()));
         assert!(out.iter().all(|c| c.id != id), "parity: {}: duplicate case id {id}", path.display());
-        let (Some(input), Some(expect)) = (row.get("input"), row.get("expect")) else { panic!("parity: {}: case {id} needs \"input\" and \"expect\"", path.display()) };
+        let (Some(input), Some(expect)) = (row.get("input"), row.get("expect")) else {
+            panic!("parity: {}: case {id} needs \"input\" and \"expect\"", path.display())
+        };
         out.push(Case { id: id.to_owned(), input: input.clone(), expect: expect.clone() });
     }
     out

@@ -4,9 +4,7 @@ use mixdog_trace as t;
 
 #[test]
 fn slow_tool_settings_follow_the_environment() {
-    let get = |pairs: &'static [(&'static str, &'static str)]| {
-        move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| (*v).to_string())
-    };
+    let get = |pairs: &'static [(&'static str, &'static str)]| move |name: &str| pairs.iter().find(|(k, _)| *k == name).map(|(_, v)| (*v).to_string());
     let default = t::SlowTool::from_env(&get(&[]));
     assert_eq!(default.threshold_ms, 3000);
     assert_eq!(default.names, Some(vec!["recall".into(), "grep".into(), "code_graph".into()]));

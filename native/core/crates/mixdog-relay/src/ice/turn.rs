@@ -91,13 +91,7 @@ pub fn turn_user_id(secret: &str, device_id: &str) -> String {
 pub fn issue_turn_credential(secret: &str, user_id: &str, now_ms: i64, ttl_seconds: i64) -> IssuedCredential {
     let expires_at = now_ms.div_euclid(1000) + ttl_seconds;
     let username = format!("{expires_at}:{user_id}");
-    IssuedCredential {
-        credential: turn_password(secret, &username),
-        username,
-        expires_at,
-        ttl_seconds,
-        remaining_ms: expires_at * 1000 - now_ms,
-    }
+    IssuedCredential { credential: turn_password(secret, &username), username, expires_at, ttl_seconds, remaining_ms: expires_at * 1000 - now_ms }
 }
 
 /// What coturn decides for a long-term credential under `use-auth-secret`: the expiry is still ahead and the password is the
@@ -180,10 +174,7 @@ pub fn stun_urls(config: &TurnConfig) -> Vec<String> {
 
 /// `turn:` URLs for each transport the deploy provisioned (RFC 7064/7065).
 pub fn turn_urls(config: &TurnConfig) -> Vec<String> {
-    let mut urls = vec![
-        format!("turn:{}:{}?transport=udp", config.host, config.port),
-        format!("turn:{}:{}?transport=tcp", config.host, config.port),
-    ];
+    let mut urls = vec![format!("turn:{}:{}?transport=udp", config.host, config.port), format!("turn:{}:{}?transport=tcp", config.host, config.port)];
     if config.tls_port != 0 {
         urls.push(format!("turns:{}:{}?transport=tcp", config.host, config.tls_port));
     }

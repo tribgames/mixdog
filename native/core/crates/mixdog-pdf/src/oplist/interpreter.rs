@@ -16,9 +16,8 @@ use crate::stream::{ByteStream, PdfStream};
 use crate::xref::Xref;
 
 use super::events::{
-    DRAW_CLOSE_PATH, DRAW_CURVE_TO, DRAW_LINE_TO, DRAW_MOVE_TO, Expression, GStateValue, Group,
-    ImageRef, InlineImage, MarkedData, Op, OperatorList, OptionalContent, PaintOp, ParamOp,
-    PathData, Pattern, ShadingRef, SoftMask, TextItem, TilingPattern,
+    DRAW_CLOSE_PATH, DRAW_CURVE_TO, DRAW_LINE_TO, DRAW_MOVE_TO, Expression, GStateValue, Group, ImageRef, InlineImage, MarkedData, Op, OperatorList,
+    OptionalContent, PaintOp, ParamOp, PathData, Pattern, ShadingRef, SoftMask, TextItem, TilingPattern,
 };
 use super::gstate::{self, BBOX_INIT, EvalState, StateManager};
 use super::{FontHandle, FontProvider, LoadedFont, Type3Data, truthy};
@@ -207,20 +206,11 @@ fn known_commands() -> Arc<KnownCommands> {
             let mut map = KnownCommands::new();
             for &(name, code, num_args, variable_args) in OP_MAP {
                 let entry = if code.is_some() && name != "BI" && name != "ID" {
-                    CommandArgs {
-                        num_args,
-                        variable_args,
-                    }
+                    CommandArgs { num_args, variable_args }
                 } else if name == "BI" || name == "ID" {
-                    CommandArgs {
-                        num_args: 0,
-                        variable_args: false,
-                    }
+                    CommandArgs { num_args: 0, variable_args: false }
                 } else {
-                    CommandArgs {
-                        num_args: usize::MAX,
-                        variable_args: false,
-                    }
+                    CommandArgs { num_args: usize::MAX, variable_args: false }
                 };
                 map.insert(name.to_owned(), entry);
             }
@@ -230,10 +220,7 @@ fn known_commands() -> Arc<KnownCommands> {
 }
 
 fn spec_of(name: &str) -> Option<(Code, usize, bool)> {
-    OP_MAP
-        .iter()
-        .find(|(n, ..)| *n == name)
-        .and_then(|&(_, code, num_args, variable)| code.map(|c| (c, num_args, variable)))
+    OP_MAP.iter().find(|(n, ..)| *n == name).and_then(|&(_, code, num_args, variable)| code.map(|c| (c, num_args, variable)))
 }
 
 /// `fn >= OPS.moveTo && fn <= OPS.endPath`.
@@ -355,11 +342,7 @@ fn normalize_blend_mode(value: &Obj, parsing_array: bool) -> Option<&'static str
                 "Luminosity" => "luminosity",
                 other => {
                     tracing::warn!("Unsupported blend mode: {other}");
-                    return if parsing_array {
-                        None
-                    } else {
-                        Some("source-over")
-                    };
+                    return if parsing_array { None } else { Some("source-over") };
                 }
             };
             Some(mode)
@@ -416,9 +399,7 @@ impl<'x> Preprocessor<'x> {
                             }
                         }
                         if args_length < num_args {
-                            let partial = format!(
-                                "command {cmd}: expected {num_args} args, but received {args_length} args."
-                            );
+                            let partial = format!("command {cmd}: expected {num_args} args, but received {args_length} args.");
                             if self.is_path_op {
                                 self.num_invalid_path_ops += 1;
                                 if self.num_invalid_path_ops > MAX_INVALID_PATH_OPS {
@@ -430,9 +411,7 @@ impl<'x> Preprocessor<'x> {
                             continue;
                         }
                     } else if args_length > num_args {
-                        tracing::debug!(
-                            "Command {cmd}: expected [0, {num_args}] args, but received {args_length} args."
-                        );
+                        tracing::debug!("Command {cmd}: expected [0, {num_args}] args, but received {args_length} args.");
                     }
                     match code {
                         Code::Save => sm.save(),
@@ -501,11 +480,7 @@ pub struct Evaluator<'a> {
 }
 
 impl<'a> Evaluator<'a> {
-    pub fn new(
-        document: &'a Document,
-        fonts: Option<&'a dyn FontProvider>,
-        page_index: usize,
-    ) -> Self {
+    pub fn new(document: &'a Document, fonts: Option<&'a dyn FontProvider>, page_index: usize) -> Self {
         Evaluator {
             xref: document.xref(),
             fonts,
@@ -548,44 +523,23 @@ impl<'a> Evaluator<'a> {
         let mut seen: Vec<String> = prev_refs.to_vec();
         if let Some(id) = stream_id {
             if prev_refs.iter().any(|r| r == id) {
-                return Err(format_error(format!(
-                    "getOperatorList - ignoring circular reference: {id}"
-                )));
+                return Err(format_error(format!("getOperatorList - ignoring circular reference: {id}")));
             }
             seen.push(id.to_owned());
         }
         let xref = self.xref;
         let mut sm = StateManager::new(initial_state.unwrap_or_default());
-        let lexer = Lexer::with_known_commands(
-            ByteStream::from_vec(content),
-            xref.guard().clone(),
-            Some(known_commands()),
-        );
+        let lexer = Lexer::with_known_commands(ByteStream::from_vec(content), xref.guard().clone(), Some(known_commands()));
         let parser = Parser::new(lexer, Some(xref), false, false)?;
-        let mut pre = Preprocessor {
-            parser,
-            non_processed: Vec::new(),
-            is_path_op: false,
-            num_invalid_path_ops: 0,
-        };
+        let mut pre = Preprocessor { parser, non_processed: Vec::new(), is_path_op: false, num_invalid_path_ops: 0 };
         let mut scope = Scope::default();
         let mut marked = 0usize;
-        let outcome = self.run(
-            &mut pre,
-            &mut sm,
-            resources,
-            op_list,
-            &mut scope,
-            &seen,
-            &mut marked,
-        );
+        let outcome = self.run(&mut pre, &mut sm, resources, op_list, &mut scope, &seen, &mut marked);
         match outcome {
             Ok(()) => {}
             Err(e) if e.is_fatal() => return Err(e),
             Err(e) if self.ignore_errors => {
-                tracing::warn!(
-                    "getOperatorList - ignoring errors during \"OperatorList\" task: \"{e}\"."
-                );
+                tracing::warn!("getOperatorList - ignoring errors during \"OperatorList\" task: \"{e}\".");
             }
             Err(e) => return Err(e),
         }
@@ -644,17 +598,8 @@ impl<'a> Evaluator<'a> {
                 Code::SetFont => {
                     let size = args.get(1).cloned().unwrap_or(Obj::Null);
                     let name = args.first().and_then(Obj::as_name).map(str::to_owned);
-                    let font = self.handle_set_font(
-                        name.as_deref(),
-                        None,
-                        resources,
-                        &mut sm.state,
-                        seen,
-                    )?;
-                    op_list.add_op(Op::SetFont {
-                        loaded_name: font.loaded_name.clone(),
-                        size,
-                    });
+                    let font = self.handle_set_font(name.as_deref(), None, resources, &mut sm.state, seen)?;
+                    op_list.add_op(Op::SetFont { loaded_name: font.loaded_name.clone(), size });
                 }
                 Code::EndInlineImage => {
                     let Some(Obj::Stream(image)) = args.first().cloned() else {
@@ -667,14 +612,7 @@ impl<'a> Evaluator<'a> {
                         Self::add_cached_image_ops(op_list, cached);
                         continue;
                     }
-                    let outcome = self.build_paint_image_xobject(
-                        resources,
-                        &image,
-                        true,
-                        op_list,
-                        key.as_deref(),
-                        scope,
-                    );
+                    let outcome = self.build_paint_image_xobject(resources, &image, true, op_list, key.as_deref(), scope);
                     self.swallow("inline image", outcome)?;
                 }
                 Code::ShowText => {
@@ -683,9 +621,7 @@ impl<'a> Evaluator<'a> {
                         continue;
                     }
                     let glyphs = self.handle_text(args.first(), &sm.state);
-                    op_list.add_op(Op::ShowText(
-                        glyphs.into_iter().map(TextItem::Glyph).collect(),
-                    ));
+                    op_list.add_op(Op::ShowText(glyphs.into_iter().map(TextItem::Glyph).collect()));
                 }
                 Code::ShowSpacedText => {
                     if sm.state.font.is_none() {
@@ -696,11 +632,7 @@ impl<'a> Evaluator<'a> {
                     if let Some(Obj::Array(array)) = args.first() {
                         for item in array.iter() {
                             match item {
-                                Obj::Str(_) => items.extend(
-                                    self.handle_text(Some(item), &sm.state)
-                                        .into_iter()
-                                        .map(TextItem::Glyph),
-                                ),
+                                Obj::Str(_) => items.extend(self.handle_text(Some(item), &sm.state).into_iter().map(TextItem::Glyph)),
                                 Obj::Num(n) => items.push(TextItem::Adjust(*n)),
                                 _ => {}
                             }
@@ -715,9 +647,7 @@ impl<'a> Evaluator<'a> {
                     }
                     op_list.add_op(Op::Param(ParamOp::NextLine, Vec::new()));
                     let glyphs = self.handle_text(args.first(), &sm.state);
-                    op_list.add_op(Op::ShowText(
-                        glyphs.into_iter().map(TextItem::Glyph).collect(),
-                    ));
+                    op_list.add_op(Op::ShowText(glyphs.into_iter().map(TextItem::Glyph).collect()));
                 }
                 Code::NextLineSetSpacingShowText => {
                     if sm.state.font.is_none() {
@@ -730,9 +660,7 @@ impl<'a> Evaluator<'a> {
                     let character = args.remove(0);
                     op_list.add_op(Op::Param(ParamOp::SetCharSpacing, vec![character]));
                     let glyphs = self.handle_text(args.first(), &sm.state);
-                    op_list.add_op(Op::ShowText(
-                        glyphs.into_iter().map(TextItem::Glyph).collect(),
-                    ));
+                    op_list.add_op(Op::ShowText(glyphs.into_iter().map(TextItem::Glyph).collect()));
                 }
                 Code::SetTextRenderingMode => {
                     sm.state.text_rendering_mode = number_at(&args, 0) as i64;
@@ -751,11 +679,7 @@ impl<'a> Evaluator<'a> {
                         continue;
                     };
                     let fill = code == Code::SetFillColor;
-                    let space = if fill {
-                        sm.state.fill_color_space.clone()
-                    } else {
-                        sm.state.stroke_color_space.clone()
-                    };
+                    let space = if fill { sm.state.fill_color_space.clone() } else { sm.state.stroke_color_space.clone() };
                     let hex = space.get_rgb_hex(&values, 0)?;
                     op_list.add_op(Self::rgb_op(fill, hex));
                 }
@@ -768,10 +692,7 @@ impl<'a> Evaluator<'a> {
                     let Some(values) = all_numbers(&args) else {
                         continue;
                     };
-                    let fill = matches!(
-                        code,
-                        Code::SetFillGray | Code::SetFillCmykColor | Code::SetFillRgbColor
-                    );
+                    let fill = matches!(code, Code::SetFillGray | Code::SetFillCmykColor | Code::SetFillRgbColor);
                     let space = match code {
                         Code::SetFillGray | Code::SetStrokeGray => ColorSpace::gray(),
                         Code::SetFillCmykColor | Code::SetStrokeCmykColor => ColorSpace::cmyk(),
@@ -787,21 +708,13 @@ impl<'a> Evaluator<'a> {
                 }
                 Code::SetFillColorN | Code::SetStrokeColorN => {
                     let fill = code == Code::SetFillColorN;
-                    let current = if fill {
-                        sm.state.pattern_fill_color_space.clone()
-                    } else {
-                        sm.state.pattern_stroke_color_space.clone()
-                    };
+                    let current = if fill { sm.state.pattern_fill_color_space.clone() } else { sm.state.pattern_stroke_color_space.clone() };
                     let Some(space) = current else {
                         if let Some(values) = all_numbers(&args) {
                             let hex = ColorSpace::gray().get_rgb_hex(&values, 0)?;
                             op_list.add_op(Self::rgb_op(fill, hex));
                         } else {
-                            op_list.add_op(if fill {
-                                Op::SetFillTransparent
-                            } else {
-                                Op::SetStrokeTransparent
-                            });
+                            op_list.add_op(if fill { Op::SetFillTransparent } else { Op::SetStrokeTransparent });
                         }
                         continue;
                     };
@@ -850,18 +763,11 @@ impl<'a> Evaluator<'a> {
                         continue;
                     };
                     let numbers: Vec<f64> = array.iter().filter_map(Obj::as_num).collect();
-                    op_list.add_op(Op::SetDash {
-                        array: numbers,
-                        phase,
-                    });
+                    op_list.add_op(Op::SetDash { array: numbers, phase });
                 }
-                Code::MoveTo
-                | Code::LineTo
-                | Code::CurveTo
-                | Code::CurveTo2
-                | Code::CurveTo3
-                | Code::ClosePath
-                | Code::Rectangle => Self::build_path(code, &args, &mut sm.state),
+                Code::MoveTo | Code::LineTo | Code::CurveTo | Code::CurveTo2 | Code::CurveTo3 | Code::ClosePath | Code::Rectangle => {
+                    Self::build_path(code, &args, &mut sm.state)
+                }
                 Code::Stroke
                 | Code::CloseStroke
                 | Code::Fill
@@ -872,10 +778,7 @@ impl<'a> Evaluator<'a> {
                 | Code::CloseEoFillStroke
                 | Code::EndPath => {
                     let state = &mut sm.state;
-                    if matches!(
-                        code,
-                        Code::CloseStroke | Code::CloseFillStroke | Code::CloseEoFillStroke
-                    ) {
+                    if matches!(code, Code::CloseStroke | Code::CloseFillStroke | Code::CloseEoFillStroke) {
                         state.path_buffer.push(f64::from(DRAW_CLOSE_PATH));
                     }
                     let paint = match code {
@@ -896,10 +799,7 @@ impl<'a> Evaluator<'a> {
                         let min_max = state.path_min_max;
                         state.path_buffer.clear();
                         state.path_min_max = BBOX_INIT;
-                        op_list.add_op(Op::ConstructPath {
-                            paint,
-                            path: Some(PathData { data, min_max }),
-                        });
+                        op_list.add_op(Op::ConstructPath { paint, path: Some(PathData { data, min_max }) });
                     }
                 }
                 Code::SetTextMatrix => {
@@ -911,28 +811,17 @@ impl<'a> Evaluator<'a> {
                     *marked += 1;
                     let Some(tag) = args.first().and_then(Obj::as_name).map(str::to_owned) else {
                         tracing::warn!("Expected name for beginMarkedContentProps arg0.");
-                        op_list.add_op(Op::BeginMarkedContentProps {
-                            tag: "OC".to_owned(),
-                            data: MarkedData::OptionalContent(None),
-                        });
+                        op_list.add_op(Op::BeginMarkedContentProps { tag: "OC".to_owned(), data: MarkedData::OptionalContent(None) });
                         continue;
                     };
                     if tag == "OC" {
                         let props = args.get(1).cloned().unwrap_or(Obj::Null);
                         match self.parse_marked_content_props(&props, resources) {
-                            Ok(data) => op_list.add_op(Op::BeginMarkedContentProps {
-                                tag,
-                                data: MarkedData::OptionalContent(data),
-                            }),
+                            Ok(data) => op_list.add_op(Op::BeginMarkedContentProps { tag, data: MarkedData::OptionalContent(data) }),
                             Err(e) if e.is_fatal() => return Err(e),
                             Err(e) if self.ignore_errors => {
-                                tracing::warn!(
-                                    "getOperatorList - ignoring beginMarkedContentProps: \"{e}\"."
-                                );
-                                op_list.add_op(Op::BeginMarkedContentProps {
-                                    tag,
-                                    data: MarkedData::OptionalContent(None),
-                                });
+                                tracing::warn!("getOperatorList - ignoring beginMarkedContentProps: \"{e}\".");
+                                op_list.add_op(Op::BeginMarkedContentProps { tag, data: MarkedData::OptionalContent(None) });
                             }
                             Err(e) => return Err(e),
                         }
@@ -942,10 +831,7 @@ impl<'a> Evaluator<'a> {
                         Some(Obj::Dict(dict)) => xref.get(dict, "MCID")?,
                         _ => Obj::Null,
                     };
-                    op_list.add_op(Op::BeginMarkedContentProps {
-                        tag,
-                        data: MarkedData::Mcid(mcid),
-                    });
+                    op_list.add_op(Op::BeginMarkedContentProps { tag, data: MarkedData::Mcid(mcid) });
                 }
                 Code::BeginMarkedContent => {
                     if args.iter().any(is_dict) {
@@ -1019,11 +905,7 @@ impl<'a> Evaluator<'a> {
     }
 
     fn rgb_op(fill: bool, hex: String) -> Op {
-        if fill {
-            Op::SetFillRgbColor(hex)
-        } else {
-            Op::SetStrokeRgbColor(hex)
-        }
+        if fill { Op::SetFillRgbColor(hex) } else { Op::SetStrokeRgbColor(hex) }
     }
 
     // ---- colour spaces -------------------------------------------------------------------------------------------
@@ -1050,12 +932,7 @@ impl<'a> Evaluator<'a> {
         let n = |i: usize| number_at(args, i);
         let buffer = &mut state.path_buffer;
         let min_max = &mut state.path_min_max;
-        let (mv, ln, cv, cl) = (
-            f64::from(DRAW_MOVE_TO),
-            f64::from(DRAW_LINE_TO),
-            f64::from(DRAW_CURVE_TO),
-            f64::from(DRAW_CLOSE_PATH),
-        );
+        let (mv, ln, cv, cl) = (f64::from(DRAW_MOVE_TO), f64::from(DRAW_LINE_TO), f64::from(DRAW_CURVE_TO), f64::from(DRAW_CLOSE_PATH));
         match code {
             Code::Rectangle => {
                 let (x, y, width, height) = (n(0), n(1), n(2), n(3));
@@ -1154,14 +1031,7 @@ impl<'a> Evaluator<'a> {
                 sm.restore();
                 Ok(())
             }
-            "Image" => self.build_paint_image_xobject(
-                resources,
-                &stream,
-                false,
-                op_list,
-                Some(name),
-                scope,
-            ),
+            "Image" => self.build_paint_image_xobject(resources, &stream, false, op_list, Some(name), scope),
             "PS" => {
                 tracing::debug!("Ignored XObject subtype PS");
                 Ok(())
@@ -1183,8 +1053,7 @@ impl<'a> Evaluator<'a> {
         let xref = self.xref;
         let dict = &xobj.dict;
         let matrix = number_array(&xref.get_array(dict, "Matrix")?, 6);
-        let bbox = number_array(&xref.get_array(dict, "BBox")?, 4)
-            .map(|b| gstate::normalize_rect([b[0], b[1], b[2], b[3]]));
+        let bbox = number_array(&xref.get_array(dict, "BBox")?, 4).map(|b| gstate::normalize_rect([b[0], b[1], b[2], b[3]]));
         let mut f32_bbox: Option<[f32; 4]> = bbox.map(|b| f32_array::<4>(&b));
         if f32_bbox.is_some_and(|b| b.iter().any(|x| !x.is_finite())) {
             f32_bbox = None;
@@ -1196,10 +1065,7 @@ impl<'a> Evaluator<'a> {
             None
         };
         if let Some(oc) = &optional_content {
-            op_list.add_op(Op::BeginMarkedContentProps {
-                tag: "OC".to_owned(),
-                data: MarkedData::OptionalContent(oc.clone()),
-            });
+            op_list.add_op(Op::BeginMarkedContentProps { tag: "OC".to_owned(), data: MarkedData::OptionalContent(oc.clone()) });
         }
         let group = match xref.get(dict, "Group")? {
             Obj::Dict(g) => Some(g),
@@ -1214,18 +1080,8 @@ impl<'a> Evaluator<'a> {
         let content = self.stream_bytes(xobj)?;
         let stream_id = dict.obj_id.clone();
         let Some(group) = group else {
-            op_list.add_op(Op::FormBegin {
-                matrix: f32_matrix,
-                bbox: begin_bbox,
-            });
-            self.get_operator_list(
-                content,
-                stream_id.as_deref(),
-                &local_resources,
-                op_list,
-                Some(initial_state),
-                seen,
-            )?;
+            op_list.add_op(Op::FormBegin { matrix: f32_matrix, bbox: begin_bbox });
+            self.get_operator_list(content, stream_id.as_deref(), &local_resources, op_list, Some(initial_state), seen)?;
             op_list.add_op(Op::FormEnd);
             if optional_content.is_some() {
                 op_list.add_op(Op::EndMarkedContent);
@@ -1255,21 +1111,10 @@ impl<'a> Evaluator<'a> {
                 None if input.subtype == "Luminosity" => Some("#000000".to_owned()),
                 None => None,
             };
-            soft_mask = Some(SoftMask {
-                subtype: input.subtype,
-                backdrop,
-                transfer_map: input.transfer_map,
-            });
+            soft_mask = Some(SoftMask { subtype: input.subtype, backdrop, transfer_map: input.transfer_map });
         }
         let mut inner = OperatorList::new();
-        self.get_operator_list(
-            content,
-            stream_id.as_deref(),
-            &local_resources,
-            &mut inner,
-            Some(initial_state),
-            seen,
-        )?;
+        self.get_operator_list(content, stream_id.as_deref(), &local_resources, &mut inner, Some(initial_state), seen)?;
         let (needs_isolation, has_soft_mask) = isolation_of(inner.ops());
         let has_smask = soft_mask.is_some();
         let options = Group {
@@ -1283,10 +1128,7 @@ impl<'a> Evaluator<'a> {
             is_gray,
         };
         op_list.add_op(Op::BeginGroup(options.clone()));
-        op_list.add_op(Op::FormBegin {
-            matrix: f32_matrix,
-            bbox: begin_bbox,
-        });
+        op_list.add_op(Op::FormBegin { matrix: f32_matrix, bbox: begin_bbox });
         op_list.add_op_list(inner);
         op_list.add_op(Op::FormEnd);
         op_list.add_op(Op::EndGroup(options));
@@ -1301,24 +1143,13 @@ impl<'a> Evaluator<'a> {
     }
 
     /// `addImageOps`.
-    fn add_image_ops(
-        op_list: &mut OperatorList,
-        op: Op,
-        optional_content: Option<Option<OptionalContent>>,
-        has_mask: bool,
-    ) {
+    fn add_image_ops(op_list: &mut OperatorList, op: Op, optional_content: Option<Option<OptionalContent>>, has_mask: bool) {
         if has_mask {
             op_list.add_op(Op::Save);
-            op_list.add_op(Op::SetGState(vec![(
-                "SMask".to_owned(),
-                GStateValue::Bool(false),
-            )]));
+            op_list.add_op(Op::SetGState(vec![("SMask".to_owned(), GStateValue::Bool(false))]));
         }
         if let Some(oc) = &optional_content {
-            op_list.add_op(Op::BeginMarkedContentProps {
-                tag: "OC".to_owned(),
-                data: MarkedData::OptionalContent(oc.clone()),
-            });
+            op_list.add_op(Op::BeginMarkedContentProps { tag: "OC".to_owned(), data: MarkedData::OptionalContent(oc.clone()) });
         }
         op_list.add_op(op);
         if optional_content.is_some() {
@@ -1366,14 +1197,8 @@ impl<'a> Evaluator<'a> {
         let xref = self.xref;
         let dict = &image.dict;
         let image_ref = dict.obj_id.clone();
-        let w = xref
-            .get2(dict, "W", "Width")?
-            .as_num()
-            .filter(|w| *w != 0.0 && !w.is_nan());
-        let h = xref
-            .get2(dict, "H", "Height")?
-            .as_num()
-            .filter(|h| *h != 0.0 && !h.is_nan());
+        let w = xref.get2(dict, "W", "Width")?.as_num().filter(|w| *w != 0.0 && !w.is_nan());
+        let h = xref.get2(dict, "H", "Height")?.as_num().filter(|h| *h != 0.0 && !h.is_nan());
         let (Some(w), Some(h)) = (w, h) else {
             tracing::warn!("Image dimensions are missing, or not numbers.");
             return Ok(());
@@ -1389,11 +1214,7 @@ impl<'a> Evaluator<'a> {
             // A one-pixel mask that paints is a solid fill of the colour (`isSingleOpaquePixel`).
             let mut single_opaque_pixel = false;
             if w == 1.0 && h == 1.0 {
-                let decode = if dict.has("D") {
-                    xref.get_array(dict, "D")?
-                } else {
-                    xref.get_array(dict, "Decode")?
-                };
+                let decode = if dict.has("D") { xref.get_array(dict, "D")? } else { xref.get_array(dict, "Decode")? };
                 let inverse_decode = matches!(&decode, Obj::Array(values)
                     if values.first().and_then(Obj::as_num).is_some_and(|d| d > 0.0));
                 let bytes = self.stream_bytes(image)?;
@@ -1404,48 +1225,25 @@ impl<'a> Evaluator<'a> {
             } else {
                 let object_id = self.create_obj_id();
                 let id = format!("mask_p{}_{}", self.page_index, object_id);
-                let reference = ImageRef {
-                    id,
-                    width: w,
-                    height: h,
-                    source: image.clone(),
-                };
+                let reference = ImageRef { id, width: w, height: h, source: image.clone() };
                 (Op::PaintImageMask(reference), false)
             }
         } else {
             let has_mask = dict.has("SMask") || dict.has("Mask");
             if is_inline && w + h < SMALL_IMAGE_DIMENSIONS && !has_mask {
-                let decoded = Arc::new(crate::image::decode_small_inline_image(
-                    xref,
-                    Some(resources),
-                    image,
-                )?);
-                let op = Op::PaintInlineImage(InlineImage {
-                    width: w,
-                    height: h,
-                    source: image.clone(),
-                    decoded,
-                });
+                let decoded = Arc::new(crate::image::decode_small_inline_image(xref, Some(resources), image)?);
+                let op = Op::PaintInlineImage(InlineImage { width: w, height: h, source: image.clone(), decoded });
                 Self::add_image_ops(op_list, op, optional_content, false);
                 return Ok(());
             }
             let object_id = self.create_obj_id();
             let id = format!("img_p{}_{}", self.page_index, object_id);
-            let reference = ImageRef {
-                id,
-                width: w,
-                height: h,
-                source: image.clone(),
-            };
+            let reference = ImageRef { id, width: w, height: h, source: image.clone() };
             (Op::PaintImage(reference), has_mask)
         };
         Self::add_image_ops(op_list, op.clone(), optional_content.clone(), has_mask);
         if let Some(key) = cache_key {
-            let cached = CachedImage {
-                op,
-                optional_content,
-                has_mask,
-            };
+            let cached = CachedImage { op, optional_content, has_mask };
             scope.images.insert(key.to_owned(), cached.clone());
             if let Some(reference) = image_ref {
                 self.regional_images.insert(reference, cached);
@@ -1457,11 +1255,7 @@ impl<'a> Evaluator<'a> {
     // ---- optional content ----------------------------------------------------------------------------------------
 
     /// `parseMarkedContentProps`.
-    fn parse_marked_content_props(
-        &self,
-        props: &Obj,
-        resources: &Dict,
-    ) -> Result<Option<OptionalContent>> {
+    fn parse_marked_content_props(&self, props: &Obj, resources: &Dict) -> Result<Option<OptionalContent>> {
         let xref = self.xref;
         let optional: Arc<Dict> = match props {
             Obj::Name(name) => {
@@ -1481,19 +1275,13 @@ impl<'a> Evaluator<'a> {
             _ => None,
         };
         match kind.as_deref() {
-            Some("OCG") => Ok(Some(OptionalContent::Group {
-                id: optional.obj_id.clone(),
-            })),
+            Some("OCG") => Ok(Some(OptionalContent::Group { id: optional.obj_id.clone() })),
             Some("OCMD") => {
                 if let Obj::Array(expression) = xref.get(&optional, "VE")? {
                     let mut result = Vec::new();
                     self.parse_visibility_expression(&expression, 0, &mut result)?;
                     if !result.is_empty() {
-                        return Ok(Some(OptionalContent::Membership {
-                            ids: Vec::new(),
-                            policy: None,
-                            expression: Some(result),
-                        }));
+                        return Ok(Some(OptionalContent::Membership { ids: Vec::new(), policy: None, expression: Some(result) }));
                     }
                 }
                 let groups = xref.get(&optional, "OCGs")?;
@@ -1512,23 +1300,14 @@ impl<'a> Evaluator<'a> {
                     Obj::Name(n) => Some(n.to_string()),
                     _ => None,
                 };
-                Ok(Some(OptionalContent::Membership {
-                    ids,
-                    policy,
-                    expression: None,
-                }))
+                Ok(Some(OptionalContent::Membership { ids, policy, expression: None }))
             }
             _ => Ok(None),
         }
     }
 
     /// `_parseVisibilityExpression`.
-    fn parse_visibility_expression(
-        &self,
-        array: &[Obj],
-        nesting: usize,
-        result: &mut Vec<Expression>,
-    ) -> Result<()> {
+    fn parse_visibility_expression(&self, array: &[Obj], nesting: usize, result: &mut Vec<Expression>) -> Result<()> {
         const MAX_NESTING: usize = 10;
         let nesting = nesting + 1;
         if nesting > MAX_NESTING {
@@ -1571,14 +1350,7 @@ impl<'a> Evaluator<'a> {
 
     /// `setGState`: the dictionary's entries become one `setGState`; a font entry loads its font, a soft mask adds
     /// its group before the operator, as pdf.js orders them.
-    fn set_gstate(
-        &mut self,
-        name: &Obj,
-        resources: &Arc<Dict>,
-        op_list: &mut OperatorList,
-        sm: &mut StateManager,
-        seen: &[String],
-    ) -> Result<()> {
+    fn set_gstate(&mut self, name: &Obj, resources: &Arc<Dict>, op_list: &mut OperatorList, sm: &mut StateManager, seen: &[String]) -> Result<()> {
         let xref = self.xref;
         let Obj::Name(name) = name else {
             return Err(format_error("GState must be referred to by name."));
@@ -1635,26 +1407,11 @@ impl<'a> Evaluator<'a> {
             match item {
                 Deferred::Font(value) => {
                     let (font_obj, size) = match &value {
-                        Obj::Array(items) => (
-                            items.first().cloned().unwrap_or(Obj::Null),
-                            items.get(1).cloned().unwrap_or(Obj::Null),
-                        ),
+                        Obj::Array(items) => (items.first().cloned().unwrap_or(Obj::Null), items.get(1).cloned().unwrap_or(Obj::Null)),
                         _ => (Obj::Null, Obj::Null),
                     };
-                    let font = self.handle_set_font(
-                        None,
-                        Some(&font_obj),
-                        resources,
-                        &mut sm.state,
-                        seen,
-                    )?;
-                    entries.push((
-                        "Font".to_owned(),
-                        GStateValue::Font {
-                            loaded_name: font.loaded_name.clone(),
-                            size,
-                        },
-                    ));
+                    let font = self.handle_set_font(None, Some(&font_obj), resources, &mut sm.state, seen)?;
+                    entries.push(("Font".to_owned(), GStateValue::Font { loaded_name: font.loaded_name.clone(), size }));
                 }
                 Deferred::SMask(smask) => {
                     self.handle_smask(&smask, resources, op_list, sm, seen)?;
@@ -1668,43 +1425,21 @@ impl<'a> Evaluator<'a> {
     }
 
     /// `handleSMask`.
-    fn handle_smask(
-        &mut self,
-        smask: &Arc<Dict>,
-        resources: &Arc<Dict>,
-        op_list: &mut OperatorList,
-        sm: &mut StateManager,
-        seen: &[String],
-    ) -> Result<()> {
+    fn handle_smask(&mut self, smask: &Arc<Dict>, resources: &Arc<Dict>, op_list: &mut OperatorList, sm: &mut StateManager, seen: &[String]) -> Result<()> {
         let xref = self.xref;
         let Obj::Stream(content) = xref.get(smask, "G")? else {
             return Err(format_error("SMask /G should be a stream."));
         };
         let Obj::Name(subtype) = xref.get(smask, "S")? else {
-            return Err(format_error(
-                "Cannot read properties of undefined (reading 'name')",
-            ));
+            return Err(format_error("Cannot read properties of undefined (reading 'name')"));
         };
         let backdrop = match xref.get(smask, "BC")? {
-            Obj::Array(items) => Some(
-                items
-                    .iter()
-                    .map(|o| o.as_num().unwrap_or(f64::NAN))
-                    .collect(),
-            ),
+            Obj::Array(items) => Some(items.iter().map(|o| o.as_num().unwrap_or(f64::NAN)).collect()),
             _ => None,
         };
         let transfer = xref.get(smask, "TR")?;
-        let transfer_map = if is_pdf_function(&transfer) {
-            Some(self.create_transfer_map(&transfer)?)
-        } else {
-            None
-        };
-        let input = SmaskInput {
-            subtype: subtype.to_string(),
-            backdrop,
-            transfer_map,
-        };
+        let transfer_map = if is_pdf_function(&transfer) { Some(self.create_transfer_map(&transfer)?) } else { None };
+        let input = SmaskInput { subtype: subtype.to_string(), backdrop, transfer_map };
         let initial = sm.state.cloned(true);
         self.build_form_xobject(resources, &content, Some(input), op_list, initial, seen)
     }
@@ -1761,16 +1496,9 @@ impl<'a> Evaluator<'a> {
     // ---- patterns and shadings -----------------------------------------------------------------------------------
 
     /// The shading `sh` names: its id (one per shading object within the content stream).
-    fn shading_operand(
-        &mut self,
-        name: &Obj,
-        resources: &Dict,
-        scope: &mut Scope,
-    ) -> Result<ShadingRef> {
+    fn shading_operand(&mut self, name: &Obj, resources: &Dict, scope: &mut Scope) -> Result<ShadingRef> {
         let Obj::Name(name) = name else {
-            return Err(format_error(
-                "Cannot read properties of undefined (reading 'name')",
-            ));
+            return Err(format_error("Cannot read properties of undefined (reading 'name')"));
         };
         let Obj::Dict(shadings) = self.xref.get(resources, "Shading")? else {
             return Err(format_error("No shading resource found"));
@@ -1797,10 +1525,7 @@ impl<'a> Evaluator<'a> {
         }
         let object_id = self.create_obj_id();
         let id = format!("pattern_p{}_{}", self.page_index, object_id);
-        let reference = ShadingRef {
-            id,
-            source: shading,
-        };
+        let reference = ShadingRef { id, source: shading };
         if let Some(key) = identity {
             scope.shadings.insert(key, reference.clone());
         }
@@ -1842,41 +1567,21 @@ impl<'a> Evaluator<'a> {
         match type_num.as_num() {
             Some(t) if t == 1.0 => {
                 let color = match space.pattern_base() {
-                    Some(base) => Some(
-                        base.get_rgb_hex(
-                            &args
-                                .iter()
-                                .map(|a| a.as_num().unwrap_or(f64::NAN))
-                                .collect::<Vec<_>>(),
-                            0,
-                        )?,
-                    ),
+                    Some(base) => Some(base.get_rgb_hex(&args.iter().map(|a| a.as_num().unwrap_or(f64::NAN)).collect::<Vec<_>>(), 0)?),
                     None => None,
                 };
-                let outcome =
-                    self.handle_tiling_type(fill, color, resources, &pattern, &dict, op_list, seen);
+                let outcome = self.handle_tiling_type(fill, color, resources, &pattern, &dict, op_list, seen);
                 self.swallow("pattern", outcome)
             }
             Some(t) if t == 2.0 => {
                 let shading = xref.get(&dict, "Shading")?;
                 let reference = self.shading_ref(shading, scope);
-                let matrix = number_array(&xref.get_array(&dict, "Matrix")?, 6)
-                    .map(|m| [m[0], m[1], m[2], m[3], m[4], m[5]]);
-                let pattern = Pattern::Shading {
-                    shading: reference,
-                    matrix,
-                };
-                op_list.add_op(if fill {
-                    Op::SetFillPattern(pattern)
-                } else {
-                    Op::SetStrokePattern(pattern)
-                });
+                let matrix = number_array(&xref.get_array(&dict, "Matrix")?, 6).map(|m| [m[0], m[1], m[2], m[3], m[4], m[5]]);
+                let pattern = Pattern::Shading { shading: reference, matrix };
+                op_list.add_op(if fill { Op::SetFillPattern(pattern) } else { Op::SetStrokePattern(pattern) });
                 Ok(())
             }
-            _ => Err(format_error(format!(
-                "Unknown PatternType: {}",
-                mixdog_js::number_to_string(type_num.as_num().unwrap_or(f64::NAN))
-            ))),
+            _ => Err(format_error(format!("Unknown PatternType: {}", mixdog_js::number_to_string(type_num.as_num().unwrap_or(f64::NAN))))),
         }
     }
 
@@ -1901,19 +1606,10 @@ impl<'a> Evaluator<'a> {
         let pattern_resources = Arc::new(merged);
         let content = self.stream_bytes(stream)?;
         let mut cell = OperatorList::new();
-        self.get_operator_list(
-            content,
-            stream.dict.obj_id.as_deref(),
-            &pattern_resources,
-            &mut cell,
-            None,
-            seen,
-        )?;
+        self.get_operator_list(content, stream.dict.obj_id.as_deref(), &pattern_resources, &mut cell, None, seen)?;
         let (needs_isolation, _) = isolation_of(cell.ops());
-        let matrix = number_array(&xref.get_array(pattern_dict, "Matrix")?, 6)
-            .map_or(gstate::IDENTITY, |m| f64_array6(&m));
-        let bbox = number_array(&xref.get_array(pattern_dict, "BBox")?, 4)
-            .map(|b| gstate::normalize_rect([b[0], b[1], b[2], b[3]]));
+        let matrix = number_array(&xref.get_array(pattern_dict, "Matrix")?, 6).map_or(gstate::IDENTITY, |m| f64_array6(&m));
+        let bbox = number_array(&xref.get_array(pattern_dict, "BBox")?, 4).map(|b| gstate::normalize_rect([b[0], b[1], b[2], b[3]]));
         let Some(bbox) = bbox.filter(|b| b[2] - b[0] != 0.0 && b[3] - b[1] != 0.0) else {
             return Err(format_error("Invalid getTilingPatternIR /BBox array."));
         };
@@ -1923,10 +1619,8 @@ impl<'a> Evaluator<'a> {
         let Some(ystep) = xref.get(pattern_dict, "YStep")?.as_num() else {
             return Err(format_error("Invalid getTilingPatternIR /YStep value."));
         };
-        let paint_type = integer_of(&xref.get(pattern_dict, "PaintType")?)
-            .ok_or_else(|| format_error("Invalid getTilingPatternIR /PaintType value."))?;
-        let tiling_type = integer_of(&xref.get(pattern_dict, "TilingType")?)
-            .ok_or_else(|| format_error("Invalid getTilingPatternIR /TilingType value."))?;
+        let paint_type = integer_of(&xref.get(pattern_dict, "PaintType")?).ok_or_else(|| format_error("Invalid getTilingPatternIR /PaintType value."))?;
+        let tiling_type = integer_of(&xref.get(pattern_dict, "TilingType")?).ok_or_else(|| format_error("Invalid getTilingPatternIR /TilingType value."))?;
         let tiling = Pattern::Tiling(Box::new(TilingPattern {
             color,
             operator_list: Arc::new(cell),
@@ -1938,11 +1632,7 @@ impl<'a> Evaluator<'a> {
             tiling_type,
             needs_isolation,
         }));
-        op_list.add_op(if fill {
-            Op::SetFillPattern(tiling)
-        } else {
-            Op::SetStrokePattern(tiling)
-        });
+        op_list.add_op(if fill { Op::SetFillPattern(tiling) } else { Op::SetStrokePattern(tiling) });
         Ok(())
     }
 
@@ -1985,23 +1675,13 @@ impl<'a> Evaluator<'a> {
     }
 
     fn error_font(&self) -> FontHandle {
-        Arc::new(LoadedFont {
-            loaded_name: "g_font_error".to_owned(),
-            font: None,
-            type3: None,
-        })
+        Arc::new(LoadedFont { loaded_name: "g_font_error".to_owned(), font: None, type3: None })
     }
 
     /// `loadFont`: the font of a resource name (or of a reference a graphics state names), translated by the font
     /// provider, with the glyph procedures of a Type3 font read. A font that cannot be found or translated is the
     /// error font; a missing font dictionary is replaced by Helvetica under `ignoreErrors`, as pdf.js does.
-    fn load_font(
-        &mut self,
-        font_name: Option<&str>,
-        font: Option<&Obj>,
-        resources: &Arc<Dict>,
-        seen: &[String],
-    ) -> Result<FontHandle> {
+    fn load_font(&mut self, font_name: Option<&str>, font: Option<&Obj>, resources: &Arc<Dict>, seen: &[String]) -> Result<FontHandle> {
         let xref = self.xref;
         let mut font_ref: Option<Obj> = None;
         let mut font_obj: Option<Obj> = font.cloned();
@@ -2039,16 +1719,10 @@ impl<'a> Evaluator<'a> {
             Some(Obj::Dict(d)) => d,
             _ => {
                 if !self.ignore_errors && !self.parsing_type3 {
-                    tracing::warn!(
-                        "Font \"{}\" is not available.",
-                        font_name.unwrap_or("undefined")
-                    );
+                    tracing::warn!("Font \"{}\" is not available.", font_name.unwrap_or("undefined"));
                     return Ok(self.error_font());
                 }
-                tracing::warn!(
-                    "Font \"{}\" is not available -- attempting to fallback to a default font.",
-                    font_name.unwrap_or("undefined")
-                );
+                tracing::warn!("Font \"{}\" is not available -- attempting to fallback to a default font.", font_name.unwrap_or("undefined"));
                 fallback_font_dict()
             }
         };
@@ -2061,36 +1735,20 @@ impl<'a> Evaluator<'a> {
         Ok(loaded)
     }
 
-    fn translate_font(
-        &mut self,
-        dict: &Arc<Dict>,
-        loaded_name: String,
-        resources: &Arc<Dict>,
-        seen: &[String],
-    ) -> Result<FontHandle> {
+    fn translate_font(&mut self, dict: &Arc<Dict>, loaded_name: String, resources: &Arc<Dict>, seen: &[String]) -> Result<FontHandle> {
         let Some(provider) = self.fonts else {
             if !self.warned_no_fonts {
                 self.warned_no_fonts = true;
-                tracing::error!(
-                    "PDF text is not decoded: no font provider is attached to the operator-list pass, every font reads as unavailable."
-                );
+                tracing::error!("PDF text is not decoded: no font provider is attached to the operator-list pass, every font reads as unavailable.");
             }
-            return Ok(Arc::new(LoadedFont {
-                loaded_name,
-                font: None,
-                type3: None,
-            }));
+            return Ok(Arc::new(LoadedFont { loaded_name, font: None, type3: None }));
         };
         let font = match provider.translate_font(dict, self.xref) {
             Ok(font) => font,
             Err(e) if e.is_fatal() => return Err(e),
             Err(e) => {
                 tracing::warn!("loadFont - translateFont failed: \"{e}\".");
-                return Ok(Arc::new(LoadedFont {
-                    loaded_name,
-                    font: None,
-                    type3: None,
-                }));
+                return Ok(Arc::new(LoadedFont { loaded_name, font: None, type3: None }));
             }
         };
         let mut type3 = None;
@@ -2099,41 +1757,23 @@ impl<'a> Evaluator<'a> {
                 Ok(data) => type3 = Some(data),
                 Err(e) if e.is_fatal() => return Err(e),
                 Err(e) => {
-                    tracing::warn!(
-                        "loadFont - translateFont failed: \"Type3 font load error: {e}\"."
-                    );
-                    return Ok(Arc::new(LoadedFont {
-                        loaded_name,
-                        font: None,
-                        type3: None,
-                    }));
+                    tracing::warn!("loadFont - translateFont failed: \"Type3 font load error: {e}\".");
+                    return Ok(Arc::new(LoadedFont { loaded_name, font: None, type3: None }));
                 }
             }
         }
         provider.font_loaded(&loaded_name, &font);
-        Ok(Arc::new(LoadedFont {
-            loaded_name,
-            font: Some(font),
-            type3,
-        }))
+        Ok(Arc::new(LoadedFont { loaded_name, font: Some(font), type3 }))
     }
 
     /// `TranslatedFont.loadType3Data`: every `CharProcs` stream is read into an operator list by an evaluator that
     /// does not ignore errors; one that fails is an empty glyph. The colour operators of a glyph that declares its
     /// bounds (`d1`) are removed (it is painted in the text colour), and a glyph box far larger than the font's
     /// own, or any glyph box when the font has none, becomes the font's box.
-    fn load_type3_data(
-        &mut self,
-        dict: &Arc<Dict>,
-        font: &Arc<dyn super::FontObject>,
-        resources: &Arc<Dict>,
-        seen: &[String],
-    ) -> Result<Type3Data> {
+    fn load_type3_data(&mut self, dict: &Arc<Dict>, font: &Arc<dyn super::FontObject>, resources: &Arc<Dict>, seen: &[String]) -> Result<Type3Data> {
         let xref = self.xref;
         let Obj::Dict(char_procs) = xref.get(dict, "CharProcs")? else {
-            return Err(format_error(
-                "Cannot read properties of undefined (reading 'getKeys')",
-            ));
+            return Err(format_error("Cannot read properties of undefined (reading 'getKeys')"));
         };
         let font_resources = match xref.get(dict, "Resources")? {
             Obj::Dict(d) => d,
@@ -2154,9 +1794,7 @@ impl<'a> Evaluator<'a> {
             let mut list = OperatorList::new();
             let outcome = self
                 .type3_procedure(&char_procs, &key, &font_resources, &mut list, seen)
-                .and_then(|()| {
-                    Self::finish_type3_procedure(&mut list, font_bbox_size, &mut char_bbox)
-                });
+                .and_then(|()| Self::finish_type3_procedure(&mut list, font_bbox_size, &mut char_bbox));
             match outcome {
                 Ok(()) => {}
                 Err(e) if e.is_fatal() => {
@@ -2178,55 +1816,25 @@ impl<'a> Evaluator<'a> {
         if let Some(e) = failure {
             return Err(e);
         }
-        Ok(Type3Data {
-            procedures,
-            char_bbox: char_bbox.map(|b| {
-                [
-                    f64::from(b[0]),
-                    f64::from(b[1]),
-                    f64::from(b[2]),
-                    f64::from(b[3]),
-                ]
-            }),
-        })
+        Ok(Type3Data { procedures, char_bbox: char_bbox.map(|b| [f64::from(b[0]), f64::from(b[1]), f64::from(b[2]), f64::from(b[3])]) })
     }
 
-    fn type3_procedure(
-        &mut self,
-        char_procs: &Arc<Dict>,
-        key: &str,
-        resources: &Arc<Dict>,
-        list: &mut OperatorList,
-        seen: &[String],
-    ) -> Result<()> {
+    fn type3_procedure(&mut self, char_procs: &Arc<Dict>, key: &str, resources: &Arc<Dict>, list: &mut OperatorList, seen: &[String]) -> Result<()> {
         let Obj::Stream(stream) = self.xref.get(char_procs, key)? else {
             return Err(format_error("CharProc is not a stream"));
         };
         let content = self.stream_bytes(&stream)?;
-        self.get_operator_list(
-            content,
-            stream.dict.obj_id.as_deref(),
-            resources,
-            list,
-            None,
-            seen,
-        )
+        self.get_operator_list(content, stream.dict.obj_id.as_deref(), resources, list, None, seen)
     }
 
     /// The part of `loadType3Data` that reads the first operator of a glyph procedure.
-    fn finish_type3_procedure(
-        list: &mut OperatorList,
-        font_bbox_size: f64,
-        char_bbox: &mut Option<[f32; 4]>,
-    ) -> Result<()> {
+    fn finish_type3_procedure(list: &mut OperatorList, font_bbox_size: f64, char_bbox: &mut Option<[f32; 4]>) -> Result<()> {
         let first = list.ops().first().cloned();
         match first {
             Some(Op::Param(ParamOp::SetCharWidthAndBounds, args)) => {
                 remove_type3_color_operators(list, args, font_bbox_size, char_bbox);
             }
-            Some(Op::Param(ParamOp::SetCharWidth, _))
-                if font_bbox_size == 0.0 || font_bbox_size.is_nan() =>
-            {
+            Some(Op::Param(ParamOp::SetCharWidth, _)) if font_bbox_size == 0.0 || font_bbox_size.is_nan() => {
                 for op in list.ops().iter().skip(1) {
                     if let Op::ConstructPath { path, .. } = op {
                         let Some(path) = path else {
@@ -2250,12 +1858,7 @@ impl<'a> Evaluator<'a> {
 }
 
 /// `#removeType3ColorOperators`.
-fn remove_type3_color_operators(
-    list: &mut OperatorList,
-    args: Vec<Obj>,
-    font_bbox_size: f64,
-    char_bbox: &mut Option<[f32; 4]>,
-) {
+fn remove_type3_color_operators(list: &mut OperatorList, args: Vec<Obj>, font_bbox_size: f64, char_bbox: &mut Option<[f32; 4]>) {
     let n = |i: usize| number_at(&args, i);
     let rect = gstate::normalize_rect([n(2), n(3), n(4), n(5)]);
     let width = rect[2] - rect[0];
@@ -2365,22 +1968,12 @@ mod tests {
                 None => out.extend(b"0000000000 65535 f \n"),
             }
         }
-        out.extend(
-            format!(
-                "trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n",
-                last + 1
-            )
-            .as_bytes(),
-        );
+        out.extend(format!("trailer\n<< /Size {} /Root 1 0 R >>\nstartxref\n{xref_at}\n%%EOF\n", last + 1).as_bytes());
         out
     }
 
     fn stream_object(dict: &str, content: &str) -> Vec<u8> {
-        format!(
-            "<< {dict} /Length {} >>\nstream\n{content}\nendstream",
-            content.len()
-        )
-        .into_bytes()
+        format!("<< {dict} /Length {} >>\nstream\n{content}\nendstream", content.len()).into_bytes()
     }
 
     /// The operators of a one-page document with `content`, the page's `/Resources` entries and extra objects.
@@ -2388,34 +1981,19 @@ mod tests {
         let mut objects: Vec<(u32, Vec<u8>)> = vec![
             (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
             (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
-            (
-                3,
-                format!(
-                    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << {resources} >> >>"
-                )
-                .into_bytes(),
-            ),
+            (3, format!("<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Contents 4 0 R /Resources << {resources} >> >>").into_bytes()),
             (4, stream_object("", content)),
         ];
         objects.extend(extra.iter().cloned());
         let document = Document::open(build(&objects), &OpenOptions::default()).expect("opens");
         let page = document.page(0).expect("page");
-        crate::oplist::get_operator_list(&document, &page, None)
-            .expect("operator list")
-            .ops()
-            .to_vec()
+        crate::oplist::get_operator_list(&document, &page, None).expect("operator list").ops().to_vec()
     }
 
     #[test]
     fn a_rectangle_is_a_closed_single_precision_path() {
         let ops = ops_of("0.1 0.2 10 20 re f", "", &[]);
-        let [
-            Op::ConstructPath {
-                paint,
-                path: Some(path),
-            },
-        ] = ops.as_slice()
-        else {
+        let [Op::ConstructPath { paint, path: Some(path) }] = ops.as_slice() else {
             panic!("expected one path, got {ops:?}");
         };
         assert_eq!(*paint, PaintOp::Fill);
@@ -2428,12 +2006,7 @@ mod tests {
     #[test]
     fn a_flat_rectangle_is_one_line() {
         let ops = ops_of("0 0 0 40 re f", "", &[]);
-        let [
-            Op::ConstructPath {
-                path: Some(path), ..
-            },
-        ] = ops.as_slice()
-        else {
+        let [Op::ConstructPath { path: Some(path), .. }] = ops.as_slice() else {
             panic!("expected one path");
         };
         assert_eq!(path.data, vec![0.0, 0.0, 0.0, 1.0, 0.0, 40.0, 4.0]);
@@ -2443,13 +2016,7 @@ mod tests {
     fn surplus_operands_go_to_the_next_operator_and_a_short_one_is_skipped() {
         let ops = ops_of("7 1 0 0 1 5 6 cm 3 re 1 2 3 4 re f", "", &[]);
         assert!(matches!(&ops[0], Op::Transform(m) if *m == [1.0, 0.0, 0.0, 1.0, 5.0, 6.0]));
-        assert!(matches!(
-            &ops[1],
-            Op::ConstructPath {
-                paint: PaintOp::Fill,
-                path: Some(_)
-            }
-        ));
+        assert!(matches!(&ops[1], Op::ConstructPath { paint: PaintOp::Fill, path: Some(_) }));
         assert_eq!(ops.len(), 2);
     }
 
@@ -2478,10 +2045,7 @@ mod tests {
 
     #[test]
     fn a_form_is_bracketed_with_its_matrix_and_box() {
-        let form = stream_object(
-            "/Type /XObject /Subtype /Form /Matrix [1 0 0 1 5 5] /BBox [0 0 50 50]",
-            "0 0 20 20 re f q",
-        );
+        let form = stream_object("/Type /XObject /Subtype /Form /Matrix [1 0 0 1 5 5] /BBox [0 0 50 50]", "0 0 20 20 re f q");
         let ops = ops_of("/F1 Do", "/XObject << /F1 10 0 R >>", &[(10, form)]);
         assert!(matches!(
             &ops[0],
@@ -2496,29 +2060,17 @@ mod tests {
 
     #[test]
     fn a_form_that_paints_itself_stops_at_the_second_visit() {
-        let form = stream_object(
-            "/Type /XObject /Subtype /Form /BBox [0 0 9 9] /Resources << /XObject << /F1 10 0 R >> >>",
-            "0 0 5 5 re f /F1 Do 6 6 2 2 re f",
-        );
+        let form =
+            stream_object("/Type /XObject /Subtype /Form /BBox [0 0 9 9] /Resources << /XObject << /F1 10 0 R >> >>", "0 0 5 5 re f /F1 Do 6 6 2 2 re f");
         let ops = ops_of("/F1 Do", "/XObject << /F1 10 0 R >>", &[(10, form)]);
-        let paths = ops
-            .iter()
-            .filter(|op| matches!(op, Op::ConstructPath { .. }))
-            .count();
+        let paths = ops.iter().filter(|op| matches!(op, Op::ConstructPath { .. })).count();
         assert_eq!(paths, 2);
     }
 
     #[test]
     fn an_image_painted_twice_keeps_one_id() {
-        let image = stream_object(
-            "/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8",
-            "ab",
-        );
-        let ops = ops_of(
-            "q 10 0 0 10 0 0 cm /Im Do Q q 10 0 0 10 20 0 cm /Im Do Q",
-            "/XObject << /Im 10 0 R >>",
-            &[(10, image)],
-        );
+        let image = stream_object("/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8", "ab");
+        let ops = ops_of("q 10 0 0 10 0 0 cm /Im Do Q q 10 0 0 10 20 0 cm /Im Do Q", "/XObject << /Im 10 0 R >>", &[(10, image)]);
         let ids: Vec<&str> = ops
             .iter()
             .filter_map(|op| match op {
@@ -2533,32 +2085,20 @@ mod tests {
     #[test]
     fn text_without_a_font_provider_shows_no_glyphs() {
         let font = b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>".to_vec();
-        let ops = ops_of(
-            "BT /F1 12 Tf (ab) Tj ET (no font yet) Tj",
-            "/Font << /F1 10 0 R >>",
-            &[(10, font)],
-        );
+        let ops = ops_of("BT /F1 12 Tf (ab) Tj ET (no font yet) Tj", "/Font << /F1 10 0 R >>", &[(10, font)]);
         assert!(matches!(&ops[1], Op::SetFont { size, .. } if size.as_num() == Some(12.0)));
         assert!(matches!(&ops[2], Op::ShowText(items) if items.is_empty()));
     }
 
     #[test]
     fn a_run_of_invalid_path_operators_ends_the_stream_but_keeps_what_was_read() {
-        let ops = ops_of(
-            "0 0 1 1 re f 1 re 1 re 1 re 1 re 1 re 1 re 1 re 1 re 1 re 1 re 1 re 2 2 3 3 re f",
-            "",
-            &[],
-        );
+        let ops = ops_of("0 0 1 1 re f 1 re 1 re 1 re 1 re 1 re 1 re 1 re 1 re 1 re 1 re 1 re 2 2 3 3 re f", "", &[]);
         assert_eq!(ops.len(), 1);
     }
 
     #[test]
     fn graphics_state_entries_become_one_operator() {
-        let ops = ops_of(
-            "/G gs",
-            "/ExtGState << /G << /Type /ExtGState /LW -2 /BM /Multiply /ca 0.5 /SMask /None >> >>",
-            &[],
-        );
+        let ops = ops_of("/G gs", "/ExtGState << /G << /Type /ExtGState /LW -2 /BM /Multiply /ca 0.5 /SMask /None >> >>", &[]);
         let [Op::SetGState(entries)] = ops.as_slice() else {
             panic!("expected one setGState, got {ops:?}");
         };

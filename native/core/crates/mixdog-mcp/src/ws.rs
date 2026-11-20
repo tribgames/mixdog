@@ -29,22 +29,15 @@ pub struct WebSocketTransport {
 
 impl WebSocketTransport {
     pub async fn connect(url: &Url, headers: &BTreeMap<String, String>) -> Result<(Self, IncomingRx), TransportError> {
-        let mut request = url
-            .as_str()
-            .into_client_request()
-            .map_err(|e| TransportError::Request(e.to_string()))?;
+        let mut request = url.as_str().into_client_request().map_err(|e| TransportError::Request(e.to_string()))?;
         let map = request.headers_mut();
         map.insert("sec-websocket-protocol", HeaderValue::from_static("mcp"));
         for (name, value) in headers {
-            let name = HeaderName::from_bytes(name.as_bytes())
-                .map_err(|_| TransportError::Request(format!("invalid header name {name:?}")))?;
-            let value = HeaderValue::from_str(value)
-                .map_err(|_| TransportError::Request(format!("invalid value for header {name}")))?;
+            let name = HeaderName::from_bytes(name.as_bytes()).map_err(|_| TransportError::Request(format!("invalid header name {name:?}")))?;
+            let value = HeaderValue::from_str(value).map_err(|_| TransportError::Request(format!("invalid value for header {name}")))?;
             map.insert(name, value);
         }
-        let (socket, _) = tokio_tungstenite::connect_async(request)
-            .await
-            .map_err(|e| TransportError::Request(format!("WebSocket connect failed: {e}")))?;
+        let (socket, _) = tokio_tungstenite::connect_async(request).await.map_err(|e| TransportError::Request(format!("WebSocket connect failed: {e}")))?;
         let (mut sink, mut stream) = socket.split();
         let (incoming, rx) = mpsc::unbounded_channel();
         let (outgoing, mut outgoing_rx) = mpsc::unbounded_channel::<String>();
@@ -89,8 +82,7 @@ impl Drop for WebSocketTransport {
 #[async_trait]
 impl Transport for WebSocketTransport {
     async fn send(&self, message: Value, _liveness: Liveness) -> Result<(), TransportError> {
-        let text =
-            serde_json::to_string(&message).map_err(|e| TransportError::Request(e.to_string()))?;
+        let text = serde_json::to_string(&message).map_err(|e| TransportError::Request(e.to_string()))?;
         self.outgoing.send(text).map_err(|_| TransportError::Closed)
     }
 

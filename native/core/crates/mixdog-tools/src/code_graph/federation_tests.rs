@@ -83,7 +83,12 @@ fn a_mode_that_needs_one_project_is_refused_where_the_folder_holds_two() {
     let refusal = ask(&root.join("multi"), json!({ "mode": "imports" })).err().expect("the call is refused");
     assert!(refusal.starts_with("code_graph: cwd '"), "{refusal}");
     assert!(refusal.contains("is not inside a project") && refusal.contains("holds 2 separate project roots (\"alpha\", \"beta\")"), "{refusal}");
-    assert!(refusal.ends_with("Refusing to index an arbitrary tree. Switch Project with the session tool (set-project), or pass an explicit 'cwd' (repo root) or a 'file' anchor."), "{refusal}");
+    assert!(
+        refusal.ends_with(
+            "Refusing to index an arbitrary tree. Switch Project with the session tool (set-project), or pass an explicit 'cwd' (repo root) or a 'file' anchor."
+        ),
+        "{refusal}"
+    );
 }
 
 #[test]

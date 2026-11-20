@@ -106,9 +106,7 @@ pub fn review_prompt(input: &ReviewInput) -> (String, String) {
     if !input.previous.is_empty() {
         lines.extend(["Your previous review of this session:".to_owned(), input.previous.clone(), String::new()]);
     }
-    lines.push(
-        if input.previous.is_empty() { "Recent conversation (oldest first):" } else { "Conversation since then (oldest first):" }.to_owned(),
-    );
+    lines.push(if input.previous.is_empty() { "Recent conversation (oldest first):" } else { "Conversation since then (oldest first):" }.to_owned());
     if input.transcript.is_empty() {
         lines.push("(none)".to_owned());
     } else {

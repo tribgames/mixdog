@@ -154,7 +154,8 @@ fn fdct_pass(data: &mut [i32; 64], start: usize, step: usize, first_pass: bool) 
     let tmp13 = tmp0 - tmp3;
     let tmp11 = tmp1 + tmp2;
     let tmp12 = tmp1 - tmp2;
-    let (even_shift, odd_shift) = if first_pass { (CONST_BITS - PASS1_BITS, CONST_BITS - PASS1_BITS) } else { (CONST_BITS + PASS1_BITS, CONST_BITS + PASS1_BITS) };
+    let (even_shift, odd_shift) =
+        if first_pass { (CONST_BITS - PASS1_BITS, CONST_BITS - PASS1_BITS) } else { (CONST_BITS + PASS1_BITS, CONST_BITS + PASS1_BITS) };
     if first_pass {
         data[at(0)] = (tmp10 + tmp11) << PASS1_BITS;
         data[at(4)] = (tmp10 - tmp11) << PASS1_BITS;

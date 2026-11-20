@@ -23,8 +23,8 @@ use mixdog_core_api::domain::provider::WireRequest;
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_protocol::ProviderId;
 
-use crate::transport::http::HttpSend;
 use super::stream::DecodedStream;
+use crate::transport::http::HttpSend;
 
 /// Edits the request an inner codec encoded: endpoint, headers, body.
 pub trait Rewriter: Send + Sync {
@@ -171,9 +171,7 @@ pub async fn run_fitted_attempt(
             }
             return Err(error);
         }
-        if !crate::providers::compat::login::opencode_go::gateway_owns_auth_recovery()
-            && credential.refreshes_on(status, &rejected.body)
-        {
+        if !crate::providers::compat::login::opencode_go::gateway_owns_auth_recovery() && credential.refreshes_on(status, &rejected.body) {
             again = true;
             refreshed = true;
             let next = credential.header(true).await?;
@@ -219,13 +217,7 @@ pub struct HttpAdapter {
 }
 
 impl HttpAdapter {
-    pub fn new(
-        id: ProviderId,
-        codec: Arc<dyn WireCodec>,
-        http: Arc<dyn HttpSend>,
-        credential: Arc<dyn Credential>,
-        policy: RetryPolicy,
-    ) -> Self {
+    pub fn new(id: ProviderId, codec: Arc<dyn WireCodec>, http: Arc<dyn HttpSend>, credential: Arc<dyn Credential>, policy: RetryPolicy) -> Self {
         #[cfg(feature = "count-work")]
         crate::work::provider_built();
         Self {

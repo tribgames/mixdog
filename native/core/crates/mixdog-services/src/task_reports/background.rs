@@ -36,5 +36,3 @@ impl BoardReads {
             .collect()
     }
 }
-
-

@@ -60,9 +60,7 @@ pub(crate) fn json_equal(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(x), Value::Number(y)) => x.as_f64() == y.as_f64(),
         (Value::Array(x), Value::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(p, q)| json_equal(p, q)),
-        (Value::Object(x), Value::Object(y)) => {
-            x.len() == y.len() && x.iter().all(|(key, value)| y.get(key).is_some_and(|other| json_equal(value, other)))
-        }
+        (Value::Object(x), Value::Object(y)) => x.len() == y.len() && x.iter().all(|(key, value)| y.get(key).is_some_and(|other| json_equal(value, other))),
         _ => a == b,
     }
 }
@@ -269,8 +267,7 @@ fn has_id(node: &Value, id: &str) -> bool {
     match node {
         Value::Array(list) => list.iter().any(|child| has_id(child, id)),
         Value::Object(map) => {
-            map.get("$id").and_then(Value::as_str).is_some_and(|own| own.split('#').next() == Some(id))
-                || map.values().any(|child| has_id(child, id))
+            map.get("$id").and_then(Value::as_str).is_some_and(|own| own.split('#').next() == Some(id)) || map.values().any(|child| has_id(child, id))
         }
         _ => false,
     }
@@ -318,28 +315,15 @@ fn unresolved(node: &Value, root: &Value, pointer: &str) -> Option<(String, Stri
             {
                 return Some((format!("{pointer}/$ref"), reference.to_owned()));
             }
-            js_ordered(map)
-                .into_iter()
-                .find_map(|(key, child)| unresolved(child, root, &format!("{pointer}/{}", escape_pointer(key))))
+            js_ordered(map).into_iter().find_map(|(key, child)| unresolved(child, root, &format!("{pointer}/{}", escape_pointer(key))))
         }
         _ => None,
     }
 }
 
 const SCHEMA_MAPS: [&str; 5] = ["properties", "patternProperties", "$defs", "definitions", "dependentSchemas"];
-const SCHEMA_NODES: [&str; 11] = [
-    "items",
-    "additionalProperties",
-    "unevaluatedItems",
-    "unevaluatedProperties",
-    "contains",
-    "propertyNames",
-    "not",
-    "if",
-    "then",
-    "else",
-    "contentSchema",
-];
+const SCHEMA_NODES: [&str; 11] =
+    ["items", "additionalProperties", "unevaluatedItems", "unevaluatedProperties", "contains", "propertyNames", "not", "if", "then", "else", "contentSchema"];
 const SCHEMA_LISTS: [&str; 4] = ["prefixItems", "allOf", "anyOf", "oneOf"];
 
 /// V8's `SyntaxError` text for the first `pattern` (or `patternProperties` key) of a schema node
@@ -382,9 +366,7 @@ fn ref_pointer(node: &Value, address: &str, pointer: &str) -> Option<String> {
             if map.get("$ref").and_then(Value::as_str).is_some_and(|reference| address.ends_with(reference)) {
                 return Some(format!("{pointer}/$ref"));
             }
-            js_ordered(map)
-                .into_iter()
-                .find_map(|(key, child)| ref_pointer(child, address, &format!("{pointer}/{}", escape_pointer(key))))
+            js_ordered(map).into_iter().find_map(|(key, child)| ref_pointer(child, address, &format!("{pointer}/{}", escape_pointer(key))))
         }
         _ => None,
     }

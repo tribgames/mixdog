@@ -104,8 +104,7 @@ fn content_type_coverage(entries: &[String], xml: &str, format: &str) -> Content
             if name.as_str() == "[Content_Types].xml" || overrides.contains_key(name.as_str()) {
                 return false;
             }
-            let extension =
-                if js_to_lowercase(name).ends_with(".rels") { "rels".to_owned() } else { js_to_lowercase(extension_of(name)) };
+            let extension = if js_to_lowercase(name).ends_with(".rels") { "rels".to_owned() } else { js_to_lowercase(extension_of(name)) };
             extension.is_empty() || !defaults.contains_key(&extension)
         })
         .cloned()
@@ -195,12 +194,7 @@ impl Comparison {
     }
 }
 
-fn baseline_package<P: ReadProof>(
-    proof: &P,
-    zip: &Package,
-    options: &ValidateOptions<'_>,
-    workbooks: &HashSet<String>,
-) -> Result<Baseline, String> {
+fn baseline_package<P: ReadProof>(proof: &P, zip: &Package, options: &ValidateOptions<'_>, workbooks: &HashSet<String>) -> Result<Baseline, String> {
     if options.original.is_empty() {
         return Ok(Baseline { value: json!({ "compared": false }), lost_protected: 0, changed_protected: 0, signature_invalidated: false });
     }
@@ -209,13 +203,8 @@ fn baseline_package<P: ReadProof>(
     let current_entries = package_entry_names(zip);
     let current_set: HashSet<&str> = current_entries.iter().map(String::as_str).collect();
     let original_entries = package_entry_names(&original_zip);
-    let comparison = Comparison {
-        application_saved,
-        original_workbooks: chart_workbooks_of(&original_zip, &original_entries),
-        workbooks: workbooks.clone(),
-    };
-    let protected_parts: Vec<&String> =
-        original_entries.iter().filter(|name| comparison.is_protected(name) && !comparison.renumbered_workbook(name)).collect();
+    let comparison = Comparison { application_saved, original_workbooks: chart_workbooks_of(&original_zip, &original_entries), workbooks: workbooks.clone() };
+    let protected_parts: Vec<&String> = original_entries.iter().filter(|name| comparison.is_protected(name) && !comparison.renumbered_workbook(name)).collect();
     // Every original part against the saved copy: the protected ones that changed, the ones the application itself
     // rewrote or dropped, and everything that differs.
     let mut changed_protected: Vec<Value> = Vec::new();
@@ -266,10 +255,14 @@ const DOCX_STORY_PART: &str = r"^word\/(document|header\d+|footer\d+|footnotes|e
 /// caught like the body.
 fn docx_story_parts(zip: &Package) -> StoryParts {
     let story = compiled(DOCX_STORY_PART, "i");
-    zip.names().into_iter().filter(|name| story.is_match(name)).map(|name| {
-        let text = zip.text(&name);
-        (name, text)
-    }).collect()
+    zip.names()
+        .into_iter()
+        .filter(|name| story.is_match(name))
+        .map(|name| {
+            let text = zip.text(&name);
+            (name, text)
+        })
+        .collect()
 }
 
 fn validate_docx_redlining<P: ReadProof>(proof: &P, story_parts: &StoryParts, original_path: &str, author: &str) -> Value {
@@ -375,11 +368,9 @@ fn presentation_faults(zip: &Package, entries: &[String]) -> Vec<Value> {
         }
         for notes in relationships.iter().filter(|entry| entry.kind.ends_with("/notesSlide") && !entry.external) {
             match notes_owners.get(&notes.part) {
-                Some(owner) if !owner.is_empty() => faults.push(fault(
-                    "notes_slide_shared",
-                    &notes.part,
-                    format!("{owner} and {slide} share {}; each slide owns its notes page.", notes.part),
-                )),
+                Some(owner) if !owner.is_empty() => {
+                    faults.push(fault("notes_slide_shared", &notes.part, format!("{owner} and {slide} share {}; each slide owns its notes page.", notes.part)))
+                }
                 _ => {
                     notes_owners.insert(notes.part.clone(), slide.clone());
                 }
@@ -397,8 +388,7 @@ fn presentation_faults(zip: &Package, entries: &[String]) -> Vec<Value> {
     for master in masters {
         let Some(relationships) = part_relationships(zip, master) else { continue };
         if master.starts_with("ppt/slideMasters/") {
-            let layout_ids: HashSet<&str> =
-                relationships.iter().filter(|entry| entry.kind.ends_with("/slideLayout")).map(|entry| entry.id.as_str()).collect();
+            let layout_ids: HashSet<&str> = relationships.iter().filter(|entry| entry.kind.ends_with("/slideLayout")).map(|entry| entry.id.as_str()).collect();
             for found in compiled(r"<p:sldLayoutId\b([^>]*?)\/?>", "g").captures_iter(&zip.text(master)) {
                 let id = xml_attribute(found.get(1).unwrap_or(""), "r:id");
                 if !id.is_empty() && !layout_ids.contains(id.as_str()) {
@@ -464,8 +454,7 @@ struct PackageFindings {
 pub fn validate_portable_ooxml<P: ReadProof>(proof: &P, path: &Path, format: &str, options: &ValidateOptions<'_>) -> Result<Value, String> {
     let zip = load_package(proof, path)?;
     let entries = package_entry_names(&zip);
-    let missing: Vec<&str> =
-        ooxml_required(format).into_iter().flatten().filter(|name| zip.file(name).is_none()).collect();
+    let missing: Vec<&str> = ooxml_required(format).into_iter().flatten().filter(|name| zip.file(name).is_none()).collect();
     let chart_workbooks = chart_workbooks_of(&zip, &entries);
     let findings = package_entry_findings(&entries, &chart_workbooks);
     let malformed_xml = inspect_xml_parts(&zip, &entries);
@@ -1937,11 +1926,7 @@ mod saxes {
                 if let Some(defined) = self.entities.get(entity) {
                     return Ok(defined.clone());
                 }
-                return if is_ncname(entity) {
-                    self.fail("undefined entity.")
-                } else {
-                    self.fail("disallowed character in entity name.")
-                };
+                return if is_ncname(entity) { self.fail("undefined entity.") } else { self.fail("disallowed character in entity name.") };
             }
             let hex = entity.strip_prefix("#x").filter(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_hexdigit()));
             let decimal = entity.strip_prefix('#').filter(|digits| !digits.is_empty() && digits.bytes().all(|b| b.is_ascii_digit()));
@@ -2023,9 +2008,26 @@ mod tests {
         assert_eq!(
             keys,
             [
-                "ok", "format", "entries", "missing", "unsafeEntries", "macros", "security", "malformedXml", "missingRelationships",
-                "duplicateRelationshipIds", "externalRelationships", "presentationFaults", "missingContentTypes", "mainPart",
-                "mainContentType", "mainContentTypeMissing", "baseline", "redlining", "documentLint", "validation"
+                "ok",
+                "format",
+                "entries",
+                "missing",
+                "unsafeEntries",
+                "macros",
+                "security",
+                "malformedXml",
+                "missingRelationships",
+                "duplicateRelationshipIds",
+                "externalRelationships",
+                "presentationFaults",
+                "missingContentTypes",
+                "mainPart",
+                "mainContentType",
+                "mainContentTypeMissing",
+                "baseline",
+                "redlining",
+                "documentLint",
+                "validation"
             ]
         );
     }
@@ -2065,7 +2067,10 @@ mod tests {
         let answer = validate(&package, "docx", &ValidateOptions::default());
         assert_eq!(answer["ok"], false);
         assert_eq!(answer["duplicateRelationshipIds"], json!([{ "relationship": "word/_rels/document.xml.rels", "id": "rId1" }]));
-        assert_eq!(answer["externalRelationships"], json!([{ "relationship": "word/_rels/document.xml.rels", "id": "rId2", "target": "https://example.com/?a=1&b=2" }]));
+        assert_eq!(
+            answer["externalRelationships"],
+            json!([{ "relationship": "word/_rels/document.xml.rels", "id": "rId2", "target": "https://example.com/?a=1&b=2" }])
+        );
         let missing = answer["missingRelationships"].as_array().expect("a list");
         assert_eq!(missing.len(), 3);
         assert_eq!(missing[0]["resolved"], "word/styles.xml");
@@ -2075,10 +2080,7 @@ mod tests {
     #[test]
     fn the_word_lint_makes_a_package_fail_only_for_errors() {
         let mut package = docx();
-        package.set(
-            "word/document.xml",
-            r#"<w:document xmlns:w="http://x/w"><w:body><w:p><w:r><w:t> x</w:t></w:r></w:p></w:body></w:document>"#,
-        );
+        package.set("word/document.xml", r#"<w:document xmlns:w="http://x/w"><w:body><w:p><w:r><w:t> x</w:t></w:r></w:p></w:body></w:document>"#);
         let warned = validate(&package, "docx", &ValidateOptions::default());
         assert_eq!(warned["ok"], true);
         assert_eq!(warned["documentLint"][0]["code"], "whitespace_not_preserved");
@@ -2159,20 +2161,36 @@ mod tests {
         let mut package = deck();
         package.set("ppt/slides/slide1.xml", "<p:sld/>");
         package.set("ppt/slides/slide2.xml", "<p:sld/>");
-        package.set("ppt/slides/_rels/slide1.xml.rels", rels(&[("rId1", "slideLayout", "../slideLayouts/l1.xml"), ("rId2", "slideLayout", "../slideLayouts/l2.xml"), ("rId3", "notesSlide", "../notesSlides/n1.xml")]));
+        package.set(
+            "ppt/slides/_rels/slide1.xml.rels",
+            rels(&[
+                ("rId1", "slideLayout", "../slideLayouts/l1.xml"),
+                ("rId2", "slideLayout", "../slideLayouts/l2.xml"),
+                ("rId3", "notesSlide", "../notesSlides/n1.xml"),
+            ]),
+        );
         package.set("ppt/slides/_rels/slide2.xml.rels", rels(&[("rId1", "notesSlide", "../notesSlides/n1.xml")]));
         let answer = validate(&package, "pptx", &ValidateOptions::default());
         assert_eq!(answer["ok"], false);
         let codes: Vec<&str> = answer["presentationFaults"].as_array().expect("faults").iter().filter_map(|fault| fault["code"].as_str()).collect();
         assert_eq!(codes, ["slide_layout_duplicated", "notes_slide_shared"]);
-        assert_eq!(answer["presentationFaults"][1]["message"], "ppt/slides/slide1.xml and ppt/slides/slide2.xml share ppt/notesSlides/n1.xml; each slide owns its notes page.");
+        assert_eq!(
+            answer["presentationFaults"][1]["message"],
+            "ppt/slides/slide1.xml and ppt/slides/slide2.xml share ppt/notesSlides/n1.xml; each slide owns its notes page."
+        );
     }
 
     #[test]
     fn masters_sharing_a_theme_and_layouts_a_master_does_not_name_are_refused() {
         let mut package = deck();
-        package.set("ppt/slideMasters/slideMaster1.xml", r#"<p:sldMaster><p:sldLayoutIdLst><p:sldLayoutId id="1" r:id="rId9"/><p:sldLayoutId id="2" r:id="rId1"/></p:sldLayoutIdLst></p:sldMaster>"#);
-        package.set("ppt/slideMasters/_rels/slideMaster1.xml.rels", rels(&[("rId1", "slideLayout", "../slideLayouts/l1.xml"), ("rId2", "theme", "../theme/theme1.xml")]));
+        package.set(
+            "ppt/slideMasters/slideMaster1.xml",
+            r#"<p:sldMaster><p:sldLayoutIdLst><p:sldLayoutId id="1" r:id="rId9"/><p:sldLayoutId id="2" r:id="rId1"/></p:sldLayoutIdLst></p:sldMaster>"#,
+        );
+        package.set(
+            "ppt/slideMasters/_rels/slideMaster1.xml.rels",
+            rels(&[("rId1", "slideLayout", "../slideLayouts/l1.xml"), ("rId2", "theme", "../theme/theme1.xml")]),
+        );
         package.set("ppt/notesMasters/notesMaster1.xml", "<p:notesMaster/>");
         package.set("ppt/notesMasters/_rels/notesMaster1.xml.rels", rels(&[("rId1", "theme", "../theme/theme1.xml")]));
         package.set("ppt/theme/theme1.xml", "<a:theme/>");
@@ -2181,7 +2199,12 @@ mod tests {
         assert_eq!(faults.len(), 2);
         assert_eq!(faults[0]["code"], "layout_reference_missing");
         assert_eq!(faults[1]["code"], "master_theme_shared");
-        assert!(faults[1]["message"].as_str().unwrap_or("").ends_with("move <p:notesMasterIdLst> to directly after <p:sldIdLst> in ppt/presentation.xml, or give the notes master its own theme."));
+        assert!(
+            faults[1]["message"]
+                .as_str()
+                .unwrap_or("")
+                .ends_with("move <p:notesMasterIdLst> to directly after <p:sldIdLst> in ppt/presentation.xml, or give the notes master its own theme.")
+        );
         // pptxgenjs' layout is tolerated while the notes master follows the slide list.
         package.set("ppt/presentation.xml", "<p:presentation><p:sldIdLst/><p:notesMasterIdLst/></p:presentation>");
         let tolerated = validate(&package, "pptx", &ValidateOptions::default());

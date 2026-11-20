@@ -12,14 +12,7 @@ use regress::Regex;
 
 pub const DEFAULT_SESSION_TITLE: &str = "Untitled session";
 
-const INJECTED_TAGS: [&str; 6] = [
-    "system-reminder",
-    "available-deferred-tools",
-    "mcp-instructions",
-    "memory-context",
-    "skill",
-    "event",
-];
+const INJECTED_TAGS: [&str; 6] = ["system-reminder", "available-deferred-tools", "mcp-instructions", "memory-context", "skill", "event"];
 
 struct Patterns {
     noise: Vec<Regex>,
@@ -69,10 +62,7 @@ static P: LazyLock<Patterns> = LazyLock::new(|| Patterns {
     ),
     video_ext: re(r"^(?:mp4|mov|m4v|webm|mkv|avi)$", "i"),
     reference_prefix: re(r"^\s*(?:확인\s*)?\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*", "i"),
-    reference_quote: re(
-        r"^\s*(?:확인\s*)?\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*[\s\S]{0,160}?(?:…|\.\.\.)\s*(?=\S)",
-        "i",
-    ),
+    reference_quote: re(r"^\s*(?:확인\s*)?\[\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\]\s*[\s\S]{0,160}?(?:…|\.\.\.)\s*(?=\S)", "i"),
     reference_deictic: re(r"^(?:이거|이게|그거)\s*", ""),
     file_chip: re(r"\[(?:PDF|File)\s*#\d+:\s*([^\]\r\n]+)\]", "i"),
     envelope: [
@@ -82,13 +72,7 @@ static P: LazyLock<Patterns> = LazyLock::new(|| Patterns {
     ],
     injected: INJECTED_TAGS
         .iter()
-        .map(|tag| {
-            (
-                re(&format!(r"<{tag}\b[^>]*>[\s\S]*?<\/{tag}\s*>"), "i"),
-                re(&format!(r"<{tag}\b[^>]*>[\s\S]*$"), "i"),
-                re(&format!(r"<\/{tag}\s*>"), "i"),
-            )
-        })
+        .map(|tag| (re(&format!(r"<{tag}\b[^>]*>[\s\S]*?<\/{tag}\s*>"), "i"), re(&format!(r"<{tag}\b[^>]*>[\s\S]*$"), "i"), re(&format!(r"<\/{tag}\s*>"), "i")))
         .collect(),
     file_block: re(r"<file\b[^>]*>[\s\S]*?<\/file>", "i"),
     pasted: re(r"\[Pasted text\s*#?\d+(?:\s*(?::[^\]\r\n]*|\+\d+\s+lines))?\]", "i"),
@@ -98,8 +82,7 @@ static P: LazyLock<Patterns> = LazyLock::new(|| Patterns {
     placeholder: re(r"^\[(Image|Video|File)\]$", "i"),
 });
 
-static PREVIEW_CHIP: LazyLock<Regex> =
-    LazyLock::new(|| re(r"\[(?:Pasted text|Image)\s*#?\d+(?:\s*(?::[^\]\r\n]*|\+\d+\s+lines))?\]", "i"));
+static PREVIEW_CHIP: LazyLock<Regex> = LazyLock::new(|| re(r"\[(?:Pasted text|Image)\s*#?\d+(?:\s*(?::[^\]\r\n]*|\+\d+\s+lines))?\]", "i"));
 static TRAILING_WORD: LazyLock<Regex> = LazyLock::new(|| re(r"\s+\S*$", ""));
 
 fn utf16_prefix(s: &str, units: usize) -> String {
@@ -139,11 +122,7 @@ fn utf16_len(s: &str) -> usize {
 
 /// `text.replace(re, ' ')` with the `g` flag when `all`.
 fn replace(re: &Regex, text: &str, with: &str, all: bool) -> String {
-    if all {
-        re.replace_all(text, with)
-    } else {
-        re.replace(text, with)
-    }
+    if all { re.replace_all(text, with) } else { re.replace(text, with) }
 }
 
 fn strip_session_envelope(value: &str) -> String {
@@ -225,11 +204,7 @@ fn attachment_title_fallback(source: &str) -> String {
 
 fn attachment_title(value: &str, fallback: &str, max_length: usize) -> String {
     let attachment = attachment_title_fallback(value);
-    if attachment.is_empty() {
-        fallback.to_owned()
-    } else {
-        normalize_session_title(&attachment, fallback, max_length)
-    }
+    if attachment.is_empty() { fallback.to_owned() } else { normalize_session_title(&attachment, fallback, max_length) }
 }
 
 /// `(text, placeholder)` of a legacy `name.png 640x480 …` media prefix.
@@ -307,12 +282,7 @@ pub fn compacted_session_title(value: &str) -> String {
         entries.push((at, id, index, title));
     }
     entries.sort_by(|a, b| (&a.0, a.1, a.2).cmp(&(&b.0, b.1, b.2)));
-    entries
-        .iter()
-        .find(|e| MEDIA_PLACEHOLDER.find(js_trim(&e.3)).is_none())
-        .or(entries.first())
-        .map(|e| e.3.clone())
-        .unwrap_or_default()
+    entries.iter().find(|e| MEDIA_PLACEHOLDER.find(js_trim(&e.3)).is_none()).or(entries.first()).map(|e| e.3.clone()).unwrap_or_default()
 }
 
 /// The desktop roster's title from a preview: `compactedSessionTitle(preview, '') || generatedSessionTitle(preview, '')`.
@@ -382,11 +352,7 @@ pub struct PlaceholderLabels {
 
 impl Default for PlaceholderLabels {
     fn default() -> Self {
-        Self {
-            image: "Image".into(),
-            video: "Video".into(),
-            file: "File".into(),
-        }
+        Self { image: "Image".into(), video: "Video".into(), file: "File".into() }
     }
 }
 
@@ -402,11 +368,7 @@ impl PlaceholderLabels {
 
 /// `sessionDisplayTitle(session, '')`: the summary title with a placeholder shown as its
 /// label, and the placeholder kind.
-pub fn session_display_title(
-    title: Option<&str>,
-    preview: Option<&str>,
-    labels: &PlaceholderLabels,
-) -> (String, Option<TitleKind>) {
+pub fn session_display_title(title: Option<&str>, preview: Option<&str>, labels: &PlaceholderLabels) -> (String, Option<TitleKind>) {
     let summary = session_summary_title(title, preview, "");
     match TitleKind::of(&summary) {
         Some(kind) => (labels.label(kind).to_owned(), Some(kind)),
@@ -427,19 +389,10 @@ mod tests {
         assert_eq!(t(None, Some("[File #2: report.pdf]")), "report.pdf");
         assert_eq!(t(None, Some("shot.mp4 640x480 hello there")), "hello there");
         assert_eq!(t(None, Some("[Image: artistic direction]")), "[Image: artistic direction]");
-        assert_eq!(
-            t(None, Some("<system-reminder>x</system-reminder> real   words")),
-            "real words"
-        );
-        assert_eq!(
-            t(None, Some("one two three four five six seven eight nine")),
-            "one two three four five six…"
-        );
-        let (shown, kind) = session_display_title(
-            None,
-            Some("[Video #1]"),
-            &PlaceholderLabels { image: "이미지".into(), video: "영상".into(), file: "파일".into() },
-        );
+        assert_eq!(t(None, Some("<system-reminder>x</system-reminder> real   words")), "real words");
+        assert_eq!(t(None, Some("one two three four five six seven eight nine")), "one two three four five six…");
+        let (shown, kind) =
+            session_display_title(None, Some("[Video #1]"), &PlaceholderLabels { image: "이미지".into(), video: "영상".into(), file: "파일".into() });
         assert_eq!((shown.as_str(), kind), ("영상", Some(TitleKind::Video)));
     }
 }

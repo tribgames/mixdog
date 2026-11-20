@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 
 use rustls::pki_types::{PrivateKeyDer, PrivatePkcs8KeyDer};
 use rustls::{RootCertStore, ServerConfig};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -246,17 +246,18 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                         .collect();
                     if header(&headers, "upgrade").is_some_and(|v| v.eq_ignore_ascii_case("websocket")) {
                         let key = header(&headers, "sec-websocket-key").unwrap().to_owned();
-                        let shown: Vec<Value> = headers
-                            .iter()
-                            .map(|(n, v)| json!([n, if n.eq_ignore_ascii_case("sec-websocket-key") { RANDOM } else { v.as_str() }]))
-                            .collect();
+                        let shown: Vec<Value> =
+                            headers.iter().map(|(n, v)| json!([n, if n.eq_ignore_ascii_case("sec-websocket-key") { RANDOM } else { v.as_str() }])).collect();
                         record(&mut conn, json!({ "kind": "ws-upgrade", "line": line, "headers": shown }));
                         inner.upgraded.lock().unwrap().push(conn);
                         let dial = inner.script.lock().unwrap().dials.pop_front().unwrap_or(json!({ "accept": true }));
-                        let extra: String = dial["headers"].as_object().into_iter().flatten().map(|(n, v)| format!("{n}: {}\r\n", v.as_str().unwrap())).collect();
+                        let extra: String =
+                            dial["headers"].as_object().into_iter().flatten().map(|(n, v)| format!("{n}: {}\r\n", v.as_str().unwrap())).collect();
                         if dial["accept"] == true {
                             let accept = tokio_tungstenite::tungstenite::handshake::derive_accept_key(key.as_bytes());
-                            let reply = format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n{extra}\r\n");
+                            let reply = format!(
+                                "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n{extra}\r\n"
+                            );
                             io.write_all(reply.as_bytes()).await.ok();
                         } else {
                             let body = dial["body"].as_str().unwrap_or("").as_bytes().to_vec();
@@ -293,7 +294,9 @@ async fn serve(inner: Arc<Inner>, acceptor: TlsAcceptor, tcp: TcpStream) {
                     };
                     let plan = if reply.is_array() { json!({ "events": reply }) } else { reply };
                     let text = match plan.get("events") {
-                        Some(events) => events.as_array().unwrap().iter().map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap())).collect::<String>(),
+                        Some(events) => {
+                            events.as_array().unwrap().iter().map(|e| format!("event: {}\ndata: {e}\n\n", e["type"].as_str().unwrap())).collect::<String>()
+                        }
                         None => plan["body"].as_str().unwrap_or("").to_owned(),
                     };
                     // `bodyBase64`: a body of any bytes (a compressed one), written as given.

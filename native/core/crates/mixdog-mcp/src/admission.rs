@@ -175,15 +175,9 @@ mod tests {
     }
 }
 
-
 impl AdmissionGate {
     pub fn new(active_max: Option<usize>, queue_max: usize, min_owner_queue: usize) -> Arc<Self> {
-        Arc::new(Self {
-            active_max,
-            queue_max,
-            min_owner_queue,
-            state: Mutex::new(State::default()),
-        })
+        Arc::new(Self { active_max, queue_max, min_owner_queue, state: Mutex::new(State::default()) })
     }
 
     fn lock(&self) -> std::sync::MutexGuard<'_, State> {
@@ -239,12 +233,7 @@ impl AdmissionGate {
         }
     }
 
-    pub async fn acquire(
-        self: &Arc<Self>,
-        owner: &str,
-        cancel: &CancellationToken,
-        wait: Duration,
-    ) -> Result<Permit, AdmissionError> {
+    pub async fn acquire(self: &Arc<Self>, owner: &str, cancel: &CancellationToken, wait: Duration) -> Result<Permit, AdmissionError> {
         let (grant, mut granted) = oneshot::channel();
         let ticket = {
             let mut state = self.lock();
@@ -264,11 +253,7 @@ impl AdmissionGate {
             if owner_queued == 0 {
                 state.rotation.push_back(owner.to_owned());
             }
-            state
-                .queues
-                .entry(owner.to_owned())
-                .or_default()
-                .push_back(Waiter { ticket, grant });
+            state.queues.entry(owner.to_owned()).or_default().push_back(Waiter { ticket, grant });
             state.queued += 1;
             ticket
         };

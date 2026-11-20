@@ -112,21 +112,14 @@ impl Frame {
     fn point(&self, x: &Value, y: &Value) -> Result<(i64, i64), ComputerError> {
         let inside = |v: &Value, size: i64| int(Some(v)).filter(|v| (0..size).contains(v));
         let (Some(x), Some(y)) = (inside(x, self.capture_width), inside(y, self.capture_height)) else {
-            return Err(refused(format!(
-                "frame coordinates must be inside 0..{},0..{}",
-                self.capture_width - 1,
-                self.capture_height - 1
-            )));
+            return Err(refused(format!("frame coordinates must be inside 0..{},0..{}", self.capture_width - 1, self.capture_height - 1)));
         };
         // In i128: a malformed reply's sizes cannot overflow the product.
         let scaled = |v: i64, physical: i64, capture: i64| {
             let value = (2 * i128::from(v) * i128::from(physical) + i128::from(capture)).div_euclid(2 * i128::from(capture));
             i64::try_from(value).unwrap_or(i64::MAX)
         };
-        Ok((
-            self.origin_x + scaled(x, self.physical_width, self.capture_width),
-            self.origin_y + scaled(y, self.physical_height, self.capture_height),
-        ))
+        Ok((self.origin_x + scaled(x, self.physical_width, self.capture_width), self.origin_y + scaled(y, self.physical_height, self.capture_height)))
     }
 }
 
@@ -304,8 +297,23 @@ impl FrameStore {
 /// Actions that may name a control by its mark (`ELEMENT_ALIAS_ACTIONS`, `session/element-aliases.ts`), and those of them that can
 /// act on a frame point instead (`PIXEL_ALIAS_ACTIONS`).
 const ALIAS_ACTIONS: [&str; 17] = [
-    "invoke", "set_value", "toggle", "click", "double_click", "right_click", "middle_click", "triple_click", "mouse_down", "mouse_up", "mouse_move", "drag",
-    "type", "key", "key_down", "key_up", "scroll",
+    "invoke",
+    "set_value",
+    "toggle",
+    "click",
+    "double_click",
+    "right_click",
+    "middle_click",
+    "triple_click",
+    "mouse_down",
+    "mouse_up",
+    "mouse_move",
+    "drag",
+    "type",
+    "key",
+    "key_down",
+    "key_up",
+    "scroll",
 ];
 const POINT_ACTIONS: [&str; 11] =
     ["click", "double_click", "right_click", "middle_click", "triple_click", "mouse_down", "mouse_up", "mouse_move", "drag", "scroll", "type"];
@@ -483,11 +491,8 @@ fn bind_points(frame: &Frame, action: &str, step: &mut Map<String, Value>, waypo
     {
         return Err(refused(format!("{gesture} requires a window capture frame")));
     }
-    let allowed = frame
-        .related_window_ids
-        .clone()
-        .or_else(|| step.get("window_id").and_then(Value::as_str).map(|window| vec![window.to_string()]))
-        .unwrap_or_default();
+    let allowed =
+        frame.related_window_ids.clone().or_else(|| step.get("window_id").and_then(Value::as_str).map(|window| vec![window.to_string()])).unwrap_or_default();
     step.insert("allowed_window_ids".into(), json!(allowed));
     Ok(())
 }
@@ -677,7 +682,9 @@ mod tests {
     #[test]
     fn a_stale_mark_or_frame_is_refused_with_the_models_text() {
         let store = marked_store();
-        assert!(refusal(&store, json!({"action":"click","ref":"ocr:frame-1:9"})).contains("stale_element: ref=9 is not in the latest capture for this session"));
+        assert!(
+            refusal(&store, json!({"action":"click","ref":"ocr:frame-1:9"})).contains("stale_element: ref=9 is not in the latest capture for this session")
+        );
         assert!(refusal(&store, json!({"action":"click","ref":"ocr:frame-0:4"})).contains("stale_element: ref=ocr:frame-0:4 is not in the latest"));
         assert!(refusal(&store, json!({"action":"drag","element":4,"to":"ocr:frame-1:9"})).contains("stale_element: to=9"));
         store.remember(frame("frame-2"));
@@ -733,7 +740,8 @@ mod tests {
         let store = FrameStore::default();
         let mut shown = frame("frame-d");
         (shown.window_id, shown.related_window_ids) = (None, None);
-        (shown.origin_x, shown.origin_y, shown.physical_width, shown.physical_height, shown.capture_width, shown.capture_height) = (-3000, 0, 3000, 1500, 1500, 750);
+        (shown.origin_x, shown.origin_y, shown.physical_width, shown.physical_height, shown.capture_width, shown.capture_height) =
+            (-3000, 0, 3000, 1500, 1500, 750);
         store.remember_display(shown, DisplaySource { display_id: "7".into(), x: -3000, y: 0, width: 3000, height: 1500, scale_factor: 2.0 });
         store
     }

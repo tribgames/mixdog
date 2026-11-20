@@ -8,8 +8,8 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mixdog_app_server_client::api::{
-    BlobRef, ClientError, ConnectionStatus, FeedStamp, FoldStore, InitializeResponse, Json, JsonRpcErrorBody, ResumeWindow, SectionEntry,
-    ServerRequest, ServerRequestAnswer, StoreChange, ThreadFold, ThreadId, ThreadResumeResponse,
+    BlobRef, ClientError, ConnectionStatus, FeedStamp, FoldStore, InitializeResponse, Json, JsonRpcErrorBody, ResumeWindow, SectionEntry, ServerRequest,
+    ServerRequestAnswer, StoreChange, ThreadFold, ThreadId, ThreadResumeResponse,
 };
 use mixdog_rt::DurabilityIo;
 use serde_json::json;
@@ -324,10 +324,7 @@ async fn a_login_runs_on_the_server_returns_the_address_to_open_and_forwards_the
     assert_eq!(flow.url.as_deref(), Some(CALLBACK));
     assert_eq!(*rig.forwarder.ports.lock().unwrap(), [1455]);
     // The server never opens a browser of its own.
-    assert_eq!(
-        rig.client.calls_of("account/beginOAuthProviderLogin"),
-        [json!({ "providerId": "openai-oauth", "options": { "openBrowser": false } })]
-    );
+    assert_eq!(rig.client.calls_of("account/beginOAuthProviderLogin"), [json!({ "providerId": "openai-oauth", "options": { "openBrowser": false } })]);
     // A pending status keeps the forward.
     let status = rig.logins.status("h1", "f1").await.unwrap();
     assert!(status.forwarded && status.state == SshServerLoginFlowState::Pending);
@@ -358,10 +355,7 @@ async fn without_the_forward_the_manual_page_opens_first_and_the_pasted_address_
     assert_eq!(flow.open_url.as_deref(), Some(MANUAL));
     let done = rig.logins.complete("h1", "f1", "  http://localhost:1455/cb?code=abc  ").await.unwrap();
     assert_eq!(done.state, SshServerLoginFlowState::Complete);
-    assert_eq!(
-        rig.client.calls_of("account/completeOAuthProviderLogin"),
-        [json!({ "flowId": "f1", "callbackUrl": "http://localhost:1455/cb?code=abc" })]
-    );
+    assert_eq!(rig.client.calls_of("account/completeOAuthProviderLogin"), [json!({ "flowId": "f1", "callbackUrl": "http://localhost:1455/cb?code=abc" })]);
 }
 
 #[tokio::test(start_paused = true)]
@@ -672,8 +666,7 @@ async fn the_servers_own_logins_are_listed_signed_in_first_with_the_account_and_
     // A field of the keychain issue that is not bounded plain text is left out; an issue without its message is not reported.
     let issue = listed.keychain.unwrap();
     assert_eq!((issue.state.as_str(), issue.kind, issue.path.as_deref()), ("locked", None, Some("/home/me/.mixdog")));
-    rig.client.store.sections.lock().unwrap().get_mut(&("providerSetup", None)).unwrap()["keychain"] =
-        json!({ "state": "locked", "message": "m".repeat(401) });
+    rig.client.store.sections.lock().unwrap().get_mut(&("providerSetup", None)).unwrap()["keychain"] = json!({ "state": "locked", "message": "m".repeat(401) });
     assert_eq!(rig.logins.list("h1").await.unwrap().keychain, None);
 }
 
@@ -726,7 +719,10 @@ async fn a_pending_login_follows_the_servers_feed_and_settles_when_the_redirect_
     rig.client.push("feed/snapshot", json!({ "feedId": "login:f1", "state": { "state": "pending", "url": CALLBACK } }));
     settle().await;
     let (host, flow) = updates.try_recv().unwrap();
-    assert_eq!((host.as_str(), flow.flow_id.as_str(), flow.provider.as_str(), flow.state, flow.forwarded), ("h1", "f1", "openai-oauth", SshServerLoginFlowState::Pending, true));
+    assert_eq!(
+        (host.as_str(), flow.flow_id.as_str(), flow.provider.as_str(), flow.state, flow.forwarded),
+        ("h1", "f1", "openai-oauth", SshServerLoginFlowState::Pending, true)
+    );
     assert_eq!(rig.closes(), [0]);
 
     // The browser's redirect reached the server through the forward and completed the login: the dialog is told, the forward is
@@ -803,7 +799,6 @@ async fn within_wait<T>(work: impl std::future::Future<Output = T>) -> T {
     timeout(SECTION_WAIT + Duration::from_secs(1), work).await.expect("the read waited longer than its bound")
 }
 
-
 fn io() -> DurabilityIo {
     mixdog_rt::testing::tokens().durability_io
 }
@@ -821,10 +816,7 @@ impl Rig {
             publish_after: Mutex::new(None),
         });
         let server = Arc::new(FakeServer { login: Mutex::new(login), client: client.clone(), end: CancellationToken::new() });
-        let servers = Arc::new(FakeServers {
-            attached: Mutex::new(HashMap::from([("h1".to_owned(), server.clone())])),
-            attach: broadcast::channel(8).0,
-        });
+        let servers = Arc::new(FakeServers { attached: Mutex::new(HashMap::from([("h1".to_owned(), server.clone())])), attach: broadcast::channel(8).0 });
         let forwarder = Arc::new(FakeForwarder::default());
         let logins = ServerLogins::with_parts(servers.clone(), hosts, forwarder.clone());
         Self { logins, servers, server, client, forwarder, _dir: dir }

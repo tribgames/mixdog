@@ -25,13 +25,13 @@ use mixdog_core_api::domain::provider::{ProviderAdapter, ProviderError, WireRout
 use mixdog_core_api::ids::ThreadId;
 use mixdog_store::schema::record::Header;
 use mixdog_tools::orch::util::PortError;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::model_display::display_model_name;
 use super::route_chain::BotRoutes;
-use mixdog_core_ports::ports::domain_sessions::Obj;
 use super::route_fallback::{HopHost, HopWrite, RouteEligibility};
 use super::session_context_meta::session_context_meta;
+use mixdog_core_ports::ports::domain_sessions::Obj;
 
 /// The session side of a hop, bound to one thread. Owner: WP-SESSION.
 #[async_trait]

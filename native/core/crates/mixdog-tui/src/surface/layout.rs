@@ -24,8 +24,8 @@ mod transition;
 mod viewport;
 
 pub use budgets::{
-    LIVE_STATUS_ROWS, PANEL_BASE_ROWS, PANEL_CHROME_ROWS, PANEL_MAX_VISIBLE, PICKER_CHROME_ROWS, SCROLL_HINT_ROWS,
-    SLASH_PALETTE_ROWS, STATUSLINE_ROWS, WELCOME_BANNER_ROWS, btw_panel_rows,
+    LIVE_STATUS_ROWS, PANEL_BASE_ROWS, PANEL_CHROME_ROWS, PANEL_MAX_VISIBLE, PICKER_CHROME_ROWS, SCROLL_HINT_ROWS, SLASH_PALETTE_ROWS, STATUSLINE_ROWS,
+    WELCOME_BANNER_ROWS, btw_panel_rows,
 };
 pub use transition::{CommitFollowUp, PanelTransition, commit_panel_transition, record_transcript_tail};
 pub use viewport::{HintWidths, hint_widths};

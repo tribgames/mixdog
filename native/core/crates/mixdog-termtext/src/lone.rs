@@ -52,9 +52,7 @@ pub fn to_units(text: &str) -> Vec<u16> {
 
 /// The string of UTF-16 `units`, each lone surrogate as its carrier.
 pub fn from_units(units: &[u16]) -> String {
-    char::decode_utf16(units.iter().copied())
-        .map(|decoded| decoded.unwrap_or_else(|error| carrier_of(error.unpaired_surrogate())))
-        .collect()
+    char::decode_utf16(units.iter().copied()).map(|decoded| decoded.unwrap_or_else(|error| carrier_of(error.unpaired_surrogate()))).collect()
 }
 
 /// `text` with each carrier replaced by U+FFFD.

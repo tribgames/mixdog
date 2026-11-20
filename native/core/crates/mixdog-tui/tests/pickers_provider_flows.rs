@@ -6,10 +6,11 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 use mixdog_term::paste::{PastedImage, PromptContent};
 use mixdog_tui::app::AppCtx;
 use mixdog_tui::pickers::PickerKind;
-use mixdog_tui::pickers::provider::{ModelLabels, OnboardingState, PanelOwner, Prefetch, ProviderHost, ProviderPanel, ProviderSetup, RowKind, SetupOptions, cancel, oauth_cancel_return, oauth_settled, open_auth_step, open_models_step, open_provider_setup, prefetched_agents, prefetched_provider_models, select, start_onboarding};
-use mixdog_tui::slash::host::{
-    PromptSurface, SlashHost, SlashState, SubmitOptions, TextPrompt, Tone,
+use mixdog_tui::pickers::provider::{
+    ModelLabels, OnboardingState, PanelOwner, Prefetch, ProviderHost, ProviderPanel, ProviderSetup, RowKind, SetupOptions, cancel, oauth_cancel_return,
+    oauth_settled, open_auth_step, open_models_step, open_provider_setup, prefetched_agents, prefetched_provider_models, select, start_onboarding,
 };
+use mixdog_tui::slash::host::{PromptSurface, SlashHost, SlashState, SubmitOptions, TextPrompt, Tone};
 use mixdog_tui::slash::notices::truthy;
 use mixdog_tui::surface::{SurfaceClaim, SurfaceKind};
 use mixdog_tui_widgets::picker::MetaPart;
@@ -92,8 +93,7 @@ impl Host {
     }
 
     fn script(&mut self, action: &str, reply: Result<Value, String>) {
-        self.replies
-            .insert(action.to_owned(), VecDeque::from([reply]));
+        self.replies.insert(action.to_owned(), VecDeque::from([reply]));
     }
 
     /// A scripted store entry of a recorded scenario (`{ ok }`, `{ err }`, or a list answering one call after another).
@@ -112,10 +112,7 @@ impl Host {
                         status.insert(key.to_owned(), value.clone());
                     }
                 }
-                status.insert(
-                    "manualCodeSupported".to_owned(),
-                    json!(ok.get("manualCode") == Some(&json!(true))),
-                );
+                status.insert("manualCodeSupported".to_owned(), json!(ok.get("manualCode") == Some(&json!(true))));
                 return Ok(Value::Object(status));
             }
             Ok(ok)
@@ -129,11 +126,7 @@ impl Host {
 
     fn answer(&mut self, action: &str) -> Option<Result<Value, String>> {
         let queue = self.replies.get_mut(action)?;
-        if queue.len() > 1 {
-            queue.pop_front()
-        } else {
-            queue.front().cloned()
-        }
+        if queue.len() > 1 { queue.pop_front() } else { queue.front().cloned() }
     }
 
     /// The results of the background prefetch land after the current turn: here, after the next store call returns.
@@ -147,27 +140,15 @@ impl Host {
     }
 
     fn notices(&self) -> Vec<(String, String)> {
-        self.log
-            .iter()
-            .filter(|entry| entry[0] == "notice")
-            .map(|entry| (text(&entry[1]).to_owned(), text(&entry[2]).to_owned()))
-            .collect()
+        self.log.iter().filter(|entry| entry[0] == "notice").map(|entry| (text(&entry[1]).to_owned(), text(&entry[2]).to_owned())).collect()
     }
 
     fn calls(&self, action: &str) -> Vec<Value> {
-        self.log
-            .iter()
-            .filter(|entry| entry[0] == "call" && entry[1] == action)
-            .map(|entry| entry[2].clone())
-            .collect()
+        self.log.iter().filter(|entry| entry[0] == "call" && entry[1] == action).map(|entry| entry[2].clone()).collect()
     }
 
     fn prompts(&self) -> Vec<Value> {
-        self.log
-            .iter()
-            .filter(|entry| entry[0] == "prompt" && entry[1] == "provider")
-            .map(|entry| entry[2].clone())
-            .collect()
+        self.log.iter().filter(|entry| entry[0] == "prompt" && entry[1] == "provider").map(|entry| entry[2].clone()).collect()
     }
 
     fn panel(&self) -> &ProviderPanel {
@@ -176,11 +157,7 @@ impl Host {
 
     fn row_index(&self, value: &str) -> usize {
         let panel = self.panel();
-        panel
-            .items
-            .iter()
-            .position(|row| row.value() == value)
-            .unwrap_or_else(|| panic!("no row {value} in panel {}", panel.title))
+        panel.items.iter().position(|row| row.value() == value).unwrap_or_else(|| panic!("no row {value} in panel {}", panel.title))
     }
 
     fn pick(&mut self, value: &str) {
@@ -222,12 +199,7 @@ fn panel_json(panel: &ProviderPanel) -> Value {
                 "marker": row.item.marker,
             });
             if let Some(parts) = &row.item.meta_parts {
-                item["metaParts"] = Value::Array(
-                    parts
-                        .iter()
-                        .map(|part| json!([part.text, part.width]))
-                        .collect(),
-                );
+                item["metaParts"] = Value::Array(parts.iter().map(|part| json!([part.text, part.width])).collect());
             }
             item
         })
@@ -255,16 +227,7 @@ fn prompt_json(prompt: &TextPrompt) -> Value {
             out.insert(key.to_owned(), json!(value));
         }
     }
-    for key in [
-        "providerId",
-        "providerName",
-        "mode",
-        "envName",
-        "source",
-        "keyUrl",
-        "authMode",
-        "detail",
-    ] {
+    for key in ["providerId", "providerName", "mode", "envName", "source", "keyUrl", "authMode", "detail"] {
         let value = prompt.text(key);
         if !value.is_empty() {
             out.insert(key.to_owned(), json!(value));
@@ -302,17 +265,11 @@ impl AppCtx for Host {
     }
 
     fn claim_surface(&mut self, kind: SurfaceKind) -> SurfaceClaim {
-        SurfaceClaim {
-            kind,
-            epoch: self.epoch,
-        }
+        SurfaceClaim { kind, epoch: self.epoch }
     }
 
     fn open_picker(&mut self, _kind: PickerKind) -> SurfaceClaim {
-        SurfaceClaim {
-            kind: SurfaceKind::Picker,
-            epoch: self.epoch,
-        }
+        SurfaceClaim { kind: SurfaceKind::Picker, epoch: self.epoch }
     }
 }
 
@@ -365,21 +322,12 @@ impl SlashHost for Host {
 
     fn paint_stop_confirm(&mut self, _claim: SurfaceClaim, _title: &str, _commands: &[String]) {}
 
-    fn open(
-        &mut self,
-        opener: mixdog_tui::slash::host::Opener,
-        options: Value,
-    ) -> Result<(), String> {
+    fn open(&mut self, opener: mixdog_tui::slash::host::Opener, options: Value) -> Result<(), String> {
         self.log.push(json!(["open", opener.as_str(), options]));
         Ok(())
     }
 
-    fn open_with_return(
-        &mut self,
-        opener: mixdog_tui::slash::host::Opener,
-        options: Value,
-        _target: &TextPrompt,
-    ) -> Result<(), String> {
+    fn open_with_return(&mut self, opener: mixdog_tui::slash::host::Opener, options: Value, _target: &TextPrompt) -> Result<(), String> {
         self.open(opener, options)
     }
 
@@ -431,8 +379,7 @@ impl SlashHost for Host {
         if surface == PromptSurface::Provider {
             self.prompt = next;
         }
-        self.log
-            .push(json!(["prompt", surface_name(surface), shown]));
+        self.log.push(json!(["prompt", surface_name(surface), shown]));
     }
 
     fn mark_prompt_submitting(&mut self, _surface: PromptSurface, _target: &TextPrompt) {}
@@ -477,12 +424,7 @@ impl SlashHost for Host {
 
     fn arm_transcript_follow(&mut self) {}
 
-    fn store_submit(
-        &mut self,
-        _method: &str,
-        _content: &PromptContent,
-        _options: Option<&SubmitOptions>,
-    ) -> Result<Value, String> {
+    fn store_submit(&mut self, _method: &str, _content: &PromptContent, _options: Option<&SubmitOptions>) -> Result<Value, String> {
         Ok(Value::Null)
     }
 }
@@ -506,32 +448,18 @@ impl ModelLabels for Host {
 }
 
 impl ProviderHost for Host {
-    fn paint_provider_panel(
-        &mut self,
-        claim: SurfaceClaim,
-        panel: Option<ProviderPanel>,
-    ) -> Option<SurfaceClaim> {
+    fn paint_provider_panel(&mut self, claim: SurfaceClaim, panel: Option<ProviderPanel>) -> Option<SurfaceClaim> {
         if !self.owns_surface(claim) {
             return None;
         }
         // The handover rule of the surface: closing a panel, or replacing it by one of another identity (its title).
-        let handover = self.live.as_ref().is_some_and(|previous| {
-            panel
-                .as_ref()
-                .is_none_or(|next| next.title != previous.title)
-        });
-        self.log.push(json!([
-            "panel",
-            panel.as_ref().map_or(Value::Null, panel_json)
-        ]));
+        let handover = self.live.as_ref().is_some_and(|previous| panel.as_ref().is_none_or(|next| next.title != previous.title));
+        self.log.push(json!(["panel", panel.as_ref().map_or(Value::Null, panel_json)]));
         self.live = panel;
         if handover {
             self.epoch += 1;
         }
-        Some(SurfaceClaim {
-            kind: claim.kind,
-            epoch: self.epoch,
-        })
+        Some(SurfaceClaim { kind: claim.kind, epoch: self.epoch })
     }
 
     fn can_open_browser(&self) -> bool {
@@ -585,7 +513,6 @@ impl ProviderHost for Host {
     }
 }
 
-
 fn host_with(setup: Value) -> Host {
     let mut host = Host::new(Labels);
     host.script("getProviderSetup", Ok(setup));
@@ -610,10 +537,7 @@ fn the_key_console_row_opens_the_browser_and_still_shows_the_address_in_the_prom
     host.pick("api:opencode-go");
     host.pick("get-key");
     assert_eq!(host.urls, ["https://opencode.ai/keys"]);
-    assert_eq!(
-        host.notices().last().map(|(message, _)| message.as_str()),
-        Some("opened https://opencode.ai/keys")
-    );
+    assert_eq!(host.notices().last().map(|(message, _)| message.as_str()), Some("opened https://opencode.ai/keys"));
     let prompt = host.prompts().pop().expect("a prompt");
     assert_eq!(prompt["keyUrl"], "https://opencode.ai/keys");
     assert_eq!(prompt["mode"], "set");
@@ -633,88 +557,48 @@ fn a_desktop_start_opens_the_browser_and_a_headless_one_never_does() {
         if desktop {
             assert_eq!(host.urls[0], "https://example.test/auth");
         }
-        assert_eq!(
-            host.calls("beginOAuthProviderLogin"),
-            [json!(["anthropic-oauth", {"openBrowser": desktop}])]
-        );
+        assert_eq!(host.calls("beginOAuthProviderLogin"), [json!(["anthropic-oauth", {"openBrowser": desktop}])]);
         assert_eq!(host.watched, ["oauth_1"]);
         let description = &host.panel().description;
-        assert_eq!(
-            description,
-            if desktop {
-                "Open this URL to sign in (browser opened):"
-            } else {
-                "Open this URL to sign in:"
-            }
-        );
-        assert_eq!(
-            host.panel().detail,
-            "https://example.test/manual",
-            "manualUrl wins over url"
-        );
+        assert_eq!(description, if desktop { "Open this URL to sign in (browser opened):" } else { "Open this URL to sign in:" });
+        assert_eq!(host.panel().detail, "https://example.test/manual", "manualUrl wins over url");
     }
 }
 
 #[test]
 fn the_device_code_warning_fits_eighty_columns_and_a_plain_url_has_none() {
     let mut host = host_with(base_setup());
-    host.script_spec(
-        "beginOAuthProviderLogin",
-        &json!({"ok": {"url": "https://example.test/device", "userCode": "ABCD-1234"}}),
-    );
+    host.script_spec("beginOAuthProviderLogin", &json!({"ok": {"url": "https://example.test/device", "userCode": "ABCD-1234"}}));
     host.begin(SetupOptions::default());
     host.pick("oauth:anthropic-oauth");
     host.pick("login-oauth");
     assert_eq!(host.panel().description, "Enter code ABCD-1234 at:");
     let lines = host.panel().footer_lines(0);
-    assert_eq!(
-        lines.len(),
-        1,
-        "one footer row, like the status footer it replaces"
-    );
-    let FooterInput::Object { text, .. } = &lines[0] else {
-        panic!("an object line")
-    };
-    assert!(
-        text.contains("Continue only if you started this")
-            && text.contains("Never enter a code someone sent you")
-    );
+    assert_eq!(lines.len(), 1, "one footer row, like the status footer it replaces");
+    let FooterInput::Object { text, .. } = &lines[0] else { panic!("an object line") };
+    assert!(text.contains("Continue only if you started this") && text.contains("Never enter a code someone sent you"));
     assert!(text.chars().count() + 7 <= 80);
 
     let mut plain = host_with(base_setup());
-    plain.script_spec(
-        "beginOAuthProviderLogin",
-        &json!({"ok": {"url": "https://example.test/poll"}}),
-    );
+    plain.script_spec("beginOAuthProviderLogin", &json!({"ok": {"url": "https://example.test/poll"}}));
     plain.begin(SetupOptions::default());
     plain.pick("oauth:anthropic-oauth");
     plain.pick("login-oauth");
-    let FooterInput::Object { text, .. } = &plain.panel().footer_lines(0)[0] else {
-        panic!("an object line")
-    };
+    let FooterInput::Object { text, .. } = &plain.panel().footer_lines(0)[0] else { panic!("an object line") };
     assert!(!text.contains("someone sent you"));
 }
 
 #[test]
 fn a_late_login_after_back_becomes_a_notice_and_the_result_panel_is_not_painted() {
     let mut host = host_with(base_setup());
-    host.script_spec(
-        "beginOAuthProviderLogin",
-        &json!({"ok": {"url": "https://example.test/device", "userCode": "ABCD"}}),
-    );
+    host.script_spec("beginOAuthProviderLogin", &json!({"ok": {"url": "https://example.test/device", "userCode": "ABCD"}}));
     host.begin(SetupOptions::default());
     host.pick("oauth:anthropic-oauth");
     host.pick("login-oauth");
     host.pick("back");
     oauth_settled(&mut host, "oauth_1", Ok(json!({"state": "complete"})));
-    assert_eq!(
-        host.panel().picker_key,
-        "providers-action:oauth:anthropic-oauth"
-    );
-    assert_eq!(
-        host.notices().last(),
-        Some(&("Anthropic login complete".to_owned(), "info".to_owned()))
-    );
+    assert_eq!(host.panel().picker_key, "providers-action:oauth:anthropic-oauth");
+    assert_eq!(host.notices().last(), Some(&("Anthropic login complete".to_owned(), "info".to_owned())));
     // A flow id that is not the current login's is not this picker's.
     oauth_settled(&mut host, "oauth_9", Err("late".to_owned()));
     assert_eq!(host.notices().len(), 1);
@@ -723,10 +607,7 @@ fn a_late_login_after_back_becomes_a_notice_and_the_result_panel_is_not_painted(
 #[test]
 fn a_code_submitted_in_the_prompt_is_not_finished_again_by_the_callback() {
     let mut host = host_with(base_setup());
-    host.script_spec(
-        "beginOAuthProviderLogin",
-        &json!({"ok": {"url": "https://example.test/auth", "manualCode": true}}),
-    );
+    host.script_spec("beginOAuthProviderLogin", &json!({"ok": {"url": "https://example.test/auth", "manualCode": true}}));
     host.begin(SetupOptions::default());
     host.pick("oauth:anthropic-oauth");
     host.pick("login-oauth");
@@ -745,11 +626,7 @@ fn the_api_key_prompt_carries_no_key_and_nothing_secret_is_logged() {
     let prompt = host.prompts().pop().expect("a prompt");
     assert_eq!(prompt["kind"], "api-key");
     assert_eq!(prompt["providerId"], "openai");
-    assert!(
-        host.log
-            .iter()
-            .all(|entry| entry[0] != "call" || entry[1] == "getProviderSetup")
-    );
+    assert!(host.log.iter().all(|entry| entry[0] != "call" || entry[1] == "getProviderSetup"));
 }
 
 #[test]
@@ -768,11 +645,7 @@ fn client_managed_rows_never_open_a_credential_action() {
     let before = host.log.len();
     for value in ["api:openai", "oauth:anthropic-oauth", "local:mixdog-local"] {
         host.pick(value);
-        assert_eq!(
-            host.panel().picker_key,
-            "providers-main:root",
-            "{value} must stay read-only"
-        );
+        assert_eq!(host.panel().picker_key, "providers-main:root", "{value} must stay read-only");
     }
     assert_eq!(host.log.len(), before);
     assert!(host.panel().description.contains("local desktop window"));
@@ -797,41 +670,23 @@ fn a_stale_acknowledgement_after_esc_neither_paints_nor_navigates() {
 #[test]
 fn the_wizard_launches_once_and_the_flag_forces_it() {
     let mut host = Host::new(Labels);
-    assert!(
-        !start_onboarding(&mut host, false, Some(true)),
-        "completed and not forced"
-    );
-    assert!(
-        start_onboarding(&mut host, true, Some(true)),
-        "--onboarding forces it"
-    );
+    assert!(!start_onboarding(&mut host, false, Some(true)), "completed and not forced");
+    assert!(start_onboarding(&mut host, true, Some(true)), "--onboarding forces it");
     assert_eq!(host.log.last(), Some(&json!(["active", true])));
-    assert!(
-        !start_onboarding(&mut host, true, Some(false)),
-        "at most once per mount"
-    );
+    assert!(!start_onboarding(&mut host, true, Some(false)), "at most once per mount");
 
     let mut fresh = Host::new(Labels);
     fresh.script("getOnboardingStatus", Ok(json!({"completed": false})));
-    assert!(
-        start_onboarding(&mut fresh, false, None),
-        "an unfinished status opens it"
-    );
+    assert!(start_onboarding(&mut fresh, false, None), "an unfinished status opens it");
     let mut unreadable = Host::new(Labels);
     unreadable.script("getOnboardingStatus", Err("down".to_owned()));
-    assert!(
-        !start_onboarding(&mut unreadable, false, None),
-        "an unreadable status counts as completed"
-    );
+    assert!(!start_onboarding(&mut unreadable, false, None), "an unreadable status counts as completed");
 }
 
 #[test]
 fn a_prefetch_of_a_superseded_generation_is_dropped() {
     let mut host = Host::new(Labels);
-    host.script(
-        "listProviderModels",
-        Ok(json!([{"provider": "openai", "id": "gpt-5"}])),
-    );
+    host.script("listProviderModels", Ok(json!([{"provider": "openai", "id": "gpt-5"}])));
     host.script("listAgents", Ok(json!([{"id": "researcher", "label": "Researcher", "description": "digs"}, {"id": "coder"}])));
     // The wizard asks for what it lacks; the provider cache is invalidated (an auth change) while the models are in flight.
     open_auth_step(&mut host);
@@ -842,50 +697,38 @@ fn a_prefetch_of_a_superseded_generation_is_dropped() {
     assert!(host.log.iter().all(|entry| entry[0] != "modelsCache"));
     // The roster is not generation bound.
     assert_eq!(host.onboarding.agents.len(), 2);
-    assert_eq!(
-        host.onboarding.agents[1].label, "coder",
-        "an agent without a label shows its id"
-    );
+    assert_eq!(host.onboarding.agents[1].label, "coder", "an agent without a label shows its id");
 }
 
 #[test]
 fn a_prefetch_of_the_current_generation_warms_step_two_once() {
     let mut host = Host::new(Labels);
-    host.script(
-        "listProviderModels",
-        Ok(json!([{"provider": "openai", "id": "gpt-5"}])),
-    );
+    host.script("listProviderModels", Ok(json!([{"provider": "openai", "id": "gpt-5"}])));
     host.script("listAgents", Ok(json!([{"id": "coder"}])));
     open_auth_step(&mut host);
     host.deliver_pending();
     assert_eq!(host.onboarding.provider_models.len(), 1);
     assert_eq!(host.calls("listProviderModels").len(), 1);
     open_auth_step(&mut host);
-    assert_eq!(
-        host.calls("listProviderModels").len(),
-        1,
-        "nothing is asked for twice"
-    );
+    assert_eq!(host.calls("listProviderModels").len(), 1, "nothing is asked for twice");
     assert_eq!(host.calls("listAgents").len(), 1);
 }
 
 #[test]
 fn the_models_step_shows_the_marker_route_as_following_main() {
     let mut host = Host::new(Labels);
-    host.script("listProviderModels", Ok(json!([{"provider": "openai", "id": "gpt-5", "description": "flagship", "fastCapable": true}, {"provider": "anthropic", "id": "claude-sonnet-4"}])));
+    host.script(
+        "listProviderModels",
+        Ok(json!([{"provider": "openai", "id": "gpt-5", "description": "flagship", "fastCapable": true}, {"provider": "anthropic", "id": "claude-sonnet-4"}])),
+    );
     host.script("listAgents", Ok(json!([])));
     host.onboarding.web_search_route = Some(json!({"provider": "default", "model": "default"}));
     open_models_step(&mut host);
     let panel = host.panel();
-    let shown = |row: &usize| {
-        panel.items[*row].item.meta_parts.as_ref().map(|parts| parts.iter().map(|part| (part.text.as_str(), part.width)).collect::<Vec<_>>())
-    };
+    let shown =
+        |row: &usize| panel.items[*row].item.meta_parts.as_ref().map(|parts| parts.iter().map(|part| (part.text.as_str(), part.width)).collect::<Vec<_>>());
     assert_eq!(shown(&0), Some(vec![("(not set)", "(not set)".len())]), "the main row shows what the host labels an unset route");
-    assert_eq!(
-        shown(&1),
-        Some(vec![("(follows main)", 17), ("", 6), ("", 4)]),
-        "the marker route is a hint, not default/default"
-    );
+    assert_eq!(shown(&1), Some(vec![("(follows main)", 17), ("", 6), ("", 4)]), "the marker route is a hint, not default/default");
     let web = &panel.items[1];
     assert!(matches!(web.kind, RowKind::Slot(ref target) if target == "webSearch"));
     assert_eq!(host.panel().owner, PanelOwner::OnboardingModels);
@@ -894,22 +737,16 @@ fn the_models_step_shows_the_marker_route_as_following_main() {
 #[test]
 fn a_pick_without_a_model_asks_for_one() {
     let mut host = Host::new(Labels);
-    host.script("listProviderModels", Ok(json!([{"provider": "openai", "id": "gpt-5", "description": "flagship", "fastCapable": true}, {"provider": "anthropic", "id": "claude-sonnet-4"}])));
+    host.script(
+        "listProviderModels",
+        Ok(json!([{"provider": "openai", "id": "gpt-5", "description": "flagship", "fastCapable": true}, {"provider": "anthropic", "id": "claude-sonnet-4"}])),
+    );
     host.script("listAgents", Ok(json!([])));
     open_models_step(&mut host);
     host.pick("main-model");
     // A role picker whose selected row carries no model: the Default row of a lead picker does not exist, so select a stale index.
     let owner = host.panel().owner.clone();
     select(&mut host, &owner, 99);
-    assert_eq!(
-        host.notices().last(),
-        Some(&(
-            "select a provider model first".to_owned(),
-            "warn".to_owned()
-        ))
-    );
-    assert_eq!(
-        host.panel().title,
-        "First Run \u{b7} Step 2/4 \u{b7} Models"
-    );
+    assert_eq!(host.notices().last(), Some(&("select a provider model first".to_owned(), "warn".to_owned())));
+    assert_eq!(host.panel().title, "First Run \u{b7} Step 2/4 \u{b7} Models");
 }

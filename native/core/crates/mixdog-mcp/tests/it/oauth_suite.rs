@@ -26,8 +26,8 @@ use mixdog_mcp::oauth::OAuthEnv;
 use mixdog_mcp::oauth::SecretStore;
 use mixdog_mcp::oauth::session::{McpOAuth, account_of};
 use mixdog_mcp::result::OutputPolicy;
-use mixdog_mcp::transport::Authorizer;
 use mixdog_mcp::server::ServerState;
+use mixdog_mcp::transport::Authorizer;
 use serde_json::Value;
 use serde_json::json;
 use sha2::Digest;
@@ -96,8 +96,7 @@ pub(crate) async fn read_request(stream: &mut TcpStream) -> (String, String, Has
     let mut lines = head.lines();
     let mut first = lines.next().unwrap().split(' ');
     let (method, path) = (first.next().unwrap().to_owned(), first.next().unwrap().to_owned());
-    let headers: HashMap<String, String> =
-        lines.filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_owned())).collect();
+    let headers: HashMap<String, String> = lines.filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_owned())).collect();
     let length: usize = headers.get("content-length").map_or(0, |v| v.parse().unwrap());
     while buf.len() < header_end + length {
         let n = stream.read(&mut chunk).await.unwrap();
@@ -169,33 +168,33 @@ async fn serve(listener: TcpListener, shared: Shared) {
                 ("POST", "/token") => {
                     let fields = form(&body);
                     let (reply, pause) = {
-                    let mut auth = shared.lock().unwrap();
-                    auth.grants.push(fields["grant_type"].clone());
-                    let reply = match fields["grant_type"].as_str() {
-                        "authorization_code" => {
-                            let challenge = auth.challenge.clone().unwrap();
-                            let computed = URL_SAFE_NO_PAD.encode(Sha256::digest(fields["code_verifier"].as_bytes()));
-                            if fields["code"] != "the-code" || computed != challenge || fields["client_id"] != "cid" {
-                                json!({"error": "invalid_grant"})
-                            } else {
-                                auth.valid = if auth.grants.len() == 1 { "t1" } else { "switched" }.into();
-                                json!({"access_token": auth.valid, "refresh_token": "r1", "token_type": "Bearer",
+                        let mut auth = shared.lock().unwrap();
+                        auth.grants.push(fields["grant_type"].clone());
+                        let reply = match fields["grant_type"].as_str() {
+                            "authorization_code" => {
+                                let challenge = auth.challenge.clone().unwrap();
+                                let computed = URL_SAFE_NO_PAD.encode(Sha256::digest(fields["code_verifier"].as_bytes()));
+                                if fields["code"] != "the-code" || computed != challenge || fields["client_id"] != "cid" {
+                                    json!({"error": "invalid_grant"})
+                                } else {
+                                    auth.valid = if auth.grants.len() == 1 { "t1" } else { "switched" }.into();
+                                    json!({"access_token": auth.valid, "refresh_token": "r1", "token_type": "Bearer",
                                        "team": {"name": "Acme"}})
+                                }
                             }
-                        }
-                        _ if fields["refresh_token"] == "r1" => {
-                            auth.valid = "t2".into();
-                            json!({"access_token": "t2", "refresh_token": "r2", "token_type": "Bearer"})
-                        }
-                        _ if fields["refresh_token"] == "r2" && !auth.rotated_again => {
-                            auth.rotated_again = true;
-                            auth.valid = "t3".into();
-                            json!({"access_token": "t3", "refresh_token": "r3", "token_type": "Bearer"})
-                        }
-                        _ => json!({"error": "invalid_grant"}),
-                    };
-                    let pause = (reply["access_token"] == "t3").then(|| auth.refresh_pause.take()).flatten();
-                    (reply, pause)
+                            _ if fields["refresh_token"] == "r1" => {
+                                auth.valid = "t2".into();
+                                json!({"access_token": "t2", "refresh_token": "r2", "token_type": "Bearer"})
+                            }
+                            _ if fields["refresh_token"] == "r2" && !auth.rotated_again => {
+                                auth.rotated_again = true;
+                                auth.valid = "t3".into();
+                                json!({"access_token": "t3", "refresh_token": "r3", "token_type": "Bearer"})
+                            }
+                            _ => json!({"error": "invalid_grant"}),
+                        };
+                        let pause = (reply["access_token"] == "t3").then(|| auth.refresh_pause.take()).flatten();
+                        (reply, pause)
                     };
                     if let Some(pause) = pause {
                         pause.received.notify_one();
@@ -213,10 +212,7 @@ async fn serve(listener: TcpListener, shared: Shared) {
 async fn browser_get(url: &Url) -> String {
     let mut stream = TcpStream::connect((url.host_str().unwrap(), url.port().unwrap())).await.unwrap();
     let target = format!("{}?{}", url.path(), url.query().unwrap());
-    stream
-        .write_all(format!("GET {target} HTTP/1.1\r\nHost: {}:{}\r\n\r\n", url.host_str().unwrap(), url.port().unwrap()).as_bytes())
-        .await
-        .unwrap();
+    stream.write_all(format!("GET {target} HTTP/1.1\r\nHost: {}:{}\r\n\r\n", url.host_str().unwrap(), url.port().unwrap()).as_bytes()).await.unwrap();
     let mut out = String::new();
     stream.read_to_string(&mut out).await.unwrap();
     out
@@ -275,10 +271,7 @@ async fn sign_in_connect_refresh_and_sign_out() {
     // Not signed in: the connect fails on the fact, and no browser is opened by itself.
     let server = hub.server("acme").unwrap();
     let mut states = server.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. })))
-        .await
-        .unwrap()
-        .unwrap();
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
     assert!(server.state().describe().contains("reauthenticationRequired"), "{}", server.state().describe());
     assert!(!hub.oauth("acme").unwrap().has_stored_tokens().await.unwrap());
 
@@ -357,7 +350,8 @@ async fn sign_in_connect_refresh_and_sign_out() {
     poll_fn(|cx| {
         assert!(renew.as_mut().poll(cx).is_pending());
         Poll::Ready(())
-    }).await;
+    })
+    .await;
     pause.release.notify_one();
     renew.await.unwrap();
     loop {
@@ -432,10 +426,7 @@ async fn a_sign_in_starts_from_the_challenge_of_the_refused_transport_request() 
     hub.apply(vec![McpServerConfig::from_entry("acme", &entry, &Default::default()).unwrap()]);
     let server = hub.server("acme").unwrap();
     let mut states = server.subscribe();
-    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. })))
-        .await
-        .unwrap()
-        .unwrap();
+    mixdog_rt::time::timeout(std::time::Duration::from_secs(10), states.wait_for(|s| matches!(**s, ServerState::Failed { .. }))).await.unwrap().unwrap();
 
     let oauth = hub.oauth("acme").unwrap();
     let challenge = oauth.refusal_challenge().expect("the refusal of the transport's request is kept");

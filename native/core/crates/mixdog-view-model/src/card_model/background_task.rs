@@ -329,11 +329,8 @@ mod tests {
 
     #[test]
     fn elapsed_comes_from_the_timestamps() {
-        let meta = resolve_background_task_meta(
-            &json!({ "task_id": "T", "startedAt": "2026-01-01T00:00:00Z", "finishedAt": "2026-01-01T00:00:42Z" }),
-            "",
-        )
-        .expect("meta");
+        let meta = resolve_background_task_meta(&json!({ "task_id": "T", "startedAt": "2026-01-01T00:00:00Z", "finishedAt": "2026-01-01T00:00:42Z" }), "")
+            .expect("meta");
         assert_eq!(background_task_elapsed(&meta, "fallback"), "42s");
         assert_eq!(background_task_args_elapsed(&json!({ "startedAt": "x" }), "fallback"), "fallback");
         assert_eq!(background_task_args_elapsed(&json!({ "startedAt": "2026-01-01T00:00:00Z", "finishedAt": "2026-01-01T00:00:00Z" }), "f"), "");

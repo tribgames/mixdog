@@ -620,7 +620,9 @@ async fn a_fallback_block_in_the_stream_is_recorded_and_the_turn_is_attributed_t
     assert!(events.iter().any(|e| matches!(e, StreamEvent::ServedModel(model) if model == "claude-opus-4-8")), "{events:?}");
     assert_eq!(
         recorded_fallbacks(&events),
-        Some(json!({"anthropicFallbacks": [{"trigger": "refusal", "originalModel": "claude-opus-5", "fallbackModel": "claude-opus-4-8", "category": "cyber"}]}))
+        Some(
+            json!({"anthropicFallbacks": [{"trigger": "refusal", "originalModel": "claude-opus-5", "fallbackModel": "claude-opus-4-8", "category": "cyber"}]})
+        )
     );
 }
 
@@ -673,7 +675,9 @@ async fn a_streaming_404_is_reissued_without_streaming_and_its_fallback_block_is
     assert!(events.iter().any(|e| matches!(e, StreamEvent::ServedModel(model) if model == "claude-opus-4-8")), "{events:?}");
     assert_eq!(
         recorded_fallbacks(&events),
-        Some(json!({"anthropicFallbacks": [{"trigger": "refusal", "originalModel": "claude-opus-5", "fallbackModel": "claude-opus-4-8", "category": "cyber"}]}))
+        Some(
+            json!({"anthropicFallbacks": [{"trigger": "refusal", "originalModel": "claude-opus-5", "fallbackModel": "claude-opus-4-8", "category": "cyber"}]})
+        )
     );
 }
 
@@ -746,7 +750,8 @@ fn a_bound_computer_frame_goes_out_with_its_bytes_and_media_type_unchanged() {
     config.cache = CacheStrategy { system: None, tier3: None, messages: None };
     let codec = mixdog_ai::providers::anthropic::AnthropicCodec::new(mixdog_ai::providers::anthropic::Flavor::ApiKey, config);
     for (data, mime, size) in frames {
-        let image = ContentPart::Image(ImageSource::Base64 { data: data.to_owned(), mime_type: mime.to_owned(), width: size.map(|s| s.0), height: size.map(|s| s.1) });
+        let image =
+            ContentPart::Image(ImageSource::Base64 { data: data.to_owned(), mime_type: mime.to_owned(), width: size.map(|s| s.0), height: size.map(|s| s.1) });
         let request = ModelRequest {
             model: "claude-sonnet-4-5".into(),
             messages: vec![Message::new(Role::User, Content::Parts(vec![image]))],

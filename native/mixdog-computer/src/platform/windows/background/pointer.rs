@@ -2,16 +2,14 @@
 //! child window under the point.
 
 use super::super::native::{self, hwnd};
-use super::{belongs_to_top, confirm_release, drops, is_chromium, refuse_dropped, send, with_release, Msg, MsgError, WinBackground};
+use super::{Msg, MsgError, WinBackground, belongs_to_top, confirm_release, drops, is_chromium, refuse_dropped, send, with_release};
 use crate::keys::Mod;
-use crate::platform::{window_id, Wid};
+use crate::platform::{Wid, window_id};
 use crate::port::windows::{Message, MouseButton, Pressed, WinPort};
 use std::time::Duration;
 use windows::Win32::Foundation::POINT;
-use windows::Win32::Graphics::Gdi::{MonitorFromWindow, ScreenToClient, MONITOR_DEFAULTTONEAREST};
-use windows::Win32::UI::HiDpi::{
-    GetDpiForMonitor, GetDpiForWindow, PhysicalToLogicalPointForPerMonitorDPI, MDT_EFFECTIVE_DPI,
-};
+use windows::Win32::Graphics::Gdi::{MONITOR_DEFAULTTONEAREST, MonitorFromWindow, ScreenToClient};
+use windows::Win32::UI::HiDpi::{GetDpiForMonitor, GetDpiForWindow, MDT_EFFECTIVE_DPI, PhysicalToLogicalPointForPerMonitorDPI};
 
 const MK_SHIFT: usize = 0x4;
 const MK_CONTROL: usize = 0x8;
@@ -26,9 +24,7 @@ fn client_point(target: Wid, x: i32, y: i32) -> Msg<POINT> {
     if unsafe { ScreenToClient(hwnd(target), &mut point) }.as_bool() {
         Ok(point)
     } else {
-        Err(MsgError::plain(
-            "background_message_rejected|could not map point into target window",
-        ))
+        Err(MsgError::plain("background_message_rejected|could not map point into target window"))
     }
 }
 
@@ -39,18 +35,9 @@ fn message_point(target: Wid, x: i32, y: i32) -> Msg<POINT> {
     let physical = client_point(target, x, y)?;
     let (mut monitor_dpi, mut unused) = (0u32, 0u32);
     // SAFETY: both are valid out pointers.
-    let read = unsafe {
-        GetDpiForMonitor(
-            MonitorFromWindow(hwnd(target), MONITOR_DEFAULTTONEAREST),
-            MDT_EFFECTIVE_DPI,
-            &mut monitor_dpi,
-            &mut unused,
-        )
-    };
+    let read = unsafe { GetDpiForMonitor(MonitorFromWindow(hwnd(target), MONITOR_DEFAULTTONEAREST), MDT_EFFECTIVE_DPI, &mut monitor_dpi, &mut unused) };
     if read.is_err() || monitor_dpi == 0 {
-        return Err(MsgError::plain(
-            "background_message_rejected|could not read the target monitor DPI",
-        ));
+        return Err(MsgError::plain("background_message_rejected|could not read the target monitor DPI"));
     }
     let window_dpi = unsafe { GetDpiForWindow(hwnd(target)) } as f64;
     Ok(POINT {
@@ -64,17 +51,11 @@ fn message_point(target: Wid, x: i32, y: i32) -> Msg<POINT> {
 /// the system input stack.
 fn message_target_at(top: Wid, x: i32, y: i32) -> Msg<Wid> {
     if !native::is_window(top) {
-        return Err(MsgError::plain(
-            "stale_target|native message target is stale or invalid",
-        ));
+        return Err(MsgError::plain("stale_target|native message target is stale or invalid"));
     }
     match native::rect(top) {
         Some(bounds) if x >= bounds.left && x < bounds.right && y >= bounds.top && y < bounds.bottom => {}
-        _ => {
-            return Err(MsgError::plain(
-                "target_mismatch|native message point is outside the exact target window",
-            ))
-        }
+        _ => return Err(MsgError::plain("target_mismatch|native message point is outside the exact target window")),
     }
     let mut current = top;
     for _ in 0..32 {
@@ -82,10 +63,10 @@ fn message_target_at(top: Wid, x: i32, y: i32) -> Msg<Wid> {
             break;
         };
         let surface = native::class_name(child);
-        if surface == "Microsoft.UI.Content.DesktopChildSiteBridge"
-            || surface == "Windows.UI.Core.CoreWindow"
-        {
-            return Err(MsgError::plain("background_unsupported|this WinUI or UWP surface ignores posted pointer messages; use a semantic ref or explicit foreground delivery; no input sent"));
+        if surface == "Microsoft.UI.Content.DesktopChildSiteBridge" || surface == "Windows.UI.Core.CoreWindow" {
+            return Err(MsgError::plain(
+                "background_unsupported|this WinUI or UWP surface ignores posted pointer messages; use a semantic ref or explicit foreground delivery; no input sent",
+            ));
         }
         if !belongs_to_top(top, child) {
             break;
@@ -105,7 +86,7 @@ fn pointer_flags(modifiers: &[Mod]) -> Msg<usize> {
                 return Err(MsgError::plain(format!(
                     "background_unsupported|background pointer messages support only ctrl/shift modifiers; use explicit foreground delivery for {}",
                     format!("{other:?}").to_lowercase()
-                )))
+                )));
             }
         }
     }
@@ -118,14 +99,7 @@ fn mouse_click(port: &WinPort, top: Wid, target: Wid, press: Message) -> Result<
 }
 
 impl WinBackground {
-    pub(super) fn send_pointer(
-        &self,
-        window: Wid,
-        x: i32,
-        y: i32,
-        kind: &str,
-        modifiers: &[Mod],
-    ) -> Result<String, String> {
+    pub(super) fn send_pointer(&self, window: Wid, x: i32, y: i32, kind: &str, modifiers: &[Mod]) -> Result<String, String> {
         // A held button is let go of through its receipt alone: no motion, no hold and no recovery ride along.
         if kind == "release" {
             if let Some(released) = self.release_held_button(window) {
@@ -144,9 +118,7 @@ impl WinBackground {
             refuse_dropped(window, target, if kind == "move" { drops::Kind::Move } else { drops::Kind::Click })?;
             // The message target is often a renderer child whose own class says
             // nothing about the host, so the top level decides too.
-            if (kind == "double" || kind == "triple")
-                && (is_chromium(&native::class_name(target)) || is_chromium(&native::class_name(window)))
-            {
+            if (kind == "double" || kind == "triple") && (is_chromium(&native::class_name(target)) || is_chromium(&native::class_name(window))) {
                 return Err("background_unsupported|target renderer ignores a posted double-click; use explicit foreground delivery; no input sent".into());
             }
             send(port, window, target, Message::MouseMove { flags, point }).map_err(|error| error.text)?;
@@ -158,8 +130,7 @@ impl WinBackground {
                 }
                 // Nothing of this port's is held here: an ordinary button up the caller asked for.
                 "release" => {
-                    send(port, window, target, Message::ButtonUp { button: MouseButton::Left, flags, point })
-                        .map_err(|error| error.text)?;
+                    send(port, window, target, Message::ButtonUp { button: MouseButton::Left, flags, point }).map_err(|error| error.text)?;
                 }
                 "right" => mouse_click(port, window, target, click(MouseButton::Right))?,
                 "middle" => mouse_click(port, window, target, click(MouseButton::Middle))?,
@@ -196,15 +167,7 @@ impl WinBackground {
         })
     }
 
-    pub(super) fn send_wheel(
-        &self,
-        window: Wid,
-        x: i32,
-        y: i32,
-        clicks: i32,
-        horizontal: bool,
-        modifiers: &[Mod],
-    ) -> Result<String, String> {
+    pub(super) fn send_wheel(&self, window: Wid, x: i32, y: i32, clicks: i32, horizontal: bool, modifiers: &[Mod]) -> Result<String, String> {
         let port = &*self.port;
         self.while_inactive(window, || {
             let target = message_target_at(window, x, y).map_err(|error| error.text)?;
@@ -248,8 +211,7 @@ impl WinBackground {
             refuse_dropped(window, target, drops::Kind::Move)?;
             let start = message_point(target, points[0].0, points[0].1).map_err(|error| error.text)?;
             let flags = pointer_flags(modifiers).map_err(|error| error.text)?;
-            send(port, window, target, Message::MouseMove { flags, point: point_param(start.x, start.y) })
-                .map_err(|error| error.text)?;
+            send(port, window, target, Message::MouseMove { flags, point: point_param(start.x, start.y) }).map_err(|error| error.text)?;
             let press = Message::ButtonDown { button: MouseButton::Left, flags, point: point_param(start.x, start.y) };
             // Each motion is a submission of its own (the port moves the held button's release point with it); the pause
             // between steps holds nothing. Revoked meanwhile, the next motion is refused and the receipt lets go of the button.

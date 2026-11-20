@@ -25,20 +25,20 @@ use super::StageMeta;
 use super::StatusInput;
 use super::TerminalUsage;
 use super::TranscriptSigner;
+use super::baseline_message_count;
 use super::bump_epoch;
 use super::bump_turn_id;
+use super::compact_telemetry;
+use super::current_provider_reading;
 use super::invalidate_provider_context_baseline;
 use super::iteration_metrics;
-use super::compact_telemetry;
 use super::post_compact_snapshot;
 use super::pre_send_check;
 use super::provider_pressure;
 use super::provider_token_calibration;
 use super::record_provider_context_baseline;
-use super::terminal_usage;
-use super::baseline_message_count;
-use super::current_provider_reading;
 use super::single_shot_consumed;
+use super::terminal_usage;
 use super::unanchored_after_restart;
 use crate::compact::tool_schema::RequestTools;
 use crate::env::CompactPass;
@@ -99,10 +99,7 @@ pub fn with_prompt_cache_evidence<'a>(header: &Header, delta: &'a Value, usage: 
     let counters = incomplete_prompt(header, usage);
     let prompt = prompt_evidence(usage);
     let output = output_evidence(usage);
-    if counters.is_none()
-        && prompt.is_none()
-        && output == delta.get("contextOutputTokens").and_then(Value::as_u64)
-    {
+    if counters.is_none() && prompt.is_none() && output == delta.get("contextOutputTokens").and_then(Value::as_u64) {
         return std::borrow::Cow::Borrowed(delta);
     }
     let mut delta = delta.clone();
@@ -119,22 +116,20 @@ fn prompt_evidence(usage: &Usage) -> Option<bool> {
     if raw["input_tokens_known"] == Value::Bool(false) || raw["cache_tokens_known"] == Value::Bool(false) {
         return Some(false);
     }
-    ["input_tokens", "prompt_tokens", "promptTokenCount"]
-        .iter().any(|key| raw.get(*key).and_then(Value::as_u64).is_some())
-        .then_some(true)
+    ["input_tokens", "prompt_tokens", "promptTokenCount"].iter().any(|key| raw.get(*key).and_then(Value::as_u64).is_some()).then_some(true)
 }
 
 fn output_evidence(usage: &Usage) -> Option<u64> {
-    (usage.output_tokens > 0 || usage.raw.as_ref().is_some_and(|raw| {
-        ["output_tokens", "completion_tokens", "candidatesTokenCount"]
-            .iter().any(|key| raw.get(*key).and_then(Value::as_u64).is_some())
-    })).then_some(usage.output_tokens)
+    (usage.output_tokens > 0
+        || usage.raw.as_ref().is_some_and(|raw| {
+            ["output_tokens", "completion_tokens", "candidatesTokenCount"].iter().any(|key| raw.get(*key).and_then(Value::as_u64).is_some())
+        }))
+    .then_some(usage.output_tokens)
 }
 
 fn incomplete_prompt(header: &Header, usage: &Usage) -> Option<Counters> {
     let provider = header.get("provider").and_then(Value::as_str).unwrap_or_default();
-    (crate::cache_observation::is_anthropic(provider) && !crate::cache_observation::has_prompt(usage))
-        .then(|| Counters::of_usage(usage))
+    (crate::cache_observation::is_anthropic(provider) && !crate::cache_observation::has_prompt(usage)).then(|| Counters::of_usage(usage))
 }
 
 fn unmeasured_prompt(read: Value, written: Value, now: f64) -> HeaderPatch {
@@ -153,7 +148,10 @@ fn unmeasured_prompt(read: Value, written: Value, now: f64) -> HeaderPatch {
 /// `onUsageDelta(delta)` for one model call: `delta` is the call's `usageDeltaEvent`, `outgoing` the
 /// transcript its request carried (the provider's reading covers it, not the reply appended after) and
 /// `send_tools` its tools. `books`: `None` records no pressure.
-#[allow(clippy::too_many_arguments, reason = "Preserve the established usage projection API shared by core-session and recorded replay callers; inputs retain their independent meanings")]
+#[allow(
+    clippy::too_many_arguments,
+    reason = "Preserve the established usage projection API shared by core-session and recorded replay callers; inputs retain their independent meanings"
+)]
 pub fn usage_change(
     header: &Header,
     delta: &Value,
@@ -218,12 +216,12 @@ mod cache_evidence_tests {
             "lastContextTokens": 10000,
             "contextPressureBaselineTokens": 10000,
             "contextPressureBaselineUpdatedAt": 100,
-        }).as_object().unwrap().clone();
-        let reported = Usage {
-            input_tokens: 50, output_tokens: 10,
-            raw: Some(json!({ "input_tokens": 50, "cache_creation_input_tokens": 0 })),
-            ..Usage::default()
-        };
+        })
+        .as_object()
+        .unwrap()
+        .clone();
+        let reported =
+            Usage { input_tokens: 50, output_tokens: 10, raw: Some(json!({ "input_tokens": 50, "cache_creation_input_tokens": 0 })), ..Usage::default() };
         let delta = json!({
             "source": "provider_send", "deltaInput": 50, "deltaOutput": 10,
             "deltaCachedRead": 0, "deltaCacheWrite": 0,
@@ -250,9 +248,12 @@ mod cache_evidence_tests {
     #[test]
     fn a_reported_zero_read_and_write_still_give_a_measured_prompt() {
         let mut header = json!({ "provider": "anthropic" }).as_object().unwrap().clone();
-        let reported = Usage { raw: Some(json!({
-            "input_tokens": 50, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0,
-        })), ..Usage::default() };
+        let reported = Usage {
+            raw: Some(json!({
+                "input_tokens": 50, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0,
+            })),
+            ..Usage::default()
+        };
         let delta = json!({ "deltaInput": 50, "deltaCachedRead": 0, "deltaCacheWrite": 0 });
         let pressure_delta = with_prompt_cache_evidence(&header, &delta, &reported);
         usage_change(&header, &pressure_delta, &[], &[], None, true, 200.0, 210.0).unwrap().apply(&mut header);
@@ -316,7 +317,9 @@ fn status_input<'a>(header: &'a Header, messages: &'a [AgentMessage], tools: &'a
 ///   `recordContextUsageSnapshot(.., 'post_compact')`.
 pub fn pass_change(header: &Header, pass: &CompactPass, books: &Books<'_>, now: f64) -> Option<HeaderPatch> {
     let mut draft = Draft::new(header);
-    let request = |session: &Header, stage: &str, meta: &StageMeta<'_>| compact_telemetry(&status_input(session, &pass.request, &pass.tools, books), now, pass.reactive, stage, meta);
+    let request = |session: &Header, stage: &str, meta: &StageMeta<'_>| {
+        compact_telemetry(&status_input(session, &pass.request, &pass.tools, books), now, pass.reactive, stage, meta)
+    };
     match &pass.stage {
         PassStage::Started => {
             let meta = StageMeta { trigger: Some(pass.trigger.as_str()), ..StageMeta::default() };
@@ -420,10 +423,18 @@ pub struct Settled<'a> {
 
 /// `applyAskTerminalUsageTotals` and the complete-boundary `recordProviderContextBaseline` of the
 /// ask's settlement. `incremental`: some call of the ask already counted its own usage.
-pub fn settled_change(header: &Header, settled: &Settled<'_>, incremental: bool, books: Option<&Books<'_>>, input_excludes_cache: bool, now: f64) -> Option<HeaderPatch> {
+pub fn settled_change(
+    header: &Header,
+    settled: &Settled<'_>,
+    incremental: bool,
+    books: Option<&Books<'_>>,
+    input_excludes_cache: bool,
+    now: f64,
+) -> Option<HeaderPatch> {
     let (usage, last) = (usage_record(settled.usage), usage_record(settled.last_turn_usage));
     let mut draft = Draft::new(header);
-    let ask = TerminalUsage { usage: Some(&usage), last_turn: &last, tool_calls_total: settled.tool_calls_total as f64, incremental, input_excludes_cache, now };
+    let ask =
+        TerminalUsage { usage: Some(&usage), last_turn: &last, tool_calls_total: settled.tool_calls_total as f64, incremental, input_excludes_cache, now };
     draft.apply(terminal_usage(header, &ask));
     if let Some(counters) = incomplete_prompt(header, settled.last_turn_usage) {
         draft.apply(unmeasured_prompt(json!(counters.read), json!(counters.created), now));

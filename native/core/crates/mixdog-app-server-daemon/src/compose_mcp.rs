@@ -39,10 +39,10 @@ use mixdog_core_config::config::OutputStyles;
 use mixdog_core_config::config::Settings;
 use mixdog_core_config::config::SettingsEffects;
 use mixdog_core_config::tool_modules::ToolModules;
+use mixdog_core_config::tool_modules::adopted_stored_agent;
 use mixdog_core_config::tool_modules::builtin_feature_active;
 use mixdog_core_config::tool_modules::value::feature_env_override;
 use mixdog_core_config::tool_modules::value::module_enabled;
-use mixdog_core_config::tool_modules::adopted_stored_agent;
 use mixdog_core_ports::ports::setup_actions::CallerScope;
 use mixdog_core_ports::ports::setup_actions::SetupActions;
 use mixdog_core_ports::ports::setup_actions::SetupCallers;
@@ -82,8 +82,8 @@ use serde_json::Value;
 
 use crate::compose_domains::EnvReader;
 use crate::domain_seams::automation_setup::AutomationActions;
-use crate::held_requests::HeldHome;
 use crate::domain_seams::doctor::HooksStatus;
+use crate::held_requests::HeldHome;
 use crate::hook_rule_setup::HookRuleSetup;
 use crate::hook_rule_setup::hook_rules_path;
 use crate::setup_status::ServiceStatus;
@@ -344,8 +344,7 @@ impl SkillSettingsSource for ConfigSkillSettings {
         let doc = adopted_stored_agent(&agent);
         let env = |name: &str| (self.env)(name);
         let onnx = mixdog_services::tool_state::onnx_runtime_supported();
-        let mut active: HashSet<String> =
-            CONFIG_FEATURES.iter().filter(|id| builtin_feature_active(&doc, id, &env, onnx)).map(|id| (*id).to_owned()).collect();
+        let mut active: HashSet<String> = CONFIG_FEATURES.iter().filter(|id| builtin_feature_active(&doc, id, &env, onnx)).map(|id| (*id).to_owned()).collect();
         // The script launcher is written wherever this runs, so skills that need a script runtime are offered.
         active.insert(mixdog_mcp::skills::FEATURE_JS_RUNTIME.to_owned());
         for id in ["browser", "computer", "terminal", "visualize"] {
@@ -512,7 +511,14 @@ pub struct AgentSeams {
 /// The agent definitions, built once. `ConfigHosts` (the compaction and workflow hosts of
 /// `compose_domains`) and `mcp_services` both take this `Arc`, so it is built before either; it needs
 /// nothing `compose_domains` produces. The shipped `agents/` is `<package_root>/src/agents` (`mixdogRoot()` is the `src` folder).
-pub fn build_agents(tokens: &LaneTokens, config: &Config, package_root: &Path, data_dir: &Path, task_workspace: &Path, seams: AgentSeams) -> Arc<AgentDefinitions> {
+pub fn build_agents(
+    tokens: &LaneTokens,
+    config: &Config,
+    package_root: &Path,
+    data_dir: &Path,
+    task_workspace: &Path,
+    seams: AgentSeams,
+) -> Arc<AgentDefinitions> {
     Arc::new(
         AgentDefinitions::new(
             package_root.join("src"),
@@ -609,7 +615,8 @@ pub struct McpComposed {
 }
 
 pub fn mcp_services(inputs: McpInputs) -> McpComposed {
-    let McpInputs { tokens, data_dir, package_root, home, process_env, env, hub, config, tool_modules, extensions, extension_host, plugins, workflow, .. } = &inputs;
+    let McpInputs { tokens, data_dir, package_root, home, process_env, env, hub, config, tool_modules, extensions, extension_host, plugins, workflow, .. } =
+        &inputs;
     let ext_config: Arc<dyn ExtensionConfig> = extensions.clone();
     let host: Arc<dyn ExtensionHost> = extension_host.clone();
     let admin = Arc::new(PluginAdmin::new(data_dir.clone(), inputs.git.clone(), inputs.announce.clone()));
@@ -705,7 +712,6 @@ impl mixdog_tools::exec::TaskNotifier for LateBoardNotifier {
         }
     }
 }
-
 
 /// The usage queue as a sink for callers that hold one sink for life (`QueuedLedger`): each row asks the source, as `ProcessInputs.ledger` does.
 pub struct SourcedSink(pub Arc<dyn Fn() -> Option<Arc<dyn mixdog_ai::registry::accounting::UsageSink>> + Send + Sync>);
@@ -1117,12 +1123,7 @@ mod tests {
         .await
         .unwrap();
         let env: EnvReader = Arc::new(|_| None);
-        let tool_modules = ToolModules::new(
-            config.clone(),
-            Arc::new(Host(tokio::sync::watch::channel(0).0)),
-            publisher,
-            mixdog_rt::CancellationToken::new(),
-        );
+        let tool_modules = ToolModules::new(config.clone(), Arc::new(Host(tokio::sync::watch::channel(0).0)), publisher, mixdog_rt::CancellationToken::new());
         let hub = McpHub::new(
             mixdog_mcp::server::McpIo { spawn: tokens.spawn_io, durability: tokens.durability_io, cpu: tokens.cpu_bulk },
             data.join("tool-results"),
@@ -1400,8 +1401,6 @@ mod tests {
         assert_eq!(hub.servers_in(&runtime_scope).len(), 1);
     }
 
-
-
     fn skill_doc(name: &str, description: &str, extra: &str) -> String {
         format!("---\nname: {name}\ndescription: {description}\n{extra}---\n\n# {name}\n\nBody.\n")
     }
@@ -1465,7 +1464,13 @@ mod tests {
         let admin = Arc::new(PluginAdmin::new(data.clone(), Arc::new(Quiet), Arc::new(|| {})));
         let reader: EnvReader = Arc::new(|_| None);
         let settings: Arc<dyn SkillSettingsSource> = Arc::new(ConfigSkillSettings::new(Arc::new(Doc(agent)), reader, Arc::new(Bridges(&[]))));
-        let catalog = SkillCatalog::new(data, mixdog_rt::testing::tokens().maintenance_io, McpGlue::skill_roots(admin, dir.path().join("package").join("defaults")), settings, &SkillsWatch::new());
+        let catalog = SkillCatalog::new(
+            data,
+            mixdog_rt::testing::tokens().maintenance_io,
+            McpGlue::skill_roots(admin, dir.path().join("package").join("defaults")),
+            settings,
+            &SkillsWatch::new(),
+        );
         let all = catalog.skills().await.unwrap().iter().map(|s| (s.name.clone(), format!("{:?}", s.source).to_lowercase(), s.plugin.clone())).collect();
         let mut visible = Vec::new();
         for folder in ["proj1/sub", "proj2", "elsewhere"] {
@@ -1478,13 +1483,17 @@ mod tests {
         list.iter().map(|name| (*name).to_owned()).collect()
     }
 
-    const EVERY_SKILL: [&str; 12] = ["alpha", "beta", "gamma", "needs-git", "needs-office", "inner", "plugin-topic", "named-skill", "own", "more", "bundled", "bundled-git"];
+    const EVERY_SKILL: [&str; 12] =
+        ["alpha", "beta", "gamma", "needs-git", "needs-office", "inner", "plugin-topic", "named-skill", "own", "more", "bundled", "bundled-git"];
 
     #[tokio::test(flavor = "multi_thread")]
     async fn a_setup_lists_every_global_plugin_and_bundled_skill_and_offers_them_all_when_nothing_is_disabled() {
         let (all, visible) = skill_lists(r#"{"skills":{"disabled":[]}}"#).await;
         let listed: Vec<&str> = all.iter().map(|(name, ..)| name.as_str()).collect();
-        assert_eq!(listed, EVERY_SKILL, "a global skill shadows the plugin's and the bundle's of its name; a mismatched folder, an empty file and a disabled or missing plugin list nothing");
+        assert_eq!(
+            listed, EVERY_SKILL,
+            "a global skill shadows the plugin's and the bundle's of its name; a mismatched folder, an empty file and a disabled or missing plugin list nothing"
+        );
         assert_eq!(all[6], ("plugin-topic".to_owned(), "plugin".to_owned(), Some("plug-a".to_owned())));
         assert_eq!(all[8], ("own".to_owned(), "plugin".to_owned(), Some("plug-manifest".to_owned())));
         assert_eq!(all[10], ("bundled".to_owned(), "builtin".to_owned(), None));
@@ -1498,8 +1507,20 @@ mod tests {
         let agent = r#"{"skills":{"disabled":[" Beta ","OWN"]},"builtins":{"git":{"installed":true},"office":{"installed":false}},"extensionScopes":{"skills":{"gamma":["{base}/proj1"]},"plugins":{"plug-a":["{base}/proj2"]}}}"#;
         let (all, visible) = skill_lists(agent).await;
         assert_eq!(all.len(), 12, "disabling hides a skill from a session, not from the list");
-        assert_eq!(visible[0], names(&["alpha", "gamma", "needs-git", "inner", "named-skill", "more", "bundled", "bundled-git"]), "in proj1: gamma is scoped there, plug-a is not");
-        assert_eq!(visible[1], names(&["alpha", "needs-git", "inner", "plugin-topic", "named-skill", "more", "bundled", "bundled-git"]), "in proj2: plug-a is scoped there, gamma is not");
-        assert_eq!(visible[2], names(&["alpha", "needs-git", "inner", "named-skill", "more", "bundled", "bundled-git"]), "elsewhere neither scoped extension; beta and own are disabled (case and padding ignored) and needs-office needs an uninstalled feature");
+        assert_eq!(
+            visible[0],
+            names(&["alpha", "gamma", "needs-git", "inner", "named-skill", "more", "bundled", "bundled-git"]),
+            "in proj1: gamma is scoped there, plug-a is not"
+        );
+        assert_eq!(
+            visible[1],
+            names(&["alpha", "needs-git", "inner", "plugin-topic", "named-skill", "more", "bundled", "bundled-git"]),
+            "in proj2: plug-a is scoped there, gamma is not"
+        );
+        assert_eq!(
+            visible[2],
+            names(&["alpha", "needs-git", "inner", "named-skill", "more", "bundled", "bundled-git"]),
+            "elsewhere neither scoped extension; beta and own are disabled (case and padding ignored) and needs-office needs an uninstalled feature"
+        );
     }
 }

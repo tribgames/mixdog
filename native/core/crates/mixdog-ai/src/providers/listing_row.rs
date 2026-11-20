@@ -55,7 +55,6 @@ pub fn record(row: Map<String, Value>) -> ModelRecord {
 pub(crate) mod testing {
     use std::sync::Mutex;
 
-
     use async_trait::async_trait;
     use bytes::Bytes;
     use mixdog_core_api::domain::provider::ProviderError;
@@ -88,18 +87,10 @@ pub(crate) mod testing {
 
     #[async_trait]
     impl HttpSend for Replay {
-        async fn send(
-            &self,
-            request: WireRequest,
-            _exchange: crate::transport::Exchange,
-        ) -> Result<HttpResponse, ProviderError> {
+        async fn send(&self, request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
             let (status, body) = (self.answer)(&request);
             self.requests.lock().unwrap().push(request);
             Ok(HttpResponse { status, headers: Vec::new(), body: Box::new(Once(Some(Bytes::from(body)))) })
         }
     }
-
-
-
-
 }

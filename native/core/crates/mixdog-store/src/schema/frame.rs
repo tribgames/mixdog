@@ -168,11 +168,7 @@ pub enum ScanEnd {
     /// dropped by the first open-for-append.
     Torn { offset: u64 },
     /// The bytes at `offset` are damaged; `ordinal` is the ordinal expected there.
-    Corrupt {
-        offset: u64,
-        ordinal: u64,
-        cause: CorruptCause,
-    },
+    Corrupt { offset: u64, ordinal: u64, cause: CorruptCause },
 }
 
 /// Why the bytes at a frame start are corruption (FORMAT.md §3.2). The header causes are

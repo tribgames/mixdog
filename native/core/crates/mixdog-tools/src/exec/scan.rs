@@ -10,10 +10,8 @@ use std::sync::LazyLock;
 pub const SHELL_NAMES: [&str; 6] = ["bash", "sh", "zsh", "dash", "ksh", "ash"];
 
 /// Wrapper programs that transparently exec their first non-option argument.
-pub const WRAPPER_NAMES: [&str; 14] = [
-    "env", "sudo", "doas", "pkexec", "gsudo", "nice", "stdbuf", "chronic", "time", "timeout",
-    "nohup", "setpriv", "ionice", "taskset",
-];
+pub const WRAPPER_NAMES: [&str; 14] =
+    ["env", "sudo", "doas", "pkexec", "gsudo", "nice", "stdbuf", "chronic", "time", "timeout", "nohup", "setpriv", "ionice", "taskset"];
 
 pub use mixdog_js::Caps;
 pub use mixdog_js::JsRegex;
@@ -51,12 +49,9 @@ fn is_comment_start(t: &[char], i: usize) -> bool {
     }
 }
 
-static PS_HERE_SQ: LazyLock<JsRegex> =
-    LazyLock::new(|| cs(r"^@'[ \t]*\r?\n[\s\S]*?\r?\n'@"));
-static PS_HERE_DQ: LazyLock<JsRegex> =
-    LazyLock::new(|| cs(r#"^@"[ \t]*\r?\n[\s\S]*?\r?\n"@"#));
-static HEREDOC_START: LazyLock<JsRegex> =
-    LazyLock::new(|| cs(r#"^<<-?\s*['"]?([A-Za-z0-9_]+)['"]?"#));
+static PS_HERE_SQ: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^@'[ \t]*\r?\n[\s\S]*?\r?\n'@"));
+static PS_HERE_DQ: LazyLock<JsRegex> = LazyLock::new(|| cs(r#"^@"[ \t]*\r?\n[\s\S]*?\r?\n"@"#));
+static HEREDOC_START: LazyLock<JsRegex> = LazyLock::new(|| cs(r#"^<<-?\s*['"]?([A-Za-z0-9_]+)['"]?"#));
 
 /// `\n<delim>\b` searched from `from`; the match's start and end.
 fn find_delimiter(t: &[char], from: usize, delim: &str) -> Option<(usize, usize)> {
@@ -131,7 +126,12 @@ pub fn strip_quoted_and_heredoc(s: &str) -> String {
                 }
             }
         }
-        if ch == '<' && i + 1 < n && t[i + 1] == '#' && is_comment_start(&t, i) && let Some(end) = index_of(&t, &['#', '>'], i + 2) {
+        if ch == '<'
+            && i + 1 < n
+            && t[i + 1] == '#'
+            && is_comment_start(&t, i)
+            && let Some(end) = index_of(&t, &['#', '>'], i + 2)
+        {
             out.push(' ');
             i = end + 2;
             continue;
@@ -178,8 +178,7 @@ pub fn strip_quoted_and_heredoc(s: &str) -> String {
     out
 }
 
-static HEREDOC_BODY: LazyLock<JsRegex> =
-    LazyLock::new(|| cs(r#"<<-?\s*['"]?([A-Za-z0-9_]+)['"]?"#));
+static HEREDOC_BODY: LazyLock<JsRegex> = LazyLock::new(|| cs(r#"<<-?\s*['"]?([A-Za-z0-9_]+)['"]?"#));
 
 /// Heredoc bodies (shell-exec contexts route the body through scanning).
 pub fn extract_heredoc_bodies(s: &str) -> Vec<String> {
@@ -262,7 +261,12 @@ pub fn tokenize(s: &str) -> Vec<String> {
             i = (i..src.len()).find(|&k| src[k] == '\n').unwrap_or(src.len());
             continue;
         }
-        if cur.is_empty() && c == '<' && i + 1 < src.len() && src[i + 1] == '#' && let Some(end) = index_of(&src, &['#', '>'], i + 2) {
+        if cur.is_empty()
+            && c == '<'
+            && i + 1 < src.len()
+            && src[i + 1] == '#'
+            && let Some(end) = index_of(&src, &['#', '>'], i + 2)
+        {
             i = end + 2;
             continue;
         }
@@ -357,11 +361,7 @@ pub fn peel_wrappers(tokens: &[String]) -> &[String] {
         if is_wrapper_name(t) {
             i += 1;
             while i < tokens.len() && (is_flag(&tokens[i]) || DURATION.is_match(&tokens[i])) {
-                if LONG_OPT.is_match(&tokens[i])
-                    && i + 1 < tokens.len()
-                    && !is_flag(&tokens[i + 1])
-                    && !is_assignment(&tokens[i + 1])
-                {
+                if LONG_OPT.is_match(&tokens[i]) && i + 1 < tokens.len() && !is_flag(&tokens[i + 1]) && !is_assignment(&tokens[i + 1]) {
                     i += 2;
                     continue;
                 }
@@ -374,10 +374,8 @@ pub fn peel_wrappers(tokens: &[String]) -> &[String] {
     &tokens[i..]
 }
 
-static AWK_SYSTEM_SQ: LazyLock<JsRegex> =
-    LazyLock::new(|| cs(r"system\s*\(\s*'([\s\S]*?)'\s*\)"));
-static AWK_SYSTEM_DQ: LazyLock<JsRegex> =
-    LazyLock::new(|| cs(r#"system\s*\(\s*"([\s\S]*?)"\s*\)"#));
+static AWK_SYSTEM_SQ: LazyLock<JsRegex> = LazyLock::new(|| cs(r"system\s*\(\s*'([\s\S]*?)'\s*\)"));
+static AWK_SYSTEM_DQ: LazyLock<JsRegex> = LazyLock::new(|| cs(r#"system\s*\(\s*"([\s\S]*?)"\s*\)"#));
 
 /// Leaf commands that embed an inner command or payload, surfaced as a synthetic command string.
 fn collect_leaf_embedded_payloads(peeled: &[String], out: &mut Vec<String>) {
@@ -386,10 +384,7 @@ fn collect_leaf_embedded_payloads(peeled: &[String], out: &mut Vec<String>) {
         "xargs" | "parallel" => {
             let mut j = 1;
             while j < peeled.len() && is_flag(&peeled[j]) {
-                if LONG_OPT.is_match(&peeled[j])
-                    && j + 1 < peeled.len()
-                    && !is_flag(&peeled[j + 1])
-                {
+                if LONG_OPT.is_match(&peeled[j]) && j + 1 < peeled.len() && !is_flag(&peeled[j + 1]) {
                     j += 2;
                     continue;
                 }
@@ -433,9 +428,7 @@ fn collect_leaf_embedded_payloads(peeled: &[String], out: &mut Vec<String>) {
                 let sq = AWK_SYSTEM_SQ.captures(body);
                 let dq = AWK_SYSTEM_DQ.captures(body);
                 let pick = match (sq, dq) {
-                    (Some(a), Some(b)) => {
-                        Some(if a.range().start <= b.range().start { a } else { b })
-                    }
+                    (Some(a), Some(b)) => Some(if a.range().start <= b.range().start { a } else { b }),
                     (a, b) => a.or(b),
                 };
                 if let Some(m) = pick {
@@ -450,7 +443,9 @@ fn collect_leaf_embedded_payloads(peeled: &[String], out: &mut Vec<String>) {
             while j < peeled.len() {
                 let t = peeled[j].as_str();
                 if t == flag || (leaf == "perl" && t == "-E") {
-                    if let Some(arg) = peeled.get(j + 1) && !arg.is_empty() {
+                    if let Some(arg) = peeled.get(j + 1)
+                        && !arg.is_empty()
+                    {
                         out.push(strip_quotes(arg).to_owned());
                     }
                     break;
@@ -485,7 +480,9 @@ pub fn extract_shell_c_inner(s: &str) -> Vec<String> {
         while i < peeled.len() {
             let t = peeled[i].as_str();
             if t == "-c" || t == "--command" || COMBINED_C.is_match(t) {
-                if let Some(arg) = peeled.get(i + 1) && !arg.is_empty() {
+                if let Some(arg) = peeled.get(i + 1)
+                    && !arg.is_empty()
+                {
                     out.push(strip_quotes(arg).to_owned());
                 }
                 break;
@@ -504,26 +501,18 @@ pub fn extract_shell_c_inner(s: &str) -> Vec<String> {
     out
 }
 
-const POWERSHELL_FLAGS: &str =
-    r"\s+-(?:NoProfile|NonInteractive|WindowStyle\s+\S+|ExecutionPolicy\s+\S+|Sta|Mta|NoLogo|NoExit)";
+const POWERSHELL_FLAGS: &str = r"\s+-(?:NoProfile|NonInteractive|WindowStyle\s+\S+|ExecutionPolicy\s+\S+|Sta|Mta|NoLogo|NoExit)";
 const POWERSHELL_TRAILING: &str = r"[ \t]*(?:$|[\r\n;|&<>]|\d+>)";
 
-static POWERSHELL_DOUBLE: LazyLock<JsRegex> =LazyLock::new(|| {
-    ci(&format!(
-        r#"\b(powershell(?:\.exe)?|pwsh(?:\.exe)?)((?:{POWERSHELL_FLAGS})*)\s+(?:-Command|-c)\s+"((?:[^"\\]|\\.|"")+?)"(?:{POWERSHELL_TRAILING})"#
-    ))
+static POWERSHELL_DOUBLE: LazyLock<JsRegex> = LazyLock::new(|| {
+    ci(&format!(r#"\b(powershell(?:\.exe)?|pwsh(?:\.exe)?)((?:{POWERSHELL_FLAGS})*)\s+(?:-Command|-c)\s+"((?:[^"\\]|\\.|"")+?)"(?:{POWERSHELL_TRAILING})"#))
 });
-static POWERSHELL_SINGLE: LazyLock<JsRegex> =LazyLock::new(|| {
-    ci(&format!(
-        r#"\b(powershell(?:\.exe)?|pwsh(?:\.exe)?)((?:{POWERSHELL_FLAGS})*)\s+(?:-Command|-c)\s+'((?:[^'\\]|\\.|'')+?)'(?:{POWERSHELL_TRAILING})"#
-    ))
+static POWERSHELL_SINGLE: LazyLock<JsRegex> = LazyLock::new(|| {
+    ci(&format!(r#"\b(powershell(?:\.exe)?|pwsh(?:\.exe)?)((?:{POWERSHELL_FLAGS})*)\s+(?:-Command|-c)\s+'((?:[^'\\]|\\.|'')+?)'(?:{POWERSHELL_TRAILING})"#))
 });
 
 fn unescape_powershell_body(body: &str) -> String {
-    body.replace("\"\"", "\"")
-        .replace("\\\"", "\"")
-        .replace("''", "'")
-        .replace("\\'", "'")
+    body.replace("\"\"", "\"").replace("\\\"", "\"").replace("''", "'").replace("\\'", "'")
 }
 
 /// Inline `powershell -Command "…"` bodies, for policy scan parity.
@@ -540,7 +529,7 @@ pub fn extract_powershell_command_inner(command: &str) -> Vec<String> {
     out
 }
 
-static ENCODED_COMMAND: LazyLock<JsRegex> =LazyLock::new(|| {
+static ENCODED_COMMAND: LazyLock<JsRegex> = LazyLock::new(|| {
     ci(concat!(
         r#"(?:^|\s)(?:powershell(?:\.exe)?|pwsh(?:\.exe)?)\s+(?:[-/](?:NoP(?:rofile)?|NoL(?:ogo)?|NonI(?:nteractive)?|Sta|Mta|(?:ExecutionPolicy|Ep|Ex)\s+\S+|(?:WindowStyle|Win|W)\s+\S+|(?:InputFormat|Inp|If)\s+\S+|(?:OutputFormat|Out|Of)\s+\S+|Command|(?:File|Fi)\s+\S+|(?:Version|Ver)\s+\S+)\s+)*"#,
         r#"[-/](?:EncodedCommand|enc|e)\s+["']?([A-Za-z0-9+/=]+)["']?"#
@@ -582,10 +571,7 @@ pub fn decode_powershell_encoded_command(command: &str) -> Option<String> {
         .captures_iter(command)
         .map(|caps| {
             let bytes = decode_base64_lenient(caps.get(1).unwrap_or_default().as_bytes());
-            let units: Vec<u16> = bytes
-                .as_chunks::<2>().0.iter()
-                .map(|p| u16::from_le_bytes([p[0], p[1]]))
-                .collect();
+            let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
             String::from_utf16_lossy(&units)
         })
         .collect();
@@ -600,10 +586,7 @@ mod tests {
     fn quotes_comments_and_heredoc_bodies_are_blanked() {
         assert_eq!(strip_quoted_and_heredoc("echo 'shutdown now'"), "echo ''");
         assert_eq!(strip_quoted_and_heredoc("echo \"a\\\"b\" # shutdown"), "echo \"\" ");
-        assert_eq!(
-            strip_quoted_and_heredoc("cat <<EOF\nshutdown\nEOF\nls"),
-            "cat <<HEREDOC>>\nls"
-        );
+        assert_eq!(strip_quoted_and_heredoc("cat <<EOF\nshutdown\nEOF\nls"), "cat <<HEREDOC>>\nls");
         assert_eq!(strip_quoted_and_heredoc("echo 'open"), "echo 'open");
     }
 
@@ -611,10 +594,7 @@ mod tests {
     fn shell_payloads_are_extracted() {
         assert_eq!(extract_shell_c_inner("sudo bash -lc 'rm -rf /'"), vec!["rm -rf /"]);
         assert_eq!(extract_shell_c_inner("find . -exec rm -rf {} ;"), vec!["rm -rf {}"]);
-        assert_eq!(
-            extract_powershell_command_inner("pwsh -NoProfile -Command \"Remove-Item x\""),
-            vec!["Remove-Item x"]
-        );
+        assert_eq!(extract_powershell_command_inner("pwsh -NoProfile -Command \"Remove-Item x\""), vec!["Remove-Item x"]);
     }
 
     #[test]
@@ -632,9 +612,6 @@ mod tests {
             }
             s
         };
-        assert_eq!(
-            decode_powershell_encoded_command(&format!("powershell -enc {b64}")).as_deref(),
-            Some("shutdown")
-        );
+        assert_eq!(decode_powershell_encoded_command(&format!("powershell -enc {b64}")).as_deref(), Some("shutdown"));
     }
 }

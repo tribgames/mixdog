@@ -22,8 +22,8 @@ use url::Url;
 
 use super::error::FetchError;
 use super::error::FetchKind;
-use super::ssrf::AddressPolicy;
 use super::lanes::WebLanes;
+use super::ssrf::AddressPolicy;
 use super::ssrf::PolicyResolver;
 
 pub const MAX_BODY_BYTES: usize = 10 * 1024 * 1024;
@@ -70,11 +70,7 @@ fn is_redirect(status: u16) -> bool {
 }
 
 fn header_text(headers: &HeaderMap, name: reqwest::header::HeaderName) -> String {
-    headers
-        .get(name)
-        .and_then(|value| value.to_str().ok())
-        .unwrap_or_default()
-        .to_string()
+    headers.get(name).and_then(|value| value.to_str().ok()).unwrap_or_default().to_string()
 }
 
 pub fn parse_retry_after(value: &str) -> Duration {
@@ -94,10 +90,7 @@ pub fn parse_retry_after(value: &str) -> Duration {
 }
 
 pub fn assert_document_response(status: u16, headers: &HeaderMap) -> Result<(), FetchError> {
-    let challenged = headers
-        .get("cf-mitigated")
-        .and_then(|value| value.to_str().ok())
-        == Some("challenge");
+    let challenged = headers.get("cf-mitigated").and_then(|value| value.to_str().ok()) == Some("challenge");
     if !challenged && (200..300).contains(&status) {
         return Ok(());
     }
@@ -125,9 +118,7 @@ fn is_text_content_type(content_type: &str) -> bool {
 fn charset_of(content_type: &str) -> Option<&str> {
     let at = content_type.find("charset=")? + "charset=".len();
     let rest = content_type[at..].trim_start_matches(['"', '\'']);
-    let end = rest
-        .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-'))
-        .unwrap_or(rest.len());
+    let end = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_' || c == '-')).unwrap_or(rest.len());
     (end > 0).then(|| &rest[..end])
 }
 
@@ -139,21 +130,12 @@ async fn read_capped(mut response: Response) -> Result<Vec<u8>, FetchError> {
     if let Some(length) = response.content_length()
         && length > MAX_BODY_BYTES as u64
     {
-        return Err(too_large(format!(
-            "Content-Length={length} > cap={MAX_BODY_BYTES}"
-        )));
+        return Err(too_large(format!("Content-Length={length} > cap={MAX_BODY_BYTES}")));
     }
     let mut body = Vec::new();
-    while let Some(chunk) = response
-        .chunk()
-        .await
-        .map_err(|error| FetchError::network(&error))?
-    {
+    while let Some(chunk) = response.chunk().await.map_err(|error| FetchError::network(&error))? {
         if body.len() + chunk.len() > MAX_BODY_BYTES {
-            return Err(too_large(format!(
-                "received {}+ bytes > cap={MAX_BODY_BYTES}",
-                body.len() + chunk.len()
-            )));
+            return Err(too_large(format!("received {}+ bytes > cap={MAX_BODY_BYTES}", body.len() + chunk.len())));
         }
         body.extend_from_slice(&chunk);
     }
@@ -164,13 +146,9 @@ async fn read_text(response: Response) -> Result<String, FetchError> {
     let content_type = header_text(response.headers(), CONTENT_TYPE).to_lowercase();
     if !content_type.is_empty() && !is_text_content_type(&content_type) {
         let mime = mixdog_js::js_trim(content_type.split(';').next().unwrap_or_default());
-        return Err(FetchError::policy(format!(
-            "Blocked non-text content-type: {mime}"
-        )));
+        return Err(FetchError::policy(format!("Blocked non-text content-type: {mime}")));
     }
-    let encoding = charset_of(&content_type)
-        .and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes()))
-        .unwrap_or(encoding_rs::UTF_8);
+    let encoding = charset_of(&content_type).and_then(|label| encoding_rs::Encoding::for_label(label.as_bytes())).unwrap_or(encoding_rs::UTF_8);
     let bytes = read_capped(response).await?;
     Ok(encoding.decode_with_bom_removal(&bytes).0.into_owned())
 }
@@ -183,12 +161,7 @@ impl Fetcher {
             .no_proxy()
             .build()
             .map_err(|error| FetchError::network(&error))?;
-        Ok(Self {
-            client,
-            policy,
-            lanes,
-            user_agent: format!("mixdog-web-search/{version}"),
-        })
+        Ok(Self { client, policy, lanes, user_agent: format!("mixdog-web-search/{version}") })
     }
 
     pub fn lanes(&self) -> WebLanes {
@@ -206,10 +179,7 @@ impl Fetcher {
             .client
             .get(url.clone())
             .header(USER_AGENT, &self.user_agent)
-            .header(
-                ACCEPT,
-                "text/html, application/xhtml+xml, text/markdown, text/plain, application/json;q=0.9, */*;q=0.5",
-            )
+            .header(ACCEPT, "text/html, application/xhtml+xml, text/markdown, text/plain, application/json;q=0.9, */*;q=0.5")
             .header(ACCEPT_LANGUAGE, "en, ko;q=0.9");
         if let Some(cookie) = cookie {
             request = request.header(COOKIE, cookie);
@@ -220,20 +190,14 @@ impl Fetcher {
     /// The next hop of a redirect response, validated against the policy.
     fn next_hop(&self, current: &Url, response: &Response, hops: usize) -> Result<Url, FetchError> {
         if hops >= MAX_REDIRECTS {
-            return Err(FetchError::policy(format!(
-                "Too many redirects (max {MAX_REDIRECTS})"
-            )));
+            return Err(FetchError::policy(format!("Too many redirects (max {MAX_REDIRECTS})")));
         }
         let status = response.status().as_u16();
         let location = header_text(response.headers(), LOCATION);
         if location.is_empty() {
-            return Err(FetchError::policy(format!(
-                "Redirect {status} without Location header"
-            )));
+            return Err(FetchError::policy(format!("Redirect {status} without Location header")));
         }
-        let next = current
-            .join(&location)
-            .map_err(|error| FetchError::policy(format!("Invalid redirect Location: {error}")))?;
+        let next = current.join(&location).map_err(|error| FetchError::policy(format!("Invalid redirect Location: {error}")))?;
         self.policy.check_url(&next)?;
         Ok(next)
     }
@@ -249,23 +213,14 @@ impl Fetcher {
             let status = response.status().as_u16();
             if is_redirect(status) {
                 let next = self.next_hop(&current, &response, hops)?;
-                redirects.push(Redirect {
-                    url: current.to_string(),
-                    status: Some(status),
-                    location: next.to_string(),
-                });
+                redirects.push(Redirect { url: current.to_string(), status: Some(status), location: next.to_string() });
                 current = next;
                 continue;
             }
             assert_document_response(status, response.headers())?;
             let content_type = header_text(response.headers(), CONTENT_TYPE);
             let body = read_text(response).await?;
-            return Ok(Document {
-                url: current,
-                content_type,
-                body,
-                redirects,
-            });
+            return Ok(Document { url: current, content_type, body, redirects });
         }
         unreachable!("the redirect loop returns or errors")
     }
@@ -274,13 +229,7 @@ impl Fetcher {
     /// response goes back to Chromium as it is, which owns redirects, cookie
     /// scoping and method rewriting; each next hop is intercepted again. The
     /// browser's headers override the defaults.
-    pub async fn fetch_for_browser(
-        &self,
-        url: &Url,
-        method: &str,
-        headers: &[(String, String)],
-        body: Option<String>,
-    ) -> Result<BrowserResponse, FetchError> {
+    pub async fn fetch_for_browser(&self, url: &Url, method: &str, headers: &[(String, String)], body: Option<String>) -> Result<BrowserResponse, FetchError> {
         self.policy.check_url(url)?;
         let invalid = |what: &str| FetchError::new(FetchKind::Network, format!("invalid browser request {what}"));
         let method = reqwest::Method::from_bytes(method.as_bytes()).map_err(|_| invalid("method"))?;
@@ -288,9 +237,7 @@ impl Fetcher {
         merged.insert(USER_AGENT, self.user_agent.parse().map_err(|_| invalid("user agent"))?);
         merged.insert(
             ACCEPT,
-            "text/html, application/xhtml+xml, text/markdown, text/plain, application/json;q=0.9, */*;q=0.5"
-                .parse()
-                .map_err(|_| invalid("accept"))?,
+            "text/html, application/xhtml+xml, text/markdown, text/plain, application/json;q=0.9, */*;q=0.5".parse().map_err(|_| invalid("accept"))?,
         );
         merged.insert(ACCEPT_LANGUAGE, "en, ko;q=0.9".parse().map_err(|_| invalid("accept-language"))?);
         for (name, value) in headers {
@@ -306,9 +253,7 @@ impl Fetcher {
         if is_redirect(status)
             && let Some(location) = response.headers().get(LOCATION).and_then(|value| value.to_str().ok())
         {
-            let next = url
-                .join(location)
-                .map_err(|error| FetchError::policy(format!("Invalid redirect Location: {error}")))?;
+            let next = url.join(location).map_err(|error| FetchError::policy(format!("Invalid redirect Location: {error}")))?;
             self.policy.check_url(&next)?;
         }
         let headers = response.headers().clone();
@@ -322,17 +267,12 @@ impl Fetcher {
         for hops in 0.. {
             self.policy.check_url(&current)?;
             if same_host && current.host_str() != url.host_str() {
-                return Err(FetchError::policy(format!(
-                    "cross-host redirect blocked (redirected_to: {current})"
-                )));
+                return Err(FetchError::policy(format!("cross-host redirect blocked (redirected_to: {current})")));
             }
             let response = self.send(&current, None).await?;
             if !is_redirect(response.status().as_u16()) {
                 if !response.status().is_success() {
-                    return Err(FetchError::new(
-                        FetchKind::Http,
-                        format!("HTTP {}", response.status().as_u16()),
-                    ));
+                    return Err(FetchError::new(FetchKind::Http, format!("HTTP {}", response.status().as_u16())));
                 }
                 return Ok(response);
             }
@@ -353,9 +293,7 @@ impl Fetcher {
         let mime = mixdog_js::js_trim(content_type.split(';').next().unwrap_or_default()).to_lowercase();
         if !SAFE_IMAGE_MIMES.contains(&mime.as_str()) {
             let shown = if mime.is_empty() { "(missing)" } else { mime.as_str() };
-            return Err(FetchError::policy(format!(
-                "Blocked unsupported image content-type: {shown}"
-            )));
+            return Err(FetchError::policy(format!("Blocked unsupported image content-type: {shown}")));
         }
         Ok((mime, read_capped(response).await?))
     }
@@ -368,8 +306,7 @@ pub fn meta_refresh_target(html: &str, base: &Url) -> Option<Url> {
     use mixdog_js::JsRegex;
     use std::sync::LazyLock;
     static TAG: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<meta\b[^>]*>", "i"));
-    static EQUIV: LazyLock<JsRegex> =
-        LazyLock::new(|| JsRegex::new_static(r#"http-equiv\s*=\s*["']?refresh\b"#, "i"));
+    static EQUIV: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"http-equiv\s*=\s*["']?refresh\b"#, "i"));
     static CONTENT: LazyLock<[JsRegex; 3]> = LazyLock::new(|| {
         [
             JsRegex::new_static(r#"content\s*=\s*"([^"]*)""#, "i"),
@@ -377,9 +314,7 @@ pub fn meta_refresh_target(html: &str, base: &Url) -> Option<Url> {
             JsRegex::new_static(r"content\s*=\s*([^\s>]+)", "i"),
         ]
     });
-    static DIRECTIVE: LazyLock<JsRegex> = LazyLock::new(|| {
-        JsRegex::new_static(r#"^\s*(\d+(?:\.\d+)?)\s*[;,]\s*url\s*=\s*['"]?([^'"]+?)['"]?\s*$"#, "i")
-    });
+    static DIRECTIVE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"^\s*(\d+(?:\.\d+)?)\s*[;,]\s*url\s*=\s*['"]?([^'"]+?)['"]?\s*$"#, "i"));
     let mut end = html.len().min(8192);
     while !html.is_char_boundary(end) {
         end -= 1;

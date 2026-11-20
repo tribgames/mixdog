@@ -9,8 +9,8 @@ use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_js::is_js_space;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_js::is_js_space;
 use mixdog_js::js_trim;
 use serde_json::Map;
 use serde_json::Value;
@@ -118,10 +118,8 @@ fn allowed_domain(site: &str) -> String {
     if raw.is_empty() {
         return String::new();
     }
-    let has_scheme = raw
-        .get(..8)
-        .is_some_and(|head| head.eq_ignore_ascii_case("https://"))
-        || raw.get(..7).is_some_and(|head| head.eq_ignore_ascii_case("http://"));
+    let has_scheme =
+        raw.get(..8).is_some_and(|head| head.eq_ignore_ascii_case("https://")) || raw.get(..7).is_some_and(|head| head.eq_ignore_ascii_case("http://"));
     let candidate = if has_scheme { raw.to_string() } else { format!("https://{raw}") };
     match Url::parse(&candidate) {
         Ok(url) => url.host_str().unwrap_or_default().to_lowercase(),
@@ -233,11 +231,7 @@ fn hosted_tool(request: &NativeSearchRequest, tool_type: &str, family: SearchFam
 const SYSTEM_PROMPT: &str = "You are Mixdog native web search.\nUse the hosted web_search tool for current or external facts.\nAnswer concisely, cite source URLs, and do not request local tools or file edits.";
 
 fn first_text<'a>(source: &'a Map<String, Value>, names: &[&str]) -> &'a str {
-    names
-        .iter()
-        .filter_map(|name| source.get(*name).and_then(Value::as_str))
-        .find(|text| !text.is_empty())
-        .unwrap_or_default()
+    names.iter().filter_map(|name| source.get(*name).and_then(Value::as_str)).find(|text| !text.is_empty()).unwrap_or_default()
 }
 
 /// The citations and the sources of the searches the provider ran, flattened
@@ -287,16 +281,7 @@ fn search_call(call: &Value) -> SearchCall {
     if let Some(url) = action.get("url").and_then(Value::as_str).filter(|url| !url.is_empty()) {
         urls.push(url.to_string());
     }
-    urls.extend(
-        action
-            .get("urls")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .filter(|url| !url.is_empty())
-            .map(str::to_string),
-    );
+    urls.extend(action.get("urls").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).filter(|url| !url.is_empty()).map(str::to_string));
     let sources = action
         .get("sources")
         .and_then(Value::as_array)
@@ -307,15 +292,10 @@ fn search_call(call: &Value) -> SearchCall {
             url: first_text(source, &["url", "uri", "href", "source_url"]).to_string(),
             title: first_text(source, &["title", "query", "name"]).to_string(),
             snippet: first_text(source, &["snippet", "text", "description"]).to_string(),
-            published_date: Some(first_text(source, &["publishedDate", "published_date"]).to_string())
-                .filter(|date| !date.is_empty()),
+            published_date: Some(first_text(source, &["publishedDate", "published_date"]).to_string()).filter(|date| !date.is_empty()),
         })
         .collect();
-    SearchCall {
-        query: action.get("query").and_then(Value::as_str).unwrap_or_default().to_string(),
-        sources,
-        urls,
-    }
+    SearchCall { query: action.get("query").and_then(Value::as_str).unwrap_or_default().to_string(), sources, urls }
 }
 
 #[async_trait]
@@ -331,11 +311,7 @@ impl NativeWebSearch for HostedWebSearch {
             let call = HostedSearchCall {
                 thread: request.thread.clone(),
                 tool: hosted_tool(&request, &tool_type, candidate.family),
-                include: if candidate.family == SearchFamily::Openai {
-                    vec!["web_search_call.action.sources".to_string()]
-                } else {
-                    Vec::new()
-                },
+                include: if candidate.family == SearchFamily::Openai { vec!["web_search_call.action.sources".to_string()] } else { Vec::new() },
                 tool_choice: if candidate.family == SearchFamily::Gemini { "auto" } else { "required" },
                 system: SYSTEM_PROMPT.to_string(),
                 user: request.prompt.clone(),

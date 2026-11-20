@@ -19,8 +19,8 @@
 //!   listing is `Unknown`; `Gone` needs neither. `Unknown` is never a signal target, and signals
 //!   carry identities that are revalidated just before they are sent.
 
-use std::collections::HashSet;
 use std::collections::HashMap;
+use std::collections::HashSet;
 use std::io;
 use std::sync::Mutex;
 use std::sync::atomic::AtomicBool;
@@ -223,9 +223,8 @@ impl Tracker {
             seeds.push(self.root);
             seeds.extend(table.procs.iter().filter(|proc| proc.pgid == self.root).map(|proc| proc.pid));
         }
-        seeds.extend(self.shutdown_tracked.iter().filter_map(|identity| {
-            (table.row(identity.pid).relation(identity) == Relation::Same).then_some(identity.pid)
-        }));
+        seeds
+            .extend(self.shutdown_tracked.iter().filter_map(|identity| (table.row(identity.pid).relation(identity) == Relation::Same).then_some(identity.pid)));
         let mut seen = HashSet::new();
         while let Some(pid) = seeds.pop() {
             if !seen.insert(pid) {
@@ -239,9 +238,7 @@ impl Tracker {
             let identity = Identity { pid, token: token.to_owned() };
             // The table is not atomic. Before trusting a parent link, make
             // sure the parent still has the identity in the captured table.
-            if !table.children(pid).is_empty()
-                && matches!(reader.row(pid), Ok(row) if row.relation(&identity) == Relation::Same)
-            {
+            if !table.children(pid).is_empty() && matches!(reader.row(pid), Ok(row) if row.relation(&identity) == Relation::Same) {
                 seeds.extend(table.children(pid));
             }
             self.shutdown_tracked.insert(identity);
@@ -307,9 +304,7 @@ impl Tracker {
         if ours {
             from.push(self.root);
         }
-        from.extend(
-            self.tracked.iter().filter(|identity| table.row(identity.pid).relation(identity) == Relation::Same).map(|i| i.pid),
-        );
+        from.extend(self.tracked.iter().filter(|identity| table.row(identity.pid).relation(identity) == Relation::Same).map(|i| i.pid));
         let mut seen: HashSet<u32> = from.iter().copied().collect();
         while let Some(current) = from.pop() {
             for &child in table.children(current) {
@@ -326,12 +321,8 @@ impl Tracker {
                 }
             }
         }
-        let mut unknown_parents: Vec<u32> = self
-            .tracked
-            .iter()
-            .filter(|identity| table.row(identity.pid).relation(identity) == Relation::Unknown)
-            .map(|identity| identity.pid)
-            .collect();
+        let mut unknown_parents: Vec<u32> =
+            self.tracked.iter().filter(|identity| table.row(identity.pid).relation(identity) == Relation::Unknown).map(|identity| identity.pid).collect();
         if ownership == Ownership::Unknown {
             unknown_parents.push(self.root);
         }
@@ -379,8 +370,7 @@ impl Tracker {
         if let Some(root) = self.live_root(&root, reaped) {
             return Observation::Running(vec![root]);
         }
-        let live: Vec<Identity> =
-            self.tracked.iter().filter(|identity| table.row(identity.pid).relation(identity) == Relation::Same).cloned().collect();
+        let live: Vec<Identity> = self.tracked.iter().filter(|identity| table.row(identity.pid).relation(identity) == Relation::Same).cloned().collect();
         if !live.is_empty() {
             Observation::Running(live)
         } else if !self.candidates.is_empty() || !table.complete() {
@@ -413,13 +403,7 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
             signals,
             clock,
             root,
-            tracker: Mutex::new(Tracker {
-                root,
-                root_token,
-                tracked: Vec::new(),
-                shutdown_tracked: HashSet::new(),
-                candidates: Vec::new(),
-            }),
+            tracker: Mutex::new(Tracker { root, root_token, tracked: Vec::new(), shutdown_tracked: HashSet::new(), candidates: Vec::new() }),
             reaped: AtomicBool::new(false),
             live: Mutex::new(Vec::new()),
         }
@@ -479,10 +463,11 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
     /// A numeric group probe also finds zombies. An authoritative live table
     /// can show that a record no longer needs to be retained for that group.
     pub(crate) fn group_has_live_members(&self) -> bool {
-        self.group_may_be_occupied() && match self.reader.table() {
-            Ok(table) => !table.complete() || table.procs.iter().any(|proc| proc.pgid == self.root),
-            Err(_) => true,
-        }
+        self.group_may_be_occupied()
+            && match self.reader.table() {
+                Ok(table) => !table.complete() || table.procs.iter().any(|proc| proc.pgid == self.root),
+                Err(_) => true,
+            }
     }
 
     pub(crate) fn shutdown_survivor_confirmed(&self) -> bool {
@@ -494,9 +479,9 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
             return false;
         }
         let tracker = self.tracker();
-        let gone = tracker.shutdown_members().all(|identity| {
-            matches!(self.reader.row(identity.pid), Ok(row) if matches!(row.relation(identity), Relation::Absent | Relation::Different))
-        });
+        let gone = tracker
+            .shutdown_members()
+            .all(|identity| matches!(self.reader.row(identity.pid), Ok(row) if matches!(row.relation(identity), Relation::Absent | Relation::Different)));
         gone && tracker.shutdown_candidates_gone(|pid| self.reader.row(pid).unwrap_or(Row::Unreadable))
     }
 
@@ -511,9 +496,7 @@ impl<R: Reader, S: Signals, C: Clock> Tree<R, S, C> {
             let targets = {
                 let mut tracker = self.tracker();
                 tracker.absorb_shutdown(&table, false, &self.reader);
-                tracker.shutdown_tracked.iter().filter(|identity| {
-                    table.row(identity.pid).relation(identity) == Relation::Same
-                }).cloned().collect::<Vec<_>>()
+                tracker.shutdown_tracked.iter().filter(|identity| table.row(identity.pid).relation(identity) == Relation::Same).cloned().collect::<Vec<_>>()
             };
             if !targets.iter().fold(false, |sent, target| self.signals.kill_identified(target) || sent) {
                 return;
@@ -726,13 +709,7 @@ mod tests {
 
     impl ScriptedSignals {
         fn new(log: &Log) -> Self {
-            Self {
-                group_probes: vec![true],
-                pid_probes: vec![true],
-                asked: [AtomicUsize::new(0), AtomicUsize::new(0)],
-                exits: false,
-                log: log.clone(),
-            }
+            Self { group_probes: vec![true], pid_probes: vec![true], asked: [AtomicUsize::new(0), AtomicUsize::new(0)], exits: false, log: log.clone() }
         }
 
         fn probes(mut self, group: &Value, pid: &Value) -> Self {
@@ -836,31 +813,16 @@ mod tests {
     #[test]
     fn shutdown_signals_the_pinned_private_group_without_a_process_table() {
         let log = Log::default();
-        let tree = Tree::new(
-            ScriptedReader::new(&json!([{"error": "unreadable"}]), &log),
-            ScriptedSignals::new(&log),
-            ScriptedClock::new(&log),
-            ROOT,
-            None,
-        );
+        let tree = Tree::new(ScriptedReader::new(&json!([{"error": "unreadable"}]), &log), ScriptedSignals::new(&log), ScriptedClock::new(&log), ROOT, None);
         tree.shutdown_private_group();
-        assert_eq!(*log.lock().unwrap(), vec![
-            json!({"op": "read"}),
-            json!({"op": "kill", "target": "group", "id": ROOT, "signal": "SIGKILL"})
-        ]);
+        assert_eq!(*log.lock().unwrap(), vec![json!({"op": "read"}), json!({"op": "kill", "target": "group", "id": ROOT, "signal": "SIGKILL"})]);
         assert!(!tree.shutdown_survivor_confirmed(), "unknown is not a confirmed survivor");
     }
 
     #[test]
     fn a_zombie_only_group_does_not_pin_the_shutdown_record() {
         let log = Log::default();
-        let tree = Tree::new(
-            ScriptedReader::new(&json!([[]]), &log),
-            ScriptedSignals::new(&log),
-            ScriptedClock::new(&log),
-            ROOT,
-            None,
-        );
+        let tree = Tree::new(ScriptedReader::new(&json!([[]]), &log), ScriptedSignals::new(&log), ScriptedClock::new(&log), ROOT, None);
         tree.root_reaped();
         assert!(tree.shutdown_idle());
     }
@@ -1009,13 +971,7 @@ mod tests {
     async fn a_group_is_signalled_only_while_its_id_is_still_ours() {
         let signalled = |reaped: bool, tables: Value| {
             let log = Log::default();
-            let tree = Tree::new(
-                ScriptedReader::new(&tables, &log),
-                ScriptedSignals::new(&log),
-                ScriptedClock::new(&log),
-                ROOT,
-                Some("rt".to_owned()),
-            );
+            let tree = Tree::new(ScriptedReader::new(&tables, &log), ScriptedSignals::new(&log), ScriptedClock::new(&log), ROOT, Some("rt".to_owned()));
             if reaped {
                 tree.root_reaped();
             }
@@ -1198,8 +1154,7 @@ mod tests {
     #[tokio::test]
     async fn a_pid_taken_over_by_an_unreadable_process_is_never_signalled() {
         let survivor = proc(7000, 1, ROOT, "s1");
-        let reader = Split::new(vec![(vec![survivor.clone()], vec![]), (vec![survivor], vec![]), (vec![], vec![7000])])
-            .rows(7000, vec![Row::Unreadable]);
+        let reader = Split::new(vec![(vec![survivor.clone()], vec![]), (vec![survivor], vec![]), (vec![], vec![7000])]).rows(7000, vec![Row::Unreadable]);
         let (terminated, sent) = cancelled(reader, &[true]).await;
         assert_eq!(sent, Vec::<Value>::new());
         assert!(!terminated, "an unreadable process is not a confirmed termination");

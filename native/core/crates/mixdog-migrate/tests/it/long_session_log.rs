@@ -61,10 +61,7 @@ fn a_log_migrates_to_the_history_its_records_leave() {
     assert_eq!(header["promptBase"], "S");
     assert!(header.get("updatedAt").is_none());
     let bodies: Vec<Value> = session.rows.iter().map(|row| serde_json::to_value(&row.body).expect("body")).collect();
-    assert_eq!(
-        bodies,
-        [json!({"role": "user", "content": " q1 "}), json!({"role": "assistant", "content": "a1"}), json!({"role": "user", "content": "q2"})]
-    );
+    assert_eq!(bodies, [json!({"role": "user", "content": " q1 "}), json!({"role": "assistant", "content": "a1"}), json!({"role": "user", "content": "q2"})]);
     let prompts: Vec<Option<&str>> = session.rows.iter().map(|row| row.prompt.as_deref()).collect();
     assert_eq!(prompts, [Some("q1"), None, Some("q2")], "a user row's prompt is its trimmed text");
     let ordinals: Vec<u64> = session.rows.iter().map(|row| row.ordinal).collect();
@@ -185,10 +182,7 @@ fn a_legacy_session_json_migrates_to_one_session_with_its_header_and_messages() 
 
 #[test]
 fn a_legacy_session_json_naming_a_top_level_key_twice_is_quarantined() {
-    for text in [
-        r#"{"id":"sess_legacy","title":"a","title":"b","messages":[]}"#,
-        r#"{"id":"sess_legacy","ti\u0074le":"a","title":"b","messages":[]}"#,
-    ] {
+    for text in [r#"{"id":"sess_legacy","title":"a","title":"b","messages":[]}"#, r#"{"id":"sess_legacy","ti\u0074le":"a","title":"b","messages":[]}"#] {
         let (quarantined, sessions, _) = legacy(text);
         assert_eq!((quarantined, sessions), (1, 0), "{text}");
     }

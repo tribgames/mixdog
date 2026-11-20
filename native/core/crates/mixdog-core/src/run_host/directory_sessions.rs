@@ -205,10 +205,8 @@ impl SessionOps for DirectorySessions {
     }
 
     async fn set_route(&self, session_id: &str, route: &Value) -> Result<(), RoomError> {
-        let set = ["provider", "model", "effort"]
-            .iter()
-            .filter_map(|key| route.get(*key).filter(|v| !v.is_null()).map(|v| ((*key).to_owned(), v.clone())))
-            .collect();
+        let set =
+            ["provider", "model", "effort"].iter().filter_map(|key| route.get(*key).filter(|v| !v.is_null()).map(|v| ((*key).to_owned(), v.clone()))).collect();
         self.patch(session_id, set).await
     }
 
@@ -299,16 +297,10 @@ mod tests {
         // A new log is stamped twice, as Node stamps it: the record, then the setup save.
         let stamps = sessions.header("home_bench").await.unwrap().unwrap();
         assert!(stamps["updatedAt"].as_i64() > stamps["createdAt"].as_i64(), "{stamps:?}");
-        assert_eq!(
-            sessions.route("home_bench").await.unwrap(),
-            Some(json!({ "provider": "openai", "model": "gpt-x", "effort": null }))
-        );
+        assert_eq!(sessions.route("home_bench").await.unwrap(), Some(json!({ "provider": "openai", "model": "gpt-x", "effort": null })));
         // A null field is never written over the stored one.
         sessions.set_route("home_bench", &json!({ "provider": "anthropic", "model": "opus", "effort": null })).await.unwrap();
-        assert_eq!(
-            sessions.route("home_bench").await.unwrap(),
-            Some(json!({ "provider": "anthropic", "model": "opus", "effort": null }))
-        );
+        assert_eq!(sessions.route("home_bench").await.unwrap(), Some(json!({ "provider": "anthropic", "model": "opus", "effort": null })));
         sessions.set_retired("home_bench", true).await.unwrap();
         assert!(sessions.is_retired("home_bench").await.unwrap());
         sessions.set_retired("home_bench", false).await.unwrap();
@@ -455,4 +447,3 @@ mod tests {
         );
     }
 }
-

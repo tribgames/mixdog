@@ -93,8 +93,7 @@ pub struct Family {
     thinking: Option<Declared>,
 }
 
-static REVIEWED: LazyLock<Vec<Family>> =
-    LazyLock::new(|| serde_json::from_str(include_str!("reviewed_families.json")).expect("reviewed families"));
+static REVIEWED: LazyLock<Vec<Family>> = LazyLock::new(|| serde_json::from_str(include_str!("reviewed_families.json")).expect("reviewed families"));
 
 /// Member → family id of the reviewed table (case-insensitive; a member that
 /// is its own family id is not an alias), and the family ids.
@@ -216,21 +215,15 @@ pub fn collect_lane(lanes: &mut Vec<Lane>, config: &ClientModelConfig, uid: &str
 fn dynamic_families(lanes: Vec<Lane>) -> Vec<Family> {
     let mut families = Vec::new();
     for lane in lanes {
-        let efforts: Vec<String> =
-            THINKING_EFFORTS.iter().filter(|e| lane.routing.contains_key(**e)).map(|e| (*e).to_owned()).collect();
+        let efforts: Vec<String> = THINKING_EFFORTS.iter().filter(|e| lane.routing.contains_key(**e)).map(|e| (*e).to_owned()).collect();
         if efforts.is_empty() {
             continue;
         }
         let members = match &lane.default_member {
             None => lane.members.clone(),
-            Some(default) => {
-                std::iter::once(default.clone()).chain(lane.members.iter().filter(|m| *m != default).cloned()).collect()
-            }
+            Some(default) => std::iter::once(default.clone()).chain(lane.members.iter().filter(|m| *m != default).cloned()).collect(),
         };
-        let default_level = lane
-            .default_member
-            .as_ref()
-            .and_then(|default| efforts.iter().find(|e| lane.routing.get(*e) == Some(default)).cloned());
+        let default_level = lane.default_member.as_ref().and_then(|default| efforts.iter().find(|e| lane.routing.get(*e) == Some(default)).cloned());
         families.push(Family {
             id: lane.id,
             name: lane.name,
@@ -259,10 +252,7 @@ fn reconcile_default_member(spec: &Spec, family: &Family, present: Option<&HashS
         return None;
     }
     let routing = spec.thinking.as_ref()?.effort_routing.as_ref()?;
-    ROUTING_KEYS
-        .iter()
-        .any(|key| routing.get(*key) == Some(target))
-        .then(|| Spec { request_model_id: Some(target.clone()), ..spec.clone() })
+    ROUTING_KEYS.iter().any(|key| routing.get(*key) == Some(target)).then(|| Spec { request_model_id: Some(target.clone()), ..spec.clone() })
 }
 
 /// Replaces each family's live members with one logical model at the
@@ -279,11 +269,8 @@ fn collapse(specs: Vec<Spec>, families: &[Family]) -> Vec<Spec> {
     for family in families {
         let existing = by_id.get(family.id.as_str()).copied();
         let existing_collapsed = existing.is_some_and(is_collapsed);
-        let raw_present: Vec<&String> = family
-            .members
-            .iter()
-            .filter(|id| by_id.contains_key(id.as_str()) && !(**id == family.id && existing_collapsed))
-            .collect();
+        let raw_present: Vec<&String> =
+            family.members.iter().filter(|id| by_id.contains_key(id.as_str()) && !(**id == family.id && existing_collapsed)).collect();
         if raw_present.is_empty() {
             // Already collapsed upstream of this table: only the default may move.
             if let Some(existing) = existing.filter(|_| existing_collapsed)
@@ -327,11 +314,7 @@ fn collapse(specs: Vec<Spec>, families: &[Family]) -> Vec<Spec> {
         if members.iter().any(|m| m.is_provider_default) {
             collapsed.is_provider_default = true;
         }
-        let default_wire = family
-            .default_member
-            .as_ref()
-            .filter(|d| present.contains(*d))
-            .unwrap_or(raw_present[0]);
+        let default_wire = family.default_member.as_ref().filter(|d| present.contains(*d)).unwrap_or(raw_present[0]);
         collapsed.request_model_id = (*default_wire != family.id).then(|| default_wire.clone());
         // A single-uid family keeps `reasoning` but has no tier to select.
         collapsed.thinking = match (&family.thinking, reasoning) {
@@ -422,9 +405,7 @@ fn thinking_pair_families(specs: &[Spec]) -> Vec<Family> {
         }
         if spec.cost.priced()
             && base.cost.priced()
-            && (spec.cost.input != base.cost.input
-                || spec.cost.output != base.cost.output
-                || spec.cost.cache_read != base.cost.cache_read)
+            && (spec.cost.input != base.cost.input || spec.cost.output != base.cost.output || spec.cost.cache_read != base.cost.cache_read)
         {
             continue;
         }
@@ -466,17 +447,12 @@ pub fn collapse_all(specs: Vec<Spec>, lanes: Vec<Lane>, account_default: &str) -
     }
     // The account default outranks its family's own default when an effort
     // routes to it: the family starts on that uid and effort.
-    let index = models
-        .iter()
-        .position(|s| s.is_provider_default && s.thinking.as_ref().is_some_and(|t| t.effort_routing.is_some()));
+    let index = models.iter().position(|s| s.is_provider_default && s.thinking.as_ref().is_some_and(|t| t.effort_routing.is_some()));
     if let Some(index) = index {
         let family = &mut models[index];
         let thinking = family.thinking.as_mut().expect("selected for its thinking");
         let routing = thinking.effort_routing.as_ref().expect("selected for its routing");
-        let effort = THINKING_EFFORTS
-            .iter()
-            .find(|level| routing.get(**level).map(String::as_str) == Some(account_default))
-            .map(|level| (*level).to_owned());
+        let effort = THINKING_EFFORTS.iter().find(|level| routing.get(**level).map(String::as_str) == Some(account_default)).map(|level| (*level).to_owned());
         if let Some(effort) = effort {
             thinking.default_level = Some(effort);
             family.request_model_id = (family.id != account_default).then(|| account_default.to_owned());

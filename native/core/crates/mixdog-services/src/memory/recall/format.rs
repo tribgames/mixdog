@@ -2,10 +2,9 @@
 //! (or per member turn), newest-first or chronological, grouped by session for
 //! browses, with near-duplicate bodies collapsed to `#id` stubs.
 
-use mixdog_js::{js_trim, JsRegex, slice_utf16, utf16_len};
+use mixdog_js::{JsRegex, js_trim, slice_utf16, utf16_len};
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
-
 
 use crate::memory::clean::clean_memory_text;
 use crate::memory::recall::period::{Clock, Window, format_local_minute, format_ts};
@@ -90,10 +89,11 @@ pub fn interleave_raw_rows(hybrid: Vec<Row>, raw: Vec<Row>) -> Vec<Row> {
     for (i, row) in hybrid.into_iter().enumerate() {
         out.push(row);
         if (i + 1) % stride == 0
-            && let Some(next) = pending.take() {
-                out.push(next);
-                pending = raw.next();
-            }
+            && let Some(next) = pending.take()
+        {
+            out.push(next);
+            pending = raw.next();
+        }
     }
     out.extend(pending);
     out.extend(raw);
@@ -138,8 +138,7 @@ impl Renderer<'_> {
 
 /// One emitted line with the identity the order comparators use.
 fn unit(row: &Row, text: String) -> (Row, String) {
-    let identity =
-        Row { id: row.id, core: row.core, ts: row.ts, source_turn: row.source_turn, session_id: row.session_id.clone(), ..Row::default() };
+    let identity = Row { id: row.id, core: row.core, ts: row.ts, source_turn: row.source_turn, session_id: row.session_id.clone(), ..Row::default() };
     (identity, text)
 }
 
@@ -147,11 +146,7 @@ fn row_members(row: &Row, options: &RenderOptions) -> Vec<Row> {
     let members = row.member_list();
     let window = options.source_window.unwrap_or_default();
     let in_window = window.start_ms.is_none_or(|from| row.ts >= from) && window.end_ms.is_none_or(|to| row.ts <= to);
-    let include_root = options.include_root_source
-        && row.is_root == 1
-        && in_window
-        && !row.content().is_empty()
-        && !members.iter().any(|m| m.id == row.id);
+    let include_root = options.include_root_source && row.is_root == 1 && in_window && !row.content().is_empty() && !members.iter().any(|m| m.id == row.id);
     let mut out = Vec::with_capacity(members.len() + 1);
     if include_root {
         out.push(row.clone());
@@ -236,17 +231,12 @@ fn normalized_row_text(row: &Row) -> String {
         return row.member_list().iter().map(|m| clean_memory_text(m.content())).collect::<Vec<_>>().join(" ").to_lowercase();
     }
     let (element, summary) = (row.element(), row.summary());
-    if !element.is_empty() || !summary.is_empty() {
-        format!("{element} {summary}").to_lowercase()
-    } else {
-        clean_memory_text(row.content()).to_lowercase()
-    }
+    if !element.is_empty() || !summary.is_empty() { format!("{element} {summary}").to_lowercase() } else { clean_memory_text(row.content()).to_lowercase() }
 }
 
 fn exact_duplicate_key(row: &Row) -> String {
     if !row.member_list().is_empty() {
-        let members: Vec<(String, String)> =
-            row.member_list().iter().map(|m| (m.role().to_owned(), clean_memory_text(m.content()))).collect();
+        let members: Vec<(String, String)> = row.member_list().iter().map(|m| (m.role().to_owned(), clean_memory_text(m.content()))).collect();
         return serde_json::json!(["members", members]).to_string();
     }
     let plain = Row { compact_raw: false, ..row.clone() };
@@ -335,7 +325,9 @@ pub fn compact_digest_rows(rows: Vec<Row>, limit: usize) -> Vec<Row> {
 
 fn short_session_label(sid: &str) -> String {
     let sid = js_trim(sid);
-    if utf16_len(sid) <= 20 { return sid.to_owned() }
+    if utf16_len(sid) <= 20 {
+        return sid.to_owned();
+    }
     let tail: Vec<char> = sid.chars().rev().take(16).collect();
     format!("…{}", tail.into_iter().rev().collect::<String>())
 }
@@ -365,10 +357,7 @@ fn span_group_suffix(clock: &Clock, rows: &[Row], meta: Option<&SessionMeta>) ->
     } else if let (Some(min), Some(max)) = (all_ts.iter().min(), all_ts.iter().max()) {
         suffix = format!(" {}", span_header_suffix(clock, *min, *max, rows.len()));
     }
-    let note = meta
-        .filter(|m| m.query_filtered)
-        .map(|m| format!(" · query-filtered {}/{} rows", m.shown_count, m.fetched_count))
-        .unwrap_or_default();
+    let note = meta.filter(|m| m.query_filtered).map(|m| format!(" · query-filtered {}/{} rows", m.shown_count, m.fetched_count)).unwrap_or_default();
     format!("{suffix}{note}")
 }
 
@@ -382,12 +371,7 @@ pub struct GroupedOptions {
 }
 
 /// Session-grouped rendering for browses spanning several sessions.
-pub fn render_session_grouped_lines(
-    clock: &Clock,
-    rows: &[Row],
-    session_meta: &[(String, SessionMeta)],
-    options: &GroupedOptions,
-) -> String {
+pub fn render_session_grouped_lines(clock: &Clock, rows: &[Row], session_meta: &[(String, SessionMeta)], options: &GroupedOptions) -> String {
     let render_options = RenderOptions {
         recency_order: options.recency_order,
         preserve_source: options.preserve_source,

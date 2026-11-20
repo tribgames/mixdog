@@ -320,9 +320,8 @@ impl Renderer {
             })
             .collect();
         let columns = body.iter().map(Vec::len).max().unwrap_or(0);
-        let widths: Vec<usize> = (0..columns)
-            .map(|column| body.iter().map(|cells| cells.get(column).map_or(0, |cell| visible_width(cell))).max().unwrap_or(0))
-            .collect();
+        let widths: Vec<usize> =
+            (0..columns).map(|column| body.iter().map(|cells| cells.get(column).map_or(0, |cell| visible_width(cell))).max().unwrap_or(0)).collect();
         let total: usize = widths.iter().map(|value| value + 3).sum();
         let empty: Vec<String> = Vec::new();
         if total > width {
@@ -382,11 +381,7 @@ impl Renderer {
 
         // Block quote (possibly nested).
         if let Some(quote) = BLOCKQUOTE.exec(line) {
-            return format!(
-                "{}{}",
-                self.dim("\u{2502} "),
-                self.italic(&self.render_inline(quote.get(2).unwrap_or(""), &RefCell::default(), Some(defs)))
-            );
+            return format!("{}{}", self.dim("\u{2502} "), self.italic(&self.render_inline(quote.get(2).unwrap_or(""), &RefCell::default(), Some(defs))));
         }
 
         // Bullet list.
@@ -397,11 +392,7 @@ impl Renderer {
             // literal "[ ]" prose.
             if let Some(task) = TASK_ITEM.exec(rest) {
                 let mark = if task.get(1) == Some(" ") { "[ ]" } else { "[x]" };
-                return format!(
-                    "{indent}{} {}",
-                    self.paint(LIST_BULLET, mark),
-                    self.render_inline(task.get(2).unwrap_or(""), &RefCell::default(), Some(defs))
-                );
+                return format!("{indent}{} {}", self.paint(LIST_BULLET, mark), self.render_inline(task.get(2).unwrap_or(""), &RefCell::default(), Some(defs)));
             }
             return format!("{indent}{} {}", self.paint(LIST_BULLET, "\u{2022}"), self.render_inline(rest, &RefCell::default(), Some(defs)));
         }
@@ -487,11 +478,7 @@ impl Renderer {
         s = IMAGE.replace_all(&s, |found| {
             let alt = found.get(1).unwrap_or("");
             let url = found.get(2).unwrap_or("");
-            let label = if js_trim(alt).is_empty() {
-                String::new()
-            } else {
-                self.compose(&[Style::Underline, LINK], &self.render_inline(alt, parked, defs))
-            };
+            let label = if js_trim(alt).is_empty() { String::new() } else { self.compose(&[Style::Underline, LINK], &self.render_inline(alt, parked, defs)) };
             if label.is_empty() { self.dim(url) } else { format!("{label} {}", self.dim(&format!("({url})"))) }
         });
 
@@ -509,15 +496,10 @@ impl Renderer {
             let reference = |label: &str, tag: &str| -> Option<String> {
                 let key = js_to_lowercase(js_trim(if tag.is_empty() { label } else { tag }));
                 let url = definitions.links.get(&key)?;
-                Some(format!(
-                    "{} {}",
-                    self.compose(&[Style::Underline, LINK], &self.render_inline(label, parked, defs)),
-                    self.dim(&format!("({url})"))
-                ))
+                Some(format!("{} {}", self.compose(&[Style::Underline, LINK], &self.render_inline(label, parked, defs)), self.dim(&format!("({url})"))))
             };
-            s = REFERENCE_FULL.replace_all(&s, |found| {
-                reference(found.get(1).unwrap_or(""), found.get(2).unwrap_or("")).unwrap_or_else(|| found.whole().to_owned())
-            });
+            s = REFERENCE_FULL
+                .replace_all(&s, |found| reference(found.get(1).unwrap_or(""), found.get(2).unwrap_or("")).unwrap_or_else(|| found.whole().to_owned()));
             s = REFERENCE_SHORT.replace_all(&s, |found| {
                 let label = found.get(1).unwrap_or("");
                 reference(label, label).unwrap_or_else(|| found.whole().to_owned())
@@ -533,8 +515,7 @@ impl Renderer {
 
         // Italic: *x* or _x_ (avoid matching list bullets / already-consumed bold).
         s = ITALIC_STAR.replace_all(&s, |found| format!("{}{}", found.get(1).unwrap_or(""), self.italic(found.get(2).unwrap_or(""))));
-        s = ITALIC_UNDERSCORE
-            .replace_all(&s, |found| format!("{}{}", found.get(1).unwrap_or(""), self.italic(found.get(2).unwrap_or(""))));
+        s = ITALIC_UNDERSCORE.replace_all(&s, |found| format!("{}{}", found.get(1).unwrap_or(""), self.italic(found.get(2).unwrap_or(""))));
 
         // Restore code spans, styled.
         s = CODE_PLACEHOLDER.replace_all(&s, |found| {
@@ -608,12 +589,7 @@ mod tests {
     fn fenced_code_is_boxed_with_its_label_and_unterminated_fences_keep_their_lines() {
         let boxed = plain("```rs\nlet a = 1;\n```", 80);
         let bar = |count: usize| "\u{2500}".repeat(count);
-        let expected = format!(
-            "\u{250c} rs {}\u{2510}\n\u{2502} let a = 1;{}\u{2502}\n\u{2514}{}\u{2518}",
-            bar(16),
-            " ".repeat(9),
-            bar(20)
-        );
+        let expected = format!("\u{250c} rs {}\u{2510}\n\u{2502} let a = 1;{}\u{2502}\n\u{2514}{}\u{2518}", bar(16), " ".repeat(9), bar(20));
         assert_eq!(boxed, expected);
         assert!(plain("~~~\nopen", 80).contains("open"));
         assert!(plain("```\n```", 80).starts_with('\u{250c}'));

@@ -108,14 +108,7 @@ where
     /// Starts a flight in the slot. `work` is given the flight's id; `abnormal` turns the message of
     /// an abnormal end into the result the callers see. `core` is released before `work` is called
     /// and the task spawns.
-    pub fn start<W>(
-        &self,
-        name: &'static str,
-        core: MutexGuard<'_, Core<S, K, T>>,
-        key: K,
-        work: impl FnOnce(u64) -> W,
-        abnormal: fn(String) -> T,
-    ) -> Join<T>
+    pub fn start<W>(&self, name: &'static str, core: MutexGuard<'_, Core<S, K, T>>, key: K, work: impl FnOnce(u64) -> W, abnormal: fn(String) -> T) -> Join<T>
     where
         W: Future<Output = T> + Send + 'static,
     {
@@ -292,7 +285,6 @@ mod tests {
         assert_eq!(kept.await, Ok(3));
         assert!(flights.lock().is_idle());
     }
-
 
     #[tokio::test(start_paused = true)]
     async fn a_task_that_panics_rejects_its_callers_and_empties_the_slot() {

@@ -200,7 +200,11 @@ impl Bridge {
     /// refused and the caller closes the client ("remote client backlog exceeded", `admitFrame`); waiting here would stop every
     /// other phone's frames behind it.
     pub fn from_phone(&self, peer_id: &str, generation: u64, frame: Frame) -> bool {
-        let Some((sender, pending)) = lock(&self.peers).get(peer_id).filter(|peer| peer.generation == generation).map(|peer| (peer.frames.clone(), peer.pending.clone())) else { return true };
+        let Some((sender, pending)) =
+            lock(&self.peers).get(peer_id).filter(|peer| peer.generation == generation).map(|peer| (peer.frames.clone(), peer.pending.clone()))
+        else {
+            return true;
+        };
         let bytes = match &frame {
             Frame::Text(text) => text.len() as u64,
             Frame::Binary(data) => data.len() as u64,

@@ -59,16 +59,9 @@ fn failed(error: impl std::fmt::Display) -> LedgerError {
 
 /// The port on the fourth line of `postmaster.pid`.
 fn port_of(pid_file: &str) -> Result<u16> {
-    let field = mixdog_js::js_trim_end(pid_file)
-        .split('\n')
-        .nth(3)
-        .map(|line| line.strip_suffix('\r').unwrap_or(line));
+    let field = mixdog_js::js_trim_end(pid_file).split('\n').nth(3).map(|line| line.strip_suffix('\r').unwrap_or(line));
     let port = field.map_or(f64::NAN, mixdog_js::string_to_number);
-    if port.fract() == 0.0 && (1.0..=65_535.0).contains(&port) {
-        Ok(port as u16)
-    } else {
-        Err(LedgerError::History("Invalid trace database port".to_owned()))
-    }
+    if port.fract() == 0.0 && (1.0..=65_535.0).contains(&port) { Ok(port as u16) } else { Err(LedgerError::History("Invalid trace database port".to_owned())) }
 }
 
 /// Drives `work` while the connection it runs on is polled beside it; a connection that ends
@@ -85,9 +78,7 @@ async fn driven<T>(
         }
         match connection.as_mut().poll(cx) {
             Poll::Ready(Err(error)) => Poll::Ready(Err(failed(error))),
-            Poll::Ready(Ok(())) => Poll::Ready(Err(LedgerError::History(
-                "the trace database closed the connection".to_owned(),
-            ))),
+            Poll::Ready(Ok(())) => Poll::Ready(Err(LedgerError::History("the trace database closed the connection".to_owned()))),
             Poll::Pending => Poll::Pending,
         }
     })
@@ -96,11 +87,7 @@ async fn driven<T>(
 
 fn trace_row(row: &Row) -> Result<Value> {
     let text = |index: usize| row.try_get::<_, Option<String>>(index).map_err(failed);
-    let number = |index: usize| {
-        row.try_get::<_, Option<f64>>(index)
-            .map_err(failed)
-            .map(|value| value.map_or(Value::Null, mixdog_js::json_number))
-    };
+    let number = |index: usize| row.try_get::<_, Option<f64>>(index).map_err(failed).map(|value| value.map_or(Value::Null, mixdog_js::json_number));
     let string = |value: Option<String>| value.map_or(Value::Null, Value::String);
     let mut out = Map::new();
     out.insert("ts".to_owned(), string(text(0)?));
@@ -137,17 +124,9 @@ async fn read_postgres(pid_file: &str, until: i64) -> Result<Vec<Value>> {
         .map_err(|_| LedgerError::History("Connection terminated due to connection timeout".to_owned()))?
         .map_err(failed)?;
     let work = async {
-        client
-            .batch_execute("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY")
-            .await?;
-        let table = client
-            .query_one("SELECT to_regclass('trace.trace_events')::text", &[])
-            .await?;
-        let rows = if table.get::<_, Option<String>>(0).is_some() {
-            client.query(SELECT_TRACE, &[&until]).await?
-        } else {
-            Vec::new()
-        };
+        client.batch_execute("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY").await?;
+        let table = client.query_one("SELECT to_regclass('trace.trace_events')::text", &[]).await?;
+        let rows = if table.get::<_, Option<String>>(0).is_some() { client.query(SELECT_TRACE, &[&until]).await? } else { Vec::new() };
         client.batch_execute("COMMIT").await?;
         Ok::<_, tokio_postgres::Error>(rows)
     };

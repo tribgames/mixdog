@@ -34,6 +34,7 @@ use webrtc::peer_connection::RTCPeerConnectionIceEvent;
 use webrtc::peer_connection::RTCPeerConnectionState;
 use webrtc::peer_connection::SettingEngineBuilder;
 
+use super::capture::SharedSource;
 use super::carrier::CarrierChannel;
 use super::carrier::CarrierConnection;
 use super::carrier::CarrierEvent;
@@ -45,7 +46,6 @@ use super::config::PeerFailure;
 use super::liveview::LiveViewConnection;
 use super::liveview::LiveViewEvent;
 use super::sources::frame_feed;
-use super::capture::SharedSource;
 use super::track::Vp8Track;
 
 /// A test bound, not a protocol timer.
@@ -113,11 +113,9 @@ impl Phone {
                 )
                 .unwrap();
         }
-        let registry = rtc::peer_connection::configuration::interceptor_registry::register_default_interceptors(
-            webrtc::peer_connection::Registry::new(),
-            &mut engine,
-        )
-        .unwrap();
+        let registry =
+            rtc::peer_connection::configuration::interceptor_registry::register_default_interceptors(webrtc::peer_connection::Registry::new(), &mut engine)
+                .unwrap();
         let pc: Arc<dyn PeerConnection> = Arc::new(
             PeerConnectionBuilder::new()
                 .with_configuration(RTCConfigurationBuilder::new().build())
@@ -126,10 +124,7 @@ impl Phone {
                 .with_setting_engine(
                     // The phone signals IP candidates only (127.0.0.1), so it needs no mDNS socket,
                     // whose multicast join depends on the machine's adapters.
-                    SettingEngineBuilder::new()
-                        .with_include_loopback_candidate(true)
-                        .with_multicast_dns_mode(MulticastDnsMode::Disabled)
-                        .build(),
+                    SettingEngineBuilder::new().with_include_loopback_candidate(true).with_multicast_dns_mode(MulticastDnsMode::Disabled).build(),
                 )
                 .with_handler(Arc::new(PhoneHandler { tx }))
                 .with_udp_addrs(vec!["127.0.0.1:0".to_owned()])
@@ -142,10 +137,7 @@ impl Phone {
 
     /// Applies the desktop's offer and returns the answer SDP.
     async fn answer(&self, offer_sdp: String) -> String {
-        self.pc
-            .set_remote_description(RTCSessionDescription::offer(offer_sdp).unwrap())
-            .await
-            .unwrap();
+        self.pc.set_remote_description(RTCSessionDescription::offer(offer_sdp).unwrap()).await.unwrap();
         let answer = self.pc.create_answer(None).await.unwrap();
         self.pc.set_local_description(answer.clone()).await.unwrap();
         self.pc.local_description().await.unwrap().sdp
@@ -201,7 +193,10 @@ impl webrtc::runtime::Runtime for RefusedTransport {
         self.inner.connect_tcp(remote_addr)
     }
 
-    fn resolve_host<'a>(&'a self, host: &'a str) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<Vec<std::net::SocketAddr>>> + Send + 'a>> {
+    fn resolve_host<'a>(
+        &'a self,
+        host: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = std::io::Result<Vec<std::net::SocketAddr>>> + Send + 'a>> {
         self.inner.resolve_host(host)
     }
 
@@ -506,10 +501,7 @@ async fn live_view_streams_vp8_that_decodes_answers_picture_loss_and_carries_inp
     assert!(outcome > 5);
     assert_eq!(desktop_input, vec!["{\"type\":\"input\"}".to_owned()]);
     let after = live.track_stats();
-    assert!(
-        after.keyframes > keyframes_before_loss.unwrap(),
-        "picture loss produced a keyframe: {after:?}"
-    );
+    assert!(after.keyframes > keyframes_before_loss.unwrap(), "picture loss produced a keyframe: {after:?}");
     assert_eq!((after.width, after.height), (64, 48));
     // The selected candidate pair is reported by the stack a moment after media flows.
     let last = std::sync::Mutex::new(String::new());
@@ -536,10 +528,7 @@ async fn request_picture_loss(phone: &Phone) {
     for receiver in phone.pc.get_receivers().await {
         let remote = receiver.track();
         if let Some(ssrc) = remote.ssrcs().await.first() {
-            let pli = PictureLossIndication {
-                sender_ssrc: 0,
-                media_ssrc: *ssrc,
-            };
+            let pli = PictureLossIndication { sender_ssrc: 0, media_ssrc: *ssrc };
             remote.write_rtcp(vec![Box::new(pli)]).await.unwrap();
         }
     }
@@ -547,10 +536,7 @@ async fn request_picture_loss(phone: &Phone) {
 
 /// Reassembles VP8 frames from RTP and decodes them with libvpx: `(width, height, keyframe)`.
 async fn collect_frames(remote: Arc<dyn TrackRemote>, tx: mpsc::UnboundedSender<(u32, u32, bool)>) {
-    let mut decoder = shiguredo_libvpx::Decoder::new(shiguredo_libvpx::DecoderConfig::new(
-        shiguredo_libvpx::DecoderCodec::Vp8,
-    ))
-    .unwrap();
+    let mut decoder = shiguredo_libvpx::Decoder::new(shiguredo_libvpx::DecoderConfig::new(shiguredo_libvpx::DecoderCodec::Vp8)).unwrap();
     let mut frame = Vec::new();
     let mut depacketizer = Vp8Packet::default();
     while let Some(event) = remote.poll().await {
@@ -629,8 +615,7 @@ async fn max_framerate_and_bitrate_bind_the_encoder() {
         let mut count = 0;
         while start.elapsed() < Duration::from_millis(ms) {
             pushed = pushed.wrapping_add(9);
-            sink.push(PixelFormat::Bgrx, 64, 48, 256, Bytes::from(vec![pushed; 64 * 48 * 4]))
-                .unwrap();
+            sink.push(PixelFormat::Bgrx, 64, 48, 256, Bytes::from(vec![pushed; 64 * 48 * 4])).unwrap();
             count += 1;
             mixdog_rt::time::sleep(Duration::from_millis(33)).await;
         }
@@ -650,11 +635,7 @@ async fn max_framerate_and_bitrate_bind_the_encoder() {
     let free = settled(&track).await;
     assert!(free.frames_encoded * 2 >= pushed, "unconstrained keeps most frames: {free:?}");
     track
-        .set_encoding(mixdog_core_api::domain::media::EncodingParams {
-            max_bitrate_bps: Some(200_000),
-            max_framerate: Some(10),
-            maintain_resolution: true,
-        })
+        .set_encoding(mixdog_core_api::domain::media::EncodingParams { max_bitrate_bps: Some(200_000), max_framerate: Some(10), maintain_resolution: true })
         .unwrap();
     let before = settled(&track).await.frames_encoded;
     let (_, seconds) = run(&mut sink, 2000).await;
@@ -696,10 +677,7 @@ async fn two_viewers_of_one_source_each_get_their_own_rate() {
     let slow = Vp8Track::start(tokens.media_thread, Arc::clone(&shared)).unwrap();
     let fast = Vp8Track::start(tokens.media_thread, Arc::clone(&shared)).unwrap();
     let (mut a, mut b) = (slow.subscribe(), fast.subscribe());
-    let drains = [
-        tokio::spawn(async move { while a.next().await.is_some() {} }),
-        tokio::spawn(async move { while b.next().await.is_some() {} }),
-    ];
+    let drains = [tokio::spawn(async move { while a.next().await.is_some() {} }), tokio::spawn(async move { while b.next().await.is_some() {} })];
     slow.set_encoding(EncodingParams { max_bitrate_bps: Some(150_000), max_framerate: Some(5), maintain_resolution: true }).unwrap();
     fast.set_encoding(EncodingParams { max_bitrate_bps: Some(900_000), max_framerate: None, maintain_resolution: true }).unwrap();
     let start = std::time::Instant::now();
@@ -726,10 +704,7 @@ async fn a_keyframe_request_reaches_only_its_own_viewer() {
     let one = Vp8Track::start(tokens.media_thread, Arc::clone(&shared)).unwrap();
     let two = Vp8Track::start(tokens.media_thread, Arc::clone(&shared)).unwrap();
     let (mut a, mut b) = (one.subscribe(), two.subscribe());
-    let drains = [
-        tokio::spawn(async move { while a.next().await.is_some() {} }),
-        tokio::spawn(async move { while b.next().await.is_some() {} }),
-    ];
+    let drains = [tokio::spawn(async move { while a.next().await.is_some() {} }), tokio::spawn(async move { while b.next().await.is_some() {} })];
     feed_until(&mut sink, || one.stats().frames_encoded >= 5 && two.stats().frames_encoded >= 5).await;
     let (one_before, two_before) = (one.stats().keyframes, two.stats().keyframes);
     one.request_keyframe();

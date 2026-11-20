@@ -24,7 +24,6 @@ enum Relay {
     Rust { running: mixdog_relay::server::RunningRelay, port: u16, _data: tempfile::TempDir },
 }
 
-
 async fn next<T>(rx: &mut mpsc::Receiver<T>) -> T {
     rx.recv().await.expect("closed")
 }
@@ -68,7 +67,6 @@ async fn http(port: u16, method: &str, path: &str, origin: Option<&str>, body: O
 }
 
 impl Relay {
-
     async fn spawn_rust() -> Self {
         let data = tempfile::tempdir().unwrap();
         let env = [("PORT", "0".to_owned()), ("DATA_DIR", data.path().to_string_lossy().into_owned())]
@@ -150,9 +148,7 @@ async fn leg_pairs_and_serves_a_phone(relay_port: u16) {
     let clients = controls.request("list-clients", Map::new(), send(out_tx.clone())).await.unwrap();
     assert_eq!(clients, json!([]));
     // An unknown credential is refused with `ok:false`, which rejects the request.
-    let revoked = controls
-        .request("revoke-client", mixdog_remote::clients::revoke_payload("nobody"), send(out_tx.clone()))
-        .await;
+    let revoked = controls.request("revoke-client", mixdog_remote::clients::revoke_payload("nobody"), send(out_tx.clone())).await;
     assert!(matches!(revoked, Err(mixdog_remote::leg::ControlError::Failed(_))));
     // A relay without TURN configured ignores the request; the caller's timeout degrades to no servers.
     let ice = controls.request("ice-servers-request", Map::new(), send(out_tx.clone())).await;
@@ -222,8 +218,7 @@ async fn leg_pairs_and_serves_a_phone(relay_port: u16) {
     // The phone reads the challenge and answers with its hello.
     let Some(Ok(Message::Text(received))) = phone.next().await else { panic!("expected the challenge") };
     let parsed = Challenge::parse(serde_json::from_str(received.as_str()).unwrap()).unwrap();
-    let (hello, mut phone_channel) =
-        create_client_handshake(&material, &parsed, ClientHandshakeOptions::default()).unwrap();
+    let (hello, mut phone_channel) = create_client_handshake(&material, &parsed, ClientHandshakeOptions::default()).unwrap();
     phone.send(Message::Text(hello.to_string().into())).await.unwrap();
 
     let routing = Map::new();
@@ -248,15 +243,11 @@ async fn leg_pairs_and_serves_a_phone(relay_port: u16) {
     assert_eq!(ready_message["hostName"], "FIXTURE-PC");
 
     // An application frame crosses the relay opaque and arrives decrypted, byte for byte.
-    let Sealed::Text(box_text) = phone_channel.seal(b"{\"jsonrpc\":\"2.0\",\"id\":1}", false).unwrap() else {
-        panic!("text carrier expected")
-    };
+    let Sealed::Text(box_text) = phone_channel.seal(b"{\"jsonrpc\":\"2.0\",\"id\":1}", false).unwrap() else { panic!("text carrier expected") };
     phone.send(Message::Text(box_text.into())).await.unwrap();
     loop {
         let Inbound::Frame { payload, .. } = next(&mut inbound).await else { continue };
-        let Received::Plain { bytes, binary } = table.receive(&server, &client_id, &payload, &ready) else {
-            panic!("expected a decrypted frame")
-        };
+        let Received::Plain { bytes, binary } = table.receive(&server, &client_id, &payload, &ready) else { panic!("expected a decrypted frame") };
         assert_eq!(bytes, b"{\"jsonrpc\":\"2.0\",\"id\":1}");
         assert!(!binary);
         break;

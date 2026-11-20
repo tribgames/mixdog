@@ -309,8 +309,6 @@ impl HelperClient {
         });
         Self { inner }
     }
-
-
 }
 
 impl HelperService for HelperClient {
@@ -319,11 +317,7 @@ impl HelperService for HelperClient {
     }
 
     fn session(&self) -> Option<HelperSession> {
-        self.inner.state().session.as_ref().map(|session| HelperSession {
-            session: session.session,
-            desktop: session.desktop.clone(),
-            locked: session.locked,
-        })
+        self.inner.state().session.as_ref().map(|session| HelperSession { session: session.session, desktop: session.desktop.clone(), locked: session.locked })
     }
 
     fn connect(&self) -> BoxFuture<Result<(), String>> {
@@ -493,19 +487,13 @@ impl LinkConnector {
             dial: Arc::new(|| {
                 let link = mixdog_secure_desktop::client::Link::connect()?;
                 let hello = link.hello().clone();
-                let session = ClientSession {
-                    protocol: hello.protocol,
-                    version: hello.version,
-                    session: hello.session,
-                    desktop: hello.desktop,
-                    locked: hello.locked,
-                };
+                let session =
+                    ClientSession { protocol: hello.protocol, version: hello.version, session: hello.session, desktop: hello.desktop, locked: hello.locked };
                 Ok((Box::new(link) as Box<dyn LinkIo>, session))
             }),
             timers,
         }
     }
-
 }
 
 enum PipeCommand {

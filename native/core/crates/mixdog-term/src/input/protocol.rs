@@ -112,7 +112,6 @@ mod tests {
     }
 }
 
-
 /// [`supports_extended_keys_with`] over the process environment.
 pub fn supports_extended_keys() -> bool {
     supports_extended_keys_with(|name| std::env::var(name).ok())

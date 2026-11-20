@@ -244,7 +244,8 @@ mod tests {
     // Port of `styled XLSX cursors keep their selector and cap detailed pages at 500 cells`.
     #[test]
     fn styled_xlsx_cursors_keep_their_selector_and_cap_detailed_pages_at_500_cells() {
-        let request = create_office_snapshot_request(position("xlsx"), &json!({ "includeStyles": true, "includeSelection": true, "limit": 10_000 }), false).expect("request");
+        let request = create_office_snapshot_request(position("xlsx"), &json!({ "includeStyles": true, "includeSelection": true, "limit": 10_000 }), false)
+            .expect("request");
         assert_eq!(request["limit"], json!(500));
         assert_eq!(request["includeSelection"], json!(true));
         let mut document = json!({ "pagination": { "nextOffset": 500 } });
@@ -259,9 +260,15 @@ mod tests {
 
     #[test]
     fn page_sizes_default_and_cap_per_format() {
-        for (format, default, maximum) in
-            [("docx", 200, 2_000), ("xlsx", 2_000, 10_000), ("pptx", 20, 100), ("csv", 2_000, 10_000), ("tsv", 2_000, 10_000), ("pdf", 20, 100), ("odt", 200, 2_000)]
-        {
+        for (format, default, maximum) in [
+            ("docx", 200, 2_000),
+            ("xlsx", 2_000, 10_000),
+            ("pptx", 20, 100),
+            ("csv", 2_000, 10_000),
+            ("tsv", 2_000, 10_000),
+            ("pdf", 20, 100),
+            ("odt", 200, 2_000),
+        ] {
             let plain = create_office_snapshot_request(position(format), &json!({}), false).expect("request");
             assert_eq!(plain["limit"], json!(default), "{format}");
             let capped = create_office_snapshot_request(position(format), &json!({ "limit": 1_000_000 }), false).expect("request");

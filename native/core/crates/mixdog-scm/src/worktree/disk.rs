@@ -182,15 +182,8 @@ fn fs_free(dir: &Path) -> Option<u64> {
 
 impl Worktrees {
     pub async fn tracked_checkout_bytes(&self, cwd: &Path, commit: &str, cancel: &CancellationToken) -> Result<Tracked, ScmFailure> {
-        let options = RunOptions {
-            max_output: Some(1024 * 1024 * 1024),
-            ..RunOptions::default()
-        };
-        let listing = self
-            .scm()
-            .git
-            .text(cancel, cwd, &["ls-tree", "-r", "-l", "-z", "--full-tree", commit], &options)
-            .await?;
+        let options = RunOptions { max_output: Some(1024 * 1024 * 1024), ..RunOptions::default() };
+        let listing = self.scm().git.text(cancel, cwd, &["ls-tree", "-r", "-l", "-z", "--full-tree", commit], &options).await?;
         Ok(parse_tree_sizes(&listing))
     }
 
@@ -228,10 +221,7 @@ impl Worktrees {
         if size_warn_bytes > 0 && estimate > size_warn_bytes && !confirm_large {
             return Err(ScmFailure::coded(
                 crate::worktree::errors::WORKTREE_LARGE_REPO_CONFIRM,
-                mixdog_protocol::DomainErrorDetail::WorktreeLargeRepoConfirm {
-                    estimate_bytes: estimate,
-                    threshold_bytes: size_warn_bytes,
-                },
+                mixdog_protocol::DomainErrorDetail::WorktreeLargeRepoConfirm { estimate_bytes: estimate, threshold_bytes: size_warn_bytes },
             ));
         }
         Ok((tracked, needed))
@@ -299,7 +289,6 @@ mod tests {
             }
         }
     }
-
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn callers_of_a_path_being_measured_share_its_one_walk() {
@@ -398,7 +387,6 @@ mod tests {
     }
 }
 
-
 fn epoch_ms() -> i64 {
     std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
@@ -437,7 +425,14 @@ impl SizeCache {
         });
     }
 
-    pub async fn get(self: &Arc<Self>, lane: MaintenanceIo, path: &Path, ttl: Duration, measure: Measure, cancel: &CancellationToken) -> Result<Measured, ScmFailure> {
+    pub async fn get(
+        self: &Arc<Self>,
+        lane: MaintenanceIo,
+        path: &Path,
+        ttl: Duration,
+        measure: Measure,
+        cancel: &CancellationToken,
+    ) -> Result<Measured, ScmFailure> {
         let key = path_key(path);
         let token = self.walks.fetch_add(1, Ordering::Relaxed) + 1;
         let new_flight = || -> Flight { Arc::new(tokio::sync::watch::channel(None).0) };

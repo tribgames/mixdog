@@ -68,11 +68,7 @@ pub fn qualified_tool_name(server: &str, tool: &str, max_len: usize) -> String {
     let prefix = format!("mcp__{}__", server_part(server));
     let room = max_len.saturating_sub(prefix.len() + hash.len() + 1);
     let tool_part: String = sanitize(tool, true).chars().take(room).collect::<String>().trim_end_matches('_').to_owned();
-    if tool_part.is_empty() {
-        format!("{prefix}{hash}")
-    } else {
-        format!("{prefix}{tool_part}_{hash}")
-    }
+    if tool_part.is_empty() { format!("{prefix}{hash}") } else { format!("{prefix}{tool_part}_{hash}") }
 }
 
 #[cfg(test)]

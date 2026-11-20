@@ -17,7 +17,6 @@ pub mod scheduler;
 pub mod signature;
 pub mod window;
 
-
 use async_trait::async_trait;
 use serde_json::Value;
 use tokio_util::sync::CancellationToken;

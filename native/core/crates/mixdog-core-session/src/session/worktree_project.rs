@@ -55,12 +55,7 @@ impl Inner {
         }
         let (workspace, _) = workspace_for_project_selection(view.workspace.as_ref(), cwd);
         let record_moved = workspace != view.workspace;
-        let change = WorkspaceChange {
-            cwd: cwd.to_owned(),
-            workspace: workspace.unwrap_or(JsonValue::Null),
-            moved: None,
-            desktop_session,
-        };
+        let change = WorkspaceChange { cwd: cwd.to_owned(), workspace: workspace.unwrap_or(JsonValue::Null), moved: None, desktop_session };
         journal.push(self.host.apply(session, change).await?);
         // A record left behind releases the worker lock its worktree held.
         if record_moved {

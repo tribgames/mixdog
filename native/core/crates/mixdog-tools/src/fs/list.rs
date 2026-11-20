@@ -7,11 +7,11 @@ use std::time::UNIX_EPOCH;
 use async_trait::async_trait;
 use mixdog_core_api::domain::common::AbsPath;
 use mixdog_core_api::domain::fs::Descent;
-use mixdog_core_api::domain::fs::NameGuard;
 use mixdog_core_api::domain::fs::DirEntry;
 use mixdog_core_api::domain::fs::EntryKind;
 use mixdog_core_api::domain::fs::FsErrorKind;
 use mixdog_core_api::domain::fs::LocatorStat;
+use mixdog_core_api::domain::fs::NameGuard;
 use mixdog_core_api::domain::fs::ReadRange;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
@@ -38,9 +38,7 @@ pub struct ListTool {
 
 impl ListTool {
     pub fn new() -> Self {
-        Self {
-            spec: spec_from_def(LIST_SPEC, true, &[]),
-        }
+        Self { spec: spec_from_def(LIST_SPEC, true, &[]) }
     }
 }
 
@@ -111,11 +109,7 @@ fn clamped_depth(args: &JsonValue, fallback: i64, cap: i64) -> usize {
 
 /// `NOISE_DIR_NAMES` as `walkDir` excludes them: a Windows name matches in any case.
 fn is_noise(name: &str) -> bool {
-    if cfg!(windows) {
-        NOISE_DIRS.iter().any(|noise| noise.eq_ignore_ascii_case(name))
-    } else {
-        NOISE_DIRS.contains(&name)
-    }
+    if cfg!(windows) { NOISE_DIRS.iter().any(|noise| noise.eq_ignore_ascii_case(name)) } else { NOISE_DIRS.contains(&name) }
 }
 
 /// The entries `walkDir` visits in a folder: no dotted name unless `hidden`, no noise directory unless `include_noise`;
@@ -161,16 +155,14 @@ async fn native_rows(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>) -> Resul
         let mut parts = rel.components().map(|part| part.as_os_str().to_string_lossy());
         let Some(name) = parts.next_back() else { return false };
         (hidden || !name.starts_with('.'))
-            && parts.enumerate().all(|(i, part)| {
-                i + 1 < depth && (hidden || !part.starts_with('.')) && (include_noise || !NOISE_DIRS.contains(&part.as_ref()))
-            })
+            && parts.enumerate().all(|(i, part)| i + 1 < depth && (hidden || !part.starts_with('.')) && (include_noise || !NOISE_DIRS.contains(&part.as_ref())))
     };
     let descent = Descent { max_depth: Some(depth), bare: if include_noise { Vec::new() } else { noise_bare() }, bare_dotted: !hidden, guard: None };
     match super::search::broad_listing(ctx, abs, descent, keep, ABSOLUTE_CAP).await {
         Ok(walked) if walked.complete && !walked.capped => {
             let visited = walked.entries.len();
-            let rows = walked.entries.into_iter().filter(|entry| kind.keeps(entry.kind)).enumerate()
-                .map(|(ordinal, entry)| row_under(root, entry, ordinal)).collect();
+            let rows =
+                walked.entries.into_iter().filter(|entry| kind.keeps(entry.kind)).enumerate().map(|(ordinal, entry)| row_under(root, entry, ordinal)).collect();
             Ok(Some(Rows { rows, visited, truncated: false, warnings: Vec::new(), raw_path_ties: false, noise: 0 }))
         }
         Err(e) if matches!(e.code, mixdog_core_api::domain::tool::ToolErrorCode::Cancelled) => Err(e),
@@ -255,7 +247,9 @@ struct Walk<'a> {
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn collect_rows(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>) -> Result<Rows, ToolError> {
     let Walk { raw, depth, hidden, include_noise, kind } = *walk;
-    if depth > 1 && let Some(found) = native_rows(ctx, abs, walk).await? {
+    if depth > 1
+        && let Some(found) = native_rows(ctx, abs, walk).await?
+    {
         return Ok(found);
     }
     let started = mixdog_rt::time::Instant::now();
@@ -266,7 +260,9 @@ async fn collect_rows(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>) -> Resu
         } else {
             ctx.files.list_dir(ctx.io.interactive, abs.clone()).await.map(|entries| (entries, false))
         }
-    }).await? {
+    })
+    .await?
+    {
         Ok(listing) => listing,
         Err(e) => return Err(fs_failure(&e, raw)),
     };
@@ -279,8 +275,13 @@ async fn collect_rows(ctx: &ToolContext, abs: &AbsPath, walk: &Walk<'_>) -> Resu
             root.sort_unstable_by(|a, b| a.path.cmp(&b.path));
         }
         out.raw_path_ties = true;
-        out.rows = root.into_iter().take(out.visited).filter(|entry| kind.keeps(entry.kind)).enumerate()
-            .map(|(ordinal, entry)| row_under(abs.as_path(), entry, ordinal)).collect();
+        out.rows = root
+            .into_iter()
+            .take(out.visited)
+            .filter(|entry| kind.keeps(entry.kind))
+            .enumerate()
+            .map(|(ordinal, entry)| row_under(abs.as_path(), entry, ordinal))
+            .collect();
         return Ok(out);
     }
     // One level of the walk per stack entry: its entries still to visit, each followed by what lies below it.
@@ -328,12 +329,7 @@ fn iso_utc(t: SystemTime) -> String {
     let d = doy - (153 * mp + 2) / 5 + 1;
     let m = if mp < 10 { mp + 3 } else { mp - 9 };
     let y = yoe + era * 400 + i64::from(m <= 2);
-    format!(
-        "{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z",
-        rem / 3600,
-        rem % 3600 / 60,
-        rem % 60
-    )
+    format!("{y:04}-{m:02}-{d:02}T{:02}:{:02}:{:02}Z", rem / 3600, rem % 3600 / 60, rem % 60)
 }
 
 /// The mode Node's native list-metadata server reports where the OS has no permission bits (`list_metadata_mode` of
@@ -381,12 +377,7 @@ async fn line_count(ctx: &ToolContext, path: &AbsPath, len: u64) -> Option<u64> 
     if len > LINE_COUNT_MAX_BYTES {
         return None;
     }
-    let bytes = ctx
-        .files
-        .read(ctx.io.interactive, path.clone(), ReadRange::default())
-        .await
-        .ok()?
-        .bytes;
+    let bytes = ctx.files.read(ctx.io.interactive, path.clone(), ReadRange::default()).await.ok()?.bytes;
     if bytes.is_empty() {
         return Some(0);
     }
@@ -498,8 +489,7 @@ impl ListTool {
             _ => {}
         }
         // arg-guard.mjs (list): a `path` that is not a string is refused; a null or blank one is the cwd.
-        let raw = super::common::optional_path_arg(&args, "path", |got| format!("Error: list arg \"path\" must be string (got {got})"))?
-            .unwrap_or(".");
+        let raw = super::common::optional_path_arg(&args, "path", |got| format!("Error: list arg \"path\" must be string (got {got})"))?.unwrap_or(".");
         let hidden = arg_bool(&args, "hidden");
         let meta = Metadata::of(&args);
         let include_noise = arg_bool(&args, "include_noise");
@@ -559,7 +549,8 @@ impl ListTool {
                     missing |= failed;
                 }
                 missing
-            }).await?;
+            })
+            .await?;
         }
         // Node's `recordDirectoryWalkTelemetry` (`list-tool.mjs:61`): the walk's entries after the hidden and noise
         // filters, up to the cap; the trace row's `payload.integrity`.
@@ -588,9 +579,10 @@ impl ListTool {
                 SortMode::Name => mixdog_js::locale_compare(&a.name, &b.name),
                 SortMode::Mtime => mtime(b).cmp(&mtime(a)),
                 SortMode::Size => size(b).cmp(&size(a)),
-            }.then_with(|| a.name.cmp(&b.name))
-                .then_with(|| if raw_path_ties { a.path.cmp(&b.path) } else { Ordering::Equal })
-                .then_with(|| a.ordinal.cmp(&b.ordinal))
+            }
+            .then_with(|| a.name.cmp(&b.name))
+            .then_with(|| if raw_path_ties { a.path.cmp(&b.path) } else { Ordering::Equal })
+            .then_with(|| a.ordinal.cmp(&b.ordinal))
         });
         let mut lines = Vec::with_capacity(page.len() + 1);
         for row in page {
@@ -601,14 +593,7 @@ impl ListTool {
             lines.push(line);
         }
         if total.saturating_sub(offset) > page.len() {
-            lines.push(window_marker(
-                "entries",
-                offset as u64 + 1,
-                (offset + page.len()) as u64,
-                Some(total as u64),
-                Some((offset + page.len()) as u64),
-                None,
-            ));
+            lines.push(window_marker("entries", offset as u64 + 1, (offset + page.len()) as u64, Some(total as u64), Some((offset + page.len()) as u64), None));
         }
         if truncated {
             lines.push(cap_marker(
@@ -629,12 +614,7 @@ impl ListTool {
         if text.len() > locator_max_bytes() {
             let (kept, dropped) = cap_lines(&text, locator_max_bytes());
             let shown = lines.len() - dropped;
-            let marker = cap_marker(
-                &format_cap_size(locator_max_bytes()),
-                &format!("{shown} rows shown"),
-                Some((offset + shown) as u64),
-                "",
-            );
+            let marker = cap_marker(&format_cap_size(locator_max_bytes()), &format!("{shown} rows shown"), Some((offset + shown) as u64), "");
             return Ok(text_output(format!("{kept}\n{marker}"), false));
         }
         // Per-entry metadata may follow a symlink or fail without changing the listing.
@@ -643,16 +623,7 @@ impl ListTool {
 }
 
 #[allow(clippy::too_many_arguments, reason = "the listing's independent filters and counts")]
-async fn empty_message(
-    ctx: &ToolContext,
-    abs: &AbsPath,
-    raw: &str,
-    offset: usize,
-    total: usize,
-    hidden: bool,
-    kind: TypeFilter,
-    noise: usize,
-) -> String {
+async fn empty_message(ctx: &ToolContext, abs: &AbsPath, raw: &str, offset: usize, total: usize, hidden: bool, kind: TypeFilter, noise: usize) -> String {
     if offset > 0 && total > 0 {
         return format!("(no entries after offset={offset}; total={total}) path={raw}");
     }
@@ -673,15 +644,9 @@ async fn empty_message(
         .files
         .list_dir(ctx.io.interactive, abs.clone())
         .await
-        .map(|es| {
-            es.iter().any(|e| {
-                e.path.as_path().file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'))
-            })
-        })
+        .map(|es| es.iter().any(|e| e.path.as_path().file_name().is_some_and(|n| n.to_string_lossy().starts_with('.'))))
         .unwrap_or(false);
-    filters.push(
-        if has_hidden { "hidden=false (dotfiles present — pass hidden:true to include)" } else { "hidden=false" }.to_owned(),
-    );
+    filters.push(if has_hidden { "hidden=false (dotfiles present — pass hidden:true to include)" } else { "hidden=false" }.to_owned());
     format!("(no entries match filter) {} path={raw}", filters.join(", "))
 }
 
@@ -697,9 +662,7 @@ const MAX_REGEX_BODY_LENGTH: usize = 16_384;
 
 /// Node `expandBraces`: the first innermost `{a,b}` expanded, recursively.
 fn expand_braces(pattern: &str, out: &mut Vec<String>, prefix: &str) -> Result<(), String> {
-    let open = pattern.char_indices().find(|&(i, c)| {
-        c == '{' && pattern[i + 1..].find(['{', '}']).is_some_and(|j| pattern.as_bytes()[i + 1 + j] == b'}')
-    });
+    let open = pattern.char_indices().find(|&(i, c)| c == '{' && pattern[i + 1..].find(['{', '}']).is_some_and(|j| pattern.as_bytes()[i + 1 + j] == b'}'));
     let Some((start, _)) = open else {
         if out.len() >= MAX_BRACE_VARIANTS {
             return Err(format!("glob brace expansion exceeds {MAX_BRACE_VARIANTS} variants"));
@@ -747,10 +710,8 @@ fn compile_variant(variant: &str) -> String {
                     j += 1;
                 }
                 if j < chars.len() && j > inner_start {
-                    let inner: String = chars[inner_start..j]
-                        .iter()
-                        .map(|c| if matches!(c, '\\' | '[' | '&' | '~') { format!("\\{c}") } else { c.to_string() })
-                        .collect();
+                    let inner: String =
+                        chars[inner_start..j].iter().map(|c| if matches!(c, '\\' | '[' | '&' | '~') { format!("\\{c}") } else { c.to_string() }).collect();
                     body.push_str(&format!("[{}{inner}]", if negate { "^" } else { "" }));
                     i = j;
                 } else {
@@ -887,8 +848,7 @@ fn ranked_page<T>(rows: &mut [T], offset: usize, limit: usize, mut compare: impl
 /// modified window, sorted (newest first unless `sort` says otherwise) and paged.
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
-    let raw = super::common::optional_path_arg(args, "path", |got| format!("Error: list arg \"path\" must be string (got {got})"))?
-        .unwrap_or(".");
+    let raw = super::common::optional_path_arg(args, "path", |got| format!("Error: list arg \"path\" must be string (got {got})"))?.unwrap_or(".");
     let mut input = raw.to_owned();
     let mut name_pattern = arg_str(args, "name").filter(|n| !n.is_empty()).map(str::to_owned);
     if name_pattern.is_none() && has_glob_magic(raw) {
@@ -944,10 +904,7 @@ async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
         Err(e) => return Err(fs_failure(&e, &input)),
     };
     if stat.kind != EntryKind::Dir {
-        return Err(fail(
-            mixdog_core_api::domain::tool::ToolErrorCode::Io { os_code: None },
-            format!("Error: not a directory — {}", fwd(root.as_path())),
-        ));
+        return Err(fail(mixdog_core_api::domain::tool::ToolErrorCode::Io { os_code: None }, format!("Error: not a directory — {}", fwd(root.as_path()))));
     }
     let root_path = root.as_path().to_path_buf();
     // `parts` holds the path's components under the root; the name sees the last one, or the whole relative path when the
@@ -972,25 +929,31 @@ async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
         dotted: !hidden,
     };
     let descent = Descent { max_depth: depth, guard: Some(guard), ..Descent::default() };
-    let walked = super::search::walk_inventory(ctx, &root, descent, |entry| {
-        let Ok(rel) = entry.path.as_path().strip_prefix(&root_path) else { return false };
-        let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
-        if parts.is_empty() || depth.is_some_and(|d| parts.len() > d) || !named(&parts) {
-            return false;
-        }
-        // With no name rg has no glob to whitelist the entry, so a dotted one is skipped unless `hidden`.
-        if name_pattern.is_none() && !hidden && parts[parts.len() - 1].starts_with('.') {
-            return false;
-        }
-        // rg descends a directory its `--iglob` matches; one it does not match is skipped under a
-        // noise directory (`!**/<noise>/**`) and, without `hidden`, when it is a dotted name.
-        (1..parts.len()).all(|level| {
-            let ancestor = &parts[..level];
-            (name_pattern.is_some() && named(ancestor))
-                || !((!include_noise && parts[..level - 1].iter().any(|p| NOISE_DIRS.contains(&p.as_str())))
-                    || (!hidden && ancestor[level - 1].starts_with('.')))
-        })
-    }, FIND_ABSOLUTE_CAP)
+    let walked = super::search::walk_inventory(
+        ctx,
+        &root,
+        descent,
+        |entry| {
+            let Ok(rel) = entry.path.as_path().strip_prefix(&root_path) else { return false };
+            let parts: Vec<String> = rel.components().map(|c| c.as_os_str().to_string_lossy().into_owned()).collect();
+            if parts.is_empty() || depth.is_some_and(|d| parts.len() > d) || !named(&parts) {
+                return false;
+            }
+            // With no name rg has no glob to whitelist the entry, so a dotted one is skipped unless `hidden`.
+            if name_pattern.is_none() && !hidden && parts[parts.len() - 1].starts_with('.') {
+                return false;
+            }
+            // rg descends a directory its `--iglob` matches; one it does not match is skipped under a
+            // noise directory (`!**/<noise>/**`) and, without `hidden`, when it is a dotted name.
+            (1..parts.len()).all(|level| {
+                let ancestor = &parts[..level];
+                (name_pattern.is_some() && named(ancestor))
+                    || !((!include_noise && parts[..level - 1].iter().any(|p| NOISE_DIRS.contains(&p.as_str())))
+                        || (!hidden && ancestor[level - 1].starts_with('.')))
+            })
+        },
+        FIND_ABSOLUTE_CAP,
+    )
     .await?;
     // Node `statPathsForMtime(candidates, …, 64, { deadlineMs: FIND_STAT_DEADLINE_MS })`: 64 stats at a time,
     // each bounded by the metadata deadline; one that fails or does not answer in time is listed with `-`, or left out when
@@ -1015,9 +978,11 @@ async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
                 let mtime = s.modified.and_then(|m| m.duration_since(UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_secs_f64() * 1000.0);
                 let is_dir = s.kind == EntryKind::Dir;
                 let is_file = s.kind == EntryKind::File;
-                if (kind == TypeFilter::File && !is_file) || (kind == TypeFilter::Dir && !is_dir)
+                if (kind == TypeFilter::File && !is_file)
+                    || (kind == TypeFilter::Dir && !is_dir)
                     || (is_file && (min_size.is_some_and(|m| (s.len as f64) < m) || max_size.is_some_and(|m| (s.len as f64) > m)))
-                    || after.is_some_and(|a| mtime < a) || before.is_some_and(|b| mtime > b)
+                    || after.is_some_and(|a| mtime < a)
+                    || before.is_some_and(|b| mtime > b)
                 {
                     continue;
                 }
@@ -1032,14 +997,17 @@ async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
             rows.push(FoundRow { order_path: fwd(entry.path.as_path()), ordinal: rows.len(), path: entry.path, kind, size, mtime, known });
         }
         (rows, unstatted, cache_safe)
-    }).await?;
+    })
+    .await?;
     let total = rows.len();
     let page = ranked_page(&mut rows, offset, limit, |a, b| {
         match sort {
             SortMode::Name => mixdog_js::locale_compare(&a.order_path, &b.order_path),
             SortMode::Size => b.size.cmp(&a.size),
             SortMode::Mtime => b.mtime.total_cmp(&a.mtime),
-        }.then_with(|| a.order_path.cmp(&b.order_path)).then_with(|| a.ordinal.cmp(&b.ordinal))
+        }
+        .then_with(|| a.order_path.cmp(&b.order_path))
+        .then_with(|| a.ordinal.cmp(&b.ordinal))
     });
     let mut lines: Vec<String> = page
         .iter()
@@ -1062,18 +1030,10 @@ async fn find_files(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
         lines.push(window_marker("entries", offset as u64 + 1, next, Some(total as u64), Some(next), None));
     }
     if walked.capped {
-        lines.push(cap_marker(
-            &format!("{FIND_ABSOLUTE_CAP} matches"),
-            "walk cut, global sort inexact",
-            None,
-            "narrow the scope (path/name/modified_after)",
-        ));
+        lines.push(cap_marker(&format!("{FIND_ABSOLUTE_CAP} matches"), "walk cut, global sort inexact", None, "narrow the scope (path/name/modified_after)"));
     }
     if !walked.complete {
-        lines.push(
-            "... walk INCOMPLETE (file enumeration timed out); matches are missing — narrow the scope (path/name/depth) and re-run"
-                .to_owned(),
-        );
+        lines.push("... walk INCOMPLETE (file enumeration timed out); matches are missing — narrow the scope (path/name/depth) and re-run".to_owned());
     }
     if unstatted > 0 {
         lines.push(format!(
@@ -1115,8 +1075,7 @@ fn tree_level(mut entries: Vec<DirEntry>, prefix: String) -> TreeLevel {
 /// 6), paged by `offset` and `head_limit` (default 200).
 #[allow(clippy::result_large_err, reason = "preserve the canonical ToolError/FsError payload and exact filesystem-tool error contract without API boxing")]
 async fn tree_list(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
-    let raw = super::common::optional_path_arg(args, "path", |got| format!("Error: list arg \"path\" must be string (got {got})"))?
-        .unwrap_or(".");
+    let raw = super::common::optional_path_arg(args, "path", |got| format!("Error: list arg \"path\" must be string (got {got})"))?.unwrap_or(".");
     let depth = clamped_depth(args, 3, 6);
     let (hidden, include_noise) = (arg_bool(args, "hidden"), arg_bool(args, "include_noise"));
     let limit = head_limit(args)?.unwrap_or(env_default_limit("MIXDOG_LIST_DEFAULT_HEAD_LIMIT", 200) as u64);
@@ -1131,10 +1090,7 @@ async fn tree_list(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
         Err(e) => return Err(fs_failure(&e, raw)),
     };
     if stat.kind != EntryKind::Dir {
-        return Err(fail(
-            mixdog_core_api::domain::tool::ToolErrorCode::Io { os_code: None },
-            format!("Error: not a directory — {}", fwd(abs.as_path())),
-        ));
+        return Err(fail(mixdog_core_api::domain::tool::ToolErrorCode::Io { os_code: None }, format!("Error: not a directory — {}", fwd(abs.as_path()))));
     }
     // The walk stops once the window and one more row are in (`treeGatherCap`); with `head_limit: 0` it runs to the end.
     let gather_cap = if limit > 0 { offset + limit as usize + 1 } else { offset + TREE_BRANCH_LINE_CAP + 1 };
@@ -1193,7 +1149,11 @@ async fn tree_list(ctx: &ToolContext, args: &JsonValue) -> ToolOutcome {
     let text = lines.join("\n");
     if text.len() > super::common::output_max_bytes() {
         let kept = byte_prefix(&text, super::common::output_max_bytes());
-        return Ok(list_completion(format!("{kept}\n{}", cap_marker(&format_cap_size(super::common::output_max_bytes()), "", None, "narrow path or lower depth")), false, true));
+        return Ok(list_completion(
+            format!("{kept}\n{}", cap_marker(&format_cap_size(super::common::output_max_bytes()), "", None, "narrow path or lower depth")),
+            false,
+            true,
+        ));
     }
     Ok(list_completion(text, complete, true))
 }

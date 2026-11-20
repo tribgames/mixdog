@@ -85,19 +85,22 @@ fn cap_item_span(prefix_rows: &[usize], item_count: usize, max_items: usize, vis
 }
 
 /// `chooseItemSpan`: the viewport plus overscan, at least `min_items`, capped at the maximum.
-fn choose_item_span(prefix_rows: &[usize], item_count: usize, total_rows: usize, view_rows: usize, effective_scroll_offset: usize, tuning: &WindowTuning) -> (usize, usize) {
+fn choose_item_span(
+    prefix_rows: &[usize],
+    item_count: usize,
+    total_rows: usize,
+    view_rows: usize,
+    effective_scroll_offset: usize,
+    tuning: &WindowTuning,
+) -> (usize, usize) {
     let min_items = tuning.min_items.min(item_count);
     let at_tail = effective_scroll_offset == 0;
     let overscan_rows = if at_tail { tuning.tail_overscan_rows } else { tuning.overscan_rows };
     let max_items = min_items.max(if at_tail { tuning.tail_max_items } else { tuning.max_items });
     let visible_top = total_rows.saturating_sub(effective_scroll_offset + view_rows);
     let visible_bottom = total_rows.saturating_sub(effective_scroll_offset).min(total_rows);
-    let (mut start, mut end) = item_span_for_rows(
-        prefix_rows,
-        item_count,
-        visible_top.saturating_sub(overscan_rows),
-        total_rows.min(visible_bottom + overscan_rows),
-    );
+    let (mut start, mut end) =
+        item_span_for_rows(prefix_rows, item_count, visible_top.saturating_sub(overscan_rows), total_rows.min(visible_bottom + overscan_rows));
     while end - start < min_items && start > 0 {
         start -= 1;
     }
@@ -143,7 +146,14 @@ pub struct AnchorPoint {
 /// `resolveAnchorScrollOffset`: the scroll offset that keeps a captured reading anchor at the same screen position for the
 /// current prefix table; none when there is no anchor, the table is empty or the anchored item is gone. It runs during render
 /// and after commit alike, so it is pure.
-pub fn resolve_anchor_scroll_offset(anchor: Option<&AnchorPoint>, items: &Items, cur_prefix: &[usize], total_rows: usize, view_rows: usize, max_rows: usize) -> Option<usize> {
+pub fn resolve_anchor_scroll_offset(
+    anchor: Option<&AnchorPoint>,
+    items: &Items,
+    cur_prefix: &[usize],
+    total_rows: usize,
+    view_rows: usize,
+    max_rows: usize,
+) -> Option<usize> {
     let anchor = anchor?;
     if cur_prefix.len() <= 1 {
         return None;
@@ -270,7 +280,6 @@ mod tests {
         assert!(!transcript_swap_returns_to_tail(5, 5, None, Some("a")));
     }
 }
-
 
 impl WindowTuning {
     /// The tunables as `var` (an environment lookup) sets them.

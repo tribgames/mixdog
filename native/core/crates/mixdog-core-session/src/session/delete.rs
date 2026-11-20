@@ -240,8 +240,7 @@ type JudgedHold = (String, tokio::sync::oneshot::Sender<()>, tokio::sync::onesho
 
 /// The idle deletes a test holds right after their archive judgment, by session: `arrived` is told, then `go` is awaited.
 #[cfg(any(test, feature = "test-support"))]
-pub(crate) static JUDGED_HOLDS: std::sync::Mutex<Vec<JudgedHold>> =
-    std::sync::Mutex::new(Vec::new());
+pub(crate) static JUDGED_HOLDS: std::sync::Mutex<Vec<JudgedHold>> = std::sync::Mutex::new(Vec::new());
 
 #[cfg(any(test, feature = "test-support"))]
 async fn judged_hold(id: &str) {
@@ -357,13 +356,7 @@ struct Closed {
 /// `mgr.deleteSession`: the delete mark, the close metric once it is acknowledged, the store's
 /// purge of what no live lineage reads, then `_deleteSession`'s purge hooks and the app list's
 /// `thread/deleted`. False when the mark was not applied (the close failed: the thread stays open with what it holds).
-async fn remove(
-    directory: &super::directory::DirInner,
-    thread: &ThreadId,
-    mut cwds: Vec<String>,
-    hold: super::directory::DeleteHold,
-    closed: Closed,
-) -> bool {
+async fn remove(directory: &super::directory::DirInner, thread: &ThreadId, mut cwds: Vec<String>, hold: super::directory::DeleteHold, closed: Closed) -> bool {
     let deps = directory.deps().clone();
     if let Some(cwd) = hold.cwd().filter(|cwd| !cwd.is_empty() && !cwds.contains(cwd)) {
         cwds.push(cwd);
@@ -433,10 +426,7 @@ pub(crate) async fn serve(
     cancel: &mixdog_rt::CancellationToken,
 ) -> Result<mixdog_core_api::Reply, CoreError> {
     let params: mixdog_app_protocol::v2::thread::ThreadDeleteParams =
-        serde_json::from_value(params.clone()).map_err(|_| CoreError::InvalidParams {
-            path: "params".into(),
-            expected: "ThreadDeleteParams".into(),
-        })?;
+        serde_json::from_value(params.clone()).map_err(|_| CoreError::InvalidParams { path: "params".into(), expected: "ThreadDeleteParams".into() })?;
     let id = params.thread_id.as_str();
     Ok(mixdog_core_api::Reply::Value(match &params.if_idle {
         Some(expected) => delete_session_if_idle(directory, id, expected, cancel).await?,
@@ -525,4 +515,3 @@ pub(crate) async fn delete_session(
     after_delete(&deps, id);
     Ok(true)
 }
-

@@ -121,7 +121,9 @@ pub enum Step {
 /// fails `ENOTDIR`; `create_dir_all` reports the file's own name as already existing.
 fn make_dirs(proof: &impl WriteProof, dir: &Path) -> io::Result<()> {
     match mixdog_fsio::create_dir_all(proof, dir) {
-        Err(_) if !mixdog_fsio::is_dir(proof, dir) && dir.ancestors().skip(1).any(|ancestor| mixdog_fsio::is_file(proof, ancestor)) => Err(io::ErrorKind::NotADirectory.into()),
+        Err(_) if !mixdog_fsio::is_dir(proof, dir) && dir.ancestors().skip(1).any(|ancestor| mixdog_fsio::is_file(proof, ancestor)) => {
+            Err(io::ErrorKind::NotADirectory.into())
+        }
         other => other,
     }
 }
@@ -176,26 +178,16 @@ fn parent(path: &Path) -> &Path {
 fn fsync_refused(error: &io::Error, directory: bool) -> bool {
     #[cfg(unix)]
     {
-        error.raw_os_error().is_some_and(|code| {
-            code == libc::EPERM || code == libc::ENOTSUP || code == libc::EINVAL || (directory && code == libc::EACCES)
-        })
+        error.raw_os_error().is_some_and(|code| code == libc::EPERM || code == libc::ENOTSUP || code == libc::EINVAL || (directory && code == libc::EACCES))
     }
     #[cfg(windows)]
     {
         let _ = directory;
-        matches!(
-            error.kind(),
-            io::ErrorKind::PermissionDenied | io::ErrorKind::Unsupported | io::ErrorKind::InvalidInput
-        )
+        matches!(error.kind(), io::ErrorKind::PermissionDenied | io::ErrorKind::Unsupported | io::ErrorKind::InvalidInput)
     }
 }
 
-fn write_durable<P: WriteProof>(
-    lane: &P,
-    tmp: &Path,
-    data: &[u8],
-    opts: &Opts,
-) -> Result<(), PublishFailure> {
+fn write_durable<P: WriteProof>(lane: &P, tmp: &Path, data: &[u8], opts: &Opts) -> Result<(), PublishFailure> {
     record("create", &[tmp]);
     let mut file = create_new(lane, tmp, opts.access(), opts.mode).map_err(at(Step::Open(tmp.to_owned())))?;
     file.write_all(data).map_err(at(Step::Write))?;
@@ -223,9 +215,7 @@ fn fsync_dir<P: WriteProof>(lane: &P, dir: &Path) -> io::Result<()> {
 pub(crate) fn rename_retryable(error: &io::Error) -> bool {
     #[cfg(unix)]
     {
-        error
-            .raw_os_error()
-            .is_some_and(|c| c == libc::EPERM || c == libc::EACCES || c == libc::EBUSY || c == libc::EEXIST)
+        error.raw_os_error().is_some_and(|c| c == libc::EPERM || c == libc::EACCES || c == libc::EBUSY || c == libc::EEXIST)
     }
     #[cfg(windows)]
     {
@@ -387,12 +377,7 @@ fn keep_backup<P: WriteProof>(lane: &P, path: &Path, opts: &Opts) -> Result<(), 
 }
 
 /// `publishFileSync`.
-pub(crate) fn publish<P: WriteProof>(
-    lane: &P,
-    path: &Path,
-    data: &[u8],
-    opts: &Opts,
-) -> Result<Published, PublishFailure> {
+pub(crate) fn publish<P: WriteProof>(lane: &P, path: &Path, data: &[u8], opts: &Opts) -> Result<Published, PublishFailure> {
     let dir = parent(path);
     make_dirs(lane, dir).map_err(at(Step::Mkdir(dir.to_owned())))?;
     let tmp = temp_path(path);

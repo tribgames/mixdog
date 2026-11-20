@@ -102,12 +102,7 @@ async fn an_approval_reaches_every_window_that_shows_its_thread() {
     let thread = rig.core.mock.directory().insert(ThreadId::from("t1"));
     let feed: Arc<dyn FeedSource> = thread.feed().clone();
     thread.set_handler(Arc::new(move |_| {
-        Ok::<Reply, CoreError>(Reply::Subscribe(Subscribe {
-            result: json!({}),
-            feed: feed.clone(),
-            window: Window::LastItems(10),
-            resume_from: None,
-        }))
+        Ok::<Reply, CoreError>(Reply::Subscribe(Subscribe { result: json!({}), feed: feed.clone(), window: Window::LastItems(10), resume_from: None }))
     }));
     let main = rig.ready(1, json!({}));
     let first = rig.ready(2, json!({}));
@@ -146,10 +141,14 @@ async fn terminal_reveal_counts_renderer_windows_not_the_main_desktop_host() {
     assert!(!rig.outgoing.desktop_attached(), "existing host semantics stay unchanged");
     subscribe_app(&host).await;
     let phone = rig.connect(4, mixdog_protocol::Origin::Relay);
-    phone.request(0, "initialize", json!({
-        "clientInfo": {"name":"phone","title":"Phone","version":super::VERSION,"kind":"phone"},
-        "capabilities":{}
-    }));
+    phone.request(
+        0,
+        "initialize",
+        json!({
+            "clientInfo": {"name":"phone","title":"Phone","version":super::VERSION,"kind":"phone"},
+            "capabilities":{}
+        }),
+    );
     phone.response(0).await;
     subscribe_app(&phone).await;
     let mut audience = rig.outgoing.app_feed_audience();
@@ -160,14 +159,17 @@ async fn terminal_reveal_counts_renderer_windows_not_the_main_desktop_host() {
     assert!(rig.outgoing.app_feed_audience().iter().all(|entry| !entry.2), "host and phone cannot show a pane");
 }
 
-
 #[tokio::test(start_paused = true)]
 async fn a_phone_cannot_claim_a_terminal_reveal_but_a_local_window_can() {
     struct Claims(std::sync::Mutex<Vec<ConnectionId>>);
     #[async_trait::async_trait]
     impl mixdog_core_api::DomainService for Claims {
-        fn methods(&self) -> &'static [&'static str] { &["ui/terminalRun/claimed"] }
-        async fn call(&self, _: mixdog_core_api::CoreRequest) -> Result<Reply, CoreError> { unreachable!() }
+        fn methods(&self) -> &'static [&'static str] {
+            &["ui/terminalRun/claimed"]
+        }
+        async fn call(&self, _: mixdog_core_api::CoreRequest) -> Result<Reply, CoreError> {
+            unreachable!()
+        }
         fn notify(&self, _: Method, _: serde_json::Value, from: ConnectionId) -> mixdog_core_api::service::Admit {
             self.0.lock().unwrap().push(from);
             mixdog_core_api::service::Admit::Accepted
@@ -177,10 +179,14 @@ async fn a_phone_cannot_claim_a_terminal_reveal_but_a_local_window_can() {
     let claims = Arc::new(Claims(std::sync::Mutex::new(Vec::new())));
     rig.core.serve(claims.clone());
     let phone = rig.connect(4, mixdog_protocol::Origin::Relay);
-    phone.request(0, "initialize", json!({
-        "clientInfo":{"name":"phone","title":"Phone","version":super::VERSION,"kind":"phone"},
-        "capabilities":{}
-    }));
+    phone.request(
+        0,
+        "initialize",
+        json!({
+            "clientInfo":{"name":"phone","title":"Phone","version":super::VERSION,"kind":"phone"},
+            "capabilities":{}
+        }),
+    );
     phone.response(0).await;
     let window = rig.ready(2, json!({}));
     let notification = json!({"method":"ui/terminalRun/claimed","params":{"requestId":"run-1"}});

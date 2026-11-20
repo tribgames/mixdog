@@ -101,7 +101,6 @@ fn a_call_settles_once() {
     assert_eq!(settled.try_recv().unwrap(), "done");
 }
 
-
 /// The seal makes every target ineligible in its member session at once, before any storage wait, and the member records are
 /// written concurrently: one member's held save holds no other's, and the ticket answers only once all of them landed.
 #[tokio::test]
@@ -200,7 +199,10 @@ async fn a_retry_of_an_old_stop_never_touches_an_exchange_started_after_its_seal
     let newer = runner.runs.lock().unwrap()[1].clone();
     old.saved().await.expect("saved");
     old.saved().await.expect("the retry is saved too");
-    assert_eq!(*runner.stopped_work.lock().unwrap(), [("sess_bench".to_owned(), vec!["sub_1".to_owned()]), ("sess_bench".to_owned(), vec!["sub_1".to_owned()])]);
+    assert_eq!(
+        *runner.stopped_work.lock().unwrap(),
+        [("sess_bench".to_owned(), vec!["sub_1".to_owned()]), ("sess_bench".to_owned(), vec!["sub_1".to_owned()])]
+    );
     assert!(!newer.stopped(), "the newer exchange is not stopped");
     assert!(newer.register("sess_alpha", "sub_3"), "nor sealed");
     runner.release.notify_one();
@@ -239,10 +241,7 @@ async fn relays_held_while_the_room_talks_run_after_it_as_one_exchange_each_memb
     assert_eq!(status(first_settled).await, "done");
     assert_eq!(status(second_settled).await, "done");
     assert_eq!(status(third_settled).await, "done");
-    assert_eq!(
-        *runner.seen.lock().unwrap(),
-        vec![(vec!["bench".to_string()], true, 1), (vec!["lead".to_string(), "bench".to_string()], true, 2)]
-    );
+    assert_eq!(*runner.seen.lock().unwrap(), vec![(vec!["bench".to_string()], true, 1), (vec!["lead".to_string(), "bench".to_string()], true, 2)]);
 }
 /// `settled` waits out the exchange in flight, the relays it held back and a message on its way: it resolves only once the
 /// last of them has run, so nothing is routed into the room after it.

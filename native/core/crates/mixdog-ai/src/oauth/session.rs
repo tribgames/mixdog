@@ -82,12 +82,7 @@ struct Session {
 #[async_trait]
 impl LoginSession for Session {
     fn state(&self) -> LoginState {
-        self.shared
-            .state
-            .lock()
-            .unwrap_or_else(PoisonError::into_inner)
-            .1
-            .clone()
+        self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).1.clone()
     }
 
     async fn next(&self) -> Option<LoginState> {
@@ -95,18 +90,9 @@ impl LoginSession for Session {
             let notified = self.shared.changed.notified();
             tokio::pin!(notified);
             notified.as_mut().enable();
-            let (version, state) = self
-                .shared
-                .state
-                .lock()
-                .unwrap_or_else(PoisonError::into_inner)
-                .clone();
+            let (version, state) = self.shared.state.lock().unwrap_or_else(PoisonError::into_inner).clone();
             {
-                let mut delivered = self
-                    .shared
-                    .delivered
-                    .lock()
-                    .unwrap_or_else(PoisonError::into_inner);
+                let mut delivered = self.shared.delivered.lock().unwrap_or_else(PoisonError::into_inner);
                 if version > *delivered {
                     *delivered = version;
                     return Some(state);
@@ -158,29 +144,17 @@ impl LoginSession for Session {
 /// Runs `run` as one login: its `Ok` account label is `Done`, its failure is
 /// `Failed`, and a cancel ends it as `Cancelled` before either. `first` is
 /// the initial state; `takes_input` says whether `provide` is accepted.
-pub fn start_session<F, Fut>(
-    guard: FlowGuard,
-    first: LoginState,
-    takes_input: bool,
-    run: F,
-) -> Box<dyn LoginSession>
+pub fn start_session<F, Fut>(guard: FlowGuard, first: LoginState, takes_input: bool, run: F) -> Box<dyn LoginSession>
 where
     F: FnOnce(FlowCtx, CancellationToken) -> Fut + Send + 'static,
     Fut: std::future::Future<Output = Result<Option<String>, LoginFailure>> + Send + 'static,
 {
     let device = matches!(first, LoginState::DeviceCode { .. });
     let started = first.clone();
-    let shared = Arc::new(Shared {
-        state: Mutex::new((1, first)),
-        delivered: Mutex::new(0),
-        changed: Notify::new(),
-    });
+    let shared = Arc::new(Shared { state: Mutex::new((1, first)), delivered: Mutex::new(0), changed: Notify::new() });
     let cancel = CancellationToken::new();
     let (tx, rx) = mpsc::unbounded_channel();
-    let ctx = FlowCtx {
-        shared: shared.clone(),
-        pasted: rx,
-    };
+    let ctx = FlowCtx { shared: shared.clone(), pasted: rx };
     let task_shared = shared.clone();
     let task_cancel = cancel.clone();
     mixdog_rt::spawn("ai.oauth.login", TaskClass::Work, async move {
@@ -197,13 +171,7 @@ where
             Some(Err(failure)) => LoginState::Failed(failure),
         });
     });
-    Box::new(Session {
-        shared,
-        pasted: takes_input.then_some(tx),
-        cancel,
-        first: started,
-        device,
-    })
+    Box::new(Session { shared, pasted: takes_input.then_some(tx), cancel, first: started, device })
 }
 
 #[cfg(test)]
@@ -214,10 +182,7 @@ mod tests {
     use crate::oauth::http::testing::finish;
 
     fn authorize() -> LoginState {
-        LoginState::Authorize {
-            url: "https://auth.test/a".into(),
-            manual_url: None,
-        }
+        LoginState::Authorize { url: "https://auth.test/a".into(), manual_url: None }
     }
 
     #[tokio::test]
@@ -236,10 +201,7 @@ mod tests {
         assert_eq!(states.first(), Some(&authorize()));
         assert_eq!(states.last(), Some(&LoginState::Done { account: Some("me".into()) }));
         assert_eq!(states.iter().filter(|s| s.is_terminal()).count(), 1);
-        assert!(matches!(
-            session.provide(LoginInput::AuthorizationCode("x".into())).await,
-            Err(LoginError::Finished)
-        ));
+        assert!(matches!(session.provide(LoginInput::AuthorizationCode("x".into())).await, Err(LoginError::Finished)));
         assert!(FlowGuard::claim(&flag).is_some(), "the flow is free again");
     }
 
@@ -250,10 +212,7 @@ mod tests {
         let session = start_session(FlowGuard::claim(&flag).unwrap(), authorize(), false, |_, _| async {
             std::future::pending::<Result<Option<String>, LoginFailure>>().await
         });
-        assert!(matches!(
-            session.provide(LoginInput::AuthorizationCode("x".into())).await,
-            Err(LoginError::InputNotExpected)
-        ));
+        assert!(matches!(session.provide(LoginInput::AuthorizationCode("x".into())).await, Err(LoginError::InputNotExpected)));
         session.cancel();
         assert_eq!(finish(&*session).await.last(), Some(&LoginState::Cancelled));
         assert!(FlowGuard::claim(&flag).is_some());

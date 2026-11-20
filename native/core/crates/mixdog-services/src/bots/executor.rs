@@ -8,8 +8,8 @@
 //! fires (a sub-agent that disappeared or was turned off since fails the fire; nothing falls
 //! back).
 
-use serde_json::Value;
 use mixdog_rt::CancelView;
+use serde_json::Value;
 
 use super::attachments::{binary_parts, prompt_text};
 use super::host::ExecutorRun;
@@ -29,9 +29,7 @@ impl ExecutorProblem {
     pub fn message(self, id: &str) -> String {
         match self {
             Self::Unknown => format!("executor agent \"{id}\" is not an available sub-agent: pick one from the workflow agents"),
-            Self::NotAgent => format!(
-                "executor agent \"{id}\" is a bot, not a workflow sub-agent: pick a sub-agent such as Worker, or leave it unset"
-            ),
+            Self::NotAgent => format!("executor agent \"{id}\" is a bot, not a workflow sub-agent: pick a sub-agent such as Worker, or leave it unset"),
             Self::Disabled => format!("executor agent \"{id}\" is turned off: turn it on in the workflow agents or pick another"),
         }
     }

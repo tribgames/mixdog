@@ -46,11 +46,7 @@ impl IdleRelease {
     /// The deadline that came first, taken (the fired timer leaves `timers`); `None` while none has come. One at a time:
     /// the host releases it and yields before it takes the next.
     pub fn take_due(&mut self, now: f64) -> Option<String> {
-        let (session, _) = self
-            .due
-            .iter()
-            .filter(|(_, at)| **at <= now)
-            .min_by(|a, b| a.1.total_cmp(b.1).then_with(|| a.0.cmp(b.0)))?;
+        let (session, _) = self.due.iter().filter(|(_, at)| **at <= now).min_by(|a, b| a.1.total_cmp(b.1).then_with(|| a.0.cmp(b.0)))?;
         let session = session.clone();
         self.due.remove(&session);
         Some(session)

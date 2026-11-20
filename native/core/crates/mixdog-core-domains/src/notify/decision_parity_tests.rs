@@ -6,9 +6,9 @@ use mixdog_testkit::parity::{assert_case, cases};
 use serde_json::{Value, json};
 
 use super::decision::{
-    Conversation, ConversationKind, ConversationOverride, Decision, DecisionInput, DevicePreferences, Event,
-    LocalClock, Origin, OverrideSetting, PreferencesView, SessionFields, SkipReason, TargetKind, active_overrides,
-    allows_device_notice, allows_taskbar_flash, conversation_override, decide, in_quiet_hours,
+    Conversation, ConversationKind, ConversationOverride, Decision, DecisionInput, DevicePreferences, Event, LocalClock, Origin, OverrideSetting,
+    PreferencesView, SessionFields, SkipReason, TargetKind, active_overrides, allows_device_notice, allows_taskbar_flash, conversation_override, decide,
+    in_quiet_hours,
 };
 
 const NOW_MS: i64 = 1_000_000;
@@ -28,11 +28,7 @@ fn clock_of(input: &Value) -> LocalClock {
 
 fn preferences_of(input: &Value) -> DevicePreferences {
     let spec = input["prefs"].as_object().cloned().unwrap_or_default();
-    let base = if spec.get("base").and_then(Value::as_str) == Some("newPhone") {
-        DevicePreferences::new_phone()
-    } else {
-        DevicePreferences::default()
-    };
+    let base = if spec.get("base").and_then(Value::as_str) == Some("newPhone") { DevicePreferences::new_phone() } else { DevicePreferences::default() };
     let mut merged = serde_json::to_value(base).expect("preferences serialize");
     for (key, value) in spec.iter().filter(|(key, _)| key.as_str() != "base") {
         match (merged[key.as_str()].as_object_mut(), value.as_object()) {

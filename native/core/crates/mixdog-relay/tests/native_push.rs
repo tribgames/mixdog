@@ -8,13 +8,12 @@ use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use mixdog_relay::js;
 use mixdog_relay::native_push::{
-    BoxFuture, Clock, HttpRequest, HttpResponse, HttpTransport, MAX_MX_CHARS, NativePush, NativePushService, Origins,
-    PairedClients, Platform, PushMessage, PushSender, SendResult, TransportError, parse_ec_p256_pem, parse_rsa_pem,
-    read_apns_config, read_fcm_config,
+    BoxFuture, Clock, HttpRequest, HttpResponse, HttpTransport, MAX_MX_CHARS, NativePush, NativePushService, Origins, PairedClients, Platform, PushMessage,
+    PushSender, SendResult, TransportError, parse_ec_p256_pem, parse_rsa_pem, read_apns_config, read_fcm_config,
 };
 use mixdog_relay::rate_limit::RateLimiter;
-use p256::ecdsa::signature::Verifier;
 use p256::ecdsa::Signature;
+use p256::ecdsa::signature::Verifier;
 use ring::signature::{RSA_PKCS1_2048_8192_SHA256, UnparsedPublicKey};
 use serde_json::{Value, json};
 
@@ -214,11 +213,7 @@ fn ok_json() -> Result<HttpResponse, TransportError> {
 /// Answers the OAuth exchange, and everything else with `answer`.
 fn fcm_recorder(answer: impl Fn() -> Result<HttpResponse, TransportError> + Send + 'static) -> Arc<Recorder> {
     Recorder::new(move |_, request| {
-        if request.url.starts_with("https://oauth.example.test") {
-            reply(200, &json!({ "access_token": "ya29.token", "expires_in": 3600 }))
-        } else {
-            answer()
-        }
+        if request.url.starts_with("https://oauth.example.test") { reply(200, &json!({ "access_token": "ya29.token", "expires_in": 3600 })) } else { answer() }
     })
 }
 
@@ -288,9 +283,12 @@ async fn apns_request_shape_token_auth_headers_mutable_content_and_no_action_cat
 #[tokio::test]
 async fn apns_410_reports_the_token_invalid_other_failures_do_not() {
     let now = Arc::new(AtomicI64::new(T0));
-    let recorder = Recorder::new(|count, _| {
-        if count == 1 { reply(410, &json!({ "reason": "Unregistered" })) } else { reply(429, &json!({ "reason": "TooManyRequests" })) }
-    });
+    let recorder =
+        Recorder::new(
+            |count, _| {
+                if count == 1 { reply(410, &json!({ "reason": "Unregistered" })) } else { reply(429, &json!({ "reason": "TooManyRequests" })) }
+            },
+        );
     let push = credentialed(&apns_env(), &recorder, &now);
     let gone = push.send(&apns_message()).await;
     assert!(!gone.ok);
@@ -378,9 +376,8 @@ async fn apns_close_drops_the_connections_and_a_later_send_reconnects() {
 #[tokio::test]
 async fn a_transport_failure_is_a_failed_result_not_a_panic_and_a_timeout_says_so() {
     let now = Arc::new(AtomicI64::new(T0));
-    let recorder = Recorder::new(|count, _| {
-        if count == 1 { Err(TransportError::Timeout) } else { Err(TransportError::Failed("connect ECONNREFUSED".to_owned())) }
-    });
+    let recorder =
+        Recorder::new(|count, _| if count == 1 { Err(TransportError::Timeout) } else { Err(TransportError::Failed("connect ECONNREFUSED".to_owned())) });
     let push = credentialed(&apns_env(), &recorder, &now);
     assert_eq!(push.send(&apns_message()).await, SendResult { ok: false, status: 0, invalid: false, error: Some("APNs request timed out".to_owned()) });
     assert_eq!(push.send(&apns_message()).await.error.as_deref(), Some("connect ECONNREFUSED"));
@@ -663,11 +660,11 @@ async fn only_the_desktop_that_bound_a_token_to_its_own_paired_client_can_send_t
     service.bind("dev-a", &paired, &bind_frame(&json!({})));
     let frame = service.send("dev-a", &paired, &send_frame(&json!({}))).await.unwrap();
     assert_eq!(push.sent(), 1);
+    assert_eq!(frame, json!({ "type": "native-push-result", "platform": "apns", "token": APNS_TOKEN, "collapseKey": "c1", "ok": true, "status": 200 }));
     assert_eq!(
-        frame,
-        json!({ "type": "native-push-result", "platform": "apns", "token": APNS_TOKEN, "collapseKey": "c1", "ok": true, "status": 200 })
+        js::wire(&frame),
+        format!(r#"{{"type":"native-push-result","platform":"apns","token":"{APNS_TOKEN}","collapseKey":"c1","ok":true,"status":200}}"#)
     );
-    assert_eq!(js::wire(&frame), format!(r#"{{"type":"native-push-result","platform":"apns","token":"{APNS_TOKEN}","collapseKey":"c1","ok":true,"status":200}}"#));
 
     // Another device cannot send through A's association, nor bind a client it does not own.
     assert_eq!(sent_error(&service, "dev-b", &paired, &send_frame(&json!({}))).await, "unbound-token");

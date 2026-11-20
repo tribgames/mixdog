@@ -87,8 +87,14 @@ fn oversized_inline(length: u64) -> ReplyError {
 /// For an inspection-only screenshot going inline, skip allocating a blob
 /// that cannot be attached. The advertised size is only a hint: the store
 /// must still check the digest and establish the actual size.
-pub async fn read_capture_for_output(result: &HostBrowserScreenshotResult, full_page: bool, blobs: &dyn BlobPort, output: ImageOutput) -> Result<CapturedScreenshot, ReplyError> {
-    if output == ImageOutput::Inline && result.data.is_none()
+pub async fn read_capture_for_output(
+    result: &HostBrowserScreenshotResult,
+    full_page: bool,
+    blobs: &dyn BlobPort,
+    output: ImageOutput,
+) -> Result<CapturedScreenshot, ReplyError> {
+    if output == ImageOutput::Inline
+        && result.data.is_none()
         && let Some(blob) = &result.blob
         && blob.size > MAX_INLINE_IMAGE_BYTES as i64
         && let Some(length) = blobs.verified_size(&blob.digest).await.map_err(unreadable_screenshot)?
@@ -125,9 +131,16 @@ fn fits_file_budget(length: usize) -> bool {
 
 /// Where a screenshot goes: into the reply, or beside the run when the caller asked to keep pixels out of the conversation
 /// (`attachFrame`). A frame that cannot be written to a file stays in the reply.
-pub async fn attach_frame(files: &dyn FilePort, reply: &mut ToolReply, output: ImageOutput, frame_dir: &Path, capture: &CapturedScreenshot) -> Result<(), ReplyError> {
+pub async fn attach_frame(
+    files: &dyn FilePort,
+    reply: &mut ToolReply,
+    output: ImageOutput,
+    frame_dir: &Path,
+    capture: &CapturedScreenshot,
+) -> Result<(), ReplyError> {
     let length = capture.bytes.len();
-    if output == ImageOutput::File && fits_file_budget(length)
+    if output == ImageOutput::File
+        && fits_file_budget(length)
         && let Ok(path) = files.write_frame(frame_dir, capture.bytes.clone(), &capture.mime_type).await
     {
         reply.text.push_str(&format!("\n\nFrame written to {} ({length} bytes).", path.display()));

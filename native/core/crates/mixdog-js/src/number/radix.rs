@@ -105,16 +105,8 @@ fn to_int32(value: f64) -> i32 {
         return 0;
     }
     let modulo = value.trunc() % 4_294_967_296.0;
-    let unsigned = if modulo < 0.0 {
-        modulo + 4_294_967_296.0
-    } else {
-        modulo
-    };
-    if unsigned >= 2_147_483_648.0 {
-        (unsigned - 4_294_967_296.0) as i32
-    } else {
-        unsigned as i32
-    }
+    let unsigned = if modulo < 0.0 { modulo + 4_294_967_296.0 } else { modulo };
+    if unsigned >= 2_147_483_648.0 { (unsigned - 4_294_967_296.0) as i32 } else { unsigned as i32 }
 }
 
 fn digit(byte: u8) -> Option<u32> {
@@ -145,10 +137,7 @@ pub fn parse_int_radix(text: &str, radix: f64) -> f64 {
     } else if radix == 0 {
         radix = 10;
     }
-    let length = text
-        .bytes()
-        .take_while(|byte| digit(*byte).is_some_and(|d| d < radix))
-        .count();
+    let length = text.bytes().take_while(|byte| digit(*byte).is_some_and(|d| d < radix)).count();
     if length == 0 {
         return f64::NAN;
     }
@@ -158,19 +147,11 @@ pub fn parse_int_radix(text: &str, radix: f64) -> f64 {
     } else if radix == 10 {
         // V8 keeps at most 310 non-leading-zero decimal digits for Strtod;
         // 310 or more necessarily overflows. Rust's decimal parse rounds alike.
-        if digits.len() > 309 {
-            f64::INFINITY
-        } else {
-            digits.parse::<f64>().expect("decimal digits")
-        }
+        if digits.len() > 309 { f64::INFINITY } else { digits.parse::<f64>().expect("decimal digits") }
     } else if radix.is_power_of_two() {
         // All power-of-two radices use the same nearest-even significand path.
         // Even radix 2 overflows at this length; avoid building pointless bits.
-        if digits.len() > 1100 {
-            f64::INFINITY
-        } else {
-            radix_literal(digits, radix)
-        }
+        if digits.len() > 1100 { f64::INFINITY } else { radix_literal(digits, radix) }
     } else {
         generic_integer(digits.as_bytes(), radix)
     };

@@ -24,19 +24,12 @@ use crate::feed::ScopedFeeds;
 use crate::feed::Window;
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
 fn encode(method: &str, params: Value, stamp: FeedStamp) -> Bytes {
-    let note = JsonRpcNotification {
-        method: method.to_owned(),
-        params: Some(params),
-        emitted_at_ms: Some(now_ms()),
-        feed: Some(stamp),
-        lone_surrogates: Vec::new(),
-    };
+    let note =
+        JsonRpcNotification { method: method.to_owned(), params: Some(params), emitted_at_ms: Some(now_ms()), feed: Some(stamp), lone_surrogates: Vec::new() };
     Bytes::from(serde_json::to_vec(&note).expect("a notification serializes"))
 }
 
@@ -48,19 +41,11 @@ struct StateView {
 
 impl FeedView for StateView {
     fn encode_snapshot(&self, _lane: &InLane<CpuInteractive>, at: FeedPosition, _window: &Window) -> Bytes {
-        let params = FeedSnapshotParams {
-            feed_id: self.id.clone(),
-            state: self.state.clone(),
-        };
+        let params = FeedSnapshotParams { feed_id: self.id.clone(), state: self.state.clone() };
         encode(
             "feed/snapshot",
             serde_json::to_value(params).expect("snapshot params serialize"),
-            FeedStamp {
-                id: self.id.clone(),
-                epoch: at.epoch,
-                seq: at.seq,
-                from: None,
-            },
+            FeedStamp { id: self.id.clone(), epoch: at.epoch, seq: at.seq, from: None },
         )
     }
 }
@@ -74,15 +59,8 @@ pub struct FeedPublisher {
 
 impl FeedPublisher {
     pub fn create(feeds: &dyn ScopedFeeds, id: FeedId, state: Value) -> Self {
-        let view = Arc::new(StateView {
-            id: id.clone(),
-            state,
-        });
-        Self {
-            feed: feeds.create(id.clone(), view),
-            id,
-            producer: Mutex::new(()),
-        }
+        let view = Arc::new(StateView { id: id.clone(), state });
+        Self { feed: feeds.create(id.clone(), view), id, producer: Mutex::new(()) }
     }
 
     pub fn source(&self) -> Arc<dyn FeedSource> {
@@ -99,23 +77,8 @@ impl FeedPublisher {
         let _one_producer = self.producer.lock().expect("feed producer");
         let position = self.feed.position();
         let seq = position.seq + 1;
-        let frame = FeedFrame {
-            seq,
-            bytes: encode(
-                method,
-                params,
-                FeedStamp {
-                    id: self.id.clone(),
-                    epoch: position.epoch,
-                    seq,
-                    from: None,
-                },
-            ),
-        };
-        let view = Arc::new(StateView {
-            id: self.id.clone(),
-            state,
-        });
+        let frame = FeedFrame { seq, bytes: encode(method, params, FeedStamp { id: self.id.clone(), epoch: position.epoch, seq, from: None }) };
+        let view = Arc::new(StateView { id: self.id.clone(), state });
         // The only failure is a seq gap, impossible under the producer lock.
         let _ = self.feed.publish(&[frame], Some(view));
     }

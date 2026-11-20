@@ -68,18 +68,9 @@ impl LinkActions for Rig {
     }
 }
 
-fn fixture(
-    grace_ms: u64,
-    auto_reconnect: bool,
-    probe_with: impl FnMut(usize) -> Option<u64> + Send + 'static,
-) -> (LinkMachine, Arc<Rig>) {
+fn fixture(grace_ms: u64, auto_reconnect: bool, probe_with: impl FnMut(usize) -> Option<u64> + Send + 'static) -> (LinkMachine, Arc<Rig>) {
     mixdog_rt::testing::tokens();
-    let rig = Arc::new(Rig {
-        calls: Mutex::default(),
-        probes: Mutex::default(),
-        probe_with: Mutex::new(Box::new(probe_with)),
-        stopped: Mutex::default(),
-    });
+    let rig = Arc::new(Rig { calls: Mutex::default(), probes: Mutex::default(), probe_with: Mutex::new(Box::new(probe_with)), stopped: Mutex::default() });
     let mut options = LinkOptions::new("srv-1", rig.clone(), grace_ms);
     options.auto_reconnect = auto_reconnect;
     (LinkMachine::new(options), rig)
@@ -226,11 +217,7 @@ async fn a_tunnel_stopped_for_good_refused_login_turns_the_attempt_into_a_termin
     link.service_lost();
     advance(1_000).await;
     assert!(matches!(state_of(&link), LinkState::Reconnecting { .. }));
-    *rig.stopped.lock().unwrap() = Some(LinkFailure {
-        code: "auth".into(),
-        message: "Permission denied (publickey).".into(),
-        settings_required: true,
-    });
+    *rig.stopped.lock().unwrap() = Some(LinkFailure { code: "auth".into(), message: "Permission denied (publickey).".into(), settings_required: true });
     advance(2_000).await;
     assert_eq!(state_of(&link), lost(true, "auth", "Permission denied (publickey).", true));
     assert_eq!(rig.calls(), ["reviveTunnel"], "nothing is dialed after the refusal");
@@ -243,10 +230,7 @@ async fn with_automatic_reconnection_off_a_drop_is_lost_at_once_only_reconnect_d
     let (link, rig) = fixture(REMOTE_CLIENT_GRACE_DEFAULT_MS, false, move |_| probe_reachable.load(Ordering::SeqCst).then_some(6));
     link.start();
     link.service_lost();
-    assert_eq!(
-        state_of(&link),
-        lost(false, "auto-reconnect-off", "Automatic reconnection is off for this server.", false)
-    );
+    assert_eq!(state_of(&link), lost(false, "auto-reconnect-off", "Automatic reconnection is off for this server.", false));
     assert_eq!(rig.calls(), ["hold"], "dials are refused until the user reconnects");
     advance(5 * 60_000).await;
     assert_eq!(rig.calls(), ["hold"], "nothing is attempted on its own");

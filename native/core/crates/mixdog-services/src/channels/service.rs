@@ -25,12 +25,7 @@ fn invalid(path: &str, expected: &str) -> CoreError {
 }
 
 fn failed(message: String) -> CoreError {
-    CoreError::DomainError {
-        domain: DOMAIN.into(),
-        code: Some(CHANNEL_FAILED.into()),
-        message: Some(message.into()),
-        detail: None,
-    }
+    CoreError::DomainError { domain: DOMAIN.into(), code: Some(CHANNEL_FAILED.into()), message: Some(message.into()), detail: None }
 }
 
 /// A coded schedule refusal keeps its code, its message and its public name; every other
@@ -60,12 +55,9 @@ pub fn admin_error(error: AdminError) -> CoreError {
 fn call_error(error: CallError) -> CoreError {
     match error {
         // Node answers the conflict with its text (`rpc-call-identity.mjs` `callIdConflict`): "callId '…' was reused with a different payload".
-        conflict @ CallError::CallIdConflict(_) => CoreError::DomainError {
-            domain: DOMAIN.into(),
-            code: Some("ECALLIDCONFLICT".into()),
-            message: Some(conflict.to_string().into()),
-            detail: None,
-        },
+        conflict @ CallError::CallIdConflict(_) => {
+            CoreError::DomainError { domain: DOMAIN.into(), code: Some("ECALLIDCONFLICT".into()), message: Some(conflict.to_string().into()), detail: None }
+        }
         CallError::Failed(message) => failed(message),
     }
 }

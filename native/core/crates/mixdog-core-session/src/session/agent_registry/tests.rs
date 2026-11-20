@@ -558,7 +558,9 @@ async fn a_bookkeeping_pass_over_running_rows_reads_no_session_record() {
         let id = format!("s-run-{i}");
         let row = worker_row(&id, &format!("r{i}"), json!({ "status": "running", "stage": "streaming", "createdAt": created, "updatedAt": created }));
         rig.store.write(&id, Some(row));
-        let header = obj(json!({ "agentTag": format!("r{i}"), "parentSessionId": "lead-a", "ownerSessionId": "lead-a", "agent": "worker", "status": "running", "createdAt": created }));
+        let header = obj(
+            json!({ "agentTag": format!("r{i}"), "parentSessionId": "lead-a", "ownerSessionId": "lead-a", "agent": "worker", "status": "running", "createdAt": created }),
+        );
         rig.live.headers.lock().unwrap().insert(id, header);
     }
     let registry = rig.registry();
@@ -836,11 +838,26 @@ async fn a_closed_session_yields_its_tag_only_to_the_same_owner_identity() {
     let global = ResolveOptions { scan_sessions: true, ..ResolveOptions::default() };
     // (closed session, open session, what a global scanning resolve answers)
     let cases = [
-        ("host pids 1 and 2", row("sess_c", "", Some(1)), row("sess_o", "", Some(2)), Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".to_owned())),
+        (
+            "host pids 1 and 2",
+            row("sess_c", "", Some(1)),
+            row("sess_o", "", Some(2)),
+            Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".to_owned()),
+        ),
         ("one host pid", row("sess_c", "", Some(1)), row("sess_o", "", Some(1)), Ok(Some("sess_o".to_owned()))),
-        ("no owner identity", row("sess_c", "", None), row("sess_o", "", None), Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".to_owned())),
+        (
+            "no owner identity",
+            row("sess_c", "", None),
+            row("sess_o", "", None),
+            Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".to_owned()),
+        ),
         ("owner sessions", row("sess_c", "lead-a", Some(1)), row("sess_o", "lead-a", Some(2)), Ok(Some("sess_o".to_owned()))),
-        ("owner session and a host process", row("sess_c", "lead-a", Some(1)), row("sess_o", "", Some(1)), Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".to_owned())),
+        (
+            "owner session and a host process",
+            row("sess_c", "lead-a", Some(1)),
+            row("sess_o", "", Some(1)),
+            Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".to_owned()),
+        ),
     ];
     for (name, closed, open, want) in cases {
         let rig = Rig::new();
@@ -893,15 +910,9 @@ async fn tags_resolve_inside_the_callers_scope_only() {
     assert_eq!(registry.resolve_tag("rev", &lead("lead-c"), none), Ok(None));
     assert_eq!(registry.resolve_tag("sess_b", &lead("lead-a"), none), Ok(None));
     let everyone = Scope::default();
-    assert_eq!(
-        registry.resolve_tag("rev", &everyone, scan),
-        Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".into())
-    );
+    assert_eq!(registry.resolve_tag("rev", &everyone, scan), Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".into()));
     // A trace check of an ambiguous tag raises the resolver's error to the caller.
-    assert_eq!(
-        TerminalTrace::has_terminal_trace(&registry, "rev", &everyone),
-        Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".into())
-    );
+    assert_eq!(TerminalTrace::has_terminal_trace(&registry, "rev", &everyone), Err("agent: tag \"rev\" is ambiguous across terminals; use sessionId".into()));
     assert_eq!(TerminalTrace::has_terminal_trace(&registry, "rev", &lead("lead-a")), Ok(false), "live: reused");
     let rows: Vec<String> = registry.read_worker_rows(&lead("lead-b")).unwrap().into_iter().map(|r| r.session_id).collect();
     assert_eq!(rows, ["sess_b"]);
@@ -1094,7 +1105,9 @@ async fn a_session_deleted_while_the_daemon_runs_keeps_the_rows_node_keeps() {
 async fn expired_and_surplus_kept_tombstones_leave_the_kept_table() {
     let rig = Rig::new();
     let max = super::rows::MAX_TAG_TOMBSTONES;
-    let tombstone = |n: usize, reaped: i64| obj(json!({ "tag": format!("t{n}"), "tombstone": { "tag": format!("t{n}"), "reapedAt": at(reaped), "ownerSessionId": "lead-a" } }));
+    let tombstone = |n: usize, reaped: i64| {
+        obj(json!({ "tag": format!("t{n}"), "tombstone": { "tag": format!("t{n}"), "reapedAt": at(reaped), "ownerSessionId": "lead-a" } }))
+    };
     // One past the TTL, then MAX + 1 live ones, the oldest of which is beyond the cap.
     rig.store.keep("s-expired", Some(tombstone(0, NOW - super::rows::TAG_TOMBSTONE_TTL_MS as i64 - 1)));
     for n in 1..=max + 1 {
@@ -1456,9 +1469,7 @@ fn check_reads(registry: &AgentRegistry, scope: &Scope, tag: &str, label: &str) 
         let record = |row: &Row| tag_record(row, "tag", "sessionId");
         let rows: Vec<TagRecord> = old_rows(&st, scope, now).iter().map(record).collect();
         let tombstones = old_tombstones(&st, now);
-        let for_tag = (!tag.is_empty())
-            .then(|| tombstones.iter().find(|row| matches_scope(row, scope) && clean(row.get("tag")) == tag).map(record))
-            .flatten();
+        let for_tag = (!tag.is_empty()).then(|| tombstones.iter().find(|row| matches_scope(row, scope) && clean(row.get("tag")) == tag).map(record)).flatten();
         let all: Vec<TagRecord> = tombstones.iter().map(record).collect();
         drop(st);
         assert_eq!(registry.read_worker_rows(scope).unwrap(), rows, "read worker rows, {label}");
@@ -1533,17 +1544,30 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
         let workers: Vec<(String, String, String)> =
             (0..14).map(|i| (format!("w-{i}"), format!("t{}", i % 9), ["lead-a", "lead-b", ""][i % 3].to_owned())).collect();
         let stored = |id: &str, tag: &str, owner: &str, status: &str| {
-            session(id, tag, &at(NOW - 3 * HOUR), json!({ "parentSessionId": owner, "ownerSessionId": owner, "status": status, "updatedAt": at(NOW - 2 * HOUR), "cwd": "/w" }))
+            session(
+                id,
+                tag,
+                &at(NOW - 3 * HOUR),
+                json!({ "parentSessionId": owner, "ownerSessionId": owner, "status": status, "updatedAt": at(NOW - 2 * HOUR), "cwd": "/w" }),
+            )
         };
         for (i, (id, tag, owner)) in workers.iter().enumerate() {
             let status = *dice.pick(&STATUSES);
             let mut map = if i % 4 == 3 {
                 Row::new()
             } else {
-                worker_row(id, tag, json!({ "parentSessionId": owner, "ownerSessionId": owner, "status": status, "createdAt": at(NOW - 3 * HOUR), "updatedAt": at(NOW - 2 * HOUR) }))
+                worker_row(
+                    id,
+                    tag,
+                    json!({ "parentSessionId": owner, "ownerSessionId": owner, "status": status, "createdAt": at(NOW - 3 * HOUR), "updatedAt": at(NOW - 2 * HOUR) }),
+                )
             };
             if i % 3 == 1 {
-                let legacy = if i % 2 == 0 { json!({ "parentSessionId": null, "ownerSessionId": null }) } else { json!({ "parentSessionId": owner, "ownerSessionId": owner }) };
+                let legacy = if i % 2 == 0 {
+                    json!({ "parentSessionId": null, "ownerSessionId": null })
+                } else {
+                    json!({ "parentSessionId": owner, "ownerSessionId": owner })
+                };
                 map.insert("tombstone".into(), Value::Object(tombstone(tag, &at(NOW - HOUR - i as i64), legacy)));
             }
             if i % 5 == 2 {
@@ -1575,7 +1599,9 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
             let (id, tag, owner) = dice.pick(&workers).clone();
             let status = *dice.pick(&STATUSES);
             match dice.below(20) {
-                0 | 1 => registry.upsert_worker_row(&stored(&id, &tag, &owner, status), &tag, &obj(json!({ "status": status, "stage": status, "runtimePid": PID }))),
+                0 | 1 => {
+                    registry.upsert_worker_row(&stored(&id, &tag, &owner, status), &tag, &obj(json!({ "status": status, "stage": status, "runtimePid": PID })))
+                }
                 2 => registry.mark_released(std::slice::from_ref(&id)),
                 3 => crate::session::TurnStarts::turn_started(&registry, &mixdog_core_api::ids::ThreadId::from(id.as_str())),
                 4 => registry.remove_worker_row(&id),
@@ -1592,9 +1618,18 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
                     // Another process wrote the index.
                     let mut map = rig.store.map(&id).unwrap_or_default();
                     match dice.below(3) {
-                        0 => map = worker_row(&id, &tag, json!({ "parentSessionId": owner, "ownerSessionId": owner, "status": status, "createdAt": at(NOW - HOUR) })),
+                        0 => {
+                            map = worker_row(
+                                &id,
+                                &tag,
+                                json!({ "parentSessionId": owner, "ownerSessionId": owner, "status": status, "createdAt": at(NOW - HOUR) }),
+                            )
+                        }
                         1 => {
-                            map.insert("tombstone".into(), Value::Object(tombstone(&tag, &at(registry.now() as i64 - HOUR), json!({ "parentSessionId": null, "ownerSessionId": null }))));
+                            map.insert(
+                                "tombstone".into(),
+                                Value::Object(tombstone(&tag, &at(registry.now() as i64 - HOUR), json!({ "parentSessionId": null, "ownerSessionId": null }))),
+                            );
                         }
                         _ => map = Row::new(),
                     }
@@ -1685,7 +1720,9 @@ async fn the_views_answer_what_the_reads_before_them_answered() {
                         // The listing before the scan's writes, over the index as the refresh at the head of the resolve leaves it.
                         registry.refresh(&mut registry.lock(), true, &scope);
                         let head = old_entries_head(&registry, &registry.lock(), &scope, registry.now(), true);
-                        let have = registry.resolve_tag(&tag, &scope, ResolveOptions { scan_sessions: true, exclude_terminal_traces: false, skip_released: false }).map_err(|_| ());
+                        let have = registry
+                            .resolve_tag(&tag, &scope, ResolveOptions { scan_sessions: true, exclude_terminal_traces: false, skip_released: false })
+                            .map_err(|_| ());
                         let st = registry.lock();
                         let ids = tag_matches(&rig, registry.now() as i64, &old_entries_tail(&registry, &st, &scope, registry.now(), head), &tag);
                         let want = match ids.as_slice() {
@@ -1734,7 +1771,9 @@ fn tag_matches(rig: &Rig, now: i64, listed: &[(String, Row)], tag: &str) -> Vec<
         if !x.is_empty() || !y.is_empty() { x == y } else { matches!((host(a), host(b)), (Some(p), Some(q)) if p == q) }
     };
     let oldest_marker = at(now - 7 * DAY);
-    let closed = |s: &Row| rig.store.map(&id(s)).and_then(|map| map.get("releasedAt").and_then(Value::as_str).map(|stamp| stamp >= oldest_marker.as_str())) == Some(true);
+    let closed = |s: &Row| {
+        rig.store.map(&id(s)).and_then(|map| map.get("releasedAt").and_then(Value::as_str).map(|stamp| stamp >= oldest_marker.as_str())) == Some(true)
+    };
     let under: Vec<&Row> = listed.iter().filter(|(t, _)| t == tag).map(|(_, s)| s).collect();
     under.iter().filter(|s| !closed(s) || !under.iter().any(|o| !closed(o) && same_opener(o, s))).map(|s| id(s)).collect()
 }
@@ -1765,7 +1804,10 @@ fn exit_flush_fails_only_the_rows_this_process_still_runs() {
     let live = restart::Liveness { probe: &Alive, own_pid: PID, running: &running, reap: &Hour, now_ms: NOW };
     registry.flush_active_worker_rows(&live);
     let own = rig.store.map("s-own").unwrap();
-    assert_eq!((own["status"].as_str(), own["failureReason"].as_str(), own["updatedAt"].as_str()), (Some("failed"), Some("process-restart"), Some(at(NOW).as_str())));
+    assert_eq!(
+        (own["status"].as_str(), own["failureReason"].as_str(), own["updatedAt"].as_str()),
+        (Some("failed"), Some("process-restart"), Some(at(NOW).as_str()))
+    );
     for kept in ["s-taken", "s-other"] {
         assert_eq!(rig.store.map(kept).unwrap()["status"], "running", "{kept}");
     }
@@ -1774,11 +1816,6 @@ fn exit_flush_fails_only_the_rows_this_process_still_runs() {
     registry.flush_active_worker_rows(&live);
     assert_eq!(rig.store.map("s-other").unwrap()["status"], "running");
 }
-
-
-
-
-
 
 /// The header seam of the close tests: a session whose header cannot be read fails its close; the stamps that land are kept in order.
 #[derive(Default)]
@@ -1938,9 +1975,12 @@ async fn a_leads_turns_raise_no_worker_row_signal() {
     let rig = Rig::new();
     let told = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counter = told.clone();
-    rig.store.on_write.set(Box::new(move || {
-        counter.fetch_add(1, Ordering::SeqCst);
-    })).ok();
+    rig.store
+        .on_write
+        .set(Box::new(move || {
+            counter.fetch_add(1, Ordering::SeqCst);
+        }))
+        .ok();
     rig.live.headers.lock().unwrap().insert("lead-a".into(), obj(json!({ "id": "lead-a", "owner": "user", "agent": "lead" })));
     let registry = rig.registry();
     for _ in 0..2 {
@@ -2007,7 +2047,9 @@ async fn a_rows_reap_deadline_tombstones_it_on_the_registry_clock_with_no_event(
     let rig = Rig::new();
     let clock = Arc::new(Virtual(tokio::sync::watch::channel(NOW).0));
     let stamped = |due_in: i64| at(NOW - HOUR + due_in);
-    let running = |id: &str, tag: &str, due_in: i64| worker_row(id, tag, json!({ "status": "running", "stage": "streaming", "createdAt": stamped(due_in), "updatedAt": stamped(due_in) }));
+    let running = |id: &str, tag: &str, due_in: i64| {
+        worker_row(id, tag, json!({ "status": "running", "stage": "streaming", "createdAt": stamped(due_in), "updatedAt": stamped(due_in) }))
+    };
     rig.store.write("s-overdue", Some(running("s-overdue", "overdue", -60_000)));
     rig.store.write("s-late", Some(running("s-late", "late", 60_000)));
     rig.store.write("s-early", Some(running("s-early", "early", 10_000)));
@@ -2282,15 +2324,24 @@ fn lost_task_world() -> (Rig, AgentRegistry, mixdog_agent::agent_tool::board::Jo
 async fn restart_ownership_keeps_all_failures_visible_independently_of_notice_delivery() {
     struct Dead;
     impl restart::ProcessProbe for Dead {
-        fn alive(&self, _: u64) -> bool { false }
+        fn alive(&self, _: u64) -> bool {
+            false
+        }
     }
     let (rig, registry, board) = lost_task_world();
     for n in 0..8 {
         let id = format!("s-{n}");
-        rig.store.write(&id, Some(worker_row(&id, &id, json!({
-            "status": "running", "stage": "tool_running", "runtimePid": PID + 1,
-            "task_id": format!("t-{n}"), "updatedAt": at(NOW),
-        }))));
+        rig.store.write(
+            &id,
+            Some(worker_row(
+                &id,
+                &id,
+                json!({
+                    "status": "running", "stage": "tool_running", "runtimePid": PID + 1,
+                    "task_id": format!("t-{n}"), "updatedAt": at(NOW),
+                }),
+            )),
+        );
         rig.store.sessions.lock().unwrap().push(session(&id, &id, &at(NOW), json!({ "updatedAt": at(NOW) })));
     }
     rig.store.write("s-owed", None);
@@ -2367,8 +2418,6 @@ async fn a_failed_write_is_queued_again_and_told_once() {
     assert_eq!(owner.queued.load(Ordering::SeqCst), 2);
 }
 
-
-
 /// `ask-turn-settle.mjs:137-139` stamps every completed turn; a turn start lifts the owner's
 /// release (`worker-index.mjs:59`); an owner close (`bumpSessionGenerationAttempt` with
 /// `ownerClose`) stamps the session durably, then cancels its running turn, leaving it open.
@@ -2378,13 +2427,13 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
 
     use mixdog_agent::agent_tool::host::Sessions;
 
-    use crate::session::thread_state::SessionThreads;
+    use crate::eventually_on;
     use crate::session::SessionDirectory;
     use crate::session::seams::RunOutcome;
-    use crate::eventually_on;
     use crate::session::tests::idle;
     use crate::session::tests::start_thread;
     use crate::session::tests::turn;
+    use crate::session::thread_state::SessionThreads;
 
     let srig = crate::session::testing::Rig::new();
     let runs = Arc::new(AtomicUsize::new(0));
@@ -2447,13 +2496,13 @@ async fn turns_stamp_the_session_and_an_owner_close_records_itself() {
 async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     use mixdog_agent::agent_tool::host::Sessions;
 
-    use crate::session::thread_state::SessionThreads;
+    use crate::eventually_on;
     use crate::session::SessionDirectory;
     use crate::session::seams::RunOutcome;
-    use crate::eventually_on;
     use crate::session::tests::idle;
     use crate::session::tests::start_thread;
     use crate::session::tests::turn;
+    use crate::session::thread_state::SessionThreads;
 
     let srig = crate::session::testing::Rig::new();
     let aborted: Arc<std::sync::Mutex<Option<String>>> = Arc::default();
@@ -2487,10 +2536,7 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     let options = mixdog_agent::agent_tool::host::CloseOptions { tombstone: false, owner_close: false };
     assert!(sessions.close_session(&id, "agent-task-cancel", options).await);
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    assert_eq!(
-        aborted.lock().unwrap().as_deref(),
-        Some(format!("Session \"{id}\" closed: closeSession (reason=agent-task-cancel)").as_str())
-    );
+    assert_eq!(aborted.lock().unwrap().as_deref(), Some(format!("Session \"{id}\" closed: closeSession (reason=agent-task-cancel)").as_str()));
     let header = handle.cell.header.load_full();
     assert_eq!(header["detachedReason"], json!("agent-task-cancel"));
     assert!(header["generation"].as_f64().is_some_and(|generation| generation >= 1.0));
@@ -2501,10 +2547,7 @@ async fn a_job_cancel_aborts_the_turn_with_the_close_session_text() {
     eventually_on!(&[&handle.cell.stepped], || handle.cell.run.load().is_some().then_some(())).await;
     assert!(directory.abort_session_turn(&handle.id, "login-required"));
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    assert_eq!(
-        aborted.lock().unwrap().as_deref(),
-        Some(format!("Session \"{id}\" closed: abortSessionTurn (reason=login-required)").as_str())
-    );
+    assert_eq!(aborted.lock().unwrap().as_deref(), Some(format!("Session \"{id}\" closed: abortSessionTurn (reason=login-required)").as_str()));
     assert!(!directory.abort_session_turn(&mixdog_core_api::ids::ThreadId::from("sess_none"), "x"));
 }
 /// `closeRuntime` (`agent-cancel.mjs:96-102`): a close that stopped a running turn leaves the session reading `cancelled`,
@@ -2516,13 +2559,13 @@ async fn a_close_that_stops_a_running_turn_reads_cancelled_until_a_turn_starts()
 
     use mixdog_agent::agent_tool::host::Sessions;
 
-    use crate::session::thread_state::SessionThreads;
+    use crate::eventually_on;
     use crate::session::SessionDirectory;
     use crate::session::seams::RunOutcome;
-    use crate::eventually_on;
     use crate::session::tests::idle;
     use crate::session::tests::start_thread;
     use crate::session::tests::turn;
+    use crate::session::thread_state::SessionThreads;
 
     let srig = crate::session::testing::Rig::new();
     let runs = Arc::new(AtomicUsize::new(0));
@@ -2615,7 +2658,9 @@ impl Core {
 
     /// A loaded thread's header fields, as its turns would have left them.
     async fn set_header(&self, thread: &str, fields: Row) {
-        mixdog_core_ports::ports::threads::ThreadState::patch_header(&*self.threads, &ThreadId::from(thread), fields, Vec::new()).await.expect("the header patch");
+        mixdog_core_ports::ports::threads::ThreadState::patch_header(&*self.threads, &ThreadId::from(thread), fields, Vec::new())
+            .await
+            .expect("the header patch");
     }
 
     async fn start(&self, op: &str, session: Value) -> ThreadId {
@@ -2665,7 +2710,8 @@ async fn a_finished_agents_status_read_gives_the_same_facts_until_its_log_change
     let core = Core::up(dir.path()).await;
     let worker = core.start("op-worker", json!({})).await;
     let registry = Arc::new(AgentRegistry::new(core.workers.clone(), core.directory.clone(), Arc::new(Hour), Arc::new(TestClock(AtomicI64::new(NOW)))));
-    let workers = super::workers::AgentWorkers::new(core.directory.clone(), core.threads.clone(), registry, Arc::new(NoJobs), Arc::new(TestClock(AtomicI64::new(NOW))));
+    let workers =
+        super::workers::AgentWorkers::new(core.directory.clone(), core.threads.clone(), registry, Arc::new(NoJobs), Arc::new(TestClock(AtomicI64::new(NOW))));
     let finished = |status: &str| obj(json!({ "agent": "worker", "model": "m-1", "status": status, "stage": status, "agentTag": "w1" }));
     let status_of = || async { workers.session_status(worker.as_str()).await.expect("the stored session answers") };
 
@@ -2776,8 +2822,8 @@ async fn a_restart_notice_cut_off_at_either_side_of_its_store_is_told_once_after
 async fn closing_a_deleted_session_counts_as_closed() {
     use mixdog_agent::agent_tool::host::Sessions;
 
-    use crate::session::thread_state::SessionThreads;
     use crate::session::SessionDirectory;
+    use crate::session::thread_state::SessionThreads;
 
     let srig = crate::session::testing::Rig::new();
     let directory = Arc::new(SessionDirectory::new(srig.deps()));
@@ -2801,8 +2847,8 @@ async fn closing_a_deleted_session_counts_as_closed() {
 async fn a_workers_text_read_by_its_owner_has_its_sensitive_values_as_the_marker() {
     use mixdog_agent::agent_tool::host::Sessions;
 
-    use crate::session::thread_state::SessionThreads;
     use crate::session::SessionDirectory;
+    use crate::session::thread_state::SessionThreads;
 
     let srig = crate::session::testing::Rig::new();
     let directory = Arc::new(SessionDirectory::new(srig.deps()));
@@ -3128,7 +3174,15 @@ async fn an_owner_close_hides_the_agents_sessions_and_a_reuse_lists_one_again() 
     let directory = Arc::new(SessionDirectory::new(srig.deps()));
     let registry = Arc::new(AgentRegistry::new(rig.store.clone(), directory.clone(), Arc::new(Hour), rig.clock.clone()));
     let threads = Arc::new(Detaches::default());
-    let sessions = AgentSessions::new(directory, threads.clone(), registry.clone(), Arc::new(Statusline::default()), rig.clock.clone(), Arc::new(ClosedShells::default()), Arc::new(mixdog_tools::fs::ReadState::default()));
+    let sessions = AgentSessions::new(
+        directory,
+        threads.clone(),
+        registry.clone(),
+        Arc::new(Statusline::default()),
+        rig.clock.clone(),
+        Arc::new(ClosedShells::default()),
+        Arc::new(mixdog_tools::fs::ReadState::default()),
+    );
     let board = mixdog_agent::agent_tool::board::JobBoard::new(Arc::new(Frozen), None, None);
     let scope = lead("lead");
     registry.refresh_tags_from_sessions(false, &scope).await;
@@ -3148,8 +3202,8 @@ async fn an_owner_close_hides_the_agents_sessions_and_a_reuse_lists_one_again() 
 }
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn completion_ownership_survives_terminal_reads_dequeue_and_core_restart() {
-    use crate::session::{ItemCommit, RunOutcome};
     use crate::session::tests::idle;
+    use crate::session::{ItemCommit, RunOutcome};
     use std::sync::atomic::AtomicUsize;
 
     let data = tempfile::tempdir().unwrap();
@@ -3165,13 +3219,19 @@ async fn completion_ownership_survives_terminal_reads_dequeue_and_core_restart()
             if first {
                 gate.acquire().await.unwrap().forget();
                 for (task, status) in [("read-before-notice", "completed"), ("notice-before-read", "failed"), ("still-running", "running")] {
-                    run.port.commit_item(ItemCommit {
-                        iid: mixdog_core_api::ids::ItemId::from(task),
-                        role: Some("tool".into()), model: true, visible: true, prompt: None,
-                        body: json!({ "role": "tool", "content": "task output", "toolMeta": {
-                            "code": "task-completion", "executionId": task, "status": status
-                        }}),
-                    }).await.unwrap();
+                    run.port
+                        .commit_item(ItemCommit {
+                            iid: mixdog_core_api::ids::ItemId::from(task),
+                            role: Some("tool".into()),
+                            model: true,
+                            visible: true,
+                            prompt: None,
+                            body: json!({ "role": "tool", "content": "task output", "toolMeta": {
+                                "code": "task-completion", "executionId": task, "status": status
+                            }}),
+                        })
+                        .await
+                        .unwrap();
                 }
             }
             RunOutcome::Completed(Default::default())
@@ -3246,7 +3306,12 @@ async fn an_idle_agent_with_no_runtime_left_is_parked_until_a_turn_starts() {
     let loaded = start_thread(&directory).await;
     let owned = json!({ "parentSessionId": "lead", "ownerSessionId": "lead" });
     rig.store.sessions.lock().unwrap().push(session("sess_w1", "w1", &at(NOW - HOUR), owned.clone()));
-    rig.store.sessions.lock().unwrap().push(session("sess_closed", "c1", &at(NOW - HOUR), json!({ "parentSessionId": "lead", "ownerSessionId": "lead", "closed": true })));
+    rig.store.sessions.lock().unwrap().push(session(
+        "sess_closed",
+        "c1",
+        &at(NOW - HOUR),
+        json!({ "parentSessionId": "lead", "ownerSessionId": "lead", "closed": true }),
+    ));
     rig.store.write_row("sess_w1", Some(worker_row("sess_w1", "w1", owned)));
     rig.store.touch_sessions();
     registry.refresh_tags_from_sessions(false, &lead("lead")).await;

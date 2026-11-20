@@ -59,7 +59,6 @@ fn the_record_of_this_process_is_named_for_its_pid_and_start_time() {
     assert_eq!(record.path().file_name().and_then(|name| name.to_str()), Some(ledger::file_name(pid, 1234).as_str()));
 }
 
-
 fn scratch() -> PathBuf {
     static NEXT: AtomicU64 = AtomicU64::new(0);
     std::env::temp_dir().join(format!("mixdog-office-com-containment-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)))

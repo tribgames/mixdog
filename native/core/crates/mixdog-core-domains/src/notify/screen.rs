@@ -7,7 +7,6 @@ use std::collections::HashSet;
 use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
-use mixdog_remote::registry::{DeviceRegistry, ScreenReport};
 use mixdog_app_protocol::v2::host::UiScreenSessionsChangedParams;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
@@ -16,6 +15,7 @@ use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
 use mixdog_core_api::service::DomainService;
+use mixdog_remote::registry::{DeviceRegistry, ScreenReport};
 use serde_json::Value;
 
 use mixdog_core_base::support::wrong_method;
@@ -63,7 +63,8 @@ impl DomainService for ScreenSessions {
 
     fn notify(&self, method: Method, params: Value, from: ConnectionId) -> Admit {
         if method.as_str() == CHANGED
-            && let Ok(params) = serde_json::from_value::<UiScreenSessionsChangedParams>(params) {
+            && let Ok(params) = serde_json::from_value::<UiScreenSessionsChangedParams>(params)
+        {
             let ids: Option<HashSet<String>> = params.session_ids.map(|ids| ids.into_iter().collect());
             let report = ScreenReport {
                 sessions: ids.clone(),
@@ -115,7 +116,6 @@ mod tests {
         assert!(!screen.shows("a"));
     }
 
-
     #[test]
     fn a_phone_reports_into_the_registry_and_never_into_the_desktops_set() {
         let registry = Arc::new(DeviceRegistry::default());
@@ -124,11 +124,7 @@ mod tests {
         registry.connect_relay(2, "peer-a");
         registry.attach_peer("peer-a", "cred-a", "Pixel", "Safari");
         send(&screen, 1, json!(["desk-thread"]));
-        screen.notify(
-            Method(CHANGED),
-            json!({ "sessionIds": ["phone-thread"], "browserId": "x".repeat(70) }),
-            ConnectionId(2),
-        );
+        screen.notify(Method(CHANGED), json!({ "sessionIds": ["phone-thread"], "browserId": "x".repeat(70) }), ConnectionId(2));
         assert!(screen.shows("desk-thread") && !screen.shows("phone-thread"), "the phone does not touch the host's set");
         assert!(registry.credential_shows("cred-a", "phone-thread"));
         assert!(!registry.credential_shows("cred-b", "phone-thread"));
@@ -146,8 +142,6 @@ mod tests {
         registry.detach_peer("peer-a");
         assert!(!registry.credential_shows("cred-a", "t2") && !registry.any_device_shows("t2"));
     }
-
-
 
     /// A phone in the background shows nothing, and back in the foreground shows what it last reported: `foreground` stated alone neither
     /// carries nor drops the sessions and the browser id.

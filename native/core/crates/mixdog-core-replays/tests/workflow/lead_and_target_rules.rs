@@ -87,7 +87,11 @@ async fn a_coding_lead_gets_the_modes_text_and_the_catalog_of_agents_that_are_no
     let parts = prompt.lead_prompt_parts("balanced", false, "").await.expect("the lane ran the reads");
     assert_eq!(
         parts,
-        LeadParts { orchestration_context: "Orchestration text of balanced.".into(), agent_catalog_context: WORKER_CATALOG.into(), contact_catalog_context: String::new() }
+        LeadParts {
+            orchestration_context: "Orchestration text of balanced.".into(),
+            agent_catalog_context: WORKER_CATALOG.into(),
+            contact_catalog_context: String::new()
+        }
     );
 }
 
@@ -105,7 +109,11 @@ async fn an_agent_mode_lead_gets_the_fixed_delegation_block_and_the_other_bots_a
     assert_eq!(lead.agent_catalog_context, WORKER_CATALOG);
     assert_eq!(lead.contact_catalog_context, format!("# Bots\n\n{MIXY_CONTACTS_INTRO}\n\n- Botty (botty): Chats"), "Mixy herself is not her own contact");
     let botty = prompt.lead_prompt_parts("balanced", true, "botty").await.expect("the lane ran the reads");
-    assert_eq!(botty.contact_catalog_context, format!("# Bots\n\n{MIXY_CONTACTS_INTRO}\n\n- Mimi (lead): the user's representative bot"), "a bot is not its own contact");
+    assert_eq!(
+        botty.contact_catalog_context,
+        format!("# Bots\n\n{MIXY_CONTACTS_INTRO}\n\n- Mimi (lead): the user's representative bot"),
+        "a bot is not its own contact"
+    );
 }
 
 #[tokio::test]

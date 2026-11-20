@@ -37,19 +37,11 @@ pub(super) fn prune_globs(operand: &Path, parsed: &ParsedArgs) -> Vec<String> {
     prune
 }
 
-pub(super) fn prune_overrides(
-    operand: &Path,
-    prune: &[String],
-    iglobs: &[String],
-) -> Option<Override> {
+pub(super) fn prune_overrides(operand: &Path, prune: &[String], iglobs: &[String]) -> Option<Override> {
     if prune.is_empty() && iglobs.is_empty() {
         return None;
     }
-    let root = if operand.is_file() {
-        operand.parent().unwrap_or(operand)
-    } else {
-        operand
-    };
+    let root = if operand.is_file() { operand.parent().unwrap_or(operand) } else { operand };
     let mut builder = OverrideBuilder::new(root);
     for glob in prune {
         // A malformed exclusion must never abort the walk; the post-walk
@@ -81,9 +73,5 @@ pub(super) fn walk_key(operand: &Path, parsed: &ParsedArgs) -> WalkKey {
 pub(super) fn fuzzy_key(operand: &Path, parsed: &ParsedArgs) -> FuzzyKey {
     let globs = parsed.globs.clone();
     let iglobs = parsed.iglobs.clone();
-    FuzzyKey {
-        walk: walk_key(operand, parsed),
-        globs,
-        iglobs,
-    }
+    FuzzyKey { walk: walk_key(operand, parsed), globs, iglobs }
 }

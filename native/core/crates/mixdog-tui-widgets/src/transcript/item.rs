@@ -13,9 +13,7 @@ use serde_json::Value;
 
 use super::layout::{Block, TextBox, rect};
 use super::message::{AssistantMessage, Notice, UserMessage};
-use super::tool_failures::{
-    format_hook_denial_detail, is_hook_approval_denial_tool_item, should_suppress_fully_failed_tool_item, tool_item_result_text,
-};
+use super::tool_failures::{format_hook_denial_detail, is_hook_approval_denial_tool_item, should_suppress_fully_failed_tool_item, tool_item_result_text};
 use super::turn_done::{RightHint, status_done, turn_done};
 use crate::tool_cards::{CardCtx, render_tool_card};
 use crate::transcript::{ItemCtx, render_notice, render_user_message};
@@ -190,9 +188,7 @@ pub(crate) fn draw_item(item: &Value, ctx: &ItemCtx) -> Drawn {
             hint_of(ctx),
             columns,
         ))),
-        "statusdone" => {
-            Drawn::Block(Box::new(status_done(&text_or(item.get("label"), ""), &text_or(item.get("detail"), ""), 1, hint_of(ctx), columns)))
-        }
+        "statusdone" => Drawn::Block(Box::new(status_done(&text_or(item.get("label"), ""), &text_or(item.get("detail"), ""), 1, hint_of(ctx), columns))),
         _ => Drawn::Nothing,
     }
 }
@@ -216,7 +212,8 @@ mod tests {
 
     #[test]
     fn a_denial_card_is_a_header_and_a_detail_under_a_row_above() {
-        let item = json!({ "kind": "tool", "name": "read", "args": { "file_path": "a.txt" }, "isError": true, "result": "Error: tool \"read\" denied by hook: nope" });
+        let item =
+            json!({ "kind": "tool", "name": "read", "args": { "file_path": "a.txt" }, "isError": true, "result": "Error: tool \"read\" denied by hook: nope" });
         let rows = rows_of(&HookDenialCard::new(&item, 40), 40);
         assert_eq!(rows[0], "");
         assert_eq!(rows[1], format!("{TURN_MARKER} Read (a.txt) \u{b7} Denied"));

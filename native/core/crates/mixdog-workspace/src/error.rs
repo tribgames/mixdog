@@ -19,7 +19,10 @@ pub enum Reason {
     /// An attachment the session's conversation does not name (Node's `not-linked`).
     NotLinked,
     /// Compare-and-set mismatch; `actual` is the current content.
-    PreconditionFailed { expected: Vec<u8>, actual: Vec<u8> },
+    PreconditionFailed {
+        expected: Vec<u8>,
+        actual: Vec<u8>,
+    },
     TooLarge,
     /// The file or folder changed under a transfer or a save.
     Changed,
@@ -36,7 +39,10 @@ pub enum Reason {
     /// A one-file grant presented for a path other than the file it names.
     GrantMismatch,
     /// What the walk counted (after the exclusions): Node's `FolderTooLargeError.files` and `.bytes`.
-    FolderTooLarge { files: u64, bytes: u64 },
+    FolderTooLarge {
+        files: u64,
+        bytes: u64,
+    },
     /// A `RECOVERY_*` code of the recovery journal.
     Recovery(&'static str),
     InvalidEncoding,

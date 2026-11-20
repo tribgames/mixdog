@@ -55,7 +55,8 @@ mod tests {
 
     #[test]
     fn a_show_carries_the_label_and_a_hide_carries_neither_label_nor_control() {
-        let show = ScreenIndicatorParams { state: ScreenIndicatorState::Show, screen_id: "1".into(), client_label: Some("Phone".into()), controlling: Some(false) };
+        let show =
+            ScreenIndicatorParams { state: ScreenIndicatorState::Show, screen_id: "1".into(), client_label: Some("Phone".into()), controlling: Some(false) };
         assert_eq!(serde_json::to_value(&show).unwrap(), serde_json::json!({"state": "show", "screenId": "1", "clientLabel": "Phone", "controlling": false}));
         let hide = ScreenIndicatorParams { state: ScreenIndicatorState::Hide, screen_id: "1".into(), client_label: None, controlling: None };
         assert_eq!(serde_json::to_value(&hide).unwrap(), serde_json::json!({"state": "hide", "screenId": "1"}));

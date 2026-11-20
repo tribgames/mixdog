@@ -125,7 +125,11 @@ impl ProviderAdapter for VersionedAdapter {
     async fn image_route(&self, request: &ModelRequest) -> mixdog_image_egress::route::RouteFacts {
         self.inner.image_route(request).await
     }
-    fn first_response_budget(&self, model: &str, parameters: Option<&mixdog_protocol::JsonValue>) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
+    fn first_response_budget(
+        &self,
+        model: &str,
+        parameters: Option<&mixdog_protocol::JsonValue>,
+    ) -> Option<mixdog_core_api::domain::provider::FirstResponseBudget> {
         self.inner.first_response_budget(model, parameters)
     }
     // The wrapped class declares how it takes documents (Grok lowers a PDF to text).

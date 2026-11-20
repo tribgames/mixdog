@@ -52,12 +52,7 @@ impl Tallies {
     /// `ranked(map, limit, label)`: the most used first, ties in the order of their text.
     fn ranked(&self, limit: usize, label: &str) -> Value {
         let mut entries: Vec<&Tally> = self.0.iter().collect();
-        entries.sort_by(|left, right| {
-            right
-                .count
-                .cmp(&left.count)
-                .then_with(|| locale_compare(&value_to_string(&left.key), &value_to_string(&right.key)))
-        });
+        entries.sort_by(|left, right| right.count.cmp(&left.count).then_with(|| locale_compare(&value_to_string(&left.key), &value_to_string(&right.key))));
         Value::Array(
             entries
                 .into_iter()
@@ -138,14 +133,8 @@ pub fn summarize_xlsx_conventions(document: &Value) -> Option<Value> {
         "inputMarkers".to_owned(),
         json!({ "fontColors": input_colors.ranked(TOP_MARKERS, "color"), "fills": input_fills.ranked(TOP_MARKERS, "color") }),
     );
-    summary.insert(
-        "cells".to_owned(),
-        json!({ "styled": styled, "formulas": formulas, "hardcodes": hardcodes, "markedInputs": marked_inputs.len() }),
-    );
-    summary.insert(
-        "sampleInputs".to_owned(),
-        Value::Array(marked_inputs.iter().take(SAMPLE_INPUTS).map(|input| json!(input)).collect()),
-    );
+    summary.insert("cells".to_owned(), json!({ "styled": styled, "formulas": formulas, "hardcodes": hardcodes, "markedInputs": marked_inputs.len() }));
+    summary.insert("sampleInputs".to_owned(), Value::Array(marked_inputs.iter().take(SAMPLE_INPUTS).map(|input| json!(input)).collect()));
     Some(Value::Object(summary))
 }
 

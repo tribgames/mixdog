@@ -91,11 +91,11 @@ mod tests {
     }
 }
 
-
 /// The body of the `tui_child` test of each test binary: nothing in a normal run, the terminal UI in the pseudo-terminal of a
 /// parent. A failed run fails the child with the exit code's text.
 pub fn run_child() {
-    let Ok(raw) = std::env::var(CHILD_ENV) else { return };    let spec: Value = serde_json::from_str(&raw).expect("the child's options are JSON");
+    let Ok(raw) = std::env::var(CHILD_ENV) else { return };
+    let spec: Value = serde_json::from_str(&raw).expect("the child's options are JSON");
     let text = |name: &str| spec[name].as_str().map(str::to_owned);
     let options = mixdog_tui::run::TuiOptions {
         cwd: text("cwd"),
@@ -109,7 +109,8 @@ pub fn run_child() {
         // The terminal UI writes its failure to the stderr log of the private runtime root while it owns the terminal; the
         // parent only sees the screen, so the log goes there.
         let root = std::env::var("MIXDOG_RUNTIME_ROOT").unwrap_or_default();
-        let log = std::fs::read_to_string(std::path::Path::new(&root).join("mixdog-tui.stderr.log")).unwrap_or_else(|error| format!("(no stderr log in {root:?}: {error})"));
+        let log = std::fs::read_to_string(std::path::Path::new(&root).join("mixdog-tui.stderr.log"))
+            .unwrap_or_else(|error| format!("(no stderr log in {root:?}: {error})"));
         println!("--- the terminal UI's stderr log ---\n{log}");
     }
     assert_eq!(format!("{code:?}"), format!("{:?}", std::process::ExitCode::SUCCESS), "the terminal UI ended with a failure");

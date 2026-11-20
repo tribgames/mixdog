@@ -412,10 +412,7 @@ fn nothing_selected_on_a_slide_targets_the_slide_and_none_on_no_slide_targets_th
     let mut log = Log::default();
     window_and_type(&mut log, 0, 0);
     let fake = log.fake();
-    assert_eq!(
-        selection(&fake),
-        "{\"available\":true,\"kind\":\"none\",\"target\":\"/\",\"targets\":[],\"key\":\"0:\",\"slide\":0,\"selectionType\":0}"
-    );
+    assert_eq!(selection(&fake), "{\"available\":true,\"kind\":\"none\",\"target\":\"/\",\"targets\":[],\"key\":\"0:\",\"slide\":0,\"selectionType\":0}");
     fake.finish();
 }
 

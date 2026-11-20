@@ -119,11 +119,7 @@ impl StatusReader for SummaryStatus {
     async fn read(&self, _domain: &str, _detail: bool, thread: &ThreadId) -> Result<Value, PortError> {
         let route = Value::Object(main_route(&self.route.route(thread)));
         let workflows = self.facts.workflows().await?;
-        let workflow = workflows
-            .as_array()
-            .and_then(|rows| rows.iter().find(|row| truthy(row.get("active"))))
-            .cloned()
-            .unwrap_or(Value::Null);
+        let workflow = workflows.as_array().and_then(|rows| rows.iter().find(|row| truthy(row.get("active")))).cloned().unwrap_or(Value::Null);
         let style = self.domains.call("config/getOutputStyle", json!({})).await.map_err(refused)?;
         let output_style = match style.get("configured") {
             Some(value) if truthy(Some(value)) => value.clone(),

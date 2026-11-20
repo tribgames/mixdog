@@ -5,7 +5,3 @@
 //! slept). The provider is built by the production builder from the recorded configuration and gcloud login: every
 //! request (the token grant included) is compared whole with Node's, the bearer with the token the grant answered, the
 //! answer whole with Node's result, and the stream callbacks in order.
-
-
-
-

@@ -3,12 +3,12 @@
 //! while a request is still running, and request lines queue for the request
 //! loop, which reads them in order.
 
-use super::authority::{revoke_and_acknowledge, REVOKE_LINE};
+use super::authority::{REVOKE_LINE, revoke_and_acknowledge};
 use super::lease;
 use crate::port::Scope as Authority;
 use crate::protocol::FGLOCK_REPLY_MARKER;
 use std::io::BufRead;
-use std::sync::mpsc::{channel, Receiver, Sender};
+use std::sync::mpsc::{Receiver, Sender, channel};
 
 pub(super) struct Router {
     requests: Receiver<String>,
@@ -24,10 +24,15 @@ impl Router {
     /// core that held the scope is gone).
     pub(super) fn new(input: impl BufRead + Send + 'static, authority: Authority) -> Router {
         let revoked = authority.clone();
-        Router::routed(input, lease::receive, move || revoke_and_acknowledge(&revoked), move || {
-            authority.revoke();
-            lease::input_ended();
-        })
+        Router::routed(
+            input,
+            lease::receive,
+            move || revoke_and_acknowledge(&revoked),
+            move || {
+                authority.revoke();
+                lease::input_ended();
+            },
+        )
     }
 
     /// Reads `input` on a thread of its own: `answer` gets each lease answer
@@ -43,12 +48,10 @@ impl Router {
         let (queue, requests) = channel();
         // A reader that cannot start drops the queue, which ends the request
         // lines as the end of the input does.
-        let _ = std::thread::Builder::new()
-            .name("mixdog-computer stdin".into())
-            .spawn(move || {
-                pump(input, &queue, answer, revoke);
-                ended();
-            });
+        let _ = std::thread::Builder::new().name("mixdog-computer stdin".into()).spawn(move || {
+            pump(input, &queue, answer, revoke);
+            ended();
+        });
         Router { requests }
     }
 }
@@ -121,15 +124,7 @@ mod tests {
             )
             .as_bytes(),
         );
-        assert_eq!(
-            requests,
-            [
-                "{\"id\":1}",
-                "{\"id\":7,\"action\":\"snapshot\"}",
-                " @@MIXDOG_FGLOCK_REPLY@@not at the line start",
-                "{\"id\":8}",
-            ]
-        );
+        assert_eq!(requests, ["{\"id\":1}", "{\"id\":7,\"action\":\"snapshot\"}", " @@MIXDOG_FGLOCK_REPLY@@not at the line start", "{\"id\":8}",]);
         assert_eq!(seen, ["ack 7 2 5 locked 1.000", "", "released 7 1 12 released", "ended"]);
     }
 
@@ -150,12 +145,7 @@ mod tests {
     #[test]
     fn the_reader_stops_when_the_request_loop_has_gone() {
         let (told, ended) = std::sync::mpsc::channel();
-        let router = Router::routed(
-            std::io::Cursor::new(b"a\nb\nc\n".to_vec()),
-            |_| {},
-            || {},
-            move || told.send(()).unwrap(),
-        );
+        let router = Router::routed(std::io::Cursor::new(b"a\nb\nc\n".to_vec()), |_| {}, || {}, move || told.send(()).unwrap());
         drop(router);
         assert_eq!(ended.recv_timeout(std::time::Duration::from_secs(5)), Ok(()));
     }

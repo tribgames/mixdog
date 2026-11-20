@@ -61,9 +61,7 @@ impl Question {
             .get("options")
             .and_then(Value::as_array)
             .map(|list| {
-                list.iter()
-                    .map(|option| QuestionOption { label: text_of(option.get("label")), description: text_of(option.get("description")) })
-                    .collect()
+                list.iter().map(|option| QuestionOption { label: text_of(option.get("label")), description: text_of(option.get("description")) }).collect()
             })
             .unwrap_or_default();
         Self {
@@ -785,7 +783,10 @@ mod tests {
     #[test]
     fn help_follows_the_mode() {
         assert_eq!(question_help(false, true, false, 3, 1), "Enter Send \u{b7} Esc Back to list");
-        assert_eq!(question_help(true, false, true, 3, 1), "1\u{2013}3 Choose \u{b7} \u{2191}/\u{2193} Move \u{b7} Space Toggle \u{b7} Enter Send \u{b7} Esc Dismiss");
+        assert_eq!(
+            question_help(true, false, true, 3, 1),
+            "1\u{2013}3 Choose \u{b7} \u{2191}/\u{2193} Move \u{b7} Space Toggle \u{b7} Enter Send \u{b7} Esc Dismiss"
+        );
         assert_eq!(question_help(false, false, false, 3, 2), "\u{2190}/\u{2192} Question \u{b7} Enter Next \u{b7} Esc Dismiss");
     }
 

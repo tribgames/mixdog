@@ -98,7 +98,6 @@ pub fn paint_runs(painter: &mut Painter, x: i32, y: i32, runs: &[Run]) -> usize 
     (at - x).max(0) as usize
 }
 
-
 /// The width of a flex item that holds one `<Text>`: the widest of its lines.
 pub(crate) fn text_width(text: &str) -> usize {
     text.split('\n').map(mixdog_termtext::display_width).max().unwrap_or(0)

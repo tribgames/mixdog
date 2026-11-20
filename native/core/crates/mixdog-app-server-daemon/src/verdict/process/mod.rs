@@ -70,9 +70,7 @@ impl ProcessTable for OsProcessTable {
 
 /// This process's identity (discovery `processStartTime`).
 pub fn current_identity() -> io::Result<ProcessIdentity> {
-    sys::query(std::process::id())?
-        .map(|info| info.identity)
-        .ok_or_else(|| io::Error::other("own process not in the process table"))
+    sys::query(std::process::id())?.map(|info| info.identity).ok_or_else(|| io::Error::other("own process not in the process table"))
 }
 
 /// The start time of the process `pid` currently names, if it runs.

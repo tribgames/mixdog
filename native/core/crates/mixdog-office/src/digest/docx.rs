@@ -5,10 +5,7 @@
 use mixdog_js::{number_to_string, to_number_of};
 use serde_json::Value;
 
-use super::common::{
-    Object, digest_object_with, entries, filtered, is_bool, is_number, is_str, is_zero_or_false, remove, round2, round_all,
-    strict_equals,
-};
+use super::common::{Object, digest_object_with, entries, filtered, is_bool, is_number, is_str, is_zero_or_false, remove, round_all, round2, strict_equals};
 
 /// A paragraph's format names what it sets: the resolved zero of every flag says nothing.
 fn quiet_paragraph_format_entry(key: &str, value: &Value) -> bool {
@@ -139,11 +136,7 @@ fn section_digest(section: &Value) -> Value {
         // A story Word breaks into paragraphs with \r reads with \n, as the portable reader joins them; an empty header or
         // footer (Word keeps one on every section) says nothing.
         if let Some(Value::Array(stories)) = rest.get("stories") {
-            let stories: Vec<Value> = stories
-                .iter()
-                .filter(|story| !(story.is_object() && is_str(story.get("text"), "")))
-                .map(story_digest)
-                .collect();
+            let stories: Vec<Value> = stories.iter().filter(|story| !(story.is_object() && is_str(story.get("text"), ""))).map(story_digest).collect();
             if stories.is_empty() {
                 remove(&mut rest, "stories");
             } else {

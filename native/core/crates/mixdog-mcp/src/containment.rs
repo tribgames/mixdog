@@ -111,9 +111,7 @@ mod os {
             let status = NtResumeProcess(process as HANDLE);
             if status < 0 {
                 CloseHandle(job);
-                return Err(std::io::Error::other(format!(
-                    "the suspended process could not be resumed (NTSTATUS 0x{status:08x})"
-                )));
+                return Err(std::io::Error::other(format!("the suspended process could not be resumed (NTSTATUS 0x{status:08x})")));
             }
             Ok(Handle(job as usize))
         }
@@ -140,9 +138,7 @@ mod os {
     pub(super) struct Handle(i32);
 
     pub(super) fn attach(pid: Option<u32>) -> std::io::Result<Handle> {
-        pid.and_then(|pid| i32::try_from(pid).ok())
-            .map(Handle)
-            .ok_or_else(|| std::io::Error::other("child already exited"))
+        pid.and_then(|pid| i32::try_from(pid).ok()).map(Handle).ok_or_else(|| std::io::Error::other("child already exited"))
     }
 
     pub(super) fn terminate(handle: &Handle) {

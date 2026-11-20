@@ -33,8 +33,8 @@ impl ToolService for TidyToolService {
 
 #[cfg(test)]
 mod tests {
-    use mixdog_tools::orch::service::ServiceTool;
     use mixdog_core_api::domain::tool::Tool;
+    use mixdog_tools::orch::service::ServiceTool;
     use serde_json::json;
 
     use super::super::tool::TIDY_ACTIONS;

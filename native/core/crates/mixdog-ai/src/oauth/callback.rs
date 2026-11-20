@@ -81,26 +81,13 @@ pub mod pages {
     use super::CallbackPages;
     use super::Style;
 
-    pub const ANTHROPIC: CallbackPages = CallbackPages {
-        name: "Claude",
-        failure_summary: "Claude could not complete the token exchange.",
-        style: Style::Standard { ends_on_codeless: false },
-    };
-    pub const OPENAI: CallbackPages = CallbackPages {
-        name: "OpenAI",
-        failure_summary: "OpenAI could not complete the token exchange.",
-        style: Style::Standard { ends_on_codeless: true },
-    };
-    pub const GROK: CallbackPages = CallbackPages {
-        name: "Grok",
-        failure_summary: "Grok could not complete the token exchange.",
-        style: Style::Standard { ends_on_codeless: false },
-    };
-    pub const DEVIN: CallbackPages = CallbackPages {
-        name: "Devin",
-        failure_summary: "Devin could not complete the token exchange.",
-        style: Style::Devin,
-    };
+    pub const ANTHROPIC: CallbackPages =
+        CallbackPages { name: "Claude", failure_summary: "Claude could not complete the token exchange.", style: Style::Standard { ends_on_codeless: false } };
+    pub const OPENAI: CallbackPages =
+        CallbackPages { name: "OpenAI", failure_summary: "OpenAI could not complete the token exchange.", style: Style::Standard { ends_on_codeless: true } };
+    pub const GROK: CallbackPages =
+        CallbackPages { name: "Grok", failure_summary: "Grok could not complete the token exchange.", style: Style::Standard { ends_on_codeless: false } };
+    pub const DEVIN: CallbackPages = CallbackPages { name: "Devin", failure_summary: "Devin could not complete the token exchange.", style: Style::Devin };
     pub const ANTIGRAVITY: CallbackPages = CallbackPages {
         name: "Antigravity",
         failure_summary: "Antigravity sign-in was not completed. Return to Mixdog for the error details and any account verification link.",
@@ -142,22 +129,14 @@ fn code_from_query(query: &str, state: &str) -> Result<String, CallbackError> {
 }
 
 /// A callback URL the user pasted (flows without a loopback listener).
-pub fn parse_pasted_callback(
-    pasted: &str,
-    redirect_uri: &str,
-    state: &str,
-) -> Result<String, CallbackError> {
+pub fn parse_pasted_callback(pasted: &str, redirect_uri: &str, state: &str) -> Result<String, CallbackError> {
     if pasted.len() > MAX_REQUEST {
         return Err(CallbackError::Malformed);
     }
     let url = Url::parse(mixdog_js::js_trim(pasted)).map_err(|_| CallbackError::Malformed)?;
     let redirect = Url::parse(redirect_uri).map_err(|_| CallbackError::Malformed)?;
     let same_target = url.origin() == redirect.origin() && url.path() == redirect.path();
-    if !same_target
-        || url.fragment().is_some()
-        || !url.username().is_empty()
-        || url.password().is_some()
-    {
+    if !same_target || url.fragment().is_some() || !url.username().is_empty() || url.password().is_some() {
         return Err(CallbackError::Malformed);
     }
     code_from_query(url.query().unwrap_or(""), state)
@@ -197,14 +176,8 @@ impl Serving {
     /// The exchange of `code` (or the one already running), and the page its outcome leaves the browser with.
     async fn exchange(&self, code: String) -> Answer {
         match self.exchanged.get_or_init(|| (self.exchange)(code)).await {
-            Ok(account) => (
-                page(200, login_page::success_html(self.pages.name)),
-                Some(Settled::Exchanged(Ok(account.clone()))),
-            ),
-            Err(refusal) => (
-                page(500, login_page::error_html(&self.failure_reason(refusal))),
-                Some(Settled::Exchanged(Err(refusal.failure.clone()))),
-            ),
+            Ok(account) => (page(200, login_page::success_html(self.pages.name)), Some(Settled::Exchanged(Ok(account.clone())))),
+            Err(refusal) => (page(500, login_page::error_html(&self.failure_reason(refusal))), Some(Settled::Exchanged(Err(refusal.failure.clone())))),
         }
     }
 
@@ -245,10 +218,7 @@ impl Serving {
                     return (page(400, login_page::error_html("The sign-in callback did not match this login.")), None);
                 }
                 if named("error").is_some() {
-                    return (
-                        page(400, login_page::error_html("Devin did not authorize this sign-in.")),
-                        self.denial(CallbackError::Denied),
-                    );
+                    return (page(400, login_page::error_html("Devin did not authorize this sign-in.")), self.denial(CallbackError::Denied));
                 }
                 let code = first("code").map(|code| mixdog_js::js_trim(&code).to_owned()).filter(|code| !code.is_empty());
                 match code {
@@ -264,10 +234,7 @@ impl Serving {
                     return (plain(400, "Invalid OAuth state"), None);
                 }
                 if named("error").is_some() {
-                    return (
-                        page(400, login_page::error_html(self.pages.failure_summary)),
-                        self.denial(CallbackError::Denied),
-                    );
+                    return (page(400, login_page::error_html(self.pages.failure_summary)), self.denial(CallbackError::Denied));
                 }
                 let code = first("code").map(|code| mixdog_js::js_trim(&code).to_owned()).filter(|code| !code.is_empty());
                 match code {
@@ -325,13 +292,7 @@ impl CallbackServer {
     /// literal that address.
     pub async fn bind(redirect: Redirect, state: String, pages: CallbackPages) -> io::Result<Self> {
         let (listeners, port) = loopback::bind(redirect.port, redirect.host == "localhost").await?;
-        Ok(Self {
-            listeners,
-            redirect,
-            port,
-            state,
-            pages,
-        })
+        Ok(Self { listeners, redirect, port, state, pages })
     }
 
     pub fn redirect_uri(&self) -> String {
@@ -344,14 +305,7 @@ impl CallbackServer {
     /// Dropping the future closes the listener.
     pub async fn wait(self, exchange: Exchange) -> Settled {
         let origin = Url::parse(&format!("http://{}:{}", self.redirect.host, self.port)).expect("a loopback origin parses");
-        let serving = Arc::new(Serving {
-            origin,
-            path: self.redirect.path,
-            state: self.state,
-            pages: self.pages,
-            exchange,
-            exchanged: OnceCell::new(),
-        });
+        let serving = Arc::new(Serving { origin, path: self.redirect.path, state: self.state, pages: self.pages, exchange, exchanged: OnceCell::new() });
         loopback::serve(self.listeners, move |request: Request| -> Handled<Settled> {
             let serving = serving.clone();
             Box::pin(async move { serving.answer(request).await })
@@ -376,13 +330,7 @@ mod tests {
         assert_eq!(redirects::GROK.uri(56121), "http://127.0.0.1:56121/callback");
         assert_eq!(redirects::DEVIN.uri(59653), "http://127.0.0.1:59653/callback");
         assert_eq!(redirects::MIMO.uri(40123), "http://localhost:40123/");
-        for fixed in [
-            redirects::ANTHROPIC,
-            redirects::OPENAI,
-            redirects::ANTIGRAVITY,
-            redirects::GROK,
-            redirects::DEVIN,
-        ] {
+        for fixed in [redirects::ANTHROPIC, redirects::OPENAI, redirects::ANTIGRAVITY, redirects::GROK, redirects::DEVIN] {
             assert_ne!(fixed.port, 0);
         }
     }
@@ -390,22 +338,14 @@ mod tests {
     #[test]
     fn pasted_callback_is_held_to_the_same_rules() {
         let redirect = "http://127.0.0.1:1455/cb";
-        assert_eq!(
-            parse_pasted_callback("http://127.0.0.1:1455/cb?code=c&state=S", redirect, "S"),
-            Ok("c".into())
-        );
+        assert_eq!(parse_pasted_callback("http://127.0.0.1:1455/cb?code=c&state=S", redirect, "S"), Ok("c".into()));
         for bad in [
             "http://127.0.0.1:1456/cb?code=c&state=S",
             "http://127.0.0.1:1455/cb?code=c&state=S#frag",
             "http://u:p@127.0.0.1:1455/cb?code=c&state=S",
             "not a url",
         ] {
-            assert_eq!(
-                parse_pasted_callback(bad, redirect, "S"),
-                Err(CallbackError::Malformed),
-                "{bad}"
-            );
+            assert_eq!(parse_pasted_callback(bad, redirect, "S"), Err(CallbackError::Malformed), "{bad}");
         }
     }
-
 }

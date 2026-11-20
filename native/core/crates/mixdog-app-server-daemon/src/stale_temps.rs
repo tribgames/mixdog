@@ -302,7 +302,13 @@ mod capture_retention_tests {
         let trimmed = std::fs::read(dir.join("daemon-20261113-010000-2-00bb.err.log")).unwrap();
         assert!(trimmed.starts_with(header.as_bytes()));
         assert_eq!(trimmed.len(), header.len() + 256 * 1024);
-        for kept in ["daemon-20261113-020000-7-00cc.json", "daemon-20261113-040000-9-00ee.err.log", "daemon-20261113-050000-9-00ff.json", "daemon-20261113-060000-9-0a0a.err.log", "notes.txt"] {
+        for kept in [
+            "daemon-20261113-020000-7-00cc.json",
+            "daemon-20261113-040000-9-00ee.err.log",
+            "daemon-20261113-050000-9-00ff.json",
+            "daemon-20261113-060000-9-0a0a.err.log",
+            "notes.txt",
+        ] {
             assert!(dir.join(kept).exists(), "{kept}");
         }
         // A second pass finds nothing more to do.

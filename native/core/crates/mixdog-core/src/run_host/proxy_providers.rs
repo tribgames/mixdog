@@ -26,10 +26,10 @@ use mixdog_app_protocol::v2::host::ModelProxyResult;
 use mixdog_app_protocol::v2::model_proxy::ProxyAnswer;
 use mixdog_app_protocol::v2::model_proxy::ProxyCall;
 use mixdog_core_api::ClientEpoch;
+use mixdog_core_api::CoreError;
 use mixdog_core_api::HostCapability;
 use mixdog_core_api::HostChannel;
 use mixdog_core_api::HostError;
-use mixdog_core_api::CoreError;
 use mixdog_core_domains::domains::ai_account::ProxyProviders;
 use mixdog_core_domains::domains::ai_account::failure::Failure;
 use serde_json::Map;
@@ -142,7 +142,8 @@ impl Inner {
         match reply {
             Ok(result) => match serde_json::from_value::<ModelProxyResult>(result).map(|result| result.result) {
                 Ok(ProxyAnswer::ProviderConfig { providers, ready }) => {
-                    let providers: Providers = providers.into_iter().map(|(id, info)| (id, serde_json::to_value(info).expect("a typed provider serializes"))).collect();
+                    let providers: Providers =
+                        providers.into_iter().map(|(id, info)| (id, serde_json::to_value(info).expect("a typed provider serializes"))).collect();
                     // `providerConfigReady`: a loaded registry is authoritative, even with nothing enabled;
                     // one that does not say is read by whether it names an enabled provider.
                     let ready = ready.unwrap_or_else(|| providers.values().any(|info| info.get("enabled") == Some(&Value::Bool(true))));
@@ -260,7 +261,6 @@ mod tests {
         fn new() -> Arc<Self> {
             Arc::new(Self(tokio::sync::watch::channel(1).0))
         }
-
     }
 
     impl ClientEpoch for Epoch {

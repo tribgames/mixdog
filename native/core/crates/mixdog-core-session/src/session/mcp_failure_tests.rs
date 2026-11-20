@@ -34,9 +34,8 @@ use super::SessionDirectory;
 use super::testing::EventLog;
 use super::testing::Rig;
 use super::testing::lock;
-use crate::eventually_on;
 use super::tests::start_thread;
-
+use crate::eventually_on;
 
 const METHODS: [&str; 2] = ["beginMcpOAuthLogin", "signOutMcpServer"];
 

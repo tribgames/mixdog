@@ -18,20 +18,20 @@ use super::fresh::FreshContext;
 use super::fresh::effective_budget;
 use super::fresh::split_fresh_source;
 use super::summary::COMPACTION_SYSTEM_PROMPT;
-use super::summary::HandoffMeta;
 use super::summary::EnforcedSummary;
+use super::summary::HandoffMeta;
 use super::summary::enforce_compact_summary_schema;
-use crate::response::is_output_limit;
-use crate::response::stop_text;
-use mixdog_core_api::domain::provider::StopReason;
+use super::summary::extract_response_text;
 use super::summary::fit_complete_compaction_prompt;
 use super::summary::fit_generated_handoff_message;
-use super::summary::extract_response_text;
 use crate::env::CompactError;
 use crate::env::CompactRoute;
-use crate::one_shot::CallShape;
 use crate::message::AgentMessage;
+use crate::one_shot::CallShape;
+use crate::response::is_output_limit;
+use crate::response::stop_text;
 use mixdog_core_api::domain::provider::Role;
+use mixdog_core_api::domain::provider::StopReason;
 
 /// The output room the window budget keeps for a summary, and the cap an isolated summary request carries on the
 /// providers Node's reached (every one but Anthropic's, see `summarize_on_route`).
@@ -305,16 +305,11 @@ fn fit_next_batch(fit: &Fit<'_>, head: &[AgentMessage], offset: usize, previous:
 /// Writes the handoff summary of `messages`, feeding the history through the
 /// summary model in budget-fitting batches; each call carries the running
 /// summary as its previous-summary context.
-pub async fn generate_fresh_handoff_summary(
-    ctx: &FreshContext<'_>,
-    messages: &[AgentMessage],
-    input: &HandoffInput<'_>,
-) -> Result<Generated, SummaryFailure> {
+pub async fn generate_fresh_handoff_summary(ctx: &FreshContext<'_>, messages: &[AgentMessage], input: &HandoffInput<'_>) -> Result<Generated, SummaryFailure> {
     let started = tokio::time::Instant::now();
     let meter: &MessageMeter<'_> = ctx.tail.meter;
     let rows: &dyn MessageRows = ctx.tail.rows;
-    let budget = effective_budget(input.budget_tokens, input.reserve_tokens)
-        .map_err(|e| SummaryFailure::Failed(e.message().to_owned()))?;
+    let budget = effective_budget(input.budget_tokens, input.reserve_tokens).map_err(|e| SummaryFailure::Failed(e.message().to_owned()))?;
     let source = split_fresh_source(ctx, messages).await;
     let mut head = source.live.clone();
     let mut previous: Option<String> = source.previous_summary.as_ref().map(AgentMessage::text);
@@ -340,9 +335,7 @@ pub async fn generate_fresh_handoff_summary(
     loop {
         let (prompt, end) = fit_next_batch(&fit, &head, offset, previous.as_deref());
         let Some(prompt) = prompt.filter(|_| !(end == offset && offset < head.len())) else {
-            return Err(SummaryFailure::Failed(format!(
-                "generateFreshHandoffSummary: complete source cannot fit call budget={call_budget}"
-            )));
+            return Err(SummaryFailure::Failed(format!("generateFreshHandoffSummary: complete source cannot fit call budget={call_budget}")));
         };
         let response = input.sender.send(COMPACTION_SYSTEM_PROMPT, &prompt, &call).await?;
         let accepted = accept_summary(&response, &head[offset..end])?;
@@ -358,15 +351,9 @@ pub async fn generate_fresh_handoff_summary(
             break;
         }
     }
-    let message = fit_generated_handoff_message(
-        meter,
-        rows,
-        &source.live,
-        &run.summary,
-        budget,
-        &HandoffMeta { provider: input.provider_name, model: input.model },
-    )
-    .ok_or_else(|| SummaryFailure::Failed(format!("generateFreshHandoffSummary: summary cannot fit budget={budget}")))?;
+    let message =
+        fit_generated_handoff_message(meter, rows, &source.live, &run.summary, budget, &HandoffMeta { provider: input.provider_name, model: input.model })
+            .ok_or_else(|| SummaryFailure::Failed(format!("generateFreshHandoffSummary: summary cannot fit budget={budget}")))?;
     drop(message);
     run.duration_ms = elapsed_ms(started);
     Ok(run)
@@ -396,16 +383,15 @@ pub trait ForkSource: Send + Sync {
 pub enum Forked {
     Generated(Generated),
     /// Why the isolated request runs instead, and the usage the fork spent.
-    Fallback { reason: &'static str, usage: Option<Usage> },
+    Fallback {
+        reason: &'static str,
+        usage: Option<Usage>,
+    },
 }
 
 /// Summarizes through a fork of the session's cached request. A fork that
 /// cannot run, errors, answers with a tool call or yields no summary text falls back. A terminal refusal does not.
-pub async fn summarize_on_shared_prefix(
-    fork: &dyn ForkSource,
-    route: &SummaryRoute,
-    conversation_input: &[AgentMessage],
-) -> Result<Forked, SummaryFailure> {
+pub async fn summarize_on_shared_prefix(fork: &dyn ForkSource, route: &SummaryRoute, conversation_input: &[AgentMessage]) -> Result<Forked, SummaryFailure> {
     let Some(request) = fork.request() else {
         return Ok(Forked::Fallback { reason: "no_settled_request", usage: None });
     };
@@ -468,11 +454,7 @@ async fn before_deadline<T>(limit: std::time::Duration, future: impl std::future
 /// the session's own, else (or when the fork cannot run) an isolated request
 /// whose input budget belongs to its own model. Each has its own deadline (`forkSignal`, and `summarySendOpts`'
 /// `combinedSignal` for every batch of the isolated request); a fork past it fails the summary instead of falling back.
-async fn summarize_on_route(
-    cx: &SummarizeContext<'_>,
-    route: &SummaryRoute,
-    warm: bool,
-) -> Result<Generated, SummaryFailure> {
+async fn summarize_on_route(cx: &SummarizeContext<'_>, route: &SummaryRoute, warm: bool) -> Result<Generated, SummaryFailure> {
     let limit = std::time::Duration::from_millis(cx.timeout_ms.filter(|ms| *ms > 0).unwrap_or(HANDOFF_TIMEOUT_MAX_MS));
     let (fallback, fork_usage) = if warm {
         match before_deadline(limit, summarize_on_shared_prefix(cx.fork, route, cx.conversation_input)).await?? {
@@ -509,12 +491,7 @@ async fn summarize_on_route(
         ),
     )
     .await??;
-    Ok(Generated {
-        usage: sum_usage(generated.usage, fork_usage),
-        mode: "isolated",
-        shared_prefix_fallback: Some(fallback),
-        ..generated
-    })
+    Ok(Generated { usage: sum_usage(generated.usage, fork_usage), mode: "isolated", shared_prefix_fallback: Some(fallback), ..generated })
 }
 
 /// Tries the plan's routes in order. A route out of quota or unavailable

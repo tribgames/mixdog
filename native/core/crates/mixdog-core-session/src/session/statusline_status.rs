@@ -188,13 +188,22 @@ fn resolve_configured_model_target(config: Option<&Value>, raw_model: &Value) ->
     let agent = config.and_then(|config| config.get("agent")).filter(|agent| agent.is_object());
     let providers = agent.and_then(|agent| agent.get("providers")).filter(|providers| providers.is_object());
     for preset in mixdog_core_config::workflow::with_default_presets(agent.and_then(|agent| agent.get("presets"))) {
-        let (Some(provider), Some(model)) = (preset.get("provider").filter(|v| truthy(Some(v))), preset.get("model").filter(|v| truthy(Some(v)))) else { continue };
+        let (Some(provider), Some(model)) = (preset.get("provider").filter(|v| truthy(Some(v))), preset.get("model").filter(|v| truthy(Some(v)))) else {
+            continue;
+        };
         let entry = providers.and_then(|providers| providers.get(value_to_string(provider)));
         if entry.is_some_and(|entry| entry.is_object() && entry.get("enabled") == Some(&Value::Bool(false))) {
             continue;
         }
         let kept = |key: &str| preset.get(key).filter(|v| truthy(Some(v))).cloned();
-        let target = Target { provider: provider.clone(), model: model.clone(), preset_id: kept("id"), preset_name: kept("name"), effort: kept("effort"), fast: preset.get("fast") == Some(&Value::Bool(true)) };
+        let target = Target {
+            provider: provider.clone(),
+            model: model.clone(),
+            preset_id: kept("id"),
+            preset_name: kept("name"),
+            effort: kept("effort"),
+            fast: preset.get("fast") == Some(&Value::Bool(true)),
+        };
         let alias = js_to_lowercase(&target.alias_id());
         if (!alias.is_empty() && lower == alias) || lower == js_to_lowercase(&value_to_string(&target.model)) {
             return Some(target);
@@ -216,7 +225,12 @@ fn route_context_meta(info: &Value, inherited: &Value) -> Map<String, Value> {
         m("max_input_tokens"),
     ]);
     // The gateway reports the full model boundary: the trigger headroom is a compaction concern and does not shrink it.
-    let percent_source = nullish(&[i("effectiveContextWindowPercent"), i("effective_context_window_percent"), m("effectiveContextWindowPercent"), m("effective_context_window_percent")]);
+    let percent_source = nullish(&[
+        i("effectiveContextWindowPercent"),
+        i("effective_context_window_percent"),
+        m("effectiveContextWindowPercent"),
+        m("effective_context_window_percent"),
+    ]);
     let effective_percent = bounded_percent(percent_source, Some(100.0));
     let derived = raw_context_window.map(|raw| {
         let percent = effective_percent.filter(|p| *p > 0.0 && *p <= 100.0).unwrap_or(100.0);
@@ -302,7 +316,8 @@ fn display_for_model(provider: &str, model: &str, info: &Value) -> String {
             let leading = |part: &str| part.bytes().take_while(u8::is_ascii_digit).count();
             let major = &first[..leading(first)];
             if !major.is_empty() {
-                let minor = if leading(first) == first.len() { parts.next().map(|part| &part[..leading(part)]).filter(|minor| !minor.is_empty()) } else { None };
+                let minor =
+                    if leading(first) == first.len() { parts.next().map(|part| &part[..leading(part)]).filter(|minor| !minor.is_empty()) } else { None };
                 let mut name = family.to_owned();
                 name[..1].make_ascii_uppercase();
                 return format!("{name} {major}{}", minor.map(|minor| format!(".{minor}")).unwrap_or_default());
@@ -400,7 +415,8 @@ pub fn cached_quota_windows_fallback(cache: Option<&Value>, provider: &str, mode
     let route_key = format!("{provider_key}{model}");
     let truthy_entry = |key: &str| routes.get(key).filter(|entry| truthy(Some(entry)));
     let entry = truthy_entry(&route_key).or_else(|| truthy_entry(&provider_key)).or_else(|| {
-        let mut same: Vec<(&String, &Value)> = routes.iter().filter(|(key, value)| key.starts_with(&provider_key) && value.get("quotaWindows").is_some_and(Value::is_array)).collect();
+        let mut same: Vec<(&String, &Value)> =
+            routes.iter().filter(|(key, value)| key.starts_with(&provider_key) && value.get("quotaWindows").is_some_and(Value::is_array)).collect();
         mixdog_js::js_sort_by(&mut same, |a, b| {
             let at = |entry: &Value| {
                 let n = to_number(entry.get("cachedAt").unwrap_or(&Value::Null));
@@ -427,7 +443,10 @@ fn configured_gateway_status(world: &dyn StatusWorld, input: &StatusInput<'_>) -
     let current = input.current_route.filter(|route| route.is_object());
     let current_provider = clean_first(&[current.and_then(|route| route.get("provider")), current.and_then(|route| route.get("defaultProvider"))]);
     let current_model = clean_first(&[current.and_then(|route| route.get("model")), current.and_then(|route| route.get("defaultModel"))]);
-    if (clean(gateway.get("defaultProvider")).is_empty() || clean(gateway.get("defaultModel")).is_empty()) && !current_provider.is_empty() && !current_model.is_empty() {
+    if (clean(gateway.get("defaultProvider")).is_empty() || clean(gateway.get("defaultModel")).is_empty())
+        && !current_provider.is_empty()
+        && !current_model.is_empty()
+    {
         let mode = Some(clean(gateway.get("mode"))).filter(|mode| !mode.is_empty()).unwrap_or_else(|| "fixed".into());
         gateway.insert("mode".into(), json!(mode));
         gateway.insert("defaultProvider".into(), json!(current_provider));
@@ -487,7 +506,9 @@ fn configured_gateway_status(world: &dyn StatusWorld, input: &StatusInput<'_>) -
     }
     let agent_presets = config.and_then(|config| config.get("agent")).and_then(|agent| agent.get("presets"));
     let presets = mixdog_core_config::workflow::with_default_presets(agent_presets);
-    let same_model = |preset: &&Value| preset.get("provider").and_then(Value::as_str) == Some(provider.as_str()) && preset.get("model").and_then(Value::as_str) == Some(model.as_str());
+    let same_model = |preset: &&Value| {
+        preset.get("provider").and_then(Value::as_str) == Some(provider.as_str()) && preset.get("model").and_then(Value::as_str) == Some(model.as_str())
+    };
     let (preset_id, preset_name) = (gateway.get("presetId"), gateway.get("presetName"));
     let named = presets.iter().filter(same_model).find(|preset| {
         (preset_id.is_some_and(|id| truthy(Some(id))) && preset.get("id") == preset_id)
@@ -511,7 +532,9 @@ fn configured_gateway_status(world: &dyn StatusWorld, input: &StatusInput<'_>) -
     .unwrap_or(0.0);
     let api_window = num(nullish(&[info.get("context_window"), info.get("max_context_window")])).unwrap_or(0.0);
     let cached_window = num(nullish(&[info.get("contextWindow"), info.get("maxContextWindow")])).unwrap_or(0.0);
-    if api_window == 0.0 && catalog_window > 0.0 && cached_window != catalog_window
+    if api_window == 0.0
+        && catalog_window > 0.0
+        && cached_window != catalog_window
         && let Some(object) = info.as_object_mut()
     {
         object.insert("contextWindow".into(), json_number(catalog_window));
@@ -684,7 +707,10 @@ mod tests {
     #[test]
     fn a_fixed_gateway_route_shows_its_model_window_and_context_percentage() {
         let config = json!({ "gateway": { "mode": "fixed", "defaultProvider": "openai", "defaultModel": "gpt-5-codex", "effort": "high", "fast": "on" } });
-        let world = World { meta: Some(serde_json::from_value(json!({ "contextWindow": 400000 })).unwrap()), cached: Some(json!({ "contextWindow": 272000, "outputTokens": 128000 })) };
+        let world = World {
+            meta: Some(serde_json::from_value(json!({ "contextWindow": 400000 })).unwrap()),
+            cached: Some(json!({ "contextWindow": 272000, "outputTokens": 128000 })),
+        };
         let routes = json!({});
         let mut input = input(Some(&config), &routes);
         input.active_context_tokens = Some(100_000.0);
@@ -694,8 +720,14 @@ mod tests {
             (json!("openai"), json!("api"), json!("GPT 5 codex"), json!("high"), json!(true))
         );
         // The catalog's window wins over the stale cached one.
-        assert_eq!((status["contextWindow"].clone(), status["contextUsedPct"].clone(), status["outputTokens"].clone()), (json!(400000), json!(25), json!(128000)));
-        assert_eq!((status["quotaWindows"].clone(), status["quotaWindowsAsOf"].clone(), status["quotaWindowsOwned"].clone()), (json!([]), json!(0), json!(false)));
+        assert_eq!(
+            (status["contextWindow"].clone(), status["contextUsedPct"].clone(), status["outputTokens"].clone()),
+            (json!(400000), json!(25), json!(128000))
+        );
+        assert_eq!(
+            (status["quotaWindows"].clone(), status["quotaWindowsAsOf"].clone(), status["quotaWindowsOwned"].clone()),
+            (json!([]), json!(0), json!(false))
+        );
     }
 
     #[test]
@@ -723,7 +755,14 @@ mod tests {
         let routes = json!({});
         let status = load_gateway_status(&world(), &input(Some(&config), &routes)).unwrap();
         assert_eq!(
-            (status["mode"].clone(), status["provider"].clone(), status["model"].clone(), status["modelDisplay"].clone(), status["effort"].clone(), status["contextWindow"].clone()),
+            (
+                status["mode"].clone(),
+                status["provider"].clone(),
+                status["model"].clone(),
+                status["modelDisplay"].clone(),
+                status["effort"].clone(),
+                status["contextWindow"].clone()
+            ),
             (json!("claude-current"), json!("anthropic-oauth"), json!("claude-opus-4-8"), json!("Opus 4.8"), json!("high"), json!(1000000))
         );
     }
@@ -751,7 +790,10 @@ mod tests {
         let mut input = input(Some(&config), &routes);
         input.current_route = Some(&current);
         let status = load_gateway_status(&world(), &input).unwrap();
-        assert_eq!((status["provider"].clone(), status["model"].clone(), status["effort"].clone(), status["fast"].clone(), status["modelDisplay"].clone()), (json!("openai"), json!("gpt-5"), json!("low"), json!(true), json!("Mine")));
+        assert_eq!(
+            (status["provider"].clone(), status["model"].clone(), status["effort"].clone(), status["fast"].clone(), status["modelDisplay"].clone()),
+            (json!("openai"), json!("gpt-5"), json!("low"), json!(true), json!("Mine"))
+        );
         let unknown = json!({ "requestedModel": "mixdog/nothing" });
         input.current_route = Some(&unknown);
         assert_eq!(load_gateway_status(&world(), &input), None);
@@ -765,7 +807,10 @@ mod tests {
     fn context_meta_never_derives_a_compaction_limit() {
         let info = json!({ "context_window": 1_000_000, "autoCompactTokenLimit": 1_000_000 });
         let meta = route_context_meta(&info, &json!({ "effectiveContextWindowPercent": 90 }));
-        assert_eq!((meta["contextWindow"].clone(), meta["rawContextWindow"].clone(), meta["autoCompactTokenLimit"].clone()), (json!(900000), json!(1000000), Value::Null));
+        assert_eq!(
+            (meta["contextWindow"].clone(), meta["rawContextWindow"].clone(), meta["autoCompactTokenLimit"].clone()),
+            (json!(900000), json!(1000000), Value::Null)
+        );
         let meta = route_context_meta(&json!({ "contextWindow": 200000, "autoCompactTokenLimit": 150000 }), &json!({}));
         assert_eq!((meta["contextWindow"].clone(), meta["autoCompactTokenLimit"].clone()), (json!(200000), json!(150000)));
         assert_eq!(compact_boundary_for_status(&json!({ "contextWindow": 5 }), &Value::Null), Some(5.0));
@@ -801,12 +846,22 @@ mod tests {
     #[test]
     fn money_and_compact_numbers_round_as_the_footer_does() {
         assert_eq!([money(0.0), money(12.6), money(3.14159), money(0.0449), money(0.00004), money(f64::NAN)], ["$0", "$13", "$3.14", "$0.045", "$0.0000", ""]);
-        assert_eq!([compact_number(1_250_000.0), compact_number(12_000_000.0), compact_number(1500.0), compact_number(15_000.0), compact_number(42.0), compact_number(3.14), compact_number(0.5)], ["1.3M", "12M", "1.5K", "15K", "42", "3.1", "0.50"]);
+        assert_eq!(
+            [
+                compact_number(1_250_000.0),
+                compact_number(12_000_000.0),
+                compact_number(1500.0),
+                compact_number(15_000.0),
+                compact_number(42.0),
+                compact_number(3.14),
+                compact_number(0.5)
+            ],
+            ["1.3M", "12M", "1.5K", "15K", "42", "3.1", "0.50"]
+        );
         assert_eq!(visible_length("\u{1b}[31mab\u{1b}[0m"), 2);
         assert_eq!(strip_statusline_model_suffixes("Opus 4.8 XHIGH fast"), "Opus 4.8");
         assert_eq!(strip_statusline_model_suffixes("HIGH"), "HIGH");
     }
-
 
     #[test]
     fn oauth_windows_print_their_percentage_and_reset_aligned_in_columns() {
@@ -857,7 +912,6 @@ mod tests {
     }
 }
 
-
 /// `formatGatewayLimitSegments(status, fmt)`: what the footer prints for the limits of a status: the quota windows
 /// (as many as the width takes), the route spend and the credit balance.
 pub fn format_gateway_limit_segments(status: &Value, fmt: &SegmentFormat<'_>) -> Vec<String> {
@@ -872,11 +926,21 @@ pub fn format_gateway_limit_segments(status: &Value, fmt: &SegmentFormat<'_>) ->
     let status_source = lower("source");
     let balance_source = js_to_lowercase(&clean(status.get("balance").and_then(|b| b.get("source")).filter(|v| truthy(Some(v)))));
     let is_openai_oauth = (kind == "oauth" || provider_id.contains("oauth"))
-        && (provider_id == "openai-oauth" || status_source.contains("openai") || status_source.contains("codex") || balance_source.contains("openai") || balance_source.contains("codex"));
+        && (provider_id == "openai-oauth"
+            || status_source.contains("openai")
+            || status_source.contains("codex")
+            || balance_source.contains("openai")
+            || balance_source.contains("codex"));
     let is_plain_api = kind == "api";
     let empty = Vec::new();
     let windows: &Vec<Value> = if is_plain_api { &empty } else { status.get("quotaWindows").and_then(Value::as_array).unwrap_or(&empty) };
-    let max_windows = if fmt.cols >= 120 { 3 } else if fmt.cols >= 80 { 2 } else { 1 };
+    let max_windows = if fmt.cols >= 120 {
+        3
+    } else if fmt.cols >= 80 {
+        2
+    } else {
+        1
+    };
     let route_spend = num(status.get("routeSpend").and_then(|spend| spend.get("costUsd")));
     let label = clean(status.get("routeSpend").and_then(|spend| spend.get("label")));
     let route_spend_label = if label.is_empty() { (if fmt.cols >= 120 { "SESS" } else { "S" }).to_owned() } else { label };
@@ -934,9 +998,25 @@ pub fn format_gateway_limit_segments(status: &Value, fmt: &SegmentFormat<'_>) ->
         let (remaining_credits, limit_credits, used_credits) = (field("remainingCredits"), field("limitCredits"), field("usedCredits"));
         let estimated = is_local_estimate_window(window);
         let est = if estimated { "est " } else { "" };
-        let credit_color = if estimated { fmt.yellow } else if pct.is_some_and(|p| p >= 95.0) { fmt.red } else if pct.is_some_and(|p| p >= 80.0) { fmt.yellow } else { fmt.green };
+        let credit_color = if estimated {
+            fmt.yellow
+        } else if pct.is_some_and(|p| p >= 95.0) {
+            fmt.red
+        } else if pct.is_some_and(|p| p >= 80.0) {
+            fmt.yellow
+        } else {
+            fmt.green
+        };
         let segment = if let Some(remaining) = remaining {
-            let color = if estimated { fmt.yellow } else if remaining <= 1.0 { fmt.red } else if remaining <= 5.0 { fmt.yellow } else { fmt.green };
+            let color = if estimated {
+                fmt.yellow
+            } else if remaining <= 1.0 {
+                fmt.red
+            } else if remaining <= 5.0 {
+                fmt.yellow
+            } else {
+                fmt.green
+            };
             format!("{d}{label}{r} {color}{est}{}{r}", money(remaining))
         } else if let (Some(used), Some(limit)) = (used, limit) {
             format!("{d}{label}{r} {est}{}/{}", money(used), money(limit))

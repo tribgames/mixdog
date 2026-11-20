@@ -47,13 +47,8 @@ pub trait RouteWriter: Send + Sync {
     /// caller already holds (else it is looked up). With `guard_supersede`, the route that stands
     /// when this call began must still stand when it writes (`rt.route !== expectedRoute`), and
     /// a lease whose session generation moved ends it: both answer `None`.
-    async fn refresh_route_effort(
-        &self,
-        thread: &ThreadId,
-        meta: Option<Value>,
-        guard_supersede: bool,
-        lease: Option<u64>,
-    ) -> Result<Option<Route>, PortError>;
+    async fn refresh_route_effort(&self, thread: &ThreadId, meta: Option<Value>, guard_supersede: bool, lease: Option<u64>)
+    -> Result<Option<Route>, PortError>;
     fn refresh_statusline_usage(&self, thread: &ThreadId, route: &Route);
     /// [`RouteCell::boot`] of the thread's route cell; a writer over no cell boots nothing.
     fn boot(&self, _thread: &ThreadId, _request: &Route) {}

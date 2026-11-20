@@ -24,9 +24,9 @@ use super::compaction_redactor::SensitiveRedactor;
 use super::compactors::{CompactionFacts, CompactionWorld};
 use super::media::{AttachmentFacts, MediaLowering};
 use super::side_question_store::{NoSavedRequest, SideQuestionStore};
-use mixdog_core_config::config::Config;
 use super::summary_host::SummaryServices;
 use super::summary_routes::{ForkSender, SavedRequest, SessionFork, SummaryRoutes};
+use mixdog_core_config::config::Config;
 
 /// What a registered provider declares of its wire (Node reads `provider.nativePdf` and
 /// `provider.nativeDocuments` off the provider object the registry holds; here they are the
@@ -107,23 +107,23 @@ pub(crate) mod tests {
     use mixdog_core_api::domain::common::AbsPath;
     use mixdog_core_api::domain::ext::{ExtError, PdfIntake};
     use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
+    use mixdog_core_api::domain::mock::{MockFileService, MockProcessManager, MockProgress, MockProvider};
     use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ModelRequest, ModelStream, ProviderAdapter, ProviderError, WireCodec, WireRequest};
     use mixdog_core_api::domain::retry::RetryPolicy;
     use mixdog_core_api::domain::tool::ToolIo;
-    use mixdog_core_api::domain::mock::{MockFileService, MockProcessManager, MockProgress, MockProvider};
     use mixdog_core_api::mock::MockStatePublisher;
     use mixdog_protocol::message_class::user_text::Blobs;
-    use serde_json::{json, Map};
+    use serde_json::{Map, json};
 
     use super::*;
-    use mixdog_core_config::config::ConfigLanes;
-    use crate::run_host::summary_host::SummaryDeps;
     use crate::run_host::assemble::CompactorInput;
     use crate::run_host::attachment_reference::{InvalidReference, OriginalFile, StoredFile};
     use crate::run_host::compactors::SessionCompactors;
     use crate::run_host::host_seams::CompactorSource;
     use crate::run_host::media::StoredFacts;
+    use crate::run_host::summary_host::SummaryDeps;
     use crate::run_host::summary_routes::SessionRoute;
+    use mixdog_core_config::config::ConfigLanes;
     use mixdog_core_session::session::StoredRows;
 
     const NOW: i64 = 1_800_000_000_000;
@@ -195,15 +195,8 @@ pub(crate) mod tests {
     struct Offline;
     #[async_trait]
     impl HttpSend for Offline {
-        async fn send(
-            &self,
-            _: WireRequest,
-            _exchange: mixdog_ai::transport::Exchange,
-        ) -> Result<HttpResponse, ProviderError> {
-            Err(ProviderError::new(
-                ErrorKind::Transient,
-                DeliveryState::NotSent,
-            ))
+        async fn send(&self, _: WireRequest, _exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+            Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
         }
     }
     /// A scripted adapter that declares what its config entry says of its documents.
@@ -286,7 +279,9 @@ pub(crate) mod tests {
     #[tokio::test]
     async fn a_route_takes_a_pdf_natively_as_its_registered_adapter_declares() {
         let routes = RegisteredRouteTraits::new(registry().await);
-        for (provider, native) in [("anthropic", true), ("Anthropic", true), ("openai", true), ("groq", false), ("opencode-go", false), ("never-registered", true), ("", true)] {
+        for (provider, native) in
+            [("anthropic", true), ("Anthropic", true), ("openai", true), ("groq", false), ("opencode-go", false), ("never-registered", true), ("", true)]
+        {
             assert_eq!(routes.native_pdf(provider), native, "{provider:?}");
         }
         // A model-proxy reports the traits of the machine's real instance: neither list of names holds.
@@ -317,7 +312,16 @@ pub(crate) mod tests {
     #[test]
     fn the_agent_owner_is_the_trimmed_lower_cased_owner() {
         let owner = |value: Value| is_agent_owner(json!({ "owner": value }).as_object().unwrap());
-        for (value, agent) in [(json!("agent"), true), (json!(" Agent "), true), (json!("AGENT\n"), true), (json!("lead"), false), (json!(""), false), (json!(5), false), (json!(null), false), (json!(["agent"]), true)] {
+        for (value, agent) in [
+            (json!("agent"), true),
+            (json!(" Agent "), true),
+            (json!("AGENT\n"), true),
+            (json!("lead"), false),
+            (json!(""), false),
+            (json!(5), false),
+            (json!(null), false),
+            (json!(["agent"]), true),
+        ] {
             assert_eq!(owner(value.clone()), agent, "{value}");
         }
         assert!(!is_agent_owner(json!({}).as_object().unwrap()));
@@ -402,7 +406,11 @@ pub(crate) mod tests {
         assert!(facts.native_pdf, "the trimmed provider is the route's");
         assert!(!world.facts(&thread(), &header("groq"), &[]).await.native_pdf);
         assert_eq!(facts.redactor.redact(vec![json!({ "role": "user", "content": "s3cret" })]), [json!({ "role": "user", "content": "[redacted]" })]);
-        assert_eq!(facts.summary.session(), SessionRoute { provider: " anthropic ".into(), model: "m".into(), context_window: None, summary_model: None }, "the summary route is the session's stored provider text");
+        assert_eq!(
+            facts.summary.session(),
+            SessionRoute { provider: " anthropic ".into(), model: "m".into(), context_window: None, summary_model: None },
+            "the summary route is the session's stored provider text"
+        );
     }
 
     #[tokio::test]
@@ -426,9 +434,7 @@ pub(crate) mod tests {
             clock: Arc::new(Fixed),
         };
         let thread = thread();
-        let tap = |thread, provider: Arc<MockProvider>| side.tap(RunSide {
-            thread, provider_name: "openai".into(), provider, agent_owner: false,
-        });
+        let tap = |thread, provider: Arc<MockProvider>| side.tap(RunSide { thread, provider_name: "openai".into(), provider, agent_owner: false });
         let request = |messages: &[AgentMessage]| ModelRequest {
             model: "m".into(),
             messages: messages.iter().map(AgentMessage::wire).collect(),
@@ -443,19 +449,28 @@ pub(crate) mod tests {
         let compactors = SessionCompactors::new(Arc::new(ProcessCompactionWorld::new(services)), Arc::new(Fixed));
         let mut header = header("openai");
         header.insert("contextWindow".into(), json!(200_000));
-        let compactor = compactors.compactor(&thread, &header, &[], CompactorInput {
-            settings: CompactSettings { context_window: Some(200_000), ..CompactSettings::default() },
-            rows: Arc::new(StoredRows::new()),
-            archive: Arc::new(Archive),
-            blobs: Arc::new(NoBlobs),
-        }).await.unwrap();
+        let compactor = compactors
+            .compactor(
+                &thread,
+                &header,
+                &[],
+                CompactorInput {
+                    settings: CompactSettings { context_window: Some(200_000), ..CompactSettings::default() },
+                    rows: Arc::new(StoredRows::new()),
+                    archive: Arc::new(Archive),
+                    blobs: Arc::new(NoBlobs),
+                },
+            )
+            .await
+            .unwrap();
 
         let latest = provider("summary of the settled work");
         let mut messages = vec![
             AgentMessage::user("current request"),
-            AgentMessage::assistant("checking the build", vec![ToolCall {
-                id: "check".into(), name: "check_build".into(), arguments: json!({}), native_type: None,
-            }]),
+            AgentMessage::assistant(
+                "checking the build",
+                vec![ToolCall { id: "check".into(), name: "check_build".into(), arguments: json!({}), native_type: None }],
+            ),
             AgentMessage::tool_text("check", "Build succeeded", ToolKind::Normal),
         ];
         tap(thread, latest.clone()).begin(&request(&messages)).settle(&reply("second round"));
@@ -463,15 +478,18 @@ pub(crate) mod tests {
         let other = provider("summary of a different session");
         tap(ThreadId::from("other"), other.clone()).begin(&request(&messages)).settle(&reply("unrelated reply"));
 
-        let output = compactor.compact(CompactRequest {
-            messages: &messages,
-            budget_tokens: 10_000,
-            trigger: CompactTrigger::Auto,
-            require_reduction: false,
-            reference_latest_attachments: false,
-            active_turn: true,
-            latest_user_prefix: "",
-        }).await.unwrap();
+        let output = compactor
+            .compact(CompactRequest {
+                messages: &messages,
+                budget_tokens: 10_000,
+                trigger: CompactTrigger::Auto,
+                require_reduction: false,
+                reference_latest_attachments: false,
+                active_turn: true,
+                latest_user_prefix: "",
+            })
+            .await
+            .unwrap();
 
         assert!(output.summary_route.is_some_and(|route| route.forked));
         assert!(output.messages.iter().any(|m| content_text(&m.message.content).contains("summary of the settled work")));
@@ -487,7 +505,13 @@ pub(crate) mod tests {
         let compactors = SessionCompactors::new(world, Arc::new(Fixed));
         let rows = Arc::new(StoredRows::new());
         let input = |window: Option<u64>| CompactorInput {
-            settings: CompactSettings { context_window: window, request_reserve_tokens: 1_200, configured_reserve_tokens: 800, token_calibration: 1.25, ..CompactSettings::default() },
+            settings: CompactSettings {
+                context_window: window,
+                request_reserve_tokens: 1_200,
+                configured_reserve_tokens: 800,
+                token_calibration: 1.25,
+                ..CompactSettings::default()
+            },
             rows: rows.clone(),
             archive: Arc::new(Archive),
             blobs: Arc::new(NoBlobs),
@@ -502,8 +526,6 @@ pub(crate) mod tests {
             Ok(None)
         }
     }
-
-
 }
 
 pub struct ProcessCompactionWorld {

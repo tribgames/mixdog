@@ -149,10 +149,7 @@ fn cowork_manifest_paths(root: &Path) -> Vec<PathBuf> {
             for dir in [org_dir.clone(), org_dir.join("agent")] {
                 for file in entries_of(&dir) {
                     let name = name_of(&file);
-                    if file.file_type().is_ok_and(|t| t.is_file())
-                        && name.starts_with("local_")
-                        && name.ends_with(".json")
-                        && name.len() > "local_.json".len()
+                    if file.file_type().is_ok_and(|t| t.is_file()) && name.starts_with("local_") && name.ends_with(".json") && name.len() > "local_.json".len()
                     {
                         manifests.push(dir.join(name));
                     }
@@ -241,7 +238,6 @@ mod tests {
         assert_ne!(id, candidate_id(Source::Claude, Path::new("/some/path")));
     }
 
-
     #[test]
     fn codex_walk_lists_rollouts_and_skips_a_compressed_twin() {
         let dir = tempfile::tempdir().unwrap();
@@ -268,11 +264,8 @@ mod tests {
         put(&p.join("proj-b/new.JSONL"), "{}");
         put(&p.join("proj-b/deeper/skip.jsonl"), "{}");
         put(&p.join("loose.jsonl"), "{}");
-        let names: Vec<_> = enumerate_candidates(Source::Claude, &env)
-            .candidates
-            .iter()
-            .map(|c| c.path.file_name().unwrap().to_string_lossy().into_owned())
-            .collect();
+        let names: Vec<_> =
+            enumerate_candidates(Source::Claude, &env).candidates.iter().map(|c| c.path.file_name().unwrap().to_string_lossy().into_owned()).collect();
         assert_eq!(names, ["new.JSONL", "old.jsonl"]);
     }
     #[test]
@@ -294,7 +287,6 @@ mod tests {
         assert!(found.candidates.is_empty() && found.root.ends_with("sessions"));
     }
 }
-
 
 impl Env {
     pub fn from_process() -> Self {
@@ -322,16 +314,7 @@ pub struct Candidate {
 }
 impl Candidate {
     pub fn for_file(source: Source, root: Option<PathBuf>, path: PathBuf, size: u64) -> Self {
-        Self {
-            id: candidate_id(source, &path),
-            source,
-            root,
-            path,
-            size,
-            mtime_ms: 0.0,
-            starred: false,
-            title: None,
-        }
+        Self { id: candidate_id(source, &path), source, root, path, size, mtime_ms: 0.0, starred: false, title: None }
     }
 
     pub fn stamp_key(&self) -> String {
@@ -339,10 +322,7 @@ impl Candidate {
     }
 }
 pub fn mtime_ms(meta: &std::fs::Metadata) -> f64 {
-    meta.modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+    meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_secs_f64() * 1000.0)
 }
 /// Starred conversations (Cowork) come first, then newest first.
 pub fn by_modified_then_id(left: &Candidate, right: &Candidate) -> std::cmp::Ordering {
@@ -370,9 +350,7 @@ pub fn enumerate_candidates(source: Source, env: &Env) -> Enumeration {
     let mut paths = Vec::new();
     let mut extras: HashMap<PathBuf, (Option<String>, bool)> = HashMap::new();
     match source {
-        Source::Codex => {
-            walk_codex(&root_real, &root_real, &mut paths, &mut HashSet::from([case_fold(&root_real.to_string_lossy())]))
-        }
+        Source::Codex => walk_codex(&root_real, &root_real, &mut paths, &mut HashSet::from([case_fold(&root_real.to_string_lossy())])),
         Source::Cowork => {
             for entry in cowork_manifest_paths(&root_real).iter().filter_map(|m| cowork_transcript(&root_real, m)) {
                 extras.insert(entry.path.clone(), (entry.title, entry.starred));
@@ -393,16 +371,7 @@ pub fn enumerate_candidates(source: Source, env: &Env) -> Enumeration {
         let id = candidate_id(source, &real);
         unique.insert(
             id.clone(),
-            Candidate {
-                id,
-                source,
-                root: Some(root_real.clone()),
-                path: real,
-                size: meta.len(),
-                mtime_ms: mtime_ms(&meta),
-                starred,
-                title,
-            },
+            Candidate { id, source, root: Some(root_real.clone()), path: real, size: meta.len(), mtime_ms: mtime_ms(&meta), starred, title },
         );
     }
     let mut candidates: Vec<Candidate> = unique.into_values().collect();

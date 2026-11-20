@@ -2,14 +2,13 @@
 
 pub mod agent_effects;
 pub mod automation_setup;
+pub mod browser_surfaces;
 pub mod caches;
 pub mod channel_stack;
 pub mod doctor;
 pub mod feature_effects;
 pub mod git;
-pub mod browser_surfaces;
 pub mod hook_status;
-pub mod relay_files;
 pub mod media_status;
 pub mod notification_clicks;
 pub mod notify_producer;
@@ -17,6 +16,7 @@ pub mod notify_sources;
 pub mod office_fonts;
 pub mod plugin_announce;
 pub mod profile_changes;
+pub mod relay_files;
 pub mod remote;
 pub mod settings_effects;
 pub mod thread_progress_hints;
@@ -35,5 +35,3 @@ pub(crate) fn portable(value: &serde_json::Value, root: &std::path::Path) -> ser
         other => other.clone(),
     }
 }
-
-

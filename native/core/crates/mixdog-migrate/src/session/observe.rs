@@ -43,9 +43,7 @@ pub fn attachment_refs(body: &Value, out: &mut BTreeSet<String>) {
         Value::Object(map) => {
             for (k, v) in map {
                 match (k.as_str(), v) {
-                    ("attachmentRef", Value::String(s))
-                        if s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) =>
-                    {
+                    ("attachmentRef", Value::String(s)) if s.len() == 64 && s.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)) => {
                         out.insert(s.clone());
                     }
                     _ => attachment_refs(v, out),
@@ -70,9 +68,7 @@ pub fn archive_view<'a>(rows: impl Iterator<Item = (u64, Form, bool, &'a Value)>
 }
 
 pub fn statuses(cx: &ItemContext<'_>, refs: BTreeSet<String>) -> Result<BTreeMap<String, BlobStatus>> {
-    refs.into_iter()
-        .map(|r| cx.blob_status(&r).map(|s| (r, s)))
-        .collect()
+    refs.into_iter().map(|r| cx.blob_status(&r).map(|s| (r, s))).collect()
 }
 
 impl Observable {
@@ -97,11 +93,7 @@ impl Observable {
         }
         Ok(Self {
             header,
-            transcript: live
-                .iter()
-                .filter(|r| r.visible)
-                .map(|r| (r.iid.clone(), r.body.clone()))
-                .collect(),
+            transcript: live.iter().filter(|r| r.visible).map(|r| (r.iid.clone(), r.body.clone())).collect(),
             // 1.4.5's order of the messages: the context the written log restarts at when rows moved, else the rows'.
             model_context: match &model.context {
                 Some(context) => context.iter().map(|(iid, _)| iid.clone()).collect(),
@@ -114,11 +106,7 @@ impl Observable {
                 .map(|run| RunView {
                     rid: run.rid.clone(),
                     phases: run.phases.clone(),
-                    input_iids: written
-                        .iter()
-                        .filter(|r| r.turn.as_deref() == Some(run.rid.as_str()))
-                        .map(|r| r.iid.clone())
-                        .collect(),
+                    input_iids: written.iter().filter(|r| r.turn.as_deref() == Some(run.rid.as_str())).map(|r| r.iid.clone()).collect(),
                 })
                 .collect(),
             queue: model.queue.clone(),

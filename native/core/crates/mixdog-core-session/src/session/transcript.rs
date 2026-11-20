@@ -45,7 +45,11 @@ fn inline_prompt_text(message: &Value) -> Option<String> {
     let parts = message.as_array()?;
     let held = |part: &Value| part.get("attachmentRef").and_then(Value::as_str).is_some_and(is_attachment_ref);
     let kind = |part: &Value| part.get("type").and_then(Value::as_str).map(str::to_owned);
-    let media_reference = |part: &Value| kind(part).as_deref() == Some("text") && part.get("attachmentReference").is_some_and(|held| held.as_bool() != Some(false) && !held.is_null()) && part.get("text").is_some_and(Value::is_string);
+    let media_reference = |part: &Value| {
+        kind(part).as_deref() == Some("text")
+            && part.get("attachmentReference").is_some_and(|held| held.as_bool() != Some(false) && !held.is_null())
+            && part.get("text").is_some_and(Value::is_string)
+    };
     if parts.iter().any(|part| !media_reference(part) && kind(part).as_deref() == Some("text") && held(part)) {
         return None;
     }
@@ -95,7 +99,11 @@ pub fn image_meta(entry: &Value) -> Vec<Value> {
                 "mimeType": mime.map_or_else(|| "image/png".to_owned(), mixdog_js::value_to_string),
                 "bytes": mixdog_js::json_number(bytes),
             });
-            if let Some(reference) = part.get("attachmentRef").and_then(Value::as_str).filter(|reference| reference.len() == 64 && reference.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))) {
+            if let Some(reference) = part
+                .get("attachmentRef")
+                .and_then(Value::as_str)
+                .filter(|reference| reference.len() == 64 && reference.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+            {
                 image["attachmentRef"] = json!(reference);
             }
             image
@@ -114,22 +122,22 @@ pub use self::transcript_response::agent_response;
 pub use self::transcript_rows::Restored;
 pub use self::transcript_rows::restore;
 
-pub(super) use self::transcript_boundary::fold_model_switches;
-pub(super) use self::transcript_rows::normalize_reactions;
-pub(super) use self::transcript_rows::truthy;
 pub(super) use self::transcript_boundary::divider_model_switches;
+pub(super) use self::transcript_boundary::fold_model_switches;
 pub(super) use self::transcript_boundary::live_divider_model_switch;
 pub(super) use self::transcript_boundary::live_model_switch;
+pub(super) use self::transcript_convert::Ctx as RowCtx;
+pub(super) use self::transcript_convert::displayed_id;
+pub(super) use self::transcript_convert::item_of as row_item;
+pub use self::transcript_convert::live_end;
+pub(super) use self::transcript_convert::position_of_id;
 pub(super) use self::transcript_divider::divider_item;
 pub(super) use self::transcript_live::compact_marker_item;
 pub(super) use self::transcript_live::idle_notice_item;
 pub(super) use self::transcript_live::notice_item;
 pub(super) use self::transcript_response::has_body;
-pub use self::transcript_convert::live_end;
-pub(super) use self::transcript_convert::displayed_id;
-pub(super) use self::transcript_convert::position_of_id;
-pub(super) use self::transcript_convert::Ctx as RowCtx;
-pub(super) use self::transcript_convert::item_of as row_item;
+pub(super) use self::transcript_rows::normalize_reactions;
+pub(super) use self::transcript_rows::truthy;
 
 /// `MessageRows` of one run: every history message the run holds is registered with the
 /// `item.body` the store holds for it (the `Value` read back at load, or the body the run
@@ -246,11 +254,7 @@ impl MessageRows for StoredRows {
         {
             return Value::Object(body.as_ref().clone());
         }
-        rows.unkeyed
-            .iter()
-            .rev()
-            .find(|(known, _)| known == message)
-            .map_or(Value::Null, |(_, body)| body.value())
+        rows.unkeyed.iter().rev().find(|(known, _)| known == message).map_or(Value::Null, |(_, body)| body.value())
     }
 }
 
@@ -328,7 +332,6 @@ mod tests {
     }
 }
 
-
 impl Transcript for RecordTranscript {
     fn items(&self, _lane: &InLane<CpuInteractive>, record: &ItemRecord) -> Vec<Shown> {
         let Slot::Inline(body) = &record.body else {
@@ -358,20 +361,14 @@ impl Transcript for RecordTranscript {
                     _ => None,
                 })
                 .collect(),
-            Form::Display => transcript_convert::display_item(record, body)
-                .zip(transcript_convert::display_bytes(record, body))
-                .into_iter()
-                .collect(),
+            Form::Display => transcript_convert::display_item(record, body).zip(transcript_convert::display_bytes(record, body)).into_iter().collect(),
         }
     }
 
     /// `{id, text, enqueuedAt?, clientSubmissionId?}`: the entry's display text as the composer showed it, and the submission it
     /// answers (Node's queue entry is named by it, `makeQueueEntry`; a client matches its pending bubble by that id).
     fn queued(&self, qid: &str, entry: &Value) -> Value {
-        let shown = entry
-            .pointer("/options/displayText")
-            .and_then(Value::as_str)
-            .filter(|text| !js_trim(text).is_empty());
+        let shown = entry.pointer("/options/displayText").and_then(Value::as_str).filter(|text| !js_trim(text).is_empty());
         let text = match shown {
             Some(text) => text.to_owned(),
             None => {
@@ -444,7 +441,9 @@ impl Transcript for RecordTranscript {
         // `attachmentsForIntake`: the stored attachments the prompt's own parts name come first.
         if let PromptContent::Parts(parts) = &input.prompt {
             for part in parts {
-                if let Some(entry) = part_attachment(part, input.options.as_ref().and_then(|o| o.attachment_sizes.as_ref())).filter(|e| !stored.iter().any(|s| s["id"] == e["id"])) {
+                if let Some(entry) = part_attachment(part, input.options.as_ref().and_then(|o| o.attachment_sizes.as_ref()))
+                    .filter(|e| !stored.iter().any(|s| s["id"] == e["id"]))
+                {
                     stored.push(entry);
                 }
             }
@@ -468,7 +467,8 @@ impl Transcript for RecordTranscript {
             };
             // `attachmentsForIntake` (`attachments/store.mjs:707-715`): a text names itself by its source.
             let file = text.source.as_deref() == Some("file");
-            let name = text.filename.clone().filter(|name| !name.is_empty()).unwrap_or_else(|| (if file { "attachment.txt" } else { "pasted-text.txt" }).to_owned());
+            let name =
+                text.filename.clone().filter(|name| !name.is_empty()).unwrap_or_else(|| (if file { "attachment.txt" } else { "pasted-text.txt" }).to_owned());
             stored.push(json!({
                 "id": bare(reference), "kind": "text", "name": name,
                 "mimeType": text.mime_type.as_deref().filter(|mime| !mime.is_empty()).unwrap_or("text/plain"), "size": text.size_bytes.unwrap_or(0),

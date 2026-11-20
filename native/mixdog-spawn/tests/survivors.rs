@@ -20,26 +20,16 @@ fn leaves_a_sleeper() -> CommandSpec {
             shell: Some("powershell".to_owned()),
         }
     } else {
-        CommandSpec::Shell {
-            script: "sleep 90 >/dev/null 2>&1 & echo CHILD=$!".to_owned(),
-            shell: None,
-        }
+        CommandSpec::Shell { script: "sleep 90 >/dev/null 2>&1 & echo CHILD=$!".to_owned(), shell: None }
     }
 }
 
 /// Runs the command to its exit and returns the sleeper's pid.
-async fn run_and_find_sleeper(
-    m: &mixdog_spawn::LocalProcessManager,
-    h: &mixdog_protocol::ProcessHandle,
-) -> u32 {
+async fn run_and_find_sleeper(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle) -> u32 {
     run_and_find(m, h, leaves_a_sleeper()).await
 }
 
-async fn run_and_find(
-    m: &mixdog_spawn::LocalProcessManager,
-    h: &mixdog_protocol::ProcessHandle,
-    command: CommandSpec,
-) -> u32 {
+async fn run_and_find(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle, command: CommandSpec) -> u32 {
     use mixdog_core_api::domain::process::ProcessManager;
     m.spawn(request(h, command)).await.unwrap();
     let (bytes, _) = collect(m, h).await;
@@ -76,10 +66,7 @@ async fn a_survivor_is_listed_and_its_end_wakes_the_waiter() {
     assert!(mixdog_rt::time::timeout(Duration::from_millis(300), &mut waiter).await.is_err(), "the waiter returned with a survivor running");
 
     end_externally(sleeper);
-    let confirmed = mixdog_rt::time::timeout(Duration::from_secs(10), waiter)
-        .await
-        .expect("the survivor's end wakes the waiter")
-        .unwrap();
+    let confirmed = mixdog_rt::time::timeout(Duration::from_secs(10), waiter).await.expect("the survivor's end wakes the waiter").unwrap();
     assert!(confirmed, "the end of the last survivor is a confirmation");
     assert_eq!(watch.survivors(&h), None);
 }
@@ -249,9 +236,7 @@ async fn a_console_host_still_exiting_after_its_root_is_no_survivor() {
         let _ = entered.send(());
     });
     m.close_stdin(&h).unwrap();
-    parked
-        .recv_timeout(WAIT)
-        .expect("the settle of the ended root found only its console host left and waits for it");
+    parked.recv_timeout(WAIT).expect("the settle of the ended root found only its console host left and waits for it");
     client.end();
     mixdog_spawn::testing::release_settle_window();
     loop {
@@ -271,10 +256,7 @@ async fn a_survivor_that_ignores_sigterm_is_ended_by_the_forced_stop() {
     let m = manager();
     let watch = ProcessSurvivors::new(m.clone());
     let h = handle("survivor-ignores-term");
-    let ignoring = CommandSpec::Shell {
-        script: "(trap '' TERM; exec sleep 90) >/dev/null 2>&1 & echo CHILD=$!".to_owned(),
-        shell: None,
-    };
+    let ignoring = CommandSpec::Shell { script: "(trap '' TERM; exec sleep 90) >/dev/null 2>&1 & echo CHILD=$!".to_owned(), shell: None };
     let sleeper = run_and_find(&m, &h, ignoring).await;
     assert!(watch.survivors(&h).is_some());
     assert!(watch.kill(&h).await, "the forced stop ends what SIGTERM did not");

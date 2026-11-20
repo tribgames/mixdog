@@ -8,16 +8,16 @@ use async_trait::async_trait;
 use mixdog_app_protocol::v2::connections::{SshCleanupPhase, SshCleanupProgress, SshCleanupRequest, SshCleanupResult, SshLocalForget};
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_ssh::bootstrap::ServerPayloads;
-use mixdog_ssh::cleanup::{cleanup_server, CleanupOptions, CleanupProgress, CleanupReport};
-use mixdog_ssh::command::{parse_ssh_target, SshTarget};
-use mixdog_ssh::connect_failure::{failure_of, ConnectError};
+use mixdog_ssh::cleanup::{CleanupOptions, CleanupProgress, CleanupReport, cleanup_server};
+use mixdog_ssh::command::{SshTarget, parse_ssh_target};
+use mixdog_ssh::connect_failure::{ConnectError, failure_of};
 use mixdog_ssh::context::{AttemptContext, Platform, SshEnv};
 use mixdog_ssh::said;
 
 use crate::attempts::{AttemptError, Attempts};
-use crate::host_list_ops::{forget_in_turn, host_views, LocalForget};
+use crate::host_list_ops::{LocalForget, forget_in_turn, host_views};
 use crate::host_store::{SshHostRecord, SshHostStore};
-use crate::login::{with_login_retry, LoginHelpers};
+use crate::login::{LoginHelpers, with_login_retry};
 use crate::restore::attempt_context;
 
 /// What removes Mixdog from a server.

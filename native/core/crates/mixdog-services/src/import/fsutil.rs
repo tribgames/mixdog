@@ -142,11 +142,7 @@ fn read_some<R: Read>(reader: &mut R, buf: &mut [u8]) -> io::Result<usize> {
 /// at most one line plus one chunk in memory. Stops when `on_line` or `on_chunk` returns false,
 /// when a line exceeds `max_line_bytes` (`overflow`), or after `max_bytes` with more to read
 /// (`truncated`).
-pub fn stream_jsonl_lines<R: Read>(
-    reader: &mut R,
-    on_line: &mut dyn FnMut(&str) -> bool,
-    mut opts: StreamOpts<'_>,
-) -> io::Result<StreamOutcome> {
+pub fn stream_jsonl_lines<R: Read>(reader: &mut R, on_line: &mut dyn FnMut(&str) -> bool, mut opts: StreamOpts<'_>) -> io::Result<StreamOutcome> {
     let mut chunk = vec![0u8; opts.chunk_bytes];
     let mut pending: Vec<u8> = Vec::new();
     let mut position = 0u64;
@@ -251,6 +247,5 @@ mod tests {
         assert_eq!(simple, if cfg!(windows) { PathBuf::from(r"C:\Users\x") } else { PathBuf::from(r"\\?\C:\Users\x") });
     }
 }
-
 
 impl std::error::Error for ImportError {}

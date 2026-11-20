@@ -15,11 +15,12 @@ use mixdog_agent::env::{RouteFallback, RouteSwitch, RouteSwitchRequest};
 pub use mixdog_agent::recovery::{strip_provider_replay, strip_provider_replay_messages};
 use mixdog_agent::text_only::TextOnlyInput;
 use mixdog_ai::retry::classify::kind_from_code;
-use mixdog_core_api::domain::provider::{ErrorKind, ProviderAdapter, ProviderError, UsdTicks, Usage};
+use mixdog_core_api::domain::provider::{ErrorKind, ProviderAdapter, ProviderError, Usage, UsdTicks};
 use mixdog_js::JsRegex;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::LazyLock;
 
+use super::route_chain::BotRoutes;
 use super::route_chain::live_route_fallbacks;
 use super::route_chain::next_route_fallback_index;
 use super::route_chain::route_fallback_hopped;
@@ -27,7 +28,6 @@ use super::route_chain::route_leaf;
 use super::route_chain::same_route_model;
 use super::route_chain::session_chain_source;
 use super::route_chain::session_route_primary;
-use super::route_chain::BotRoutes;
 use mixdog_core_ports::ports::domain_sessions::Obj;
 
 /// What the chain does with a failed request.
@@ -109,15 +109,10 @@ pub fn route_fallback_verdict(error: &ProviderError) -> RouteVerdict {
         | ErrorKind::Auth
         | ErrorKind::Permission => RouteVerdict::Hop,
         // Only when the server answered: a bare network failure would fail on every provider.
-        ErrorKind::Transient => hop(
-            status >= 408 || error.code.as_deref().and_then(kind_from_code) == Some(ErrorKind::Transient),
-        ),
+        ErrorKind::Transient => hop(status >= 408 || error.code.as_deref().and_then(kind_from_code) == Some(ErrorKind::Transient)),
         ErrorKind::InvalidRequest => {
             let code = error.code.as_deref().unwrap_or_default();
-            hop(status == 404
-                || status == 410
-                || matches!(code, "model_not_found" | "model_not_supported")
-                || names_unavailable_model(&error.message))
+            hop(status == 404 || status == 410 || matches!(code, "model_not_found" | "model_not_supported") || names_unavailable_model(&error.message))
         }
         ErrorKind::ContextOverflow => RouteVerdict::Context,
         _ => RouteVerdict::Stay,
@@ -231,8 +226,10 @@ fn usage_since(total: &Usage, earlier: Option<&Usage>) -> Option<Usage> {
         raw: None,
         cost: total.cost.map(|c| UsdTicks(c.0.saturating_sub(earlier.cost.map_or(0, |e| e.0)))),
     };
-    let any = out.input_tokens + out.output_tokens + out.cache_read_tokens + out.cache_write_tokens + out.cache_write_1h_tokens + out.reasoning_tokens.unwrap_or(0) > 0
-        || out.cost.is_some_and(|c| c.0 > 0);
+    let any =
+        out.input_tokens + out.output_tokens + out.cache_read_tokens + out.cache_write_tokens + out.cache_write_1h_tokens + out.reasoning_tokens.unwrap_or(0)
+            > 0
+            || out.cost.is_some_and(|c| c.0 > 0);
     any.then_some(out)
 }
 
@@ -311,16 +308,9 @@ impl RouteHop {
         };
         let mut attempts = tried.clone();
         attempts.push(self.failure(session, &error));
-        let lines = attempts
-            .iter()
-            .map(|a| format!("{}: {}", self.label(a), text(a.get("error"))))
-            .collect::<Vec<_>>()
-            .join("; ");
+        let lines = attempts.iter().map(|a| format!("{}: {}", self.label(a), text(a.get("error")))).collect::<Vec<_>>().join("; ");
         let head = match skipped {
-            Some(next) => format!(
-                "Fallback chain stopped before {} (its context window is not larger) — tried",
-                self.label(next)
-            ),
+            Some(next) => format!("Fallback chain stopped before {} (its context window is not larger) — tried", self.label(next)),
             None => "Every model in the fallback chain failed —".to_owned(),
         };
         error.message = format!("{}\n{head} {lines}", error.message);
@@ -563,7 +553,11 @@ impl RouteHop {
             checkpoint_route_changed: session.get("activeTurnCheckpoint").is_some_and(Value::is_object),
         };
         let notice = notice_text(&self.label(&session), &self.label(next), ErrorKind::Transient);
-        self.usage_hops.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(UsageHop { provider: text(session.get("provider")), model: text(session.get("model")), usage: None });
+        self.usage_hops.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(UsageHop {
+            provider: text(session.get("provider")),
+            model: text(session.get("model")),
+            usage: None,
+        });
         self.failed_here.lock().unwrap_or_else(std::sync::PoisonError::into_inner).push(session.clone());
         let switch = self.seat(next, provider, write, notice).await?;
         let provider = switch.provider.clone();
@@ -864,7 +858,15 @@ mod reconsider_tests {
 
     /// A host over `session` whose `gone` providers are not available and whose next writes fail with `failing`.
     fn stub(session: Value, gone: &[&'static str], failing: &[&'static str]) -> Host {
-        Host { session, config: config(), evidence: HashMap::new(), writes: Mutex::default(), gone: gone.to_vec(), init_errors: Vec::new(), failing: Mutex::new(failing.iter().copied().collect()) }
+        Host {
+            session,
+            config: config(),
+            evidence: HashMap::new(),
+            writes: Mutex::default(),
+            gone: gone.to_vec(),
+            init_errors: Vec::new(),
+            failing: Mutex::new(failing.iter().copied().collect()),
+        }
     }
 
     fn hop_over(host: Host) -> (RouteHop, Arc<Host>) {
@@ -880,11 +882,7 @@ mod reconsider_tests {
 
     #[tokio::test]
     async fn the_first_unsent_request_leaves_only_a_proven_exhausted_primary_in_order() {
-        for (primary, first_alternative, expected) in [
-            (Unknown, Eligible, None),
-            (Exhausted, Unknown, None),
-            (Exhausted, Eligible, Some("astra")),
-        ] {
+        for (primary, first_alternative, expected) in [(Unknown, Eligible, None), (Exhausted, Unknown, None), (Exhausted, Eligible, Some("astra"))] {
             let fresh = json!({ "id": "sess_x", "agent": "mixy", "provider": "anthropic-oauth", "model": "fable" });
             let (hop, _) = hop(fresh, &[("fable", primary), ("astra", first_alternative), ("gem", Eligible)]);
             let switched = hop.reconsider(None).await.unwrap();
@@ -928,7 +926,7 @@ mod reconsider_tests {
         assert!(route.unavailable(refusal).await.expect("no hop failed").is_none(), "no other route is available");
         assert!(host.writes.lock().unwrap().is_empty());
 
-        let failing = stub(fresh(),&[], &["the tool surface could not be rebuilt"]);
+        let failing = stub(fresh(), &[], &["the tool surface could not be rebuilt"]);
         let (route, host) = hop_over(failing);
         assert_eq!(route.unavailable(refusal).await.err().as_deref(), Some("the tool surface could not be rebuilt"));
         assert_eq!(host.writes.lock().unwrap().len(), 1, "the session was written before the step failed");
@@ -946,7 +944,7 @@ mod reconsider_tests {
         assert!(switch.notice.contains("available again"), "{}", switch.notice);
         assert_eq!(host.writes.lock().unwrap()[0].1.index, 0);
 
-        let still_gone = stub(diverted,&["anthropic-oauth"], &[]);
+        let still_gone = stub(diverted, &["anthropic-oauth"], &[]);
         let (route, host) = hop_over(still_gone);
         assert!(route.reconsider(None).await.unwrap().is_none());
         assert!(host.writes.lock().unwrap().is_empty());
@@ -989,7 +987,9 @@ mod reconsider_tests {
             error.message = "overloaded".into();
             error
         };
-        for (second, gone, lands) in [(PROVIDER_UNAVAILABLE, &[][..], "astra"), (PROVIDER_UNAVAILABLE, &["openai-oauth"][..], "gem"), ("rate_limited", &[][..], "gem")] {
+        for (second, gone, lands) in
+            [(PROVIDER_UNAVAILABLE, &[][..], "astra"), (PROVIDER_UNAVAILABLE, &["openai-oauth"][..], "gem"), ("rate_limited", &[][..], "gem")]
+        {
             let (route, host) = hop_over(stub(on_primary(second), gone, &[]));
             let RouteDecision::Switch(switch) = route.decide(overloaded(), None).await else { panic!("{second} {gone:?}: the hop runs") };
             assert_eq!(switch.model, lands, "{second} {gone:?}");
@@ -1064,7 +1064,10 @@ mod reconsider_tests {
     async fn an_older_reason_does_not_override_the_current_diversion() {
         for older in [PROVIDER_UNAVAILABLE, "quota_exhausted"] {
             let mut diverted = session("openai-oauth", "astra", older);
-            diverted["routeFallbackFailures"].as_array_mut().unwrap().push(json!({ "provider": "anthropic-oauth", "model": "fable", "kind": "permission", "error": "denied" }));
+            diverted["routeFallbackFailures"]
+                .as_array_mut()
+                .unwrap()
+                .push(json!({ "provider": "anthropic-oauth", "model": "fable", "kind": "permission", "error": "denied" }));
             let (route, host) = hop(diverted, &[("fable", Eligible), ("astra", Eligible)]);
             assert!(route.reconsider(None).await.unwrap().is_none(), "{older}");
             assert!(host.writes.lock().unwrap().is_empty());
@@ -1083,7 +1086,10 @@ mod reconsider_tests {
             assert_eq!(writes.len(), 2, "the switch back, then the restore");
             let (restored, write) = &writes[1];
             assert_eq!((restored["provider"].as_str(), restored["model"].as_str()), (Some("openai-oauth"), Some("astra")));
-            assert_eq!((write.index, write.primary.as_ref(), &write.failures), (1, diverted.get("routeFallbackPrimary"), diverted["routeFallbackFailures"].as_array().unwrap()));
+            assert_eq!(
+                (write.index, write.primary.as_ref(), &write.failures),
+                (1, diverted.get("routeFallbackPrimary"), diverted["routeFallbackFailures"].as_array().unwrap())
+            );
         }
         assert!(route.reconsider(None).await.unwrap().is_none(), "not tried again this run");
         assert_eq!(host.writes.lock().unwrap().len(), 2);
@@ -1145,27 +1151,4 @@ mod reconsider_tests {
 }
 
 #[cfg(test)]
-mod tests {
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-}
-
+mod tests {}

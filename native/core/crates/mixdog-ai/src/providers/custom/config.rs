@@ -39,8 +39,7 @@ const SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
 const UNSAFE_KEYS: [&str; 3] = ["__proto__", "constructor", "prototype"];
 const AUTH_HEADERS: [&str; 3] = ["authorization", "x-api-key", "api-key"];
 /// Transport headers the HTTP client owns; model-level headers may not set them.
-pub const MODEL_REFUSED_HEADERS: [&str; 6] =
-    ["content-type", "content-length", "host", "connection", "transfer-encoding", "proxy-authorization"];
+pub const MODEL_REFUSED_HEADERS: [&str; 6] = ["content-type", "content-length", "host", "connection", "transfer-encoding", "proxy-authorization"];
 const RESERVED_BODY_KEYS: [&str; 17] = [
     "model",
     "messages",
@@ -60,17 +59,8 @@ const RESERVED_BODY_KEYS: [&str; 17] = [
     "max_output_tokens",
     "max_completion_tokens",
 ];
-const OVERRIDE_KEYS: [&str; 9] = [
-    "manual",
-    "hidden",
-    "name",
-    "contextWindow",
-    "maxOutputTokens",
-    "supportsVision",
-    "reasoning",
-    "requestBody",
-    "requestHeaders",
-];
+const OVERRIDE_KEYS: [&str; 9] =
+    ["manual", "hidden", "name", "contextWindow", "maxOutputTokens", "supportsVision", "reasoning", "requestBody", "requestHeaders"];
 const REASONING_KEYS: [&str; 4] = ["levels", "wireFormat", "wireValues", "replay"];
 const DISCOVERY_KEYS: [&str; 1] = ["newModelsHidden"];
 /// v2 config fields plus the transport fields callers pass alongside them.
@@ -102,9 +92,7 @@ fn fail<T>(message: impl AsRef<str>) -> Checked<T> {
 /// `CUSTOM_API_KEY_ENV_RE`.
 pub fn is_api_key_env(name: &str) -> bool {
     let mut chars = name.chars();
-    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_')
-        && name.len() <= 128
-        && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+    chars.next().is_some_and(|c| c.is_ascii_alphabetic() || c == '_') && name.len() <= 128 && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn text(value: Option<&Value>) -> String {
@@ -182,9 +170,7 @@ fn assert_safe_base_url(raw: &str) -> Checked<()> {
     if scheme == "http" {
         let host = parsed.host_str().unwrap_or_default().to_lowercase();
         if !matches!(host.as_str(), "localhost" | "127.0.0.1" | "[::1]") {
-            return Err(format!(
-                "[provider:custom] baseURL must use https for non-localhost host (got http://{host})"
-            ));
+            return Err(format!("[provider:custom] baseURL must use https for non-localhost host (got http://{host})"));
         }
     }
     Ok(())
@@ -445,8 +431,7 @@ fn normalize_override(id: &str, raw: &Value, protocol: &str, legacy: bool) -> Ch
     if !body.is_empty() {
         out.insert("requestBody".into(), Value::Object(body));
     }
-    let headers =
-        normalize_headers(object.get("requestHeaders"), &format!("{label}.requestHeaders"), &MODEL_REFUSED_HEADERS)?;
+    let headers = normalize_headers(object.get("requestHeaders"), &format!("{label}.requestHeaders"), &MODEL_REFUSED_HEADERS)?;
     if !headers.is_empty() {
         out.insert("requestHeaders".into(), Value::Object(headers));
     }

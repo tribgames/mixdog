@@ -53,10 +53,10 @@ pub type Record = Obj;
 
 mod changes;
 
-pub use changes::SharedRecord;
 #[cfg(test)]
 pub(super) use changes::CHANGES_LOCK_WAIT;
 use changes::ChangeCache;
+pub use changes::SharedRecord;
 
 fn root_key(value: &str) -> String {
     let trimmed = clean(value).trim_end_matches(['/', '\\']).to_owned();
@@ -331,10 +331,8 @@ impl Store {
             let n = obj_f64(turn, "generation");
             if n.is_nan() { 0.0 } else { n }
         };
-        let mut turns: Vec<Obj> = obj_list(existing.as_ref().unwrap_or(&Obj::new()), "turns")
-            .into_iter()
-            .filter(|entry| obj_f64(entry, "generation") != generation)
-            .collect();
+        let mut turns: Vec<Obj> =
+            obj_list(existing.as_ref().unwrap_or(&Obj::new()), "turns").into_iter().filter(|entry| obj_f64(entry, "generation") != generation).collect();
         let tool_files: Vec<String> = {
             let mut out: Vec<String> = Vec::new();
             for f in strings(turn.get("toolFiles")) {
@@ -398,10 +396,11 @@ impl Store {
         }
         let record = self.read_record_file(&self.record_path(id)).await?;
         let turns = obj_list(&record, "turns");
-        turns
-            .into_iter()
-            .rev()
-            .find(|turn| !obj_str(turn, "baselineTree").is_empty() && !obj_str(turn, "root").is_empty() && turn.get("toolFiles").and_then(Value::as_array).is_some_and(|a| !a.is_empty()))
+        turns.into_iter().rev().find(|turn| {
+            !obj_str(turn, "baselineTree").is_empty()
+                && !obj_str(turn, "root").is_empty()
+                && turn.get("toolFiles").and_then(Value::as_array).is_some_and(|a| !a.is_empty())
+        })
     }
 
     /// Earliest retained baseline plus every path attributed to this session, grouped by

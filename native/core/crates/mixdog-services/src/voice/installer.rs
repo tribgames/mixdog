@@ -13,7 +13,6 @@
 //! 1200 s), the lock is polled every 250 ms and reclaimed when its holder is dead, or older
 //! than 30 minutes, and a failed install removes its staging directory.
 
-
 /// A body on the durability lane that publishes (it gets the proof `mixdog-statefile` asks for):
 /// `with_proof!(self, move |proof| ...)` is a `Result<R, String>`. A macro, so the closure is
 /// written at the `submit_wait` call (a closure handed on through a generic `async fn` makes the
@@ -281,7 +280,8 @@ fn gc_staging_partials(dir: &Path) {
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn gc_unknown_model_files(manifest: &Value, dir: &Path) {
     let mut keep: BTreeSet<&str> = BTreeSet::new();
-    let declared = std::iter::once(manifest.get("model")).chain(manifest.get("models").and_then(Value::as_object).map(|m| m.values()).into_iter().flatten().map(Some));
+    let declared =
+        std::iter::once(manifest.get("model")).chain(manifest.get("models").and_then(Value::as_object).map(|m| m.values()).into_iter().flatten().map(Some));
     for entry in declared.flatten() {
         if let Some(filename) = entry.get("filename").and_then(Value::as_str).filter(|f| !f.is_empty()) {
             keep.insert(filename);
@@ -535,22 +535,54 @@ trait Steps {
     async fn mkdir(&self, dir: &Path) -> Result<(), String>;
     async fn acquire(&self, root: &Path, name: &str) -> Result<Lock, String>;
     async fn release(&self, lock: Lock);
-    async fn download(&self, progress: Option<ProgressSink>, url: &str, dest: &Path, expected: u64, timeout: Duration, phase: &'static str) -> Result<(), String>;
+    async fn download(
+        &self,
+        progress: Option<ProgressSink>,
+        url: &str,
+        dest: &Path,
+        expected: u64,
+        timeout: Duration,
+        phase: &'static str,
+    ) -> Result<(), String>;
     async fn verify(&self, path: &Path, expected: &str) -> Result<(), String>;
     async fn unzip(&self, archive: &Path, dest: &Path) -> Result<(), String>;
     async fn publish(&self, staging: PathBuf, active_dir: PathBuf, root: PathBuf, active_name: String) -> Result<(), String>;
     async fn ensure_whisper(&self, progress: Option<ProgressSink>) -> Result<(), String>;
-    async fn stage_whisper(&self, progress: Option<ProgressSink>, variant: &Value, env: &VariantEnv, key: &str, destination: (&Path, &str, &Path)) -> Result<(), String>;
+    async fn stage_whisper(
+        &self,
+        progress: Option<ProgressSink>,
+        variant: &Value,
+        env: &VariantEnv,
+        key: &str,
+        destination: (&Path, &str, &Path),
+    ) -> Result<(), String>;
     async fn begin_staging(&self, root: &Path) -> Result<PathBuf, String>;
-    async fn fill_whisper(&self, progress: Option<ProgressSink>, variant: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String>;
+    async fn fill_whisper(
+        &self,
+        progress: Option<ProgressSink>,
+        variant: &Value,
+        key: &str,
+        root: &Path,
+        active_name: &str,
+        staging: &Path,
+    ) -> Result<(), String>;
     async fn extras(&self, progress: Option<ProgressSink>, extras: Option<&Value>, staging: &Path) -> Result<(), String>;
     async fn ensure_model(&self, progress: Option<ProgressSink>) -> Result<(), String>;
     async fn matches_or_removed(&self, path: &Path, expected: &str) -> Result<bool, String>;
     async fn stage_model(&self, progress: Option<ProgressSink>, model: &Value, dir: &Path, path: &Path) -> Result<(), String>;
     async fn fill_model(&self, progress: Option<ProgressSink>, model: &Value, dir: &Path, path: &Path, staging: &Path) -> Result<(), String>;
     async fn ensure_ffmpeg(&self, progress: Option<ProgressSink>) -> Result<(), String>;
-    async fn stage_ffmpeg(&self, progress: Option<ProgressSink>, entry: &Value, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String>;
-    async fn fill_ffmpeg(&self, progress: Option<ProgressSink>, entry: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String>;
+    async fn stage_ffmpeg(
+        &self,
+        progress: Option<ProgressSink>,
+        entry: &Value,
+        key: &str,
+        root: &Path,
+        active_name: &str,
+        command: &Path,
+    ) -> Result<(), String>;
+    async fn fill_ffmpeg(&self, progress: Option<ProgressSink>, entry: &Value, key: &str, root: &Path, active_name: &str, staging: &Path)
+    -> Result<(), String>;
 }
 
 #[async_trait]
@@ -587,10 +619,17 @@ impl Steps for ManagedVoiceInstaller {
     }
 
     /// `downloadFile`: one attempt; the destination is removed on any failure.
-    async fn download(&self, progress: Option<ProgressSink>, url: &str, dest: &Path, expected: u64, timeout: Duration, phase: &'static str) -> Result<(), String> {
-        let sink: Option<ProgressSink> = progress.map(|inner| {
-            Arc::new(move |progress: Progress| inner(Progress { label: phase.to_owned(), ..progress })) as ProgressSink
-        });
+    async fn download(
+        &self,
+        progress: Option<ProgressSink>,
+        url: &str,
+        dest: &Path,
+        expected: u64,
+        timeout: Duration,
+        phase: &'static str,
+    ) -> Result<(), String> {
+        let sink: Option<ProgressSink> =
+            progress.map(|inner| Arc::new(move |progress: Progress| inner(Progress { label: phase.to_owned(), ..progress })) as ProgressSink);
         let limit = if expected == 0 { u64::MAX } else { expected };
         let spec = Spec { url, dest, max_bytes: limit, expected_bytes: expected, label: "voice runtime download", lane: self.parts.bulk };
         let outcome = mixdog_rt::time::timeout(timeout, download_once(&spec, sink.as_ref(), &CancellationToken::new())).await;
@@ -618,15 +657,19 @@ impl Steps for ManagedVoiceInstaller {
         let (archive, dest) = (archive.to_owned(), dest.to_owned());
         // Node names the tool it spawned; the tool's own stderr is not reproducible here.
         let tool = if cfg!(target_os = "linux") { "unzip" } else { "tar" };
-        run_on_lane(self.parts.bulk, move || extract_zip(&archive, &dest, |_| false).map(drop).map_err(|e| format!("[voice-runtime] zip extract failed via {tool}: {e}")))
-            .await?
+        run_on_lane(self.parts.bulk, move || {
+            extract_zip(&archive, &dest, |_| false).map(drop).map_err(|e| format!("[voice-runtime] zip extract failed via {tool}: {e}"))
+        })
+        .await?
     }
 
     /// `renameWithRetrySync` + the `active-version` pointer, published last.
     async fn publish(&self, staging: PathBuf, active_dir: PathBuf, root: PathBuf, active_name: String) -> Result<(), String> {
         with_proof!(self, move |proof| -> io::Result<()> {
             rename_with_retry(proof, &staging, &active_dir)?;
-            write_file(proof, &root.join("active-version"), active_name.as_bytes(), &Opts { fsync_dir: true, ..Opts::default() }).map(drop).map_err(|e| io::Error::other(e.to_string()))
+            write_file(proof, &root.join("active-version"), active_name.as_bytes(), &Opts { fsync_dir: true, ..Opts::default() })
+                .map(drop)
+                .map_err(|e| io::Error::other(e.to_string()))
         })?
         .map_err(|e| e.to_string())
     }
@@ -658,7 +701,14 @@ impl Steps for ManagedVoiceInstaller {
         outcome
     }
 
-    async fn stage_whisper(&self, progress: Option<ProgressSink>, variant: &Value, env: &VariantEnv, key: &str, destination: (&Path, &str, &Path)) -> Result<(), String> {
+    async fn stage_whisper(
+        &self,
+        progress: Option<ProgressSink>,
+        variant: &Value,
+        env: &VariantEnv,
+        key: &str,
+        destination: (&Path, &str, &Path),
+    ) -> Result<(), String> {
         let (root, active_name, command) = destination;
         if ready(self.parts.durability, command.to_owned(), root.to_owned(), active_name.to_owned(), "whisper-".to_owned()).await? {
             return Ok(());
@@ -694,7 +744,15 @@ impl Steps for ManagedVoiceInstaller {
         Ok(staging)
     }
 
-    async fn fill_whisper(&self, progress: Option<ProgressSink>, variant: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String> {
+    async fn fill_whisper(
+        &self,
+        progress: Option<ProgressSink>,
+        variant: &Value,
+        key: &str,
+        root: &Path,
+        active_name: &str,
+        staging: &Path,
+    ) -> Result<(), String> {
         let (url, executable) = (text(variant, "url"), text(variant, "executable"));
         let archive = staging.join(format!("whisper.{}", text(variant, "format")));
         let id = text(variant, "id");
@@ -739,13 +797,8 @@ impl Steps for ManagedVoiceInstaller {
             let extract_dir = staging.join(format!(".extra-{tag}"));
             self.mkdir(&extract_dir).await?;
             self.unzip(&archive, &extract_dir).await?;
-            let files: Vec<(String, String)> = extra
-                .get("files")
-                .and_then(Value::as_array)
-                .into_iter()
-                .flatten()
-                .map(|f| (text(f, "from").to_owned(), text(f, "to").to_owned()))
-                .collect();
+            let files: Vec<(String, String)> =
+                extra.get("files").and_then(Value::as_array).into_iter().flatten().map(|f| (text(f, "from").to_owned(), text(f, "to").to_owned())).collect();
             let (staging, tag_owned) = (staging.to_owned(), tag.clone());
             with_proof!(self, move |proof| -> Result<(), String> {
                 for (from, to) in &files {
@@ -798,7 +851,10 @@ impl Steps for ManagedVoiceInstaller {
         if actual == expected {
             return Ok(true);
         }
-        mixdog_rt::node_stderr!("[voice-runtime] model {} sha256 mismatch (expected {expected}, got {actual}) — re-fetching", path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default());
+        mixdog_rt::node_stderr!(
+            "[voice-runtime] model {} sha256 mismatch (expected {expected}, got {actual}) — re-fetching",
+            path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default()
+        );
         let path = path.to_owned();
         fs(self.parts.durability, move || remove_any(&path)).await?;
         Ok(false)
@@ -849,7 +905,15 @@ impl Steps for ManagedVoiceInstaller {
         outcome
     }
 
-    async fn stage_ffmpeg(&self, progress: Option<ProgressSink>, entry: &Value, key: &str, root: &Path, active_name: &str, command: &Path) -> Result<(), String> {
+    async fn stage_ffmpeg(
+        &self,
+        progress: Option<ProgressSink>,
+        entry: &Value,
+        key: &str,
+        root: &Path,
+        active_name: &str,
+        command: &Path,
+    ) -> Result<(), String> {
         if ready(self.parts.durability, command.to_owned(), root.to_owned(), active_name.to_owned(), "ffmpeg-".to_owned()).await? {
             return Ok(());
         }
@@ -862,7 +926,15 @@ impl Steps for ManagedVoiceInstaller {
         outcome
     }
 
-    async fn fill_ffmpeg(&self, progress: Option<ProgressSink>, entry: &Value, key: &str, root: &Path, active_name: &str, staging: &Path) -> Result<(), String> {
+    async fn fill_ffmpeg(
+        &self,
+        progress: Option<ProgressSink>,
+        entry: &Value,
+        key: &str,
+        root: &Path,
+        active_name: &str,
+        staging: &Path,
+    ) -> Result<(), String> {
         let (format, executable) = (text(entry, "format"), text(entry, "executable"));
         let archive = staging.join(format!("ffmpeg.{format}"));
         mixdog_rt::node_stderr!("[voice-runtime] fetching {active_name} for {key} ({} MB) ...", megabytes(size(entry)));

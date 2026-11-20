@@ -19,11 +19,11 @@ use mixdog_tools::orch::util::PortError;
 use mixdog_tools::state::react::{ReactResult, ReactSeat, Reactions};
 use serde_json::{Value, json};
 
-use mixdog_core_ports::ports::threads::port_error;
 use crate::run_host::reactions::ReactionTargets;
 use mixdog_core_base::rooms::ids::agent_id_of_home_session;
 use mixdog_core_base::rooms::ids::room_member_of_session;
 use mixdog_core_base::rooms::ids::room_session_id;
+use mixdog_core_ports::ports::threads::port_error;
 use mixdog_core_session::session::SessionDirectory;
 
 pub struct SessionReactions {
@@ -41,19 +41,14 @@ impl SessionReactions {
 
 /// The bot whose own chat `session_id` is, derived from the id alone.
 fn seat_of(session_id: &str) -> Option<ReactSeat> {
-    room_member_of_session(session_id)
-        .map(|member| member.agent_id)
-        .or_else(|| agent_id_of_home_session(session_id))
-        .map(|agent_id| ReactSeat { agent_id })
+    room_member_of_session(session_id).map(|member| member.agent_id).or_else(|| agent_id_of_home_session(session_id)).map(|agent_id| ReactSeat { agent_id })
 }
 
 /// The session's refusal (no such message, an emoji another bot already left) reaches the model as
 /// Node's own error text.
 fn refusal(error: CoreError) -> PortError {
     match error {
-        CoreError::DomainError { message: Some(message), .. } => {
-            PortError::Failed { capability: "session".into(), message: message.to_string() }
-        }
+        CoreError::DomainError { message: Some(message), .. } => PortError::Failed { capability: "session".into(), message: message.to_string() },
         other => port_error(other),
     }
 }
@@ -75,14 +70,7 @@ impl Reactions for SessionReactions {
         seat_of(thread.as_str())
     }
 
-    async fn react(
-        &self,
-        thread: &ThreadId,
-        call: &ToolCallId,
-        seat: &ReactSeat,
-        emoji: Option<&str>,
-        messages_back: u64,
-    ) -> Result<ReactResult, PortError> {
+    async fn react(&self, thread: &ThreadId, call: &ToolCallId, seat: &ReactSeat, emoji: Option<&str>, messages_back: u64) -> Result<ReactResult, PortError> {
         let room = room_member_of_session(thread.as_str());
         let target = match &room {
             Some(member) => room_session_id(&member.room_id).map(ThreadId::from).unwrap_or_else(|| thread.clone()),
@@ -98,19 +86,13 @@ impl Reactions for SessionReactions {
             "othersKeep": room.is_some(),
             "callId": call,
         });
-        let reply = handle
-            .request(CoreRequest { method: Method("thread/reactions/set"), params, op: None, ctx })
-            .await
-            .map_err(refusal)?;
+        let reply = handle.request(CoreRequest { method: Method("thread/reactions/set"), params, op: None, ctx }).await.map_err(refusal)?;
         match reply {
             Reply::Value(value) => {
                 note_hit(&self.targets, thread.as_str(), call.as_str(), emoji.is_some(), room.is_some(), &value);
                 Ok(ReactResult { changed: value.get("changed").and_then(Value::as_bool).unwrap_or(false) })
             }
-            Reply::Subscribe(_) => Err(PortError::Failed {
-                capability: "session".into(),
-                message: "thread/reactions/set subscribed".into(),
-            }),
+            Reply::Subscribe(_) => Err(PortError::Failed { capability: "session".into(), message: "thread/reactions/set subscribed".into() }),
         }
     }
 }

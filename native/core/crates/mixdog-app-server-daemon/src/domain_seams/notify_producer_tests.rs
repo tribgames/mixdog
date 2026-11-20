@@ -5,13 +5,11 @@
 //! `final-answer-watcher.test.mjs` = FAW, `push-turn-events.test.mjs` = PTE, `push-notifier.ts`'s rules = PN).
 
 use std::collections::HashSet;
-use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, AtomicI64, Ordering};
 
 use async_trait::async_trait;
-use mixdog_connections::notifier::{
-    AnswerReadError, ANSWER_POLL_MS, LEAD_FINISHED_MS, READ_FAILURE_LIMIT, READ_RETRY_MAX_MS, STABILIZE_MS,
-};
+use mixdog_connections::notifier::{ANSWER_POLL_MS, AnswerReadError, LEAD_FINISHED_MS, READ_FAILURE_LIMIT, READ_RETRY_MAX_MS, STABILIZE_MS};
 use mixdog_connections::server_feed::{FinalAnswer, FinalAnswerStatus};
 use mixdog_core_api::CoreError;
 use mixdog_core_api::host::HostError;
@@ -56,7 +54,9 @@ struct Listeners {
 impl AudienceSource for Listeners {
     async fn audience(&self, thread_id: &str) -> Audience {
         let gate = self.audience_gate.lock().unwrap().clone();
-        if let Some(gate) = gate { gate.wait().await; }
+        if let Some(gate) = gate {
+            gate.wait().await;
+        }
         let hosts = if self.supported.load(Ordering::SeqCst) {
             let shown = self.on_screen.lock().unwrap().contains(thread_id);
             vec![HostConnection { connection_id: "host".into(), foreground_thread: shown.then(|| thread_id.to_owned()) }]
@@ -307,7 +307,6 @@ fn a_blocked_goal_is_identified_by_its_id_and_blocker() {
     assert_eq!(blocked_goal_key(None), None);
 }
 
-
 #[derive(Default)]
 struct AsyncGate {
     entered: tokio::sync::Notify,
@@ -329,7 +328,9 @@ struct InitialGoal {
 #[async_trait]
 impl GoalSnapshots for InitialGoal {
     async fn snapshot(&self, _: &str) -> Result<Option<Value>, String> {
-        if let Some(gate) = &self.gate { gate.wait().await; }
+        if let Some(gate) = &self.gate {
+            gate.wait().await;
+        }
         Ok(self.value.clone())
     }
 }
@@ -337,13 +338,14 @@ impl GoalSnapshots for InitialGoal {
 fn attach_initial_goal(rig: &Rig, gate: Option<Arc<AsyncGate>>) -> Arc<GoalFollower> {
     let follower = Arc::new(GoalFollower {
         source: Arc::new(InitialGoal { value: Some(json!({ "id": "g1", "status": "blocked", "blocker": "key" })), gate }),
-        sender: rig.input.0.clone(), revisions: Mutex::default(),
-        stopped: CancellationToken::new(), log: Arc::new(|_| {}),
+        sender: rig.input.0.clone(),
+        revisions: Mutex::default(),
+        stopped: CancellationToken::new(),
+        log: Arc::new(|_| {}),
     });
     *rig.input.1.lock().unwrap() = Some(follower.clone());
     follower
 }
-
 
 async fn advance(ms: u64) {
     settle().await;
@@ -508,7 +510,13 @@ async fn this_pcs_preferences_decide_when_the_toast_is_made() {
 #[tokio::test(start_paused = true)]
 async fn a_failed_turn_notifies_only_with_errors_on_in_this_pcs_words() {
     let rig = rig();
-    rig.phone("phone", DevicePreferences { events: mixdog_core_domains::notify::decision::EventToggles { error: true, ..DevicePreferences::default().events }, ..Default::default() });
+    rig.phone(
+        "phone",
+        DevicePreferences {
+            events: mixdog_core_domains::notify::decision::EventToggles { error: true, ..DevicePreferences::default().events },
+            ..Default::default()
+        },
+    );
     let mut failed = done("");
     failed.status = FinalAnswerStatus::Failed;
     rig.answer("a", Ok(Some(failed.clone())));
@@ -1169,8 +1177,11 @@ async fn an_initial_goal_snapshot_cannot_overwrite_a_newer_change_or_deletion() 
         let follower = attach_initial_goal(&rig, Some(gate.clone()));
         rig.input.row(row("code", "Task", false));
         gate.entered.notified().await;
-        if deleted { rig.input.row_gone("code"); }
-        else { follower.changed("code", None); }
+        if deleted {
+            rig.input.row_gone("code");
+        } else {
+            follower.changed("code", None);
+        }
         settle().await;
         gate.release.notify_one();
         advance(DESKTOP_HOLD_MS).await;
@@ -1182,10 +1193,8 @@ async fn an_initial_goal_snapshot_cannot_overwrite_a_newer_change_or_deletion() 
 async fn a_real_goal_subscription_seeds_existing_state_and_remains_live_after_binding() {
     use mixdog_core_goal::goal::{GoalConfig, GoalEnv, GoalRuntime};
     let dir = tempfile::tempdir().unwrap();
-    let goals = Arc::new(GoalRuntime::new(
-        GoalConfig::new(dir.path().to_string_lossy().into_owned()),
-        GoalEnv::system(mixdog_rt::testing::tokens().durability_io),
-    ));
+    let goals =
+        Arc::new(GoalRuntime::new(GoalConfig::new(dir.path().to_string_lossy().into_owned()), GoalEnv::system(mixdog_rt::testing::tokens().durability_io)));
     goals.tool_create("code", "Finish the task".into(), None).await.unwrap();
     goals.tool_settle("code", "block", Some("Need a key".into())).await.unwrap();
     let mut rig = rig();
@@ -1193,13 +1202,21 @@ async fn a_real_goal_subscription_seeds_existing_state_and_remains_live_after_bi
     rig._notifier.follow_goals(goals.clone());
     rig.input.row(row("code", "Task", false));
     tokio::time::timeout(Duration::from_secs(10), async {
-        while rig.pushes().is_empty() { tokio::task::yield_now().await; }
-    }).await.unwrap();
+        while rig.pushes().is_empty() {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     assert_eq!(rig.pushes().len(), 1, "no mutation was needed to discover the saved blocked goal");
     goals.tool_settle("code", "block", Some("Need another key".into())).await.unwrap();
     tokio::time::timeout(Duration::from_secs(10), async {
-        while rig.pushes().len() < 2 { tokio::task::yield_now().await; }
-    }).await.unwrap();
+        while rig.pushes().len() < 2 {
+            tokio::task::yield_now().await;
+        }
+    })
+    .await
+    .unwrap();
     assert_eq!(rig.pushes().len(), 2, "the binding retained its subscription");
     drop(rig);
     goals.close().await;

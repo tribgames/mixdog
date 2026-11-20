@@ -9,15 +9,7 @@ mod tests {
     use mixdog_image_egress::{Column, ImageKind};
 
     fn facts(branch: WireBranch, model: &str, vision: Vision) -> RouteFacts {
-        RouteFacts {
-            endpoint: "ep".into(),
-            account: "acct".into(),
-            model: model.into(),
-            branch,
-            operation: "send".into(),
-            capability_revision: 1,
-            vision,
-        }
+        RouteFacts { endpoint: "ep".into(), account: "acct".into(), model: model.into(), branch, operation: "send".into(), capability_revision: 1, vision }
     }
 
     #[test]

@@ -14,7 +14,9 @@ use mixdog_raster::{Blend, Fit, Image, Overlay, Placement, ResizeOptions, compos
 use serde_json::{Map, Value, json};
 
 use super::pptx_session::{AuthorError, land_staged_deck, release_existing_session, release_staging_target, staging_target, throw_if_authoring_cancelled};
-use super::{AuthorCall, AuthorHost, flag_is, mark_authored_from_html, opens_with_markup, pick, render_args, replaced_edits_of, requested_path, script_of, script_source};
+use super::{
+    AuthorCall, AuthorHost, flag_is, mark_authored_from_html, opens_with_markup, pick, render_args, replaced_edits_of, requested_path, script_of, script_source,
+};
 use crate::session::mode::validate_author_mode;
 use crate::session::registry::lock;
 use crate::session::working_copy::full_path;
@@ -224,7 +226,14 @@ pub async fn author_html_document<H: AuthorHost>(host: &H, args: &Value, call: &
 }
 
 /// The page images of the render and, where the browser kept its own pictures, the comparison images beside them.
-async fn render_and_compare<H: AuthorHost>(host: &H, session: &crate::session::SessionHandle, args: &Value, cwd: &str, target: &str, run: &Value) -> Result<(Map<String, Value>, Value), AuthorError> {
+async fn render_and_compare<H: AuthorHost>(
+    host: &H,
+    session: &crate::session::SessionHandle,
+    args: &Value,
+    cwd: &str,
+    target: &str,
+    run: &Value,
+) -> Result<(Map<String, Value>, Value), AuthorError> {
     let rendered = host.render(session, &render_args(args), Path::new(cwd)).await?;
     let mut render = pick(&rendered, &["output", "pageCount", "visualCoverage", "images", "reviewToken"]);
     let images = match rendered.get("_images") {
@@ -245,7 +254,17 @@ enum Landed {
 }
 
 #[allow(clippy::too_many_arguments)]
-async fn stage_and_land<H: AuthorHost>(host: &H, args: &Value, call: &AuthorCall<'_>, html: &str, format: &str, mode: &str, target: &str, staging: &Path, source_path: &str) -> Result<Landed, AuthorError> {
+async fn stage_and_land<H: AuthorHost>(
+    host: &H,
+    args: &Value,
+    call: &AuthorCall<'_>,
+    html: &str,
+    format: &str,
+    mode: &str,
+    target: &str,
+    staging: &Path,
+    source_path: &str,
+) -> Result<Landed, AuthorError> {
     let signal = call.signal;
     throw_if_authoring_cancelled(signal, None)?;
     let run = run_kind(host, format, html, staging, Path::new(target), call).await?;

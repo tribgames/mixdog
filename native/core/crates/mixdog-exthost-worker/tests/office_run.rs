@@ -240,7 +240,6 @@ async fn a_filled_formula_range_of_five_thousand_rows_batch_returns() {
     }
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn calls_made_together_on_one_session_all_find_it() {
     let scratch = tempfile::tempdir().expect("scratch");
@@ -363,4 +362,3 @@ async fn a_refused_call_does_not_unpin_the_thread_from_the_worker_that_holds_its
     assert!(seen["result"]["isError"].is_null(), "the thread stayed on the worker of its session: {seen}");
     pool.close().await;
 }
-

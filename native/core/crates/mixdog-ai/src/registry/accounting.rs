@@ -236,7 +236,10 @@ pub struct Completed {
 pub enum Outcome<'a> {
     Completed(Completed),
     /// The user cancelled; `reported` is the last observed usage and `model` is its serving model when known.
-    Cancelled { reported: Option<Facts>, model: Option<String> },
+    Cancelled {
+        reported: Option<Facts>,
+        model: Option<String>,
+    },
     Failed(&'a ProviderError),
 }
 
@@ -322,23 +325,14 @@ pub struct RecordArgs {
 const STORED_STATUSES: [&str; 5] = ["completed", "retried", "substituted", "failed", "cancelled"];
 
 /// `makeUsageRecord(args)`. `new_id` makes the random id of a live record.
-pub fn make_usage_record(
-    args: &RecordArgs,
-    pricing: &dyn UsagePricing,
-    new_id: &dyn Fn() -> String,
-) -> Result<UsageRow, String> {
+pub fn make_usage_record(args: &RecordArgs, pricing: &dyn UsagePricing, new_id: &dyn Fn() -> String) -> Result<UsageRow, String> {
     make_usage_record_with(args, "", pricing, new_id)
 }
 
 /// [`make_usage_record`] for a request whose dispatched speed tier is known (`speed_tier`: `priority`, `fast`,
 /// `ultrafast`, or empty). The tier is only written beside the price snapshot as `sentSpeedTier`, for the ledger to group
 /// the call under Fast or Ultra Fast: price, cost and totals are those of the same record without it.
-pub fn make_usage_record_with(
-    args: &RecordArgs,
-    speed_tier: &str,
-    pricing: &dyn UsagePricing,
-    new_id: &dyn Fn() -> String,
-) -> Result<UsageRow, String> {
+pub fn make_usage_record_with(args: &RecordArgs, speed_tier: &str, pricing: &dyn UsagePricing, new_id: &dyn Fn() -> String) -> Result<UsageRow, String> {
     let provider = text(&args.provider);
     let model = text(&args.model);
     let requested_model = text(&args.requested_model);
@@ -374,10 +368,7 @@ pub fn make_usage_record_with(
     // OAuth/quota plans have value, not per-request invoices.
     let subscription = kind == "oauth";
     let reported = facts.input_tokens_known != Some(false) && !subscription && kind != "local" && supplied.is_some();
-    let no_tokens = priced.input == 0.0
-        && pos(facts.output_tokens) == 0.0
-        && pos(facts.cached_tokens) == 0.0
-        && pos(facts.cache_write_tokens) == 0.0;
+    let no_tokens = priced.input == 0.0 && pos(facts.output_tokens) == 0.0 && pos(facts.cached_tokens) == 0.0 && pos(facts.cache_write_tokens) == 0.0;
     let failed_empty = args.status == "failed" && facts.input_tokens_known != Some(false) && no_tokens;
     let mut cost_usd = priced.cost_usd;
     if kind == "local" {
@@ -613,11 +604,7 @@ impl SendAccounting {
     }
 
     /// Replaces the clock and the random id source (tests).
-    pub fn with_sources(
-        mut self,
-        now: Arc<dyn Fn() -> i64 + Send + Sync>,
-        new_id: Arc<dyn Fn() -> String + Send + Sync>,
-    ) -> Self {
+    pub fn with_sources(mut self, now: Arc<dyn Fn() -> i64 + Send + Sync>, new_id: Arc<dyn Fn() -> String + Send + Sync>) -> Self {
         self.now = now;
         self.new_id = new_id;
         self
@@ -638,9 +625,7 @@ impl SendAccounting {
     /// (`noteAbandonedUsage`): the enclosing send records it with its own row, under the speed of the attempt that was
     /// abandoned, which is the latest one noted until the next attempt dispatches.
     pub fn note_abandoned(&mut self, usage: &Usage, model: Option<String>) {
-        self.abandoned.push(Abandoned {
-            facts: Facts::from(usage), model, speed_tier: self.speed_tier.clone(), account: self.pinned_account.clone(),
-        });
+        self.abandoned.push(Abandoned { facts: Facts::from(usage), model, speed_tier: self.speed_tier.clone(), account: self.pinned_account.clone() });
     }
 
     async fn save(&self, row: Row<'_>, speed_tier: &str, pinned: Option<&str>, recorded: &mut Recorded) {
@@ -660,12 +645,7 @@ impl SendAccounting {
             Some(_) => {
                 let failed = matches!(row.outcome, Some(RowOutcome::Failed { .. }));
                 let substituted = identity.route_hop
-                    || served_model_substituted(
-                        &identity.provider,
-                        &identity.requested_model,
-                        &served_model,
-                        completed.is_some_and(|c| c.fallback),
-                    );
+                    || served_model_substituted(&identity.provider, &identity.requested_model, &served_model, completed.is_some_and(|c| c.fallback));
                 usage_request_status(failed, substituted, attempts).to_owned()
             }
         };
@@ -705,25 +685,14 @@ impl SendAccounting {
             source_type: identity.source_type.clone(),
             input_tokens_inclusive: identity.input_tokens_inclusive,
             media: None,
-            service_tier: completed
-                .and_then(|c| c.service_tier.clone())
-                .filter(|t| !t.is_empty())
-                .or_else(|| facts.raw_service_tier.clone()),
-            request_service_tier: Some(
-                completed
-                    .and_then(|c| c.request_service_tier.clone())
-                    .unwrap_or_else(|| identity.request_service_tier.clone()),
-            )
-            .filter(|t| !t.is_empty()),
+            service_tier: completed.and_then(|c| c.service_tier.clone()).filter(|t| !t.is_empty()).or_else(|| facts.raw_service_tier.clone()),
+            request_service_tier: Some(completed.and_then(|c| c.request_service_tier.clone()).unwrap_or_else(|| identity.request_service_tier.clone()))
+                .filter(|t| !t.is_empty()),
             response_id: completed.and_then(|c| c.response_id.clone()).unwrap_or_default(),
             account,
             duration_ms,
             origin: None,
-            id: completed
-                .and_then(|c| c.response_id.as_ref())
-                .filter(|id| !id.is_empty())
-                .map(|_| None)
-                .unwrap_or(Some(row.id.clone())),
+            id: completed.and_then(|c| c.response_id.as_ref()).filter(|id| !id.is_empty()).map(|_| None).unwrap_or(Some(row.id.clone())),
             facts,
         };
         let outcome = match make_usage_record_with(&args, speed_tier, self.pricing.as_ref(), self.new_id.as_ref()) {
@@ -764,7 +733,14 @@ impl SendAccounting {
                 // A user's cancel is not a request outcome: what it reported is
                 // the request's row, marked `cancelled` so the request log leaves it out.
                 if let Some(facts) = reported.filter(Facts::recordable) {
-                    let row = Row { id: request_id, facts: Some(facts), model, completed: None, timed: false, outcome: Some(RowOutcome::Cancelled { attempts: abandoned + 1 }) };
+                    let row = Row {
+                        id: request_id,
+                        facts: Some(facts),
+                        model,
+                        completed: None,
+                        timed: false,
+                        outcome: Some(RowOutcome::Cancelled { attempts: abandoned + 1 }),
+                    };
                     self.save(row, &self.speed_tier, self.pinned_account.as_deref(), &mut recorded).await;
                 }
             }

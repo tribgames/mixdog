@@ -8,14 +8,10 @@ use mixdog_graph::outline::SymbolInfo;
 use super::args::Args;
 use super::graph::{Graph, Node};
 use super::hits::{
-    FindOptions, Hit, compare_native_declarations, declaration_outside_scope, find_hits, find_symbol_across_graph,
-    native_hit, pick_declaration,
+    FindOptions, Hit, compare_native_declarations, declaration_outside_scope, find_hits, find_symbol_across_graph, native_hit, pick_declaration,
 };
 use super::outline::outline_rows;
-use super::refs::{
-    Scope, TransitiveOptions, format_callees, format_callers, format_references, format_transitive_callers,
-    importer_references,
-};
+use super::refs::{Scope, TransitiveOptions, format_callees, format_callers, format_references, format_transitive_callers, importer_references};
 use super::util::{cap_list, name_cmp};
 
 const LIST_CAP: usize = 200;
@@ -43,10 +39,7 @@ impl Ctx<'_> {
     }
 
     fn scope(&self) -> Scope<'_> {
-        Scope {
-            file_rel: self.rel.as_deref(),
-            prefix: self.scope_prefix.as_deref(),
-        }
+        Scope { file_rel: self.rel.as_deref(), prefix: self.scope_prefix.as_deref() }
     }
 
     fn language(&self) -> Option<&str> {
@@ -56,11 +49,7 @@ impl Ctx<'_> {
 
 pub(super) fn file_not_found(mode: &str, norm_file: Option<&str>, graph: &Graph) -> String {
     let shown = norm_file.unwrap_or("(missing file)");
-    append_same_basename_hint(
-        format!("Error: code_graph {mode}: file not found in graph: {shown}"),
-        norm_file,
-        graph,
-    )
+    append_same_basename_hint(format!("Error: code_graph {mode}: file not found in graph: {shown}"), norm_file, graph)
 }
 
 /// Why a file the graph does not hold is not there, as far as the disk says: absence from the graph proves only that, so
@@ -98,29 +87,18 @@ pub(super) fn append_same_basename_hint(message: String, norm_file: Option<&str>
     if base.is_empty() {
         return message;
     }
-    let matches: Vec<&str> = graph
-        .nodes
-        .iter()
-        .map(|n| n.rel.as_str())
-        .filter(|rel| rel.rsplit('/').next().unwrap_or("").to_lowercase() == base)
-        .take(3)
-        .collect();
+    let matches: Vec<&str> =
+        graph.nodes.iter().map(|n| n.rel.as_str()).filter(|rel| rel.rsplit('/').next().unwrap_or("").to_lowercase() == base).take(3).collect();
     let why = not_in_graph(norm_file.unwrap_or(""), graph);
     if matches.is_empty() {
         return format!("{message}{why}");
     }
-    let listed = matches
-        .iter()
-        .map(|m| format!("\"{m}\""))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let listed = matches.iter().map(|m| format!("\"{m}\"")).collect::<Vec<_>>().join(", ");
     format!("{message}{why} If you meant the indexed source, same filename is indexed at: {listed}.")
 }
 
 fn required_symbol(mode: &str, args: &Args) -> Result<String, String> {
-    args.symbol
-        .clone()
-        .ok_or_else(|| format!("code_graph {mode}: \"symbol\" is required."))
+    args.symbol.clone().ok_or_else(|| format!("code_graph {mode}: \"symbol\" is required."))
 }
 
 /// A file's outline, optionally narrowed to the rows that mention a keyword.
@@ -153,11 +131,7 @@ pub(super) fn filter_symbol_outline(node: &Node, args: &Args) -> String {
         })
         .collect();
     if lines.is_empty() {
-        let quoted = keywords
-            .iter()
-            .map(|k| serde_json::to_string(k).unwrap_or_default())
-            .collect::<Vec<_>>()
-            .join(", ");
+        let quoted = keywords.iter().map(|k| serde_json::to_string(k).unwrap_or_default()).collect::<Vec<_>>().join(", ");
         return format!("(no symbols matching {quoted})");
     }
     bound(lines).join("\n")
@@ -176,19 +150,15 @@ fn explainer_summary(ctx: &Ctx<'_>, node: &Node) -> String {
         parts.push(format!(
             "imports: {}{}",
             imports.join(", "),
-            if more > 0 {
-                format!(", … +{more} more (mode:imports for full list)")
-            } else {
-                String::new()
-            }
+            if more > 0 { format!(", … +{more} more (mode:imports for full list)") } else { String::new() }
         ));
     }
     if outline.is_empty() {
-            let head = node.read().text().split('\n').take(6).collect::<Vec<_>>().join("\n");
-            let head = super::util::head_chars(head.trim(), 420);
-            if !head.is_empty() {
+        let head = node.read().text().split('\n').take(6).collect::<Vec<_>>().join("\n");
+        let head = super::util::head_chars(head.trim(), 420);
+        if !head.is_empty() {
             parts.push(format!("head:\n{head}"));
-            }
+        }
     }
     parts.join("\n")
 }
@@ -227,10 +197,7 @@ pub(super) fn overview(ctx: &Ctx<'_>) -> String {
         lines.push(format!("scope\t{prefix}"));
     }
     lines.push(format!("files\t{}", scoped.len()));
-    lines.push(format!(
-        "edges\t{}",
-        scoped.iter().map(|n| n.resolved_imports.len()).sum::<usize>()
-    ));
+    lines.push(format!("edges\t{}", scoped.iter().map(|n| n.resolved_imports.len()).sum::<usize>()));
     lines.extend(by_lang.iter().map(|(l, c)| format!("{l}\t{c}")));
     lines.join("\n")
 }
@@ -246,23 +213,12 @@ pub(super) fn imports(ctx: &Ctx<'_>) -> String {
         parts.push(resolved.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n"));
     }
     if !raw.is_empty() {
-        parts.push(format!(
-            "# raw\n{}",
-            raw.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n")
-        ));
+        parts.push(format!("# raw\n{}", raw.iter().map(|s| s.as_str()).collect::<Vec<_>>().join("\n")));
     }
     if node.resolved_imports.len() > resolved.len() || node.raw_imports.len() > raw.len() {
-        parts.push(format!(
-            "[truncated — showing first {LIST_CAP} of {} resolved / {} raw imports]",
-            node.resolved_imports.len(),
-            node.raw_imports.len()
-        ));
+        parts.push(format!("[truncated — showing first {LIST_CAP} of {} resolved / {} raw imports]", node.resolved_imports.len(), node.raw_imports.len()));
     }
-    if parts.is_empty() {
-        "(no imports)".to_string()
-    } else {
-        parts.join("\n\n")
-    }
+    if parts.is_empty() { "(no imports)".to_string() } else { parts.join("\n\n") }
 }
 
 struct Neighbors {
@@ -277,11 +233,7 @@ fn neighbors(node: &Node, graph: &Graph) -> Neighbors {
     let mut related: Vec<String> = imports.iter().chain(&dependents).cloned().collect();
     related.sort();
     related.dedup();
-    Neighbors {
-        imports,
-        dependents,
-        related,
-    }
+    Neighbors { imports, dependents, related }
 }
 
 pub(super) fn related(ctx: &Ctx<'_>) -> String {
@@ -311,11 +263,7 @@ pub(super) fn related(ctx: &Ctx<'_>) -> String {
 }
 
 fn list_or_none(items: &[String]) -> String {
-    if items.is_empty() {
-        "(none)".to_string()
-    } else {
-        cap_list(items.to_vec(), LIST_CAP).join("\n")
-    }
+    if items.is_empty() { "(none)".to_string() } else { cap_list(items.to_vec(), LIST_CAP).join("\n") }
 }
 
 pub(super) fn impact(ctx: &Ctx<'_>) -> String {
@@ -357,18 +305,10 @@ pub(super) fn impact(ctx: &Ctx<'_>) -> String {
             }
         }
         external_references += refs.len();
-        rows.push(Row {
-            symbol: symbol.clone(),
-            references: refs.len(),
-            callers,
-        });
+        rows.push(Row { symbol: symbol.clone(), references: refs.len(), callers });
     }
     external_callers.sort();
-    rows.sort_by(|a, b| {
-        b.references
-            .cmp(&a.references)
-            .then_with(|| name_cmp(&a.symbol, &b.symbol))
-    });
+    rows.sort_by(|a, b| b.references.cmp(&a.references).then_with(|| name_cmp(&a.symbol, &b.symbol)));
     let mut lines = vec![
         "# impact: importer-restricted name matches; not binding-resolved references.".to_string(),
         "# Counts include import/declaration occurrences and unrelated same-named identifiers.".to_string(),
@@ -397,11 +337,7 @@ pub(super) fn impact(ctx: &Ctx<'_>) -> String {
         let shown: Vec<String> = rows
             .iter()
             .map(|row| {
-                let suffix = if row.callers.is_empty() {
-                    String::new()
-                } else {
-                    format!(" -> {}", row.callers.join(", "))
-                };
+                let suffix = if row.callers.is_empty() { String::new() } else { format!(" -> {}", row.callers.join(", ")) };
                 format!("{}\tname_matches={}\tfiles={}{suffix}", row.symbol, row.references, row.callers.len())
             })
             .collect();
@@ -422,14 +358,7 @@ struct Anchor {
 }
 
 fn infer_anchor(ctx: &Ctx<'_>) -> Result<Anchor, String> {
-    let candidates: Vec<String> = ctx
-        .args
-        .symbols
-        .iter()
-        .cloned()
-        .chain(ctx.args.symbol.clone())
-        .filter(|s| !s.trim().is_empty())
-        .collect();
+    let candidates: Vec<String> = ctx.args.symbols.iter().cloned().chain(ctx.args.symbol.clone()).filter(|s| !s.trim().is_empty()).collect();
     for s in &candidates {
         let hits = find_hits(ctx.graph, s, None);
         let usable: Vec<&Hit> = hits.iter().filter(|h| ctx.graph.node(&h.rel).is_some()).collect();
@@ -449,35 +378,21 @@ fn infer_anchor(ctx: &Ctx<'_>) -> Result<Anchor, String> {
         if !others.is_empty() {
             note.push_str(&format!("\n# note: '{s}' also defined in: {}", others.join(", ")));
         }
-        return Ok(Anchor {
-            rel: Some(primary.rel.clone()),
-            norm: Some(primary.rel.clone()),
-            note: Some(note),
-        });
+        return Ok(Anchor { rel: Some(primary.rel.clone()), norm: Some(primary.rel.clone()), note: Some(note) });
     }
-    let path_like = candidates.iter().find(|s| {
-        s.contains(['/', '\\'])
-            || s.rsplit_once('.')
-                .is_some_and(|(_, ext)| mixdog_graph::lang::lang_for(ext).is_some())
-    });
+    let path_like =
+        candidates.iter().find(|s| s.contains(['/', '\\']) || s.rsplit_once('.').is_some_and(|(_, ext)| mixdog_graph::lang::lang_for(ext).is_some()));
     if let Some(p) = path_like {
         let abs = super::roots::abs_from(ctx.cwd, p);
         let rel = super::dispatch::display_rel(&abs, ctx.cwd);
         if ctx.graph.node(&rel).is_some() {
-            return Ok(Anchor {
-                rel: Some(rel),
-                norm: Some(p.clone()),
-                note: Some(format!("# note: treated symbol '{p}' as file")),
-            });
+            return Ok(Anchor { rel: Some(rel), norm: Some(p.clone()), note: Some(format!("# note: treated symbol '{p}' as file")) });
         }
     }
     Err(if candidates.is_empty() {
         "code_graph dependents: \"file\" is required (no file or symbol supplied)".to_string()
     } else {
-        format!(
-            "code_graph dependents: dependents needs file:<path>; got symbol only (tried: {})",
-            candidates.join(", ")
-        )
+        format!("code_graph dependents: dependents needs file:<path>; got symbol only (tried: {})", candidates.join(", "))
     })
 }
 
@@ -486,8 +401,7 @@ fn import_line_ref(graph: &Graph, dep: &str, basename: &str, stem: &str) -> Stri
     let Some(node) = graph.node(dep) else {
         return dep.to_string();
     };
-    let importish = regex::Regex::new(r#"(?:^|\W)(?:import|require)\b|\bfrom\s*['"]"#)
-        .expect("static pattern");
+    let importish = regex::Regex::new(r#"(?:^|\W)(?:import|require)\b|\bfrom\s*['"]"#).expect("static pattern");
     let source = node.read();
     for (i, line) in source.lines().iter().enumerate() {
         if !importish.is_match(line) {
@@ -506,11 +420,7 @@ fn import_line_ref(graph: &Graph, dep: &str, basename: &str, stem: &str) -> Stri
 
 pub(super) fn dependents(ctx: &Ctx<'_>) -> Result<String, String> {
     let anchor = if ctx.rel.is_some() || ctx.norm_file.is_some() {
-        Anchor {
-            rel: ctx.rel.clone(),
-            norm: ctx.norm_file.map(str::to_string),
-            note: None,
-        }
+        Anchor { rel: ctx.rel.clone(), norm: ctx.norm_file.map(str::to_string), note: None }
     } else {
         infer_anchor(ctx)?
     };
@@ -523,21 +433,12 @@ pub(super) fn dependents(ctx: &Ctx<'_>) -> Result<String, String> {
     }
     let basename = anchor_rel.rsplit('/').next().unwrap_or(anchor_rel);
     let stem = basename.rsplit_once('.').map_or(basename, |(s, _)| s);
-    let body = all
-        .iter()
-        .take(LIST_CAP)
-        .map(|dep| import_line_ref(ctx.graph, dep, basename, stem))
-        .collect::<Vec<_>>()
-        .join("\n");
+    let body = all.iter().take(LIST_CAP).map(|dep| import_line_ref(ctx.graph, dep, basename, stem)).collect::<Vec<_>>().join("\n");
     let out = match &anchor.note {
         Some(note) => format!("{note}\n{body}"),
         None => body,
     };
-    Ok(if all.len() > LIST_CAP {
-        format!("{out}\n[truncated — showing first {LIST_CAP} of {} dependents]", all.len())
-    } else {
-        out
-    })
+    Ok(if all.len() > LIST_CAP { format!("{out}\n[truncated — showing first {LIST_CAP} of {} dependents]", all.len()) } else { out })
 }
 
 pub(super) fn symbols(ctx: &Ctx<'_>) -> String {
@@ -549,13 +450,7 @@ pub(super) fn symbols(ctx: &Ctx<'_>) -> String {
 
 pub(super) fn symbol_search(ctx: &Ctx<'_>) -> Result<String, String> {
     let limit = ctx.args.limit.unwrap_or(30.0).clamp(1.0, 100.0) as usize;
-    let mut keywords: Vec<String> = ctx
-        .args
-        .symbols
-        .iter()
-        .map(|s| s.trim().to_string())
-        .filter(|s| !s.is_empty())
-        .collect();
+    let mut keywords: Vec<String> = ctx.args.symbols.iter().map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect();
     if keywords.is_empty() {
         keywords.extend(ctx.args.symbol.clone());
     }
@@ -597,11 +492,7 @@ fn tokenize_keyword(s: &str) -> Vec<String> {
         spaced.push(c);
         prev = Some(c);
     }
-    spaced
-        .split(|c: char| !c.is_ascii_alphanumeric())
-        .filter(|t| !t.is_empty())
-        .map(str::to_lowercase)
-        .collect()
+    spaced.split(|c: char| !c.is_ascii_alphanumeric()).filter(|t| !t.is_empty()).map(str::to_lowercase).collect()
 }
 
 fn token_start_offsets(sym: &str) -> Vec<usize> {
@@ -629,8 +520,7 @@ fn contiguous_match_token_aligned(sym: &str, sym_lower: &str, key: &[char], lead
     let starts = token_start_offsets(sym);
     let mut from = 0;
     while from + len <= sym_lower.len() {
-        let Some(idx) = (from..=sym_lower.len() - len).find(|i| sym_lower[*i..*i + len] == key[..])
-        else {
+        let Some(idx) = (from..=sym_lower.len() - len).find(|i| sym_lower[*i..*i + len] == key[..]) else {
             return false;
         };
         let end = idx + len;
@@ -702,29 +592,18 @@ fn search_keyword(ctx: &Ctx<'_>, keyword: &str, limit: usize) -> String {
                     {
                         continue;
                     }
-                    let rank = found.map(|idx| (
-                        lower_name.chars().count(),
-                        usize::from(idx != 0),
-                        lower_name[..idx].chars().count(),
-                    ));
+                    let rank = found.map(|idx| (lower_name.chars().count(), usize::from(idx != 0), lower_name[..idx].chars().count()));
                     entry.insert(Entry { name, lower_name, rank, declaration: None })
                 }
             };
-            if sym.start_line > 0
-                && entry.declaration.is_none_or(|current| compare_native_declarations((node, sym), current).is_lt())
-            {
+            if sym.start_line > 0 && entry.declaration.is_none_or(|current| compare_native_declarations((node, sym), current).is_lt()) {
                 entry.declaration = Some((node, sym));
             }
         }
     }
     let total = by_name.len();
     if total == 0 {
-        let scope_label = ctx
-            .rel
-            .clone()
-            .or_else(|| ctx.scope_prefix.clone())
-            .map(|s| format!(" scope={s}"))
-            .unwrap_or_default();
+        let scope_label = ctx.rel.clone().or_else(|| ctx.scope_prefix.clone()).map(|s| format!(" scope={s}")).unwrap_or_default();
         return format!(
             "(no symbol keyword matches in cwd={}{scope_label})\ngraph: nodes={}{}",
             ctx.cwd_text(),
@@ -732,18 +611,14 @@ fn search_keyword(ctx: &Ctx<'_>, keyword: &str, limit: usize) -> String {
             language.map(|l| format!(", language={l}")).unwrap_or_default()
         );
     }
-    let (mut resolved, mut unresolved): (Vec<_>, Vec<_>) =
-        by_name.into_values().partition(|e| e.declaration.is_some());
+    let (mut resolved, mut unresolved): (Vec<_>, Vec<_>) = by_name.into_values().partition(|e| e.declaration.is_some());
     let resolved_total = resolved.len();
     if resolved_total > cap {
         resolved.select_nth_unstable_by(cap, compare_entries);
         resolved.truncate(cap);
     }
     resolved.sort_unstable_by(compare_entries);
-    let mut lines = vec![format!(
-        "# search keyword={clean} matches={total} shown={}",
-        resolved.len()
-    )];
+    let mut lines = vec![format!("# search keyword={clean} matches={total} shown={}", resolved.len())];
     for e in resolved {
         let Some(hit) = e.declaration.and_then(|(node, sym)| native_hit(node, sym)) else { continue };
         let facts = hit.facts();
@@ -775,11 +650,7 @@ pub(super) fn find_symbol(ctx: &Ctx<'_>) -> Result<String, String> {
     // `findSymbolTool` checks the anchor before the symbol, and words the miss as its own tool's.
     if ctx.rel.is_some() && ctx.node.is_none() {
         let shown = ctx.norm_file.unwrap_or("(missing file)");
-        return Ok(append_same_basename_hint(
-            format!("Error: find_symbol: file not found in graph: {shown}"),
-            ctx.norm_file,
-            ctx.graph,
-        ));
+        return Ok(append_same_basename_hint(format!("Error: find_symbol: file not found in graph: {shown}"), ctx.norm_file, ctx.graph));
     }
     let symbol = ctx
         .args
@@ -789,11 +660,7 @@ pub(super) fn find_symbol(ctx: &Ctx<'_>) -> Result<String, String> {
     let limit = ctx.args.limit.unwrap_or(20.0).clamp(1.0, 50.0) as usize;
     let file_rel = ctx.rel.as_deref();
     let in_scope = |rel: &str| file_rel.is_none_or(|f| rel == f);
-    let outside = if file_rel.is_some() {
-        declaration_outside_scope(ctx.graph, &symbol, ctx.language(), &in_scope)
-    } else {
-        None
-    };
+    let outside = if file_rel.is_some() { declaration_outside_scope(ctx.graph, &symbol, ctx.language(), &in_scope) } else { None };
     Ok(find_symbol_across_graph(
         ctx.graph,
         &symbol,
@@ -815,9 +682,7 @@ pub(super) fn references(ctx: &Ctx<'_>) -> Result<String, String> {
     if let Some(l) = language
         && !ctx.graph.nodes.iter().any(|n| n.lang == l)
     {
-        return Err(format!(
-            "code_graph references: language '{l}' has no adapter topLevelTypes and is not in supportedRegexLangs for this project"
-        ));
+        return Err(format!("code_graph references: language '{l}' has no adapter topLevelTypes and is not in supportedRegexLangs for this project"));
     }
     let narrowed = ctx.rel.is_some() || ctx.scope_prefix.is_some() || language.is_some();
     let lang = match scoped_call_context("references", ctx, &symbol)? {
@@ -826,11 +691,7 @@ pub(super) fn references(ctx: &Ctx<'_>) -> Result<String, String> {
     };
     let limit = ctx.args.user_limit().unwrap_or(200);
     let list = format_references(ctx.graph, &symbol, lang.as_deref(), ctx.scope(), limit);
-    let list = if narrowed {
-        list
-    } else {
-        super::hits::augment_no_hit(list, "(no references)", ctx.graph, &ctx.cwd_text(), &symbol)
-    };
+    let list = if narrowed { list } else { super::hits::augment_no_hit(list, "(no references)", ctx.graph, &ctx.cwd_text(), &symbol) };
     let declaration = find_symbol_across_graph(
         ctx.graph,
         &symbol,
@@ -850,11 +711,7 @@ pub(super) fn references(ctx: &Ctx<'_>) -> Result<String, String> {
 
 /// Resolve the language a scoped call query runs with, or the answer when the anchor does
 /// not hold the symbol.
-fn scoped_call_context(
-    mode: &str,
-    ctx: &Ctx<'_>,
-    symbol: &str,
-) -> Result<Result<Option<String>, String>, String> {
+fn scoped_call_context(mode: &str, ctx: &Ctx<'_>, symbol: &str) -> Result<Result<Option<String>, String>, String> {
     let explicit = ctx.language().map(str::to_string);
     let narrowed = ctx.rel.is_some() || ctx.scope_prefix.is_some() || explicit.is_some();
     let resolved: Option<&Node> = if ctx.rel.is_some() {
@@ -873,11 +730,7 @@ fn scoped_call_context(
         let hits = find_hits(ctx.graph, symbol, ctx.language());
         pick_declaration(&hits, None).and_then(|h| ctx.graph.node(&h.rel))
     };
-    let lang = explicit.or_else(|| {
-        (narrowed && resolved.is_some())
-            .then(|| resolved.map(|n| n.lang.to_string()))
-            .flatten()
-    });
+    let lang = explicit.or_else(|| (narrowed && resolved.is_some()).then(|| resolved.map(|n| n.lang.to_string())).flatten());
     Ok(Ok(lang))
 }
 
@@ -903,11 +756,7 @@ pub(super) fn callers(ctx: &Ctx<'_>) -> Result<String, String> {
         }
     };
     let user_limit = ctx.args.user_limit();
-    let depth = ctx
-        .args
-        .depth
-        .map_or(1.0, |d| if d.is_finite() { d.floor() } else { 1.0 })
-        .clamp(1.0, 5.0) as usize;
+    let depth = ctx.args.depth.map_or(1.0, |d| if d.is_finite() { d.floor() } else { 1.0 }).clamp(1.0, 5.0) as usize;
     let result = if depth > 1 {
         format_transitive_callers(
             ctx.graph,

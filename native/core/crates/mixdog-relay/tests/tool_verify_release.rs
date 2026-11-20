@@ -88,10 +88,7 @@ fn header<'a>(head: &'a str, name: &str) -> Option<&'a str> {
 }
 
 async fn respond<S: AsyncWrite + Unpin>(stream: &mut S, status: u16, body: &str) {
-    let text = format!(
-        "HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
-        body.len()
-    );
+    let text = format!("HTTP/1.1 {status} X\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
     let _ = stream.write_all(text.as_bytes()).await;
     let _ = stream.shutdown().await;
 }
@@ -122,9 +119,7 @@ async fn serve_ws<S: AsyncRead + AsyncWrite + Unpin>(mut stream: S, head: &str, 
     }
     let key = header(head, "sec-websocket-key").unwrap_or_default();
     let accept = tokio_tungstenite::tungstenite::handshake::derive_accept_key(key.as_bytes());
-    let reply = format!(
-        "HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n"
-    );
+    let reply = format!("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Accept: {accept}\r\n\r\n");
     if stream.write_all(reply.as_bytes()).await.is_err() {
         return;
     }
@@ -189,10 +184,7 @@ async fn a_deployment_with_both_gates_shut_verifies_and_reports_its_identity() {
     assert_eq!(result, Verified { index_sha256: index_digest(), assets: json!(8), releases: 2 });
     assert_eq!(
         result.to_line(),
-        format!(
-            "{{\"status\":\"verified\",\"indexSha256\":\"{}\",\"assets\":8,\"releases\":2,\"websocket\":\"gated\"}}",
-            index_digest()
-        )
+        format!("{{\"status\":\"verified\",\"indexSha256\":\"{}\",\"assets\":8,\"releases\":2,\"websocket\":\"gated\"}}", index_digest())
     );
     let seen = fake.seen.lock().unwrap().clone();
     assert_eq!(seen.len(), 4, "liveness, readiness and the two upgrades: {seen:?}");

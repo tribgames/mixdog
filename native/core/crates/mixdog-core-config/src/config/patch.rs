@@ -50,9 +50,7 @@ pub fn js_deep_equal(a: &Value, b: &Value) -> bool {
     match (a, b) {
         (Value::Number(x), Value::Number(y)) => x.as_f64() == y.as_f64(),
         (Value::Array(x), Value::Array(y)) => x.len() == y.len() && x.iter().zip(y).all(|(p, q)| js_deep_equal(p, q)),
-        (Value::Object(x), Value::Object(y)) => {
-            x.len() == y.len() && x.iter().all(|(key, p)| y.get(key).is_some_and(|q| js_deep_equal(p, q)))
-        }
+        (Value::Object(x), Value::Object(y)) => x.len() == y.len() && x.iter().all(|(key, p)| y.get(key).is_some_and(|q| js_deep_equal(p, q))),
         _ => a == b,
     }
 }
@@ -78,20 +76,13 @@ fn diff_into(before: &Doc, after: &Doc, path: &mut Vec<String>, out: &mut Vec<Co
         }
         path.push(key.clone());
         match next {
-            Some(Value::Object(next_map))
-                if matches!(previous, Some(Value::Object(_))) || (previous.is_none() && !next_map.is_empty()) =>
-            {
+            Some(Value::Object(next_map)) if matches!(previous, Some(Value::Object(_))) || (previous.is_none() && !next_map.is_empty()) => {
                 let empty = Doc::new();
                 let previous_map = previous.and_then(Value::as_object).unwrap_or(&empty);
                 diff_into(previous_map, next_map, path, out);
             }
             None => out.push(ConfigChange { path: path.clone(), op: ChangeOp::Remove, if_absent: false, unless_set: None }),
-            Some(value) => out.push(ConfigChange {
-                path: path.clone(),
-                op: ChangeOp::Set(value.clone()),
-                if_absent: false,
-                unless_set: None,
-            }),
+            Some(value) => out.push(ConfigChange { path: path.clone(), op: ChangeOp::Set(value.clone()), if_absent: false, unless_set: None }),
         }
         path.pop();
     }
@@ -213,10 +204,15 @@ pub fn lead_route(agent: &Doc) -> Option<Value> {
     if wanted.is_empty() {
         return None;
     }
-    agent.get("presets")?.as_array()?.iter().find(|preset| {
-        let same = |key: &str| mixdog_js::js_trim(&clean(preset.get(key))).to_lowercase() == wanted;
-        same("id") || same("name")
-    }).cloned()
+    agent
+        .get("presets")?
+        .as_array()?
+        .iter()
+        .find(|preset| {
+            let same = |key: &str| mixdog_js::js_trim(&clean(preset.get(key))).to_lowercase() == wanted;
+            same("id") || same("name")
+        })
+        .cloned()
 }
 
 const DEFAULT_ORCHESTRATION_MODE: &str = "balanced";
@@ -245,12 +241,7 @@ pub fn stored_form(config: &Doc) -> Doc {
     let presets: Vec<Value> = routes
         .get("presets")
         .and_then(Value::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(normalize_preset)
-                .filter(|p| p.get("id").and_then(Value::as_str) != Some("workflow-search"))
-                .collect()
-        })
+        .map(|list| list.iter().filter_map(normalize_preset).filter(|p| p.get("id").and_then(Value::as_str) != Some("workflow-search")).collect())
         .unwrap_or_default();
     next.insert("presets".into(), Value::Array(presets));
     // Node stores the normalised route, `null` when it has none (`normalizeWebSearchRoute`).
@@ -394,8 +385,7 @@ fn disabled_delta(effective: Option<&Value>) -> (Vec<String>, Vec<String>) {
 /// `disabledAgentDelta` over an id list that is already key-normalised, sorted and de-duplicated.
 pub(super) fn disabled_delta_of(wanted: &[String]) -> (Vec<String>, Vec<String>) {
     let disabled = wanted.iter().filter(|id| !DEFAULT_DISABLED_ROSTER.contains(&id.as_str())).cloned().collect();
-    let mut enabled: Vec<String> =
-        DEFAULT_DISABLED_ROSTER.iter().filter(|id| !wanted.iter().any(|w| w == **id)).map(|s| (*s).to_owned()).collect();
+    let mut enabled: Vec<String> = DEFAULT_DISABLED_ROSTER.iter().filter(|id| !wanted.iter().any(|w| w == **id)).map(|s| (*s).to_owned()).collect();
     enabled.sort();
     (disabled, enabled)
 }
@@ -430,10 +420,8 @@ pub(super) fn strip_agent_section_defaults(next: &mut Doc) {
         }
     }
     if let Some(Value::Object(modules)) = next.get("modules").cloned() {
-        let kept: Doc = modules
-            .iter()
-            .filter_map(|(name, entry)| without_defaults(entry, &serde_json::json!({ "enabled": true })).map(|e| (name.clone(), e)))
-            .collect();
+        let kept: Doc =
+            modules.iter().filter_map(|(name, entry)| without_defaults(entry, &serde_json::json!({ "enabled": true })).map(|e| (name.clone(), e))).collect();
         if kept.is_empty() {
             next.shift_remove("modules");
         } else {
@@ -445,11 +433,7 @@ pub(super) fn strip_agent_section_defaults(next: &mut Doc) {
 /// The copy of `value` without the keys equal to their default; `None` when nothing is left.
 pub(super) fn without_defaults(value: &Value, defaults: &Value) -> Option<Value> {
     let (Value::Object(map), Value::Object(defaults)) = (value, defaults) else { return Some(value.clone()) };
-    let kept: Doc = map
-        .iter()
-        .filter(|(key, v)| !defaults.get(*key).is_some_and(|d| js_deep_equal(v, d)))
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let kept: Doc = map.iter().filter(|(key, v)| !defaults.get(*key).is_some_and(|d| js_deep_equal(v, d))).map(|(k, v)| (k.clone(), v.clone())).collect();
     (!kept.is_empty()).then_some(Value::Object(kept))
 }
 

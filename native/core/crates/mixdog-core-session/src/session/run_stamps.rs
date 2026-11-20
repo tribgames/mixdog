@@ -16,8 +16,8 @@ use serde_json::Value;
 
 use super::SessionDirectory;
 use mixdog_core_base::rooms::ids::agent_id_of_home_session;
-use mixdog_core_ports::ports::run_stamps::RunStamps;
 use mixdog_core_config::workflow::ids::truthy;
+use mixdog_core_ports::ports::run_stamps::RunStamps;
 
 /// `MAX_PATH`: how far up the parents a backfill walks.
 const MAX_PATH: usize = 32;
@@ -117,15 +117,12 @@ fn legacy_run_of(id: &str, record: &Header, depth: usize) -> Backfill {
     {
         let owner = match old.get("rootAgentId").filter(|owner| truthy(Some(owner))) {
             Some(owner) => Some(owner.clone()),
-            None => old
-                .get("rootSessionId")
-                .and_then(Value::as_str)
-                .and_then(agent_id_of_home_session)
-                .map(Value::String),
+            None => old.get("rootSessionId").and_then(Value::as_str).and_then(agent_id_of_home_session).map(Value::String),
         };
         return Backfill::Run(run_stamp(run.get("kind"), owner.as_ref(), run.get("name")));
     }
-    if !agent_owned(record) && clean(record.get("sourceType")) == "lead"
+    if !agent_owned(record)
+        && clean(record.get("sourceType")) == "lead"
         && let Some(bot) = task_source_bot(&clean(record.get("sourceName")))
     {
         return Backfill::Run(run_stamp(Some(&Value::from("schedule")), Some(&Value::from(bot)), None));
@@ -230,16 +227,15 @@ mod tests {
         }
     }
 
-
     /// Node reads a record from the store (`loadRecord`), loaded or not: a worker whose parent
     /// is not loaded here still has the parent's run, and an unloaded session has its own.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_unloaded_session_and_an_unloaded_parent_answer_from_the_store() {
-        use crate::session::thread_state::SessionThreads;
-        use mixdog_core_ports::ports::threads::ThreadState;
         use crate::session::testing::Rig;
         use crate::session::tests::{real_store, start_thread};
+        use crate::session::thread_state::SessionThreads;
         use mixdog_core_api::CallContext;
+        use mixdog_core_ports::ports::threads::ThreadState;
 
         let data = tempfile::tempdir().expect("data dir");
         let store = real_store(data.path()).await;
@@ -251,10 +247,7 @@ mod tests {
         let run = json!({ "kind": "webhook", "agentId": "bot", "name": "hook" });
         let patch = |value: Value| value.as_object().expect("object").clone();
         threads.patch_header(&parent, patch(json!({ "run": run })), Vec::new()).await.expect("stamp");
-        threads
-            .patch_header(&child, patch(json!({ "owner": "agent", "parentSessionId": parent.as_str() })), Vec::new())
-            .await
-            .expect("link");
+        threads.patch_header(&child, patch(json!({ "owner": "agent", "parentSessionId": parent.as_str() })), Vec::new()).await.expect("link");
 
         // A directory that loaded nothing: the worker is opened, its parent is only stored.
         let second = Arc::new(SessionDirectory::new(rig.deps_on(store)));

@@ -159,15 +159,11 @@ impl Path2D {
         let (top, bottom) = if height < 0.0 { (y + height, y) } else { (y, y + height) };
         let (width, height) = (right - left, bottom - top);
         // The radii shrink together until two neighbours fit on every side.
-        let fit = [
-            width / (corners[0] + corners[1]),
-            height / (corners[1] + corners[2]),
-            width / (corners[2] + corners[3]),
-            height / (corners[3] + corners[0]),
-        ]
-        .into_iter()
-        .filter(|ratio| ratio.is_finite())
-        .fold(1.0_f32, f32::min);
+        let fit =
+            [width / (corners[0] + corners[1]), height / (corners[1] + corners[2]), width / (corners[2] + corners[3]), height / (corners[3] + corners[0])]
+                .into_iter()
+                .filter(|ratio| ratio.is_finite())
+                .fold(1.0_f32, f32::min);
         if fit < 1.0 {
             for radius in &mut corners {
                 *radius *= fit;
@@ -236,17 +232,7 @@ impl Path2D {
 
     /// `ellipse(x, y, rx, ry, rotation, start, end, counterclockwise)`.
     #[allow(clippy::too_many_arguments)]
-    pub fn ellipse(
-        &mut self,
-        x: f32,
-        y: f32,
-        rx: f32,
-        ry: f32,
-        rotation: f32,
-        start: f32,
-        end: f32,
-        counterclockwise: bool,
-    ) -> Result<(), RasterError> {
+    pub fn ellipse(&mut self, x: f32, y: f32, rx: f32, ry: f32, rotation: f32, start: f32, end: f32, counterclockwise: bool) -> Result<(), RasterError> {
         if rx < 0.0 || ry < 0.0 {
             return Err(RasterError::new("the radius of an ellipse is negative"));
         }

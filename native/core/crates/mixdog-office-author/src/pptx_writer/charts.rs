@@ -25,10 +25,12 @@ const AXIS_ID_VALUE: &str = "2094734552";
 const AXIS_ID_CATEGORY: &str = "2094734554";
 const AXIS_ID_SERIES: &str = "2094734556";
 const BAR_COLORS: [&str; 16] = [
-    "C0504D", "4F81BD", "9BBB59", "8064A2", "4BACC6", "F79646", "628FC6", "C86360", "C0504D", "4F81BD", "9BBB59", "8064A2", "4BACC6", "F79646", "628FC6", "C86360",
+    "C0504D", "4F81BD", "9BBB59", "8064A2", "4BACC6", "F79646", "628FC6", "C86360", "C0504D", "4F81BD", "9BBB59", "8064A2", "4BACC6", "F79646", "628FC6",
+    "C86360",
 ];
 const PIE_COLORS: [&str; 18] = [
-    "5DA5DA", "FAA43A", "60BD68", "F17CB0", "B2912F", "B276B2", "DECF3F", "F15854", "A7A7A7", "5DA5DA", "FAA43A", "60BD68", "F17CB0", "B2912F", "B276B2", "DECF3F", "F15854", "A7A7A7",
+    "5DA5DA", "FAA43A", "60BD68", "F17CB0", "B2912F", "B276B2", "DECF3F", "F15854", "A7A7A7", "5DA5DA", "FAA43A", "60BD68", "F17CB0", "B2912F", "B276B2",
+    "DECF3F", "F15854", "A7A7A7",
 ];
 
 /// The chart types (`CHART_TYPE`) this writer carries.
@@ -546,7 +548,12 @@ impl Chart {
         let (cx, cy) = (place(self.options.w, Axis::X), place(self.options.h, Axis::Y));
         let mut xml = String::from("<p:graphicFrame>");
         xml.push_str(" <p:nvGraphicFramePr>");
-        xml.push_str(&format!("   <p:cNvPr id=\"{}\" name=\"{}\" descr=\"{}\"/>", index + 2, self.object_name, encode_xml_entities(self.options.alt_text.as_deref().unwrap_or(""))));
+        xml.push_str(&format!(
+            "   <p:cNvPr id=\"{}\" name=\"{}\" descr=\"{}\"/>",
+            index + 2,
+            self.object_name,
+            encode_xml_entities(self.options.alt_text.as_deref().unwrap_or(""))
+        ));
         xml.push_str("   <p:cNvGraphicFramePr/>");
         xml.push_str("   <p:nvPr></p:nvPr>");
         xml.push_str(" </p:nvGraphicFramePr>");
@@ -794,7 +801,11 @@ impl Chart {
             _ => xml.push_str("<a:noFill/>"),
         }
         match &o.plot_area.border {
-            Some(border) => xml.push_str(&format!("<a:ln w=\"{}\" cap=\"flat\">{}</a:ln>", num(val_to_pts(border.pt.unwrap_or(0.0))), color_selection_of(border.color.as_deref().unwrap_or("")))),
+            Some(border) => xml.push_str(&format!(
+                "<a:ln w=\"{}\" cap=\"flat\">{}</a:ln>",
+                num(val_to_pts(border.pt.unwrap_or(0.0))),
+                color_selection_of(border.color.as_deref().unwrap_or(""))
+            )),
             None => xml.push_str("<a:ln><a:noFill/></a:ln>"),
         }
         xml.push_str("    <a:effectLst/>");
@@ -815,7 +826,11 @@ impl Chart {
             _ => xml.push_str("<a:noFill/>"),
         }
         match &o.chart_area.border {
-            Some(border) => xml.push_str(&format!("<a:ln w=\"{}\" cap=\"flat\">{}</a:ln>", num(val_to_pts(border.pt.unwrap_or(0.0))), color_selection_of(border.color.as_deref().unwrap_or("")))),
+            Some(border) => xml.push_str(&format!(
+                "<a:ln w=\"{}\" cap=\"flat\">{}</a:ln>",
+                num(val_to_pts(border.pt.unwrap_or(0.0))),
+                color_selection_of(border.color.as_deref().unwrap_or(""))
+            )),
             None => xml.push_str("<a:ln><a:noFill/></a:ln>"),
         }
         xml.push_str("  <a:effectLst/>");
@@ -992,7 +1007,10 @@ impl Chart {
             xml.push_str("  <c:tx>");
             xml.push_str("    <c:strRef>");
             xml.push_str(&format!("      <c:f>Sheet1!${value_column}$1</c:f>"));
-            xml.push_str(&format!("      <c:strCache><c:ptCount val=\"1\"/><c:pt idx=\"0\"><c:v>{}</c:v></c:pt></c:strCache>", encode_xml_entities(&series.name)));
+            xml.push_str(&format!(
+                "      <c:strCache><c:ptCount val=\"1\"/><c:pt idx=\"0\"><c:v>{}</c:v></c:pt></c:strCache>",
+                encode_xml_entities(&series.name)
+            ));
             xml.push_str("    </c:strRef>");
             xml.push_str("  </c:tx>");
             xml.push_str("  <c:spPr>");
@@ -1022,14 +1040,20 @@ impl Chart {
                 }
                 xml.push_str("<c:showLegendKey val=\"0\"/>");
                 xml.push_str(&format!("<c:showVal val=\"{}\"/>", flag(o.show_value)));
-                xml.push_str(&format!("<c:showCatName val=\"0\"/><c:showSerName val=\"{}\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/>", flag(o.show_ser_name)));
+                xml.push_str(&format!(
+                    "<c:showCatName val=\"0\"/><c:showSerName val=\"{}\"/><c:showPercent val=\"0\"/><c:showBubbleSize val=\"0\"/>",
+                    flag(o.show_ser_name)
+                ));
                 xml.push_str(&format!("<c:showLeaderLines val=\"{}\"/>", flag(o.show_leader_lines)));
                 xml.push_str("</c:dLbls>");
             }
             if matches!(kind, ChartKind::Line | ChartKind::Radar) {
                 xml.push_str(&self.marker(self.marker_color(index), color));
             }
-            if kind == ChartKind::Bar && self.data.len() == 1 && ((self.colors_given && self.colors.len() > 1) || o.inverted_colors.as_ref().is_some_and(|colors| !colors.is_empty())) {
+            if kind == ChartKind::Bar
+                && self.data.len() == 1
+                && ((self.colors_given && self.colors.len() > 1) || o.inverted_colors.as_ref().is_some_and(|colors| !colors.is_empty()))
+            {
                 for (position, value) in series.values.iter().enumerate() {
                     let negative = value.is_some_and(|value| value < 0.0);
                     let palette: &[String] = match (&o.inverted_colors, negative) {
@@ -1128,7 +1152,10 @@ impl Chart {
             xml.push_str("  <c:tx>");
             xml.push_str("    <c:strRef>");
             xml.push_str(&format!("      <c:f>Sheet1!${}$1</c:f>", column_name(index + 2)));
-            xml.push_str(&format!("      <c:strCache><c:ptCount val=\"1\"/><c:pt idx=\"0\"><c:v>{}</c:v></c:pt></c:strCache>", encode_xml_entities(&series.name)));
+            xml.push_str(&format!(
+                "      <c:strCache><c:ptCount val=\"1\"/><c:pt idx=\"0\"><c:v>{}</c:v></c:pt></c:strCache>",
+                encode_xml_entities(&series.name)
+            ));
             xml.push_str("    </c:strRef>");
             xml.push_str("  </c:tx>");
             xml.push_str("  <c:spPr>");
@@ -1255,8 +1282,12 @@ impl Chart {
                 xml.push_str("    <c:showBubbleSize val=\"0\"/>");
                 xml.push_str("       <c:showLeaderLines val=\"1\"/>");
                 xml.push_str("    <c:extLst>");
-                xml.push_str("      <c:ext uri=\"{CE6537A1-D6FC-4f65-9D91-7224C49458BB}\" xmlns:c15=\"http://schemas.microsoft.com/office/drawing/2012/chart\"/>");
-                xml.push_str("      <c:ext uri=\"{C3380CC4-5D6E-409C-BE32-E72D297353CC}\" xmlns:c16=\"http://schemas.microsoft.com/office/drawing/2014/chart\">");
+                xml.push_str(
+                    "      <c:ext uri=\"{CE6537A1-D6FC-4f65-9D91-7224C49458BB}\" xmlns:c15=\"http://schemas.microsoft.com/office/drawing/2012/chart\"/>",
+                );
+                xml.push_str(
+                    "      <c:ext uri=\"{C3380CC4-5D6E-409C-BE32-E72D297353CC}\" xmlns:c16=\"http://schemas.microsoft.com/office/drawing/2014/chart\">",
+                );
                 let unique = position + 1;
                 let padding = &"00000000"[..8 - unique.to_string().len().min(8)];
                 xml.push_str(&format!("            <c16:uniqueId val=\"{{{padding}{unique}{chart_uuid}}}\"/>"));
@@ -1501,7 +1532,13 @@ impl Chart {
         let style = &o.cat_axis;
         let scatter = self.kind == ChartKind::Scatter;
         let date = set_text(&o.cat_label_format_code).is_some();
-        let tag = if scatter { "valAx" } else if date { "dateAx" } else { "catAx" };
+        let tag = if scatter {
+            "valAx"
+        } else if date {
+            "dateAx"
+        } else {
+            "catAx"
+        };
         let column = text_or(&o.bar_dir, "col") == "col";
         let mut xml = format!("<c:{tag}>");
         xml.push_str(&format!("  <c:axId val=\"{AXIS_ID_CATEGORY}\"/>"));
@@ -1518,7 +1555,14 @@ impl Chart {
             xml.push_str(&self.axis_title(style));
         }
         if scatter {
-            xml.push_str(&format!("  <c:numFmt formatCode=\"{}\" sourceLinked=\"1\"/>", if set_text(&o.val_axis_label_format_code).is_some() { encode_xml_entities(text_or(&o.val_axis_label_format_code, "")) } else { "General".to_owned() }));
+            xml.push_str(&format!(
+                "  <c:numFmt formatCode=\"{}\" sourceLinked=\"1\"/>",
+                if set_text(&o.val_axis_label_format_code).is_some() {
+                    encode_xml_entities(text_or(&o.val_axis_label_format_code, ""))
+                } else {
+                    "General".to_owned()
+                }
+            ));
             xml.push_str("  <c:majorTickMark val=\"none\"/>");
             xml.push_str("  <c:minorTickMark val=\"none\"/>");
             xml.push_str("  <c:tickLblPos val=\"nextTo\"/>");
@@ -1532,7 +1576,9 @@ impl Chart {
         xml.push_str(&self.axis_look(style));
         xml.push_str(&format!(" <c:crossAx val=\"{AXIS_ID_VALUE}\"/>"));
         match &o.val_axis_crosses_at {
-            Some(AxisCrossing::At(at)) => xml.push_str(&format!(" <c:crossesAt val=\"{}\"/>", if truthy(Some(*at)).is_some() { num(*at) } else { "autoZero".to_owned() })),
+            Some(AxisCrossing::At(at)) => {
+                xml.push_str(&format!(" <c:crossesAt val=\"{}\"/>", if truthy(Some(*at)).is_some() { num(*at) } else { "autoZero".to_owned() }))
+            }
             Some(AxisCrossing::Mode(mode)) if !mode.is_empty() => xml.push_str(&format!(" <c:crosses val=\"{mode}\"/>")),
             _ => xml.push_str(" <c:crosses val=\"autoZero\"/>"),
         }
@@ -1590,7 +1636,11 @@ impl Chart {
         if style.show_title {
             xml.push_str(&self.axis_title(style));
         }
-        let code = if set_text(&o.val_axis_label_format_code).is_some() { encode_xml_entities(text_or(&o.val_axis_label_format_code, "")) } else { "General".to_owned() };
+        let code = if set_text(&o.val_axis_label_format_code).is_some() {
+            encode_xml_entities(text_or(&o.val_axis_label_format_code, ""))
+        } else {
+            "General".to_owned()
+        };
         xml.push_str(&format!("<c:numFmt formatCode=\"{code}\" sourceLinked=\"0\"/>"));
         if scatter {
             xml.push_str("  <c:majorTickMark val=\"none\"/>");
@@ -1613,7 +1663,10 @@ impl Chart {
             xml.push_str(&format!(" <c:majorUnit val=\"{}\"/>", num(unit)));
         }
         if let Some(unit) = set_text(&o.val_axis_display_unit) {
-            xml.push_str(&format!("<c:dispUnits><c:builtInUnit val=\"{unit}\"/>{}</c:dispUnits>", if o.val_axis_display_unit_label { "<c:dispUnitsLbl/>" } else { "" }));
+            xml.push_str(&format!(
+                "<c:dispUnits><c:builtInUnit val=\"{unit}\"/>{}</c:dispUnits>",
+                if o.val_axis_display_unit_label { "<c:dispUnitsLbl/>" } else { "" }
+            ));
         }
         xml.push_str("</c:valAx>");
         Ok(xml)
@@ -1629,7 +1682,11 @@ mod tests {
     }
 
     fn months(name: &str, values: &[f64]) -> ChartData {
-        ChartData { name: name.to_owned(), labels: vec![["Jan", "Feb", "Mar"].iter().map(|label| (*label).to_owned()).collect()], values: values.iter().map(|value| Some(*value)).collect() }
+        ChartData {
+            name: name.to_owned(),
+            labels: vec![["Jan", "Feb", "Mar"].iter().map(|label| (*label).to_owned()).collect()],
+            values: values.iter().map(|value| Some(*value)).collect(),
+        }
     }
 
     fn bar(options: ChartOptions) -> Chart {
@@ -1648,7 +1705,10 @@ mod tests {
         assert!(xml.contains("<c:axId val=\"2094734554\"/><c:axId val=\"2094734552\"/><c:axId val=\"2094734556\"/>"));
         let frame = chart.frame_xml(0, &layout());
         assert!(frame.contains("name=\"Chart 0\" descr=\"\""));
-        assert!(frame.contains("<a:off x=\"914400\" y=\"914400\"/><a:ext cx=\"4572000\" cy=\"2571750\"/>"), "a position of one inch, a size of half the slide: {frame}");
+        assert!(
+            frame.contains("<a:off x=\"914400\" y=\"914400\"/><a:ext cx=\"4572000\" cy=\"2571750\"/>"),
+            "a position of one inch, a size of half the slide: {frame}"
+        );
         assert!(frame.contains("r:id=\"rId1\""));
     }
 
@@ -1661,19 +1721,25 @@ mod tests {
 
     #[test]
     fn a_label_position_the_kind_cannot_show_is_dropped() {
-        let kept = bar(ChartOptions { show_value: true, data_label_position: Some("inEnd".to_owned()), ..ChartOptions::default() }).xml().expect("the chart part");
+        let kept =
+            bar(ChartOptions { show_value: true, data_label_position: Some("inEnd".to_owned()), ..ChartOptions::default() }).xml().expect("the chart part");
         assert!(kept.contains("<c:dLblPos val=\"inEnd\"/>"));
-        let dropped = bar(ChartOptions { show_value: true, data_label_position: Some("outEnd".to_owned()), ..ChartOptions::default() }).xml().expect("the chart part");
+        let dropped =
+            bar(ChartOptions { show_value: true, data_label_position: Some("outEnd".to_owned()), ..ChartOptions::default() }).xml().expect("the chart part");
         assert!(!dropped.contains("<c:dLblPos"), "outEnd is not for a clustered column");
     }
 
     #[test]
     fn a_pie_labels_its_slices_in_percent_when_asked_to() {
-        let data = vec![ChartData { name: "Status".to_owned(), labels: vec![vec!["Red".to_owned(), "Green".to_owned()]], values: vec![Some(10.0), Some(20.0)] }];
+        let data =
+            vec![ChartData { name: "Status".to_owned(), labels: vec![vec!["Red".to_owned(), "Green".to_owned()]], values: vec![Some(10.0), Some(20.0)] }];
         let plain = Chart::new(ChartKind::Pie, data.clone(), ChartOptions::default(), 1, 1, 0).expect("a pie").xml().expect("the chart part");
         assert!(plain.contains("<c:numFmt formatCode=\"General\" sourceLinked=\"0\"/>"));
         assert!(plain.contains("<c:firstSliceAng val=\"0\"/>"));
-        let percent = Chart::new(ChartKind::Doughnut, data, ChartOptions { show_percent: true, ..ChartOptions::default() }, 2, 1, 0).expect("a doughnut").xml().expect("the chart part");
+        let percent = Chart::new(ChartKind::Doughnut, data, ChartOptions { show_percent: true, ..ChartOptions::default() }, 2, 1, 0)
+            .expect("a doughnut")
+            .xml()
+            .expect("the chart part");
         assert!(percent.contains("<c:numFmt formatCode=\"0%\" sourceLinked=\"0\"/>"));
         assert!(percent.contains("<c:holeSize val=\"50\"/>"));
         assert!(!percent.contains("<c:catAx>"), "a pie has no axes");
@@ -1697,10 +1763,21 @@ mod tests {
 
     #[test]
     fn a_line_cap_the_library_does_not_know_fails_the_write_and_a_missing_label_list_fails_the_chart() {
-        let line = Chart::new(ChartKind::Line, vec![months("A", &[1.0, 2.0, 3.0])], ChartOptions { line_cap: Some("triangle".to_owned()), ..ChartOptions::default() }, 1, 1, 0).expect("a line chart");
+        let line = Chart::new(
+            ChartKind::Line,
+            vec![months("A", &[1.0, 2.0, 3.0])],
+            ChartOptions { line_cap: Some("triangle".to_owned()), ..ChartOptions::default() },
+            1,
+            1,
+            0,
+        )
+        .expect("a line chart");
         assert_eq!(line.xml().err().as_deref(), Some("Invalid chart line cap: triangle"));
         let bare = ChartData { name: "A".to_owned(), labels: Vec::new(), values: vec![Some(1.0)] };
-        assert_eq!(Chart::new(ChartKind::Bar, vec![bare], ChartOptions::default(), 1, 1, 0).err().as_deref(), Some("Cannot read properties of undefined (reading 'length')"));
+        assert_eq!(
+            Chart::new(ChartKind::Bar, vec![bare], ChartOptions::default(), 1, 1, 0).err().as_deref(),
+            Some("Cannot read properties of undefined (reading 'length')")
+        );
     }
 
     #[test]

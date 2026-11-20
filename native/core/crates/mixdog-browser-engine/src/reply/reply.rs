@@ -484,11 +484,7 @@ mod tests {
     }
 
     fn gesture(action: &str, dom: u32) -> ReplyRequest<'_> {
-        ReplyRequest {
-            action,
-            effect: ReplyEffect { settle_action: true, baseline: Some(baseline(dom)), ..ReplyEffect::default() },
-            ..ReplyRequest::default()
-        }
+        ReplyRequest { action, effect: ReplyEffect { settle_action: true, baseline: Some(baseline(dom)), ..ReplyEffect::default() }, ..ReplyRequest::default() }
     }
 
     async fn run_observing(f: &mut Fixture, request: &ReplyRequest<'_>, payload: &BrowserSnapshotPayload, observation: &str) -> Result<ToolReply, ReplyError> {
@@ -519,11 +515,7 @@ mod tests {
     async fn a_gesture_the_page_ignored_is_reported_as_no_observable_change_and_scroll_is_judged_by_position() {
         let mut f = fixture();
         let ignored = run(&mut f, &gesture("click", 4), &same_as_before(), 4).await.unwrap();
-        assert!(
-            ignored.text.starts_with("No observable change: the document, URL, and control values are the same as before this click"),
-            "{}",
-            ignored.text
-        );
+        assert!(ignored.text.starts_with("No observable change: the document, URL, and control values are the same as before this click"), "{}", ignored.text);
         assert_eq!(ignored.outcome, Some(ReplyOutcome::Completed));
         let reacted = run(&mut f, &gesture("click", 4), &same_as_before(), 5).await.unwrap();
         assert!(!reacted.text.contains("No observable change"));
@@ -561,17 +553,18 @@ mod tests {
         let unknown = judged("https://fixture.example/app", None);
         assert!(!run(&mut f, &unknown, &same_as_before(), 0).await.unwrap().text.contains("No observable change"));
         let old_counter = judged("https://fixture.example/app", Some("1:2:3".into()));
-        assert!(!run(&mut f, &old_counter, &same_as_before(), 4).await.unwrap().text.contains("No observable change"), "a revision without the counters proves nothing");
+        assert!(
+            !run(&mut f, &old_counter, &same_as_before(), 4).await.unwrap().text.contains("No observable change"),
+            "a revision without the counters proves nothing"
+        );
         let moved = judged("https://other.example/", Some(observed(4, 0, 0)));
         assert!(!run(&mut f, &moved, &same_as_before(), 4).await.unwrap().text.contains("No observable change"), "a changed URL is a change");
     }
 
     #[tokio::test]
     async fn brief_replies_list_only_new_or_changed_elements_and_trim_the_text() {
-        let mut after = payload(
-            "p1-s2",
-            vec![element("p1-s2-e1", "button", "Save"), element("p1-s2-e2", "textbox", "Email"), element("p1-s2-e3", "link", "Continue")],
-        );
+        let mut after =
+            payload("p1-s2", vec![element("p1-s2-e1", "button", "Save"), element("p1-s2-e2", "textbox", "Email"), element("p1-s2-e3", "link", "Continue")]);
         after.elements[1].value = Some("ada@example.test".into());
         after.elements[2].href = Some("https://fixture.example/next".into());
         let earlier = RefSet::from_payload("p1-s1", &before());
@@ -774,6 +767,5 @@ mod tests {
         assert_eq!(ReplyOutcome::Completed.as_str(), "completed");
     }
 }
-
 
 impl std::error::Error for ReplyError {}

@@ -69,9 +69,8 @@ fn table_layout(flow: &Flow, block: &Value, rows: &[Vec<String>]) -> WriterResul
     let header = block.get("headers") != Some(&Value::Bool(false));
     let total = block.get("totalRow") == Some(&Value::Bool(true)) && rows.len() > usize::from(header);
     let last = rows.len().saturating_sub(1);
-    let face_of = |row_index: usize| -> Arc<Face> {
-        if (header && row_index == 0) || (total && row_index == last) { flow.bold.clone() } else { flow.font.clone() }
-    };
+    let face_of =
+        |row_index: usize| -> Arc<Face> { if (header && row_index == 0) || (total && row_index == last) { flow.bold.clone() } else { flow.font.clone() } };
     let columns = rows.iter().map(Vec::len).max().unwrap_or(0).max(1);
     let width = num_or(block.get("width"), flow.page_width() - flow.margin * 2.0);
     let font_size = num_or(block.get("fontSize"), 9.0);
@@ -158,7 +157,13 @@ fn draw_table_row(flow: &mut Flow, block: &Value, layout: &TableLayout, row_inde
     let top = flow.y;
     let mut x = layout.x0;
     for (column, lines) in cells.iter().enumerate() {
-        let fill: Option<&Value> = if is_header { layout.header_fill.as_ref() } else if row_index % 2 == 0 { block.get("zebraFill") } else { None };
+        let fill: Option<&Value> = if is_header {
+            layout.header_fill.as_ref()
+        } else if row_index % 2 == 0 {
+            block.get("zebraFill")
+        } else {
+            None
+        };
         let fill = fill.filter(|value| truthy(value));
         if layout.grid || fill.is_some() {
             let color = match fill {
@@ -188,11 +193,7 @@ fn draw_table_row(flow: &mut Flow, block: &Value, layout: &TableLayout, row_inde
         };
         let tint = parse_color(&tint)?;
         for (line_index, line) in lines.iter().enumerate() {
-            let text_left = if right {
-                layout.cell_widths[column] - PADDING - face.width(line, layout.font_size)?
-            } else {
-                PADDING + layout.leads[column]
-            };
+            let text_left = if right { layout.cell_widths[column] - PADDING - face.width(line, layout.font_size)? } else { PADDING + layout.leads[column] };
             let line_y = text_top - line_index as f64 * layout.line_height - layout.font_size * 0.78 - (layout.line_height - layout.font_size) / 2.0;
             flow.page().draw_text(line, x + max(PADDING * 0.5, text_left), line_y, layout.font_size, face, tint)?;
         }

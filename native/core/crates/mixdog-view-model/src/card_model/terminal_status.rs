@@ -25,10 +25,7 @@ static QUEUED_HEAD: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^
 
 /// `shellResultStatus`: the status the result's leading block reports, lower case; empty when it reports none.
 pub fn shell_result_status(value: &str) -> String {
-    SHELL_STATUS
-        .captures(&leading_result_block(value))
-        .and_then(|found| found.get(1).map(js_to_lowercase))
-        .unwrap_or_default()
+    SHELL_STATUS.captures(&leading_result_block(value)).and_then(|found| found.get(1).map(js_to_lowercase)).unwrap_or_default()
 }
 
 /// `normalizeTerminalStatus`.

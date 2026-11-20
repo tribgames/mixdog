@@ -15,10 +15,10 @@ use serde_json::Value;
 
 use super::AgentRegistry;
 use super::Row;
-use mixdog_core_ports::ports::threads::ThreadState;
-use mixdog_core_run::run_host::progress::WaitedJobs;
 use crate::session::Clock;
 use crate::session::SessionDirectory;
+use mixdog_core_ports::ports::threads::ThreadState;
+use mixdog_core_run::run_host::progress::WaitedJobs;
 
 /// The header members [`facts_of`] and [`worker_result_text`] read.
 const FACT_FIELDS: [&str; 16] = [

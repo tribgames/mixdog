@@ -103,11 +103,7 @@ mod imp {
     }
 
     pub(crate) fn cvt(ret: libc::c_int) -> io::Result<libc::c_int> {
-        if ret < 0 {
-            Err(io::Error::last_os_error())
-        } else {
-            Ok(ret)
-        }
+        if ret < 0 { Err(io::Error::last_os_error()) } else { Ok(ret) }
     }
 
     /// `(st_dev, st_ino)`; the field types differ between Linux and macOS.
@@ -118,15 +114,9 @@ mod imp {
 
     impl DataDir {
         pub(crate) fn open(path: &Path) -> io::Result<Self> {
-            let c = CString::new(path.as_os_str().as_bytes())
-                .map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
+            let c = CString::new(path.as_os_str().as_bytes()).map_err(|_| io::Error::from(io::ErrorKind::InvalidInput))?;
             // SAFETY: `c` is a valid NUL-terminated path.
-            let fd = cvt(unsafe {
-                libc::open(
-                    c.as_ptr(),
-                    libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC,
-                )
-            })?;
+            let fd = cvt(unsafe { libc::open(c.as_ptr(), libc::O_RDONLY | libc::O_DIRECTORY | libc::O_CLOEXEC) })?;
             Ok(Self {
                 path: path.to_path_buf(),
                 // SAFETY: `fd` was just opened and is owned here.
@@ -138,32 +128,16 @@ mod imp {
             self.fd.as_raw_fd()
         }
 
-        pub(crate) fn openat(
-            &self,
-            name: &str,
-            flags: libc::c_int,
-            mode: libc::mode_t,
-        ) -> io::Result<OwnedFd> {
+        pub(crate) fn openat(&self, name: &str, flags: libc::c_int, mode: libc::mode_t) -> io::Result<OwnedFd> {
             let c = cstr(name)?;
             // SAFETY: valid directory fd and NUL-terminated name.
-            let fd = cvt(unsafe {
-                libc::openat(
-                    self.raw_fd(),
-                    c.as_ptr(),
-                    flags | libc::O_CLOEXEC,
-                    libc::c_uint::from(mode),
-                )
-            })?;
+            let fd = cvt(unsafe { libc::openat(self.raw_fd(), c.as_ptr(), flags | libc::O_CLOEXEC, libc::c_uint::from(mode)) })?;
             // SAFETY: `fd` was just opened and is owned here.
             Ok(unsafe { OwnedFd::from_raw_fd(fd) })
         }
 
         pub(super) fn open_read(&self, name: &str) -> io::Result<File> {
-            Ok(File::from(self.openat(
-                name,
-                libc::O_RDONLY | libc::O_NOFOLLOW,
-                0,
-            )?))
+            Ok(File::from(self.openat(name, libc::O_RDONLY | libc::O_NOFOLLOW, 0)?))
         }
 
         pub(super) fn open_create_new(&self, name: &str) -> io::Result<File> {
@@ -177,14 +151,7 @@ mod imp {
             // SAFETY: zeroed `stat` is a valid out-parameter.
             let mut stat: libc::stat = unsafe { std::mem::zeroed() };
             // SAFETY: valid fd, name and out-pointer.
-            cvt(unsafe {
-                libc::fstatat(
-                    self.raw_fd(),
-                    c.as_ptr(),
-                    &mut stat,
-                    libc::AT_SYMLINK_NOFOLLOW,
-                )
-            })?;
+            cvt(unsafe { libc::fstatat(self.raw_fd(), c.as_ptr(), &mut stat, libc::AT_SYMLINK_NOFOLLOW) })?;
             Ok(stat)
         }
 
@@ -200,11 +167,7 @@ mod imp {
 
         /// Whether the directory `name` has no entries besides `.` and `..`.
         pub fn is_empty_dir(&self, name: &str) -> io::Result<bool> {
-            let fd = self.openat(
-                name,
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW,
-                0,
-            )?;
+            let fd = self.openat(name, libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW, 0)?;
             let raw = std::os::fd::IntoRawFd::into_raw_fd(fd);
             // SAFETY: `raw` is an owned directory fd; fdopendir takes it over.
             let stream = unsafe { libc::fdopendir(raw) };
@@ -236,18 +199,14 @@ mod imp {
         pub fn link(&self, from: &str, to: &str) -> io::Result<()> {
             let (from, to) = (cstr(from)?, cstr(to)?);
             // SAFETY: valid fds and names.
-            cvt(unsafe {
-                libc::linkat(self.raw_fd(), from.as_ptr(), self.raw_fd(), to.as_ptr(), 0)
-            })
-            .map(|_| ())
+            cvt(unsafe { libc::linkat(self.raw_fd(), from.as_ptr(), self.raw_fd(), to.as_ptr(), 0) }).map(|_| ())
         }
 
         /// Atomic rename-replace inside the directory.
         pub fn rename(&self, from: &str, to: &str) -> io::Result<()> {
             let (from, to) = (cstr(from)?, cstr(to)?);
             // SAFETY: valid fds and names.
-            cvt(unsafe { libc::renameat(self.raw_fd(), from.as_ptr(), self.raw_fd(), to.as_ptr()) })
-                .map(|_| ())
+            cvt(unsafe { libc::renameat(self.raw_fd(), from.as_ptr(), self.raw_fd(), to.as_ptr()) }).map(|_| ())
         }
 
         pub fn unlink(&self, name: &str) -> io::Result<()> {
@@ -259,8 +218,7 @@ mod imp {
         pub fn rmdir(&self, name: &str) -> io::Result<()> {
             let c = cstr(name)?;
             // SAFETY: valid fd and name.
-            cvt(unsafe { libc::unlinkat(self.raw_fd(), c.as_ptr(), libc::AT_REMOVEDIR) })
-                .map(|_| ())
+            cvt(unsafe { libc::unlinkat(self.raw_fd(), c.as_ptr(), libc::AT_REMOVEDIR) }).map(|_| ())
         }
 
         /// fsync of the directory: makes created, renamed and removed entries durable.
@@ -280,11 +238,7 @@ mod imp {
         }
 
         fn subdir(&self, subdir: &str) -> io::Result<OwnedFd> {
-            self.openat(
-                subdir,
-                libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW,
-                0,
-            )
+            self.openat(subdir, libc::O_RDONLY | libc::O_DIRECTORY | libc::O_NOFOLLOW, 0)
         }
 
         pub(super) fn open_append(&self, subdir: &str, name: &str) -> io::Result<(File, bool)> {
@@ -296,11 +250,7 @@ mod imp {
                     libc::openat(
                         dir.as_raw_fd(),
                         c.as_ptr(),
-                        flags
-                            | libc::O_WRONLY
-                            | libc::O_APPEND
-                            | libc::O_NOFOLLOW
-                            | libc::O_CLOEXEC,
+                        flags | libc::O_WRONLY | libc::O_APPEND | libc::O_NOFOLLOW | libc::O_CLOEXEC,
                         0o600 as libc::c_uint,
                     )
                 })
@@ -336,10 +286,7 @@ mod imp {
     use super::EntryKind;
 
     pub(crate) fn wide(path: &Path) -> Vec<u16> {
-        path.as_os_str()
-            .encode_wide()
-            .chain(std::iter::once(0))
-            .collect()
+        path.as_os_str().encode_wide().chain(std::iter::once(0)).collect()
     }
 
     impl DataDir {
@@ -347,9 +294,7 @@ mod imp {
             if !std::fs::metadata(path)?.is_dir() {
                 return Err(io::Error::from(io::ErrorKind::NotADirectory));
             }
-            Ok(Self {
-                path: path.to_path_buf(),
-            })
+            Ok(Self { path: path.to_path_buf() })
         }
 
         pub(super) fn open_read(&self, name: &str) -> io::Result<File> {
@@ -357,10 +302,7 @@ mod imp {
         }
 
         pub(super) fn open_create_new(&self, name: &str) -> io::Result<File> {
-            OpenOptions::new()
-                .write(true)
-                .create_new(true)
-                .open(self.path.join(name))
+            OpenOptions::new().write(true).create_new(true).open(self.path.join(name))
         }
 
         pub fn kind(&self, name: &str) -> io::Result<Option<EntryKind>> {
@@ -391,18 +333,8 @@ mod imp {
         pub fn rename(&self, from: &str, to: &str) -> io::Result<()> {
             let (from, to) = (wide(&self.path.join(from)), wide(&self.path.join(to)));
             // SAFETY: both paths are NUL-terminated wide strings.
-            let ok = unsafe {
-                MoveFileExW(
-                    from.as_ptr(),
-                    to.as_ptr(),
-                    MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH,
-                )
-            };
-            if ok == 0 {
-                Err(io::Error::last_os_error())
-            } else {
-                Ok(())
-            }
+            let ok = unsafe { MoveFileExW(from.as_ptr(), to.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) };
+            if ok == 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
         }
 
         pub fn unlink(&self, name: &str) -> io::Result<()> {
@@ -430,9 +362,7 @@ mod imp {
             let path = self.path.join(subdir).join(name);
             match OpenOptions::new().append(true).create_new(true).open(&path) {
                 Ok(file) => Ok((file, true)),
-                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
-                    Ok((OpenOptions::new().append(true).open(&path)?, false))
-                }
+                Err(error) if error.kind() == io::ErrorKind::AlreadyExists => Ok((OpenOptions::new().append(true).open(&path)?, false)),
                 Err(error) => Err(error),
             }
         }

@@ -128,5 +128,6 @@ fn body(step: &Step) {
     let file = rig._data.path().join("userdata").join("new-task-receipts").join(format!("{key}.json"));
     let receipt: Value = serde_json::from_str(&std::fs::read_to_string(file).expect("the receipt")).expect("a receipt");
     let address = receipt["sessionId"].as_str().expect("an address");
-    assert_ne!(address, format!("sess_desktop_{key}"), "the refused reservation is not resumed");    caller.abort();
+    assert_ne!(address, format!("sess_desktop_{key}"), "the refused reservation is not resumed");
+    caller.abort();
 }

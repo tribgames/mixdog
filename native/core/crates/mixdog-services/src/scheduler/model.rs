@@ -170,14 +170,12 @@ impl std::fmt::Display for ScheduleError {
             Self::RenameRunning { name } => {
                 write!(f, "Schedule \"{name}\" is running. Rename it after the run finishes.")
             }
-            Self::RenameReloadFailed { name, cause } => write!(
-                f,
-                "Renamed to \"{name}\", but reloading the scheduler failed ({cause}); it is armed on the next reload."
-            ),
-            Self::RenameUncertain { cause } => write!(
-                f,
-                "The rename may or may not have applied (the scheduler did not answer: {cause}). Check the schedule list."
-            ),
+            Self::RenameReloadFailed { name, cause } => {
+                write!(f, "Renamed to \"{name}\", but reloading the scheduler failed ({cause}); it is armed on the next reload.")
+            }
+            Self::RenameUncertain { cause } => {
+                write!(f, "The rename may or may not have applied (the scheduler did not answer: {cause}). Check the schedule list.")
+            }
             Self::Store(m) | Self::Run(m) => f.write_str(m),
         }
     }
@@ -222,6 +220,5 @@ mod tests {
         assert_eq!(ScheduleError::RenameUncertain { cause: "c".into() }.code_fields(), Some((SCHEDULE_RENAME_UNCERTAIN, None)));
     }
 }
-
 
 impl std::error::Error for ScheduleError {}

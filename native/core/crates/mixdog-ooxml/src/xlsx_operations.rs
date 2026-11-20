@@ -11,15 +11,13 @@ use serde_json::{Map, Value, json};
 use crate::cells::Sheet;
 use crate::opc::{ensure_content_type_override, next_relationship_id, part_relationship_path, remove_content_type_override};
 use crate::sheet_xml::{
-    append_differential_format, append_worksheet_section, area_reference, conditional_scale_rule, parse_area_range,
-    upsert_defined_name, upsert_worksheet_section, worksheet_section,
+    append_differential_format, append_worksheet_section, area_reference, conditional_scale_rule, parse_area_range, upsert_defined_name,
+    upsert_worksheet_section, worksheet_section,
 };
 use crate::xlsx_audit_support::{js_text, text_or_empty, text_or_empty_nullish, truthy};
 use crate::xlsx_contract::{conditional_format_kind, list_validation_choices};
 use crate::xlsx_reference_shift::{drop_calculation_chain, rename_sheet_references};
-use crate::xml::{
-    OFFICE_RELATIONSHIP_BASE, SPREADSHEET_MAIN, compiled, container_body, tag_pattern, xml_attribute, xml_decode, xml_encode,
-};
+use crate::xml::{OFFICE_RELATIONSHIP_BASE, SPREADSHEET_MAIN, compiled, container_body, tag_pattern, xml_attribute, xml_decode, xml_encode};
 use crate::zipio::Package;
 
 pub const WORKSHEET_CONTENT_TYPE: &str = "application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml";
@@ -65,10 +63,7 @@ pub fn table_style_info_xml(style: Option<&Value>) -> String {
     if name.is_empty() || js_to_lowercase(&name) == "none" {
         return "<tableStyleInfo showFirstColumn=\"0\" showLastColumn=\"0\" showRowStripes=\"0\" showColumnStripes=\"0\"/>".to_owned();
     }
-    format!(
-        "<tableStyleInfo name=\"{}\" showFirstColumn=\"0\" showLastColumn=\"0\" showRowStripes=\"1\" showColumnStripes=\"0\"/>",
-        xml_encode(&name)
-    )
+    format!("<tableStyleInfo name=\"{}\" showFirstColumn=\"0\" showLastColumn=\"0\" showRowStripes=\"1\" showColumnStripes=\"0\"/>", xml_encode(&name))
 }
 
 fn empty_worksheet_xml() -> String {
@@ -128,9 +123,8 @@ pub fn add_worksheet(zip: &mut Package, name: Option<&Value>) -> Result<String, 
         return Err("Workbook relationships are missing".to_owned());
     }
     let relationship_id = next_relationship_id(&rels);
-    let relationship = format!(
-        "<Relationship Id=\"{relationship_id}\" Type=\"{WORKSHEET_RELATIONSHIP}\" Target=\"worksheets/sheet{ordinal}.xml\"/></Relationships>"
-    );
+    let relationship =
+        format!("<Relationship Id=\"{relationship_id}\" Type=\"{WORKSHEET_RELATIONSHIP}\" Target=\"worksheets/sheet{ordinal}.xml\"/></Relationships>");
     zip.set(WORKBOOK_RELATIONSHIPS, rels.replacen("</Relationships>", &relationship, 1));
     let entry = format!("<sheet name=\"{}\" sheetId=\"{}\" r:id=\"{relationship_id}\"/>", xml_encode(&label), next_sheet_id(&workbook));
     let Some(section) = SHEETS_SECTION.find(&workbook) else {
@@ -189,9 +183,7 @@ pub fn delete_worksheet(zip: &mut Package, sheets: &[Sheet], sheet: &Sheet) -> R
     workbook = DEFINED_NAME.replace_all_with(&workbook, |found| {
         let item = found.get(0).unwrap_or("");
         match local_sheet_id(item) {
-            Some(local) if local > index => {
-                replace_first(&LOCAL_SHEET_ID, item, |_| format!("localSheetId=\"{}\"", number_to_string(local - 1.0)))
-            }
+            Some(local) if local > index => replace_first(&LOCAL_SHEET_ID, item, |_| format!("localSheetId=\"{}\"", number_to_string(local - 1.0))),
             _ => item.to_owned(),
         }
     });
@@ -256,8 +248,7 @@ fn header_footer_slots(current: &str) -> [String; 3] {
 }
 
 fn header_footer_story_text(slots: &[String; 3]) -> String {
-    let joined: String =
-        ["L", "C", "R"].iter().zip(slots).filter(|(_, text)| !text.is_empty()).map(|(key, text)| format!("&{key}{text}")).collect();
+    let joined: String = ["L", "C", "R"].iter().zip(slots).filter(|(_, text)| !text.is_empty()).map(|(key, text)| format!("&{key}{text}")).collect();
     xml_encode(&joined)
 }
 
@@ -286,11 +277,8 @@ pub fn set_worksheet_header_footer(zip: &mut Package, sheet: &Sheet, xml: &str, 
     let mut slots = header_footer_slots(&current);
     slots[slot] = header_footer_fields(&text_or_empty_nullish(op.get("text")));
     let written = format!("<{story}>{}</{story}>", header_footer_story_text(&slots));
-    let element = if named == "header" {
-        format!("<headerFooter>{written}{kept}</headerFooter>")
-    } else {
-        format!("<headerFooter>{kept}{written}</headerFooter>")
-    };
+    let element =
+        if named == "header" { format!("<headerFooter>{written}{kept}</headerFooter>") } else { format!("<headerFooter>{kept}{written}</headerFooter>") };
     zip.set(&sheet.path, upsert_worksheet_section(xml, "headerFooter", &element));
     Ok(json!({ "op": op.get("op"), "changed": true, "sheet": sheet.name, "kind": named, "alignment": alignment }))
 }
@@ -299,10 +287,7 @@ pub fn set_worksheet_header_footer(zip: &mut Package, sheet: &Sheet, xml: &str, 
 pub fn apply_conditional_format(zip: &mut Package, sheet: &Sheet, xml: &str, op: &Map<String, Value>) -> Result<Value, String> {
     let reference = area_reference(&parse_area_range(&text_or_empty(op.get("range")))?);
     if op.get("op").and_then(Value::as_str) == Some("delete_conditional_formats") {
-        let pattern = compiled(
-            &format!(r#"<conditionalFormatting\b[^>]*\bsqref="{}"[^>]*>[\s\S]*?<\/conditionalFormatting>"#, tag_pattern(&reference)),
-            "g",
-        );
+        let pattern = compiled(&format!(r#"<conditionalFormatting\b[^>]*\bsqref="{}"[^>]*>[\s\S]*?<\/conditionalFormatting>"#, tag_pattern(&reference)), "g");
         let next = pattern.replace_all_with(xml, |_| String::new());
         zip.set(&sheet.path, next.clone());
         return Ok(json!({ "op": op.get("op"), "changed": next != xml, "sheet": sheet.name, "range": reference }));

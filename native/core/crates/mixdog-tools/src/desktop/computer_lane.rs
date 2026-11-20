@@ -3,9 +3,9 @@
 //! behind another is refused when it needs fresh state, since the desktop may have changed meanwhile.
 
 use std::collections::BTreeSet;
+use std::sync::Mutex as StdMutex;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
-use std::sync::Mutex as StdMutex;
 
 use mixdog_core_api::domain::computer::ComputerError;
 use mixdog_protocol::ComputerLaneSection;
@@ -268,7 +268,10 @@ mod tests {
         assert_eq!(kind(json!({"action":"invoke","ref":"e1","delivery":"foreground"})), Kind::Command);
         assert_eq!(kind(json!({"action":"click","ref":"e1","delivery":"background"})), Kind::Guarded);
         assert_eq!(kind(json!({"action":"click","ref":"e1","modifiers":["ctrl"],"delivery":"background"})), Kind::Background);
-        assert_eq!(kind(json!({"action":"sequence","delivery":"background","steps":[{"action":"type","text":"a"},{"action":"set_value","ref":"e1"}]})), Kind::Guarded);
+        assert_eq!(
+            kind(json!({"action":"sequence","delivery":"background","steps":[{"action":"type","text":"a"},{"action":"set_value","ref":"e1"}]})),
+            Kind::Guarded
+        );
         assert_eq!(kind(json!({"action":"sequence","delivery":"background","steps":[{"action":"type","text":"a"}]})), Kind::Background);
         assert_eq!(kind(json!({"action":"capture"})), Kind::Background);
         assert_eq!(kind(json!({"action":"capture","delivery":"foreground"})), Kind::Guarded);
@@ -319,7 +322,6 @@ mod tests {
         lane.enter(Kind::Background, &CancellationToken::new()).await.unwrap();
         assert_eq!(heard.load(Ordering::SeqCst), 2, "a background command never waits");
     }
-
 
     #[tokio::test]
     async fn a_second_foreground_command_waits_and_is_refused() {

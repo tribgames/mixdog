@@ -77,7 +77,13 @@ pub fn parse_interval(value: &Value) -> Result<f64> {
 /// cycles started when none is persisted.
 pub fn periodic_cycle_due(last_run: f64, cycles_started_at: f64, interval_ms: f64, now: f64) -> bool {
     let persisted = if last_run.is_nan() { 0.0 } else { last_run };
-    let anchor = if persisted > 0.0 { persisted } else if cycles_started_at.is_nan() { 0.0 } else { cycles_started_at };
+    let anchor = if persisted > 0.0 {
+        persisted
+    } else if cycles_started_at.is_nan() {
+        0.0
+    } else {
+        cycles_started_at
+    };
     interval_ms > 0.0 && now - anchor >= interval_ms
 }
 

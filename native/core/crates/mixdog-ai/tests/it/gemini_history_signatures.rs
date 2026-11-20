@@ -32,7 +32,14 @@ impl ModelTraits for ByName {
 }
 
 fn dialect() -> Dialect {
-    Dialect { owner: ProviderId::from("gemini"), system_role: Some("system"), function_ids: true, family_gated: false, default_tool_mode: None, omit_ignored_sampling: false }
+    Dialect {
+        owner: ProviderId::from("gemini"),
+        system_role: Some("system"),
+        function_ids: true,
+        family_gated: false,
+        default_tool_mode: None,
+        omit_ignored_sampling: false,
+    }
 }
 
 fn text(role: Role, text: &str) -> Message {

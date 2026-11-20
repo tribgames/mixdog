@@ -122,10 +122,7 @@ fn program_args_encode_as_camel_case_json_without_unset_fields() {
     args.upload = true;
     args.model_login = Some(ModelLogin::Server);
     let json: serde_json::Value = serde_json::from_slice(&STANDARD.decode(encode_program_args(&args)).unwrap()).unwrap();
-    assert_eq!(
-        json,
-        serde_json::json!({"mode":"ensure","installId":"1.4.6-abc","version":"1.4.6","build":"abc","upload":true,"modelLogin":"server"})
-    );
+    assert_eq!(json, serde_json::json!({"mode":"ensure","installId":"1.4.6-abc","version":"1.4.6","build":"abc","upload":true,"modelLogin":"server"}));
 }
 
 fn upload_args() -> ProgramArgs {

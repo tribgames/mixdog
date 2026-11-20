@@ -206,14 +206,9 @@ impl<'a> Lexer<'a> {
     /// `_getNumber`. pdf.js answers 0 without moving when there is no number (or it is not finite) and so never
     /// leaves the word; that is an error here.
     fn get_number(&mut self) -> Result<Tok> {
-        let len = self
-            .number_match()
-            .ok_or_else(|| format_error("PostScript function: unreadable number."))?;
-        let text = std::str::from_utf8(&self.data[self.pos..self.pos + len])
-            .map_err(|_| format_error("PostScript function: unreadable number."))?;
-        let number: f64 = text
-            .parse()
-            .map_err(|_| format_error("PostScript function: unreadable number."))?;
+        let len = self.number_match().ok_or_else(|| format_error("PostScript function: unreadable number."))?;
+        let text = std::str::from_utf8(&self.data[self.pos..self.pos + len]).map_err(|_| format_error("PostScript function: unreadable number."))?;
+        let number: f64 = text.parse().map_err(|_| format_error("PostScript function: unreadable number."))?;
         if !number.is_finite() {
             return Err(format_error("PostScript function: unreadable number."));
         }
@@ -302,9 +297,7 @@ impl<'a> Parser<'a> {
 
     fn parse_block(&mut self, depth: usize) -> Result<Vec<Instr>> {
         if depth > MAX_BLOCK_DEPTH {
-            return Err(format_error(
-                "PostScript function: blocks nested too deeply.",
-            ));
+            return Err(format_error("PostScript function: blocks nested too deeply."));
         }
         let mut instructions = Vec::new();
         loop {
@@ -328,25 +321,19 @@ impl<'a> Parser<'a> {
                             let else_block = self.parse_block(depth + 1)?;
                             self.expect_rbrace()?;
                             if !matches!(self.token, Tok::Op(Op::IfElse)) {
-                                return Err(format_error(
-                                    "PostScript function: expected token id 44.",
-                                ));
+                                return Err(format_error("PostScript function: expected token id 44."));
                             }
                             self.advance()?;
                             instructions.push(Instr::IfElse(then_block, else_block));
                         }
                         _ => {
-                            return Err(format_error(
-                                "PostScript function: a procedure block must be followed by 'if' or '{…} ifelse'.",
-                            ));
+                            return Err(format_error("PostScript function: a procedure block must be followed by 'if' or '{…} ifelse'."));
                         }
                     }
                 }
                 Tok::RBrace | Tok::Eof => return Ok(instructions),
                 Tok::Op(Op::If) | Tok::Op(Op::IfElse) => {
-                    return Err(format_error(
-                        "PostScript function: unexpected 'if' operator.",
-                    ));
+                    return Err(format_error("PostScript function: unexpected 'if' operator."));
                 }
                 Tok::Op(op) => {
                     instructions.push(Instr::Op(op));
@@ -414,11 +401,7 @@ fn to_int32(x: f64) -> i32 {
 
 fn js_atan_degrees(y: f64, x: f64) -> f64 {
     let degrees = y.atan2(x) * RAD_TO_DEG;
-    if degrees < 0.0 {
-        degrees + 360.0
-    } else {
-        degrees
-    }
+    if degrees < 0.0 { degrees + 360.0 } else { degrees }
 }
 
 fn js_sin_cos_argument(v: f64) -> f64 {
@@ -435,11 +418,7 @@ fn eval_binary_const(op: Op, a: Val, b: Val) -> Option<Val> {
         Op::Mul => Val::Num(x * y),
         Op::Div => Val::Num(if !zero_divisor { x / y } else { 0.0 }),
         Op::Idiv => Val::Num(if !zero_divisor { (x / y).trunc() } else { 0.0 }),
-        Op::Mod => Val::Num(if !zero_divisor {
-            x - (x / y).trunc() * y
-        } else {
-            0.0
-        }),
+        Op::Mod => Val::Num(if !zero_divisor { x - (x / y).trunc() * y } else { 0.0 }),
         Op::Exp => {
             let r = js::pow(x, y);
             if r.is_finite() {
@@ -569,11 +548,7 @@ struct Node {
 }
 
 fn unary_value_type(op: Op, operand: ValueType) -> ValueType {
-    if op == Op::Not {
-        operand
-    } else {
-        ValueType::Numeric
-    }
+    if op == Op::Not { operand } else { ValueType::Numeric }
 }
 
 fn binary_value_type(op: Op, first: ValueType, second: ValueType) -> ValueType {
@@ -617,28 +592,12 @@ fn is_binary_op(op: Op) -> bool {
 fn is_unary_op(op: Op) -> bool {
     matches!(
         op,
-        Op::Abs
-            | Op::Neg
-            | Op::Ceiling
-            | Op::Floor
-            | Op::Round
-            | Op::Truncate
-            | Op::Sqrt
-            | Op::Sin
-            | Op::Cos
-            | Op::Ln
-            | Op::Log
-            | Op::Cvi
-            | Op::Cvr
-            | Op::Not
+        Op::Abs | Op::Neg | Op::Ceiling | Op::Floor | Op::Round | Op::Truncate | Op::Sqrt | Op::Sin | Op::Cos | Op::Ln | Op::Log | Op::Cvi | Op::Cvr | Op::Not
     )
 }
 
 fn is_idempotent_unary(op: Op) -> bool {
-    matches!(
-        op,
-        Op::Abs | Op::Ceiling | Op::Cvi | Op::Cvr | Op::Floor | Op::Round | Op::Truncate
-    )
+    matches!(op, Op::Abs | Op::Ceiling | Op::Cvi | Op::Cvr | Op::Floor | Op::Round | Op::Truncate)
 }
 
 fn negated_comparison(op: Op) -> Option<Op> {
@@ -662,21 +621,12 @@ struct Tree<'g> {
 
 impl<'g> Tree<'g> {
     fn add(&mut self, kind: Kind, value_type: ValueType) -> Id {
-        self.nodes.push(Node {
-            kind,
-            value_type,
-            shared: false,
-            shared_count: 0,
-        });
+        self.nodes.push(Node { kind, value_type, shared: false, shared_count: 0 });
         self.nodes.len() - 1
     }
 
     fn constant(&mut self, value: Val) -> Id {
-        let value_type = if matches!(value, Val::Bool(_)) {
-            ValueType::Boolean
-        } else {
-            ValueType::Numeric
-        };
+        let value_type = if matches!(value, Val::Bool(_)) { ValueType::Boolean } else { ValueType::Numeric };
         self.add(Kind::Const(value), value_type)
     }
 
@@ -699,40 +649,13 @@ impl<'g> Tree<'g> {
         match (self.nodes[a].kind, self.nodes[b].kind) {
             (Kind::Arg(x), Kind::Arg(y)) => x == y,
             (Kind::Const(x), Kind::Const(y)) => x.strict_eq(y),
-            (
-                Kind::Unary {
-                    op: o1,
-                    operand: p1,
-                },
-                Kind::Unary {
-                    op: o2,
-                    operand: p2,
-                },
-            ) => o1 == o2 && self.nodes_equal(p1, p2),
-            (
-                Kind::Binary {
-                    op: o1,
-                    first: f1,
-                    second: s1,
-                },
-                Kind::Binary {
-                    op: o2,
-                    first: f2,
-                    second: s2,
-                },
-            ) => o1 == o2 && self.nodes_equal(f1, f2) && self.nodes_equal(s1, s2),
-            (
-                Kind::Ternary {
-                    cond: c1,
-                    then: t1,
-                    otherwise: e1,
-                },
-                Kind::Ternary {
-                    cond: c2,
-                    then: t2,
-                    otherwise: e2,
-                },
-            ) => self.nodes_equal(c1, c2) && self.nodes_equal(t1, t2) && self.nodes_equal(e1, e2),
+            (Kind::Unary { op: o1, operand: p1 }, Kind::Unary { op: o2, operand: p2 }) => o1 == o2 && self.nodes_equal(p1, p2),
+            (Kind::Binary { op: o1, first: f1, second: s1 }, Kind::Binary { op: o2, first: f2, second: s2 }) => {
+                o1 == o2 && self.nodes_equal(f1, f2) && self.nodes_equal(s1, s2)
+            }
+            (Kind::Ternary { cond: c1, then: t1, otherwise: e1 }, Kind::Ternary { cond: c2, then: t2, otherwise: e2 }) => {
+                self.nodes_equal(c1, c2) && self.nodes_equal(t1, t2) && self.nodes_equal(e1, e2)
+            }
             _ => false,
         }
     }
@@ -748,11 +671,7 @@ impl<'g> Tree<'g> {
                 Op::Sub => return self.constant(Val::Num(0.0)),
                 Op::Xor => {
                     let boolean = self.vt(first) == ValueType::Boolean;
-                    return self.constant(if boolean {
-                        Val::Bool(false)
-                    } else {
-                        Val::Num(0.0)
-                    });
+                    return self.constant(if boolean { Val::Bool(false) } else { Val::Num(0.0) });
                 }
                 Op::And | Op::Or | Op::Min | Op::Max => return first,
                 Op::Eq | Op::Ge | Op::Le => return self.constant(Val::Bool(true)),
@@ -827,11 +746,7 @@ impl<'g> Tree<'g> {
                     }
                 }
                 Op::Min => {
-                    if let Kind::Binary {
-                        op: Op::Max,
-                        first: inner,
-                        ..
-                    } = self.nodes[second].kind
+                    if let Kind::Binary { op: Op::Max, first: inner, .. } = self.nodes[second].kind
                         && let Some(v) = self.const_value(inner)
                         && v.num() >= b.num()
                     {
@@ -839,11 +754,7 @@ impl<'g> Tree<'g> {
                     }
                 }
                 Op::Max => {
-                    if let Kind::Binary {
-                        op: Op::Min,
-                        first: inner,
-                        ..
-                    } = self.nodes[second].kind
+                    if let Kind::Binary { op: Op::Min, first: inner, .. } = self.nodes[second].kind
                         && let Some(v) = self.const_value(inner)
                         && v.num() <= b.num()
                     {
@@ -898,36 +809,17 @@ impl<'g> Tree<'g> {
             return self.constant(folded);
         }
         if op == Op::Not
-            && let Kind::Binary {
-                op: inner,
-                first,
-                second,
-            } = self.nodes[operand].kind
+            && let Kind::Binary { op: inner, first, second } = self.nodes[operand].kind
             && let Some(negated) = negated_comparison(inner)
         {
-            return self.add(
-                Kind::Binary {
-                    op: negated,
-                    first,
-                    second,
-                },
-                ValueType::Boolean,
-            );
+            return self.add(Kind::Binary { op: negated, first, second }, ValueType::Boolean);
         }
         if op == Op::Neg
-            && let Kind::Binary {
-                op: Op::Sub,
-                first,
-                second,
-            } = self.nodes[operand].kind
+            && let Kind::Binary { op: Op::Sub, first, second } = self.nodes[operand].kind
         {
             return self.make_binary(Op::Sub, second, first);
         }
-        if let Kind::Unary {
-            op: inner,
-            operand: deeper,
-        } = self.nodes[operand].kind
-        {
+        if let Kind::Unary { op: inner, operand: deeper } = self.nodes[operand].kind {
             if (op == Op::Neg && inner == Op::Neg) || (op == Op::Not && inner == Op::Not) {
                 return deeper;
             }
@@ -957,12 +849,7 @@ impl<'g> Tree<'g> {
                 return self.make_unary(Op::Not, cond);
             }
         }
-        if let Kind::Binary {
-            op: cop,
-            first: cf,
-            second: cs,
-        } = self.nodes[cond].kind
-        {
+        if let Kind::Binary { op: cop, first: cf, second: cs } = self.nodes[cond].kind {
             if cop == Op::Gt || cop == Op::Ge {
                 if self.nodes_equal(then, cf) && self.nodes_equal(otherwise, cs) {
                     return self.make_binary(Op::Min, cf, cs);
@@ -979,19 +866,8 @@ impl<'g> Tree<'g> {
                 }
             }
         }
-        let value_type = if self.vt(then) == self.vt(otherwise) {
-            self.vt(then)
-        } else {
-            ValueType::Unknown
-        };
-        self.add(
-            Kind::Ternary {
-                cond,
-                then,
-                otherwise,
-            },
-            value_type,
-        )
+        let value_type = if self.vt(then) == self.vt(otherwise) { self.vt(then) } else { ValueType::Unknown };
+        self.add(Kind::Ternary { cond, then, otherwise }, value_type)
     }
 
     fn fail(&mut self) {
@@ -1233,9 +1109,7 @@ impl<'g> Tree<'g> {
         if num_inputs > MAX_STACK_SIZE {
             return None;
         }
-        let mut stack: Vec<Id> = (0..num_inputs)
-            .map(|i| self.add(Kind::Arg(i), ValueType::Numeric))
-            .collect();
+        let mut stack: Vec<Id> = (0..num_inputs).map(|i| self.add(Kind::Arg(i), ValueType::Numeric)).collect();
         self.eval_block_from(program, 0, &mut stack);
         if self.failed {
             return None;
@@ -1264,11 +1138,7 @@ impl<'g> Tree<'g> {
                     visit(tree, first, counts, order);
                     visit(tree, second, counts, order);
                 }
-                Kind::Ternary {
-                    cond,
-                    then,
-                    otherwise,
-                } => {
+                Kind::Ternary { cond, then, otherwise } => {
                     visit(tree, cond, counts, order);
                     visit(tree, then, counts, order);
                     visit(tree, otherwise, counts, order);
@@ -1405,8 +1275,7 @@ impl<'t> Gen<'t> {
                 return false;
             }
             let local = self.alloc_local();
-            self.shared_locals
-                .insert(id, (local, node.shared_count - 1));
+            self.shared_locals.insert(id, (local, node.shared_count - 1));
             self.code.push(Inst::LocalTee(local));
             return true;
         }
@@ -1425,11 +1294,7 @@ impl<'t> Gen<'t> {
             }
             Kind::Unary { op, operand } => self.compile_unary(id, op, operand),
             Kind::Binary { op, first, second } => self.compile_binary(op, first, second),
-            Kind::Ternary {
-                cond,
-                then,
-                otherwise,
-            } => self.compile_ternary(cond, then, otherwise),
+            Kind::Ternary { cond, then, otherwise } => self.compile_ternary(cond, then, otherwise),
         }
     }
 
@@ -1448,8 +1313,7 @@ impl<'t> Gen<'t> {
             self.code.push(Inst::Sub);
             self.code.push(Inst::F64(DEG_TO_RAD));
             self.code.push(Inst::Mul);
-            self.code
-                .push(if op == Op::Sin { Inst::Sin } else { Inst::Cos });
+            self.code.push(if op == Op::Sin { Inst::Sin } else { Inst::Cos });
         }
         self.release_local(local);
         ok
@@ -1562,13 +1426,7 @@ impl<'t> Gen<'t> {
         ok
     }
 
-    fn compile_mod_body(
-        &mut self,
-        first: Id,
-        second: Id,
-        divisor: Option<Val>,
-        local_a: u32,
-    ) -> bool {
+    fn compile_mod_body(&mut self, first: Id, second: Id, divisor: Option<Val>, local_a: u32) -> bool {
         if !self.compile_node(second) {
             return false;
         }
@@ -1639,10 +1497,7 @@ impl<'t> Gen<'t> {
 
     fn compile_standard_binary(&mut self, op: Op, first: Id, second: Id) -> bool {
         let first_node = self.tree.nodes[first];
-        if first == second
-            && !matches!(first_node.kind, Kind::Arg(_) | Kind::Const(_))
-            && !first_node.shared
-        {
+        if first == second && !matches!(first_node.kind, Kind::Arg(_) | Kind::Const(_)) && !first_node.shared {
             let tmp = self.alloc_local();
             let ok = self.compile_node(first);
             if ok {
@@ -1718,8 +1573,7 @@ impl<'t> Gen<'t> {
                     self.code.push(inst);
                     return true;
                 }
-                if node.value_type == ValueType::Boolean && matches!(op, Op::And | Op::Or | Op::Xor)
-                {
+                if node.value_type == ValueType::Boolean && matches!(op, Op::And | Op::Or | Op::Xor) {
                     if !self.compile_as_bool(second) || !self.compile_as_bool(first) {
                         return false;
                     }
@@ -1731,10 +1585,7 @@ impl<'t> Gen<'t> {
                     return true;
                 }
             }
-            Kind::Unary {
-                op: Op::Not,
-                operand,
-            } if node.value_type == ValueType::Boolean => {
+            Kind::Unary { op: Op::Not, operand } if node.value_type == ValueType::Boolean => {
                 if !self.compile_as_bool(operand) {
                     return false;
                 }
@@ -1779,20 +1630,10 @@ struct Compiled {
     inputs: usize,
 }
 
-fn compile_tree(
-    program: &[Instr],
-    domain: &[f64],
-    range: &[f64],
-    guard: &Guard,
-) -> Result<Option<Compiled>> {
+fn compile_tree(program: &[Instr], domain: &[f64], range: &[f64], guard: &Guard) -> Result<Option<Compiled>> {
     let inputs = domain.len() >> 1;
     let outputs = range.len() >> 1;
-    let mut tree = Tree {
-        nodes: Vec::new(),
-        failed: false,
-        error: None,
-        guard,
-    };
+    let mut tree = Tree { nodes: Vec::new(), failed: false, error: None, guard };
     let stack = tree.evaluate(program, inputs);
     if let Some(error) = tree.error.take() {
         return Err(error);
@@ -1803,14 +1644,8 @@ fn compile_tree(
     if stack.len() < outputs {
         return Ok(None);
     }
-    let mut generator = Gen {
-        tree: &tree,
-        code: Vec::new(),
-        next_local: inputs as u32,
-        free_locals: Vec::new(),
-        shared_locals: HashMap::new(),
-        open: Vec::new(),
-    };
+    let mut generator =
+        Gen { tree: &tree, code: Vec::new(), next_local: inputs as u32, free_locals: Vec::new(), shared_locals: HashMap::new(), open: Vec::new() };
     for (i, &output) in stack.iter().take(outputs).enumerate() {
         if !generator.compile_node(output) {
             return Ok(None);
@@ -1822,19 +1657,13 @@ fn compile_tree(
         generator.code.push(Inst::Store(i as u32));
     }
     let locals = generator.next_local as usize;
-    Ok(Some(Compiled {
-        code: generator.code,
-        locals,
-        inputs,
-    }))
+    Ok(Some(Compiled { code: generator.code, locals, inputs }))
 }
 
 /// `i32.trunc_f64_s`: traps on `NaN` and on a number outside the `i32` range.
 fn trunc_i32(x: f64) -> Result<f64> {
     if x.is_nan() || x <= -2_147_483_649.0 || x >= 2_147_483_648.0 {
-        return Err(format_error(
-            "PostScript function: integer conversion trapped.",
-        ));
+        return Err(format_error("PostScript function: integer conversion trapped."));
     }
     Ok(x.trunc())
 }
@@ -1849,16 +1678,9 @@ thread_local! {
 }
 
 fn run_compiled(compiled: &Compiled, src: &[f64], dest: &mut [f64]) -> Result<()> {
-    let mut scratch = SCRATCH
-        .with(|slot| slot.borrow_mut().take())
-        .unwrap_or(Scratch {
-            locals: Vec::new(),
-            stack: Vec::new(),
-        });
+    let mut scratch = SCRATCH.with(|slot| slot.borrow_mut().take()).unwrap_or(Scratch { locals: Vec::new(), stack: Vec::new() });
     scratch.locals.clear();
-    scratch
-        .locals
-        .resize(compiled.locals.max(compiled.inputs), 0.0);
+    scratch.locals.resize(compiled.locals.max(compiled.inputs), 0.0);
     for i in 0..compiled.inputs {
         scratch.locals[i] = src.get(i).copied().unwrap_or(f64::NAN);
     }
@@ -1907,12 +1729,8 @@ fn execute(code: &[Inst], scratch: &mut Scratch, dest: &mut [f64]) -> Result<()>
             Inst::And32 => binary(stack, |a, b| f64::from((a as i32) & (b as i32))),
             Inst::Or32 => binary(stack, |a, b| f64::from((a as i32) | (b as i32))),
             Inst::Xor32 => binary(stack, |a, b| f64::from((a as i32) ^ (b as i32))),
-            Inst::Shl => binary(stack, |a, b| {
-                f64::from((a as i32).wrapping_shl(b as i32 as u32 & 31))
-            }),
-            Inst::ShrS => binary(stack, |a, b| {
-                f64::from((a as i32) >> (b as i32 as u32 & 31))
-            }),
+            Inst::Shl => binary(stack, |a, b| f64::from((a as i32).wrapping_shl(b as i32 as u32 & 31))),
+            Inst::ShrS => binary(stack, |a, b| f64::from((a as i32) >> (b as i32 as u32 & 31))),
             Inst::TruncI32 => {
                 let x = pop!();
                 stack.push(trunc_i32(x)?);
@@ -1921,11 +1739,7 @@ fn execute(code: &[Inst], scratch: &mut Scratch, dest: &mut [f64]) -> Result<()>
                 let condition = pop!();
                 let when_zero = pop!();
                 let when_set = pop!();
-                stack.push(if condition != 0.0 {
-                    when_set
-                } else {
-                    when_zero
-                });
+                stack.push(if condition != 0.0 { when_set } else { when_zero });
             }
             Inst::Sin => unary(stack, f64::sin),
             Inst::Cos => unary(stack, f64::cos),
@@ -1976,11 +1790,7 @@ struct Interpreter {
 
 impl Interpreter {
     fn get(&self, index: isize) -> f64 {
-        if (0..MAX_STACK_SIZE as isize).contains(&index) {
-            self.stack[index as usize]
-        } else {
-            f64::NAN
-        }
+        if (0..MAX_STACK_SIZE as isize).contains(&index) { self.stack[index as usize] } else { f64::NAN }
     }
 
     fn set(&mut self, index: isize, value: f64) {
@@ -2031,13 +1841,7 @@ impl Interpreter {
             Op::Log => self.top_mut(f64::log10),
             Op::Cvi => self.top_mut(|x| f64::from(to_int32(x.trunc()))),
             Op::Cvr => {}
-            Op::Not => self.top_mut(|v| {
-                if v == 0.0 || v == 1.0 {
-                    1.0 - v
-                } else {
-                    f64::from(!to_int32(v))
-                }
-            }),
+            Op::Not => self.top_mut(|v| if v == 0.0 || v == 1.0 { 1.0 - v } else { f64::from(!to_int32(v)) }),
             Op::Add => self.binary(|a, b| a + b),
             Op::Sub => self.binary(|a, b| a - b),
             Op::Mul => self.binary(|a, b| a * b),
@@ -2059,11 +1863,7 @@ impl Interpreter {
                 let amount = to_int32(self.pop());
                 let at = self.sp - 1;
                 let v = to_int32(self.get(at));
-                let shifted = if amount > 0 {
-                    v.wrapping_shl(amount as u32 & 31)
-                } else {
-                    v >> ((amount.wrapping_neg()) as u32 & 31)
-                };
+                let shifted = if amount > 0 { v.wrapping_shl(amount as u32 & 31) } else { v >> ((amount.wrapping_neg()) as u32 & 31) };
                 self.set(at, f64::from(shifted));
             }
             Op::Min => self.binary(js::min),
@@ -2103,28 +1903,13 @@ impl Interpreter {
                         let base = self.sp as f64 - n;
                         // `stack.slice(base, sp)` with a negative `base` counts from the end of the 100 slots.
                         let len = MAX_STACK_SIZE as f64;
-                        let start = if base < 0.0 {
-                            (len + base).max(0.0)
-                        } else {
-                            base.min(len)
-                        };
-                        let end = if (self.sp as f64) < 0.0 {
-                            (len + self.sp as f64).max(0.0)
-                        } else {
-                            (self.sp as f64).min(len)
-                        };
-                        let sub: Vec<f64> = if start < end {
-                            self.stack[start as usize..end as usize].to_vec()
-                        } else {
-                            Vec::new()
-                        };
+                        let start = if base < 0.0 { (len + base).max(0.0) } else { base.min(len) };
+                        let end = if (self.sp as f64) < 0.0 { (len + self.sp as f64).max(0.0) } else { (self.sp as f64).min(len) };
+                        let sub: Vec<f64> = if start < end { self.stack[start as usize..end as usize].to_vec() } else { Vec::new() };
                         let mut k = 0.0;
                         while k < n {
                             let from = ((k - rem + n) % n) as usize;
-                            self.set(
-                                (base + k) as isize,
-                                sub.get(from).copied().unwrap_or(f64::NAN),
-                            );
+                            self.set((base + k) as isize, sub.get(from).copied().unwrap_or(f64::NAN));
                             k += 1.0;
                         }
                     }
@@ -2164,11 +1949,7 @@ fn js_sin_cos_argument_deg(x: f64) -> f64 {
 
 enum Engine {
     Compiled(Compiled),
-    Interpreted {
-        program: Vec<Instr>,
-        inputs: usize,
-        range: Vec<f64>,
-    },
+    Interpreted { program: Vec<Instr>, inputs: usize, range: Vec<f64> },
 }
 
 /// One PostScript calculator function of a document: `new` is pdf.js's `constructPostScript`.
@@ -2180,36 +1961,16 @@ impl PostScriptFunction {
     /// Parses `source` (the function stream's bytes) and builds it for `domain` and `range` (both flat lists of
     /// pairs). A program pdf.js's parser rejects is a [`PdfError::Format`]; one it cannot turn into a tree runs in the
     /// stack interpreter.
-    pub fn new(
-        source: &[u8],
-        domain: &[f64],
-        range: &[f64],
-        guard: &Guard,
-    ) -> Result<PostScriptFunction> {
-        let mut parser = Parser {
-            lexer: Lexer {
-                data: source,
-                pos: 0,
-            },
-            token: Tok::Eof,
-            count: 0,
-        };
+    pub fn new(source: &[u8], domain: &[f64], range: &[f64], guard: &Guard) -> Result<PostScriptFunction> {
+        let mut parser = Parser { lexer: Lexer { data: source, pos: 0 }, token: Tok::Eof, count: 0 };
         let program = parser.parse()?;
         if parser.count <= MAX_COMPILED_TOKENS
             && let Some(compiled) = compile_tree(&program, domain, range, guard)?
         {
-            return Ok(PostScriptFunction {
-                engine: Engine::Compiled(compiled),
-            });
+            return Ok(PostScriptFunction { engine: Engine::Compiled(compiled) });
         }
         tracing::debug!("PostScript function runs in the stack interpreter");
-        Ok(PostScriptFunction {
-            engine: Engine::Interpreted {
-                program,
-                inputs: domain.len() >> 1,
-                range: range.to_vec(),
-            },
-        })
+        Ok(PostScriptFunction { engine: Engine::Interpreted { program, inputs: domain.len() >> 1, range: range.to_vec() } })
     }
 
     /// Evaluates the function on `src` (its first `domain.len() / 2` values), writing `range.len() / 2` values to
@@ -2217,15 +1978,8 @@ impl PostScriptFunction {
     pub fn call(&self, src: &[f64], dest: &mut [f64]) -> Result<()> {
         match &self.engine {
             Engine::Compiled(compiled) => run_compiled(compiled, src, dest),
-            Engine::Interpreted {
-                program,
-                inputs,
-                range,
-            } => {
-                let mut interpreter = Interpreter {
-                    stack: [0.0; MAX_STACK_SIZE],
-                    sp: 0,
-                };
+            Engine::Interpreted { program, inputs, range } => {
+                let mut interpreter = Interpreter { stack: [0.0; MAX_STACK_SIZE], sp: 0 };
                 for i in 0..*inputs {
                     interpreter.push(src.get(i).copied().unwrap_or(f64::NAN));
                 }
@@ -2252,8 +2006,7 @@ mod tests {
     fn function(source: &str, inputs: usize, outputs: usize) -> PostScriptFunction {
         let domain: Vec<f64> = (0..inputs).flat_map(|_| [0.0, 1.0]).collect();
         let range: Vec<f64> = (0..outputs).flat_map(|_| [-1000.0, 1000.0]).collect();
-        PostScriptFunction::new(source.as_bytes(), &domain, &range, &Guard::unbounded())
-            .expect("parses")
+        PostScriptFunction::new(source.as_bytes(), &domain, &range, &Guard::unbounded()).expect("parses")
     }
 
     fn run(f: &PostScriptFunction, src: &[f64], outputs: usize) -> Vec<f64> {
@@ -2317,9 +2070,7 @@ mod tests {
         let domain = [0.0, 1.0];
         let range = [0.0, 1.0];
         assert!(PostScriptFunction::new(b"dup mul", &domain, &range, &Guard::unbounded()).is_err());
-        assert!(
-            PostScriptFunction::new(b"{ dup if }", &domain, &range, &Guard::unbounded()).is_err()
-        );
+        assert!(PostScriptFunction::new(b"{ dup if }", &domain, &range, &Guard::unbounded()).is_err());
         assert!(PostScriptFunction::new(b"{ + }", &domain, &range, &Guard::unbounded()).is_err());
     }
 
@@ -2340,9 +2091,7 @@ mod tests {
 
     #[test]
     fn output_is_clamped_to_the_range() {
-        let f =
-            PostScriptFunction::new(b"{ 2 mul }", &[0.0, 1.0], &[0.0, 1.0], &Guard::unbounded())
-                .expect("parses");
+        let f = PostScriptFunction::new(b"{ 2 mul }", &[0.0, 1.0], &[0.0, 1.0], &Guard::unbounded()).expect("parses");
         assert_eq!(run(&f, &[0.75], 1), vec![1.0]);
         assert_eq!(run(&f, &[-1.0], 1), vec![0.0]);
     }

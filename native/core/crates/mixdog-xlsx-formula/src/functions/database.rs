@@ -8,9 +8,7 @@ macro_rules! functions { ($($name:ident),*) => { $(fn $name(a:&[V])->Result<V,Fa
 #[allow(non_snake_case)]
 mod exports {
     use super::*;
-    functions!(
-        DAVERAGE, DCOUNT, DCOUNTA, DGET, DMAX, DMIN, DPRODUCT, DSTDEV, DSTDEVP, DSUM, DVAR, DVARP
-    );
+    functions!(DAVERAGE, DCOUNT, DCOUNTA, DGET, DMAX, DMIN, DPRODUCT, DSTDEV, DSTDEVP, DSUM, DVAR, DVARP);
 }
 pub use exports::FUNCTIONS;
 fn column(v: &V) -> &[V] {
@@ -27,11 +25,7 @@ fn primitive(value: &V) -> V {
 fn add(a: V, b: &V) -> V {
     let a = primitive(&a);
     let b = primitive(b);
-    if a.is_text() || b.is_text() {
-        V::from_utf16([to_js_utf16(&a), to_js_utf16(&b)].concat())
-    } else {
-        V::Number(to_js_number(&a) + to_js_number(&b))
-    }
+    if a.is_text() || b.is_text() { V::from_utf16([to_js_utf16(&a), to_js_utf16(&b)].concat()) } else { V::Number(to_js_number(&a) + to_js_number(&b)) }
 }
 fn less(a: &V, b: &V) -> bool {
     let number_hint = |v: &V| match v {
@@ -85,14 +79,10 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
     let db = column(&database);
     let cs = column(&criteria);
     if db.is_empty() {
-        return Err(Failure::thrown(
-            "Cannot read properties of undefined (reading 'length')",
-        ));
+        return Err(Failure::thrown("Cannot read properties of undefined (reading 'length')"));
     }
     if cs.is_empty() {
-        return Err(Failure::thrown(
-            "Cannot read properties of undefined (reading 'length')",
-        ));
+        return Err(Failure::thrown("Cannot read properties of undefined (reading 'length')"));
     }
     let len = column(&db[0]).len();
     let mut matched = vec![true; len];
@@ -107,18 +97,13 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             let mut has = false;
             let mut passes = false;
             for criterion in cs.iter().map(column).filter(|c| c.len() >= longest) {
-                if !js_strict_equals(
-                    col.first().unwrap_or(&V::Undefined),
-                    criterion.first().unwrap_or(&V::Undefined),
-                ) {
+                if !js_strict_equals(col.first().unwrap_or(&V::Undefined), criterion.first().unwrap_or(&V::Undefined)) {
                     continue;
                 }
                 has = true;
                 for c in criterion.iter().skip(1) {
                     if !passes {
-                        passes = matches!(c, V::Undefined)
-                            || matches!(c,V::Text(s) if s=="*")
-                            || meets_criteria(value, &V::from_utf16(to_js_utf16(c)));
+                        passes = matches!(c, V::Undefined) || matches!(c,V::Text(s) if s=="*") || meets_criteria(value, &V::from_utf16(to_js_utf16(c)));
                     }
                 }
             }
@@ -127,34 +112,15 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             }
         }
     }
-    let index = if field.is_text() {
-        find_field(db, &field)
-    } else {
-        field
-    };
+    let index = if field.is_text() { find_field(db, &field) } else { field };
     let ix = to_js_number(&index);
-    let target = if ix.is_finite() && ix >= 0.0 && ix.fract() == 0.0 {
-        db.get(ix as usize)
-    } else {
-        None
-    };
+    let target = if ix.is_finite() && ix >= 0.0 && ix.fract() == 0.0 { db.get(ix as usize) } else { None };
     // utils.rest(undefined) returns undefined, then a selected record's property access throws.
     let selected: Vec<_> = (1..len).filter(|i| matched[*i]).collect();
     if target.is_none() && !selected.is_empty() {
-        return Err(Failure::thrown(format!(
-            "Cannot read properties of undefined (reading '{}')",
-            selected[0] - 1
-        )));
+        return Err(Failure::thrown(format!("Cannot read properties of undefined (reading '{}')", selected[0] - 1)));
     }
-    let values: Vec<_> = selected
-        .iter()
-        .map(|i| {
-            target
-                .and_then(|v| column(v).get(*i))
-                .cloned()
-                .unwrap_or(V::Undefined)
-        })
-        .collect();
+    let values: Vec<_> = selected.iter().map(|i| target.and_then(|v| column(v).get(*i)).cloned().unwrap_or(V::Undefined)).collect();
     let result = match name {
         "DGET" => match values.len() {
             0 => V::Error(E::Value),
@@ -170,59 +136,31 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             }
         }
         "DCOUNT" => V::Number(numbers(&values).len() as f64),
-        "DCOUNTA" => V::Number(
-            flatten(&values)
-                .iter()
-                .filter(|v| {
-                    !matches!(v, V::Null | V::Undefined) && !matches!(v,V::Text(s)if s.is_empty())
-                })
-                .count() as f64,
-        ),
+        "DCOUNTA" => {
+            V::Number(flatten(&values).iter().filter(|v| !matches!(v, V::Null | V::Undefined) && !matches!(v,V::Text(s)if s.is_empty())).count() as f64)
+        }
         "DMAX" | "DMIN" => {
             let mut best = values.first().cloned().unwrap_or(V::Undefined);
             for v in &values {
-                if if name == "DMAX" {
-                    less(&best, v)
-                } else {
-                    less(v, &best)
-                } {
+                if if name == "DMAX" { less(&best, v) } else { less(v, &best) } {
                     best = v.clone()
                 }
             }
             best
         }
-        "DPRODUCT" => V::Number(
-            values
-                .iter()
-                .filter(|v| is_truthy(v))
-                .fold(1.0, |p, v| p * to_js_number(v)),
-        ),
+        "DPRODUCT" => V::Number(values.iter().filter(|v| is_truthy(v)).fold(1.0, |p, v| p * to_js_number(v))),
         "DSUM" => sum(&values),
         _ => {
-            let values: Vec<_> = values
-                .into_iter()
-                .filter(|v| !name.starts_with("DSTDEV") || is_truthy(v))
-                .collect();
+            let values: Vec<_> = values.into_iter().filter(|v| !name.starts_with("DSTDEV") || is_truthy(v)).collect();
             let ns = numbers(&values);
             let n = ns.len() as f64;
             let avg = ns.iter().fold(0.0, |total, x| total + x) / n;
-            let variance = ns
-                .iter()
-                .map(|x| mixdog_js::math::pow(x - avg, 2.0))
-                .fold(0.0, |total, x| total + x)
-                / (n - if matches!(name, "DVAR" | "DSTDEV") {
-                    1.0
-                } else {
-                    0.0
-                });
+            let variance = ns.iter().map(|x| mixdog_js::math::pow(x - avg, 2.0)).fold(0.0, |total, x| total + x)
+                / (n - if matches!(name, "DVAR" | "DSTDEV") { 1.0 } else { 0.0 });
             if matches!(name, "DVARP" | "DSTDEVP") && variance.is_nan() {
                 V::Error(E::Num)
             } else {
-                V::Number(if name.starts_with("DSTDEV") {
-                    variance.sqrt()
-                } else {
-                    variance
-                })
+                V::Number(if name.starts_with("DSTDEV") { variance.sqrt() } else { variance })
             }
         }
     };

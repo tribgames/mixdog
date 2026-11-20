@@ -21,7 +21,8 @@ const PATH_MAX: usize = 32_768;
 fn is_absolute(path: &str) -> bool {
     if cfg!(windows) {
         let bytes = path.as_bytes();
-        matches!(bytes.first(), Some(b'/' | b'\\')) || (bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && matches!(bytes[2], b'/' | b'\\'))
+        matches!(bytes.first(), Some(b'/' | b'\\'))
+            || (bytes.len() >= 3 && bytes[0].is_ascii_alphabetic() && bytes[1] == b':' && matches!(bytes[2], b'/' | b'\\'))
     } else {
         path.starts_with('/')
     }
@@ -46,7 +47,12 @@ fn validated_path(value: &str) -> WsResult<String> {
     }
     // Win32 device namespaces (\\?\ and \\.\) are never a project folder.
     let bytes = path.as_bytes();
-    if bytes.len() >= 4 && matches!(bytes[0], b'/' | b'\\') && matches!(bytes[1], b'/' | b'\\') && matches!(bytes[2], b'?' | b'.') && matches!(bytes[3], b'/' | b'\\') {
+    if bytes.len() >= 4
+        && matches!(bytes[0], b'/' | b'\\')
+        && matches!(bytes[1], b'/' | b'\\')
+        && matches!(bytes[2], b'?' | b'.')
+        && matches!(bytes[3], b'/' | b'\\')
+    {
         return Err(WsError::invalid("path is invalid."));
     }
     if !is_absolute(path) {
@@ -88,9 +94,7 @@ pub fn browse_dirs(raw: &str, include_hidden: Option<bool>) -> WsResult<Value> {
         return Ok(json!({ "path": path, "folders": shown, "truncated": truncated }));
     }
     #[allow(clippy::disallowed_methods, reason = "runs as a lane job")]
-    let entries: Vec<Value> = shown
-        .iter()
-        .map(|name| json!({ "name": name, "git": std::fs::metadata(Path::new(&path).join(name).join(".git")).is_ok() }))
-        .collect();
+    let entries: Vec<Value> =
+        shown.iter().map(|name| json!({ "name": name, "git": std::fs::metadata(Path::new(&path).join(name).join(".git")).is_ok() })).collect();
     Ok(json!({ "path": path, "entries": entries, "truncated": truncated }))
 }

@@ -18,24 +18,24 @@ use mixdog_protocol::JsonValue;
 use mixdog_protocol::ProviderId;
 
 use super::Http;
-use crate::oauth::Pace;
-use crate::oauth::http::Reply;
+use crate::oauth::CredentialFile;
 use crate::oauth::FlowGuard;
-use crate::oauth::http::call_under;
-use crate::transport::deadlines::OPENCODE_CONSOLE;
+use crate::oauth::Pace;
+use crate::oauth::Probe;
+use crate::oauth::RefreshFailure;
+use crate::oauth::classify_refresh_failure;
 use crate::oauth::device;
 use crate::oauth::device::Poll;
 use crate::oauth::device::Schedule;
+use crate::oauth::http::Reply;
+use crate::oauth::http::call_under;
 use crate::oauth::http::failed;
 use crate::oauth::scrub::scrubbed_excerpt;
 use crate::oauth::scrub::scrubbed_prefix;
 use crate::oauth::start_session;
-use crate::oauth::CredentialFile;
-use crate::oauth::Probe;
-use crate::oauth::RefreshFailure;
-use crate::oauth::classify_refresh_failure;
 use crate::providers::compat::creds::OPENCODE_REFRESH_SKEW_SECS;
 use crate::providers::compat::creds::OpenCodeGoCredentials;
+use crate::transport::deadlines::OPENCODE_CONSOLE;
 
 pub const PROVIDER_ID: &str = "opencode-go-oauth";
 const SERVER: &str = "https://opencode.ai/console";
@@ -49,11 +49,7 @@ fn endpoint(path: &str) -> String {
 }
 
 fn json_headers(extra: Vec<(&'static str, String)>) -> Vec<(&'static str, String)> {
-    let mut all = vec![
-        ("accept", "application/json".to_owned()),
-        ("user-agent", USER_AGENT.to_owned()),
-        ("content-type", "application/json".to_owned()),
-    ];
+    let mut all = vec![("accept", "application/json".to_owned()), ("user-agent", USER_AGENT.to_owned()), ("content-type", "application/json".to_owned())];
     all.extend(extra);
     all
 }
@@ -75,15 +71,11 @@ pub struct DeviceCode {
 
 fn device_code(reply: &Reply) -> Result<DeviceCode, LoginFailure> {
     if !reply.ok() {
-        return Err(failed(
-            "device_auth",
-            format!("device authorization {}: {}", reply.status, scrubbed_prefix(&reply.text(), &[], 300)),
-        ));
+        return Err(failed("device_auth", format!("device authorization {}: {}", reply.status, scrubbed_prefix(&reply.text(), &[], 300))));
     }
     let doc = reply.json().unwrap_or(JsonValue::Null);
     let text = |field: &str| doc.get(field).and_then(JsonValue::as_str).unwrap_or("");
-    let (device_code, user_code, verification) =
-        (text("device_code"), text("user_code"), text("verification_uri_complete"));
+    let (device_code, user_code, verification) = (text("device_code"), text("user_code"), text("verification_uri_complete"));
     if device_code.is_empty() || user_code.is_empty() || verification.is_empty() {
         return Err(failed("validation", "device authorization response is missing required fields"));
     }
@@ -118,11 +110,7 @@ fn grant_from(doc: &JsonValue, now_ms: u64) -> Result<Grant, LoginFailure> {
     if access.is_empty() || refresh.is_empty() {
         return Err(failed("validation", "token response is missing access_token or refresh_token"));
     }
-    let expires_at = doc
-        .get("expires_in")
-        .and_then(JsonValue::as_f64)
-        .filter(|n| *n > 0.0)
-        .map_or(0, |s| now_ms + (s * 1000.0) as u64);
+    let expires_at = doc.get("expires_in").and_then(JsonValue::as_f64).filter(|n| *n > 0.0).map_or(0, |s| now_ms + (s * 1000.0) as u64);
     Ok(Grant {
         access_token: access.to_owned(),
         refresh_token: refresh.to_owned(),
@@ -145,34 +133,23 @@ fn classify_poll(reply: &Reply, device_code: &str, now_ms: u64) -> Poll<Grant> {
         "slow_down" => Poll::SlowDown,
         "expired_token" => Poll::Expired,
         "access_denied" => Poll::Denied,
-        "" if reply.status >= 500 => Poll::Transient {
-            rate_limited: false,
-            retry_after: None,
-            fault: failed("device_token", format!("device token {}", reply.status)),
-        },
+        "" if reply.status >= 500 => {
+            Poll::Transient { rate_limited: false, retry_after: None, fault: failed("device_token", format!("device token {}", reply.status)) }
+        }
         _ => {
             let detail = if error.is_empty() { scrubbed_prefix(&reply.text(), &[device_code], 300) } else { error.to_owned() };
-            Poll::Fatal(failed(
-                if error.is_empty() { "device_token" } else { error },
-                format!("device token {}: {detail}", reply.status),
-            ))
+            Poll::Fatal(failed(if error.is_empty() { "device_token" } else { error }, format!("device token {}: {detail}", reply.status)))
         }
     }
 }
 
 /// The organization the login acts for: the grant's own, else the first by name.
 pub fn pick_organization<'a>(orgs: &'a JsonValue, org_id: Option<&str>) -> Result<Option<&'a JsonValue>, LoginFailure> {
-    let mut list: Vec<&JsonValue> = orgs
-        .as_array()
-        .map(|a| a.iter().filter(|o| o.get("id").and_then(JsonValue::as_str).is_some_and(|i| !i.is_empty())).collect())
-        .unwrap_or_default();
+    let mut list: Vec<&JsonValue> =
+        orgs.as_array().map(|a| a.iter().filter(|o| o.get("id").and_then(JsonValue::as_str).is_some_and(|i| !i.is_empty())).collect()).unwrap_or_default();
     let id = |o: &JsonValue| o.get("id").and_then(JsonValue::as_str).unwrap_or("").to_owned();
     if let Some(wanted) = org_id {
-        return list
-            .into_iter()
-            .find(|o| id(o) == wanted)
-            .map(Some)
-            .ok_or_else(|| failed("validation", format!("OpenCode organization not found: {wanted}")));
+        return list.into_iter().find(|o| id(o) == wanted).map(Some).ok_or_else(|| failed("validation", format!("OpenCode organization not found: {wanted}")));
     }
     let name = |o: &JsonValue| o.get("name").and_then(JsonValue::as_str).unwrap_or("").to_owned();
     list.sort_by(|a, b| mixdog_js::locale_compare(&name(a), &name(b)).then_with(|| mixdog_js::locale_compare(&id(a), &id(b))));
@@ -190,28 +167,14 @@ fn console_headers(access_token: &str, org_id: Option<&str>) -> Vec<(&'static st
 }
 
 async fn console_get(http: &Http, path: &str, grant: &Grant) -> Result<JsonValue, LoginFailure> {
-    let reply = call_under(
-        http.as_ref(),
-        OPENCODE_CONSOLE,
-        "GET",
-        &endpoint(path),
-        console_headers(&grant.access_token, grant.org_id.as_deref()),
-        Vec::new(),
-    )
-    .await?;
+    let reply =
+        call_under(http.as_ref(), OPENCODE_CONSOLE, "GET", &endpoint(path), console_headers(&grant.access_token, grant.org_id.as_deref()), Vec::new()).await?;
     if reply.status == 401 {
         return Err(failed("invalid_grant", format!("{path} 401: OpenCode sign-in expired")));
     }
     match reply.json() {
         Some(doc) if reply.ok() => Ok(doc),
-        _ => Err(failed(
-            "console",
-            format!(
-                "{path} {}: {}",
-                reply.status,
-                scrubbed_excerpt(&reply.text(), &[&grant.access_token, &grant.refresh_token], 300)
-            ),
-        )),
+        _ => Err(failed("console", format!("{path} {}: {}", reply.status, scrubbed_excerpt(&reply.text(), &[&grant.access_token, &grant.refresh_token], 300)))),
     }
 }
 
@@ -219,8 +182,7 @@ async fn console_get(http: &Http, path: &str, grant: &Grant) -> Result<JsonValue
 async fn credentials_for(http: &Http, grant: Grant) -> Result<OpenCodeGoCredentials, LoginFailure> {
     let user = console_get(http, "/api/user", &grant).await?;
     let orgs = console_get(http, "/api/orgs", &grant).await?;
-    let org = pick_organization(&orgs, grant.org_id.as_deref())?
-        .ok_or_else(|| failed("validation", "the OpenCode account has no organization"))?;
+    let org = pick_organization(&orgs, grant.org_id.as_deref())?.ok_or_else(|| failed("validation", "the OpenCode account has no organization"))?;
     let text = |doc: &JsonValue, field: &str| doc.get(field).and_then(JsonValue::as_str).map_or_else(String::new, str::to_owned);
     Ok(OpenCodeGoCredentials {
         access_token: grant.access_token,
@@ -243,13 +205,7 @@ pub struct OpenCodeGoLogin {
 
 impl OpenCodeGoLogin {
     pub fn new(http: Http, pace: Arc<dyn Pace>, file: CredentialFile) -> Self {
-        Self {
-            target: LoginTarget::Provider(ProviderId::from(PROVIDER_ID)),
-            http,
-            pace,
-            file,
-            running: Arc::new(AtomicBool::new(false)),
-        }
+        Self { target: LoginTarget::Provider(ProviderId::from(PROVIDER_ID)), http, pace, file, running: Arc::new(AtomicBool::new(false)) }
     }
 }
 
@@ -333,11 +289,7 @@ impl OpenCodeGoAuth {
     pub(crate) async fn pin(&self) -> Result<(Self, OpenCodeGoCredentials), RefreshError> {
         let pinned = Self { http: self.http.clone(), pace: self.pace.clone(), file: self.file.pinned().await };
         let held = pinned.stored().await?;
-        let credential = if held.needs_refresh(pinned.pace.now_ms()) {
-            pinned.renew_for_send(&held, false).await?
-        } else {
-            held
-        };
+        let credential = if held.needs_refresh(pinned.pace.now_ms()) { pinned.renew_for_send(&held, false).await? } else { held };
         Ok((pinned, credential))
     }
 
@@ -351,8 +303,8 @@ impl OpenCodeGoAuth {
     async fn renew_for_send(&self, held: &OpenCodeGoCredentials, force: bool) -> Result<OpenCodeGoCredentials, RefreshError> {
         let answer = self.refresh(held.clone(), force, true).await?;
         let current = answer.credential;
-        let renewed_here = answer.renewed_from.as_deref() == Some(held.refresh_token.as_str())
-            && current.org_id == held.org_id && current.account_id == held.account_id;
+        let renewed_here =
+            answer.renewed_from.as_deref() == Some(held.refresh_token.as_str()) && current.org_id == held.org_id && current.account_id == held.account_id;
         // A flight may be shared with an unpinned caller, so validate its answer against this send's owner.
         if same_login(held, &current) || renewed_here { Ok(current) } else { Err(login_changed()) }
     }
@@ -364,9 +316,7 @@ impl OpenCodeGoAuth {
         self.file
             .refresh_once(&held.refresh_token.clone(), async move { this.refresh_unshared(held, force, pinned).await })
             .await
-            .unwrap_or_else(|expired| {
-                Err(RefreshError::Failed(format!("token refresh: request timed out after {}ms", expired.after.as_millis()), None))
-            })
+            .unwrap_or_else(|expired| Err(RefreshError::Failed(format!("token refresh: request timed out after {}ms", expired.after.as_millis()), None)))
     }
 
     async fn refresh_unshared(&self, held: OpenCodeGoCredentials, force: bool, pinned: bool) -> Result<RefreshAnswer, RefreshError> {
@@ -403,7 +353,8 @@ impl OpenCodeGoAuth {
             return Err(RefreshError::Failed(format!("token refresh {}: {detail}", reply.status), Some(reply.status)));
         }
         let doc = reply.json().unwrap_or(JsonValue::Null);
-        let grant = grant_from(&doc, self.pace.now_ms()).map_err(|_| RefreshError::Failed("token response is missing access_token or refresh_token".into(), None))?;
+        let grant =
+            grant_from(&doc, self.pace.now_ms()).map_err(|_| RefreshError::Failed("token response is missing access_token or refresh_token".into(), None))?;
         // A grant naming another organization moves the account to it; its
         // name is unknown until the next sign-in.
         let org_changed = grant.org_id.as_ref().is_some_and(|o| Some(o) != disk.org_id.as_ref());
@@ -428,30 +379,27 @@ impl OpenCodeGoAuth {
                 move |doc| {
                     doc.get("access_token").and_then(JsonValue::as_str) == Some(&spent_access)
                         && doc.get("refresh_token").and_then(JsonValue::as_str) == Some(&spent_refresh)
-                        && (!pinned || (doc.get("account_id").and_then(JsonValue::as_str) == spent_account.as_deref()
-                            && doc.get("org_id").and_then(JsonValue::as_str) == spent_org.as_deref()))
+                        && (!pinned
+                            || (doc.get("account_id").and_then(JsonValue::as_str) == spent_account.as_deref()
+                                && doc.get("org_id").and_then(JsonValue::as_str) == spent_org.as_deref()))
                 },
                 update,
             )
             .await
             .map_err(|e| RefreshError::Failed(e.to_string(), None))?;
         // A sign-in or another refresh replaced the pair meanwhile: it wins.
-        if published {
-            Ok(RefreshAnswer { credential: next, renewed_from: Some(disk.refresh_token) })
-        } else {
-            self.stored().await.map(adopted)
-        }
+        if published { Ok(RefreshAnswer { credential: next, renewed_from: Some(disk.refresh_token) }) } else { self.stored().await.map(adopted) }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-use crate::oauth::pace::FakePace;
-use crate::oauth::http::testing::Scripted;
-use crate::oauth::http::testing::finish;
     use super::*;
     use crate::oauth::CredentialIo;
+    use crate::oauth::http::testing::Scripted;
+    use crate::oauth::http::testing::finish;
+    use crate::oauth::pace::FakePace;
+    use serde_json::json;
 
     const DEVICE: &str = r#"{"device_code":"DC","user_code":"WXYZ","verification_uri_complete":"/device?code=WXYZ","interval":3,"expires_in":900}"#;
 
@@ -484,10 +432,7 @@ use crate::oauth::http::testing::finish;
 
     fn store(dir: &tempfile::TempDir) -> CredentialFile {
         let tokens = mixdog_rt::testing::tokens();
-        CredentialFile::new(
-            dir.path().join("opencode-go-oauth.json"),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
+        CredentialFile::new(dir.path().join("opencode-go-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io })
     }
     #[tokio::test]
     async fn the_device_grant_stores_the_account_and_first_organization() {
@@ -579,11 +524,8 @@ use crate::oauth::http::testing::finish;
             let dir = tempfile::tempdir().unwrap();
             let file = store(&dir);
             file.save(&stored("A1", "R1", 1_000)).await.unwrap();
-            let replacement = OpenCodeGoCredentials {
-                account_id: Some(account.into()),
-                org_id: Some(org.into()),
-                ..stored("replacement-access", "replacement-refresh", 0)
-            };
+            let replacement =
+                OpenCodeGoCredentials { account_id: Some(account.into()), org_id: Some(org.into()), ..stored("replacement-access", "replacement-refresh", 0) };
             let reply = Scripted::new(&[(200, r#"{"access_token":"A2","refresh_token":"R2","expires_in":3600}"#)]);
             let http = Arc::new(ReplaceDuringPost { file: file.clone(), replacement, reply: reply.clone() });
             let auth = OpenCodeGoAuth::new(http, Arc::new(FakePace::default()), file);
@@ -616,7 +558,6 @@ use crate::oauth::http::testing::finish;
         }
         assert_eq!(http.seen.lock().unwrap().len(), 1, "one refresh POST");
     }
-
 
     /// A Console post and the account reads after a grant, never answered, fail their step after a timer.
     #[tokio::test(start_paused = true)]
@@ -666,7 +607,6 @@ use crate::oauth::http::testing::finish;
     }
 }
 
-
 #[async_trait]
 impl LoginFlow for OpenCodeGoLogin {
     fn target(&self) -> &LoginTarget {
@@ -675,9 +615,7 @@ impl LoginFlow for OpenCodeGoLogin {
 
     async fn start(&self) -> Result<Box<dyn LoginSession>, LoginError> {
         let guard = FlowGuard::claim(&self.running).ok_or(LoginError::Busy)?;
-        let reply = post_json(&self.http, "/auth/device/code", serde_json::json!({"client_id": CLIENT_ID}))
-            .await
-            .map_err(LoginError::Failed)?;
+        let reply = post_json(&self.http, "/auth/device/code", serde_json::json!({"client_id": CLIENT_ID})).await.map_err(LoginError::Failed)?;
         let device = device_code(&reply).map_err(LoginError::Failed)?;
         let now_ms = self.pace.now_ms();
         let first = LoginState::DeviceCode {

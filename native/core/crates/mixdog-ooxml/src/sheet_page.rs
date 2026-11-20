@@ -18,8 +18,7 @@ use serde_json::{Map, Value, json};
 use crate::cells::{CellValue, Sheet, cell_records, shared_strings};
 use crate::opc::{part_relationship_path, posix};
 use crate::sheet_xml::{
-    absolute_range, area_reference, merged_ranges, parse_area_range, quote_sheet_name, upsert_defined_name, upsert_worksheet_section,
-    worksheet_section,
+    absolute_range, area_reference, merged_ranges, parse_area_range, quote_sheet_name, upsert_defined_name, upsert_worksheet_section, worksheet_section,
 };
 use crate::text_metrics::{FontSpec, TextMeasurer};
 use crate::xml::{compiled, xml_attribute, xml_encode};
@@ -73,12 +72,7 @@ pub fn workbook_digit_width<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip: &
 /// font's digits. Counted as two for a Hangul letter and one for anything else, and a fifth more when bold: a bold 10 pt
 /// "기간 (일)" read as ten characters where Excel prints it in eight, and its column was reported cut. `style` is the
 /// cell's style (`fontName`, `fontSize`, `bold`, `italic`).
-pub fn text_characters<P: ReadProof>(
-    measurer: &TextMeasurer<'_, P>,
-    text: &Value,
-    style: Option<&Value>,
-    digit_width: f64,
-) -> Result<f64, String> {
+pub fn text_characters<P: ReadProof>(measurer: &TextMeasurer<'_, P>, text: &Value, style: Option<&Value>, digit_width: f64) -> Result<f64, String> {
     let field = |name: &str| style.and_then(|style| style.get(name));
     let font_name = field("fontName").filter(|name| truthy(name)).map_or_else(|| "Calibri".to_owned(), value_to_string);
     let size = field("fontSize").map_or(f64::NAN, to_number);
@@ -137,11 +131,8 @@ pub fn worksheet_geometry(xml: &str, digit_width: f64) -> WorksheetGeometry {
     let declared_default = number(&format, "defaultColWidth");
     let declared_base = number(&format, "baseColWidth");
     let base_characters = if declared_base.is_nan() || declared_base == 0.0 { 8.0 } else { declared_base };
-    let default_pixels = if declared_default > 0.0 {
-        column_pixels(declared_default, digit_width)
-    } else {
-        ((base_characters * digit_width + 5.0) / 8.0).ceil() * 8.0
-    };
+    let default_pixels =
+        if declared_default > 0.0 { column_pixels(declared_default, digit_width) } else { ((base_characters * digit_width + 5.0) / 8.0).ceil() * 8.0 };
     let columns = COLUMN_ELEMENT
         .captures_iter(xml)
         .map(|found| {
@@ -248,10 +239,8 @@ struct Marker {
 }
 
 fn marker(body: &str, tag: &str) -> Marker {
-    let value = compiled(&format!(r"<xdr:{tag}>([\s\S]*?)<\/xdr:{tag}>"), "")
-        .captures(body)
-        .and_then(|found| found.get(1).map(str::to_owned))
-        .unwrap_or_default();
+    let value =
+        compiled(&format!(r"<xdr:{tag}>([\s\S]*?)<\/xdr:{tag}>"), "").captures(body).and_then(|found| found.get(1).map(str::to_owned)).unwrap_or_default();
     let number = |name: &str| {
         let found = compiled(&format!(r"<xdr:{name}>(\d+)<\/xdr:{name}>"), "").captures(&value).and_then(|found| found.get(1).map(string_to_number));
         match found {
@@ -273,12 +262,7 @@ const GRID_ROWS: f64 = 1_048_576.0;
 /// `worksheetDrawings(zip, sheet, xml)`: every chart and picture anchored to a worksheet, resolved onto the cell grid
 /// (1-based, inclusive). Excel writes three anchor kinds and our own writer uses the absolute one, so the print area and the
 /// snapshot read the same resolver rather than each parsing anchors again.
-pub fn worksheet_drawings<P: ReadProof>(
-    measurer: &TextMeasurer<'_, P>,
-    zip: &Package,
-    sheet: &Sheet,
-    xml: &str,
-) -> Result<Vec<WorksheetDrawing>, String> {
+pub fn worksheet_drawings<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip: &Package, sheet: &Sheet, xml: &str) -> Result<Vec<WorksheetDrawing>, String> {
     let relations = zip.text(&part_relationship_path(&sheet.path));
     let geometry = worksheet_geometry(xml, workbook_digit_width(measurer, zip)?);
     let mut drawings = Vec::new();
@@ -434,9 +418,7 @@ pub fn fit_drawing_sheet_one_page_wide(xml: &str) -> FittedSheet {
     let next = upsert_worksheet_section(xml, "sheetPr", &sheet_pr_with_fit_to_page(xml));
     // pageSetup is attributes and no children, and the section also matches the paired <pageSetup …></pageSetup> a sheet may
     // carry: the fit is written onto the opening tag's attributes, never appended after a closing one.
-    let attributes = setup
-        .and_then(|setup| PAGE_SETUP_OPEN.captures(setup).and_then(|found| found.get(1).map(str::to_owned)))
-        .unwrap_or_default();
+    let attributes = setup.and_then(|setup| PAGE_SETUP_OPEN.captures(setup).and_then(|found| found.get(1).map(str::to_owned))).unwrap_or_default();
     let attributes = FIT_TO_ATTRIBUTES.replace_all_with(&attributes, |_| String::new());
     let next = upsert_worksheet_section(&next, "pageSetup", &format!("<pageSetup{attributes} fitToWidth=\"1\" fitToHeight=\"0\"/>"));
     FittedSheet { xml: next, applied: true }
@@ -454,9 +436,7 @@ fn print_title_row_span(value: Option<&Value>) -> Result<Option<(f64, f64)>, Str
     let last = parts.get(1).copied().unwrap_or(first);
     let integer = |number: f64| number.is_finite() && number.fract() == 0.0;
     if !integer(first) || !integer(last) || first < 1.0 || last < first {
-        return Err(format!(
-            "set_page_setup printTitleRows is a row or a span of rows such as \"1\" or \"4:5\", not \"{text}\""
-        ));
+        return Err(format!("set_page_setup printTitleRows is a row or a span of rows such as \"1\" or \"4:5\", not \"{text}\""));
     }
     Ok(Some((first, last)))
 }
@@ -477,11 +457,7 @@ fn page_count(value: Option<&Value>) -> Option<f64> {
 /// Writes one defined name of the workbook that belongs to `sheet_index` (`Print_Area`, `Print_Titles`).
 fn write_sheet_name(zip: &mut Package, name: &str, sheet_index: f64, reference: &str) {
     let workbook = zip.text("xl/workbook.xml");
-    let entry = format!(
-        "<definedName name=\"{name}\" localSheetId=\"{}\">{}</definedName>",
-        number_to_string(sheet_index),
-        xml_encode(reference)
-    );
+    let entry = format!("<definedName name=\"{name}\" localSheetId=\"{}\">{}</definedName>", number_to_string(sheet_index), xml_encode(reference));
     let updated = upsert_defined_name(&workbook, Some(&entry), |item| {
         xml_attribute(item, "name") == name && string_to_number(&xml_attribute(item, "localSheetId")) == sheet_index
     });

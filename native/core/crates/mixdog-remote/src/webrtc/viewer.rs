@@ -408,7 +408,9 @@ impl<E: ViewerEffects> Viewer<E> {
                 | ClientSignal::PromoteAck { connection, .. }
                 | ClientSignal::DemoteAck { connection, .. }
                 | ClientSignal::Close { connection, .. } => connection,
-                ClientSignal::Ready { .. } | ClientSignal::CancelScreen { .. } | ClientSignal::GeometryAck { .. } | ClientSignal::ResizeRequest { .. } => return Ok(()),
+                ClientSignal::Ready { .. } | ClientSignal::CancelScreen { .. } | ClientSignal::GeometryAck { .. } | ClientSignal::ResizeRequest { .. } => {
+                    return Ok(());
+                }
             };
             let is_current = m.i.connection.as_ref().is_some_and(|c| c.id == connection.connection_id && c.generation == connection.generation);
             if !is_current {
@@ -487,7 +489,9 @@ impl<E: ViewerEffects> Viewer<E> {
                     m.start_pending()
                 }
                 ClientSignal::Close { reason, .. } => m.fail(*reason),
-                ClientSignal::Ready { .. } | ClientSignal::CancelScreen { .. } | ClientSignal::GeometryAck { .. } | ClientSignal::ResizeRequest { .. } => Ok(()),
+                ClientSignal::Ready { .. } | ClientSignal::CancelScreen { .. } | ClientSignal::GeometryAck { .. } | ClientSignal::ResizeRequest { .. } => {
+                    Ok(())
+                }
             }
         })
     }
@@ -521,7 +525,8 @@ impl<E: ViewerEffects> Viewer<E> {
 
     pub fn sender_candidate(&self, connection_id: &str, candidate: Option<Candidate>) {
         self.with(|m| {
-            if m.i.connection.as_ref().map(|c| c.id.as_str()) != Some(connection_id) || matches!(m.i.state, TransportState::Demoting | TransportState::Cooldown) {
+            if m.i.connection.as_ref().map(|c| c.id.as_str()) != Some(connection_id) || matches!(m.i.state, TransportState::Demoting | TransportState::Cooldown)
+            {
                 return;
             }
             let connection = m.connection_ref();
@@ -551,7 +556,8 @@ impl<E: ViewerEffects> Viewer<E> {
     /// A data-channel message of this connection.
     pub fn channel(&self, connection_id: &str, text: &str, received_at: f64) -> Step {
         self.with(|m| {
-            if m.i.connection.as_ref().map(|c| c.id.as_str()) != Some(connection_id) || !matches!(m.i.state, TransportState::Promoting | TransportState::Webrtc) {
+            if m.i.connection.as_ref().map(|c| c.id.as_str()) != Some(connection_id) || !matches!(m.i.state, TransportState::Promoting | TransportState::Webrtc)
+            {
                 return Ok(());
             }
             // A message that does not parse, or is the other kind of source's, ends the connection

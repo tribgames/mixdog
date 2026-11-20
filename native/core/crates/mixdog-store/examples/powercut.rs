@@ -47,12 +47,7 @@ async fn on_lane<R: Send + 'static>(f: impl FnOnce(&InLane<DurabilityIo>) -> R +
 }
 
 fn deps(data: &Path) -> WriterDeps {
-    WriterDeps {
-        io: Arc::new(OsIo),
-        blobs: BlobStore::new(data),
-        ownership: Arc::new(MockOwnership::default()),
-        index: Arc::new(NoIndex),
-    }
+    WriterDeps { io: Arc::new(OsIo), blobs: BlobStore::new(data), ownership: Arc::new(MockOwnership::default()), index: Arc::new(NoIndex) }
 }
 
 async fn write(data: PathBuf, batches: u64) {

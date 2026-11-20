@@ -19,34 +19,15 @@ const fn rule(id: &'static str, label: &'static str, codes: &'static [&'static s
     Rule { id, label, codes, prefixes: &[] }
 }
 
-const PAGE_UTILIZATION: Rule = rule(
-    "page-utilization",
-    "Rendered pages do not contain accidental blank or sparse pages.",
-    &["blank_page", "sparse_page", "page_bottom_empty"],
-);
+const PAGE_UTILIZATION: Rule =
+    rule("page-utilization", "Rendered pages do not contain accidental blank or sparse pages.", &["blank_page", "sparse_page", "page_bottom_empty"]);
 
 const DOCX_RULES: &[Rule] = &[
-    rule(
-        "heading-hierarchy",
-        "Heading hierarchy is present and does not skip levels.",
-        &["heading_hierarchy_missing", "heading_hierarchy_jump"],
-    ),
-    rule(
-        "orphan-headings",
-        "Headings stay with the content or table they introduce.",
-        &["orphan_heading", "heading_table_separation"],
-    ),
-    rule(
-        "heading-type",
-        "Headings lead the body type, and one level carries one type.",
-        &["heading_not_distinct", "heading_style_inconsistent"],
-    ),
+    rule("heading-hierarchy", "Heading hierarchy is present and does not skip levels.", &["heading_hierarchy_missing", "heading_hierarchy_jump"]),
+    rule("orphan-headings", "Headings stay with the content or table they introduce.", &["orphan_heading", "heading_table_separation"]),
+    rule("heading-type", "Headings lead the body type, and one level carries one type.", &["heading_not_distinct", "heading_style_inconsistent"]),
     // The Office backend's name and the portable audit's for one table running past the margins.
-    rule(
-        "table-integrity",
-        "Short tables are not split and fit inside page margins.",
-        &["short_table_split", "table_width", "table_wider_than_page"],
-    ),
+    rule("table-integrity", "Short tables are not split and fit inside page margins.", &["short_table_split", "table_width", "table_wider_than_page"]),
     PAGE_UTILIZATION,
     rule("ink-legibility", "Text is readable against the field it sits on.", &["low_contrast"]),
 ];
@@ -63,21 +44,11 @@ const XLSX_RULES: &[Rule] = &[
         "Charts contain valid series and exclude total or subtotal rows.",
         &["empty_chart", "broken_chart", "chart_includes_total_row", "chart_stops_short_of_data"],
     ),
-    rule(
-        "worksheet-hierarchy",
-        "Data sheets have a visible title, header, table, or styled hierarchy.",
-        &["worksheet_hierarchy_missing"],
-    ),
+    rule("worksheet-hierarchy", "Data sheets have a visible title, header, table, or styled hierarchy.", &["worksheet_hierarchy_missing"]),
     rule(
         "print-readability",
         "Rendered worksheets use the page area at a readable scale.",
-        &[
-            "worksheet_print_too_small",
-            "worksheet_print_fit_missing",
-            "drawing_outside_print_area",
-            "drawing_overlap",
-            "drawing_covers_cells",
-        ],
+        &["worksheet_print_too_small", "worksheet_print_fit_missing", "drawing_outside_print_area", "drawing_overlap", "drawing_covers_cells"],
     ),
     rule("ink-legibility", "Cell text is readable against its fill.", &["low_contrast", "label_truncated"]),
     rule("input-usability", "Entry cells stay editable once the sheet is protected.", &["protected_input_locked"]),
@@ -90,11 +61,7 @@ const PPTX_RULES: &[Rule] = &[
         "Text and visual shapes respect margins, spacing, and non-overlap constraints.",
         &["shape_overlap", "text_outside_slide", "shape_out_of_bounds", "edge_margin", "text_spacing_tight"],
     ),
-    rule(
-        "slide-legibility",
-        "Text fits, meets minimum size, and has sufficient contrast.",
-        &["text_overflow", "small_font", "low_contrast"],
-    ),
+    rule("slide-legibility", "Text fits, meets minimum size, and has sufficient contrast.", &["text_overflow", "small_font", "low_contrast"]),
     rule(
         "slide-type-discipline",
         "Peers of one row share their type, and no page projects a wall of prose.",
@@ -105,11 +72,7 @@ const PPTX_RULES: &[Rule] = &[
         "Content slides use subject-specific native evidence instead of generic repetition.",
         &["meaningful_visual_missing", "native_evidence_too_weak", "repetitive_composition", "card_grid_overuse"],
     ),
-    rule(
-        "source-provenance",
-        "Material numbers and claims cite a source in notes or provenance metadata.",
-        &["number_without_source"],
-    ),
+    rule("source-provenance", "Material numbers and claims cite a source in notes or provenance metadata.", &["number_without_source"]),
 ];
 
 const PDF_RULES: &[Rule] = &[PAGE_UTILIZATION];
@@ -217,13 +180,8 @@ fn default_checklist_items(format: &str, audit_profile: &str, issues: &[Value], 
         .collect();
     if audit_profile == "financial-model" && format == "xlsx" {
         let missing = Value::String("missing_checks_sheet".to_owned());
-        let matched: Vec<&Value> =
-            issues.iter().filter(|entry| strict_equals(field(entry, "code"), Some(&missing))).collect();
-        items.push(rule_checklist_item(
-            "checks-sheet",
-            "Financial model includes a Checks sheet with explicit tie-outs.",
-            &matched,
-        ));
+        let matched: Vec<&Value> = issues.iter().filter(|entry| strict_equals(field(entry, "code"), Some(&missing))).collect();
+        items.push(rule_checklist_item("checks-sheet", "Financial model includes a Checks sheet with explicit tie-outs.", &matched));
     }
     if !matches!(format, "csv" | "tsv") {
         items.push(render_coverage_item(visual_coverage));

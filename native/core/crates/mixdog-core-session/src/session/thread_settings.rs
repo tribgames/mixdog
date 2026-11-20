@@ -80,8 +80,7 @@ const MAX_READ_COUNT: i64 = 10_000_000;
 
 const SESSION_UNAVAILABLE: &str = "Session is not available.";
 const PROJECT_MOVE_BUSY: &str = "The session is running a turn; wait for it to finish before moving it to another project.";
-const PROJECT_MOVE_WORKTREE: &str =
-    "The session works in a managed worktree; merge or remove the worktree before moving it to another project.";
+const PROJECT_MOVE_WORKTREE: &str = "The session works in a managed worktree; merge or remove the worktree before moving it to another project.";
 
 /// The desktop host's refusals of a move to another project (`setSessionProject`), in its order:
 /// a turn (or a compaction) running, then a managed worktree.
@@ -168,14 +167,9 @@ impl ConfigArchiveRetention {
             .update(move |doc| {
                 let current = doc.get("desktop").and_then(|desktop| desktop.get("retentionState"));
                 let stored_restored = current.and_then(|record| record.get("restored")).and_then(Value::as_object);
-                let mut restored: Map<String, Value> = stored_restored
-                    .into_iter()
-                    .flatten()
-                    .filter(|(_, at)| positive(Some(at)).is_some())
-                    .map(|(id, at)| (id.clone(), at.clone()))
-                    .collect();
-                let stored_enabled =
-                    current.and_then(|record| record.get("enabledAt")).filter(|at| positive(Some(at)).is_some()).cloned();
+                let mut restored: Map<String, Value> =
+                    stored_restored.into_iter().flatten().filter(|(_, at)| positive(Some(at)).is_some()).map(|(id, at)| (id.clone(), at.clone())).collect();
+                let stored_enabled = current.and_then(|record| record.get("enabledAt")).filter(|at| positive(Some(at)).is_some()).cloned();
                 let changed = mutate(&mut restored, now);
                 if !changed && stored_enabled.is_some() {
                     return Ok(());
@@ -183,10 +177,7 @@ impl ConfigArchiveRetention {
                 let record = json!({ "enabledAt": stored_enabled.unwrap_or_else(|| json!(now)), "restored": restored });
                 let desktop = doc.entry("desktop").or_insert_with(|| Value::Object(Map::new()));
                 let Some(desktop) = desktop.as_object_mut() else {
-                    return Err(mixdog_core_config::config::ConfigError::InvalidParams {
-                        path: "desktop".into(),
-                        expected: "an object".into(),
-                    });
+                    return Err(mixdog_core_config::config::ConfigError::InvalidParams { path: "desktop".into(), expected: "an object".into() });
                 };
                 desktop.insert("retentionState".into(), record);
                 Ok(())
@@ -435,16 +426,12 @@ pub fn project_identity(path: Option<&str>) -> String {
 /// workspace Project, Project, folder or workspace folder; '' for none.
 pub fn session_project_key(row: &Value, project_keys: &[String]) -> String {
     let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
-    let candidates: Vec<String> = [
-        text(row.pointer("/workspace/projectPath")),
-        text(row.get("projectPath")),
-        text(row.get("cwd")),
-        text(row.pointer("/workspace/cwd")),
-    ]
-    .iter()
-    .map(|path| project_identity(path.as_deref()))
-    .filter(|key| !key.is_empty())
-    .collect();
+    let candidates: Vec<String> =
+        [text(row.pointer("/workspace/projectPath")), text(row.get("projectPath")), text(row.get("cwd")), text(row.pointer("/workspace/cwd"))]
+            .iter()
+            .map(|path| project_identity(path.as_deref()))
+            .filter(|key| !key.is_empty())
+            .collect();
     let contains = |project: &str, path: &str| !project.is_empty() && (path == project || path.starts_with(&format!("{project}/")));
     let mut best = String::new();
     for key in project_keys {
@@ -550,8 +537,7 @@ impl ThreadSettings {
             let header = self.threads.header(thread).await.map_err(port)?;
             let (answer, patch) = decide(&header);
             let Some((set, unset)) = patch else { return Ok(answer) };
-            let expect: Map<String, Value> =
-                keys.iter().map(|key| ((*key).to_owned(), header.get(*key).cloned().unwrap_or(Value::Null))).collect();
+            let expect: Map<String, Value> = keys.iter().map(|key| ((*key).to_owned(), header.get(*key).cloned().unwrap_or(Value::Null))).collect();
             if self.threads.patch_header_if(thread, expect, set, unset).await.map_err(port)?.is_none() {
                 return Ok(answer);
             }
@@ -586,11 +572,7 @@ impl ThreadSettings {
         let changed = self
             .update_header(thread, &["favoriteAt"], |header| {
                 let patch = (favorite != sidebar_flag(header, "favoriteAt")).then(|| {
-                    if favorite {
-                        (Map::from_iter([("favoriteAt".to_owned(), json!(now))]), Vec::new())
-                    } else {
-                        (Map::new(), vec!["favoriteAt".to_owned()])
-                    }
+                    if favorite { (Map::from_iter([("favoriteAt".to_owned(), json!(now))]), Vec::new()) } else { (Map::new(), vec!["favoriteAt".to_owned()]) }
                 });
                 (patch.is_some(), patch)
             })
@@ -616,11 +598,14 @@ impl ThreadSettings {
         };
         let registered = projects.projects().await.map_err(|message| failed(DOMAIN, message))?;
         let keys: Vec<String> = registered.iter().map(|path| project_identity(Some(path))).collect();
-        let key = session_project_key(&json!({
-            "projectPath": row.pointer("/desktopSession/projectPath"),
-            "cwd": row.get("cwd"),
-            "workspace": row.get("workspace"),
-        }), &keys);
+        let key = session_project_key(
+            &json!({
+                "projectPath": row.pointer("/desktopSession/projectPath"),
+                "cwd": row.get("cwd"),
+                "workspace": row.get("workspace"),
+            }),
+            &keys,
+        );
         let current = registered.iter().find(|path| project_identity(Some(path)) == key);
         if project_identity(current.map(String::as_str)) == project_identity(target.as_deref()) {
             return Ok(());
@@ -629,7 +614,9 @@ impl ThreadSettings {
         // (the list row's `working`), a turn running or starting or a compaction running as the
         // actor steps, or the runtime state a host published as busy.
         let working = self.parts.directory.handle(thread).is_some_and(|handle| {
-            handle.cell.run.load().is_some() || handle.cell.ui_busy.load(std::sync::atomic::Ordering::SeqCst) || handle.cell.compacting.load(std::sync::atomic::Ordering::SeqCst)
+            handle.cell.run.load().is_some()
+                || handle.cell.ui_busy.load(std::sync::atomic::Ordering::SeqCst)
+                || handle.cell.compacting.load(std::sync::atomic::Ordering::SeqCst)
         }) || self.parts.directory.runtime_facts(thread).is_some_and(|facts| facts.busy || facts.command_busy);
         let worktree = row.pointer("/workspace/worktreeId").and_then(Value::as_str).is_some_and(|id| !id.is_empty());
         if let Some(refusal) = project_move_refusal(working, worktree) {
@@ -677,7 +664,8 @@ impl ThreadSettings {
         };
         let resolved = mixdog_agent::agent_tool::scope::resolve_path(&base, raw);
         let target = std::path::PathBuf::from(&resolved);
-        let stat = on_lane(self.parts.directory.deps().lanes.io, cancel, move |lane| mixdog_statefile::metadata(lane, &target).map(|meta| meta.is_dir())).await?;
+        let stat =
+            on_lane(self.parts.directory.deps().lanes.io, cancel, move |lane| mixdog_statefile::metadata(lane, &target).map(|meta| meta.is_dir())).await?;
         match stat {
             Ok(true) => {}
             Ok(false) => return Err(failed(DOMAIN, format!("cwd: not a directory: {resolved}"))),
@@ -722,7 +710,11 @@ impl ThreadSettings {
         let effort = route.get("effort").and_then(Value::as_str).filter(|effort| !effort.is_empty()).map(str::to_owned);
         let effort_options = route.get("effortOptions").and_then(Value::as_array).cloned();
         handle
-            .set_section(mixdog_core_ports::ports::threads::Section::Route(mixdog_app_protocol::v2::thread::ThreadRoute { effort, effort_options, ..Default::default() }))
+            .set_section(mixdog_core_ports::ports::threads::Section::Route(mixdog_app_protocol::v2::thread::ThreadRoute {
+                effort,
+                effort_options,
+                ..Default::default()
+            }))
             .await?;
         Ok(done)
     }
@@ -821,4 +813,3 @@ impl DomainService for ThreadSettings {
         Admit::Accepted
     }
 }
-

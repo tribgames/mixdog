@@ -16,12 +16,12 @@ use mixdog_core_api::domain::provider::WireRequest;
 
 use super::super::usage_ports::RoutedUsageHttp;
 use super::*;
-use serde_json::json;
 use crate::registry::keys::MemoryVault;
 use crate::transport::Exchange;
 use crate::transport::http::BodyStream;
 use crate::transport::http::HttpResponse;
 use crate::transport::http::HttpSend;
+use serde_json::json;
 
 struct Body(Option<Bytes>);
 
@@ -85,7 +85,6 @@ fn money_reads_text_numbers_and_nested_forms() {
     assert_eq!(money(serde_json::json!(true)), None);
 }
 
-
 // Test files go through the durability lane and `mixdog_statefile`, as the tree's other tests do.
 
 /// An API-key lookup that outlives its timer ends 6.5 s in, with the text of an aborted request.
@@ -113,7 +112,6 @@ async fn a_lookup_that_is_never_answered_ends_after_six_and_a_half_seconds() {
     assert_eq!(seen[0].after, std::time::Duration::from_millis(6500));
     assert_eq!((seen[0].text.as_str(), error.message.as_str()), ("This operation was aborted", "This operation was aborted"));
 }
-
 
 // ---- the lookups over a scripted network ------------------------------------------------------------------------
 

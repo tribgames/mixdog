@@ -19,12 +19,12 @@ use crate::memory::lifecycle::Owned;
 const STOPPING: &str = "memory service stopping";
 
 use super::ledger::Ledger;
-use crate::bots::delivery::env::RetryTimer;
-use super::requests::{wait, RetryRunner, claim_and_mark_scheduled_cycle, resolve_coalesce_max_retries, spawn_in};
+use super::requests::{RetryRunner, claim_and_mark_scheduled_cycle, resolve_coalesce_max_retries, spawn_in, wait};
 use super::rows::{cycle1_row_due_sql, cycle1_unchunked_sql};
 use super::run::{Cycle1Options, Cycle1Result, Cycle1Runner};
 use super::signature::{number_or_zero, parse_interval, periodic_cycle_due, scheduled_cycle1_signature};
 use super::{Cycle1Llm, CycleConfig, CycleEmbeddings, log};
+use crate::bots::delivery::env::RetryTimer;
 use crate::memory::error::{MemoryError, Result};
 use crate::memory::ingest::NowMs;
 use crate::memory::pg::db::Db;

@@ -261,14 +261,7 @@ fn parse_spcod(r: &mut Be, has_precincts: bool) -> Result<CodingStyle, JpxError>
             precincts.push((15, 15));
         }
     }
-    Ok(CodingStyle {
-        levels,
-        cbw: cbw as u8,
-        cbh: cbh as u8,
-        style,
-        reversible: transform == 1,
-        precincts,
-    })
+    Ok(CodingStyle { levels, cbw: cbw as u8, cbh: cbh as u8, style, reversible: transform == 1, precincts })
 }
 
 /// One quantisation step size: exponent and mantissa (the mantissa is 0 for no quantisation).
@@ -396,14 +389,7 @@ impl ParamBuilder {
                 mct: 0,
                 sop: false,
                 eph: false,
-                comps: vec![
-                    CompParams {
-                        coding: CodingStyle::placeholder(),
-                        quant: Quant::placeholder(),
-                        roi_shift: 0,
-                    };
-                    csiz
-                ],
+                comps: vec![CompParams { coding: CodingStyle::placeholder(), quant: Quant::placeholder(), roi_shift: 0 }; csiz],
                 pocs: Vec::new(),
             },
             csiz,

@@ -23,10 +23,10 @@ use super::delete::live_refusal;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::testing::lock;
-use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
+use crate::eventually_on;
 
 fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
     CoreRequest {
@@ -60,12 +60,7 @@ async fn world() -> World {
     }));
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
-    World {
-        rig,
-        directory,
-        handle,
-        release,
-    }
+    World { rig, directory, handle, release }
 }
 
 impl World {
@@ -80,20 +75,12 @@ impl World {
             }
         }
         let params = json!({ "threadId": self.handle.id, "set": set, "unset": unset });
-        self.handle
-            .request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") })
-            .await
-            .expect("patch");
+        self.handle.request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") }).await.expect("patch");
     }
 
     /// `thread/delete {threadId: target, ifIdle: expected}`.
     async fn ask(&self, target: &str, expected: Value) -> Value {
-        match self
-            .handle
-            .request(request("thread/delete", json!({ "threadId": target, "opId": "op-d", "ifIdle": expected }), "op-d"))
-            .await
-            .expect("delete")
-        {
+        match self.handle.request(request("thread/delete", json!({ "threadId": target, "opId": "op-d", "ifIdle": expected }), "op-d")).await.expect("delete") {
             Reply::Value(value) => value,
             other => panic!("{other:?}"),
         }
@@ -185,7 +172,6 @@ async fn the_turn_gate_admits_and_fences_a_threads_starts() {
     drop(gate.enter(&one).expect("reopened"));
 }
 
-
 // ---- the retention's admission is the session actor's ------------------------------------------------------------------------
 
 impl World {
@@ -198,7 +184,6 @@ impl World {
         assert!(self.handle.cell.subscribing());
         self.handle.cell.subscribed(true);
     }
-
 }
 
 /// A subscriber that attaches after the pass judged the session but before its delete is admitted refuses the delete; the user's
@@ -289,15 +274,16 @@ async fn a_favorite_after_the_judgment_refuses_the_idle_delete() {
 /// `cell.header` publishes) only once durable, so while its save is held neither the shown header nor the store holds it.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_favorite_accepted_but_not_yet_saved_refuses_the_idle_delete() {
-    use mixdog_store::schema::record::Record;
     use mixdog_store::schema::blob::Slot;
+    use mixdog_store::schema::record::Record;
     let world = world().await;
     world.flags(true, false).await;
     let id = world.handle.id.as_str().to_owned();
     let used = world.directory.session_meta(&world.handle.id).await.expect("meta").expect("listed").last_used_at;
-    let (saving, save) = world.rig.store.hold_record(|record| {
-        matches!(record, Record::Meta(meta) if matches!(&meta.change, Slot::Inline(change) if change.set.contains_key("favoriteAt")))
-    });
+    let (saving, save) = world
+        .rig
+        .store
+        .hold_record(|record| matches!(record, Record::Meta(meta) if matches!(&meta.change, Slot::Inline(change) if change.set.contains_key("favoriteAt"))));
     let params = json!({ "threadId": world.handle.id, "expect": { "favoriteAt": null }, "set": { "favoriteAt": 1_793_306_570_000_i64 }, "unset": [] });
     let favorite = world.handle.request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("thread-settings") });
     tokio::pin!(favorite);
@@ -352,7 +338,6 @@ async fn goal_recovery_materializes_through_the_turn_gate() {
     drop(directory.turn_gate().fence(&handle.id).expect("no admission is left behind"));
 }
 
-
 /// What the delete answers in the situation the case `name` builds.
 async fn replay(name: &str, world: &World) -> Value {
     let id = world.handle.id.as_str().to_owned();
@@ -380,10 +365,8 @@ async fn replay(name: &str, world: &World) -> Value {
             // The running idle delete holds the fence; a start of the thread is refused meanwhile.
             let fence = gate.fence(&world.handle.id).expect("not being admitted");
             let reply = world.ask(&id, stale.clone()).await;
-            let late = world
-                .handle
-                .request(request("turn/start", json!({ "threadId": id, "opId": "op-late", "input": { "prompt": "late" } }), "op-late"))
-                .await;
+            let late =
+                world.handle.request(request("turn/start", json!({ "threadId": id, "opId": "op-late", "input": { "prompt": "late" } }), "op-late")).await;
             assert!(matches!(late, Err(CoreError::ThreadClosing { .. })), "a start while the thread is fenced is refused: {late:?}");
             drop(fence);
             json!({ "reply": reply, "firstReply": world.ask(&id, stale).await })

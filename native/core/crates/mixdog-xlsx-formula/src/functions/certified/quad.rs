@@ -13,7 +13,7 @@
 //!   share of the absolute budget are bisected; a panel whose monotone bound `width * f(start)` fits the budget is
 //!   taken as that bound.
 
-use super::ball::{B, exp, expm1, expm1mx, ln, log1pmx, with_prec, prec};
+use super::ball::{B, exp, expm1, expm1mx, ln, log1pmx, prec, with_prec};
 use super::export::Val;
 use super::gammafn::{half_ln_2pi, stirling_rem};
 use super::num::{Fl, Mag};
@@ -263,16 +263,7 @@ pub fn flank_log<F: Family>(fam: &F, v0: &B, dir: i64, len: Option<&Fl>) -> Opti
 /// The integral of `exp(-D(s))` over [s0, s1] (D increasing), to an absolute budget of 2^-budget_bits() of `area_lo`,
 /// plus `extra` (a truncated tail) in the radius.
 #[allow(clippy::too_many_arguments)]
-fn integrate<F: Family>(
-    fam: &F,
-    v0: &B,
-    dir: i64,
-    dfun: &dyn Fn(&Fl) -> B,
-    s0: &Fl,
-    s1: &Fl,
-    area_lo: &Fl,
-    extra: Mag,
-) -> B {
+fn integrate<F: Family>(fam: &F, v0: &B, dir: i64, dfun: &dyn Fn(&Fl) -> B, s0: &Fl, s1: &Fl, area_lo: &Fl, extra: Mag) -> B {
     let total_w = s1.sub(s0);
     let budget = Mag::of(area_lo).mul_2exp(-budget_bits());
     let inv_w = super::ball::recip_up(&total_w);
@@ -282,10 +273,7 @@ fn integrate<F: Family>(
     let n0 = 6;
     let r0 = total_w.mul(&Fl::from_i64(1)).mul_2exp(-1);
     let r0 = B::exact(r0).div_int(n0).mid;
-    let mut stack: Vec<(Fl, Fl, u32)> = (0..n0)
-        .rev()
-        .map(|i| (s0.add(&r0.mul(&Fl::from_i64(2 * i + 1))), r0.clone(), 0))
-        .collect();
+    let mut stack: Vec<(Fl, Fl, u32)> = (0..n0).rev().map(|i| (s0.add(&r0.mul(&Fl::from_i64(2 * i + 1))), r0.clone(), 0)).collect();
     // the panels must tile [s0, s1] exactly: the last one ends at s1
     if let Some(first) = stack.first_mut() {
         let start = first.0.sub(&first.1);
@@ -484,15 +472,7 @@ pub fn lattice_log<F: Family>(fam: &F, v0: &B, dir: i64, len: &Fl) -> B {
 /// a panel whose monotone bound `count f(A)` fits its share is that bound; failing panels split at c; a singleton
 /// is its term. At most `last + 1` leaves.
 #[allow(clippy::too_many_arguments)]
-fn lattice_sum<F: Family>(
-    fam: &F,
-    v0: &B,
-    dir: i64,
-    dfun: &dyn Fn(&Fl) -> B,
-    last: &Fl,
-    area_lo: &Fl,
-    extra: Mag,
-) -> B {
+fn lattice_sum<F: Family>(fam: &F, v0: &B, dir: i64, dfun: &dyn Fn(&Fl) -> B, last: &Fl, area_lo: &Fl, extra: Mag) -> B {
     let one = Fl::from_i64(1);
     let total = last.add(&one);
     let budget = Mag::of(area_lo).mul_2exp(-budget_bits());
@@ -565,11 +545,7 @@ fn lattice_panel<F: Family>(fam: &F, v0: &B, dir: i64, c: &Fl, r: &Fl, r2: &Fl) 
     // cancellation between the four log gammas
     let xa = B::exact(sgn(&lo));
     let slope = local_series(fam, v0, &xa, dir, 1).0[1].clone();
-    let rise = if slope.mid.is_neg() && slope.is_neg() {
-        Mag::ZERO
-    } else {
-        slope.abs_hi().mul(Mag::of(&hi.sub(&lo)))
-    };
+    let rise = if slope.mid.is_neg() && slope.is_neg() { Mag::ZERO } else { slope.abs_hi().mul(Mag::of(&hi.sub(&lo))) };
     let ga = fam.diff(v0, &xa);
     let gp = B { mid: ga.mid.clone(), rad: ga.rad.add(rise) };
     let m = fp.0[deg_ + 1].abs_hi().mul(exp(&gp).abs_hi());
@@ -616,20 +592,15 @@ fn assemble<F: Family>(fam: &F, norm: &B, vx: &B) -> Tails {
         let len = if ge { vx.mid.clone() } else { vx.mid.neg() };
         let other = flank_log(fam, &B::zero(), -dir, None).expect("an infinite flank");
         // the cut's own radius moves the end of the piece; the integrand there is at most 1
-        let piece = flank_log(fam, &B::zero(), dir, Some(&len)).map(|p| {
-            if vx.rad.is_zero() { p } else { ln(&exp(&p).add(&B { mid: Fl::zero(), rad: vx.rad })) }
-        });
+        let piece =
+            flank_log(fam, &B::zero(), dir, Some(&len)).map(|p| if vx.rad.is_zero() { p } else { ln(&exp(&p).add(&B { mid: Fl::zero(), rad: vx.rad })) });
         let both = match piece {
             Some(p) => super::ball::logaddexp(&other, &p),
             None => other,
         };
         Val::Log(norm.add(&both))
     };
-    if ge {
-        Tails { lower: near, upper: Val::Log(far) }
-    } else {
-        Tails { lower: Val::Log(far), upper: near }
-    }
+    if ge { Tails { lower: near, upper: Val::Log(far) } } else { Tails { lower: Val::Log(far), upper: near } }
 }
 
 /// Regularised incomplete gamma (P, Q) at `t = a e^vx`, `a > 0` (vx = ln(t/a) given as a ball).
@@ -694,13 +665,7 @@ pub fn beta_tails(a: &B, b: &B, vx: &B) -> Tails {
     }
     let ab = a.add(b);
     // ln(t0^a u0^b / B(a,b)) = -( ln((a+b)/(ab))/2 + ln(2 pi)/2 + R(a) + R(b) - R(a+b) )
-    let norm = ln(&ab.div(&a.mul(b)))
-        .mul_2exp(-1)
-        .add(&half_ln_2pi())
-        .add(&stirling_rem(a))
-        .add(&stirling_rem(b))
-        .sub(&stirling_rem(&ab))
-        .neg();
+    let norm = ln(&ab.div(&a.mul(b))).mul_2exp(-1).add(&half_ln_2pi()).add(&stirling_rem(a)).add(&stirling_rem(b)).sub(&stirling_rem(&ab)).neg();
     let t0 = a.div(&ab);
     let u0 = b.div(&ab);
     let fam = BetaF { ab, t0, u0 };
@@ -719,14 +684,7 @@ pub fn beta_log_mass(a: &B, b: &B, vx: &B) -> B {
         return beta_log_mass(b, a, &vx.neg());
     }
     let ab = a.add(b);
-    let norm = ln(&ab.div(&a.mul(b)))
-        .mul_2exp(-1)
-        .add(&half_ln_2pi())
-        .add(&stirling_rem(a))
-        .add(&stirling_rem(b))
-        .sub(&stirling_rem(&ab))
-        .neg();
+    let norm = ln(&ab.div(&a.mul(b))).mul_2exp(-1).add(&half_ln_2pi()).add(&stirling_rem(a)).add(&stirling_rem(b)).sub(&stirling_rem(&ab)).neg();
     let fam = BetaF { ab: ab.clone(), t0: a.div(&ab), u0: b.div(&ab) };
     norm.add(&fam.diff(&B::zero(), vx))
 }
-

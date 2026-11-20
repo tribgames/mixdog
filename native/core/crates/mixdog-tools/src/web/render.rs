@@ -40,7 +40,8 @@ const IDLE_TIME: Duration = Duration::from_millis(400);
 const IDLE_CONCURRENCY: usize = 2;
 const TEARDOWN: Duration = Duration::from_secs(2);
 
-const HAS_TEXT: &str = r#"(() => { const text = (document.querySelector('main,[role="main"],article') || document.body)?.innerText?.trim() || ''; return Boolean(text); })()"#;
+const HAS_TEXT: &str =
+    r#"(() => { const text = (document.querySelector('main,[role="main"],article') || document.body)?.innerText?.trim() || ''; return Boolean(text); })()"#;
 const PAGE_CONTENT: &str = "(() => { let content = ''; if (document.doctype) { content = new XMLSerializer().serializeToString(document.doctype); } if (document.documentElement) { content += document.documentElement.outerHTML; } return content; })()";
 
 pub use mixdog_core_api::domain::ext::BrowserEndpoint;
@@ -85,33 +86,17 @@ impl BrowserRenderer {
         Self::with_policy(endpoint, AddressPolicy::PublicOnly, version, lanes)
     }
 
-    pub(crate) fn with_policy(
-        endpoint: Arc<dyn BrowserEndpoint>,
-        policy: AddressPolicy,
-        version: &str,
-        lanes: WebLanes,
-    ) -> Result<Arc<Self>, FetchError> {
+    pub(crate) fn with_policy(endpoint: Arc<dyn BrowserEndpoint>, policy: AddressPolicy, version: &str, lanes: WebLanes) -> Result<Arc<Self>, FetchError> {
         let pages = std::env::var("PUPPETEER_POOL_MAX_PAGES")
             .ok()
             .and_then(|value| value.trim().parse::<usize>().ok())
             .filter(|pages| *pages > 0)
             .unwrap_or(DEFAULT_POOL_PAGES);
-        Ok(Arc::new(Self {
-            endpoint,
-            fetcher: Arc::new(Fetcher::new(policy, version, lanes)?),
-            slots: Semaphore::new(pages),
-        }))
+        Ok(Arc::new(Self { endpoint, fetcher: Arc::new(Fetcher::new(policy, version, lanes)?), slots: Semaphore::new(pages) }))
     }
 
     /// Answers one paused request through the policy-checked fetcher.
-    async fn answer_paused(
-        fetcher: &Fetcher,
-        cdp: &Cdp,
-        session: &str,
-        main_frame: &str,
-        state: &PageState,
-        params: &Value,
-    ) {
+    async fn answer_paused(fetcher: &Fetcher, cdp: &Cdp, session: &str, main_frame: &str, state: &PageState, params: &Value) {
         let request_id = text_of(params, "requestId");
         let request = params.get("request").cloned().unwrap_or(Value::Null);
         let is_main_document = text_of(params, "resourceType") == "Document" && text_of(params, "frameId") == main_frame;
@@ -120,11 +105,7 @@ impl BrowserRenderer {
             let headers: Vec<(String, String)> = request
                 .get("headers")
                 .and_then(Value::as_object)
-                .map(|map| {
-                    map.iter()
-                        .map(|(name, value)| (name.clone(), value.as_str().unwrap_or_default().to_string()))
-                        .collect()
-                })
+                .map(|map| map.iter().map(|(name, value)| (name.clone(), value.as_str().unwrap_or_default().to_string())).collect())
                 .unwrap_or_default();
             let method = match text_of(&request, "method") {
                 "" => "GET",
@@ -137,8 +118,7 @@ impl BrowserRenderer {
         match outcome {
             Ok(response) => {
                 if is_main_document {
-                    *state.document.lock().unwrap_or_else(|p| p.into_inner()) =
-                        Some((response.status, response.headers.clone()));
+                    *state.document.lock().unwrap_or_else(|p| p.into_inner()) = Some((response.status, response.headers.clone()));
                 }
                 let headers: Vec<Value> = response
                     .headers
@@ -163,13 +143,7 @@ impl BrowserRenderer {
                 if is_main_document {
                     *state.document_error.lock().unwrap_or_else(|p| p.into_inner()) = Some(error);
                 }
-                let _ = cdp
-                    .send(
-                        "Fetch.failRequest",
-                        json!({ "requestId": request_id, "errorReason": "Failed" }),
-                        Some(session),
-                    )
-                    .await;
+                let _ = cdp.send("Fetch.failRequest", json!({ "requestId": request_id, "errorReason": "Failed" }), Some(session)).await;
             }
         }
     }
@@ -202,8 +176,7 @@ impl BrowserRenderer {
                     "Fetch.requestPaused" => {
                         let fetcher = fetcher.clone();
                         let cdp = cdp.clone();
-                        let (session, main_frame, state, params) =
-                            (session.clone(), main_frame.clone(), state.clone(), params.clone());
+                        let (session, main_frame, state, params) = (session.clone(), main_frame.clone(), state.clone(), params.clone());
                         paused.spawn(async move {
                             Self::answer_paused(&fetcher, &cdp, &session, &main_frame, &state, &params).await;
                         });
@@ -233,13 +206,7 @@ impl BrowserRenderer {
     async fn wait_for_text(cdp: &Cdp, session: &str, limit: Duration) -> Result<(), FetchError> {
         let poll = async {
             loop {
-                let reply = cdp
-                    .send(
-                        "Runtime.evaluate",
-                        json!({ "expression": HAS_TEXT, "returnByValue": true }),
-                        Some(session),
-                    )
-                    .await?;
+                let reply = cdp.send("Runtime.evaluate", json!({ "expression": HAS_TEXT, "returnByValue": true }), Some(session)).await?;
                 if reply.pointer("/result/value").and_then(Value::as_bool) == Some(true) {
                     return Ok(());
                 }
@@ -268,20 +235,8 @@ impl BrowserRenderer {
     }
 
     async fn scrape(&self, cdp: &Arc<Cdp>, context_id: &str, url: &Url, budget: Duration) -> Result<StagePage, FetchError> {
-        let target = cdp
-            .send(
-                "Target.createTarget",
-                json!({ "url": "about:blank", "browserContextId": context_id }),
-                None,
-            )
-            .await?;
-        let attached = cdp
-            .send(
-                "Target.attachToTarget",
-                json!({ "targetId": text_of(&target, "targetId"), "flatten": true }),
-                None,
-            )
-            .await?;
+        let target = cdp.send("Target.createTarget", json!({ "url": "about:blank", "browserContextId": context_id }), None).await?;
+        let attached = cdp.send("Target.attachToTarget", json!({ "targetId": text_of(&target, "targetId"), "flatten": true }), None).await?;
         let session = text_of(&attached, "sessionId").to_string();
         let events = cdp.subscribe();
         let send = |method: &'static str, params: Value| {
@@ -294,11 +249,7 @@ impl BrowserRenderer {
         send("Page.setLifecycleEventsEnabled", json!({ "enabled": true })).await?;
         send("Network.setBypassServiceWorker", json!({ "bypass": true })).await?;
         let tree = send("Page.getFrameTree", json!({})).await?;
-        let main_frame = tree
-            .pointer("/frameTree/frame/id")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_string();
+        let main_frame = tree.pointer("/frameTree/frame/id").and_then(Value::as_str).unwrap_or_default().to_string();
         let state = Arc::new(PageState {
             document: Mutex::new(None),
             document_error: Mutex::new(None),
@@ -306,17 +257,12 @@ impl BrowserRenderer {
             dom_loaded: watch::channel(HashSet::new()).0,
         });
         let _gate = Self::watch_events(self.fetcher.clone(), cdp, session.clone(), main_frame, state.clone(), events);
-        send(
-            "Fetch.enable",
-            json!({ "handleAuthRequests": false, "patterns": [{ "urlPattern": "*", "requestStage": "Request" }] }),
-        )
-        .await?;
+        send("Fetch.enable", json!({ "handleAuthRequests": false, "patterns": [{ "urlPattern": "*", "requestStage": "Request" }] })).await?;
 
         let document_error = || state.document_error.lock().unwrap_or_else(|p| p.into_inner()).take();
         let navigated = send("Page.navigate", json!({ "url": url.as_str() })).await?;
         if let Some(reason) = navigated.get("errorText").and_then(Value::as_str) {
-            return Err(document_error()
-                .unwrap_or_else(|| FetchError::new(FetchKind::Network, format!("{reason} at {url}"))));
+            return Err(document_error().unwrap_or_else(|| FetchError::new(FetchKind::Network, format!("{reason} at {url}"))));
         }
         if let Some(loader) = navigated.get("loaderId").and_then(Value::as_str) {
             let mut loaded = state.dom_loaded.subscribe();
@@ -324,8 +270,7 @@ impl BrowserRenderer {
         }
         let response = state.document.lock().unwrap_or_else(|p| p.into_inner()).take();
         let Some((status, headers)) = response else {
-            return Err(document_error()
-                .unwrap_or_else(|| FetchError::new(FetchKind::Network, "Browser navigation returned no HTTP response")));
+            return Err(document_error().unwrap_or_else(|| FetchError::new(FetchKind::Network, "Browser navigation returned no HTTP response")));
         };
         assert_document_response(status, &headers)?;
 
@@ -337,20 +282,13 @@ impl BrowserRenderer {
         let mut final_url = text_of(frame.pointer("/frameTree/frame").unwrap_or(&Value::Null), "url").to_string();
         final_url.push_str(text_of(frame.pointer("/frameTree/frame").unwrap_or(&Value::Null), "urlFragment"));
         let final_url = self.fetcher.parse_url(&final_url)?;
-        let content = send(
-            "Runtime.evaluate",
-            json!({ "expression": PAGE_CONTENT, "returnByValue": true }),
-        )
-        .await?;
+        let content = send("Runtime.evaluate", json!({ "expression": PAGE_CONTENT, "returnByValue": true })).await?;
         if content.get("exceptionDetails").is_some() {
             return Err(FetchError::new(FetchKind::Network, "browser could not read the page content"));
         }
         let html = text_of(content.get("result").unwrap_or(&Value::Null), "value").to_string();
         if html.len() > MAX_BODY_BYTES {
-            return Err(FetchError::policy(format!(
-                "puppeteer page content too large: {} bytes > cap={MAX_BODY_BYTES}",
-                html.len()
-            )));
+            return Err(FetchError::policy(format!("puppeteer page content too large: {} bytes > cap={MAX_BODY_BYTES}", html.len())));
         }
         let at = final_url.clone();
         let extracted = super::lanes::run(self.fetcher.lanes().extract, move |_| extract_document(&at, &html, "text/html"))
@@ -373,28 +311,17 @@ impl BrowserRenderer {
 #[async_trait]
 impl PageRenderer for BrowserRenderer {
     async fn render(&self, url: &Url, budget: Duration) -> Result<StagePage, FetchError> {
-        let _slot = self
-            .slots
-            .acquire()
-            .await
-            .map_err(|_| FetchError::new(FetchKind::Cancelled, "browser pool closed"))?;
+        let _slot = self.slots.acquire().await.map_err(|_| FetchError::new(FetchKind::Cancelled, "browser pool closed"))?;
         // The hold keeps the shared browser open for the whole render, teardown included (Node
         // takes a pool slot before any browser use).
         let (endpoint, _hold) = self.endpoint.lease().await.map_err(|message| launch_failed(&message))?;
         let cdp = Arc::new(Cdp::connect(&endpoint).await.map_err(|message| launch_failed(&message))?);
         // The context goes away with the connection, so a dropped (cancelled)
         // render leaves nothing behind.
-        let context = cdp
-            .send("Target.createBrowserContext", json!({ "disposeOnDetach": true }), None)
-            .await
-            .map_err(|error| launch_failed(&error.message))?;
+        let context = cdp.send("Target.createBrowserContext", json!({ "disposeOnDetach": true }), None).await.map_err(|error| launch_failed(&error.message))?;
         let context_id = text_of(&context, "browserContextId").to_string();
         let outcome = self.scrape(&cdp, &context_id, url, budget).await;
-        let _ = mixdog_rt::time::timeout(
-            TEARDOWN,
-            cdp.send("Target.disposeBrowserContext", json!({ "browserContextId": context_id }), None),
-        )
-        .await;
+        let _ = mixdog_rt::time::timeout(TEARDOWN, cdp.send("Target.disposeBrowserContext", json!({ "browserContextId": context_id }), None)).await;
         outcome
     }
 }

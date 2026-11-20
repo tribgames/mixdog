@@ -75,9 +75,12 @@ impl Alarm for TickerAlarm {
 /// A deadline armed now on `alarm`: the future ends once `delay` has passed.
 pub(crate) fn deadline(alarm: &dyn Alarm, delay: Duration) -> impl Future<Output = ()> + Send + 'static {
     let (tx, rx) = oneshot::channel();
-    alarm.after(delay, Box::new(move || {
-        let _ = tx.send(());
-    }));
+    alarm.after(
+        delay,
+        Box::new(move || {
+            let _ = tx.send(());
+        }),
+    );
     async move {
         let _ = rx.await;
     }
@@ -101,11 +104,7 @@ enum Ran<R> {
 }
 
 fn panic_message(payload: &(dyn std::any::Any + Send)) -> String {
-    payload
-        .downcast_ref::<&str>()
-        .map(|text| (*text).to_owned())
-        .or_else(|| payload.downcast_ref::<String>().cloned())
-        .unwrap_or_else(|| "panicked".to_owned())
+    payload.downcast_ref::<&str>().map(|text| (*text).to_owned()).or_else(|| payload.downcast_ref::<String>().cloned()).unwrap_or_else(|| "panicked".to_owned())
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {

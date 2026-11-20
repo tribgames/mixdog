@@ -91,10 +91,7 @@ fn ps_quote(value: &str) -> String {
 /// sh launcher text. Node mode for Electron is set only inside the launcher, for the one child
 /// it execs; every argument and the exit code pass through.
 pub fn render_posix(runtime: &SkillRuntime) -> String {
-    let mut lines = vec![
-        "#!/bin/sh".to_owned(),
-        "# Mixdog skill-script launcher, generated for one installation. Do not edit.".to_owned(),
-    ];
+    let mut lines = vec!["#!/bin/sh".to_owned(), "# Mixdog skill-script launcher, generated for one installation. Do not edit.".to_owned()];
     if runtime.electron {
         lines.push("ELECTRON_RUN_AS_NODE=1".to_owned());
         lines.push("export ELECTRON_RUN_AS_NODE".to_owned());
@@ -142,24 +139,9 @@ pub fn render_powershell_function(runtime: &SkillRuntime) -> String {
         names.push("ELECTRON_RUN_AS_NODE");
         values.push("'1'");
     }
-    let saves = names
-        .iter()
-        .enumerate()
-        .map(|(i, n)| format!("$__mxo{i} = $env:{n}"))
-        .collect::<Vec<_>>()
-        .join("; ");
-    let sets: String = names
-        .iter()
-        .zip(&values)
-        .map(|(n, v)| format!("$env:{n} = {v};"))
-        .collect::<Vec<_>>()
-        .join(" ");
-    let restores = names
-        .iter()
-        .enumerate()
-        .map(|(i, n)| format!("$env:{n} = $__mxo{i}"))
-        .collect::<Vec<_>>()
-        .join("; ");
+    let saves = names.iter().enumerate().map(|(i, n)| format!("$__mxo{i} = $env:{n}")).collect::<Vec<_>>().join("; ");
+    let sets: String = names.iter().zip(&values).map(|(n, v)| format!("$env:{n} = {v};")).collect::<Vec<_>>().join(" ");
+    let restores = names.iter().enumerate().map(|(i, n)| format!("$env:{n} = $__mxo{i}")).collect::<Vec<_>>().join("; ");
     let body = [
         format!("$__mxa = '{SKILL_ARGV_TAG}'"),
         "foreach ($__mxv in $args) { foreach ($__mxe in @($__mxv)) { if ($null -ne $__mxe) { $__mxa += ',' + [Convert]::ToBase64String([Text.Encoding]::UTF8.GetBytes([string]$__mxe)) } } }".to_owned(),
@@ -204,12 +186,7 @@ pub fn launcher_files(runtime: &SkillRuntime) -> Vec<(String, String)> {
 /// Private per-installation directory under the data dir, named by a digest of the runtime.
 pub fn launcher_dir(runtime: &SkillRuntime, data_dir: &Path) -> PathBuf {
     let mut hasher = Sha256::new();
-    for part in [
-        runtime.platform.name(),
-        runtime.interpreter.as_str(),
-        runtime.entry.as_str(),
-        if runtime.electron { "electron" } else { "node" },
-    ] {
+    for part in [runtime.platform.name(), runtime.interpreter.as_str(), runtime.entry.as_str(), if runtime.electron { "electron" } else { "node" }] {
         hasher.update((part.len() as u64).to_le_bytes());
         hasher.update(part.as_bytes());
     }
@@ -219,11 +196,7 @@ pub fn launcher_dir(runtime: &SkillRuntime, data_dir: &Path) -> PathBuf {
 
 /// Writes (atomically) or refreshes the launchers and returns their directory.
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job (InLane proof)")]
-pub fn ensure_launcher_dir(
-    _lane: &InLane<DurabilityIo>,
-    runtime: &SkillRuntime,
-    data_dir: &Path,
-) -> std::io::Result<PathBuf> {
+pub fn ensure_launcher_dir(_lane: &InLane<DurabilityIo>, runtime: &SkillRuntime, data_dir: &Path) -> std::io::Result<PathBuf> {
     let dir = launcher_dir(runtime, data_dir);
     std::fs::create_dir_all(&dir)?;
     for (name, content) in launcher_files(runtime) {
@@ -248,12 +221,8 @@ pub fn ensure_launcher_dir(
 pub fn with_launcher_path(env: &mut HashMap<String, String>, platform: Platform, dir: &Path) {
     let delimiter = if platform == Platform::Windows { ';' } else { ':' };
     // Windows variable names are case-insensitive and usually spelled `Path`.
-    let key = if platform == Platform::Windows {
-        env.keys().find(|k| k.eq_ignore_ascii_case("PATH")).cloned()
-    } else {
-        None
-    }
-    .unwrap_or_else(|| "PATH".to_owned());
+    let key =
+        if platform == Platform::Windows { env.keys().find(|k| k.eq_ignore_ascii_case("PATH")).cloned() } else { None }.unwrap_or_else(|| "PATH".to_owned());
     let dir = dir.to_string_lossy().into_owned();
     let existing = env.get(&key).cloned().unwrap_or_default();
     let mut entries = vec![dir.clone()];
@@ -266,12 +235,7 @@ mod tests {
     use super::*;
 
     fn runtime(electron: bool) -> SkillRuntime {
-        SkillRuntime {
-            platform: Platform::Posix,
-            interpreter: "/opt/it's/mixdogd".to_owned(),
-            entry: "skill-run".to_owned(),
-            electron,
-        }
+        SkillRuntime { platform: Platform::Posix, interpreter: "/opt/it's/mixdogd".to_owned(), entry: "skill-run".to_owned(), electron }
     }
 
     #[test]

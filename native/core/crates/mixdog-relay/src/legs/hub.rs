@@ -22,15 +22,15 @@ use mixdog_rt::time::{Instant, sleep_unrefed};
 use serde_json::{Value, json};
 use tokio::task::AbortHandle;
 
+use super::dispatch::Dispatch;
 use super::envelope;
 use super::ingress::{IngressLeg, IngressLimits, IngressPool, LegKind};
 use super::policy::{
-    self, Admission, FrameQuery, InflightMeter, LegCharge, MAX_FRAME_BYTES, MAX_INFLIGHT_BYTES, MAX_UPLINK_CAPACITY_BYTES, Outbound,
-    Oversize, PhoneLeg, Pressure, Release, SendFailed, UNDECLARED_CAPACITY_BYTES, UPLINK_QUEUE_LIMIT_BYTES, UplinkCeilings, UplinkLeg,
-    UplinkPath, check_oversize, send_to_phone, uplink_ceilings,
+    self, Admission, FrameQuery, InflightMeter, LegCharge, MAX_FRAME_BYTES, MAX_INFLIGHT_BYTES, MAX_UPLINK_CAPACITY_BYTES, Outbound, Oversize, PhoneLeg,
+    Pressure, Release, SendFailed, UNDECLARED_CAPACITY_BYTES, UPLINK_QUEUE_LIMIT_BYTES, UplinkCeilings, UplinkLeg, UplinkPath, check_oversize, send_to_phone,
+    uplink_ceilings,
 };
 use super::watchdog::{HandshakeTiming, Turn, Watch, WatchTarget, await_desktop_turn};
-use super::dispatch::Dispatch;
 use crate::close_codes::DESKTOP_OFFLINE;
 use crate::close_codes::DESKTOP_OFFLINE_REASON;
 use crate::diagnostics::{DesktopSockets, PhoneSocket};
@@ -606,8 +606,7 @@ pub struct Hub {
 impl Hub {
     /// `createRelayState`'s `liveDesktops` and the numbers it is held to. `pool` is the process's one ingress pool.
     pub fn new(store: DeviceStore, mut config: HubConfig, pool: IngressPool) -> Arc<Self> {
-        config.uplink_capacity_ceiling =
-            policy::bounded_capacity(Some(config.uplink_capacity_ceiling as f64), MAX_UPLINK_CAPACITY_BYTES);
+        config.uplink_capacity_ceiling = policy::bounded_capacity(Some(config.uplink_capacity_ceiling as f64), MAX_UPLINK_CAPACITY_BYTES);
         config.ingress.limit = config.max_frame_bytes;
         Arc::new(Self {
             state: Mutex::new(HubState::default()),
@@ -731,14 +730,7 @@ impl Hub {
             self.unregister_leg(leg_id);
             return Err(NoDesktop);
         }
-        Ok(PhoneHandle {
-            hub: Arc::clone(self),
-            device_id: device_id.to_owned(),
-            client_id,
-            shared,
-            leg_id,
-            finished: AtomicBool::new(false),
-        })
+        Ok(PhoneHandle { hub: Arc::clone(self), device_id: device_id.to_owned(), client_id, shared, leg_id, finished: AtomicBool::new(false) })
     }
 
     /// `oversizeLimitFor`: the stable ceiling of one phone's path in one wire form, the number every refusal quotes.
@@ -851,12 +843,7 @@ impl Hub {
 }
 
 fn undeclared_path(client_id: &str, max_frame_bytes: usize) -> Path {
-    let ceilings = uplink_ceilings(UplinkPath {
-        capacity: UNDECLARED_CAPACITY_BYTES,
-        client_id,
-        text_frames: false,
-        policy: max_frame_bytes,
-    });
+    let ceilings = uplink_ceilings(UplinkPath { capacity: UNDECLARED_CAPACITY_BYTES, client_id, text_frames: false, policy: max_frame_bytes });
     Path { text_frames: false, binary: ceilings.binary, text: ceilings.text }
 }
 

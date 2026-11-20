@@ -36,8 +36,6 @@ use super::web_search_models::{WebSearchModelsService, WebSearchRoutes};
 use crate::domains::ai_account::collaborators::WebSearchModels;
 use crate::domains::ai_account::failure::Failure;
 
-
-
 /// The catalogs a profile starts from: none.
 pub(super) fn seeds() -> Value {
     json!({ "modelsDev": {}, "litellm": {} })
@@ -380,7 +378,25 @@ pub(super) async fn rig(scenario: &Value, seeds: &Value, fail: bool) -> Rig {
         host: Some(host.clone()),
     });
     let rewarms = Arc::new(std::sync::atomic::AtomicUsize::new(0));
-    Rig { config, catalog, registry, readiness, effective, loaded, service, host, endpoint, gate, arrived, hits, vault_gate, vault_arrived, secret_reads, rewarms, _dir: dir }
+    Rig {
+        config,
+        catalog,
+        registry,
+        readiness,
+        effective,
+        loaded,
+        service,
+        host,
+        endpoint,
+        gate,
+        arrived,
+        hits,
+        vault_gate,
+        vault_arrived,
+        secret_reads,
+        rewarms,
+        _dir: dir,
+    }
 }
 
 impl Rig {
@@ -415,9 +431,6 @@ impl Rig {
     }
 }
 
-
-
-
 pub(super) fn web_search(rig: &Rig) -> WebSearchModelsService {
     WebSearchModelsService::new(
         rig.catalog.clone(),
@@ -427,8 +440,6 @@ pub(super) fn web_search(rig: &Rig) -> WebSearchModelsService {
     )
 }
 
-
-
 #[tokio::test]
 async fn a_custom_providers_discovered_models_list_with_the_configured_ones_and_without_the_hidden() {
     let rig = rig(&custom_discovery(), &seeds(), false).await;
@@ -437,7 +448,6 @@ async fn a_custom_providers_discovered_models_list_with_the_configured_ones_and_
     // `disc-b` is discovered and hidden by its override; `m1` is configured and not discovered.
     assert_eq!(ids, ["disc-a", "disc-c", "m1"]);
 }
-
 
 #[tokio::test]
 async fn a_profile_with_no_enabled_provider_lists_nothing_and_registers_nothing() {

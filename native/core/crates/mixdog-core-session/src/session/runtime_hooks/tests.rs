@@ -25,7 +25,13 @@ impl ThreadState for Feed {
     async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
         unreachable!("the hub only publishes sections")
     }
-    async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+    async fn patch_header_if(
+        &self,
+        _: &ThreadId,
+        _: Map<String, Value>,
+        _: Map<String, Value>,
+        _: Vec<String>,
+    ) -> Result<Option<Map<String, Value>>, PortError> {
         unreachable!("the hub only publishes sections")
     }
     async fn publish(&self, thread: &ThreadId, section: Section) -> Result<(), PortError> {
@@ -37,7 +43,12 @@ impl ThreadState for Feed {
 }
 
 fn question(id: &str, to: &str) -> Delegated {
-    Delegated { id: id.into(), session_id: to.into(), request: json!({ "id": id, "kind": "question", "sessionId": "task" }), answer: Arc::new(|answered: &Answered| answered.approved) }
+    Delegated {
+        id: id.into(),
+        session_id: to.into(),
+        request: json!({ "id": id, "kind": "question", "sessionId": "task" }),
+        answer: Arc::new(|answered: &Answered| answered.approved),
+    }
 }
 
 /// Returns once the feed's last publication is want.
@@ -58,7 +69,6 @@ async fn a_runtime_that_starts_before_the_feed_is_bound_holds_nothing() {
     assert!(host.delegated_approvals_for("home").len() == 1);
     assert_eq!(hub.finish_question(&ThreadId::from("home".to_owned()), "q1", &Answered::default()), None);
 }
-
 
 #[tokio::test]
 async fn a_runtime_shows_the_questions_waiting_for_it_and_those_that_come_until_it_stops() {

@@ -1,9 +1,6 @@
 //! The OpenAI Responses codec against the recorded fixtures.
 
-#![allow(
-    clippy::disallowed_methods,
-    reason = "test-only: reads recorded fixture files synchronously"
-)]
+#![allow(clippy::disallowed_methods, reason = "test-only: reads recorded fixture files synchronously")]
 
 use std::sync::Arc;
 
@@ -48,16 +45,9 @@ impl ModelFactsSource for Facts {
 }
 
 fn codex_codec(transport: TransportKind) -> OpenAiCodec {
-    let identity = CodexIdentity {
-        installation_id: "i".into(),
-        user_agent: "ua".into(),
-        version: "0.166.0".into(),
-        beta_features: "remote_compaction_v2".into(),
-    };
-    OpenAiCodec::new(
-        OpenAiConfig::codex(false, identity, Arc::new(Facts), Arc::new(Ctx)),
-        transport,
-    )
+    let identity =
+        CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "0.166.0".into(), beta_features: "remote_compaction_v2".into() };
+    OpenAiCodec::new(OpenAiConfig::codex(false, identity, Arc::new(Facts), Arc::new(Ctx)), transport)
 }
 
 fn request() -> ModelRequest {
@@ -74,10 +64,7 @@ fn request() -> ModelRequest {
             defer_loading: false,
             freeform: None,
         }],
-        options: RequestOptions {
-            prompt_cache_key: Some("mixdog-codex".into()),
-            ..Default::default()
-        },
+        options: RequestOptions { prompt_cache_key: Some("mixdog-codex".into()), ..Default::default() },
     }
 }
 
@@ -180,4 +167,3 @@ fn a_stream_without_its_terminal_frame_is_a_transient_truncation_that_shows_it_f
     assert!(err.exposure.text_emitted);
     assert_eq!(err.delivery, DeliveryState::Accepted);
 }
-

@@ -32,7 +32,8 @@ impl SetupRuntime for Facade {
 
     async fn save_mcp_server(&self, server: &Value) -> Result<Value, String> {
         self.record(json!(["saveMcpServer", server]));
-        let name = if server.get("originalName").is_some_and(|o| o.as_str().is_some_and(|s| !s.is_empty())) { &server["originalName"] } else { &server["name"] };
+        let name =
+            if server.get("originalName").is_some_and(|o| o.as_str().is_some_and(|s| !s.is_empty())) { &server["originalName"] } else { &server["name"] };
         let status = if server["name"] == "empty" { json!({}) } else { self.status.clone() };
         Ok(json!({"name": name, "status": status}))
     }
@@ -149,8 +150,6 @@ async fn a_setup_action_addresses_the_session_that_runs_it() {
     assert_eq!(*seen.0.lock().unwrap(), [json!({"threadId": "sess_a"}), json!({})]);
 }
 
-
-
 fn facade() -> Facade {
     Facade {
         status: json!({"connectedCount": 1, "servers": [{"name": "fs", "connected": true, "transport": "stdio", "toolCount": 3, "source": "user"}]}),
@@ -185,12 +184,27 @@ async fn a_server_input_holds_no_credential_values_and_one_transport() {
         refusal("add_mcp_server", json!({"server": {"name": "a", "url": "https://h.example/m", "headers": {"Authorization": "Bearer x"}}})).await,
         "setup: headers.Authorization must use an environment-variable reference, not a credential value"
     );
-    assert_eq!(refusal("add_mcp_server", json!({"server": {"name": "a", "url": "https://u:p@h.example/m"}})).await, "MCP URL credentials are not accepted; use environment-variable references");
-    assert_eq!(refusal("add_mcp_server", json!({"server": {"name": "a", "url": "https://h.example/m?token=1"}})).await, "MCP URL credentials are not accepted; use environment-variable references");
+    assert_eq!(
+        refusal("add_mcp_server", json!({"server": {"name": "a", "url": "https://u:p@h.example/m"}})).await,
+        "MCP URL credentials are not accepted; use environment-variable references"
+    );
+    assert_eq!(
+        refusal("add_mcp_server", json!({"server": {"name": "a", "url": "https://h.example/m?token=1"}})).await,
+        "MCP URL credentials are not accepted; use environment-variable references"
+    );
     assert_eq!(refusal("add_mcp_server", json!({"server": {"name": "a", "url": "ftp://h.example/m"}})).await, "MCP URL must use HTTP(S) or WS(S)");
-    assert_eq!(refusal("add_mcp_server", json!({"server": {"name": "a", "command": "x", "url": "https://h.example/m"}})).await, "MCP input must select command or url, not both");
-    assert_eq!(refusal("add_mcp_server", json!({"server": {"name": "a", "type": "stdio", "url": "https://h.example/m"}})).await, "stdio requires command, not url");
-    assert_eq!(refusal("add_mcp_server", json!({"server": {"name": "a", "type": "http", "command": "x"}})).await, "network MCP transports require url, not command");
+    assert_eq!(
+        refusal("add_mcp_server", json!({"server": {"name": "a", "command": "x", "url": "https://h.example/m"}})).await,
+        "MCP input must select command or url, not both"
+    );
+    assert_eq!(
+        refusal("add_mcp_server", json!({"server": {"name": "a", "type": "stdio", "url": "https://h.example/m"}})).await,
+        "stdio requires command, not url"
+    );
+    assert_eq!(
+        refusal("add_mcp_server", json!({"server": {"name": "a", "type": "http", "command": "x"}})).await,
+        "network MCP transports require url, not command"
+    );
 }
 
 #[tokio::test]

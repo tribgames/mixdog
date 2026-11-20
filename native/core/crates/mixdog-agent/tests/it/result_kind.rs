@@ -19,5 +19,3 @@ fn the_error_prefix_ignores_case_and_file_not_found_has_no_leading_boundary() {
     assert_eq!(classify_result_kind("Error: myfile not found", "read"), ResultKind::ZeroMatch);
     assert_eq!(classify_result_kind("Error: file not foundation", "read"), ResultKind::Error);
 }
-
-

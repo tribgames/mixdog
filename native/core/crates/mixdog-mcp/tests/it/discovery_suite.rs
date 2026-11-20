@@ -46,12 +46,7 @@ async fn skills_are_collected_in_precedence_with_folder_rules_and_gating() {
     ];
     let found = {
         let data = data.clone();
-        tokens
-            .maintenance_io
-            .submit(&CancellationToken::new(), move |lane| skills::collect_skills(lane, &data, &roots))
-            .unwrap()
-            .await
-            .unwrap()
+        tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| skills::collect_skills(lane, &data, &roots)).unwrap().await.unwrap()
     };
     let names: Vec<&str> = found.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(names, vec!["alpha", "needs-js", "gamma"]);
@@ -61,16 +56,12 @@ async fn skills_are_collected_in_precedence_with_folder_rules_and_gating() {
     // The user's override replaces the declaration, and null restores it.
     let alpha = found[0].file_path.clone();
     let override_deps = json!([{"type": "tool", "value": "grep"}]);
-    mixdog_mcp::skill_deps::save_skill_tool_dependencies(tokens.durability_io, &data, &alpha, Some(&override_deps))
-        .await
-        .unwrap();
+    mixdog_mcp::skill_deps::save_skill_tool_dependencies(tokens.durability_io, &data, &alpha, Some(&override_deps)).await.unwrap();
     let after = {
         let (data, alpha) = (data.clone(), alpha.clone());
         tokens
             .maintenance_io
-            .submit(&CancellationToken::new(), move |lane| {
-                mixdog_mcp::skill_deps::read_skill_tool_dependencies(lane, &data, &alpha, &json!({}))
-            })
+            .submit(&CancellationToken::new(), move |lane| mixdog_mcp::skill_deps::read_skill_tool_dependencies(lane, &data, &alpha, &json!({})))
             .unwrap()
             .await
             .unwrap()
@@ -92,23 +83,12 @@ async fn plugin_declarations_merge_sources_and_report_errors_without_values() {
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().join("p");
-    write(
-        &root.join(".mcp.json"),
-        &json!({"mcpServers": {"a": {"command": "one"}, "bad": {"type": "stdio"}}}).to_string(),
-    );
-    write(
-        &root.join("plugin.json"),
-        &json!({"mcpServers": [{"b": {"url": "https://example.com/mcp"}}, "extra.json", "../escape.json"]}).to_string(),
-    );
+    write(&root.join(".mcp.json"), &json!({"mcpServers": {"a": {"command": "one"}, "bad": {"type": "stdio"}}}).to_string());
+    write(&root.join("plugin.json"), &json!({"mcpServers": [{"b": {"url": "https://example.com/mcp"}}, "extra.json", "../escape.json"]}).to_string());
     write(&root.join("extra.json"), &json!({"a": {"command": "two"}}).to_string());
     let declared = {
         let root = root.clone();
-        tokens
-            .maintenance_io
-            .submit(&CancellationToken::new(), move |lane| plugins::load_declarations(lane, &root))
-            .unwrap()
-            .await
-            .unwrap()
+        tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| plugins::load_declarations(lane, &root)).unwrap().await.unwrap()
     };
     assert_eq!(declared.format, plugins::PluginFormat::Mixdog);
     let a = declared.servers.iter().find(|s| s.key == "a").unwrap();
@@ -135,10 +115,7 @@ async fn registry_skills_roots_and_hook_catalog_load_from_disk() {
         ]})
         .to_string(),
     );
-    write(
-        &plug.join("hooks").join("hooks.json"),
-        &json!({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x"}]}]}}).to_string(),
-    );
+    write(&plug.join("hooks").join("hooks.json"), &json!({"hooks": {"Stop": [{"hooks": [{"type": "command", "command": "x"}]}]}}).to_string());
     write(
         &project.join(".mixdog").join("hooks.json"),
         &json!({"hooks": {"PreToolUse": [{"matcher": "shell", "hooks": [{"type": "command", "command": "y"}]}]}}).to_string(),
@@ -150,11 +127,7 @@ async fn registry_skills_roots_and_hook_catalog_load_from_disk() {
         tokens
             .maintenance_io
             .submit(&CancellationToken::new(), move |lane| {
-                (
-                    plugins::read_registry(lane, &data),
-                    plugins::skills_roots(lane, &plug),
-                    hooks::read_trusted_projects(lane, &data),
-                )
+                (plugins::read_registry(lane, &data), plugins::skills_roots(lane, &plug), hooks::read_trusted_projects(lane, &data))
             })
             .unwrap()
             .await
@@ -163,28 +136,15 @@ async fn registry_skills_roots_and_hook_catalog_load_from_disk() {
     assert_eq!(registry.len(), 1, "an entry whose root is missing is skipped");
     assert_eq!(roots, vec![plug.join("skills"), plug.join("more")]);
 
-    let entries = hooks::config_entries(&hooks::HookSources {
-        env_file: None,
-        data_dir: &data,
-        project_dir: &project,
-        trusted_projects: &trusted,
-        plugins: &registry,
-    });
-    let (events, reports) = tokens
-        .maintenance_io
-        .submit(&CancellationToken::new(), move |lane| hooks::load_catalog(lane, &entries))
-        .unwrap()
-        .await
-        .unwrap();
+    let entries =
+        hooks::config_entries(&hooks::HookSources { env_file: None, data_dir: &data, project_dir: &project, trusted_projects: &trusted, plugins: &registry });
+    let (events, reports) = tokens.maintenance_io.submit(&CancellationToken::new(), move |lane| hooks::load_catalog(lane, &entries)).unwrap().await.unwrap();
     assert_eq!(reports.len(), 2);
     let pre = &events["PreToolUse"][0];
     assert!(pre.handlers[0].untrusted, "an untrusted project's handlers must not run");
     assert!(pre.matcher.fires("shell") && !pre.matcher.fires("read"));
     assert!(!events["Stop"][0].handlers[0].untrusted);
-    assert_eq!(
-        events["Stop"][0].handlers[0].plugin_data.as_deref(),
-        Some(data.join("plugins").join("data").join("my-plug").as_path())
-    );
+    assert_eq!(events["Stop"][0].handlers[0].plugin_data.as_deref(), Some(data.join("plugins").join("data").join("my-plug").as_path()));
 }
 
 #[tokio::test]
@@ -202,10 +162,7 @@ async fn launcher_files_are_written_once_per_runtime_and_atomically() {
         let (runtime, data) = (runtime.clone(), data.clone());
         move || {
             let (runtime, data) = (runtime.clone(), data.clone());
-            tokens
-                .durability_io
-                .submit(&CancellationToken::new(), move |lane| launcher::ensure_launcher_dir(lane, &runtime, &data))
-                .unwrap()
+            tokens.durability_io.submit(&CancellationToken::new(), move |lane| launcher::ensure_launcher_dir(lane, &runtime, &data)).unwrap()
         }
     };
     let first = ensure().await.unwrap().unwrap();

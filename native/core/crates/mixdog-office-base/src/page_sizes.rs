@@ -53,10 +53,7 @@ mod tests {
             page_size_points(Some(&json!("b5")), "page size").unwrap_err(),
             "Unknown page size: b5; use a3, a4, a5, letter, legal, tabloid or [width, height] in points"
         );
-        assert_eq!(
-            page_size_points(None, "page").unwrap_err(),
-            "Unknown page: undefined; use a3, a4, a5, letter, legal, tabloid or [width, height] in points"
-        );
+        assert_eq!(page_size_points(None, "page").unwrap_err(), "Unknown page: undefined; use a3, a4, a5, letter, legal, tabloid or [width, height] in points");
         assert_eq!(page_size_points(Some(&json!([0, 5])), "page").unwrap_err(), "page must be two positive numbers in points");
         assert!(page_size_points(Some(&json!([1, 2, 3])), "page").unwrap_err().starts_with("Unknown page: 1,2,3;"));
     }

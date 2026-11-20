@@ -57,12 +57,12 @@ use crate::policy::action::GrantKey;
 use crate::policy::action::kind_name;
 use crate::policy::gate::PolicySettings;
 use crate::policy::gate::SessionFacts;
-use crate::policy::run_policy::RunKind;
 use crate::policy::grants::AuditEntry;
 use crate::policy::grants::DEV_ALLOW_ALL_DECISION;
 use crate::policy::grants::GrantStore;
 use crate::policy::grants::PermissionMode;
 use crate::policy::grants::SESSION_REMEMBERED_DECISION;
+use crate::policy::run_policy::RunKind;
 use crate::policy::session_grants::SessionGrants;
 
 /// The tool a step is asked and audited as.
@@ -161,7 +161,9 @@ enum Verdict {
     Run,
     /// The bot blocks a kind of the step and "Allow all actions" is on.
     Refuse,
-    Ask { remember: Vec<ApprovalRemember> },
+    Ask {
+        remember: Vec<ApprovalRemember>,
+    },
 }
 
 /// [`ApprovalPort`] over the core's approval path.
@@ -575,7 +577,11 @@ mod tests {
         let (shown, again) = rig.ask(other_page, decided(false, None, None)).await;
         assert!(!shown && allowed(&again), "any page of the session");
         assert!(rig.decisions().contains(&"session-granted".to_owned()) && rig.decisions().contains(&"session-remembered".to_owned()));
-        assert_eq!(rig.store.mode_for("marketer", &GrantKey::Kind(ActionKind::BrowserSubmit), false).await.unwrap(), PermissionMode::Ask, "nothing is saved for always");
+        assert_eq!(
+            rig.store.mode_for("marketer", &GrantKey::Kind(ActionKind::BrowserSubmit), false).await.unwrap(),
+            PermissionMode::Ask,
+            "nothing is saved for always"
+        );
         assert!(rig.ask(step(MARKETER, &[Post]), decided(false, None, None)).await.0, "another kind");
         assert!(rig.ask(step("sess_home_other", &[Submit]), decided(false, None, None)).await.0, "another session");
         *rig.ctx.life.lock().unwrap() = Some("5:900".to_owned());
@@ -615,7 +621,11 @@ mod tests {
         rig.allow("payer", ActionKind::BrowserSubmit, PermissionMode::Ask);
         let _ = rig.ask(pay, decided(true, Some(ApprovalRemember::Session), None)).await;
         assert!(rig.ask(step("sess_home_payer", &[Submit]), decided(false, None, None)).await.0);
-        assert!(!rig.decisions().iter().any(|decision| ["blocked", "dev-allow-all", "granted", "session-granted", "remembered"].contains(&decision.as_str())), "a payment is judged by no allowance: {:?}", rig.decisions());
+        assert!(
+            !rig.decisions().iter().any(|decision| ["blocked", "dev-allow-all", "granted", "session-granted", "remembered"].contains(&decision.as_str())),
+            "a payment is judged by no allowance: {:?}",
+            rig.decisions()
+        );
     }
 
     /// An attended core-hosted session: a session that is no bot's own runs unasked, a bot's own session is asked.
@@ -781,7 +791,9 @@ mod tests {
         let rig = rig();
         let scoped = Arc::new(Gate::default());
         scoped.answer(decided(true, None, None));
-        let outcome = with_call_approvals(CallApprovals { gate: scoped.clone(), call_id: ToolCallId::from("call-9") }, rig.approvals.ask(step(MARKETER, &[Submit]))).await;
+        let outcome =
+            with_call_approvals(CallApprovals { gate: scoped.clone(), call_id: ToolCallId::from("call-9") }, rig.approvals.ask(step(MARKETER, &[Submit])))
+                .await;
         assert!(allowed(&outcome));
         assert_eq!(scoped.asked().len(), 1);
         assert_eq!(scoped.asked()[0].call_id, Some(ToolCallId::from("call-9")));
@@ -925,7 +937,6 @@ mod tests {
     }
 }
 
-
 impl BrowserApprovals {
     pub fn new(store: Arc<dyn GrantStore>, context: Arc<dyn ApprovalContext>, files: Arc<dyn FilePort>) -> Arc<Self> {
         Arc::new(Self { store, context, files })
@@ -941,7 +952,14 @@ impl BrowserApprovals {
     /// line is written for a kind of a step that asks or for a step the option lets through where a block refuses it: the one
     /// audit line per kind is written for the verdict the step ends in, and a failed write never decides it. A payment, an operator
     /// `confirm` and a step with no kind that can be remembered ask once.
-    async fn judge(&self, facts: &SessionFacts, grants: &SessionGrants, settings: PolicySettings, prompt: &BrowserApprovalPrompt, kinds: &[ActionKind]) -> Verdict {
+    async fn judge(
+        &self,
+        facts: &SessionFacts,
+        grants: &SessionGrants,
+        settings: PolicySettings,
+        prompt: &BrowserApprovalPrompt,
+        kinds: &[ActionKind],
+    ) -> Verdict {
         // A payment is a floor: no allowance, no option and no block is read for it.
         // A step with a kind that always asks reads no allowance either (only "Allow all actions" reads its blocks).
         let rememberable = !kinds.is_empty() && kinds.len() == prompt.kinds.len();
@@ -1005,7 +1023,14 @@ impl BrowserApprovals {
     }
 
     /// The card the person is shown (`DesktopBrowserApprovalPrompt`).
-    async fn card(&self, id: &str, agent: &str, prompt: &BrowserApprovalPrompt, requester: &Requester, remember: Option<BrowserApprovalRemember>) -> CardPrompt {
+    async fn card(
+        &self,
+        id: &str,
+        agent: &str,
+        prompt: &BrowserApprovalPrompt,
+        requester: &Requester,
+        remember: Option<BrowserApprovalRemember>,
+    ) -> CardPrompt {
         let upload = !prompt.files.is_empty();
         let mut files = prompt.files.clone();
         if upload {
@@ -1038,8 +1063,19 @@ impl BrowserApprovals {
     }
 
     /// Raises the card and settles what its answer stores.
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation")]
-    async fn raise(&self, thread: &ThreadId, facts: &SessionFacts, grants: &SessionGrants, prompt: &BrowserApprovalPrompt, kinds: &[ActionKind], remember: Vec<ApprovalRemember>) -> Result<ApprovalAnswer, ToolError> {
+    #[allow(
+        clippy::result_large_err,
+        reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation"
+    )]
+    async fn raise(
+        &self,
+        thread: &ThreadId,
+        facts: &SessionFacts,
+        grants: &SessionGrants,
+        prompt: &BrowserApprovalPrompt,
+        kinds: &[ActionKind],
+        remember: Vec<ApprovalRemember>,
+    ) -> Result<ApprovalAnswer, ToolError> {
         let agent = facts.agent_id.as_str();
         let scoped = call_approvals();
         let (gate, call_id): (Arc<dyn ApprovalGate>, Option<ToolCallId>) = match scoped {
@@ -1092,7 +1128,15 @@ impl BrowserApprovals {
     }
 
     /// What an answer stores: the audit line, the session's allowance, the saved allow.
-    async fn settle(&self, thread: &ThreadId, agent: &str, context: (&SessionFacts, &SessionGrants), kinds: &[ActionKind], answer: &ApprovalAnswer, device: &str) {
+    async fn settle(
+        &self,
+        thread: &ThreadId,
+        agent: &str,
+        context: (&SessionFacts, &SessionGrants),
+        kinds: &[ActionKind],
+        answer: &ApprovalAnswer,
+        device: &str,
+    ) {
         let (facts, grants) = context;
         let remember = match answer {
             ApprovalAnswer::Deny { .. } => return self.audit(agent, kinds, "deny").await,

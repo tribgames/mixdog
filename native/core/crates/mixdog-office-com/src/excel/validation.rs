@@ -88,9 +88,7 @@ pub(super) fn validation_blocks(sheet: &Com, area: &Com) -> Result<Vec<Com>> {
             }
         }
         for run in column_runs {
-            let joined = runs
-                .iter()
-                .position(|open| open.right == column - 1 && open.rule == run.rule && open.top == run.top && open.bottom == run.bottom);
+            let joined = runs.iter().position(|open| open.right == column - 1 && open.rule == run.rule && open.top == run.top && open.bottom == run.bottom);
             match joined {
                 Some(at) => runs[at].right = column,
                 None => runs.push(Run { rule: run.rule, top: run.top, bottom: run.bottom, left: column, right: column }),
@@ -106,9 +104,7 @@ pub(super) fn validation_blocks(sheet: &Com, area: &Com) -> Result<Vec<Com>> {
 
 fn precedent_pattern() -> &'static Regex {
     static PATTERN: OnceLock<Regex> = OnceLock::new();
-    PATTERN.get_or_init(|| {
-        Regex::new(r"(?:(?P<sheet>[A-Za-z0-9_ .-]+)!)?\$?(?P<col>[A-Z]{1,3})\$?(?P<row>[1-9]\d*)").expect("the precedent pattern is valid")
-    })
+    PATTERN.get_or_init(|| Regex::new(r"(?:(?P<sheet>[A-Za-z0-9_ .-]+)!)?\$?(?P<col>[A-Z]{1,3})\$?(?P<row>[1-9]\d*)").expect("the precedent pattern is valid"))
 }
 
 /// `Excel-FormulaPrecedents`: the cells a formula names, once each (apostrophes removed, the key compared ignoring case),
@@ -163,10 +159,7 @@ mod tests {
     #[test]
     fn precedents_name_each_cell_once_on_its_own_sheet() {
         let found = formula_precedents("=SUM(A1:B2)+$C$3+'Data'!A1+Data!a1+A1", "Model");
-        assert_eq!(
-            refs(&found),
-            ["/sheet[Model]/cell[A1]", "/sheet[Model]/cell[B2]", "/sheet[Model]/cell[C3]", "/sheet[Data]/cell[A1]"]
-        );
+        assert_eq!(refs(&found), ["/sheet[Model]/cell[A1]", "/sheet[Model]/cell[B2]", "/sheet[Model]/cell[C3]", "/sheet[Data]/cell[A1]"]);
     }
 
     #[test]

@@ -33,7 +33,9 @@ fn system_prompt(locale: &str) -> String {
     if locale.is_empty() {
         return TITLE_SYSTEM_PROMPT.to_owned();
     }
-    format!("{TITLE_SYSTEM_PROMPT} System language/locale: {locale}. Prefer that language when the source is ambiguous; preserve a clearly different source language.")
+    format!(
+        "{TITLE_SYSTEM_PROMPT} System language/locale: {locale}. Prefer that language when the source is ambiguous; preserve a clearly different source language."
+    )
 }
 
 /// `String(value || '').trim()`.
@@ -55,7 +57,12 @@ enum Route {
     NotAnObject,
     /// An array candidate passes through unnormalized and has no provider or model.
     Incomplete,
-    Complete { provider: String, model: String, effort: String, fast: bool },
+    Complete {
+        provider: String,
+        model: String,
+        effort: String,
+        fast: bool,
+    },
 }
 
 fn truthy(value: &Value) -> bool {
@@ -167,7 +174,12 @@ impl TitleModel for TitleCompletion {
             max_output_tokens: Some(MAX_OUTPUT_TOKENS),
             fast,
             // A background call: an overloaded provider is not retried.
-            shape: CallShape { request_kind: None, effort: if effort.is_empty() { "low".to_owned() } else { effort }, retry_529: false, prompt_cache: PromptCache::Route },
+            shape: CallShape {
+                request_kind: None,
+                effort: if effort.is_empty() { "low".to_owned() } else { effort },
+                retry_529: false,
+                prompt_cache: PromptCache::Route,
+            },
         };
         let out = one_shot.call_prompt(&call, &system_prompt(locale), text).await.map_err(|error| TitleError::Failed(error.to_string()))?;
         Ok(mixdog_js::js_trim(&out.text).to_owned())
@@ -188,7 +200,12 @@ mod tests {
     #[test]
     fn the_title_route_is_the_maintainers_stored_route_else_the_default() {
         let stored = json!({ "provider": " openai ", "model": "gpt-x", "effort": " high ", "fast": true });
-        let complete = |provider: &str, model: &str, effort: &str, fast: bool| Route::Complete { provider: provider.into(), model: model.into(), effort: effort.into(), fast };
+        let complete = |provider: &str, model: &str, effort: &str, fast: bool| Route::Complete {
+            provider: provider.into(),
+            model: model.into(),
+            effort: effort.into(),
+            fast,
+        };
         assert_eq!(title_route(&config(json!({}))), Route::None);
         assert_eq!(title_route(&config(json!({ "agents": { "maintainer": stored } }))), complete("openai", "gpt-x", "high", true));
         assert_eq!(
@@ -199,6 +216,4 @@ mod tests {
         assert_eq!(title_route(&config(json!({ "default": "preset" }))), Route::NotAnObject);
         assert_eq!(title_route(&config(json!({ "default": [1] }))), Route::Incomplete);
     }
-
-
 }

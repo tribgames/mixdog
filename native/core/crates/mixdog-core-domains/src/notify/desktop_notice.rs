@@ -207,7 +207,6 @@ mod tests {
         assert_eq!(sets(&publisher, 0).len(), 2);
     }
 
-
     /// A key is raised once until it is cleared; an empty key or code raises nothing; params are strings as given.
     #[test]
     fn a_notice_is_raised_once_per_key_until_it_is_cleared_and_an_empty_key_or_code_raises_nothing() {
@@ -217,7 +216,10 @@ mod tests {
         assert!(!notices.raise("key", "", &[]));
         assert!(publisher.published().is_empty());
         assert!(notices.raise("provider-sign-in:anthropic", "provider-sign-in-expired", &[("name", "7"), ("other", "")]));
-        assert_eq!(sets(&publisher, 0), [json!({ "key": "provider-sign-in:anthropic", "code": "provider-sign-in-expired", "params": { "name": "7", "other": "" } })]);
+        assert_eq!(
+            sets(&publisher, 0),
+            [json!({ "key": "provider-sign-in:anthropic", "code": "provider-sign-in-expired", "params": { "name": "7", "other": "" } })]
+        );
         assert!(!notices.raise("provider-sign-in:anthropic", "provider-sign-in-expired", &[("name", "again")]), "the same key shows once");
         assert_eq!(sets(&publisher, 0).len(), 1);
         notices.clear("never-raised");
@@ -268,7 +270,10 @@ mod tests {
             }
             assert!(sets(&publisher, 0).is_empty(), "{provider}: no other failure raises it");
             notices.turn_failed(provider, Some("auth"));
-            assert_eq!(sets(&publisher, 0), [json!({ "key": format!("provider-sign-in:{provider}"), "code": "provider-sign-in-expired", "params": { "name": name } })]);
+            assert_eq!(
+                sets(&publisher, 0),
+                [json!({ "key": format!("provider-sign-in:{provider}"), "code": "provider-sign-in-expired", "params": { "name": name } })]
+            );
         }
         let publisher = Arc::new(MockStatePublisher::default());
         DesktopNotices::new(publisher.clone()).turn_failed("", Some("auth"));

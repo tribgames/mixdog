@@ -9,11 +9,8 @@ use base64::alphabet::URL_SAFE;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use serde_json::Value;
 
-use super::consts::{
-    ASSEMBLY_IDLE_MS, ASSEMBLY_POOL_BYTES, FRAGMENT_BYTES, MAX_APPLICATION_MESSAGE_BYTES, MAX_FRAGMENTS,
-    MAX_RECORD_PLAINTEXT_BYTES,
-};
 use super::TransportError;
+use super::consts::{ASSEMBLY_IDLE_MS, ASSEMBLY_POOL_BYTES, FRAGMENT_BYTES, MAX_APPLICATION_MESSAGE_BYTES, MAX_FRAGMENTS, MAX_RECORD_PLAINTEXT_BYTES};
 
 pub const FRAGMENT_TYPE: &str = "transport-fragment";
 

@@ -51,14 +51,21 @@ fn compat_fill_color_null_clears_an_excel_cell_a_word_table_cell_and_a_slide_tab
                 let sheet = package.text("xl/worksheets/sheet1.xml");
                 let styles = package.text("xl/styles.xml");
                 let fills_block = capture(r"<fills[^>]*>([\s\S]*?)</fills>", "", &styles, 1).unwrap_or_default();
-                let fills: Vec<String> = all_matches(r"<fill>[\s\S]*?</fill>", &fills_block).iter().map(|fill| capture(r#"rgb="(?:FF)?([0-9A-F]{6})""#, "i", fill, 1).unwrap_or_else(|| "none".to_owned())).collect();
+                let fills: Vec<String> = all_matches(r"<fill>[\s\S]*?</fill>", &fills_block)
+                    .iter()
+                    .map(|fill| capture(r#"rgb="(?:FF)?([0-9A-F]{6})""#, "i", fill, 1).unwrap_or_else(|| "none".to_owned()))
+                    .collect();
                 let xfs_block = capture(r"<cellXfs[^>]*>([\s\S]*?)</cellXfs>", "", &styles, 1).unwrap_or_default();
-                let xfs: Vec<usize> = all_matches(r"<xf\b[^>]*>", &xfs_block).iter().map(|xf| capture(r#"fillId="(\d+)""#, "", xf, 1).and_then(|digits| digits.parse().ok()).unwrap_or(0)).collect();
+                let xfs: Vec<usize> = all_matches(r"<xf\b[^>]*>", &xfs_block)
+                    .iter()
+                    .map(|xf| capture(r#"fillId="(\d+)""#, "", xf, 1).and_then(|digits| digits.parse().ok()).unwrap_or(0))
+                    .collect();
                 Value::Array(
                     ["A1", "B1"]
                         .iter()
                         .map(|reference| {
-                            let style: usize = capture(&format!(r#"<c r="{reference}"[^>]*?\bs="(\d+)""#), "", &sheet, 1).and_then(|digits| digits.parse().ok()).unwrap_or(0);
+                            let style: usize =
+                                capture(&format!(r#"<c r="{reference}"[^>]*?\bs="(\d+)""#), "", &sheet, 1).and_then(|digits| digits.parse().ok()).unwrap_or(0);
                             json!(xfs.get(style).and_then(|fill| fills.get(*fill)).cloned().unwrap_or_else(|| "none".to_owned()))
                         })
                         .collect(),
@@ -67,7 +74,12 @@ fn compat_fill_color_null_clears_an_excel_cell_a_word_table_cell_and_a_slide_tab
             "docx" => {
                 let document = package.text("word/document.xml");
                 let rows = all_matches(r"<w:tr\b[\s\S]*?</w:tr>", &document);
-                Value::Array(all_matches(r"<w:tc>[\s\S]*?</w:tc>", &rows[1]).iter().map(|cell| json!(capture(r#"<w:shd\b[^>]*w:fill="([^"]+)""#, "", cell, 1).unwrap_or_else(|| "none".to_owned()).to_uppercase())).collect())
+                Value::Array(
+                    all_matches(r"<w:tc>[\s\S]*?</w:tc>", &rows[1])
+                        .iter()
+                        .map(|cell| json!(capture(r#"<w:shd\b[^>]*w:fill="([^"]+)""#, "", cell, 1).unwrap_or_else(|| "none".to_owned()).to_uppercase()))
+                        .collect(),
+                )
             }
             _ => {
                 let slide = package.text("ppt/slides/slide1.xml");
@@ -76,8 +88,15 @@ fn compat_fill_color_null_clears_an_excel_cell_a_word_table_cell_and_a_slide_tab
                     all_matches(r"<a:tc\b[\s\S]*?</a:tc>", &rows[1])
                         .iter()
                         .map(|cell| {
-                            let own = strip(r"<a:ln\w*\b[^>]*?(?:/>|>[\s\S]*?</a:ln\w*>)", &capture(r"<a:tcPr\b[^>]*/>|<a:tcPr\b[^>]*>[\s\S]*?</a:tcPr>", "", cell, 0).unwrap_or_default());
-                            json!(if matches(r"<a:noFill/>", "", &own) { "noFill".to_owned() } else { capture(r#"<a:srgbClr val="([0-9A-F]{6})""#, "i", &own, 1).unwrap_or_else(|| "none".to_owned()) })
+                            let own = strip(
+                                r"<a:ln\w*\b[^>]*?(?:/>|>[\s\S]*?</a:ln\w*>)",
+                                &capture(r"<a:tcPr\b[^>]*/>|<a:tcPr\b[^>]*>[\s\S]*?</a:tcPr>", "", cell, 0).unwrap_or_default(),
+                            );
+                            json!(if matches(r"<a:noFill/>", "", &own) {
+                                "noFill".to_owned()
+                            } else {
+                                capture(r#"<a:srgbClr val="([0-9A-F]{6})""#, "i", &own, 1).unwrap_or_else(|| "none".to_owned())
+                            })
                         })
                         .collect(),
                 )
@@ -214,7 +233,8 @@ fn contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_do
         ),
     ];
     let text = |value: &Value| -> String { value.as_str().unwrap_or_default().to_owned() };
-    let shown = |value: &Value| -> String { if value.is_null() { "undefined".to_owned() } else { value.as_str().map_or_else(|| value.to_string(), str::to_owned) } };
+    let shown =
+        |value: &Value| -> String { if value.is_null() { "undefined".to_owned() } else { value.as_str().map_or_else(|| value.to_string(), str::to_owned) } };
     for (format, file, operations) in cases {
         let target = live.path(file);
         let authored = live.call(json!({ "action": "create", "path": target, "mode": "portable", "operations": operations }));
@@ -225,7 +245,12 @@ fn contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_do
             let opened = live.call(json!({ "action": "open", "path": target, "mode": mode }));
             let snapshot = live.call(json!({ "action": "snapshot", "session": opened["session"] }));
             let violations = office_snapshot_contract_violations(&snapshot["document"], format, true);
-            assert!(violations.is_empty(), "{} {format} breaks the backend contract:\n{}", text(&opened["backend"]), describe_office_snapshot_violations(&violations));
+            assert!(
+                violations.is_empty(),
+                "{} {format} breaks the backend contract:\n{}",
+                text(&opened["backend"]),
+                describe_office_snapshot_violations(&violations)
+            );
             readings.insert(mode.to_owned(), snapshot["document"].clone());
             live.close(&opened["session"]);
         }
@@ -239,13 +264,22 @@ fn contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_do
                 // Word numbers table-cell paragraphs alongside body paragraphs while the portable model reports cell text under
                 // tables, so /body/p[N] addresses different content per backend. Body text itself must still agree.
                 let body_text = |document: &Value| -> Vec<Value> {
-                    items(&document["paragraphs"]).iter().filter(|entry| entry["inTable"] != true).map(|entry| entry["text"].clone()).filter(super::truthy).collect()
+                    items(&document["paragraphs"])
+                        .iter()
+                        .filter(|entry| entry["inTable"] != true)
+                        .map(|entry| entry["text"].clone())
+                        .filter(super::truthy)
+                        .collect()
                 };
                 assert_eq!(body_text(com), body_text(portable), "body paragraph text must agree");
                 // Word answers under the UI language; a localized style name handed to the portable writer produces an unknown
                 // styleId and silently drops styling.
                 let body_styles = |document: &Value| -> Vec<Value> {
-                    items(&document["paragraphs"]).iter().filter(|entry| entry["inTable"] != true && !shown(&entry["text"]).trim().is_empty() && !entry["text"].is_null()).map(|entry| entry["style"].clone()).collect()
+                    items(&document["paragraphs"])
+                        .iter()
+                        .filter(|entry| entry["inTable"] != true && !shown(&entry["text"]).trim().is_empty() && !entry["text"].is_null())
+                        .map(|entry| entry["style"].clone())
+                        .collect()
                 };
                 assert_eq!(body_styles(com), body_styles(portable), "paragraph styles must agree");
                 let table_styles = |document: &Value| -> Vec<Value> { items(&document["tables"]).iter().map(|entry| entry["style"].clone()).collect() };
@@ -253,7 +287,10 @@ fn contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_do
             }
             "xlsx" => {
                 let cell_values = |document: &Value| -> Vec<String> {
-                    items(&document["sheets"]).iter().flat_map(|sheet| items(&sheet["cells"]).iter().map(|cell| format!("{}={}", shown(&cell["path"]), shown(&cell["value"])))).collect()
+                    items(&document["sheets"])
+                        .iter()
+                        .flat_map(|sheet| items(&sheet["cells"]).iter().map(|cell| format!("{}={}", shown(&cell["path"]), shown(&cell["value"]))))
+                        .collect()
                 };
                 assert_eq!(cell_values(com), cell_values(portable), "cell values must agree");
             }
@@ -273,7 +310,6 @@ fn contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_do
     }
 }
 
-
 // The authoring loop re-authors the same target over and over, and starting PowerPoint again costs seconds every pass. Re-authoring
 // keeps the hidden process and swaps only the document: the session survives, what it reads is the new deck, and a failed source
 // leaves the live deck untouched. The decks are authored from HTML slides (the pptxgenjs script runtime is not part of the build),
@@ -283,7 +319,10 @@ fn contract_both_backends_satisfy_one_snapshot_contract_and_agree_on_the_same_do
 fn author_re_authoring_a_deck_reuses_the_open_powerpoint_session_and_reads_the_new_deck() {
     let Some(live) = Live::start() else { return };
     // A pptxgenjs script, as the Node test authors the deck: it runs on the script interpreter of the install.
-    let node = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default()).map(|dir| dir.join("node.exe")).find(|path| path.is_file()).expect("node on PATH runs the authoring script");
+    let node = std::env::split_paths(&std::env::var_os("PATH").unwrap_or_default())
+        .map(|dir| dir.join("node.exe"))
+        .find(|path| path.is_file())
+        .expect("node on PATH runs the authoring script");
     mixdog_office::author::script_runtime::install(mixdog_office::author::script_runtime::ScriptRuntime {
         program: node,
         package_root: std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../.."),
@@ -326,7 +365,12 @@ await pres.writeFile({{ fileName: OUTPUT }});
     assert_eq!(failed["reason"], "script_failed");
     let survived = live.call(json!({ "action": "snapshot", "session": again["session"] }));
     assert_eq!(items(&survived["document"]["slides"]).len(), 2, "a failed script leaves the open deck alone");
-    let staged: Vec<String> = std::fs::read_dir(live.dir()).expect("the scratch folder").filter_map(Result::ok).map(|entry| entry.file_name().to_string_lossy().into_owned()).filter(|name| name.contains(".authoring.")).collect();
+    let staged: Vec<String> = std::fs::read_dir(live.dir())
+        .expect("the scratch folder")
+        .filter_map(Result::ok)
+        .map(|entry| entry.file_name().to_string_lossy().into_owned())
+        .filter(|name| name.contains(".authoring."))
+        .collect();
     assert!(staged.is_empty(), "no staging file is left beside the target: {staged:?}");
     live.close(&again["session"]);
 }

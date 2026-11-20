@@ -69,8 +69,7 @@ fn text(value: &Value) -> Option<&str> {
 
 fn stable_submission(id: &str) -> bool {
     // Older TUI processes reused their local item counter on every boot.
-    !id.strip_prefix("it_")
-        .is_some_and(|tail| !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()))
+    !id.strip_prefix("it_").is_some_and(|tail| !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_digit()))
 }
 
 fn submission_id(row: &Value) -> Option<&str> {
@@ -82,12 +81,7 @@ fn submission_id(row: &Value) -> Option<&str> {
 }
 
 fn ids(value: Option<&Value>) -> impl Iterator<Item = &str> {
-    value
-        .and_then(Value::as_array)
-        .into_iter()
-        .flatten()
-        .filter_map(Value::as_str)
-        .filter(|s| !s.is_empty())
+    value.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).filter(|s| !s.is_empty())
 }
 
 fn delivered_submissions<'a>(messages: impl Iterator<Item = &'a Value>) -> BTreeSet<&'a str> {
@@ -110,13 +104,7 @@ fn recent_user_texts(messages: &[Value]) -> Vec<String> {
         .take(RESTORE_DEDUP_WINDOW)
         .filter_map(|m| match &m["content"] {
             Value::String(text) => Some(text.clone()),
-            Value::Array(parts) => Some(
-                parts
-                    .iter()
-                    .map(|part| part["text"].as_str().unwrap_or_default())
-                    .collect::<Vec<_>>()
-                    .join("\n"),
-            ),
+            Value::Array(parts) => Some(parts.iter().map(|part| part["text"].as_str().unwrap_or_default()).collect::<Vec<_>>().join("\n")),
             _ => None,
         })
         .filter(|text| !js_trim(text).is_empty())
@@ -124,25 +112,14 @@ fn recent_user_texts(messages: &[Value]) -> Vec<String> {
 }
 
 fn timestamp(entry: &Map<String, Value>, keys: &[&str]) -> Option<Number> {
-    keys.iter()
-        .filter_map(|key| entry.get(*key))
-        .find_map(|value| {
-            let at = to_number(value);
-            (at.is_finite() && at > 0.0).then(|| {
-                if at.fract() == 0.0 && at < i64::MAX as f64 {
-                    Number::from(at as i64)
-                } else {
-                    Number::from_f64(at).expect("finite timestamp")
-                }
-            })
-        })
+    keys.iter().filter_map(|key| entry.get(*key)).find_map(|value| {
+        let at = to_number(value);
+        (at.is_finite() && at > 0.0)
+            .then(|| if at.fract() == 0.0 && at < i64::MAX as f64 { Number::from(at as i64) } else { Number::from_f64(at).expect("finite timestamp") })
+    })
 }
 
-fn normalize_pastes(
-    options: &mut Map<String, Value>,
-    legacy: &mut Map<String, Value>,
-    message: &Value,
-) {
+fn normalize_pastes(options: &mut Map<String, Value>, legacy: &mut Map<String, Value>, message: &Value) {
     for (field, image) in [("pastedImages", true), ("pastedTexts", false)] {
         let Some(raw) = options.shift_remove(field) else { continue };
         if raw.is_null() {
@@ -171,13 +148,10 @@ fn normalize_pastes(
                     let reference = entry.get("attachmentRef").and_then(Value::as_str);
                     let part_type = reference.and_then(|reference| {
                         message.as_array()?.iter().find_map(|part| {
-                            (part["type"] == "image" && part["attachmentRef"].as_str() == Some(reference))
-                                .then(|| text(&part["mimeType"]))
-                                .flatten()
+                            (part["type"] == "image" && part["attachmentRef"].as_str() == Some(reference)).then(|| text(&part["mimeType"])).flatten()
                         })
                     });
-                    let media = entry.get("mimeType").and_then(text).or(part_type)
-                        .unwrap_or("application/octet-stream");
+                    let media = entry.get("mimeType").and_then(text).or(part_type).unwrap_or("application/octet-stream");
                     entry.insert("mediaType".into(), Value::from(media));
                 }
             }
@@ -217,12 +191,9 @@ fn link_ref(part: &mut Map<String, Value>) {
 /// independent of it, especially when the composer is showing attachment chips.
 fn normalize(mut entry: Map<String, Value>, tui: bool, submission: Option<&str>) -> Option<(f64, Value)> {
     let source = if tui {
-        entry.get("content").filter(|value| value.is_string() || value.is_array())
-            .or_else(|| entry.get("text"))
+        entry.get("content").filter(|value| value.is_string() || value.is_array()).or_else(|| entry.get("text"))
     } else {
-        entry.get("message").filter(|value| value.is_string())
-            .or_else(|| entry.get("content"))
-            .or_else(|| entry.get("text"))
+        entry.get("message").filter(|value| value.is_string()).or_else(|| entry.get("content")).or_else(|| entry.get("text"))
     }?;
     let mut message = match source {
         Value::String(_) => Value::from(text(source)?),
@@ -235,11 +206,7 @@ fn normalize(mut entry: Map<String, Value>, tui: bool, submission: Option<&str>)
     entry.shift_remove("content");
     entry.insert("message".into(), message.clone());
 
-    let at = if tui {
-        timestamp(&entry, &["at", "submittedAt"])
-    } else {
-        timestamp(&entry, &["enqueuedAt"])
-    };
+    let at = if tui { timestamp(&entry, &["at", "submittedAt"]) } else { timestamp(&entry, &["enqueuedAt"]) };
     let order = at.as_ref().and_then(Number::as_f64).unwrap_or(0.0);
     if let Some(at) = at {
         entry.insert("enqueuedAt".into(), Value::Number(at));
@@ -266,11 +233,9 @@ fn normalize(mut entry: Map<String, Value>, tui: bool, submission: Option<&str>)
     // beside the typed options so a legacy flag cannot disable a retry.
     let mut legacy = Map::new();
     options.retain(|key, value| match key.as_str() {
-        "clientSubmissionId" | "submittedAt" | "displayText" | "goalCommand"
-        | "retryFailedTurn" | "retryTurnId" | "retryAttemptId" | "pastedImages"
+        "clientSubmissionId" | "submittedAt" | "displayText" | "goalCommand" | "retryFailedTurn" | "retryTurnId" | "retryAttemptId" | "pastedImages"
         | "pastedTexts" | "kickoff" | "attachmentSizes" => true,
-        "context" | "priority" | "mode" | "origin" | "transcriptMeta"
-        | "skipSlashCommands" | "suppressDisplay" | "skillSelection" => {
+        "context" | "priority" | "mode" | "origin" | "transcriptMeta" | "skipSlashCommands" | "suppressDisplay" | "skillSelection" => {
             entry.entry(key.clone()).or_insert_with(|| value.clone());
             false
         }
@@ -309,11 +274,7 @@ fn nonzero(n: f64) -> Option<f64> {
 }
 
 fn touched_at(touched: f64, updated: f64, now: f64) -> f64 {
-    if touched.is_finite() && touched > 0.0 {
-        touched
-    } else {
-        nonzero(updated).unwrap_or(now)
-    }
+    if touched.is_finite() && touched > 0.0 { touched } else { nonzero(updated).unwrap_or(now) }
 }
 
 fn row_id(row: &Value) -> Option<&str> {
@@ -336,28 +297,18 @@ fn row_key(row: &Value, tui: bool) -> Option<RowKey<'_>> {
 
 /// A shard wins over the legacy copy of the same submission. A row without a
 /// stable ID still matches a copy by local ID, but cannot merge two explicit IDs.
-fn merged<'a>(
-    buckets: &'a [Bucket<'_>],
-    now: f64,
-    tui: bool,
-) -> Vec<(&'a str, usize, &'a Value, f64)> {
+fn merged<'a>(buckets: &'a [Bucket<'_>], now: f64, tui: bool) -> Vec<(&'a str, usize, &'a Value, f64)> {
     let mut shards = buckets.iter().filter(|b| b.path != LEGACY_SPOOL);
     let mut kept = Vec::new();
     let mut merged_touch = None;
-    let explicit_locals: BTreeSet<_> = buckets.iter().flat_map(|b| &b.rows)
-        .filter(|row| submission_id(row).is_some())
-        .filter_map(|row| local_id(row, tui)).collect();
-    let shadowed = |row: &Value| {
-        submission_id(row).is_none() && local_id(row, tui).is_some_and(|id| explicit_locals.contains(id))
-    };
+    let explicit_locals: BTreeSet<_> =
+        buckets.iter().flat_map(|b| &b.rows).filter(|row| submission_id(row).is_some()).filter_map(|row| local_id(row, tui)).collect();
+    let shadowed = |row: &Value| submission_id(row).is_none() && local_id(row, tui).is_some_and(|id| explicit_locals.contains(id));
     if let Some(legacy) = buckets.iter().find(|b| b.path == LEGACY_SPOOL) {
         let keys: BTreeSet<_> = shards.clone().flat_map(|b| &b.rows).filter_map(|row| row_key(row, tui)).collect();
-        let anonymous: BTreeSet<_> = shards.clone().flat_map(|b| &b.rows)
-            .filter(|row| row_key(row, tui).is_none()).map(json_stringify).collect();
-        let touched = shards.clone().next().and_then(|b| nonzero(b.touched))
-            .or_else(|| nonzero(legacy.touched))
-            .or_else(|| nonzero(legacy.updated))
-            .unwrap_or(now);
+        let anonymous: BTreeSet<_> = shards.clone().flat_map(|b| &b.rows).filter(|row| row_key(row, tui).is_none()).map(json_stringify).collect();
+        let touched =
+            shards.clone().next().and_then(|b| nonzero(b.touched)).or_else(|| nonzero(legacy.touched)).or_else(|| nonzero(legacy.updated)).unwrap_or(now);
         let touched = touched_at(touched, now, now);
         for (index, row) in legacy.rows.iter().enumerate() {
             let present = match row_key(row, tui) {
@@ -371,10 +322,8 @@ fn merged<'a>(
         }
     }
     for (index, shard) in shards.by_ref().enumerate() {
-        let touched = if index == 0 { merged_touch } else { None }
-            .unwrap_or_else(|| touched_at(shard.touched, shard.updated, now));
-        kept.extend(shard.rows.iter().enumerate().filter(|(_, row)| !shadowed(row))
-            .map(|(index, row)| (shard.path, index, row, touched)));
+        let touched = if index == 0 { merged_touch } else { None }.unwrap_or_else(|| touched_at(shard.touched, shard.updated, now));
+        kept.extend(shard.rows.iter().enumerate().filter(|(_, row)| !shadowed(row)).map(|(index, row)| (shard.path, index, row, touched)));
     }
     kept
 }
@@ -406,9 +355,7 @@ pub(super) fn read(
     let mut entries = Vec::new();
     for file in shared.iter().copied().filter(|file| is_spool(&file.path)) {
         let bytes = cx.read_source(file)?;
-        let bad = |error: &dyn std::fmt::Display| {
-            Fail::Quarantine(QuarantineCode::ParseError, format!("{}: {error}", file.path))
-        };
+        let bad = |error: &dyn std::fmt::Display| Fail::Quarantine(QuarantineCode::ParseError, format!("{}: {error}", file.path));
         let spool: Spool<'_> = serde_json::from_slice(&bytes).map_err(|e| bad(&e))?;
         for ((bucket, tui), sources) in buckets.into_iter().zip(&mut sources) {
             if !tui && bucket.starts_with(TUI_PREFIX) {
@@ -420,12 +367,7 @@ pub(super) fn read(
             if let Value::Array(rows) = list.value
                 && !rows.is_empty()
             {
-                sources.push(Bucket {
-                    path: &file.path,
-                    rows,
-                    touched: to_number(&spool.touched[bucket]),
-                    updated: to_number(&spool.updated),
-                });
+                sources.push(Bucket { path: &file.path, rows, touched: to_number(&spool.touched[bucket]), updated: to_number(&spool.updated) });
             }
         }
     }
@@ -441,7 +383,9 @@ pub(super) fn read(
                 std::collections::hash_map::Entry::Occupied(mut old) if *old.get() != Some(submission) => {
                     old.insert(None);
                 }
-                std::collections::hash_map::Entry::Vacant(slot) => { slot.insert(Some(submission)); }
+                std::collections::hash_map::Entry::Vacant(slot) => {
+                    slot.insert(Some(submission));
+                }
                 _ => {}
             }
         }
@@ -479,8 +423,7 @@ pub(super) fn read(
                 }
             } else {
                 // The text heuristic is only for older TUI rows without a stable ID.
-                if shown.is_some_and(|shown| recent.get_or_insert_with(|| recent_user_texts(messages))
-                    .iter().any(|body| body.contains(shown)))
+                if shown.is_some_and(|shown| recent.get_or_insert_with(|| recent_user_texts(messages)).iter().any(|body| body.contains(shown)))
                     || id.is_some_and(|id| !local_ids.insert(id))
                 {
                     continue;

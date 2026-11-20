@@ -11,20 +11,11 @@
 use std::path::Path;
 
 use mixdog_js::js_trim;
-use serde_json::Map;
-use serde_json::Value;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::HeaderChange;
+use serde_json::Map;
+use serde_json::Value;
 
-use mixdog_core_prompt::prompt::blocks::SystemBlocks;
-use mixdog_core_prompt::prompt::compose::PART_SEPARATOR;
-use mixdog_core_prompt::prompt::compose::ProfileSkip;
-use mixdog_core_prompt::prompt::compose::Slices;
-use mixdog_core_prompt::prompt::compose::compose_system_prompt;
-use mixdog_core_prompt::prompt::notice::OwnedSections;
-use mixdog_core_prompt::prompt::settings::Sections;
-use mixdog_core_prompt::prompt::settings::prompt_settings_record;
-use mixdog_core_prompt::prompt::sources::PromptSources;
 use crate::run_host::rules::LeadPart;
 use crate::run_host::rules::build_agent_mode_content;
 use crate::run_host::rules::build_agent_role_content;
@@ -34,11 +25,20 @@ use crate::run_host::rules_lead::LeadPaths;
 use crate::run_host::rules_lead::build_lead_language;
 use crate::run_host::rules_lead::build_lead_language_content;
 use crate::run_host::rules_lead::build_lead_meta_content;
+use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
+use mixdog_core_prompt::prompt::blocks::SystemBlocks;
+use mixdog_core_prompt::prompt::compose::PART_SEPARATOR;
+use mixdog_core_prompt::prompt::compose::ProfileSkip;
+use mixdog_core_prompt::prompt::compose::Slices;
+use mixdog_core_prompt::prompt::compose::compose_system_prompt;
+use mixdog_core_prompt::prompt::notice::OwnedSections;
+use mixdog_core_prompt::prompt::settings::Sections;
+use mixdog_core_prompt::prompt::settings::prompt_settings_record;
+use mixdog_core_prompt::prompt::sources::PromptSources;
 use mixdog_core_session::session::worktree::PromptRewrite;
 use mixdog_core_session::session::worktree::PromptView;
 use mixdog_core_session::session::worktree::pending_workspace_reroot;
 use mixdog_core_session::session::worktree::route_prompt_refresh;
-use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 
 /// The shipped rules and the data directory the composition reads (`mixdogRoot()`,
 /// `resolvePluginData()`).
@@ -130,9 +130,10 @@ impl SessionPrompt {
 
 /// `scratchEnvironmentLine(sessionId)`.
 pub fn scratch_environment_line(session_id: &str, sources: &dyn PromptSources) -> String {
-    sources.scratch_dir(session_id).filter(|dir| !dir.is_empty()).map_or_else(String::new, |dir| {
-        format!("- Scratch: {dir} — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here.")
-    })
+    sources
+        .scratch_dir(session_id)
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(String::new, |dir| format!("- Scratch: {dir} — this session's scratch directory; TEMP, TMP and TMPDIR in shell commands point here."))
 }
 
 /// `buildShellEnvironmentContext`: the Cwd, shell, scratch, tools, git and listing facts.
@@ -280,7 +281,8 @@ pub fn compose_session_prompt(input: &SessionPromptInput, paths: &PromptPaths, s
     } else {
         shell_environment_context(input.cwd, input.cwd_startup_entries, input.owner_is_agent, input.has_git_tool, input.session_id, sources)
     };
-    let environment_tail = [shell_environment.as_str(), language_context.as_str()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(PART_SEPARATOR);
+    let environment_tail =
+        [shell_environment.as_str(), language_context.as_str()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(PART_SEPARATOR);
     // A prompt config without the key states `undefined`, which normalizes to the default; no config reads the stored setting.
     static UNSTATED: Value = Value::Null;
     let config_mode = input.config.map(|config| config.get("instructionFiles").unwrap_or(&UNSTATED));

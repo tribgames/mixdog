@@ -18,8 +18,8 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use mixdog_app_server_client::api::{
-    CallOptions, ClientError, ClientEvent, ConnectionStatus, FoldStore, Json, ProtocolClient, RequestId, RpcNotification,
-    SectionName, ServerRequest, StoreChange,
+    CallOptions, ClientError, ClientEvent, ConnectionStatus, FoldStore, Json, ProtocolClient, RequestId, RpcNotification, SectionName, ServerRequest,
+    StoreChange,
 };
 use mixdog_protocol::ThreadSummary;
 use mixdog_rt::CancellationToken;
@@ -510,12 +510,7 @@ impl Shared {
 
     fn on_thread_gone(&self, thread_id: &str) {
         self.runs.lock().unwrap().remove(thread_id);
-        let _ = self.states.send(SessionStateChange {
-            session_id: thread_id.to_owned(),
-            state: SessionRunState::Gone,
-            started_at: None,
-            snapshot: Json::Null,
-        });
+        let _ = self.states.send(SessionStateChange { session_id: thread_id.to_owned(), state: SessionRunState::Gone, started_at: None, snapshot: Json::Null });
     }
 
     // ── agent pool ──
@@ -552,15 +547,13 @@ impl Shared {
         let known = self.approvals.borrow().clone();
         let dropped = self.dropped.lock().unwrap().clone();
         let mark = |row: PendingApproval| PendingApproval {
-            replay: known
-                .iter()
-                .find(|seen| seen.request_id == row.request_id)
-                .map_or_else(|| held || dropped.contains(&row.request_id), |seen| seen.replay),
+            replay: known.iter().find(|seen| seen.request_id == row.request_id).map_or_else(|| held || dropped.contains(&row.request_id), |seen| seen.replay),
             ..row
         };
         let mut rows: Vec<PendingApproval> = self.client.pending_server_requests().iter().filter_map(approval_of).map(mark).collect();
         if let Some(row) = arriving.and_then(approval_of).map(mark)
-            && !rows.iter().any(|held| held.request_id == row.request_id) {
+            && !rows.iter().any(|held| held.request_id == row.request_id)
+        {
             rows.push(row);
         }
         if let Some(id) = resolved {
@@ -701,12 +694,7 @@ impl ServerFeed {
 
     /// The answer of the turn that started at `started_at`; `Ok(None)` while it is pending or when `cancel` fires. An error is the
     /// read's own (`is_session_missing` tells a session that is gone, for which waiting is pointless).
-    pub async fn read_final_answer_result(
-        &self,
-        session_id: &str,
-        started_at: i64,
-        cancel: &CancellationToken,
-    ) -> Result<Option<FinalAnswer>, ClientError> {
+    pub async fn read_final_answer_result(&self, session_id: &str, started_at: i64, cancel: &CancellationToken) -> Result<Option<FinalAnswer>, ClientError> {
         let params = json!({ "threadId": session_id, "startedAt": started_at });
         let read = self.shared.client.call_raw("thread/finalAnswer/read", params, CallOptions::default());
         tokio::select! {

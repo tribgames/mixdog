@@ -5,11 +5,11 @@
 //! Node tool returns it: failures are `error: …` strings, not tool errors.
 
 mod argv;
+#[cfg(test)]
+mod feature_tests;
 pub mod path_locks;
 mod run;
 mod stage;
-#[cfg(test)]
-mod feature_tests;
 mod worktree;
 
 use std::path::Path;
@@ -29,8 +29,8 @@ use mixdog_scm::locks::RepoLocks;
 use serde_json::Map;
 use serde_json::json;
 
-pub use self::argv::git_call_mutates;
 use self::argv::Plan;
+pub use self::argv::git_call_mutates;
 use self::argv::localize_config_plan;
 use self::argv::parse_command;
 use self::argv::parse_stringified_array;
@@ -54,9 +54,9 @@ use self::run::lock_wait_note;
 use self::run::u16len;
 use self::stage::SnapshotPlan;
 use self::worktree::Env;
-use self::worktree::WORKTREE_INPUT_FIELDS;
 pub use self::worktree::SessionOp;
 pub use self::worktree::SessionWorktrees;
+use self::worktree::WORKTREE_INPUT_FIELDS;
 pub use self::worktree::WorktreeServices;
 
 use crate::code_graph::text_output;
@@ -71,9 +71,28 @@ const REPO_FREE_OPERATIONS: [&str; 2] = ["version", "help"];
 const REPO_WIDE_OPERATIONS: [&str; 5] = ["gc", "maintenance", "prune", "prune-packed", "repack"];
 const NOT_UTF8_STAGE_NOTE: &str = "staging ids unavailable: this diff has bytes that are not UTF-8 (a file in another encoding), and staging its text would replace them; stage those files whole with git add -- <paths>";
 const CREATION_VALUE_FLAGS: [&str; 23] = [
-    "-b", "--branch", "-c", "--config", "--depth", "-j", "--jobs", "-o", "--origin", "--reference",
-    "--reference-if-able", "--separate-git-dir", "--template", "-u", "--upload-pack", "--filter",
-    "--server-option", "--shallow-since", "--shallow-exclude", "--bundle-uri", "--revision", "--ref-format",
+    "-b",
+    "--branch",
+    "-c",
+    "--config",
+    "--depth",
+    "-j",
+    "--jobs",
+    "-o",
+    "--origin",
+    "--reference",
+    "--reference-if-able",
+    "--separate-git-dir",
+    "--template",
+    "-u",
+    "--upload-pack",
+    "--filter",
+    "--server-option",
+    "--shallow-since",
+    "--shallow-exclude",
+    "--bundle-uri",
+    "--revision",
+    "--ref-format",
     "--object-format",
 ];
 
@@ -217,9 +236,7 @@ async fn resolve_repo(runner: &Runner<'_>, plan: &Plan) -> RepoInfo {
 }
 
 async fn probe_repo(runner: &Runner<'_>, plan: &Plan) -> RepoInfo {
-    let result = runner
-        .run(plan, &strings(&["rev-parse", "--show-toplevel", "--path-format=absolute", "--git-common-dir"]), false)
-        .await;
+    let result = runner.run(plan, &strings(&["rev-parse", "--show-toplevel", "--path-format=absolute", "--git-common-dir"]), false).await;
     if result.succeeded() {
         let text = clean_text(&result.out());
         let mut lines = text.split('\n');
@@ -288,13 +305,7 @@ struct WriteGuard {
 
 /// Takes the repository lock on `scopes` (`None` = the whole repository), then the path lock
 /// of `path`; returns the guard and how long acquiring took.
-async fn acquire(
-    locks: &Arc<RepoLocks>,
-    runner: &Runner<'_>,
-    lock_key: &Path,
-    scopes: Option<&[&Path]>,
-    path: &Path,
-) -> Result<(WriteGuard, u64), Rendered> {
+async fn acquire(locks: &Arc<RepoLocks>, runner: &Runner<'_>, lock_key: &Path, scopes: Option<&[&Path]>, path: &Path) -> Result<(WriteGuard, u64), Rendered> {
     let started = Instant::now();
     let Ok(repo) = locks.acquire(lock_key, scopes, runner.cancel).await else {
         return Err(rejected("git command aborted"));
@@ -306,11 +317,7 @@ async fn acquire(
 }
 
 fn is_listed_plainly(path: &str) -> String {
-    if path.chars().any(|c| (c as u32) < 0x20 || c == '"') {
-        JsonValue::String(path.to_owned()).to_string()
-    } else {
-        path.to_owned()
-    }
+    if path.chars().any(|c| (c as u32) < 0x20 || c == '"') { JsonValue::String(path.to_owned()).to_string() } else { path.to_owned() }
 }
 
 fn stageable_diff_result(plan: &Plan, run: &GitRun, snapshot: &stage::DiffSnapshot, cap: Cap) -> Rendered {
@@ -329,24 +336,13 @@ fn stageable_diff_result(plan: &Plan, run: &GitRun, snapshot: &stage::DiffSnapsh
             Some(last) if last.path == change.path && change.kind.is_none() && last.kind.is_none() => {
                 last.end = change.id.clone();
             }
-            _ => files.push(FileRange {
-                path: change.path.clone(),
-                start: change.id.clone(),
-                end: change.id.clone(),
-                kind: change.kind,
-            }),
+            _ => files.push(FileRange { path: change.path.clone(), start: change.id.clone(), end: change.id.clone(), kind: change.kind }),
         }
     }
-    let mut lines = vec![format!(
-        "diff_id: {diff_id} (ids number the +/- runs in diff order; [whole file] ids stage the entire file)"
-    )];
+    let mut lines = vec![format!("diff_id: {diff_id} (ids number the +/- runs in diff order; [whole file] ids stage the entire file)")];
     for f in files {
         let range = if f.start == f.end { f.start.clone() } else { format!("{}-{}", f.start, f.end) };
-        lines.push(format!(
-            "{}: {range}{}",
-            is_listed_plainly(&f.path),
-            if f.kind.is_some() { " [whole file]" } else { "" }
-        ));
+        lines.push(format!("{}: {range}{}", is_listed_plainly(&f.path), if f.kind.is_some() { " [whole file]" } else { "" }));
     }
     rendered.text = append_text(&rendered.text, &lines.join("\n"));
     rendered
@@ -374,9 +370,7 @@ fn staged_summary(changes: &[stage::Change]) -> Object {
         JsonValue::Array(
             files
                 .iter()
-                .map(|(path, count, add, del)| {
-                    json!(format!("{path}: {count} {} +{add} -{del}", if *count == 1 { "change" } else { "changes" }))
-                })
+                .map(|(path, count, add, del)| json!(format!("{path}: {count} {} +{add} -{del}", if *count == 1 { "change" } else { "changes" })))
                 .collect(),
         ),
     );
@@ -401,8 +395,17 @@ async fn run_stageable_diff(runner: &Runner<'_>, plan: &Plan, argv: &[String], r
     }
     for path in untracked.out().split('\0').filter(|p| !p.is_empty()) {
         let argv = strings(&[
-            "diff", "--no-index", "--binary", "--no-ext-diff", "--no-textconv", "--no-color",
-            "--src-prefix=a/", "--dst-prefix=b/", "--", "/dev/null", path,
+            "diff",
+            "--no-index",
+            "--binary",
+            "--no-ext-diff",
+            "--no-textconv",
+            "--no-color",
+            "--src-prefix=a/",
+            "--dst-prefix=b/",
+            "--",
+            "/dev/null",
+            path,
         ]);
         let added = runner.run_in(repo, &plan.global_args, &argv, true).await;
         // --no-index uses exit 1 for a successfully produced patch.
@@ -430,11 +433,7 @@ fn js_string(value: &JsonValue) -> String {
 
 fn run_dir_name() -> String {
     static NEXT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    format!(
-        "mixdog-git-stage-{}-{}",
-        std::process::id(),
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    )
+    format!("mixdog-git-stage-{}-{}", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed))
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs only as a maintenance-lane job body (Runner::blocking)")]
@@ -511,16 +510,11 @@ async fn execute_plan(call: &CallEnv<'_>, input: &Object, plan: &Plan, char_budg
     {
         return Rendered { text: mapped.text, failed: mapped.failed };
     }
-    if plan.operation == "archive"
-        && !plan.args.iter().any(|v| v == "-o" || v == "--output" || v.starts_with("--output="))
-    {
+    if plan.operation == "archive" && !plan.args.iter().any(|v| v == "-o" || v == "--output" || v.starts_with("--output=")) {
         return rejected("git archive requires -o/--output; binary stdout is not returned");
     }
     let default_lines = if plan.operation == "log" { LOG_LINES_DEFAULT } else { OUTPUT_LINES_DEFAULT };
-    let cap = Cap {
-        lines: output_limit(input.get("output_limit"), default_lines),
-        chars: char_budget.unwrap_or(COMMAND_CHAR_BUDGET),
-    };
+    let cap = Cap { lines: output_limit(input.get("output_limit"), default_lines), chars: char_budget.unwrap_or(COMMAND_CHAR_BUDGET) };
     let runner = call.runner;
     if plan.operation == "init" || plan.operation == "clone" {
         let target = creation_target(plan);
@@ -568,14 +562,7 @@ async fn execute_plan(call: &CallEnv<'_>, input: &Object, plan: &Plan, char_budg
     run_in_repository(call, input, plan, &repo, &lock_key, cap).await
 }
 
-async fn run_in_repository(
-    call: &CallEnv<'_>,
-    input: &Object,
-    plan: &Plan,
-    repo: &Path,
-    lock_key: &Path,
-    cap: Cap,
-) -> Rendered {
+async fn run_in_repository(call: &CallEnv<'_>, input: &Object, plan: &Plan, repo: &Path, lock_key: &Path, cap: Cap) -> Rendered {
     let runner = call.runner;
     let mut argv = prepare(plan);
     let stageable_request = plan.operation == "diff" && (plan.args.is_empty() || plan.args[0] == "--");
@@ -586,11 +573,7 @@ async fn run_in_repository(
     }
     // A read takes no lock, so it never waits behind another read or a write.
     if plan.read_only() {
-        let result = if stageable_request {
-            run_stageable_diff(runner, plan, &argv, repo).await
-        } else {
-            runner.run(plan, &argv, true).await
-        };
+        let result = if stageable_request { run_stageable_diff(runner, plan, &argv, repo).await } else { runner.run(plan, &argv, true).await };
         if !result.succeeded() {
             return command_result(plan, &result, cap);
         }
@@ -631,7 +614,6 @@ async fn run_in_repository(
     rendered.text = append_text(&rendered.text, &lock_wait_note(waited, Some(&result)));
     rendered
 }
-
 
 async fn execute_git_stage(locks: &Arc<RepoLocks>, runner: &Runner<'_>, input: &Object, work_dir: &Path) -> String {
     let diff_id = input.get("diff_id").and_then(JsonValue::as_str).map(str::trim).unwrap_or("").to_owned();
@@ -728,21 +710,12 @@ async fn execute_git_stage(locks: &Arc<RepoLocks>, runner: &Runner<'_>, input: &
         return noted(fail("git stage could not write its patch file"), None);
     }
     let patch = patch_path.to_string_lossy().into_owned();
-    let apply_plan = Plan {
-        cwd: repo.clone(),
-        operation: "apply".to_owned(),
-        args: strings(&["--cached", "--unidiff-zero", &patch]),
-        ..base_plan.clone()
-    };
-    let check = runner
-        .run(&apply_plan, &strings(&["apply", "--cached", "--check", "--unidiff-zero", &patch]), false)
-        .await;
+    let apply_plan = Plan { cwd: repo.clone(), operation: "apply".to_owned(), args: strings(&["--cached", "--unidiff-zero", &patch]), ..base_plan.clone() };
+    let check = runner.run(&apply_plan, &strings(&["apply", "--cached", "--check", "--unidiff-zero", &patch]), false).await;
     let text = if !check.succeeded() {
         noted(command_result(&apply_plan, &check, limit).text, None)
     } else {
-        let applied = runner
-            .run_write(&apply_plan, &strings(&["apply", "--cached", "--unidiff-zero", &patch]))
-            .await;
+        let applied = runner.run_write(&apply_plan, &strings(&["apply", "--cached", "--unidiff-zero", &patch])).await;
         if !applied.succeeded() {
             noted(command_result(&apply_plan, &applied, limit).text, Some(&applied))
         } else {
@@ -755,12 +728,7 @@ async fn execute_git_stage(locks: &Arc<RepoLocks>, runner: &Runner<'_>, input: &
     remove_run_dir(runner, &directory).await;
     text
 }
-async fn execute_git_tool(
-    locks: &Arc<RepoLocks>,
-    services: Option<&Arc<WorktreeServices>>,
-    ctx: &ToolContext,
-    raw_input: JsonValue,
-) -> String {
+async fn execute_git_tool(locks: &Arc<RepoLocks>, services: Option<&Arc<WorktreeServices>>, ctx: &ToolContext, raw_input: JsonValue) -> String {
     let JsonValue::Object(raw) = raw_input else {
         return fail("git requires an arguments object");
     };

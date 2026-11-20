@@ -8,14 +8,14 @@
 //! the key redacted from its text.
 
 use crate::transport::deadlines::MODEL_LIST_WAIT;
-use crate::transport::deadlines::compat_model_list_within;
 use crate::transport::deadlines::abort_signal;
+use crate::transport::deadlines::compat_model_list_within;
 use std::collections::BTreeMap;
 use std::collections::HashSet;
 use std::sync::Arc;
-use std::time::Duration;
 use std::sync::Mutex;
 use std::sync::PoisonError;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::TransportKind;
@@ -86,19 +86,12 @@ impl Override {
             context_window: number("contextWindow"),
             max_output_tokens: number("maxOutputTokens"),
             supports_vision: raw.get("supportsVision").and_then(Value::as_bool),
-            levels: reasoning
-                .and_then(|r| r.get("levels"))
-                .and_then(Value::as_array)
-                .map(|a| ranked(a.iter().filter_map(|v| v.as_str().map(str::to_owned)))),
+            levels: reasoning.and_then(|r| r.get("levels")).and_then(Value::as_array).map(|a| ranked(a.iter().filter_map(|v| v.as_str().map(str::to_owned)))),
             wire_format: reasoning.and_then(|r| r.get("wireFormat")).and_then(Value::as_str).map(str::to_owned),
             wire_values: reasoning
                 .and_then(|r| r.get("wireValues"))
                 .and_then(Value::as_object)
-                .map(|m| {
-                    m.iter()
-                        .filter_map(|(k, v)| Some((canonical_level(k)?.to_owned(), v.as_str()?.to_owned())))
-                        .collect()
-                })
+                .map(|m| m.iter().filter_map(|(k, v)| Some((canonical_level(k)?.to_owned(), v.as_str()?.to_owned()))).collect())
                 .unwrap_or_default(),
             replay: reasoning.and_then(|r| r.get("replay")).and_then(Value::as_bool),
         }
@@ -122,12 +115,8 @@ fn effective_row(mut base: ModelRecord, over: Option<&Override>, discovered: boo
     let created_stated = base.raw.as_ref().and_then(|raw| raw.get("createdStated")) == Some(&Value::Bool(true));
     let levels = ov.levels.clone().or_else(|| catalog_levels(&base));
     let replay = ov.replay.unwrap_or(base.reasoning_content_field.as_deref() == Some("reasoning_content"));
-    let wire_values: BTreeMap<String, String> = ov
-        .wire_values
-        .iter()
-        .filter(|(level, _)| levels.as_ref().is_none_or(|l| l.contains(level)))
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let wire_values: BTreeMap<String, String> =
+        ov.wire_values.iter().filter(|(level, _)| levels.as_ref().is_none_or(|l| l.contains(level))).map(|(k, v)| (k.clone(), v.clone())).collect();
     let inherited = json!({
         "name": base.name.clone().filter(|n| !n.is_empty()).unwrap_or_else(|| base.id.clone()),
         "contextWindow": positive(base.context_window).unwrap_or(0),
@@ -150,8 +139,7 @@ fn effective_row(mut base: ModelRecord, over: Option<&Override>, discovered: boo
     };
     let leveled = levels.is_some();
     base.reasoning_levels = levels.unwrap_or_default();
-    base.picker.custom_reasoning =
-        Some(CustomReasoning { wire_format: ov.wire_format.clone().unwrap_or_else(|| "standard".into()), wire_values, replay });
+    base.picker.custom_reasoning = Some(CustomReasoning { wire_format: ov.wire_format.clone().unwrap_or_else(|| "standard".into()), wire_values, replay });
     base.reasoning_content_field = replay.then(|| "reasoning_content".to_owned());
     // `leveled`: the row states its effort levels (Node's row then has the
     // `reasoningOptions` / `reasoningLevels` keys, even when empty).
@@ -308,7 +296,6 @@ mod tests {
     use crate::providers::connect::rewrite::StaticCredential;
     use crate::providers::listing_row::testing::Replay;
 
-
     /// `res.json()` of a 200 that is not JSON throws (`openai-compat-models.mjs:116`): the user sees the request
     /// error, not an empty list.
     #[tokio::test]
@@ -333,17 +320,16 @@ mod tests {
     /// A discovery whose request outlives the timer its protocol arms throws what the real Node provider's discovery
     /// threw (`sites.customOpenaiChatListing`, `customAnthropicListing`): the labelled compat timer on the OpenAI
     /// protocols, `AbortSignal.timeout` on the Anthropic one, each coded `EPROVIDERTIMEOUT` by the sanitizer.
-        #[tokio::test(start_paused = true)]
+    #[tokio::test(start_paused = true)]
     async fn a_discovery_that_outlives_its_timer_throws_what_nodes_provider_throws() {
         use crate::transport::site_probe::TimingOut;
         use crate::transport::site_probe::assert_thrown;
         use crate::transport::site_probe::assert_transport;
         use crate::transport::site_probe::thrown_code;
 
-        for (site, protocol, base) in [
-            ("customOpenaiChatListing", Protocol::OpenaiChat, "http://x.test/v1"),
-            ("customAnthropicListing", Protocol::Anthropic, "http://x.test"),
-        ] {
+        for (site, protocol, base) in
+            [("customOpenaiChatListing", Protocol::OpenaiChat, "http://x.test/v1"), ("customAnthropicListing", Protocol::Anthropic, "http://x.test")]
+        {
             let transport = TimingOut::new();
             let listing = CustomListing::new(
                 "custom-listing",
@@ -362,10 +348,7 @@ mod tests {
             assert_eq!(error.code.as_deref(), thrown_code(site), "{site}: code");
         }
     }
-
-
 }
-
 
 /// `getCachedModelInfo`: the effective rows, which hold the config's own manual models from the moment the provider is
 /// built (`_applyCustomRows(_customRows())`) and the discovered ones under their overrides once it has listed.
@@ -376,7 +359,6 @@ impl crate::catalog::CachedModelInfo for CustomListing {
         crate::catalog::listed_row_of(&provider, row).map(std::sync::Arc::new)
     }
 }
-
 
 impl CustomListing {
     /// `credential` supplies the discovery header (`authorization: Bearer …` on
@@ -462,13 +444,7 @@ impl CustomListing {
         let response = self
             .http
             .send(
-                WireRequest {
-                    transport: TransportKind::Http1,
-                    method: "GET".into(),
-                    url: self.url(),
-                    headers,
-                    body: Vec::new(),
-                },
+                WireRequest { transport: TransportKind::Http1, method: "GET".into(), url: self.url(), headers, body: Vec::new() },
                 // Node: the Anthropic protocol fetches under `AbortSignal.timeout` (`custom-provider.mjs:116`), every
                 // other under the labelled compat list timer (`openai-compat-models.mjs:104`).
                 match self.protocol {

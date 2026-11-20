@@ -117,7 +117,8 @@ pub fn score_deck(reads: &dyn AuthorReads, receipt: Option<&Value>, issue_count:
         add("vertical_fill", fills.iter().filter(|fill| **fill >= 0.5).count() as f64 / fills.len() as f64, json_number(fixed(mean(&fills), 2)));
     }
 
-    let planes: Vec<f64> = observed.iter().filter_map(|observe| number(field(observe, "fieldFill").and_then(Value::as_array).and_then(|list| list.first()))).collect();
+    let planes: Vec<f64> =
+        observed.iter().filter_map(|observe| number(field(observe, "fieldFill").and_then(Value::as_array).and_then(|list| list.first()))).collect();
     if !planes.is_empty() {
         let least = planes.iter().fold(f64::INFINITY, |least, plane| math::min(least, *plane));
         add("owned_planes", planes.iter().filter(|plane| **plane >= 0.25).count() as f64 / planes.len() as f64, json_number(fixed(least, 2)));
@@ -156,11 +157,8 @@ pub fn score_deck(reads: &dyn AuthorReads, receipt: Option<&Value>, issue_count:
 
     // A quarter of the canvas is where a chart's labels and a picture's subject still read from the back of the room;
     // content slides (those with a body under a title) are read, anchors carry a statement on purpose.
-    let presences: Vec<f64> = observed
-        .iter()
-        .filter(|observe| number(field(observe, "bodyTop")).is_some())
-        .filter_map(|observe| number(field(observe, "presence")))
-        .collect();
+    let presences: Vec<f64> =
+        observed.iter().filter(|observe| number(field(observe, "bodyTop")).is_some()).filter_map(|observe| number(field(observe, "presence"))).collect();
     if !presences.is_empty() {
         let shares: Vec<f64> = presences.iter().map(|share| clamp01(share / 0.25)).collect();
         add("presence", mean(&shares), json_number(fixed(mean(&presences), 2)));
@@ -196,7 +194,8 @@ pub fn score_deck(reads: &dyn AuthorReads, receipt: Option<&Value>, issue_count:
 
     // The largest rendered object on the body pages (beats are a field by design and are left out): a chart with its
     // bars, a table, a picture row. The reference pages sit at 0.4 of the canvas at the median; 0.1 is a strip.
-    let objects: Vec<f64> = slides.iter().filter(|slide| is_body(slide)).filter_map(|slide| number(field_of(field(slide, "observe"), "renderLargest"))).collect();
+    let objects: Vec<f64> =
+        slides.iter().filter(|slide| is_body(slide)).filter_map(|slide| number(field_of(field(slide, "observe"), "renderLargest"))).collect();
     if !objects.is_empty() {
         let largest = mean(&objects);
         add("object_scale", clamp01((largest - 0.1) / (0.35 - 0.1)), json_number(fixed(largest, 2)));

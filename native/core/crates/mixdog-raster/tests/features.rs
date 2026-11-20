@@ -3,7 +3,7 @@
 use mixdog_raster::canvas::{Canvas, FillRule};
 use mixdog_raster::ops::{self, Fit, Kernel, Position, ResizeOptions};
 use mixdog_raster::svg::{self, SvgFonts};
-use mixdog_raster::{composite, stats, Blend, Image, Overlay, Placement};
+use mixdog_raster::{Blend, Image, Overlay, Placement, composite, stats};
 
 fn at(image: &Image, x: u32, y: u32) -> [u8; 4] {
     let i = ((y * image.width() + x) * 4) as usize;
@@ -245,7 +245,18 @@ fn resize_fits_the_requested_box_by_each_fit_mode() {
 #[test]
 fn contain_pads_with_the_background_and_cover_crops_by_position() {
     let source = Image::from_raw(2, 1, 3, &[255, 0, 0, 0, 0, 255]).unwrap();
-    let padded = ops::resize(&source, &ResizeOptions { width: Some(2), height: Some(4), fit: Fit::Contain, kernel: Kernel::Nearest, background: [0, 255, 0, 255], ..ResizeOptions::default() }).unwrap();
+    let padded = ops::resize(
+        &source,
+        &ResizeOptions {
+            width: Some(2),
+            height: Some(4),
+            fit: Fit::Contain,
+            kernel: Kernel::Nearest,
+            background: [0, 255, 0, 255],
+            ..ResizeOptions::default()
+        },
+    )
+    .unwrap();
     assert_eq!(at(&padded, 0, 0), [0, 255, 0, 255]);
     assert_eq!(at(&padded, 0, 3), [0, 255, 0, 255]);
     // The 2 x 1 picture sits on one row of the 2 x 4 canvas; the other rows are background.

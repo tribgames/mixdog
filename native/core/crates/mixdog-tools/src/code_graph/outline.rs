@@ -29,12 +29,7 @@ pub(super) fn parent_index(symbols: &[SymbolInfo]) -> Vec<Option<usize>> {
             if symbol.parent.is_empty() {
                 return None;
             }
-            let candidates: Vec<usize> = symbols
-                .iter()
-                .enumerate()
-                .filter(|(j, s)| *j != i && s.name == symbol.parent)
-                .map(|(j, _)| j)
-                .collect();
+            let candidates: Vec<usize> = symbols.iter().enumerate().filter(|(j, s)| *j != i && s.name == symbol.parent).map(|(j, _)| j).collect();
             let mut owner: Option<usize> = None;
             for &c in &candidates {
                 if !range_contains(&symbols[c], symbol) {
@@ -70,38 +65,17 @@ pub(super) fn ancestors(parents: &[Option<usize>], idx: usize) -> Vec<usize> {
 
 /// `Outer/inner` path of a symbol.
 pub(super) fn symbol_path(node: &Node, parents: &[Option<usize>], idx: usize) -> String {
-    ancestors(parents, idx)
-        .into_iter()
-        .chain(std::iter::once(idx))
-        .map(|i| node.symbols[i].name.as_str())
-        .collect::<Vec<_>>()
-        .join("/")
+    ancestors(parents, idx).into_iter().chain(std::iter::once(idx)).map(|i| node.symbols[i].name.as_str()).collect::<Vec<_>>().join("/")
 }
 
 pub(super) fn row_label(symbol: &SymbolInfo) -> String {
     let start = symbol.start_line;
-    let range = if symbol.end_line > start {
-        format!("{start}-{}", symbol.end_line)
-    } else {
-        start.to_string()
-    };
-    let kind = if symbol.kind.is_empty() {
-        "symbol"
-    } else {
-        symbol.kind
-    };
+    let range = if symbol.end_line > start { format!("{start}-{}", symbol.end_line) } else { start.to_string() };
+    let kind = if symbol.kind.is_empty() { "symbol" } else { symbol.kind };
     let name = one_line(&symbol.name);
     let sig = one_line(&symbol.sig);
     let redundant = sig.is_empty() || sig == name || sig == format!("{kind} {name}");
-    format!(
-        "{}{kind} {name} (L{range}){}",
-        if symbol.exported { "export " } else { "" },
-        if redundant {
-            String::new()
-        } else {
-            format!("  {sig}")
-        }
-    )
+    format!("{}{kind} {name} (L{range}){}", if symbol.exported { "export " } else { "" }, if redundant { String::new() } else { format!("  {sig}") })
 }
 
 /// Rows ordered by (line, column). `depth` drops rows nested deeper; `cap` bounds the count
@@ -121,16 +95,11 @@ pub(super) fn outline_rows(node: &Node, depth: Option<f64>, cap: usize) -> Vec<S
         .filter(|(_, _, level)| max_depth.is_none_or(|m| *level <= m))
         .collect();
     rows.sort_by_key(|(_, s, _)| (s.start_line, s.start_col));
-    let lines: Vec<String> = rows
-        .iter()
-        .map(|(_, s, level)| format!("{}{}", "  ".repeat(*level), row_label(s)))
-        .collect();
+    let lines: Vec<String> = rows.iter().map(|(_, s, level)| format!("{}{}", "  ".repeat(*level), row_label(s))).collect();
     if cap > 0 && lines.len() > cap {
         let more = lines.len() - cap;
         let mut kept: Vec<String> = lines.into_iter().take(cap).collect();
-        kept.push(format!(
-            "… +{more} more (mode:symbols for the full outline)"
-        ));
+        kept.push(format!("… +{more} more (mode:symbols for the full outline)"));
         return kept;
     }
     lines

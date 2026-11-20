@@ -117,7 +117,6 @@ fn a_plain_path_is_printable_ascii_without_spaces() {
     assert!(!is_plain_path(Path::new("")));
 }
 
-
 #[async_trait]
 impl AskpassPrompter for Scripted {
     async fn ask(&self, question: AskpassQuestion) -> Option<String> {
@@ -290,11 +289,7 @@ async fn a_helper_asking_the_same_question_again_is_a_refusal_whatever_the_time(
 async fn concurrent_questions_are_put_to_the_user_one_after_the_other() {
     let prompter = Scripted::slow(Duration::from_millis(40));
     let session = server(prompter.clone()).start(Path::new("h")).await.unwrap();
-    let (a, b, c) = tokio::join!(
-        run_helper(&session, "password A: "),
-        run_helper(&session, "password B: "),
-        run_helper(&session, "Verification code: ")
-    );
+    let (a, b, c) = tokio::join!(run_helper(&session, "password A: "), run_helper(&session, "password B: "), run_helper(&session, "Verification code: "));
     assert!([a, b, c].iter().all(|reply| reply.as_deref() == Some("x")));
     assert_eq!(prompter.peak.load(Ordering::SeqCst), 1);
     session.close().await;

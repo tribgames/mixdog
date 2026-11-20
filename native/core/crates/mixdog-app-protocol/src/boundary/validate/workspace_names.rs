@@ -542,13 +542,9 @@ mod tests {
         let astral = "\u{1F600}".repeat(MAX_TEXT_FILE_LENGTH / 2 + 1);
         assert_eq!(refused("projectFs/writeText", json!({"content": astral})).0, "/content");
         let batch = |content: &str| json!({"files": [{"relPath": "a.txt", "content": content, "expectedContent": ""}]});
-        assert_eq!(
-            refused("projectFs/writeTextBatch", batch(&over)),
-            ("/files/0".into(), "Workspace edit file content is invalid.".into())
-        );
-        let document = |content: &str| {
-            json!({"projectPath": "p", "document": {"kind": "open", "relPath": "a", "languageId": "rust", "version": 1, "content": content}})
-        };
+        assert_eq!(refused("projectFs/writeTextBatch", batch(&over)), ("/files/0".into(), "Workspace edit file content is invalid.".into()));
+        let document =
+            |content: &str| json!({"projectPath": "p", "document": {"kind": "open", "relPath": "a", "languageId": "rust", "version": 1, "content": content}});
         assert_eq!(refused("lsp/document", document(&over)).1, "LSP document content is invalid.");
     }
 
@@ -567,9 +563,8 @@ mod tests {
     #[test]
     fn validate_workspace_names_structured_params_are_bounded() {
         let deep = |levels: usize| (0..levels).fold(json!(1), |inner, _| json!({"a": inner}));
-        let request = |body: Value| {
-            json!({"projectPath": "p", "request": {"relPath": "a", "languageId": "rust", "method": "textDocument/hover", "params": body}})
-        };
+        let request =
+            |body: Value| json!({"projectPath": "p", "request": {"relPath": "a", "languageId": "rust", "method": "textDocument/hover", "params": body}});
         assert!(verdict("lsp/request", &request(deep(11))).is_ok());
         assert_eq!(refused("lsp/request", request(deep(13))).1, "structured input is too large.");
         let polluted: Value = serde_json::from_str(r#"{"__proto__": {}}"#).unwrap();

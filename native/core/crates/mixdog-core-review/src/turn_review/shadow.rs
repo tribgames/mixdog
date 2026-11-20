@@ -384,9 +384,10 @@ impl ShadowRepos {
         let git_dir = self.shared.store.join(name);
         let mut states = self.shared.states.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(state) = states.get(&key)
-            && state.git_dir == git_dir {
-                return state.clone();
-            }
+            && state.git_dir == git_dir
+        {
+            return state.clone();
+        }
         let state = Arc::new(Root {
             root: root.to_owned(),
             // Matched beside `root`'s own spelling: a watcher on a canonical root reports this one.
@@ -475,7 +476,8 @@ impl ShadowRepos {
             let name: String = digest.iter().flat_map(|b| [b >> 4, b & 15]).take(24).map(|n| char::from_digit(n as u32, 16).expect("hex")).collect();
             add_dir(self.shared.store.join(name), &mut git_dirs);
         }
-        let states: Vec<(String, Arc<Root>)> = self.shared.states.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let states: Vec<(String, Arc<Root>)> =
+            self.shared.states.lock().unwrap_or_else(|e| e.into_inner()).iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         for (key, state) in states {
             if !keys.contains(&key) && !keys.contains(&shadow_key(&state.root)) {
                 continue;
@@ -610,9 +612,8 @@ impl Root {
         if let Some(paths) = self.st().source_paths.clone() {
             return Ok(paths);
         }
-        let out = self
-            .plain_git(&["rev-parse", "--path-format=absolute", "--git-path", "info/exclude", "--git-path", "index", "--git-common-dir"], true)
-            .await?;
+        let out =
+            self.plain_git(&["rev-parse", "--path-format=absolute", "--git-path", "info/exclude", "--git-path", "index", "--git-common-dir"], true).await?;
         let text = String::from_utf8_lossy(&out.stdout).into_owned();
         let lines: Vec<&str> = text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).filter(|l| !l.is_empty()).collect();
         if out.code == 0 && lines.len() == 3 && lines.iter().all(|l| !clean(l).is_empty()) {
@@ -651,9 +652,10 @@ impl Root {
                     if lower.starts_with(key) {
                         let rest = &line[key.len()..];
                         if rest.starts_with(char::is_whitespace)
-                            && let Some(value) = rest.split_whitespace().next() {
-                                values.insert(key.to_owned(), value.to_owned());
-                            }
+                            && let Some(value) = rest.split_whitespace().next()
+                        {
+                            values.insert(key.to_owned(), value.to_owned());
+                        }
                     }
                 }
             }
@@ -770,7 +772,8 @@ impl Root {
         // Every (re)initialisation reads the source layout afresh.
         self.st().source_paths = None;
         let paths = self.source_git_paths().await?;
-        let (line_ending, exclude, ..) = tokio::join!(self.source_line_ending_args(), self.sync_source_exclude(paths.exclude.as_deref()), self.sync_alternates(paths.common_dir.as_deref()));
+        let (line_ending, exclude, ..) =
+            tokio::join!(self.source_line_ending_args(), self.sync_source_exclude(paths.exclude.as_deref()), self.sync_alternates(paths.common_dir.as_deref()));
         exclude?;
         self.st().line_ending_args = line_ending;
         self.refresh_source_tracked(true).await?;
@@ -793,14 +796,15 @@ impl Root {
         };
         let target = self.git_dir.join("index");
         if let Some(source) = source.filter(|s| !s.is_empty())
-            && self.exists(Path::new(&source)).await {
-                let now = self.disk().now_ms();
-                let temporary = PathBuf::from(format!("{}.{}.{}.tmp", target.display(), std::process::id(), now as u64));
-                self.disk().copy_file(Path::new(&source), &temporary).await.map_err(|e| e.to_string())?;
-                let _ = self.disk().remove(&target).await;
-                self.disk().rename(&temporary, &target).await.map_err(|e| e.to_string())?;
-                return Ok(());
-            }
+            && self.exists(Path::new(&source)).await
+        {
+            let now = self.disk().now_ms();
+            let temporary = PathBuf::from(format!("{}.{}.{}.tmp", target.display(), std::process::id(), now as u64));
+            self.disk().copy_file(Path::new(&source), &temporary).await.map_err(|e| e.to_string())?;
+            let _ = self.disk().remove(&target).await;
+            self.disk().rename(&temporary, &target).await.map_err(|e| e.to_string())?;
+            return Ok(());
+        }
         let _ = self.disk().remove(&target).await;
         self.shadow(&["read-tree", "--empty"], Vec::new()).await?;
         Ok(())
@@ -859,9 +863,12 @@ impl Root {
         if let Some(after) = after {
             let state = self.st();
             if let Some(last) = &state.last_capture
-                && last.seq > after && last.stamp == state.change_stamp && tool_paths.iter().all(|rel| last.explicit.contains(rel)) {
-                    return Ok(last.tree.clone());
-                }
+                && last.seq > after
+                && last.stamp == state.change_stamp
+                && tool_paths.iter().all(|rel| last.explicit.contains(rel))
+            {
+                return Ok(last.tree.clone());
+            }
         }
         let seq = {
             let mut state = self.st();
@@ -1135,7 +1142,8 @@ impl Root {
         let mut num = vec!["diff", "--numstat", "-z"];
         num.extend(&range_refs);
         let (name_status, numstat) = tokio::join!(self.shadow(&ns, Vec::new()), self.shadow(&num, Vec::new()));
-        let files = review_files(&parse_name_status(&String::from_utf8_lossy(&name_status?.stdout)), &parse_numstat(&String::from_utf8_lossy(&numstat?.stdout)));
+        let files =
+            review_files(&parse_name_status(&String::from_utf8_lossy(&name_status?.stdout)), &parse_numstat(&String::from_utf8_lossy(&numstat?.stdout)));
         let (patch, files) = self.bounded_tree_patch(baseline, current, &pathspec, files).await?;
         let diff_too_large = review_diff_too_large(&files, &patch);
         Ok(TreeReview { patch, files, patch_truncated: false, diff_too_large, current_tree: current.to_owned() })
@@ -1150,7 +1158,8 @@ impl Root {
         }
         let pathspec: Vec<String> = [path, old_path].into_iter().filter(|p| !p.is_empty()).map(literal_pathspec).collect();
         let sections = self.patch_sections_by_path(baseline, current, &pathspec, max_bytes).await?;
-        let section = sections.as_ref().and_then(|s| s.get(&shadow_key(path)).or_else(|| (!old_path.is_empty()).then(|| s.get(&shadow_key(old_path))).flatten()));
+        let section =
+            sections.as_ref().and_then(|s| s.get(&shadow_key(path)).or_else(|| (!old_path.is_empty()).then(|| s.get(&shadow_key(old_path))).flatten()));
         if sections.is_none() || section.is_some_and(|s| s.len() > max_bytes) {
             reply.insert("patch".into(), Value::String(String::new()));
             reply.insert("patchOmitted".into(), Value::Bool(true));

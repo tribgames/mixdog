@@ -361,7 +361,6 @@ async fn a_setting_switched_off_mid_turn_refuses_the_next_call_and_back_on_admit
     }
 }
 
-
 /// A tool set to ask before it runs: an approval lets it run, a denial or no one to ask refuses the call and the tool never runs.
 #[tokio::test]
 async fn an_ask_runs_the_tool_only_when_the_user_approves() {

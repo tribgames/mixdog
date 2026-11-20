@@ -119,7 +119,11 @@ impl ApiKeySource for Fixed {
 /// The one file of `dir` that is a route's roster (`<stem>.<key>.json`).
 fn written_path(dir: &std::path::Path, plain: &str) -> std::path::PathBuf {
     let stem = format!("{}.", plain.trim_end_matches(".json"));
-    let found: Vec<_> = std::fs::read_dir(dir).unwrap().map(|entry| entry.unwrap().path()).filter(|path| path.file_name().unwrap().to_string_lossy().starts_with(&stem)).collect();
+    let found: Vec<_> = std::fs::read_dir(dir)
+        .unwrap()
+        .map(|entry| entry.unwrap().path())
+        .filter(|path| path.file_name().unwrap().to_string_lossy().starts_with(&stem))
+        .collect();
     assert_eq!(found.len(), 1, "{plain}: one roster file per identity, found {found:?}");
     found.into_iter().next().unwrap()
 }
@@ -214,7 +218,15 @@ async fn command_code_lists_its_roster_and_the_file_returns_it_whole() {
         {"id": "cc-gpt", "name": "GPT", "context_window": 400_000},
     ]});
     let http = Answers::new(vec![(200, body)]);
-    lives_through("command-code-oauth", "command-code-oauth-models.json", 1, with_cache("command-code-oauth", compat(CompatProfile::command_code_oauth(), http.clone())), http, true).await;
+    lives_through(
+        "command-code-oauth",
+        "command-code-oauth-models.json",
+        1,
+        with_cache("command-code-oauth", compat(CompatProfile::command_code_oauth(), http.clone())),
+        http,
+        true,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -224,7 +236,15 @@ async fn muse_code_lists_its_roster_and_the_file_returns_it_whole() {
         {"id": "muse-b", "display_name": "Muse B"},
     ]});
     let http = Answers::new(vec![(200, body)]);
-    lives_through("muse-code-oauth", "muse-code-oauth-models.json", 1, with_cache("muse-code-oauth", compat(CompatProfile::muse_code_oauth(), http.clone())), http, true).await;
+    lives_through(
+        "muse-code-oauth",
+        "muse-code-oauth-models.json",
+        1,
+        with_cache("muse-code-oauth", compat(CompatProfile::muse_code_oauth(), http.clone())),
+        http,
+        true,
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -300,10 +320,8 @@ fn mimo_source(adapter: &Arc<CompatAdapter>, cache: OauthModelCache) -> ModelSou
 #[tokio::test]
 async fn a_roster_fetched_with_the_switched_in_key_is_stored_under_that_key_alone() {
     let dir = tempfile::tempdir().unwrap();
-    let http: Arc<dyn HttpSend> = Arc::new(ByBearer(vec![
-        ("key-a".into(), json!({"data": [{"id": "mimo-v2.6-pro"}]})),
-        ("key-b".into(), json!({"data": [{"id": "mimo-v2.6-flash"}]})),
-    ]));
+    let http: Arc<dyn HttpSend> =
+        Arc::new(ByBearer(vec![("key-a".into(), json!({"data": [{"id": "mimo-v2.6-pro"}]})), ("key-b".into(), json!({"data": [{"id": "mimo-v2.6-flash"}]}))]));
     let adapter = mimo_with(http.clone(), Arc::new(Switching(Default::default())));
     let cache = OauthModelCache::new(dir.path().to_path_buf(), io()).with_clock(Arc::new(|| T0));
     let rows = mimo_source(&adapter, cache).list().await.unwrap();

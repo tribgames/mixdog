@@ -53,9 +53,7 @@ use crate::thread::ThreadDirectory;
 use crate::thread::ThreadHandle;
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// A programmable reply.
@@ -107,12 +105,7 @@ impl MockCore {
     pub fn new(methods: &'static [&'static str], limits: MockLimits) -> Self {
         Self {
             threads: MockDirectory::new(limits),
-            app_feed: Arc::new(MockFeed::new(
-                FeedId::from("app"),
-                epoch(1),
-                Arc::new(EchoView),
-                limits,
-            )),
+            app_feed: Arc::new(MockFeed::new(FeedId::from("app"), epoch(1), Arc::new(EchoView), limits)),
             ops: MockOpIndex::default(),
             domain: Arc::new(MockDomain::serving(methods)),
             media: MockHostMedia::default(),
@@ -182,10 +175,7 @@ impl CoreHandle for MockCore {
     }
 
     fn domain_for(&self, method: &str) -> Option<&dyn DomainService> {
-        self.domain
-            .methods()
-            .contains(&method)
-            .then(|| self.domain.as_ref() as &dyn DomainService)
+        self.domain.methods().contains(&method).then(|| self.domain.as_ref() as &dyn DomainService)
     }
 
     fn host_media(&self) -> &dyn HostMediaSink {
@@ -200,13 +190,7 @@ impl CoreHandle for MockCore {
         lock(&self.closed).push(connection);
     }
 
-    fn connection_opened(
-        &self,
-        connection: ConnectionId,
-        origin: mixdog_protocol::Origin,
-        device: &str,
-        kind: mixdog_protocol::ConnectionKind,
-    ) {
+    fn connection_opened(&self, connection: ConnectionId, origin: mixdog_protocol::Origin, device: &str, kind: mixdog_protocol::ConnectionKind) {
         lock(&self.opened).push(OpenedConnection { connection, origin, device: device.to_owned(), kind });
     }
 
@@ -224,11 +208,7 @@ pub struct MockDirectory {
 
 impl MockDirectory {
     fn new(limits: MockLimits) -> Self {
-        Self {
-            limits,
-            threads: Mutex::new(HashMap::new()),
-            handler: Mutex::new(echo()),
-        }
+        Self { limits, threads: Mutex::new(HashMap::new()), handler: Mutex::new(echo()) }
     }
 
     /// Loads a thread (seq 0, [`EchoView`]).
@@ -246,19 +226,11 @@ impl MockDirectory {
 #[async_trait]
 impl ThreadDirectory for MockDirectory {
     fn get(&self, id: &ThreadId) -> Option<Arc<dyn ThreadHandle>> {
-        lock(&self.threads)
-            .get(id)
-            .map(|thread| thread.clone() as Arc<dyn ThreadHandle>)
+        lock(&self.threads).get(id).map(|thread| thread.clone() as Arc<dyn ThreadHandle>)
     }
 
-    async fn open(
-        &self,
-        id: &ThreadId,
-        _ctx: &CallContext,
-    ) -> Result<Arc<dyn ThreadHandle>, CoreError> {
-        self.get(id).ok_or_else(|| CoreError::ThreadNotFound {
-            thread_id: id.clone(),
-        })
+    async fn open(&self, id: &ThreadId, _ctx: &CallContext) -> Result<Arc<dyn ThreadHandle>, CoreError> {
+        self.get(id).ok_or_else(|| CoreError::ThreadNotFound { thread_id: id.clone() })
     }
 
     async fn request(&self, req: CoreRequest) -> Result<Reply, CoreError> {
@@ -271,11 +243,7 @@ impl ThreadDirectory for MockDirectory {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ControlCall {
     Interrupt(TurnId),
-    Steer {
-        turn: TurnId,
-        input: Value,
-        op: OpId,
-    },
+    Steer { turn: TurnId, input: Value, op: OpId },
     Decide(Decision),
 }
 
@@ -290,12 +258,7 @@ pub struct MockThread {
 impl MockThread {
     fn new(id: ThreadId, limits: MockLimits) -> Self {
         Self {
-            feed: Arc::new(MockFeed::new(
-                FeedId::from(id.as_str()),
-                epoch(2),
-                Arc::new(EchoView),
-                limits,
-            )),
+            feed: Arc::new(MockFeed::new(FeedId::from(id.as_str()), epoch(2), Arc::new(EchoView), limits)),
             id,
             active_turn: Mutex::new(None),
             control: Mutex::new(Vec::new()),
@@ -324,10 +287,7 @@ impl MockThread {
         if lock(&self.active_turn).as_ref() == Some(turn) {
             Ok(())
         } else {
-            Err(CoreError::TurnNotActive {
-                thread_id: self.id.clone(),
-                turn_id: Some(turn.clone()),
-            })
+            Err(CoreError::TurnNotActive { thread_id: self.id.clone(), turn_id: Some(turn.clone()) })
         }
     }
 }
@@ -364,17 +324,10 @@ impl RunControl for MockThread {
     fn steer(&self, expected_turn: Option<&TurnId>, input: Value, op: OpId) -> Result<Value, CoreError> {
         let turn = match expected_turn {
             Some(turn) => turn.clone(),
-            None => self.active_turn().ok_or_else(|| CoreError::TurnNotActive {
-                thread_id: self.id.clone(),
-                turn_id: None,
-            })?,
+            None => self.active_turn().ok_or_else(|| CoreError::TurnNotActive { thread_id: self.id.clone(), turn_id: None })?,
         };
         self.check_turn(&turn)?;
-        lock(&self.control).push(ControlCall::Steer {
-            turn: turn.clone(),
-            input,
-            op,
-        });
+        lock(&self.control).push(ControlCall::Steer { turn: turn.clone(), input, op });
         Ok(json!({ "turnId": turn }))
     }
 
@@ -414,13 +367,7 @@ impl MockOpIndex {
 
 #[async_trait]
 impl OpIndex for MockOpIndex {
-    async fn status(
-        &self,
-        scope: &OpScope,
-        ids: &[OpId],
-        fence: bool,
-        _ctx: &CallContext,
-    ) -> Result<Vec<OpStatus>, CoreError> {
+    async fn status(&self, scope: &OpScope, ids: &[OpId], fence: bool, _ctx: &CallContext) -> Result<Vec<OpStatus>, CoreError> {
         let mut records = lock(&self.records);
         Ok(ids
             .iter()
@@ -456,11 +403,7 @@ impl Default for MockDomain {
 
 impl MockDomain {
     pub fn serving(methods: &'static [&'static str]) -> Self {
-        Self {
-            methods,
-            handler: Mutex::new(echo()),
-            notifications: Mutex::new(Vec::new()),
-        }
+        Self { methods, handler: Mutex::new(echo()), notifications: Mutex::new(Vec::new()) }
     }
 
     pub fn set_handler(&self, handler: Handler) {
@@ -566,11 +509,7 @@ impl MockHostChannel {
 
     /// The claimant answers `method` with this JSON-RPC error.
     pub fn fail(&self, method: Method, code: i64, message: &str, data: Option<Value>) {
-        let error = HostError::Rpc {
-            code,
-            message: message.to_owned(),
-            data,
-        };
+        let error = HostError::Rpc { code, message: message.to_owned(), data };
         lock(&self.replies).insert(method.as_str(), Err(error));
     }
 
@@ -578,17 +517,9 @@ impl MockHostChannel {
         lock(&self.sent).clone()
     }
 
-    fn route(
-        &self,
-        capability: HostCapability,
-        method: Method,
-        params: Value,
-    ) -> Result<(), CoreError> {
+    fn route(&self, capability: HostCapability, method: Method, params: Value) -> Result<(), CoreError> {
         if !lock(&self.claimed).contains(&capability) {
-            return Err(CoreError::CapabilityUnavailable {
-                capability: "desktopHost".into(),
-                detail: "noClaimant".into(),
-            });
+            return Err(CoreError::CapabilityUnavailable { capability: "desktopHost".into(), detail: "noClaimant".into() });
         }
         lock(&self.sent).push((capability, method, params));
         Ok(())
@@ -597,25 +528,12 @@ impl MockHostChannel {
 
 #[async_trait]
 impl HostChannel for MockHostChannel {
-    async fn request(
-        &self,
-        capability: HostCapability,
-        method: Method,
-        params: Value,
-    ) -> Result<Value, HostError> {
+    async fn request(&self, capability: HostCapability, method: Method, params: Value) -> Result<Value, HostError> {
         self.route(capability, method, params)?;
-        lock(&self.replies)
-            .get(method.as_str())
-            .cloned()
-            .unwrap_or(Ok(Value::Null))
+        lock(&self.replies).get(method.as_str()).cloned().unwrap_or(Ok(Value::Null))
     }
 
-    fn notify(
-        &self,
-        capability: HostCapability,
-        method: Method,
-        params: Value,
-    ) -> Result<(), CoreError> {
+    fn notify(&self, capability: HostCapability, method: Method, params: Value) -> Result<(), CoreError> {
         self.route(capability, method, params)
     }
 
@@ -631,10 +549,7 @@ impl HostChannel for MockHostChannel {
         for event in events {
             on_event(event);
         }
-        lock(&self.replies)
-            .get(method.as_str())
-            .cloned()
-            .unwrap_or(Ok(Value::Null))
+        lock(&self.replies).get(method.as_str()).cloned().unwrap_or(Ok(Value::Null))
     }
 }
 

@@ -201,10 +201,7 @@ async fn a_listing_shows_each_session_with_its_time_in_utc_and_a_one_line_previe
 
 #[tokio::test]
 async fn archived_sessions_are_listed_only_when_asked_for() {
-    let rows = vec![
-        listed(session_row("sess_a", "A", 1_760_000_009_000, "a"), false),
-        listed(session_row("sess_b", "B", 1_760_000_008_000, "b"), true),
-    ];
+    let rows = vec![listed(session_row("sess_a", "A", 1_760_000_009_000, "a"), false), listed(session_row("sess_b", "B", 1_760_000_008_000, "b"), true)];
     let world = world(rows, json!({}));
     assert_eq!(ids(&answer(&world, json!({ "action": "list" })).await), ["sess_a"]);
     assert_eq!(ids(&answer(&world, json!({ "action": "list", "include_archived": true })).await), ["sess_a", "sess_b"]);
@@ -277,10 +274,13 @@ async fn a_read_past_the_oldest_item_is_empty_and_an_empty_session_reads_empty()
 #[tokio::test]
 async fn a_read_continues_an_item_whose_escaped_text_exceeds_the_page_budget() {
     let text = "\u{0001}".repeat(2_001);
-    let world = world(Vec::new(), json!({ "sess_x": [
+    let world = world(
+        Vec::new(),
+        json!({ "sess_x": [
         {"kind":"assistant","id":"older","text":text},
         {"kind":"assistant","id":"newer","text":"newer"}
-    ] }));
+    ] }),
+    );
     let mut args = json!({"action":"read","session_id":"sess_x","offset":1,"limit":1});
     let first = answer(&world, args.clone()).await;
     let item = &first["items"][0];
@@ -315,7 +315,10 @@ async fn compact_schedules_the_callers_own_session_and_refuses_any_other_caller_
     assert_eq!((&scheduled["action"], &scheduled["sessionId"], &scheduled["scheduled"]), (&json!("compact"), &json!(LEAD), &json!(true)));
     assert_eq!(*world.requests.1.lock().unwrap(), [LEAD]);
 
-    assert_eq!(call(&world, json!({ "action": "compact", "session_id": "sess_b" })).await, (false, "session: action=compact only applies to the current session".to_owned()));
+    assert_eq!(
+        call(&world, json!({ "action": "compact", "session_id": "sess_b" })).await,
+        (false, "session: action=compact only applies to the current session".to_owned())
+    );
     assert_eq!(
         call_as(&world, "sess_worker1", SurfaceKind::Agent, json!({ "action": "compact" })).await,
         (false, "session: compact belongs to the Lead session".to_owned())

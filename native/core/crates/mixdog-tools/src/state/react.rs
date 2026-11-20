@@ -34,19 +34,16 @@ fn bare(value: &str) -> String {
 /// The reaction `value` names (a missing or extra U+FE0F tolerated).
 pub fn reaction_emoji(value: &str) -> Option<&'static str> {
     let wanted = bare(value.js_trim());
-    (!wanted.is_empty())
-        .then(|| REACTION_EMOJI.into_iter().find(|e| bare(e) == wanted))
-        .flatten()
+    (!wanted.is_empty()).then(|| REACTION_EMOJI.into_iter().find(|e| bare(e) == wanted)).flatten()
 }
 
 /// `(emoji or None to remove, messages_back)` of a react call.
 pub fn validate(args: &Value) -> Result<(Option<&'static str>, u64), String> {
     let back = match args.get("messages_back") {
         None | Some(Value::Null) => 0,
-        Some(v) => v
-            .as_u64()
-            .filter(|b| *b <= MESSAGES_BACK_MAX)
-            .ok_or_else(|| format!("react: messages_back is a whole number from 0 to {MESSAGES_BACK_MAX}"))?,
+        Some(v) => {
+            v.as_u64().filter(|b| *b <= MESSAGES_BACK_MAX).ok_or_else(|| format!("react: messages_back is a whole number from 0 to {MESSAGES_BACK_MAX}"))?
+        }
     };
     if args.get("remove").and_then(Value::as_bool) == Some(true) {
         return Ok((None, back));
@@ -76,14 +73,7 @@ pub trait Reactions: Send + Sync {
     /// The bot seat of the thread; `None` for a coding session or delegated worker.
     fn seat(&self, thread: &ThreadId) -> Option<ReactSeat>;
 
-    async fn react(
-        &self,
-        thread: &ThreadId,
-        call: &ToolCallId,
-        seat: &ReactSeat,
-        emoji: Option<&str>,
-        messages_back: u64,
-    ) -> Result<ReactResult, PortError>;
+    async fn react(&self, thread: &ThreadId, call: &ToolCallId, seat: &ReactSeat, emoji: Option<&str>, messages_back: u64) -> Result<ReactResult, PortError>;
 }
 
 pub struct ReactTool {
@@ -94,11 +84,7 @@ pub struct ReactTool {
 
 impl ReactTool {
     pub fn new(reactions: Arc<dyn Reactions>, facts: Arc<dyn CallerFacts>) -> Self {
-        Self {
-            spec: spec_from_def(include_str!("defs/react.json"), false, &[]),
-            reactions,
-            facts,
-        }
+        Self { spec: spec_from_def(include_str!("defs/react.json"), false, &[]), reactions, facts }
     }
 }
 
@@ -137,9 +123,6 @@ mod tests {
         assert_eq!(validate(&json!({"emoji":"👍","messages_back":2})), Ok((Some("👍"), 2)));
         assert_eq!(validate(&json!({"remove":true})), Ok((None, 0)));
         assert!(validate(&json!({"emoji":"🔥"})).unwrap_err().starts_with("react: emoji must be exactly one of"));
-        assert_eq!(
-            validate(&json!({"emoji":"👍","messages_back":21})).unwrap_err(),
-            "react: messages_back is a whole number from 0 to 20"
-        );
+        assert_eq!(validate(&json!({"emoji":"👍","messages_back":21})).unwrap_err(), "react: messages_back is a whole number from 0 to 20");
     }
 }

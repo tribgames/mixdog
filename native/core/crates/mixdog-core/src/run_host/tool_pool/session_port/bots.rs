@@ -22,4 +22,3 @@ pub trait BotWorld: Send + Sync {
     async fn held_requests(&self) -> Result<Vec<Value>, String>;
     async fn task_watches(&self) -> Result<Vec<Value>, String>;
 }
-

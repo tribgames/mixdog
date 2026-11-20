@@ -13,9 +13,9 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use mixdog_fsio::ReadProof;
+use mixdog_fsio::WriteProof;
 use mixdog_js::{json_number, json_parse, locale_compare, slice_utf16, to_number_of, v8_json_parse_error, value_to_string};
 use mixdog_office_base::values::{clone, plain_object, sha256, truthy};
-use mixdog_fsio::WriteProof;
 use serde_json::{Map, Value, json};
 use url::Url;
 
@@ -23,9 +23,7 @@ use super::core::{
     Environment, LibraryConfig, LibraryPaths, MAX_COMPOSITION_HISTORY, MAX_MANIFEST_BYTES, SCHEMA_VERSION, canonical_path, compare_office_design_versions,
     is_format, library_paths, load_config, read_json, safe_id, write_json_atomic,
 };
-use super::pack::{
-    Fetch, FetchRequest, load_cached_pack, materialize_pack, pack_summary, response_bytes, verify_office_design_pack_envelope,
-};
+use super::pack::{Fetch, FetchRequest, load_cached_pack, materialize_pack, pack_summary, response_bytes, verify_office_design_pack_envelope};
 use crate::{opt_prop, prop, text};
 
 /// `indexOfficeTemplates({ dataDir, config })`: walks the template directories of `config`, indexes what changed and
@@ -60,13 +58,7 @@ pub fn iso_string(ms: f64) -> String {
     let day = day_of_year - (153 * month_index + 2) / 5 + 1;
     let month = if month_index < 10 { month_index + 3 } else { month_index - 9 };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
-        rest / 3_600_000,
-        rest / 60_000 % 60,
-        rest / 1000 % 60,
-        rest % 1000
-    )
+    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z", rest / 3_600_000, rest / 60_000 % 60, rest / 1000 % 60, rest % 1000)
 }
 
 /// `readTemplateIndex(paths)`: the index file, or an empty index.
@@ -177,14 +169,13 @@ fn sync_with_config<P: WriteProof>(
     };
     let mut state = state_map(read_json(cx.lane, &paths.state, json!({ "schemaVersion": SCHEMA_VERSION })));
     let active = state.get("active").cloned();
-    let mut active_pack =
-        match load_cached_pack(cx.lane, &paths, config, opt_prop(active.as_ref(), "id"), opt_prop(active.as_ref(), "version")) {
-            Ok(pack) => pack,
-            Err(message) => {
-                add_warning(&mut warning, &message);
-                None
-            }
-        };
+    let mut active_pack = match load_cached_pack(cx.lane, &paths, config, opt_prop(active.as_ref(), "id"), opt_prop(active.as_ref(), "version")) {
+        Ok(pack) => pack,
+        Err(message) => {
+            add_warning(&mut warning, &message);
+            None
+        }
+    };
     let now = cx.env.now();
     let last_checked = to_number_of(state.get("lastCheckedAt"));
     let due = force || last_checked.is_nan() || last_checked == 0.0 || now - last_checked >= config.check_interval_ms;
@@ -239,16 +230,17 @@ fn check_remote<P: WriteProof>(
     }
     let should_activate = match active_pack.as_ref() {
         None => true,
-        Some(active) => {
-            text(prop(active, "id")) != pack_id || compare_office_design_versions(&pack_version, &text(prop(active, "version")))? > 0
-        }
+        Some(active) => text(prop(active, "id")) != pack_id || compare_office_design_versions(&pack_version, &text(prop(active, "version")))? > 0,
     };
     if should_activate {
         materialize_pack(cx.lane, &verified, paths, cx.fetch)?;
         *active_pack = load_cached_pack(cx.lane, paths, config, Some(&Value::String(pack_id.clone())), Some(&Value::String(pack_version.clone())))?;
     }
     if let Some(active) = active_pack.as_ref() {
-        state.insert("active".to_owned(), json!({ "id": prop(active, "id").cloned().unwrap_or(Value::Null), "version": prop(active, "version").cloned().unwrap_or(Value::Null) }));
+        state.insert(
+            "active".to_owned(),
+            json!({ "id": prop(active, "id").cloned().unwrap_or(Value::Null), "version": prop(active, "version").cloned().unwrap_or(Value::Null) }),
+        );
     }
     state.insert("lastCheckedAt".to_owned(), json_number(now));
     if should_activate {
@@ -400,12 +392,7 @@ pub struct CompositionRecord<'a> {
 
 /// `recordOfficeCompositionHistory`: the document's record replaces its earlier one, the newest first, 48 kept.
 /// Answers the record.
-pub fn record_office_composition_history<P: WriteProof>(
-    lane: &P,
-    env: &Environment,
-    data_dir: &Path,
-    input: &CompositionRecord<'_>,
-) -> Result<Value, String> {
+pub fn record_office_composition_history<P: WriteProof>(lane: &P, env: &Environment, data_dir: &Path, input: &CompositionRecord<'_>) -> Result<Value, String> {
     let paths = library_paths(env, data_dir);
     let document_key = sha256(canonical_path(env, input.document_path));
     let candidate = json!({
@@ -462,11 +449,7 @@ fn layout_candidates(pack: Option<&Value>, template: Option<&Value>, format: &st
         layouts.push(layout);
     }
     layouts.extend(opt_prop(template, "layouts").and_then(Value::as_array).into_iter().flatten().cloned());
-    layouts
-        .into_iter()
-        .filter(|layout| prop(layout, "format") == Some(&Value::String(format.to_owned())))
-        .map(|layout| clone(&layout))
-        .collect()
+    layouts.into_iter().filter(|layout| prop(layout, "format") == Some(&Value::String(format.to_owned()))).map(|layout| clone(&layout)).collect()
 }
 
 /// `value || ''`.
@@ -552,19 +535,18 @@ fn resolve_pinned_library<P: WriteProof>(
     let index = read_template_index(cx.lane, paths);
     let mut all: Vec<Value> = opt_prop(pack.as_ref(), "templates").and_then(Value::as_array).cloned().unwrap_or_default();
     all.extend(prop(&index, "templates").and_then(Value::as_array).cloned().unwrap_or_default());
-    let template = all
-        .into_iter()
-        .find(|entry| {
-            prop(entry, "id") == prop(&binding, "templateId")
-                && prop(entry, "version") == prop(&binding, "templateVersion")
-                && prop(entry, "format") == Some(&Value::String(format.to_owned()))
-        });
+    let template = all.into_iter().find(|entry| {
+        prop(entry, "id") == prop(&binding, "templateId")
+            && prop(entry, "version") == prop(&binding, "templateVersion")
+            && prop(entry, "format") == Some(&Value::String(format.to_owned()))
+    });
     if prop(&binding, "templateId").is_some_and(truthy) && template.is_none() && warning.is_empty() {
         warning = "Pinned Office template version changed or is unavailable; the existing document remains unchanged.".to_owned();
     }
     let source = if pack.is_some() { prop(&binding, "source").cloned() } else { Some(Value::String("starter-fallback".to_owned())) };
     let layouts = layout_candidates(pack.as_ref(), template.as_ref(), format);
-    Resolution { source, binding: clone(&binding), pack, template, layouts, recent, index_revision: or_empty(prop(&index, "revision")), warning, pinned: true }.to_value()
+    Resolution { source, binding: clone(&binding), pack, template, layouts, recent, index_revision: or_empty(prop(&index, "revision")), warning, pinned: true }
+        .to_value()
 }
 
 /// How a design request is put to the library.
@@ -606,7 +588,14 @@ pub fn resolve_office_design_library<P: WriteProof>(cx: &Context<'_, P>, input: 
         return Ok(resolve_pinned_library(cx, &paths, &config, binding, &format, recent));
     }
     let requested_template = prop(request, "template").filter(|template| truthy(template));
-    let synced = sync_with_config(cx, input.data_dir, &config, flag("refreshLibrary"), input.created || explicit_upgrade, input.created || explicit_upgrade || requested_template.is_some())?;
+    let synced = sync_with_config(
+        cx,
+        input.data_dir,
+        &config,
+        flag("refreshLibrary"),
+        input.created || explicit_upgrade,
+        input.created || explicit_upgrade || requested_template.is_some(),
+    )?;
     let mut pack = synced.active_pack.clone();
     let (request_pack_id, request_pack_version) = (prop(request, "packId"), prop(request, "packVersion"));
     if request_pack_id.is_some_and(truthy) || request_pack_version.is_some_and(truthy) {
@@ -662,12 +651,7 @@ pub fn resolve_office_design_library<P: WriteProof>(cx: &Context<'_, P>, input: 
 
 /// `inspectOfficeDesignLibrary`: whether a pack server is configured, the active pack, the last check and the template
 /// index, with the last error (or the reason the active pack could not be loaded).
-pub fn inspect_office_design_library<P: WriteProof>(
-    lane: &P,
-    env: &Environment,
-    data_dir: &Path,
-    config_override: Option<&Value>,
-) -> Result<Value, String> {
+pub fn inspect_office_design_library<P: WriteProof>(lane: &P, env: &Environment, data_dir: &Path, config_override: Option<&Value>) -> Result<Value, String> {
     let paths = library_paths(env, data_dir);
     let config = load_config(lane, env, data_dir, config_override)?;
     let state = read_json(lane, &paths.state, Value::Object(Map::new()));

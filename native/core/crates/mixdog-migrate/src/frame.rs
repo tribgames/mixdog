@@ -80,47 +80,29 @@ mod tests {
     }
 
     fn unhex(text: &str) -> Vec<u8> {
-        (0..text.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
-            .collect()
+        (0..text.len()).step_by(2).map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap()).collect()
     }
 
     #[test]
     fn crc_check_value() {
-        assert_eq!(
-            crc32c(b"123456789"),
-            mixdog_store::schema::frame::CRC32C_CHECK
-        );
+        assert_eq!(crc32c(b"123456789"), mixdog_store::schema::frame::CRC32C_CHECK);
     }
 
-
     fn doc() -> Doc {
-        let path = concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../mixdog-store/src/schema/vectors/frames.json"
-        );
+        let path = concat!(env!("CARGO_MANIFEST_DIR"), "/../mixdog-store/src/schema/vectors/frames.json");
         serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap()
     }
     #[test]
     fn encodes_the_store_vectors() {
         for single in doc().single {
-            assert_eq!(
-                encode(single.ordinal, single.payload.as_bytes()),
-                unhex(&single.hex)
-            );
+            assert_eq!(encode(single.ordinal, single.payload.as_bytes()), unhex(&single.hex));
         }
     }
     #[test]
     fn classifies_every_store_vector() {
         for case in doc().classification {
             let (committed, end) = scan(&unhex(&case.hex), case.start_ordinal);
-            assert_eq!(
-                (committed.len(), end),
-                (case.expect.committed, case.expect.end),
-                "{}",
-                case.name
-            );
+            assert_eq!((committed.len(), end), (case.expect.committed, case.expect.end), "{}", case.name);
         }
     }
 }

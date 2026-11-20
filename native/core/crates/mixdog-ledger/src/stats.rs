@@ -29,8 +29,8 @@ use crate::measure::sort_model_tiers;
 use crate::measure::trimmed;
 use crate::period::PeriodRequest;
 use crate::period::resolve_usage_stats_period;
-use crate::rollup::RollupQuery;
 use crate::rollup::Hourly;
+use crate::rollup::RollupQuery;
 use crate::rollup::rollup_usage;
 use crate::time::add_local_days;
 use crate::time::day_key;
@@ -69,10 +69,7 @@ pub struct UsageStatsOptions {
 impl UsageStatsOptions {
     /// The period a `view` names; none when the caller used the `days` API.
     pub fn period_request(&self, default_view: Option<&str>) -> Option<PeriodRequest> {
-        let view = self
-            .view
-            .clone()
-            .or_else(|| default_view.map(str::to_string))?;
+        let view = self.view.clone().or_else(|| default_view.map(str::to_string))?;
         Some(PeriodRequest {
             view: Some(view),
             anchor: self.anchor.clone(),
@@ -118,32 +115,16 @@ fn midnight(ts: i64) -> i64 {
 /// `days === null` is all time, `0` is today, N is N calendar dates including today.
 fn resolve_window(days: Option<i64>, now: i64) -> Window {
     match days {
-        Some(0) => Window {
-            days: Some(0),
-            from_ms: midnight(now),
-            to_ms: now,
-        },
-        Some(span) if span > 0 => Window {
-            days: Some(span),
-            from_ms: add_local_days(midnight(now), 1 - span),
-            to_ms: now,
-        },
-        _ => Window {
-            days: None,
-            from_ms: 0,
-            to_ms: now,
-        },
+        Some(0) => Window { days: Some(0), from_ms: midnight(now), to_ms: now },
+        Some(span) if span > 0 => Window { days: Some(span), from_ms: add_local_days(midnight(now), 1 - span), to_ms: now },
+        _ => Window { days: None, from_ms: 0, to_ms: now },
     }
 }
 
 /// The same-length window immediately before this one, for a change figure.
 fn previous_window(window: Window) -> Option<Window> {
     let days = window.days.filter(|d| *d != 0)?;
-    Some(Window {
-        days: Some(days),
-        from_ms: add_local_days(window.from_ms, -days),
-        to_ms: window.from_ms - 1,
-    })
+    Some(Window { days: Some(days), from_ms: add_local_days(window.from_ms, -days), to_ms: window.from_ms - 1 })
 }
 
 #[derive(Clone, Default)]
@@ -192,10 +173,7 @@ struct Route {
 
 impl Route {
     fn new() -> Self {
-        Self {
-            complete: true,
-            ..Self::default()
-        }
+        Self { complete: true, ..Self::default() }
     }
 }
 
@@ -266,14 +244,7 @@ struct Usage<'a> {
     sessions_complete: Option<&'a Value>,
 }
 
-fn fold_route(
-    state: &mut State,
-    provider_id: &str,
-    model_id: &str,
-    kind: &str,
-    usage: &Usage,
-    tier: SpeedTier,
-) {
+fn fold_route(state: &mut State, provider_id: &str, model_id: &str, kind: &str, usage: &Usage, tier: SpeedTier) {
     let provider = state.providers.entry(provider_id, || ProviderBucket {
         provider: provider_id.to_string(),
         kind: String::new(),
@@ -284,13 +255,8 @@ fn fold_route(
         provider.kind = kind.to_string();
     }
     let key = tier.key(model_id);
-    let model = provider.models.entry(&key, || ModelBucket {
-        model: model_id.to_string(),
-        tier,
-        route: Route::new(),
-    });
-    let incomplete =
-        usage.tally.turns > 0.0 && (usage.sessions.is_none() || is_false(usage.sessions_complete));
+    let model = provider.models.entry(&key, || ModelBucket { model: model_id.to_string(), tier, route: Route::new() });
+    let incomplete = usage.tally.turns > 0.0 && (usage.sessions.is_none() || is_false(usage.sessions_complete));
     for route in [&mut provider.route, &mut model.route] {
         route.tally.add(&usage.tally);
         if incomplete {
@@ -308,28 +274,17 @@ fn is_false(value: Option<&Value>) -> bool {
 }
 
 fn add_daily(state: &mut State, key: &str, usage: &Usage, provider_id: &str) {
-    let bucket = state.daily.entry(key, || DayBucket {
-        day: key.to_string(),
-        ..DayBucket::default()
-    });
+    let bucket = state.daily.entry(key, || DayBucket { day: key.to_string(), ..DayBucket::default() });
     bucket.tally.add(&usage.tally);
     let id = mixdog_js::js_trim(provider_id);
     if id.is_empty() {
         return;
     }
-    bucket
-        .providers
-        .entry(id, || (id.to_string(), Tally::default()))
-        .1
-        .add(&usage.tally);
+    bucket.providers.entry(id, || (id.to_string(), Tally::default())).1.add(&usage.tally);
 }
 
 fn fold_rollup_day(state: &mut State, key: &str, day: &Value, conversation_only: bool) {
-    let totals = if conversation_only {
-        day.get("conversation")
-    } else {
-        Some(day)
-    };
+    let totals = if conversation_only { day.get("conversation") } else { Some(day) };
     let Some(totals) = totals.filter(|t| !t.is_null()) else {
         state.unclassified_days += 1;
         state.unclassified_turns += amount(day.get("turns"));
@@ -354,11 +309,7 @@ fn fold_rollup_day(state: &mut State, key: &str, day: &Value, conversation_only:
 
     if let Some(models) = day.get("models").and_then(Value::as_object) {
         for (route_key, raw) in models {
-            let route = if conversation_only {
-                raw.get("conversation")
-            } else {
-                Some(raw)
-            };
+            let route = if conversation_only { raw.get("conversation") } else { Some(raw) };
             let Some(route) = route.filter(|r| !r.is_null()) else {
                 continue;
             };
@@ -368,14 +319,10 @@ fn fold_rollup_day(state: &mut State, key: &str, day: &Value, conversation_only:
             let slash = route_key.find('/').filter(|at| *at > 0);
             let provider_id = Some(trimmed(raw.get("provider")))
                 .filter(|p| !p.is_empty())
-                .unwrap_or_else(|| {
-                    slash.map_or_else(String::new, |at| route_key[..at].to_string())
-                });
+                .unwrap_or_else(|| slash.map_or_else(String::new, |at| route_key[..at].to_string()));
             let model_id = Some(trimmed(raw.get("model")))
                 .filter(|m| !m.is_empty())
-                .unwrap_or_else(|| {
-                    slash.map_or_else(String::new, |at| route_key[at + 1..].to_string())
-                });
+                .unwrap_or_else(|| slash.map_or_else(String::new, |at| route_key[at + 1..].to_string()));
             if provider_id.is_empty() || model_id.is_empty() {
                 continue;
             }
@@ -399,28 +346,15 @@ fn fold_rollup_day(state: &mut State, key: &str, day: &Value, conversation_only:
                 speed_output: amount(raw.get("speedOutput")),
                 speed_ms: amount(raw.get("speedMs")),
             };
-            let usage = Usage {
-                tally,
-                sessions: route.get("sessions").and_then(Value::as_object),
-                sessions_complete: route.get("sessionsComplete"),
-            };
-            fold_route(
-                state,
-                &provider_id,
-                &model_id,
-                &trimmed(raw.get("kind")),
-                &usage,
-                SpeedTier::from_row(raw),
-            );
+            let usage = Usage { tally, sessions: route.get("sessions").and_then(Value::as_object), sessions_complete: route.get("sessionsComplete") };
+            fold_route(state, &provider_id, &model_id, &trimmed(raw.get("kind")), &usage, SpeedTier::from_row(raw));
             add_daily(state, key, &usage, &provider_id);
         }
     }
 
     // Session ids are recorded for conversation turns only, so both views read the same map,
     // except a day whose ids were collected while background cycles still counted.
-    let partial = conversation_only
-        && is_true(day.get("conversationPartial"))
-        && !is_true(day.get("sessionsPurged"));
+    let partial = conversation_only && is_true(day.get("conversationPartial")) && !is_true(day.get("sessionsPurged"));
     if !partial {
         if let Some(sessions) = day.get("sessions").and_then(Value::as_object) {
             for (id, tokens) in sessions {
@@ -430,9 +364,7 @@ fn fold_rollup_day(state: &mut State, key: &str, day: &Value, conversation_only:
             }
         }
         if let Some(tokens) = day.get("sessionTokens").and_then(Value::as_array) {
-            state
-                .anonymous
-                .extend(tokens.iter().map(|t| amount(Some(t))));
+            state.anonymous.extend(tokens.iter().map(|t| amount(Some(t))));
             if !tokens.is_empty() {
                 state.sessions_complete = false;
             }
@@ -441,11 +373,7 @@ fn fold_rollup_day(state: &mut State, key: &str, day: &Value, conversation_only:
 }
 
 fn collect(rollup_days: &Map<String, Value>, window: Window, conversation_only: bool) -> State {
-    let from_key = if window.from_ms > 0 {
-        day_key(window.from_ms)
-    } else {
-        String::new()
-    };
+    let from_key = if window.from_ms > 0 { day_key(window.from_ms) } else { String::new() };
     let to_key = day_key(window.to_ms);
     let mut state = State::new();
     for (key, day) in rollup_days {
@@ -460,11 +388,7 @@ fn collect(rollup_days: &Map<String, Value>, window: Window, conversation_only: 
 
 /// Every calendar day from `first` to `last`, inclusive.
 fn calendar_days(first: &str, last: &str) -> Vec<String> {
-    let parse = |text: &str| {
-        NaiveDate::parse_from_str(text, "%Y-%m-%d")
-            .ok()
-            .map(local_midnight_ms)
-    };
+    let parse = |text: &str| NaiveDate::parse_from_str(text, "%Y-%m-%d").ok().map(local_midnight_ms);
     let (Some(mut cursor), Some(end)) = (parse(first), parse(last)) else {
         return Vec::new();
     };
@@ -487,11 +411,7 @@ fn median(values: &[f64]) -> f64 {
     let mut sorted = values.to_vec();
     sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
     let middle = sorted.len() / 2;
-    if sorted.len().is_multiple_of(2) {
-        (sorted[middle - 1] + sorted[middle]) / 2.0
-    } else {
-        sorted[middle]
-    }
+    if sorted.len().is_multiple_of(2) { (sorted[middle - 1] + sorted[middle]) / 2.0 } else { sorted[middle] }
 }
 
 /// `null` while any turn is unmeasured, 0 without a denominator.
@@ -499,20 +419,12 @@ fn measured_ratio(unmeasured: f64, numerator: f64, denominator: f64, digits: i32
     if unmeasured > 0.0 {
         return Value::Null;
     }
-    js_number(if denominator > 0.0 {
-        round_to(numerator / denominator, digits)
-    } else {
-        0.0
-    })
+    js_number(if denominator > 0.0 { round_to(numerator / denominator, digits) } else { 0.0 })
 }
 
 fn output_speed(tally: &Tally) -> Value {
     let ms = num(tally.speed_ms);
-    if ms > 0.0 {
-        js_number(round_to(num(tally.speed_output) * 1000.0 / ms, 1))
-    } else {
-        Value::Null
-    }
+    if ms > 0.0 { js_number(round_to(num(tally.speed_output) * 1000.0 / ms, 1)) } else { Value::Null }
 }
 
 fn field(bucket: &Value, name: &str) -> f64 {
@@ -545,19 +457,8 @@ pub fn session_usage_snapshot(bucket: &Value) -> Value {
     out.insert("unmeasuredTurns".into(), js_number(tally.unmeasured_turns));
     out.insert("costUsd".into(), js_number(round_to(tally.cost_usd, 6)));
     out.insert("costKnownTurns".into(), js_number(tally.cost_known_turns));
-    out.insert(
-        "costUnpricedTurns".into(),
-        js_number((tally.turns - tally.cost_known_turns).max(0.0)),
-    );
-    out.insert(
-        "cacheHitRate".into(),
-        measured_ratio(
-            tally.unmeasured_turns,
-            tally.cache_read,
-            tally.input + tally.cache_read + tally.cache_write,
-            4,
-        ),
-    );
+    out.insert("costUnpricedTurns".into(), js_number((tally.turns - tally.cost_known_turns).max(0.0)));
+    out.insert("cacheHitRate".into(), measured_ratio(tally.unmeasured_turns, tally.cache_read, tally.input + tally.cache_read + tally.cache_write, 4));
     Value::Object(out)
 }
 
@@ -575,74 +476,23 @@ fn export_route(route: &Route, total_tokens: f64) -> Map<String, Value> {
     put("turns", js_number(t.turns));
     put("sessions", route.sessions.len().into());
     put("sessionsComplete", route.complete.into());
-    put(
-        "input",
-        if unknown {
-            Value::Null
-        } else {
-            js_number(t.input)
-        },
-    );
+    put("input", if unknown { Value::Null } else { js_number(t.input) });
     put("output", js_number(t.output));
-    put(
-        "cacheRead",
-        if unknown {
-            Value::Null
-        } else {
-            js_number(t.cache_read)
-        },
-    );
-    put(
-        "cacheWrite",
-        if unknown {
-            Value::Null
-        } else {
-            js_number(t.cache_write)
-        },
-    );
+    put("cacheRead", if unknown { Value::Null } else { js_number(t.cache_read) });
+    put("cacheWrite", if unknown { Value::Null } else { js_number(t.cache_write) });
     put("cacheTokens", js_number(t.cache_read + t.cache_write));
     put("tokens", js_number(tokens));
     put("unmeasuredTurns", js_number(unmeasured));
     put("costUsd", js_number(round_to(t.cost_usd, 6)));
     put("costBilled", js_number(round_to(num(t.cost_billed), 6)));
-    put(
-        "costEstimated",
-        js_number(round_to(num(t.cost_estimated), 6)),
-    );
+    put("costEstimated", js_number(round_to(num(t.cost_estimated), 6)));
     put("costKnownTurns", js_number(num(t.cost_known_turns)));
-    put(
-        "costUnpricedTurns",
-        js_number((t.turns - num(t.cost_known_turns)).max(0.0)),
-    );
-    put(
-        "costCoverage",
-        js_number(if t.turns > 0.0 {
-            num(t.cost_known_turns) / t.turns
-        } else {
-            0.0
-        }),
-    );
+    put("costUnpricedTurns", js_number((t.turns - num(t.cost_known_turns)).max(0.0)));
+    put("costCoverage", js_number(if t.turns > 0.0 { num(t.cost_known_turns) / t.turns } else { 0.0 }));
     put("share", measured_ratio(unmeasured, tokens, total_tokens, 6));
-    put(
-        "cacheHitRate",
-        measured_ratio(unmeasured, t.cache_read, prompt, 4),
-    );
-    put(
-        "costPerMTokens",
-        js_number(if fresh > 0.0 {
-            round_to(t.cost_usd / (fresh / 1_000_000.0), 4)
-        } else {
-            0.0
-        }),
-    );
-    put(
-        "outputPerTurn",
-        js_number(if t.turns > 0.0 {
-            round(t.output / t.turns)
-        } else {
-            0.0
-        }),
-    );
+    put("cacheHitRate", measured_ratio(unmeasured, t.cache_read, prompt, 4));
+    put("costPerMTokens", js_number(if fresh > 0.0 { round_to(t.cost_usd / (fresh / 1_000_000.0), 4) } else { 0.0 }));
+    put("outputPerTurn", js_number(if t.turns > 0.0 { round(t.output / t.turns) } else { 0.0 }));
     put("outputTokensPerSecond", output_speed(t));
     out
 }
@@ -663,16 +513,7 @@ fn export_providers(state: &State, total_tokens: f64, model_limit: usize) -> Vec
                     Value::Object(out)
                 })
                 .collect();
-            sort_model_tiers(
-                &mut models,
-                |row| {
-                    row.get("model")
-                        .and_then(Value::as_str)
-                        .unwrap_or("")
-                        .to_string()
-                },
-                &["tokens", "costUsd"],
-            );
+            sort_model_tiers(&mut models, |row| row.get("model").and_then(Value::as_str).unwrap_or("").to_string(), &["tokens", "costUsd"]);
             let mut out = Map::new();
             out.insert("provider".into(), bucket.provider.clone().into());
             out.insert("providerKind".into(), bucket.kind.clone().into());
@@ -689,11 +530,7 @@ fn export_providers(state: &State, total_tokens: f64, model_limit: usize) -> Vec
         .collect();
     rows.sort_by(|a, b| {
         let lead = b.0 - a.0;
-        let diff = if lead != 0.0 && !lead.is_nan() {
-            lead
-        } else {
-            b.1 - a.1
-        };
+        let diff = if lead != 0.0 && !lead.is_nan() { lead } else { b.1 - a.1 };
         diff.partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal)
     });
     rows.into_iter().map(|(_, _, row)| row).collect()
@@ -709,19 +546,12 @@ fn export_unpriced(state: &State) -> Vec<Value> {
     for provider in state.providers.values() {
         for model in provider.models.values() {
             let t = &model.route.tally;
-            if t.turns > 0.0
-                && t.cost_known_turns < t.turns
-                && !rows
-                    .iter()
-                    .any(|(p, m)| *p == provider.provider && *m == model.model)
-            {
+            if t.turns > 0.0 && t.cost_known_turns < t.turns && !rows.iter().any(|(p, m)| *p == provider.provider && *m == model.model) {
                 rows.push((provider.provider.clone(), model.model.clone()));
             }
         }
     }
-    rows.sort_by(|a, b| {
-        mixdog_js::locale_compare(&a.0, &b.0).then_with(|| mixdog_js::locale_compare(&a.1, &b.1))
-    });
+    rows.sort_by(|a, b| mixdog_js::locale_compare(&a.0, &b.0).then_with(|| mixdog_js::locale_compare(&a.1, &b.1)));
     rows.into_iter()
         .map(|(provider, model)| {
             let mut out = Map::new();
@@ -733,19 +563,8 @@ fn export_unpriced(state: &State) -> Vec<Value> {
 }
 
 /// One row per calendar day in the window, a day without traffic included.
-fn export_daily(
-    state: &State,
-    window: Window,
-    has_period: bool,
-    period_end_day: Option<&str>,
-    first_day: &str,
-    end_day: &str,
-) -> Vec<Value> {
-    let first = if window.days.is_none() {
-        first_day.to_string()
-    } else {
-        day_key(window.from_ms)
-    };
+fn export_daily(state: &State, window: Window, has_period: bool, period_end_day: Option<&str>, first_day: &str, end_day: &str) -> Vec<Value> {
+    let first = if window.days.is_none() { first_day.to_string() } else { day_key(window.from_ms) };
     let last = period_end_day.filter(|d| !d.is_empty()).unwrap_or(end_day);
     calendar_days(&first, last)
         .into_iter()
@@ -754,13 +573,7 @@ fn export_daily(
             let future = day.as_str() > end_day;
             let Some(bucket) = state.daily.get(&day) else {
                 out.insert("day".into(), day.into());
-                for key in [
-                    "turns",
-                    "tokens",
-                    "cacheTokens",
-                    "costUsd",
-                    "costKnownTurns",
-                ] {
+                for key in ["turns", "tokens", "cacheTokens", "costUsd", "costKnownTurns"] {
                     out.insert(key.into(), 0.into());
                 }
                 out.insert("providers".into(), Value::Array(Vec::new()));
@@ -773,10 +586,7 @@ fn export_daily(
             out.insert("day".into(), bucket.day.clone().into());
             out.insert("turns".into(), js_number(t.turns));
             out.insert("tokens".into(), js_number(t.tokens()));
-            out.insert(
-                "cacheTokens".into(),
-                js_number(t.cache_read + t.cache_write),
-            );
+            out.insert("cacheTokens".into(), js_number(t.cache_read + t.cache_write));
             out.insert("costUsd".into(), js_number(round_to(t.cost_usd, 6)));
             out.insert("costKnownTurns".into(), js_number(num(t.cost_known_turns)));
             out.insert("unmeasuredTurns".into(), js_number(num(t.unmeasured_turns)));
@@ -784,11 +594,7 @@ fn export_daily(
                 out.insert("future".into(), future.into());
             }
             let mut slices: Vec<&(String, Tally)> = bucket.providers.values().collect();
-            slices.sort_by(|a, b| {
-                (b.1.tokens() - a.1.tokens())
-                    .partial_cmp(&0.0)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
+            slices.sort_by(|a, b| (b.1.tokens() - a.1.tokens()).partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal));
             let providers = slices
                 .into_iter()
                 .map(|(provider, t)| {
@@ -816,24 +622,15 @@ pub fn rollup_query_for(period: Option<&Value>) -> RollupQuery {
         return query;
     };
     let view = period.get("view").and_then(Value::as_str);
-    let timed = view == Some("hour")
-        || period.get("startTime").is_some_and(|v| !v.is_null())
-        || period.get("endTime").is_some_and(|v| !v.is_null());
+    let timed = view == Some("hour") || period.get("startTime").is_some_and(|v| !v.is_null()) || period.get("endTime").is_some_and(|v| !v.is_null());
     if view == Some("hour") {
-        query.hourly_day = period
-            .get("startDay")
-            .and_then(Value::as_str)
-            .map(str::to_string);
+        query.hourly_day = period.get("startDay").and_then(Value::as_str).map(str::to_string);
     }
     if timed {
         query.from_ms = period.get("fromMs").and_then(Value::as_i64);
         query.to_ms = period.get("toMs").and_then(Value::as_i64);
     }
-    if let Some(start) = period
-        .get("startDay")
-        .and_then(Value::as_str)
-        .filter(|d| !d.is_empty())
-    {
+    if let Some(start) = period.get("startDay").and_then(Value::as_str).filter(|d| !d.is_empty()) {
         query.from_day = start.to_string();
     }
     query.to_day = day_key(period.get("toMs").and_then(Value::as_i64).unwrap_or(0));
@@ -841,13 +638,7 @@ pub fn rollup_query_for(period: Option<&Value>) -> RollupQuery {
 }
 
 /// The snapshot for a rollup document (`{days}`) and the rollup's hourly records.
-pub fn usage_stats_snapshot(
-    rollup: &Value,
-    hourly_records: Option<&Hourly>,
-    options: &UsageStatsOptions,
-    period: Option<&Value>,
-    now: i64,
-) -> Value {
+pub fn usage_stats_snapshot(rollup: &Value, hourly_records: Option<&Hourly>, options: &UsageStatsOptions, period: Option<&Value>, now: i64) -> Value {
     let conversation_only = options.source.as_deref() == Some("conversation");
     let days = normalize_days(&options.days);
     let model_limit = normalize_model_limit(&options.model_limit);
@@ -860,10 +651,7 @@ pub fn usage_stats_snapshot(
         None => resolve_window(days, now),
     };
     let empty = Map::new();
-    let rollup_days = rollup
-        .get("days")
-        .and_then(Value::as_object)
-        .unwrap_or(&empty);
+    let rollup_days = rollup.get("days").and_then(Value::as_object).unwrap_or(&empty);
     let state = collect(rollup_days, window, conversation_only);
 
     let cache_tokens = state.tally.cache_read + state.tally.cache_write;
@@ -871,37 +659,17 @@ pub fn usage_stats_snapshot(
     let mut session_totals: Vec<f64> = state.sessions.values().copied().collect();
     session_totals.extend(&state.anonymous);
     let first_day = state.day_keys.iter().next().cloned().unwrap_or_default();
-    let last_day = state
-        .day_keys
-        .iter()
-        .next_back()
-        .cloned()
-        .unwrap_or_default();
+    let last_day = state.day_keys.iter().next_back().cloned().unwrap_or_default();
     let end_day = day_key(window.to_ms);
-    let span_days = if first_day.is_empty() {
-        0
-    } else {
-        calendar_days(&first_day, &end_day).len()
-    };
+    let span_days = if first_day.is_empty() { 0 } else { calendar_days(&first_day, &end_day).len() };
     let effective_days = match window.days {
         None => span_days as f64,
         Some(d) => (d.max(1)) as f64,
     };
     let period_end = period.and_then(|p| p.get("endDay")).and_then(Value::as_str);
     let providers = export_providers(&state, total_tokens, model_limit);
-    let daily = export_daily(
-        &state,
-        window,
-        period.is_some(),
-        period_end,
-        &first_day,
-        &end_day,
-    );
-    let prior = if period.is_some() {
-        None
-    } else {
-        previous_window(window).map(|w| collect(rollup_days, w, conversation_only))
-    };
+    let daily = export_daily(&state, window, period.is_some(), period_end, &first_day, &end_day);
+    let prior = if period.is_some() { None } else { previous_window(window).map(|w| collect(rollup_days, w, conversation_only)) };
 
     let t = &state.tally;
     let mut out = Map::new();
@@ -911,27 +679,11 @@ pub fn usage_stats_snapshot(
         if p.get("view").and_then(Value::as_str) == Some("hour") {
             out.insert(
                 "hourly".into(),
-                hourly_series(
-                    hourly_records,
-                    window.from_ms,
-                    window.to_ms,
-                    p.get("endMs")
-                        .and_then(Value::as_i64)
-                        .unwrap_or(window.to_ms),
-                    conversation_only,
-                ),
+                hourly_series(hourly_records, window.from_ms, window.to_ms, p.get("endMs").and_then(Value::as_i64).unwrap_or(window.to_ms), conversation_only),
             );
         }
     }
-    out.insert(
-        "source".into(),
-        if conversation_only {
-            "conversation"
-        } else {
-            "all"
-        }
-        .into(),
-    );
+    out.insert("source".into(), if conversation_only { "conversation" } else { "all" }.into());
     let mut range = Map::new();
     range.insert("days".into(), window.days.map_or(Value::Null, Value::from));
     range.insert("fromMs".into(), window.from_ms.into());
@@ -957,59 +709,17 @@ pub fn usage_stats_snapshot(
     put("cacheWrite", js_number(t.cache_write));
     put("cacheTokens", js_number(cache_tokens));
     put("totalTokens", js_number(total_tokens));
-    put(
-        "cacheHitRate",
-        measured_ratio(
-            t.unmeasured_turns,
-            t.cache_read,
-            t.input + t.cache_read + t.cache_write,
-            4,
-        ),
-    );
+    put("cacheHitRate", measured_ratio(t.unmeasured_turns, t.cache_read, t.input + t.cache_read + t.cache_write, 4));
     put("costUsd", js_number(round_to(t.cost_usd, 6)));
     put("costKnownTurns", js_number(t.cost_known_turns));
-    put(
-        "costUnpricedTurns",
-        js_number((t.turns - t.cost_known_turns).max(0.0)),
-    );
+    put("costUnpricedTurns", js_number((t.turns - t.cost_known_turns).max(0.0)));
     put("costBilled", js_number(round_to(t.cost_billed, 6)));
     put("costEstimated", js_number(round_to(t.cost_estimated, 6)));
-    put(
-        "costPerDay",
-        js_number(if effective_days > 0.0 {
-            round_to(t.cost_usd / effective_days, 6)
-        } else {
-            0.0
-        }),
-    );
-    put(
-        "tokensPerSession",
-        js_number(if session_totals.is_empty() {
-            0.0
-        } else {
-            round(total_tokens / session_totals.len() as f64)
-        }),
-    );
-    put(
-        "medianTokensPerSession",
-        js_number(round(median(&session_totals))),
-    );
-    put(
-        "avgDurationMs",
-        js_number(if state.duration_turns > 0.0 {
-            round(state.duration_ms / state.duration_turns)
-        } else {
-            0.0
-        }),
-    );
-    put(
-        "costCoverage",
-        js_number(if t.turns > 0.0 {
-            round_to(t.cost_known_turns / t.turns, 4)
-        } else {
-            0.0
-        }),
-    );
+    put("costPerDay", js_number(if effective_days > 0.0 { round_to(t.cost_usd / effective_days, 6) } else { 0.0 }));
+    put("tokensPerSession", js_number(if session_totals.is_empty() { 0.0 } else { round(total_tokens / session_totals.len() as f64) }));
+    put("medianTokensPerSession", js_number(round(median(&session_totals))));
+    put("avgDurationMs", js_number(if state.duration_turns > 0.0 { round(state.duration_ms / state.duration_turns) } else { 0.0 }));
+    put("costCoverage", js_number(if t.turns > 0.0 { round_to(t.cost_known_turns / t.turns, 4) } else { 0.0 }));
     out.insert("totals".into(), Value::Object(totals));
 
     out.insert(
@@ -1024,10 +734,7 @@ pub fn usage_stats_snapshot(
     );
     out.insert("daily".into(), Value::Array(daily));
     out.insert("providers".into(), Value::Array(providers));
-    out.insert(
-        "unpricedModels".into(),
-        Value::Array(export_unpriced(&state)),
-    );
+    out.insert("unpricedModels".into(), Value::Array(export_unpriced(&state)));
     let mut coverage = Map::new();
     coverage.insert("rollupDays".into(), state.rollup_days.into());
     coverage.insert("eventDays".into(), 0.into());
@@ -1035,10 +742,7 @@ pub fn usage_stats_snapshot(
     coverage.insert("historyPending".into(), false.into());
     coverage.insert("sessionsDropped".into(), js_number(state.sessions_dropped));
     coverage.insert("unclassifiedDays".into(), state.unclassified_days.into());
-    coverage.insert(
-        "unclassifiedTurns".into(),
-        js_number(state.unclassified_turns),
-    );
+    coverage.insert("unclassifiedTurns".into(), js_number(state.unclassified_turns));
     coverage.insert("partialDays".into(), state.partial_days.into());
     out.insert("coverage".into(), Value::Object(coverage));
     Value::Object(out)
@@ -1082,10 +786,7 @@ pub(crate) fn requests_plan(options: &UsageRequestsOptions, real_now: i64) -> Re
     if let Some(as_of) = as_of
         && !(as_of > 0.0 && as_of <= real_now as f64)
     {
-        return Err(crate::error::LedgerError::Period {
-            range: true,
-            message: "asOf must be a past timestamp",
-        });
+        return Err(crate::error::LedgerError::Period { range: true, message: "asOf must be a past timestamp" });
     }
     let generated_at = as_of.filter(|a| *a > 0.0).unwrap_or(real_now as f64);
     let now = generated_at as i64;
@@ -1109,15 +810,9 @@ pub(crate) fn requests_plan(options: &UsageRequestsOptions, real_now: i64) -> Re
         status: text(&options.status),
         model: (!model.is_empty()).then_some(model),
         cursor: (!cursor.is_empty()).then_some(cursor),
-        limit: options
-            .limit
-            .map_or(0, |l| if l.is_finite() { l.floor() as i64 } else { 0 }),
+        limit: options.limit.map_or(0, |l| if l.is_finite() { l.floor() as i64 } else { 0 }),
     };
-    Ok(RequestsPlan {
-        generated_at,
-        period,
-        query,
-    })
+    Ok(RequestsPlan { generated_at, period, query })
 }
 
 /// A `getUsageRequests` call resolved to its period and its page query.
@@ -1143,17 +838,10 @@ impl RequestsPlan {
 /// The `liveSince` the writer stored, or none.
 fn live_since(conn: &Connection) -> Result<Option<f64>> {
     use rusqlite::types::Value as Sql;
-    let stored: Option<Sql> = conn
-        .query_row(
-            "SELECT value FROM metadata WHERE key='liveSince'",
-            [],
-            |r| r.get(0),
-        )
-        .map(Some)
-        .or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            other => Err(other),
-        })?;
+    let stored: Option<Sql> = conn.query_row("SELECT value FROM metadata WHERE key='liveSince'", [], |r| r.get(0)).map(Some).or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        other => Err(other),
+    })?;
     let number = match stored {
         Some(Sql::Text(text)) => mixdog_js::string_to_number(&text),
         Some(Sql::Integer(n)) => n as f64,
@@ -1177,11 +865,7 @@ pub(crate) struct StatsData {
 
 impl StatsData {
     pub(crate) fn read(conn: &Connection, query: &RollupQuery, now: i64) -> Result<Self> {
-        let (rollup, hourly) = if query.from_ms.is_some() {
-            rollup_usage(conn, query)?.into_parts()
-        } else {
-            cached_rollup(conn, query, now)?
-        };
+        let (rollup, hourly) = if query.from_ms.is_some() { rollup_usage(conn, query)?.into_parts() } else { cached_rollup(conn, query, now)? };
         Ok(Self { rollup, hourly, live: live_since(conn)? })
     }
 

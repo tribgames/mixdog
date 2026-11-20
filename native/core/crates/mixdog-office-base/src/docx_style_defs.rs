@@ -43,11 +43,7 @@ pub fn docx_style_definitions(op: &Map<String, Value>) -> Result<Vec<(&str, &Val
             faults.push(format!("{style}: needs an object of fields"));
             continue;
         };
-        let unknown: Vec<&str> = js_object_keys(fields)
-            .into_iter()
-            .map(String::as_str)
-            .filter(|field| !DOCX_STYLE_FIELDS.contains(field))
-            .collect();
+        let unknown: Vec<&str> = js_object_keys(fields).into_iter().map(String::as_str).filter(|field| !DOCX_STYLE_FIELDS.contains(field)).collect();
         if !unknown.is_empty() {
             faults.push(format!("{style}: unknown fields {}", unknown.join(", ")));
         }
@@ -64,8 +60,7 @@ mod tests {
     use serde_json::json;
 
     fn definitions(op: &Value) -> Result<Vec<String>, String> {
-        docx_style_definitions(op.as_object().expect("object"))
-            .map(|entries| entries.into_iter().map(|(name, _)| name.to_owned()).collect())
+        docx_style_definitions(op.as_object().expect("object")).map(|entries| entries.into_iter().map(|(name, _)| name.to_owned()).collect())
     }
 
     #[test]

@@ -115,9 +115,8 @@ fn helper_nonce(value: &str) -> bool {
 /// The `screen-helper-challenge` for a helper challenge and the current run; `None` for a malformed one, which
 /// is never forwarded (the helper's pipe admits any process of the PC user).
 fn helper_challenge_message(epoch: u64, challenge: &Challenge) -> Option<Value> {
-    (epoch >= 1 && helper_nonce(&challenge.nonce) && helper_nonce(&challenge.challenge)).then(|| {
-        json!({"v": VERSION, "kind": "screen-helper-challenge", "epoch": epoch, "nonce": challenge.nonce, "challenge": challenge.challenge})
-    })
+    (epoch >= 1 && helper_nonce(&challenge.nonce) && helper_nonce(&challenge.challenge))
+        .then(|| json!({"v": VERSION, "kind": "screen-helper-challenge", "epoch": epoch, "nonce": challenge.nonce, "challenge": challenge.challenge}))
 }
 
 struct Run {
@@ -385,7 +384,6 @@ impl<F: Clone + Send + Sync + 'static> ScreenVideoSource<F> {
         })));
         *inner.subscriptions.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = subscriptions;
     }
-
 
     /// Starts the session once; its geometry (or none, on a refusal) reaches the sink, and the first run is
     /// declared once the session runs.

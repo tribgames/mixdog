@@ -64,10 +64,7 @@ pub async fn resolve_media_attachments(
 }
 
 /// The messages with every text-attachment reference replaced, in place, by its text part.
-pub async fn resolve_text_attachments(
-    mut messages: Vec<Message>,
-    resolver: &dyn AttachmentText,
-) -> Result<Vec<Message>, Box<ProviderError>> {
+pub async fn resolve_text_attachments(mut messages: Vec<Message>, resolver: &dyn AttachmentText) -> Result<Vec<Message>, Box<ProviderError>> {
     for message in &mut messages {
         let Content::Parts(parts) = &mut message.content else { continue };
         for part in parts.iter_mut().filter(|p| is_reference(p)) {

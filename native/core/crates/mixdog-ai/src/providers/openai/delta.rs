@@ -23,11 +23,8 @@ pub use mixdog_js::json_stringify_sorted_outside_arrays as stable_stringify;
 /// `_sansInput`: the request without its input and chain anchor; `generate`
 /// moves last.
 pub fn sans_input(body: &Map<String, Value>) -> Map<String, Value> {
-    let mut rest: Map<String, Value> = body
-        .iter()
-        .filter(|(k, _)| !matches!(k.as_str(), "input" | "previous_response_id" | "generate"))
-        .map(|(k, v)| (k.clone(), v.clone()))
-        .collect();
+    let mut rest: Map<String, Value> =
+        body.iter().filter(|(k, _)| !matches!(k.as_str(), "input" | "previous_response_id" | "generate")).map(|(k, v)| (k.clone(), v.clone())).collect();
     if let Some(generate) = body.get("generate") {
         rest.insert("generate".into(), generate.clone());
     }
@@ -131,14 +128,11 @@ pub fn logical_item_match(input: &Value, response: &Value) -> bool {
         "reasoning" => {
             in_type == "reasoning"
                 && (text(response, "id").is_empty() || text(input, "id") == text(response, "id"))
-                && (text(response, "encrypted_content").is_empty()
-                    || text(input, "encrypted_content") == text(response, "encrypted_content"))
+                && (text(response, "encrypted_content").is_empty() || text(input, "encrypted_content") == text(response, "encrypted_content"))
         }
         "web_search_call" => {
             let action = |item: &Value| stable_stringify(item.get("action").unwrap_or(&Value::Null));
-            in_type == "web_search_call"
-                && (text(response, "id").is_empty() || text(input, "id") == text(response, "id"))
-                && action(input) == action(response)
+            in_type == "web_search_call" && (text(response, "id").is_empty() || text(input, "id") == text(response, "id")) && action(input) == action(response)
         }
         _ => {
             if in_type != out_type {
@@ -206,12 +200,7 @@ impl Chain {
     /// `lastRequestSansInput`, `lastRequestInput`, `lastResponseItems`), for
     /// a replay that hands `compute` a recorded entry.
     #[cfg(feature = "test-support")]
-    pub fn from_entry(
-        response_id: Option<String>,
-        sans_input: Option<String>,
-        input: Option<Vec<Value>>,
-        response_items: Option<Vec<Value>>,
-    ) -> Self {
+    pub fn from_entry(response_id: Option<String>, sans_input: Option<String>, input: Option<Vec<Value>>, response_items: Option<Vec<Value>>) -> Self {
         Self {
             response_id,
             sans_input: sans_input.filter(|text| !text.is_empty()).map(|text| digest(&text)),
@@ -382,11 +371,7 @@ fn input_mismatch(current: &[Value], previous: &[Sent]) -> InputMismatch {
 /// `_buildResponseCreateFrame`: `type` first, the body's keys in place minus
 /// the transport-only ones; a delta carries `previous_response_id` right
 /// before the tail and drops an empty `instructions`.
-pub fn response_create(
-    body: &Map<String, Value>,
-    previous_response_id: Option<&str>,
-    input_override: Option<Vec<Value>>,
-) -> Map<String, Value> {
+pub fn response_create(body: &Map<String, Value>, previous_response_id: Option<&str>, input_override: Option<Vec<Value>>) -> Map<String, Value> {
     let mut frame = Map::new();
     frame.insert("type".into(), "response.create".into());
     let chained = previous_response_id.is_some() || input_override.is_some();

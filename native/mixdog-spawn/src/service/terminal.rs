@@ -137,11 +137,7 @@ pub fn attached_reply(attached: &Attached, client: &str) -> Value {
 /// Applies queued changes to the sections, one at a time and in order, and publishes what changed:
 /// the section follows every change the way Node's per-change events did, so the phone's events
 /// (activity, size owner) are the changes themselves, never a coalesced state.
-async fn publish_sections(
-    mut changes: mpsc::UnboundedReceiver<Change>,
-    tabs: Arc<TerminalTabs>,
-    publisher: Arc<dyn StatePublisher>,
-) {
+async fn publish_sections(mut changes: mpsc::UnboundedReceiver<Change>, tabs: Arc<TerminalTabs>, publisher: Arc<dyn StatePublisher>) {
     // Tabs with a known activity, in creation order (Node's `activitySnapshot` walks its tab map).
     let mut activity: Vec<(u64, String, &'static str)> = Vec::new();
     // The owner of each id's size as the changes announced it; claims belong to the id, not the process, so an id with no tab has
@@ -187,8 +183,7 @@ async fn publish_sections(
             }
         }
         if activity_changed {
-            let object: serde_json::Map<String, Value> =
-                activity.iter().map(|(_, id, state)| (id.clone(), json!(state))).collect();
+            let object: serde_json::Map<String, Value> = activity.iter().map(|(_, id, state)| (id.clone(), json!(state))).collect();
             publisher.publish(SectionName::TerminalActivity, None, section_bytes(&Value::Object(object)));
         }
         if tabs_changed {
@@ -208,21 +203,14 @@ async fn publish_sections(
             // An id with an owner and no tab: a row of its own (`tab: false`) so the phone hears its claim and release.
             let mut bare: Vec<&String> = owners.keys().filter(|id| !listed.iter().any(|tab| &tab.id == *id)).collect();
             bare.sort();
-            list.extend(bare.into_iter().map(|id| {
-                json!({ "id": id, "tab": false, "running": false, "sizeOwner": owners[id].as_ref().map(owner_json) })
-            }));
+            list.extend(bare.into_iter().map(|id| json!({ "id": id, "tab": false, "running": false, "sizeOwner": owners[id].as_ref().map(owner_json) })));
             publisher.publish(SectionName::TerminalTabs, None, section_bytes(&Value::Array(list)));
             owners.retain(|_, owner| owner.is_some());
         }
     }
 }
 impl TerminalService {
-    pub fn new(
-        manager: LocalProcessManager,
-        feeds: Arc<ProcessFeeds>,
-        publisher: Arc<dyn StatePublisher>,
-        config: TerminalServiceConfig,
-    ) -> Arc<Self> {
+    pub fn new(manager: LocalProcessManager, feeds: Arc<ProcessFeeds>, publisher: Arc<dyn StatePublisher>, config: TerminalServiceConfig) -> Arc<Self> {
         let (changes, queue) = mpsc::unbounded_channel();
         let mut tab_config = TerminalConfig::new(Arc::new(Events { changes: changes.clone() }));
         tab_config.shell_integration_dir = config.shell_integration_dir;
@@ -260,15 +248,8 @@ fn resume_of(value: Option<Value>) -> Result<Option<ResumeFrom>, CoreError> {
     let Some(value) = value.filter(|v| !v.is_null()) else {
         return Ok(None);
     };
-    let position: WireFeedPosition =
-        serde_json::from_value(value).map_err(|e| invalid_params("resumeFrom", e.to_string()))?;
-    Ok(Some(ResumeFrom {
-        position: FeedPosition {
-            epoch: position.epoch,
-            seq: position.seq,
-        },
-        window: Window::Fixed,
-    }))
+    let position: WireFeedPosition = serde_json::from_value(value).map_err(|e| invalid_params("resumeFrom", e.to_string()))?;
+    Ok(Some(ResumeFrom { position: FeedPosition { epoch: position.epoch, seq: position.seq }, window: Window::Fixed }))
 }
 
 /// How long a reply waits for the events its call caused to be published (see `TerminalService::published`).
@@ -312,11 +293,7 @@ impl DomainService for TerminalService {
                     cols: options.get("cols").and_then(Value::as_u64).map(|n| n as u32),
                     rows: options.get("rows").and_then(Value::as_u64).map(|n| n as u32),
                 };
-                let attached = self
-                    .tabs
-                    .ensure(params.tab_id.as_ref().map(|id| id.as_str()), request)
-                    .await
-                    .map_err(terminal_failure)?;
+                let attached = self.tabs.ensure(params.tab_id.as_ref().map(|id| id.as_str()), request).await.map_err(terminal_failure)?;
                 // Node pushed `termData` of every running terminal to a phone reading the lane: the tab is pumped from its first
                 // ensure, onto its `process:<id>` feed and the terminal lane (`TERMINAL_LANE_FEED`), whoever reads them.
                 // Node answered the ensure in-process before the new shell's first output (all five recorded runs, runs.json): the
@@ -500,8 +477,8 @@ mod tests {
     use mixdog_protocol::FeedId;
     use mixdog_protocol::ProcessHandle;
 
-    use super::*;
     use super::super::feeds::TERMINAL_LANE_FEED;
+    use super::*;
     use crate::manager::ProcessConfig;
     #[cfg(windows)]
     use crate::terminal::SpawnProfile;
@@ -622,7 +599,11 @@ mod tests {
             };
             next_from_publisher("the owner's publication reached the publisher").await;
             drop(opened);
-            within("the output already in the feed went out while the owner was unpublished", tap.notifications_until(|frames| sent(frames, "before").is_some())).await;
+            within(
+                "the output already in the feed went out while the owner was unpublished",
+                tap.notifications_until(|frames| sent(frames, "before").is_some()),
+            )
+            .await;
 
             // The hold stands until just before its deadline; the relay's 16 ms are long over, so unheld output would go at once.
             tokio::time::advance(PUBLISH_DEADLINE - Duration::from_millis(1)).await;
@@ -730,7 +711,8 @@ mod tests {
             within("the parked chunk reached the phone", tap.notifications_until(|frames| sent(frames, "after").is_some())).await;
             tokio::time::advance(Duration::from_secs(1)).await;
             let _ = manager.kill(&handle);
-            let frames = within("the exit reached the phone", tap.notifications_until(|frames| frames.iter().any(|frame| frame["method"] == "process/exited"))).await;
+            let frames =
+                within("the exit reached the phone", tap.notifications_until(|frames| frames.iter().any(|frame| frame["method"] == "process/exited"))).await;
             let text: String = outputs(&frames).into_iter().map(|(_, output)| output).collect();
             assert_eq!(text.matches("after").count(), 1, "the parked chunk reached the phone once: {text:?}");
             assert!(holds.borrow().is_empty(), "the hold came back");
@@ -838,9 +820,12 @@ mod tests {
             let id = format!("term_{name}_{}", std::process::id());
             let handle = ProcessHandle::from(id.as_str());
             let profile = SpawnProfile { path: "powershell.exe".to_owned(), ..SpawnProfile::default() };
-            within("the tab started", service.tabs.ensure(Some(&id), EnsureRequest { profile: Some(profile), cols: Some(80), rows: Some(24), ..EnsureRequest::default() }))
-                .await
-                .unwrap();
+            within(
+                "the tab started",
+                service.tabs.ensure(Some(&id), EnsureRequest { profile: Some(profile), cols: Some(80), rows: Some(24), ..EnsureRequest::default() }),
+            )
+            .await
+            .unwrap();
             drop(feeds.open_terminal(&id, || service.tabs.relay_order(&id)));
             let relay = scoped.find(&FeedId::from(TERMINAL_LANE_FEED)).expect("the terminal lane exists");
             *publisher.relay.lock().unwrap() = Some(Arc::clone(&relay));
@@ -857,9 +842,12 @@ mod tests {
         async fn ended_quietly(&self) {
             let mut wait = self.manager.exit_wait(&self.handle).unwrap();
             let manager = &self.manager;
-            within("the shell ended and its output was seen", wait.wait_for(|wait| wait.waiting && wait.quiet_from == manager.output_pushed(&self.handle).unwrap()))
-                .await
-                .unwrap();
+            within(
+                "the shell ended and its output was seen",
+                wait.wait_for(|wait| wait.waiting && wait.quiet_from == manager.output_pushed(&self.handle).unwrap()),
+            )
+            .await
+            .unwrap();
         }
 
         /// The pump has taken every byte the shell wrote.
@@ -976,7 +964,11 @@ mod tests {
             let changes: Vec<usize> = (claimed..log.len()).filter(|at| !log[*at].0).collect();
             assert!(changes.iter().all(|at| *at > owner), "an activity change went before the owner: {log:?}");
             let frames = if paused {
-                within("the parked output went as a leading-edge frame", rig.tap.notifications_until(|frames| outputs(frames).iter().any(|(seq, _)| *seq > before))).await
+                within(
+                    "the parked output went as a leading-edge frame",
+                    rig.tap.notifications_until(|frames| outputs(frames).iter().any(|(seq, _)| *seq > before)),
+                )
+                .await
             } else {
                 Vec::new()
             };
@@ -985,7 +977,10 @@ mod tests {
             let exit_line = sent(&frames, "[process exited").unwrap();
             if paused {
                 let parked = outputs(&frames).into_iter().find(|(seq, _)| *seq > before).unwrap();
-                assert!(parked.0 != exit_line && parked.0 <= at_end, "the parked output is not between the owner ({at_owner}) and the tab's end ({at_end}): {parked:?}");
+                assert!(
+                    parked.0 != exit_line && parked.0 <= at_end,
+                    "the parked output is not between the owner ({at_owner}) and the tab's end ({at_end}): {parked:?}"
+                );
             }
             assert!(exit_line > at_end, "the exit line went before the tab's end");
         });

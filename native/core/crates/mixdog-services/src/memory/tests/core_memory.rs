@@ -9,8 +9,6 @@ use crate::memory::pg::db::Schema;
 use crate::memory::schema::ensure_memory_schema;
 use crate::memory::tests::support::TestPg;
 
-
-
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
 async fn edit_and_delete_follow_the_listed_revision() {
@@ -56,8 +54,11 @@ async fn a_cancelled_delete_waiting_on_a_row_lock_does_not_commit() {
     let db = pg.db(Schema::Memory).await;
     ensure_memory_schema(&db, 384, &Value::Null).await.expect("schema");
     let ctx = CoreContext {
-        db: &db, data_dir: pg.dir.path(), session_cwd: None,
-        snapshot_revision: &AtomicU64::new(0), lane: mixdog_rt::testing::tokens().durability_io,
+        db: &db,
+        data_dir: pg.dir.path(),
+        session_cwd: None,
+        snapshot_revision: &AtomicU64::new(0),
+        lane: mixdog_rt::testing::tokens().durability_io,
     };
     assert!(!run(&ctx, &json!({"op":"add","summary":"Keep this entry"})).await.is_error);
     let id: i64 = db.query("SELECT id FROM core_entries", &[]).await.unwrap()[0].get(0);
@@ -72,14 +73,16 @@ async fn a_cancelled_delete_waiting_on_a_row_lock_does_not_commit() {
     let (result, ()) = tokio::join!(delete, async {
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
             loop {
-                let waiting: bool = db.query("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)))", &[&pid])
-                    .await.unwrap()[0].get(0);
+                let waiting: bool =
+                    db.query("SELECT EXISTS (SELECT 1 FROM pg_stat_activity WHERE $1 = ANY(pg_blocking_pids(pid)))", &[&pid]).await.unwrap()[0].get(0);
                 if waiting {
                     break;
                 }
                 tokio::task::yield_now().await;
             }
-        }).await.expect("the delete must reach the locked row before cancellation");
+        })
+        .await
+        .expect("the delete must reach the locked row before cancellation");
         assert!(settlement.interrupt(), "cancellation owns settlement while DELETE waits");
         cancel.cancel();
         blocker.rollback().await.unwrap();
@@ -93,7 +96,6 @@ async fn a_cancelled_delete_waiting_on_a_row_lock_does_not_commit() {
     completed.cancel();
     assert!(db.query_opt("SELECT id FROM core_entries WHERE id = $1", &[&id]).await.unwrap().is_none());
 }
-
 
 #[tokio::test(flavor = "multi_thread")]
 #[ignore = "integration: needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME)"]
@@ -109,13 +111,7 @@ async fn a_folder_scope_change_rejects_add_and_move_without_touching_other_instr
     ensure_memory_schema(&db, 384, &json!({ "model": "test", "dtype": "q8" })).await.expect("schema");
     let revision = AtomicU64::new(0);
     let data_dir = pg.dir.path().join("data");
-    let ctx = CoreContext {
-        db: &db,
-        data_dir: &data_dir,
-        session_cwd: None,
-        snapshot_revision: &revision,
-        lane: mixdog_rt::testing::tokens().durability_io,
-    };
+    let ctx = CoreContext { db: &db, data_dir: &data_dir, session_cwd: None, snapshot_revision: &revision, lane: mixdog_rt::testing::tokens().durability_io };
     let folder = tempfile::tempdir().expect("destination folder");
     let cwd = folder.path().to_str().expect("destination path");
     let marker_dir = folder.path().join(".mixdog");
@@ -166,13 +162,14 @@ async fn a_folder_scope_change_rejects_add_and_move_without_touching_other_instr
     let reply = run(&ctx, &move_to_common).await;
     assert!(!reply.is_error, "{}", reply.text);
     let after = entries(&ctx).await;
-    let rows: Vec<_> = after.as_array().unwrap().iter()
-        .map(|row| (row["element"].as_str().unwrap(), row["project_id"].as_str(), row["summary"].as_str().unwrap()))
-        .collect();
-    assert_eq!(rows, [
-        ("Common instruction", None, "Same text"),
-        ("Selected instruction", None, "Same text"),
-        ("Destination instruction", Some("displayed-project"), "Same text"),
-    ]);
+    let rows: Vec<_> =
+        after.as_array().unwrap().iter().map(|row| (row["element"].as_str().unwrap(), row["project_id"].as_str(), row["summary"].as_str().unwrap())).collect();
+    assert_eq!(
+        rows,
+        [
+            ("Common instruction", None, "Same text"),
+            ("Selected instruction", None, "Same text"),
+            ("Destination instruction", Some("displayed-project"), "Same text"),
+        ]
+    );
 }
-

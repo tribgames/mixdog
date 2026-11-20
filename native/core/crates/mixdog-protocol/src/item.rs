@@ -639,7 +639,6 @@ pub enum UserInput {
     },
 }
 
-
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[cfg_attr(feature = "codegen", derive(schemars::JsonSchema, ts_rs::TS))]
 #[serde(tag = "type", rename_all = "camelCase")]

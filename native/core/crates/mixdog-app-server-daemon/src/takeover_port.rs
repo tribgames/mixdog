@@ -274,8 +274,8 @@ mod tests {
     use mixdog_core_api::domain::media::MediaFrameSource;
     use mixdog_core_api::domain::tool::ToolPart;
     use mixdog_core_base::support::testing::request;
-    use mixdog_core_session::session::secret_input::GatedComputerBackend;
     use mixdog_core_base::support::testing::value;
+    use mixdog_core_session::session::secret_input::GatedComputerBackend;
 
     use super::*;
 
@@ -288,7 +288,8 @@ mod tests {
         }
         fn take_with(&self, session: &str, screen: Option<&str>, id: &str) {
             let step = screen.unwrap_or("a step only the user can do").to_owned();
-            let hold = TakeoverHold { held: true, screen: screen.map(str::to_owned), names_screen: screen.is_some(), step: Some(step), id: Some(id.to_owned()) };
+            let hold =
+                TakeoverHold { held: true, screen: screen.map(str::to_owned), names_screen: screen.is_some(), step: Some(step), id: Some(id.to_owned()) };
             self.0.lock().unwrap().insert(session.to_owned(), hold);
         }
         fn end(&self, session: &str) {
@@ -406,7 +407,6 @@ mod tests {
         assert_eq!(empty, json!({ "held": [], "secretSlots": [] }));
     }
 
-
     #[tokio::test(start_paused = true)]
     #[allow(clippy::disallowed_methods, reason = "Test-only explicit Tokio watchdog or fixture clock; keep it independent of the product replay-time adapter.")]
     async fn a_takeover_starting_stops_the_running_command_of_its_session_only() {
@@ -454,7 +454,8 @@ mod tests {
         let owner = Arc::new(CoreTakeover::new(holds.clone()).with_computer_drain(lock.clone()));
         let finish = Arc::new(tokio::sync::Notify::new());
         let backend = Arc::new(GatedComputerBackend::new(Arc::new(Running(finish.clone())), lock));
-        let call = tokio::spawn(async move { backend.run(ComputerRequest { action: ComputerAction::Capture, input: json!({}) }, CancellationToken::new()).await });
+        let call =
+            tokio::spawn(async move { backend.run(ComputerRequest { action: ComputerAction::Capture, input: json!({}) }, CancellationToken::new()).await });
         tokio::time::sleep(Duration::from_millis(10)).await;
         holds.take("s1", Some("step \"x\""));
         let waiting = tokio::spawn({
@@ -478,7 +479,8 @@ mod tests {
         let owner = Arc::new(CoreTakeover::new(holds.clone()).with_computer_drain(lock.clone()));
         let finish = Arc::new(tokio::sync::Notify::new());
         let backend = Arc::new(GatedComputerBackend::new(Arc::new(Running(finish.clone())), lock));
-        let call = tokio::spawn(async move { backend.run(ComputerRequest { action: ComputerAction::Capture, input: json!({}) }, CancellationToken::new()).await });
+        let call =
+            tokio::spawn(async move { backend.run(ComputerRequest { action: ComputerAction::Capture, input: json!({}) }, CancellationToken::new()).await });
         tokio::time::sleep(Duration::from_millis(10)).await;
         // A browser takeover is the one held; a later screen takeover of the session does not make it wait.
         let hold = TakeoverHold { held: true, screen: Some("later".into()), names_screen: false, step: Some("s".into()), id: Some("t1".into()) };

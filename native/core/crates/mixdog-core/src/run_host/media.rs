@@ -17,24 +17,24 @@ use std::time::Duration;
 use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
-use mixdog_agent::compact::estimate::{MediaMeter, PartMeter, IMAGE_TOKEN_ALLOWANCE};
-use mixdog_agent::compact::pressure::{clean_image_mime, image_descriptor as json_image_descriptor, image_identity, ImageDescriptor, ImageIdentities};
-use mixdog_agent::message::AgentMessage;
+use mixdog_agent::compact::estimate::{IMAGE_TOKEN_ALLOWANCE, MediaMeter, PartMeter};
+use mixdog_agent::compact::pressure::{ImageDescriptor, ImageIdentities, clean_image_mime, image_descriptor as json_image_descriptor, image_identity};
 use mixdog_agent::compact::triggers::ToolMediaMeter;
+use mixdog_agent::message::AgentMessage;
 use mixdog_agent::text_only::MediaText;
 use mixdog_ai::service::model_proxy_inline::{AttachmentReader, ReadError};
 use mixdog_core_api::domain::ext::{DocumentText, ExtError, PdfIntake};
-use mixdog_exthost::{PDF_INTAKE_TIMEOUT_MS, PDF_UNREADABLE_TEXT};
-use mixdog_rt::scoped::{Scope, Scoped};
 use mixdog_core_api::domain::provider::{
     BinarySource, Content, ContentPart, DeliveryState, DocumentSource, ErrorKind, ImageSource, MediaSupport, Message, ProviderError, Role,
 };
+use mixdog_exthost::{PDF_INTAKE_TIMEOUT_MS, PDF_UNREADABLE_TEXT};
 use mixdog_protocol::{ProviderId, ThreadId};
+use mixdog_rt::scoped::{Scope, Scoped};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 // The kinds of a file and their classification are the provider builders': one function for both sides.
-pub use mixdog_ai::providers::file_text::{base64_byte_length, inline_file_kind, FileKind, MAX_PDF_BYTES};
+pub use mixdog_ai::providers::file_text::{FileKind, MAX_PDF_BYTES, base64_byte_length, inline_file_kind};
 use mixdog_ooxml_text::legacy::{is_legacy_office_buffer, legacy_office_label_package, ooxml_label_package, ooxml_mime_by_package};
 
 /// What the attachment store recorded about a stored attachment (Node keeps these on the part).
@@ -75,13 +75,7 @@ pub const MAX_PDF_PAGES: u64 = 100;
 /// error, as in Node: over the size limit, unreadable, or (for a provider that sends the PDF
 /// natively) more than MAX_PDF_PAGES pages. A provider that takes the PDF as text reads its first
 /// pages, so a longer PDF is accepted. An environment failure or the intake timeout is an error too.
-pub async fn pdf_intake_facts(
-    docs: &dyn DocumentText,
-    thread: &ThreadId,
-    data_base64: &str,
-    size_bytes: u64,
-    native_pdf: bool,
-) -> Result<StoredFacts, String> {
+pub async fn pdf_intake_facts(docs: &dyn DocumentText, thread: &ThreadId, data_base64: &str, size_bytes: u64, native_pdf: bool) -> Result<StoredFacts, String> {
     if size_bytes > MAX_PDF_BYTES {
         return Err(format!("PDF exceeds the {} MiB input limit", MAX_PDF_BYTES / 1024 / 1024));
     }
@@ -326,12 +320,9 @@ impl MediaLowering {
         legacy_kind(&file)?;
         let converted = self.memo().legacy.get(&legacy_key(&file)).cloned()?;
         Some(match converted {
-            Legacy::Package(package) => ContentPart::File {
-                source: BinarySource::Base64(package.data),
-                mime_type: package.mime,
-                filename: Some(package.filename),
-                text: None,
-            },
+            Legacy::Package(package) => {
+                ContentPart::File { source: BinarySource::Base64(package.data), mime_type: package.mime, filename: Some(package.filename), text: None }
+            }
             Legacy::Text(text) => ContentPart::Text(text, None),
         })
     }
@@ -394,11 +385,8 @@ impl MediaLowering {
         if let Some(hit) = self.memo().office.get(&key) {
             return Ok(hit.clone());
         }
-        let text = self
-            .docs
-            .office_text(&self.thread, &file.filename, &file.data)
-            .await
-            .map_err(|e| failure(format!("office text extraction failed: {e:?}")))?;
+        let text =
+            self.docs.office_text(&self.thread, &file.filename, &file.data).await.map_err(|e| failure(format!("office text extraction failed: {e:?}")))?;
         let mut memo = self.memo();
         if memo.office.len() > OFFICE_CACHE_CAP {
             memo.office.clear();
@@ -581,17 +569,24 @@ impl MediaText for MediaLowering {
             Lookup::NotFile => Ok(None),
             Lookup::Gone => Ok(Some(unavailable_text(part))),
             Lookup::Text(text) => Ok(Some(text)),
-            Lookup::Cold => Err(failure("internal error: a stored file reached text lowering unread (await prepare_pdf_text before building the request)".to_owned())),
+            Lookup::Cold => {
+                Err(failure("internal error: a stored file reached text lowering unread (await prepare_pdf_text before building the request)".to_owned()))
+            }
             Lookup::Info(file) => {
                 let kind = inline_file_kind(&file.mime, &file.data, &file.filename);
                 match kind {
-                    FileKind::Pdf => Err(failure("internal error: a PDF part reached text lowering unprepared (await preparePdfTextForProvider before building the request)".to_owned())),
+                    FileKind::Pdf => Err(failure(
+                        "internal error: a PDF part reached text lowering unprepared (await preparePdfTextForProvider before building the request)".to_owned(),
+                    )),
                     FileKind::Office => {
                         let key = format!("{}\0{}", file.key, file.filename);
                         let memo = self.memo();
                         match memo.office.get(&key) {
                             Some(text) => Ok(Some(fallback_text(&file, kind, text.as_deref()))),
-                            None => Err(failure("internal error: an Office file reached text lowering unprepared (await prepare_pdf_text before building the request)".to_owned())),
+                            None => Err(failure(
+                                "internal error: an Office file reached text lowering unprepared (await prepare_pdf_text before building the request)"
+                                    .to_owned(),
+                            )),
                         }
                     }
                     _ => Ok(Some(fallback_text(&file, kind, None))),
@@ -632,9 +627,7 @@ fn image_allowance(width: Option<f64>, height: Option<f64>) -> u64 {
 
 fn is_image_ref(part: &ContentPart) -> Option<&str> {
     match part {
-        ContentPart::File { source: BinarySource::AttachmentRef(r), mime_type, text: None, .. }
-            if mime_type.trim().to_lowercase().starts_with("image/") =>
-        {
+        ContentPart::File { source: BinarySource::AttachmentRef(r), mime_type, text: None, .. } if mime_type.trim().to_lowercase().starts_with("image/") => {
             Some(r)
         }
         _ => None,
@@ -722,7 +715,9 @@ impl MediaMeter for MediaLowering {
             let memo = self.memo();
             let text = match memo.resolved.get(reference) {
                 Some(Resolved::Bytes(data)) => stored_text(part, &STANDARD.decode(data).unwrap_or_default()),
-                Some(Resolved::Gone) => mixdog_js::json_stringify(&memo.stored_parts.get(reference).cloned().unwrap_or_else(|| super::message_row::part_row(part))),
+                Some(Resolved::Gone) => {
+                    mixdog_js::json_stringify(&memo.stored_parts.get(reference).cloned().unwrap_or_else(|| super::message_row::part_row(part)))
+                }
                 None => String::new(),
             };
             return PartMeter { text, tokens: 0 };
@@ -821,7 +816,9 @@ impl ImageIdentities for MediaLowering {
         if let Content::Parts(parts) = &message.message.content {
             for part in parts {
                 match part {
-                    ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => out.push(plain(image_identity("inline", data, &clean_image_mime(mime_type)))),
+                    ContentPart::Image(ImageSource::Base64 { data, mime_type, .. }) => {
+                        out.push(plain(image_identity("inline", data, &clean_image_mime(mime_type))))
+                    }
                     ContentPart::Image(ImageSource::Url(url)) => out.push(plain(image_identity("url", url, ""))),
                     ContentPart::Image(ImageSource::FileId(id)) => out.push(plain(image_identity("file-id", id, ""))),
                     _ => {
@@ -831,7 +828,12 @@ impl ImageIdentities for MediaLowering {
                                 _ => "",
                             };
                             let f = self.stored_facts(reference).unwrap_or_default();
-                            out.push(ImageDescriptor { identity: image_identity("attachment-ref", reference, mime), width: f.width.filter(|w| *w > 0.0), height: f.height.filter(|h| *h > 0.0), detail: "auto".to_owned() });
+                            out.push(ImageDescriptor {
+                                identity: image_identity("attachment-ref", reference, mime),
+                                width: f.width.filter(|w| *w > 0.0),
+                                height: f.height.filter(|h| *h > 0.0),
+                                detail: "auto".to_owned(),
+                            });
                         }
                     }
                 }
@@ -898,7 +900,13 @@ mod tests {
 
         /// The read tool's short PDF counts 3 pages and 4 001 characters of text layer; any other payload is not counted.
         async fn inline_pdf_facts(&self, _: &str, data: &str) -> Option<StoredFacts> {
-            (data == b64("%PDF-1.7 read")).then(|| StoredFacts { size_bytes: 13, page_count: Some(3), text_pages: Some(2), text_chars: Some(4_001), ..Default::default() })
+            (data == b64("%PDF-1.7 read")).then(|| StoredFacts {
+                size_bytes: 13,
+                page_count: Some(3),
+                text_pages: Some(2),
+                text_chars: Some(4_001),
+                ..Default::default()
+            })
         }
     }
 
@@ -938,7 +946,9 @@ mod tests {
             m.message.content = Content::Parts(vec![reference(r, mime, None)]);
             m
         };
-        l.prepare(&[message("scan", "application/pdf"), message("typed", "application/pdf"), message("shot", "image/png"), message("unknown", "image/png")]).await.unwrap();
+        l.prepare(&[message("scan", "application/pdf"), message("typed", "application/pdf"), message("shot", "image/png"), message("unknown", "image/png")])
+            .await
+            .unwrap();
         let content = |p: ContentPart| Content::Parts(vec![p]);
         // 37 pages, no text layer measured: 2 500 a page; 3 pages with 4 001 chars: 3*1568 + 2001.
         assert_eq!(l.part(&reference("scan", "application/pdf", None)).tokens, 92_500);
@@ -974,14 +984,20 @@ mod tests {
     async fn preparing_replaces_pdfs_and_warms_office_and_stored_files() {
         let l = lowering(false);
         let office = reference("office", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", Some("a.docx"));
-        let messages = vec![Message::new(Role::User, Content::Parts(vec![reference("pdf", "application/pdf", Some("p.pdf")), office.clone(), reference("doc", "text/plain", Some("d.txt"))]))];
+        let messages = vec![Message::new(
+            Role::User,
+            Content::Parts(vec![reference("pdf", "application/pdf", Some("p.pdf")), office.clone(), reference("doc", "text/plain", Some("d.txt"))]),
+        )];
         // Cold: nothing read yet.
         assert!(l.text_form(&office).is_err());
         let prepared = l.prepare_pdf_text(messages).await.unwrap();
         let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
         assert_eq!(parts[0], ContentPart::Text("--- p.pdf (application/pdf, 13 bytes) ---\nPDFTEXT".into(), None));
         assert_eq!(parts[1], office, "an Office file keeps its part unless the route takes no documents");
-        assert_eq!(l.text_form(&office).unwrap().unwrap(), "--- a.docx (application/vnd.openxmlformats-officedocument.wordprocessingml.document, 2 bytes) ---\nEXTRACTED");
+        assert_eq!(
+            l.text_form(&office).unwrap().unwrap(),
+            "--- a.docx (application/vnd.openxmlformats-officedocument.wordprocessingml.document, 2 bytes) ---\nEXTRACTED"
+        );
         assert_eq!(l.text_form(&reference("doc", "text/plain", Some("d.txt"))).unwrap().unwrap(), "--- d.txt (text/plain, 5 bytes) ---\nhello");
     }
 
@@ -998,7 +1014,13 @@ mod tests {
         let messages = vec![Message::new(Role::User, Content::Parts(vec![broken, gone]))];
         let prepared = l.prepare_pdf_text(messages).await.unwrap();
         let Content::Parts(parts) = &prepared[0].content else { panic!("parts") };
-        assert_eq!(parts[0], ContentPart::Text("[file not sent inline: broken.docx (application/octet-stream, 2 bytes) — this type has no inline form; open it from disk with read]".into(), None));
+        assert_eq!(
+            parts[0],
+            ContentPart::Text(
+                "[file not sent inline: broken.docx (application/octet-stream, 2 bytes) — this type has no inline form; open it from disk with read]".into(),
+                None
+            )
+        );
         // A blob that is permanently gone is left alone by the prepare step and lowers to its placeholder.
         assert!(matches!(parts[1], ContentPart::File { .. }));
         assert_eq!(l.text_form(&parts[1]).unwrap().unwrap(), "[attachment unavailable: old.pdf]");
@@ -1020,10 +1042,7 @@ mod tests {
         let ok = pdf_intake_facts(&docs, &thread, "pdf", 90_000, true).await.unwrap();
         assert_eq!((ok.page_count, ok.text_pages, ok.text_chars, ok.size_bytes), (Some(3), Some(2), Some(4_001), 90_000));
         assert_eq!(pdf_intake_facts(&docs, &thread, "pdf", 20 * 1024 * 1024 + 1, true).await.unwrap_err(), "PDF exceeds the 20 MiB input limit");
-        assert_eq!(
-            pdf_intake_facts(&docs, &thread, "long", 1, true).await.unwrap_err(),
-            "PDF has 101 pages; maximum supported attachment is 100 pages"
-        );
+        assert_eq!(pdf_intake_facts(&docs, &thread, "long", 1, true).await.unwrap_err(), "PDF has 101 pages; maximum supported attachment is 100 pages");
         // A provider that takes the PDF as text reads its first pages: a longer one is accepted.
         assert_eq!(pdf_intake_facts(&docs, &thread, "long", 1, false).await.unwrap().page_count, Some(101));
         assert_eq!(pdf_intake_facts(&docs, &thread, "unreadable", 1, true).await.unwrap_err(), "Invalid PDF structure.");
@@ -1141,7 +1160,12 @@ mod tests {
         let stored = lowered(&legacy_lowering(docs.clone(), "t", true), reference("old", "application/msword", Some("old.doc"))).await;
         assert_eq!(stored, want);
         let ole = [0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1, 1, 2, 3];
-        let inline = ContentPart::File { source: BinarySource::Base64(STANDARD.encode(ole)), mime_type: "application/msword".into(), filename: Some("old.doc".into()), text: None };
+        let inline = ContentPart::File {
+            source: BinarySource::Base64(STANDARD.encode(ole)),
+            mime_type: "application/msword".into(),
+            filename: Some("old.doc".into()),
+            text: None,
+        };
         let inline = lowered(&legacy_lowering(docs.clone(), "t", true), inline).await;
         assert_eq!(inline, want);
         // The route that takes documents gets the package, and a text-only route's own degrade step reads it the same way.
@@ -1222,6 +1246,4 @@ mod tests {
         assert_eq!(first, second);
         assert_eq!(docs.asked.lock().unwrap().len(), 2);
     }
-
-
 }

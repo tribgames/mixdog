@@ -133,7 +133,6 @@ fn write_docx_footer(output: &mut Vec<Value>, operation: &Value) {
     }
 }
 
-
 /// `expandDocxDocument(operation, sourceDesign, state, composition)`: the operations of one `compose_document`. The
 /// design's Latin faces are written as given; Korean text takes a face of the Latin face's class beside it
 /// (`nameEastAsia` on runs, `fontNameEastAsia` on tables) only where no East Asian face was named. `composition` is

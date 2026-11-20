@@ -18,12 +18,12 @@ use mixdog_raster::canvas::{Canvas, FillRule, Path2D};
 use crate::document::Document;
 use crate::error::{PdfError, Result};
 use crate::object::{Dict, Obj};
+use crate::oplist::FontHandle;
 use crate::oplist::events::{
-    DRAW_CLOSE_PATH, DRAW_CURVE_TO, DRAW_LINE_TO, DRAW_MOVE_TO, DRAW_QUADRATIC_CURVE_TO, Expression,
-    GStateValue, MarkedData, Op, OperatorList, OptionalContent, PaintOp, ParamOp, PathData,
+    DRAW_CLOSE_PATH, DRAW_CURVE_TO, DRAW_LINE_TO, DRAW_MOVE_TO, DRAW_QUADRATIC_CURVE_TO, Expression, GStateValue, MarkedData, Op, OperatorList,
+    OptionalContent, PaintOp, ParamOp, PathData,
 };
 use crate::oplist::gstate::Matrix;
-use crate::oplist::FontHandle;
 
 use super::pattern::PatternPaint;
 use super::shading::ShadingIr;
@@ -46,23 +46,12 @@ pub(super) fn js_round(value: f64) -> f64 {
 
 /// `Math.sign`.
 pub(super) fn js_sign(value: f64) -> f64 {
-    if value == 0.0 || value.is_nan() {
-        value
-    } else {
-        value.signum()
-    }
+    if value == 0.0 || value.is_nan() { value } else { value.signum() }
 }
 
 /// A matrix as the canvas hands it back (single precision), widened.
 pub(super) fn widen(m: [f32; 6]) -> Matrix {
-    [
-        f64::from(m[0]),
-        f64::from(m[1]),
-        f64::from(m[2]),
-        f64::from(m[3]),
-        f64::from(m[4]),
-        f64::from(m[5]),
-    ]
+    [f64::from(m[0]), f64::from(m[1]), f64::from(m[2]), f64::from(m[3]), f64::from(m[4]), f64::from(m[5])]
 }
 
 /// The inverse of an affine matrix (`DOMMatrix.invertSelf`, `Util.inverseTransform`); `None` when it is singular.
@@ -71,26 +60,12 @@ pub(super) fn invert(m: &Matrix) -> Option<Matrix> {
     if det == 0.0 || !det.is_finite() {
         return None;
     }
-    Some([
-        m[3] / det,
-        -m[1] / det,
-        -m[2] / det,
-        m[0] / det,
-        (m[2] * m[5] - m[4] * m[3]) / det,
-        (m[4] * m[1] - m[5] * m[0]) / det,
-    ])
+    Some([m[3] / det, -m[1] / det, -m[2] / det, m[0] / det, (m[2] * m[5] - m[4] * m[3]) / det, (m[4] * m[1] - m[5] * m[0]) / det])
 }
 
 /// A matrix as the tiny-skia transform of the canvas's path calls.
 pub(super) fn skia(m: &Matrix) -> Transform {
-    Transform::from_row(
-        m[0] as f32,
-        m[1] as f32,
-        m[2] as f32,
-        m[3] as f32,
-        m[4] as f32,
-        m[5] as f32,
-    )
+    Transform::from_row(m[0] as f32, m[1] as f32, m[2] as f32, m[3] as f32, m[4] as f32, m[5] as f32)
 }
 
 /// `Util.singularValueDecompose2dScale`: the two scale factors of a matrix, single precision as the `Float32Array` of
@@ -102,10 +77,7 @@ pub(super) fn singular_scales(m: &Matrix) -> (f32, f32) {
     let first = (a + c) / 2.0;
     let second = (first.powi(2) - (a * c - b.powi(2))).sqrt();
     let or_one = |value: f64| if value == 0.0 || value.is_nan() { 1.0 } else { value };
-    (
-        or_one(first + second).sqrt() as f32,
-        or_one(first - second).sqrt() as f32,
-    )
+    (or_one(first + second).sqrt() as f32, or_one(first - second).sqrt() as f32)
 }
 
 /// `Util.axialAlignedBoundingBox`: the box of `rect` under `m` joined to `output`.
@@ -206,13 +178,7 @@ impl TransferMaps {
             map.map_or_else(|| identity.clone(), |map| Arc::from(map.as_slice()))
         };
         let first = maps.first().and_then(Option::as_ref);
-        Self {
-            maps: [
-                pick(maps.first(), None),
-                pick(maps.get(1), first),
-                pick(maps.get(2), first),
-            ],
-        }
+        Self { maps: [pick(maps.first(), None), pick(maps.get(1), first), pick(maps.get(2), first)] }
     }
 
     fn lookup(map: &[u8], level: u8) -> u8 {
@@ -228,12 +194,7 @@ impl TransferMaps {
         let (Some(r), Some(g), Some(b)) = (channel(0), channel(2), channel(4)) else {
             return color.to_owned();
         };
-        format!(
-            "#{:02x}{:02x}{:02x}",
-            Self::lookup(&self.maps[0], r),
-            Self::lookup(&self.maps[1], g),
-            Self::lookup(&self.maps[2], b)
-        )
+        format!("#{:02x}{:02x}{:02x}", Self::lookup(&self.maps[0], r), Self::lookup(&self.maps[1], g), Self::lookup(&self.maps[2], b))
     }
 
     /// `applyToImageData`: straight RGBA pixels, alpha kept.
@@ -493,16 +454,9 @@ impl OptionalContentConfig {
             return true;
         };
         match content {
-            OptionalContent::Group { id } => id
-                .as_deref()
-                .and_then(|id| self.state(id))
-                .unwrap_or(true),
+            OptionalContent::Group { id } => id.as_deref().and_then(|id| self.state(id)).unwrap_or(true),
             OptionalContent::MembershipOne { id } => self.state(id).unwrap_or(true),
-            OptionalContent::Membership {
-                ids,
-                policy,
-                expression,
-            } => {
+            OptionalContent::Membership { ids, policy, expression } => {
                 if let Some(expression) = expression {
                     return self.evaluate(expression);
                 }
@@ -580,10 +534,7 @@ impl<'a> Painter<'a> {
         drawing: Option<&'a dyn FontDrawing>,
         optional_content: Arc<OptionalContentConfig>,
     ) -> Self {
-        let current = Extra {
-            clip_box: [0.0, 0.0, canvas.width() as f32, canvas.height() as f32],
-            ..Extra::default()
-        };
+        let current = Extra { clip_box: [0.0, 0.0, canvas.width() as f32, canvas.height() as f32], ..Extra::default() };
         let base_transform = widen(canvas.get_transform());
         Self {
             canvas,
@@ -612,13 +563,7 @@ impl<'a> Painter<'a> {
     /// A painter for a pattern cell on `canvas` (`createCanvasGraphics`): the same document, resources, fonts and
     /// optional content, a state of its own.
     pub(super) fn nested(&self, canvas: Canvas) -> Painter<'a> {
-        let mut nested = Self::with_shared(
-            canvas,
-            self.document,
-            self.resources.clone(),
-            self.drawing,
-            self.optional_content.clone(),
-        );
+        let mut nested = Self::with_shared(canvas, self.document, self.resources.clone(), self.drawing, self.optional_content.clone());
         nested.type3_fonts = self.type3_fonts.clone();
         nested
     }
@@ -649,33 +594,17 @@ impl<'a> Painter<'a> {
     fn apply(&mut self, op: &Op) -> Result<()> {
         let paints = match op {
             Op::ConstructPath { paint, .. } => *paint != PaintOp::EndPath,
-            Op::ShowText(_)
-            | Op::PaintImage(_)
-            | Op::PaintInlineImage(_)
-            | Op::PaintImageMask(_)
-            | Op::PaintSolidColorImageMask
-            | Op::ShadingFill(_) => true,
+            Op::ShowText(_) | Op::PaintImage(_) | Op::PaintInlineImage(_) | Op::PaintImageMask(_) | Op::PaintSolidColorImageMask | Op::ShadingFill(_) => true,
             _ => false,
         };
-        if paints && self.content_visible {
-            self.in_smask_layer(|painter| painter.apply_op(op))
-        } else {
-            self.apply_op(op)
-        }
+        if paints && self.content_visible { self.in_smask_layer(|painter| painter.apply_op(op)) } else { self.apply_op(op) }
     }
 
     fn apply_op(&mut self, op: &Op) -> Result<()> {
         match op {
             Op::Save => self.save(),
             Op::Restore => self.restore(),
-            Op::Transform(m) => self.canvas.transform(
-                m[0] as f32,
-                m[1] as f32,
-                m[2] as f32,
-                m[3] as f32,
-                m[4] as f32,
-                m[5] as f32,
-            ),
+            Op::Transform(m) => self.canvas.transform(m[0] as f32, m[1] as f32, m[2] as f32, m[3] as f32, m[4] as f32, m[5] as f32),
             Op::ConstructPath { paint, path } => self.construct_path(*paint, path.as_ref())?,
             Op::Clip => self.pending_clip = Some(FillRule::Winding),
             Op::EoClip => self.pending_clip = Some(FillRule::EvenOdd),
@@ -729,9 +658,7 @@ impl<'a> Painter<'a> {
             Op::BeginMarkedContent(_) => self.marked.push(true),
             Op::BeginMarkedContentProps { tag, data } => {
                 let visible = match (tag.as_str(), data) {
-                    ("OC", MarkedData::OptionalContent(content)) => {
-                        self.optional_content.is_visible(content.as_ref())
-                    }
+                    ("OC", MarkedData::OptionalContent(content)) => self.optional_content.is_visible(content.as_ref()),
                     _ => true,
                 };
                 self.marked.push(visible);
@@ -837,9 +764,7 @@ impl<'a> Painter<'a> {
                 ("ML", GStateValue::Value(Obj::Num(limit))) => self.set_miter_limit(*limit),
                 ("D", GStateValue::Value(Obj::Array(dash))) => {
                     let array: Vec<f64> = match dash.first() {
-                        Some(Obj::Array(values)) => {
-                            values.iter().map(|v| v.as_num().unwrap_or(f64::NAN)).collect()
-                        }
+                        Some(Obj::Array(values)) => values.iter().map(|v| v.as_num().unwrap_or(f64::NAN)).collect(),
                         _ => Vec::new(),
                     };
                     let phase = dash.get(1).and_then(Obj::as_num).unwrap_or(0.0);
@@ -973,8 +898,7 @@ impl<'a> Painter<'a> {
         if matches!(paint, PaintOp::Stroke | PaintOp::CloseStroke) {
             return;
         }
-        let (Some(mut dims), Some(pattern)) = (self.current.tiling_pattern_dims, self.current.fill_pattern.clone())
-        else {
+        let (Some(mut dims), Some(pattern)) = (self.current.tiling_pattern_dims, self.current.fill_pattern.clone()) else {
             return;
         };
         let PatternPaint::Tiling(tiling) = &*pattern else {
@@ -1062,10 +986,7 @@ impl<'a> Painter<'a> {
                 return (1.0 / norm_x, 1.0 / norm_y);
             }
             let (scaled_x, scaled_y) = (norm_x * line_width, norm_y * line_width);
-            return (
-                if scaled_x < 1.0 { 1.0 / scaled_x } else { 1.0 },
-                if scaled_y < 1.0 { 1.0 / scaled_y } else { 1.0 },
-            );
+            return (if scaled_x < 1.0 { 1.0 / scaled_x } else { 1.0 }, if scaled_y < 1.0 { 1.0 / scaled_y } else { 1.0 });
         }
         let abs_det = (a * d - b * c).abs();
         let (norm_x, norm_y) = (a.hypot(b), c.hypot(d));
@@ -1073,10 +994,7 @@ impl<'a> Painter<'a> {
             return (norm_y / abs_det, norm_x / abs_det);
         }
         let base_area = line_width * abs_det;
-        (
-            if norm_y > base_area { norm_y / base_area } else { 1.0 },
-            if norm_x > base_area { norm_x / base_area } else { 1.0 },
-        )
+        (if norm_y > base_area { norm_y / base_area } else { 1.0 }, if norm_x > base_area { norm_x / base_area } else { 1.0 })
     }
 
     /// `rescaleAndStroke`: a stroke is never thinner than a device pixel.
@@ -1093,10 +1011,7 @@ impl<'a> Painter<'a> {
         self.canvas.save();
         self.canvas.scale(scale_x as f32, scale_y as f32);
         let mut moved = Path2D::new();
-        moved.add_path(
-            path,
-            Transform::from_scale((1.0 / scale_x) as f32, (1.0 / scale_y) as f32),
-        );
+        moved.add_path(path, Transform::from_scale((1.0 / scale_x) as f32, (1.0 / scale_y) as f32));
         if !dashes.is_empty() {
             let scale = scale_x.max(scale_y);
             let scaled: Vec<f32> = dashes.iter().map(|dash| (f64::from(*dash) / scale) as f32).collect();
@@ -1202,11 +1117,7 @@ mod tests {
         // A group the file does not list is visible.
         assert!(config.is_visible(Some(&OptionalContent::Group { id: Some("9R".to_owned()) })));
         // In a membership it makes the content visible only when it is met before the group that decides.
-        let ordered = |ids: [&str; 2]| OptionalContent::Membership {
-            ids: ids.map(str::to_owned).to_vec(),
-            policy: Some("AllOn".to_owned()),
-            expression: None,
-        };
+        let ordered = |ids: [&str; 2]| OptionalContent::Membership { ids: ids.map(str::to_owned).to_vec(), policy: Some("AllOn".to_owned()), expression: None };
         assert!(!config.is_visible(Some(&ordered(["2R", "9R"]))));
         assert!(config.is_visible(Some(&ordered(["9R", "2R"]))));
         let expression = OptionalContent::Membership {
@@ -1215,10 +1126,7 @@ mod tests {
             expression: Some(vec![
                 Expression::Operator("And".to_owned()),
                 Expression::Reference("1R".to_owned()),
-                Expression::Nested(vec![
-                    Expression::Operator("Not".to_owned()),
-                    Expression::Reference("2R".to_owned()),
-                ]),
+                Expression::Nested(vec![Expression::Operator("Not".to_owned()), Expression::Reference("2R".to_owned())]),
             ]),
         };
         assert!(config.is_visible(Some(&expression)));

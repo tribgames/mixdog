@@ -37,15 +37,11 @@ pub struct Integrity {
 pub fn integrity(conn: &Connection) -> Result<Integrity> {
     let mut hash = Sha256::new();
     let mut records = 0u64;
-    let mut stmt = conn.prepare(
-        "SELECT id,ts,day,session,input,output,cache_read,cache_write,duration_ms FROM usage_events ORDER BY id",
-    )?;
+    let mut stmt = conn.prepare("SELECT id,ts,day,session,input,output,cache_read,cache_write,duration_ms FROM usage_events ORDER BY id")?;
     let mut rows = stmt.query([])?;
     while let Some(row) = rows.next()? {
         let id: Vec<u8> = row.get(0)?;
-        let number = |i: usize| -> Result<String> {
-            Ok(mixdog_js::json_stringify(&js_number(row.get::<_, f64>(i)?)))
-        };
+        let number = |i: usize| -> Result<String> { Ok(mixdog_js::json_stringify(&js_number(row.get::<_, f64>(i)?))) };
         let text = format!(
             "{{\"id\":\"{}\",\"ts\":{},\"day\":{},\"session\":{},\"input\":{},\"output\":{},\"cache_read\":{},\"cache_write\":{},\"duration_ms\":{}}}",
             id.iter().map(|b| format!("{b:02x}")).collect::<String>(),
@@ -61,10 +57,7 @@ pub fn integrity(conn: &Connection) -> Result<Integrity> {
         hash.update(text.as_bytes());
         records += 1;
     }
-    Ok(Integrity {
-        records,
-        sha256: format!("{:x}", hash.finalize()),
-    })
+    Ok(Integrity { records, sha256: format!("{:x}", hash.finalize()) })
 }
 
 #[derive(Clone, Debug, Default)]
@@ -83,17 +76,11 @@ impl RepairOptions {
         if self.through_ts <= 0 {
             return Err(LedgerError::Invalid("an explicit timestamp bound"));
         }
-        if self
-            .provider_overrides
-            .iter()
-            .any(|(from, to)| from.is_empty() || to.is_empty())
-        {
+        if self.provider_overrides.iter().any(|(from, to)| from.is_empty() || to.is_empty()) {
             return Err(LedgerError::Invalid("a provider correction"));
         }
         if self.only_unpriced && !self.provider_overrides.is_empty() {
-            return Err(LedgerError::Invalid(
-                "automatic repricing that does not change providers",
-            ));
+            return Err(LedgerError::Invalid("automatic repricing that does not change providers"));
         }
         Ok(())
     }
@@ -224,12 +211,8 @@ pub fn select_candidates(conn: &Connection, options: &RepairOptions) -> Result<V
         })
     };
     let rows = match options.since_ts {
-        Some(since) => stmt
-            .query_map(params![options.through_ts, since], map)?
-            .collect::<std::result::Result<_, _>>()?,
-        None => stmt
-            .query_map(params![options.through_ts], map)?
-            .collect::<std::result::Result<_, _>>()?,
+        Some(since) => stmt.query_map(params![options.through_ts, since], map)?.collect::<std::result::Result<_, _>>()?,
+        None => stmt.query_map(params![options.through_ts], map)?.collect::<std::result::Result<_, _>>()?,
     };
     Ok(rows)
 }
@@ -249,20 +232,11 @@ pub fn plan_repair(
     let mut changes = Vec::new();
     for row in rows {
         let mut signature: Vec<Value> = serde_json::from_str(&row.signature)?;
-        let text_at =
-            |s: &[Value], i: usize| s.get(i).and_then(Value::as_str).unwrap_or("").to_string();
+        let text_at = |s: &[Value], i: usize| s.get(i).and_then(Value::as_str).unwrap_or("").to_string();
         let original_provider = text_at(&signature, 0);
-        let provider = options
-            .provider_overrides
-            .get(&original_provider)
-            .cloned()
-            .unwrap_or_else(|| original_provider.clone());
+        let provider = options.provider_overrides.get(&original_provider).cloned().unwrap_or_else(|| original_provider.clone());
         let moved = provider != original_provider;
-        let kind = if moved {
-            route_kind(&provider).to_string()
-        } else {
-            text_at(&signature, 2)
-        };
+        let kind = if moved { route_kind(&provider).to_string() } else { text_at(&signature, 2) };
         let model = text_at(&signature, 1);
         let mut cost = row.cost_usd;
         let old_rates: Option<Value> = match signature.get(5).and_then(Value::as_str) {
@@ -271,25 +245,16 @@ pub fn plan_repair(
         };
         let rate = |key: &str| old_rates.as_ref().and_then(|r| r.get(key));
         if moved || text_at(&signature, 4) == "unpriced" {
-            let unmeasured = rate("inputTokensKnown") == Some(&Value::Bool(false))
-                || is_unmeasuring_provider(&provider);
+            let unmeasured = rate("inputTokensKnown") == Some(&Value::Bool(false)) || is_unmeasuring_provider(&provider);
             let priced = if kind == "local" {
-                Priced {
-                    cost_usd: Some(0.0),
-                    rates: None,
-                }
+                Priced { cost_usd: Some(0.0), rates: None }
             } else {
-                let fast_tier =
-                    rate("fast").is_some_and(|f| !matches!(f, Value::Null | Value::Bool(false)));
+                let fast_tier = rate("fast").is_some_and(|f| !matches!(f, Value::Null | Value::Bool(false)));
                 price(&PriceRequest {
                     provider: provider.clone(),
                     model: model.clone(),
-                    pricing_model: old_rates
-                        .as_ref()
-                        .and_then(|r| optional_text(r, "pricingModel")),
-                    requested_model: old_rates
-                        .as_ref()
-                        .and_then(|r| optional_text(r, "requestedModel")),
+                    pricing_model: old_rates.as_ref().and_then(|r| optional_text(r, "pricingModel")),
+                    requested_model: old_rates.as_ref().and_then(|r| optional_text(r, "requestedModel")),
                     input_tokens_known: unmeasured.then_some(false),
                     uncached_input_tokens: row.input,
                     output_tokens: row.output,
@@ -301,9 +266,7 @@ pub fn plan_repair(
                         .as_ref()
                         .and_then(|r| optional_text(r, "requestServiceTier"))
                         .or_else(|| fast_tier.then(|| "fast".to_string())),
-                    service_tier: old_rates
-                        .as_ref()
-                        .and_then(|r| optional_text(r, "serviceTier")),
+                    service_tier: old_rates.as_ref().and_then(|r| optional_text(r, "serviceTier")),
                     kind: kind.clone(),
                     ts: row.ts,
                     historical: text_at(&signature, 6) != "live",
@@ -349,10 +312,7 @@ pub fn plan_repair(
         if encoded == row.signature && cost == row.cost_usd {
             continue;
         }
-        *report
-            .changes
-            .entry(format!("{original_provider} \u{2192} {provider} / {model}"))
-            .or_insert(0) += 1;
+        *report.changes.entry(format!("{original_provider} \u{2192} {provider} / {model}")).or_insert(0) += 1;
         changes.push(Change { row, encoded, cost });
     }
     Ok((report, changes))
@@ -374,9 +334,7 @@ pub fn rebuild_indexes(tx: &Transaction) -> Result<()> {
             kind: row.get("kind")?,
             session_id: row.get("session_id")?,
             owner_session_id: None,
-            source_type: row
-                .get::<_, Option<String>>("source_type")?
-                .unwrap_or_default(),
+            source_type: row.get::<_, Option<String>>("source_type")?.unwrap_or_default(),
             input: row.get("input")?,
             output: row.get("output")?,
             cache_read: row.get("cache_read")?,
@@ -401,13 +359,7 @@ pub fn rebuild_indexes(tx: &Transaction) -> Result<()> {
 
 /// Inside the caller's write transaction: every change, the index rebuild, the immutability
 /// check, the repair note.
-fn apply_planned(
-    tx: &Transaction,
-    mut report: RepairReport,
-    changes: &[Change],
-    options: &RepairOptions,
-    now_ms: i64,
-) -> Result<RepairReport> {
+fn apply_planned(tx: &Transaction, mut report: RepairReport, changes: &[Change], options: &RepairOptions, now_ms: i64) -> Result<RepairReport> {
     // Nothing is verified without a write: the whole-ledger hash is only taken around real ones.
     if changes.is_empty() {
         return Ok(report);
@@ -417,13 +369,9 @@ fn apply_planned(
         report.backup_path = Some(backup_beside(tx)?.to_string_lossy().into_owned());
     }
     for change in changes {
-        tx.prepare_cached("INSERT OR IGNORE INTO usage_routes(signature) VALUES (?1)")?
-            .execute([&change.encoded])?;
-        let route: i64 = tx
-            .prepare_cached("SELECT id FROM usage_routes WHERE signature=?1")?
-            .query_row([&change.encoded], |r| r.get(0))?;
-        tx.prepare_cached("UPDATE usage_events SET route=?1,cost_usd=?2 WHERE id=?3")?
-            .execute(params![route, change.cost, change.row.id])?;
+        tx.prepare_cached("INSERT OR IGNORE INTO usage_routes(signature) VALUES (?1)")?.execute([&change.encoded])?;
+        let route: i64 = tx.prepare_cached("SELECT id FROM usage_routes WHERE signature=?1")?.query_row([&change.encoded], |r| r.get(0))?;
+        tx.prepare_cached("UPDATE usage_events SET route=?1,cost_usd=?2 WHERE id=?3")?.execute(params![route, change.cost, change.row.id])?;
     }
     rebuild_indexes(tx)?;
     let after = integrity(tx)?;
@@ -475,16 +423,10 @@ pub fn apply_repair_if_unchanged(
     options.validate()?;
     let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
     for change in changes {
-        let now: Option<(i64, Option<f64>)> = tx
-            .prepare_cached("SELECT route,cost_usd FROM usage_events WHERE id=?1")?
-            .query_row([&change.row.id], |r| Ok((r.get(0)?, r.get(1)?)))
-            .optional()?;
+        let now: Option<(i64, Option<f64>)> =
+            tx.prepare_cached("SELECT route,cost_usd FROM usage_events WHERE id=?1")?.query_row([&change.row.id], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
         if now != Some((change.row.route, change.row.cost_usd)) {
-            return Ok(RepairReport {
-                conflict: true,
-                integrity: None,
-                ..report
-            });
+            return Ok(RepairReport { conflict: true, integrity: None, ..report });
         }
     }
     let report = apply_planned(&tx, report, changes, options, now_ms)?;

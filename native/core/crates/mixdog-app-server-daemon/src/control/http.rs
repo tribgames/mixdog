@@ -42,10 +42,7 @@ pub fn read_request(stream: impl Read) -> Result<Request, ParseError> {
     let mut head_bytes = 0;
     let mut next_line = |reader: &mut BufReader<_>| -> Result<String, ParseError> {
         let mut line = String::new();
-        let read = reader
-            .by_ref()
-            .take((MAX_HEAD_BYTES - head_bytes + 1) as u64)
-            .read_line(&mut line)?;
+        let read = reader.by_ref().take((MAX_HEAD_BYTES - head_bytes + 1) as u64).read_line(&mut line)?;
         head_bytes += read;
         if head_bytes > MAX_HEAD_BYTES {
             return Err(ParseError::HeadTooLarge);
@@ -58,9 +55,7 @@ pub fn read_request(stream: impl Read) -> Result<Request, ParseError> {
 
     let request_line = next_line(&mut reader)?;
     let mut parts = request_line.split(' ');
-    let (Some(method), Some(target), Some(version), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
+    let (Some(method), Some(target), Some(version), None) = (parts.next(), parts.next(), parts.next(), parts.next()) else {
         return Err(ParseError::Malformed);
     };
     if !version.starts_with("HTTP/1.") || method.is_empty() || !target.starts_with('/') {
@@ -140,8 +135,7 @@ mod tests {
 
     #[test]
     fn parses_a_post_with_a_body() {
-        let r = parse("POST /mgmt/stop?x=1 HTTP/1.1\r\nHost: a\r\nAuthorization: Bearer t\r\nContent-Length: 2\r\n\r\n{}")
-            .unwrap();
+        let r = parse("POST /mgmt/stop?x=1 HTTP/1.1\r\nHost: a\r\nAuthorization: Bearer t\r\nContent-Length: 2\r\n\r\n{}").unwrap();
         assert_eq!((r.method.as_str(), r.path.as_str()), ("POST", "/mgmt/stop"));
         assert_eq!(r.header("authorization"), Some("Bearer t"));
         assert_eq!(r.body, b"{}");
@@ -151,14 +145,8 @@ mod tests {
     fn refuses_what_the_grammar_does_not_cover() {
         assert!(matches!(parse("GET / HTTP/2\r\n\r\n"), Err(ParseError::Malformed)));
         assert!(matches!(parse("GET /x HTTP/1.1\r\nbad header\r\n\r\n"), Err(ParseError::Malformed)));
-        assert!(matches!(
-            parse("POST /x HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"),
-            Err(ParseError::Malformed)
-        ));
-        assert!(matches!(
-            parse("POST /x HTTP/1.1\r\nContent-Length: 70000\r\n\r\n"),
-            Err(ParseError::BodyTooLarge)
-        ));
+        assert!(matches!(parse("POST /x HTTP/1.1\r\nTransfer-Encoding: chunked\r\n\r\n"), Err(ParseError::Malformed)));
+        assert!(matches!(parse("POST /x HTTP/1.1\r\nContent-Length: 70000\r\n\r\n"), Err(ParseError::BodyTooLarge)));
         let long = format!("GET /x HTTP/1.1\r\nX: {}\r\n\r\n", "a".repeat(MAX_HEAD_BYTES));
         assert!(matches!(parse(&long), Err(ParseError::HeadTooLarge)));
         assert!(matches!(parse("GET /x HTTP/1.1\r\n"), Err(ParseError::Malformed)));
@@ -166,9 +154,6 @@ mod tests {
 
     #[test]
     fn short_body_is_an_io_error() {
-        assert!(matches!(
-            parse("POST /x HTTP/1.1\r\nContent-Length: 5\r\n\r\nab"),
-            Err(ParseError::Io(_))
-        ));
+        assert!(matches!(parse("POST /x HTTP/1.1\r\nContent-Length: 5\r\n\r\nab"), Err(ParseError::Io(_))));
     }
 }

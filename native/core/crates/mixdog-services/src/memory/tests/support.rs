@@ -62,7 +62,13 @@ impl TestPg {
         };
         let database = format!("t{}", uuid::Uuid::new_v4().simple());
         super::shared_pg::create_database(shared.port, &database).await;
-        let cluster = PgCluster::over(PgRuntime::new(&runtime), &shared.profile, shared.port, mixdog_rt::testing::tokens().durability_io, crate::tidy::process::Processes::for_tests());
+        let cluster = PgCluster::over(
+            PgRuntime::new(&runtime),
+            &shared.profile,
+            shared.port,
+            mixdog_rt::testing::tokens().durability_io,
+            crate::tidy::process::Processes::for_tests(),
+        );
         Self { cluster, dir, runtime, home: Home::Shared { port: shared.port, database }, fallback_guard: None }
     }
 
@@ -71,12 +77,20 @@ impl TestPg {
         let runtime = Self::runtime_dir();
         let dir = tempfile::tempdir().expect("temp dir");
         let preferred = preferred_port();
-        let cluster = PgCluster::ensure(PgRuntime::new(&runtime), dir.path(), preferred, mixdog_rt::testing::tokens().durability_io, crate::tidy::process::Processes::for_tests(), &tokio_util::sync::CancellationToken::new(), &crate::memory::pg::cluster::Start::node(), &|| true)
-            .await
-            .expect("postgres starts");
+        let cluster = PgCluster::ensure(
+            PgRuntime::new(&runtime),
+            dir.path(),
+            preferred,
+            mixdog_rt::testing::tokens().durability_io,
+            crate::tidy::process::Processes::for_tests(),
+            &tokio_util::sync::CancellationToken::new(),
+            &crate::memory::pg::cluster::Start::node(),
+            &|| true,
+        )
+        .await
+        .expect("postgres starts");
         Self { cluster, dir, runtime, home: Home::Own, fallback_guard: None }
     }
-
 
     pub async fn db(&self, schema: Schema) -> Db {
         match &self.home {
@@ -90,9 +104,18 @@ impl TestPg {
     pub async fn kill_and_restart(&mut self) {
         assert!(matches!(self.home, Home::Own), "only a cluster of the test's own is killed");
         self.stop_immediate();
-        self.cluster = PgCluster::ensure(PgRuntime::new(&self.runtime), self.dir.path(), self.cluster.port(), mixdog_rt::testing::tokens().durability_io, crate::tidy::process::Processes::for_tests(), &tokio_util::sync::CancellationToken::new(), &crate::memory::pg::cluster::Start::node(), &|| true)
-            .await
-            .expect("postgres starts again");
+        self.cluster = PgCluster::ensure(
+            PgRuntime::new(&self.runtime),
+            self.dir.path(),
+            self.cluster.port(),
+            mixdog_rt::testing::tokens().durability_io,
+            crate::tidy::process::Processes::for_tests(),
+            &tokio_util::sync::CancellationToken::new(),
+            &crate::memory::pg::cluster::Start::node(),
+            &|| true,
+        )
+        .await
+        .expect("postgres starts again");
     }
 
     #[allow(clippy::disallowed_methods, reason = "test teardown: reads the stopped cluster's pid file")]
@@ -102,10 +125,7 @@ impl TestPg {
             return;
         }
         let mut stop = Command::new(self.runtime.join("bin").join(if cfg!(windows) { "pg_ctl.exe" } else { "pg_ctl" }));
-        stop.args(["stop", "-m", "immediate", "-w", "-D"])
-            .arg(self.cluster.data_dir())
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+        stop.args(["stop", "-m", "immediate", "-w", "-D"]).arg(self.cluster.data_dir()).stdout(Stdio::null()).stderr(Stdio::null());
         #[cfg(windows)]
         {
             use std::os::windows::process::CommandExt;
@@ -114,7 +134,8 @@ impl TestPg {
             stop.env("PATH", path);
         }
         // The postmaster's pid, read before the stop removes its file.
-        let postmaster = std::fs::read_to_string(self.cluster.data_dir().join("postmaster.pid")).ok().and_then(|text| text.lines().next()?.trim().parse::<u32>().ok());
+        let postmaster =
+            std::fs::read_to_string(self.cluster.data_dir().join("postmaster.pid")).ok().and_then(|text| text.lines().next()?.trim().parse::<u32>().ok());
         let _ = stop.status();
         // `pg_ctl -w` returns once postmaster.pid is gone (its own 60 s deadline). On Windows the temp directory is removed
         // next and a file still open in the exiting postmaster would keep it: its exit is awaited, with a deadline.

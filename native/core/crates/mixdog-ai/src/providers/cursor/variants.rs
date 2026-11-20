@@ -14,8 +14,7 @@ use super::models::invalid;
 /// The efforts a suffix can name, least to most intensive.
 pub const EFFORT_ORDER: [&str; 6] = ["none", "low", "medium", "high", "xhigh", "max"];
 /// The order a request without an effort prefers; no suffix at all comes first.
-const DEFAULT_EFFORT_ORDER: [Option<&str>; 7] =
-    [None, Some("medium"), Some("high"), Some("low"), Some("none"), Some("xhigh"), Some("max")];
+const DEFAULT_EFFORT_ORDER: [Option<&str>; 7] = [None, Some("medium"), Some("high"), Some("low"), Some("none"), Some("xhigh"), Some("max")];
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VariantId {
@@ -95,29 +94,17 @@ pub fn slug_groups<'a>(models: impl IntoIterator<Item = &'a CursorModel>) -> Vec
         }
     }
     for group in &mut groups {
-        group.variants.sort_by(|a, b| {
-            preference(&a.parsed)
-                .cmp(&preference(&b.parsed))
-                .then_with(|| locale_compare(&a.parsed.id, &b.parsed.id))
-        });
+        group.variants.sort_by(|a, b| preference(&a.parsed).cmp(&preference(&b.parsed)).then_with(|| locale_compare(&a.parsed.id, &b.parsed.id)));
     }
     groups
 }
 
 /// The id that serves `effort` and speed; `None` when the group has no id at
 /// the requested speed.
-pub fn select_variant<'g, 'a>(
-    group: &'g SlugGroup<'a>,
-    effort: Option<&str>,
-    fast: bool,
-) -> Result<Option<&'g SlugVariant<'a>>, ProviderError> {
+pub fn select_variant<'g, 'a>(group: &'g SlugGroup<'a>, effort: Option<&str>, fast: bool) -> Result<Option<&'g SlugVariant<'a>>, ProviderError> {
     let wanted = effort.map(|e| js_trim(e).to_lowercase()).filter(|e| !e.is_empty());
     if let Some(wanted) = wanted {
-        if let Some(exact) = group
-            .variants
-            .iter()
-            .find(|v| v.parsed.effort.as_deref() == Some(wanted.as_str()) && v.parsed.fast == fast)
-        {
+        if let Some(exact) = group.variants.iter().find(|v| v.parsed.effort.as_deref() == Some(wanted.as_str()) && v.parsed.fast == fast) {
             return Ok(Some(exact));
         }
         let effort_exists = group.variants.iter().any(|v| v.parsed.effort.as_deref() == Some(wanted.as_str()));

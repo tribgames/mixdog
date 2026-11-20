@@ -1,9 +1,5 @@
 //! Behaviours of the Node v1.4.5 file tools that the Rust tools had lost.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the tests build and inspect real work trees with blocking filesystem calls"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the tests build and inspect real work trees with blocking filesystem calls")]
 
 use mixdog_core_api::domain::tool::Tool;
 
@@ -39,9 +35,8 @@ async fn glob_takes_a_wildcard_directory_scope() {
 async fn a_later_positive_glob_reincludes_after_a_negative() {
     let (_dir, root) = small_dir();
     let ctx = context_seeded(&root, local(), files(&["a.js", "generated-x.js", "generated-keep.js"])).await;
-    let (error, text) = text_of(
-        GlobTool::new().call(&ctx, serde_json::json!({ "pattern": ["*.js", "!generated*.js", "generated-keep.js"], "sort": "natural" })).await,
-    );
+    let (error, text) =
+        text_of(GlobTool::new().call(&ctx, serde_json::json!({ "pattern": ["*.js", "!generated*.js", "generated-keep.js"], "sort": "natural" })).await);
     assert!(!error, "{text}");
     assert_eq!(lines(&text), ["a.js", "generated-keep.js"]);
 }
@@ -168,7 +163,8 @@ async fn head_limit_strings_are_coerced_and_bare_content_is_not_clamped() {
     assert_eq!(one.lines().take_while(|l| l.ends_with(".txt")).count(), 1, "{one}");
     let (_, bare) = text_of(grep.call(&ctx, serde_json::json!({ "pattern": "needle", "path": "a.txt", "output_mode": "content", "head_limit": 100 })).await);
     assert_eq!(bare.matches("needle").count(), 60, "{bare}");
-    let (_, clamped) = text_of(grep.call(&ctx, serde_json::json!({ "pattern": "needle", "path": "a.txt", "output_mode": "content_with_context", "head_limit": 100 })).await);
+    let (_, clamped) =
+        text_of(grep.call(&ctx, serde_json::json!({ "pattern": "needle", "path": "a.txt", "output_mode": "content_with_context", "head_limit": 100 })).await);
     assert!(clamped.matches("needle").count() <= 40 * 21, "{clamped}");
     assert_ne!(clamped, bare);
 }
@@ -195,10 +191,12 @@ async fn a_file_named_as_the_path_is_the_only_file_searched() {
     // searched, as without the glob.
     for glob in ["*.md", "*.json", "**/*.md"] {
         for mode in ["content", "files_with_matches", "count"] {
-            let (_, text) = text_of(grep.call(&ctx, serde_json::json!({ "pattern": "needle", "path": "package.json", "glob": glob, "output_mode": mode })).await);
+            let (_, text) =
+                text_of(grep.call(&ctx, serde_json::json!({ "pattern": "needle", "path": "package.json", "glob": glob, "output_mode": mode })).await);
             assert!(!text.contains("sub") && !text.contains("README"), "{glob} {mode}: {text}");
         }
-        let (_, text) = text_of(grep.call(&ctx, serde_json::json!({ "pattern": "needle", "path": "package.json", "glob": glob, "output_mode": "content" })).await);
+        let (_, text) =
+            text_of(grep.call(&ctx, serde_json::json!({ "pattern": "needle", "path": "package.json", "glob": glob, "output_mode": "content" })).await);
         assert!(text.contains("needle top") && text.matches("needle").count() == 1, "{glob}: {text}");
     }
     for mode in ["content", "files_with_matches", "count"] {

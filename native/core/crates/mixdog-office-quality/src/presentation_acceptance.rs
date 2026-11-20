@@ -9,8 +9,7 @@ use crate::{field, is_true, is_truthy};
 /// `assessPresentationAcceptance(evidence, { acknowledged, critique })`.
 pub fn assess_presentation_acceptance(evidence: &Value, acknowledged: bool, critique: Option<&Value>) -> Value {
     let automated_ready = is_automated_ready(evidence);
-    let visual_status =
-        review_status(is_truthy(critique), is_true(critique.and_then(|review| field(review, "ok"))), acknowledged);
+    let visual_status = review_status(is_truthy(critique), is_true(critique.and_then(|review| field(review, "ok"))), acknowledged);
     json!({
         "scoreMeaning": "automated-diagnostics-not-design-quality",
         "automatedReady": automated_ready,
@@ -44,12 +43,9 @@ mod tests {
 
     #[test]
     fn visual_approval_cannot_replace_missing_coverage_or_override_diagnostic_warnings() {
-        for partial in [
-            json!({ "structuralAvailable": false }),
-            json!({ "expectedPages": 0 }),
-            json!({ "pageCoverage": 0.8 }),
-            json!({ "blockingIssueCount": 1 }),
-        ] {
+        for partial in
+            [json!({ "structuralAvailable": false }), json!({ "expectedPages": 0 }), json!({ "pageCoverage": 0.8 }), json!({ "blockingIssueCount": 1 })]
+        {
             let mut merged = evidence();
             for (key, value) in partial.as_object().expect("object") {
                 merged[key.as_str()] = value.clone();

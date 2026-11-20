@@ -11,8 +11,8 @@ use std::sync::{Mutex, MutexGuard};
 use std::time::{Duration, Instant};
 
 use mixdog_office_crypto::{
-    CancelToken, DerivationCounts, Descriptor, Integrity, KeyDerivation, KeyError, decrypt_package, key_derivations,
-    ooxml_encryption, package_intact, password_key,
+    CancelToken, DerivationCounts, Descriptor, Integrity, KeyDerivation, KeyError, decrypt_package, key_derivations, ooxml_encryption, package_intact,
+    password_key,
 };
 use support::{Encryption, Entry, encrypt_ooxml_entries};
 
@@ -77,9 +77,7 @@ fn replaced(xml: &str, from: &str, to: &str) -> String {
 }
 
 fn attribute_span(xml: &str, name: &str) -> (usize, usize) {
-    let start = xml
-        .find(&format!("{name}=\""))
-        .unwrap_or_else(|| panic!("the descriptor holds {name}"));
+    let start = xml.find(&format!("{name}=\"")).unwrap_or_else(|| panic!("the descriptor holds {name}"));
     let value_start = start + name.len() + 2;
     let end = value_start + xml[value_start..].find('"').expect("a closing quote");
     (start, end + 1)
@@ -106,20 +104,9 @@ fn element(xml: &str, open: &str, end: &str) -> String {
 fn right_and_wrong_passwords_for_both_schemes() {
     let _serial = serial();
     for standard in [false, true] {
-        let entries = agile_entries(&Encryption {
-            standard,
-            ..Encryption::default()
-        });
-        assert_eq!(
-            open_entries(&entries, PASSWORD),
-            Opened::Plain(plain()),
-            "standard {standard}"
-        );
-        assert_eq!(
-            open_entries(&entries, &format!("{PASSWORD}x")),
-            Opened::Wrong,
-            "standard {standard}"
-        );
+        let entries = agile_entries(&Encryption { standard, ..Encryption::default() });
+        assert_eq!(open_entries(&entries, PASSWORD), Opened::Plain(plain()), "standard {standard}");
+        assert_eq!(open_entries(&entries, &format!("{PASSWORD}x")), Opened::Wrong, "standard {standard}");
         assert_eq!(open_entries(&entries, ""), Opened::Wrong, "standard {standard}");
     }
 }
@@ -153,17 +140,11 @@ fn opens(text: &str) -> bool {
     let Some(descriptor) = ooxml_encryption(&with_xml(text)) else {
         return false;
     };
-    password_key(&descriptor, PASSWORD, &CancelToken::new())
-        .expect("a derivation")
-        .is_some()
+    password_key(&descriptor, PASSWORD, &CancelToken::new()).expect("a derivation").is_some()
 }
 
 fn prefixed(xml: &str) -> String {
-    let mut out = replaced(
-        xml,
-        &format!("xmlns=\"{ENCRYPTION_NS}\""),
-        &format!("xmlns:e=\"{ENCRYPTION_NS}\""),
-    );
+    let mut out = replaced(xml, &format!("xmlns=\"{ENCRYPTION_NS}\""), &format!("xmlns:e=\"{ENCRYPTION_NS}\""));
     for (from, to) in [
         ("<keyEncryptors", "<e:keyEncryptors"),
         ("</keyEncryptors", "</e:keyEncryptors"),
@@ -187,109 +168,35 @@ fn the_agile_descriptor_is_read_by_namespace_and_schema_not_by_text_patterns() {
     // The same descriptor with the encryption namespace on a prefix, a comment that looks like a keyData, a certificate
     // key encryptor ahead of the password one, and a uri with surrounding whitespace.
     assert!(opens(&prefixed(&xml)), "prefixed");
-    assert!(
-        opens(&replaced(
-            &xml,
-            "<keyData",
-            "<!-- <keyData saltSize=\"1\"/> --><keyData"
-        )),
-        "comment"
-    );
+    assert!(opens(&replaced(&xml, "<keyData", "<!-- <keyData saltSize=\"1\"/> --><keyData")), "comment");
     let certificate = "<keyEncryptor uri=\"http://schemas.microsoft.com/office/2006/keyEncryptor/certificate\">\
 <c:encryptedKey xmlns:c=\"http://schemas.microsoft.com/office/2006/keyEncryptor/certificate\" encryptedKeyValue=\"\" X509Certificate=\"\" certVerifier=\"\"/>\
 </keyEncryptor>";
-    assert!(
-        opens(&replaced(
-            &xml,
-            "<keyEncryptors>",
-            &format!("<keyEncryptors>{certificate}")
-        )),
-        "certificate"
-    );
-    assert!(
-        opens(&replaced(
-            &xml,
-            &format!("uri=\"{PASSWORD_NS}\""),
-            &format!("uri=\"  {PASSWORD_NS} \"")
-        )),
-        "token"
-    );
+    assert!(opens(&replaced(&xml, "<keyEncryptors>", &format!("<keyEncryptors>{certificate}"))), "certificate");
+    assert!(opens(&replaced(&xml, &format!("uri=\"{PASSWORD_NS}\""), &format!("uri=\"  {PASSWORD_NS} \""))), "token");
 
     let integrity = element(&xml, "<dataIntegrity", "/>");
     let key_data = element(&xml, "<keyData", "/>");
     let key_encryptor = element(&xml, "<keyEncryptor ", "</keyEncryptor>");
     let key_data_with_child = format!("{}><x/></keyData>", &key_data[..key_data.len() - 2]);
     let salt_span = attribute_span(&key_data, "saltValue");
-    let key_data_bad_salt = format!(
-        "{}saltValue=\"***\"{}",
-        &key_data[..salt_span.0],
-        &key_data[salt_span.1..]
-    );
+    let key_data_bad_salt = format!("{}saltValue=\"***\"{}", &key_data[..salt_span.0], &key_data[salt_span.1..]);
     let refused: Vec<(&str, String)> = vec![
-        (
-            "a DTD",
-            replaced(&xml, "?>", "?><!DOCTYPE encryption [<!ENTITY x \"SHA512\">]>"),
-        ),
-        (
-            "an external entity",
-            replaced(&xml, "?>", "?><!DOCTYPE encryption SYSTEM \"file:///etc/passwd\">"),
-        ),
-        (
-            "an undefined entity",
-            replaced(&xml, "hashAlgorithm=\"SHA512\"", "hashAlgorithm=\"&x;\""),
-        ),
-        (
-            "another encoding",
-            replaced(&xml, "encoding=\"UTF-8\"", "encoding=\"UTF-16\""),
-        ),
-        (
-            "the password key outside its namespace",
-            replaced(&xml, "<p:encryptedKey", "<encryptedKey"),
-        ),
-        (
-            "keyData in no namespace",
-            replaced(&xml, "<keyData", "<keyData xmlns=\"\""),
-        ),
-        (
-            "dataIntegrity after keyEncryptors",
-            replaced(
-                &replaced(&xml, &integrity, ""),
-                "</encryption>",
-                &format!("{integrity}</encryption>"),
-            ),
-        ),
-        (
-            "two keyData elements",
-            replaced(&xml, &key_data, &format!("{key_data}{key_data}")),
-        ),
-        (
-            "an element the schema does not have",
-            replaced(&xml, "<keyEncryptors>", "<extra/><keyEncryptors>"),
-        ),
-        (
-            "a child inside keyData",
-            replaced(&xml, &key_data, &key_data_with_child),
-        ),
-        (
-            "two password key encryptors",
-            replaced(&xml, &key_encryptor, &format!("{key_encryptor}{key_encryptor}")),
-        ),
-        (
-            "no password key encryptor",
-            replaced(&xml, &format!("uri=\"{PASSWORD_NS}\""), "uri=\"urn:other\""),
-        ),
-        (
-            "a spinCount over 10,000,000",
-            replaced(&xml, "spinCount=\"1000\"", "spinCount=\"10000001\""),
-        ),
-        (
-            "an empty spinCount",
-            replaced(&xml, "spinCount=\"1000\"", "spinCount=\"\""),
-        ),
-        (
-            "a salt that is not base64",
-            replaced(&xml, &key_data, &key_data_bad_salt),
-        ),
+        ("a DTD", replaced(&xml, "?>", "?><!DOCTYPE encryption [<!ENTITY x \"SHA512\">]>")),
+        ("an external entity", replaced(&xml, "?>", "?><!DOCTYPE encryption SYSTEM \"file:///etc/passwd\">")),
+        ("an undefined entity", replaced(&xml, "hashAlgorithm=\"SHA512\"", "hashAlgorithm=\"&x;\"")),
+        ("another encoding", replaced(&xml, "encoding=\"UTF-8\"", "encoding=\"UTF-16\"")),
+        ("the password key outside its namespace", replaced(&xml, "<p:encryptedKey", "<encryptedKey")),
+        ("keyData in no namespace", replaced(&xml, "<keyData", "<keyData xmlns=\"\"")),
+        ("dataIntegrity after keyEncryptors", replaced(&replaced(&xml, &integrity, ""), "</encryption>", &format!("{integrity}</encryption>"))),
+        ("two keyData elements", replaced(&xml, &key_data, &format!("{key_data}{key_data}"))),
+        ("an element the schema does not have", replaced(&xml, "<keyEncryptors>", "<extra/><keyEncryptors>")),
+        ("a child inside keyData", replaced(&xml, &key_data, &key_data_with_child)),
+        ("two password key encryptors", replaced(&xml, &key_encryptor, &format!("{key_encryptor}{key_encryptor}"))),
+        ("no password key encryptor", replaced(&xml, &format!("uri=\"{PASSWORD_NS}\""), "uri=\"urn:other\"")),
+        ("a spinCount over 10,000,000", replaced(&xml, "spinCount=\"1000\"", "spinCount=\"10000001\"")),
+        ("an empty spinCount", replaced(&xml, "spinCount=\"1000\"", "spinCount=\"\"")),
+        ("a salt that is not base64", replaced(&xml, &key_data, &key_data_bad_salt)),
         ("malformed XML", replaced(&xml, "</keyEncryptors>", "")),
         ("an unbound prefix", replaced(&xml, "<keyData", "<q:keyData")),
         ("text outside the root", format!("{xml}stray")),
@@ -298,15 +205,8 @@ fn the_agile_descriptor_is_read_by_namespace_and_schema_not_by_text_patterns() {
         assert_eq!(ooxml_encryption(&with_xml(text)), None, "{name}");
     }
     // The upper bound itself is allowed.
-    let top = ooxml_encryption(&with_xml(&replaced(
-        &xml,
-        "spinCount=\"1000\"",
-        "spinCount=\"10000000\"",
-    )))
-    .expect("allowed");
-    let Descriptor::Agile(agile) = top else {
-        panic!("an agile descriptor")
-    };
+    let top = ooxml_encryption(&with_xml(&replaced(&xml, "spinCount=\"1000\"", "spinCount=\"10000000\""))).expect("allowed");
+    let Descriptor::Agile(agile) = top else { panic!("an agile descriptor") };
     assert_eq!(agile.spin_count, 10_000_000);
 }
 
@@ -314,15 +214,8 @@ fn the_agile_descriptor_is_read_by_namespace_and_schema_not_by_text_patterns() {
 fn agile_descriptors_hashed_with_each_supported_name_open_with_their_password() {
     let _serial = serial();
     for hash_algorithm in ["SHA-1", "SHA1", "SHA256", "SHA384", "SHA512"] {
-        let entries = agile_entries(&Encryption {
-            hash_algorithm,
-            ..Encryption::default()
-        });
-        assert_eq!(
-            open_entries(&entries, PASSWORD),
-            Opened::Plain(plain()),
-            "{hash_algorithm}"
-        );
+        let entries = agile_entries(&Encryption { hash_algorithm, ..Encryption::default() });
+        assert_eq!(open_entries(&entries, PASSWORD), Opened::Plain(plain()), "{hash_algorithm}");
     }
 }
 
@@ -331,11 +224,7 @@ fn hashes_the_reference_runtime_cannot_compute_leave_the_descriptor_unsupported(
     let info = stream_data(&agile_entries(&Encryption::default()), 0);
     let xml = descriptor_xml(&info);
     for name in ["MD4", "MD2", "RIPEMD-128", "WHIRLPOOL"] {
-        assert_eq!(
-            ooxml_encryption(&with_xml(&xml.replace("SHA512", name))),
-            None,
-            "{name}"
-        );
+        assert_eq!(ooxml_encryption(&with_xml(&xml.replace("SHA512", name))), None, "{name}");
     }
 }
 
@@ -353,9 +242,7 @@ fn a_package_whose_hmac_does_not_match_is_corrupt_after_the_password() {
     let entries = agile_entries(&Encryption::default());
     let changes: [(&str, fn(&mut Vec<u8>)); 2] = [
         ("one ciphertext byte", |data| data[100] ^= 1),
-        ("the StreamSize field", |data| {
-            data[..8].copy_from_slice(&((plain().len() - 1) as u64).to_le_bytes())
-        }),
+        ("the StreamSize field", |data| data[..8].copy_from_slice(&((plain().len() - 1) as u64).to_le_bytes())),
     ];
     for (name, change) in changes {
         let changed = tampered(&entries, change);
@@ -376,18 +263,9 @@ fn malformed_integrity_data_is_refused_and_absent_integrity_data_is_allowed() {
     let broken: Vec<(&str, String)> = vec![
         ("an empty HMAC key", set_attribute(&xml, "encryptedHmacKey", "")),
         // saltSize 16 and hashSize 64 pad to 16 or 64 bytes, never 32.
-        (
-            "an HMAC key of neither length",
-            set_attribute(&xml, "encryptedHmacKey", &zero_key(32)),
-        ),
-        (
-            "an HMAC value that is not base64",
-            set_attribute(&xml, "encryptedHmacValue", "%%%%"),
-        ),
-        (
-            "an HMAC value of the wrong length",
-            set_attribute(&xml, "encryptedHmacValue", &zero_key(16)),
-        ),
+        ("an HMAC key of neither length", set_attribute(&xml, "encryptedHmacKey", &zero_key(32))),
+        ("an HMAC value that is not base64", set_attribute(&xml, "encryptedHmacValue", "%%%%")),
+        ("an HMAC value of the wrong length", set_attribute(&xml, "encryptedHmacValue", &zero_key(16))),
         ("no HMAC value", remove_attribute(&xml, "encryptedHmacValue")),
     ];
     for (name, text) in &broken {
@@ -396,10 +274,7 @@ fn malformed_integrity_data_is_refused_and_absent_integrity_data_is_allowed() {
         };
         assert_eq!(agile.integrity, Some(Integrity::Malformed), "{name}");
     }
-    let absent = agile_entries(&Encryption {
-        integrity: false,
-        ..Encryption::default()
-    });
+    let absent = agile_entries(&Encryption { integrity: false, ..Encryption::default() });
     let Some(Descriptor::Agile(agile)) = ooxml_encryption(&stream_data(&absent, 0)) else {
         panic!("an agile descriptor");
     };
@@ -424,12 +299,7 @@ fn integrity_data_keyed_by_a_salt_size_or_hash_size_salt_verifies_and_one_flippe
     ];
     for (hash_algorithm, key_salt_size, hmac_salt_size) in salts {
         let label = format!("{hash_algorithm}, saltSize {key_salt_size}, {hmac_salt_size}-byte HMAC salt");
-        let entries = agile_entries(&Encryption {
-            hash_algorithm,
-            key_salt_size,
-            hmac_salt_size: Some(hmac_salt_size),
-            ..Encryption::default()
-        });
+        let entries = agile_entries(&Encryption { hash_algorithm, key_salt_size, hmac_salt_size: Some(hmac_salt_size), ..Encryption::default() });
         assert_eq!(open_entries(&entries, PASSWORD), Opened::Plain(plain()), "{label}");
         let flipped = tampered(&entries, |data| data[100] ^= 1);
         assert_eq!(open_entries(&flipped, PASSWORD), Opened::Corrupt, "{label}");
@@ -464,10 +334,7 @@ fn a_cancelled_request_ends_its_password_derivation_at_once() {
     let cancelled_at = Instant::now();
     cancel.cancel();
     assert!(is_cancelled(derivation.wait()));
-    assert!(
-        cancelled_at.elapsed() < Duration::from_secs(1),
-        "the cancel ends the derivation without waiting for it"
-    );
+    assert!(cancelled_at.elapsed() < Duration::from_secs(1), "the cancel ends the derivation without waiting for it");
     until(|| key_derivations().running == 0, "the derivation thread to end");
 }
 
@@ -476,10 +343,7 @@ fn a_request_cancelled_before_it_starts_takes_no_slot() {
     let _serial = serial();
     let cancel = CancelToken::new();
     cancel.cancel();
-    assert!(matches!(
-        KeyDerivation::start(&slow_descriptor(), PASSWORD, &cancel),
-        Err(KeyError::Cancelled)
-    ));
+    assert!(matches!(KeyDerivation::start(&slow_descriptor(), PASSWORD, &cancel), Err(KeyError::Cancelled)));
     assert_eq!(key_derivations(), DerivationCounts { running: 0, waiting: 0 });
 }
 
@@ -488,16 +352,10 @@ fn password_derivations_run_two_at_a_time_and_a_queued_one_is_cancelled_without_
     let _serial = serial();
     let descriptor = slow_descriptor();
     let tokens = [CancelToken::new(), CancelToken::new(), CancelToken::new()];
-    let derivations: Vec<KeyDerivation> = tokens
-        .iter()
-        .map(|token| KeyDerivation::start(&descriptor, PASSWORD, token).expect("started"))
-        .collect();
+    let derivations: Vec<KeyDerivation> = tokens.iter().map(|token| KeyDerivation::start(&descriptor, PASSWORD, token).expect("started")).collect();
     assert_eq!(key_derivations(), DerivationCounts { running: 2, waiting: 1 });
     tokens[2].cancel();
-    until(
-        || key_derivations().waiting == 0,
-        "the queued derivation to leave the line",
-    );
+    until(|| key_derivations().waiting == 0, "the queued derivation to leave the line");
     assert_eq!(key_derivations(), DerivationCounts { running: 2, waiting: 0 });
     tokens[0].cancel();
     tokens[1].cancel();
@@ -512,16 +370,10 @@ fn a_waiting_derivation_starts_when_a_running_one_ends() {
     let _serial = serial();
     let descriptor = slow_descriptor();
     let tokens = [CancelToken::new(), CancelToken::new(), CancelToken::new()];
-    let mut derivations: Vec<KeyDerivation> = tokens
-        .iter()
-        .map(|token| KeyDerivation::start(&descriptor, PASSWORD, token).expect("started"))
-        .collect();
+    let mut derivations: Vec<KeyDerivation> = tokens.iter().map(|token| KeyDerivation::start(&descriptor, PASSWORD, token).expect("started")).collect();
     tokens[0].cancel();
     assert!(is_cancelled(derivations.remove(0).wait()));
-    until(
-        || key_derivations() == DerivationCounts { running: 2, waiting: 0 },
-        "the queued derivation to take the slot",
-    );
+    until(|| key_derivations() == DerivationCounts { running: 2, waiting: 0 }, "the queued derivation to take the slot");
     tokens[1].cancel();
     tokens[2].cancel();
     for derivation in derivations {

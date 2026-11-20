@@ -20,11 +20,7 @@ fn set_flags(fd: &OwnedFd) -> io::Result<()> {
     unsafe {
         cvt(libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC))?;
         let flags = cvt(libc::fcntl(fd.as_raw_fd(), libc::F_GETFL))?;
-        cvt(libc::fcntl(
-            fd.as_raw_fd(),
-            libc::F_SETFL,
-            flags | libc::O_NONBLOCK,
-        ))?;
+        cvt(libc::fcntl(fd.as_raw_fd(), libc::F_SETFL, flags | libc::O_NONBLOCK))?;
     }
     Ok(())
 }
@@ -63,14 +59,7 @@ impl Event {
     fn drain(&self) {
         let mut buffer = [0u8; 64];
         // SAFETY: valid fd and buffer; the pipe is non-blocking.
-        while unsafe {
-            libc::read(
-                self.read.as_raw_fd(),
-                buffer.as_mut_ptr().cast(),
-                buffer.len(),
-            )
-        } > 0
-        {}
+        while unsafe { libc::read(self.read.as_raw_fd(), buffer.as_mut_ptr().cast(), buffer.len()) } > 0 {}
     }
 }
 
@@ -86,8 +75,7 @@ impl DirWatch {
         // SAFETY: plain FFI call.
         let fd = owned(unsafe { libc::inotify_init1(libc::IN_CLOEXEC | libc::IN_NONBLOCK) })?;
         // The locked directory itself, by its handle.
-        let path =
-            std::ffi::CString::new(format!("/proc/self/fd/{}", dir.raw_fd())).expect("no NUL");
+        let path = std::ffi::CString::new(format!("/proc/self/fd/{}", dir.raw_fd())).expect("no NUL");
         let mask = libc::IN_CREATE
             | libc::IN_DELETE
             | libc::IN_MOVED_FROM
@@ -105,17 +93,7 @@ impl DirWatch {
 #[cfg(target_os = "macos")]
 fn kevent_register(kq: &OwnedFd, event: libc::kevent) -> io::Result<()> {
     // SAFETY: one change, no event buffer.
-    cvt(unsafe {
-        libc::kevent(
-            kq.as_raw_fd(),
-            &event,
-            1,
-            std::ptr::null_mut(),
-            0,
-            std::ptr::null(),
-        )
-    })
-    .map(|_| ())
+    cvt(unsafe { libc::kevent(kq.as_raw_fd(), &event, 1, std::ptr::null_mut(), 0, std::ptr::null()) }).map(|_| ())
 }
 
 #[cfg(target_os = "macos")]
@@ -130,20 +108,12 @@ impl DirWatch {
                 ident: dir_fd.as_raw_fd() as libc::uintptr_t,
                 filter: libc::EVFILT_VNODE,
                 flags: libc::EV_ADD | libc::EV_CLEAR,
-                fflags: libc::NOTE_WRITE
-                    | libc::NOTE_DELETE
-                    | libc::NOTE_RENAME
-                    | libc::NOTE_ATTRIB
-                    | libc::NOTE_EXTEND
-                    | libc::NOTE_LINK,
+                fflags: libc::NOTE_WRITE | libc::NOTE_DELETE | libc::NOTE_RENAME | libc::NOTE_ATTRIB | libc::NOTE_EXTEND | libc::NOTE_LINK,
                 data: 0,
                 udata: std::ptr::null_mut(),
             },
         )?;
-        Ok(Self {
-            fd: kq,
-            _dir: dir_fd,
-        })
+        Ok(Self { fd: kq, _dir: dir_fd })
     }
 }
 
@@ -175,16 +145,7 @@ impl ExitWatch {
     pub(super) fn signal(&self, kill: bool) -> io::Result<()> {
         let signal = if kill { libc::SIGKILL } else { libc::SIGTERM };
         // SAFETY: plain syscall on a valid pidfd; no siginfo, no flags.
-        cvt(unsafe {
-            libc::syscall(
-                libc::SYS_pidfd_send_signal,
-                self.fd.as_raw_fd(),
-                signal,
-                std::ptr::null::<libc::siginfo_t>(),
-                0,
-            )
-        } as libc::c_int)
-        .map(drop)
+        cvt(unsafe { libc::syscall(libc::SYS_pidfd_send_signal, self.fd.as_raw_fd(), signal, std::ptr::null::<libc::siginfo_t>(), 0) } as libc::c_int).map(drop)
     }
 
     /// SIGTERM, or SIGKILL when `kill`. The pid was proven the identity's after its exit was registered.
@@ -198,9 +159,7 @@ impl ExitWatch {
     #[cfg(target_os = "linux")]
     fn register(pid: u32) -> io::Result<Option<OwnedFd>> {
         // SAFETY: plain syscall.
-        match owned(
-            unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::c_int, 0) } as libc::c_int,
-        ) {
+        match owned(unsafe { libc::syscall(libc::SYS_pidfd_open, pid as libc::c_int, 0) } as libc::c_int) {
             Ok(fd) => Ok(Some(fd)),
             Err(error) if error.raw_os_error() == Some(libc::ESRCH) => Ok(None),
             Err(error) => Err(error),
@@ -227,11 +186,7 @@ impl ExitWatch {
     }
 }
 
-pub(super) fn wait(
-    event: &Event,
-    dir: Option<&DirWatch>,
-    exit: Option<&ExitWatch>,
-) -> io::Result<Wake> {
+pub(super) fn wait(event: &Event, dir: Option<&DirWatch>, exit: Option<&ExitWatch>) -> io::Result<Wake> {
     let mut sources: Vec<(libc::c_int, Wake)> = Vec::with_capacity(3);
     if let Some(exit) = exit {
         sources.push((exit.fd.as_raw_fd(), Wake::Exited));
@@ -240,14 +195,7 @@ pub(super) fn wait(
         sources.push((dir.fd.as_raw_fd(), Wake::Changed));
     }
     sources.push((event.read.as_raw_fd(), Wake::Interrupted));
-    let mut fds: Vec<libc::pollfd> = sources
-        .iter()
-        .map(|(fd, _)| libc::pollfd {
-            fd: *fd,
-            events: libc::POLLIN,
-            revents: 0,
-        })
-        .collect();
+    let mut fds: Vec<libc::pollfd> = sources.iter().map(|(fd, _)| libc::pollfd { fd: *fd, events: libc::POLLIN, revents: 0 }).collect();
     loop {
         // SAFETY: `fds` holds `fds.len()` valid entries.
         let ret = unsafe { libc::poll(fds.as_mut_ptr(), fds.len() as libc::nfds_t, -1) };

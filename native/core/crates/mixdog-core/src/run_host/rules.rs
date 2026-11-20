@@ -11,13 +11,13 @@ use std::fs;
 use std::path::Path;
 use std::sync::LazyLock;
 
-use mixdog_js::{js_trim, JsRegex};
+use mixdog_js::{JsRegex, js_trim};
 use serde_json::Value;
 
+use super::tool_pool::model_surface::workflow_disallows_agent_tool;
+use super::tool_surface::unused_model_edit_tool_name;
 use mixdog_core_config::config::hidden_agents::hidden_agents;
 use mixdog_store::agent_mode::session_mode_of;
-use super::tool_surface::unused_model_edit_tool_name;
-use super::tool_pool::model_surface::workflow_disallows_agent_tool;
 
 static FRONTMATTER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^---[ \t]*\r?\n([\s\S]*?)\r?\n---[ \t]*(?:\r?\n|$)", ""));
 static FRONTMATTER_STRIP: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^---[ \t]*\r?\n[\s\S]*?\r?\n---[ \t]*(?:\r?\n|$)", ""));
@@ -29,8 +29,10 @@ static BLANK_RUNS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\n
 static KEY_VALUE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^([A-Za-z0-9_-]+):\s*(.*?)\s*$", ""));
 static QUOTE_EDGES: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"^['"]|['"]$"#, "g"));
 static LEAD_IDENTITY_LINE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^- (You are Mixdog, a coding agent\.)\n", "m"));
-static LEAD_PROGRESS_PASSAGE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r" (Before your first tool call, briefly state[\s\S]*?narration or plan repeats\.)", ""));
-static LEAD_REPORT_PASSAGE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r" (On\s+an\s+agent\s+report[\s\S]*?never\s+report\s+it\s+as\s+done\.)", ""));
+static LEAD_PROGRESS_PASSAGE: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r" (Before your first tool call, briefly state[\s\S]*?narration or plan repeats\.)", ""));
+static LEAD_REPORT_PASSAGE: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r" (On\s+an\s+agent\s+report[\s\S]*?never\s+report\s+it\s+as\s+done\.)", ""));
 
 const AGENT_MODE_PROGRESS: &str = "- Just answer conversation. Quick tool use (checking memory, a lookup,\n  leaving a reaction) needs no announcement. When starting longer work\n  (research, delegation, multi-step tasks), say in one line what you are\n  doing, stay quiet between tool calls, and share the result when it\n  finishes.";
 const AGENT_MODE_REPORT: &str = "- Relay agent reports faithfully. Code: one fresh Reviewer per non-trivial\n  feature after its last worker, any author (Lead if none); docs/copy/style:\n  read the diff. Recheck only concrete fixes, never rerun passing checks\n  without new evidence; at request end check feature seams.";
@@ -228,12 +230,22 @@ pub fn build_route_rules_content(plugin_root: &Path, provider: &str, model: &str
 }
 
 /// `_buildBaseRules` (BP1): the shared tool policy, then this route's rules.
-pub fn build_base_rules(plugin_root: &Path, provider: &str, model: &str, omit_tools: &[String], allow_tools: Option<&[String]>, owner_is_agent: bool) -> String {
-    [build_shared_tool_content(plugin_root, omit_tools, allow_tools, owner_is_agent), build_route_rules_content(plugin_root, provider, model, omit_tools, allow_tools)]
-        .into_iter()
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n---\n\n")
+pub fn build_base_rules(
+    plugin_root: &Path,
+    provider: &str,
+    model: &str,
+    omit_tools: &[String],
+    allow_tools: Option<&[String]>,
+    owner_is_agent: bool,
+) -> String {
+    [
+        build_shared_tool_content(plugin_root, omit_tools, allow_tools, owner_is_agent),
+        build_route_rules_content(plugin_root, provider, model, omit_tools, allow_tools),
+    ]
+    .into_iter()
+    .filter(|s| !s.is_empty())
+    .collect::<Vec<_>>()
+    .join("\n\n---\n\n")
 }
 
 /// `buildLeadRoleContent`'s `part`.
@@ -359,7 +371,9 @@ pub fn refresh_rule_variants(session: &mut Value, plugin_root: &Path, previous_m
     }
     let Some(messages) = session.get_mut("messages").and_then(Value::as_array_mut) else { return false };
     let Some(message) = messages.iter_mut().find(|m| {
-        m.get("role").and_then(Value::as_str) == Some("system") && !truthy_text(m.get("cacheTier")) && m.get("content").and_then(Value::as_str) == Some(previous.as_str())
+        m.get("role").and_then(Value::as_str) == Some("system")
+            && !truthy_text(m.get("cacheTier"))
+            && m.get("content").and_then(Value::as_str) == Some(previous.as_str())
     }) else {
         return false;
     };
@@ -400,6 +414,4 @@ mod tests {
         assert!(!ConfigRulesPolicy.hidden_agent(Some("no-such-agent")));
         assert!(!ConfigRulesPolicy.hidden_agent(None));
     }
-
-
 }

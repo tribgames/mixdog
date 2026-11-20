@@ -8,11 +8,11 @@
 use mixdog_core_api::domain::approval::ActionKind;
 use serde_json::Value;
 
-pub const RUN_FORBIDDEN_REASON: &str =
-    "Payments and permanent deletes aren't allowed in schedule/webhook runs; do it from the chat.";
+pub const RUN_FORBIDDEN_REASON: &str = "Payments and permanent deletes aren't allowed in schedule/webhook runs; do it from the chat.";
 
 /// The ask reason of a schedule/webhook save: the grant, said plainly.
-pub const AUTOMATION_GRANT_REASON: &str = "Approving lets this schedule's or webhook's runs act without asking, within the bot's permissions. Payments and permanent deletes are never done in runs.";
+pub const AUTOMATION_GRANT_REASON: &str =
+    "Approving lets this schedule's or webhook's runs act without asking, within the bot's permissions. Payments and permanent deletes are never done in runs.";
 
 /// The unattended run that owns a session.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]

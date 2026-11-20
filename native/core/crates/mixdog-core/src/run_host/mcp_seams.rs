@@ -15,42 +15,42 @@ use mixdog_agent::message::AgentMessage;
 use mixdog_agent::message::Source;
 use mixdog_agent::message::ToolKind;
 use mixdog_agent::native_search::parse_native_tool_search;
-use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_agent::tools::ToolEnv;
+use mixdog_ai::service::admin_models::developer_option_enabled;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
+use mixdog_core_api::domain::provider::ToolCall;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolPart;
-use mixdog_ai::service::admin_models::developer_option_enabled;
-use mixdog_mcp::McpHub;
-use mixdog_mcp::hub::normalize_scope;
-use mixdog_mcp::skill_catalog::SkillCatalog;
-use mixdog_store::schema::record::Header;
-use mixdog_tools::policy::ToolResolver;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_mcp::McpHub;
 use mixdog_mcp::hook_bus::HookBus;
 use mixdog_mcp::hook_bus::session::CommonOf;
 use mixdog_mcp::hook_bus::session::PostCall;
 use mixdog_mcp::hook_bus::session::SessionPostTool;
+use mixdog_mcp::hub::normalize_scope;
+use mixdog_mcp::skill_catalog::SkillCatalog;
 use mixdog_mcp::skill_select::Prompt;
 use mixdog_mcp::skill_select::PromptPart;
 use mixdog_mcp::skill_select::SkillNames;
 use mixdog_mcp::skill_select::selection_of;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ToolCallId;
+use mixdog_store::schema::record::Header;
+use mixdog_tools::policy::ToolResolver;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-use super::session_tools::SkillsListed;
-use mixdog_core_config::config::Config;
-use mixdog_core_ports::ports::gate::GateEnv;
-use mixdog_core_ports::ports::gate::GateRun;
 use super::hooks::BatchDecision;
 use super::hooks::PostToolAnswer;
 use super::hooks::PostToolDispatch;
 use super::hooks::PostToolEvent;
 use super::hooks::StopDecision;
+use super::session_tools::SkillsListed;
+use mixdog_core_config::config::Config;
+use mixdog_core_ports::ports::gate::GateEnv;
+use mixdog_core_ports::ports::gate::GateRun;
 
 /// `PostToolDispatch` over the hook bus: the configured PostToolUse, PostToolUseFailure and
 /// PostToolBatch handlers.
@@ -73,7 +73,11 @@ fn call_of(event: &PostToolEvent) -> PostCall<'_> {
 impl PostToolDispatch for BusPostToolDispatch {
     async fn post_tool(&self, event: &PostToolEvent) -> PostToolAnswer {
         let decided = self.inner.tool(&call_of(event)).await;
-        PostToolAnswer { updated_output: decided.updated_tool_output, context: decided.additional_context, feedback: decided.blocked.then_some(decided.reason).flatten() }
+        PostToolAnswer {
+            updated_output: decided.updated_tool_output,
+            context: decided.additional_context,
+            feedback: decided.blocked.then_some(decided.reason).flatten(),
+        }
     }
 
     async fn post_failure(&self, event: &PostToolEvent) {
@@ -270,10 +274,12 @@ impl SkillSelector for ExplicitSkillSelector {
                 }
                 None => transcript.push(AgentMessage::sourced(
                     Source::SkillContext,
-                    format!("<system-reminder>
+                    format!(
+                        "<system-reminder>
 Explicit skill selection result:
 {summary}
-</system-reminder>"),
+</system-reminder>"
+                    ),
                 )),
             }
             transcript.extend(follow_ups.into_iter().map(|m| AgentMessage::sourced(Source::Skill, m.text)));

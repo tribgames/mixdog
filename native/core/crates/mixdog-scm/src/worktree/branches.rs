@@ -115,11 +115,7 @@ impl Worktrees {
     }
 
     async fn local_branch_commits(&self, cwd: &Path, cancel: &CancellationToken) -> Result<Vec<(String, String)>, ScmFailure> {
-        let text = self
-            .scm()
-            .git
-            .run(cancel, cwd, &["for-each-ref", "--format=%(refname:short)%09%(committerdate:iso-strict)", "refs/heads/"])
-            .await?;
+        let text = self.scm().git.run(cancel, cwd, &["for-each-ref", "--format=%(refname:short)%09%(committerdate:iso-strict)", "refs/heads/"]).await?;
         Ok(text
             .lines()
             .map(str::trim)
@@ -132,12 +128,7 @@ impl Worktrees {
     }
 
     /// Local branches of the project and who holds each.
-    pub async fn branch_occupancy(
-        &self,
-        project: &Path,
-        session_id: Option<&str>,
-        cancel: &CancellationToken,
-    ) -> Result<Value, ScmFailure> {
+    pub async fn branch_occupancy(&self, project: &Path, session_id: Option<&str>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         let facts = self.inspect_repo(project, cancel).await?;
         // The branch list, the worktree list and the registry are read together (Node `listBranchOccupancy`).
         let (commits, worktrees, records) = tokio::try_join!(
@@ -146,10 +137,7 @@ impl Worktrees {
             self.all_records(cancel),
         )?;
         let common = facts.common_dir.to_string_lossy().into_owned();
-        let managed: Vec<_> = records
-            .into_iter()
-            .filter(|r| same(&r.repo_common_dir, &common))
-            .collect();
+        let managed: Vec<_> = records.into_iter().filter(|r| same(&r.repo_common_dir, &common)).collect();
         let top = facts.top_level.to_string_lossy().into_owned();
         let occupancy: Vec<Value> = commits
             .iter()
@@ -167,13 +155,9 @@ impl Worktrees {
                 }
             })
             .collect();
-        let committed_at: serde_json::Map<String, Value> = commits
-            .iter()
-            .filter(|(_, at)| !at.is_empty())
-            .map(|(name, at)| (name.clone(), json!(at)))
-            .collect();
-        let retained = session_id
-            .and_then(|id| managed.iter().find(|r| r.owner_session_id.as_deref() == Some(id) && r.state == "ready"));
+        let committed_at: serde_json::Map<String, Value> =
+            commits.iter().filter(|(_, at)| !at.is_empty()).map(|(name, at)| (name.clone(), json!(at))).collect();
+        let retained = session_id.and_then(|id| managed.iter().find(|r| r.owner_session_id.as_deref() == Some(id) && r.state == "ready"));
         Ok(json!({
             "branches": commits.iter().map(|(name, _)| name).collect::<Vec<_>>(),
             "occupancy": occupancy,
@@ -190,14 +174,10 @@ impl Worktrees {
             return Err(ScmFailure::invalid("commit", "a commit id"));
         }
         let git = &self.scm().git;
-        let listed = git
-            .outcome(cancel, cwd, &["rev-parse", &format!("--disambiguate={id}")], &RunOptions::default())
-            .await?;
+        let listed = git.outcome(cancel, cwd, &["rev-parse", &format!("--disambiguate={id}")], &RunOptions::default()).await?;
         let mut commits: Vec<String> = Vec::new();
         for candidate in listed.stdout_text().split_whitespace() {
-            let peeled = git
-                .outcome(cancel, cwd, &["rev-parse", "--verify", "--quiet", &format!("{candidate}^{{commit}}")], &RunOptions::default())
-                .await?;
+            let peeled = git.outcome(cancel, cwd, &["rev-parse", "--verify", "--quiet", &format!("{candidate}^{{commit}}")], &RunOptions::default()).await?;
             let found = peeled.stdout_text().lines().next().unwrap_or("").trim().to_owned();
             if peeled.success() && !commits.contains(&found) {
                 commits.push(found);
@@ -219,7 +199,13 @@ impl Worktrees {
         }
         let stderr = out.stderr_text().trim().to_owned();
         let stdout = out.stdout_text().trim().to_owned();
-        let detail = if !stderr.is_empty() { stderr } else if !stdout.is_empty() { stdout } else { "no diagnostic".to_owned() };
+        let detail = if !stderr.is_empty() {
+            stderr
+        } else if !stdout.is_empty() {
+            stdout
+        } else {
+            "no diagnostic".to_owned()
+        };
         let code = out.code.map_or("null".to_owned(), |code| code.to_string());
         Err(ScmFailure::refused("GIT_FAILED", format!("git {} failed (exit {code}): {detail}", args.join(" "))))
     }
@@ -228,11 +214,7 @@ impl Worktrees {
     /// changes. Nothing is carried: `git switch` keeps compatible uncommitted changes, which
     /// would silently move them onto the other commit.
     async fn assert_project_folder_clean(&self, facts: &RepoFacts, cancel: &CancellationToken) -> Result<(), ScmFailure> {
-        let status = self
-            .scm()
-            .git
-            .read(cancel, &facts.top_level, &["status", "--porcelain=v1", "-z", "--untracked-files=no"])
-            .await?;
+        let status = self.scm().git.read(cancel, &facts.top_level, &["status", "--porcelain=v1", "-z", "--untracked-files=no"]).await?;
         let dirty = parse_status_paths(&status);
         if dirty.is_empty() { Ok(()) } else { Err(errors::project_dirty(dirty)) }
     }
@@ -269,11 +251,7 @@ impl Worktrees {
             }
             return self.detach_project_folder(&request.project_path, detach, cancel).await;
         }
-        let requested = request
-            .branch
-            .clone()
-            .filter(|b| !b.trim().is_empty())
-            .ok_or_else(|| ScmFailure::invalid("branch", "a branch name"))?;
+        let requested = request.branch.clone().filter(|b| !b.trim().is_empty()).ok_or_else(|| ScmFailure::invalid("branch", "a branch name"))?;
         if request.create && request.remote {
             return Err(ScmFailure::invalid("create", "exclusive with remote"));
         }
@@ -326,12 +304,7 @@ impl Worktrees {
         if let Some(holder) = holder {
             let record = self.find_by_path(&holder.path, cancel).await?;
             let owner = record.and_then(|r| r.owner_session_id);
-            return Err(errors::branch_occupied(
-                branch,
-                Some(holder.path),
-                Some(if owner.is_some() { "session" } else { "external" }),
-                owner,
-            ));
+            return Err(errors::branch_occupied(branch, Some(holder.path), Some(if owner.is_some() { "session" } else { "external" }), owner));
         }
         self.assert_project_folder_clean(&facts, cancel).await?;
         let mut args: Vec<&str> = vec!["switch", &branch];
@@ -370,14 +343,12 @@ impl Worktrees {
         let _lock = repo.lock_repository().await?;
         let mut current = self.record(cancel, entry_id).await?.filter(|r| r.state == "ready").ok_or_else(missing)?;
         if let Some(project) = project_path
-            && !same(&current.project_path, &project.to_string_lossy()) {
+            && !same(&current.project_path, &project.to_string_lossy())
+        {
             return Err(errors::project_mismatch(current.id.clone(), current.project_path.clone(), project.to_string_lossy().into_owned()));
         }
         let source = self.checked_out_branch_of(&current, cancel).await?.ok_or_else(missing)?;
-        let result = self
-            .scm()
-            .merge_branch_into_checkout(cancel, Path::new(&current.project_path), &source, Some(target), confirmed, None)
-            .await?;
+        let result = self.scm().merge_branch_into_checkout(cancel, Path::new(&current.project_path), &source, Some(target), confirmed, None).await?;
         if result.merged && current.merge_target.as_deref() != Some(target) {
             current.merge_target = Some(target.to_owned());
             self.put_record(cancel, current).await?;
@@ -399,10 +370,7 @@ impl Worktrees {
         let facts = self.inspect_repo(project, cancel).await?;
         let repo = self.scm().open(&facts.project_path, cancel).await?;
         let _lock = repo.lock_repository().await?;
-        let result = self
-            .scm()
-            .merge_branch_into_checkout(cancel, &facts.project_path, source, Some(target), confirmed, None)
-            .await?;
+        let result = self.scm().merge_branch_into_checkout(cancel, &facts.project_path, source, Some(target), confirmed, None).await?;
         repo.touched();
         Ok(result.to_json())
     }
@@ -422,11 +390,7 @@ impl Worktrees {
             None => self.branch_commit(&facts.project_path, branch, cancel).await?,
         }
         .ok_or_else(errors::branch_missing)?;
-        let holder = self
-            .list_git_worktrees(&facts.project_path, cancel)
-            .await?
-            .into_iter()
-            .find(|w| w.branch.as_deref() == Some(branch) && !w.prunable);
+        let holder = self.list_git_worktrees(&facts.project_path, cancel).await?.into_iter().find(|w| w.branch.as_deref() == Some(branch) && !w.prunable);
         let record = match &holder {
             Some(h) => self.find_by_path(&h.path, cancel).await?,
             None => None,
@@ -539,10 +503,7 @@ impl Worktrees {
         if let Some(record) = &record {
             let own = std::process::id();
             let leases = self.leases_of(record, cancel).await?;
-            if leases
-                .iter()
-                .any(|l| pid_alive_or_unknown(l.owner.pid) && (removing || l.owner.pid != Some(own)))
-            {
+            if leases.iter().any(|l| pid_alive_or_unknown(l.owner.pid) && (removing || l.owner.pid != Some(own))) {
                 return Err(errors::busy(errors::RefusalReason::WorkspaceLease));
             }
         }
@@ -550,7 +511,9 @@ impl Worktrees {
         let project = facts.project_path.clone();
         if removing {
             let Some(record) = record.filter(|r| {
-                state.kind == "managed" && Path::new(&r.path).exists() && (r.state == "ready" || (r.state == "deleting" && r.extra.get("deleting").and_then(|d| d.get("safeOnly")) == Some(&Value::Bool(true))))
+                state.kind == "managed"
+                    && Path::new(&r.path).exists()
+                    && (r.state == "ready" || (r.state == "deleting" && r.extra.get("deleting").and_then(|d| d.get("safeOnly")) == Some(&Value::Bool(true))))
             }) else {
                 // Node's `worktreeError` with its own text and no details (branch-management.mjs).
                 return Err(errors::coded_text(errors::WORKTREE_PATH_UNSAFE, "Only an unused Mixdog-managed worktree can be removed."));
@@ -582,18 +545,13 @@ impl Worktrees {
                 return Err(errors::branch_checkout_held());
             }
             let common = facts.common_dir.to_string_lossy().into_owned();
-            let held = self
-                .all_records(cancel)
-                .await?
-                .into_iter()
-                .any(|r| r.branch.as_deref() == Some(request.branch.as_str()) && same(&r.repo_common_dir, &common));
+            let held =
+                self.all_records(cancel).await?.into_iter().any(|r| r.branch.as_deref() == Some(request.branch.as_str()) && same(&r.repo_common_dir, &common));
             if held {
                 return Err(errors::branch_retained());
             }
             let target_commit = request.target_commit.clone().unwrap_or_default();
-            let merged = git
-                .outcome(cancel, &project, &["merge-base", "--is-ancestor", &request.commit, &target_commit], &RunOptions::default())
-                .await?;
+            let merged = git.outcome(cancel, &project, &["merge-base", "--is-ancestor", &request.commit, &target_commit], &RunOptions::default()).await?;
             if merged.success() {
                 self.checked_git(cancel, &project, &["branch", "-d", "--", &request.branch]).await?;
                 repo.touched();
@@ -610,32 +568,22 @@ impl Worktrees {
         }
         if let Some(source_path) = &state.path {
             let source = Path::new(source_path);
-            let operation = self
-                .scm()
-                .open(source, cancel)
-                .await
-                .ok()
-                .and_then(|r| crate::repo::operation_in_progress(&r.identity.git_dir));
+            let operation = self.scm().open(source, cancel).await.ok().and_then(|r| crate::repo::operation_in_progress(&r.identity.git_dir));
             let dirty = match &record {
                 Some(record) => self.dirty_paths(record, cancel).await?,
                 None => self.scm().uncommitted_paths(cancel, source).await?,
             };
             if operation.is_some() || !dirty.is_empty() {
-                return Err(errors::merge_source_dirty(
-                    operation.map_or("", crate::repo::operation_verb),
-                    dirty.len() as u64,
-                ));
+                return Err(errors::merge_source_dirty(operation.map_or("", crate::repo::operation_verb), dirty.len() as u64));
             }
         }
-        let merged = self
-            .scm()
-            .merge_branch_into_checkout(cancel, &project, &request.branch, Some(&target), true, None)
-            .await?;
+        let merged = self.scm().merge_branch_into_checkout(cancel, &project, &request.branch, Some(&target), true, None).await?;
         // A managed worktree remembers where it was merged (its later removal checks against it).
         if merged.merged
             && let Some(id) = &state.worktree_id
             && let Some(mut current) = self.record(cancel, id).await?
-            && current.merge_target.as_deref() != Some(target.as_str()) {
+            && current.merge_target.as_deref() != Some(target.as_str())
+        {
             current.merge_target = Some(target.clone());
             self.put_record(cancel, current).await?;
         }

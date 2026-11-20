@@ -204,9 +204,7 @@ impl Scheduler {
             return Err(ScheduleError::Run(format!("defer: minutes must be a positive number, got {minutes}")));
         }
         if self.find_schedule(name).is_none() {
-            return Err(ScheduleError::Run(format!(
-                "defer: unknown schedule \"{name}\" — use schedule_status to list valid names"
-            )));
+            return Err(ScheduleError::Run(format!("defer: unknown schedule \"{name}\" — use schedule_status to list valid names")));
         }
         let until = self.inner.clock.now() + Duration::milliseconds((minutes * 60_000.0) as i64);
         self.inner.store.set_deferred(name, Some(until)).await?;
@@ -217,9 +215,7 @@ impl Scheduler {
     /// Skips a schedule for the rest of today (the end of the local day).
     pub async fn skip_today(&self, name: &str) -> Result<(), ScheduleError> {
         if self.find_schedule(name).is_none() {
-            return Err(ScheduleError::Run(format!(
-                "skip_today: unknown schedule \"{name}\" — use schedule_status to list valid names"
-            )));
+            return Err(ScheduleError::Run(format!("skip_today: unknown schedule \"{name}\" — use schedule_status to list valid names")));
         }
         let local = self.inner.clock.now().with_timezone(&self.inner.local_tz);
         let end_of_day = local
@@ -459,9 +455,7 @@ impl Inner {
             while let Some(slot) = expected {
                 let wait = (slot - inner.clock.now()).num_milliseconds();
                 mixdog_rt::time::sleep(std_delay(wait.min(MAX_BEAT_WAIT_MS))).await;
-                let plan = plan_beat(slot, whole_seconds(inner.clock.now()), MISSED_TOLERANCE_MS, |d| {
-                    expr.next_after(d, tz)
-                });
+                let plan = plan_beat(slot, whole_seconds(inner.clock.now()), MISSED_TOLERANCE_MS, |d| expr.next_after(d, tz));
                 expected = plan.next;
                 for missed in plan.missed {
                     tracing::warn!(schedule = %name, "missed execution at {}!", iso(missed));
@@ -690,9 +684,8 @@ impl Inner {
                 return Ok(false);
             }
         };
-        let current = row.as_ref().is_some_and(|r| {
-            r.enabled && r.status != ScheduleStatus::Done && r.when_at == armed.when_at && r.when_cron == armed.when_cron
-        });
+        let current =
+            row.as_ref().is_some_and(|r| r.enabled && r.status != ScheduleStatus::Done && r.when_at == armed.when_at && r.when_cron == armed.when_cron);
         if !current {
             mixdog_rt::node_stderr!("mixdog scheduler: {name}: not fired — deleted or changed since it was armed");
             let now = self.clock.now();
@@ -725,12 +718,7 @@ impl Inner {
         }
     }
 
-    async fn fire_timed_prompt(
-        self: &Arc<Self>,
-        mut schedule: Schedule,
-        prompt: String,
-        opts: FireOpts,
-    ) -> Result<bool, ScheduleError> {
+    async fn fire_timed_prompt(self: &Arc<Self>, mut schedule: Schedule, prompt: String, opts: FireOpts) -> Result<bool, ScheduleError> {
         let name = schedule.name.clone();
         if !opts.reserved
             && let Some(refusal) = self.reserve(&name)

@@ -393,12 +393,7 @@ fn plain() -> DocumentSpec {
     item.tab_stops = vec![(false, 36.0), (true, 72.0)];
     item.list_type = 2;
     item.number_format = "\u{2022}";
-    DocumentSpec {
-        text: "Title line\rA\tb here\r\r",
-        paragraphs: vec![title, item, ParagraphSpec::new(20, 21)],
-        revisions: Vec::new(),
-        tables: Vec::new(),
-    }
+    DocumentSpec { text: "Title line\rA\tb here\r\r", paragraphs: vec![title, item, ParagraphSpec::new(20, 21)], revisions: Vec::new(), tables: Vec::new() }
 }
 
 #[test]
@@ -648,12 +643,7 @@ fn issues_document(world: &World) -> Obj {
     let range = world.obj().child("Font", font).prop("Text", Com::Str(format!("{long_text}\r"))).build();
     let paragraph = world.obj().child("Range", range).method("Next", |_| Ok(Com::Null)).build();
     let column = |width: f32| world.obj().prop("Width", Com::R4(width)).build();
-    let page = world
-        .obj()
-        .prop("PageWidth", Com::R4(612.0))
-        .prop("LeftMargin", Com::R4(72.0))
-        .prop("RightMargin", Com::R4(72.0))
-        .build();
+    let page = world.obj().prop("PageWidth", Com::R4(612.0)).prop("LeftMargin", Com::R4(72.0)).prop("RightMargin", Com::R4(72.0)).build();
     let section = world.obj().child("PageSetup", page).build();
     let table = world
         .obj()
@@ -681,9 +671,8 @@ fn issues_name_what_the_author_has_to_resolve() {
     fonts.insert("Calibri");
     platform.set_fonts(fonts);
     let applications = ScriptedApplications::new();
-    let value = Reader
-        .issues(&Env { platform: &platform, applications: &applications }, &document, &payload::parse_payload("{}").expect("a request"))
-        .expect("issues");
+    let value =
+        Reader.issues(&Env { platform: &platform, applications: &applications }, &document, &payload::parse_payload("{}").expect("a request")).expect("issues");
     let codes: Vec<&Value> = (0..6).map(|at_| at(&value, &format!("{at_}.code"))).collect();
     assert_eq!(
         codes,

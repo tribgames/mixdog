@@ -331,20 +331,31 @@ mod tests {
     fn the_pending_request_with_the_lowest_order_is_the_approval_and_the_others_wait() {
         let fold = fold_of(json!({ "thread": { "id": "t" }, "items": [], "state": {} }));
         let ask = |id: &str, order: u64, thread: &str| {
-            request(id, "item/tool/requestApproval", json!({ "threadId": thread, "requestedAt": 1, "order": order, "kind": "shell", "tool": "bash", "request": { "command": id } }))
+            request(
+                id,
+                "item/tool/requestApproval",
+                json!({ "threadId": thread, "requestedAt": 1, "order": order, "kind": "shell", "tool": "bash", "request": { "command": id } }),
+            )
         };
         let requests = [ask("r2", 2, "t"), ask("r1", 1, "t"), ask("other", 0, "elsewhere")];
         let state = desktop_session_state(&fold, &requests, None);
         assert_eq!(state["toolApprovalsWaiting"], 1);
-        assert_eq!((state["toolApproval"]["id"].clone(), state["toolApproval"]["command"].clone(), state["toolApproval"]["tool"].clone()), (json!("r1"), json!("r1"), json!("bash")));
+        assert_eq!(
+            (state["toolApproval"]["id"].clone(), state["toolApproval"]["command"].clone(), state["toolApproval"]["tool"].clone()),
+            (json!("r1"), json!("r1"), json!("bash"))
+        );
         assert!(state["toolApproval"].get("order").is_none());
     }
 
     #[test]
     fn a_question_card_says_so_and_a_cards_own_object_is_the_card() {
         let fold = fold_of(json!({ "thread": { "id": "t" }, "items": [], "state": {} }));
-        let question = request("q", "item/tool/requestUserInput", json!({ "threadId": "t", "requestedAt": 1, "order": 1, "questions": [{ "question": "ok?" }] }));
-        assert_eq!(desktop_session_state(&fold, &[question], None)["toolApproval"], json!({ "questions": [{ "question": "ok?" }], "kind": "question", "id": "q" }));
+        let question =
+            request("q", "item/tool/requestUserInput", json!({ "threadId": "t", "requestedAt": 1, "order": 1, "questions": [{ "question": "ok?" }] }));
+        assert_eq!(
+            desktop_session_state(&fold, &[question], None)["toolApproval"],
+            json!({ "questions": [{ "question": "ok?" }], "kind": "question", "id": "q" })
+        );
         // The core states the card it shows in `params.card`.
         let carded = json!({ "method": "item/tool/requestApproval", "id": "c", "params": { "threadId": "t", "order": 1, "kind": "shell", "card": { "id": "row-1", "tool": "bash" } } });
         assert_eq!(approval_card(&carded), json!({ "id": "row-1", "tool": "bash" }));

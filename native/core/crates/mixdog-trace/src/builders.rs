@@ -167,10 +167,7 @@ pub fn fetch_record(a: &Args) -> Args {
         .or_null(a, "model", "model")
         .or_null(a, "transport", "transport")
         .spread(Some(&Value::Object(
-            ["handshake_retries", "handshake_retry_classifiers"]
-                .iter()
-                .filter_map(|k| payload.get(*k).map(|v| ((*k).to_string(), v.clone())))
-                .collect(),
+            ["handshake_retries", "handshake_retry_classifiers"].iter().filter_map(|k| payload.get(*k).map(|v| ((*k).to_string(), v.clone()))).collect(),
         )))
         .put("payload", Value::Object(payload))
         .done()
@@ -222,12 +219,7 @@ pub fn turn_timing_record(a: &Args) -> Args {
         .put("mcp_ms", ms("mcpMs"))
         .put("provider_ms", ms("providerMs"))
         .done();
-    Row::new()
-        .copy(a, "sessionId")
-        .text("kind", "turn_timing")
-        .spread(Some(&Value::Object(payload.clone())))
-        .put("payload", Value::Object(payload))
-        .done()
+    Row::new().copy(a, "sessionId").text("kind", "turn_timing").spread(Some(&Value::Object(payload.clone()))).put("payload", Value::Object(payload)).done()
 }
 
 /// `isInclusiveProvider` (`shared/llm/cost.mjs`).
@@ -255,11 +247,7 @@ pub fn resolve_trace_usage_input(
     };
     let or_zero = |v: Option<&Value>| if v.is_some_and(truthy) { number(v) } else { 0.0 };
     let (input, read, write) = (or_zero(input_tokens), or_zero(cached_tokens), or_zero(cache_write_tokens));
-    if inclusive {
-        ((input - read - write).max(0.0), input.max(read + write))
-    } else {
-        (input, input + read + write)
-    }
+    if inclusive { ((input - read - write).max(0.0), input.max(read + write)) } else { (input, input + read + write) }
 }
 
 fn token_count(value: Option<&Value>) -> Option<Value> {
@@ -286,33 +274,18 @@ pub fn reasoning_tokens(usage: Option<&Value>) -> Value {
         &["thoughtsTokenCount"],
         &["thoughts_token_count"],
     ];
-    paths
-        .iter()
-        .find_map(|path| token_count(path.iter().try_fold(raw, |v, key| v.get(*key))))
-        .unwrap_or(Value::Null)
+    paths.iter().find_map(|path| token_count(path.iter().try_fold(raw, |v, key| v.get(*key)))).unwrap_or(Value::Null)
 }
 
 /// `traceAgentUsage`. `identity` is the usage context of the send in progress
 /// (`currentUsageContext()`: `provider`, `sessionId`, `inputTokensInclusive`, `requestedModel`,
 /// `pricingModel`, `sourceType`).
 pub fn usage_raw_record(a: &Args, identity: Option<&Args>) -> Args {
-    let pick = |own: &str| -> Option<Value> {
-        identity
-            .and_then(|i| i.get(own))
-            .filter(|v| truthy(v))
-            .cloned()
-            .or_else(|| a.get(own).cloned())
-    };
+    let pick = |own: &str| -> Option<Value> { identity.and_then(|i| i.get(own)).filter(|v| truthy(v)).cloned().or_else(|| a.get(own).cloned()) };
     let provider = pick("provider");
     let session_id = pick("sessionId");
     let inclusive = identity.and_then(|i| i.get("inputTokensInclusive")).filter(|v| !v.is_null()).or(a.get("inputTokensInclusive"));
-    let (uncached, prompt) = resolve_trace_usage_input(
-        provider.as_ref(),
-        a.get("inputTokens"),
-        a.get("cachedTokens"),
-        a.get("cacheWriteTokens"),
-        inclusive,
-    );
+    let (uncached, prompt) = resolve_trace_usage_input(provider.as_ref(), a.get("inputTokens"), a.get("cachedTokens"), a.get("cacheWriteTokens"), inclusive);
     let cache_write = if a.get("cacheWriteTokens").is_some_and(truthy) { a.get("cacheWriteTokens").cloned() } else { Some(Value::from(0)) };
     let prompt_total = match a.get("promptTokens") {
         Some(Value::Number(n)) => Value::Number(n.clone()),
@@ -343,10 +316,7 @@ pub fn usage_raw_record(a: &Args, identity: Option<&Args>) -> Args {
     let mut payload = Row::new()
         .put("provider", or_null(provider.as_ref()))
         .put("requested_model", or_null(id("requestedModel")))
-        .put(
-            "pricing_model",
-            or_null(a.get("pricingModel").filter(|v| truthy(v)).or(id("pricingModel"))),
-        )
+        .put("pricing_model", or_null(a.get("pricingModel").filter(|v| truthy(v)).or(id("pricingModel"))))
         .put("source_type", or_null(id("sourceType")))
         .put("prompt_tokens", prompt_total.clone())
         .put("uncached_input_tokens", num_value(uncached))
@@ -386,11 +356,7 @@ pub fn usage_raw_record(a: &Args, identity: Option<&Args>) -> Args {
 }
 
 /// `grokCacheChainTraceFields`.
-pub fn grok_cache_chain_fields(
-    provider_state: Option<&Value>,
-    request_prev_response_id: Option<&Value>,
-    continuation_reset_reason: Option<&str>,
-) -> Args {
+pub fn grok_cache_chain_fields(provider_state: Option<&Value>, request_prev_response_id: Option<&Value>, continuation_reset_reason: Option<&str>) -> Args {
     let non_empty = |v: Option<&Value>| v.and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_string);
     let last = non_empty(provider_state.and_then(|s| s.get("xaiResponses")).and_then(|x| x.get("previousResponseId")));
     let sent = non_empty(request_prev_response_id);
@@ -398,10 +364,7 @@ pub fn grok_cache_chain_fields(
     Row::new()
         .put("requestPrevResponseId", sent.map_or(Value::Null, Value::String))
         .put("chainContinuous", Value::Bool(continuous))
-        .put(
-            "continuationResetReason",
-            continuation_reset_reason.filter(|s| !s.is_empty()).map_or(Value::Null, |s| Value::String(s.into())),
-        )
+        .put("continuationResetReason", continuation_reset_reason.filter(|s| !s.is_empty()).map_or(Value::Null, |s| Value::String(s.into())))
         .done()
 }
 
@@ -430,17 +393,8 @@ pub fn compress_record(a: &Args) -> Args {
     let before = number(a.get("before"));
     let after = number(a.get("after"));
     let savings = if before > 0.0 { round((1.0 - after / before) * 100.0) } else { 0.0 };
-    let payload = Row::new()
-        .copy_as(a, "before", "bytes_before")
-        .copy_as(a, "after", "bytes_after")
-        .put("savings_pct", num_value(savings))
-        .done();
-    Row::new()
-        .copy(a, "sessionId")
-        .text("kind", "compress")
-        .copy_as(a, "toolName", "tool_name")
-        .put("payload", Value::Object(payload))
-        .done()
+    let payload = Row::new().copy_as(a, "before", "bytes_before").copy_as(a, "after", "bytes_after").put("savings_pct", num_value(savings)).done();
+    Row::new().copy(a, "sessionId").text("kind", "compress").copy_as(a, "toolName", "tool_name").put("payload", Value::Object(payload)).done()
 }
 
 /// `nonNegativeInt(value)`.
@@ -463,10 +417,7 @@ pub fn shell_output_payload(a: &Args) -> Option<Args> {
     }
     let visible = non_negative_int(a.get("modelVisibleBytes"));
     let cob = command_output.trunc();
-    let exit_code = t("exitCode")
-        .filter(|v| v.as_f64().is_some_and(|n| n.fract() == 0.0))
-        .cloned()
-        .unwrap_or(Value::Null);
+    let exit_code = t("exitCode").filter(|v| v.as_f64().is_some_and(|n| n.fract() == 0.0)).cloned().unwrap_or(Value::Null);
     let lossless = match t("losslessCompaction") {
         Some(l) if truthy(l) => Value::Object(
             Row::new()
@@ -489,10 +440,7 @@ pub fn shell_output_payload(a: &Args) -> Option<Args> {
             .put("post_offload_bytes", int_value(non_negative_int(a.get("postOffloadBytes"))))
             .put("model_visible_bytes", int_value(visible))
             .put("byte_delta", int_value(cob - visible))
-            .put(
-                "reduction_pct",
-                if command_output > 0.0 { num_value(round((1.0 - visible / command_output) * 100.0)) } else { Value::Null },
-            )
+            .put("reduction_pct", if command_output > 0.0 { num_value(round((1.0 - visible / command_output) * 100.0)) } else { Value::Null })
             .put("exit_code", exit_code)
             .put("signal", or_null(t("signal")))
             .put("timed_out", Value::Bool(is_true(t("timedOut"))))
@@ -513,14 +461,7 @@ pub fn shell_output_record(a: &Args) -> Option<Args> {
         Some(v) if truthy(v) => v.clone(),
         _ => Value::String("shell".into()),
     };
-    Some(
-        Row::new()
-            .copy(a, "sessionId")
-            .text("kind", "shell_output")
-            .put("tool_name", tool_name)
-            .put("payload", Value::Object(payload))
-            .done(),
-    )
+    Some(Row::new().copy(a, "sessionId").text("kind", "shell_output").put("tool_name", tool_name).put("payload", Value::Object(payload)).done())
 }
 
 /// `buildToolOutputTelemetryPayload`.
@@ -552,31 +493,16 @@ pub fn tool_output_record(a: &Args) -> Option<Args> {
     if !a.get("sessionId").is_some_and(truthy) || payload.get("offloaded") != Some(&Value::Bool(true)) {
         return None;
     }
-    Some(
-        Row::new()
-            .copy(a, "sessionId")
-            .text("kind", "tool_output")
-            .or_null(a, "toolName", "tool_name")
-            .put("payload", Value::Object(payload))
-            .done(),
-    )
+    Some(Row::new().copy(a, "sessionId").text("kind", "tool_output").or_null(a, "toolName", "tool_name").put("payload", Value::Object(payload)).done())
 }
 
 /// `traceAgentBatch`.
 pub fn batch_record(a: &Args) -> Args {
     let mut payload = Row::new().copy_as(a, "toolCallCount", "tool_call_count");
     if a.get("batchId").is_some_and(truthy) && a.get("batchCalls").is_some_and(Value::is_array) {
-        payload = payload
-            .put("batch_schema_version", Value::from(1))
-            .copy_as(a, "batchId", "batch_id")
-            .copy(a, "iteration")
-            .copy_as(a, "batchCalls", "calls");
+        payload = payload.put("batch_schema_version", Value::from(1)).copy_as(a, "batchId", "batch_id").copy(a, "iteration").copy_as(a, "batchCalls", "calls");
     }
-    Row::new()
-        .copy(a, "sessionId")
-        .text("kind", "batch")
-        .put("payload", Value::Object(payload.done()))
-        .done()
+    Row::new().copy(a, "sessionId").text("kind", "batch").put("payload", Value::Object(payload.done())).done()
 }
 
 // ---------------------------------------------------------------------------
@@ -585,11 +511,7 @@ pub fn batch_record(a: &Args) -> Args {
 
 /// `stall_abort` (`agent-progress-watchdog.mjs`): `elapsed_ms`, `message`, `stage`.
 pub fn stall_abort_record(a: &Args) -> Args {
-    let payload = Row::new()
-        .copy_as(a, "elapsed_ms", "elapsed_ms")
-        .copy(a, "message")
-        .nullish(a, "stage", "stage")
-        .done();
+    let payload = Row::new().copy_as(a, "elapsed_ms", "elapsed_ms").copy(a, "message").nullish(a, "stage", "stage").done();
     Row::new()
         .copy(a, "sessionId")
         .nullish(a, "iteration", "iteration")
@@ -649,13 +571,7 @@ pub fn transport_error_record(a: &Args) -> Args {
 
 /// `spawn_ws_prewarm` (`openai-startup-prewarm.mjs`).
 pub fn spawn_ws_prewarm_record(a: &Args) -> Args {
-    Row::new()
-        .copy(a, "sessionId")
-        .text("kind", "spawn_ws_prewarm")
-        .text("provider", "openai-oauth")
-        .text("transport", "websocket")
-        .copy(a, "payload")
-        .done()
+    Row::new().copy(a, "sessionId").text("kind", "spawn_ws_prewarm").text("provider", "openai-oauth").text("transport", "websocket").copy(a, "payload").done()
 }
 
 /// `iteration` as `Number.isFinite(iteration) ? iteration : null` (no coercion).
@@ -670,10 +586,8 @@ fn finite_iteration(value: Option<&Value>) -> Value {
 pub fn ws_header_keys_record(a: &Args) -> Args {
     let payload = object_of(a.get("payload"));
     let pick = |key: &str| payload.and_then(|p| p.get(key)).cloned();
-    let mut row = Row::new()
-        .put("sessionId", or_null(a.get("sessionId")))
-        .put("iteration", finite_iteration(a.get("iteration")))
-        .text("kind", "ws_header_keys");
+    let mut row =
+        Row::new().put("sessionId", or_null(a.get("sessionId"))).put("iteration", finite_iteration(a.get("iteration"))).text("kind", "ws_header_keys");
     if let Some(v) = pick("provider") {
         row = row.put("provider", v);
     }
@@ -696,51 +610,23 @@ pub fn ws_timeout_record(a: &Args) -> Args {
 
 /// `cache_context` / `cache_anomaly` (`openai-compat-xai.mjs`): `{sessionId, iteration, kind, ...payload, payload}`.
 pub fn spread_payload_record(kind: &str, a: &Args) -> Args {
-    Row::new()
-        .copy(a, "sessionId")
-        .copy(a, "iteration")
-        .text("kind", kind)
-        .spread(a.get("payload"))
-        .copy(a, "payload")
-        .done()
+    Row::new().copy(a, "sessionId").copy(a, "iteration").text("kind", kind).spread(a.get("payload")).copy(a, "payload").done()
 }
 
 /// `output_truncated` (`loop/diagnostics.mjs`): `stop_reason`, `content_len`, `agent`.
 pub fn output_truncated_record(a: &Args) -> Args {
-    let payload = Row::new()
-        .copy(a, "stop_reason")
-        .copy(a, "content_len")
-        .or_null(a, "agent", "agent")
-        .done();
-    Row::new()
-        .copy(a, "sessionId")
-        .copy(a, "iteration")
-        .text("kind", "output_truncated")
-        .put("payload", Value::Object(payload))
-        .done()
+    let payload = Row::new().copy(a, "stop_reason").copy(a, "content_len").or_null(a, "agent", "agent").done();
+    Row::new().copy(a, "sessionId").copy(a, "iteration").text("kind", "output_truncated").put("payload", Value::Object(payload)).done()
 }
 
 /// `context` (`ask-turn-prepare.mjs`).
 pub fn context_record(a: &Args) -> Args {
-    Row::new()
-        .text("kind", "context")
-        .copy(a, "sessionId")
-        .copy(a, "model")
-        .copy(a, "provider")
-        .copy(a, "totalBytes")
-        .copy(a, "breakdown")
-        .done()
+    Row::new().text("kind", "context").copy(a, "sessionId").copy(a, "model").copy(a, "provider").copy(a, "totalBytes").copy(a, "breakdown").done()
 }
 
 /// `steer` (`tool-batch/pre-dispatch.mjs`).
 pub fn steer_record(a: &Args) -> Args {
-    Row::new()
-        .copy(a, "sessionId")
-        .copy(a, "iteration")
-        .text("kind", "steer")
-        .copy(a, "payload")
-        .or_null(a, "agent", "agent")
-        .done()
+    Row::new().copy(a, "sessionId").copy(a, "iteration").text("kind", "steer").copy(a, "payload").or_null(a, "agent", "agent").done()
 }
 
 /// `cache_break` of `traceCacheBreak` (`cache-break-trace.mjs`): `sessionId`, `iteration`, and the
@@ -913,23 +799,12 @@ pub fn ws_send_transport_record(a: &Args) -> Args {
 
 /// `traceLoop` (`send-with-recovery.mjs`): `{kind, sessionId: sessionId || null, iteration, ...fields}`.
 pub fn trace_loop_record(a: &Args) -> Args {
-    Row::new()
-        .copy(a, "kind")
-        .put("sessionId", or_null(a.get("sessionId")))
-        .copy(a, "iteration")
-        .spread(a.get("fields"))
-        .done()
+    Row::new().copy(a, "kind").put("sessionId", or_null(a.get("sessionId"))).copy(a, "iteration").spread(a.get("fields")).done()
 }
 
 /// The no-tool-turn ladder's `trace` (`loop/no-tool-turn.mjs`).
 pub fn no_tool_record(a: &Args) -> Args {
-    Row::new()
-        .copy(a, "sessionId")
-        .copy(a, "iteration")
-        .copy(a, "kind")
-        .copy(a, "payload")
-        .or_null(a, "agent", "agent")
-        .done()
+    Row::new().copy(a, "sessionId").copy(a, "iteration").copy(a, "kind").copy(a, "payload").or_null(a, "agent", "agent").done()
 }
 
 /// `traceGeminiCache` (`gemini-cache-policy.mjs`): sessionId already resolved.
@@ -939,12 +814,7 @@ pub fn gemini_cache_record(a: &Args) -> Args {
 
 /// `cursor_unknown_field` (`cursor-wire-stream-messages.mjs`).
 pub fn cursor_unknown_field_record(a: &Args) -> Args {
-    Row::new()
-        .copy(a, "sessionId")
-        .text("kind", "cursor_unknown_field")
-        .text("provider", "cursor")
-        .copy(a, "payload")
-        .done()
+    Row::new().copy(a, "sessionId").text("kind", "cursor_unknown_field").text("provider", "cursor").copy(a, "payload").done()
 }
 
 /// `browserTimingRow` (`browser-bridge/timing.mjs`); the caller applies the
@@ -956,7 +826,8 @@ pub fn browser_timing_record(a: &Args) -> Args {
         let mut out = Map::new();
         for key in keys {
             if let Some(v) = source.and_then(|s| s.get(*key))
-                && v.as_f64().is_some_and(|n| n.is_finite() && n >= 0.0) {
+                && v.as_f64().is_some_and(|n| n.is_finite() && n >= 0.0)
+            {
                 out.insert((*key).to_string(), v.clone());
             }
         }
@@ -964,11 +835,7 @@ pub fn browser_timing_record(a: &Args) -> Args {
     }
     let body = a.get("body");
     let ok_false = body.and_then(|b| b.get("ok")) == Some(&Value::Bool(false));
-    let timing = if ok_false {
-        body.and_then(|b| b.get("timing"))
-    } else {
-        body.and_then(|b| b.get("value")).and_then(|v| v.get("timing"))
-    };
+    let timing = if ok_false { body.and_then(|b| b.get("timing")) } else { body.and_then(|b| b.get("value")).and_then(|v| v.get("timing")) };
     let mut keys = vec!["queueMs"];
     keys.extend(KEYS);
     keys.extend(["screenshotMs", "snapshots", "screenshots"]);

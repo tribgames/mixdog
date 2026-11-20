@@ -29,22 +29,19 @@ mod uia;
 mod wgc;
 
 use super::{
-    AppEntry, Background, Button, CaptureFailure, Desktop, Integrity, Launched, SavedLoginReads, Surface, Wid,
-    WinState, WindowInfo, UNKNOWN_CAPTURE_BACKEND,
+    AppEntry, Background, Button, CaptureFailure, Desktop, Integrity, Launched, SavedLoginReads, Surface, UNKNOWN_CAPTURE_BACKEND, Wid, WinState, WindowInfo,
 };
 use crate::a11y::Accessibility;
 use crate::keys::{Key, Mod};
 use crate::lease_api::ForegroundLease;
 use crate::observer::Shared;
-use crate::port::windows::WinPort;
 use crate::port::Scope;
+use crate::port::windows::WinPort;
 use crate::protocol::{Obj, Req};
 use serde_json::Value;
 use std::sync::Arc;
-use windows::Win32::System::Com::{CoInitializeEx, COINIT_MULTITHREADED};
-use windows::Win32::UI::HiDpi::{
-    SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-};
+use windows::Win32::System::Com::{COINIT_MULTITHREADED, CoInitializeEx};
+use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
 
 pub fn release_owned_input() -> Result<(), String> {
     input::release_owned(crate::config::input_marker())
@@ -144,8 +141,7 @@ impl Desktop for WinDesktop {
     }
 
     fn is_contained(&self, candidate: Wid, surface: Wid) -> bool {
-        candidate != 0
-            && (candidate == surface || native::is_contained_same_process(candidate, surface))
+        candidate != 0 && (candidate == surface || native::is_contained_same_process(candidate, surface))
     }
 
     fn integrity(&self, handle: Wid) -> Option<Integrity> {
@@ -157,11 +153,7 @@ impl Desktop for WinDesktop {
     }
 
     fn move_window(&self, handle: Wid, x: i32, y: i32, width: i32, height: i32) -> Result<(), String> {
-        if self.port.move_window(handle, x, y, width, height)? {
-            Ok(())
-        } else {
-            Err(format!("could not move window: {}", super::window_id(handle)))
-        }
+        if self.port.move_window(handle, x, y, width, height)? { Ok(()) } else { Err(format!("could not move window: {}", super::window_id(handle))) }
     }
 
     fn set_window_state(&self, handle: Wid, state: WinState) -> Result<(), String> {
@@ -263,13 +255,7 @@ impl Desktop for WinDesktop {
         shell::ocr_status(language)
     }
 
-    fn encode_image(
-        &self,
-        rgba: &[u8],
-        width: u32,
-        height: u32,
-        quality: Option<u8>,
-    ) -> Option<(&'static str, Vec<u8>)> {
+    fn encode_image(&self, rgba: &[u8], width: u32, height: u32, quality: Option<u8>) -> Option<(&'static str, Vec<u8>)> {
         match quality {
             Some(quality) => encode::encode(rgba, width, height, quality),
             None => encode::png(rgba, width, height).ok().map(|bytes| ("image/png", bytes)),
@@ -286,12 +272,7 @@ impl Desktop for WinDesktop {
         0
     }
 
-    fn window_surface_backend(
-        &self,
-        handle: Wid,
-        backend: &str,
-        work_ms: u32,
-    ) -> Result<Surface, CaptureFailure> {
+    fn window_surface_backend(&self, handle: Wid, backend: &str, work_ms: u32) -> Result<Surface, CaptureFailure> {
         match backend {
             "print_window" => self.window_surface(handle).map_err(CaptureFailure::from),
             "wgc" => wgc::window_surface(handle, work_ms),

@@ -11,7 +11,6 @@ use mixdog_js::number_to_string;
 use serde_json::Value;
 
 use crate::errors::err_text::background_task_failure_status_label;
-use mixdog_protocol::text_class::parse_task_notification;
 use crate::tool_primitives::display_model;
 use crate::tool_primitives::field;
 use crate::tool_primitives::picked_text;
@@ -19,6 +18,7 @@ use crate::tool_primitives::text_or_empty;
 use crate::tool_primitives::title_word;
 use crate::tool_primitives::truthy;
 use crate::tool_status::leading_result_block;
+use mixdog_protocol::text_class::parse_task_notification;
 
 static SEPARATORS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[\s_]+", ""));
 static NAME_DELIMITERS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[_-]+", ""));
@@ -45,12 +45,8 @@ static AGENT_RESULT_LINE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_stat
 static NULLISH_LINE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:undefined|null)$", "i"));
 static COUNTS_HEAD: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:agents|tasks):\s*", "i"));
 static LIST_ITEM: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^-\s+\S+", "i"));
-static BARE_STATUS_LINE: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(
-        r"^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$",
-        "i",
-    )
-});
+static BARE_STATUS_LINE: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^status:\s*(?:running|pending|queued|completed|failed|cancelled|canceled)(?:\s*·\s*task_id:\s*\S+)?$", "i"));
 
 /// `isAgentTool`.
 pub fn is_agent_tool(normalized_name: &str) -> bool {
@@ -80,10 +76,7 @@ pub fn titleize_agent_name(value: &str) -> String {
 
 /// The agent a status or read envelope names on its `agent:` line.
 fn agent_name_from_result(result_text: &str) -> String {
-    AGENT_LINE
-        .captures(&leading_result_block(result_text))
-        .and_then(|line| line.get(1).map(titleize_agent_name))
-        .unwrap_or_default()
+    AGENT_LINE.captures(&leading_result_block(result_text)).and_then(|line| line.get(1).map(titleize_agent_name)).unwrap_or_default()
 }
 
 /// The agent identity a card shows: the call's own fields, else the result envelope when the call only carried a tag or task id.
@@ -245,11 +238,7 @@ pub fn has_agent_response_result(value: &str) -> bool {
 
 /// `agentTerminalDetail`: "Finished · 12s", "Cancelled", or the compact failure label.
 pub fn agent_terminal_detail(status: Option<&Value>, is_error: bool, elapsed: &str, error: Option<&Value>) -> String {
-    let failure = if is_error && truthy(error) {
-        background_task_failure_status_label(status, error, "agent", None)
-    } else {
-        String::new()
-    };
+    let failure = if is_error && truthy(error) { background_task_failure_status_label(status, error, "agent", None) } else { String::new() };
     if !failure.is_empty() {
         return failure;
     }

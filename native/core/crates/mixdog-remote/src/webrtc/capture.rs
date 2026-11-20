@@ -50,10 +50,7 @@ impl SharedSource {
     pub fn start(source: Box<dyn MediaFrameSource>) -> Arc<Self> {
         let (shots, _) = watch::channel(None);
         let this = Arc::new(Self {
-            control: Mutex::new(Control {
-                replacement: None,
-                stopped: false,
-            }),
+            control: Mutex::new(Control { replacement: None, stopped: false }),
             wake: Notify::new(),
             shots,
             state: Mutex::new(SourceState::Live),
@@ -100,7 +97,6 @@ impl Drop for SharedSource {
         self.stop();
     }
 }
-
 
 /// `MediaFrameSource::next_frame` must be cancel-safe: a control change drops the pending call.
 async fn read_loop(shared: Arc<SharedSource>, mut source: Box<dyn MediaFrameSource>) {

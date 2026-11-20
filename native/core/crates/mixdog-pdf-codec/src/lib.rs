@@ -81,9 +81,7 @@ pub fn decode_chain(data: &[u8], filters: &[Filter], limit: usize) -> Result<Vec
                 Err(CodecError::Format(_)) => Vec::new(),
                 Err(error) => return Err(error),
             },
-            Filter::Lzw { early_change, predictor } => {
-                unpredict(lzw::decode(&current, *early_change, limit)?, predictor.as_ref(), limit)?
-            }
+            Filter::Lzw { early_change, predictor } => unpredict(lzw::decode(&current, *early_change, limit)?, predictor.as_ref(), limit)?,
             Filter::Ascii85 => ascii85::decode(&current, limit)?,
             Filter::AsciiHex => asciihex::decode(&current, limit)?,
             Filter::RunLength => runlength::decode(&current, limit)?,

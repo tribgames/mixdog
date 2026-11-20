@@ -188,11 +188,7 @@ pub struct ApprovalProvideSecretParams {
 /// shows the request and that a secret is held.
 impl std::fmt::Debug for ApprovalProvideSecretParams {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("ApprovalProvideSecretParams")
-            .field("op_id", &self.op_id)
-            .field("request_id", &self.request_id)
-            .field("secret", &"<redacted>")
-            .finish()
+        f.debug_struct("ApprovalProvideSecretParams").field("op_id", &self.op_id).field("request_id", &self.request_id).field("secret", &"<redacted>").finish()
     }
 }
 

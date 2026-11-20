@@ -61,11 +61,7 @@ impl AgentRoutes {
             return Ok(RouteHome::Mixy);
         }
         let (dir, id) = (self.data_dir.clone(), id.to_owned());
-        if on_lane(self.config.lanes.read, move |lane| is_store_bot(lane, &dir, &id)).await? {
-            Ok(RouteHome::StoreBot)
-        } else {
-            Ok(RouteHome::Config)
-        }
+        if on_lane(self.config.lanes.read, move |lane| is_store_bot(lane, &dir, &id)).await? { Ok(RouteHome::StoreBot) } else { Ok(RouteHome::Config) }
     }
 
     /// The route the agent saved of its own, `{}` when none (`ownRoute`). Always read from the
@@ -74,13 +70,7 @@ impl AgentRoutes {
         let route = match self.home(id).await? {
             RouteHome::Mixy => self.read_bot_route(MIXY_BOT_ID).await?,
             RouteHome::StoreBot => self.read_bot_route(id).await?,
-            RouteHome::Config => self
-                .config
-                .agent()
-                .get("agents")
-                .and_then(|agents| agents.get(id))
-                .filter(|route| is_complete(route))
-                .cloned(),
+            RouteHome::Config => self.config.agent().get("agents").and_then(|agents| agents.get(id)).filter(|route| is_complete(route)).cloned(),
         };
         Ok(route.unwrap_or_else(|| Value::Object(Map::new())))
     }
@@ -191,10 +181,7 @@ impl AgentRoutes {
                 let id = id.to_owned();
                 self.config
                     .update_agent(move |agent| {
-                        let had = agent
-                            .get_mut("agents")
-                            .and_then(Value::as_object_mut)
-                            .is_some_and(|agents| agents.shift_remove(&id).is_some());
+                        let had = agent.get_mut("agents").and_then(Value::as_object_mut).is_some_and(|agents| agents.shift_remove(&id).is_some());
                         if had {
                             canonicalize(agent);
                         }
@@ -242,9 +229,7 @@ impl AgentRoutes {
 }
 
 pub(super) fn is_complete(route: &Value) -> bool {
-    let text = |key: &str| {
-        route.get(key).and_then(Value::as_str).is_some_and(|s| !mixdog_js::js_trim(s).is_empty())
-    };
+    let text = |key: &str| route.get(key).and_then(Value::as_str).is_some_and(|s| !mixdog_js::js_trim(s).is_empty());
     route.is_object() && text("provider") && text("model")
 }
 
@@ -278,10 +263,8 @@ fn disabled_ids(agent: &Map<String, Value>) -> Vec<String> {
 
 /// `agentIdList`.
 pub(super) fn id_list(raw: Option<&Value>) -> Vec<String> {
-    let mut ids: Vec<String> = raw
-        .and_then(Value::as_array)
-        .map(|list| list.iter().map(|v| agent_id_key(&js_string(v))).filter(|id| !id.is_empty()).collect())
-        .unwrap_or_default();
+    let mut ids: Vec<String> =
+        raw.and_then(Value::as_array).map(|list| list.iter().map(|v| agent_id_key(&js_string(v))).filter(|id| !id.is_empty()).collect()).unwrap_or_default();
     ids.sort();
     ids.dedup();
     ids
@@ -304,12 +287,8 @@ const PREVIOUS_DISABLED_ROSTER: [&str; 7] = ["front-worker", "heavy-worker", "ma
 /// less `enabledAgents`. The one form a config file holds once the boot pass has run.
 fn off_roster(agent: &Map<String, Value>) -> Vec<String> {
     let enabled = id_list(agent.get("enabledAgents"));
-    let mut ids: Vec<String> = super::patch::DEFAULT_DISABLED_ROSTER
-        .iter()
-        .map(|id| (*id).to_owned())
-        .chain(disabled_ids(agent))
-        .filter(|id| !enabled.contains(id))
-        .collect();
+    let mut ids: Vec<String> =
+        super::patch::DEFAULT_DISABLED_ROSTER.iter().map(|id| (*id).to_owned()).chain(disabled_ids(agent)).filter(|id| !enabled.contains(id)).collect();
     ids.sort();
     ids.dedup();
     ids
@@ -380,11 +359,7 @@ pub(super) fn canonicalize(agent: &mut Map<String, Value>) {
         .get("agents")
         .and_then(Value::as_object)
         .map(|agents| {
-            agents
-                .iter()
-                .filter(|(id, route)| id.as_str() != "maintenance" && is_complete(route))
-                .map(|(id, route)| (id.clone(), route.clone()))
-                .collect()
+            agents.iter().filter(|(id, route)| id.as_str() != "maintenance" && is_complete(route)).map(|(id, route)| (id.clone(), route.clone())).collect()
         })
         .unwrap_or_default();
     agent.insert("agents".into(), Value::Object(agents));
@@ -408,9 +383,7 @@ pub(super) fn canonicalize(agent: &mut Map<String, Value>) {
 
 fn redundant_preset(preset: &Value, default: &str) -> bool {
     let id = preset.get("id").and_then(Value::as_str).map(mixdog_js::js_trim).unwrap_or("");
-    !id.is_empty()
-        && id != default
-        && (id == "workflow-agent" || id == "workflow-memory" || id.starts_with("workflow-agent-"))
+    !id.is_empty() && id != default && (id == "workflow-agent" || id == "workflow-memory" || id.starts_with("workflow-agent-"))
 }
 
 /// `isStoreBot`: the split finished (`bots/migration.json` at version 1) and the bot has its
@@ -423,8 +396,7 @@ pub fn is_store_bot(lane: &InLane<InteractiveIo>, data_dir: &Path, id: &str) -> 
     let Some(manifest) = bot_migration(lane, data_dir) else {
         return false;
     };
-    data_dir.join(BOTS_DIR).join(id).exists()
-        || manifest.get("bots").and_then(Value::as_array).is_some_and(|bots| bots.iter().any(|b| b.as_str() == Some(id)))
+    data_dir.join(BOTS_DIR).join(id).exists() || manifest.get("bots").and_then(Value::as_array).is_some_and(|bots| bots.iter().any(|b| b.as_str() == Some(id)))
 }
 
 /// `readBotMigration`: the finished split's record (`bots/migration.json` at version 1), `None`
@@ -440,11 +412,7 @@ pub fn bot_migration(lane: &InLane<InteractiveIo>, data_dir: &Path) -> Option<Ma
 /// `mixyIdentityDir(dataDir)`: Mixy's identity folder, `bots/mixy` once the bot store is active,
 /// `agents/lead` before.
 pub fn mixy_identity_dir(lane: &InLane<InteractiveIo>, data_dir: &Path) -> PathBuf {
-    if bot_migration(lane, data_dir).is_some() {
-        data_dir.join(BOTS_DIR).join(MIXY_BOT_ID)
-    } else {
-        data_dir.join("agents").join(MIXY_AGENT_ID)
-    }
+    if bot_migration(lane, data_dir).is_some() { data_dir.join(BOTS_DIR).join(MIXY_BOT_ID) } else { data_dir.join("agents").join(MIXY_AGENT_ID) }
 }
 
 /// `mixyDisplayName()`: the `name` of Mixy's `agent.json` with each run of white space one space,
@@ -484,18 +452,12 @@ fn backup_of(file: &Path) -> PathBuf {
 }
 
 /// Writes the file whole through a synced sibling; the previous content stays as `.bak`.
-#[allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "an io-durability job body: the proof says it runs there"
-)]
+#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "an io-durability job body: the proof says it runs there")]
 fn write_json(lane: &InLane<DurabilityIo>, file: &Path, value: &Map<String, Value>) -> Result<(), ConfigError> {
     // `writeJsonAtomicSync(file, value, { backup: true })`: the replaced version stays as `.bak`
     // when it still parses.
     let opts = mixdog_statefile::Opts { backup: true, ..mixdog_statefile::Opts::default() };
-    mixdog_statefile::write_json(lane, file, &Value::Object(value.clone()), &opts)
-        .map(drop)
-        .map_err(|error| std::io::Error::other(error.to_string()).into())
+    mixdog_statefile::write_json(lane, file, &Value::Object(value.clone()), &opts).map(drop).map_err(|error| std::io::Error::other(error.to_string()).into())
 }
 
 /// `normalizeAgentId`: the fixed roles (`maintainer`, `explore`) and their aliases.

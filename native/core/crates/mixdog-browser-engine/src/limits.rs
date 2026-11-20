@@ -43,10 +43,8 @@ pub const MAX_CONCURRENT: usize = 32;
 pub const OFFSCREEN_VIEWPORT: (u32, u32) = (1280, 900);
 
 /// Actions whose reply carries a verified postcondition (`BROWSER_POSTCONDITION_ACTIONS` of the command contract).
-pub const POSTCONDITION_ACTIONS: &[&str] = &[
-    "navigate", "evaluate", "emulate", "click", "fill", "type", "select", "hover", "drag", "upload", "handle_dialog", "press", "scroll", "back",
-    "sequence",
-];
+pub const POSTCONDITION_ACTIONS: &[&str] =
+    &["navigate", "evaluate", "emulate", "click", "fill", "type", "select", "hover", "drag", "upload", "handle_dialog", "press", "scroll", "back", "sequence"];
 /// Observations (`BROWSER_OBSERVATION_ACTIONS` of the command contract); the pure ones may overlap, the snapshot-producing ones need the page's exclusive lane.
 pub const OBSERVATION_ACTIONS: &[&str] = &["snapshot", "read", "extract", "locate", "status", "console", "network", "list_tabs", "downloads", "wait"];
 /// Observations that write the ref/visual generation and so are not read-only.

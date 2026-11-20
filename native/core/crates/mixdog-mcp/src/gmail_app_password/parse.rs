@@ -218,12 +218,8 @@ impl Node {
 }
 
 fn parameters(value: Option<&V>) -> Vec<(String, String)> {
-    let pairs = value
-        .and_then(V::list)
-        .unwrap_or_default()
-        .chunks(2)
-        .filter_map(|pair| Some((pair.first()?.text()?.to_lowercase(), pair.get(1)?.text()?)))
-        .collect();
+    let pairs =
+        value.and_then(V::list).unwrap_or_default().chunks(2).filter_map(|pair| Some((pair.first()?.text()?.to_lowercase(), pair.get(1)?.text()?))).collect();
     merge_parameters(pairs).into_iter().map(|(key, value)| (key, decode_words(&value))).collect()
 }
 
@@ -303,10 +299,7 @@ mod tests {
         let envelope = envelope(&values[0]);
         assert_eq!(envelope.subject, "S");
         assert_eq!(envelope.message_id, "<id@x>");
-        assert_eq!(
-            envelope.from,
-            [Addr { name: "홍길".into(), address: "a@x.org".into() }, Addr { name: "team".into(), address: String::new() }]
-        );
+        assert_eq!(envelope.from, [Addr { name: "홍길".into(), address: "a@x.org".into() }, Addr { name: "team".into(), address: String::new() }]);
     }
 
     #[test]

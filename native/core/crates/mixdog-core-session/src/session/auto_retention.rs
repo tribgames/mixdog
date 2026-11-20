@@ -28,8 +28,8 @@ use std::sync::Mutex;
 use async_trait::async_trait;
 use mixdog_core_api::CallContext;
 use mixdog_core_api::CoreRequest;
-use mixdog_core_api::ThreadDirectory;
 use mixdog_core_api::Reply;
+use mixdog_core_api::ThreadDirectory;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::ThreadId;
@@ -47,8 +47,8 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::SessionDirectory;
-use super::archive_trees::Admit;
 use super::archive_trees::AdmissionGate;
+use super::archive_trees::Admit;
 use super::archive_trees::ArchiveTrees;
 use super::archive_trees::PolicyIdentity;
 use super::archive_trees::TreeOutcome;
@@ -196,7 +196,14 @@ pub struct Verdict {
 
 /// `retentionJudge`: what may happen to `session` now, or none. `fresh`: the facts outside the session actor that the judgment
 /// reads (the sub-agent sessions) are read now, not from the listing the plan was made on: the final judgment before an action.
-pub async fn judge(host: &dyn AutoRetentionHost, session: &Session, now: f64, policy: Policy, record: &RetentionRecord, fresh: bool) -> Result<Option<Verdict>, String> {
+pub async fn judge(
+    host: &dyn AutoRetentionHost,
+    session: &Session,
+    now: f64,
+    policy: Policy,
+    record: &RetentionRecord,
+    fresh: bool,
+) -> Result<Option<Verdict>, String> {
     let id = session.id.as_str();
     // Sub-agent sessions follow the runtime's own retention.
     if id.is_empty() || session.agent_session || permanent_or_busy(session) {
@@ -244,7 +251,14 @@ pub struct Plan {
     pub delete: Vec<String>,
 }
 
-pub async fn plan(host: &dyn AutoRetentionHost, sessions: &[Session], now: f64, policy: Policy, record: &RetentionRecord, cancel: &CancellationToken) -> Result<Plan, String> {
+pub async fn plan(
+    host: &dyn AutoRetentionHost,
+    sessions: &[Session],
+    now: f64,
+    policy: Policy,
+    record: &RetentionRecord,
+    cancel: &CancellationToken,
+) -> Result<Plan, String> {
     let (mut archive, mut delete): (AgedSessions, AgedSessions) = (Vec::new(), Vec::new());
     for session in sessions {
         // Stopped (shutdown, or superseded): what is planned so far is never acted on, the pass stops before its first action.
@@ -293,7 +307,14 @@ enum Outcome {
 /// asked again; the delete itself is decided by the session's own actor. An archive is the tree's own unit
 /// ([`AutoRetentionHost::archive_tree`]), admitted on the state writer by the stop, `cancel` and the policy identity read here
 /// first, before the policy.
-async fn act(host: &dyn AutoRetentionHost, id: &str, action: Action, now: &(dyn Fn() -> f64 + Send + Sync), cancel: &CancellationToken, gate: &Arc<AdmissionGate>) -> Result<Outcome, String> {
+async fn act(
+    host: &dyn AutoRetentionHost,
+    id: &str,
+    action: Action,
+    now: &(dyn Fn() -> f64 + Send + Sync),
+    cancel: &CancellationToken,
+    gate: &Arc<AdmissionGate>,
+) -> Result<Outcome, String> {
     macro_rules! read {
         ($work:expr) => {{
             let result = $work.await?;
@@ -337,7 +358,12 @@ async fn act(host: &dyn AutoRetentionHost, id: &str, action: Action, now: &(dyn 
 /// One complete pass: every session is judged and every due one acted on, archives first (they can be undone), each judged again
 /// from a fresh read right before it is acted on. Stops between sessions when `cancel` fires (shutdown, or the options changed and
 /// a new pass takes over). One log line with the counts. None when the policy is invalid or turned off.
-pub async fn run_pass(host: &dyn AutoRetentionHost, now: &(dyn Fn() -> f64 + Send + Sync), cancel: &CancellationToken, gate: &Arc<AdmissionGate>) -> Result<Option<Report>, String> {
+pub async fn run_pass(
+    host: &dyn AutoRetentionHost,
+    now: &(dyn Fn() -> f64 + Send + Sync),
+    cancel: &CancellationToken,
+    gate: &Arc<AdmissionGate>,
+) -> Result<Option<Report>, String> {
     let Some(policy) = host.policy() else { return Ok(None) };
     if policy.archive_days <= 0 && policy.delete_days <= 0 {
         return Ok(None);

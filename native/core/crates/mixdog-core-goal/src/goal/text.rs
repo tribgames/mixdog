@@ -31,10 +31,8 @@ fn time_lines(goal: &Goal) -> Vec<String> {
     let limit = or(number(goal, "timeLimitMs"), 0.0).max(0.0);
     let elapsed = or(number(goal, "timeUsedMs"), 0.0).max(0.0);
     let label = |ms: f64| format!("{} ({} ms)", duration_label(ms), ms_text(ms));
-    let mut lines = vec![
-        if limit > 0.0 { format!("Time cap: {}", label(limit)) } else { "Time cap: none".to_owned() },
-        format!("Time elapsed: {}", label(elapsed)),
-    ];
+    let mut lines =
+        vec![if limit > 0.0 { format!("Time cap: {}", label(limit)) } else { "Time cap: none".to_owned() }, format!("Time elapsed: {}", label(elapsed))];
     if limit > 0.0 {
         lines.push(format!("Time remaining: {}", label((limit - elapsed).max(0.0))));
     }
@@ -82,12 +80,15 @@ pub fn continuation_prompt(goal: &Goal, include_rules: bool, todo: &str) -> Stri
 fn pause_line(reason: &str) -> &'static str {
     match reason {
         "waiting" => "Waiting for a user answer. The user resumes the Goal when it can continue.",
-        "cancelled" => "A cancelled turn paused this Goal: the user stopped that turn, not the objective. Follow the newest instruction; the user resumes the Goal from its controls.",
+        "cancelled" => {
+            "A cancelled turn paused this Goal: the user stopped that turn, not the objective. Follow the newest instruction; the user resumes the Goal from its controls."
+        }
         _ => "The user paused this Goal. Do not work on it until the user resumes it.",
     }
 }
 
-const BLOCKED_LINE: &str = "Blocked on the reason below. When the newest user message supplies what was missing, the user resumes the Goal; otherwise leave it.";
+const BLOCKED_LINE: &str =
+    "Blocked on the reason below. When the newest user message supplies what was missing, the user resumes the Goal; otherwise leave it.";
 
 pub fn goal_deadline_warning(goal: &Goal) -> String {
     if string(goal, "status") != "active" {

@@ -83,13 +83,8 @@ pub struct RepoStatus {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ReviewScope {
-    Turn {
-        thread_id: ThreadId,
-        turn_id: TurnId,
-    },
-    Session {
-        thread_id: ThreadId,
-    },
+    Turn { thread_id: ThreadId, turn_id: TurnId },
+    Session { thread_id: ThreadId },
 }
 
 #[derive(Clone, PartialEq, Eq, Debug)]
@@ -142,40 +137,36 @@ pub enum RepoEvidence {
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum ScmError {
     NotARepository,
-    ObjectMissing { id: ObjectId },
-    Corrupt { detail: String },
-    Io { os_code: Option<i32> },
+    ObjectMissing {
+        id: ObjectId,
+    },
+    Corrupt {
+        detail: String,
+    },
+    Io {
+        os_code: Option<i32>,
+    },
     /// A program the inspection needs could not be started (it is not installed).
-    Unavailable { capability: String },
+    Unavailable {
+        capability: String,
+    },
     /// A git child was cut off at its run limit: the answer is unknown (`command` as Node's runner worded it).
-    TimedOut { command: String, millis: u64 },
+    TimedOut {
+        command: String,
+        millis: u64,
+    },
 }
 
 #[async_trait]
 pub trait RepoInspector: Send + Sync {
     async fn key(&self, lane: MaintenanceIo, repo: RepoRef) -> Result<InspectorKey, ScmError>;
     /// Single-flighted per key; concurrent callers share one computation.
-    async fn status(&self, lane: MaintenanceIo, repo: RepoRef)
-    -> Result<Arc<RepoStatus>, ScmError>;
-    async fn review_summary(
-        &self,
-        lane: MaintenanceIo,
-        request: ReviewRequest,
-    ) -> Result<Arc<ReviewSummary>, ScmError>;
+    async fn status(&self, lane: MaintenanceIo, repo: RepoRef) -> Result<Arc<RepoStatus>, ScmError>;
+    async fn review_summary(&self, lane: MaintenanceIo, request: ReviewRequest) -> Result<Arc<ReviewSummary>, ScmError>;
     /// Cache read only (C1); `Pending` until the summary for `key` is computed.
-    fn review_page(
-        &self,
-        key: &InspectorKey,
-        path: Option<&str>,
-        cursor: Option<&str>,
-    ) -> Result<Cached<ReviewPage>, ScmError>;
+    fn review_page(&self, key: &InspectorKey, path: Option<&str>, cursor: Option<&str>) -> Result<Cached<ReviewPage>, ScmError>;
     /// Current object id of each ref (`None` = absent), for mutation CAS.
-    async fn resolve_refs(
-        &self,
-        lane: MaintenanceIo,
-        repo: RepoRef,
-        refs: Vec<String>,
-    ) -> Result<Vec<Option<ObjectId>>, ScmError>;
+    async fn resolve_refs(&self, lane: MaintenanceIo, repo: RepoRef, refs: Vec<String>) -> Result<Vec<Option<ObjectId>>, ScmError>;
     /// Marks the cached key stale; the next read recomputes.
     fn evidence(&self, repo: &RepoRef, evidence: RepoEvidence);
 }

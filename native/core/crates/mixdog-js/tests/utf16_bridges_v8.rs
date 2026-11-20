@@ -1,6 +1,6 @@
 //! The raw UTF-16 entry points: an unpaired surrogate stays what it is for matching, collation and date reading.
-use mixdog_js::{locale_compare, locale_compare_utf16, regex_is_match_utf16};
 use mixdog_js::time::{date_parse_utf16, with_local_zone};
+use mixdog_js::{locale_compare, locale_compare_utf16, regex_is_match_utf16};
 use std::cmp::Ordering;
 
 #[test]

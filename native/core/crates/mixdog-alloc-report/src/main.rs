@@ -49,17 +49,16 @@ impl Symbols {
         if address >= self.end {
             return format!("foreign:0x{address:x}");
         }
-        self.names.range(..address).next_back().map_or_else(
-            || format!("unknown:0x{address:x}"),
-            |(_, name)| name.clone(),
-        )
+        self.names.range(..address).next_back().map_or_else(|| format!("unknown:0x{address:x}"), |(_, name)| name.clone())
     }
 }
 
 fn owner(frames: &[String]) -> &str {
-    frames.iter().find(|name| {
-        name.trim_start_matches('<').starts_with("mixdog_") && !name.contains("alloc_profile")
-    }).map(String::as_str).unwrap_or("(no application frame)")
+    frames
+        .iter()
+        .find(|name| name.trim_start_matches('<').starts_with("mixdog_") && !name.contains("alloc_profile"))
+        .map(String::as_str)
+        .unwrap_or("(no application frame)")
 }
 
 #[derive(Default)]
@@ -73,16 +72,23 @@ fn emit(snapshot: &Snapshot, out: &mut impl Write) -> Result<()> {
         return Ok(());
     }
     let mut groups = BTreeMap::<String, i64>::new();
-    let stacks: Vec<_> = snapshot.stacks.iter().map(|(bytes, blocks, frames)| {
-        let site = owner(frames);
-        *groups.entry(site.to_owned()).or_default() += bytes;
-        serde_json::json!({"estimatedBytes": bytes, "estimatedBlocks": blocks, "owner": site, "frames": frames})
-    }).collect();
+    let stacks: Vec<_> = snapshot
+        .stacks
+        .iter()
+        .map(|(bytes, blocks, frames)| {
+            let site = owner(frames);
+            *groups.entry(site.to_owned()).or_default() += bytes;
+            serde_json::json!({"estimatedBytes": bytes, "estimatedBlocks": blocks, "owner": site, "frames": frames})
+        })
+        .collect();
     let mut groups: Vec<_> = groups.into_iter().collect();
     groups.sort_by_key(|(_, bytes)| std::cmp::Reverse(*bytes));
-    serde_json::to_writer(&mut *out, &serde_json::json!({
-        "measurement": snapshot.header, "estimatedBytesByApplicationFrame": groups, "stacks": stacks,
-    }))?;
+    serde_json::to_writer(
+        &mut *out,
+        &serde_json::json!({
+            "measurement": snapshot.header, "estimatedBytesByApplicationFrame": groups, "stacks": stacks,
+        }),
+    )?;
     writeln!(out)?;
     Ok(())
 }
@@ -142,4 +148,3 @@ mod tests {
         assert_eq!(row["estimatedBytesByApplicationFrame"][0][1], 65536);
     }
 }
-

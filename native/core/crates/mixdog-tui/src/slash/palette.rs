@@ -114,11 +114,7 @@ pub fn skill_mention_items(skills: &[Value], query: &str) -> Vec<PaletteItem> {
         .chain(contains)
         .map(|skill| {
             let name = name_of(skill);
-            PaletteItem::Skill {
-                label: format!("${name}"),
-                description: skill_str(skill, "description").unwrap_or_default().to_owned(),
-                name,
-            }
+            PaletteItem::Skill { label: format!("${name}"), description: skill_str(skill, "description").unwrap_or_default().to_owned(), name }
         })
         .collect()
 }
@@ -194,22 +190,12 @@ pub fn fetch_mention_skills(host: &mut dyn SlashHost, active: bool) -> Option<Ve
 
 /// `deriveSlashPalette(...)`: which palette, if any, the prompt draft opens.
 pub fn derive_slash_palette(inputs: &PaletteInputs<'_>) -> SlashPalette {
-    let active_slash_query = if inputs.provider_prompt
-        || inputs.settings_prompt
-        || inputs.tool_approval
-        || inputs.context_panel
-        || inputs.usage_panel
-    {
+    let active_slash_query = if inputs.provider_prompt || inputs.settings_prompt || inputs.tool_approval || inputs.context_panel || inputs.usage_panel {
         None
     } else {
         slash_query(inputs.prompt_draft)
     };
-    let surface_free = !inputs.picker
-        && !inputs.tool_approval
-        && !inputs.context_panel
-        && !inputs.usage_panel
-        && !inputs.exiting
-        && !inputs.command_busy;
+    let surface_free = !inputs.picker && !inputs.tool_approval && !inputs.context_panel && !inputs.usage_panel && !inputs.exiting && !inputs.command_busy;
     // The palette stays open for the whole slash session, 0-match frames included, so its layout never remounts per key.
     let slash_mode_live = active_slash_query.is_some() && surface_free;
     if !slash_mode_live {
@@ -219,8 +205,7 @@ pub fn derive_slash_palette(inputs: &PaletteInputs<'_>) -> SlashPalette {
         } else {
             None
         };
-        let slash_commands =
-            mention.as_ref().map_or_else(Vec::new, |mention| skill_mention_items(inputs.skills, &mention.query));
+        let slash_commands = mention.as_ref().map_or_else(Vec::new, |mention| skill_mention_items(inputs.skills, &mention.query));
         return SlashPalette {
             active_slash_query: mention.as_ref().map(|mention| mention.query.clone()),
             slash_palette_open: !slash_commands.is_empty() && inputs.slash_dismissed_for != inputs.prompt_draft,
@@ -229,8 +214,7 @@ pub fn derive_slash_palette(inputs: &PaletteInputs<'_>) -> SlashPalette {
         };
     }
     let query = active_slash_query.unwrap_or_default();
-    let mut matches: Vec<&'static SlashCommand> =
-        SLASH_COMMANDS.iter().filter(|command| slash_command_matches(command, &query)).collect();
+    let mut matches: Vec<&'static SlashCommand> = SLASH_COMMANDS.iter().filter(|command| slash_command_matches(command, &query)).collect();
     matches.sort_by(|a, b| compare_slash_commands(a, b));
     SlashPalette {
         slash_palette_open: inputs.slash_dismissed_for != inputs.prompt_draft,
@@ -309,10 +293,7 @@ mod tests {
     fn rows_list_enabled_custom_skills_prefix_matches_before_contains_matches() {
         let all = skills();
         let labels = |items: Vec<PaletteItem>| {
-            items
-                .into_iter()
-                .map(|item| if let PaletteItem::Skill { label, .. } = item { label } else { String::new() })
-                .collect::<Vec<_>>()
+            items.into_iter().map(|item| if let PaletteItem::Skill { label, .. } = item { label } else { String::new() }).collect::<Vec<_>>()
         };
         assert_eq!(labels(skill_mention_items(&all, "pdf")), ["$pdf-tools", "$report-pdf"]);
         assert_eq!(names(&skill_mention_items(&all, "")), ["deploy", "pdf-tools", "report-pdf"]);
@@ -336,8 +317,7 @@ mod tests {
 
     #[test]
     fn completion_replaces_only_the_fragment_before_the_caret() {
-        let done =
-            |value: &str, name: &str, caret| complete_skill_mention(value, name, caret).map(|c| (c.value, c.cursor));
+        let done = |value: &str, name: &str, caret| complete_skill_mention(value, name, caret).map(|c| (c.value, c.cursor));
         assert_eq!(done("please use $pd", "pdf-tools", None), Some(("please use $pdf-tools ".into(), 22)));
         assert_eq!(done("$", "deploy", None), Some(("$deploy ".into(), 8)));
         assert_eq!(done("no mention", "deploy", None), None);
@@ -373,24 +353,11 @@ mod tests {
             let caret = draft.find('|').map(|byte| utf16_len(&draft[..byte]) as i64);
             palette(&draft.replace('|', ""), caret, "", false, &all)
         };
-        for draft in [
-            "run `echo $pd|` here",
-            "`$pd|`",
-            "`` a ` $pd| ``",
-            "```\n$pd|\n```",
-            "```sh\nfoo $pd|",
-            "~~~\nuse $pd|\n~~~ after",
-            "```\r\n$pd|\r\n```",
-        ] {
+        for draft in ["run `echo $pd|` here", "`$pd|`", "`` a ` $pd| ``", "```\n$pd|\n```", "```sh\nfoo $pd|", "~~~\nuse $pd|\n~~~ after", "```\r\n$pd|\r\n```"]
+        {
             assert!(!at(draft).slash_palette_open, "{draft:?}");
         }
-        for draft in [
-            "`code` then $pd|",
-            "```\nx\n```\nnow $pd|",
-            "a lone ` tick $pd|",
-            "`` x ` y $pd|",
-            "~~~\nx\n~~~\n$pd| more",
-        ] {
+        for draft in ["`code` then $pd|", "```\nx\n```\nnow $pd|", "a lone ` tick $pd|", "`` x ` y $pd|", "~~~\nx\n~~~\n$pd| more"] {
             let shown = at(draft);
             assert!(shown.slash_palette_open, "{draft:?}");
             assert_eq!(shown.palette_kind, PaletteKind::Skills);
@@ -404,10 +371,7 @@ mod tests {
         let mid = palette(draft, Some(7), "", false, &all);
         assert_eq!(mid.palette_kind, PaletteKind::Skills);
         assert_eq!(names(&mid.slash_commands), ["pdf-tools", "report-pdf"]);
-        assert_eq!(
-            names(&palette(draft, Some(5), "", false, &all).slash_commands),
-            ["deploy", "pdf-tools", "report-pdf"]
-        );
+        assert_eq!(names(&palette(draft, Some(5), "", false, &all).slash_commands), ["deploy", "pdf-tools", "report-pdf"]);
         assert!(!palette(draft, None, "", false, &all).slash_palette_open);
         assert!(!palette(draft, Some(4), "", false, &all).slash_palette_open);
         let lines = palette("first\n$rep\nlast", Some(10), "", false, &all);
@@ -421,14 +385,9 @@ mod tests {
         let none = palette("/zzz", None, "", false, &[]);
         assert!(none.slash_palette_open);
         assert!(none.slash_commands.is_empty());
-        let busy =
-            derive_slash_palette(&PaletteInputs { prompt_draft: "/m", command_busy: true, ..PaletteInputs::default() });
+        let busy = derive_slash_palette(&PaletteInputs { prompt_draft: "/m", command_busy: true, ..PaletteInputs::default() });
         assert!(!busy.slash_palette_open);
-        let prompt = derive_slash_palette(&PaletteInputs {
-            prompt_draft: "/m",
-            provider_prompt: true,
-            ..PaletteInputs::default()
-        });
+        let prompt = derive_slash_palette(&PaletteInputs { prompt_draft: "/m", provider_prompt: true, ..PaletteInputs::default() });
         assert_eq!(prompt.active_slash_query, None);
         assert_eq!(clamp_slash_index(5, 3), 2);
         assert_eq!(clamp_slash_index(5, 0), 0);

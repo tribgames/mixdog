@@ -20,24 +20,24 @@ use mixdog_protocol::JsonValue;
 use mixdog_protocol::ProviderId;
 
 use super::Http;
-use crate::oauth::Pace;
-use crate::oauth::http::Reply;
+use crate::oauth::CredentialFile;
 use crate::oauth::FlowGuard;
-use crate::oauth::http::call_under;
-use crate::oauth::http::try_call;
-use crate::oauth::http::try_call_under;
-use mixdog_core_api::domain::provider::ProviderError;
-use crate::transport::deadlines::MUSE_KEY;
-use crate::transport::deadlines::credential_signal;
+use crate::oauth::Pace;
 use crate::oauth::device;
 use crate::oauth::device::Poll;
 use crate::oauth::device::Schedule;
+use crate::oauth::http::Reply;
+use crate::oauth::http::call_under;
 use crate::oauth::http::failed;
+use crate::oauth::http::try_call;
+use crate::oauth::http::try_call_under;
 use crate::oauth::scrub::muse_excerpt;
 use crate::oauth::scrub::muse_prefix;
 use crate::oauth::start_session;
-use crate::oauth::CredentialFile;
 use crate::providers::compat::creds::MuseCodeCredentials;
+use crate::transport::deadlines::MUSE_KEY;
+use crate::transport::deadlines::credential_signal;
+use mixdog_core_api::domain::provider::ProviderError;
 
 pub const PROVIDER_ID: &str = "muse-code-oauth";
 const CLIENT_ID: &str = "1031625952748946";
@@ -59,10 +59,7 @@ fn headers(extra: Vec<(&'static str, String)>) -> Vec<(&'static str, String)> {
 }
 
 fn form(params: &[(&str, &str)]) -> Vec<u8> {
-    url::form_urlencoded::Serializer::new(String::new())
-        .extend_pairs(params)
-        .finish()
-        .into_bytes()
+    url::form_urlencoded::Serializer::new(String::new()).extend_pairs(params).finish().into_bytes()
 }
 
 /// The device authorization response, validated.
@@ -81,17 +78,10 @@ fn non_empty<'a>(doc: &'a JsonValue, field: &str) -> &'a str {
 
 fn device_authorization(reply: &Reply) -> Result<DeviceAuthorization, LoginFailure> {
     if !reply.ok() {
-        return Err(failed(
-            "device_auth",
-            format!("device authorization {}: {}", reply.status, muse_prefix(&reply.text(), &[], 300)),
-        ));
+        return Err(failed("device_auth", format!("device authorization {}: {}", reply.status, muse_prefix(&reply.text(), &[], 300))));
     }
     let doc = reply.json().unwrap_or(JsonValue::Null);
-    let (device_code, user_code, uri) = (
-        non_empty(&doc, "device_code"),
-        non_empty(&doc, "user_code"),
-        non_empty(&doc, "verification_uri"),
-    );
+    let (device_code, user_code, uri) = (non_empty(&doc, "device_code"), non_empty(&doc, "user_code"), non_empty(&doc, "verification_uri"));
     if device_code.is_empty() || user_code.is_empty() || uri.is_empty() {
         return Err(failed("validation", "device authorization response is missing required fields"));
     }
@@ -139,10 +129,7 @@ fn classify_poll(reply: &Reply, device_code: &str) -> Poll<String> {
         "slow_down" => Poll::SlowDown,
         "expired_token" => Poll::Expired,
         "access_denied" => Poll::Denied,
-        _ => Poll::Fatal(failed(
-            if error.is_empty() { "device_token" } else { error },
-            format!("device token {}: {}", reply.status, detail()),
-        )),
+        _ => Poll::Fatal(failed(if error.is_empty() { "device_token" } else { error }, format!("device token {}: {}", reply.status, detail()))),
     }
 }
 
@@ -156,9 +143,7 @@ fn is_usage_window(window: &JsonValue) -> bool {
         return false;
     };
     let numeric = |field: &str| window.get(field).is_none_or(JsonValue::is_number);
-    numeric("used_percent")
-        && numeric("window_duration_mins")
-        && window.get("resets_at").is_none_or(|v| v.is_string() || v.is_number())
+    numeric("used_percent") && numeric("window_duration_mins") && window.get("resets_at").is_none_or(|v| v.is_string() || v.is_number())
 }
 
 /// The key response checked field by field: a wrong type is refused rather
@@ -207,10 +192,7 @@ pub fn credentials_from_key_response(doc: &JsonValue, access_token: &str) -> Res
     }
     let api_key = text("api_key");
     if api_key.is_empty() {
-        let action = [text("action_url"), text("require_payment_action_url")]
-            .into_iter()
-            .find(|s| !s.is_empty())
-            .unwrap_or("");
+        let action = [text("action_url"), text("require_payment_action_url")].into_iter().find(|s| !s.is_empty()).unwrap_or("");
         if doc.get("require_payment") == Some(&JsonValue::Bool(true)) || !action.is_empty() {
             let suffix = if action.is_empty() { String::new() } else { format!(": {action}") };
             return Err(failed("payment_required", format!("Muse Code subscription payment required{suffix}")));
@@ -246,10 +228,7 @@ async fn mint_key(http: &Http, access_token: &str) -> Result<MuseCodeCredentials
         MUSE_KEY,
         "POST",
         KEY_URL,
-        headers(vec![
-            ("authorization", format!("Bearer {access_token}")),
-            ("content-type", "application/json".to_owned()),
-        ]),
+        headers(vec![("authorization", format!("Bearer {access_token}")), ("content-type", "application/json".to_owned())]),
         br#"{"onboard":true}"#.to_vec(),
     )
     .await?;
@@ -257,9 +236,7 @@ async fn mint_key(http: &Http, access_token: &str) -> Result<MuseCodeCredentials
         let detail = muse_excerpt(&reply.text(), &[access_token], 500);
         return Err(failed("token_exchange", format!("key request {}: {detail}", reply.status)));
     }
-    let doc = reply
-        .json()
-        .ok_or_else(|| failed("validation", "key response was not valid JSON"))?;
+    let doc = reply.json().ok_or_else(|| failed("validation", "key response was not valid JSON"))?;
     credentials_from_key_response(&doc, access_token)
 }
 
@@ -273,25 +250,19 @@ pub struct MuseCodeLogin {
 
 impl MuseCodeLogin {
     pub fn new(http: Http, pace: Arc<dyn Pace>, file: CredentialFile) -> Self {
-        Self {
-            target: LoginTarget::Provider(ProviderId::from(PROVIDER_ID)),
-            http,
-            pace,
-            file,
-            running: Arc::new(AtomicBool::new(false)),
-        }
+        Self { target: LoginTarget::Provider(ProviderId::from(PROVIDER_ID)), http, pace, file, running: Arc::new(AtomicBool::new(false)) }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-use crate::oauth::pace::FakePace;
-use crate::oauth::http::testing::Scripted;
-use crate::oauth::http::testing::finish;
     use super::*;
     use crate::oauth::CredentialIo;
     use crate::oauth::Probe;
+    use crate::oauth::http::testing::Scripted;
+    use crate::oauth::http::testing::finish;
+    use crate::oauth::pace::FakePace;
+    use serde_json::json;
 
     const DEVICE: &str = r#"{"device_code":"DC","user_code":"ABCD","verification_uri":"https://meta/v","verification_uri_complete":"https://meta/v?c=ABCD","interval":2,"expires_in":600}"#;
 
@@ -319,10 +290,7 @@ use crate::oauth::http::testing::finish;
 
     fn store(dir: &tempfile::TempDir) -> CredentialFile {
         let tokens = mixdog_rt::testing::tokens();
-        CredentialFile::new(
-            dir.path().join("muse-code-oauth.json"),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
+        CredentialFile::new(dir.path().join("muse-code-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io })
     }
     #[tokio::test]
     async fn a_device_grant_ends_with_the_minted_key_stored() {
@@ -353,15 +321,7 @@ use crate::oauth::http::testing::finish;
         }
         assert_eq!(pace.waits.lock().unwrap().len(), 1, "one wait, after the pending answer");
         let Probe::Present(saved) = store(&dir).load::<MuseCodeCredentials>().await else { panic!("stored") };
-        assert_eq!(
-            saved,
-            MuseCodeCredentials {
-                access_token: "AT".into(),
-                api_key: "K1".into(),
-                account_id: Some("u-1".into()),
-                email: Some("a@b.c".into()),
-            }
-        );
+        assert_eq!(saved, MuseCodeCredentials { access_token: "AT".into(), api_key: "K1".into(), account_id: Some("u-1".into()), email: Some("a@b.c".into()) });
         // The flow is free again.
         let again = MuseCodeLogin::new(Scripted::new(&[(500, "")]), pace, store(&dir));
         assert!(matches!(again.start().await, Err(LoginError::Failed(_))));
@@ -376,7 +336,6 @@ use crate::oauth::http::testing::finish;
         assert_eq!(finish(session.as_ref()).await.last(), Some(&LoginState::Failed(LoginFailure::Denied)));
         assert!(matches!(store(&dir).load::<MuseCodeCredentials>().await, Probe::Absent));
     }
-
 
     /// A key mint and a device authorization that never answer fail their login step after a timer.
     #[tokio::test(start_paused = true)]
@@ -429,7 +388,6 @@ use crate::oauth::http::testing::finish;
     }
 }
 
-
 #[async_trait]
 impl LoginFlow for MuseCodeLogin {
     fn target(&self) -> &LoginTarget {
@@ -449,25 +407,13 @@ impl LoginFlow for MuseCodeLogin {
         .map_err(|error| LoginError::Failed(request_error(DEVICE_AUTH_URL, "device-auth", &error)))?;
         let device = device_authorization(&reply).map_err(LoginError::Failed)?;
         let now_ms = self.pace.now_ms();
-        let expires_at = device
-            .expires_in
-            .map(|d| UNIX_EPOCH + Duration::from_millis(now_ms) + d)
-            .filter(|at| *at > SystemTime::UNIX_EPOCH);
-        let first = LoginState::DeviceCode {
-            user_code: device.user_code.clone(),
-            verification_uri: device.verification_uri.clone(),
-            expires_at,
-        };
+        let expires_at = device.expires_in.map(|d| UNIX_EPOCH + Duration::from_millis(now_ms) + d).filter(|at| *at > SystemTime::UNIX_EPOCH);
+        let first = LoginState::DeviceCode { user_code: device.user_code.clone(), verification_uri: device.verification_uri.clone(), expires_at };
         let (http, pace, file) = (self.http.clone(), self.pace.clone(), self.file.clone());
         Ok(start_session(guard, first, false, move |ctx, _| async move {
             ctx.set(LoginState::Waiting);
             let deadline_ms = device.expires_in.map(|d| now_ms + d.as_millis() as u64);
-            let schedule = Schedule {
-                interval: device.interval,
-                deadline_ms,
-                back_off_on_network: true,
-                ..Schedule::default()
-            };
+            let schedule = Schedule { interval: device.interval, deadline_ms, back_off_on_network: true, ..Schedule::default() };
             let token = device::run(pace.as_ref(), schedule, || async {
                 // The in-flight request dies with the device code (`muse-code-oauth-login.mjs:138-143`), inside the
                 // request's own 30_000 (`:22`, `:58`).
@@ -478,11 +424,7 @@ impl LoginFlow for MuseCodeLogin {
                     "POST",
                     DEVICE_TOKEN_URL,
                     headers(vec![("content-type", "application/x-www-form-urlencoded".to_owned())]),
-                    form(&[
-                        ("client_id", CLIENT_ID),
-                        ("device_code", &device.device_code),
-                        ("grant_type", DEVICE_GRANT_TYPE),
-                    ]),
+                    form(&[("client_id", CLIENT_ID), ("device_code", &device.device_code), ("grant_type", DEVICE_GRANT_TYPE)]),
                 )
                 .await;
                 match polled {
@@ -493,9 +435,7 @@ impl LoginFlow for MuseCodeLogin {
             .await?;
             let credentials = mint_key(&http, &token).await?;
             file.keep(&[&credentials.access_token, &credentials.api_key]);
-            file.save(&credentials)
-                .await
-                .map_err(|err| failed("store", err.to_string()))?;
+            file.save(&credentials).await.map_err(|err| failed("store", err.to_string()))?;
             Ok(credentials.account_id)
         }))
     }

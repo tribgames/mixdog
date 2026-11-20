@@ -107,15 +107,9 @@ impl TryFrom<String> for BlobDigest {
     type Error = InvalidBlobDigest;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let well_formed = value.strip_prefix(Self::PREFIX).is_some_and(|hex| {
-            hex.len() == Self::HEX_LEN
-                && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        });
-        if well_formed {
-            Ok(Self(value))
-        } else {
-            Err(InvalidBlobDigest)
-        }
+        let well_formed =
+            value.strip_prefix(Self::PREFIX).is_some_and(|hex| hex.len() == Self::HEX_LEN && hex.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')));
+        if well_formed { Ok(Self(value)) } else { Err(InvalidBlobDigest) }
     }
 }
 
@@ -151,16 +145,8 @@ mod tests {
     fn blob_digest_is_validated_wherever_it_is_parsed() {
         let good = digest(&"0123456789abcdef".repeat(4));
         assert_eq!(good.parse::<BlobDigest>().unwrap().as_str(), good);
-        assert_eq!(
-            serde_json::from_str::<BlobDigest>(&format!("{good:?}"))
-                .unwrap()
-                .as_str(),
-            good
-        );
-        assert_eq!(
-            serde_json::to_string(&good.parse::<BlobDigest>().unwrap()).unwrap(),
-            format!("{good:?}")
-        );
+        assert_eq!(serde_json::from_str::<BlobDigest>(&format!("{good:?}")).unwrap().as_str(), good);
+        assert_eq!(serde_json::to_string(&good.parse::<BlobDigest>().unwrap()).unwrap(), format!("{good:?}"));
 
         for bad in [
             String::new(),
@@ -175,23 +161,18 @@ mod tests {
         ] {
             assert!(bad.parse::<BlobDigest>().is_err(), "{bad:?}");
             assert!(BlobDigest::try_from(bad.clone()).is_err(), "{bad:?}");
-            assert!(
-                serde_json::from_value::<BlobDigest>(serde_json::json!(bad)).is_err(),
-                "{bad:?}"
-            );
+            assert!(serde_json::from_value::<BlobDigest>(serde_json::json!(bad)).is_err(), "{bad:?}");
         }
         assert!(serde_json::from_value::<BlobDigest>(serde_json::json!(7)).is_err());
     }
 
     #[test]
     fn blob_descriptor_refuses_a_malformed_digest() {
-        let text =
-            |digest: &str| format!(r#"{{"digest":"{digest}","bytes":1,"mediaType":"text/plain"}}"#);
+        let text = |digest: &str| format!(r#"{{"digest":"{digest}","bytes":1,"mediaType":"text/plain"}}"#);
         let good = digest(&"b".repeat(64));
         assert!(serde_json::from_str::<crate::BlobDescriptor>(&text(&good)).is_ok());
         assert!(serde_json::from_str::<crate::BlobDescriptor>(&text("sha256:AB")).is_err());
     }
 }
-
 
 impl std::error::Error for InvalidBlobDigest {}

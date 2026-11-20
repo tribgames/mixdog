@@ -30,18 +30,18 @@ use mixdog_agent::agent_tool::flow::seams::TurnSource;
 use mixdog_agent::agent_tool::flow::seams::TurnStart;
 use mixdog_agent::agent_tool::flow::seams::Unobserve;
 use mixdog_agent::agent_tool::flow::seams::WorkerRows;
-use mixdog_agent::agent_tool::flow::world::SpawnContext;
 use mixdog_agent::agent_tool::flow::worker_turns::PROCESS_RESTART_FAILURE;
 use mixdog_agent::agent_tool::flow::worker_turns::WorkerTurns;
+use mixdog_agent::agent_tool::flow::world::SpawnContext;
 use mixdog_agent::agent_tool::host::DispatchOptions;
 use mixdog_agent::agent_tool::host::Prepared;
 use mixdog_agent::agent_tool::host::SpawnOptions;
-use mixdog_agent::agent_tool::scope::SessionFacts;
 use mixdog_agent::agent_tool::progress::Snapshot;
 use mixdog_agent::agent_tool::progress::WatchdogPolicy;
 use mixdog_agent::agent_tool::progress::stale_report;
 use mixdog_agent::agent_tool::scope::Caller;
 use mixdog_agent::agent_tool::scope::Scope;
+use mixdog_agent::agent_tool::scope::SessionFacts;
 use mixdog_agent::agent_tool::watchdog::AgentKind;
 use mixdog_agent::agent_tool::watchdog::Overrides;
 use mixdog_agent::agent_tool::watchdog::is_watchdog_abort;
@@ -66,8 +66,8 @@ use crate::flow_scenarios::Rig;
 use crate::flow_scenarios::asked;
 use crate::flow_scenarios::backend;
 use crate::flow_scenarios::execute_with_parts;
-use crate::flow_scenarios::resolved_parts;
 use crate::flow_scenarios::lock;
+use crate::flow_scenarios::resolved_parts;
 use crate::flow_scenarios::rig;
 use crate::flow_scenarios::settle;
 
@@ -192,7 +192,13 @@ async fn a_watchdog_stop_with_partial_output_reaches_the_owner_once_as_a_failure
     assert_eq!(result_json(&row)["content"], "partial findings");
     let told = lock(&owner.0).clone();
     assert_eq!(told.len(), 1);
-    assert!(told[0].contains("<status>failed</status>") && told[0].contains("partial findings") && told[0].contains("<error>stalled: the progress watchdog stopped the turn</error>"), "{}", told[0]);
+    assert!(
+        told[0].contains("<status>failed</status>")
+            && told[0].contains("partial findings")
+            && told[0].contains("<error>stalled: the progress watchdog stopped the turn</error>"),
+        "{}",
+        told[0]
+    );
 }
 
 /// The finishing net settles a job whose terminal result was recorded but never reconciled: a normal end completes it
@@ -307,9 +313,17 @@ async fn a_workers_row_runs_while_its_turn_does_and_settles_on_how_the_turn_ende
     assert_eq!(settled(&t.run(Some(cancelled), ended(false, false, None))), ("cancelled".into(), None));
 
     let cut = watched(&t.board, "task_c");
-    t.board.cancel_all(&CancelAll { scope: Scope { caller_session_id: Some("lead".into()), host_pid: None }, terminal_reason: Some(PROCESS_RESTART_FAILURE.into()), notice: CancelNotice::Never, ..CancelAll::default() });
+    t.board.cancel_all(&CancelAll {
+        scope: Scope { caller_session_id: Some("lead".into()), host_pid: None },
+        terminal_reason: Some(PROCESS_RESTART_FAILURE.into()),
+        notice: CancelNotice::Never,
+        ..CancelAll::default()
+    });
     let rows = t.run(Some(cut), ended(false, false, None));
-    assert_eq!((rows[1].status.as_deref(), rows[1].failure_reason.as_deref(), rows[1].task_id.clone()), (Some("failed"), Some("process-restart"), Some(Some("task_c".to_owned()))));
+    assert_eq!(
+        (rows[1].status.as_deref(), rows[1].failure_reason.as_deref(), rows[1].task_id.clone()),
+        (Some("failed"), Some("process-restart"), Some(Some("task_c".to_owned())))
+    );
 }
 
 /// A dispatch that opened no turn at all still settles the row itself, on the status it ends with.
@@ -331,7 +345,14 @@ fn header(v: Value) -> Header {
 }
 
 fn finish(header: &mut Header, usage: &Value, tool_calls: f64, incremental: bool) {
-    let ask = TerminalUsage { usage: Some(usage), last_turn: usage, tool_calls_total: tool_calls, incremental, input_excludes_cache: false, now: 1_800_000_000_000.0 };
+    let ask = TerminalUsage {
+        usage: Some(usage),
+        last_turn: usage,
+        tool_calls_total: tool_calls,
+        incremental,
+        input_excludes_cache: false,
+        now: 1_800_000_000_000.0,
+    };
     terminal_usage(header, &ask).apply(header);
 }
 
@@ -358,7 +379,10 @@ fn a_finished_turn_adds_its_tokens_and_tool_calls_to_the_session_totals() {
 fn a_turn_whose_responses_were_counted_one_by_one_is_not_counted_again_at_its_end() {
     let mut h = header(json!({ "provider": "openai", "totalInputTokens": 10, "totalOutputTokens": 2, "totalToolCalls": 4, "tokensCumulative": 12 }));
     finish(&mut h, &json!({ "inputTokens": 30, "outputTokens": 7 }), 4.0, true);
-    assert_eq!((h["totalInputTokens"].clone(), h["totalOutputTokens"].clone(), h["totalToolCalls"].clone(), h["tokensCumulative"].clone()), (json!(10), json!(2), json!(4), json!(12)));
+    assert_eq!(
+        (h["totalInputTokens"].clone(), h["totalOutputTokens"].clone(), h["totalToolCalls"].clone(), h["tokensCumulative"].clone()),
+        (json!(10), json!(2), json!(4), json!(12))
+    );
     assert_eq!(h["lastInputTokens"], json!(30));
 }
 
@@ -376,7 +400,11 @@ fn the_watchdog_policy_follows_the_agent_role_the_environment_and_the_overrides(
     let idle = |kind: AgentKind<'_>, env: &dyn Fn(&str) -> Option<String>| resolve_policy(kind, Overrides::default(), env).idle_stale_ms;
     let policy = resolve_policy(AgentKind::default(), Overrides::default(), &no_env);
     assert_eq!((policy.first_transport_ms, policy.first_semantic_ms, policy.idle_stale_ms), (120_000, 600_000, 600_000));
-    assert_eq!(idle(AgentKind { name: Some("worker"), ..AgentKind::default() }, &no_env), 315_000, "5 minutes, held above the provider's 300 s recovery window plus a tick");
+    assert_eq!(
+        idle(AgentKind { name: Some("worker"), ..AgentKind::default() }, &no_env),
+        315_000,
+        "5 minutes, held above the provider's 300 s recovery window plus a tick"
+    );
     assert_eq!(idle(AgentKind { name: Some("heavy-worker"), ..AgentKind::default() }, &no_env), 420_000);
     assert_eq!(idle(AgentKind { name: Some("x"), hidden: true, stall_cap_idle_seconds: Some(900) }, &no_env), 900_000);
     let env = |name: &str| (name == "STALL_TIMEOUT_S").then(|| "100".to_owned());
@@ -483,7 +511,13 @@ fn host() -> Value {
 }
 
 fn lead() -> SpawnContext {
-    SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242), ..SpawnContext::default() }
+    SpawnContext {
+        caller_session_id: Some("lead".into()),
+        session_id: None,
+        owner_session_id: Some("lead".into()),
+        client_host_pid: Some(4242),
+        ..SpawnContext::default()
+    }
 }
 
 fn args(tag: &str) -> Value {
@@ -514,7 +548,8 @@ fn logged(rig: &Rig, head: &str) -> usize {
 /// the job carries the route it runs on and the status of the board is published at the start and at the end.
 #[tokio::test(start_paused = true)]
 async fn a_spawn_runs_to_completion_and_tells_its_owner_once() {
-    let (rig, row) = spawned(spawn_scenario(json!([{ "terminal": { "content": "done" } }, { "return": { "content": "done" } }])), host(), args("scout"), false).await;
+    let (rig, row) =
+        spawned(spawn_scenario(json!([{ "terminal": { "content": "done" } }, { "return": { "content": "done" } }])), host(), args("scout"), false).await;
     assert_eq!((row.status.as_str(), row.error.clone()), ("completed", None));
     let meta = &row.meta;
     assert_eq!((meta.tag.as_deref(), meta.agent.as_deref(), meta.preset.as_deref()), (Some("scout"), Some("worker"), Some("agent-worker")));
@@ -537,7 +572,13 @@ async fn a_spawn_that_cannot_start_fails_its_job_naming_why() {
         ("no agent", Box::new(move |a, _, _| no_agent(a)), "agent spawn: agent is required"),
         ("unknown agent", Box::new(|_, h, _| h["agent"]["defined"] = json!(false)), "agent spawn: unknown agent \"worker\""),
         ("turned off", Box::new(|_, h, _| h["agent"]["disabled"] = json!(true)), "agent spawn: agent \"worker\" is turned off"),
-        ("no prompt", Box::new(|a, _, _| { a.as_object_mut().unwrap().remove("prompt"); }), "agent: prompt/message/file is required"),
+        (
+            "no prompt",
+            Box::new(|a, _, _| {
+                a.as_object_mut().unwrap().remove("prompt");
+            }),
+            "agent: prompt/message/file is required",
+        ),
         ("taken tag", Box::new(|_, _, s| s["tags"] = json!({ "scout": "sess_other" })), "agent spawn: tag \"scout\" already exists"),
         ("session creation", Box::new(|_, _, s| s["createThrows"] = json!("provider unavailable")), "provider unavailable"),
     ];
@@ -558,7 +599,8 @@ async fn a_spawn_that_cannot_start_fails_its_job_naming_why() {
 async fn a_respawn_is_marked_and_a_skill_selection_reaches_the_turn_only_when_given() {
     let (_, row) = spawned(spawn_scenario(json!([])), host(), args("scout"), true).await;
     assert!(row.meta.respawned);
-    let (rig, _) = spawned(spawn_scenario(json!([])), host(), json!({ "agent": "worker", "prompt": "p", "tag": "t", "skillSelection": "use $payload" }), false).await;
+    let (rig, _) =
+        spawned(spawn_scenario(json!([])), host(), json!({ "agent": "worker", "prompt": "p", "tag": "t", "skillSelection": "use $payload" }), false).await;
     assert_eq!(*lock(&rig.shared.selections), [json!({ "skillSelection": "use $payload" })]);
     let (rig, _) = spawned(spawn_scenario(json!([])), host(), args("t"), false).await;
     assert_eq!(*lock(&rig.shared.selections), [json!({})]);
@@ -573,7 +615,10 @@ async fn a_stalled_spawn_fails_with_its_partial_output_or_with_the_reason_when_i
     assert_eq!((row.status.as_str(), row.terminal_reason.as_deref()), ("failed", Some("agent-watchdog-partial")));
     assert_eq!(row.error.as_deref(), Some("stalled: the progress watchdog stopped the turn"));
     let content = result_json(&row)["content"].as_str().unwrap().to_owned();
-    assert!(content.starts_with(&format!("[Agent stopped by the progress watchdog: {stale}. The output below is partial.]")) && content.ends_with("half done"), "{content}");
+    assert!(
+        content.starts_with(&format!("[Agent stopped by the progress watchdog: {stale}. The output below is partial.]")) && content.ends_with("half done"),
+        "{content}"
+    );
     assert_eq!(told(&rig).len(), 1);
 
     let (_, row) = spawned(spawn_scenario(json!([{ "say": "." }, { "stall": stale }])), host(), args("t"), false).await;
@@ -622,7 +667,13 @@ async fn a_job_cancelled_before_it_starts_runs_nothing() {
 /// A running turn cancelled by its owner reports once, as cancelled, with the output it had produced (header only when none).
 #[tokio::test(start_paused = true)]
 async fn a_cancelled_running_turn_tells_the_owner_once_with_its_partial_output() {
-    let (rig, row) = spawned(spawn_scenario(json!([{ "say": "partial work" }, { "cancelTask": "user stop" }, { "return": { "content": "late" } }])), host(), args("t"), false).await;
+    let (rig, row) = spawned(
+        spawn_scenario(json!([{ "say": "partial work" }, { "cancelTask": "user stop" }, { "return": { "content": "late" } }])),
+        host(),
+        args("t"),
+        false,
+    )
+    .await;
     assert_eq!(row.status, "cancelled");
     let notices = told(&rig);
     assert_eq!(notices.len(), 1, "{notices:?}");
@@ -775,7 +826,10 @@ async fn the_roster_and_the_status_cards_read_the_jobs_the_way_the_rules_say() {
         "agent task: task_d\nstatus: running\ntype: spawn\ntarget: x\nworker_stage: spawning\nlast_progress: spawning worker session\ndiagnostic: worker session not started yet\nstarted: 2026-03-01 10:00:00Z\nelapsed: 0s (running)\nnotification: completion will be delivered; end the turn."
     );
     let respawned = ask(json!({ "type": "read", "task_id": "task_b" })).await;
-    assert!(respawned.contains("respawned: true\nnote: previous session reaped — fresh session, no prior context; re-supply anchors if needed\n"), "{respawned}");
+    assert!(
+        respawned.contains("respawned: true\nnote: previous session reaped — fresh session, no prior context; re-supply anchors if needed\n"),
+        "{respawned}"
+    );
     let resumed = ask(json!({ "type": "read", "task_id": "task_c" })).await;
     assert!(resumed.contains("resumed: true\nnote: previous session reaped — resumed from its saved transcript, prior context kept\n"), "{resumed}");
     assert_eq!(ask(json!({ "type": "read", "tag": "jv-missing" })).await, "Error: agent read/status: no task found for tag/sessionId \"jv-missing\"");
@@ -832,7 +886,11 @@ async fn a_send_makes_the_worker_follow_its_agents_configured_route() {
 
     let on_route = json!({ "provider": "xai", "model": "grok", "effort": "high", "fast": true });
     assert!(route_calls(route_scenario("process", false, on_route.clone()), None).await.unwrap().is_empty());
-    let stale = route_scenario("process", false, json!({ "provider": "xai", "model": "grok", "effort": "high", "fast": true, "heldRoute": { "provider": "openai", "model": "gpt-5" } }));
+    let stale = route_scenario(
+        "process",
+        false,
+        json!({ "provider": "xai", "model": "grok", "effort": "high", "fast": true, "heldRoute": { "provider": "openai", "model": "gpt-5" } }),
+    );
     assert_eq!(route_calls(stale, None).await.unwrap(), [json!(["holdSessionRoute", "sess_w1", null])], "a hold that is obsolete is dropped");
     let held = route_scenario("process", false, json!({ "heldRoute": on_route }));
     assert!(route_calls(held, None).await.unwrap().is_empty(), "a held route that already is the agent's route is left");

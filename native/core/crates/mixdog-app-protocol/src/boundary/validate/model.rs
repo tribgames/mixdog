@@ -12,26 +12,15 @@ use crate::error::ErrorData;
 
 type Checked = Result<(), ErrorData>;
 
-const MODEL_SELECTION_KEYS: [&str; 10] = [
-    "provider",
-    "model",
-    "effort",
-    "fast",
-    "autoEffort",
-    "modelParameters",
-    "contextPercent",
-    "contextTokens",
-    "fallbacks",
-    "onlyIfEmpty",
-];
+const MODEL_SELECTION_KEYS: [&str; 10] =
+    ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens", "fallbacks", "onlyIfEmpty"];
 /// The options of the write a `route/set` selection carries beside the route: `setRoute(opts)` of `createRouteWrite`
 /// (`tui/session/session-api/routes-write.mjs`), which the remote chat sends on every model pick and the main-model
 /// choice sends as `keepMainModel: false`. Node compares each with `=== true` or `!== false`, so a value of any type is
 /// taken; `onlyIfEmpty` is the selection's own key.
 const ROUTE_WRITE_OPTION_KEYS: [&str; 4] = ["applyToCurrentSession", "keepMainModel", "sessionOnly", "validateOnly"];
 const MODEL_CATALOG_OPTION_KEYS: [&str; 4] = ["force", "refresh", "quick", "withCatalogState"];
-const TOOL_APPROVAL_KEYS: [&str; 8] =
-    ["approved", "reason", "answers", "reply", "response", "editedArgs", "remember", "scope"];
+const TOOL_APPROVAL_KEYS: [&str; 8] = ["approved", "reason", "answers", "reply", "response", "editedArgs", "remember", "scope"];
 const TOOL_APPROVAL_RESPONSES: [&str; 6] = ["approve", "deny", "edit-and-approve", "provide-secret", "skip", "done"];
 const TOOL_APPROVAL_REMEMBER: [&str; 4] = ["once", "session", "agent", "always"];
 const MAX_SAFE_INTEGER: f64 = 9_007_199_254_740_991.0;
@@ -106,8 +95,7 @@ fn route(params: Option<&Value>, nullable: bool) -> Checked {
 /// Agent writes carry an on/off flag beside the model selection, never inside a fallback.
 fn route_write(params: Option<&Value>) -> Checked {
     let Some(Value::Object(object)) = field(params, "route") else { return route(params, false) };
-    let agent_disabled = field(params, "agentId").and_then(Value::as_str).is_some_and(|id| !js_trim(id).is_empty())
-        && object.contains_key("disabled");
+    let agent_disabled = field(params, "agentId").and_then(Value::as_str).is_some_and(|id| !js_trim(id).is_empty()) && object.contains_key("disabled");
     if !agent_disabled && !ROUTE_WRITE_OPTION_KEYS.iter().any(|key| object.contains_key(*key)) {
         return route(params, false);
     }
@@ -143,9 +131,7 @@ pub(super) fn model_selection(value: &Value, path: &str) -> Checked {
     boolean(object.get("fast"), &at("fast"), "selection.fast must be a boolean.")?;
     boolean(object.get("autoEffort"), &at("autoEffort"), "selection.autoEffort must be a boolean.")?;
     if let Some(parameters) = object.get("modelParameters") {
-        let string_map = parameters
-            .as_object()
-            .is_some_and(|map| map.iter().all(|(key, option)| !key.is_empty() && option.is_string()));
+        let string_map = parameters.as_object().is_some_and(|map| map.iter().all(|(key, option)| !key.is_empty() && option.is_string()));
         if !string_map {
             return refuse(&at("modelParameters"), "selection.modelParameters must be a string map.");
         }
@@ -156,10 +142,7 @@ pub(super) fn model_selection(value: &Value, path: &str) -> Checked {
     if let Some(percent) = object.get("contextPercent")
         && !percent.is_number()
     {
-        return refuse(
-            &at("contextPercent"),
-            "selection.contextPercent must be a 10-point percentage from 10 to 100.",
-        );
+        return refuse(&at("contextPercent"), "selection.contextPercent must be a 10-point percentage from 10 to 100.");
     }
     if let Some(fallbacks) = object.get("fallbacks") {
         let entries = match fallbacks.as_array() {
@@ -245,9 +228,8 @@ fn decision(params: Option<&Value>) -> Checked {
         return refuse(&at("scope"), "decision.scope is invalid.");
     }
     if let Some(edited) = object.get("editedArgs") {
-        let valid = edited.as_object().is_some_and(|map| {
-            map.len() <= 8 && map.values().all(|text| text.as_str().is_some_and(|text| utf16_len(text) <= 40_000))
-        });
+        let valid =
+            edited.as_object().is_some_and(|map| map.len() <= 8 && map.values().all(|text| text.as_str().is_some_and(|text| utf16_len(text) <= 40_000)));
         if !valid {
             return refuse(&at("editedArgs"), "decision.editedArgs is invalid.");
         }
@@ -270,9 +252,10 @@ fn question_answers(value: &Value, path: &str) -> Checked {
             return refuse(&entry_path, INVALID);
         };
         allowed_keys(object, &["selected", "text"], &entry_path, "decision.answers")?;
-        let labels_valid = object.get("selected").and_then(Value::as_array).is_some_and(|labels| {
-            labels.len() <= 4 && labels.iter().all(|label| label.as_str().is_some_and(|text| utf16_len(text) <= 200))
-        });
+        let labels_valid = object
+            .get("selected")
+            .and_then(Value::as_array)
+            .is_some_and(|labels| labels.len() <= 4 && labels.iter().all(|label| label.as_str().is_some_and(|text| utf16_len(text) <= 200)));
         if !labels_valid {
             return refuse(&join(&entry_path, "selected"), INVALID);
         }
@@ -287,7 +270,7 @@ fn question_answers(value: &Value, path: &str) -> Checked {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::{json, Value};
+    use serde_json::{Value, json};
 
     use super::*;
 
@@ -307,13 +290,7 @@ mod tests {
             let got = verdict(method, &row["params"]);
             match row["expected"].as_str() {
                 None => assert_eq!(got, Ok(()), "{} accepts: {}", method, row["case"]),
-                Some(expected) => assert_eq!(
-                    got,
-                    refuse(row["path"].as_str().expect("path of a refuse row"), expected),
-                    "{} refuses: {}",
-                    method,
-                    row["case"]
-                ),
+                Some(expected) => assert_eq!(got, refuse(row["path"].as_str().expect("path of a refuse row"), expected), "{} refuses: {}", method, row["case"]),
             }
         }
     }

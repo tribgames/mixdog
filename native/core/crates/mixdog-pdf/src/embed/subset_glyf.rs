@@ -10,37 +10,21 @@ use super::{EmbedError, Sfnt, be_i16, be_u16, be_u32};
 /// The subset of `glyphs` (original glyph ids, `.notdef` first) as an sfnt file. The ids of the glyphs in the file are
 /// their positions in the list; `glyphs` is extended with the components of composite glyphs.
 pub(super) fn subset(font: &Sfnt<'_>, glyphs: &mut Vec<u16>) -> Result<Vec<u8>, EmbedError> {
-    let head = font
-        .table(b"head")
-        .ok_or_else(|| EmbedError::new("The font has no head table"))?;
-    let hhea = font
-        .table(b"hhea")
-        .ok_or_else(|| EmbedError::new("The font has no hhea table"))?;
-    let maxp = font
-        .table(b"maxp")
-        .ok_or_else(|| EmbedError::new("The font has no maxp table"))?;
-    let loca = font
-        .table(b"loca")
-        .ok_or_else(|| EmbedError::new("The font has no loca table"))?;
-    let glyf = font
-        .table(b"glyf")
-        .ok_or_else(|| EmbedError::new("The font has no glyf table"))?;
+    let head = font.table(b"head").ok_or_else(|| EmbedError::new("The font has no head table"))?;
+    let hhea = font.table(b"hhea").ok_or_else(|| EmbedError::new("The font has no hhea table"))?;
+    let maxp = font.table(b"maxp").ok_or_else(|| EmbedError::new("The font has no maxp table"))?;
+    let loca = font.table(b"loca").ok_or_else(|| EmbedError::new("The font has no loca table"))?;
+    let glyf = font.table(b"glyf").ok_or_else(|| EmbedError::new("The font has no glyf table"))?;
     let hmtx = font.table(b"hmtx").unwrap_or(&[]);
     if head.len() < 54 || hhea.len() < 36 || maxp.len() < 6 {
-        return Err(EmbedError::new(
-            "The font has a damaged head, hhea or maxp table",
-        ));
+        return Err(EmbedError::new("The font has a damaged head, hhea or maxp table"));
     }
     let glyph_count = usize::from(be_u16(maxp, 4).unwrap_or(0));
     let long_loca = be_i16(head, 50).unwrap_or(0) == 1;
     let metric_count = usize::from(be_u16(hhea, 34).unwrap_or(0));
 
     let offset_of = |gid: usize| -> Option<usize> {
-        if long_loca {
-            be_u32(loca, gid * 4).map(|value| value as usize)
-        } else {
-            be_u16(loca, gid * 2).map(|value| usize::from(value) * 2)
-        }
+        if long_loca { be_u32(loca, gid * 4).map(|value| value as usize) } else { be_u16(loca, gid * 2).map(|value| usize::from(value) * 2) }
     };
     let slice_of = |gid: u16| -> &[u8] {
         let gid = usize::from(gid);
@@ -58,23 +42,13 @@ pub(super) fn subset(font: &Sfnt<'_>, glyphs: &mut Vec<u16>) -> Result<Vec<u8>, 
             return (0, 0);
         }
         if gid < metric_count {
-            (
-                be_u16(hmtx, gid * 4).unwrap_or(0),
-                be_i16(hmtx, gid * 4 + 2).unwrap_or(0),
-            )
+            (be_u16(hmtx, gid * 4).unwrap_or(0), be_i16(hmtx, gid * 4 + 2).unwrap_or(0))
         } else {
-            (
-                be_u16(hmtx, (metric_count - 1) * 4).unwrap_or(0),
-                be_i16(hmtx, metric_count * 4 + (gid - metric_count) * 2).unwrap_or(0),
-            )
+            (be_u16(hmtx, (metric_count - 1) * 4).unwrap_or(0), be_i16(hmtx, metric_count * 4 + (gid - metric_count) * 2).unwrap_or(0))
         }
     };
 
-    let mut index: HashMap<u16, u16> = glyphs
-        .iter()
-        .enumerate()
-        .map(|(position, gid)| (*gid, position as u16))
-        .collect();
+    let mut index: HashMap<u16, u16> = glyphs.iter().enumerate().map(|(position, gid)| (*gid, position as u16)).collect();
     let mut glyf_out: Vec<u8> = Vec::new();
     let mut offsets: Vec<usize> = Vec::new();
     let mut hmtx_out: Vec<u8> = Vec::new();
@@ -86,9 +60,7 @@ pub(super) fn subset(font: &Sfnt<'_>, glyphs: &mut Vec<u16>) -> Result<Vec<u8>, 
         if buffer.len() >= 10 && be_i16(&buffer, 0).unwrap_or(0) < 0 {
             let mut position = 10;
             loop {
-                let (Some(flags), Some(component)) =
-                    (be_u16(&buffer, position), be_u16(&buffer, position + 2))
-                else {
+                let (Some(flags), Some(component)) = (be_u16(&buffer, position), be_u16(&buffer, position + 2)) else {
                     break;
                 };
                 let id = *index.entry(component).or_insert_with(|| {
@@ -139,12 +111,7 @@ pub(super) fn subset(font: &Sfnt<'_>, glyphs: &mut Vec<u16>) -> Result<Vec<u8>, 
     let mut maxp_out = maxp.to_vec();
     maxp_out[4..6].copy_from_slice(&count.to_be_bytes());
 
-    let mut tables: Vec<([u8; 4], Vec<u8>)> = vec![
-        (*b"head", head_out),
-        (*b"hhea", hhea_out),
-        (*b"loca", loca_out),
-        (*b"maxp", maxp_out),
-    ];
+    let mut tables: Vec<([u8; 4], Vec<u8>)> = vec![(*b"head", head_out), (*b"hhea", hhea_out), (*b"loca", loca_out), (*b"maxp", maxp_out)];
     for tag in [b"cvt ", b"prep"] {
         if let Some(table) = font.table(tag).filter(|table| !table.is_empty()) {
             tables.push((*tag, table.to_vec()));
@@ -214,11 +181,7 @@ mod tests {
 
     #[test]
     fn the_directory_counts_tables_the_way_fontkit_writes_it() {
-        let out = write_sfnt(vec![
-            (*b"head", vec![0; 54]),
-            (*b"hhea", vec![0; 36]),
-            (*b"maxp", vec![0; 6]),
-        ]);
+        let out = write_sfnt(vec![(*b"head", vec![0; 54]), (*b"hhea", vec![0; 36]), (*b"maxp", vec![0; 6])]);
         assert_eq!(&out[..4], b"true");
         assert_eq!(be_u16(&out, 4), Some(3));
         assert_eq!(be_u16(&out, 6), Some(32));

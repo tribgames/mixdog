@@ -26,7 +26,12 @@ fn worker() -> Value {
 }
 
 fn announced(session: &Header) -> Vec<String> {
-    session["pendingDeferredToolDelta"]["added"].as_array().expect("an added list").iter().map(|tool| tool["name"].as_str().expect("a name").to_owned()).collect()
+    session["pendingDeferredToolDelta"]["added"]
+        .as_array()
+        .expect("an added list")
+        .iter()
+        .map(|tool| tool["name"].as_str().expect("a name").to_owned())
+        .collect()
 }
 
 #[test]

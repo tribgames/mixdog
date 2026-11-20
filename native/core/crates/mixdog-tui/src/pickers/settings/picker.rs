@@ -46,11 +46,7 @@ fn build(host: &mut dyn PickerHost, options: &Value, request: u64) -> Result<Opt
     }
     // `heavy` re-reads MCP, plugin and skill status even on a light build: the cached values would otherwise win over a fresh
     // snapshot.
-    let heavy_cache = if light && member(options, "heavy") != &Value::Bool(true) {
-        host.settings_state().heavy_cache.clone()
-    } else {
-        None
-    };
+    let heavy_cache = if light && member(options, "heavy") != &Value::Bool(true) { host.settings_state().heavy_cache.clone() } else { None };
     let fresh_writes_at_start = host.settings_state().gate.fresh_writes;
     // One round trip for the whole panel: the core runs the same getters and answers once.
     let snapshot = host.store_call("getSettingsSnapshot", json!([{"heavy": heavy_cache.is_none()}]))?;

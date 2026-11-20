@@ -91,22 +91,15 @@ pub fn target_boxes<P: ReadProof>(
         Some(held) => held,
         None => Measure { bytes: document.save(SaveOptions::default()), pages: HashMap::new() },
     };
-    let missing: Vec<usize> =
-        selected.iter().map(|page| page.index + 1).filter(|page| !next.pages.contains_key(page)).collect();
+    let missing: Vec<usize> = selected.iter().map(|page| page.index + 1).filter(|page| !next.pages.contains_key(page)).collect();
     for chunk in missing.chunks(MAX_PDF_ANALYSIS_PAGES) {
-        let options = LayoutOptions {
-            pages: Some(chunk.iter().map(|page| *page as f64).collect()),
-            max_items: 500_000,
-            shapes: false,
-            cancel: None,
-        };
+        let options = LayoutOptions { pages: Some(chunk.iter().map(|page| *page as f64).collect()), max_items: 500_000, shapes: false, cancel: None };
         let layout = extract_pdf_text_layout(proof, PdfSource::Bytes(&next.bytes), &options)?;
         for page in layout.pages {
             next.pages.insert(page.page, page);
         }
     }
-    let measured: Vec<PageLayout> =
-        selected.iter().filter_map(|page| next.pages.get(&(page.index + 1)).cloned()).collect();
+    let measured: Vec<PageLayout> = selected.iter().filter_map(|page| next.pages.get(&(page.index + 1)).cloned()).collect();
     let layout = PdfLayout { page_count: document.page_count() as i64, pages: measured, truncated: false };
     let options = SearchOptions {
         limit: 500,
@@ -143,8 +136,7 @@ pub fn target_boxes<P: ReadProof>(
             rects
                 .iter()
                 .map(|part| {
-                    let (x, y, width, height) =
-                        display_to_user(&page.transform, part.x, part.top, part.width, part.height);
+                    let (x, y, width, height) = display_to_user(&page.transform, part.x, part.top, part.width, part.height);
                     MarkBox { index: hit.page - 1, x, y, width, height, text: Some(hit.text.clone()) }
                 })
                 .collect(),
@@ -208,13 +200,8 @@ mod tests {
         let mut document = PdfDocument::create_at(0);
         document.add_page(200.0, 100.0).expect("page");
         let proof = mixdog_fsio::Unlaned;
-        let (boxes, held) = target_boxes(
-            &proof,
-            &document,
-            &json!({ "op": "highlight", "page": 1, "x": 5, "y": 6, "width": 7, "height": 8 }),
-            None,
-        )
-        .expect("a box");
+        let (boxes, held) =
+            target_boxes(&proof, &document, &json!({ "op": "highlight", "page": 1, "x": 5, "y": 6, "width": 7, "height": 8 }), None).expect("a box");
         assert!(held.is_none());
         assert_eq!(boxes, vec![MarkBox { index: 0, x: 5.0, y: 6.0, width: 7.0, height: 8.0, text: None }]);
         for operation in [
@@ -225,28 +212,15 @@ mod tests {
             let error = target_boxes(&proof, &document, &operation, None).expect_err("refused");
             assert_eq!(error.message, "highlight needs find, or page with x, y, width, height in points");
         }
-        let error = target_boxes(
-            &proof,
-            &document,
-            &json!({ "op": "add_link", "page": 4, "x": 5, "y": 6, "width": 7, "height": 8 }),
-            None,
-        )
-        .expect_err("out of range");
+        let error =
+            target_boxes(&proof, &document, &json!({ "op": "add_link", "page": 4, "x": 5, "y": 6, "width": 7, "height": 8 }), None).expect_err("out of range");
         assert_eq!(error.message, "PDF page out of range: 4");
     }
 
     #[test]
     fn the_report_keeps_twenty_boxes_rounded_and_names_the_text() {
-        let boxes: Vec<MarkBox> = (0..25)
-            .map(|at| MarkBox {
-                index: at,
-                x: 1.005,
-                y: 2.0,
-                width: 3.14159,
-                height: 4.0,
-                text: (at == 0).then(|| "word".to_owned()),
-            })
-            .collect();
+        let boxes: Vec<MarkBox> =
+            (0..25).map(|at| MarkBox { index: at, x: 1.005, y: 2.0, width: 3.14159, height: 4.0, text: (at == 0).then(|| "word".to_owned()) }).collect();
         let report = report_boxes(&boxes);
         let rows = report.as_array().expect("rows");
         assert_eq!(rows.len(), 20);

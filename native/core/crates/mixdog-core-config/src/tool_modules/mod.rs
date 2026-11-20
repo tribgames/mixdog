@@ -37,23 +37,20 @@ use crate::config::Config;
 use crate::config::ConfigError;
 use mixdog_core_base::state::change_of;
 
-pub use value::builtin_feature_active;
-pub use value::adopt;
-pub use value::adopted_stored_agent;
-pub use value::Origin;
+pub use value::AUTO_EFFORT_BASES;
 pub use value::EffortJudgeState;
 pub use value::External;
 pub use value::INSTRUCTION_FILES_MODES;
-pub use value::AUTO_EFFORT_BASES;
+pub use value::Origin;
+pub use value::adopt;
+pub use value::adopted_stored_agent;
+pub use value::builtin_feature_active;
 
 /// `EFFORT_JUDGE_UNSUPPORTED`.
-pub const EFFORT_JUDGE_UNSUPPORTED: &str =
-    "Auto effort is unsupported on darwin-x64 (no onnxruntime-node binding)";
+pub const EFFORT_JUDGE_UNSUPPORTED: &str = "Auto effort is unsupported on darwin-x64 (no onnxruntime-node binding)";
 
-const TOGGLEABLE_BUILTINS: [&str; 7] =
-    ["git", "office", "tidy", "localProvider", "autoEffort", "visualize", "media"];
-const INSTALLABLE_BUILTINS: [&str; 6] =
-    ["git", "memory", "office", "tidy", "localProvider", "autoEffort"];
+const TOGGLEABLE_BUILTINS: [&str; 7] = ["git", "office", "tidy", "localProvider", "autoEffort", "visualize", "media"];
+const INSTALLABLE_BUILTINS: [&str; 6] = ["git", "memory", "office", "tidy", "localProvider", "autoEffort"];
 
 /// What the config cannot tell and the side effects the setters trigger. The owners of the
 /// local provider, the effort judge, the embedder and the session surface implement it; reads
@@ -69,11 +66,7 @@ pub trait ToolModulesHost: Send + Sync + 'static {
 
     /// `prepareBuiltinFeature(name, options)`: model pre-download, component verification.
     /// Tidy returns the settled outcome of this request's engines.
-    async fn prepare_builtin_feature(
-        &self,
-        name: &str,
-        engines: Option<&[String]>,
-    ) -> Result<Option<Value>, String>;
+    async fn prepare_builtin_feature(&self, name: &str, engines: Option<&[String]>) -> Result<Option<Value>, String>;
     async fn prepare_local_provider(&self, _epoch: u64) -> Result<(), String> {
         self.prepare_builtin_feature("localProvider", None).await.map(drop)
     }
@@ -114,9 +107,7 @@ pub enum ToolModulesError {
 impl std::fmt::Display for ToolModulesError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            ToolModulesError::InvalidArgument(message) | ToolModulesError::Failed(message) => {
-                f.write_str(message)
-            }
+            ToolModulesError::InvalidArgument(message) | ToolModulesError::Failed(message) => f.write_str(message),
             ToolModulesError::Config(error) => error.fmt(f),
         }
     }
@@ -143,17 +134,11 @@ pub struct ToolModules {
     refreshes: mpsc::UnboundedSender<oneshot::Sender<Value>>,
 }
 
-
 impl std::error::Error for ToolModulesError {}
 impl ToolModules {
     /// Starts the publishing task: it publishes the current value, then again whenever the
     /// config or the host's state changes, until `cancel`.
-    pub fn new(
-        config: Config,
-        host: Arc<dyn ToolModulesHost>,
-        publisher: Arc<dyn StatePublisher>,
-        cancel: CancellationToken,
-    ) -> Arc<Self> {
+    pub fn new(config: Config, host: Arc<dyn ToolModulesHost>, publisher: Arc<dyn StatePublisher>, cancel: CancellationToken) -> Arc<Self> {
         Self::with_env(config, host, publisher, cancel, Arc::new(|name| std::env::var(name).ok()))
     }
 
@@ -182,11 +167,7 @@ impl ToolModules {
 
     /// The one task that computes and publishes, so frames follow the order of the changes
     /// and a value is never published twice in a row.
-    async fn publish_loop(
-        self: Arc<Self>,
-        mut requests: mpsc::UnboundedReceiver<oneshot::Sender<Value>>,
-        cancel: CancellationToken,
-    ) {
+    async fn publish_loop(self: Arc<Self>, mut requests: mpsc::UnboundedReceiver<oneshot::Sender<Value>>, cancel: CancellationToken) {
         let mut config_changes = self.config.changes();
         let mut host_changes = self.host.changes();
         let mut last: Option<Value> = None;
@@ -230,10 +211,7 @@ impl ToolModules {
         self.settings().await
     }
 
-    async fn write(
-        &self,
-        change: impl FnOnce(&mut value::Doc) + Send + 'static,
-    ) -> Result<(), ToolModulesError> {
+    async fn write(&self, change: impl FnOnce(&mut value::Doc) + Send + 'static) -> Result<(), ToolModulesError> {
         // `saveConfigAndAdopt`: the setter edits the adopted config (`withGrandfatheredBuiltins`) and what is stored is that
         // config, so a stored section without `builtins` is written with the whole adopted one (the seed) and never reads
         // differently afterwards: grandfathered ids stay installed, a fresh profile stays fresh.
@@ -258,10 +236,7 @@ impl ToolModules {
     /// `setInstructionFiles`.
     pub async fn set_instruction_files(&self, mode: &str) -> Result<Value, ToolModulesError> {
         if !INSTRUCTION_FILES_MODES.contains(&mode) {
-            return Err(ToolModulesError::InvalidArgument(format!(
-                "Instruction files must be one of {}.",
-                INSTRUCTION_FILES_MODES.join(", ")
-            )));
+            return Err(ToolModulesError::InvalidArgument(format!("Instruction files must be one of {}.", INSTRUCTION_FILES_MODES.join(", "))));
         }
         let mode = mode.to_owned();
         self.write(move |doc| {
@@ -274,10 +249,7 @@ impl ToolModules {
     /// `setAutoEffortBase`.
     pub async fn set_auto_effort_base(&self, level: &str) -> Result<Value, ToolModulesError> {
         if !AUTO_EFFORT_BASES.contains(&level) {
-            return Err(ToolModulesError::InvalidArgument(format!(
-                "Auto reasoning base must be one of {}.",
-                AUTO_EFFORT_BASES.join(", ")
-            )));
+            return Err(ToolModulesError::InvalidArgument(format!("Auto reasoning base must be one of {}.", AUTO_EFFORT_BASES.join(", "))));
         }
         let level = level.to_owned();
         self.write(move |doc| {
@@ -312,16 +284,9 @@ impl ToolModules {
     }
 
     /// `setBuiltinToolEnabled`.
-    pub async fn set_builtin_tool_enabled(
-        &self,
-        name: &str,
-        enabled: bool,
-    ) -> Result<Value, ToolModulesError> {
+    pub async fn set_builtin_tool_enabled(&self, name: &str, enabled: bool) -> Result<Value, ToolModulesError> {
         if !TOGGLEABLE_BUILTINS.contains(&name) {
-            return Err(ToolModulesError::InvalidArgument(
-                "Built-in tool must be git, office, tidy, localProvider, autoEffort, visualize, or media."
-                    .into(),
-            ));
+            return Err(ToolModulesError::InvalidArgument("Built-in tool must be git, office, tidy, localProvider, autoEffort, visualize, or media.".into()));
         }
         if name == "localProvider" {
             if enabled {
@@ -333,7 +298,8 @@ impl ToolModules {
                 self.write(|doc| {
                     edit::set_module_enabled(doc, "localProvider", false);
                     edit::set_local_provider_enabled(doc, false);
-                }).await?;
+                })
+                .await?;
                 self.local_provider_off.fetch_add(1, Ordering::SeqCst);
                 self.host.stop_local_provider_server().await;
                 self.host.sync_local_provider_registry(false).await;
@@ -381,7 +347,8 @@ impl ToolModules {
                 edit::set_module_enabled(doc, "localProvider", true);
                 edit::set_local_provider_enabled(doc, true);
             }
-        }).await?;
+        })
+        .await?;
         if enable {
             self.host.sync_local_provider_registry(true).await;
         }
@@ -390,16 +357,9 @@ impl ToolModules {
 
     /// `installBuiltinFeature`: prepare, then mark installed and enabled in one step. With
     /// `engines` for `tidy` it only fetches those engines and leaves the state as set.
-    pub async fn install_builtin_feature(
-        &self,
-        name: &str,
-        engines: Option<Vec<String>>,
-    ) -> Result<Value, ToolModulesError> {
+    pub async fn install_builtin_feature(&self, name: &str, engines: Option<Vec<String>>) -> Result<Value, ToolModulesError> {
         if !INSTALLABLE_BUILTINS.contains(&name) {
-            return Err(ToolModulesError::InvalidArgument(
-                "Built-in feature must be git, memory, office, tidy, localProvider, or autoEffort."
-                    .into(),
-            ));
+            return Err(ToolModulesError::InvalidArgument("Built-in feature must be git, memory, office, tidy, localProvider, or autoEffort.".into()));
         }
         if name == "localProvider" {
             let epoch = self.local_provider_off.load(Ordering::SeqCst);
@@ -442,9 +402,6 @@ impl ToolModules {
     }
 
     async fn prepare(&self, name: &str, engines: Option<&[String]>) -> Result<Option<Value>, ToolModulesError> {
-        self.host
-            .prepare_builtin_feature(name, engines)
-            .await
-            .map_err(ToolModulesError::Failed)
+        self.host.prepare_builtin_feature(name, engines).await.map_err(ToolModulesError::Failed)
     }
 }

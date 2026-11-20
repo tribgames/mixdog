@@ -50,10 +50,7 @@ pub fn display_width_with(text: &str, wide: bool) -> usize {
     // measures 1 (a cluster the terminal already draws as 2 is not widened twice).
     let extra = text
         .graphemes(true)
-        .filter(|segment| {
-            segment.chars().next().is_some_and(is_problem_code_point)
-                && string_width(segment, StringWidthOptions::default()) == 1
-        })
+        .filter(|segment| segment.chars().next().is_some_and(is_problem_code_point) && string_width(segment, StringWidthOptions::default()) == 1)
         .count();
     base + extra
 }
@@ -111,7 +108,6 @@ mod tests {
         assert_eq!(display_width_with("日本", true), 4);
     }
 }
-
 
 fn ambiguous_wide() -> bool {
     static POLICY: OnceLock<bool> = OnceLock::new();

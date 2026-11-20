@@ -10,20 +10,19 @@ use std::collections::HashSet;
 use std::time::SystemTime;
 
 use mixdog_core_api::domain::provider::{
-    DeliveryState, ErrorKind, Exposure, ProgressKind, ProviderError, StopReason, StreamEvent, ToolCall,
-    TransportFault, Usage, UsdTicks, WireDecoder,
+    DeliveryState, ErrorKind, Exposure, ProgressKind, ProviderError, StopReason, StreamEvent, ToolCall, TransportFault, Usage, UsdTicks, WireDecoder,
 };
 use mixdog_protocol::{JsonValue, ProviderId};
 use serde_json::json;
 
 use super::super::error::classify_parts;
+use super::super::profile::{CompatProfile, CostField, ReasoningShape};
+use super::super::sse::{SseDecoder, SseItem};
+use super::reasoning::{self, ContentPiece, Source};
 use crate::providers::leak;
 use crate::providers::leak::Dedupe;
 use crate::providers::leak::LeakGuard;
 use crate::providers::leak::Recovered;
-use super::super::profile::{CompatProfile, CostField, ReasoningShape};
-use super::super::sse::{SseDecoder, SseItem};
-use super::reasoning::{self, ContentPiece, Source};
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 enum Key {
@@ -92,13 +91,7 @@ fn number(value: Option<&JsonValue>) -> Option<f64> {
 }
 
 fn first_positive_else_finite(candidates: &[Option<f64>]) -> f64 {
-    candidates
-        .iter()
-        .flatten()
-        .find(|n| **n > 0.0)
-        .or_else(|| candidates.iter().flatten().next())
-        .copied()
-        .unwrap_or(0.0)
+    candidates.iter().flatten().find(|n| **n > 0.0).or_else(|| candidates.iter().flatten().next()).copied().unwrap_or(0.0)
 }
 
 /// `prompt_tokens` is the whole prompt with the cached part inside it.
@@ -134,9 +127,7 @@ pub fn usage_from(raw: &JsonValue, cost: CostField) -> Usage {
         cache_read_tokens: to_u64(cached),
         cache_write_tokens: to_u64(written),
         cache_write_1h_tokens: 0,
-        reasoning_tokens: get(&["completion_tokens_details", "reasoning_tokens"])
-            .or(get(&["output_tokens_details", "reasoning_tokens"]))
-            .map(to_u64),
+        reasoning_tokens: get(&["completion_tokens_details", "reasoning_tokens"]).or(get(&["output_tokens_details", "reasoning_tokens"])).map(to_u64),
         reasoning_incomplete: false,
         raw: Some(raw.clone()),
         cost: reported_cost(raw, cost),
@@ -149,12 +140,8 @@ fn reported_cost(raw: &JsonValue, field: CostField) -> Option<UsdTicks> {
     const TICKS_PER_USD: f64 = 1e10;
     match field {
         CostField::None => None,
-        CostField::UsdTicks => number(raw.get("cost_in_usd_ticks"))
-            .filter(|n| *n >= 0.0)
-            .map(|n| UsdTicks(n.round() as u64)),
-        CostField::UsdDecimal => number(raw.get("cost"))
-            .filter(|n| *n >= 0.0)
-            .map(|usd| UsdTicks((usd * TICKS_PER_USD).round() as u64)),
+        CostField::UsdTicks => number(raw.get("cost_in_usd_ticks")).filter(|n| *n >= 0.0).map(|n| UsdTicks(n.round() as u64)),
+        CostField::UsdDecimal => number(raw.get("cost")).filter(|n| *n >= 0.0).map(|usd| UsdTicks((usd * TICKS_PER_USD).round() as u64)),
     }
 }
 
@@ -333,11 +320,7 @@ impl ChatDecoder {
     fn merge_tool_calls(&mut self, calls: &[JsonValue], out: &mut Vec<StreamEvent>) {
         for call in calls {
             let id = call.get("id").and_then(JsonValue::as_str).filter(|s| !s.is_empty());
-            let name = call
-                .get("function")
-                .and_then(|f| f.get("name"))
-                .and_then(JsonValue::as_str)
-                .filter(|s| !s.is_empty());
+            let name = call.get("function").and_then(|f| f.get("name")).and_then(JsonValue::as_str).filter(|s| !s.is_empty());
             let key = if let Some(index) = call.get("index").and_then(JsonValue::as_f64).filter(|n| n.is_finite()) {
                 Key::Index(index as i64)
             } else if let Some(id) = id {
@@ -355,13 +338,7 @@ impl ChatDecoder {
             let at = match self.tools.iter().position(|t| t.key == key) {
                 Some(at) => at,
                 None => {
-                    self.tools.push(ToolEntry {
-                        key,
-                        id: String::new(),
-                        kind: "function".into(),
-                        name: String::new(),
-                        arguments: String::new(),
-                    });
+                    self.tools.push(ToolEntry { key, id: String::new(), kind: "function".into(), name: String::new(), arguments: String::new() });
                     self.tools.len() - 1
                 }
             };
@@ -380,23 +357,12 @@ impl ChatDecoder {
                 if entry.id.is_empty() {
                     entry.id = leak::random_id("call_");
                 }
-                out.push(StreamEvent::ToolCallStart {
-                    id: entry.id.clone(),
-                    name: entry.name.clone(),
-                });
+                out.push(StreamEvent::ToolCallStart { id: entry.id.clone(), name: entry.name.clone() });
             }
             // Argument fragments are deltas: always appended, never snapshots.
-            if let Some(args) = call
-                .get("function")
-                .and_then(|f| f.get("arguments"))
-                .and_then(JsonValue::as_str)
-                .filter(|s| !s.is_empty())
-            {
+            if let Some(args) = call.get("function").and_then(|f| f.get("arguments")).and_then(JsonValue::as_str).filter(|s| !s.is_empty()) {
                 entry.arguments.push_str(args);
-                out.push(StreamEvent::ToolCallArgsDelta {
-                    id: entry.id.clone(),
-                    delta: args.to_owned(),
-                });
+                out.push(StreamEvent::ToolCallArgsDelta { id: entry.id.clone(), delta: args.to_owned() });
             }
         }
     }
@@ -413,9 +379,7 @@ impl ChatDecoder {
                 Some(pieces) => {
                     for piece in pieces {
                         match piece {
-                            ContentPiece::Reasoning(text) => {
-                                self.append_reasoning(&text, Source::ContentChunks, out)
-                            }
+                            ContentPiece::Reasoning(text) => self.append_reasoning(&text, Source::ContentChunks, out),
                             ContentPiece::Text(text) => self.append_text(&text, out),
                         }
                     }
@@ -427,21 +391,13 @@ impl ChatDecoder {
                 }
             }
         }
-        if let Some(details) = delta
-            .and_then(|d| d.get("reasoning_details"))
-            .and_then(JsonValue::as_array)
-            .filter(|d| !d.is_empty())
-        {
+        if let Some(details) = delta.and_then(|d| d.get("reasoning_details")).and_then(JsonValue::as_array).filter(|d| !d.is_empty()) {
             self.details.extend(details.iter().cloned());
             self.progress(out);
             out.push(StreamEvent::Progress(ProgressKind::Reasoning));
         }
         // These provider fields are aliases, never independent segments.
-        for (key, source) in [
-            ("reasoning_content", Source::ReasoningContent),
-            ("reasoning", Source::Reasoning),
-            ("thinking", Source::Thinking),
-        ] {
+        for (key, source) in [("reasoning_content", Source::ReasoningContent), ("reasoning", Source::Reasoning), ("thinking", Source::Thinking)] {
             if let Some(text) = delta.and_then(|d| d.get(key)).and_then(JsonValue::as_str) {
                 self.append_reasoning(text, source, out);
                 break;
@@ -457,11 +413,7 @@ impl ChatDecoder {
             }
             out.extend(merged);
         }
-        if let Some(reason) = choice
-            .and_then(|c| c.get("finish_reason"))
-            .and_then(JsonValue::as_str)
-            .filter(|r| !r.is_empty())
-        {
+        if let Some(reason) = choice.and_then(|c| c.get("finish_reason")).and_then(JsonValue::as_str).filter(|r| !r.is_empty()) {
             self.finish = Some(reason.to_owned());
             self.on_finish(reason, out);
         }
@@ -489,12 +441,7 @@ impl ChatDecoder {
             .tools
             .iter()
             .filter(|entry| !(entry.id.is_empty() && entry.name.is_empty()) && entry.kind == "function")
-            .map(|entry| ToolCall {
-                id: entry.id.clone(),
-                name: entry.name.clone(),
-                arguments: parse_arguments(&entry.arguments),
-                native_type: None,
-            })
+            .map(|entry| ToolCall { id: entry.id.clone(), name: entry.name.clone(), arguments: parse_arguments(&entry.arguments), native_type: None })
             .collect();
         // The list as of this finish: a repeated `finish_reason` lists the same calls again (Node parses its
         // accumulator once, `toolCallsFromStreamAcc`).
@@ -542,11 +489,8 @@ impl ChatDecoder {
         if !(finish == "content_filter" || finish == "length") {
             return None;
         }
-        let calls: Vec<ToolCall> = if self.leaked.is_empty() {
-            self.natives.clone()
-        } else {
-            leak::dedupe_list(self.natives.iter().chain(&self.leaked).cloned().collect())
-        };
+        let calls: Vec<ToolCall> =
+            if self.leaked.is_empty() { self.natives.clone() } else { leak::dedupe_list(self.natives.iter().chain(&self.leaked).cloned().collect()) };
         if finish == "length" && calls.is_empty() {
             return None;
         }
@@ -586,11 +530,10 @@ impl ChatDecoder {
         if let Some(raw) = usage {
             self.usage = Some(raw.clone());
         }
-        if (usage.is_some() || model.is_some()) && let Some(raw) = &self.usage {
-            crate::registry::accounted::observe_attempt_usage(
-                usage_from(raw, self.profile.chat.cost),
-                Some(self.served.clone()).filter(|m| !m.is_empty()),
-            );
+        if (usage.is_some() || model.is_some())
+            && let Some(raw) = &self.usage
+        {
+            crate::registry::accounted::observe_attempt_usage(usage_from(raw, self.profile.chat.cost), Some(self.served.clone()).filter(|m| !m.is_empty()));
         }
         if chunk.get("error").is_some_and(|e| !e.is_null()) {
             return Err(self.in_band_error(&chunk));
@@ -637,22 +580,12 @@ impl ChatDecoder {
         let keeps_details = dialect.reasoning_shape == Some(ReasoningShape::Reasoning) && !self.details.is_empty();
         if (saw_reasoning && reasoning::captures(dialect, source)) || keeps_details {
             let details: &[JsonValue] = if keeps_details { &self.details } else { &[] };
-            out.push(StreamEvent::ReasoningReplay(reasoning::envelope(
-                &self.owner,
-                dialect,
-                &self.reasoning,
-                source,
-                details,
-            )));
+            out.push(StreamEvent::ReasoningReplay(reasoning::envelope(&self.owner, dialect, &self.reasoning, source, details)));
         }
         if !self.served.is_empty() {
             out.push(StreamEvent::ServedModel(self.served.clone()));
         }
-        out.push(StreamEvent::Completed {
-            pricing_model: None,
-            request_ms: None,
-            stop: Some(stop_reason(&finish)),
-        });
+        out.push(StreamEvent::Completed { pricing_model: None, request_ms: None, stop: Some(stop_reason(&finish)) });
         self.terminal = true;
         Ok(())
     }

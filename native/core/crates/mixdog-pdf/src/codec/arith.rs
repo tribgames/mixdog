@@ -10,12 +10,7 @@ struct Qe {
 }
 
 const fn q(qe: u32, nmps: u8, nlps: u8, switch: u8) -> Qe {
-    Qe {
-        qe,
-        nmps,
-        nlps,
-        switch: switch == 1,
-    }
+    Qe { qe, nmps, nlps, switch: switch == 1 }
 }
 
 static QE_TABLE: [Qe; 47] = [
@@ -91,15 +86,7 @@ pub struct ArithDecoder<'a> {
 impl<'a> ArithDecoder<'a> {
     /// INITDEC.
     pub fn new(data: &'a [u8], start: u32) -> Self {
-        let mut decoder = ArithDecoder {
-            data,
-            index: start,
-            b: 0,
-            c: 0,
-            a: 0,
-            ct: 0,
-            complete: false,
-        };
+        let mut decoder = ArithDecoder { data, index: start, b: 0, c: 0, a: 0, ct: 0, complete: false };
         decoder.b = decoder.current_byte();
         decoder.c = u32::from(decoder.b ^ 0xff) << 16;
         decoder.byte_in();
@@ -118,20 +105,12 @@ impl<'a> ArithDecoder<'a> {
     }
 
     fn current_byte(&self) -> u8 {
-        if self.in_bounds() {
-            self.data[self.index as usize]
-        } else {
-            0xff
-        }
+        if self.in_bounds() { self.data[self.index as usize] } else { 0xff }
     }
 
     fn next_byte(&self) -> u8 {
         let next = self.index.wrapping_add(1);
-        if next < self.length() {
-            self.data[next as usize]
-        } else {
-            0xff
-        }
+        if next < self.length() { self.data[next as usize] } else { 0xff }
     }
 
     /// BYTEIN.
@@ -245,9 +224,7 @@ const INT_RANGES: [(u32, i32); 6] = [(2, 0), (4, 4), (6, 20), (8, 84), (12, 340)
 
 impl ArithIntDecoder {
     pub fn new() -> Self {
-        ArithIntDecoder {
-            contexts: vec![ArithCx::default(); 512],
-        }
+        ArithIntDecoder { contexts: vec![ArithCx::default(); 512] }
     }
 
     /// The next integer; `None` is the out-of-band value (also what an unrepresentable value reads as).
@@ -293,10 +270,7 @@ pub struct ArithIaidDecoder {
 
 impl ArithIaidDecoder {
     pub fn new(code_length: u32) -> Self {
-        ArithIaidDecoder {
-            code_length,
-            contexts: vec![ArithCx::default(); 1usize << code_length.min(30)],
-        }
+        ArithIaidDecoder { code_length, contexts: vec![ArithCx::default(); 1usize << code_length.min(30)] }
     }
 
     pub fn decode(&mut self, decoder: &mut ArithDecoder) -> u32 {
@@ -314,10 +288,7 @@ mod tests {
     use super::*;
 
     fn unhex(s: &str) -> Vec<u8> {
-        (0..s.len())
-            .step_by(2)
-            .map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap())
-            .collect()
+        (0..s.len()).step_by(2).map(|i| u8::from_str_radix(&s[i..i + 2], 16).unwrap()).collect()
     }
 
     /// T.88 Annex H.2: the test sequence, coded in one context.

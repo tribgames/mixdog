@@ -324,8 +324,13 @@ mod tests {
         );
     }
 
-
-    async fn run(host: &FakeHost, target: UploadTarget<'_>, list: &[&str], facts: &PageFacts, approved: Option<&Binding>) -> Result<UploadOutcome, UploadError> {
+    async fn run(
+        host: &FakeHost,
+        target: UploadTarget<'_>,
+        list: &[&str],
+        facts: &PageFacts,
+        approved: Option<&Binding>,
+    ) -> Result<UploadOutcome, UploadError> {
         upload_files(host, &Disk, &target, &paths(list), facts, approved, &CancellationToken::new()).await
     }
     #[tokio::test]
@@ -345,10 +350,7 @@ mod tests {
     }
     #[tokio::test]
     async fn any_other_ref_is_clicked_open_and_an_unconfirmed_upload_says_so() {
-        let host = FakeHost::scripted(vec![
-            probe_answer(false),
-            upload_answer(false).with_params(json!({"route": "pickerClick", "files": [A, B]})),
-        ]);
+        let host = FakeHost::scripted(vec![probe_answer(false), upload_answer(false).with_params(json!({"route": "pickerClick", "files": [A, B]}))]);
         let outcome = run(&host, target(Some("p1-s2-e9")), &[A, B], &facts_with(None), None).await.expect("uploaded");
         assert_eq!(outcome.route, BrowserUploadRoute::PickerClick);
         assert!(!outcome.verified);
@@ -442,7 +444,6 @@ mod tests {
         assert_eq!(error.to_string(), "the files were not handed to the page");
     }
 }
-
 
 impl std::error::Error for UploadError {}
 /// 1 to 10 absolute paths of regular files (`assertUploadPaths`).

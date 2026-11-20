@@ -75,13 +75,7 @@ impl Plan {
 
     /// Prepare an image whose validated bytes the store holds. `original` and `rendition` must be the stored bytes the facts
     /// describe; a length that disagrees with the facts is a corrupt store, refused.
-    pub fn prepare_local(
-        &self,
-        origin: &Origin,
-        facts: &ImageFacts,
-        original: Arc<[u8]>,
-        rendition: Option<Arc<[u8]>>,
-    ) -> Result<PreparedImage, Refusal> {
+    pub fn prepare_local(&self, origin: &Origin, facts: &ImageFacts, original: Arc<[u8]>, rendition: Option<Arc<[u8]>>) -> Result<PreparedImage, Refusal> {
         let choice = decide_local(origin, facts, &self.policy)?;
         let (mime, bytes, expect) = match (choice, rendition) {
             (Choice::Original, _) => (facts.kind.mime(), original, facts.encoded_len),

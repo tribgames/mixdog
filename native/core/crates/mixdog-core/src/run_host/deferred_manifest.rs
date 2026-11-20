@@ -10,23 +10,23 @@ use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
 
 use mixdog_agent::env::Clock;
-use mixdog_js::{js_trim, locale_compare, JsRegex};
+use mixdog_js::{JsRegex, js_trim, locale_compare};
 use mixdog_mcp::permissions::parse_mcp_tool_name;
 use mixdog_mcp::skills::compact_manifest_text;
 use mixdog_services::connectors::triggers::connector_trigger;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
-use super::tool_exposure::{is_tool_bridge_enabled, TOOL_BRIDGE_GUIDANCE};
+use super::tool_exposure::{TOOL_BRIDGE_GUIDANCE, is_tool_bridge_enabled};
 
 /// `SKILL_TRIGGER_LISTING_MAX`.
 const TRIGGER_LISTING_MAX: usize = 100;
 
 // The native deferred-pool manifest and the static bridge guidance occupy the same slot: one
 // replaces the other when the exposure changes.
-static DEFERRED_TOOLS_BLOCK: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"(\n\n---\n*)?<(available-deferred-tools|tool-bridge)>[\s\S]*?</(?:available-deferred-tools|tool-bridge)>\s*", "gi")
-});
-static MCP_INSTRUCTIONS_BLOCK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(\n\n---\n*)?<mcp-instructions>[\s\S]*?</mcp-instructions>\s*", "gi"));
+static DEFERRED_TOOLS_BLOCK: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"(\n\n---\n*)?<(available-deferred-tools|tool-bridge)>[\s\S]*?</(?:available-deferred-tools|tool-bridge)>\s*", "gi"));
+static MCP_INSTRUCTIONS_BLOCK: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"(\n\n---\n*)?<mcp-instructions>[\s\S]*?</mcp-instructions>\s*", "gi"));
 static TRAILING_RULE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\n\n---\n*$", ""));
 static ACCOUNT_SENTENCE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\s*Account: \S+?\.\s+", ""));
 static SKILLS_BLOCK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<available_skills>([\s\S]*?)</available_skills>", "g"));
@@ -218,11 +218,8 @@ fn mcp_server_trigger(server: &str, tools: &[Value], instructions: &Value) -> St
     };
     let mut sorted: Vec<&Value> = tools.iter().collect();
     sorted.sort_by(|a, b| locale_compare(&text_of(a.get("name")), &text_of(b.get("name"))));
-    let described = sorted
-        .iter()
-        .map(|tool| first_sentence(&without_angle_brackets(&text_of(tool.get("description")))))
-        .find(|s| !s.is_empty())
-        .unwrap_or_default();
+    let described =
+        sorted.iter().map(|tool| first_sentence(&without_angle_brackets(&text_of(tool.get("description"))))).find(|s| !s.is_empty()).unwrap_or_default();
     let derived = Some(first_sentence(&instruction)).filter(|s| !s.is_empty()).unwrap_or(described);
     if derived.is_empty() { format!("{} MCP server tools.", title_case_server(server)) } else { compact_manifest_text(&derived, 98) }
 }
@@ -293,7 +290,8 @@ pub fn listed_deferred_tool_names(session: &Value, pool: &[String], rendered: &s
 /// tool-free bridge session gets nothing.
 fn compose_manifest(session: &Value, pool: &[String]) -> String {
     let bridge = is_tool_bridge_enabled(session);
-    let has_call_tool = session.get("tools").and_then(Value::as_array).is_some_and(|tools| tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some("call_tool")));
+    let has_call_tool =
+        session.get("tools").and_then(Value::as_array).is_some_and(|tools| tools.iter().any(|t| t.get("name").and_then(Value::as_str) == Some("call_tool")));
     if bridge && !has_call_tool {
         return String::new();
     }

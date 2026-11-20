@@ -17,11 +17,7 @@ pub(super) fn import_specs(lang: &str, ast_kind: &str, name: &str, text: &str) -
         },
         "elixir" => {
             let spec = leading_elixir_alias(name);
-            if spec.is_empty() {
-                Vec::new()
-            } else {
-                expand_elixir_alias_spec(spec)
-            }
+            if spec.is_empty() { Vec::new() } else { expand_elixir_alias_spec(spec) }
         }
         "rust" => match ast_kind {
             // `mod x;` is a `mod::x` edge for the resolver.
@@ -33,9 +29,7 @@ pub(super) fn import_specs(lang: &str, ast_kind: &str, name: &str, text: &str) -
         // an unquoted `#include MACRO` was never an import edge.
         "c" | "cpp" => delimited_include(name, text).map_or_else(Vec::new, single),
         "objc" => match ast_kind {
-            "preproc_import" | "preproc_include" => {
-                delimited_include(name, text).map_or_else(Vec::new, single)
-            }
+            "preproc_import" | "preproc_include" => delimited_include(name, text).map_or_else(Vec::new, single),
             _ => single(strip_quotes(name)),
         },
         "java" | "kotlin" | "csharp" => single(name.to_string()),
@@ -45,11 +39,7 @@ pub(super) fn import_specs(lang: &str, ast_kind: &str, name: &str, text: &str) -
 
 fn single(spec: String) -> Vec<String> {
     let trimmed = spec.trim().to_string();
-    if trimmed.is_empty() {
-        Vec::new()
-    } else {
-        vec![trimmed]
-    }
+    if trimmed.is_empty() { Vec::new() } else { vec![trimmed] }
 }
 
 fn strip_quotes(spec: &str) -> String {
@@ -71,13 +61,8 @@ fn strip_quotes(spec: &str) -> String {
 /// name arrives bare.
 fn delimited_include(spec: &str, directive: &str) -> Option<String> {
     let spec = spec.trim();
-    if let Some(inner) = spec
-        .strip_prefix('"')
-        .and_then(|rest| rest.strip_suffix('"'))
-        .or_else(|| {
-            spec.strip_prefix('<')
-                .and_then(|rest| rest.strip_suffix('>'))
-        })
+    if let Some(inner) =
+        spec.strip_prefix('"').and_then(|rest| rest.strip_suffix('"')).or_else(|| spec.strip_prefix('<').and_then(|rest| rest.strip_suffix('>')))
     {
         return Some(inner.to_string());
     }
@@ -91,11 +76,7 @@ fn leading_dotted_path(spec: &str) -> String {
     let spec = spec.trim();
     let mut end = 0usize;
     for (index, ch) in spec.char_indices() {
-        let ok = if index == 0 {
-            ch.is_ascii_alphabetic() || ch == '_'
-        } else {
-            ch.is_ascii_alphanumeric() || ch == '_' || ch == '.'
-        };
+        let ok = if index == 0 { ch.is_ascii_alphabetic() || ch == '_' } else { ch.is_ascii_alphanumeric() || ch == '_' || ch == '.' };
         if !ok {
             break;
         }
@@ -156,11 +137,7 @@ fn expand_braced_spec(spec: &str, separator: char, strip_alias: bool) -> Vec<Str
             if name.is_empty() || name == "*" {
                 return None;
             }
-            Some(if prefix.is_empty() {
-                name.to_string()
-            } else {
-                format!("{prefix}{separator}{name}")
-            })
+            Some(if prefix.is_empty() { name.to_string() } else { format!("{prefix}{separator}{name}") })
         })
         .collect()
 }
@@ -192,125 +169,34 @@ mod tests {
             ),
             vec!["__future__", "os", "sys", "a.b.c", "pkg.sub", ".rel"]
         );
+        assert_eq!(imports("go", "go", "package p\nimport \"fmt\"\nimport (\n\t\"errors\"\n)\n"), vec!["fmt", "errors"]);
+        assert_eq!(imports("rust", "rs", "use std::fmt;\npub use crate::api::X;\nmod helpers;\nmod inline { }\n"), vec!["std::fmt", "mod::helpers"]);
         assert_eq!(
-            imports(
-                "go",
-                "go",
-                "package p\nimport \"fmt\"\nimport (\n\t\"errors\"\n)\n"
-            ),
-            vec!["fmt", "errors"]
-        );
-        assert_eq!(
-            imports(
-                "rust",
-                "rs",
-                "use std::fmt;\npub use crate::api::X;\nmod helpers;\nmod inline { }\n"
-            ),
-            vec!["std::fmt", "mod::helpers"]
-        );
-        assert_eq!(
-            imports(
-                "java",
-                "java",
-                "import static java.util.Collections.emptyList;\nimport java.util.List;\n"
-            ),
+            imports("java", "java", "import static java.util.Collections.emptyList;\nimport java.util.List;\n"),
             vec!["static java.util.Collections.emptyList", "java.util.List"]
         );
-        assert_eq!(
-            imports("kotlin", "kt", "import a.b.C as D\nimport a.b.E\n"),
-            vec!["a.b.C as D", "a.b.E"]
-        );
+        assert_eq!(imports("kotlin", "kt", "import a.b.C as D\nimport a.b.E\n"), vec!["a.b.C as D", "a.b.E"]);
         assert_eq!(
             imports("csharp", "cs", "using System;\nusing static System.Math;\nusing Alias = System.Text.StringBuilder;\n"),
             vec!["System", "static System.Math", "Alias = System.Text.StringBuilder"]
         );
+        assert_eq!(imports("c", "c", "#include <stdio.h>\n#include \"local.h\"\n#include MACRO\n"), vec!["stdio.h", "local.h"]);
+        assert_eq!(imports("ruby", "rb", "require 'json'\nrequire_relative 'helper'\n"), vec!["json", "helper"]);
         assert_eq!(
-            imports(
-                "c",
-                "c",
-                "#include <stdio.h>\n#include \"local.h\"\n#include MACRO\n"
-            ),
-            vec!["stdio.h", "local.h"]
-        );
-        assert_eq!(
-            imports("ruby", "rb", "require 'json'\nrequire_relative 'helper'\n"),
-            vec!["json", "helper"]
-        );
-        assert_eq!(
-            imports(
-                "php",
-                "php",
-                "<?php\nuse App\\User;\nuse App\\{Post, Comment};\nrequire 'helpers.php';\n"
-            ),
+            imports("php", "php", "<?php\nuse App\\User;\nuse App\\{Post, Comment};\nrequire 'helpers.php';\n"),
             vec!["App\\User", "App\\Post", "App\\Comment", "helpers.php"]
         );
+        assert_eq!(imports("swift", "swift", "import Foundation\nimport class UIKit.UIView\n"), vec!["Foundation", "UIKit.UIView"]);
+        assert_eq!(imports("scala", "scala", "import a.b.C\nimport a.b.{D, E}\nimport a.b._\n"), vec!["a.b.C", "a.b"]);
+        assert_eq!(imports("bash", "sh", "source ./lib/a.sh\n. ./lib/b.sh\n"), vec!["./lib/a.sh", "./lib/b.sh"]);
+        assert_eq!(imports("lua", "lua", "local a = require('x.y')\nlocal b = require \"z\"\n"), vec!["x.y", "z"]);
+        assert_eq!(imports("dart", "dart", "import 'package:m/a.dart';\nexport 'b.dart';\npart 'c.dart';\n"), vec!["package:m/a.dart", "b.dart", "c.dart"]);
         assert_eq!(
-            imports(
-                "swift",
-                "swift",
-                "import Foundation\nimport class UIKit.UIView\n"
-            ),
-            vec!["Foundation", "UIKit.UIView"]
-        );
-        assert_eq!(
-            imports(
-                "scala",
-                "scala",
-                "import a.b.C\nimport a.b.{D, E}\nimport a.b._\n"
-            ),
-            vec!["a.b.C", "a.b"]
-        );
-        assert_eq!(
-            imports("bash", "sh", "source ./lib/a.sh\n. ./lib/b.sh\n"),
-            vec!["./lib/a.sh", "./lib/b.sh"]
-        );
-        assert_eq!(
-            imports(
-                "lua",
-                "lua",
-                "local a = require('x.y')\nlocal b = require \"z\"\n"
-            ),
-            vec!["x.y", "z"]
-        );
-        assert_eq!(
-            imports(
-                "dart",
-                "dart",
-                "import 'package:m/a.dart';\nexport 'b.dart';\npart 'c.dart';\n"
-            ),
-            vec!["package:m/a.dart", "b.dart", "c.dart"]
-        );
-        assert_eq!(
-            imports(
-                "objc",
-                "m",
-                "#import <Foundation/Foundation.h>\n#import \"Store.h\"\n@import UIKit;\n"
-            ),
+            imports("objc", "m", "#import <Foundation/Foundation.h>\n#import \"Store.h\"\n@import UIKit;\n"),
             vec!["Foundation/Foundation.h", "Store.h", "UIKit"]
         );
-        assert_eq!(
-            imports(
-                "elixir",
-                "ex",
-                "defmodule M do\n  alias A.B\n  alias A.{C, D}\n  import E\nend\n"
-            ),
-            vec!["A.B", "A.C", "A.D", "E"]
-        );
-        assert_eq!(
-            imports(
-                "zig",
-                "zig",
-                "const std = @import(\"std\");\nconst h = @import(\"./h.zig\");\n"
-            ),
-            vec!["std", "./h.zig"]
-        );
-        assert_eq!(
-            imports(
-                "r",
-                "r",
-                "library(dplyr)\nrequire(\"stringr\")\nsource(\"./h.R\")\n"
-            ),
-            vec!["dplyr", "stringr", "./h.R"]
-        );
+        assert_eq!(imports("elixir", "ex", "defmodule M do\n  alias A.B\n  alias A.{C, D}\n  import E\nend\n"), vec!["A.B", "A.C", "A.D", "E"]);
+        assert_eq!(imports("zig", "zig", "const std = @import(\"std\");\nconst h = @import(\"./h.zig\");\n"), vec!["std", "./h.zig"]);
+        assert_eq!(imports("r", "r", "library(dplyr)\nrequire(\"stringr\")\nsource(\"./h.R\")\n"), vec!["dplyr", "stringr", "./h.R"]);
     }
 }

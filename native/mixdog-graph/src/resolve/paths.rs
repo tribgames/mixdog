@@ -33,11 +33,7 @@ pub(crate) fn dirname_str(d: &str) -> String {
 // preserved as a literal `..` segment so the result can never spuriously
 // match a repo-relative fileSet entry (which never contains `..`).
 pub(crate) fn path_join_norm(base: &str, spec: &str) -> String {
-    let combined = if base.is_empty() {
-        spec.to_string()
-    } else {
-        format!("{}/{}", base, spec)
-    };
+    let combined = if base.is_empty() { spec.to_string() } else { format!("{}/{}", base, spec) };
     let mut parts: Vec<&str> = Vec::new();
     for seg in combined.split('/') {
         match seg {
@@ -59,15 +55,12 @@ pub(crate) fn path_join_norm(base: &str, spec: &str) -> String {
 // not; the root "" contains only "" and absolute-looking "/…" paths, exactly
 // like the `"{ancestor}/"` prefix test it replaces.
 pub(crate) fn is_same_or_under(dir: &str, ancestor: &str) -> bool {
-    dir.strip_prefix(ancestor)
-        .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+    dir.strip_prefix(ancestor).is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
 }
 
 pub(crate) fn file_stem_rel(rel: &str) -> Option<&str> {
     let name = rel.rsplit('/').next().unwrap_or(rel);
-    name.rsplit_once('.')
-        .map(|(stem, _)| stem)
-        .filter(|s| !s.is_empty())
+    name.rsplit_once('.').map(|(stem, _)| stem).filter(|s| !s.is_empty())
 }
 
 // Relative path from an ancestor dir `from` to `to` (both repo-relative).

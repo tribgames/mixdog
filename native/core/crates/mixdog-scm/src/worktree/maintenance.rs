@@ -69,12 +69,7 @@ pub struct SelectOptions<'a> {
 
 /// A row's last activity: its newest session's last turn, else its creation.
 pub fn row_activity(row: &CleanupRow, activity: &HashMap<String, i64>) -> i64 {
-    row.owner_session_id
-        .iter()
-        .chain(row.shared_session_ids.iter())
-        .filter_map(|id| activity.get(id))
-        .copied()
-        .fold(row.created_at.max(0), i64::max)
+    row.owner_session_id.iter().chain(row.shared_session_ids.iter()).filter_map(|id| activity.get(id)).copied().fold(row.created_at.max(0), i64::max)
 }
 
 fn path_key(path: &str) -> String {
@@ -130,9 +125,8 @@ pub fn select_worktree_cleanup(rows: &[CleanupRow], settings: &WorktreeSettings,
     }
     // The limits count every repository; a scoped cleanup drops the others' picks before the cap.
     let scope = options.repo_common_dir.map(path_key);
-    let picked = candidates
-        .into_iter()
-        .filter(|(row, _)| reasons.contains_key(row.id.as_str()) && scope.as_ref().is_none_or(|s| path_key(&row.repo_common_dir) == *s));
+    let picked =
+        candidates.into_iter().filter(|(row, _)| reasons.contains_key(row.id.as_str()) && scope.as_ref().is_none_or(|s| path_key(&row.repo_common_dir) == *s));
     let cap = if options.potential { usize::MAX } else { options.max_removals };
     picked.take(cap).map(|(row, active)| Selected { id: row.id.clone(), reason: reasons[row.id.as_str()], last_active_at: active }).collect()
 }
@@ -258,7 +252,8 @@ mod tests {
         snapshot.is_snapshot = true;
         let rows = [dirty, unmerged, live, shared, favorite, young, snapshot, row("ok", 10)];
         let (activity, favorites) = (HashMap::new(), HashSet::from(["fav".to_owned()]));
-        let options = SelectOptions { now: NOW, activity: &activity, favorite_session_ids: &favorites, potential: false, repo_common_dir: None, max_removals: 20 };
+        let options =
+            SelectOptions { now: NOW, activity: &activity, favorite_session_ids: &favorites, potential: false, repo_common_dir: None, max_removals: 20 };
         let picked = select_worktree_cleanup(&rows, &settings(0, 1), &options);
         assert_eq!(picked.iter().map(|p| p.id.as_str()).collect::<Vec<_>>(), ["ok"]);
     }
@@ -282,7 +277,6 @@ mod tests {
         assert_eq!(row_activity(&r, &activity), NOW - DAY_MS);
     }
 }
-
 
 #[derive(Clone)]
 pub struct CleanupOptions {
@@ -315,7 +309,13 @@ impl Worktrees {
     /// Managed branch worktrees as the policy sees them. `inspect` runs the per-worktree
     /// dirty/merge checks the removal needs; off, every ready worktree counts as clean and
     /// merged (the preview's optimistic, git-free reading). Unreadable state counts as work to keep.
-    async fn cleanup_rows(&self, live: &HashSet<String>, retained: &HashSet<String>, inspect: bool, cancel: &CancellationToken) -> Result<Vec<CleanupRow>, ScmFailure> {
+    async fn cleanup_rows(
+        &self,
+        live: &HashSet<String>,
+        retained: &HashSet<String>,
+        inspect: bool,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<CleanupRow>, ScmFailure> {
         let mut rows = Vec::new();
         for record in self.all_records(cancel).await? {
             let (owner_live, _, _) = self.retention_of(&record, live, retained, cancel).await?;
@@ -410,8 +410,20 @@ impl Worktrees {
         Ok(Limits { selected, favorites, state: "applied" })
     }
 
-    fn reconcile_options(&self, live: &HashSet<String>, retained: &HashSet<String>, settings: &WorktreeSettings, limits: &Limits, options: &CleanupOptions) -> ReconcileOptions {
-        let mut reconcile = ReconcileOptions { live: live.clone(), retained: retained.clone(), repo_common_dir: options.repo_common_dir.clone(), ..ReconcileOptions::default() };
+    fn reconcile_options(
+        &self,
+        live: &HashSet<String>,
+        retained: &HashSet<String>,
+        settings: &WorktreeSettings,
+        limits: &Limits,
+        options: &CleanupOptions,
+    ) -> ReconcileOptions {
+        let mut reconcile = ReconcileOptions {
+            live: live.clone(),
+            retained: retained.clone(),
+            repo_common_dir: options.repo_common_dir.clone(),
+            ..ReconcileOptions::default()
+        };
         if settings.auto_cleanup {
             reconcile.rules = CleanupRules {
                 selected: limits.selected.iter().map(|s| s.id.clone()).collect(),
@@ -428,7 +440,12 @@ impl Worktrees {
     /// removal: registrations whose folder is gone, unretained or disposable worktrees,
     /// interrupted removals, and with autoCleanup on the limits and archive rules. A candidate
     /// may still be kept when the prune verifies it. `(ids, stale)`.
-    pub async fn preview_worktree_cleanup(&self, sessions: &Arc<dyn SessionSource>, options: &CleanupOptions, cancel: &CancellationToken) -> Result<(Vec<String>, Vec<String>), ScmFailure> {
+    pub async fn preview_worktree_cleanup(
+        &self,
+        sessions: &Arc<dyn SessionSource>,
+        options: &CleanupOptions,
+        cancel: &CancellationToken,
+    ) -> Result<(Vec<String>, Vec<String>), ScmFailure> {
         // Candidates and stale registrations come only from the scoped repository's records, so a repository with none has
         // nothing to find: the stored-session listing and the marks scan below are never needed for it.
         if let Some(only) = options.repo_common_dir.as_deref().map(|dir| crate::locks::path_key(std::path::Path::new(dir))) {
@@ -445,9 +462,8 @@ impl Worktrees {
         let mut live = options.live.clone();
         let jobs = sessions.running_jobs().await?;
         live.extend(jobs.iter().filter_map(|job| job.owner_session_id.clone()));
-        let limits = self
-            .select_limit_cleanup(sessions, &settings, &mut live, &jobs, &retained, options.now, false, options.repo_common_dir.as_deref(), cancel)
-            .await?;
+        let limits =
+            self.select_limit_cleanup(sessions, &settings, &mut live, &jobs, &retained, options.now, false, options.repo_common_dir.as_deref(), cancel).await?;
         let reconcile = self.reconcile_options(&live, &retained, &settings, &limits, options);
         self.preview_cleanup(&reconcile, cancel).await
     }
@@ -458,14 +474,20 @@ impl Worktrees {
     /// the archive rules and what the count/age limits select. Never removed: dirty or unmerged
     /// work, a live owner, a running job in the folder, a favorite's, one younger than an hour,
     /// a shared one. Unknown favorites skip the limits (`limits: favorites-unknown`).
-    pub async fn run_worktree_cleanup(&self, sessions: &Arc<dyn SessionSource>, options: &CleanupOptions, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+    pub async fn run_worktree_cleanup(
+        &self,
+        sessions: &Arc<dyn SessionSource>,
+        options: &CleanupOptions,
+        cancel: &CancellationToken,
+    ) -> Result<Value, ScmFailure> {
         let settings = match &options.settings {
             Some(settings) => settings.clone(),
             None => self.current_settings().await,
         };
         let retained = sessions.stored_session_ids().await?;
         if !settings.auto_cleanup && !options.explicit {
-            let reconcile = ReconcileOptions { live: options.live.clone(), retained, repo_common_dir: options.repo_common_dir.clone(), ..ReconcileOptions::default() };
+            let reconcile =
+                ReconcileOptions { live: options.live.clone(), retained, repo_common_dir: options.repo_common_dir.clone(), ..ReconcileOptions::default() };
             let mut report = self.reconcile(&reconcile, cancel).await?.to_json();
             report["selected"] = json!([]);
             return Ok(report);
@@ -473,9 +495,8 @@ impl Worktrees {
         let mut live = options.live.clone();
         let jobs = sessions.running_jobs().await?;
         live.extend(jobs.iter().filter_map(|job| job.owner_session_id.clone()));
-        let limits = self
-            .select_limit_cleanup(sessions, &settings, &mut live, &jobs, &retained, options.now, true, options.repo_common_dir.as_deref(), cancel)
-            .await?;
+        let limits =
+            self.select_limit_cleanup(sessions, &settings, &mut live, &jobs, &retained, options.now, true, options.repo_common_dir.as_deref(), cancel).await?;
         let mut reconcile = self.reconcile_options(&live, &retained, &settings, &limits, options);
         reconcile.remove_orphans = true;
         reconcile.preserve_branch = !settings.delete_branch;
@@ -485,11 +506,17 @@ impl Worktrees {
             reconcile.final_check_timeout = timeout;
         }
         let mut report = self.reconcile(&reconcile, cancel).await?.to_json();
-        report["selected"] = json!(limits.selected.iter().map(|s| json!({
-            "id": s.id,
-            "reason": if s.reason == CleanupReason::Age { "age" } else { "count" },
-            "lastActiveAt": s.last_active_at,
-        })).collect::<Vec<_>>());
+        report["selected"] = json!(
+            limits
+                .selected
+                .iter()
+                .map(|s| json!({
+                    "id": s.id,
+                    "reason": if s.reason == CleanupReason::Age { "age" } else { "count" },
+                    "lastActiveAt": s.last_active_at,
+                }))
+                .collect::<Vec<_>>()
+        );
         report["limits"] = json!(limits.state);
         Ok(report)
     }
@@ -498,7 +525,12 @@ impl Worktrees {
     /// stale leases, prune stale registrations; with autoCleanup on, also the automatic cleanup.
     /// The editor-recovery descriptors the file host registered (`with_recovery_store`) are
     /// read from the records, so a deletion pending across the restart still waits for them.
-    pub async fn reconcile_at_startup(&self, sessions: &Arc<dyn SessionSource>, options: &CleanupOptions, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+    pub async fn reconcile_at_startup(
+        &self,
+        sessions: &Arc<dyn SessionSource>,
+        options: &CleanupOptions,
+        cancel: &CancellationToken,
+    ) -> Result<Value, ScmFailure> {
         self.run_worktree_cleanup(sessions, options, cancel).await
     }
 
@@ -527,11 +559,8 @@ impl Worktrees {
     pub async fn cleanup_deleted_session_worktree(&self, session_id: &str, cancel: &CancellationToken) -> Result<Option<Value>, ScmFailure> {
         self.forget_shared_worktree_session(session_id, cancel).await?;
         self.remove_session_snapshots(session_id, cancel).await?;
-        let Some(entry) = self
-            .all_records(cancel)
-            .await?
-            .into_iter()
-            .find(|r| r.owner_session_id.as_deref() == Some(session_id) && r.extra.get("kind").is_none())
+        let Some(entry) =
+            self.all_records(cancel).await?.into_iter().find(|r| r.owner_session_id.as_deref() == Some(session_id) && r.extra.get("kind").is_none())
         else {
             return Ok(None);
         };

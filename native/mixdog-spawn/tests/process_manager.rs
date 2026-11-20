@@ -37,9 +37,7 @@ async fn wait_exit(manager: &mixdog_spawn::LocalProcessManager, h: &mixdog_proto
 async fn exit_codes_and_merged_output() {
     let m = manager();
     let h = handle("exit-code");
-    m.spawn(request(&h, shell("echo out& echo err 1>&2& exit 7", "echo out; echo err >&2; exit 7")))
-        .await
-        .unwrap();
+    m.spawn(request(&h, shell("echo out& echo err 1>&2& exit 7", "echo out; echo err >&2; exit 7"))).await.unwrap();
     let (bytes, exit) = collect(&m, &h).await;
     assert_eq!(exit.status, ExitStatus::Code(7));
     assert_eq!(exit.killed, None);
@@ -114,9 +112,7 @@ async fn three_megabytes_arrive_intact() {
     let m = manager();
     let h = handle("integrity");
     let path = file.display().to_string();
-    m.spawn(request(&h, shell(&format!("type \"{path}\""), &format!("cat '{path}'"))))
-        .await
-        .unwrap();
+    m.spawn(request(&h, shell(&format!("type \"{path}\""), &format!("cat '{path}'")))).await.unwrap();
     let (bytes, exit) = collect(&m, &h).await;
     assert_eq!(exit.status, ExitStatus::Code(0));
     assert_eq!(bytes.len(), data.len());
@@ -125,36 +121,21 @@ async fn three_megabytes_arrive_intact() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn handles_limits_and_errors() {
-    let m = manager_with(ProcessConfig {
-        max_processes: 2,
-        input_queue_bytes: 10,
-        ..ProcessConfig::default()
-    });
+    let m = manager_with(ProcessConfig { max_processes: 2, input_queue_bytes: 10, ..ProcessConfig::default() });
     let (a, b, c) = (handle("limit-a"), handle("limit-b"), handle("limit-c"));
     m.spawn(request(&a, long_sleep())).await.unwrap();
-    assert_eq!(
-        m.spawn(request(&a, long_sleep())).await,
-        Err(ProcessError::HandleInUse)
-    );
-    let missing = m
-        .spawn(request(&handle("gone"), CommandSpec::Argv { program: "mixdog-no-such-program".into(), args: vec![] }))
-        .await;
+    assert_eq!(m.spawn(request(&a, long_sleep())).await, Err(ProcessError::HandleInUse));
+    let missing = m.spawn(request(&handle("gone"), CommandSpec::Argv { program: "mixdog-no-such-program".into(), args: vec![] })).await;
     assert!(matches!(missing, Err(ProcessError::ProgramNotFound { .. })), "{missing:?}");
     // A failed spawn leaves no slot behind.
     assert_eq!(m.live(), 1);
     let mut with_stdin = request(&b, shell("findstr \"^\"", "cat"));
     with_stdin.stdin_piped = true;
     m.spawn(with_stdin).await.unwrap();
-    assert_eq!(
-        m.spawn(request(&c, long_sleep())).await,
-        Err(ProcessError::LimitReached { limit: 2 })
-    );
+    assert_eq!(m.spawn(request(&c, long_sleep())).await, Err(ProcessError::LimitReached { limit: 2 }));
     assert_eq!(m.live(), 2);
     // An input queue over its bound refuses the whole write and says so.
-    assert_eq!(
-        m.write_stdin(&b, vec![b'x'; 11]).await,
-        Err(ProcessError::Overloaded { queue: ProcessQueue::Input })
-    );
+    assert_eq!(m.write_stdin(&b, vec![b'x'; 11]).await, Err(ProcessError::Overloaded { queue: ProcessQueue::Input }));
     m.write_stdin(&b, vec![b'x'; 10]).await.unwrap();
     assert_eq!(m.write_stdin(&a, b"x".to_vec()).await, Err(ProcessError::StdinClosed));
     assert_eq!(m.resize_pty(&a, PtySize { cols: 10, rows: 10 }), Err(ProcessError::NotPty));
@@ -173,16 +154,11 @@ async fn replay_ring_forgets_the_oldest_events() {
     let dir = scratch_dir("ring");
     let file = dir.join("ring.txt");
     std::fs::write(&file, "0123456789abcdef\r\n".repeat(20_000)).unwrap();
-    let m = manager_with(ProcessConfig {
-        ring_bytes: 4096,
-        ..ProcessConfig::default()
-    });
+    let m = manager_with(ProcessConfig { ring_bytes: 4096, ..ProcessConfig::default() });
     let h = handle("ring");
     let path = file.display().to_string();
     // A consumer keeps up, so the reader is never held back by it.
-    m.spawn(request(&h, shell(&format!("type \"{path}\""), &format!("cat '{path}'"))))
-        .await
-        .unwrap();
+    m.spawn(request(&h, shell(&format!("type \"{path}\""), &format!("cat '{path}'")))).await.unwrap();
     let mut live = m.subscribe(&h, None).unwrap();
     while !matches!(live.next().await, Some(ProcessEvent::Exited { .. }) | None) {}
     match m.subscribe(&h, Some(0)) {
@@ -221,10 +197,7 @@ fn tree_script() -> CommandSpec {
             shell: Some("powershell".to_owned()),
         }
     } else {
-        CommandSpec::Shell {
-            script: "sleep 90 & echo CHILD=$!; sleep 90".to_owned(),
-            shell: None,
-        }
+        CommandSpec::Shell { script: "sleep 90 & echo CHILD=$!; sleep 90".to_owned(), shell: None }
     }
 }
 
@@ -243,10 +216,7 @@ fn late_exit_report(root: u32) -> String {
         .output()
         .map(|out| String::from_utf8_lossy(&out.stdout).into_owned())
         .unwrap_or_else(|error| format!("ps failed: {error}"));
-    let rows: Vec<&str> = listing
-        .lines()
-        .filter(|row| row.split_whitespace().nth(1).and_then(|pgid| pgid.parse::<u32>().ok()) == Some(root))
-        .collect();
+    let rows: Vec<&str> = listing.lines().filter(|row| row.split_whitespace().nth(1).and_then(|pgid| pgid.parse::<u32>().ok()) == Some(root)).collect();
     let root_row = rows.iter().find(|row| row.split_whitespace().next().and_then(|pid| pid.parse::<u32>().ok()) == Some(root));
     format!(
         "root {root}: {}\nprocesses in group {root} (pid pgid stat command):\n{}",
@@ -285,11 +255,7 @@ async fn kill_takes_the_whole_tree_within_100ms() {
     let exit_after = started.elapsed();
     eprintln!("kill issued in {killed_in:?}, grandchild gone after {gone_after:?}, exit event after {exit_after:?}");
     assert!(gone_after <= Duration::from_millis(100), "tree gone after {gone_after:?}");
-    assert!(
-        exit_after <= Duration::from_millis(100),
-        "exit announced after {exit_after:?}\n{}",
-        late_exit_report(m.info(&h).unwrap().pid)
-    );
+    assert!(exit_after <= Duration::from_millis(100), "exit announced after {exit_after:?}\n{}", late_exit_report(m.info(&h).unwrap().pid));
     assert_eq!(m.info(&h).unwrap().exit.unwrap().killed, Some(KillReason::Requested));
 }
 
@@ -331,10 +297,7 @@ fn flood_command(path: &str) -> CommandSpec {
 /// The bytes pushed once the process's reader is parked at its feed's gate: held back by the stalled consumer or the paused feed. The wait is on
 /// the reader's own signal, so a loaded machine cannot end it early; the deadline fails a reader that never parks.
 async fn pushed_when_blocked(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_protocol::ProcessHandle) -> u64 {
-    mixdog_rt::time::timeout(Duration::from_secs(60), m.output_blocked(h))
-        .await
-        .expect("the reader never parked at its feed's gate within 60 s")
-        .unwrap()
+    mixdog_rt::time::timeout(Duration::from_secs(60), m.output_blocked(h)).await.expect("the reader never parked at its feed's gate within 60 s").unwrap()
 }
 /// DS-PROC-4: a 10 MB flood to a client that does not read stalls the PTY reader at the ring
 /// bound, a second client's keystrokes still pass, another process is not slowed, and reading
@@ -343,20 +306,14 @@ async fn pushed_when_blocked(m: &mixdog_spawn::LocalProcessManager, h: &mixdog_p
 async fn flood_to_a_stalled_client_stops_at_the_ring_bound() {
     const RING: usize = 1024 * 1024;
     let (path, _file) = big_pty_file("flood", 10 * 1024 * 1024);
-    let m = manager_with(ProcessConfig {
-        ring_bytes: RING,
-        ..ProcessConfig::default()
-    });
+    let m = manager_with(ProcessConfig { ring_bytes: RING, ..ProcessConfig::default() });
     let h = handle("flood");
     let cmd = flood_command(&path);
     m.spawn(pty_request(&h, cmd, PtySize { cols: 120, rows: 40 })).await.unwrap();
     // The client that never reads: subscribed, never polled.
     let mut client = m.subscribe(&h, None).unwrap();
     let stalled_at = pushed_when_blocked(&m, &h).await;
-    assert!(
-        stalled_at as usize <= RING && stalled_at as usize + 192 * 1024 >= RING,
-        "reader stalled at {stalled_at}, ring bound {RING}"
-    );
+    assert!(stalled_at as usize <= RING && stalled_at as usize + 192 * 1024 >= RING, "reader stalled at {stalled_at}, ring bound {RING}");
     assert!(m.info(&h).unwrap().exit.is_none(), "the flood is held back, not finished");
 
     // A second client's keystrokes pass while the output is stalled.
@@ -426,21 +383,11 @@ async fn explicit_pause_stops_the_reader_and_resume_releases_it() {
 /// the gate).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn natural_exit_behind_paused_output_is_published_and_frees_the_slot() {
-    let m = manager_with(ProcessConfig {
-        max_processes: 1,
-        ..ProcessConfig::default()
-    });
+    let m = manager_with(ProcessConfig { max_processes: 1, ..ProcessConfig::default() });
     for (name, pty) in [("paused-pipe", false), ("paused-pty", true)] {
         let h = handle(name);
-        let cmd = shell(
-            "echo first& ping -n 3 127.0.0.1 >nul& echo last",
-            "echo first; sleep 2; echo last",
-        );
-        let req = if pty {
-            pty_request(&h, cmd, PtySize { cols: 100, rows: 30 })
-        } else {
-            request(&h, cmd)
-        };
+        let cmd = shell("echo first& ping -n 3 127.0.0.1 >nul& echo last", "echo first; sleep 2; echo last");
+        let req = if pty { pty_request(&h, cmd, PtySize { cols: 100, rows: 30 }) } else { request(&h, cmd) };
         m.spawn(req).await.unwrap();
         while m.output_pushed(&h).unwrap() == 0 {
             mixdog_rt::time::sleep(Duration::from_millis(10)).await;
@@ -465,10 +412,7 @@ fn orphan_pipe_script() -> CommandSpec {
             shell: Some("powershell".to_owned()),
         }
     } else {
-        CommandSpec::Shell {
-            script: "sleep 60 & echo CHILD=$!".to_owned(),
-            shell: None,
-        }
+        CommandSpec::Shell { script: "sleep 60 & echo CHILD=$!".to_owned(), shell: None }
     }
 }
 
@@ -482,10 +426,7 @@ fn kill_pid(pid: u32) {
 /// waits for the pipe, and a kill still takes the grandchild down so the exit completes.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn kill_after_the_root_exited_still_takes_a_descendant_holding_the_pipe() {
-    let m = manager_with(ProcessConfig {
-        output_drain: Duration::from_secs(60),
-        ..ProcessConfig::default()
-    });
+    let m = manager_with(ProcessConfig { output_drain: Duration::from_secs(60), ..ProcessConfig::default() });
     let h = handle("orphan-pipe");
     m.spawn(request(&h, orphan_pipe_script())).await.unwrap();
     let grandchild = child_pid(&m, &h).await;
@@ -516,10 +457,7 @@ async fn kill_after_the_root_exited_still_takes_a_descendant_holding_the_pipe() 
 /// that arrived, and the exit is the last event.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn the_exit_is_published_within_the_drain_bound_while_a_descendant_holds_the_pipe() {
-    let m = manager_with(ProcessConfig {
-        output_drain: Duration::from_millis(50),
-        ..ProcessConfig::default()
-    });
+    let m = manager_with(ProcessConfig { output_drain: Duration::from_millis(50), ..ProcessConfig::default() });
     let h = handle("drain-bound");
     m.spawn(request(&h, orphan_pipe_script())).await.unwrap();
     let grandchild = child_pid(&m, &h).await;
@@ -536,10 +474,7 @@ async fn the_exit_is_published_within_the_drain_bound_while_a_descendant_holds_t
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn kill_releases_a_reader_held_by_a_stalled_client() {
     let (path, _file) = big_pty_file("kill-stalled", 6 * 1024 * 1024);
-    let m = manager_with(ProcessConfig {
-        ring_bytes: 256 * 1024,
-        ..ProcessConfig::default()
-    });
+    let m = manager_with(ProcessConfig { ring_bytes: 256 * 1024, ..ProcessConfig::default() });
     let h = handle("kill-stalled");
     let cmd = flood_command(&path);
     m.spawn(pty_request(&h, cmd, PtySize { cols: 100, rows: 30 })).await.unwrap();
@@ -738,9 +673,7 @@ impl mixdog_core_api::domain::process::LaunchAuthority for TestScope {
 }
 
 fn scoped(h: &mixdog_protocol::ProcessHandle, scope: &std::sync::Arc<TestScope>) -> SpawnRequest {
-    let owner = mixdog_core_api::domain::process::ProcessOwner::ComputerHelper {
-        scope: Some(mixdog_core_api::domain::process::LaunchScope(scope.clone())),
-    };
+    let owner = mixdog_core_api::domain::process::ProcessOwner::ComputerHelper { scope: Some(mixdog_core_api::domain::process::LaunchScope(scope.clone())) };
     SpawnRequest { owner, ..request(h, long_sleep()) }
 }
 
@@ -793,10 +726,7 @@ async fn shutdown_reaps_its_own_children_and_closes_admission() {
     let h = handle("shutdown-live");
     let natural = handle("shutdown-natural");
     let queued = handle("shutdown-queued");
-    let blocked = || SpawnRequest {
-        stdin_piped: true,
-        ..request(&h, shell("sort.exe", "exec cat"))
-    };
+    let blocked = || SpawnRequest { stdin_piped: true, ..request(&h, shell("sort.exe", "exec cat")) };
     let owned = m.spawn(blocked()).await.unwrap();
     // Even the same handle in another manager isn't owned by this shutdown.
     let unrelated = other.spawn(blocked()).await.unwrap();

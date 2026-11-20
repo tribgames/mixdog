@@ -9,15 +9,18 @@ fn setup() -> (tempfile::TempDir, Arc<DesktopGrantStore>, PathBuf, PathBuf) {
     mixdog_testkit::write(&first, "first");
     mixdog_testkit::write(&second, "second");
     let tokens = mixdog_rt::testing::tokens();
-    let lanes = Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io,
-        maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk };
+    let lanes = Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk };
     let store = DesktopGrantStore::new(root.path().join(GRANTS_FILE), lanes);
     (root, store, first, second)
 }
 
 fn pause(store: &DesktopGrantStore, fail: bool) -> Arc<PublishProbe> {
-    let probe = Arc::new(PublishProbe { remaining: std::sync::atomic::AtomicUsize::new(1),
-        entered: tokio::sync::Notify::new(), release: tokio::sync::Notify::new(), fail } );
+    let probe = Arc::new(PublishProbe {
+        remaining: std::sync::atomic::AtomicUsize::new(1),
+        entered: tokio::sync::Notify::new(),
+        release: tokio::sync::Notify::new(),
+        fail,
+    });
     assert!(store.publish_probe.set(probe.clone()).is_ok());
     probe
 }
@@ -33,14 +36,20 @@ async fn started_publication_survives_caller_drop_and_queued_cancellation_never_
     let probe = pause(&store, false);
     let task_store = store.clone();
     let task_first = first.clone();
-    let minting = mixdog_rt::spawn("grant-test-mint", mixdog_rt::TaskClass::Work,
-        async move { describe(&task_store, &task_first).await });
+    let minting = mixdog_rt::spawn("grant-test-mint", mixdog_rt::TaskClass::Work, async move { describe(&task_store, &task_first).await });
     tokio::time::timeout(Duration::from_secs(2), probe.entered.notified()).await.unwrap();
 
     // A command cancelled while still queued must never add authority or persist a token.
     let (reply, cancelled) = oneshot::channel();
-    let row = LocalPathEntry { absolute_path: second.to_string_lossy().into_owned(), name: "second.txt".into(),
-        dir: false, size: 6, project_path: None, rel_path: None, access_token: None };
+    let row = LocalPathEntry {
+        absolute_path: second.to_string_lossy().into_owned(),
+        name: "second.txt".into(),
+        dir: false,
+        size: 6,
+        project_path: None,
+        rel_path: None,
+        access_token: None,
+    };
     store.queue().send(Command::Mint { rows: vec![row], minted: vec![(0, second)], reply }).unwrap();
     drop(cancelled);
     let (reply, mut lookup) = oneshot::channel();
@@ -66,8 +75,7 @@ async fn publication_failure_keeps_the_previous_authority_and_token_reuse() {
     let previous = mixdog_testkit::read_string(&store.path);
     let probe = pause(&store, true);
     let next = store.clone();
-    let minting = mixdog_rt::spawn("grant-test-failure", mixdog_rt::TaskClass::Work,
-        async move { describe(&next, &second).await });
+    let minting = mixdog_rt::spawn("grant-test-failure", mixdog_rt::TaskClass::Work, async move { describe(&next, &second).await });
     tokio::time::timeout(Duration::from_secs(2), probe.entered.notified()).await.unwrap();
     probe.release.notify_one();
     assert_eq!(minting.await.unwrap().unwrap_err().message, "fixture publication failure");

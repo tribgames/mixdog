@@ -118,11 +118,13 @@ pub fn partition_cycle1_rows(rows: &[Row], source_budget: f64, max_rows: usize) 
     let mut packets = Vec::new();
     let mut packet: Vec<Row> = Vec::new();
     for row in rows {
-        if !packet.is_empty() && (packet.len() >= max_rows || {
-            let mut with = packet.clone();
-            with.push(row.clone());
-            !fits(&with, source_budget, false)
-        }) {
+        if !packet.is_empty()
+            && (packet.len() >= max_rows || {
+                let mut with = packet.clone();
+                with.push(row.clone());
+                !fits(&with, source_budget, false)
+            })
+        {
             packets.push(std::mem::take(&mut packet));
         }
         packet.push(row.clone());
@@ -273,12 +275,7 @@ fn sorted_strings(mut items: Vec<String>) -> Vec<String> {
 fn canonical_members(members: &[Row]) -> Value {
     let mut sorted: Vec<&Row> = members.iter().collect();
     sorted.sort_by_key(|row| row.id);
-    Value::Array(
-        sorted
-            .into_iter()
-            .map(|row| json!([row.id.to_string(), row.session_id, row.ts.to_string(), row.role, row.content]))
-            .collect(),
-    )
+    Value::Array(sorted.into_iter().map(|row| json!([row.id.to_string(), row.session_id, row.ts.to_string(), row.role, row.content])).collect())
 }
 
 /// `makeChunkQuality`: the structural provenance record stored with a root.
@@ -337,7 +334,9 @@ fn assessment_reasons(summary: &str, quality: Option<&Value>, members: &[Row]) -
             reasons.push("invalid_provenance");
         }
         let expected = make_chunk_quality(summary, members, 0);
-        if quality.get("sourceHash") != expected.get("sourceHash") || quality.get("memberIds").map(json_stringify) != expected.get("memberIds").map(json_stringify) {
+        if quality.get("sourceHash") != expected.get("sourceHash")
+            || quality.get("memberIds").map(json_stringify) != expected.get("memberIds").map(json_stringify)
+        {
             reasons.push("source_changed");
         }
         if quality.get("summaryHash") != expected.get("summaryHash") {
@@ -474,7 +473,12 @@ impl Packets<'_, '_> {
         let validity = validate_cycle1_grouping(parsed.as_deref(), packet);
         self.failures.extend(validity.invalid);
         if parsed.is_none() {
-            self.failures.push(InvalidChunk { reason: "unparseable_response".into(), idx_list: None, member_ids: packet.iter().map(|r| r.id).collect(), error: None });
+            self.failures.push(InvalidChunk {
+                reason: "unparseable_response".into(),
+                idx_list: None,
+                member_ids: packet.iter().map(|r| r.id).collect(),
+                error: None,
+            });
         }
         let (mut chunks, mut expanded) = (Vec::new(), Vec::new());
         for chunk in validity.accepted {
@@ -550,12 +554,19 @@ pub fn generate_cycle1_chunks<'a>(rows: &'a [Row], ctx: &'a Generation<'a>) -> B
                     if found.is_empty() && !failures.is_empty() {
                         return Ok(Vec::new());
                     }
-                    parts.push(found.into_iter().next().unwrap_or(Parsed { element: String::new(), category: "fact".into(), summary: fragment.content.clone(), ..Parsed::default() }));
+                    parts.push(found.into_iter().next().unwrap_or(Parsed {
+                        element: String::new(),
+                        category: "fact".into(),
+                        summary: fragment.content.clone(),
+                        ..Parsed::default()
+                    }));
                 }
                 let summary: String = parts
                     .iter()
                     .enumerate()
-                    .map(|(i, part)| format!("{}{}", if i > 0 && (!part.element.is_empty() || !parts[i - 1].element.is_empty()) { "\n" } else { "" }, part.summary))
+                    .map(|(i, part)| {
+                        format!("{}{}", if i > 0 && (!part.element.is_empty() || !parts[i - 1].element.is_empty()) { "\n" } else { "" }, part.summary)
+                    })
                     .collect();
                 if chunk_compression(&summary, rows).2
                     && let Some(metadata) = parts.iter().find(|p| !p.element.is_empty())

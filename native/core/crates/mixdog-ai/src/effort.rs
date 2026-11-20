@@ -118,9 +118,8 @@ pub fn rejection_key(provider: &str, model: &str) -> String {
 /// `effort-rejections.json` (`{version: 1, models: {"provider:model": {rejected, allowed}}}`) as its entries by
 /// [`rejection_key`]; a missing, damaged or foreign-version file holds nothing.
 pub fn parse_rejections(bytes: Option<&[u8]>) -> std::collections::HashMap<String, RejectionEntry> {
-    let strings = |value: Option<&Value>| -> Vec<String> {
-        value.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect()
-    };
+    let strings =
+        |value: Option<&Value>| -> Vec<String> { value.and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect() };
     let mut models = std::collections::HashMap::new();
     let doc = bytes.and_then(|b| mixdog_statefile::parse_json_text(b).ok());
     if let Some(doc) = doc.filter(|d| d.get("version").and_then(Value::as_f64) == Some(1.0)) {
@@ -165,11 +164,7 @@ impl EffortProjection {
     /// values. Consecutive changes that share a wire value collapse into none.
     /// `None` when any effort has no wire value on this route: the request
     /// then carries its per-request effort alone.
-    pub fn from_session(
-        initial: &str,
-        changes: impl IntoIterator<Item = (usize, String)>,
-        wire: &dyn Fn(&str) -> Option<String>,
-    ) -> Option<Self> {
+    pub fn from_session(initial: &str, changes: impl IntoIterator<Item = (usize, String)>, wire: &dyn Fn(&str) -> Option<String>) -> Option<Self> {
         let initial_effort = wire(initial)?;
         let mut current = initial_effort.clone();
         let mut updates = std::collections::BTreeMap::new();
@@ -221,16 +216,12 @@ impl RejectionEntry {
 
 /// The reasoning facts of a JSON row as `customEffortLevels` reads them.
 pub fn reasoning_row(model: &Value) -> ReasoningRow {
-    let effort_option = model.get("reasoningOptions").and_then(Value::as_array).and_then(|options| {
-        options
-            .iter()
-            .find(|o| value_to_string(o.get("type").unwrap_or(&Value::Null)).trim().eq_ignore_ascii_case("effort"))
-    });
+    let effort_option = model
+        .get("reasoningOptions")
+        .and_then(Value::as_array)
+        .and_then(|options| options.iter().find(|o| value_to_string(o.get("type").unwrap_or(&Value::Null)).trim().eq_ignore_ascii_case("effort")));
     let strings = |values: &Vec<Value>| -> Vec<String> {
-        values
-            .iter()
-            .map(|v| v.as_str().map_or_else(|| if v.is_null() { String::new() } else { value_to_string(v) }, str::to_owned))
-            .collect()
+        values.iter().map(|v| v.as_str().map_or_else(|| if v.is_null() { String::new() } else { value_to_string(v) }, str::to_owned)).collect()
     };
     ReasoningRow {
         // An effort option without a values array does not count: the row's
@@ -340,12 +331,7 @@ pub struct EffortItem {
 }
 
 /// `effortItemsFor`.
-pub fn effort_items_for(
-    provider: &str,
-    model: &Value,
-    active: Option<&str>,
-    rejected: Option<&RejectionEntry>,
-) -> Vec<EffortItem> {
+pub fn effort_items_for(provider: &str, model: &Value, active: Option<&str>, rejected: Option<&RejectionEntry>) -> Vec<EffortItem> {
     effort_options_for(provider, model, rejected)
         .into_iter()
         .map(|value| EffortItem {
@@ -361,12 +347,8 @@ pub fn effort_items_for(
 /// lower is left.
 pub fn nearest_accepted_effort(requested: &str, rejected: &BTreeSet<String>, allow_higher: bool) -> Option<&'static str> {
     let from = ALL_EFFORT_LEVELS.iter().position(|l| *l == requested)?;
-    let open: Vec<(usize, &'static str)> = ALL_EFFORT_LEVELS
-        .iter()
-        .copied()
-        .enumerate()
-        .filter(|(index, level)| *index != from && !rejected.contains(*level))
-        .collect();
+    let open: Vec<(usize, &'static str)> =
+        ALL_EFFORT_LEVELS.iter().copied().enumerate().filter(|(index, level)| *index != from && !rejected.contains(*level)).collect();
     let lower = open.iter().rev().find(|(index, _)| *index < from).map(|(_, level)| *level);
     lower.or_else(|| if allow_higher { open.first().map(|(_, level)| *level) } else { None })
 }
@@ -383,12 +365,7 @@ fn level_of(value: Option<&Value>) -> Option<&'static str> {
 /// `clampEffortOpts`: `opts` with a level already known to be rejected stepped
 /// down; unchanged otherwise. `levels` limits the ladder to what the wire
 /// accepts; `entry` is the store's record for the route, if any.
-pub fn clamp_effort_opts(
-    opts: &Value,
-    config_effort: Option<&Value>,
-    levels: Option<&[&str]>,
-    entry: Option<&RejectionEntry>,
-) -> Value {
+pub fn clamp_effort_opts(opts: &Value, config_effort: Option<&Value>, levels: Option<&[&str]>, entry: Option<&RejectionEntry>) -> Value {
     let effort = match opts.get("effort") {
         None | Some(Value::Null) => config_effort,
         some => some,
@@ -421,21 +398,12 @@ mod tests {
 
     use super::*;
 
-
-
     #[test]
     fn a_projection_collapses_changes_that_share_a_wire_value() {
         let wire = |e: &str| Some(if e == "ultra" { "max" } else { e }.to_owned());
-        let projection = EffortProjection::from_session(
-            "low",
-            [(2, "max".to_owned()), (4, "ultra".to_owned()), (6, "low".to_owned())],
-            &wire,
-        )
-        .unwrap();
+        let projection = EffortProjection::from_session("low", [(2, "max".to_owned()), (4, "ultra".to_owned()), (6, "low".to_owned())], &wire).unwrap();
         assert_eq!(projection.initial_effort, "low");
         assert_eq!(projection.updates.into_iter().collect::<Vec<_>>(), [(2, "max".to_owned()), (6, "low".to_owned())]);
         assert!(EffortProjection::from_session("low", [(1, "high".to_owned())], &|e| (e != "high").then(|| e.to_owned())).is_none());
     }
-
-
 }

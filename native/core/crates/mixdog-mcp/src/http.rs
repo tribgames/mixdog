@@ -69,17 +69,11 @@ fn request_error(error: reqwest::Error) -> TransportError {
 }
 
 impl HttpTransport {
-    pub fn new(
-        url: Url,
-        headers: &BTreeMap<String, String>,
-        auth: Option<Arc<dyn Authorizer>>,
-    ) -> Result<(Self, IncomingRx), TransportError> {
+    pub fn new(url: Url, headers: &BTreeMap<String, String>, auth: Option<Arc<dyn Authorizer>>) -> Result<(Self, IncomingRx), TransportError> {
         let mut map = HeaderMap::new();
         for (name, value) in headers {
-            let name = HeaderName::from_bytes(name.as_bytes())
-                .map_err(|_| TransportError::Request(format!("invalid header name {name:?}")))?;
-            let mut value = HeaderValue::from_str(value)
-                .map_err(|_| TransportError::Request(format!("invalid value for header {name}")))?;
+            let name = HeaderName::from_bytes(name.as_bytes()).map_err(|_| TransportError::Request(format!("invalid header name {name:?}")))?;
+            let mut value = HeaderValue::from_str(value).map_err(|_| TransportError::Request(format!("invalid value for header {name}")))?;
             value.set_sensitive(true);
             map.insert(name, value);
         }
@@ -178,11 +172,7 @@ struct SseEnd {
 
 /// Splits an SSE byte stream into events and forwards each `data` payload that is JSON. Returns
 /// when the stream ends or `shutdown` is cancelled.
-async fn pump_sse(
-    response: reqwest::Response,
-    tx: IncomingTx,
-    shutdown: CancellationToken,
-) -> SseEnd {
+async fn pump_sse(response: reqwest::Response, tx: IncomingTx, shutdown: CancellationToken) -> SseEnd {
     let mut end = SseEnd::default();
     let mut stream = response.bytes_stream();
     let mut buffer = String::new();
@@ -213,18 +203,11 @@ async fn pump_sse(
             for line in event.lines() {
                 if let Some(id) = line.strip_prefix("id:") {
                     end.last_id = Some(id.strip_prefix(' ').unwrap_or(id).to_owned());
-                } else if let Some(ms) = line
-                    .strip_prefix("retry:")
-                    .and_then(|ms| ms.trim().parse::<u64>().ok())
-                {
+                } else if let Some(ms) = line.strip_prefix("retry:").and_then(|ms| ms.trim().parse::<u64>().ok()) {
                     end.retry = Some(Duration::from_millis(ms));
                 }
             }
-            let data: Vec<&str> = event
-                .lines()
-                .filter_map(|l| l.strip_prefix("data:"))
-                .map(|d| d.strip_prefix(' ').unwrap_or(d))
-                .collect();
+            let data: Vec<&str> = event.lines().filter_map(|l| l.strip_prefix("data:")).map(|d| d.strip_prefix(' ').unwrap_or(d)).collect();
             if data.is_empty() {
                 continue;
             }
@@ -254,11 +237,7 @@ const RECONNECT_GROWTH: f64 = 1.5;
 const RECONNECT_RETRIES: u32 = 2;
 
 fn reconnect_delay(attempt: u32, server_retry: Option<Duration>) -> Duration {
-    server_retry.unwrap_or_else(|| {
-        RECONNECT_INITIAL
-            .mul_f64(RECONNECT_GROWTH.powi(attempt as i32))
-            .min(RECONNECT_MAX)
-    })
+    server_retry.unwrap_or_else(|| RECONNECT_INITIAL.mul_f64(RECONNECT_GROWTH.powi(attempt as i32)).min(RECONNECT_MAX))
 }
 
 impl Drop for HttpTransport {
@@ -293,17 +272,11 @@ mod tests {
                     let mut buf = [0u8; 2048];
                     let read = socket.read(&mut buf).await.unwrap_or(0);
                     let head = String::from_utf8_lossy(&buf[..read]).to_lowercase();
-                    let id = head
-                        .lines()
-                        .find_map(|l| l.strip_prefix("last-event-id: "))
-                        .map(|v| v.trim().to_owned());
+                    let id = head.lines().find_map(|l| l.strip_prefix("last-event-id: ")).map(|v| v.trim().to_owned());
                     record.lock().unwrap().push(id);
                     let reply = if served.fetch_add(1, Ordering::SeqCst) == 0 {
                         let body = "id: 7\nretry: 100\ndata: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n";
-                        format!(
-                            "HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}",
-                            body.len()
-                        )
+                        format!("HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len())
                     } else {
                         "HTTP/1.1 500 Internal Server Error\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned()
                     };
@@ -331,7 +304,10 @@ mod tests {
                     let head = String::from_utf8_lossy(&buf[..read]).to_lowercase();
                     let (status, reply) = if head.contains("authorization: bearer new") {
                         let body = "data: {\"jsonrpc\":\"2.0\",\"method\":\"notifications/tools/list_changed\"}\n\n";
-                        (200, format!("HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()))
+                        (
+                            200,
+                            format!("HTTP/1.1 200 OK\r\ncontent-type: text/event-stream\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{body}", body.len()),
+                        )
                     } else {
                         (401, "HTTP/1.1 401 Unauthorized\r\ncontent-length: 0\r\nconnection: close\r\n\r\n".to_owned())
                     };
@@ -423,12 +399,8 @@ mod tests {
         assert_eq!(reconnect_delay(0, None), Duration::from_millis(1000));
         assert_eq!(reconnect_delay(1, None), Duration::from_millis(1500));
         assert_eq!(reconnect_delay(30, None), Duration::from_millis(30_000));
-        assert_eq!(
-            reconnect_delay(1, Some(Duration::from_millis(100))),
-            Duration::from_millis(100)
-        );
+        assert_eq!(reconnect_delay(1, Some(Duration::from_millis(100))), Duration::from_millis(100));
     }
-
 
     /// Opens the listener of a transport over `Recording` and awaits its first `n` reports and the
     /// first `m` answers of the server: signals, not time.
@@ -475,8 +447,7 @@ mod tests {
         assert_eq!(statuses, [401]);
     }
     #[tokio::test(start_paused = true)]
-    async fn the_listener_stream_ends_and_is_reopened_with_its_last_event_id_then_given_up_after_two_failures()
-     {
+    async fn the_listener_stream_ends_and_is_reopened_with_its_last_event_id_then_given_up_after_two_failures() {
         let (addr, seen) = listener_server().await;
         let client = reqwest::Client::new();
         let open = move |resume: Option<String>| {
@@ -496,19 +467,12 @@ mod tests {
         keep_listening(open, tx, CancellationToken::new()).await;
 
         // One stream, then two failed reopens: the SDK's `maxRetries` of 2. Both reopens resumed from id 7.
-        assert_eq!(
-            *seen.lock().unwrap(),
-            vec![None, Some("7".to_owned()), Some("7".to_owned())]
-        );
+        assert_eq!(*seen.lock().unwrap(), vec![None, Some("7".to_owned()), Some("7".to_owned())]);
         // The event arrived, and the client was never told the connection closed.
         assert!(matches!(rx.try_recv(), Ok(Incoming::Message(_))));
-        assert!(
-            rx.try_recv().is_err(),
-            "no Incoming::Closed: the POST path still works"
-        );
+        assert!(rx.try_recv().is_err(), "no Incoming::Closed: the POST path still works");
     }
 }
-
 
 /// The standalone stream as the SDK keeps it (`_startOrAuthSse`, `_scheduleReconnection`): the
 /// first open is tried once; once a stream has been up, its end (clean or not) reopens it after a
@@ -555,10 +519,7 @@ where
 #[async_trait]
 impl Transport for HttpTransport {
     async fn send(&self, message: Value, liveness: Liveness) -> Result<(), TransportError> {
-        liveness
-            .bound_head(self.post_message(message))
-            .await
-            .map_err(expired)?
+        liveness.bound_head(self.post_message(message)).await.map_err(expired)?
     }
 
     async fn close(&self) {
@@ -566,21 +527,12 @@ impl Transport for HttpTransport {
             return;
         }
         self.shutdown.cancel();
-        let has_session = self
-            .session
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .is_some();
+        let has_session = self.session.lock().unwrap_or_else(|e| e.into_inner()).is_some();
         if has_session {
             // Tells the server the session is over; the answer does not matter.
-            let _ = STARTUP
-                .bound_head(self.decorate(self.client.delete(self.url.clone())).send())
-                .await;
+            let _ = STARTUP.bound_head(self.decorate(self.client.delete(self.url.clone())).send()).await;
         }
-        let _ = self.incoming.send(Incoming::Closed(CloseCause {
-            reason: "closed by client".to_owned(),
-            stderr_tail: String::new(),
-        }));
+        let _ = self.incoming.send(Incoming::Closed(CloseCause { reason: "closed by client".to_owned(), stderr_tail: String::new() }));
     }
 
     fn set_protocol_version(&self, version: &str) {
@@ -592,11 +544,7 @@ impl Transport for HttpTransport {
         if self.google.is_some() || self.gmail.is_some() {
             return;
         }
-        let Ok(base) = self
-            .decorate(self.client.get(self.url.clone()))
-            .header(reqwest::header::ACCEPT, "text/event-stream")
-            .build()
-        else {
+        let Ok(base) = self.decorate(self.client.get(self.url.clone())).header(reqwest::header::ACCEPT, "text/event-stream").build() else {
             return;
         };
         let client = self.client.clone();
@@ -671,11 +619,8 @@ impl Transport for HttpTransport {
                     Listener::Failed
                 }
             }
-        };        mixdog_rt::spawn(
-            "mcp.http.listen",
-            mixdog_rt::TaskClass::Work,
-            keep_listening(open, tx, shutdown),
-        );
+        };
+        mixdog_rt::spawn("mcp.http.listen", mixdog_rt::TaskClass::Work, keep_listening(open, tx, shutdown));
     }
 }
 impl HttpTransport {
@@ -731,10 +676,8 @@ impl HttpTransport {
             return self.post_gmail(gmail, &message).await;
         }
         let post = |token: Option<String>| {
-            let mut request = self
-                .decorate(self.client.post(self.url.clone()))
-                .header(reqwest::header::ACCEPT, "application/json, text/event-stream")
-                .json(&message);
+            let mut request =
+                self.decorate(self.client.post(self.url.clone())).header(reqwest::header::ACCEPT, "application/json, text/event-stream").json(&message);
             if let Some(token) = token {
                 request = request.bearer_auth(token);
             }
@@ -775,17 +718,9 @@ impl HttpTransport {
         if status == reqwest::StatusCode::ACCEPTED || status == reqwest::StatusCode::NO_CONTENT {
             return Ok(());
         }
-        let is_sse = response
-            .headers()
-            .get(reqwest::header::CONTENT_TYPE)
-            .and_then(|v| v.to_str().ok())
-            .is_some_and(|v| v.starts_with("text/event-stream"));
+        let is_sse = response.headers().get(reqwest::header::CONTENT_TYPE).and_then(|v| v.to_str().ok()).is_some_and(|v| v.starts_with("text/event-stream"));
         if is_sse {
-            mixdog_rt::spawn(
-                "mcp.http.sse",
-                mixdog_rt::TaskClass::Work,
-                pump_sse(response, self.incoming.clone(), self.shutdown.clone()),
-            );
+            mixdog_rt::spawn("mcp.http.sse", mixdog_rt::TaskClass::Work, pump_sse(response, self.incoming.clone(), self.shutdown.clone()));
         } else {
             let value: Value = response.json().await.map_err(request_error)?;
             self.deliver(value);

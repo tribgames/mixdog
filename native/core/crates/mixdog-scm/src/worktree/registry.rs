@@ -98,8 +98,6 @@ mod tests {
         assert!(registry.get("one").unwrap().is_none());
     }
 
-
-
     /// A branch a phone sent cut inside an emoji is stored as a lone surrogate escape: the registry reads it as U+FFFD, reads every
     /// other record whole, and the next write keeps both.
     #[test]
@@ -119,12 +117,9 @@ mod tests {
     }
 }
 
-
 impl Registry {
     pub fn new(data_dir: &Path) -> Self {
-        Self {
-            path: data_dir.join(STORE_DIR).join("registry.json"),
-        }
+        Self { path: data_dir.join(STORE_DIR).join("registry.json") }
     }
 
     fn parse(bytes: &[u8]) -> Option<Document> {
@@ -147,9 +142,7 @@ impl Registry {
         if let Some(doc) = Self::parse(&bytes) {
             return Ok(doc.entries);
         }
-        let stamp = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis());
+        let stamp = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis());
         let aside = self.path.with_extension(format!("json.corrupt-{stamp}"));
         std::fs::rename(&self.path, aside)?;
         match std::fs::read(self.backup()).ok().and_then(|bytes| Self::parse(&bytes)) {
@@ -164,10 +157,7 @@ impl Registry {
     fn write(&self, entries: &IndexMap<String, WorktreeRecord>) -> Result<(), ScmFailure> {
         let dir = self.path.parent().ok_or_else(|| ScmFailure::invalid("dataDir", "a directory"))?;
         std::fs::create_dir_all(dir)?;
-        let doc = Document {
-            version: VERSION,
-            entries: entries.clone(),
-        };
+        let doc = Document { version: VERSION, entries: entries.clone() };
         let bytes = serde_json::to_vec_pretty(&doc).map_err(|error| ScmFailure::git(error.to_string()))?;
         let temp = self.path.with_extension(format!("json.tmp-{}", std::process::id()));
         {

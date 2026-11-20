@@ -27,11 +27,7 @@ pub async fn rebuild_projects(state: &CoreState, index: &SqliteStore) -> Result<
         if !mixdog_fsio::is_dir(&mixdog_fsio::Unlaned, path) {
             continue;
         }
-        let used = ["lastUsedAt", "updatedAt"]
-            .iter()
-            .filter_map(|key| listed.row.get(*key).and_then(Value::as_f64))
-            .find(|ms| *ms > 0.0)
-            .map(|ms| ms as i64);
+        let used = ["lastUsedAt", "updatedAt"].iter().filter_map(|key| listed.row.get(*key).and_then(Value::as_f64)).find(|ms| *ms > 0.0).map(|ms| ms as i64);
         let slot = newest.entry(path.to_owned()).or_insert(None);
         *slot = (*slot).max(used);
     }

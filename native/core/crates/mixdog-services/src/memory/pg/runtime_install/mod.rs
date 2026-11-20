@@ -16,7 +16,6 @@ pub mod retry;
 mod stage;
 mod tar;
 
-
 use std::path::{Path, PathBuf};
 
 use mixdog_rt::{CpuBulk, DurabilityIo, InLane, LaneToken};
@@ -48,14 +47,9 @@ fn io_error(error: std::io::Error) -> RuntimeInstallError {
 }
 
 /// A job on the durability lane; its body gets the proof `mixdog-statefile` asks for.
-async fn job<R: Send + 'static>(
-    lane: DurabilityIo,
-    work: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static,
-) -> Result<R, RuntimeInstallError> {
-    let handle = lane
-        .submit_wait(&mixdog_rt::CancellationToken::new(), work)
-        .await
-        .map_err(|e| RuntimeInstallError::Text(format!("lane job was not queued: {e:?}")))?;
+async fn job<R: Send + 'static>(lane: DurabilityIo, work: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> Result<R, RuntimeInstallError> {
+    let handle =
+        lane.submit_wait(&mixdog_rt::CancellationToken::new(), work).await.map_err(|e| RuntimeInstallError::Text(format!("lane job was not queued: {e:?}")))?;
     handle.await.map_err(|_| RuntimeInstallError::Text("lane job was dropped".to_owned()))
 }
 
@@ -209,21 +203,13 @@ async fn fetch_and_publish(
 fn download_failure(error: DownloadError) -> RuntimeInstallError {
     match error {
         DownloadError::Cancelled => RuntimeInstallError::Cancelled,
-        DownloadError::Http { status, url, note, .. } => {
-            RuntimeInstallError::Text(format!("[runtime-fetcher] asset download HTTP {status}{note} — {url}"))
-        }
+        DownloadError::Http { status, url, note, .. } => RuntimeInstallError::Text(format!("[runtime-fetcher] asset download HTTP {status}{note} — {url}")),
         other => RuntimeInstallError::Text(other.to_string()),
     }
 }
 
 /// One candidate: downloaded to `tar_path` within the manifest's size, then checked against its sha256.
-async fn fetch_one(
-    options: &InstallOptions,
-    asset: &Asset,
-    url: &str,
-    tar_path: &Path,
-    cancel: &CancellationToken,
-) -> Result<(), RuntimeInstallError> {
+async fn fetch_one(options: &InstallOptions, asset: &Asset, url: &str, tar_path: &Path, cancel: &CancellationToken) -> Result<(), RuntimeInstallError> {
     let spec = Spec { url, dest: tar_path, max_bytes: asset.size, expected_bytes: asset.size, label: DOWNLOAD_LABEL, lane: options.bulk };
     retry::with_retry(
         || download_once(&spec, options.progress.as_ref(), cancel),

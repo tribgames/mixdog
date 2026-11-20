@@ -55,10 +55,7 @@ impl ProcessService {
 }
 
 fn text<'a>(value: &'a Value, key: &str, path: &str) -> Result<&'a str, CoreError> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .ok_or_else(|| invalid_params(path, format!("`{key}` must be a string")))
+    value.get(key).and_then(Value::as_str).ok_or_else(|| invalid_params(path, format!("`{key}` must be a string")))
 }
 
 /// `tool{threadId,toolCallId}` | `terminalTab{tabId}` | `lsp{root,lang}` | `internal` | `computerHelper`: as an
@@ -83,12 +80,9 @@ fn owner_of(value: &Value) -> Result<ProcessOwner, CoreError> {
             thread_id: ThreadId::from(text(body, "threadId", "owner.threadId")?),
             tool_call_id: ToolCallId::from(text(body, "toolCallId", "owner.toolCallId")?),
         }),
-        "terminalTab" => Ok(ProcessOwner::TerminalTab {
-            tab_id: TerminalTabId::from(text(body, "tabId", "owner.tabId")?),
-        }),
+        "terminalTab" => Ok(ProcessOwner::TerminalTab { tab_id: TerminalTabId::from(text(body, "tabId", "owner.tabId")?) }),
         "lsp" => Ok(ProcessOwner::Lsp {
-            root: AbsPath::new(text(body, "root", "owner.root")?)
-                .ok_or_else(|| invalid_params("owner.root", "an absolute path"))?,
+            root: AbsPath::new(text(body, "root", "owner.root")?).ok_or_else(|| invalid_params("owner.root", "an absolute path"))?,
             language: text(body, "lang", "owner.lang")?.to_owned(),
         }),
         other => Err(invalid_params("owner.kind", format!("unknown owner `{other}`"))),
@@ -99,24 +93,15 @@ fn spawn_request(params: ProcessSpawnParams) -> Result<SpawnRequest, CoreError> 
     let command = match (params.argv, params.shell) {
         (Some(argv), None) => {
             let mut argv = argv.into_iter();
-            let program = argv
-                .next()
-                .filter(|program| !program.is_empty())
-                .ok_or_else(|| invalid_params("argv", "a program"))?;
-            CommandSpec::Argv {
-                program,
-                args: argv.collect(),
-            }
+            let program = argv.next().filter(|program| !program.is_empty()).ok_or_else(|| invalid_params("argv", "a program"))?;
+            CommandSpec::Argv { program, args: argv.collect() }
         }
         (None, Some(script)) => CommandSpec::Shell { script, shell: None },
         _ => return Err(invalid_params("argv", "exactly one of `argv` and `shell`")),
     };
     let cwd = match params.cwd {
         Some(cwd) => AbsPath::new(cwd).ok_or_else(|| invalid_params("cwd", "an absolute path"))?,
-        None => std::env::current_dir()
-            .ok()
-            .and_then(AbsPath::new)
-            .ok_or_else(|| invalid_params("cwd", "an absolute path"))?,
+        None => std::env::current_dir().ok().and_then(AbsPath::new).ok_or_else(|| invalid_params("cwd", "an absolute path"))?,
     };
     let output = match params.output_mode.as_deref() {
         None | Some("merged") => OutputMode::Merged,
@@ -128,15 +113,8 @@ fn spawn_request(params: ProcessSpawnParams) -> Result<SpawnRequest, CoreError> 
         handle: params.process_handle,
         command,
         cwd,
-        env: EnvSpec {
-            inherit: true,
-            set: env.into_iter().collect(),
-            remove: Vec::new(),
-        },
-        pty: params.pty.map(|size| PtySize {
-            cols: size.cols,
-            rows: size.rows,
-        }),
+        env: EnvSpec { inherit: true, set: env.into_iter().collect(), remove: Vec::new() },
+        pty: params.pty.map(|size| PtySize { cols: size.cols, rows: size.rows }),
         stdin_piped: true,
         output,
         owner: owner_of(&params.owner)?,
@@ -145,9 +123,7 @@ fn spawn_request(params: ProcessSpawnParams) -> Result<SpawnRequest, CoreError> 
 }
 
 fn bytes_of(encoded: &str) -> Result<Vec<u8>, CoreError> {
-    STANDARD
-        .decode(encoded)
-        .map_err(|_| invalid_params("bytesB64", "base64"))
+    STANDARD.decode(encoded).map_err(|_| invalid_params("bytesB64", "base64"))
 }
 
 #[async_trait]
@@ -172,10 +148,7 @@ impl DomainService for ProcessService {
             }
             "process/resizePty" => {
                 let params: ProcessResizePtyParams = decode(&req.params)?;
-                let size = PtySize {
-                    cols: params.cols,
-                    rows: params.rows,
-                };
+                let size = PtySize { cols: params.cols, rows: params.rows };
                 self.manager.resize_pty(&params.process_handle, size).map_err(process_failure)?;
                 Ok(Reply::Value(json!({})))
             }
@@ -183,10 +156,7 @@ impl DomainService for ProcessService {
                 let params: ProcessWriteStdinParams = decode(&req.params)?;
                 let bytes = bytes_of(&params.bytes_b64)?;
                 if !bytes.is_empty() {
-                    self.manager
-                        .write_stdin(&params.process_handle, bytes)
-                        .await
-                        .map_err(process_failure)?;
+                    self.manager.write_stdin(&params.process_handle, bytes).await.map_err(process_failure)?;
                 }
                 if params.close_stdin == Some(true) {
                     self.manager.close_stdin(&params.process_handle).map_err(process_failure)?;

@@ -42,15 +42,7 @@ pub(super) fn derive_surfaces(input: &ShellLayoutInput, refs: &mut ShellRefs) ->
     // Slash search floats above the normal prompt. Actual option panels own the prompt and status area, so they hide those
     // rows and expand into that space.
     let input_box_hidden = expanded_option_panel || boot_settling;
-    Surfaces {
-        text_entry_prompt,
-        has_text_entry_prompt,
-        has_floating_panel,
-        expanded_option_panel,
-        boot_settling,
-        project_selection_active,
-        input_box_hidden,
-    }
+    Surfaces { text_entry_prompt, has_text_entry_prompt, has_floating_panel, expanded_option_panel, boot_settling, project_selection_active, input_box_hidden }
 }
 
 /// `deriveLiveHints(input)`: the live spinner and the transient hint.

@@ -3,14 +3,9 @@
 //! process object only and never touches the desktop.
 
 use super::native::Process;
-use serde_json::{json, Value};
-use windows::Win32::Foundation::{
-    ERROR_INVALID_PARAMETER, FILETIME, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT,
-};
-use windows::Win32::System::Threading::{
-    GetProcessTimes, OpenProcess, WaitForSingleObject, PROCESS_QUERY_LIMITED_INFORMATION,
-    PROCESS_SYNCHRONIZE,
-};
+use serde_json::{Value, json};
+use windows::Win32::Foundation::{ERROR_INVALID_PARAMETER, FILETIME, HANDLE, WAIT_OBJECT_0, WAIT_TIMEOUT};
+use windows::Win32::System::Threading::{GetProcessTimes, OpenProcess, PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_SYNCHRONIZE, WaitForSingleObject};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum State {
@@ -49,17 +44,9 @@ pub fn fate(pid: &str, created: &str) -> Value {
     let Some((pid, expected)) = parse(pid, created) else {
         return crate::platform::unknown_process_fate();
     };
-    let (state, created) = if pid == 0 {
-        (State::Unknown, 0)
-    } else {
-        decide(probe(pid), expected)
-    };
+    let (state, created) = if pid == 0 { (State::Unknown, 0) } else { decide(probe(pid), expected) };
     // A FILETIME exceeds a JSON number's exact range, so it travels as text.
-    let created = if created == 0 {
-        String::new()
-    } else {
-        created.to_string()
-    };
+    let created = if created == 0 { String::new() } else { created.to_string() };
     json!({ "state": state.name(), "created": created })
 }
 
@@ -67,11 +54,7 @@ pub fn fate(pid: &str, created: &str) -> Value {
 /// gives them; None when either does not parse.
 fn parse(pid: &str, created: &str) -> Option<(u32, i64)> {
     let pid = pid.trim().parse::<u32>().ok()?;
-    let expected = if created.is_empty() {
-        0
-    } else {
-        created.trim().parse::<i64>().ok()?
-    };
+    let expected = if created.is_empty() { 0 } else { created.trim().parse::<i64>().ok()? };
     Some((pid, expected))
 }
 
@@ -83,9 +66,7 @@ fn decide(probe: Probe, expected: i64) -> (State, i64) {
         Probe::Unopened { no_such_process: true } => (State::Ended, 0),
         Probe::Unopened { no_such_process: false } => (State::Unknown, 0),
         Probe::Opened { created: 0, .. } => (State::Unknown, 0),
-        Probe::Opened { created, .. } if expected != 0 && created != expected => {
-            (State::Ended, created)
-        }
+        Probe::Opened { created, .. } if expected != 0 && created != expected => (State::Ended, created),
         Probe::Opened { created, signaled } => (
             match signaled {
                 Some(true) => State::Ended,
@@ -99,20 +80,10 @@ fn decide(probe: Probe, expected: i64) -> (State, i64) {
 
 fn probe(pid: u32) -> Probe {
     // SAFETY: a plain open; the handle is owned by `process` below.
-    let opened = unsafe {
-        OpenProcess(
-            PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE,
-            false,
-            pid,
-        )
-    };
+    let opened = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_SYNCHRONIZE, false, pid) };
     let process = match opened {
         Ok(handle) => Process(handle),
-        Err(error) => {
-            return Probe::Unopened {
-                no_such_process: error.code() == ERROR_INVALID_PARAMETER.to_hresult(),
-            }
-        }
+        Err(error) => return Probe::Unopened { no_such_process: error.code() == ERROR_INVALID_PARAMETER.to_hresult() },
     };
     let created = creation_time(process.0);
     // SAFETY: the handle is open with SYNCHRONIZE; a zero timeout only polls.

@@ -117,7 +117,6 @@ mod tests {
         assert_eq!(p, json!({ "kind": "terminal", "sessionId": "s1" }));
     }
 
-
     async fn reveal(attached: bool, claim: bool, terminal_ms: u64) -> (bool, Vec<Value>) {
         let (shown, seen, _) = reveal_all(attached, claim, terminal_ms).await;
         (shown, seen)
@@ -174,7 +173,6 @@ mod tests {
         assert!(!text.contains("requestId") && !text.contains("cwd") && !text.contains("/w"));
     }
 }
-
 
 #[async_trait]
 impl TerminalBridgeHost for RevealingTerminalHost {

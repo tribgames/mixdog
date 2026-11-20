@@ -93,24 +93,9 @@ pub const KIND_MAP: &[(&str, &[(&str, &str)])] = &[
             ("namespace", "namespace"),
         ],
     ),
-    (
-        "javascript",
-        &[
-            ("function", "function"),
-            ("class", "class"),
-            ("method", "method"),
-            ("binding", "variable"),
-        ],
-    ),
+    ("javascript", &[("function", "function"), ("class", "class"), ("method", "method"), ("binding", "variable")]),
     ("python", &[("function", "function"), ("class", "class")]),
-    (
-        "go",
-        &[
-            ("function", "function"),
-            ("method", "method"),
-            ("type", "type"),
-        ],
-    ),
+    ("go", &[("function", "function"), ("method", "method"), ("type", "type")]),
     (
         "rust",
         &[
@@ -125,25 +110,8 @@ pub const KIND_MAP: &[(&str, &[(&str, &str)])] = &[
             ("static", "variable"),
         ],
     ),
-    (
-        "java",
-        &[
-            ("class", "class"),
-            ("interface", "interface"),
-            ("enum", "enum"),
-            ("method", "method"),
-            ("constructor", "constructor"),
-            ("record", "class"),
-        ],
-    ),
-    (
-        "kotlin",
-        &[
-            ("function", "function"),
-            ("class", "class"),
-            ("object", "class"),
-        ],
-    ),
+    ("java", &[("class", "class"), ("interface", "interface"), ("enum", "enum"), ("method", "method"), ("constructor", "constructor"), ("record", "class")]),
+    ("kotlin", &[("function", "function"), ("class", "class"), ("object", "class")]),
     (
         "csharp",
         &[
@@ -157,102 +125,19 @@ pub const KIND_MAP: &[(&str, &[(&str, &str)])] = &[
             ("local-function", "function"),
         ],
     ),
-    (
-        "c",
-        &[
-            ("function", "function"),
-            ("struct", "struct"),
-            ("enum", "enum"),
-        ],
-    ),
-    (
-        "cpp",
-        &[
-            ("function", "function"),
-            ("class", "class"),
-            ("struct", "struct"),
-            ("method", "method"),
-        ],
-    ),
-    (
-        "ruby",
-        &[
-            ("method", "method"),
-            ("class", "class"),
-            ("module", "module"),
-        ],
-    ),
-    (
-        "php",
-        &[
-            ("function", "function"),
-            ("class", "class"),
-            ("method", "method"),
-            ("interface", "interface"),
-            ("enum", "enum"),
-            ("trait", "trait"),
-        ],
-    ),
-    (
-        "swift",
-        &[
-            ("function", "function"),
-            ("class", "class"),
-            ("struct", "struct"),
-            ("enum", "enum"),
-            ("protocol", "protocol"),
-            ("actor", "class"),
-        ],
-    ),
-    (
-        "scala",
-        &[
-            ("function", "function"),
-            ("class", "class"),
-            ("trait", "trait"),
-            ("object", "class"),
-        ],
-    ),
+    ("c", &[("function", "function"), ("struct", "struct"), ("enum", "enum")]),
+    ("cpp", &[("function", "function"), ("class", "class"), ("struct", "struct"), ("method", "method")]),
+    ("ruby", &[("method", "method"), ("class", "class"), ("module", "module")]),
+    ("php", &[("function", "function"), ("class", "class"), ("method", "method"), ("interface", "interface"), ("enum", "enum"), ("trait", "trait")]),
+    ("swift", &[("function", "function"), ("class", "class"), ("struct", "struct"), ("enum", "enum"), ("protocol", "protocol"), ("actor", "class")]),
+    ("scala", &[("function", "function"), ("class", "class"), ("trait", "trait"), ("object", "class")]),
     ("bash", &[("function", "function")]),
     ("lua", &[("function", "function")]),
     ("r", &[("function", "function")]),
-    (
-        "dart",
-        &[
-            ("function", "function"),
-            ("method", "method"),
-            ("class", "class"),
-            ("enum", "enum"),
-            ("mixin", "trait"),
-            ("extension", "impl"),
-        ],
-    ),
-    (
-        "objc",
-        &[
-            ("function", "function"),
-            ("method", "method"),
-            ("class", "class"),
-            ("protocol", "protocol"),
-        ],
-    ),
-    (
-        "elixir",
-        &[
-            ("module", "module"),
-            ("function", "function"),
-            ("macro", "macro"),
-        ],
-    ),
-    (
-        "zig",
-        &[
-            ("function", "function"),
-            ("struct", "struct"),
-            ("enum", "enum"),
-            ("union", "struct"),
-        ],
-    ),
+    ("dart", &[("function", "function"), ("method", "method"), ("class", "class"), ("enum", "enum"), ("mixin", "trait"), ("extension", "impl")]),
+    ("objc", &[("function", "function"), ("method", "method"), ("class", "class"), ("protocol", "protocol")]),
+    ("elixir", &[("module", "module"), ("function", "function"), ("macro", "macro")]),
+    ("zig", &[("function", "function"), ("struct", "struct"), ("enum", "enum"), ("union", "struct")]),
     (
         "solidity",
         &[
@@ -267,15 +152,7 @@ pub const KIND_MAP: &[(&str, &[(&str, &str)])] = &[
     ),
     (
         "haskell",
-        &[
-            ("module", "module"),
-            ("function", "function"),
-            ("data", "type"),
-            ("newtype", "type"),
-            ("type", "type"),
-            ("class", "trait"),
-            ("instance", "impl"),
-        ],
+        &[("module", "module"), ("function", "function"), ("data", "type"), ("newtype", "type"), ("type", "type"), ("class", "trait"), ("instance", "impl")],
     ),
     (
         "hcl",
@@ -291,34 +168,26 @@ pub const KIND_MAP: &[(&str, &[(&str, &str)])] = &[
     ),
 ];
 
-static KIND_LOOKUP: LazyLock<HashMap<(&'static str, &'static str), &'static str>> =
-    LazyLock::new(|| {
-        let mut map = HashMap::new();
-        for (lang, kinds) in KIND_MAP {
-            for (old, new) in *kinds {
-                map.insert((*lang, *old), *new);
-            }
+static KIND_LOOKUP: LazyLock<HashMap<(&'static str, &'static str), &'static str>> = LazyLock::new(|| {
+    let mut map = HashMap::new();
+    for (lang, kinds) in KIND_MAP {
+        for (old, new) in *kinds {
+            map.insert((*lang, *old), *new);
         }
-        map
-    });
+    }
+    map
+});
 
 /// Unified kind for one per-language Stage-2 kind. A kind with no row falls
 /// back to itself, which keeps a brand-new rule visible instead of blank —
 /// `kind_map_covers_every_emitted_kind` fails the build before that can ship.
 pub fn unified_kind(graph_lang: &str, kind: &'static str) -> &'static str {
-    KIND_LOOKUP
-        .get(&(graph_lang, kind))
-        .copied()
-        .unwrap_or(kind)
+    KIND_LOOKUP.get(&(graph_lang, kind)).copied().unwrap_or(kind)
 }
 
 /// The published `old kind → unified kind` map of one language (`--langs`).
 pub fn kind_map_for(graph_lang: &str) -> BTreeMap<&'static str, &'static str> {
-    KIND_MAP
-        .iter()
-        .filter(|(lang, _)| *lang == graph_lang)
-        .flat_map(|(_, kinds)| kinds.iter().copied())
-        .collect()
+    KIND_MAP.iter().filter(|(lang, _)| *lang == graph_lang).flat_map(|(_, kinds)| kinds.iter().copied()).collect()
 }
 
 #[cfg(test)]
@@ -329,7 +198,7 @@ mod tests {
     use crate::outline::kinds::{kind_by_ast_kind, kind_by_symbol_type};
     use crate::outline::rules::{DeclaredKind, RULES};
     use crate::outline::symbols::extract;
-    use crate::scan_lang::{scan_lang_for_ext, ScanLang};
+    use crate::scan_lang::{ScanLang, scan_lang_for_ext};
 
     /// Every graph language of one grammar (`Tsx` serves `typescript`).
     fn graph_langs_of(lang: ScanLang) -> Vec<&'static str> {
@@ -385,16 +254,11 @@ mod tests {
         let mapped = |lang: &str, kind: &str| KIND_LOOKUP.contains_key(&(lang, kind));
 
         for rule in &RULES.rules {
-            let Some(DeclaredKind::Symbol(kind)) = RULES.kinds.get(&rule.common().id).copied()
-            else {
+            let Some(DeclaredKind::Symbol(kind)) = RULES.kinds.get(&rule.common().id).copied() else {
                 continue;
             };
             for lang in graph_langs_of(rule.common().language) {
-                assert!(
-                    mapped(lang, kind),
-                    "rule `{}` declares kind `{kind}` for {lang}, which KIND_MAP does not map",
-                    rule.common().id
-                );
+                assert!(mapped(lang, kind), "rule `{}` declares kind `{kind}` for {lang}, which KIND_MAP does not map", rule.common().id);
             }
         }
 
@@ -404,11 +268,7 @@ mod tests {
             }
             for symbol_type in EVERY_SYMBOL_TYPE {
                 if let Some(kind) = kind_by_symbol_type(info.id, *symbol_type) {
-                    assert!(
-                        mapped(info.id, kind),
-                        "{}: symbolType {symbol_type:?} yields unmapped kind `{kind}`",
-                        info.id
-                    );
+                    assert!(mapped(info.id, kind), "{}: symbolType {symbol_type:?} yields unmapped kind `{kind}`", info.id);
                 }
             }
             for lang in crate::scan_lang::graph_lang_scan_langs(info.id) {
@@ -420,11 +280,7 @@ mod tests {
                     let Some(Some(kind)) = kind_by_ast_kind(info.id, ast_kind) else {
                         continue;
                     };
-                    assert!(
-                        mapped(info.id, kind),
-                        "{}: node kind `{ast_kind}` yields unmapped kind `{kind}`",
-                        info.id
-                    );
+                    assert!(mapped(info.id, kind), "{}: node kind `{ast_kind}` yields unmapped kind `{kind}`", info.id);
                 }
             }
         }
@@ -436,20 +292,12 @@ mod tests {
     fn kind_map_targets_stay_inside_the_vocabulary() {
         for (lang, kinds) in KIND_MAP {
             for (old, new) in *kinds {
-                assert!(
-                    KIND_VOCABULARY.contains(new),
-                    "{lang}: `{old}` maps to `{new}`, which is not in the vocabulary"
-                );
+                assert!(KIND_VOCABULARY.contains(new), "{lang}: `{old}` maps to `{new}`, which is not in the vocabulary");
             }
         }
         for info in crate::scan_lang::LANG_INFOS {
             let published = kind_map_for(info.id);
-            assert_eq!(
-                published.is_empty(),
-                info.extract_extensions.is_empty(),
-                "{}: `--langs` must publish a kind map exactly for graph languages",
-                info.id
-            );
+            assert_eq!(published.is_empty(), info.extract_extensions.is_empty(), "{}: `--langs` must publish a kind map exactly for graph languages", info.id);
         }
         // And the mapping is what the record actually carries.
         assert_eq!(unified_kind("rust", "const"), "constant");
@@ -479,28 +327,18 @@ mod tests {
                 let Some(ext) = path.extension().and_then(|ext| ext.to_str()) else {
                     continue;
                 };
-                let (Some(lang), Some(graph_lang)) =
-                    (scan_lang_for_ext(ext), crate::lang::lang_for(ext))
-                else {
+                let (Some(lang), Some(graph_lang)) = (scan_lang_for_ext(ext), crate::lang::lang_for(ext)) else {
                     continue;
                 };
                 let Ok(text) = std::fs::read_to_string(&path) else {
                     continue;
                 };
                 for symbol in extract(&text, graph_lang, lang).symbols {
-                    assert!(
-                        KIND_VOCABULARY.contains(&symbol.kind),
-                        "{}: `{}` is outside the vocabulary",
-                        path.display(),
-                        symbol.kind
-                    );
+                    assert!(KIND_VOCABULARY.contains(&symbol.kind), "{}: `{}` is outside the vocabulary", path.display(), symbol.kind);
                     symbols += 1;
                 }
             }
         }
-        assert!(
-            symbols > 200,
-            "fixture corpus carried only {symbols} symbols"
-        );
+        assert!(symbols > 200, "fixture corpus carried only {symbols} symbols");
     }
 }

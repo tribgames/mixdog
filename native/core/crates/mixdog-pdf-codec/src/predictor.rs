@@ -44,8 +44,7 @@ fn decode_prefix(data: &[u8], params: &PredictorParams, limit: usize) -> Result<
     let bits = pick(params.bits_per_component, 8);
     let columns = pick(params.columns, 1);
     let pix_bytes = usize::try_from((colors.saturating_mul(bits).saturating_add(7)) >> 3).unwrap_or(usize::MAX);
-    let row_bytes = usize::try_from(columns.saturating_mul(colors).saturating_mul(bits).saturating_add(7) >> 3)
-        .unwrap_or(usize::MAX);
+    let row_bytes = usize::try_from(columns.saturating_mul(colors).saturating_mul(bits).saturating_add(7) >> 3).unwrap_or(usize::MAX);
     let mut out = Vec::new();
     let mut pos = 0usize;
     let mut prev_row: Vec<u8> = Vec::new();

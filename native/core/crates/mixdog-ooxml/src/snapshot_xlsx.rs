@@ -11,8 +11,8 @@ use mixdog_office_base::values::truthy;
 use serde_json::{Map, Value, json};
 
 use crate::cells::{
-    CellPage, CellRecord, PagedCells, Sheet, boolean_xml_attribute, cell_records, formula_references, paged_cell_records, shared_strings,
-    sheet_formula_totals, workbook_calculation, workbook_sheets,
+    CellPage, CellRecord, PagedCells, Sheet, boolean_xml_attribute, cell_records, formula_references, paged_cell_records, shared_strings, sheet_formula_totals,
+    workbook_calculation, workbook_sheets,
 };
 use crate::opc::{part_relationship_path, posix, relationship_target_by_type, relationship_targets_by_type};
 use crate::shared_formulas::expand_shared_formulas;
@@ -324,9 +324,7 @@ fn workbook_defined_names(workbook_xml: &str) -> Vec<DefinedName> {
 /// `sheetPrintArea(definedNames, sheetIndex)`: `_xlnm.Print_Area` is a sheet-local defined name; Excel writes it absolute and
 /// comma-separated when the sheet prints several areas.
 fn sheet_print_area(defined_names: &[DefinedName], sheet_index: Option<usize>) -> String {
-    let Some(entry) = defined_names
-        .iter()
-        .find(|item| item.name == "_xlnm.Print_Area" && sheet_index.is_some_and(|index| item.local_sheet_id == index as f64))
+    let Some(entry) = defined_names.iter().find(|item| item.name == "_xlnm.Print_Area" && sheet_index.is_some_and(|index| item.local_sheet_id == index as f64))
     else {
         return String::new();
     };
@@ -362,7 +360,13 @@ fn select_xlsx_sheets<'a>(sheets: &'a [Sheet], options: &Value, paged: bool, she
             let wanted = js_to_lowercase(&value_to_string(name));
             sheets.iter().find(|entry| js_to_lowercase(&entry.name) == wanted)
         }
-        None => if sheet_offset.fract() == 0.0 { sheets.get(sheet_offset as usize) } else { None },
+        None => {
+            if sheet_offset.fract() == 0.0 {
+                sheets.get(sheet_offset as usize)
+            } else {
+                None
+            }
+        }
     };
     if let Some(name) = named
         && sheet.is_none()
@@ -400,11 +404,7 @@ fn worksheet_protection(xml: &str) -> Value {
 /// `sqrefRanges(attributes)`: the cells a validation or a conditional format applies to: one sqref attribute holding
 /// space-separated A1 ranges.
 fn sqref_ranges(attributes: &str) -> Vec<Value> {
-    xml_decode(&group(&SQREF, attributes))
-        .split(mixdog_js::is_js_space)
-        .filter(|range| !range.is_empty())
-        .map(Value::from)
-        .collect()
+    xml_decode(&group(&SQREF, attributes)).split(mixdog_js::is_js_space).filter(|range| !range.is_empty()).map(Value::from).collect()
 }
 
 /// `worksheetValidations(xml, sheetName)`.
@@ -509,13 +509,7 @@ struct SnapshotContext<'a> {
 ///
 /// A formula the stored-once expansion gave a cell (`patched`) is reported as Node reports it: written last, after the style,
 /// with no cached value or cache state of its own (the cell's file carries no formula element to read them from).
-fn worksheet_cell_page(
-    sheet: &Sheet,
-    read: &CellRead,
-    patched: &[bool],
-    notes: &[Note],
-    context: &SnapshotContext<'_>,
-) -> (Value, Value, Value) {
+fn worksheet_cell_page(sheet: &Sheet, read: &CellRead, patched: &[bool], notes: &[Note], context: &SnapshotContext<'_>) -> (Value, Value, Value) {
     let cells = read.records();
     let shown = if context.paged { cells.len() } else { cells.len().min(context.cell_limit as usize) };
     let mut by_cell: Vec<(&str, &str)> = Vec::new();
@@ -684,15 +678,8 @@ pub fn snapshot_xlsx<P: ReadProof>(measurer: &TextMeasurer<'_, P>, zip: &Package
     let selected = select_xlsx_sheets(&sheets, options, paged, sheet_offset)?;
     let default_style = styles.first().cloned().unwrap_or(Value::Null);
     let defined_values: Vec<Value> = defined_names.iter().map(|entry| entry.value.clone()).collect();
-    let context = SnapshotContext {
-        strings: shared_strings(zip),
-        styles,
-        defined_names,
-        sheets: &sheets,
-        options,
-        paged,
-        cell_limit: xlsx_cell_limit(options),
-    };
+    let context =
+        SnapshotContext { strings: shared_strings(zip), styles, defined_names, sheets: &sheets, options, paged, cell_limit: xlsx_cell_limit(options) };
     let read = snapshot_selected_sheets(measurer, zip, &selected, &context)?;
     let pagination = if paged {
         let named: Vec<Value> = selected.iter().map(|sheet| json!({ "name": sheet.name })).collect();

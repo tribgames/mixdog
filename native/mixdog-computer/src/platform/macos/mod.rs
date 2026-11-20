@@ -23,7 +23,7 @@ use core_foundation::boolean::CFBoolean;
 use core_foundation::dictionary::CFDictionary;
 use core_foundation::string::CFString;
 use ffi::*;
-use input::{button_events, flag, flags_of, keycode, Dest, Poster, ProcessKeys, Route};
+use input::{Dest, Poster, ProcessKeys, Route, button_events, flag, flags_of, keycode};
 use serde_json::Value;
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -52,18 +52,13 @@ fn ax_window_at(x: f32, y: f32) -> Option<Wid> {
     let system = unsafe { CFType::wrap_under_create_rule(AXUIElementCreateSystemWide()) };
     let mut raw: AXUIElementRef = std::ptr::null();
     // SAFETY: system is live; raw is a valid out pointer.
-    let status =
-        unsafe { AXUIElementCopyElementAtPosition(system.as_CFTypeRef() as _, x, y, &mut raw) };
+    let status = unsafe { AXUIElementCopyElementAtPosition(system.as_CFTypeRef() as _, x, y, &mut raw) };
     if status != kAXErrorSuccess || raw.is_null() {
         return None;
     }
     // SAFETY: the element came back under the create rule.
     let element = unsafe { CFType::wrap_under_create_rule(raw as _) };
-    let window = if ax_window_number(element.as_CFTypeRef() as _).is_some() {
-        element
-    } else {
-        ax_copy(element.as_CFTypeRef() as _, "AXWindow").ok()?
-    };
+    let window = if ax_window_number(element.as_CFTypeRef() as _).is_some() { element } else { ax_copy(element.as_CFTypeRef() as _, "AXWindow").ok()? };
     ax_window_number(window.as_CFTypeRef() as _).map(|number| number as Wid)
 }
 
@@ -95,16 +90,10 @@ impl MacBackground {
     /// window made active inside its app so the gesture is not spent as a
     /// first mouse.
     fn target(&self, handle: Wid, flags: u64) -> Result<(i32, Dest), String> {
-        let window = windows::one(handle)
-            .filter(|window| window.pid > 0)
-            .ok_or_else(|| {
-                "stale_target|the target window no longer exists; no input sent".to_string()
-            })?;
+        let window =
+            windows::one(handle).filter(|window| window.pid > 0).ok_or_else(|| "stale_target|the target window no longer exists; no input sent".to_string())?;
         skylight::activate_without_raise(window.pid, window.number);
-        Ok((
-            window.pid,
-            Dest::process(window.pid, window.number, window.bounds.origin, flags),
-        ))
+        Ok((window.pid, Dest::process(window.pid, window.number, window.bounds.origin, flags)))
     }
 
     /// A move first, as a real pointer arrives before it presses.
@@ -125,14 +114,7 @@ impl Background for MacBackground {
         window_pid(window).map(|_| ())
     }
 
-    fn pointer(
-        &self,
-        window: Wid,
-        x: i32,
-        y: i32,
-        kind: &str,
-        modifiers: &[Mod],
-    ) -> Result<String, String> {
+    fn pointer(&self, window: Wid, x: i32, y: i32, kind: &str, modifiers: &[Mod]) -> Result<String, String> {
         self.validate(window, kind)?;
         let (pid, dest) = self.target(window, flags_of(modifiers))?;
         let (fx, fy) = (x as f64, y as f64);
@@ -150,49 +132,26 @@ impl Background for MacBackground {
         Ok(format!("pid {pid}"))
     }
 
-    fn wheel(
-        &self,
-        window: Wid,
-        x: i32,
-        y: i32,
-        clicks: i32,
-        horizontal: bool,
-        modifiers: &[Mod],
-    ) -> Result<String, String> {
+    fn wheel(&self, window: Wid, x: i32, y: i32, clicks: i32, horizontal: bool, modifiers: &[Mod]) -> Result<String, String> {
         self.validate(window, "scroll")?;
         let (pid, dest) = self.target(window, flags_of(modifiers))?;
-        self.poster.mouse(
-            kCGEventMouseMoved,
-            x as f64,
-            y as f64,
-            0,
-            1,
-            Dest { flags: 0, ..dest },
-        )?;
-        self.poster
-            .wheel(x as f64, y as f64, clicks, horizontal, dest)?;
+        self.poster.mouse(kCGEventMouseMoved, x as f64, y as f64, 0, 1, Dest { flags: 0, ..dest })?;
+        self.poster.wheel(x as f64, y as f64, clicks, horizontal, dest)?;
         Ok(format!("pid {pid}"))
     }
 
-    fn drag(
-        &self,
-        window: Wid,
-        points: &[(i32, i32)],
-        modifiers: &[Mod],
-    ) -> Result<String, String> {
+    fn drag(&self, window: Wid, points: &[(i32, i32)], modifiers: &[Mod]) -> Result<String, String> {
         self.validate(window, "drag")?;
         let (pid, dest) = self.target(window, flags_of(modifiers))?;
         let (x0, y0) = points[0];
-        self.poster
-            .mouse(kCGEventLeftMouseDown, x0 as f64, y0 as f64, 0, 1, dest)?;
+        self.poster.mouse(kCGEventLeftMouseDown, x0 as f64, y0 as f64, 0, 1, dest)?;
         let travel = (|| -> Result<(), String> {
             for pair in points.windows(2) {
                 let ((fx, fy), (tx, ty)) = (pair[0], pair[1]);
                 for step in 1..=12 {
                     let x = fx + (tx - fx) * step / 12;
                     let y = fy + (ty - fy) * step / 12;
-                    self.poster
-                        .mouse(kCGEventLeftMouseDragged, x as f64, y as f64, 0, 1, dest)?;
+                    self.poster.mouse(kCGEventLeftMouseDragged, x as f64, y as f64, 0, 1, dest)?;
                     // The pause holds nothing; revoked meanwhile, the next step is refused at the port and the button is
                     // let go below through its receipt.
                     std::thread::sleep(std::time::Duration::from_millis(12));
@@ -201,13 +160,9 @@ impl Background for MacBackground {
             Ok(())
         })();
         let (lx, ly) = points[points.len() - 1];
-        let released = self
-            .poster
-            .mouse(kCGEventLeftMouseUp, lx as f64, ly as f64, 0, 1, dest);
+        let released = self.poster.mouse(kCGEventLeftMouseUp, lx as f64, ly as f64, 0, 1, dest);
         travel?;
-        released.map_err(|error| {
-            format!("input_cleanup_unconfirmed: background drag release failed: {error}")
-        })?;
+        released.map_err(|error| format!("input_cleanup_unconfirmed: background drag release failed: {error}"))?;
         Ok(format!("pid {pid}"))
     }
 
@@ -217,14 +172,7 @@ impl Background for MacBackground {
         if keys::is_plain_text(keys_text) {
             self.poster.text(keys_text, Route::Process(pid))?;
         } else {
-            keys::send(
-                keys_text,
-                &mut ProcessKeys {
-                    poster: &self.poster,
-                    pid,
-                    flags: 0,
-                },
-            )?;
+            keys::send(keys_text, &mut ProcessKeys { poster: &self.poster, pid, flags: 0 })?;
         }
         Ok(format!("pid {pid}"))
     }
@@ -255,9 +203,7 @@ impl MacDesktop {
         MacDesktop {
             poster: Poster::new(),
             accessibility: ax::MacAccessibility::new(),
-            background: MacBackground {
-                poster: Poster::new(),
-            },
+            background: MacBackground { poster: Poster::new() },
             host_pid: std::os::unix::process::parent_id() as i32,
             restore_frames: RefCell::new(HashMap::new()),
         }
@@ -265,58 +211,24 @@ impl MacDesktop {
 
     fn ax_window(&self, handle: Wid) -> Result<windows::AxWindow, String> {
         require_trust()?;
-        let pid = window_pid(handle).map_err(|_| {
-            format!(
-                "window_id is stale or invalid: {}",
-                super::window_id(handle)
-            )
-        })?;
-        windows::ax_window(pid, handle).ok_or_else(|| {
-            format!(
-                "window has no accessibility root: {}",
-                super::window_id(handle)
-            )
-        })
+        let pid = window_pid(handle).map_err(|_| format!("window_id is stale or invalid: {}", super::window_id(handle)))?;
+        windows::ax_window(pid, handle).ok_or_else(|| format!("window has no accessibility root: {}", super::window_id(handle)))
     }
 
     fn set_frame(&self, element: &CFType, frame: CGRect) -> Result<(), String> {
-        let position = ax_set(
-            element.as_CFTypeRef(),
-            "AXPosition",
-            &ax_point_value(frame.origin),
-        );
+        let position = ax_set(element.as_CFTypeRef(), "AXPosition", &ax_point_value(frame.origin));
         let size = ax_set(element.as_CFTypeRef(), "AXSize", &ax_size_value(frame.size));
         // A size change near a screen edge can push the origin; set it again.
-        ax_set(
-            element.as_CFTypeRef(),
-            "AXPosition",
-            &ax_point_value(frame.origin),
-        );
+        ax_set(element.as_CFTypeRef(), "AXPosition", &ax_point_value(frame.origin));
         if position != kAXErrorSuccess && size != kAXErrorSuccess {
-            return Err(format!(
-                "the window refused its new frame (AX error {position}/{size})"
-            ));
+            return Err(format!("the window refused its new frame (AX error {position}/{size})"));
         }
         Ok(())
     }
 
-    fn post_system_mouse(
-        &self,
-        kind: u32,
-        x: i32,
-        y: i32,
-        button: u32,
-        clicks: u32,
-    ) -> Result<(), String> {
+    fn post_system_mouse(&self, kind: u32, x: i32, y: i32, button: u32, clicks: u32) -> Result<(), String> {
         require_trust()?;
-        self.poster.mouse(
-            kind,
-            x as f64,
-            y as f64,
-            button,
-            clicks,
-            Dest::system(self.poster.flags.get()),
-        )
+        self.poster.mouse(kind, x as f64, y as f64, button, clicks, Dest::system(self.poster.flags.get()))
     }
 }
 
@@ -342,11 +254,7 @@ impl Desktop for MacDesktop {
             return false;
         };
         if window.minimized {
-            ax_set(
-                window.element.as_CFTypeRef(),
-                "AXMinimized",
-                &cf_bool(false),
-            );
+            ax_set(window.element.as_CFTypeRef(), "AXMinimized", &cf_bool(false));
         }
         let pid = ax_pid(window.element.as_CFTypeRef());
         appkit::activate(pid);
@@ -388,19 +296,12 @@ impl Desktop for MacDesktop {
         let (fx, fy) = (x as f64, y as f64);
         windows::onscreen()
             .into_iter()
-            .filter(|window| {
-                window.alpha > 0.0
-                    && window.bounds.size.width > 1.0
-                    && window.bounds.size.height > 1.0
-            })
+            .filter(|window| window.alpha > 0.0 && window.bounds.size.width > 1.0 && window.bounds.size.height > 1.0)
             // This app's own floating overlays let the pointer through.
             .filter(|window| !(window.pid == self.host_pid && window.layer > 0))
             .find(|window| {
                 let rect = window.bounds;
-                fx >= rect.origin.x
-                    && fy >= rect.origin.y
-                    && fx < rect.origin.x + rect.size.width
-                    && fy < rect.origin.y + rect.size.height
+                fx >= rect.origin.x && fy >= rect.origin.y && fx < rect.origin.x + rect.size.width && fy < rect.origin.y + rect.size.height
             })
             .map_or(0, |window| window.number as Wid)
     }
@@ -409,11 +310,7 @@ impl Desktop for MacDesktop {
         let Some(pid) = windows::one(handle).map(|window| window.pid) else {
             return Vec::new();
         };
-        windows::onscreen()
-            .into_iter()
-            .filter(|window| window.pid == pid && window.number as Wid != handle)
-            .map(|window| window.number as Wid)
-            .collect()
+        windows::onscreen().into_iter().filter(|window| window.pid == pid && window.number as Wid != handle).map(|window| window.number as Wid).collect()
     }
 
     fn is_owned_by(&self, candidate: Wid, owner: Wid) -> bool {
@@ -426,25 +323,9 @@ impl Desktop for MacDesktop {
         }
     }
 
-    fn move_window(
-        &self,
-        handle: Wid,
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-    ) -> Result<(), String> {
+    fn move_window(&self, handle: Wid, x: i32, y: i32, width: i32, height: i32) -> Result<(), String> {
         let window = self.ax_window(handle)?;
-        let frame = CGRect {
-            origin: CGPoint {
-                x: x as f64,
-                y: y as f64,
-            },
-            size: CGSize {
-                width: width as f64,
-                height: height as f64,
-            },
-        };
+        let frame = CGRect { origin: CGPoint { x: x as f64, y: y as f64 }, size: CGSize { width: width as f64, height: height as f64 } };
         self.set_frame(&window.element, frame)
     }
 
@@ -459,12 +340,8 @@ impl Desktop for MacDesktop {
                 if window.minimized {
                     ax_set(element, "AXMinimized", &cf_bool(false));
                 }
-                let visible = windows::visible_frame_for(&window.frame)
-                    .ok_or("no screen holds this window")?;
-                self.restore_frames
-                    .borrow_mut()
-                    .entry(handle)
-                    .or_insert(window.frame);
+                let visible = windows::visible_frame_for(&window.frame).ok_or("no screen holds this window")?;
+                self.restore_frames.borrow_mut().entry(handle).or_insert(window.frame);
                 self.set_frame(&window.element, visible)?;
             }
             WinState::Restore => {
@@ -502,10 +379,7 @@ impl Desktop for MacDesktop {
         let app = application(pid);
         // SAFETY: shortens the timeout on this one element.
         unsafe { AXUIElementSetMessagingTimeout(app.as_CFTypeRef(), 1.0) };
-        !matches!(
-            ax_copy(app.as_CFTypeRef(), "AXRole"),
-            Err(kAXErrorCannotComplete)
-        )
+        !matches!(ax_copy(app.as_CFTypeRef(), "AXRole"), Err(kAXErrorCannotComplete))
     }
 
     fn cursor(&self) -> (i32, i32) {
@@ -517,14 +391,7 @@ impl Desktop for MacDesktop {
         self.post_system_mouse(kCGEventMouseMoved, x, y, 0, 1)
     }
 
-    fn button(
-        &self,
-        button: Button,
-        down: bool,
-        x: i32,
-        y: i32,
-        clicks: u32,
-    ) -> Result<(), String> {
+    fn button(&self, button: Button, down: bool, x: i32, y: i32, clicks: u32) -> Result<(), String> {
         let (down_kind, up_kind, number) = button_events(button);
         self.post_system_mouse(if down { down_kind } else { up_kind }, x, y, number, clicks)
     }
@@ -535,27 +402,16 @@ impl Desktop for MacDesktop {
 
     fn wheel(&self, x: i32, y: i32, clicks: i32, horizontal: bool) -> Result<(), String> {
         require_trust()?;
-        self.poster.wheel(
-            x as f64,
-            y as f64,
-            clicks,
-            horizontal,
-            Dest::system(self.poster.flags.get()),
-        )
+        self.poster.wheel(x as f64, y as f64, clicks, horizontal, Dest::system(self.poster.flags.get()))
     }
 
     fn key(&self, key: Key, down: bool) -> Result<(), String> {
         require_trust()?;
         if let Key::Mod(modifier) = key {
             let mask = flag(modifier);
-            self.poster.flags.set(if down {
-                self.poster.flags.get() | mask
-            } else {
-                self.poster.flags.get() & !mask
-            });
+            self.poster.flags.set(if down { self.poster.flags.get() | mask } else { self.poster.flags.get() & !mask });
         }
-        self.poster
-            .key(keycode(key)?, down, Route::System, self.poster.flags.get())
+        self.poster.key(keycode(key)?, down, Route::System, self.poster.flags.get())
     }
 
     fn text(&self, text: &str) -> Result<(), String> {
@@ -574,12 +430,8 @@ impl Desktop for MacDesktop {
             return false;
         }
         // SAFETY: the dictionary came back under the create rule.
-        let session: CFDictionary<CFString, CFType> =
-            unsafe { CFDictionary::wrap_under_create_rule(session) };
-        let locked = session
-            .find(CFString::new("CGSSessionScreenIsLocked"))
-            .and_then(|value| value.downcast::<CFBoolean>())
-            .is_some_and(bool::from);
+        let session: CFDictionary<CFString, CFType> = unsafe { CFDictionary::wrap_under_create_rule(session) };
+        let locked = session.find(CFString::new("CGSSessionScreenIsLocked")).and_then(|value| value.downcast::<CFBoolean>()).is_some_and(bool::from);
         !locked
     }
 

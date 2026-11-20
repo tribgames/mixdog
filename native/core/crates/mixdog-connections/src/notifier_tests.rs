@@ -1,11 +1,11 @@
 //! The notifier over fakes: the feed's streams are channels the test sends on, the toast sink records what it is given.
 
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use mixdog_core_domains::notify::decision::{DevicePreferences, Scope};
 use mixdog_protocol::ThreadSummary;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
 use super::*;
 use crate::link_machine::ModelLogin;
@@ -152,13 +152,7 @@ fn rig_holding(name: &str, held: Vec<PendingApproval>) -> Rig {
     };
     let notifier = ServerNotifier::start(
         env,
-        NotifierSources {
-            sessions: sessions_rx,
-            agent_pool: pool_rx,
-            approvals: approvals_rx,
-            view: view_rx,
-            answers: answers.clone(),
-        },
+        NotifierSources { sessions: sessions_rx, agent_pool: pool_rx, approvals: approvals_rx, view: view_rx, answers: answers.clone() },
     );
     Rig { sink, prefs, focus, answers, sessions, agent_pool, approvals, view, _notifier: notifier }
 }
@@ -401,7 +395,6 @@ async fn an_approval_that_went_away_is_told_again_when_it_comes_back_new_and_not
     settle().await;
     assert_eq!(rig.shown().len(), 2);
 }
-
 
 async fn advance(ms: u64) {
     settle().await;

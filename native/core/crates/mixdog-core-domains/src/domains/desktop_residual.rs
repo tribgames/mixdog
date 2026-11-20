@@ -18,7 +18,10 @@
 //!
 //! Path rules are Node's: `PathFlavor` carries the platform's, so both are replayed in tests on any host.
 
-#![allow(clippy::disallowed_methods, reason = "file work runs as the body of a durability-io lane job; the font listing waits on its child with a channel timeout")]
+#![allow(
+    clippy::disallowed_methods,
+    reason = "file work runs as the body of a durability-io lane job; the font listing waits on its child with a channel timeout"
+)]
 
 use std::io::Read;
 use std::path::Path;
@@ -80,10 +83,7 @@ pub struct PathFlavor {
 
 impl PathFlavor {
     pub fn host() -> Self {
-        let drive = std::env::current_dir()
-            .ok()
-            .and_then(|dir| dir.to_string_lossy().chars().next().filter(char::is_ascii_alphabetic))
-            .unwrap_or('C');
+        let drive = std::env::current_dir().ok().and_then(|dir| dir.to_string_lossy().chars().next().filter(char::is_ascii_alphabetic)).unwrap_or('C');
         Self { windows: cfg!(windows), drive }
     }
 
@@ -98,10 +98,7 @@ impl PathFlavor {
         if first.is_some_and(|c| self.separator(c)) {
             return true;
         }
-        self.windows
-            && first.is_some_and(|c| c.is_ascii_alphabetic())
-            && chars.next() == Some(':')
-            && chars.next().is_some_and(|c| self.separator(c))
+        self.windows && first.is_some_and(|c| c.is_ascii_alphabetic()) && chars.next() == Some(':') && chars.next().is_some_and(|c| self.separator(c))
     }
 
     /// `path.resolve(cwd, path)` for an absolute `cwd`, or `path.resolve(path)` for an absolute `path` (`cwd` empty).
@@ -197,10 +194,7 @@ fn decode_path(value: &str) -> String {
             at += 1;
             continue;
         }
-        let byte = value
-            .get(at + 1..at + 3)
-            .filter(|pair| pair.bytes().all(|b| b.is_ascii_hexdigit()))
-            .and_then(|pair| u8::from_str_radix(pair, 16).ok());
+        let byte = value.get(at + 1..at + 3).filter(|pair| pair.bytes().all(|b| b.is_ascii_hexdigit())).and_then(|pair| u8::from_str_radix(pair, 16).ok());
         let Some(byte) = byte else { return value.to_owned() };
         out.push(byte);
         at += 3;
@@ -415,7 +409,11 @@ fn hex(bytes: &[u8]) -> String {
 /// The attachment of `session_id` with this id and its verified bytes. `not-linked` for an id the session's conversation does
 /// not name (another session's, a guessed hash), `not-found` when the store no longer has it, `changed` for bytes that do not
 /// hash to the id (the store is content-addressed).
-pub async fn read_session_attachment(host: &dyn AttachmentHost, session_id: &str, attachment_id: &str) -> Result<(SessionAttachment, Vec<u8>), AttachmentError> {
+pub async fn read_session_attachment(
+    host: &dyn AttachmentHost,
+    session_id: &str,
+    attachment_id: &str,
+) -> Result<(SessionAttachment, Vec<u8>), AttachmentError> {
     if !attachment_id_shape(attachment_id) {
         return Err(AttachmentError::InvalidId);
     }
@@ -455,9 +453,7 @@ fn sanitized_file_name(value: &str) -> String {
             in_run = false;
         }
     }
-    let trimmed = replaced
-        .trim_start_matches(|c: char| is_js_space(c) || c == '.' || c == '-')
-        .trim_end_matches(|c: char| is_js_space(c) || c == '.');
+    let trimmed = replaced.trim_start_matches(|c: char| is_js_space(c) || c == '.' || c == '-').trim_end_matches(|c: char| is_js_space(c) || c == '.');
     let name = slice_utf16(trimmed, 120);
     if name.is_empty() { "download".to_owned() } else { name }
 }

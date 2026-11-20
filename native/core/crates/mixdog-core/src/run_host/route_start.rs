@@ -198,11 +198,19 @@ mod tests {
     async fn a_turn_start_applies_the_held_route_before_the_settings() {
         let order = Arc::new(Mutex::new(Vec::new()));
         let thread = ThreadId::from("t1");
-        let start = TurnStart { route: Arc::new(Steps(order.clone(), Ok(()))), switches: Arc::new(Steps(order.clone(), Ok(()))), settings: Arc::new(Steps(order.clone(), Ok(()))) };
+        let start = TurnStart {
+            route: Arc::new(Steps(order.clone(), Ok(()))),
+            switches: Arc::new(Steps(order.clone(), Ok(()))),
+            settings: Arc::new(Steps(order.clone(), Ok(()))),
+        };
         start.reconcile(&thread, false).await.expect("reconciled");
         assert_eq!(*order.lock().unwrap(), ["route", "switches", "settings"]);
         order.lock().unwrap().clear();
-        let refused = TurnStart { route: Arc::new(Steps(order.clone(), Err("held pick refused".into()))), switches: Arc::new(Steps(order.clone(), Ok(()))), settings: Arc::new(Steps(order.clone(), Ok(()))) };
+        let refused = TurnStart {
+            route: Arc::new(Steps(order.clone(), Err("held pick refused".into()))),
+            switches: Arc::new(Steps(order.clone(), Ok(()))),
+            settings: Arc::new(Steps(order.clone(), Ok(()))),
+        };
         assert_eq!(refused.reconcile(&thread, false).await.expect_err("refused"), "held pick refused");
         assert_eq!(*order.lock().unwrap(), ["route"]);
     }
@@ -225,7 +233,6 @@ mod tests {
         assert!(start.seat(&thread).await.is_err());
         assert!(start.adopt(&thread, None).await.is_err());
     }
-
 
     /// The turn's reminders read through the turn start: the agents a Lead may delegate to now (`currentAgents()`) and the
     /// text a carried orchestration mode notice ends with (`orchestrationInstructions(mode)`) are its settings host's.
@@ -255,7 +262,6 @@ mod tests {
         assert_eq!(agents.iter().map(|agent| agent.id.as_str()).collect::<Vec<_>>(), ["worker"]);
     }
 }
-
 
 #[async_trait]
 impl TurnSettings for TurnStart {

@@ -76,8 +76,7 @@ fn clean(value: Option<&str>) -> &str {
 
 fn named_keys(options: &RequestOptions) -> impl Iterator<Item = &str> {
     let param = |key| options.model_parameters.as_ref().and_then(|p| p.get(key)).and_then(Value::as_str);
-    [param("providerCacheKey"), param("promptCacheKey"), options.prompt_cache_key.as_deref()]
-        .into_iter().flatten().filter(|key| !key.is_empty())
+    [param("providerCacheKey"), param("promptCacheKey"), options.prompt_cache_key.as_deref()].into_iter().flatten().filter(|key| !key.is_empty())
 }
 
 /// `summarizePromptCacheTools`.
@@ -127,12 +126,7 @@ pub fn codex_prompt_cache_key(options: &RequestOptions, var: &dyn Fn(&str) -> Op
     codex_key(options, var, prefix, &LaneConfig::default())
 }
 
-pub(super) fn codex_key(
-    options: &RequestOptions,
-    var: &dyn Fn(&str) -> Option<String>,
-    prefix: &Prefix<'_>,
-    config: &LaneConfig,
-) -> String {
+pub(super) fn codex_key(options: &RequestOptions, var: &dyn Fn(&str) -> Option<String>, prefix: &Prefix<'_>, config: &LaneConfig) -> String {
     let explicit = named_keys(options).map(mixdog_js::js_trim).find(|key| !key.is_empty()).unwrap_or_default();
     let named = named_keys(options).next();
     let namespace = normalize(named.unwrap_or(NAMESPACE));
@@ -181,12 +175,7 @@ pub fn public_prompt_cache_key(options: &RequestOptions, var: &dyn Fn(&str) -> O
     public_key(options, var, prefix, &LaneConfig::default())
 }
 
-pub(super) fn public_key(
-    options: &RequestOptions,
-    var: &dyn Fn(&str) -> Option<String>,
-    prefix: &Prefix<'_>,
-    config: &LaneConfig,
-) -> String {
+pub(super) fn public_key(options: &RequestOptions, var: &dyn Fn(&str) -> Option<String>, prefix: &Prefix<'_>, config: &LaneConfig) -> String {
     let named = named_keys(options).next();
     let namespace = normalize(named.unwrap_or("mixdog-openai"));
     let shared = options.prompt_cache_scope.as_deref() == Some("shared") || var("MIXDOG_OAI_CACHE_KEY_SHARED").as_deref() == Some("1");
@@ -217,7 +206,12 @@ mod tests {
             let options = RequestOptions {
                 session_id: text(&o["sessionId"]),
                 // Node's `codexSessionId` is the thread identity here; it outranks `sessionId`.
-                thread: text(&o["codexSessionId"]).map(|id| mixdog_core_api::domain::provider::RequestThread { id: id.as_str().into(), window: 0, turn: None, turn_started_at_ms: None }),
+                thread: text(&o["codexSessionId"]).map(|id| mixdog_core_api::domain::provider::RequestThread {
+                    id: id.as_str().into(),
+                    window: 0,
+                    turn: None,
+                    turn_started_at_ms: None,
+                }),
                 prompt_cache_key: text(&o["promptCacheKey"]),
                 prompt_cache_scope: text(&o["promptCacheScope"]),
                 effort: text(&o["effort"]),
@@ -234,13 +228,7 @@ mod tests {
                 service_tier: p["serviceTier"].as_str(),
             };
             let env = |name: &str| case["env"][name].as_str().map(str::to_owned);
-            assert_eq!(
-                codex_prompt_cache_key(&options, &env, &prefix),
-                case["key"].as_str().unwrap(),
-                "{}",
-                case["name"]
-            );
+            assert_eq!(codex_prompt_cache_key(&options, &env, &prefix), case["key"].as_str().unwrap(), "{}", case["name"]);
         }
     }
 }
-

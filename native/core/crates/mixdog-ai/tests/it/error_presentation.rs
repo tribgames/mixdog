@@ -100,7 +100,10 @@ fn a_failure_with_only_text_is_read_by_its_wording() {
         ("expired access token", "Provider authentication failed."),
         ("HTTP 429 too many requests", "Provider quota/rate limit hit."),
         ("insufficient_quota", "Provider quota/rate limit hit."),
-        ("Anthropic OAuth rate limit cooldown retryAfter=2m", "Anthropic quota/rate limit hit; retry after 2m. Re-login or switch the provider account to continue now."),
+        (
+            "Anthropic OAuth rate limit cooldown retryAfter=2m",
+            "Anthropic quota/rate limit hit; retry after 2m. Re-login or switch the provider account to continue now.",
+        ),
         ("rate limit retryAfter=3600s", "Provider quota/rate limit hit; retry after 1h."),
         ("context window exceeded", "Context too large."),
         ("AGENT_CONTEXT_OVERFLOW", "Context too large."),
@@ -140,7 +143,13 @@ fn the_text_is_one_line_with_session_ids_made_generic_and_cut_to_the_limit() {
 #[test]
 fn a_surface_names_the_subject_of_a_cancellation_and_a_stall() {
     let cancelled = ErrorView { is_object: true, name: "AbortError".into(), message: "This operation was aborted".into(), ..ErrorView::default() };
-    for (name, want) in [("", "Tool was cancelled."), ("turn", "Cancelled"), ("request", "Cancelled"), ("agent", "Agent was cancelled."), ("web_search", "Web search agent was cancelled.")] {
+    for (name, want) in [
+        ("", "Tool was cancelled."),
+        ("turn", "Cancelled"),
+        ("request", "Cancelled"),
+        ("agent", "Agent was cancelled."),
+        ("web_search", "Web search agent was cancelled."),
+    ] {
         assert_eq!(present_error_text(&cancelled, &surface(name)), want, "{name:?}");
     }
     let stale = |text: &str, name: &str| present_error_text(&ErrorView::message(text), &surface(name));
@@ -161,7 +170,14 @@ fn a_stalled_or_slow_stream_names_how_long_nothing_arrived() {
     let stalled = ErrorView { is_object: true, name: "StreamStalledError".into(), message: "stalled".into(), ..ErrorView::default() };
     assert_eq!(show(&stalled), "No progress.");
     assert_eq!(says("first byte timed out after 90000ms"), "No first response 90s.");
-    let waiting = ErrorView { is_object: true, message: "x".into(), timeout_phase: Some(TimeoutPhase::FirstChunk), waited_ms: 45_000, attempts: 2, ..ErrorView::default() };
+    let waiting = ErrorView {
+        is_object: true,
+        message: "x".into(),
+        timeout_phase: Some(TimeoutPhase::FirstChunk),
+        waited_ms: 45_000,
+        attempts: 2,
+        ..ErrorView::default()
+    };
     assert_eq!(show(&waiting), "Model still thinking: no output in 45s; the provider sent nothing yet; attempts: 2.");
     let named = PresentOptions { provider_label: Some("Acme".into()), ..PresentOptions::default() };
     assert_eq!(present_error_text(&ErrorView { attempts: 0, ..waiting.clone() }, &named), "Model still thinking: no output in 45s; Acme sent nothing yet.");
@@ -314,7 +330,11 @@ fn diagnostic_text_loses_control_sequences_credentials_and_image_data() {
     assert_eq!(safe_error_details("img (data:image/png;base64,iVBORw0KGgo=) end"), "img ([image data]) end");
     let blob = "A".repeat(300);
     assert_eq!(safe_error_details(&format!(r#"{{"data":"{blob}"}}"#)), r#"{"data":"[image data]"}"#);
-    assert_eq!(safe_error_details(&format!(r#"{{"data":"{}"}}"#, "A".repeat(100))), format!(r#"{{"data":"{}"}}"#, "A".repeat(100)), "a short data field is not an image");
+    assert_eq!(
+        safe_error_details(&format!(r#"{{"data":"{}"}}"#, "A".repeat(100))),
+        format!(r#"{{"data":"{}"}}"#, "A".repeat(100)),
+        "a short data field is not an image"
+    );
     assert_eq!(safe_error_details("  padded \n"), "padded");
     let long = safe_error_details(&"z".repeat(13_000));
     assert_eq!(long, format!("{}\n…", "z".repeat(12_000)));

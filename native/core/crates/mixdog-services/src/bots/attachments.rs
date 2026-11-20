@@ -142,9 +142,6 @@ mod tests {
         assert_eq!(prompt_content("hi", &text_only), json!("hi\n\n--- Attached file: a.txt ---\nbody"));
         assert_eq!(prompt_content("hi", &Value::Null), json!("hi"));
         let with_image = json!([{"kind":"image","name":"i.png","mimeType":"image/jpeg","data":"AAA"}]);
-        assert_eq!(
-            prompt_content("hi", &with_image),
-            json!([{"type":"text","text":"hi"},{"type":"image","data":"AAA","mimeType":"image/jpeg"}])
-        );
+        assert_eq!(prompt_content("hi", &with_image), json!([{"type":"text","text":"hi"},{"type":"image","data":"AAA","mimeType":"image/jpeg"}]));
     }
 }

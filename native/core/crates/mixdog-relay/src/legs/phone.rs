@@ -21,8 +21,8 @@ use super::hub::{Hub, IngressInstall, Liveness, PhoneOptions, SweepLeg};
 use super::ingress::IngressLeg;
 use crate::close_codes::{DESKTOP_OFFLINE, DESKTOP_OFFLINE_REASON, PAIRING_RESCAN_REQUIRED, PAIRING_RESCAN_REQUIRED_REASON};
 use crate::http1::conn::panic_message;
-use crate::http1::{Headers, refusal_bytes};
 use crate::http1::util::{browser_socket_origin_allowed, client_ip};
+use crate::http1::{Headers, refusal_bytes};
 use crate::logline;
 use crate::rate_limit::RateLimiter;
 use crate::store::ProfileInput;
@@ -248,11 +248,8 @@ impl PhoneLegs {
             let (pool, limits, tapped) = (self.hub.ingress_pool().clone(), self.hub.ingress_limits(), socket.clone());
             Box::new(move |kind| IngressLeg::install(&pool, &tapped, kind, limits))
         };
-        let options = PhoneOptions {
-            browser_client_id: Some(browser_client_id),
-            inflight_ceiling: self.hub.config().max_inflight_bytes,
-            ingress: Some(install),
-        };
+        let options =
+            PhoneOptions { browser_client_id: Some(browser_client_id), inflight_ceiling: self.hub.config().max_inflight_bytes, ingress: Some(install) };
         let Ok(handle) = self.hub.attach_phone(&device_id, Arc::new(socket.clone()), options) else {
             self.answer_closed(socket, events, DESKTOP_OFFLINE, DESKTOP_OFFLINE_REASON).await;
             return;

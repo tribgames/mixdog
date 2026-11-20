@@ -5,10 +5,10 @@
 use std::sync::LazyLock;
 
 use mixdog_core_api::domain::provider::Role;
+use mixdog_js::JsRegex;
 use mixdog_js::is_js_space;
 use mixdog_js::js_trim;
 use mixdog_js::js_trim_end;
-use mixdog_js::JsRegex;
 
 use super::text_utils::extract_text;
 use super::text_utils::truncate_middle;
@@ -16,15 +16,8 @@ use crate::message::AgentMessage;
 use crate::project::is_injected_skill_body;
 use crate::project::is_protected_context_user;
 
-const REQUIRED_SECTIONS: [&str; 7] = [
-    "## Goal",
-    "## Constraints",
-    "## Progress",
-    "## Key Decisions",
-    "## Next Steps",
-    "## Critical Context",
-    "## Relevant Files",
-];
+const REQUIRED_SECTIONS: [&str; 7] =
+    ["## Goal", "## Constraints", "## Progress", "## Key Decisions", "## Next Steps", "## Critical Context", "## Relevant Files"];
 
 struct Layout {
     heading: &'static str,
@@ -105,10 +98,7 @@ fn heading_matches_anchor(heading: &str, anchor: &str) -> bool {
 
 fn schema_score(summary: &str) -> usize {
     let headings = heading_lines(summary);
-    REQUIRED_SECTIONS
-        .iter()
-        .filter(|anchor| headings.iter().any(|h| heading_matches_anchor(h, anchor)))
-        .count()
+    REQUIRED_SECTIONS.iter().filter(|anchor| headings.iter().any(|h| heading_matches_anchor(h, anchor))).count()
 }
 
 type Sections = Vec<(String, Vec<String>)>;
@@ -197,11 +187,7 @@ fn current_request(messages: &[AgentMessage]) -> String {
 }
 
 fn lines_to_bullets(text: &str) -> Vec<String> {
-    text.split('\n')
-        .map(js_trim)
-        .filter(|l| !l.is_empty())
-        .map(|l| if l.starts_with('-') { l.to_owned() } else { format!("- {l}") })
-        .collect()
+    text.split('\n').map(js_trim).filter(|l| !l.is_empty()).map(|l| if l.starts_with('-') { l.to_owned() } else { format!("- {l}") }).collect()
 }
 
 fn unrecognized_section_text(present: &Sections) -> String {
@@ -229,11 +215,7 @@ fn section_body_for(sections: &Sections, anchor: &str) -> Option<Vec<String>> {
 }
 
 fn placeholder_body(section: &Layout) -> Vec<String> {
-    if section.sub.is_empty() {
-        vec!["- (none)".to_owned()]
-    } else {
-        section.sub.iter().flat_map(|s| [(*s).to_owned(), "- (none)".to_owned()]).collect()
-    }
+    if section.sub.is_empty() { vec!["- (none)".to_owned()] } else { section.sub.iter().flat_map(|s| [(*s).to_owned(), "- (none)".to_owned()]).collect() }
 }
 
 /// The offset where the first `## ` heading line starts (`(^|\n)\s*##\s+`).
@@ -269,8 +251,7 @@ pub fn repair_compact_summary(summary: &str, head: &[AgentMessage], tail: &[Agen
     let extra: Vec<String> = [preamble, orphan].into_iter().filter(|s| !s.is_empty()).collect();
     let extra_context = js_trim(&extra.join("\n\n")).to_owned();
     let bulletize = |lines: Option<Vec<String>>| {
-        let cleaned: Vec<String> =
-            lines.unwrap_or_default().iter().map(|l| js_trim(l).to_owned()).filter(|l| !l.is_empty()).collect();
+        let cleaned: Vec<String> = lines.unwrap_or_default().iter().map(|l| js_trim(l).to_owned()).filter(|l| !l.is_empty()).collect();
         (!cleaned.is_empty()).then_some(cleaned)
     };
     let goal = {
@@ -310,9 +291,7 @@ pub fn repair_compact_summary(summary: &str, head: &[AgentMessage], tail: &[Agen
         }
         match section.anchor {
             "## Goal" => out.push(if goal.is_empty() { "- (none)".to_owned() } else { format!("- {goal}") }),
-            "## Relevant Files" => {
-                out.extend(if files.is_empty() { vec!["- (none)".to_owned()] } else { files.clone() })
-            }
+            "## Relevant Files" => out.extend(if files.is_empty() { vec!["- (none)".to_owned()] } else { files.clone() }),
             _ => out.push("- (none)".to_owned()),
         }
     }

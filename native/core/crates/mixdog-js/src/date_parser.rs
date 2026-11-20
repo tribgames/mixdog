@@ -228,9 +228,7 @@ const KEYWORDS: [([u8; 3], Kw, i32); 27] = [
 fn keyword(prefix: [u32; 3], len: usize) -> (Kw, i32) {
     KEYWORDS
         .iter()
-        .find(|(name, kind, _)| {
-            prefix.iter().zip(name).all(|(&p, &n)| p == u32::from(n)) && (len <= 3 || *kind == Kw::Month)
-        })
+        .find(|(name, kind, _)| prefix.iter().zip(name).all(|(&p, &n)| p == u32::from(n)) && (len <= 3 || *kind == Kw::Month))
         .map_or((Kw::Invalid, 0), |&(_, kind, value)| (kind, value))
 }
 

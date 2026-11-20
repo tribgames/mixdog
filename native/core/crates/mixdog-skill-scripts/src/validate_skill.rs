@@ -19,8 +19,7 @@ use serde_json::Value;
 use crate::Outcome;
 use crate::node_fs_message;
 
-const ALLOWED_FIELDS: &[&str] =
-    &["name", "description", "when_to_use", "license", "compatibility", "metadata", "allowed-tools", "dependencies"];
+const ALLOWED_FIELDS: &[&str] = &["name", "description", "when_to_use", "license", "compatibility", "metadata", "allowed-tools", "dependencies"];
 
 /// The UI description and the model's trigger have separate budgets: only `when_to_use` enters the model's
 /// listing, and instructions live in the body.
@@ -95,10 +94,7 @@ fn is_file<P: ReadProof>(proof: &P, path: &str) -> bool {
 }
 
 /// Resolves, reads and parses `SKILL.md`; a failure is the finished validation result.
-fn load_skill_document<P: ReadProof>(
-    proof: &P,
-    input: Option<&str>,
-) -> Result<(String, mixdog_mcp::skills::SkillDocument), Validation> {
+fn load_skill_document<P: ReadProof>(proof: &P, input: Option<&str>) -> Result<(String, mixdog_mcp::skills::SkillDocument), Validation> {
     let Some(input) = input.filter(|input| !input.is_empty()) else {
         return Err(Validation::failed("A skill directory path is required.".to_owned()));
     };
@@ -119,13 +115,7 @@ fn load_skill_document<P: ReadProof>(
     }
 }
 
-fn check_referenced_resources<P: ReadProof>(
-    proof: &P,
-    skill_dir: &str,
-    body: &str,
-    errors: &mut Vec<String>,
-    warnings: &mut Vec<String>,
-) {
+fn check_referenced_resources<P: ReadProof>(proof: &P, skill_dir: &str, body: &str, errors: &mut Vec<String>, warnings: &mut Vec<String>) {
     for resource in referenced_paths(body) {
         let resource_path = nodepath::resolve_host(&[skill_dir, &resource]);
         let rel = nodepath::relative_host(skill_dir, &resource_path);
@@ -195,10 +185,8 @@ pub fn validate_skill_directory<P: ReadProof>(proof: &P, input: Option<&str>) ->
         ));
     }
     if when_to_use.is_empty() {
-        warnings.push(
-            "when_to_use is empty; the model sees only the name, not the UI description. Add selection conditions and relevant boundaries."
-                .to_owned(),
-        );
+        warnings
+            .push("when_to_use is empty; the model sees only the name, not the UI description. Add selection conditions and relevant boundaries.".to_owned());
     }
     if let Some(compatibility) = field("compatibility") {
         match compatibility.as_str() {
@@ -230,12 +218,7 @@ pub fn validate_skill_directory<P: ReadProof>(proof: &P, input: Option<&str>) ->
         ok: errors.is_empty(),
         errors,
         warnings,
-        skill: Some(SkillSummary {
-            name: name.clone(),
-            description: description.clone(),
-            when_to_use: when_to_use.clone(),
-            directory: skill_dir,
-        }),
+        skill: Some(SkillSummary { name: name.clone(), description: description.clone(), when_to_use: when_to_use.clone(), directory: skill_dir }),
     }
 }
 
@@ -332,10 +315,7 @@ mod tests {
         let result = validate_skill_directory(&Unlaned, Some(&dir));
         assert_eq!(
             result.errors,
-            [
-                "Referenced resource does not exist: references/a.md.",
-                "Referenced resource escapes the skill directory: references/../../x.",
-            ]
+            ["Referenced resource does not exist: references/a.md.", "Referenced resource escapes the skill directory: references/../../x.",]
         );
         assert_eq!(result.warnings.len(), 1);
         assert!(result.warnings[0].starts_with("assets/none.png is not bundled with the skill;"));
@@ -343,14 +323,7 @@ mod tests {
 
     #[test]
     fn field_checks_keep_their_order_and_text() {
-        let front = [
-            "name: other",
-            "description: <b>",
-            "extra: 1",
-            "compatibility: 5",
-            "metadata: [1]",
-            "dependencies: nope",
-        ];
+        let front = ["name: other", "description: <b>", "extra: 1", "compatibility: 5", "metadata: [1]", "dependencies: nope"];
         let (_root, dir) = skill("sample", &[("SKILL.md", &document(&front, &[]))]);
         let result = validate_skill_directory(&Unlaned, Some(&dir));
         assert_eq!(

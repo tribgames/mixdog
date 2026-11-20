@@ -368,9 +368,7 @@ async fn serve_exchange<S: AsyncRead + AsyncWrite + Send + Unpin>(inner: &Inner,
         }
     }
     let secret = request_secret(inner, &line).await;
-    let body = Zeroizing::new(
-        serde_json::to_string(&Reply { ok: secret.is_some(), secret: secret.as_ref().map(|s| s.as_str()) }).unwrap_or_default(),
-    );
+    let body = Zeroizing::new(serde_json::to_string(&Reply { ok: secret.is_some(), secret: secret.as_ref().map(|s| s.as_str()) }).unwrap_or_default());
     let sent = async {
         write.write_all(body.as_bytes()).await?;
         write.write_all(b"\n").await?;

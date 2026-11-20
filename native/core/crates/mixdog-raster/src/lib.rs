@@ -16,13 +16,13 @@ use std::fmt;
 use mixdog_rt::CancellationToken;
 use mixdog_rt::LaneToken;
 
+pub mod canvas;
 pub mod composite;
 pub mod image;
 pub mod jpeg;
 pub mod ops;
 pub mod smartcrop;
 pub mod stats;
-pub mod canvas;
 pub mod svg;
 
 pub use crate::composite::Blend;

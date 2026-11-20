@@ -366,8 +366,25 @@ pub struct Telemetry {
 impl Telemetry {
     /// `store`, `lane` and `cancel` are the sampler's (the data directory, the maintenance lane, the daemon's run token);
     /// `context` is what a kept window adds (`|| Value::Null` for nothing).
-    pub fn new(seams: Seams, store: Arc<dyn ProfileStore>, profile_dir: PathBuf, lane: MaintenanceIo, cancel: CancellationToken, context: Context) -> Arc<Self> {
-        let sampler = Arc::new(Sampler { store, lane, cancel, context, profile_dir, pending: AtomicBool::new(false), state: Mutex::new((false, String::new())), flag: Mutex::new(false), flag_stale: AtomicBool::new(true) });
+    pub fn new(
+        seams: Seams,
+        store: Arc<dyn ProfileStore>,
+        profile_dir: PathBuf,
+        lane: MaintenanceIo,
+        cancel: CancellationToken,
+        context: Context,
+    ) -> Arc<Self> {
+        let sampler = Arc::new(Sampler {
+            store,
+            lane,
+            cancel,
+            context,
+            profile_dir,
+            pending: AtomicBool::new(false),
+            state: Mutex::new((false, String::new())),
+            flag: Mutex::new(false),
+            flag_stale: AtomicBool::new(true),
+        });
         Arc::new(Self { seams, activity: AtomicBool::new(false), sampler, watch: Mutex::new(None) })
     }
 
@@ -539,7 +556,6 @@ mod tests {
         assert!(memory.rss_bytes.is_some_and(|n| n > 0));
     }
 
-
     fn tokens() -> mixdog_rt::LaneTokens {
         mixdog_rt::testing::tokens()
     }
@@ -554,7 +570,14 @@ mod tests {
             now_ms: Arc::new(|| 1_793_925_139_716),
             pid: 77,
         };
-        let telemetry = Telemetry::new(seams, store.clone(), PathBuf::from("data/profiles"), tokens().maintenance_io, CancellationToken::new(), Arc::new(|| json!({ "lanes": "ok" })));
+        let telemetry = Telemetry::new(
+            seams,
+            store.clone(),
+            PathBuf::from("data/profiles"),
+            tokens().maintenance_io,
+            CancellationToken::new(),
+            Arc::new(|| json!({ "lanes": "ok" })),
+        );
         Fixture { telemetry, store, lines }
     }
     #[tokio::test]
@@ -564,7 +587,9 @@ mod tests {
         f.telemetry.tick(LagWindow::default());
         assert_eq!(
             lines(&f),
-            ["daemon-telemetry reason=periodic ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4"]
+            [
+                "daemon-telemetry reason=periodic ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4"
+            ]
         );
     }
     #[tokio::test]
@@ -573,7 +598,9 @@ mod tests {
         f.telemetry.boot();
         assert_eq!(
             lines(&f),
-            ["daemon-telemetry reason=boot ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4"]
+            [
+                "daemon-telemetry reason=boot ts=2026-11-06T00:32:19.716Z pid=77 rssBytes=1000 heapUsedBytes=-1 activeCalls=2 queuedCalls=1 busySessions=3 busyMemoryAgents=4"
+            ]
         );
         f.telemetry.tick(LagWindow::default());
         assert_eq!(lines(&f).len(), 1, "the boot line is not activity");
@@ -617,7 +644,11 @@ mod tests {
         assert_eq!(f.telemetry.sample(at, LagWindow::default(), WorkCounts::default()).await, SamplerOutcome::Discarded);
         assert_eq!(lines(&f).len(), 1, "enabled is said once");
         f.store.flag.store(false, Ordering::SeqCst);
-        assert_eq!(f.telemetry.sample(at, LagWindow::default(), WorkCounts::default()).await, SamplerOutcome::Discarded, "nothing reported the change: the file is not read again");
+        assert_eq!(
+            f.telemetry.sample(at, LagWindow::default(), WorkCounts::default()).await,
+            SamplerOutcome::Discarded,
+            "nothing reported the change: the file is not read again"
+        );
         f.telemetry.flag_changed();
         assert_eq!(f.telemetry.sample(at, BAD, WorkCounts::default()).await, SamplerOutcome::Off);
         assert_eq!(lines(&f).last().unwrap(), "lag-profile disabled");

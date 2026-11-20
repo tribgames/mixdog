@@ -6,18 +6,15 @@ mod predicates;
 mod value;
 
 use super::{Host, Res};
-use crate::a11y::{
-    format_value, integrity_refusal, is_interactive, truncation_warning, Accessibility, Node,
-    CANDIDATE_LIMIT,
-};
+use crate::a11y::{Accessibility, CANDIDATE_LIMIT, Node, format_value, integrity_refusal, is_interactive, truncation_warning};
 use crate::obj;
 use crate::observer::now_ms;
+use crate::platform::WindowInfo;
 use crate::protocol::{Obj, Req};
 use crate::session::RefRecord;
-use crate::platform::WindowInfo;
-use serde_json::{json, Value};
-use std::collections::hash_map::Entry;
+use serde_json::{Value, json};
 use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 
 const NONINTERACTIVE_ROLES: [&str; 15] = [
     "Text",
@@ -73,11 +70,7 @@ const MSAA: &str = "msaa";
 
 /// The source a read names, where "" stands for the desktop's own.
 fn source_or(source: &'static str, desktop: &'static str) -> &'static str {
-    if source.is_empty() {
-        desktop
-    } else {
-        source
-    }
+    if source.is_empty() { desktop } else { source }
 }
 
 /// Whether a view lists the node: an interactive role, a non-interactive one
@@ -85,9 +78,7 @@ fn source_or(source: &'static str, desktop: &'static str) -> &'static str {
 /// or editor takes input whatever its role (Snapshot-Window's search
 /// condition).
 fn in_view(node: &Node, include_noninteractive: bool) -> bool {
-    node.extra.text_surface
-        || is_interactive(&node.role)
-        || (include_noninteractive && NONINTERACTIVE_ROLES.contains(&node.role.as_str()))
+    node.extra.text_surface || is_interactive(&node.role) || (include_noninteractive && NONINTERACTIVE_ROLES.contains(&node.role.as_str()))
 }
 
 /// One listed element: its reply object and its text line. `mark` is its
@@ -105,16 +96,10 @@ fn element_entry(node: &Node, reference: &str, mark: i64, source: &'static str) 
         details.push(format!("id=\"{}\"", format_value(&node.automation_id, 80)));
     }
     if !node.accelerator.is_empty() {
-        details.push(format!(
-            "accelerator=\"{}\"",
-            format_value(&node.accelerator, 40)
-        ));
+        details.push(format!("accelerator=\"{}\"", format_value(&node.accelerator, 40)));
     }
     if !node.extra.access_key.is_empty() {
-        details.push(format!(
-            "access_key=\"{}\"",
-            format_value(&node.extra.access_key, 40)
-        ));
+        details.push(format!("access_key=\"{}\"", format_value(&node.extra.access_key, 40)));
     }
     // Help text that only repeats the name tells nothing.
     let help = node.extra.help.trim();
@@ -125,22 +110,15 @@ fn element_entry(node: &Node, reference: &str, mark: i64, source: &'static str) 
     if !node.value.is_empty() {
         details.push(format!("value=\"{}\"", format_value(&node.value, 120)));
     }
-    for (label, value) in [
-        ("toggle", &node.toggle),
-        ("selected", &node.selected),
-        ("expanded", &node.expanded),
-        ("range", &node.range),
-    ] {
+    for (label, value) in [("toggle", &node.toggle), ("selected", &node.selected), ("expanded", &node.expanded), ("range", &node.range)] {
         if !value.is_empty() {
             details.push(format!("{label}={value}"));
         }
     }
     if msaa {
-        for (label, value, maximum) in [
-            ("role", &node.extra.native_role, 80),
-            ("state", &node.extra.native_state, 120),
-            ("default_action", &node.extra.default_action, 80),
-        ] {
+        for (label, value, maximum) in
+            [("role", &node.extra.native_role, 80), ("state", &node.extra.native_state, 120), ("default_action", &node.extra.default_action, 80)]
+        {
             if !value.is_empty() {
                 details.push(format!("{label}=\"{}\"", format_value(value, maximum)));
             }
@@ -180,62 +158,31 @@ fn element_entry(node: &Node, reference: &str, mark: i64, source: &'static str) 
         "actions" => actions,
     };
     if !node.accelerator.is_empty() {
-        element.insert(
-            "accelerator".into(),
-            json!(format_value(&node.accelerator, 40)),
-        );
+        element.insert("accelerator".into(), json!(format_value(&node.accelerator, 40)));
     }
     if !node.extra.access_key.is_empty() {
-        element.insert(
-            "access_key".into(),
-            json!(format_value(&node.extra.access_key, 40)),
-        );
+        element.insert("access_key".into(), json!(format_value(&node.extra.access_key, 40)));
     }
     if let Some(help) = help {
         element.insert("help".into(), json!(format_value(help, 120)));
     }
     let disabled = if node.enabled { "" } else { " (disabled)" };
-    let detail_text = if details.is_empty() {
-        String::new()
-    } else {
-        format!(" {}", details.join(" "))
-    };
-    let line = format!(
-        "[{reference}] {} \"{}\"{disabled}{detail_text} @{cx},{cy}",
-        node.role,
-        format_value(&node.name, 80)
-    );
+    let detail_text = if details.is_empty() { String::new() } else { format!(" {}", details.join(" ")) };
+    let line = format!("[{reference}] {} \"{}\"{disabled}{detail_text} @{cx},{cy}", node.role, format_value(&node.name, 80));
     (element, line)
 }
 
 /// Whether a capture of the visible part leaves the node out: it is off
 /// screen or entirely outside the window.
 fn hidden(info: &WindowInfo, node: &Node) -> bool {
-    let (x, y, width, height) = (
-        info.x as f64,
-        info.y as f64,
-        info.width as f64,
-        info.height as f64,
-    );
-    node.offscreen
-        || node.x + node.width <= x
-        || node.x >= x + width
-        || node.y + node.height <= y
-        || node.y >= y + height
+    let (x, y, width, height) = (info.x as f64, info.y as f64, info.width as f64, info.height as f64);
+    node.offscreen || node.x + node.width <= x || node.x >= x + width || node.y + node.height <= y || node.y >= y + height
 }
 
 /// The key two nodes of one place and name share (Snapshot-Window's
 /// DedupeKey).
 fn dedupe_key(node: &Node) -> String {
-    format!(
-        "{}|{}|{}|{}|{}|{}",
-        node.x.round(),
-        node.y.round(),
-        node.width.round(),
-        node.height.round(),
-        node.name.to_lowercase(),
-        node.role.to_lowercase()
-    )
+    format!("{}|{}|{}|{}|{}|{}", node.x.round(), node.y.round(), node.width.round(), node.height.round(), node.name.to_lowercase(), node.role.to_lowercase())
 }
 
 /// What a capture keeps of the nodes a second API adds (Snapshot-Window's
@@ -274,12 +221,7 @@ fn within_border(uia: &Node, native: &Node) -> bool {
 /// loop, observation.ps1:512-554). `seen` maps each dedupe key to the node
 /// that holds it. A node that duplicates one already listed is dropped
 /// unless it adds an invoke or value action to it.
-fn merge_native(
-    found: &mut Vec<Node>,
-    seen: &mut HashMap<String, usize>,
-    native: Vec<Node>,
-    view: &View,
-) {
+fn merge_native(found: &mut Vec<Node>, seen: &mut HashMap<String, usize>, native: Vec<Node>, view: &View) {
     let identity = |node: &Node| format!("{}|{}", node.name.to_lowercase(), node.role.to_lowercase());
     let mut by_identity: HashMap<String, Vec<usize>> = HashMap::new();
     for (index, node) in found.iter().enumerate() {
@@ -299,32 +241,18 @@ fn merge_native(
             continue;
         }
         observe_native(&mut node);
-        let search = format!(
-            "{} {} {} {} {} {}",
-            node.name,
-            node.value,
-            node.extra.native_role,
-            node.extra.native_state,
-            node.extra.default_action,
-            node.role
-        )
-        .to_lowercase();
+        let search = format!("{} {} {} {} {} {}", node.name, node.value, node.extra.native_role, node.extra.native_state, node.extra.default_action, node.role)
+            .to_lowercase();
         if !view.query.is_empty() && !search.contains(view.query) {
             continue;
         }
         let key = dedupe_key(&node);
-        let existing = seen.get(&key).copied().or_else(|| {
-            by_identity.get(&identity(&node)).and_then(|candidates| {
-                candidates
-                    .iter()
-                    .copied()
-                    .find(|index| within_border(&found[*index], &node))
-            })
-        });
-        let adds_capability = existing.is_some_and(|index| {
-            (node.can_invoke && !found[index].can_invoke)
-                || (node.can_set_value && !found[index].can_set_value)
-        });
+        let existing = seen
+            .get(&key)
+            .copied()
+            .or_else(|| by_identity.get(&identity(&node)).and_then(|candidates| candidates.iter().copied().find(|index| within_border(&found[*index], &node))));
+        let adds_capability =
+            existing.is_some_and(|index| (node.can_invoke && !found[index].can_invoke) || (node.can_set_value && !found[index].can_set_value));
         if existing.is_some() && !adds_capability {
             continue;
         }
@@ -347,12 +275,10 @@ impl Drop for DeadlineScope<'_> {
 
 impl Host {
     pub(in crate::host) fn accessibility(&self) -> Res<&dyn Accessibility> {
-        let a11y = self.desktop.accessibility().ok_or_else(|| {
-            format!(
-                "accessibility_unavailable: {} exposes no accessibility tree to this host",
-                self.desktop.name()
-            )
-        })?;
+        let a11y = self
+            .desktop
+            .accessibility()
+            .ok_or_else(|| format!("accessibility_unavailable: {} exposes no accessibility tree to this host", self.desktop.name()))?;
         a11y.available()?;
         Ok(a11y)
     }
@@ -377,11 +303,7 @@ impl Host {
         // A bounded capture gives every provider read one shared budget
         // (Snapshot-Window's MixUiaDeadline).
         let _deadline = bounded.then(|| {
-            a11y.set_deadline(
-                req.int("deadline_ms")
-                    .filter(|ms| *ms > 0)
-                    .map(|ms| ms as u64),
-            );
+            a11y.set_deadline(req.int("deadline_ms").filter(|ms| *ms > 0).map(|ms| ms as u64));
             DeadlineScope(a11y)
         });
         let (expected_continuation, bound_key, generation) = self.session(|session| {
@@ -389,20 +311,13 @@ impl Host {
             // A ref the request names is read before the refs are retired:
             // the element it points at is marked in the reply by an identity
             // that survives this snapshot's new refs.
-            let bound = req
-                .str("ref")
-                .and_then(|reference| session.refs.get(&reference))
-                .map(|record| record.identity.clone())
-                .filter(|identity| !identity.is_empty());
+            let bound =
+                req.str("ref").and_then(|reference| session.refs.get(&reference)).map(|record| record.identity.clone()).filter(|identity| !identity.is_empty());
             session.invalidate_refs();
             session.marks.clear();
             (expected, bound, session.generation)
         });
-        let visible_only = if req.has("visible_only") {
-            req.truthy("visible_only")
-        } else {
-            true
-        };
+        let visible_only = if req.has("visible_only") { req.truthy("visible_only") } else { true };
         let include_noninteractive = req.truthy("include_noninteractive");
         let include_structure = req.truthy("include_structure");
         let max = req.int("max_elements").unwrap_or(200);
@@ -412,39 +327,20 @@ impl Host {
         let max = max as usize;
         let query = req.text("query").trim().to_lowercase();
         let role_filter = req.text("role").trim().to_lowercase();
-        let fingerprint = fingerprint(
-            &json!([
-                info.id(),
-                max,
-                visible_only,
-                include_noninteractive,
-                include_structure,
-                bounded,
-                query,
-                role_filter
-            ])
-            .to_string(),
-        );
+        let fingerprint =
+            fingerprint(&json!([info.id(), max, visible_only, include_noninteractive, include_structure, bounded, query, role_filter]).to_string());
         let mut offset = 0usize;
         let mut continuation_total = None;
         if let Some(token) = req.str("continuation") {
             let parts: Vec<&str> = token.split(':').collect();
-            let parsed = (parts.len() == 4).then(|| {
-                (
-                    parts[0].parse::<i64>().ok(),
-                    parts[1].parse::<usize>().ok(),
-                    parts[3].parse::<usize>().ok(),
-                )
-            });
+            let parsed = (parts.len() == 4).then(|| (parts[0].parse::<i64>().ok(), parts[1].parse::<usize>().ok(), parts[3].parse::<usize>().ok()));
             let valid = matches!(parsed, Some((Some(token_generation), Some(token_offset), Some(token_total)))
                 if token_generation == generation - 1
                     && token_offset <= token_total
                     && expected_continuation.as_deref() == Some(token.as_str())
                     && parts[2] == fingerprint);
             if !valid {
-                return Err(
-                    "continuation is stale or incompatible; capture the first page again".into(),
-                );
+                return Err("continuation is stale or incompatible; capture the first page again".into());
             }
             if let Some((_, Some(token_offset), Some(token_total))) = parsed {
                 offset = token_offset;
@@ -477,11 +373,7 @@ impl Host {
             if !role_filter.is_empty() && node.role.to_lowercase() != role_filter {
                 continue;
             }
-            let search = format!(
-                "{} {} {} {}",
-                node.name, node.automation_id, node.value, node.role
-            )
-            .to_lowercase();
+            let search = format!("{} {} {} {}", node.name, node.automation_id, node.value, node.role).to_lowercase();
             if !query.is_empty() && !search.contains(&query) {
                 continue;
             }
@@ -494,44 +386,24 @@ impl Host {
         // The second tree is read after the first was filtered: a bounded
         // capture skips it when UIA already supplied the page.
         let msaa_started = now_ms();
-        let (native, native_candidates, warning) =
-            a11y.enrich(&info, found.len(), bounded, offset + max, candidate_count)?;
+        let (native, native_candidates, warning) = a11y.enrich(&info, found.len(), bounded, offset + max, candidate_count)?;
         let msaa_snapshot_ms = now_ms() - msaa_started;
         let candidate_count = candidate_count + native_candidates;
-        merge_native(
-            &mut found,
-            &mut seen,
-            native,
-            &View {
-                window: &info,
-                visible_only,
-                include_noninteractive,
-                role: &role_filter,
-                query: &query,
-            },
-        );
+        merge_native(&mut found, &mut seen, native, &View { window: &info, visible_only, include_noninteractive, role: &role_filter, query: &query });
         if continuation_total.is_some_and(|total| total != found.len()) {
             return Err("continuation is stale because the observed tree changed; capture the first page again".into());
         }
-        let view = if include_noninteractive {
-            "all"
-        } else {
-            "interactive"
-        };
+        let view = if include_noninteractive { "all" } else { "interactive" };
         let mut lines = vec![
             format!("Window: {} [{}]", info.title, info.id()),
-            format!(
-                "Elements: total={} candidates={candidate_count} view={view} offset={offset} max={max} generation={generation}",
-                found.len()
-            ),
+            format!("Elements: total={} candidates={candidate_count} view={view} offset={offset} max={max} generation={generation}", found.len()),
         ];
         warnings.extend(warning);
         for warning in warnings {
             lines.push(format!("Warning: {warning}"));
         }
         let end = found.len().min(offset + max);
-        let continuation = (end < found.len())
-            .then(|| format!("{generation}:{end}:{fingerprint}:{}", found.len()));
+        let continuation = (end < found.len()).then(|| format!("{generation}:{end}:{fingerprint}:{}", found.len()));
         let mut elements = Vec::new();
         for (index, node) in found.iter().enumerate().take(end).skip(offset) {
             let position = index - offset;
@@ -539,8 +411,7 @@ impl Host {
             let record = RefRecord::new(node, info.id(), generation);
             let bound = bound_key.as_deref() == Some(record.identity.as_str());
             let mark = position as i64 + 1;
-            let (mut element, line) =
-                element_entry(node, &reference, mark, self.desktop.element_source());
+            let (mut element, line) = element_entry(node, &reference, mark, self.desktop.element_source());
             // The mark names the element to a later action's element alias.
             self.session(|session| {
                 session.refs.insert(reference.clone(), record);
@@ -590,9 +461,7 @@ mod tests {
     use crate::config::Config;
     use crate::keys::Key;
     use crate::observer::Observer;
-    use crate::platform::{
-        AppEntry, Background, Button, Desktop, Integrity, Launched, Wid, WinState, WindowInfo,
-    };
+    use crate::platform::{AppEntry, Background, Button, Desktop, Integrity, Launched, Wid, WinState, WindowInfo};
     use std::cell::{Cell, RefCell};
     use std::rc::Rc;
 
@@ -648,8 +517,7 @@ mod tests {
             self.expand.get().map(String::from)
         }
         fn set_expanded(&self, expanded: bool) -> Result<(), String> {
-            self.expand
-                .set(Some(if expanded { "Expanded" } else { "Collapsed" }));
+            self.expand.set(Some(if expanded { "Expanded" } else { "Collapsed" }));
             self.note("expand")
         }
         fn value(&self) -> Option<String> {
@@ -692,12 +560,7 @@ mod tests {
     }
 
     pub fn named(role: &'static str, name: &'static str, identity: &'static str) -> Part {
-        Part {
-            role,
-            name,
-            identity,
-            ..Part::default()
-        }
+        Part { role, name, identity, ..Part::default() }
     }
 
     /// Window 1, whose accessibility tree is a fixed list of nodes and whose
@@ -717,12 +580,7 @@ mod tests {
         fn focused_masked(&self) -> bool {
             false
         }
-        fn invoke_menu(
-            &self,
-            _: &WindowInfo,
-            _: &[String],
-            _: crate::platform::Authorize<'_>,
-        ) -> Result<MenuOutcome, String> {
+        fn invoke_menu(&self, _: &WindowInfo, _: &[String], _: crate::platform::Authorize<'_>) -> Result<MenuOutcome, String> {
             Err("fake".into())
         }
     }
@@ -735,13 +593,7 @@ mod tests {
             Ok(self.info(1).into_iter().collect())
         }
         fn info(&self, handle: Wid) -> Option<WindowInfo> {
-            (handle == 1).then(|| WindowInfo {
-                handle,
-                title: "window 1".into(),
-                width: 200,
-                height: 200,
-                ..Default::default()
-            })
+            (handle == 1).then(|| WindowInfo { handle, title: "window 1".into(), width: 200, height: 200, ..Default::default() })
         }
         fn foreground(&self) -> Wid {
             1
@@ -833,10 +685,7 @@ mod tests {
     /// raises the window above the host's integrity.
     pub fn host(nodes: Vec<Node>) -> (Host, Rc<Cell<bool>>) {
         let elevated = Rc::new(Cell::new(false));
-        let screen = Screen {
-            nodes,
-            elevated: elevated.clone(),
-        };
+        let screen = Screen { nodes, elevated: elevated.clone() };
         let host = Host::new(
             Config {
                 read_actions: Default::default(),
@@ -862,23 +711,12 @@ mod tests {
     }
 
     fn keys(element: &Value) -> Vec<&str> {
-        element
-            .as_object()
-            .expect("element")
-            .keys()
-            .map(String::as_str)
-            .collect()
+        element.as_object().expect("element").keys().map(String::as_str).collect()
     }
 
     #[test]
     fn a_snapshot_marks_only_the_element_its_ref_named() {
-        let (host, _) = host(vec![
-            part_node(named("Edit", "user", "a")),
-            part_node(Part {
-                masked: true,
-                ..named("Edit", "code", "b")
-            }),
-        ]);
+        let (host, _) = host(vec![part_node(named("Edit", "user", "a")), part_node(Part { masked: true, ..named("Edit", "code", "b") })]);
         snapshot(&host, json!({}));
         let reply = snapshot(&host, json!({ "ref": "s1:e1" }));
         let listed = elements(&reply);
@@ -897,22 +735,15 @@ mod tests {
         assert_eq!(listed[1].get("bound_ref"), None);
         // A ref no capture of this session handed out.
         let reply = snapshot(&host, json!({ "ref": "s9:e0" }));
-        assert!(elements(&reply)
-            .iter()
-            .all(|element| element.get("bound_ref").is_none()));
+        assert!(elements(&reply).iter().all(|element| element.get("bound_ref").is_none()));
     }
 
     #[test]
     fn an_element_without_an_identity_is_never_the_bound_one() {
-        let (host, _) = host(vec![
-            part_node(named("Edit", "one", "")),
-            part_node(named("Edit", "two", "")),
-        ]);
+        let (host, _) = host(vec![part_node(named("Edit", "one", "")), part_node(named("Edit", "two", ""))]);
         snapshot(&host, json!({}));
         let reply = snapshot(&host, json!({ "ref": "s1:e0" }));
-        assert!(elements(&reply)
-            .iter()
-            .all(|element| element.get("bound_ref").is_none()));
+        assert!(elements(&reply).iter().all(|element| element.get("bound_ref").is_none()));
     }
 
     #[test]
@@ -929,16 +760,10 @@ mod tests {
             surface("Window", "editor"),
         ]);
         let names = |request: Value| -> Vec<String> {
-            elements(&snapshot(&host, request))
-                .iter()
-                .map(|element| element["name"].as_str().unwrap_or_default().to_string())
-                .collect()
+            elements(&snapshot(&host, request)).iter().map(|element| element["name"].as_str().unwrap_or_default().to_string()).collect()
         };
         assert_eq!(names(json!({})), ["buffer", "editor"]);
-        assert_eq!(
-            names(json!({ "include_noninteractive": true })),
-            ["buffer", "label", "editor"]
-        );
+        assert_eq!(names(json!({ "include_noninteractive": true })), ["buffer", "label", "editor"]);
     }
 
     #[test]
@@ -949,10 +774,7 @@ mod tests {
         item.extra.access_key = "Alt+F".into();
         item.value = "open".into();
         let (element, line) = element_entry(&item, "s1:e0", 1, "uia");
-        assert_eq!(
-            line,
-            r#"[s1:e0] MenuItem "File" id="file" accelerator="Ctrl+F" access_key="Alt+F" value="open" @5,5"#
-        );
+        assert_eq!(line, r#"[s1:e0] MenuItem "File" id="file" accelerator="Ctrl+F" access_key="Alt+F" value="open" @5,5"#);
         let keys: Vec<&str> = element.keys().map(String::as_str).collect();
         assert_eq!(keys[15..], ["accelerator", "access_key"]);
         assert_eq!(element["access_key"], "Alt+F");
@@ -977,10 +799,7 @@ mod tests {
         let first = snapshot(&host, json!({}));
         elevated.set(true);
         let error = host.snapshot_window(&Req(json!({}))).unwrap_err();
-        assert!(
-            error.starts_with("accessibility_blocked_by_integrity: this window runs at high integrity, above this host (medium)"),
-            "{error}"
-        );
+        assert!(error.starts_with("accessibility_blocked_by_integrity: this window runs at high integrity, above this host (medium)"), "{error}");
         host.session(|session| {
             assert_eq!(first["generation"], session.generation);
             assert_eq!(session.marks.get(&1).map(String::as_str), Some("s1:e0"));
@@ -992,23 +811,16 @@ mod tests {
     fn a_predicate_read_of_an_elevated_window_is_refused_before_its_maximum() {
         let (host, elevated) = host(Vec::new());
         elevated.set(true);
-        let error = host
-            .window_predicates(&Req(json!({ "max_elements": 0 })))
-            .unwrap_err();
+        let error = host.window_predicates(&Req(json!({ "max_elements": 0 }))).unwrap_err();
         assert!(error.starts_with("accessibility_blocked_by_integrity:"), "{error}");
         elevated.set(false);
-        let error = host
-            .window_predicates(&Req(json!({ "max_elements": 0 })))
-            .unwrap_err();
+        let error = host.window_predicates(&Req(json!({ "max_elements": 0 }))).unwrap_err();
         assert_eq!(error, "max_elements must be 1..1000");
     }
 
     #[test]
     fn a_read_past_the_candidate_limit_is_cut_with_a_warning() {
-        let (host, _) = host(vec![
-            node("Button", "OK", (10.0, 10.0, 20.0, 20.0));
-            CANDIDATE_LIMIT + 1
-        ]);
+        let (host, _) = host(vec![node("Button", "OK", (10.0, 10.0, 20.0, 20.0)); CANDIDATE_LIMIT + 1]);
         let reply = snapshot(&host, json!({}));
         assert_eq!(reply["total_elements"], json!(1));
         let text = reply["text"].as_str().unwrap();
@@ -1018,35 +830,17 @@ mod tests {
 
     #[test]
     fn marks_name_the_refs_of_the_page_last_captured() {
-        let (host, _) = host(vec![
-            part_node(named("Button", "one", "a")),
-            part_node(named("Button", "two", "b")),
-            part_node(named("Button", "three", "c")),
-        ]);
-        let marks = || -> Vec<(i64, String)> {
-            host.session(|session| {
-                session
-                    .marks
-                    .iter()
-                    .map(|(mark, reference)| (*mark, reference.clone()))
-                    .collect()
-            })
-        };
+        let (host, _) = host(vec![part_node(named("Button", "one", "a")), part_node(named("Button", "two", "b")), part_node(named("Button", "three", "c"))]);
+        let marks = || -> Vec<(i64, String)> { host.session(|session| session.marks.iter().map(|(mark, reference)| (*mark, reference.clone())).collect()) };
         let first = snapshot(&host, json!({ "max_elements": 2 }));
         assert_eq!(marks(), [(1, "s1:e0".to_string()), (2, "s1:e1".to_string())]);
         // Each mark is the one its element shows.
         for element in elements(&first) {
-            let shown = (
-                element["mark"].as_i64().unwrap_or_default(),
-                element["ref"].as_str().unwrap_or_default().to_string(),
-            );
+            let shown = (element["mark"].as_i64().unwrap_or_default(), element["ref"].as_str().unwrap_or_default().to_string());
             assert!(marks().contains(&shown), "{shown:?}");
         }
         // The next page numbers its own elements from 1 again.
-        snapshot(
-            &host,
-            json!({ "max_elements": 2, "continuation": first["continuation"] }),
-        );
+        snapshot(&host, json!({ "max_elements": 2, "continuation": first["continuation"] }));
         assert_eq!(marks(), [(1, "s2:e0".to_string())]);
     }
 
@@ -1057,10 +851,7 @@ mod tests {
         let keys: Vec<&str> = element.keys().map(String::as_str).collect();
         assert_eq!(
             keys,
-            [
-                "mark", "ref", "source", "role", "name", "value", "state", "enabled", "x", "y",
-                "width", "height", "center_x", "center_y", "actions",
-            ]
+            ["mark", "ref", "source", "role", "name", "value", "state", "enabled", "x", "y", "width", "height", "center_x", "center_y", "actions",]
         );
         assert_eq!(element["source"], "uia");
         assert_eq!(line, "[s1:e0] Button \"OK\" @5,5");
@@ -1086,41 +877,20 @@ mod tests {
 
     /// The nodes `merge_native` leaves after the UIA nodes `listed`, as
     /// (role, name, invoke, set_value).
-    fn merged(
-        listed: Vec<Node>,
-        native: Vec<Node>,
-        include_noninteractive: bool,
-        role: &str,
-        query: &str,
-    ) -> Vec<Row> {
+    fn merged(listed: Vec<Node>, native: Vec<Node>, include_noninteractive: bool, role: &str, query: &str) -> Vec<Row> {
         let mut seen = HashMap::new();
         for (index, node) in listed.iter().enumerate() {
             seen.insert(dedupe_key(node), index);
         }
         let mut found = listed;
-        let window = WindowInfo {
-            width: 200,
-            height: 200,
-            ..Default::default()
-        };
-        let view = View {
-            window: &window,
-            visible_only: true,
-            include_noninteractive,
-            role,
-            query,
-        };
+        let window = WindowInfo { width: 200, height: 200, ..Default::default() };
+        let view = View { window: &window, visible_only: true, include_noninteractive, role, query };
         merge_native(&mut found, &mut seen, native, &view);
-        found
-            .into_iter()
-            .map(|node| (node.role, node.name, node.can_invoke, node.can_set_value))
-            .collect()
+        found.into_iter().map(|node| (node.role, node.name, node.can_invoke, node.can_set_value)).collect()
     }
 
     fn rows(rows: &[(&str, &str, bool, bool)]) -> Vec<Row> {
-        rows.iter()
-            .map(|(role, name, invoke, set)| (role.to_string(), name.to_string(), *invoke, *set))
-            .collect()
+        rows.iter().map(|(role, name, invoke, set)| (role.to_string(), name.to_string(), *invoke, *set)).collect()
     }
 
     #[test]
@@ -1128,24 +898,15 @@ mod tests {
         let uia = || vec![node("Button", "OK", (10.0, 10.0, 20.0, 20.0))];
         // The same place, name and role, and nothing new.
         let same = native("Button", "OK", (10.0, 10.0, 20.0, 20.0), "");
-        assert_eq!(
-            merged(uia(), vec![same], false, "", ""),
-            rows(&[("Button", "OK", false, false)])
-        );
+        assert_eq!(merged(uia(), vec![same], false, "", ""), rows(&[("Button", "OK", false, false)]));
         // Its default action is an invoke the UIA node lacks.
         let acts = native("Button", "OK", (10.0, 10.0, 20.0, 20.0), "Press");
-        assert_eq!(
-            merged(uia(), vec![acts], false, "", ""),
-            rows(&[("Button", "OK", false, false), ("Button", "OK", true, false)])
-        );
+        assert_eq!(merged(uia(), vec![acts], false, "", ""), rows(&[("Button", "OK", false, false), ("Button", "OK", true, false)]));
         // A UIA node that already invokes needs no second one.
         let mut invokes = uia();
         invokes[0].can_invoke = true;
         let acts = native("Button", "OK", (10.0, 10.0, 20.0, 20.0), "Press");
-        assert_eq!(
-            merged(invokes, vec![acts], false, "", ""),
-            rows(&[("Button", "OK", true, false)])
-        );
+        assert_eq!(merged(invokes, vec![acts], false, "", ""), rows(&[("Button", "OK", true, false)]));
         // An edit adds set_value to a UIA edit that lacks it.
         let edit = native("Edit", "Name", (10.0, 40.0, 20.0, 20.0), "");
         assert_eq!(
@@ -1211,33 +972,12 @@ mod tests {
         valued.extra.description = "ignored".into();
         let edit = native("Edit", "Name", (10.0, 70.0, 90.0, 18.0), "");
         let combo = native("ComboBox", "Type", (10.0, 100.0, 90.0, 18.0), "Open");
-        let window = WindowInfo {
-            width: 200,
-            height: 200,
-            ..Default::default()
-        };
-        let view = View {
-            window: &window,
-            visible_only: true,
-            include_noninteractive: false,
-            role: "",
-            query: "",
-        };
+        let window = WindowInfo { width: 200, height: 200, ..Default::default() };
+        let view = View { window: &window, visible_only: true, include_noninteractive: false, role: "", query: "" };
         let mut found = Vec::new();
         merge_native(&mut found, &mut HashMap::new(), vec![item, valued, edit, combo], &view);
-        let shown: Vec<(&str, bool, bool)> = found
-            .iter()
-            .map(|node| (node.value.as_str(), node.can_invoke, node.can_set_value))
-            .collect();
-        assert_eq!(
-            shown,
-            [
-                ("Size: 3 KB", true, false),
-                ("kept", false, false),
-                ("", false, true),
-                ("", true, true),
-            ]
-        );
+        let shown: Vec<(&str, bool, bool)> = found.iter().map(|node| (node.value.as_str(), node.can_invoke, node.can_set_value)).collect();
+        assert_eq!(shown, [("Size: 3 KB", true, false), ("kept", false, false), ("", false, true), ("", true, true),]);
     }
 
     #[test]
@@ -1248,9 +988,6 @@ mod tests {
         let (element, line) = element_entry(&shown, "s1:e0", 1, "uia");
         assert_eq!(element["source"], "msaa");
         assert_eq!(element["state"], "focusable");
-        assert_eq!(
-            line,
-            "[s1:e0] Button \"OK\" source=msaa role=\"push button\" state=\"focusable\" default_action=\"Press\" @5,5"
-        );
+        assert_eq!(line, "[s1:e0] Button \"OK\" source=msaa role=\"push button\" state=\"focusable\" default_action=\"Press\" @5,5");
     }
 }

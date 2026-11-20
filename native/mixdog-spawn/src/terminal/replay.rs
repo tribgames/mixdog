@@ -33,12 +33,7 @@ impl ReplayBuffer {
     /// `start_offset` lets a recreated terminal begin above every cursor its predecessor
     /// issued, so those stale cursors fall below the oldest retained position.
     pub fn new(limit: usize, start_offset: u64) -> Self {
-        Self {
-            units: VecDeque::new(),
-            limit: limit.max(1),
-            appended: start_offset,
-            start_offset,
-        }
+        Self { units: VecDeque::new(), limit: limit.max(1), appended: start_offset, start_offset }
     }
 
     pub fn append(&mut self, text: &str) {
@@ -88,18 +83,10 @@ impl ReplayBuffer {
     pub fn read_since(&self, cursor: u64) -> Replay {
         let oldest = self.appended - self.units.len() as u64;
         if cursor < oldest || cursor > self.appended {
-            return Replay {
-                text: self.read(),
-                cursor: self.appended,
-                reset: true,
-            };
+            return Replay { text: self.read(), cursor: self.appended, reset: true };
         }
         let skip = (cursor - oldest) as usize;
         let units: Vec<u16> = self.units.iter().skip(skip).copied().collect();
-        Replay {
-            text: String::from_utf16_lossy(&units),
-            cursor: self.appended,
-            reset: false,
-        }
+        Replay { text: String::from_utf16_lossy(&units), cursor: self.appended, reset: false }
     }
 }

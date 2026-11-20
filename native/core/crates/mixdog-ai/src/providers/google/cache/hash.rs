@@ -24,10 +24,7 @@ mod tests {
         // U+FF5E (BMP, one unit 0xFF5E) sorts after U+1F600 (units D83D DE00) in UTF-16,
         // and before it in UTF-8 byte order.
         let value = json!({"\u{ff5e}": 1, "\u{1f600}": 2, "b": 3, "a": [{"z": null, "y": 1.0}]});
-        assert_eq!(
-            stable_stringify(&value),
-            "{\"a\":[{\"y\":1,\"z\":null}],\"b\":3,\"\u{1f600}\":2,\"\u{ff5e}\":1}"
-        );
+        assert_eq!(stable_stringify(&value), "{\"a\":[{\"y\":1,\"z\":null}],\"b\":3,\"\u{1f600}\":2,\"\u{ff5e}\":1}");
     }
 
     #[test]

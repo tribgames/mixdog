@@ -34,16 +34,12 @@ impl RuntimeMemoryControl {
 #[async_trait]
 impl MemoryControl for RuntimeMemoryControl {
     async fn list(&self, agent_id: &str, offset: u32, limit: u32) -> Result<MemoryPage, RoomError> {
-        let text = self
-            .call(json!({ "op": "list", "agent_id": agent_id, "format": "json", "limit": limit, "offset": offset }))
-            .await;
+        let text = self.call(json!({ "op": "list", "agent_id": agent_id, "format": "json", "limit": limit, "offset": offset })).await;
         page_of(text)
     }
 
     async fn delete(&self, agent_id: &str, id: u64, index_revision: &str) -> Result<DeleteOutcome, RoomError> {
-        let text = self
-            .call(json!({ "op": "delete", "agent_id": agent_id, "id": id, "index_revision": index_revision }))
-            .await;
+        let text = self.call(json!({ "op": "delete", "agent_id": agent_id, "id": id, "index_revision": index_revision })).await;
         outcome_of(text)
     }
 }
@@ -51,8 +47,8 @@ impl MemoryControl for RuntimeMemoryControl {
 /// A `list` reply (`JSON.stringify(page)`) as a page. An archived entry carries no `id` or
 /// `index_revision` (null): it maps to id 0 and an empty revision, which no delete accepts.
 fn page_of(text: String) -> Result<MemoryPage, RoomError> {
-    let page: Value = serde_json::from_str(&text)
-        .map_err(|_| RoomError::Port(if text.is_empty() { "The agent memory could not be read.".into() } else { text }))?;
+    let page: Value =
+        serde_json::from_str(&text).map_err(|_| RoomError::Port(if text.is_empty() { "The agent memory could not be read.".into() } else { text }))?;
     let entries = page
         .get("entries")
         .and_then(Value::as_array)
@@ -103,7 +99,8 @@ mod tests {
 
     #[test]
     fn an_archived_entry_has_no_id_or_revision_so_no_delete_accepts_it_and_the_last_page_has_no_next_offset() {
-        let text = json!({ "entries": [{ "id": 1, "index_revision": "rev-1", "summary": "Prefers tabs" }, { "index_revision": null, "summary": "Archived" }] }).to_string();
+        let text = json!({ "entries": [{ "id": 1, "index_revision": "rev-1", "summary": "Prefers tabs" }, { "index_revision": null, "summary": "Archived" }] })
+            .to_string();
         assert_eq!(page_of(text), Ok(MemoryPage { entries: vec![entry(1, "rev-1", "Prefers tabs"), entry(0, "", "Archived")], next_offset: None }));
         assert_eq!(page_of(json!({ "entries": [] }).to_string()), Ok(MemoryPage { entries: vec![], next_offset: None }));
     }

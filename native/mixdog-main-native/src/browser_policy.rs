@@ -60,11 +60,8 @@ pub fn is_loopback_hostname(hostname: String) -> bool {
 #[napi]
 pub fn normalize_agent_url(raw: String, policy: Option<BrowserUrlPolicyArg>, mail_link: Option<BrowserMailLinkArg>) -> Result<String> {
     // A read time that is not a finite number never admits the link (`Number(link.read_at)` of the TypeScript rules was NaN).
-    let mail_link = mail_link.map(|link| MailLink {
-        url: link.url,
-        from_domain: link.from_domain,
-        read_at: link.read_at.filter(|at| at.is_finite()).map(|at| at as i64),
-    });
+    let mail_link =
+        mail_link.map(|link| MailLink { url: link.url, from_domain: link.from_domain, read_at: link.read_at.filter(|at| at.is_finite()).map(|at| at as i64) });
     url_policy::normalize_agent_url(&raw, &policy_of(policy), mail_link.as_ref(), now_ms()).map_err(refused)
 }
 

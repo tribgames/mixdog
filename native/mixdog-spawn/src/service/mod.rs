@@ -28,19 +28,16 @@ pub use terminal::TerminalService;
 pub use terminal::TerminalServiceConfig;
 pub use terminal::attached_reply;
 
+use mixdog_core_api::call::Caller;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::domain::process::ProcessError;
 use mixdog_core_api::domain::process::ProcessQueue;
 use mixdog_core_api::error::CoreError;
 use mixdog_core_api::ids::ConnectionId;
-use mixdog_core_api::call::Caller;
 use serde::de::DeserializeOwned;
 
 fn invalid_params(path: &str, expected: impl Into<String>) -> CoreError {
-    CoreError::InvalidParams {
-        path: path.into(),
-        expected: expected.into().into(),
-    }
+    CoreError::InvalidParams { path: path.into(), expected: expected.into().into() }
 }
 
 fn decode<T: DeserializeOwned>(params: &serde_json::Value) -> Result<T, CoreError> {
@@ -60,22 +57,14 @@ fn connection_key(id: ConnectionId) -> String {
 }
 
 fn domain_error(domain: &str, code: &str) -> CoreError {
-    CoreError::DomainError {
-        domain: domain.into(),
-        code: Some(code.into()),
-        message: None,
-        detail: None,
-    }
+    CoreError::DomainError { domain: domain.into(), code: Some(code.into()), message: None, detail: None }
 }
 
 /// A process failure as the core's error: a missing program is a missing capability, a full queue
 /// is `queueFull`, everything else a coded domain failure.
 fn process_failure(error: ProcessError) -> CoreError {
     match error {
-        ProcessError::ProgramNotFound { program } => CoreError::CapabilityUnavailable {
-            capability: program.into(),
-            detail: "".into(),
-        },
+        ProcessError::ProgramNotFound { program } => CoreError::CapabilityUnavailable { capability: program.into(), detail: "".into() },
         ProcessError::Overloaded { queue } => CoreError::QueueFull {
             queue: match queue {
                 ProcessQueue::Spawn => "process-spawn",

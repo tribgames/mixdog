@@ -15,6 +15,7 @@ use crate::ps::payload;
 use crate::ps::text;
 
 use super::cells::attempt;
+use super::cells::blocks_fitting;
 use super::cells::bool_of;
 use super::cells::cell_value;
 use super::cells::column_letters;
@@ -29,7 +30,6 @@ use super::cells::is_ps_null;
 use super::cells::items_of;
 use super::cells::matrix_value;
 use super::cells::min_int;
-use super::cells::blocks_fitting;
 use super::cells::ordered;
 use super::cells::payload_flag;
 use super::cells::payload_text;
@@ -74,9 +74,7 @@ pub(super) fn snapshot_excel(book: &Obj, payload: &Value) -> Result<Value> {
             let name = get_with(&names, "Item", &[Com::I4(index)])?;
             // Excel keeps hidden _xlfn./_xlpm. names of its own for the functions a file uses; the workbook never defined
             // them, and the portable reader does not list them.
-            if !bool_of(&name.member("Visible")?)
-                && text::is_match(&string_of(&name.member("Name")?), r"^_xl(fn|pm|ws)\.", false).unwrap_or(false)
-            {
+            if !bool_of(&name.member("Visible")?) && text::is_match(&string_of(&name.member("Name")?), r"^_xl(fn|pm|ws)\.", false).unwrap_or(false) {
                 return Ok(None);
             }
             Ok(Some(ordered(vec![
@@ -456,11 +454,7 @@ fn freeze_panes_of(book: &Com, sheet: &Com) -> Result<Value> {
     Ok(attempt(|| {
         let window = get_with(&book.member("Windows")?, "Item", &[Com::I4(1)])?;
         let (row, column) = frozen_split(&window)?;
-        Ok(ordered(vec![
-            ("frozen", Value::Bool(bool_of(&window.member("FreezePanes")?))),
-            ("splitRow", Value::Int(row)),
-            ("splitColumn", Value::Int(column)),
-        ]))
+        Ok(ordered(vec![("frozen", Value::Bool(bool_of(&window.member("FreezePanes")?))), ("splitRow", Value::Int(row)), ("splitColumn", Value::Int(column))]))
     })
     .unwrap_or(Value::Null))
 }
@@ -650,8 +644,7 @@ fn sheet_entry(book: &Com, sheet: &Com, payload: &Value, window: Option<Window<'
     entry.set("truncated", Value::Bool(truncated));
     entry.set("lastRow", Value::Int(last_row));
     let cell_count = cells.len();
-    let lineage_entries: Vec<Value> =
-        cells.iter().filter(|cell| convert::to_bool(&payload::property(cell, "formula"))).cloned().collect();
+    let lineage_entries: Vec<Value> = cells.iter().filter(|cell| convert::to_bool(&payload::property(cell, "formula"))).cloned().collect();
     entry.set("cells", Value::Array(cells));
     let lineage = formula_lineage(&lineage_entries, &string_of(&sheet.member("Name")?));
     let lineage_count = lineage.len() as i32;
@@ -694,8 +687,7 @@ fn read_block(sheet: &Com, base: &Com, row0: i32, rows: i32, columns: i32, keep:
             if !keep() {
                 continue;
             }
-            let formula = if written.starts_with('=') && bool_of(&get_with(&page.member("Cells")?, "Item", &[Com::I4(r), Com::I4(c)])?.member("HasFormula")?)
-            {
+            let formula = if written.starts_with('=') && bool_of(&get_with(&page.member("Cells")?, "Item", &[Com::I4(r), Com::I4(c)])?.member("HasFormula")?) {
                 Value::String(written)
             } else {
                 Value::Null

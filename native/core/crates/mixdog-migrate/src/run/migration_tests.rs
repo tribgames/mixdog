@@ -1,11 +1,7 @@
 //! The migration of a 1.4.5 data dir holding every data kind, built by [`fixture`]: what each kind becomes, the crash
 //! matrix, and the rename-failure retry; and the helpers the other migration tests share.
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "test fixtures build and inspect data dirs with blocking std::fs and rusqlite"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixtures build and inspect data dirs with blocking std::fs and rusqlite")]
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -36,10 +32,7 @@ impl IndexProjector for TestProjector {
         conn.execute_batch(INDEX_DDL).map_err(|e| e.to_string())?;
         for id in sessions {
             let dir = data.join("sessions").join(id);
-            let mut files: Vec<_> = std::fs::read_dir(&dir)
-                .map_err(|e| e.to_string())?
-                .map(|e| e.unwrap().path())
-                .collect();
+            let mut files: Vec<_> = std::fs::read_dir(&dir).map_err(|e| e.to_string())?.map(|e| e.unwrap().path()).collect();
             files.sort();
             let (mut rows, mut ordinal, mut size) = (0i64, 0u64, 0i64);
             for file in &files {
@@ -67,12 +60,8 @@ impl IndexProjector for TestProjector {
 }
 
 pub(crate) fn drivers() -> Vec<Arc<dyn ItemDriver>> {
-    product_drivers(
-        Arc::new(TestProjector),
-        crate::session::context_blobs::testing::office(Arc::default()),
-    )
+    product_drivers(Arc::new(TestProjector), crate::session::context_blobs::testing::office(Arc::default()))
 }
-
 
 /// Paths and bytes of every file under the roots, the journal excluded.
 pub(crate) fn tree_digest(roots: &MigrationRoots) -> BTreeMap<String, String> {
@@ -182,11 +171,7 @@ pub(crate) fn fixture(root: &Path) -> MigrationRoots {
         "agent-workers.json",
         br#"{"version":2,"workers":{"sess_b":{"sessionId":"sess_b","ownerSessionId":" sess_a ","tag":"t","status":"idle","messages":[]}},"tombstones":{"session:p\u0000t":{"tag":"t","sessionId":"sess_b","parentSessionId":"p","reapedAt":"2026-01-01T00:00:00.000Z"},"session:p\u0000g":{"tag":"g","sessionId":"sess_gone","reapedAt":"2026-01-01T00:00:00.000Z"}}}"#,
     );
-    write(
-        &data,
-        "agent-workers-released.json",
-        br#"{"version":1,"released":{"sess_a":"2026-01-02T00:00:00.000Z","sess_gone":"2026-01-02T00:00:00.000Z"}}"#,
-    );
+    write(&data, "agent-workers-released.json", br#"{"version":1,"released":{"sess_a":"2026-01-02T00:00:00.000Z","sess_gone":"2026-01-02T00:00:00.000Z"}}"#);
     write(&data, "goals/sess_a.json", br#"{"sessionId":"sess_a"}"#);
     write(&data, "goals/sess_gone.json", br#"{"sessionId":"sess_gone"}"#);
     write(
@@ -207,11 +192,7 @@ pub(crate) fn fixture(root: &Path) -> MigrationRoots {
     ledger.pragma_update(None, "user_version", 2).unwrap();
     write(&data, "usage-rollup.local.json", b"{}");
     write(&home, "projects.json", b"{}");
-    MigrationRoots {
-        data,
-        home,
-        profile: None,
-    }
+    MigrationRoots { data, home, profile: None }
 }
 
 pub(crate) fn migrator(roots: &MigrationRoots, fault: Option<FaultHook>) -> Migrator {
@@ -233,10 +214,7 @@ pub(crate) fn unexpected_reasons(roots: &MigrationRoots) -> Vec<Value> {
 pub(crate) fn journal_records(roots: &MigrationRoots) -> Vec<JournalRecord> {
     let bytes = std::fs::read(roots.data.join(JOURNAL_PATH)).unwrap();
     let (frames, _) = crate::frame::scan(&bytes, 0);
-    frames
-        .iter()
-        .map(|f| serde_json::from_slice(&bytes[f.payload.clone()]).unwrap())
-        .collect()
+    frames.iter().map(|f| serde_json::from_slice(&bytes[f.payload.clone()]).unwrap()).collect()
 }
 
 #[test]
@@ -250,8 +228,12 @@ fn quarantine_resumes_after_withdrawal_without_verifying_the_deleted_target() {
             let source = sink.source(Root::Data, self.0, false)?;
             sink.add_item(crate::plan::item("probe", KindGroup::Data, ItemKind::Index, Contract::Convert, vec![source], None)?)
         }
-        fn owns(&self, item: &ManifestItem) -> bool { item.key.as_str() == "probe" }
-        fn wave(&self, _item: &ManifestItem) -> Wave { Wave::Stores }
+        fn owns(&self, item: &ManifestItem) -> bool {
+            item.key.as_str() == "probe"
+        }
+        fn wave(&self, _item: &ManifestItem) -> Wave {
+            Wave::Stores
+        }
         fn stage(&self, _cx: &ItemContext<'_>, _item: &ManifestItem) -> Result<Staged> {
             Ok(Staged::Output { output_sha256: durable::sha256_hex(b"candidate"), replaced_surrogates: 0 })
         }
@@ -271,13 +253,13 @@ fn quarantine_resumes_after_withdrawal_without_verifying_the_deleted_target() {
     let data = temp.path().to_path_buf();
     let roots = MigrationRoots { data: data.clone(), home: data.clone(), profile: None };
     write(&data, source, b"legacy");
-    let run = |fault: Option<FaultHook>| {
-        Migrator::new(roots.clone(), vec![Arc::new(RejectTarget(source))], MigrateOptions { fault, ..Default::default() }).run()
-    };
+    let run =
+        |fault: Option<FaultHook>| Migrator::new(roots.clone(), vec![Arc::new(RejectTarget(source))], MigrateOptions { fault, ..Default::default() }).run();
     let cut = "journal:quarantined:probe:before";
-    assert_eq!(run(Some(Arc::new(move |point| {
-        if point == cut { Err(Blocked::Interrupted { point: point.into() }) } else { Ok(()) }
-    }))).unwrap_err(), Blocked::Interrupted { point: cut.into() });
+    assert_eq!(
+        run(Some(Arc::new(move |point| { if point == cut { Err(Blocked::Interrupted { point: point.into() }) } else { Ok(()) } }))).unwrap_err(),
+        Blocked::Interrupted { point: cut.into() }
+    );
     assert!(!data.join("candidate").exists());
     assert_eq!(std::fs::read(data.join(source)).unwrap(), b"legacy");
 
@@ -318,9 +300,7 @@ fn quarantine_resumes_after_withdrawal_without_verifying_the_deleted_target() {
             Migrator::new(roots.clone(), vec![Arc::new(RejectTarget(source))], options).run()
         };
         let cut = "quarantine-copy:probe:source-0:verified";
-        let fault: FaultHook = Arc::new(move |point| {
-            if point == cut { Err(Blocked::Interrupted { point: cut.into() }) } else { Ok(()) }
-        });
+        let fault: FaultHook = Arc::new(move |point| if point == cut { Err(Blocked::Interrupted { point: cut.into() }) } else { Ok(()) });
         assert_eq!(run(Some(fault)).unwrap_err(), Blocked::Interrupted { point: cut.into() });
         assert!(!journal_records(&roots).iter().any(|record| matches!(record, JournalRecord::Disposed(_))));
         match replacement {
@@ -387,10 +367,7 @@ fn fixture_migrates_every_kind() {
     for present in ["sessions/sess_a/log.000000", "sessions/sess_b/log.000000", "goals/sess_gone.json", "index/store.sqlite"] {
         assert!(roots.data.join(present).exists(), "{present}");
     }
-    assert!(roots
-        .data
-        .join("quarantine/carried_set_aside/retain%2Fdata%2Fsessions%2Fsess_c.json.corrupt-123/sess_c.json.corrupt-123")
-        .exists());
+    assert!(roots.data.join("quarantine/carried_set_aside/retain%2Fdata%2Fsessions%2Fsess_c.json.corrupt-123/sess_c.json.corrupt-123").exists());
     // The late config rewrites land: the compaction keys fold and the connector merges (its accounts with their ids, which
     // the agents and the accounts in use then name). The 1.4.5 quota switch stays where 1.4.5 keeps it.
     let config: Value = serde_json::from_slice(&std::fs::read(roots.data.join("mixdog-config.json")).unwrap()).unwrap();
@@ -413,14 +390,7 @@ fn fixture_migrates_every_kind() {
     let states = BTreeMap::new();
     let blobs = BlobStatuses::default();
     let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
-    let cx = ItemContext {
-        roots: &roots,
-        manifest: &manifest,
-        manifest_sha256: &complete.manifest_sha256,
-        fault: None,
-        blobs: &blobs,
-        states: &states,
-    };
+    let cx = ItemContext { roots: &roots, manifest: &manifest, manifest_sha256: &complete.manifest_sha256, fault: None, blobs: &blobs, states: &states };
     let b = crate::session::target::read_session(&cx, &roots.data.join("sessions/sess_b")).unwrap();
     assert_eq!(b.header["title"], "new");
     // Its tombstone and sess_a's release marker join the `worker` map; sess_gone's do not
@@ -487,9 +457,7 @@ fn a_row_only_child_named_in_a_parents_text_is_not_reaped_without_its_notificati
     write(
         &roots.data,
         "agent-workers.json",
-        json!({"version":2,"workers":{"sess_kid":row("sess_kid"),"sess_done":row("sess_done")},"tombstones":[]})
-            .to_string()
-            .as_bytes(),
+        json!({"version":2,"workers":{"sess_kid":row("sess_kid"),"sess_done":row("sess_done")},"tombstones":[]}).to_string().as_bytes(),
     );
     migrator(&roots, None).run().unwrap();
     let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
@@ -555,11 +523,7 @@ fn a_session_catalog_that_does_not_answer_is_kept_and_one_that_does_is_retired()
 fn markers_of_sessions_that_do_not_migrate_are_retired() {
     let dir = tempfile::tempdir().unwrap();
     let roots = fixture(dir.path());
-    write(
-        &roots.data,
-        "agent-workers-released.json",
-        br#"{"version":1,"released":{"sess_gone":"2026-01-02T00:00:00.000Z"}}"#,
-    );
+    write(&roots.data, "agent-workers-released.json", br#"{"version":1,"released":{"sess_gone":"2026-01-02T00:00:00.000Z"}}"#);
     write(
         &roots.data,
         "agent-workers.json",
@@ -609,14 +573,7 @@ fn tombstones_reach_their_one_session() {
     let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
     let states = BTreeMap::new();
     let blobs = BlobStatuses::default();
-    let cx = ItemContext {
-        roots: &roots,
-        manifest: &manifest,
-        manifest_sha256: &complete.manifest_sha256,
-        fault: None,
-        blobs: &blobs,
-        states: &states,
-    };
+    let cx = ItemContext { roots: &roots, manifest: &manifest, manifest_sha256: &complete.manifest_sha256, fault: None, blobs: &blobs, states: &states };
     let worker = |id: &str| {
         let folded = crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id)).unwrap();
         folded.header.get("worker").cloned()
@@ -628,10 +585,7 @@ fn tombstones_reach_their_one_session() {
     );
     assert_eq!(worker("sess_e"), None);
     assert_eq!(worker("sess_f"), None);
-    assert_eq!(
-        worker("sess_b"),
-        Some(json!({"sessionId":"sess_b","tag":"t","tombstone":{"tag":"t2","reapedAt":"2026-01-03T00:00:00.000Z"}}))
-    );
+    assert_eq!(worker("sess_b"), Some(json!({"sessionId":"sess_b","tag":"t","tombstone":{"tag":"t2","reapedAt":"2026-01-03T00:00:00.000Z"}})));
     assert!(!roots.data.join("agent-workers.json").exists());
     assert_eq!(migrator(&roots, None).run().unwrap(), complete);
 }
@@ -656,14 +610,7 @@ fn a_copy_without_a_link_gets_the_reference_set_its_transcript_names() {
     let manifest: Manifest = serde_json::from_slice(&std::fs::read(roots.data.join(MANIFEST_PATH)).unwrap()).unwrap();
     let states = BTreeMap::new();
     let blobs = BlobStatuses::default();
-    let cx = ItemContext {
-        roots: &roots,
-        manifest: &manifest,
-        manifest_sha256: &complete.manifest_sha256,
-        fault: None,
-        blobs: &blobs,
-        states: &states,
-    };
+    let cx = ItemContext { roots: &roots, manifest: &manifest, manifest_sha256: &complete.manifest_sha256, fault: None, blobs: &blobs, states: &states };
     let sources = |id: &str| crate::session::target::read_session(&cx, &roots.data.join("sessions").join(id)).unwrap().header.get("offloadSources").cloned();
     assert_eq!(sources("sess_fork"), Some(json!(["sess_other", "sess_src"])));
     assert_eq!(sources("sess_b"), Some(json!([])), "a session naming no other session's sidecars holds an empty set, not none");
@@ -758,11 +705,7 @@ fn a_rename_failure_blocks_and_retry_succeeds() {
         &roots,
         Some(Arc::new(move |p: &str| {
             if p == "publish:session/sess_a:before" && hook.fetch_add(1, Ordering::SeqCst) == 0 {
-                return Err(Blocked::Io {
-                    op: "rename",
-                    path: PathBuf::from("sessions/sess_a"),
-                    os_error: "Access is denied. (os error 5)".into(),
-                });
+                return Err(Blocked::Io { op: "rename", path: PathBuf::from("sessions/sess_a"), os_error: "Access is denied. (os error 5)".into() });
             }
             Ok(())
         })),
@@ -831,12 +774,9 @@ fn invalid_legacy_bytes_are_not_installed_by_either_transfer_path() {
         let (legacy, core) = image_paths(&roots);
         std::fs::write(&legacy, b"wrong digest").unwrap();
         crate::legacy_blobs::import_with(&roots.data, &|_| Ok(()), &|source, stage| {
-            if copy {
-                Err(std::io::Error::other("no links here"))
-            } else {
-                std::fs::copy(source, stage).map(|_| ())
-            }
-        }).unwrap();
+            if copy { Err(std::io::Error::other("no links here")) } else { std::fs::copy(source, stage).map(|_| ()) }
+        })
+        .unwrap();
         assert!(!core.exists(), "copy path: {copy}");
     }
 }
@@ -851,20 +791,20 @@ fn a_verified_blob_published_during_import_keeps_its_file() {
         let roots = fixture(dir.path());
         let (_, core) = image_paths(&roots);
         let modified = UNIX_EPOCH + Duration::from_secs(1_600_000_000);
-        crate::legacy_blobs::import_with(&roots.data, &|point| {
-            if point == "legacy-blobs:install" {
-                std::fs::write(&core, b"image bytes").unwrap();
-                File::options().write(true).open(&core).unwrap()
-                    .set_times(FileTimes::new().set_modified(modified)).unwrap();
-            }
-            Ok(())
-        }, &|source, stage| {
-            if copy {
-                Err(std::io::Error::other("no links here"))
-            } else {
-                std::fs::copy(source, stage).map(|_| ())
-            }
-        }).unwrap();
+        crate::legacy_blobs::import_with(
+            &roots.data,
+            &|point| {
+                if point == "legacy-blobs:install" {
+                    std::fs::write(&core, b"image bytes").unwrap();
+                    File::options().write(true).open(&core).unwrap().set_times(FileTimes::new().set_modified(modified)).unwrap();
+                }
+                Ok(())
+            },
+            &|source, stage| {
+                if copy { Err(std::io::Error::other("no links here")) } else { std::fs::copy(source, stage).map(|_| ()) }
+            },
+        )
+        .unwrap();
         assert_eq!(std::fs::read(&core).unwrap(), b"image bytes");
         assert_eq!(std::fs::metadata(&core).unwrap().modified().unwrap(), modified, "copy path: {copy}");
     }
@@ -881,14 +821,18 @@ fn copy_only_import_restores_a_repair_that_raced_with_displacement() {
     std::fs::create_dir_all(core.parent().unwrap()).unwrap();
     std::fs::write(&core, b"corrupt native copy").unwrap();
     let modified = UNIX_EPOCH + Duration::from_secs(1_600_000_000);
-    crate::legacy_blobs::import_with(&roots.data, &|point| {
-        if point == "legacy-blobs:displace" {
-            mixdog_store::fsio::publish_file_with(&core, b"image bytes", mixdog_store::fsio::Access::Inherit).unwrap();
-            File::options().write(true).open(&core).unwrap()
-                .set_times(FileTimes::new().set_modified(modified)).unwrap();
-        }
-        Ok(())
-    }, &|_, _| Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "no hard links"))).unwrap();
+    crate::legacy_blobs::import_with(
+        &roots.data,
+        &|point| {
+            if point == "legacy-blobs:displace" {
+                mixdog_store::fsio::publish_file_with(&core, b"image bytes", mixdog_store::fsio::Access::Inherit).unwrap();
+                File::options().write(true).open(&core).unwrap().set_times(FileTimes::new().set_modified(modified)).unwrap();
+            }
+            Ok(())
+        },
+        &|_, _| Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "no hard links")),
+    )
+    .unwrap();
     assert_eq!(std::fs::read(&core).unwrap(), b"image bytes");
     assert_eq!(std::fs::metadata(&core).unwrap().modified().unwrap(), modified);
 }
@@ -924,8 +868,7 @@ fn a_displaced_verified_blob_is_restored_without_its_legacy_source() {
     std::fs::create_dir_all(core.parent().unwrap()).unwrap();
     std::fs::write(&core, b"original corruption").unwrap();
     let cut = crate::legacy_blobs::import(&roots.data, &|point| match point {
-        "legacy-blobs:displace" => mixdog_store::fsio::publish_file_with(&core, b"image bytes", mixdog_store::fsio::Access::Inherit)
-            .map_err(Blocked::fsio),
+        "legacy-blobs:displace" => mixdog_store::fsio::publish_file_with(&core, b"image bytes", mixdog_store::fsio::Access::Inherit).map_err(Blocked::fsio),
         "legacy-blobs:displaced" => Err(Blocked::Interrupted { point: point.into() }),
         _ => Ok(()),
     });
@@ -937,7 +880,8 @@ fn a_displaced_verified_blob_is_restored_without_its_legacy_source() {
             assert_eq!(std::fs::read(&core).unwrap(), b"image bytes");
         }
         Ok(())
-    }).unwrap();
+    })
+    .unwrap();
     assert!(roots.data.join(mixdog_store::schema::blob::LEGACY_BLOBS_IMPORTED).exists());
 }
 
@@ -983,9 +927,7 @@ fn an_ambiguous_blob_restore_does_not_overwrite_either_file() {
     let aside = core.with_extension("mixdog-migrated");
     std::fs::write(&aside, b"image bytes").unwrap();
     std::fs::write(&core, b"unverified concurrent copy").unwrap();
-    let result = crate::legacy_blobs::import_with(&roots.data, &|_| Ok(()), &|_, _| {
-        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "no hard links"))
-    });
+    let result = crate::legacy_blobs::import_with(&roots.data, &|_| Ok(()), &|_, _| Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "no hard links")));
     assert!(matches!(result, Err(Blocked::Io { op: "restore blob", .. })), "{result:?}");
     assert_eq!(std::fs::read(&core).unwrap(), b"unverified concurrent copy");
     assert_eq!(std::fs::read(&aside).unwrap(), b"image bytes");
@@ -1104,6 +1046,3 @@ fn a_blob_is_copied_where_no_link_can_be_made() {
 pub(crate) fn corpus() -> PathBuf {
     std::env::var_os("MIXDOG_MIGRATION_CORPUS").map(PathBuf::from).expect("MIXDOG_MIGRATION_CORPUS names the migration corpus")
 }
-
-
-

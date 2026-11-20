@@ -35,14 +35,8 @@ impl PreToolHook for BusPreToolHook {
     async fn pre_tool(&self, call: &HookCall<'_>) -> Result<Option<HookDecision>, HookFailure> {
         let common = (self.common)(call.thread_id);
         let cwd = effective_tool_cwd(call.name, call.args, call.cwd);
-        let tool_call = ToolCall {
-            session_id: call.thread_id.as_str(),
-            call_id: call.call_id.as_str(),
-            name: call.name,
-            args: call.args,
-            cwd: &cwd,
-            common: &common,
-        };
+        let tool_call =
+            ToolCall { session_id: call.thread_id.as_str(), call_id: call.call_id.as_str(), name: call.name, args: call.args, cwd: &cwd, common: &common };
         let Some(outcome) = self.bus.before_tool(&tool_call).await else { return Ok(None) };
         let action = match outcome.action {
             "deny" => HookAction::Deny,

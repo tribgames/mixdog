@@ -25,29 +25,15 @@ fn hub() -> ConnectionHub {
 async fn frames_travel_both_ways_with_the_pairing_origin() {
     let hub = hub();
     let (mut connection, mut endpoint) = open_relay(&hub, "phone-1".into()).unwrap();
-    assert_eq!(
-        connection.origin,
-        ConnectionOrigin::Relay {
-            peer_id: "phone-1".into()
-        }
-    );
+    assert_eq!(connection.origin, ConnectionOrigin::Relay { peer_id: "phone-1".into() });
     assert_eq!(connection.origin.origin(), Origin::Relay);
 
-    endpoint
-        .send_text(r#"{"id":"a","method":"initialize"}"#.into())
-        .await
-        .unwrap();
+    endpoint.send_text(r#"{"id":"a","method":"initialize"}"#.into()).await.unwrap();
     let request = connection.inbound.recv().await.unwrap();
     assert!(matches!(request, JsonRpcMessage::Request(r) if r.method == "initialize"));
 
-    connection
-        .sink
-        .send_control(Bytes::from_static(br#"{"id":"a","result":{}}"#))
-        .unwrap();
-    assert_eq!(
-        endpoint.recv().await,
-        Some(RelayOut::Text(Bytes::from_static(br#"{"id":"a","result":{}}"#)))
-    );
+    connection.sink.send_control(Bytes::from_static(br#"{"id":"a","result":{}}"#)).unwrap();
+    assert_eq!(endpoint.recv().await, Some(RelayOut::Text(Bytes::from_static(br#"{"id":"a","result":{}}"#))));
 }
 
 #[tokio::test]
@@ -101,10 +87,7 @@ async fn a_silent_phone_is_pinged_at_relay_level_and_closed() {
     assert_eq!(endpoint.recv().await, Some(RelayOut::Ping));
     hub.heartbeat_tick();
     hub.heartbeat_tick();
-    assert_eq!(
-        endpoint.recv().await,
-        Some(RelayOut::Close(CloseCode::PeerUnresponsive))
-    );
+    assert_eq!(endpoint.recv().await, Some(RelayOut::Close(CloseCode::PeerUnresponsive)));
 }
 
 #[tokio::test]
@@ -120,11 +103,7 @@ async fn dropping_the_endpoint_ends_the_connection() {
 #[tokio::test]
 async fn relay_connections_count_against_the_connection_limit() {
     install_rt();
-    let hub = ConnectionHub::new(Limits {
-        max_connections: 1,
-        ..small_limits()
-    })
-    .unwrap();
+    let hub = ConnectionHub::new(Limits { max_connections: 1, ..small_limits() }).unwrap();
     let _held = open_relay(&hub, "phone-1".into()).unwrap();
     assert_eq!(open_relay(&hub, "phone-2".into()).err(), Some(ConnectionLimit));
 }

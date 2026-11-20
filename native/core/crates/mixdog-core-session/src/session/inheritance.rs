@@ -4,6 +4,7 @@
 //! target route's compaction policy, which the host owns ([`InheritanceFit`]).
 
 use async_trait::async_trait;
+use mixdog_app_protocol::v2::params::ThreadInheritancePreflightParams;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ThreadHandle;
@@ -12,7 +13,6 @@ use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::route::has_session;
-use mixdog_app_protocol::v2::params::ThreadInheritancePreflightParams;
 use mixdog_store::offload_sources;
 use serde_json::Map;
 use serde_json::Value;
@@ -191,7 +191,12 @@ impl SessionDirectory {
         }
         let patch = |set: Map<String, Value>, unset: Vec<&str>, caller: &'static str| {
             let ctx = CallContext::internal(caller);
-            handle.request(CoreRequest { method: Method("thread/header/patch"), params: json!({ "threadId": heir, "set": set, "unset": unset }), op: None, ctx })
+            handle.request(CoreRequest {
+                method: Method("thread/header/patch"),
+                params: json!({ "threadId": heir, "set": set, "unset": unset }),
+                op: None,
+                ctx,
+            })
         };
         patch(marking, unset, "inheritance").await?;
         let (count, compacted) = match self.carry_rows(source_handle, &handle, snapshot, mode).await {
@@ -239,7 +244,13 @@ impl SessionDirectory {
 
     /// The source's rows fitted to the heir, the last one holding the inheritance boundary, and the heir's header
     /// fields naming its source; nothing is written.
-    async fn fit_rows(&self, source: &SessionHandle, handle: &SessionHandle, snapshot: &ForkSource, mode: CarryMode) -> Result<(Vec<Value>, Map<String, Value>, bool), CoreError> {
+    async fn fit_rows(
+        &self,
+        source: &SessionHandle,
+        handle: &SessionHandle,
+        snapshot: &ForkSource,
+        mode: CarryMode,
+    ) -> Result<(Vec<Value>, Map<String, Value>, bool), CoreError> {
         let heir = &handle.id;
         let held = handle.cell.header.load_full();
         let target = InheritTarget {
@@ -261,7 +272,8 @@ impl SessionDirectory {
             CarryMode::Existing { compact } | CarryMode::New { compact } => compact,
         };
         let source_rows = source.completed_history(snapshot).await?;
-        let system_of = |rows: &[Value]| -> Vec<Value> { rows.iter().filter(|row| row.get("role").and_then(Value::as_str) == Some("system")).cloned().collect() };
+        let system_of =
+            |rows: &[Value]| -> Vec<Value> { rows.iter().filter(|row| row.get("role").and_then(Value::as_str) == Some("system")).cloned().collect() };
         let source_system = system_of(&source_rows);
         let heir_system = system_of(&self.rows_of(heir.as_str()).await?);
         let system_differs = !source_system.is_empty() && !heir_system.is_empty() && source_system != heir_system;
@@ -289,7 +301,14 @@ impl SessionDirectory {
 
     /// `carryConversation` up to the point anything is written: the source's conversation (or the compactor's, when
     /// `compact` asks for it or the conversation cannot fit `target`), checked as Node checks it.
-    async fn plan_carry(&self, source: &SessionHandle, rows: Vec<Value>, target: &InheritTarget, compact: bool, system_differs: bool) -> Result<Plan, CoreError> {
+    async fn plan_carry(
+        &self,
+        source: &SessionHandle,
+        rows: Vec<Value>,
+        target: &InheritTarget,
+        compact: bool,
+        system_differs: bool,
+    ) -> Result<Plan, CoreError> {
         let refused = |message: &str| mixdog_core_base::support::failed("inheritance", message);
         // The replay bound to the source's prefix is removed before the fit is measured: it is what the heir would not send.
         let bind = |rows: Vec<Value>| async move {
@@ -439,7 +458,10 @@ mod tests {
 
     #[test]
     fn the_refusal_names_the_heirs_route_or_a_selected_model_when_it_has_none() {
-        assert_eq!(fit_message("openai", "gpt-5", 300, 200), "inheritFrom: the full conversation needs 300 tokens but openai/gpt-5 allows 200 before compaction");
+        assert_eq!(
+            fit_message("openai", "gpt-5", 300, 200),
+            "inheritFrom: the full conversation needs 300 tokens but openai/gpt-5 allows 200 before compaction"
+        );
         assert_eq!(fit_message("", "gpt-5", 300, 200), "inheritFrom: the full conversation needs 300 tokens but gpt-5 allows 200 before compaction");
         assert_eq!(fit_message("", "", 300, 200), "inheritFrom: the full conversation needs 300 tokens but the selected model allows 200 before compaction");
     }

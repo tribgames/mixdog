@@ -11,17 +11,17 @@ use std::sync::{Arc, Mutex};
 use mixdog_agent::step_effort::StepInput;
 use mixdog_rt::{JudgeThread, LaneToken, ThreadToken};
 use ort::environment::ThreadManager;
-use ort::session::{RunOptions, Session};
 use ort::session::builder::GraphOptimizationLevel;
+use ort::session::{RunOptions, Session};
 use ort::value::Tensor;
 
 use crate::effort_judge::error::JudgeError;
-use crate::lane::on_lane;
-use crate::model_install::InstallError;
 use crate::effort_judge::input::{InputFormat, TurnInput, pack_ids, step_judge_text, turn_text};
 use crate::effort_judge::tokenizer::BpeTokenizer;
+use crate::lane::on_lane;
 use crate::memory::embed::engine::ort_environment;
 use crate::memory::embed::install::holds_data;
+use crate::model_install::InstallError;
 
 const DEFAULT_MAX_TOKENS: usize = 256;
 /// One judgment runs at a time; four threads halve the long-input tail (Node's `intraOpNumThreads: 4`).
@@ -63,10 +63,7 @@ impl ModelConfig {
 #[allow(clippy::disallowed_methods, reason = "a lane-job body, reached through `available`")]
 fn stamped(dir: &Path) -> bool {
     let Ok(bytes) = std::fs::read(dir.join("install.json")) else { return false };
-    serde_json::from_slice::<serde_json::Value>(&bytes)
-        .ok()
-        .and_then(|json| json["release"].as_str().map(|release| !release.is_empty()))
-        .unwrap_or(false)
+    serde_json::from_slice::<serde_json::Value>(&bytes).ok().and_then(|json| json["release"].as_str().map(|release| !release.is_empty())).unwrap_or(false)
 }
 
 /// Whether the model is installed: both files hold data, and a release
@@ -93,8 +90,7 @@ struct Calibration {
 
 #[allow(clippy::disallowed_methods, reason = "runs inside the load job on the lane")]
 fn calibration(dir: &Path) -> Calibration {
-    let raw: serde_json::Value =
-        std::fs::read(dir.join("calibration.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
+    let raw: serde_json::Value = std::fs::read(dir.join("calibration.json")).ok().and_then(|b| serde_json::from_slice(&b).ok()).unwrap_or_default();
     let temperature = raw["temperature"].as_f64().filter(|t| *t > 0.0).unwrap_or(1.0);
     let max_tokens = raw["maxTokens"].as_f64().filter(|n| *n > 2.0).map_or(DEFAULT_MAX_TOKENS, |n| n as usize);
     let input_format = InputFormat::named(raw["inputFormat"].as_str().unwrap_or_default());
@@ -132,9 +128,7 @@ impl ThreadManager for OrtThreads {
     type Thread = std::thread::JoinHandle<()>;
 
     fn create(&self, work: impl FnOnce() + Send + 'static) -> ort::Result<Self::Thread> {
-        self.0
-            .spawn_thread("mixdog-effort-judge-ort", move |_| work())
-            .map_err(|error| ort::Error::new(format!("effort judge onnxruntime thread: {error}")))
+        self.0.spawn_thread("mixdog-effort-judge-ort", move |_| work()).map_err(|error| ort::Error::new(format!("effort judge onnxruntime thread: {error}")))
     }
 
     fn join(thread: Self::Thread) -> ort::Result<()> {
@@ -206,10 +200,7 @@ impl JudgeModel {
     fn run(&self, ids: &[i64]) -> Result<Vec<f64>, JudgeError> {
         let shape = [1usize, ids.len()];
         let tensor = |values: Vec<i64>| Tensor::from_array((shape, values)).map_err(run_error);
-        let feeds = vec![
-            ("input_ids", tensor(ids.to_vec())?.into_dyn()),
-            ("attention_mask", tensor(vec![1; ids.len()])?.into_dyn()),
-        ];
+        let feeds = vec![("input_ids", tensor(ids.to_vec())?.into_dyn()), ("attention_mask", tensor(vec![1; ids.len()])?.into_dyn())];
         let mut session = self.session.lock().map_err(|_| JudgeError::Run("session poisoned".into()))?;
         let outputs = session.run_with_options(feeds, &*self.stop).map_err(run_error)?;
         let (_, logits) = outputs["logits"].try_extract_tensor::<f32>().map_err(run_error)?;

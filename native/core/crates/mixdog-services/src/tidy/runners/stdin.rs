@@ -165,7 +165,15 @@ pub async fn format_each(req: &RunRequest, id: &str, write: bool, plan: Plan<'_>
                 // A fix reports nothing as still to do: it has written the file.
                 if let Some(line) = changed_at.filter(|_| !write) {
                     result.changed_files.push(file.clone());
-                    result.diagnostics.push(diagnostic(DiagnosticInit { file, line, code: id, message: &format!("{id} would reformat this file (its first change is on this line)"), severity: "warning", fixable: true, ..Default::default() }));
+                    result.diagnostics.push(diagnostic(DiagnosticInit {
+                        file,
+                        line,
+                        code: id,
+                        message: &format!("{id} would reformat this file (its first change is on this line)"),
+                        severity: "warning",
+                        fixable: true,
+                        ..Default::default()
+                    }));
                 }
                 // An engine repeats a configuration warning for every file.
                 if result.stderr_tail.is_empty() {
@@ -194,11 +202,20 @@ pub(super) mod tests {
     pub type Spawned = (Vec<String>, PathBuf, String);
 
     /// Answers each spawn from its arguments and stdin, and records it.
-    pub struct Fake(pub Mutex<Vec<Spawned>>,Box<dyn Fn(&[String], &str) -> ProcessResult + Send + Sync>);
+    pub struct Fake(pub Mutex<Vec<Spawned>>, Box<dyn Fn(&[String], &str) -> ProcessResult + Send + Sync>);
 
     #[async_trait]
     impl Spawn for Fake {
-        async fn run(&self, _: &str, args: &[String], cwd: &Path, _: std::time::Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, input: Option<Vec<u8>>) -> ProcessResult {
+        async fn run(
+            &self,
+            _: &str,
+            args: &[String],
+            cwd: &Path,
+            _: std::time::Duration,
+            _: Option<&CancellationToken>,
+            _: Option<&HashMap<String, String>>,
+            input: Option<Vec<u8>>,
+        ) -> ProcessResult {
             let source = String::from_utf8(input.unwrap_or_default()).unwrap();
             self.0.lock().unwrap().push((args.to_vec(), cwd.to_owned(), source.clone()));
             (self.1)(args, &source)
@@ -206,7 +223,11 @@ pub(super) mod tests {
     }
 
     /// A tree of `files` (path, text) and an engine that answers through `reply`, asked about `sources`.
-    pub fn project(files: &[(&str, &str)], sources: &[&str], reply: impl Fn(&[String], &str) -> ProcessResult + Send + Sync + 'static) -> (tempfile::TempDir, Arc<Fake>, RunRequest) {
+    pub fn project(
+        files: &[(&str, &str)],
+        sources: &[&str],
+        reply: impl Fn(&[String], &str) -> ProcessResult + Send + Sync + 'static,
+    ) -> (tempfile::TempDir, Arc<Fake>, RunRequest) {
         let dir = tempfile::tempdir().unwrap();
         for (path, text) in files {
             let full = dir.path().join(path);
@@ -214,7 +235,8 @@ pub(super) mod tests {
             std::fs::write(full, text).unwrap();
         }
         let spawn = Arc::new(Fake(Mutex::default(), Box::new(reply)));
-        let req = RunRequest::new(dir.path(), "engine", sources.iter().map(|f| (*f).to_owned()).collect(), spawn.clone(), mixdog_rt::testing::tokens().durability_io);
+        let req =
+            RunRequest::new(dir.path(), "engine", sources.iter().map(|f| (*f).to_owned()).collect(), spawn.clone(), mixdog_rt::testing::tokens().durability_io);
         (dir, spawn, req)
     }
 
@@ -229,7 +251,9 @@ pub(super) mod tests {
 
     #[test]
     fn the_first_line_ending_decides_the_style_and_the_first_difference_gives_the_line() {
-        assert!(ends_lines_with_crlf(b"a\r\nb\n") && !ends_lines_with_crlf(b"a\nb\r\n") && !ends_lines_with_crlf(b"no newline") && !ends_lines_with_crlf(b"\n"));
+        assert!(
+            ends_lines_with_crlf(b"a\r\nb\n") && !ends_lines_with_crlf(b"a\nb\r\n") && !ends_lines_with_crlf(b"no newline") && !ends_lines_with_crlf(b"\n")
+        );
         assert_eq!((first_changed_line(b"a\nb\nc", b"a\nb\nd"), first_changed_line(b"x", b"y"), first_changed_line(b"a\n", b"a\n\n")), (3, 1, 2));
     }
 
@@ -237,9 +261,13 @@ pub(super) mod tests {
     async fn a_formatter_that_ends_lines_with_lf_does_not_rewrite_the_line_endings_of_a_crlf_file() {
         // The engine answers LF whatever it reads, as zig fmt and mix format do.
         let reply = |_: &[String], source: &str| ProcessResult { stdout: source.replace("\r\n", "\n").replace("x=1", "x = 1"), ..Default::default() };
-        let (dir, _spawn, req) = project(&[("tidy.zig", "a\r\nb\r\n"), ("messy.zig", "a\r\nx=1\r\n"), ("unix.zig", "x=1\n")], &["tidy.zig", "messy.zig", "unix.zig"], reply);
+        let (dir, _spawn, req) =
+            project(&[("tidy.zig", "a\r\nb\r\n"), ("messy.zig", "a\r\nx=1\r\n"), ("unix.zig", "x=1\n")], &["tidy.zig", "messy.zig", "unix.zig"], reply);
         let checked = format_each(&req, "fmt", false, &no_args).await;
-        assert_eq!((checked.changed_files.clone(), checked.diagnostics.iter().map(|d| d.line).collect::<Vec<_>>()), (vec!["messy.zig".to_owned(), "unix.zig".to_owned()], vec![2, 1]));
+        assert_eq!(
+            (checked.changed_files.clone(), checked.diagnostics.iter().map(|d| d.line).collect::<Vec<_>>()),
+            (vec!["messy.zig".to_owned(), "unix.zig".to_owned()], vec![2, 1])
+        );
         format_each(&req, "fmt", true, &no_args).await;
         let text = |name: &str| std::fs::read_to_string(dir.path().join(name)).unwrap();
         assert_eq!((text("tidy.zig"), text("messy.zig"), text("unix.zig")), ("a\r\nb\r\n".to_owned(), "a\r\nx = 1\r\n".to_owned(), "x = 1\n".to_owned()));
@@ -249,7 +277,10 @@ pub(super) mod tests {
     async fn a_formatter_that_ends_lines_with_crlf_does_not_rewrite_an_lf_file_and_a_kept_crlf_is_not_touched() {
         // The engine ends every line with CR LF, as rustfmt does under `newline_style = "Windows"`,
         // except for the text it is told to keep as it is.
-        let reply = |_: &[String], source: &str| ProcessResult { stdout: if source.contains("keep") { source.replace("x=1", "x = 1") } else { source.replace('\n', "\r\n") }, ..Default::default() };
+        let reply = |_: &[String], source: &str| ProcessResult {
+            stdout: if source.contains("keep") { source.replace("x=1", "x = 1") } else { source.replace('\n', "\r\n") },
+            ..Default::default()
+        };
         let (dir, _spawn, req) = project(&[("unix.rs", "a\nb\n"), ("mixed.rs", "a\n\"keep\r\n\"\nx=1\n")], &["unix.rs", "mixed.rs"], reply);
         let checked = format_each(&req, "fmt", false, &no_args).await;
         assert_eq!((checked.files_checked, checked.changed_files), (Some(2), vec!["mixed.rs".to_owned()]));
@@ -282,7 +313,11 @@ pub(super) mod tests {
             "fn a() {}\nfn  messy(){}\n" => ProcessResult { stdout: "fn a() {}\nfn messy() {}\n".into(), ..Default::default() },
             fine => ProcessResult { stdout: fine.to_owned(), ..Default::default() },
         };
-        let (dir, spawn, req) = project(&[("src/a.rs", "fn a() {}\nfn  messy(){}\n"), ("src/b.rs", "broken"), ("c.rs", "fine"), ("empty.rs", "")], &["src/a.rs", "src/b.rs", "c.rs", "gone.rs", "empty.rs"], reply);
+        let (dir, spawn, req) = project(
+            &[("src/a.rs", "fn a() {}\nfn  messy(){}\n"), ("src/b.rs", "broken"), ("c.rs", "fine"), ("empty.rs", "")],
+            &["src/a.rs", "src/b.rs", "c.rs", "gone.rs", "empty.rs"],
+            reply,
+        );
         let out = format_each(&req, "fmt", false, &no_args).await;
         assert_eq!((out.files_checked, out.changed_files.clone(), out.error.clone()), (Some(3), vec!["src/a.rs".to_owned()], None));
         assert_eq!(out.diagnostics.iter().map(|d| (d.file.as_str(), d.line, d.fixable, d.code.as_str())).collect::<Vec<_>>(), [("src/a.rs", 2, true, "fmt")]);
@@ -305,13 +340,20 @@ pub(super) mod tests {
         let out = format_each(&req, "fmt", true, &no_args).await;
         assert_eq!((out.files_checked, out.unprocessed.len(), out.error.clone(), out.diagnostics.len()), (Some(3), 1, None, 0));
         let text = |name: &str| std::fs::read_to_string(dir.path().join(name)).unwrap();
-        assert_eq!((text("a.rs"), text("b.rs"), text("clean.rs"), text("marked.rs")), ("formatted messy".to_owned(), "broken".to_owned(), "tidy\n".to_owned(), "\u{feff}formatted messy".to_owned()));
+        assert_eq!(
+            (text("a.rs"), text("b.rs"), text("clean.rs"), text("marked.rs")),
+            ("formatted messy".to_owned(), "broken".to_owned(), "tidy\n".to_owned(), "\u{feff}formatted messy".to_owned())
+        );
         assert!(spawn.0.lock().unwrap().iter().all(|c| !c.2.starts_with('\u{feff}')), "the engine is given the text without the mark");
     }
 
     #[tokio::test]
     async fn an_engine_that_cannot_run_or_is_cancelled_is_a_failure_not_a_clean_run() {
-        let (_dir, _spawn, req) = project(&[("a.rs", "a"), ("b.rs", "b")], &["a.rs", "b.rs"], |_, _| ProcessResult { code: -1, error: "fmt: program not found".into(), ..Default::default() });
+        let (_dir, _spawn, req) = project(&[("a.rs", "a"), ("b.rs", "b")], &["a.rs", "b.rs"], |_, _| ProcessResult {
+            code: -1,
+            error: "fmt: program not found".into(),
+            ..Default::default()
+        });
         let missing = format_each(&req, "fmt", false, &no_args).await;
         assert_eq!((missing.files_checked, missing.error.as_deref()), (Some(0), Some("fmt could not run: fmt: program not found")));
         let (_dir, _spawn, mut req) = project(&[("a.rs", "a")], &["a.rs"], |_, _| ProcessResult { code: -1, ..Default::default() });

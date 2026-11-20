@@ -3,11 +3,7 @@
 //! and every ancestor from being deleted or renamed while the core runs, and
 //! the barrier is held open the same way, so revalidation has nothing to check.
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the OS lock and barrier pin are held std::fs handles; opened once at startup"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the OS lock and barrier pin are held std::fs handles; opened once at startup")]
 
 use std::fs::File;
 use std::fs::OpenOptions;
@@ -56,41 +52,19 @@ pub(super) fn lock(dir: &DataDir) -> Result<LockFile, AcquireError> {
     let mut overlapped: OVERLAPPED = unsafe { std::mem::zeroed() };
     overlapped.Anonymous.Anonymous.Offset = SQLITE_LOCK_OFFSET;
     // SAFETY: valid file handle and OVERLAPPED; the range lies past any byte of the file.
-    let ok = unsafe {
-        LockFileEx(
-            file.as_raw_handle() as HANDLE,
-            LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
-            0,
-            SQLITE_LOCK_LEN,
-            0,
-            &mut overlapped,
-        )
-    };
+    let ok = unsafe { LockFileEx(file.as_raw_handle() as HANDLE, LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY, 0, SQLITE_LOCK_LEN, 0, &mut overlapped) };
     if ok == 0 {
         let error = io::Error::last_os_error();
-        return Err(
-            if error.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32) {
-                AcquireError::AlreadyOwned
-            } else {
-                AcquireError::Unavailable(error)
-            },
-        );
+        return Err(if error.raw_os_error() == Some(ERROR_LOCK_VIOLATION as i32) { AcquireError::AlreadyOwned } else { AcquireError::Unavailable(error) });
     }
     Ok(LockFile { _file: file })
 }
 
 pub(super) fn pin(dir: &DataDir, name: &str) -> io::Result<BarrierPin> {
-    let file = OpenOptions::new()
-        .read(true)
-        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE)
-        .open(dir.path().join(name))?;
+    let file = OpenOptions::new().read(true).share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE).open(dir.path().join(name))?;
     Ok(BarrierPin { _file: file })
 }
 
-pub(super) fn check(
-    _dir: &DataDir,
-    _lock: &LockFile,
-    _barrier: Option<&BarrierPin>,
-) -> Result<(), FenceReason> {
+pub(super) fn check(_dir: &DataDir, _lock: &LockFile, _barrier: Option<&BarrierPin>) -> Result<(), FenceReason> {
     Ok(())
 }

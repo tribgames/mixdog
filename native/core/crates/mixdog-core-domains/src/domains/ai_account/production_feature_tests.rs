@@ -49,7 +49,10 @@ async fn antigravity_overwrites_its_file_with_an_empty_document_instead_of_delet
 #[tokio::test]
 async fn anthropic_removes_only_its_own_sign_in_and_keeps_the_other_keys() {
     let own = json!({ "accessToken": "a", "refreshToken": "r", "expiresAt": 4_000_000_000_000_i64 });
-    assert_eq!(forget("anthropic-oauth", Some(json!({ "claudeAiOauth": own, "mcpOAuth": { "s": 1 } }))).await, (json!({ "removed": true }), json!({ "mcpOAuth": { "s": 1 } })));
+    assert_eq!(
+        forget("anthropic-oauth", Some(json!({ "claudeAiOauth": own, "mcpOAuth": { "s": 1 } }))).await,
+        (json!({ "removed": true }), json!({ "mcpOAuth": { "s": 1 } }))
+    );
     assert_eq!(forget("anthropic-oauth", Some(json!({ "claudeAiOauth": { "accessToken": "a" } }))).await, (json!({ "removed": true }), json!({})));
     assert_eq!(forget("anthropic-oauth", Some(json!({ "mcpOAuth": { "s": 1 } }))).await, (json!({ "removed": false }), json!({ "mcpOAuth": { "s": 1 } })));
     assert_eq!(forget("anthropic-oauth", None).await, (json!({ "removed": false }), Value::Null));

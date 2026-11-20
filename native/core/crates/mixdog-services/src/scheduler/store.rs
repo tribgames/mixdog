@@ -33,8 +33,7 @@ pub trait ScheduleStore: Send + Sync {
     /// Moves the cursor of a skipped slot; false when the slot is stale or the row off.
     async fn advance_cursor(&self, name: &str, scheduled_at: Ts, next: Option<Ts>) -> Result<bool, ScheduleError>;
     /// Claims one cron slot exactly once; false for a duplicate/stale slot or an off row.
-    async fn claim_run(&self, name: &str, scheduled_at: Ts, started_at: Ts, next: Option<Ts>)
-    -> Result<bool, ScheduleError>;
+    async fn claim_run(&self, name: &str, scheduled_at: Ts, started_at: Ts, next: Option<Ts>) -> Result<bool, ScheduleError>;
     async fn mark_success(&self, name: &str, at: Ts) -> Result<(), ScheduleError>;
     /// One more failure in a row; the one reaching the pause limit switches the row off.
     async fn mark_failure(&self, name: &str, at: Ts) -> Result<(), ScheduleError>;
@@ -135,13 +134,7 @@ impl ScheduleStore for MemoryScheduleStore {
         self.edit(name, |s| claimed = rows::claim(s, scheduled_at, None, next));
         Ok(claimed)
     }
-    async fn claim_run(
-        &self,
-        name: &str,
-        scheduled_at: Ts,
-        started_at: Ts,
-        next: Option<Ts>,
-    ) -> Result<bool, ScheduleError> {
+    async fn claim_run(&self, name: &str, scheduled_at: Ts, started_at: Ts, next: Option<Ts>) -> Result<bool, ScheduleError> {
         let mut claimed = false;
         self.edit(name, |s| claimed = rows::claim(s, scheduled_at, Some(started_at), next));
         Ok(claimed)

@@ -16,75 +16,75 @@ use std::sync::Weak;
 
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::board::JobBoard;
+use mixdog_agent::compact::blob_reads::BlobReads;
 use mixdog_agent::env::Clock;
 use mixdog_ai::registry::providers::ProviderRegistry;
+use mixdog_ai::service::admin_route::resolve_route;
+use mixdog_core_agents::agents::AgentDefinitions;
 use mixdog_core_api::domain::ext::ExtPool;
 use mixdog_core_api::domain::fs::FileService;
 use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_core_config::config::Config;
+use mixdog_core_domains::domains::ai_account::collaborators::AuthRefresh;
+use mixdog_core_domains::domains::ai_admin::chain::CatalogFacts;
+use mixdog_core_domains::domains::ai_admin::chain::RouteFacts;
 use mixdog_core_goal::goal::GoalConfig;
 use mixdog_core_goal::goal::GoalEnv;
 use mixdog_core_goal::goal::GoalError;
 use mixdog_core_goal::goal::GoalResult;
 use mixdog_core_goal::goal::GoalRuntime;
 use mixdog_core_goal::goal::GoalTitles;
-use mixdog_core_session::session::session_title::{TitleError, TitleModel};
+use mixdog_core_ports::ports::memory_source::ThreadMessages;
+use mixdog_core_ports::ports::route::LiveRoute;
+use mixdog_core_ports::ports::route::Route;
 use mixdog_core_ports::ports::run_stamps::RunStamps;
 use mixdog_core_ports::ports::threads::HeaderUpdate;
 use mixdog_core_ports::ports::threads::HeaderUpdates;
+use mixdog_core_ports::ports::threads::Section;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_run::ports::running_work::ProcessWork;
-use mixdog_core_run::run_host::hop_host::HopFactory;
 use mixdog_core_run::run_host::hop_host::HopDeps;
+use mixdog_core_run::run_host::hop_host::HopFactory;
 use mixdog_core_run::run_host::hop_host::HopSessions;
-use mixdog_core_config::config::Config;
-use mixdog_core_domains::domains::ai_account::collaborators::AuthRefresh;
-use mixdog_core_domains::domains::ai_admin::chain::CatalogFacts;
-use mixdog_core_ports::ports::memory_source::ThreadMessages;
-use mixdog_core_ports::ports::route::LiveRoute;
-use mixdog_core_ports::ports::threads::Section;
-use mixdog_ai::service::admin_route::resolve_route;
-use mixdog_core_domains::domains::ai_admin::chain::RouteFacts;
-use mixdog_core_ports::ports::route::Route;
-use mixdog_core_session::session::route_cell::SessionRoutes;
-use mixdog_core_session::session::delivered::DeliveredCompletions;
-use mixdog_core_session::session::pending_read::PendingQueue;
-use mixdog_core_session::session::route_session::ContextStatusCache;
-use mixdog_core_session::session::secret_input::SecretInputService;
-use mixdog_core_session::session::secret_input::SecretSlots;
-use mixdog_core_session::session::secret_input::SECRET_INPUT_TIMEOUT;
-use mixdog_core_session::session::thread_state::SessionThreads;
-use mixdog_tools::orch::util::PortError;
-use serde_json::Map;
-use mixdog_core_session::session::run_stamps::run_stamp_of;
-use mixdog_core_session::session::run_stamps::Records;
 use mixdog_core_session::session::RunFactory;
 use mixdog_core_session::session::SessionDeps;
 use mixdog_core_session::session::SessionDirectory;
-use mixdog_core_agents::agents::AgentDefinitions;
-use mixdog_mcp::hook_bus::session::CommonOf;
+use mixdog_core_session::session::delivered::DeliveredCompletions;
+use mixdog_core_session::session::pending_read::PendingQueue;
+use mixdog_core_session::session::route_cell::SessionRoutes;
+use mixdog_core_session::session::route_session::ContextStatusCache;
+use mixdog_core_session::session::run_stamps::Records;
+use mixdog_core_session::session::run_stamps::run_stamp_of;
+use mixdog_core_session::session::secret_input::SECRET_INPUT_TIMEOUT;
+use mixdog_core_session::session::secret_input::SecretInputService;
+use mixdog_core_session::session::secret_input::SecretSlots;
+use mixdog_core_session::session::session_title::{TitleError, TitleModel};
+use mixdog_core_session::session::thread_state::SessionThreads;
+use mixdog_mcp::McpHub;
 use mixdog_mcp::hook_bus::HookBus;
 use mixdog_mcp::hook_bus::HookCommon;
-use mixdog_mcp::McpHub;
-use mixdog_agent::compact::blob_reads::BlobReads;
+use mixdog_mcp::hook_bus::session::CommonOf;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::LaneTokens;
 use mixdog_services::effort_judge::judge::EffortJudgeModel;
 use mixdog_store::paths::Paths;
 use mixdog_store::schema::record::Header;
 use mixdog_tools::exec::ExecRuntime;
+use mixdog_tools::orch::util::PortError;
 use mixdog_tools::policy::ConnectorPermissions;
 use mixdog_tools::policy::ToolPolicy;
-use serde_json::json;
+use serde_json::Map;
 use serde_json::Value;
+use serde_json::json;
 
 use super::config_hosts::ConfigHosts;
 use super::config_hosts::Env;
 use super::config_hosts::ThreadHeaders;
 use super::hop_bindings::HopBindings;
-use super::late::Bound;
 use super::host_seams::ConfigSeams;
+use super::late::Bound;
 use super::mcp_seams::CatalogSkillsListed;
 use super::mcp_seams::ConfigAllowAll;
 use super::mcp_seams::McpAwareResolver;
@@ -299,9 +299,7 @@ pub fn hops(
             errors,
             wiring,
         };
-        HopFactory::new(deps, sessions(directory)).with_eligibility(Arc::new(
-            mixdog_core_run::run_host::hop_host::RegistryEligibility(registry.clone()),
-        ))
+        HopFactory::new(deps, sessions(directory)).with_eligibility(Arc::new(mixdog_core_run::run_host::hop_host::RegistryEligibility(registry.clone())))
     })
 }
 
@@ -390,9 +388,7 @@ pub struct LateApprovalSurfaces {
 
 impl mixdog_core_api::ApprovalSurfaces for LateApprovalSurfaces {
     fn attached(&self, thread: &ThreadId) -> bool {
-        self.directory
-            .directory()
-            .is_some_and(|directory| mixdog_core_session::session::approval_surfaces::attached_in(&directory, &*self.presence, thread))
+        self.directory.directory().is_some_and(|directory| mixdog_core_session::session::approval_surfaces::attached_in(&directory, &*self.presence, thread))
     }
 }
 
@@ -426,9 +422,7 @@ pub fn pending_rows(directory: &Arc<SessionDirectory>, clock: Arc<dyn mixdog_cor
 /// through the saved config (`resolveRoute(getConfig(), request)`, `boot/shared.mjs:19`). The same
 /// `Arc` is the `LiveRoute` of `ConfigHosts` and the `RouteCell` of `LiveRouteWriter`.
 pub fn live_routes(config: Config, facts: Arc<CatalogFacts>) -> Arc<SessionRoutes> {
-    Arc::new(SessionRoutes::new(move |request: &Route| {
-        resolve_route(&config.agent(), request, &|provider, full| facts.is_known(provider, full))
-    }))
+    Arc::new(SessionRoutes::new(move |request: &Route| resolve_route(&config.agent(), request, &|provider, full| facts.is_known(provider, full))))
 }
 
 // ---- the late cells' bound() checks -------------------------------------------------------------
@@ -571,15 +565,20 @@ mod tests {
     fn every_view_of_the_late_directory_is_unbound_until_the_directory_is_bound() {
         use super::super::late::{Unbound, require};
         let late = Arc::new(LateDirectory::default());
-        let cells: [&dyn Bound; 6] =
-            [&*late, &DirectoryHeaders(late.clone()), &LateRunStamps(late.clone()), &LateThreads(late.clone()), &LateHeaders(late.clone()), &HookCommonCell(late.clone())];
+        let cells: [&dyn Bound; 6] = [
+            &*late,
+            &DirectoryHeaders(late.clone()),
+            &LateRunStamps(late.clone()),
+            &LateThreads(late.clone()),
+            &LateHeaders(late.clone()),
+            &HookCommonCell(late.clone()),
+        ];
         for cell in cells {
             assert!(!cell.is_bound(), "{}", cell.cell());
         }
         assert_eq!(require(&cells), Err(Unbound { cell: "session directory" }));
         assert_eq!(require(&cells[1..]), Err(Unbound { cell: "directory headers" }));
     }
-
 
     /// Registry, readiness and the effects are built from the process services before the turn path,
     /// and all of them hold the one registry the turn path takes.
@@ -605,13 +604,8 @@ mod tests {
             mixdog_mcp::result::OutputPolicy::default(),
         );
         let roots: SkillRoots = Arc::new(|_lane| Vec::new());
-        let skills = mixdog_mcp::skill_catalog::SkillCatalog::new(
-            dir.path().to_path_buf(),
-            tokens.maintenance_io,
-            roots,
-            Arc::new(NoSettings),
-            &SkillsWatch::new(),
-        );
+        let skills =
+            mixdog_mcp::skill_catalog::SkillCatalog::new(dir.path().to_path_buf(), tokens.maintenance_io, roots, Arc::new(NoSettings), &SkillsWatch::new());
         let heartbeats = mixdog_services::bots::HeartbeatSessions::new();
         let rows = ready_rows(
             process,
@@ -632,7 +626,6 @@ mod tests {
         assert_eq!(rows.skills_listed.any_for(dir.path()).await, Ok(false), "no skill root, no skill");
     }
 }
-
 
 /// What the one `ConfigHosts` reads. `gauge` and `refresh` have no production type yet
 /// (compose-seams.md, "Blocked rows"): the caller supplies them.
@@ -718,15 +711,14 @@ pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry
         Arc::new(super::turn_judge::ModelTurnJudge::new(owed.effort_judge.clone(), &env)),
         ready.ladder.clone(),
         Arc::new(super::auto_effort::RegistryConfiguration::new(
-            registry.clone(), ready.hop.source.clone(), process.unsupported.clone(), ready.hop.codex_declared.clone(),
+            registry.clone(),
+            ready.hop.source.clone(),
+            process.unsupported.clone(),
+            ready.hop.codex_declared.clone(),
         )),
-        Arc::new(super::auto_effort::EffortDecisionLog::new(
-            env, owed.paths.data_dir.clone(), owed.tokens.durability_io, owed.tokens.maintenance_io,
-        )),
+        Arc::new(super::auto_effort::EffortDecisionLog::new(env, owed.paths.data_dir.clone(), owed.tokens.durability_io, owed.tokens.maintenance_io)),
         Arc::new(move || {
-            chrono::DateTime::from_timestamp_millis(clock.now_ms())
-                .map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true))
-                .unwrap_or_default()
+            chrono::DateTime::from_timestamp_millis(clock.now_ms()).map(|at| at.to_rfc3339_opts(chrono::SecondsFormat::Millis, true)).unwrap_or_default()
         }),
     )));
     TurnPathParts {
@@ -772,7 +764,6 @@ pub fn turn_path_parts(process: &ProcessServices, registry: Arc<ProviderRegistry
         reuses: owed.reuses,
     }
 }
-
 
 /// The process's one provider registry: `DefaultProviderBuilder` over the builder inputs of `process`, accounted
 /// by pricing, the ledger, the send scope and the account lookup. Built right after `ProcessServices`, so

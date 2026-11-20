@@ -53,8 +53,7 @@ mod tests {
         std::fs::write(&path, br#"{"agent":{"worktree":{"a":1},"autoClear":{"x":1}},"other":true}"#).unwrap();
         let tokens = mixdog_rt::testing::tokens();
         let lanes = ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let (config, _) =
-            Config::open(path.clone(), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
+        let (config, _) = Config::open(path.clone(), Arc::new(MockStatePublisher::default()), lanes).await.unwrap();
         // The fixture is a literal config object, as Node's recorders hand one to `withGrandfatheredBuiltins`.
         (config.with_origin(crate::tool_modules::Origin::Given), path)
     }

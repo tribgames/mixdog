@@ -146,12 +146,8 @@ impl WakeHub {
                 WakeReason::Notification => state.notice_pending = Some(detail.clone()),
             }
         }
-        let waiters: Vec<Arc<Waiter>> =
-            lock(&self.waiters).get(thread).cloned().unwrap_or_default();
-        waiters
-            .iter()
-            .filter(|w| w.release(Wake { reason, detail: detail.clone() }))
-            .count()
+        let waiters: Vec<Arc<Waiter>> = lock(&self.waiters).get(thread).cloned().unwrap_or_default();
+        waiters.iter().filter(|w| w.release(Wake { reason, detail: detail.clone() })).count()
     }
 
     /// Whether a wait may start now: not while a user message of this turn is unanswered, and not
@@ -247,10 +243,7 @@ mod tests {
         assert_eq!(hub.interrupt(&ThreadId::from("other"), WakeReason::UserMessage, None), 0);
         assert_eq!(hub.interrupt(&thread, WakeReason::Notification, Some("task-1".into())), 1);
         guard.released().await;
-        assert_eq!(
-            guard.wake(),
-            Some(Wake { reason: WakeReason::Notification, detail: Some("task-1".into()) })
-        );
+        assert_eq!(guard.wake(), Some(Wake { reason: WakeReason::Notification, detail: Some("task-1".into()) }));
         // The first reason stays.
         assert_eq!(hub.interrupt(&thread, WakeReason::UserMessage, None), 0);
         drop(guard);

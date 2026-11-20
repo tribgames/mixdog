@@ -52,8 +52,7 @@ fn add_to_epoch(tx: &Transaction<'_>, session: &str, start: i64, count: i64, rea
 }
 
 fn ensure_root(tx: &Transaction<'_>, session: &str) -> rusqlite::Result<()> {
-    tx.prepare_cached("INSERT OR IGNORE INTO message_epochs (session, start, count, real, superseded_rev) VALUES (?1, 0, 0, 0, NULL)")?
-        .execute([session])?;
+    tx.prepare_cached("INSERT OR IGNORE INTO message_epochs (session, start, count, real, superseded_rev) VALUES (?1, 0, 0, 0, NULL)")?.execute([session])?;
     Ok(())
 }
 
@@ -72,8 +71,7 @@ struct View {
 }
 
 fn incoming_of(text: String) -> rusqlite::Result<Vec<u64>> {
-    serde_json::from_str(&text)
-        .map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
+    serde_json::from_str(&text).map_err(|e| rusqlite::Error::FromSqlConversionFailure(0, rusqlite::types::Type::Text, Box::new(e)))
 }
 
 /// The newest live view of a fork.
@@ -123,8 +121,7 @@ pub(crate) fn read_stats(tx: &Transaction<'_>, session: &str, with_incoming: boo
         Some(v) => v.preview.clone(),
         None => tx.prepare_cached(PREVIEW_SQL)?.query_row(params![session, e.start], |r| r.get(0)).optional()?.unwrap_or_default(),
     };
-    let own_last: Option<(String, String)> =
-        tx.prepare_cached(LAST_SQL)?.query_row(params![session, e.start], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
+    let own_last: Option<(String, String)> = tx.prepare_cached(LAST_SQL)?.query_row(params![session, e.start], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
     let last = own_last.or_else(|| view.as_ref().filter(|v| !v.line.is_empty()).map(|v| (v.line.clone(), v.routine.clone())));
     let mut incoming: Vec<u64> = Vec::new();
     if with_incoming {
@@ -144,36 +141,34 @@ pub(crate) fn read_stats(tx: &Transaction<'_>, session: &str, with_incoming: boo
 /// `(file_no, frame_offset, frame_len)` of the frame holding a version's body.
 pub(crate) type FrameLoc = (i64, i64, i64);
 
-fn put_version(
-    tx: &Transaction<'_>,
-    session: &str,
-    key: (i64, i64, i64),
-    loc: FrameLoc,
-    iid: &str,
-    row: &MessageRow,
-    place: i64,
-) -> rusqlite::Result<()> {
+fn put_version(tx: &Transaction<'_>, session: &str, key: (i64, i64, i64), loc: FrameLoc, iid: &str, row: &MessageRow, place: i64) -> rusqlite::Result<()> {
     tx.prepare_cached(
         "INSERT OR REPLACE INTO message_rows (session, ordinal, idx, ver, file_no, frame_offset, frame_len, iid,
          counted, real, incoming, place, preview, line, routine, live, superseded_rev)
          VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, 1, NULL)",
     )?
     .execute(params![
-        session, key.0, key.1, key.2, loc.0, loc.1, loc.2, iid, row.counted, row.real, row.incoming, place, row.preview,
-        row.line, row.routine
+        session,
+        key.0,
+        key.1,
+        key.2,
+        loc.0,
+        loc.1,
+        loc.2,
+        iid,
+        row.counted,
+        row.real,
+        row.incoming,
+        place,
+        row.preview,
+        row.line,
+        row.routine
     ])?;
     Ok(())
 }
 
 /// A model message item at `ordinal`, in the frame at `loc`.
-pub(crate) fn add_item(
-    tx: &Transaction<'_>,
-    session: &str,
-    ordinal: i64,
-    loc: FrameLoc,
-    iid: &str,
-    row: &MessageRow,
-) -> rusqlite::Result<()> {
+pub(crate) fn add_item(tx: &Transaction<'_>, session: &str, ordinal: i64, loc: FrameLoc, iid: &str, row: &MessageRow) -> rusqlite::Result<()> {
     ensure_root(tx, session)?;
     let e = live_epoch(tx, session)?;
     put_version(tx, session, (ordinal, 0, ordinal), loc, iid, row, e.count + i64::from(row.counted))?;
@@ -182,13 +177,7 @@ pub(crate) fn add_item(
 
 /// A `compacted` frame at `loc`: a new epoch whose rows are the replacement; its totals
 /// count from it.
-pub(crate) fn add_compaction(
-    tx: &Transaction<'_>,
-    session: &str,
-    ordinal: i64,
-    loc: FrameLoc,
-    rows: &[(String, MessageRow)],
-) -> rusqlite::Result<()> {
+pub(crate) fn add_compaction(tx: &Transaction<'_>, session: &str, ordinal: i64, loc: FrameLoc, rows: &[(String, MessageRow)]) -> rusqlite::Result<()> {
     let (mut count, mut real) = (0, 0);
     for (idx, (iid, row)) in rows.iter().enumerate() {
         count += i64::from(row.counted);
@@ -214,14 +203,7 @@ fn epoch_of(tx: &Transaction<'_>, session: &str, ordinal: i64, rev: i64) -> rusq
 /// in `session.messages` in place and its summary re-reads that array,
 /// `_sessionMessageProjection`): a new version of the row, whose place and role-derived
 /// `counted` stay the row's; the epoch's `real` moves by the difference.
-pub(crate) fn amend(
-    tx: &Transaction<'_>,
-    session: &str,
-    iid: &str,
-    at: i64,
-    loc: FrameLoc,
-    new: &MessageRow,
-) -> rusqlite::Result<()> {
+pub(crate) fn amend(tx: &Transaction<'_>, session: &str, iid: &str, at: i64, loc: FrameLoc, new: &MessageRow) -> rusqlite::Result<()> {
     let old: Option<(i64, i64, i64, bool, bool, i64)> = tx
         .prepare_cached(
             "SELECT ordinal, idx, ver, counted, real, place FROM message_rows
@@ -285,8 +267,7 @@ pub(crate) fn rewind(tx: &Transaction<'_>, session: &str, to: i64, at: i64, budg
                 "SELECT ordinal, idx, ver, live, counted, real FROM message_rows WHERE session = ?1
                  AND superseded_rev IS NULL AND ver >= ?2 AND ver < ?3 ORDER BY ver DESC LIMIT 1",
             )?
-            .query_row(params![session, to, at], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
-            )
+            .query_row(params![session, to, at], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
             .optional()?;
         let Some((ordinal, idx, ver, live, counted, real)) = next else {
             return Ok((used, true));
@@ -306,9 +287,12 @@ pub(crate) fn rewind(tx: &Transaction<'_>, session: &str, to: i64, at: i64, budg
             .query_row(params![session, ordinal, idx], |r| Ok((r.get(0)?, r.get(1)?)))
             .optional()?;
         if let Some((previous_ver, previous_real)) = previous {
-            used += tx
-                .prepare_cached("UPDATE message_rows SET live = 1 WHERE session = ?1 AND ordinal = ?2 AND idx = ?3 AND ver = ?4")?
-                .execute(params![session, ordinal, idx, previous_ver])?;
+            used += tx.prepare_cached("UPDATE message_rows SET live = 1 WHERE session = ?1 AND ordinal = ?2 AND idx = ?3 AND ver = ?4")?.execute(params![
+                session,
+                ordinal,
+                idx,
+                previous_ver
+            ])?;
             if let Some((start, false)) = epoch {
                 add_to_epoch(tx, session, start, 0, i64::from(previous_real) - i64::from(real))?;
                 used += 1;
@@ -322,16 +306,8 @@ pub(crate) fn rewind(tx: &Transaction<'_>, session: &str, to: i64, at: i64, budg
 
 /// The view a fork (re)starts with: its base as of `position`, taken now when the base's
 /// projection ends exactly there, else computed by maintenance steps (`pending`).
-pub(crate) fn open_view(
-    tx: &Transaction<'_>,
-    session: &str,
-    valid_from: i64,
-    base: &str,
-    position: i64,
-    cut: i64,
-) -> rusqlite::Result<()> {
-    let projected: Option<i64> =
-        tx.prepare_cached("SELECT projected_ordinal FROM sessions WHERE id = ?1")?.query_row([base], |r| r.get(0)).optional()?;
+pub(crate) fn open_view(tx: &Transaction<'_>, session: &str, valid_from: i64, base: &str, position: i64, cut: i64) -> rusqlite::Result<()> {
+    let projected: Option<i64> = tx.prepare_cached("SELECT projected_ordinal FROM sessions WHERE id = ?1")?.query_row([base], |r| r.get(0)).optional()?;
     // Ready now only when the base's projection ends exactly at the fork point (its state
     // is then the snapshot); a base behind it must project first, a base ahead is scanned.
     let now = cut == position && projected == Some(position) && !any_pending_view(tx, base)?;
@@ -379,8 +355,20 @@ pub(crate) fn view_step(tx: &Transaction<'_>, rows: usize) -> rusqlite::Result<S
         )?
         .query_row([], |r| {
             Ok((
-                r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?, r.get(7)?, r.get(8)?,
-                r.get(9)?, r.get(10)?, r.get(11)?, r.get(12)?, r.get(13)?,
+                r.get(0)?,
+                r.get(1)?,
+                r.get(2)?,
+                r.get(3)?,
+                r.get(4)?,
+                r.get(5)?,
+                r.get(6)?,
+                r.get(7)?,
+                r.get(8)?,
+                r.get(9)?,
+                r.get(10)?,
+                r.get(11)?,
+                r.get(12)?,
+                r.get(13)?,
             ))
         })
         .optional()?;
@@ -457,9 +445,7 @@ pub(crate) fn view_step(tx: &Transaction<'_>, rows: usize) -> rusqlite::Result<S
                      WHERE session = ?1 AND ordinal = ?2 AND idx = ?3 AND ver < ?4
                        AND (superseded_rev IS NULL OR superseded_rev >= ?5) ORDER BY ver DESC LIMIT 1",
                 )?
-                .query_row(params![hop, o, i, hop_cut, hop_time], |r| {
-                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?))
-                })
+                .query_row(params![hop, o, i, hop_cut, hop_time], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?)))
                 .optional()?;
             let Some((counted, is_real, is_incoming, p, l, rt)) = version else { continue };
             count += i64::from(counted);

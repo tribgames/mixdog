@@ -131,15 +131,8 @@ pub(crate) struct Parsed {
 }
 
 pub(crate) fn parse_porcelain(text: &str) -> Parsed {
-    let mut parsed = Parsed {
-        files: Vec::new(),
-        branch: String::new(),
-        oid: String::new(),
-        upstream_name: String::new(),
-        ahead: 0,
-        behind: 0,
-        untracked_omitted: 0,
-    };
+    let mut parsed =
+        Parsed { files: Vec::new(), branch: String::new(), oid: String::new(), upstream_name: String::new(), ahead: 0, behind: 0, untracked_omitted: 0 };
     let mut records = nul_records(text);
     let mut listed = 0usize;
     while let Some(record) = records.next() {
@@ -151,10 +144,7 @@ pub(crate) fn parse_porcelain(text: &str) -> Parsed {
             parsed.upstream_name = value.to_owned();
         } else if let Some(value) = record.strip_prefix("# branch.ab ") {
             let mut parts = value.split(' ');
-            let number = |part: Option<&str>| {
-                part.and_then(|p| p.trim_start_matches(['+', '-']).parse::<u64>().ok())
-                    .unwrap_or(0)
-            };
+            let number = |part: Option<&str>| part.and_then(|p| p.trim_start_matches(['+', '-']).parse::<u64>().ok()).unwrap_or(0);
             parsed.ahead = number(parts.next());
             parsed.behind = number(parts.next());
         } else if let Some(path) = record.strip_prefix("? ") {
@@ -177,13 +167,7 @@ pub(crate) fn parse_porcelain(text: &str) -> Parsed {
             if path.is_empty() {
                 continue;
             }
-            let mut file = file_entry(
-                path,
-                letter(xy.first().copied()),
-                letter(xy.get(1).copied()),
-                false,
-                kind_char == 'u',
-            );
+            let mut file = file_entry(path, letter(xy.first().copied()), letter(xy.get(1).copied()), false, kind_char == 'u');
             if kind_char == '2' {
                 // A rename's origin follows as its own record.
                 if let Some(origin) = records.next() {
@@ -281,15 +265,8 @@ fn parse_remotes(text: &str) -> (Vec<String>, String) {
             urls.insert(name.to_owned(), url.to_owned());
         }
     }
-    let primary = if names.iter().any(|name| name == "origin") {
-        Some("origin".to_owned())
-    } else {
-        names.first().cloned()
-    };
-    let url = primary
-        .and_then(|name| urls.get(&name).cloned())
-        .map(|url| public_remote_url(&url))
-        .unwrap_or_default();
+    let primary = if names.iter().any(|name| name == "origin") { Some("origin".to_owned()) } else { names.first().cloned() };
+    let url = primary.and_then(|name| urls.get(&name).cloned()).map(|url| public_remote_url(&url)).unwrap_or_default();
     (names, url)
 }
 
@@ -331,10 +308,8 @@ fn revision_of(path: &Path) -> Option<String> {
     use std::os::unix::fs::MetadataExt;
     let meta = std::fs::metadata(path).ok()?;
     let nanos = |seconds: i64, nsec: i64| i128::from(seconds) * 1_000_000_000 + i128::from(nsec);
-    let (mtime_ns, ctime_ns, ino) = crate::seam::file_identity(
-        path,
-        (nanos(meta.mtime(), meta.mtime_nsec()), nanos(meta.ctime(), meta.ctime_nsec()), meta.ino()),
-    );
+    let (mtime_ns, ctime_ns, ino) =
+        crate::seam::file_identity(path, (nanos(meta.mtime(), meta.mtime_nsec()), nanos(meta.ctime(), meta.ctime_nsec()), meta.ino()));
     Some(revision_text(meta.size(), mtime_ns, ctime_ns, ino))
 }
 
@@ -379,12 +354,8 @@ fn revision_of(path: &Path) -> Option<String> {
         let mut basic: FILE_BASIC_INFO = std::mem::zeroed();
         let mut standard: FILE_STANDARD_INFO = std::mem::zeroed();
         let mut index: BY_HANDLE_FILE_INFORMATION = std::mem::zeroed();
-        let basic_read = GetFileInformationByHandleEx(
-            handle,
-            FileBasicInfo,
-            std::ptr::from_mut(&mut basic).cast::<c_void>(),
-            std::mem::size_of::<FILE_BASIC_INFO>() as u32,
-        );
+        let basic_read =
+            GetFileInformationByHandleEx(handle, FileBasicInfo, std::ptr::from_mut(&mut basic).cast::<c_void>(), std::mem::size_of::<FILE_BASIC_INFO>() as u32);
         let standard_read = GetFileInformationByHandleEx(
             handle,
             FileStandardInfo,
@@ -396,18 +367,9 @@ fn revision_of(path: &Path) -> Option<String> {
         }
         let (mtime_ns, ctime_ns, ino) = crate::seam::file_identity(
             path,
-            (
-                filetime_ns(basic.LastWriteTime),
-                filetime_ns(basic.ChangeTime),
-                (u64::from(index.nFileIndexHigh) << 32) | u64::from(index.nFileIndexLow),
-            ),
+            (filetime_ns(basic.LastWriteTime), filetime_ns(basic.ChangeTime), (u64::from(index.nFileIndexHigh) << 32) | u64::from(index.nFileIndexLow)),
         );
-        Some(revision_text(
-            standard.EndOfFile as u64,
-            mtime_ns,
-            ctime_ns,
-            ino,
-        ))
+        Some(revision_text(standard.EndOfFile as u64, mtime_ns, ctime_ns, ino))
     }
 }
 /// A folder outside any repository.
@@ -427,19 +389,12 @@ pub(crate) fn fold(
     let unborn = parsed.oid == "(initial)";
     let detached = parsed.branch == "(detached)";
     let branch = if detached {
-        if !parsed.oid.is_empty() && !unborn {
-            format!("HEAD ({})", &parsed.oid[..parsed.oid.len().min(8)])
-        } else {
-            "Detached HEAD".to_owned()
-        }
+        if !parsed.oid.is_empty() && !unborn { format!("HEAD ({})", &parsed.oid[..parsed.oid.len().min(8)]) } else { "Detached HEAD".to_owned() }
     } else {
         parsed.branch.clone()
     };
-    let upstream = (!parsed.upstream_name.is_empty()).then(|| Upstream {
-        name: parsed.upstream_name.clone(),
-        ahead: parsed.ahead as u32,
-        behind: parsed.behind as u32,
-    });
+    let upstream =
+        (!parsed.upstream_name.is_empty()).then(|| Upstream { name: parsed.upstream_name.clone(), ahead: parsed.ahead as u32, behind: parsed.behind as u32 });
     let json = GitStatusJson {
         repository: true,
         root,
@@ -461,17 +416,8 @@ pub(crate) fn fold(
 pub(crate) fn entry_view(file: &GitFileEntry) -> StatusEntry {
     let first = file.index.chars().next().unwrap_or(' ');
     let second = file.worktree.chars().next().unwrap_or(' ');
-    let (index, worktree) = if file.conflicted {
-        (ChangeKind::Conflicted, ChangeKind::Conflicted)
-    } else {
-        (kind(first), kind(second))
-    };
-    StatusEntry {
-        path: file.path.clone(),
-        orig_path: file.old_path.clone(),
-        index,
-        worktree,
-    }
+    let (index, worktree) = if file.conflicted { (ChangeKind::Conflicted, ChangeKind::Conflicted) } else { (kind(first), kind(second)) };
+    StatusEntry { path: file.path.clone(), orig_path: file.old_path.clone(), index, worktree }
 }
 
 /// The desktop's `operation` string; bisect is not one of the four it shows.
@@ -563,10 +509,7 @@ async fn cached_git_dir(git: &Git, lane: MaintenanceIo, cancel: &CancellationTok
     let dir = match probe {
         DotGit::Folder => dot_git,
         DotGit::File(text) => {
-            let named = text
-                .lines()
-                .find_map(|line| line.trim_start().strip_prefix("gitdir:"))
-                .map(|rest| rest.trim().to_owned());
+            let named = text.lines().find_map(|line| line.trim_start().strip_prefix("gitdir:")).map(|rest| rest.trim().to_owned());
             match named {
                 Some(named) => cwd.join(named),
                 None => return Ok(PathBuf::new()),
@@ -635,9 +578,7 @@ u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt\0\
 
     #[test]
     fn remote_urls_lose_credentials() {
-        let (names, url) = parse_remotes(
-            "origin\thttps://user:pw@example.com/a/b.git?token=x#f (fetch)\norigin\thttps://example.com/a/b.git (push)\n",
-        );
+        let (names, url) = parse_remotes("origin\thttps://user:pw@example.com/a/b.git?token=x#f (fetch)\norigin\thttps://example.com/a/b.git (push)\n");
         assert_eq!(names, ["origin"]);
         assert_eq!(url, "https://example.com/a/b.git");
     }
@@ -661,13 +602,14 @@ u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt\0\
         assert_eq!(worktree_revision(dir.path(), "missing"), "deleted");
     }
 
-
-
     /// A work tree revision is `size:mtimeNs:ctimeNs:ino`; Windows file times (100 ns ticks since 1601) read back as the
     /// nanoseconds since the Unix epoch they stand for.
     #[test]
     fn a_revision_joins_size_times_and_identity_and_file_times_convert_to_unix_nanoseconds() {
-        assert_eq!(revision_text(5, 1_700_000_001_654_321_600, 1_794_067_082_007_280_400, 9_570_149_213_248_497), "5:1700000001654321600:1794067082007280400:9570149213248497");
+        assert_eq!(
+            revision_text(5, 1_700_000_001_654_321_600, 1_794_067_082_007_280_400, 9_570_149_213_248_497),
+            "5:1700000001654321600:1794067082007280400:9570149213248497"
+        );
         assert_eq!(revision_text(0, 1, 1, 0), "0:1:1:0");
         assert_eq!(filetime_ns(116_444_736_000_000_000), 0);
         let ticks = (1_700_000_001_654_321_600_i128 / 100 + 116_444_736_000_000_000) as i64;
@@ -675,18 +617,12 @@ u UU N... 100644 100644 100644 100644 aaa bbb ccc conflict.txt\0\
     }
 }
 
-
 /// How long a directory's remote list is kept (GIT_METADATA_TTL_MS, git-read-utils.ts).
 const REMOTE_METADATA_TTL: std::time::Duration = std::time::Duration::from_secs(60);
 /// The remote names and primary url of a directory, read at most once per [REMOTE_METADATA_TTL] (remoteMetadata in git-status.ts).
 /// Node never drops the entry earlier, so a remote added a moment after a status shows in the next one only once the minute is
 /// out. A read git fails (no timeout) is kept as "no remotes" for the same time; a timeout is not kept.
-pub(crate) async fn remote_metadata(
-    git: &Git,
-    cancel: &CancellationToken,
-    root: &Path,
-    options: &RunOptions,
-) -> Result<(Vec<String>, String), ScmFailure> {
+pub(crate) async fn remote_metadata(git: &Git, cancel: &CancellationToken, root: &Path, options: &RunOptions) -> Result<(Vec<String>, String), ScmFailure> {
     // The clock a replay of Node's recording moves only by an explicit advance (seam.rs), never by waiting out the minute.
     let now = crate::seam::cache_clock();
     type Entry = (std::time::Instant, (Vec<String>, String));
@@ -719,20 +655,14 @@ pub async fn scan(
     head: Option<ObjectId>,
     line_stats: bool,
 ) -> Result<StatusScan, ScmFailure> {
-    let root = identity
-        .work_tree
-        .clone()
-        .ok_or(ScmFailure::NotARepository)?;
+    let root = identity.work_tree.clone().ok_or(ScmFailure::NotARepository)?;
     let read = RunOptions::read();
-    let status_options = RunOptions {
-        max_output: Some(STATUS_MAX_BYTES),
-        ..RunOptions::read()
-    };
+    let status_options = RunOptions { max_output: Some(STATUS_MAX_BYTES), ..RunOptions::read() };
     git.prepare(cancel).await?;
     // git-status.ts starts every read at once (the listing, both numstats, the remote list, the work-tree root) and leaves the
     // siblings of a failed one running, so a git that cannot start is attempted by each of them: `join!`, not `try_join!`,
     // which would drop the others at the first failure. The first failure in this order is the one reported.
-    let (porcelain, staged, unstaged, remotes, top_level) = tokio::join!(biased; 
+    let (porcelain, staged, unstaged, remotes, top_level) = tokio::join!(biased;
         git.text(
             cancel,
             &root,
@@ -775,12 +705,7 @@ pub async fn scan(
     let (remote_names, remote_url) = remotes;
     let git_dir = identity.git_dir.clone();
     let operation = on_lane(lane, cancel, move || operation_in_progress(&git_dir)).await?;
-    let untracked_paths: Vec<String> = parsed
-        .files
-        .iter()
-        .filter(|file| line_stats && file.untracked)
-        .map(|file| file.path.clone())
-        .collect();
+    let untracked_paths: Vec<String> = parsed.files.iter().filter(|file| line_stats && file.untracked).map(|file| file.path.clone()).collect();
     let counted_root: PathBuf = root.clone();
     let untracked_counts = on_lane(lane, cancel, move || {
         untracked_paths
@@ -797,25 +722,14 @@ pub async fn scan(
         let unstaged_row = unstaged.get(&file.path).copied().unwrap_or((0, 0));
         file.staged_additions = staged_row.0;
         file.staged_deletions = staged_row.1;
-        file.unstaged_additions = if file.untracked {
-            untracked_counts.get(&file.path).copied().unwrap_or(0)
-        } else {
-            unstaged_row.0
-        };
+        file.unstaged_additions = if file.untracked { untracked_counts.get(&file.path).copied().unwrap_or(0) } else { unstaged_row.0 };
         file.unstaged_deletions = unstaged_row.1;
         file.additions = file.staged_additions + file.unstaged_additions;
         file.deletions = file.staged_deletions + file.unstaged_deletions;
     }
     let (json, branch, upstream) = fold(path_text(&root), parsed, &remote_names, remote_url, operation);
     let entries = json.files.iter().map(entry_view).collect();
-    Ok(StatusScan {
-        json,
-        head,
-        operation,
-        branch,
-        upstream,
-        entries,
-    })
+    Ok(StatusScan { json, head, operation, branch, upstream, entries })
 }
 /// `gitStatus(cwd, options)`. `skip_line_stats` answers without add/delete counts; `reuse_line_stats` keeps the counts of the last
 /// read of this directory while the listed files and their states stand.
@@ -833,7 +747,7 @@ pub async fn node_status(
     let eager = collect && !reuse_line_stats;
     git.prepare(cancel).await?;
     // Every read starts at once, in this order, and a failed one leaves the others running (Promise.all semantics of the pane).
-    let (porcelain, staged, unstaged, remotes, root, operation) = tokio::join!(biased; 
+    let (porcelain, staged, unstaged, remotes, root, operation) = tokio::join!(biased;
         git.text(
             cancel,
             cwd,
@@ -879,9 +793,7 @@ pub async fn node_status(
         let signature = parsed
             .files
             .iter()
-            .map(|file| {
-                format!("{}\0{}\0{}\0{}\0{}", file.path, file.old_path.as_deref().unwrap_or(""), file.index, file.worktree, u8::from(file.untracked))
-            })
+            .map(|file| format!("{}\0{}\0{}\0{}\0{}", file.path, file.old_path.as_deref().unwrap_or(""), file.index, file.worktree, u8::from(file.untracked)))
             .collect::<Vec<_>>()
             .join("\u{1}");
         let kept = line_stats_cache()
@@ -902,7 +814,7 @@ pub async fn node_status(
             let (staged, unstaged) = match (staged?, unstaged?) {
                 (Some(staged), Some(unstaged)) => (staged, unstaged),
                 _ => {
-                    let (staged, unstaged) = tokio::join!(biased; 
+                    let (staged, unstaged) = tokio::join!(biased;
                         read_numstat(git, cancel, cwd, &STAGED_NUMSTAT),
                         read_numstat(git, cancel, cwd, &UNSTAGED_NUMSTAT)
                     );

@@ -60,16 +60,9 @@ fn map_error(error: ExtError) -> CoreError {
     match error {
         ExtError::Cancelled => CoreError::Cancelled { by: "caller".into() },
         ExtError::Overloaded => CoreError::QueueFull { queue: "extensionHost".into() },
-        ExtError::Unavailable { reason } => {
-            CoreError::CapabilityUnavailable { capability: "extensionHost".into(), detail: reason.into() }
-        }
+        ExtError::Unavailable { reason } => CoreError::CapabilityUnavailable { capability: "extensionHost".into(), detail: reason.into() },
         ExtError::UnknownWorker | ExtError::HostExited { .. } => {
-            CoreError::DomainError {
-                domain: "document".into(),
-                code: Some("HOST_EXITED".into()),
-                message: None,
-                detail: None,
-            }
+            CoreError::DomainError { domain: "document".into(), code: Some("HOST_EXITED".into()), message: None, detail: None }
         }
         ExtError::Failed { code, message } if code == "invalid_params" => invalid("params", &message),
         // The codes whose text Node shows include an external program's own message: the
@@ -77,23 +70,20 @@ fn map_error(error: ExtError) -> CoreError {
         // conversion engine's error (`document-preview.mjs` renderWithEngine and
         // renderWithMicrosoftOffice, which throw uncoded).
         ExtError::Failed { code, message }
-            if matches!(code.as_str(), "install_failed" | "install_unsupported" | "package_manager_unavailable" | "executable_not_found" | "failed") => CoreError::DomainError {
-            domain: "document".into(),
-            code: Some(code.to_uppercase().into()),
-            message: Some(message.into()),
-            detail: None,
-        },
-        // Failures whose text is Node's own sentence about the caller's file (no external program's output in it): a phone shows them
-        // as Node did, so they travel with the code - the preview's refusals and the OS's own file errors (`ENOENT`, `EACCES`, ...).
-        ExtError::Failed { code, message } if matches!(code.as_str(), "no_preview_for_type" | "not_a_file" | "path_outside_project") || is_os_error_code(&code) => {
+            if matches!(code.as_str(), "install_failed" | "install_unsupported" | "package_manager_unavailable" | "executable_not_found" | "failed") =>
+        {
             CoreError::DomainError { domain: "document".into(), code: Some(code.to_uppercase().into()), message: Some(message.into()), detail: None }
         }
-        ExtError::Failed { code, .. } => CoreError::DomainError {
-            domain: "document".into(),
-            code: Some(code.to_uppercase().into()),
-            message: None,
-            detail: None,
-        },
+        // Failures whose text is Node's own sentence about the caller's file (no external program's output in it): a phone shows them
+        // as Node did, so they travel with the code - the preview's refusals and the OS's own file errors (`ENOENT`, `EACCES`, ...).
+        ExtError::Failed { code, message }
+            if matches!(code.as_str(), "no_preview_for_type" | "not_a_file" | "path_outside_project") || is_os_error_code(&code) =>
+        {
+            CoreError::DomainError { domain: "document".into(), code: Some(code.to_uppercase().into()), message: Some(message.into()), detail: None }
+        }
+        ExtError::Failed { code, .. } => {
+            CoreError::DomainError { domain: "document".into(), code: Some(code.to_uppercase().into()), message: None, detail: None }
+        }
     }
 }
 
@@ -104,12 +94,7 @@ impl DomainService for DocumentService {
     }
 
     fn methods(&self) -> &'static [&'static str] {
-        &[
-            "document/preview",
-            "document/previewPages",
-            "document/libreOfficeStatus",
-            "document/installLibreOffice",
-        ]
+        &["document/preview", "document/previewPages", "document/libreOfficeStatus", "document/installLibreOffice"]
     }
 
     fn notify(&self, _method: Method, _params: Value, _from: ConnectionId) -> Admit {
@@ -160,12 +145,7 @@ mod tests {
     }
 
     fn request(method: &'static str, params: Value) -> CoreRequest {
-        CoreRequest {
-            method: Method(method),
-            params,
-            op: None,
-            ctx: CallContext::internal("test"),
-        }
+        CoreRequest { method: Method(method), params, op: None, ctx: CallContext::internal("test") }
     }
 
     fn service(answer: Result<Value, ExtError>) -> (DocumentService, Arc<Scripted>) {
@@ -273,9 +253,7 @@ mod tests {
     async fn preview_pages_asks_the_worker_with_the_root_approved() {
         let (service, pool) = service(Ok(json!({ "pageCount": 2, "pages": [] })));
         let params = json!({ "root": root(), "rel": "a.docx", "options": { "pages": [1] } });
-        let Reply::Value(value) = service.call(request("document/previewPages", params)).await.unwrap() else {
-            panic!("a value reply")
-        };
+        let Reply::Value(value) = service.call(request("document/previewPages", params)).await.unwrap() else { panic!("a value reply") };
         assert_eq!(value["pageCount"], 2);
         let seen = pool.seen.lock().unwrap();
         assert_eq!(seen[0].method, "document.previewPages");
@@ -288,20 +266,11 @@ mod tests {
     async fn bad_requests_and_worker_failures_are_coded() {
         let (service, _) = service(Ok(json!(null)));
         let relative = json!({ "root": "relative/dir", "rel": "a.docx" });
-        assert!(matches!(
-            service.call(request("document/preview", relative)).await,
-            Err(CoreError::InvalidParams { .. })
-        ));
-        assert!(matches!(
-            service.call(request("document/nope", json!({}))).await,
-            Err(CoreError::InvalidParams { .. })
-        ));
+        assert!(matches!(service.call(request("document/preview", relative)).await, Err(CoreError::InvalidParams { .. })));
+        assert!(matches!(service.call(request("document/nope", json!({}))).await, Err(CoreError::InvalidParams { .. })));
 
         let (service, _) = service_failing("no_preview_for_type");
-        let error = service
-            .call(request("document/preview", json!({ "root": root(), "rel": "n.txt" })))
-            .await
-            .unwrap_err();
+        let error = service.call(request("document/preview", json!({ "root": root(), "rel": "n.txt" }))).await.unwrap_err();
         let CoreError::DomainError { domain, code, .. } = error else { panic!("a coded error") };
         assert_eq!((&*domain, code.as_deref()), ("document", Some("NO_PREVIEW_FOR_TYPE")));
     }
@@ -323,11 +292,7 @@ mod tests {
         let counting = Arc::new(Counting::default());
         let service = DocumentService::new(Arc::new(CountingPool(Arc::clone(&counting))), "/cache");
         let ask = |method: &'static str, rel: &str| service.call(request(method, json!({ "root": root(), "rel": rel })));
-        let (a, b, c) = tokio::join!(
-            ask("document/previewPages", "a.docx"),
-            ask("document/preview", "a.docx"),
-            ask("document/previewPages", "a.docx")
-        );
+        let (a, b, c) = tokio::join!(ask("document/previewPages", "a.docx"), ask("document/preview", "a.docx"), ask("document/previewPages", "a.docx"));
         assert!(a.is_ok() && b.is_ok() && c.is_ok());
         assert_eq!(counting.peak.load(SeqCst), 1, "one conversion of a document at a time");
         let (spelled, plain) = tokio::join!(ask("document/preview", "./sub/../a.docx"), ask("document/preview", "a.docx"));
@@ -340,7 +305,6 @@ mod tests {
         assert_eq!(counting.peak.load(SeqCst), 2, "documents do not wait for each other");
         assert!(service.turns.lock().unwrap().len() <= 2, "an entry outlives its calls only until the next one");
     }
-
 
     fn phone_files_refusal() -> (CoreError, Value) {
         let error = CoreError::DomainError {
@@ -419,7 +383,6 @@ mod tests {
     }
 }
 
-
 /// The files a paired phone may name by path: a registered project's entry or a file its device holds a one-file grant for
 /// (the workspace's `relay_file`), answering Node's refusal otherwise. The answer is the folder and the entry as admitted
 /// (Node's `target.root`, `target.rel`): the worker is asked for those, not for what the phone sent.
@@ -494,18 +457,8 @@ impl DocumentService {
 
     /// One pool call to completion. `cancel`: dropping the stream cancels the worker's call; an
     /// install passes `None` (an admitted mutation completes even if its caller leaves).
-    async fn ext(
-        &self,
-        thread: ThreadId,
-        method: &str,
-        params: Value,
-        paths: Vec<AbsPath>,
-        cancel: Option<&CancellationToken>,
-    ) -> Result<Value, CoreError> {
-        let mut stream = self
-            .pool
-            .call(ExtCall { thread, method: method.to_owned(), params, paths })
-            .map_err(map_error)?;
+    async fn ext(&self, thread: ThreadId, method: &str, params: Value, paths: Vec<AbsPath>, cancel: Option<&CancellationToken>) -> Result<Value, CoreError> {
+        let mut stream = self.pool.call(ExtCall { thread, method: method.to_owned(), params, paths }).map_err(map_error)?;
         loop {
             let frame = match cancel {
                 Some(token) => tokio::select! {
@@ -564,9 +517,7 @@ impl DocumentService {
                 let params = json!({ "refresh": refresh });
                 self.ext(thread, "document.libreOfficeStatus", params, Vec::new(), Some(&req.ctx.cancel)).await
             }
-            "document/installLibreOffice" => {
-                self.ext(thread, "document.installLibreOffice", json!({}), Vec::new(), None).await
-            }
+            "document/installLibreOffice" => self.ext(thread, "document.installLibreOffice", json!({}), Vec::new(), None).await,
             _ => Err(invalid("method", "document/*")),
         }
     }
@@ -589,7 +540,12 @@ impl crate::PanePages for DocumentService {
         let _turn = self.turn(&req.ctx.cancel, &copy.root, &copy.rel).await?;
         let converted = self.ext(thread, "document.preview", params, vec![abs], Some(&req.ctx.cancel)).await?;
         let path = converted.get("path").and_then(Value::as_str).map(PathBuf::from).filter(|path| !path.starts_with(&copy.root));
-        path.ok_or(CoreError::DomainError { domain: "visualize".into(), code: None, message: Some("The document preview is unavailable.".into()), detail: None })
+        path.ok_or(CoreError::DomainError {
+            domain: "visualize".into(),
+            code: None,
+            message: Some("The document preview is unavailable.".into()),
+            detail: None,
+        })
     }
 
     async fn pages(&self, req: &CoreRequest, root: String, rel: String, options: Value) -> Result<Value, CoreError> {

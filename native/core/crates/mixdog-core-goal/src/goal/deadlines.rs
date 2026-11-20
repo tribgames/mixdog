@@ -11,9 +11,7 @@ use std::sync::{Arc, Weak};
 use super::error::GoalResult;
 use super::js::{Goal, count, number, put_num, string, truthy};
 use super::runtime::{Inner, Slot, SlotMem, TimerKind, Tx, reserve_turn};
-use super::state::{
-    GOAL_LIVE_HEARTBEAT_MS, active_elapsed_ms, discard_suspended_time, normalize_deadline_warned_ms, stop_active_clock,
-};
+use super::state::{GOAL_LIVE_HEARTBEAT_MS, active_elapsed_ms, discard_suspended_time, normalize_deadline_warned_ms, stop_active_clock};
 
 /// Wall time may outrun the monotonic clock by a little without any suspend.
 const MIN_SUSPEND_EVIDENCE_MS: f64 = 5_000.0;
@@ -87,7 +85,10 @@ impl Inner {
     /// `expiredProjection`: an active Goal whose time reached its cap ends as duration_reached.
     fn expired_projection(goal: Option<&mut Goal>, at: f64) -> bool {
         let Some(goal) = goal else { return false };
-        if string(goal, "status") != "active" || number(goal, "timeLimitMs").partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) || active_elapsed_ms(goal, at) < number(goal, "timeLimitMs") {
+        if string(goal, "status") != "active"
+            || number(goal, "timeLimitMs").partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
+            || active_elapsed_ms(goal, at) < number(goal, "timeLimitMs")
+        {
             return false;
         }
         stop_active_clock(goal, at);
@@ -120,11 +121,7 @@ impl Inner {
             if start {
                 let (task_slot, done_slot) = (slot.clone(), slot.clone());
                 let task_id = id.to_owned();
-                self.spawn_mutation(
-                    id.to_owned(),
-                    move |tx| tx.expire_if_due(&task_slot, &task_id),
-                    move |_| done_slot.mem().expiry_pending = false,
-                );
+                self.spawn_mutation(id.to_owned(), move |tx| tx.expire_if_due(&task_slot, &task_id), move |_| done_slot.mem().expiry_pending = false);
             }
         }
         goal
@@ -158,7 +155,10 @@ impl Inner {
 
     fn warning_state(&self, slot: &Slot, id: &str, goal: Option<&mut Goal>, at: f64) -> Option<Warnings> {
         let goal = goal?;
-        if string(goal, "status") != "active" || !truthy(goal.get("lastStartedAt")) || number(goal, "timeLimitMs").partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater) {
+        if string(goal, "status") != "active"
+            || !truthy(goal.get("lastStartedAt"))
+            || number(goal, "timeLimitMs").partial_cmp(&0.0) != Some(std::cmp::Ordering::Greater)
+        {
             return None;
         }
         self.drop_suspended(slot, id, goal, at);
@@ -185,11 +185,7 @@ impl Inner {
         slot.mem().warning_pending = true;
         let done_slot = slot.clone();
         let (task_slot, task_id) = (slot.clone(), id.to_owned());
-        self.spawn_mutation(
-            id.to_owned(),
-            move |tx| tx.deliver_warning(&task_slot, &task_id, target),
-            move |_| done_slot.mem().warning_pending = false,
-        );
+        self.spawn_mutation(id.to_owned(), move |tx| tx.deliver_warning(&task_slot, &task_id, target), move |_| done_slot.mem().warning_pending = false);
     }
 
     fn spawn_limit_check(self: &Arc<Self>, id: &str) {
@@ -263,8 +259,7 @@ impl Inner {
         let running = goal.as_ref().is_some_and(|g| string(g, "status") == "active" && truthy(g.get("lastStartedAt")));
         if running {
             let needs_anchor = slot.mem().anchor.is_none();
-            if needs_anchor
-                && let Some(goal) = &goal {
+            if needs_anchor && let Some(goal) = &goal {
                 self.observe(slot, id, self.now(), goal);
             }
             if slot.mem().heartbeat.is_none() {

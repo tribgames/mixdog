@@ -25,7 +25,16 @@ impl Script {
 
 #[async_trait]
 impl Spawn for Script {
-    async fn run(&self, bin: &str, args: &[String], _cwd: &Path, _timeout: Duration, _cancel: Option<&CancellationToken>, _env: Option<&HashMap<String, String>>, _input: Option<Vec<u8>>) -> ProcessResult {
+    async fn run(
+        &self,
+        bin: &str,
+        args: &[String],
+        _cwd: &Path,
+        _timeout: Duration,
+        _cancel: Option<&CancellationToken>,
+        _env: Option<&HashMap<String, String>>,
+        _input: Option<Vec<u8>>,
+    ) -> ProcessResult {
         self.calls.lock().unwrap().push((bin.to_owned(), args.to_vec()));
         let mut answers = self.answers.lock().unwrap();
         if answers.is_empty() { ProcessResult::default() } else { answers.remove(0) }

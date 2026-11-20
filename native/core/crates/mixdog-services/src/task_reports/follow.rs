@@ -23,7 +23,8 @@ pub const FINAL_SETTLE: Duration = Duration::from_millis(2500);
 pub const FINAL_POLL: Duration = Duration::from_millis(15_000);
 const OWED_WAKE_TRIES: u32 = 3;
 pub const GONE_TEXT: &str = "The session no longer exists.";
-pub const RESUME_FAILED_TEXT: &str = "The agent task session could not continue after the app restarted: its agents\u{2019} results never reached it. Check that session.";
+pub const RESUME_FAILED_TEXT: &str =
+    "The agent task session could not continue after the app restarted: its agents\u{2019} results never reached it. Check that session.";
 
 /// What the follow reads and does outside itself.
 #[async_trait]
@@ -148,7 +149,8 @@ impl Follow {
     /// be queued.
     async fn report_earlier(&self, answers: &[Answer], held: Option<&Answer>) -> bool {
         // A mark stored before answers were named by their turn names runId for the first answer.
-        let mark = if self.args.progressed_through == self.args.run_id { answers.first().map(|a| a.id.clone()) } else { Some(self.args.progressed_through.clone()) };
+        let mark =
+            if self.args.progressed_through == self.args.run_id { answers.first().map(|a| a.id.clone()) } else { Some(self.args.progressed_through.clone()) };
         let through = mark.filter(|m| !m.is_empty()).and_then(|m| answers.iter().position(|a| a.id == m));
         for (index, answer) in answers.iter().enumerate() {
             if through.is_some_and(|t| index <= t) {
@@ -194,7 +196,11 @@ impl Follow {
         }
         {
             let mut state = self.lock();
-            if chain_size > 0 { state.wakes += 1 } else { state.other_wakes += 1 }
+            if chain_size > 0 {
+                state.wakes += 1
+            } else {
+                state.other_wakes += 1
+            }
             state.woke_at = Some(Instant::now());
         }
         let outcomes = futures::future::join_all(owed.iter().map(|r| self.host.deliver_completion(session, &r.text, &r.meta))).await;

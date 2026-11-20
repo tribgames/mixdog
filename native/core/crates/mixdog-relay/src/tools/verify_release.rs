@@ -232,7 +232,6 @@ mod tests {
     }
 }
 
-
 impl std::error::Error for ProbeError {}
 fn refused_in(error: &(dyn std::error::Error + 'static)) -> bool {
     let mut current = Some(error);
@@ -273,12 +272,7 @@ async fn read_json(base: &Url, path: &str, options: &Options, address: Option<Ip
     }
     let client = builder.build().map_err(|error| transport_error(&error))?;
     let exchange = async {
-        let mut response = client
-            .get(url.clone())
-            .header(reqwest::header::ACCEPT, "application/json")
-            .send()
-            .await
-            .map_err(|error| transport_error(&error))?;
+        let mut response = client.get(url.clone()).header(reqwest::header::ACCEPT, "application/json").send().await.map_err(|error| transport_error(&error))?;
         // The whole body is read (and capped) before the status is judged, as the script did.
         let mut body = Vec::new();
         while let Some(chunk) = response.chunk().await.map_err(|error| transport_error(&error))? {
@@ -317,39 +311,25 @@ async fn dial(base: &Url, options: &Options, address: Option<Ipv4Addr>) -> Resul
         Host::Ipv4(ip) => ServerName::IpAddress(IpAddr::V4(*ip).into()),
         Host::Ipv6(ip) => ServerName::IpAddress(IpAddr::V6(*ip).into()),
     };
-    let tls = TlsConnector::from(tls_config(&options.extra_roots))
-        .connect(name, tcp)
-        .await
-        .map_err(|error| transport_error(&error))?;
+    let tls = TlsConnector::from(tls_config(&options.extra_roots)).connect(name, tcp).await.map_err(|error| transport_error(&error))?;
     Ok(Box::new(tls))
 }
 /// One `/ws` upgrade. With the origin of the deployment the relay must accept and close with 4005; with a foreign origin it
 /// must refuse the upgrade with 403.
-async fn check_websocket(
-    base: &Url,
-    options: &Options,
-    address: Option<Ipv4Addr>,
-    foreign_origin: bool,
-) -> Result<(), ProbeError> {
+async fn check_websocket(base: &Url, options: &Options, address: Option<Ipv4Addr>, foreign_origin: bool) -> Result<(), ProbeError> {
     let probe = async {
         let mut url = base.join("/ws").map_err(|_| ProbeError::new("Invalid URL"))?;
         let scheme = if url.scheme() == "https" { "wss" } else { "ws" };
         url.set_scheme(scheme).map_err(|()| ProbeError::new("Invalid URL"))?;
         let origin = if foreign_origin { FOREIGN_ORIGIN.to_owned() } else { base.origin().ascii_serialization() };
         let mut request = url.as_str().into_client_request().map_err(|error| ProbeError::new(error.to_string()))?;
-        request
-            .headers_mut()
-            .insert("Origin", HeaderValue::from_str(&origin).map_err(|_| ProbeError::new("Invalid URL"))?);
+        request.headers_mut().insert("Origin", HeaderValue::from_str(&origin).map_err(|_| ProbeError::new("Invalid URL"))?);
         let stream = dial(base, options, address).await?;
         let mut socket = match tokio_tungstenite::client_async(request, stream).await {
             Ok((socket, _)) => socket,
             Err(WsError::Http(response)) => {
                 let status = response.status().as_u16();
-                return if foreign_origin && status == 403 {
-                    Ok(())
-                } else {
-                    Err(ProbeError::new(format!("WebSocket upgrade returned HTTP {status}.")))
-                };
+                return if foreign_origin && status == 403 { Ok(()) } else { Err(ProbeError::new(format!("WebSocket upgrade returned HTTP {status}."))) };
             }
             Err(WsError::Io(error)) => return Err(transport_error(&error)),
             Err(error) => return Err(ProbeError::new(error.to_string())),
@@ -364,11 +344,7 @@ async fn check_websocket(
                 Some(Err(_)) | None => break CLOSE_ABNORMAL,
             }
         };
-        if code == PAIRING_GATE_CLOSE {
-            Ok(())
-        } else {
-            Err(ProbeError::new(format!("WebSocket pairing gate returned close {code}.")))
-        }
+        if code == PAIRING_GATE_CLOSE { Ok(()) } else { Err(ProbeError::new(format!("WebSocket pairing gate returned close {code}."))) }
     };
     match mixdog_rt::time::timeout(options.timeout, probe).await {
         Ok(result) => result,

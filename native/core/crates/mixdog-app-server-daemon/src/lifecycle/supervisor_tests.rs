@@ -10,8 +10,8 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc;
 use std::time::Duration;
 
-use super::*;
 use super::testing::Recorder;
+use super::*;
 
 /// A step that cannot be over budget in a test.
 const AMPLE: Duration = Duration::from_secs(3600);
@@ -140,14 +140,18 @@ impl mixdog_core_session::session::gateway_usage::Scheduler for NeverFires {
 
 struct Unpriced;
 
-
 /// Serves, then drops the only client: an idle core stops and the release runs.
 fn release_with(fault: (&'static str, Fault), budgets: ReleaseBudgets) -> Run {
     let flushes = Arc::new(AtomicU32::new(0));
     let counted = flushes.clone();
-    release_flushing(fault, budgets, flushes, Arc::new(move || {
-        counted.fetch_add(1, Ordering::SeqCst);
-    }))
+    release_flushing(
+        fault,
+        budgets,
+        flushes,
+        Arc::new(move || {
+            counted.fetch_add(1, Ordering::SeqCst);
+        }),
+    )
 }
 /// [`release_with`] whose exit flush is `flush`.
 fn release_flushing(fault: (&'static str, Fault), budgets: ReleaseBudgets, flushes: Arc<AtomicU32>, flush: Arc<dyn Fn() + Send + Sync>) -> Run {
@@ -259,7 +263,8 @@ async fn a_pending_gateway_usage_batch_is_written_when_a_stop_step_wedged() {
     });
     let store = data.path().join(mixdog_core_session::session::gateway_usage::STORE_FILE);
     assert!(!store.exists(), "the event is only pending: nothing flushed it yet");
-    let log = crate::daemon_log::DaemonLog::new(data.path().join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
+    let log =
+        crate::daemon_log::DaemonLog::new(data.path().join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new());
     let runtime = tokio::runtime::Handle::current();
     let flushes = Arc::new(AtomicU32::new(0));
     let flush: Arc<dyn Fn() + Send + Sync> = {
@@ -284,5 +289,3 @@ impl mixdog_ai::registry::accounting::UsagePricing for Unpriced {
         mixdog_ai::catalog::PricedUsage { input: 0.0, cost_usd: None, rates: Default::default() }
     }
 }
-
-

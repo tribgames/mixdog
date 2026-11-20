@@ -35,7 +35,6 @@ fn backend() {
     mixdog_rt::testing::tokens();
 }
 
-
 fn lock<T>(m: &Mutex<T>) -> std::sync::MutexGuard<'_, T> {
     m.lock().unwrap_or_else(|e| e.into_inner())
 }
@@ -217,18 +216,12 @@ impl OwnerNotify for Owner {
     }
 }
 
-
 struct NoInbox;
 impl WorkerInbox for NoInbox {
     fn enqueue_completion(&self, _: &str, _: &str, _: &Value) -> bool {
         false
     }
 }
-
-
-
-
-
 
 /// The route's side of a claim: a claim opens the observation (`claim`), and the row a claim
 /// settles when no turn started records the status it was released with (`release:<status>`).
@@ -255,12 +248,6 @@ fn identity(spawn: bool, agent: &str) -> Map<String, Value> {
     value.as_object().unwrap().clone()
 }
 
-
 // ---- worker turns ---------------------------------------------------------------------------
 
-
-
-
-
- // 2026-03-01T10:00:00.000Z
-
+// 2026-03-01T10:00:00.000Z

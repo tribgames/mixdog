@@ -122,13 +122,7 @@ pub(super) fn iso_from_ms(ms: i64) -> String {
     let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
     let month = if shifted_month < 10 { shifted_month + 3 } else { shifted_month - 9 };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
-    format!(
-        "{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z",
-        of_day / 3_600_000,
-        of_day / 60_000 % 60,
-        of_day / 1000 % 60,
-        of_day % 1000
-    )
+    format!("{year:04}-{month:02}-{day:02}T{:02}:{:02}:{:02}.{:03}Z", of_day / 3_600_000, of_day / 60_000 % 60, of_day / 1000 % 60, of_day % 1000)
 }
 
 /// `n.toString(36)`.
@@ -166,7 +160,6 @@ mod tests {
         assert_eq!(base36(1_794_625_445_678), "mwftnk8e");
     }
 }
-
 
 impl Host for OsHost {
     fn now_ms(&self) -> i64 {

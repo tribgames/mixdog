@@ -19,8 +19,8 @@ use mixdog_app_protocol::v2::connections::{ConnectionNotice, ServerPort};
 use mixdog_app_protocol::v2::host::HostClaimParams;
 use mixdog_app_protocol::{Delivery, SERVER_NOTIFICATIONS};
 use mixdog_app_server_client::api::{
-    CallOptions, ClientError, ClientEvent, ClientInfo, ConnectOptions, ConnectionStatus, Connector, InitializeCapabilities,
-    ProtocolClient, ReplyAddress, RpcNotification, ServerRequest, ServerRequestAnswer, Target,
+    CallOptions, ClientError, ClientEvent, ClientInfo, ConnectOptions, ConnectionStatus, Connector, InitializeCapabilities, ProtocolClient, ReplyAddress,
+    RpcNotification, ServerRequest, ServerRequestAnswer, Target,
 };
 use mixdog_app_server_client::discovery::Endpoint as WsEndpoint;
 use mixdog_app_server_client::engine::Attacher;
@@ -31,20 +31,18 @@ use mixdog_protocol::{ConnectionKind, HostId};
 use mixdog_rt::{CancellationToken, TaskClass};
 use mixdog_ssh::bootstrap::ServerPayloads;
 use mixdog_ssh::command::{FailureClass, SshError, SshTarget};
-use mixdog_ssh::connect_failure::{failure_of, ConnectError};
+use mixdog_ssh::connect_failure::{ConnectError, failure_of};
 use mixdog_ssh::context::{AttemptContext, HostSettings, ModelLogin as SshModelLogin, Platform, SshEnv};
-use mixdog_ssh::diagnostics::{diagnostics_key_for, Diagnostics};
+use mixdog_ssh::diagnostics::{Diagnostics, diagnostics_key_for};
 use mixdog_ssh::install_wire::{BootstrapCode, RemoteBootstrapError};
 use mixdog_ssh::said;
 use mixdog_ssh::session::{Endpoint, Progress, RemoteSession, RemoteSessionConfig, SessionError, SessionPhase};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::{broadcast, watch};
 use tokio::task::{AbortHandle, JoinHandle};
 
 use crate::host_store::SshHostStore;
-use crate::link_machine::{
-    host_grace_ms, remote_client_grace_ms, LinkActions, LinkFailure, LinkMachine, LinkOptions, LinkState, LinkViewState, ModelLogin,
-};
+use crate::link_machine::{LinkActions, LinkFailure, LinkMachine, LinkOptions, LinkState, LinkViewState, ModelLogin, host_grace_ms, remote_client_grace_ms};
 use crate::model_proxy_relay::{AllowedProviders, CallOutcome, LocalModelProxy, ModelProxyRelay, ProxyCallSettled};
 use crate::port_forward_store::PortForwardStore;
 use crate::port_forwards::{ContextSource, PortsSource, ServerPortForwards};
@@ -175,8 +173,7 @@ fn describe_link_failure(error: &SessionError, target: &SshTarget, platform: Pla
 
 /// This PC's model sign-in was refused (expired or revoked).
 fn is_sign_in_failure(settled: &ProxyCallSettled) -> bool {
-    settled.outcome == CallOutcome::Failed
-        && settled.failure.as_ref().is_some_and(|failure| failure.reauth_required || failure.status == Some(401))
+    settled.outcome == CallOutcome::Failed && settled.failure.as_ref().is_some_and(|failure| failure.reauth_required || failure.status == Some(401))
 }
 
 fn ssh_login(login: ModelLogin) -> Option<SshModelLogin> {
@@ -416,7 +413,8 @@ impl Follower {
         let claim = HostClaimParams { host_id: HostId::from(format!("link:{}", self.id)), resources: None, serves: None };
         drop(mixdog_rt::spawn("link-host-claim", TaskClass::Control, async move {
             if let Ok(params) = serde_json::to_value(&claim)
-                && let Err(error) = client.call_raw("host/claim", params, CallOptions::default()).await {
+                && let Err(error) = client.call_raw("host/claim", params, CallOptions::default()).await
+            {
                 tracing::debug!("[link] the host claim was not taken: {error}");
             }
         }));
@@ -433,11 +431,7 @@ impl Follower {
                 Err(HostError::Rpc { code, message, data }) => ServerRequestAnswer::Error { code, message, data },
                 Err(HostError::Core(error)) => {
                     tracing::debug!("[link] {} was not run by this PC's desktop: {error}", request.method());
-                    ServerRequestAnswer::Error {
-                        code: HOST_UNAVAILABLE,
-                        message: "This PC's desktop could not run the request.".to_owned(),
-                        data: None,
-                    }
+                    ServerRequestAnswer::Error { code: HOST_UNAVAILABLE, message: "This PC's desktop could not run the request.".to_owned(), data: None }
                 }
             };
             // The connection that sent it is gone: the server has given the request up. Answered by address, so a socket that
@@ -670,11 +664,7 @@ impl ServerLink {
         let display = spec.target.display.trim().to_owned();
         let options = ConnectOptions {
             capabilities: capabilities(),
-            ..ConnectOptions::new(
-                Target { id: spec.id.clone() },
-                parts.dialer.connector(Arc::new(SessionResolver(under.clone()))),
-                client_info(),
-            )
+            ..ConnectOptions::new(Target { id: spec.id.clone() }, parts.dialer.connector(Arc::new(SessionResolver(under.clone()))), client_info())
         };
         let client: Arc<dyn ProtocolClient> = match mixdog_app_server_client::connect(options).await {
             Ok(client) => {
@@ -701,13 +691,7 @@ impl ServerLink {
         auto_reconnect: bool,
     ) -> Arc<Self> {
         let LinkSpec { id, name, target } = spec;
-        let machine = LinkMachine::new(LinkOptions {
-            connection_id: id.clone(),
-            actions: under.clone(),
-            grace_ms,
-            auto_reconnect,
-            model_login: login,
-        });
+        let machine = LinkMachine::new(LinkOptions { connection_id: id.clone(), actions: under.clone(), grace_ms, auto_reconnect, model_login: login });
         let context_source: ContextSource = {
             let under = under.clone();
             Arc::new(move || (under.target.clone(), Some(locked(&under.bound).context.clone())))
@@ -1130,7 +1114,11 @@ impl LinkPool {
     }
 
     pub(crate) async fn open_scoped(
-        &self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>, cancel: Option<&CancellationToken>,
+        &self,
+        spec: LinkSpec,
+        context: AttemptContext,
+        progress: Option<Progress>,
+        cancel: Option<&CancellationToken>,
     ) -> Result<(Arc<ServerLink>, LinkOpen), ConnectError> {
         loop {
             if cancel.is_some_and(CancellationToken::is_cancelled) {
@@ -1206,9 +1194,8 @@ impl LinkPool {
 
     /// Retire precisely the link associated with a window, not a newer generation with the same id.
     pub(crate) async fn close_identity(&self, id: &str, identity: usize) {
-        let token = locked(&self.inner.state).links.iter().find_map(|(token, link)| {
-            (link.id == id && Arc::as_ptr(link) as usize == identity).then_some(*token)
-        });
+        let token =
+            locked(&self.inner.state).links.iter().find_map(|(token, link)| (link.id == id && Arc::as_ptr(link) as usize == identity).then_some(*token));
         if let Some(token) = token {
             self.remove(id, Some(token)).await;
         }
@@ -1243,11 +1230,8 @@ impl LinkPool {
         let (link, flight) = {
             let mut state = locked(&self.inner.state);
             let at = state.links.iter().position(|(held, link)| link.id == id && token.is_none_or(|token| token == *held));
-            let flight = if state.opening.get(id).is_some_and(|flight| token.is_none_or(|token| token == flight.token)) {
-                state.opening.remove(id)
-            } else {
-                None
-            };
+            let flight =
+                if state.opening.get(id).is_some_and(|flight| token.is_none_or(|token| token == flight.token)) { state.opening.remove(id) } else { None };
             (at.map(|at| state.links.remove(at).1), flight)
         };
         if let Some(flight) = flight {
@@ -1280,10 +1264,8 @@ impl LinkPool {
         match event {
             LinkPower::Suspend => links.iter().for_each(|link| link.suspend()),
             LinkPower::Resume => {
-                let wakes: Vec<JoinHandle<()>> = links
-                    .into_iter()
-                    .map(|link| mixdog_rt::spawn("link-resume", TaskClass::Control, async move { link.resume().await }))
-                    .collect();
+                let wakes: Vec<JoinHandle<()>> =
+                    links.into_iter().map(|link| mixdog_rt::spawn("link-resume", TaskClass::Control, async move { link.resume().await })).collect();
                 for wake in wakes {
                     let _ = wake.await;
                 }

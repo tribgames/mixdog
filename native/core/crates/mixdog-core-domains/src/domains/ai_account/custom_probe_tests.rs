@@ -15,19 +15,6 @@ use serde_json::json;
 
 use super::custom_probe::*;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
 /// A transport whose every request outlives the timer of its exchange, through the link's own `deadline_error`.
 struct TimingOut;
 
@@ -52,7 +39,6 @@ fn credential_looking_text_is_redacted_to_one_short_line() {
     assert_eq!(long.chars().count(), 301);
     assert!(long.ends_with('…'));
 }
-
 
 /// The settings page's discovery of an endpoint that never answers, on each protocol, through the real admin stack:
 /// the probe waits its own 60 s (the discovery's timer is the same 60 s and armed after it, so the probe's ends the

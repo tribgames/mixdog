@@ -19,7 +19,6 @@ use serde::de::DeserializeOwned;
 use super::api::CANCEL_DRAIN_PATH;
 use super::api::CancelDrainRequest;
 use super::api::ErrorReply;
-use super::api::command_error;
 use super::api::HOLD_PATH;
 use super::api::HoldRequest;
 use super::api::RELEASE_PATH;
@@ -30,6 +29,7 @@ use super::api::StatusReply;
 use super::api::StopRequest;
 use super::api::TERMINATE_PATH;
 use super::api::TerminateRequest;
+use super::api::command_error;
 use super::http::ParseError;
 use super::http::Request;
 use super::http::Response;
@@ -136,15 +136,12 @@ fn accept_loop(listener: &TcpListener, shared: &Arc<Shared>, shutdown: &AtomicBo
                 continue;
             }
         };
-        if stream.set_read_timeout(Some(IO_TIMEOUT)).is_err()
-            || stream.set_write_timeout(Some(IO_TIMEOUT)).is_err()
-        {
+        if stream.set_read_timeout(Some(IO_TIMEOUT)).is_err() || stream.set_write_timeout(Some(IO_TIMEOUT)).is_err() {
             continue;
         }
         if shared.active.fetch_add(1, Ordering::SeqCst) >= MAX_CONNECTIONS {
             shared.active.fetch_sub(1, Ordering::SeqCst);
-            let _ = Response::json(503, &ErrorReply::new("busy", "too many control connections"))
-                .write_to(&mut &stream);
+            let _ = Response::json(503, &ErrorReply::new("busy", "too many control connections")).write_to(&mut &stream);
             continue;
         }
         let worker = Arc::clone(shared);
@@ -164,13 +161,9 @@ impl Shared {
     fn serve(&self, mut stream: TcpStream) {
         let outcome = match read_request(&stream) {
             Ok(request) => self.route(&request, &mut stream),
-            Err(ParseError::BodyTooLarge) => {
-                Response::json(413, &ErrorReply::new("bodyTooLarge", "body over 64 KiB"))
-                    .write_to(&mut stream)
-            }
+            Err(ParseError::BodyTooLarge) => Response::json(413, &ErrorReply::new("bodyTooLarge", "body over 64 KiB")).write_to(&mut stream),
             Err(ParseError::Io(error)) => Err(error),
-            Err(error) => Response::json(400, &ErrorReply::new("badRequest", error.to_string()))
-                .write_to(&mut stream),
+            Err(error) => Response::json(400, &ErrorReply::new("badRequest", error.to_string())).write_to(&mut stream),
         };
         if let Err(error) = outcome {
             tracing::debug!(%error, "control connection ended early");
@@ -191,28 +184,20 @@ impl Shared {
 
     fn manage(&self, request: &Request, out: &mut impl Write) -> std::io::Result<()> {
         if request.header("origin").is_some() {
-            return Response::json(403, &ErrorReply::new("originRefused", "browser origins are refused"))
-                .write_to(out);
+            return Response::json(403, &ErrorReply::new("originRefused", "browser origins are refused")).write_to(out);
         }
         let expected = format!("Bearer {}", self.config.token);
         if !request.header("authorization").is_some_and(|given| ct_eq(given, &expected)) {
-            return Response::json(401, &ErrorReply::new("unauthorized", "missing or wrong token"))
-                .write_to(out);
+            return Response::json(401, &ErrorReply::new("unauthorized", "missing or wrong token")).write_to(out);
         }
         match (request.method.as_str(), request.path.as_str()) {
             ("GET", STATUS_PATH) => self.status_reply().write_to(out),
-            ("POST", HOLD_PATH) => {
-                self.with_body(request, out, |lc, r: HoldRequest| lc.hold(r.on, r.ttl_ms.map(std::time::Duration::from_millis)))
-            }
+            ("POST", HOLD_PATH) => self.with_body(request, out, |lc, r: HoldRequest| lc.hold(r.on, r.ttl_ms.map(std::time::Duration::from_millis))),
             ("POST", STOP_PATH) => self.stop(request, out),
-            ("POST", CANCEL_DRAIN_PATH) => self
-                .with_body(request, out, |lc, r: CancelDrainRequest| lc.cancel_drain(&r.drain_id)),
-            ("POST", RELEASE_PATH) => self.with_body(request, out, |lc, r: ReleaseRequest| {
-                lc.release_decision(r.pid, &r.confirm_token)
-            }),
+            ("POST", CANCEL_DRAIN_PATH) => self.with_body(request, out, |lc, r: CancelDrainRequest| lc.cancel_drain(&r.drain_id)),
+            ("POST", RELEASE_PATH) => self.with_body(request, out, |lc, r: ReleaseRequest| lc.release_decision(r.pid, &r.confirm_token)),
             ("POST", TERMINATE_PATH) => self.terminate(request, out),
-            _ => Response::json(404, &ErrorReply::new("unknownRoute", "no such management route"))
-                .write_to(out),
+            _ => Response::json(404, &ErrorReply::new("unknownRoute", "no such management route")).write_to(out),
         }
     }
 
@@ -223,9 +208,7 @@ impl Shared {
 
     fn stop(&self, request: &Request, out: &mut impl Write) -> std::io::Result<()> {
         match serde_json::from_slice::<StopRequest>(&request.body) {
-            Ok(body) if body.reason == StopReason::NoClients => {
-                bad_request("noClients is the core's own trigger", out)
-            }
+            Ok(body) if body.reason == StopReason::NoClients => bad_request("noClients is the core's own trigger", out),
             // Node's replacement text names the build (`daemon.mjs:589`): a replacement stop without one has nothing to say.
             Ok(body) if body.reason.is_replacement() && body.replacement.is_none() => {
                 bad_request("a replacement stop names the build that replaces this one (replacement{revision, version})", out)
@@ -251,11 +234,7 @@ impl Shared {
     }
 
     /// A command answers with the state after it, or `409` with the refusal.
-    fn command(
-        &self,
-        out: &mut impl Write,
-        run: impl FnOnce(&Arc<Lifecycle>) -> Result<(), CommandError>,
-    ) -> std::io::Result<()> {
+    fn command(&self, out: &mut impl Write, run: impl FnOnce(&Arc<Lifecycle>) -> Result<(), CommandError>) -> std::io::Result<()> {
         match run(&self.lifecycle) {
             Ok(()) => self.status_reply().write_to(out),
             Err(error) => Response::json(409, &command_error(error)).write_to(out),

@@ -99,10 +99,7 @@ pub fn apply_brief_cap(text: &str) -> String {
     }
     let approx_tokens = (bytes as f64 / 4.0).round() as u64;
     let kb = (bytes as f64 / 1024.0).round() as u64;
-    format!(
-        "{}\n\n... [TRUNCATED — full answer was ~{approx_tokens} tokens / {kb} KB. Re-run with brief:false for the complete synthesis]",
-        &text[..end]
-    )
+    format!("{}\n\n... [TRUNCATED — full answer was ~{approx_tokens} tokens / {kb} KB. Re-run with brief:false for the complete synthesis]", &text[..end])
 }
 
 /// Assistant text a stopped child produced during this run (`partialHandoffTextFromSession`):
@@ -158,6 +155,5 @@ mod tests {
         assert_eq!(partial_handoff_text(&[row(".", ""), row("", "")]), None);
     }
 }
-
 
 impl std::error::Error for DispatchError {}

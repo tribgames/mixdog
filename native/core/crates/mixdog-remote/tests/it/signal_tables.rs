@@ -105,7 +105,8 @@ fn a_phone_signal_that_moves_the_barrier_is_told_from_the_others() {
 fn every_malformed_phone_signal_is_refused_naming_the_field_that_is_wrong() {
     let ack = json!({ "type": "geometry-ack", "v": 1, "source": source(), "geometryGeneration": 3 });
     let resize = |mode: Value| json!({ "type": "resize-request", "v": 1, "source": source(), "resize": mode });
-    let fit = |change: &dyn Fn(&mut Value)| resize(edit(json!({ "mode": "fit-client", "cssWidth": 800, "cssHeight": 600, "deviceScaleFactor": 2 }), |v| change(v)));
+    let fit =
+        |change: &dyn Fn(&mut Value)| resize(edit(json!({ "mode": "fit-client", "cssWidth": 800, "cssHeight": 600, "deviceScaleFactor": 2 }), |v| change(v)));
     let promote = edit(connection("promote-ack"), |v| v["inputEpoch"] = json!(1));
     let screen_ready = edit(media_ready(), |v| {
         v["source"] = screen();
@@ -129,12 +130,24 @@ fn every_malformed_phone_signal_is_refused_naming_the_field_that_is_wrong() {
         ("resize: height low", fit(&|v| v["cssHeight"] = json!(199)), invalid("resize height")),
         ("resize: scale low", fit(&|v| v["deviceScaleFactor"] = json!(0.4)), invalid("resize scale")),
         ("resize: scale high", fit(&|v| v["deviceScaleFactor"] = json!(4.1)), invalid("resize scale")),
-        ("ready: video limit not an object", edit(json!({ "type": "ready", "v": 1, "source": source(), "receiveCodecs": [] }), |v| v["videoLimit"] = json!(null)), invalid("video limit")),
-        ("ready: video limit height", json!({ "type": "ready", "v": 1, "source": source(), "receiveCodecs": [], "videoLimit": { "maxWidth": 64, "maxHeight": 4097 } }), invalid("video limit height")),
+        (
+            "ready: video limit not an object",
+            edit(json!({ "type": "ready", "v": 1, "source": source(), "receiveCodecs": [] }), |v| v["videoLimit"] = json!(null)),
+            invalid("video limit"),
+        ),
+        (
+            "ready: video limit height",
+            json!({ "type": "ready", "v": 1, "source": source(), "receiveCodecs": [], "videoLimit": { "maxWidth": 64, "maxHeight": 4097 } }),
+            invalid("video limit height"),
+        ),
         ("ready: codec without a subtype", json!({ "type": "ready", "v": 1, "source": source(), "receiveCodecs": ["video/"] }), invalid("receive codec")),
         ("answer: no sdp", without(answer(), "sdp"), invalid("sdp")),
         ("answer: sdp not v=0", edit(answer(), |v| v["sdp"] = json!("x")), invalid("sdp")),
-        ("answer: ice-lite", edit(answer(), |v| v["sdp"] = json!(format!("v=0\r\na=ice-lite\r\na=fingerprint:sha-256 {}\r\n", print()))), invalid("sdp ice-lite")),
+        (
+            "answer: ice-lite",
+            edit(answer(), |v| v["sdp"] = json!(format!("v=0\r\na=ice-lite\r\na=fingerprint:sha-256 {}\r\n", print()))),
+            invalid("sdp ice-lite"),
+        ),
         ("answer: no fingerprints", without(answer(), "fingerprints"), invalid("fingerprints")),
         ("answer: four fingerprints", edit(answer(), |v| v["fingerprints"] = json!([1, 2, 3, 4])), invalid("fingerprints")),
         ("answer: unknown algorithm", edit(answer(), |v| v["fingerprints"][0]["algorithm"] = json!("md5")), invalid("fingerprint algorithm")),
@@ -322,8 +335,16 @@ fn a_page_input_or_its_envelope_that_is_malformed_is_refused_naming_what_is_wron
         ("pointer modifiers", input(edit(pointer(), |v| v["modifiers"] = json!(16))), "Browser modifiers is invalid.".to_owned()),
         ("pointer click count", input(edit(pointer(), |v| v["clickCount"] = json!(4))), "Browser clickCount is invalid.".to_owned()),
         ("wheel delta", input(page("wheel", json!({ "x": 1, "y": 2, "deltaX": 20001, "deltaY": 0 }))), "Browser deltaX is invalid.".to_owned()),
-        ("selection past the text", input(page("composition", json!({ "text": "ab", "selectionStart": 0, "selectionEnd": 3 }))), "Browser selectionEnd is invalid.".to_owned()),
-        ("selection fractional", input(page("composition", json!({ "text": "ab", "selectionStart": 0.5, "selectionEnd": 1 }))), "Browser composition selection is invalid.".to_owned()),
+        (
+            "selection past the text",
+            input(page("composition", json!({ "text": "ab", "selectionStart": 0, "selectionEnd": 3 }))),
+            "Browser selectionEnd is invalid.".to_owned(),
+        ),
+        (
+            "selection fractional",
+            input(page("composition", json!({ "text": "ab", "selectionStart": 0.5, "selectionEnd": 1 }))),
+            "Browser composition selection is invalid.".to_owned(),
+        ),
     ];
     for (what, text, expected) in table {
         assert_eq!(ChannelMessage::parse(&text), Err(expected), "{what}");
@@ -422,7 +443,10 @@ fn the_screen_messages_of_a_phone_are_read_into_their_variants() {
     });
     assert_eq!(
         parse_screen(&with_credential),
-        Ok(ScreenMessage::HelperInstall { public_key: controller_key(1), credential: Some(HelperCredential { user: Some("admin".into()), password: "pw".into() }) })
+        Ok(ScreenMessage::HelperInstall {
+            public_key: controller_key(1),
+            credential: Some(HelperCredential { user: Some("admin".into()), password: "pw".into() })
+        })
     );
     let enroll = screen_message("screen-helper-enroll", json!({ "publicKey": controller_key(3), "credential": { "user": "", "password": "pw" } }));
     assert_eq!(
@@ -472,7 +496,9 @@ fn every_malformed_screen_message_is_refused_naming_what_is_wrong() {
     let key = |change: &dyn Fn(&mut Value)| screen_input(edit(json!({ "type": "screen-key", "action": "down", "vk": 13, "scan": 28 }), |v| change(v)));
     let keys = |list: Value| screen_input(json!({ "type": "screen-keys", "keys": list }));
     let credential = |value: Value| edit(install(), |v| v["credential"] = value);
-    let pointer = |change: &dyn Fn(&mut Value)| screen_input(edit(json!({ "type": "screen-pointer", "action": "down", "button": "left", "x": 1, "y": 2 }), |v| change(v)));
+    let pointer = |change: &dyn Fn(&mut Value)| {
+        screen_input(edit(json!({ "type": "screen-pointer", "action": "down", "button": "left", "x": 1, "y": 2 }), |v| change(v)))
+    };
     let wheel = |change: &dyn Fn(&mut Value)| screen_input(edit(json!({ "type": "screen-wheel", "x": 1, "y": 2 }), |v| change(v)));
     let same_key = json!({ "vk": 17 });
     let table: Vec<(&str, Value, String)> = vec![
@@ -513,10 +539,14 @@ fn every_malformed_screen_message_is_refused_naming_what_is_wrong() {
         ("key: action", key(&|v| v["action"] = json!("tap")), invalid("key action")),
         ("key: virtual key", key(&|v| v["vk"] = json!(255)), invalid("virtual key")),
         ("key: scan code", key(&|v| v["scan"] = json!(256)), invalid("scan code")),
-        ("key: neither code", key(&|v| {
-            v["vk"] = json!(0);
-            v["scan"] = json!(0);
-        }), invalid("key")),
+        (
+            "key: neither code",
+            key(&|v| {
+                v["vk"] = json!(0);
+                v["scan"] = json!(0);
+            }),
+            invalid("key"),
+        ),
         ("key: extended not a bool", key(&|v| v["extended"] = json!("yes")), invalid("key extended")),
         ("keys: not a list", screen_input(json!({ "type": "screen-keys", "keys": 1 })), invalid("key combo")),
         ("keys: empty", keys(json!([])), invalid("key combo")),

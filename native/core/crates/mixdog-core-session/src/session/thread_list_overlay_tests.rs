@@ -16,12 +16,12 @@ use serde_json::json;
 use super::SessionDirectory;
 use super::seams::RunOutcome;
 use super::testing::Rig;
-use crate::eventually_on;
 use super::tests::start_thread;
 use super::tests::turn;
 use super::thread_list::ListOverlay;
 use super::thread_list::LiveListOverlay;
 use super::thread_list::RowOverlay;
+use crate::eventually_on;
 
 /// A Lead whose turn waits on `ask_user`, a worker of that Lead whose turn runs, and a bot's work
 /// in the Lead: the Lead's row is working, waits on a question, has an agent working and is the
@@ -55,10 +55,7 @@ async fn the_overlay_carries_the_hosted_threads_live_facts() {
     let lead = start_thread(&directory).await;
     let worker = start_thread(&directory).await;
     let patch = json!({ "threadId": worker.id, "set": { "ownerSessionId": lead.id, "agent": "worker" }, "unset": [] });
-    worker
-        .request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") })
-        .await
-        .expect("patch");
+    worker.request(CoreRequest { method: Method("thread/header/patch"), params: patch, op: None, ctx: CallContext::internal("test") }).await.expect("patch");
     let bots = Arc::new(BotWork::new(Arc::new(|_: &str| {})));
     bots.note("run-1", lead.id.as_str(), "bot1");
     let overlay = LiveListOverlay::new(directory.clone(), bots);
@@ -66,7 +63,8 @@ async fn the_overlay_carries_the_hosted_threads_live_facts() {
     assert_eq!(overlay.of(&lead.id), RowOverlay { handed_by: Some(vec!["bot1".into()]), ..RowOverlay::default() }, "nothing runs yet");
     turn(&lead, "ask me", "op-1").await;
     turn(&worker, "work", "op-2").await;
-    eventually_on!(&[&lead.cell.stepped, &worker.cell.stepped], || (!lead.cell.approvals.load().is_empty() && worker.cell.run.load().is_some()).then_some(())).await;
+    eventually_on!(&[&lead.cell.stepped, &worker.cell.stepped], || (!lead.cell.approvals.load().is_empty() && worker.cell.run.load().is_some()).then_some(()))
+        .await;
     assert_eq!(
         overlay.of(&lead.id),
         RowOverlay {

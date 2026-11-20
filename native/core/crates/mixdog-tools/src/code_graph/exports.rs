@@ -23,12 +23,9 @@ struct ReExport {
     passes: Passes,
 }
 
-static STAR: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\bexport\s+\*\s*(as\s+[A-Za-z_$][\w$]*\s+)?from\s*['"]([^'"\n]+)['"]"#).expect("a fixed pattern")
-});
-static NAMED: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#"\bexport\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"\n]+)['"]"#).expect("a fixed pattern")
-});
+static STAR: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r#"\bexport\s+\*\s*(as\s+[A-Za-z_$][\w$]*\s+)?from\s*['"]([^'"\n]+)['"]"#).expect("a fixed pattern"));
+static NAMED: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"\bexport\s+(?:type\s+)?\{([^}]*)\}\s*from\s*['"]([^'"\n]+)['"]"#).expect("a fixed pattern"));
 
 fn re_exports(node: &Node) -> Vec<ReExport> {
     if !matches!(node.lang, "javascript" | "typescript") {

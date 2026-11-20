@@ -67,7 +67,6 @@ fn strings(value: Option<&Value>) -> Option<Vec<String>> {
     value.and_then(Value::as_array).map(|items| items.iter().map(value_to_string).collect())
 }
 
-
 impl ResumeTools {
     /// `_prepareResumeTools(session, session.preset || 'full')`, the call a route change makes. A
     /// skill list that cannot be collected is the error, never "no skills".
@@ -130,9 +129,7 @@ impl ResumeTools {
 }
 
 fn kept_on_error(prepared: Result<PreparedTools, String>) -> Option<PreparedTools> {
-    prepared
-        .inspect_err(|error| tracing::warn!(%error, "[session] route change kept the stored tools"))
-        .ok()
+    prepared.inspect_err(|error| tracing::warn!(%error, "[session] route change kept the stored tools")).ok()
 }
 
 #[async_trait]
@@ -152,7 +149,4 @@ impl PrepareTools for ResumeTools {
 }
 
 #[cfg(test)]
-mod tests {
-}
-
-
+mod tests {}

@@ -10,9 +10,6 @@ fn test_limits_satisfy_the_invariants() {
 
 #[test]
 fn violated_invariant_refuses_to_start() {
-    let limits = Limits {
-        max_snapshot_bytes: Limits::default().event_budget_bytes,
-        ..Limits::default()
-    };
+    let limits = Limits { max_snapshot_bytes: Limits::default().event_budget_bytes, ..Limits::default() };
     assert!(ConnectionHub::new(limits).is_err());
 }

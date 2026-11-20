@@ -391,13 +391,8 @@ pub(crate) fn failure_record(error: &TurnError, route: &Route<'_>) -> Result<Map
             }),
         );
     }
-    let descriptor = (provider.is_some() || proof.is_some()).then(|| Descriptor {
-        kind: kind.to_owned(),
-        code: code.clone(),
-        status,
-        retry_after_ms,
-        reset_at,
-    });
+    let descriptor =
+        (provider.is_some() || proof.is_some()).then(|| Descriptor { kind: kind.to_owned(), code: code.clone(), status, retry_after_ms, reset_at });
     let timeout = facts.timeout;
     let view = ErrorView {
         is_object: true,
@@ -540,7 +535,6 @@ pub(crate) fn failed_completion(record: &Map<String, Value>, facts: &Facts<'_>) 
 mod tests {
     use super::*;
 
-
     /// `providerKind` is the classified kind; an untyped error's usage-limit or billing wording reads as that kind
     /// (`legacyQuotaWording`), but never an error with a status, a code or retry advice.
     #[test]
@@ -584,12 +578,23 @@ mod tests {
         assert_eq!(error.data["carriedReport"], "kept", "the error's other typed fields stay");
         assert_eq!(
             ProviderFacts::of(&error).unwrap(),
-            ProviderFacts { code: Some("Rate_Limit_Exceeded".into()), retry_after_ms: Some(4000), reset_at: Some(1_900_000_000_000), ..ProviderFacts::default() }
+            ProviderFacts {
+                code: Some("Rate_Limit_Exceeded".into()),
+                retry_after_ms: Some(4000),
+                reset_at: Some(1_900_000_000_000),
+                ..ProviderFacts::default()
+            }
         );
         let detail = error.provider_error.as_ref().unwrap();
-        assert_eq!((detail.provider.as_str(), detail.status, detail.kind.as_str(), detail.delivery), ("anthropic-oauth", Some(429), "rate_limited", Some(mixdog_protocol::DeliveryState::Accepted)));
+        assert_eq!(
+            (detail.provider.as_str(), detail.status, detail.kind.as_str(), detail.delivery),
+            ("anthropic-oauth", Some(429), "rate_limited", Some(mixdog_protocol::DeliveryState::Accepted))
+        );
         let record = failure_record(&error, &Route { provider: "anthropic-oauth", model: "m" }).unwrap();
-        assert_eq!(record["errorKind"], json!({ "kind": "rate_limited", "code": "rate_limit_exceeded", "status": 429, "retryAfterMs": 4000, "resetAt": 1_900_000_000_000_u64 }));
+        assert_eq!(
+            record["errorKind"],
+            json!({ "kind": "rate_limited", "code": "rate_limit_exceeded", "status": 429, "retryAfterMs": 4000, "resetAt": 1_900_000_000_000_u64 })
+        );
         assert!(!record.contains_key("quota"), "a rate limit is no quota stop");
     }
 
@@ -626,7 +631,10 @@ mod tests {
         assert_eq!(shown["newContextOffered"], true);
         assert!(shown["message"].as_str().unwrap().starts_with("Nothing was sent."), "{shown}");
         let plain = provider_turn_error(&ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Unknown, DeliveryState::NotSent), "p", Value::Null);
-        assert!(failure_record(&plain, &Route { provider: "p", model: "m" }).unwrap()["errorKind"].get("imageRefusal").is_none(), "an ordinary failure carries none");
+        assert!(
+            failure_record(&plain, &Route { provider: "p", model: "m" }).unwrap()["errorKind"].get("imageRefusal").is_none(),
+            "an ordinary failure carries none"
+        );
     }
 
     /// The incident: an accepted stream cut by a connection-level error has an empty message. The failed turn's transcript row
@@ -710,6 +718,4 @@ mod tests {
         let done = failed_completion(&failure_record(&error, &bare.route).unwrap(), &bare);
         assert_eq!((done["attemptId"].clone(), done["at"].clone(), done["elapsedMs"].clone()), (json!("fresh"), json!(5), json!(0)));
     }
-
-
 }

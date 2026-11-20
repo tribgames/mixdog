@@ -22,12 +22,12 @@ use super::SessionDirectory;
 use super::SessionHandle;
 use super::seams::RunOutcome;
 use super::testing::Rig;
-use crate::eventually_on_until;
-use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_routed_thread;
 use super::tests::start_thread;
 use super::tests::turn;
+use crate::eventually_on;
+use crate::eventually_on_until;
 
 fn request(method: &'static str, params: Value, op: &str) -> CoreRequest {
     CoreRequest {
@@ -125,7 +125,8 @@ async fn a_queued_slash_command_is_handed_back_to_the_composer_not_sent_to_the_m
     turn(&handle, "plain", "op-3").await;
     eventually_on!(&[&handle.cell.stepped], || (handle.cell.queued.load().len() == 2).then_some(())).await;
     gate.notify_one();
-    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&log).len() == 2 && idle(&handle) && handle.cell.queued.load().is_empty()).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&log).len() == 2 && idle(&handle) && handle.cell.queued.load().is_empty()).then_some(()))
+        .await;
     assert_eq!(super::testing::lock(&log)[1].0, "plain");
     assert!(super::testing::lock(&log).iter().all(|(prompt, _)| !prompt.starts_with('/')));
     let restored = handle.cell.view.load_full().state.prompt_restore.clone().expect("the command is handed back");
@@ -272,7 +273,10 @@ async fn a_promotion_still_being_saved_is_injected_ahead_of_an_earlier_one_at_a_
     let qids: Vec<String> = handle.cell.queue.load().iter().map(|queued| queued.qid.clone()).collect();
     assert_eq!(qids.len(), 2);
     let promoted = |qid: &str| {
-        rig.store.records(&handle.id).iter().any(|(_, record)| matches!(record, Record::Queue(q) if q.action == QueueAction::Prioritize && q.qid.as_str() == qid))
+        rig.store
+            .records(&handle.id)
+            .iter()
+            .any(|(_, record)| matches!(record, Record::Queue(q) if q.action == QueueAction::Prioritize && q.qid.as_str() == qid))
     };
     handle.cell.steer(None, mixdog_core_api::ids::QueuedId::from(qids[0].as_str())).expect("a promoted");
     eventually_on!(&[&handle.cell.stepped, &*rig.store.committed], || promoted(qids[0].as_str()).then_some(())).await;
@@ -322,7 +326,11 @@ async fn a_pushed_notice_shows_its_polished_text_as_a_row_of_no_turn() {
     let id = call(&handle, "thread/pushNotice", json!({ "text": "✓ saved the file", "level": "warn" }), "n-1").await.expect("pushed");
     let id = id.as_str().expect("the row id").to_owned();
     let shown_of = |id: Value| {
-        rig.feeds.frames(handle.id.as_str()).into_iter().find(|(_, method, params)| method == "item/completed" && params["item"]["id"] == id).map(|(_, _, params)| params)
+        rig.feeds
+            .frames(handle.id.as_str())
+            .into_iter()
+            .find(|(_, method, params)| method == "item/completed" && params["item"]["id"] == id)
+            .map(|(_, _, params)| params)
     };
     let shown = eventually_on!(&[&rig.feeds.published], || shown_of(json!(id))).await;
     assert_eq!(shown["turnId"], "");
@@ -384,7 +392,10 @@ async fn the_preflight_names_no_current_session_for_a_thread_without_one() {
     let directory = SessionDirectory::new(rig.deps());
     let header = |value: Value| value.as_object().cloned().expect("header");
     directory.create_with_id(mixdog_core_api::ids::ThreadId::from("sess_reserved"), header(json!({ "cwd": "/ws" })), json!({})).await.expect("create");
-    directory.create_with_id(mixdog_core_api::ids::ThreadId::from("sess_seated"), header(json!({ "cwd": "/ws", "provider": "openai", "model": "gpt-5" })), json!({})).await.expect("create");
+    directory
+        .create_with_id(mixdog_core_api::ids::ThreadId::from("sess_seated"), header(json!({ "cwd": "/ws", "provider": "openai", "model": "gpt-5" })), json!({}))
+        .await
+        .expect("create");
     for (thread, source) in [("sess_reserved", Value::Null), ("sess_seated", json!("sess_seated"))] {
         let got = preflight(&directory, json!({ "threadId": thread })).await;
         assert_eq!(got["sourceSessionId"], source, "{thread}");
@@ -507,7 +518,10 @@ async fn a_side_question_is_answered_from_the_saved_request_with_nodes_texts() {
     assert!(prompt.starts_with("<side-question>\nThe user is asking you a quick side question.") && prompt.ends_with("\n\nwhy?\n</side-question>"), "{prompt}");
 
     *super::testing::lock(&rig.side.reply) = Some(reply("x", true));
-    assert_eq!(ask("q", "a-4").await.expect("answered")["text"], "The model tried to use a tool instead of answering. A side question cannot run tools; try asking it differently.");
+    assert_eq!(
+        ask("q", "a-4").await.expect("answered")["text"],
+        "The model tried to use a tool instead of answering. A side question cannot run tools; try asking it differently."
+    );
     *super::testing::lock(&rig.side.reply) = Some(reply(" ", false));
     assert_eq!(ask("q", "a-5").await.expect("answered")["text"], "The model returned no answer.");
     *super::testing::lock(&rig.side.reply) = Some(Err(super::turn_ops::SideFailure::Failed("provider down".into())));
@@ -617,19 +631,28 @@ async fn a_users_compaction_asked_mid_turn_runs_once_after_the_turn_and_its_queu
     let again = call(&handle, "thread/compact/start", json!({}), "c-2").await.expect("answered");
     assert_eq!(again, json!({ "changed": false, "scheduled": true }));
     let notices = |text: &str| {
-        rig.feeds.frames(handle.id.as_str()).iter().filter(|(_, method, params)| method == "item/completed" && params["item"].to_string().contains(text)).count()
+        rig.feeds
+            .frames(handle.id.as_str())
+            .iter()
+            .filter(|(_, method, params)| method == "item/completed" && params["item"].to_string().contains(text))
+            .count()
     };
     assert_eq!(notices("Compact scheduled: runs when the current turn finishes"), 1);
     assert_eq!(notices("Compact already scheduled for turn end"), 1);
     assert!(super::testing::lock(&rig.compaction.calls).is_empty(), "nothing compacts while the turn runs");
     gate.notify_one();
     eventually_on!(&[&handle.cell.stepped], || {
-        (super::testing::lock(&rig.compaction.calls).len() >= 4 && idle(&handle) && !handle.cell.compacting.load(std::sync::atomic::Ordering::SeqCst)).then_some(())
+        (super::testing::lock(&rig.compaction.calls).len() >= 4 && idle(&handle) && !handle.cell.compacting.load(std::sync::atomic::Ordering::SeqCst))
+            .then_some(())
     })
     .await;
     assert_eq!(*super::testing::lock(&started), [("work".to_owned(), 0), ("follow up".to_owned(), 0)], "the follow-up ran before the compaction");
     // One manual compaction, with the agent recovery the command asks for (`compactCommand`: `{ recoverAgent: true }`).
-    assert_eq!(*super::testing::lock(&rig.compaction.calls), ["compact manual false", "post manual", "rearm", "recover", "invalidate"], "one manual compaction");
+    assert_eq!(
+        *super::testing::lock(&rig.compaction.calls),
+        ["compact manual false", "post manual", "rearm", "recover", "invalidate"],
+        "one manual compaction"
+    );
 }
 
 /// The session tool's `compact` (`workspace-tools.mjs`: `pendingCompactSessionIds`): asked while
@@ -687,16 +710,19 @@ async fn a_held_desktop_model_change_compacts_between_turns() {
     let handle = start_thread(&directory).await;
     turn(&handle, "first", "pre-switch-1").await;
     eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
-    handle.request(CoreRequest {
-        method: Method("thread/header/patch"),
-        params: json!({ "threadId": handle.id, "set": {
-            "provider": "old-provider",
-            "model": "old-model",
-            "pendingRoute": { "provider": "new-provider", "model": "new-model", (PRE_SWITCH_COMPACTION): true },
-        }}),
-        op: None,
-        ctx: CallContext::internal("test"),
-    }).await.expect("the pick was held");
+    handle
+        .request(CoreRequest {
+            method: Method("thread/header/patch"),
+            params: json!({ "threadId": handle.id, "set": {
+                "provider": "old-provider",
+                "model": "old-model",
+                "pendingRoute": { "provider": "new-provider", "model": "new-model", (PRE_SWITCH_COMPACTION): true },
+            }}),
+            op: None,
+            ctx: CallContext::internal("test"),
+        })
+        .await
+        .expect("the pick was held");
     assert!(super::testing::lock(&rig.compaction.calls).is_empty(), "the active turn was left alone");
     let compact = Arc::new(tokio::sync::Notify::new());
     *super::testing::lock(&rig.compaction.hold) = Some(compact.clone());
@@ -711,12 +737,15 @@ async fn a_held_desktop_model_change_compacts_between_turns() {
     assert!(!next.is_finished(), "the next turn waits for the old-route compaction");
     assert_eq!(handle.header_snapshot()["model"], json!("old-model"));
     let later = json!({ "provider": "new-provider", "model": "later-model", (PRE_SWITCH_COMPACTION): true });
-    handle.request(CoreRequest {
-        method: Method("thread/header/patch"),
-        params: json!({ "threadId": handle.id, "set": { "pendingRoute": later } }),
-        op: None,
-        ctx: CallContext::internal("test"),
-    }).await.expect("a later pick is held while compaction runs");
+    handle
+        .request(CoreRequest {
+            method: Method("thread/header/patch"),
+            params: json!({ "threadId": handle.id, "set": { "pendingRoute": later } }),
+            op: None,
+            ctx: CallContext::internal("test"),
+        })
+        .await
+        .expect("a later pick is held while compaction runs");
     compact.notify_one();
     next.await.expect("the next turn proceeds even when no compaction was applied");
     assert_eq!(super::testing::lock(&admitted)[1].as_ref().unwrap()["model"], "new-model");
@@ -775,12 +804,17 @@ async fn a_task_report_under_the_compactions_gate_waits_and_is_not_lost() {
     *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
     *super::testing::lock(&rig.compaction.result) = Some(json!({ "changed": true }));
     gate.notify_one();
-    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle)).then_some(())).await;
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle))
+        .then_some(()))
+    .await;
 
     let holds = handle.cell.gate_holds.load(SeqCst);
     let report = "<task-notification>\n<task-id>t1</task-id>\n<status>completed</status>\n<summary>Agent \"rev\" completed</summary>\n<result>\nall done\n</result>\n</task-notification>";
     let meta = json!({ "execution_surface": "agent", "execution_id": "t1", "status": "completed" });
-    assert!(super::agent_registry::flow::SessionCompletions::new(directory.clone()).notify(handle.id.as_str(), report, &meta), "the live session takes the report");
+    assert!(
+        super::agent_registry::flow::SessionCompletions::new(directory.clone()).notify(handle.id.as_str(), report, &meta),
+        "the live session takes the report"
+    );
     // The report's wake consulted the compaction's gate and was held.
     eventually_on!(&[&handle.cell.stepped], || (handle.cell.gate_holds.load(SeqCst) > holds).then_some(())).await;
     assert!(idle(&handle) && handle.cell.queued.load().len() == 1, "the report is queued and starts no turn");
@@ -808,15 +842,14 @@ async fn callers_held_by_a_running_compaction_are_answered_when_the_session_is_d
     let hold = Arc::new(tokio::sync::Notify::new());
     *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
     gate.notify_one();
-    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle)).then_some(())).await;
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle))
+        .then_some(()))
+    .await;
 
     let queued = call(&handle, "turn/start", json!({ "input": { "prompt": "next" } }), "h-1").await.expect("admitted");
     assert_eq!(queued["kind"], json!("queued"), "a turn is queued behind the gate, not held: {queued}");
     let mut held_calls = Vec::new();
-    for (method, params, op) in [
-        ("thread/clear", json!({}), "h-2"),
-        ("thread/compact/start", json!({}), "h-3"),
-    ] {
+    for (method, params, op) in [("thread/clear", json!({}), "h-2"), ("thread/compact/start", json!({}), "h-3")] {
         let holds = handle.cell.gate_holds.load(SeqCst);
         let caller = handle.clone();
         held_calls.push((method, tokio::spawn(async move { call(&caller, method, params, op).await })));
@@ -846,7 +879,9 @@ async fn a_clear_waiting_for_the_scheduled_compaction_keeps_the_copy_of_what_it_
     let hold = Arc::new(tokio::sync::Notify::new());
     *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
     gate.notify_one();
-    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle)).then_some(())).await;
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle))
+        .then_some(()))
+    .await;
     eventually_on!(&[&handle.cell.stepped], || handle.cell.gated.load(SeqCst).then_some(())).await;
     let ids = || -> std::collections::BTreeSet<String> { rig.store.log_ids().iter().map(|id| id.as_str().to_owned()).collect() };
     let before = ids();
@@ -867,14 +902,23 @@ async fn a_clear_waiting_for_the_scheduled_compaction_keeps_the_copy_of_what_it_
     eventually_on!(&[&handle.cell.stepped], || super::tests::rows(&handle).is_empty().then_some(())).await;
     let copies: Vec<String> = ids().difference(&before).cloned().collect();
     let [copy] = copies.as_slice() else { panic!("one copy of the conversation the compaction left: {copies:?}") };
-    let read = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": copy, "start": 0 }), op: None, ctx: CallContext::internal("test") };
+    let read = CoreRequest {
+        method: Method("thread/modelMessages/list"),
+        params: json!({ "threadId": copy, "start": 0 }),
+        op: None,
+        ctx: CallContext::internal("test"),
+    };
     let Reply::Value(listed) = directory.request(read).await.expect("the copy's conversation") else { panic!("a value") };
-    let said: Vec<&str> = listed["messages"].as_array().expect("messages").iter().filter(|m| m["role"] == "user").filter_map(|m| m["content"].as_str()).collect();
+    let said: Vec<&str> =
+        listed["messages"].as_array().expect("messages").iter().filter(|m| m["role"] == "user").filter_map(|m| m["content"].as_str()).collect();
     assert!(said.contains(&"work"), "the copy holds what was said: {listed}");
 }
 /// A thread whose scheduled compaction runs (held by the returned signal) after a first turn "work", with its runs logged
 /// (`logged`): the point from which a person's clear waits at the gate.
-async fn compacting_after_work(rig: &Rig, directory: &SessionDirectory) -> (Arc<SessionHandle>, Arc<tokio::sync::Notify>, Arc<std::sync::Mutex<Vec<(String, Option<String>)>>>) {
+async fn compacting_after_work(
+    rig: &Rig,
+    directory: &SessionDirectory,
+) -> (Arc<SessionHandle>, Arc<tokio::sync::Notify>, Arc<std::sync::Mutex<Vec<(String, Option<String>)>>>) {
     use std::sync::atomic::Ordering::SeqCst;
     rig.store.listed.store(true, SeqCst);
     let (gate, log) = logged(rig);
@@ -885,7 +929,9 @@ async fn compacting_after_work(rig: &Rig, directory: &SessionDirectory) -> (Arc<
     let hold = Arc::new(tokio::sync::Notify::new());
     *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
     gate.notify_one();
-    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle)).then_some(())).await;
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle))
+        .then_some(()))
+    .await;
     eventually_on!(&[&handle.cell.stepped], || handle.cell.gated.load(SeqCst).then_some(())).await;
     (handle, hold, log)
 }
@@ -913,15 +959,22 @@ async fn a_prompt_queued_behind_a_gated_clear_runs_after_the_clear_on_the_emptie
 
     hold.notify_one();
     super::testing::awaiting(|| "the clear to be answered after the compaction".to_owned(), clearing).await.expect("joined").expect("the clear ran");
-    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&log).len() == 2 && idle(&handle) && handle.cell.queued.load().is_empty()).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&log).len() == 2 && idle(&handle) && handle.cell.queued.load().is_empty()).then_some(()))
+        .await;
     assert_eq!(super::testing::lock(&log)[1].0, "after", "the queued prompt's turn started after the clear");
 
     // The copy holds the conversation the clear took, and not the prompt that ran after it.
     let copies: Vec<String> = ids().difference(&before).cloned().collect();
     let [copy] = copies.as_slice() else { panic!("one copy of the cleared conversation: {copies:?}") };
-    let read = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": copy, "start": 0 }), op: None, ctx: CallContext::internal("test") };
+    let read = CoreRequest {
+        method: Method("thread/modelMessages/list"),
+        params: json!({ "threadId": copy, "start": 0 }),
+        op: None,
+        ctx: CallContext::internal("test"),
+    };
     let Reply::Value(listed) = directory.request(read).await.expect("the copy's conversation") else { panic!("a value") };
-    let said: Vec<&str> = listed["messages"].as_array().expect("messages").iter().filter(|m| m["role"] == "user").filter_map(|m| m["content"].as_str()).collect();
+    let said: Vec<&str> =
+        listed["messages"].as_array().expect("messages").iter().filter(|m| m["role"] == "user").filter_map(|m| m["content"].as_str()).collect();
     assert_eq!(said, ["work"], "the copy holds what was said before the clear: {listed}");
     // The thread was emptied before that turn: only its prompt is on it.
     let users: Vec<String> = super::tests::rows(&handle).into_iter().filter(|(role, _)| *role == "user").map(|(_, text)| text).collect();
@@ -984,17 +1037,20 @@ async fn a_stop_while_the_compaction_holds_a_prompt_hands_it_back_and_it_never_r
     let hold = Arc::new(tokio::sync::Notify::new());
     *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
     gate.notify_one();
-    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle)).then_some(())).await;
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle))
+        .then_some(()))
+    .await;
 
     let input = json!({ "input": { "prompt": "next", "options": { "clientSubmissionId": "window-7" } } });
     let queued = call(&handle, "turn/start", input, "h-1").await.expect("admitted");
     assert_eq!(queued["kind"], json!("queued"), "{queued}");
     eventually_on!(&[&handle.cell.stepped], || handle.cell.gated.load(SeqCst).then_some(())).await;
-    let stopped = handle
-        .stop(Stop { turn: None, restore_prompt: None, submission_id: None, ctx: CallContext::internal("test") })
-        .await
-        .expect("stop");
-    assert_eq!((&stopped["aborted"], &stopped["restoreText"], &stopped["restoredSubmissionIds"]), (&json!(false), &json!("next"), &json!(["window-7"])), "{stopped}");
+    let stopped = handle.stop(Stop { turn: None, restore_prompt: None, submission_id: None, ctx: CallContext::internal("test") }).await.expect("stop");
+    assert_eq!(
+        (&stopped["aborted"], &stopped["restoreText"], &stopped["restoredSubmissionIds"]),
+        (&json!(false), &json!("next"), &json!(["window-7"])),
+        "{stopped}"
+    );
     // The reply came after the Stop's record was durable: the submission is terminal on disk, its queue copy gone.
     let header = rig.store.stored_header(&handle.id).expect("header");
     let sid = mixdog_store::work_stops::stopped(&header, &mixdog_store::work_stops::submission("window-7")).expect("the handed-back prompt is stopped on disk");
@@ -1004,7 +1060,12 @@ async fn a_stop_while_the_compaction_holds_a_prompt_hands_it_back_and_it_never_r
     let passes = handle.cell.drain_passes.load(SeqCst);
     hold.notify_one();
     // Fence: the compaction ended and the drain after it decided its next start (none).
-    eventually_on!(&[&handle.cell.stepped], || (handle.cell.drain_passes.load(SeqCst) > passes && !handle.cell.gated.load(SeqCst) && idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.drain_passes.load(SeqCst) > passes
+        && !handle.cell.gated.load(SeqCst)
+        && idle(&handle)
+        && !handle.cell.busy.load(SeqCst))
+    .then_some(()))
+    .await;
     assert!(idle(&handle) && handle.cell.queued.load().is_empty(), "the handed-back prompt never runs");
     // The reply carried it to the canceller: nothing more is owed.
     eventually_on!(&[&handle.cell.stepped], || mixdog_store::work_stops::owed(&rig.store.stored_header(&handle.id)?).is_empty().then_some(())).await;
@@ -1072,13 +1133,20 @@ async fn a_failed_turn_is_retried_once_with_its_prompt_and_its_resume_entry_fini
     assert!(super::testing::lock(&seen)[1].0.contains("write the report"), "the failed prompt is replayed");
     eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id).is_none().then_some(())).await;
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-4").await.expect("answered"), json!(false), "the retry's own turn is now the latest");
+    assert_eq!(
+        call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-4").await.expect("answered"),
+        json!(false),
+        "the retry's own turn is now the latest"
+    );
 }
 /// A thread whose first turn failed on exhausted quota (its resume queued), the later turns
 /// completing; `with_message` also leaves a user message with an id as the turn's last model row,
 /// which the failed turn's end is recorded on (`attachFailedTurnCompletion`, as it is on a
 /// restored Node session's failed message: `meta.transcript.completion` failed).
-async fn quota_failed_thread(rig: &Rig, with_message: bool) -> (Arc<SessionHandle>, String, Arc<std::sync::Mutex<Vec<Option<mixdog_protocol::thread::SubmitOptions>>>>) {
+async fn quota_failed_thread(
+    rig: &Rig,
+    with_message: bool,
+) -> (Arc<SessionHandle>, String, Arc<std::sync::Mutex<Vec<Option<mixdog_protocol::thread::SubmitOptions>>>>) {
     use super::ItemCommit;
     use mixdog_core_api::ids::ItemId;
 
@@ -1098,7 +1166,10 @@ async fn quota_failed_thread(rig: &Rig, with_message: bool) -> (Arc<SessionHandl
             }
             if with_message {
                 let body = json!({ "role": "user", "content": "go on", "meta": { "transcript": { "messageId": "m1" } } });
-                run.port.commit_item(ItemCommit { iid: ItemId::from("m1-row"), role: Some("user".into()), model: true, visible: false, body, prompt: None }).await.expect("commit");
+                run.port
+                    .commit_item(ItemCommit { iid: ItemId::from("m1-row"), role: Some("user".into()), model: true, visible: false, body, prompt: None })
+                    .await
+                    .expect("commit");
             }
             RunOutcome::Failed(super::testing::quota_error(5000))
         })
@@ -1127,7 +1198,9 @@ async fn a_retained_failed_message_is_resent_hidden_with_its_id_and_attempt() {
         .rev()
         .find_map(|(_, record)| match record {
             mixdog_store::schema::record::Record::Amend(amend) => match &amend.body {
-                mixdog_store::schema::blob::Slot::Inline(body) => body.pointer("/meta/transcript/completion/attemptId").and_then(Value::as_str).map(str::to_owned),
+                mixdog_store::schema::blob::Slot::Inline(body) => {
+                    body.pointer("/meta/transcript/completion/attemptId").and_then(Value::as_str).map(str::to_owned)
+                }
                 _ => None,
             },
             _ => None,
@@ -1304,7 +1377,11 @@ async fn a_retry_waits_on_the_scheduled_compactions_gate() {
     turn(&handle, "write the report", "op-1").await;
     eventually_on!(&[&handle.cell.stepped], || (!idle(&handle)).then_some(())).await;
     call(&handle, "thread/compact/schedule", json!({}), "s-1").await.expect("scheduled");
-    assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": "attempt:any" }), "r-1").await.expect("answered"), json!(false), "scheduled: the turn owns the session");
+    assert_eq!(
+        call(&handle, "turn/retryFailed", json!({ "turnKey": "attempt:any" }), "r-1").await.expect("answered"),
+        json!(false),
+        "scheduled: the turn owns the session"
+    );
 
     let hold = Arc::new(tokio::sync::Notify::new());
     *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
@@ -1312,7 +1389,10 @@ async fn a_retry_waits_on_the_scheduled_compactions_gate() {
     gate.notify_one();
     let id = handle.id.as_str().to_owned();
     let key = eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || rig.quota.entry(&id).map(|entry| entry.turn_key)).await;
-    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && !handle.cell.busy.load(SeqCst)).then_some(())).await;
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty()
+        && !handle.cell.busy.load(SeqCst))
+    .then_some(()))
+    .await;
 
     let holds = handle.cell.gate_holds.load(SeqCst);
     assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-2").await.expect("answered"), json!(true), "running: the retry is admitted");
@@ -1383,7 +1463,9 @@ async fn a_suspended_goal_is_revived_by_its_retry_and_continues() {
     eventually_on!(&[&handle.cell.stepped], || (*super::testing::lock(&seen) >= 2).then_some(())).await;
     let goal = rig.goals.goal_status(&handle.id).await.expect("status").expect("a goal");
     assert_eq!(goal["status"], "active", "the Goal was revived");
-    eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || (rig.quota.entry(&id).is_none() && rig.quota.suspended_goal(&id, &key).is_empty()).then_some(())).await;
+    eventually_on!(&[&rig.quota_changed, &handle.cell.stepped], || (rig.quota.entry(&id).is_none() && rig.quota.suspended_goal(&id, &key).is_empty())
+        .then_some(()))
+    .await;
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert_eq!(call(&handle, "turn/retryFailed", json!({ "turnKey": key }), "r-2").await.expect("answered"), json!(false));
 }
@@ -1433,7 +1515,9 @@ async fn a_goal_turns_failed_end_on_its_prompt_is_restored_under_the_resumes_key
         let records = rig.store.records(&handle.id);
         let body = records.iter().find_map(|(_, record)| match record {
             Record::Amend(amend) => match &amend.body {
-                Slot::Inline(body) if body.pointer("/meta/transcript/completion/attemptId").and_then(Value::as_str) == Some(attempt.as_str()) => Some((amend.iid.as_str().to_owned(), body.clone())),
+                Slot::Inline(body) if body.pointer("/meta/transcript/completion/attemptId").and_then(Value::as_str) == Some(attempt.as_str()) => {
+                    Some((amend.iid.as_str().to_owned(), body.clone()))
+                }
                 _ => None,
             },
             _ => None,
@@ -1491,7 +1575,8 @@ async fn a_message_the_provider_refuses_reloads_as_the_user_row_then_one_failed_
     let thread = handle.id.as_str().to_owned();
     eventually_on!(&[&rig.feeds.published], || failed_end_frame(&rig, &thread)).await;
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    let live_ends = rig.feeds.frames(&thread).into_iter().filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "turnEnd").count();
+    let live_ends =
+        rig.feeds.frames(&thread).into_iter().filter(|(_, method, params)| method == "item/completed" && params["item"]["type"] == "turnEnd").count();
     assert_eq!(live_ends, 1, "the feed shows the end once");
 
     let mut restoring = rig.deps_parts(rig.store.clone());
@@ -1558,7 +1643,12 @@ async fn a_manual_compaction_commit_writes_the_header_it_carries_without_countin
     let handle = start_thread(&directory).await;
     turn(&handle, "first", "op-1").await;
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    let compaction = |id: &str| Compaction { replacement: vec![(ItemId::from(id.to_owned()), json!({ "role": "user", "content": "summary" }))], at: 5, dropped_count: 1, dropped: None };
+    let compaction = |id: &str| Compaction {
+        replacement: vec![(ItemId::from(id.to_owned()), json!({ "role": "user", "content": "summary" }))],
+        at: 5,
+        dropped_count: 1,
+        dropped: None,
+    };
     let snapshot_of = |rows: Vec<(ItemId, Value)>| rows.into_iter().map(|(iid, _)| iid).collect::<Vec<_>>();
 
     let snapshot = snapshot_of(directory.model_context(&handle.id).read().await.expect("context"));
@@ -1604,7 +1694,13 @@ async fn a_manual_compactions_header_follows_the_reset_and_the_replacement_and_i
     let creator = SessionDirectory::new(rig.deps());
     creator.create_with_id(id.clone(), json!({ "cwd": "/ws" }).as_object().cloned().expect("object"), json!({})).await.expect("create");
     let seeded = rig.store.records(&id).len();
-    rig.store.seed(&id, vec![serde_json::from_value(json!({ "k": "meta", "change": { "inline": { "set": { "providerState": { "id": "resp_1" } }, "unset": [] } } })).expect("meta record")]);
+    rig.store.seed(
+        &id,
+        vec![
+            serde_json::from_value(json!({ "k": "meta", "change": { "inline": { "set": { "providerState": { "id": "resp_1" } }, "unset": [] } } }))
+                .expect("meta record"),
+        ],
+    );
     let directory = SessionDirectory::new(rig.deps());
     directory.open_handle(&id, &CallContext::internal("test")).await.expect("open");
 
@@ -1620,7 +1716,12 @@ async fn a_manual_compactions_header_follows_the_reset_and_the_replacement_and_i
     let arrived = Arc::new(tokio::sync::Notify::new());
     *super::testing::lock(&rig.store.header_gate) = Some((arrived.clone(), go));
 
-    let compaction = Compaction { replacement: vec![(ItemId::from("sum1".to_owned()), json!({ "role": "user", "content": "summary" }))], at: 5, dropped_count: 0, dropped: None };
+    let compaction = Compaction {
+        replacement: vec![(ItemId::from("sum1".to_owned()), json!({ "role": "user", "content": "summary" }))],
+        at: 5,
+        dropped_count: 0,
+        dropped: None,
+    };
     let mut commit = Box::pin(directory.commit_compaction(&id, Vec::new(), compaction, Some(header)));
     tokio::select! {
         () = arrived.notified() => {}
@@ -1667,10 +1768,9 @@ async fn a_failed_turns_run_record_masks_the_credentials_its_error_names() {
     let directory = SessionDirectory::new(rig.deps());
     let handle = start_thread(&directory).await;
     turn(&handle, "go", "op-1").await;
-    let completed = eventually_on!(&[&rig.feeds.published], || {
-        rig.feeds.frames(handle.id.as_str()).into_iter().find(|(_, method, _)| method == "turn/completed")
-    })
-    .await;
+    let completed =
+        eventually_on!(&[&rig.feeds.published], || { rig.feeds.frames(handle.id.as_str()).into_iter().find(|(_, method, _)| method == "turn/completed") })
+            .await;
     assert_eq!(completed.2["turn"]["error"]["message"], mixdog_ai::service::error_text::safe_error_details(RAW).as_str());
     let (stored, sent) = (format!("{:?}", rig.store.records(&handle.id)), completed.2.to_string());
     for secret in ["sk-proj-ABCDEFGHIJKLMNOP1234", "tokABCDEF123456XYZ", "hunter2pass", "qsecretVAL77"] {
@@ -1679,7 +1779,11 @@ async fn a_failed_turns_run_record_masks_the_credentials_its_error_names() {
     }
 }
 impl super::seams::RecordCodec for RefusesAmends {
-    fn encode(&self, lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>, record: &mixdog_store::schema::record::Record) -> Result<super::seams::EncodedRecord, CoreError> {
+    fn encode(
+        &self,
+        lane: &mixdog_rt::InLane<mixdog_rt::CpuInteractive>,
+        record: &mixdog_store::schema::record::Record,
+    ) -> Result<super::seams::EncodedRecord, CoreError> {
         match record {
             mixdog_store::schema::record::Record::Amend(_) => Err(CoreError::Internal { incident_id: "amend-refused".into() }),
             _ => super::store::StoreCodec.encode(lane, record),
@@ -1754,7 +1858,9 @@ async fn turn_ends_and_failed_saves_are_reported_to_the_notices() {
         eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&outcomes).len() == 4 - n).then_some(())).await;
         eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
         if !expected.is_empty() {
-            eventually_on!(&[&rig.notices.1, &handle.cell.stepped], || (super::testing::lock(&rig.notices.0).last().map(String::as_str) == Some(expected)).then_some(())).await;
+            eventually_on!(&[&rig.notices.1, &handle.cell.stepped], || (super::testing::lock(&rig.notices.0).last().map(String::as_str) == Some(expected))
+                .then_some(()))
+            .await;
         }
     }
     assert_eq!(super::testing::lock(&rig.notices.0).clone(), vec!["failed::auth", "failed::-", "completed:"], "a cancelled turn reports nothing");
@@ -1796,10 +1902,7 @@ async fn a_route_change_during_a_turn_does_not_move_its_notice() {
         let handle = handle.clone();
         let params = json!({ "threadId": handle.id, "set": set, "unset": [] });
         async move {
-            handle
-                .request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") })
-                .await
-                .expect("patch");
+            handle.request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") }).await.expect("patch");
         }
     };
     route(json!({ "provider": "anthropic-oauth" })).await;
@@ -1856,10 +1959,17 @@ async fn a_stop_while_a_turn_is_starting_stops_that_start_with_a_visible_outcome
     let stopped = handle.stop(stop_now()).await.expect("stop");
     assert_eq!((&stopped["aborted"], &stopped["reason"]), (&json!(true), &Value::Null), "{stopped}");
     drop(io);
-    eventually_on!(&[&handle.cell.stepped], || (stop_ledger(&handle).iter().any(|event| event.starts_with("start:stopped:")) && idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (stop_ledger(&handle).iter().any(|event| event.starts_with("start:stopped:"))
+        && idle(&handle)
+        && !handle.cell.busy.load(SeqCst))
+    .then_some(()))
+    .await;
     assert_eq!(super::testing::lock(&begun).len(), 1, "the stopped start never reached the provider: {:?}", super::testing::lock(&begun));
     let restored = rig.feeds.frames(handle.id.as_str()).iter().any(|(_, method, _)| method == "thread/promptRestore");
-    assert!(restored || super::tests::rows(&handle).iter().any(|(role, text)| *role == "user" && text == "second"), "the prompt was neither lost nor left without an outcome");
+    assert!(
+        restored || super::tests::rows(&handle).iter().any(|(role, text)| *role == "user" && text == "second"),
+        "the prompt was neither lost nor left without an outcome"
+    );
     assert!(handle.cell.queued.load().is_empty());
     let again = handle.stop(stop_now()).await.expect("stop");
     assert_eq!((&again["aborted"], &again["reason"]), (&json!(false), &Value::Null), "nothing under way is Node's idle reply: {again}");
@@ -1880,7 +1990,9 @@ async fn a_stop_while_a_compaction_holds_the_session_cancels_the_compaction() {
     let hold = Arc::new(tokio::sync::Notify::new());
     *super::testing::lock(&rig.compaction.hold) = Some(hold.clone());
     gate.notify_one();
-    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle)).then_some(())).await;
+    eventually_on!(&[&rig.compaction.called, &handle.cell.stepped], || (!super::testing::lock(&rig.compaction.calls).is_empty() && idle(&handle))
+        .then_some(()))
+    .await;
     eventually_on!(&[&handle.cell.stepped], || handle.cell.gated.load(SeqCst).then_some(())).await;
     let cancel = super::testing::lock(&rig.compaction.cancels)[0].clone();
     assert!(!cancel.is_aborted());
@@ -2000,7 +2112,14 @@ async fn a_stop_of_a_start_waiting_for_the_save_strands_no_queued_prompt() {
             if prompt == "first" {
                 *failing.lock().unwrap() = Some("EIO: injected".into());
             }
-            let item = super::run::ItemCommit { iid: mixdog_core_api::ids::ItemId::from(format!("a-{}", run.turn)), role: Some("assistant".into()), model: true, visible: true, body: json!({ "text": format!("re: {prompt}") }), prompt: None };
+            let item = super::run::ItemCommit {
+                iid: mixdog_core_api::ids::ItemId::from(format!("a-{}", run.turn)),
+                role: Some("assistant".into()),
+                model: true,
+                visible: true,
+                body: json!({ "text": format!("re: {prompt}") }),
+                prompt: None,
+            };
             run.port.commit_item(item).await.expect("the answer is kept");
             RunOutcome::Completed(Default::default())
         })
@@ -2018,7 +2137,10 @@ async fn a_stop_of_a_start_waiting_for_the_save_strands_no_queued_prompt() {
     super::tests::caught_up(&handle).await;
     // `turn_held` is Node's ask lock (a run, a start reading, a settlement); a start waiting for the previous turn's save is the
     // actor's `deferred_start`, which only `turn_busy` (the test cell's `busy`) counts.
-    assert!(idle(&handle) && handle.cell.busy.load(std::sync::atomic::Ordering::SeqCst) && !handle.cell.turn_held.load(std::sync::atomic::Ordering::SeqCst), "the second start waits for the previous turn's save");
+    assert!(
+        idle(&handle) && handle.cell.busy.load(std::sync::atomic::Ordering::SeqCst) && !handle.cell.turn_held.load(std::sync::atomic::Ordering::SeqCst),
+        "the second start waits for the previous turn's save"
+    );
     let third = {
         let handle = handle.clone();
         tokio::spawn(async move { call(&handle, "turn/start", json!({ "input": { "prompt": "third" } }), "h-3").await })
@@ -2128,7 +2250,8 @@ async fn input_arriving_after_a_stopped_batch_runs_without_reviving_it() {
     let stopped = handle.stop(stop_now()).await.expect("stop");
     assert_eq!(stopped["aborted"], json!(true));
     directory.finished(&handle.id, "shell", "job-3", "completed", "job-3 finished.".into()).await;
-    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&bodies).len() >= 2 && idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&bodies).len() >= 2 && idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(()))
+        .await;
     mixdog_rt::time::sleep(std::time::Duration::from_millis(300)).await;
     let bodies = super::testing::lock(&bodies).clone();
     // job-2 arrived after the first wake began, so the stopped turn held job-1 alone; job-2 (queued, no part of the busy work) and
@@ -2169,7 +2292,10 @@ async fn a_retry_of_a_system_turn_and_the_retry_of_that_retry_are_noted_as_syste
             // retry row's, are written by the actor when the turn fails (`attachFailedTurnCompletion`).
             if n == 1 {
                 let body = json!({ "role": "user", "content": "go on", "meta": { "source": "task-notification", "transcript": { "messageId": "m1" } } });
-                run.port.commit_item(ItemCommit { iid: ItemId::from("m1-row"), role: Some("user".into()), model: true, visible: false, body, prompt: None }).await.expect("commit");
+                run.port
+                    .commit_item(ItemCommit { iid: ItemId::from("m1-row"), role: Some("user".into()), model: true, visible: false, body, prompt: None })
+                    .await
+                    .expect("commit");
             }
             RunOutcome::Failed(super::testing::quota_error(5000))
         })
@@ -2228,10 +2354,7 @@ async fn a_route_change_during_a_quota_failed_turn_moves_the_durable_stop_and_no
         let handle = handle.clone();
         let params = json!({ "threadId": handle.id, "set": set, "unset": [] });
         async move {
-            handle
-                .request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") })
-                .await
-                .expect("patch");
+            handle.request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") }).await.expect("patch");
         }
     };
     route(json!({ "provider": "anthropic-oauth", "model": "claude-opus-4-1" })).await;
@@ -2254,9 +2377,12 @@ async fn a_route_change_during_a_quota_failed_turn_moves_the_durable_stop_and_no
         })
     })
     .await;
-    assert_eq!((durable["provider"].clone(), durable["model"].clone()), (json!("openai"), json!("gpt-5")), "the completion names the session's route at the close");
+    assert_eq!(
+        (durable["provider"].clone(), durable["model"].clone()),
+        (json!("openai"), json!("gpt-5")),
+        "the completion names the session's route at the close"
+    );
 }
-
 
 /// A failed turn gets `meta.transcript.completion` on its last message (`attachFailedTurnCompletion`,
 /// `ask-turn-settle.mjs:85-96`) and a plain `turn/start` carrying the retry flags stamps the row with the
@@ -2282,7 +2408,10 @@ async fn a_failed_turn_records_its_completion_and_a_plain_retry_start_carries_th
                 return RunOutcome::Completed(Default::default());
             }
             let body = json!({ "role": "user", "content": "go on", "meta": { "source": "task-notification", "transcript": { "messageId": "m1" } } });
-            run.port.commit_item(ItemCommit { iid: ItemId::from("m1-row"), role: Some("user".into()), model: true, visible: false, body, prompt: None }).await.expect("commit");
+            run.port
+                .commit_item(ItemCommit { iid: ItemId::from("m1-row"), role: Some("user".into()), model: true, visible: false, body, prompt: None })
+                .await
+                .expect("commit");
             RunOutcome::Failed(super::testing::quota_error(5000))
         })
     }));
@@ -2299,10 +2428,15 @@ async fn a_failed_turn_records_its_completion_and_a_plain_retry_start_carries_th
     // provider named (`fixtures/turn-failure`, "quota with a provider-named reset").
     assert_eq!(completion["status"], "failed");
     assert_eq!(completion["detail"], "Provider usage limit reached.");
-    assert_eq!(completion["errorKind"], json!({ "kind": "quota_exhausted", "code": "usage_limit_reached", "status": 429, "retryAfterMs": null, "resetAt": 5000 }));
+    assert_eq!(
+        completion["errorKind"],
+        json!({ "kind": "quota_exhausted", "code": "usage_limit_reached", "status": 429, "retryAfterMs": null, "resetAt": 5000 })
+    );
     assert_eq!(completion["quota"]["resetAt"], 5000);
 
-    call(&handle, "turn/start", json!({ "input": { "prompt": "go on", "options": { "retryFailedTurn": true, "retryTurnId": "m1" } } }), "op-retry").await.expect("started");
+    call(&handle, "turn/start", json!({ "input": { "prompt": "go on", "options": { "retryFailedTurn": true, "retryTurnId": "m1" } } }), "op-retry")
+        .await
+        .expect("started");
     eventually_on!(&[&handle.cell.stepped], || (super::testing::lock(&stamped).len() == 2).then_some(())).await;
     assert_eq!(super::testing::lock(&stamped)[1], json!({ "source": "task-notification" }), "the plain retry's row carries the failed turn's provenance");
 }

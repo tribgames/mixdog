@@ -53,9 +53,7 @@ pub fn compact_with(value: &str, maximum: usize) -> String {
     let clipped = prefix_within(&text, maximum - 1);
     let boundary = clipped.encode_utf16().collect::<Vec<_>>().iter().rposition(|u| *u == 0x20);
     let head = match boundary {
-        Some(at) if at >= (maximum as f64 * 0.6).floor() as usize => {
-            String::from_utf16_lossy(&clipped.encode_utf16().take(at).collect::<Vec<_>>())
-        }
+        Some(at) if at >= (maximum as f64 * 0.6).floor() as usize => String::from_utf16_lossy(&clipped.encode_utf16().take(at).collect::<Vec<_>>()),
         _ => clipped,
     };
     format!("{}…", js_trim_end(&head))

@@ -198,7 +198,6 @@ mod tests {
         assert_eq!(read()["running"], Value::Null);
     }
 
-
     /// A damaged state file (garbage, NUL-filled or cut short) is replaced whole by the next write: nothing is set aside,
     /// and the file then holds the running marker.
     #[tokio::test]
@@ -217,7 +216,11 @@ mod tests {
                 _ => std::fs::write(&file, b"not json at all {{{").unwrap(),
             }
             ledger.mark_running("cycle1").await;
-            let aside: Vec<String> = std::fs::read_dir(dir.path()).unwrap().map(|e| e.unwrap().file_name().to_string_lossy().into_owned()).filter(|n| n.contains(".corrupt-")).collect();
+            let aside: Vec<String> = std::fs::read_dir(dir.path())
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .filter(|n| n.contains(".corrupt-"))
+                .collect();
             assert!(aside.is_empty(), "{damage}: {aside:?}");
             let state = serde_json::from_slice::<Value>(&std::fs::read(&file).unwrap()).unwrap_or_else(|e| panic!("{damage}: {e}"));
             assert_eq!(state["running"]["cycle"], "cycle1", "{damage}");

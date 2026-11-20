@@ -29,19 +29,12 @@ pub struct Vp8Encoder {
 }
 
 fn encoder_error(context: &str, error: impl std::fmt::Display) -> MediaError {
-    MediaError::Encoder {
-        detail: format!("{context}: {error}"),
-    }
+    MediaError::Encoder { detail: format!("{context}: {error}") }
 }
 
 impl Vp8Encoder {
     fn build(width: usize, height: usize, bitrate_bps: u32) -> Result<vpx::Encoder, MediaError> {
-        let mut config = vpx::EncoderConfig::new(
-            width,
-            height,
-            vpx::ImageFormat::I420,
-            vpx::CodecConfig::Vp8(vpx::Vp8Config::default()),
-        );
+        let mut config = vpx::EncoderConfig::new(width, height, vpx::ImageFormat::I420, vpx::CodecConfig::Vp8(vpx::Vp8Config::default()));
         config.fps_numerator = RATE_CONTROL_FPS;
         config.fps_denominator = 1;
         config.target_bitrate = bitrate_bps as usize;
@@ -59,12 +52,7 @@ impl Vp8Encoder {
 
     pub fn new(width: usize, height: usize, bitrate_bps: u32) -> Result<Self, MediaError> {
         let bitrate_bps = bitrate_bps.max(MIN_BITRATE_BPS);
-        Ok(Self {
-            inner: Self::build(width, height, bitrate_bps)?,
-            width,
-            height,
-            bitrate_bps,
-        })
+        Ok(Self { inner: Self::build(width, height, bitrate_bps)?, width, height, bitrate_bps })
     }
 
     pub fn fits(&self, width: usize, height: usize) -> bool {
@@ -81,10 +69,7 @@ impl Vp8Encoder {
             return Ok(());
         }
         self.inner
-            .reconfigure(&vpx::ReconfigureParams {
-                target_bitrate: Some(bitrate_bps as usize),
-                ..Default::default()
-            })
+            .reconfigure(&vpx::ReconfigureParams { target_bitrate: Some(bitrate_bps as usize), ..Default::default() })
             .map_err(|e| encoder_error("vp8 bitrate", e))?;
         self.bitrate_bps = bitrate_bps;
         Ok(())
@@ -93,21 +78,11 @@ impl Vp8Encoder {
     pub fn encode(&mut self, picture: &I420Buf, force_keyframe: bool) -> Result<Option<EncodedFrame>, MediaError> {
         debug_assert!(self.fits(picture.width, picture.height));
         self.inner
-            .encode(
-                &vpx::ImageData::I420 {
-                    y: &picture.y,
-                    u: &picture.u,
-                    v: &picture.v,
-                },
-                &vpx::EncodeOptions { force_keyframe },
-            )
+            .encode(&vpx::ImageData::I420 { y: &picture.y, u: &picture.u, v: &picture.v }, &vpx::EncodeOptions { force_keyframe })
             .map_err(|e| encoder_error("vp8 encode", e))?;
         let mut out = None;
         while let Some(frame) = self.inner.next_frame() {
-            out = Some(EncodedFrame {
-                data: Bytes::copy_from_slice(frame.data()),
-                keyframe: frame.is_keyframe(),
-            });
+            out = Some(EncodedFrame { data: Bytes::copy_from_slice(frame.data()), keyframe: frame.is_keyframe() });
         }
         Ok(out)
     }

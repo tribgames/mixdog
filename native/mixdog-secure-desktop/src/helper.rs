@@ -43,9 +43,8 @@ use windows::Win32::System::RemoteDesktop::WTSGetActiveConsoleSessionId;
 use crate::ipc::{Accept, SendError, ServerPipe};
 use crate::protocol::{self, Decoded, FrameHeader, InputEvent, Message, PROTOCOL_VERSION};
 use crate::security::{
-    client_auth_tag, decode_nonce, encode_nonce, generate_challenge, generate_nonce,
-    is_shutdown_token, sas_policy, secret_matches, server_auth_tag, GrantBook, InstallState,
-    SasPolicy, CONTROLLER_KEY_BYTES,
+    CONTROLLER_KEY_BYTES, GrantBook, InstallState, SasPolicy, client_auth_tag, decode_nonce, encode_nonce, generate_challenge, generate_nonce,
+    is_shutdown_token, sas_policy, secret_matches, server_auth_tag,
 };
 use crate::shutdown::HelperEnd;
 use crate::winutil::{client_user_sid, now_ms};
@@ -138,19 +137,12 @@ pub fn run(args: &[String]) -> i32 {
     } else {
         log::event(
             "helper",
-            if shutdown.service_gone() {
-                "service exited before releasing the bootstrap"
-            } else {
-                "stop requested before the bootstrap was released"
-            },
+            if shutdown.service_gone() { "service exited before releasing the bootstrap" } else { "stop requested before the bootstrap was released" },
         );
         0
     };
     shutdown.acknowledge();
-    log::event(
-        "helper",
-        &format!("exiting ({code}); all held input released"),
-    );
+    log::event("helper", &format!("exiting ({code}); all held input released"));
     code
 }
 
@@ -187,14 +179,7 @@ fn serve(shutdown: &HelperEnd) -> i32 {
         match server.accept(&shutdown.stop_handles()) {
             Ok(Accept::Connected) => {}
             Ok(Accept::Stopped) => {
-                log::event(
-                    "helper",
-                    if shutdown.service_gone() {
-                        "service exited while idle"
-                    } else {
-                        "stop requested while idle"
-                    },
-                );
+                log::event("helper", if shutdown.service_gone() { "service exited while idle" } else { "stop requested while idle" });
                 return 0;
             }
             Err(error) => {
@@ -208,14 +193,7 @@ fn serve(shutdown: &HelperEnd) -> i32 {
         server.disconnect();
         log::event("helper", "client disconnected");
         if shutdown.stop_requested() {
-            log::event(
-                "helper",
-                if shutdown.service_gone() {
-                    "service exited"
-                } else {
-                    "stop requested"
-                },
-            );
+            log::event("helper", if shutdown.service_gone() { "service exited" } else { "stop requested" });
             return 0;
         }
     }
@@ -231,11 +209,7 @@ fn verify_client(server: &ServerPipe, state: &InstallState) -> Result<(), String
     let serviced = session_id();
     match ipc::client_session_id(server.handle()) {
         Some(session) if session == serviced => {}
-        Some(session) => {
-            return Err(format!(
-                "client is in session {session}, not the serviced console session {serviced}"
-            ))
-        }
+        Some(session) => return Err(format!("client is in session {session}, not the serviced console session {serviced}")),
         None => return Err("cannot determine the client session".into()),
     }
     match client_user_sid(server.handle().get()) {
@@ -246,8 +220,7 @@ fn verify_client(server: &ServerPipe, state: &InstallState) -> Result<(), String
 }
 
 fn load_state() -> Result<InstallState, String> {
-    let text = std::fs::read_to_string(paths::state_file())
-        .map_err(|error| format!("cannot read install state: {error}"))?;
+    let text = std::fs::read_to_string(paths::state_file()).map_err(|error| format!("cannot read install state: {error}"))?;
     InstallState::from_json(&text)
 }
 
@@ -274,13 +247,7 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
         Ok(pair) => pair,
         Err(error) => {
             log::event("helper", &format!("desktop attach failed: {error}"));
-            let _ = protocol::write_all(
-                server,
-                &protocol::encode_control(&Message::error(
-                    "desktop_attach_failed",
-                    error.to_string(),
-                )),
-            );
+            let _ = protocol::write_all(server, &protocol::encode_control(&Message::error("desktop_attach_failed", error.to_string())));
             linger(server, shutdown);
             return;
         }
@@ -361,13 +328,7 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
                             &mut replies,
                         );
                         if matches!(effect, Effect::Sas) {
-                            request_sas(
-                                &mut injector,
-                                control,
-                                crate::service::software_sas_generation,
-                                || shutdown.request_sas(),
-                                &mut replies,
-                            );
+                            request_sas(&mut injector, control, crate::service::software_sas_generation, || shutdown.request_sas(), &mut replies);
                         }
                     } else {
                         match handshake.advance(server, state, &attached_name, message) {
@@ -377,18 +338,11 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
                                 break 'serve;
                             }
                             HandshakeStep::Done => {
-                                let nonce =
-                                    handshake.connection_nonce().unwrap_or_default().to_vec();
+                                let nonce = handshake.connection_nonce().unwrap_or_default().to_vec();
                                 let mut fresh = Control::new(nonce, state.controller_keys_bytes());
                                 // Never start from `serve`'s snapshot: load the
                                 // committed set before anything is dispatched.
-                                apply_refresh(
-                                    &mut injector,
-                                    &mut fresh,
-                                    &mut loaded_state,
-                                    read_state(),
-                                    &mut replies,
-                                );
+                                apply_refresh(&mut injector, &mut fresh, &mut loaded_state, read_state(), &mut replies);
                                 control = Some(fresh);
                             }
                             HandshakeStep::Continue => {}
@@ -403,13 +357,7 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
         // key set is refreshed first, so a revoke on an idle connection (no
         // frames this pass) still ends its grant and releases held input.
         if let Some(control) = control.as_mut() {
-            apply_refresh(
-                &mut injector,
-                control,
-                &mut loaded_state,
-                read_state(),
-                &mut replies,
-            );
+            apply_refresh(&mut injector, control, &mut loaded_state, read_state(), &mut replies);
             tick(&mut injector, control, Instant::now(), &mut replies);
         }
         for reply in replies.drain(..) {
@@ -421,17 +369,11 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
         match server.pump() {
             Ok(()) => {}
             Err(SendError::TimedOut) => {
-                log::event(
-                    "helper",
-                    "write deadline exceeded (client stopped reading); dropping client",
-                );
+                log::event("helper", "write deadline exceeded (client stopped reading); dropping client");
                 break 'serve;
             }
             Err(SendError::Closed(reason)) => {
-                log::event(
-                    "helper",
-                    &format!("write failed ({reason}); dropping client"),
-                );
+                log::event("helper", &format!("write failed ({reason}); dropping client"));
                 break 'serve;
             }
         }
@@ -459,8 +401,7 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
             // recovery is this same path. The log gets a line when the outage
             // is found and one when it ends.
             let input_name = desktop::input_desktop_name();
-            let current =
-                control.desktop_available && input_name.as_deref() == Some(attached_name.as_str());
+            let current = control.desktop_available && input_name.as_deref() == Some(attached_name.as_str());
             if !current && now >= next_reattach {
                 injector.release_all();
                 // This path attaches next; a loss those releases met is its own.
@@ -472,20 +413,12 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
                         attached_name = name;
                         control.desktop_available = true;
                         if reattach_failures > 0 {
-                            log::event(
-                                "helper",
-                                &format!("input desktop attached again after {reattach_failures} failed attempts"),
-                            );
+                            log::event("helper", &format!("input desktop attached again after {reattach_failures} failed attempts"));
                             reattach_failures = 0;
                         }
                         if changed_name {
-                            let changed = Message::DesktopChanged {
-                                desktop: attached_name.clone(),
-                                session: session_id(),
-                                locked,
-                            };
-                            let _ =
-                                protocol::write_all(server, &protocol::encode_control(&changed));
+                            let changed = Message::DesktopChanged { desktop: attached_name.clone(), session: session_id(), locked };
+                            let _ = protocol::write_all(server, &protocol::encode_control(&changed));
                             log::event("helper", &format!("desktop changed to {attached_name}"));
                         }
                     }
@@ -493,14 +426,10 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
                         if control.desktop_available {
                             control.desktop_available = false;
                             let message = Message::error("desktop_unavailable", error.to_string());
-                            let _ =
-                                protocol::write_all(server, &protocol::encode_control(&message));
+                            let _ = protocol::write_all(server, &protocol::encode_control(&message));
                         }
                         if reattach_failures == 0 {
-                            log::event(
-                                "helper",
-                                &format!("input desktop unavailable: {error}; retrying"),
-                            );
+                            log::event("helper", &format!("input desktop unavailable: {error}; retrying"));
                         }
                         reattach_failures = reattach_failures.saturating_add(1);
                         next_reattach = now + REATTACH_INTERVAL;
@@ -515,22 +444,14 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
                 let current = desktop::session_locked(launch_session);
                 if current != locked {
                     locked = current;
-                    let changed = Message::DesktopChanged {
-                        desktop: attached_name.clone(),
-                        session: session_id(),
-                        locked,
-                    };
+                    let changed = Message::DesktopChanged { desktop: attached_name.clone(), session: session_id(), locked };
                     let _ = protocol::write_all(server, &protocol::encode_control(&changed));
                 }
             }
 
             // Capture only when the previous output's writes completed: a slow
             // reader gets fewer frames instead of a growing backlog.
-            if control.active
-                && control.desktop_available
-                && server.is_idle()
-                && Instant::now() >= next_capture
-            {
+            if control.active && control.desktop_available && server.is_idle() && Instant::now() >= next_capture {
                 match capture::capture_virtual_screen() {
                     Ok(frame) => {
                         seq += 1;
@@ -546,15 +467,11 @@ fn serve_client(server: &mut ServerPipe, state: &InstallState, shutdown: &Helper
                             desktop: attached_name.clone(),
                             dirty: Vec::new(),
                         };
-                        let _ = protocol::write_all(
-                            server,
-                            &protocol::encode_video(&header, &frame.pixels),
-                        );
+                        let _ = protocol::write_all(server, &protocol::encode_video(&header, &frame.pixels));
                     }
                     Err(error) => {
                         // Log the OS error and the desktop name only — never pixels.
-                        let message =
-                            Message::error("capture_failed", format!("{error} on {attached_name}"));
+                        let message = Message::error("capture_failed", format!("{error} on {attached_name}"));
                         let _ = protocol::write_all(server, &protocol::encode_control(&message));
                     }
                 }
@@ -613,10 +530,7 @@ enum Handshake {
     /// Waiting for the client's opening `client-hello` (its nonce).
     AwaitingHello,
     /// `server-auth` sent; waiting for the client's `client-auth` reply.
-    AwaitingAuth {
-        client_nonce: Vec<u8>,
-        server_nonce: Vec<u8>,
-    },
+    AwaitingAuth { client_nonce: Vec<u8>, server_nonce: Vec<u8> },
     /// Mutually authenticated; `server-hello` sent. Keeps this connection's
     /// server nonce, which every control grant on it is bound to.
     Done { server_nonce: Vec<u8> },
@@ -641,30 +555,17 @@ impl Handshake {
 
     /// Generic over the writer so the state machine is unit-tested against an
     /// in-memory fake client; production passes the pipe.
-    fn advance<W: std::io::Write>(
-        &mut self,
-        io: &mut W,
-        state: &InstallState,
-        desktop: &str,
-        message: Message,
-    ) -> HandshakeStep {
+    fn advance<W: std::io::Write>(&mut self, io: &mut W, state: &InstallState, desktop: &str, message: Message) -> HandshakeStep {
         match self {
             Handshake::AwaitingHello => {
-                let Message::ClientHello {
-                    protocol: version,
-                    client_nonce,
-                } = message
-                else {
+                let Message::ClientHello { protocol: version, client_nonce } = message else {
                     log::event("helper", "handshake rejected: expected client-hello");
                     return HandshakeStep::Fail;
                 };
                 if version != PROTOCOL_VERSION {
                     let _ = protocol::write_all(
                         io,
-                        &protocol::encode_control(&Message::error(
-                            "protocol_mismatch",
-                            format!("helper speaks protocol {PROTOCOL_VERSION}"),
-                        )),
+                        &protocol::encode_control(&Message::error("protocol_mismatch", format!("helper speaks protocol {PROTOCOL_VERSION}"))),
                     );
                     log::event("helper", "handshake rejected: protocol mismatch");
                     return HandshakeStep::Fail;
@@ -681,24 +582,14 @@ impl Handshake {
                 // The server proves knowledge of the secret before the client
                 // reveals anything, so a secret-less client learns nothing.
                 let mac = server_auth_tag(&state.secret, &client_nonce, &server_nonce);
-                let reply = Message::ServerAuth {
-                    protocol: PROTOCOL_VERSION,
-                    server_nonce: server_nonce_b64,
-                    mac,
-                };
+                let reply = Message::ServerAuth { protocol: PROTOCOL_VERSION, server_nonce: server_nonce_b64, mac };
                 if protocol::write_all(io, &protocol::encode_control(&reply)).is_err() {
                     return HandshakeStep::Fail;
                 }
-                *self = Handshake::AwaitingAuth {
-                    client_nonce,
-                    server_nonce,
-                };
+                *self = Handshake::AwaitingAuth { client_nonce, server_nonce };
                 HandshakeStep::Continue
             }
-            Handshake::AwaitingAuth {
-                client_nonce,
-                server_nonce,
-            } => {
+            Handshake::AwaitingAuth { client_nonce, server_nonce } => {
                 let client_nonce = client_nonce.clone();
                 let server_nonce = server_nonce.clone();
                 let Message::ClientAuth { mac } = message else {
@@ -707,13 +598,7 @@ impl Handshake {
                 };
                 let expected = client_auth_tag(&state.secret, &server_nonce, &client_nonce);
                 if !secret_matches(&expected, &mac) {
-                    let _ = protocol::write_all(
-                        io,
-                        &protocol::encode_control(&Message::error(
-                            "unauthorized",
-                            "authentication failed",
-                        )),
-                    );
+                    let _ = protocol::write_all(io, &protocol::encode_control(&Message::error("unauthorized", "authentication failed")));
                     log::event("helper", "handshake rejected: client authentication failed");
                     return HandshakeStep::Fail;
                 }
@@ -743,24 +628,12 @@ impl Handshake {
 /// other event, and a release of anything this connection does not hold, is
 /// dropped. (A release can only end this connection's own press, so it cannot
 /// move, click, or type on the — possibly secure — desktop.)
-fn release_while_inactive<S: inject::InputSink>(
-    injector: &mut inject::Injector<S>,
-    event: InputEvent,
-) {
+fn release_while_inactive<S: inject::InputSink>(injector: &mut inject::Injector<S>, event: InputEvent) {
     match event {
-        InputEvent::PointerButton {
-            button,
-            down: false,
-            ..
-        } => {
+        InputEvent::PointerButton { button, down: false, .. } => {
             injector.release_button(button);
         }
-        InputEvent::Key {
-            down: false,
-            vk,
-            scan,
-            extended,
-        } => {
+        InputEvent::Key { down: false, vk, scan, extended } => {
             injector.release_key(vk, scan, extended);
         }
         _ => {}
@@ -895,22 +768,12 @@ fn dispatch_control<S: inject::InputSink>(
                 // Activation is what makes the first challenge due at once.
                 control.grants.restart_cadence();
                 if control.keys.is_empty() {
-                    replies.push(Message::error(
-                        "grant_key_missing",
-                        "no phone key is enrolled; pair a phone or enroll its key",
-                    ));
+                    replies.push(Message::error("grant_key_missing", "no phone key is enrolled; pair a phone or enroll its key"));
                 }
             }
             control.active = on;
             control.refusal_reported = false;
-            log::event(
-                "helper",
-                if on {
-                    "remote control active"
-                } else {
-                    "remote control idle"
-                },
-            );
+            log::event("helper", if on { "remote control active" } else { "remote control idle" });
         }
         Message::VideoRun { epoch } => {
             // A new run ends the grant here, not at the next `tick`: what was
@@ -922,49 +785,30 @@ fn dispatch_control<S: inject::InputSink>(
                 control.grants.revoke();
                 control.granted_key = None;
                 if std::mem::take(&mut control.granted) {
-                    replies.push(Message::error(
-                        "grant_expired",
-                        "a new video run ended the control grant; held input released",
-                    ));
+                    replies.push(Message::error("grant_expired", "a new video run ended the control grant; held input released"));
                 }
             }
         }
-        Message::Grant {
-            challenge,
-            epoch,
-            signature,
-        } => {
+        Message::Grant { challenge, epoch, signature } => {
             if control.suspended {
-                replies.push(Message::error(
-                    "grant_key_missing",
-                    "control is suspended; the install state is unreadable",
-                ));
+                replies.push(Message::error("grant_key_missing", "control is suspended; the install state is unreadable"));
             } else if control.keys.is_empty() {
-                replies.push(Message::error(
-                    "grant_key_missing",
-                    "no phone key is enrolled",
-                ));
+                replies.push(Message::error("grant_key_missing", "no phone key is enrolled"));
             } else {
                 // Try every enrolled key; the first that verifies accepts the
                 // grant and is the key it is bound to. `accept` consumes the
                 // challenge once, so the loop runs inside the single call.
                 let keys = &control.keys;
                 let mut signer: Option<[u8; CONTROLLER_KEY_BYTES]> = None;
-                let verdict = control.grants.accept(
-                    now,
-                    &challenge,
-                    epoch,
-                    &signature,
-                    |payload, signature| {
-                        for key in keys {
-                            if verify(key, payload, signature) {
-                                signer = Some(*key);
-                                return true;
-                            }
+                let verdict = control.grants.accept(now, &challenge, epoch, &signature, |payload, signature| {
+                    for key in keys {
+                        if verify(key, payload, signature) {
+                            signer = Some(*key);
+                            return true;
                         }
-                        false
-                    },
-                );
+                    }
+                    false
+                });
                 match verdict {
                     Ok(()) => {
                         // Log a fresh grant, and a mid-session switch to a
@@ -977,10 +821,7 @@ fn dispatch_control<S: inject::InputSink>(
                         control.refusal_reported = false;
                     }
                     Err(refusal) => {
-                        log::event(
-                            "helper",
-                            &format!("control grant refused: {}", refusal.code()),
-                        );
+                        log::event("helper", &format!("control grant refused: {}", refusal.code()));
                         replies.push(Message::error(refusal.code(), "control grant refused"));
                     }
                 }
@@ -990,31 +831,17 @@ fn dispatch_control<S: inject::InputSink>(
             if control.authorized(now) {
                 inject_event(injector, event);
             } else {
-                let release = matches!(
-                    event,
-                    InputEvent::PointerButton { down: false, .. }
-                        | InputEvent::Key { down: false, .. }
-                );
+                let release = matches!(event, InputEvent::PointerButton { down: false, .. } | InputEvent::Key { down: false, .. });
                 release_while_inactive(injector, event);
-                if control.active
-                    && control.desktop_available
-                    && !release
-                    && !control.refusal_reported
-                {
+                if control.active && control.desktop_available && !release && !control.refusal_reported {
                     control.refusal_reported = true;
-                    replies.push(Message::error(
-                        "grant_required",
-                        "input needs a live control grant",
-                    ));
+                    replies.push(Message::error("grant_required", "input needs a live control grant"));
                 }
             }
         }
         Message::Sas => {
             if !control.authorized(now) {
-                replies.push(Message::error(
-                    "grant_required",
-                    "Ctrl+Alt+Del needs active control and a live grant",
-                ));
+                replies.push(Message::error("grant_required", "Ctrl+Alt+Del needs active control and a live grant"));
             } else {
                 // Requests made before the service handles one coalesce: the
                 // SAS event is auto-reset, and setting a set event has no effect.
@@ -1032,10 +859,7 @@ enum KeyRefresh {
     /// Byte-identical to the last successful load: nothing to do.
     Unchanged,
     /// A new, parseable state: its key set, and the bytes to remember.
-    Loaded {
-        keys: Vec<[u8; CONTROLLER_KEY_BYTES]>,
-        bytes: Vec<u8>,
-    },
+    Loaded { keys: Vec<[u8; CONTROLLER_KEY_BYTES]>, bytes: Vec<u8> },
     /// Unreadable or unparseable: fail closed (suspend authorization).
     Suspend,
 }
@@ -1054,14 +878,8 @@ fn decide_refresh(read: std::io::Result<Vec<u8>>, last: &Option<Vec<u8>>) -> Key
     if last.as_deref() == Some(bytes.as_slice()) {
         return KeyRefresh::Unchanged;
     }
-    match std::str::from_utf8(&bytes)
-        .ok()
-        .and_then(|text| InstallState::from_json(text).ok())
-    {
-        Some(state) => KeyRefresh::Loaded {
-            keys: state.controller_keys_bytes(),
-            bytes,
-        },
+    match std::str::from_utf8(&bytes).ok().and_then(|text| InstallState::from_json(text).ok()) {
+        Some(state) => KeyRefresh::Loaded { keys: state.controller_keys_bytes(), bytes },
         None => KeyRefresh::Suspend,
     }
 }
@@ -1081,20 +899,14 @@ fn apply_refresh<S: inject::InputSink>(
         KeyRefresh::Unchanged => {
             if control.suspended {
                 control.suspended = false;
-                log::event(
-                    "helper",
-                    "install state readable again; authorization resumed",
-                );
+                log::event("helper", "install state readable again; authorization resumed");
             }
         }
         KeyRefresh::Loaded { keys, bytes } => {
             *last = Some(bytes);
             if control.suspended {
                 control.suspended = false;
-                log::event(
-                    "helper",
-                    "install state readable again; authorization resumed",
-                );
+                log::event("helper", "install state readable again; authorization resumed");
             }
             apply_key_set(injector, control, keys, replies);
         }
@@ -1106,11 +918,7 @@ fn apply_refresh<S: inject::InputSink>(
 /// trusted. Revoke any live grant, release everything held, and refuse new
 /// grants and input/SAS ([`Control::authorized`] and the grant branch both
 /// gate on `suspended`) until a good read resumes it. Acts once per outage.
-fn suspend_authorization<S: inject::InputSink>(
-    injector: &mut inject::Injector<S>,
-    control: &mut Control,
-    replies: &mut Vec<Message>,
-) {
+fn suspend_authorization<S: inject::InputSink>(injector: &mut inject::Injector<S>, control: &mut Control, replies: &mut Vec<Message>) {
     if control.suspended {
         return;
     }
@@ -1119,14 +927,8 @@ fn suspend_authorization<S: inject::InputSink>(
     control.granted = false;
     control.granted_key = None;
     injector.release_all();
-    log::event(
-        "helper",
-        "install state unreadable; authorization suspended (held input released)",
-    );
-    replies.push(Message::error(
-        "grant_key_missing",
-        "the install state is unreadable; control is suspended until it recovers",
-    ));
+    log::event("helper", "install state unreadable; authorization suspended (held input released)");
+    replies.push(Message::error("grant_key_missing", "the install state is unreadable; control is suspended until it recovers"));
 }
 
 /// Install the current enrolled key set on a live connection. If the key that
@@ -1147,10 +949,7 @@ fn apply_key_set<S: inject::InputSink>(
             control.granted = false;
             control.granted_key = None;
             injector.release_all();
-            replies.push(Message::error(
-                "grant_key_missing",
-                "the controlling phone's key was revoked; held input released",
-            ));
+            replies.push(Message::error("grant_key_missing", "the controlling phone's key was revoked; held input released"));
         }
     }
 }
@@ -1158,20 +957,12 @@ fn apply_key_set<S: inject::InputSink>(
 /// A grant that was live and has expired by `now` releases everything held
 /// and is reported once (`grant_expired`). Run before every message is
 /// dispatched and on every loop pass.
-fn settle_lapse<S: inject::InputSink>(
-    injector: &mut inject::Injector<S>,
-    control: &mut Control,
-    now: Instant,
-    replies: &mut Vec<Message>,
-) {
+fn settle_lapse<S: inject::InputSink>(injector: &mut inject::Injector<S>, control: &mut Control, now: Instant, replies: &mut Vec<Message>) {
     if control.granted && !control.grants.live(now) {
         control.granted = false;
         control.granted_key = None;
         injector.release_all();
-        replies.push(Message::error(
-            "grant_expired",
-            "the control grant lapsed; held input released",
-        ));
+        replies.push(Message::error("grant_expired", "the control grant lapsed; held input released"));
     }
 }
 
@@ -1180,11 +971,7 @@ fn settle_lapse<S: inject::InputSink>(
 /// is released, and the client is told `desktop_unavailable` — once per
 /// outage. Recovery is the serve loop's frame-paced attach path, whose next
 /// success ends the outage with a `desktop-changed`.
-fn suspend_if_desktop_lost<S: inject::InputSink>(
-    injector: &mut inject::Injector<S>,
-    control: &mut Control,
-    replies: &mut Vec<Message>,
-) {
+fn suspend_if_desktop_lost<S: inject::InputSink>(injector: &mut inject::Injector<S>, control: &mut Control, replies: &mut Vec<Message>) {
     let Some(reason) = injector.take_desktop_lost() else {
         return;
     };
@@ -1195,10 +982,7 @@ fn suspend_if_desktop_lost<S: inject::InputSink>(
     injector.release_all();
     // The releases met the same missing desktop; that is this outage too.
     let _ = injector.take_desktop_lost();
-    log::event(
-        "helper",
-        &format!("input desktop lost while injecting: {reason}; suspended"),
-    );
+    log::event("helper", &format!("input desktop lost while injecting: {reason}; suspended"));
     replies.push(Message::error("desktop_unavailable", reason));
 }
 
@@ -1207,31 +991,16 @@ fn suspend_if_desktop_lost<S: inject::InputSink>(
 /// cadence; a failed injection is reported (`input_failed`, once per failure
 /// streak — see [`inject::Injector::take_failure`]); and a desktop lost by a
 /// release on this pass suspends ([`suspend_if_desktop_lost`]).
-fn tick<S: inject::InputSink>(
-    injector: &mut inject::Injector<S>,
-    control: &mut Control,
-    now: Instant,
-    replies: &mut Vec<Message>,
-) {
+fn tick<S: inject::InputSink>(injector: &mut inject::Injector<S>, control: &mut Control, now: Instant, replies: &mut Vec<Message>) {
     settle_lapse(injector, control, now, replies);
     suspend_if_desktop_lost(injector, control, replies);
-    if control.active
-        && !control.suspended
-        && !control.keys.is_empty()
-        && control.grants.needs_challenge(now)
-    {
+    if control.active && !control.suspended && !control.keys.is_empty() && control.grants.needs_challenge(now) {
         let challenge = generate_challenge();
-        replies.push(Message::GrantChallenge {
-            nonce: encode_nonce(control.grants.connection_nonce()),
-            challenge: encode_nonce(&challenge),
-        });
+        replies.push(Message::GrantChallenge { nonce: encode_nonce(control.grants.connection_nonce()), challenge: encode_nonce(&challenge) });
         control.grants.issue(now, challenge);
     }
     if injector.take_failure() {
-        replies.push(Message::error(
-            "input_failed",
-            "SendInput inserted no events after a desktop resync",
-        ));
+        replies.push(Message::error("input_failed", "SendInput inserted no events after a desktop resync"));
     }
 }
 
@@ -1253,10 +1022,7 @@ fn request_sas<S: inject::InputSink>(
     replies: &mut Vec<Message>,
 ) {
     if let Ok(SasPolicy::DisabledByPolicy) = policy().map(sas_policy) {
-        replies.push(Message::error(
-            "sas_disabled_by_policy",
-            "the SoftwareSASGeneration policy does not allow services to send Ctrl+Alt+Del",
-        ));
+        replies.push(Message::error("sas_disabled_by_policy", "the SoftwareSASGeneration policy does not allow services to send Ctrl+Alt+Del"));
         return;
     }
     injector.release_all();
@@ -1271,16 +1037,9 @@ fn request_sas<S: inject::InputSink>(
 fn inject_event<S: inject::InputSink>(injector: &mut inject::Injector<S>, event: InputEvent) {
     match event {
         InputEvent::PointerMove { x, y } => injector.pointer_move(x, y),
-        InputEvent::PointerButton { button, down, x, y } => {
-            injector.pointer_button(button, down, x, y)
-        }
+        InputEvent::PointerButton { button, down, x, y } => injector.pointer_button(button, down, x, y),
         InputEvent::PointerWheel { x, y, dx, dy } => injector.pointer_wheel(x, y, dx, dy),
-        InputEvent::Key {
-            down,
-            vk,
-            scan,
-            extended,
-        } => injector.key(down, vk, scan, extended),
+        InputEvent::Key { down, vk, scan, extended } => injector.key(down, vk, scan, extended),
         InputEvent::Text { text } => injector.text(&text),
     }
 }
@@ -1310,20 +1069,10 @@ mod tests {
     /// Run the opening exchange and return the helper's server nonce + MAC.
     fn open(handshake: &mut Handshake, st: &InstallState, client_nonce: &str) -> (String, String) {
         let mut wire = Vec::new();
-        let step = handshake.advance(
-            &mut wire,
-            st,
-            "Default",
-            Message::ClientHello {
-                protocol: PROTOCOL_VERSION,
-                client_nonce: client_nonce.into(),
-            },
-        );
+        let step = handshake.advance(&mut wire, st, "Default", Message::ClientHello { protocol: PROTOCOL_VERSION, client_nonce: client_nonce.into() });
         assert!(matches!(step, HandshakeStep::Continue));
         match replies(&wire).pop() {
-            Some(Message::ServerAuth {
-                server_nonce, mac, ..
-            }) => (server_nonce, mac),
+            Some(Message::ServerAuth { server_nonce, mac, .. }) => (server_nonce, mac),
             other => panic!("expected server-auth, got {other:?}"),
         }
     }
@@ -1337,30 +1086,14 @@ mod tests {
         let (server_nonce_b64, server_mac) = open(&mut hs, &st, &client_nonce_b64);
         let server_nonce = decode_nonce(&server_nonce_b64).unwrap();
         // The server proved knowledge of the secret first.
-        assert!(secret_matches(
-            &server_auth_tag(&st.secret, &client_nonce, &server_nonce),
-            &server_mac
-        ));
+        assert!(secret_matches(&server_auth_tag(&st.secret, &client_nonce, &server_nonce), &server_mac));
         let mut wire = Vec::new();
-        let step = hs.advance(
-            &mut wire,
-            &st,
-            "Default",
-            Message::ClientAuth {
-                mac: client_auth_tag(&st.secret, &server_nonce, &client_nonce),
-            },
-        );
+        let step = hs.advance(&mut wire, &st, "Default", Message::ClientAuth { mac: client_auth_tag(&st.secret, &server_nonce, &client_nonce) });
         assert!(matches!(step, HandshakeStep::Done));
         assert!(hs.is_done());
-        assert!(matches!(
-            replies(&wire).pop(),
-            Some(Message::ServerHello { .. })
-        ));
+        assert!(matches!(replies(&wire).pop(), Some(Message::ServerHello { .. })));
         // Nothing the helper wrote contains the secret.
-        let all = format!(
-            "{server_nonce_b64}{server_mac}{}",
-            String::from_utf8_lossy(&wire)
-        );
+        let all = format!("{server_nonce_b64}{server_mac}{}", String::from_utf8_lossy(&wire));
         assert!(!all.contains(&st.secret));
     }
 
@@ -1374,19 +1107,10 @@ mod tests {
         let server_nonce = decode_nonce(&server_nonce_b64).unwrap();
         let guess = generate_secret();
         let mut wire = Vec::new();
-        let step = hs.advance(
-            &mut wire,
-            &st,
-            "Default",
-            Message::ClientAuth {
-                mac: client_auth_tag(&guess, &server_nonce, &client_nonce),
-            },
-        );
+        let step = hs.advance(&mut wire, &st, "Default", Message::ClientAuth { mac: client_auth_tag(&guess, &server_nonce, &client_nonce) });
         assert!(matches!(step, HandshakeStep::Fail));
         assert!(!hs.is_done());
-        assert!(!replies(&wire)
-            .iter()
-            .any(|m| matches!(m, Message::ServerHello { .. })));
+        assert!(!replies(&wire).iter().any(|m| matches!(m, Message::ServerHello { .. })));
     }
 
     #[test]
@@ -1405,23 +1129,13 @@ mod tests {
         let (sn2, _) = open(&mut second, &st, &client_nonce_b64);
         assert_ne!(sn1, sn2, "every connection gets a fresh server nonce");
         let mut wire = Vec::new();
-        let step = second.advance(
-            &mut wire,
-            &st,
-            "Default",
-            Message::ClientAuth { mac: recorded },
-        );
+        let step = second.advance(&mut wire, &st, "Default", Message::ClientAuth { mac: recorded });
         assert!(matches!(step, HandshakeStep::Fail));
 
         // Reflecting the server's own MAC back as the client's proof also fails.
         let mut third = Handshake::new();
         let (_, server_mac) = open(&mut third, &st, &client_nonce_b64);
-        let step = third.advance(
-            &mut Vec::new(),
-            &st,
-            "Default",
-            Message::ClientAuth { mac: server_mac },
-        );
+        let step = third.advance(&mut Vec::new(), &st, "Default", Message::ClientAuth { mac: server_mac });
         assert!(matches!(step, HandshakeStep::Fail));
     }
 
@@ -1465,28 +1179,18 @@ mod tests {
         }
 
         fn resync(&mut self) -> Result<(), String> {
-            if *self.desktop_gone.borrow() {
-                Err("no input desktop".into())
-            } else {
-                Ok(())
-            }
+            if *self.desktop_gone.borrow() { Err("no input desktop".into()) } else { Ok(()) }
         }
     }
 
     /// Whether `input` is a key-up.
     fn is_key_up(input: &INPUT) -> bool {
         use windows::Win32::UI::Input::KeyboardAndMouse::{INPUT_KEYBOARD, KEYEVENTF_KEYUP};
-        input.r#type == INPUT_KEYBOARD
-            && unsafe { input.Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP)
+        input.r#type == INPUT_KEYBOARD && unsafe { input.Anonymous.ki.dwFlags }.contains(KEYEVENTF_KEYUP)
     }
 
     /// Feed one message to a [`Gate`]-backed injector.
-    fn feed_gate(
-        injector: &mut inject::Injector<Gate>,
-        control: &mut Control,
-        message: Message,
-        now: Instant,
-    ) -> Vec<Message> {
+    fn feed_gate(injector: &mut inject::Injector<Gate>, control: &mut Control, message: Message, now: Instant) -> Vec<Message> {
         let mut replies = Vec::new();
         apply_control(injector, control, message, now, &fake_verify, &mut replies);
         replies
@@ -1510,31 +1214,23 @@ mod tests {
     }
 
     const KEY: [u8; CONTROLLER_KEY_BYTES] = [4; CONTROLLER_KEY_BYTES];
-    const GOOD_SIGNATURE: [u8; crate::security::GRANT_SIGNATURE_BYTES] =
-        [1; crate::security::GRANT_SIGNATURE_BYTES];
+    const GOOD_SIGNATURE: [u8; crate::security::GRANT_SIGNATURE_BYTES] = [1; crate::security::GRANT_SIGNATURE_BYTES];
     /// A second paired phone's key, and the signature only it produces.
     const KEY2: [u8; CONTROLLER_KEY_BYTES] = {
         let mut key = [4u8; CONTROLLER_KEY_BYTES];
         key[1] = 9;
         key
     };
-    const GOOD_SIGNATURE2: [u8; crate::security::GRANT_SIGNATURE_BYTES] =
-        [2; crate::security::GRANT_SIGNATURE_BYTES];
+    const GOOD_SIGNATURE2: [u8; crate::security::GRANT_SIGNATURE_BYTES] = [2; crate::security::GRANT_SIGNATURE_BYTES];
 
     /// Accepts `GOOD_SIGNATURE` under `KEY` or `GOOD_SIGNATURE2` under `KEY2`,
     /// so a grant is bound to whichever enrolled key signed it.
     fn fake_verify(key: &[u8; CONTROLLER_KEY_BYTES], _payload: &[u8], signature: &[u8]) -> bool {
-        (key == &KEY && signature == GOOD_SIGNATURE)
-            || (key == &KEY2 && signature == GOOD_SIGNATURE2)
+        (key == &KEY && signature == GOOD_SIGNATURE) || (key == &KEY2 && signature == GOOD_SIGNATURE2)
     }
 
     /// Feed one message with the fake verifier; returns the effect and replies.
-    fn feed(
-        injector: &mut inject::Injector<Recorder>,
-        control: &mut Control,
-        message: Message,
-        now: Instant,
-    ) -> (Effect, Vec<Message>) {
+    fn feed(injector: &mut inject::Injector<Recorder>, control: &mut Control, message: Message, now: Instant) -> (Effect, Vec<Message>) {
         let mut replies = Vec::new();
         let effect = apply_control(injector, control, message, now, &fake_verify, &mut replies);
         (effect, replies)
@@ -1556,27 +1252,15 @@ mod tests {
     }
 
     /// Like [`active_control`] but with an explicit enrolled key set.
-    fn active_control_keys(
-        now: Instant,
-        keys: Vec<[u8; CONTROLLER_KEY_BYTES]>,
-    ) -> (Control, String) {
+    fn active_control_keys(now: Instant, keys: Vec<[u8; CONTROLLER_KEY_BYTES]>) -> (Control, String) {
         let mut control = Control::new(vec![0x33; 16], keys);
         control.active = true;
         control.grants.set_epoch(1);
         let mut replies = Vec::new();
-        tick(
-            &mut inject::Injector::with_sink(Recorder::default()),
-            &mut control,
-            now,
-            &mut replies,
-        );
+        tick(&mut inject::Injector::with_sink(Recorder::default()), &mut control, now, &mut replies);
         let challenge = match replies.as_slice() {
             [Message::GrantChallenge { challenge, nonce }] => {
-                assert_eq!(
-                    nonce,
-                    &encode_nonce(&[0x33; 16]),
-                    "the challenge names the connection nonce"
-                );
+                assert_eq!(nonce, &encode_nonce(&[0x33; 16]), "the challenge names the connection nonce");
                 challenge.clone()
             }
             other => panic!("expected one grant-challenge, got {other:?}"),
@@ -1585,11 +1269,7 @@ mod tests {
     }
 
     fn grant(challenge: &str, epoch: u64, signature: &[u8]) -> Message {
-        Message::Grant {
-            challenge: challenge.into(),
-            epoch,
-            signature: encode_nonce(signature),
-        }
+        Message::Grant { challenge: challenge.into(), epoch, signature: encode_nonce(signature) }
     }
 
     #[test]
@@ -1598,19 +1278,9 @@ mod tests {
         let sink = Recorder::default();
         let mut injector = inject::Injector::with_sink(sink.clone());
         let (mut control, _) = active_control(t0);
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            input(InputEvent::PointerMove { x: 1, y: 1 }),
-            t0,
-        );
+        let (_, replies) = feed(&mut injector, &mut control, input(InputEvent::PointerMove { x: 1, y: 1 }), t0);
         assert_eq!(codes(&replies), ["grant_required"]);
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            input(InputEvent::Text { text: "y".into() }),
-            t0,
-        );
+        let (_, replies) = feed(&mut injector, &mut control, input(InputEvent::Text { text: "y".into() }), t0);
         assert!(replies.is_empty(), "reported once per lapse");
         let (effect, replies) = feed(&mut injector, &mut control, Message::Sas, t0);
         assert!(matches!(effect, Effect::None));
@@ -1624,32 +1294,14 @@ mod tests {
         let sink = Recorder::default();
         let mut injector = inject::Injector::with_sink(sink.clone());
         let (mut control, challenge) = active_control(t0);
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE),
-            t0,
-        );
+        let (_, replies) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE), t0);
         assert!(replies.is_empty(), "{replies:?}");
-        feed(
-            &mut injector,
-            &mut control,
-            input(InputEvent::Key {
-                down: true,
-                vk: 0x11,
-                scan: 0x1d,
-                extended: false,
-            }),
-            t0,
-        );
+        feed(&mut injector, &mut control, input(InputEvent::Key { down: true, vk: 0x11, scan: 0x1d, extended: false }), t0);
         assert_eq!(sink.0.borrow().len(), 1, "the key went in");
         let (effect, _) = feed(&mut injector, &mut control, Message::Sas, t0);
         assert!(matches!(effect, Effect::Sas));
         let (effect, _) = feed(&mut injector, &mut control, Message::Sas, t0);
-        assert!(
-            matches!(effect, Effect::Sas),
-            "repeats coalesce in the auto-reset SAS event, not here"
-        );
+        assert!(matches!(effect, Effect::Sas), "repeats coalesce in the auto-reset SAS event, not here");
 
         // The grant lapses: held input is released and the lapse reported.
         sink.0.borrow_mut().clear();
@@ -1659,12 +1311,7 @@ mod tests {
         assert!(codes(&replies).contains(&"grant_expired".to_string()));
         assert_eq!(sink.0.borrow().len(), 1, "the held Ctrl was released");
         sink.0.borrow_mut().clear();
-        feed(
-            &mut injector,
-            &mut control,
-            input(InputEvent::PointerMove { x: 1, y: 1 }),
-            lapse,
-        );
+        feed(&mut injector, &mut control, input(InputEvent::PointerMove { x: 1, y: 1 }), lapse);
         assert!(sink.0.borrow().is_empty());
     }
 
@@ -1673,76 +1320,29 @@ mod tests {
         let t0 = Instant::now();
         let mut injector = inject::Injector::with_sink(Recorder::default());
         let (mut control, challenge) = active_control(t0);
-        let challenges_at =
-            |control: &mut Control, injector: &mut inject::Injector<Recorder>, at| {
-                let mut replies = Vec::new();
-                tick(injector, control, at, &mut replies);
-                replies
-                    .iter()
-                    .filter(|reply| matches!(reply, Message::GrantChallenge { .. }))
-                    .count()
-            };
+        let challenges_at = |control: &mut Control, injector: &mut inject::Injector<Recorder>, at| {
+            let mut replies = Vec::new();
+            tick(injector, control, at, &mut replies);
+            replies.iter().filter(|reply| matches!(reply, Message::GrantChallenge { .. })).count()
+        };
         let answered = t0 + Duration::from_millis(150);
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE),
-            answered,
-        );
+        let (_, replies) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE), answered);
         assert!(replies.is_empty(), "{replies:?}");
-        assert_eq!(
-            challenges_at(&mut control, &mut injector, answered),
-            0,
-            "a grant does not prompt a new challenge"
-        );
+        assert_eq!(challenges_at(&mut control, &mut injector, answered), 0, "a grant does not prompt a new challenge");
         let refresh = t0 + crate::security::GRANT_REFRESH;
-        assert_eq!(
-            challenges_at(
-                &mut control,
-                &mut injector,
-                refresh - Duration::from_millis(1)
-            ),
-            0
-        );
-        assert_eq!(
-            challenges_at(&mut control, &mut injector, refresh),
-            1,
-            "due one refresh after the last"
-        );
+        assert_eq!(challenges_at(&mut control, &mut injector, refresh - Duration::from_millis(1)), 0);
+        assert_eq!(challenges_at(&mut control, &mut injector, refresh), 1, "due one refresh after the last");
 
         // A new video run (the UAC prompt appearing) makes the next one due at once.
         let switched = refresh + Duration::from_millis(50);
-        assert_eq!(
-            challenges_at(&mut control, &mut injector, switched),
-            0,
-            "mid-cadence"
-        );
-        feed(
-            &mut injector,
-            &mut control,
-            Message::VideoRun { epoch: 2 },
-            switched,
-        );
-        assert_eq!(
-            challenges_at(&mut control, &mut injector, switched),
-            1,
-            "no wait for the next refresh"
-        );
+        assert_eq!(challenges_at(&mut control, &mut injector, switched), 0, "mid-cadence");
+        feed(&mut injector, &mut control, Message::VideoRun { epoch: 2 }, switched);
+        assert_eq!(challenges_at(&mut control, &mut injector, switched), 1, "no wait for the next refresh");
 
         // Deactivating and reactivating control makes the next one due at once.
         let later = refresh + Duration::from_millis(100);
-        feed(
-            &mut injector,
-            &mut control,
-            Message::Control { active: false },
-            later,
-        );
-        feed(
-            &mut injector,
-            &mut control,
-            Message::Control { active: true },
-            later,
-        );
+        feed(&mut injector, &mut control, Message::Control { active: false }, later);
+        feed(&mut injector, &mut control, Message::Control { active: true }, later);
         assert_eq!(challenges_at(&mut control, &mut injector, later), 1);
     }
 
@@ -1751,67 +1351,27 @@ mod tests {
         let t0 = Instant::now();
         let mut injector = inject::Injector::with_sink(Recorder::default());
         let (mut control, challenge) = active_control(t0);
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &[2; 64]),
-            t0,
-        );
+        let (_, replies) = feed(&mut injector, &mut control, grant(&challenge, 1, &[2; 64]), t0);
         assert_eq!(codes(&replies), ["grant_bad_signature"]);
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE),
-            t0,
-        );
+        let (_, replies) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE), t0);
         assert_eq!(codes(&replies), ["grant_unknown_challenge"], "one shot");
 
         let (mut control, challenge) = active_control(t0);
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 2, &GOOD_SIGNATURE),
-            t0,
-        );
+        let (_, replies) = feed(&mut injector, &mut control, grant(&challenge, 2, &GOOD_SIGNATURE), t0);
         assert_eq!(codes(&replies), ["grant_wrong_video_run"]);
 
         // A grant for the current run goes live; declaring a new run ends it.
         let (mut control, challenge) = active_control(t0);
-        feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE),
-            t0,
-        );
+        feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE), t0);
         assert!(control.authorized(t0));
-        feed(
-            &mut injector,
-            &mut control,
-            Message::VideoRun { epoch: 2 },
-            t0,
-        );
+        feed(&mut injector, &mut control, Message::VideoRun { epoch: 2 }, t0);
         assert!(!control.authorized(t0));
 
         // Deactivating revokes the grant and every open challenge.
         let (mut control, challenge) = active_control(t0);
-        feed(
-            &mut injector,
-            &mut control,
-            Message::Control { active: false },
-            t0,
-        );
-        feed(
-            &mut injector,
-            &mut control,
-            Message::Control { active: true },
-            t0,
-        );
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE),
-            t0,
-        );
+        feed(&mut injector, &mut control, Message::Control { active: false }, t0);
+        feed(&mut injector, &mut control, Message::Control { active: true }, t0);
+        let (_, replies) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE), t0);
         assert_eq!(codes(&replies), ["grant_unknown_challenge"]);
     }
 
@@ -1820,25 +1380,12 @@ mod tests {
         let t0 = Instant::now();
         let mut injector = inject::Injector::with_sink(Recorder::default());
         let mut control = Control::new(vec![0x33; 16], Vec::new());
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            Message::Control { active: true },
-            t0,
-        );
+        let (_, replies) = feed(&mut injector, &mut control, Message::Control { active: true }, t0);
         assert_eq!(codes(&replies), ["grant_key_missing"]);
         let mut replies = Vec::new();
         tick(&mut injector, &mut control, t0, &mut replies);
-        assert!(
-            replies.is_empty(),
-            "no challenge is solicited without a key"
-        );
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            grant("AAAAAAAAAAAAAAAAAAAAAA==", 1, &GOOD_SIGNATURE),
-            t0,
-        );
+        assert!(replies.is_empty(), "no challenge is solicited without a key");
+        let (_, replies) = feed(&mut injector, &mut control, grant("AAAAAAAAAAAAAAAAAAAAAA==", 1, &GOOD_SIGNATURE), t0);
         assert_eq!(codes(&replies), ["grant_key_missing"]);
     }
 
@@ -1848,22 +1395,10 @@ mod tests {
         let mut injector = inject::Injector::with_sink(Recorder::default());
         // Two phones enrolled; the grant is signed only by the second one.
         let (mut control, challenge) = active_control_keys(t0, vec![KEY, KEY2]);
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE2),
-            t0,
-        );
-        assert!(
-            codes(&replies).is_empty(),
-            "the second enrolled key's grant is accepted"
-        );
+        let (_, replies) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE2), t0);
+        assert!(codes(&replies).is_empty(), "the second enrolled key's grant is accepted");
         assert!(control.authorized(t0), "control is live under that grant");
-        assert_eq!(
-            control.granted_key,
-            Some(KEY2),
-            "the live grant is bound to the key that signed it"
-        );
+        assert_eq!(control.granted_key, Some(KEY2), "the live grant is bound to the key that signed it");
     }
 
     #[test]
@@ -1872,12 +1407,7 @@ mod tests {
         let mut injector = inject::Injector::with_sink(Recorder::default());
         // KEY is enrolled and holds a live grant.
         let (mut control, challenge) = active_control_keys(t0, vec![KEY]);
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE),
-            t0,
-        );
+        let (_, replies) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE), t0);
         assert!(codes(&replies).is_empty());
         assert!(control.authorized(t0), "control is live under KEY");
         // The phone is unpaired: the committed set no longer has KEY. Without
@@ -1888,17 +1418,7 @@ mod tests {
         assert_eq!(control.granted_key, None);
         assert!(codes(&after).iter().any(|code| code == "grant_key_missing"));
         // A further input is refused — no live grant.
-        let (_, refused) = feed(
-            &mut injector,
-            &mut control,
-            input(InputEvent::Key {
-                down: true,
-                vk: 0x41,
-                scan: 0,
-                extended: false,
-            }),
-            t0,
-        );
+        let (_, refused) = feed(&mut injector, &mut control, input(InputEvent::Key { down: true, vk: 0x41, scan: 0, extended: false }), t0);
         assert!(codes(&refused).iter().any(|code| code == "grant_required"));
     }
 
@@ -1908,33 +1428,21 @@ mod tests {
         use base64::Engine as _;
         let mut state = state();
         // A fixed secret, so equal key sets serialize to equal bytes.
-        state.secret =
-            base64::engine::general_purpose::STANDARD.encode([5u8; crate::security::SECRET_BYTES]);
+        state.secret = base64::engine::general_purpose::STANDARD.encode([5u8; crate::security::SECRET_BYTES]);
         for &fill in fills {
             let mut point = [4u8; CONTROLLER_KEY_BYTES];
             point[1] = fill;
-            state
-                .enroll_key(&base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(point))
-                .unwrap();
+            state.enroll_key(&base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(point)).unwrap();
         }
         state.to_json().into_bytes()
     }
 
     #[test]
     fn decide_refresh_fails_closed_on_unparseable_state() {
-        assert!(matches!(
-            decide_refresh(Ok(b"{\"schema\":".to_vec()), &None),
-            KeyRefresh::Suspend
-        ));
-        assert!(matches!(
-            decide_refresh(Ok(vec![0xff, 0xfe]), &None),
-            KeyRefresh::Suspend
-        ));
+        assert!(matches!(decide_refresh(Ok(b"{\"schema\":".to_vec()), &None), KeyRefresh::Suspend));
+        assert!(matches!(decide_refresh(Ok(vec![0xff, 0xfe]), &None), KeyRefresh::Suspend));
         let good = state_bytes_with(&[4]);
-        assert!(matches!(
-            decide_refresh(Err(std::io::Error::other("locked")), &Some(good)),
-            KeyRefresh::Suspend
-        ));
+        assert!(matches!(decide_refresh(Err(std::io::Error::other("locked")), &Some(good)), KeyRefresh::Suspend));
     }
 
     #[test]
@@ -1944,46 +1452,25 @@ mod tests {
         let with_both = state_bytes_with(&[4, 9]);
         let only_first = state_bytes_with(&[4]);
         // First load from no prior state.
-        let KeyRefresh::Loaded { keys, bytes } = decide_refresh(Ok(with_both.clone()), &None)
-        else {
+        let KeyRefresh::Loaded { keys, bytes } = decide_refresh(Ok(with_both.clone()), &None) else {
             panic!("first read should load");
         };
         assert_eq!(keys.len(), 2);
         // A different content (same mtime, in reality) is loaded, not skipped.
-        assert!(matches!(
-            decide_refresh(Ok(only_first.clone()), &Some(bytes.clone())),
-            KeyRefresh::Loaded { .. }
-        ));
+        assert!(matches!(decide_refresh(Ok(only_first.clone()), &Some(bytes.clone())), KeyRefresh::Loaded { .. }));
         // Identical bytes are Unchanged (no reparse).
-        assert!(matches!(
-            decide_refresh(Ok(with_both.clone()), &Some(with_both)),
-            KeyRefresh::Unchanged
-        ));
+        assert!(matches!(decide_refresh(Ok(with_both.clone()), &Some(with_both)), KeyRefresh::Unchanged));
         // Now prove delivery revokes a live grant: enroll KEY2, grant under it,
         // then deliver a state that drops KEY2.
         let t0 = Instant::now();
         let mut injector = inject::Injector::with_sink(Recorder::default());
         let (mut control, challenge) = active_control_keys(t0, vec![KEY, KEY2]);
-        let (_, ok) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE2),
-            t0,
-        );
+        let (_, ok) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE2), t0);
         assert!(codes(&ok).is_empty() && control.authorized(t0));
         let mut last = Some(with_both_key2());
         let mut replies = Vec::new();
-        apply_refresh(
-            &mut injector,
-            &mut control,
-            &mut last,
-            Ok(state_bytes_with(&[4])),
-            &mut replies,
-        );
-        assert!(
-            !control.authorized(t0),
-            "KEY2 revoked → its live grant ends"
-        );
+        apply_refresh(&mut injector, &mut control, &mut last, Ok(state_bytes_with(&[4])), &mut replies);
+        assert!(!control.authorized(t0), "KEY2 revoked → its live grant ends");
         assert!(codes(&replies).iter().any(|c| c == "grant_key_missing"));
     }
 
@@ -1997,66 +1484,27 @@ mod tests {
         let t0 = Instant::now();
         let mut injector = inject::Injector::with_sink(Recorder::default());
         let (mut control, challenge) = active_control_keys(t0, vec![KEY]);
-        let (_, ok) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE),
-            t0,
-        );
+        let (_, ok) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE), t0);
         assert!(codes(&ok).is_empty() && control.authorized(t0));
         let mut last = Some(state_bytes_with(&[4]));
         // A read error (fail closed): the live grant ends, input is refused,
         // and `last` is not advanced so the next retry still runs.
         let mut replies = Vec::new();
-        apply_refresh(
-            &mut injector,
-            &mut control,
-            &mut last,
-            Err(std::io::Error::other("boom")),
-            &mut replies,
-        );
+        apply_refresh(&mut injector, &mut control, &mut last, Err(std::io::Error::other("boom")), &mut replies);
         assert!(control.suspended && !control.authorized(t0));
         assert!(codes(&replies).iter().any(|c| c == "grant_key_missing"));
-        let (_, refused) = feed(
-            &mut injector,
-            &mut control,
-            input(InputEvent::Key {
-                down: true,
-                vk: 0x41,
-                scan: 0,
-                extended: false,
-            }),
-            t0,
-        );
+        let (_, refused) = feed(&mut injector, &mut control, input(InputEvent::Key { down: true, vk: 0x41, scan: 0, extended: false }), t0);
         assert!(codes(&refused).iter().any(|c| c == "grant_required"));
-        assert_eq!(
-            last,
-            Some(state_bytes_with(&[4])),
-            "a failed read never advances the seen bytes"
-        );
+        assert_eq!(last, Some(state_bytes_with(&[4])), "a failed read never advances the seen bytes");
         // A good read resumes authorization; a fresh grant is then accepted.
-        apply_refresh(
-            &mut injector,
-            &mut control,
-            &mut last,
-            Ok(state_bytes_with(&[4])),
-            &mut Vec::new(),
-        );
+        apply_refresh(&mut injector, &mut control, &mut last, Ok(state_bytes_with(&[4])), &mut Vec::new());
         assert!(!control.suspended, "resumed");
         let t1 = t0 + crate::security::GRANT_REFRESH;
         let mut issued = Vec::new();
         tick(&mut injector, &mut control, t1, &mut issued);
         let challenge2 = issued_challenge(&issued);
-        let (_, accepted) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge2, 1, &GOOD_SIGNATURE),
-            t1,
-        );
-        assert!(
-            codes(&accepted).is_empty() && control.authorized(t1),
-            "control works again"
-        );
+        let (_, accepted) = feed(&mut injector, &mut control, grant(&challenge2, 1, &GOOD_SIGNATURE), t1);
+        assert!(codes(&accepted).is_empty() && control.authorized(t1), "control works again");
     }
 
     /// Two control frames that arrive in **one read**: encoded into one buffer,
@@ -2084,20 +1532,9 @@ mod tests {
         let mut commit = Some(commit);
         let mut out = Vec::new();
         while let Some(decoded) = acc.next_frame(now, FRAME_DEADLINE).unwrap() {
-            let Decoded::Control(message) = decoded else {
-                panic!("expected a control frame")
-            };
+            let Decoded::Control(message) = decoded else { panic!("expected a control frame") };
             let mut replies = Vec::new();
-            let effect = dispatch_refreshed(
-                injector,
-                control,
-                last,
-                &mut read,
-                message,
-                now,
-                &fake_verify,
-                &mut replies,
-            );
+            let effect = dispatch_refreshed(injector, control, last, &mut read, message, now, &fake_verify, &mut replies);
             out.push((effect, replies));
             if let Some(bytes) = commit.take() {
                 *disk.borrow_mut() = bytes;
@@ -2109,35 +1546,15 @@ mod tests {
 
     /// Active control holding a live grant signed by KEY, with KEY and KEY2
     /// committed on the in-memory "disk" and already loaded.
-    fn granted_by_key(
-        t0: Instant,
-        sink: Recorder,
-    ) -> (
-        inject::Injector<Recorder>,
-        Control,
-        Option<Vec<u8>>,
-        RefCell<Vec<u8>>,
-    ) {
+    fn granted_by_key(t0: Instant, sink: Recorder) -> (inject::Injector<Recorder>, Control, Option<Vec<u8>>, RefCell<Vec<u8>>) {
         let mut injector = inject::Injector::with_sink(sink);
         let (mut control, challenge) = active_control_keys(t0, vec![KEY, KEY2]);
         let disk = RefCell::new(state_bytes_with(&[4, 9]));
         let mut last = None;
         let mut read = || -> std::io::Result<Vec<u8>> { Ok(disk.borrow().clone()) };
         let mut replies = Vec::new();
-        dispatch_refreshed(
-            &mut injector,
-            &mut control,
-            &mut last,
-            &mut read,
-            grant(&challenge, 1, &GOOD_SIGNATURE),
-            t0,
-            &fake_verify,
-            &mut replies,
-        );
-        assert!(
-            codes(&replies).is_empty() && control.authorized(t0),
-            "{replies:?}"
-        );
+        dispatch_refreshed(&mut injector, &mut control, &mut last, &mut read, grant(&challenge, 1, &GOOD_SIGNATURE), t0, &fake_verify, &mut replies);
+        assert!(codes(&replies).is_empty() && control.authorized(t0), "{replies:?}");
         assert_eq!(control.granted_key, Some(KEY));
         (injector, control, last, disk)
     }
@@ -2147,86 +1564,32 @@ mod tests {
         let t0 = Instant::now();
         let sink = Recorder::default();
         let (mut injector, mut control, mut last, disk) = granted_by_key(t0, sink.clone());
-        let press = |vk| {
-            input(InputEvent::Key {
-                down: true,
-                vk,
-                scan: 0,
-                extended: false,
-            })
-        };
+        let press = |vk| input(InputEvent::Key { down: true, vk, scan: 0, extended: false });
         // KEY is revoked (KEY2 stays) between the two frames' dispatches.
-        let out = batch_with_commit_between(
-            &mut injector,
-            &mut control,
-            &mut last,
-            &disk,
-            [press(0x41), press(0x42)],
-            state_bytes_with(&[9]),
-            t0,
-        );
-        assert!(
-            codes(&out[0].1).is_empty(),
-            "the first frame ran under the live grant"
-        );
+        let out = batch_with_commit_between(&mut injector, &mut control, &mut last, &disk, [press(0x41), press(0x42)], state_bytes_with(&[9]), t0);
+        assert!(codes(&out[0].1).is_empty(), "the first frame ran under the live grant");
         // The second frame: the revoke is seen before it acts → refused.
-        assert!(
-            codes(&out[1].1)
-                .iter()
-                .any(|code| code == "grant_key_missing"),
-            "{:?}",
-            out[1].1
-        );
-        assert!(
-            codes(&out[1].1).iter().any(|code| code == "grant_required"),
-            "{:?}",
-            out[1].1
-        );
+        assert!(codes(&out[1].1).iter().any(|code| code == "grant_key_missing"), "{:?}", out[1].1);
+        assert!(codes(&out[1].1).iter().any(|code| code == "grant_required"), "{:?}", out[1].1);
         assert!(!control.authorized(t0) && control.granted_key.is_none());
         // Over the whole batch: exactly one press reached the desktop (the
         // first frame's), followed only by its release when the grant ended;
         // the second press never did.
         let sent = sink.0.borrow().clone();
         let presses = sent.iter().filter(|event| !is_key_up(event)).count();
-        assert_eq!(
-            presses,
-            1,
-            "only the first frame's press was injected: {}",
-            sent.len()
-        );
+        assert_eq!(presses, 1, "only the first frame's press was injected: {}", sent.len());
         assert!(!is_key_up(&sent[0]), "the first press came first");
-        assert!(
-            sent.len() > 1 && sent[1..].iter().all(is_key_up),
-            "then only its release"
-        );
+        assert!(sent.len() > 1 && sent[1..].iter().all(is_key_up), "then only its release");
     }
 
     #[test]
     fn a_revoke_committed_mid_batch_refuses_the_next_sas_in_the_same_read() {
         let t0 = Instant::now();
         let (mut injector, mut control, mut last, disk) = granted_by_key(t0, Recorder::default());
-        let out = batch_with_commit_between(
-            &mut injector,
-            &mut control,
-            &mut last,
-            &disk,
-            [Message::Sas, Message::Sas],
-            state_bytes_with(&[9]),
-            t0,
-        );
-        assert!(
-            matches!(out[0].0, Effect::Sas),
-            "the first SAS ran under the live grant"
-        );
-        assert!(
-            matches!(out[1].0, Effect::None),
-            "the second SAS is refused"
-        );
-        assert!(
-            codes(&out[1].1).iter().any(|code| code == "grant_required"),
-            "{:?}",
-            out[1].1
-        );
+        let out = batch_with_commit_between(&mut injector, &mut control, &mut last, &disk, [Message::Sas, Message::Sas], state_bytes_with(&[9]), t0);
+        assert!(matches!(out[0].0, Effect::Sas), "the first SAS ran under the live grant");
+        assert!(matches!(out[1].0, Effect::None), "the second SAS is refused");
+        assert!(codes(&out[1].1).iter().any(|code| code == "grant_required"), "{:?}", out[1].1);
     }
 
     #[test]
@@ -2235,15 +1598,7 @@ mod tests {
         // fails closed for the very next frame.
         let t0 = Instant::now();
         let (mut injector, mut control, mut last, disk) = granted_by_key(t0, Recorder::default());
-        let out = batch_with_commit_between(
-            &mut injector,
-            &mut control,
-            &mut last,
-            &disk,
-            [Message::Sas, Message::Sas],
-            b"{".to_vec(),
-            t0,
-        );
+        let out = batch_with_commit_between(&mut injector, &mut control, &mut last, &disk, [Message::Sas, Message::Sas], b"{".to_vec(), t0);
         assert!(matches!(out[0].0, Effect::Sas));
         assert!(matches!(out[1].0, Effect::None) && control.suspended);
     }
@@ -2254,35 +1609,17 @@ mod tests {
         let mut injector = inject::Injector::with_sink(Recorder::default());
         // Only KEY is enrolled: a grant signed by KEY2 is refused.
         let (mut control, challenge) = active_control_keys(t0, vec![KEY]);
-        let (_, refused) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE2),
-            t0,
-        );
+        let (_, refused) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE2), t0);
         assert!(!codes(&refused).is_empty() && !control.authorized(t0));
         // Phone B is enrolled: the committed set now includes KEY2 — no reconnect.
-        apply_key_set(
-            &mut injector,
-            &mut control,
-            vec![KEY, KEY2],
-            &mut Vec::new(),
-        );
+        apply_key_set(&mut injector, &mut control, vec![KEY, KEY2], &mut Vec::new());
         // A fresh challenge, then B's grant is accepted.
         let t1 = t0 + crate::security::GRANT_REFRESH;
         let mut issued = Vec::new();
         tick(&mut injector, &mut control, t1, &mut issued);
         let challenge2 = issued_challenge(&issued);
-        let (_, accepted) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge2, 1, &GOOD_SIGNATURE2),
-            t1,
-        );
-        assert!(
-            codes(&accepted).is_empty() && control.authorized(t1),
-            "B now controls without a restart"
-        );
+        let (_, accepted) = feed(&mut injector, &mut control, grant(&challenge2, 1, &GOOD_SIGNATURE2), t1);
+        assert!(codes(&accepted).is_empty() && control.authorized(t1), "B now controls without a restart");
     }
 
     #[test]
@@ -2291,12 +1628,7 @@ mod tests {
         let mut injector = inject::Injector::with_sink(Recorder::default());
         // Only the first key is enrolled; a signature only the second produces.
         let (mut control, challenge) = active_control_keys(t0, vec![KEY]);
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE2),
-            t0,
-        );
+        let (_, replies) = feed(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE2), t0);
         assert_eq!(codes(&replies), ["grant_bad_signature"]);
         assert!(control.granted_key.is_none());
     }
@@ -2314,30 +1646,17 @@ mod tests {
         tick(&mut injector, &mut control, t0, &mut replies);
         injector.pointer_move(1, 1);
         tick(&mut injector, &mut control, t0, &mut replies);
-        assert_eq!(
-            codes(&replies),
-            ["input_failed"],
-            "one report for the blocked period"
-        );
+        assert_eq!(codes(&replies), ["input_failed"], "one report for the blocked period");
         *blocked.borrow_mut() = false;
         injector.pointer_move(1, 1);
         *blocked.borrow_mut() = true;
         injector.pointer_move(1, 1);
         tick(&mut injector, &mut control, t0, &mut replies);
-        assert_eq!(
-            codes(&replies),
-            ["input_failed", "input_failed"],
-            "a new blocked period is reported again"
-        );
+        assert_eq!(codes(&replies), ["input_failed", "input_failed"], "a new blocked period is reported again");
     }
 
     fn ctrl_down() -> Message {
-        input(InputEvent::Key {
-            down: true,
-            vk: 0x11,
-            scan: 0x1d,
-            extended: false,
-        })
+        input(InputEvent::Key { down: true, vk: 0x11, scan: 0x1d, extended: false })
     }
 
     #[test]
@@ -2346,12 +1665,7 @@ mod tests {
         let gate = Gate::default();
         let mut injector = inject::Injector::with_sink(gate.clone());
         let (mut control, challenge) = active_control(t0);
-        feed_gate(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE),
-            t0,
-        );
+        feed_gate(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE), t0);
         feed_gate(&mut injector, &mut control, ctrl_down(), t0);
         // The auto-repeat inserts nothing, even after re-attaching.
         *gate.blocked.borrow_mut() = true;
@@ -2360,16 +1674,8 @@ mod tests {
         gate.inserted.borrow_mut().clear();
 
         let mut replies = Vec::new();
-        tick(
-            &mut injector,
-            &mut control,
-            t0 + crate::security::GRANT_LIFETIME,
-            &mut replies,
-        );
-        assert!(
-            codes(&replies).contains(&"grant_expired".to_string()),
-            "{replies:?}"
-        );
+        tick(&mut injector, &mut control, t0 + crate::security::GRANT_LIFETIME, &mut replies);
+        assert!(codes(&replies).contains(&"grant_expired".to_string()), "{replies:?}");
         let released = std::mem::take(&mut *gate.inserted.borrow_mut());
         assert_eq!(released.len(), 1);
         assert!(is_key_up(&released[0]), "the press that landed is released");
@@ -2381,12 +1687,7 @@ mod tests {
         let sink = Recorder::default();
         let mut injector = inject::Injector::with_sink(sink.clone());
         let (mut control, first) = active_control(t0);
-        feed(
-            &mut injector,
-            &mut control,
-            grant(&first, 1, &GOOD_SIGNATURE),
-            t0,
-        );
+        feed(&mut injector, &mut control, grant(&first, 1, &GOOD_SIGNATURE), t0);
         feed(&mut injector, &mut control, ctrl_down(), t0);
         // The next challenge, issued on cadence while the grant is live.
         let refresh = t0 + crate::security::GRANT_REFRESH;
@@ -2397,23 +1698,11 @@ mod tests {
 
         // Its grant arrives just after the first one expired; no tick between.
         let late = t0 + crate::security::GRANT_LIFETIME;
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            grant(&second, 1, &GOOD_SIGNATURE),
-            late,
-        );
-        assert_eq!(
-            codes(&replies),
-            ["grant_expired"],
-            "the lapse is settled before the renewal"
-        );
+        let (_, replies) = feed(&mut injector, &mut control, grant(&second, 1, &GOOD_SIGNATURE), late);
+        assert_eq!(codes(&replies), ["grant_expired"], "the lapse is settled before the renewal");
         let sent = std::mem::take(&mut *sink.0.borrow_mut());
         assert_eq!(sent.len(), 1);
-        assert!(
-            is_key_up(&sent[0]),
-            "the key held under the lapsed grant was released"
-        );
+        assert!(is_key_up(&sent[0]), "the key held under the lapsed grant was released");
         assert!(control.authorized(late), "the renewal itself is valid");
     }
 
@@ -2423,12 +1712,7 @@ mod tests {
         let sink = Recorder::default();
         let mut injector = inject::Injector::with_sink(sink.clone());
         let (mut control, first) = active_control(t0);
-        feed(
-            &mut injector,
-            &mut control,
-            grant(&first, 1, &GOOD_SIGNATURE),
-            t0,
-        );
+        feed(&mut injector, &mut control, grant(&first, 1, &GOOD_SIGNATURE), t0);
         feed(&mut injector, &mut control, ctrl_down(), t0);
         let refresh = t0 + crate::security::GRANT_REFRESH;
         let mut replies = Vec::new();
@@ -2438,49 +1722,24 @@ mod tests {
 
         // One batch: the new run, then a grant for it on the challenge still
         // open; no tick between.
-        let (_, run_replies) = feed(
-            &mut injector,
-            &mut control,
-            Message::VideoRun { epoch: 2 },
-            refresh,
-        );
-        let (_, grant_replies) = feed(
-            &mut injector,
-            &mut control,
-            grant(&open, 2, &GOOD_SIGNATURE),
-            refresh,
-        );
+        let (_, run_replies) = feed(&mut injector, &mut control, Message::VideoRun { epoch: 2 }, refresh);
+        let (_, grant_replies) = feed(&mut injector, &mut control, grant(&open, 2, &GOOD_SIGNATURE), refresh);
         assert_eq!(codes(&run_replies), ["grant_expired"]);
-        assert_eq!(
-            codes(&grant_replies),
-            ["grant_unknown_challenge"],
-            "the old run's challenges are revoked"
-        );
+        assert_eq!(codes(&grant_replies), ["grant_unknown_challenge"], "the old run's challenges are revoked");
         let sent = std::mem::take(&mut *sink.0.borrow_mut());
         assert_eq!(sent.len(), 1);
-        assert!(
-            is_key_up(&sent[0]),
-            "the key held under the old run was released at the run change"
-        );
+        assert!(is_key_up(&sent[0]), "the key held under the old run was released at the run change");
         assert!(!control.authorized(refresh));
 
         // A challenge issued for the new run grants control again.
         let mut replies = Vec::new();
         tick(&mut injector, &mut control, refresh, &mut replies);
         let fresh = issued_challenge(&replies);
-        let (_, replies) = feed(
-            &mut injector,
-            &mut control,
-            grant(&fresh, 2, &GOOD_SIGNATURE),
-            refresh,
-        );
+        let (_, replies) = feed(&mut injector, &mut control, grant(&fresh, 2, &GOOD_SIGNATURE), refresh);
         assert!(replies.is_empty(), "{replies:?}");
         assert!(control.authorized(refresh));
         drop(injector);
-        assert!(
-            sink.0.borrow().is_empty(),
-            "nothing from the old run was still held"
-        );
+        assert!(sink.0.borrow().is_empty(), "nothing from the old run was still held");
     }
 
     #[test]
@@ -2489,76 +1748,36 @@ mod tests {
         let gate = Gate::default();
         let mut injector = inject::Injector::with_sink(gate.clone());
         let (mut control, challenge) = active_control(t0);
-        feed_gate(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE),
-            t0,
-        );
+        feed_gate(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE), t0);
         let left = protocol::PointerButton::Left;
-        feed_gate(
-            &mut injector,
-            &mut control,
-            input(InputEvent::PointerButton {
-                button: left,
-                down: true,
-                x: 1,
-                y: 1,
-            }),
-            t0,
-        );
+        feed_gate(&mut injector, &mut control, input(InputEvent::PointerButton { button: left, down: true, x: 1, y: 1 }), t0);
 
         // The input desktop goes away: an insert is blocked and re-attaching fails.
         *gate.blocked.borrow_mut() = true;
         *gate.desktop_gone.borrow_mut() = true;
-        let replies = feed_gate(
-            &mut injector,
-            &mut control,
-            input(InputEvent::PointerMove { x: 2, y: 2 }),
-            t0,
-        );
+        let replies = feed_gate(&mut injector, &mut control, input(InputEvent::PointerMove { x: 2, y: 2 }), t0);
         assert_eq!(codes(&replies), ["desktop_unavailable"]);
-        assert!(
-            !control.desktop_available,
-            "capture and new input are suspended"
-        );
+        assert!(!control.desktop_available, "capture and new input are suspended");
         let sends = *gate.sends.borrow();
 
         // Later input of the same batch is dropped without reaching SendInput
         // or asking for a grant, and the loss is not also an input failure.
-        let replies = feed_gate(
-            &mut injector,
-            &mut control,
-            input(InputEvent::Text { text: "y".into() }),
-            t0,
-        );
+        let replies = feed_gate(&mut injector, &mut control, input(InputEvent::Text { text: "y".into() }), t0);
         assert!(replies.is_empty(), "{replies:?}");
         assert_eq!(*gate.sends.borrow(), sends, "nothing was injected");
         let mut replies = Vec::new();
         tick(&mut injector, &mut control, t0, &mut replies);
-        assert!(
-            replies.is_empty(),
-            "reported once, as the lost desktop: {replies:?}"
-        );
+        assert!(replies.is_empty(), "reported once, as the lost desktop: {replies:?}");
 
         // The serve loop's attach path brings the desktop back; input flows again.
         *gate.blocked.borrow_mut() = false;
         *gate.desktop_gone.borrow_mut() = false;
         control.desktop_available = true;
         gate.inserted.borrow_mut().clear();
-        feed_gate(
-            &mut injector,
-            &mut control,
-            input(InputEvent::PointerMove { x: 3, y: 3 }),
-            t0,
-        );
+        feed_gate(&mut injector, &mut control, input(InputEvent::PointerMove { x: 3, y: 3 }), t0);
         assert_eq!(gate.inserted.borrow().len(), 1);
         drop(injector);
-        assert_eq!(
-            gate.inserted.borrow().len(),
-            1,
-            "the button's release was issued when the outage began"
-        );
+        assert_eq!(gate.inserted.borrow().len(), 1, "the button's release was issued when the outage began");
     }
 
     #[test]
@@ -2567,23 +1786,8 @@ mod tests {
         let gate = Gate::default();
         let mut injector = inject::Injector::with_sink(gate.clone());
         let (mut control, challenge) = active_control(t0);
-        feed_gate(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE),
-            t0,
-        );
-        feed_gate(
-            &mut injector,
-            &mut control,
-            input(InputEvent::Key {
-                down: true,
-                vk: 0xa2,
-                scan: 0x1d,
-                extended: false,
-            }),
-            t0,
-        );
+        feed_gate(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE), t0);
+        feed_gate(&mut injector, &mut control, input(InputEvent::Key { down: true, vk: 0xa2, scan: 0x1d, extended: false }), t0);
         assert_eq!(gate.inserted.borrow().len(), 1, "Ctrl went in");
 
         // One batch, no tick: sas → its release meets a desktop that cannot
@@ -2591,41 +1795,18 @@ mod tests {
         *gate.blocked.borrow_mut() = true;
         *gate.desktop_gone.borrow_mut() = true;
         let mut replies = Vec::new();
-        let effect = apply_control(
-            &mut injector,
-            &mut control,
-            Message::Sas,
-            t0,
-            &fake_verify,
-            &mut replies,
-        );
+        let effect = apply_control(&mut injector, &mut control, Message::Sas, t0, &fake_verify, &mut replies);
         assert!(matches!(effect, Effect::Sas));
         let raised = std::cell::Cell::new(false);
-        request_sas(
-            &mut injector,
-            &mut control,
-            || Ok(None),
-            || raised.set(true),
-            &mut replies,
-        );
+        request_sas(&mut injector, &mut control, || Ok(None), || raised.set(true), &mut replies);
         assert_eq!(codes(&replies), ["desktop_unavailable"]);
         assert!(!control.desktop_available, "suspended on the spot");
         assert!(!raised.get(), "no SAS while the desktop is unavailable");
         let sends = *gate.sends.borrow();
         let mut replies = Vec::new();
-        apply_control(
-            &mut injector,
-            &mut control,
-            input(InputEvent::Text { text: "y".into() }),
-            t0,
-            &fake_verify,
-            &mut replies,
-        );
+        apply_control(&mut injector, &mut control, input(InputEvent::Text { text: "y".into() }), t0, &fake_verify, &mut replies);
         assert_eq!(*gate.sends.borrow(), sends, "no injection was attempted");
-        assert!(
-            replies.is_empty(),
-            "the outage was already reported: {replies:?}"
-        );
+        assert!(replies.is_empty(), "the outage was already reported: {replies:?}");
     }
 
     #[test]
@@ -2634,34 +1815,14 @@ mod tests {
         let gate = Gate::default();
         let mut injector = inject::Injector::with_sink(gate.clone());
         let (mut control, challenge) = active_control(t0);
-        feed_gate(
-            &mut injector,
-            &mut control,
-            grant(&challenge, 1, &GOOD_SIGNATURE),
-            t0,
-        );
-        feed_gate(
-            &mut injector,
-            &mut control,
-            input(InputEvent::Key {
-                down: true,
-                vk: 0x41,
-                scan: 0x1e,
-                extended: false,
-            }),
-            t0,
-        );
+        feed_gate(&mut injector, &mut control, grant(&challenge, 1, &GOOD_SIGNATURE), t0);
+        feed_gate(&mut injector, &mut control, input(InputEvent::Key { down: true, vk: 0x41, scan: 0x1e, extended: false }), t0);
         // A release outside message dispatch meets a lost desktop.
         *gate.blocked.borrow_mut() = true;
         *gate.desktop_gone.borrow_mut() = true;
         injector.release_all();
         let sends = *gate.sends.borrow();
-        let replies = feed_gate(
-            &mut injector,
-            &mut control,
-            input(InputEvent::PointerMove { x: 1, y: 1 }),
-            t0,
-        );
+        let replies = feed_gate(&mut injector, &mut control, input(InputEvent::PointerMove { x: 1, y: 1 }), t0);
         assert_eq!(codes(&replies), ["desktop_unavailable"]);
         assert_eq!(*gate.sends.borrow(), sends, "the move was never attempted");
     }
@@ -2673,23 +1834,11 @@ mod tests {
         let (mut control, _) = active_control(t0);
         let raised = std::cell::Cell::new(false);
         let mut replies = Vec::new();
-        request_sas(
-            &mut injector,
-            &mut control,
-            || Ok(None),
-            || raised.set(true),
-            &mut replies,
-        );
+        request_sas(&mut injector, &mut control, || Ok(None), || raised.set(true), &mut replies);
         assert!(raised.get());
         assert!(replies.is_empty(), "{replies:?}");
         let raised = std::cell::Cell::new(false);
-        request_sas(
-            &mut injector,
-            &mut control,
-            || Ok(Some(0)),
-            || raised.set(true),
-            &mut replies,
-        );
+        request_sas(&mut injector, &mut control, || Ok(Some(0)), || raised.set(true), &mut replies);
         assert!(!raised.get());
         assert_eq!(codes(&replies), ["sas_disabled_by_policy"]);
     }
@@ -2699,15 +1848,8 @@ mod tests {
         let token = "ab".repeat(crate::security::SHUTDOWN_TOKEN_HEX / 2);
         assert_eq!(parse_helper_args(&[token.clone()]), Some(token.as_str()));
         assert_eq!(parse_helper_args(&[]), None);
-        assert_eq!(
-            parse_helper_args(&[token.clone(), "1234".into()]),
-            None,
-            "the retired pid argument"
-        );
-        assert_eq!(
-            parse_helper_args(&["AB".repeat(crate::security::SHUTDOWN_TOKEN_HEX / 2)]),
-            None
-        );
+        assert_eq!(parse_helper_args(&[token.clone(), "1234".into()]), None, "the retired pid argument");
+        assert_eq!(parse_helper_args(&["AB".repeat(crate::security::SHUTDOWN_TOKEN_HEX / 2)]), None);
         assert_eq!(parse_helper_args(&["ab".into()]), None);
     }
 
@@ -2722,97 +1864,33 @@ mod tests {
         // Inactive: nothing that moves, presses, scrolls, or types gets through.
         for event in [
             InputEvent::PointerMove { x: 5, y: 5 },
-            InputEvent::PointerButton {
-                button: left,
-                down: true,
-                x: 5,
-                y: 5,
-            },
-            InputEvent::PointerWheel {
-                x: 5,
-                y: 5,
-                dx: 0,
-                dy: 1,
-            },
-            InputEvent::Key {
-                down: true,
-                vk: 0x41,
-                scan: 0x1e,
-                extended: false,
-            },
+            InputEvent::PointerButton { button: left, down: true, x: 5, y: 5 },
+            InputEvent::PointerWheel { x: 5, y: 5, dx: 0, dy: 1 },
+            InputEvent::Key { down: true, vk: 0x41, scan: 0x1e, extended: false },
             InputEvent::Text { text: "x".into() },
         ] {
             let (_, replies) = feed(&mut injector, &mut control, input(event), now);
-            assert!(
-                replies.is_empty(),
-                "an inactive connection is not told about grants"
-            );
+            assert!(replies.is_empty(), "an inactive connection is not told about grants");
         }
         // Inactive releases of input this connection never pressed: no-ops.
-        feed(
-            &mut injector,
-            &mut control,
-            input(InputEvent::PointerButton {
-                button: left,
-                down: false,
-                x: 9,
-                y: 9,
-            }),
-            now,
-        );
-        feed(
-            &mut injector,
-            &mut control,
-            input(InputEvent::Key {
-                down: false,
-                vk: 0x5B,
-                scan: 0x5b,
-                extended: true,
-            }),
-            now,
-        );
-        assert!(
-            sink.0.borrow().is_empty(),
-            "inactive client injected nothing"
-        );
+        feed(&mut injector, &mut control, input(InputEvent::PointerButton { button: left, down: false, x: 9, y: 9 }), now);
+        feed(&mut injector, &mut control, input(InputEvent::Key { down: false, vk: 0x5B, scan: 0x5b, extended: true }), now);
+        assert!(sink.0.borrow().is_empty(), "inactive client injected nothing");
 
         // A press this connection still holds (as if left down when control
         // lapsed) is released in place: the client's coordinates are ignored
         // and the pointer does not move.
         injector.pointer_button(left, true, 1, 1);
         sink.0.borrow_mut().clear();
-        feed(
-            &mut injector,
-            &mut control,
-            input(InputEvent::PointerButton {
-                button: left,
-                down: false,
-                x: 30_000,
-                y: -30_000,
-            }),
-            now,
-        );
+        feed(&mut injector, &mut control, input(InputEvent::PointerButton { button: left, down: false, x: 30_000, y: -30_000 }), now);
         let sent = std::mem::take(&mut *sink.0.borrow_mut());
         assert_eq!(sent.len(), 1);
         let mi = unsafe { sent[0].Anonymous.mi };
-        assert_eq!(
-            mi.dwFlags, MOUSEEVENTF_LEFTUP,
-            "release only: no MOVE/ABSOLUTE"
-        );
+        assert_eq!(mi.dwFlags, MOUSEEVENTF_LEFTUP, "release only: no MOVE/ABSOLUTE");
         assert_eq!((mi.dx, mi.dy), (0, 0));
 
         // A second release of the same button is untracked now: a no-op.
-        feed(
-            &mut injector,
-            &mut control,
-            input(InputEvent::PointerButton {
-                button: left,
-                down: false,
-                x: 0,
-                y: 0,
-            }),
-            now,
-        );
+        feed(&mut injector, &mut control, input(InputEvent::PointerButton { button: left, down: false, x: 0, y: 0 }), now);
         drop(injector);
         assert!(sink.0.borrow().is_empty());
     }
@@ -2820,32 +1898,12 @@ mod tests {
     #[test]
     fn out_of_order_or_wrong_version_opening_is_rejected() {
         let st = state();
-        let step = Handshake::new().advance(
-            &mut Vec::new(),
-            &st,
-            "Default",
-            Message::ClientAuth { mac: "x".into() },
-        );
+        let step = Handshake::new().advance(&mut Vec::new(), &st, "Default", Message::ClientAuth { mac: "x".into() });
         assert!(matches!(step, HandshakeStep::Fail));
-        let step = Handshake::new().advance(
-            &mut Vec::new(),
-            &st,
-            "Default",
-            Message::ClientHello {
-                protocol: PROTOCOL_VERSION - 1,
-                client_nonce: generate_nonce(),
-            },
-        );
+        let step =
+            Handshake::new().advance(&mut Vec::new(), &st, "Default", Message::ClientHello { protocol: PROTOCOL_VERSION - 1, client_nonce: generate_nonce() });
         assert!(matches!(step, HandshakeStep::Fail));
-        let step = Handshake::new().advance(
-            &mut Vec::new(),
-            &st,
-            "Default",
-            Message::ClientHello {
-                protocol: PROTOCOL_VERSION,
-                client_nonce: "short".into(),
-            },
-        );
+        let step = Handshake::new().advance(&mut Vec::new(), &st, "Default", Message::ClientHello { protocol: PROTOCOL_VERSION, client_nonce: "short".into() });
         assert!(matches!(step, HandshakeStep::Fail));
     }
 }

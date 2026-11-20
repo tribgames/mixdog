@@ -18,14 +18,9 @@ pub fn capture_size(width: u32, height: u32, max_width: u32) -> Result<(u32, u32
     let longest = width.max(height);
     let at = |edge: u32| {
         let scale = (f64::from(edge) / f64::from(longest)).min(1.0);
-        (
-            ((f64::from(width) * scale).floor() as u32).max(1),
-            ((f64::from(height) * scale).floor() as u32).max(1),
-        )
+        (((f64::from(width) * scale).floor() as u32).max(1), ((f64::from(height) * scale).floor() as u32).max(1))
     };
-    let fits = |(w, h): (u32, u32)| {
-        w <= max_width && w.div_ceil(PATCH_SIZE) * h.div_ceil(PATCH_SIZE) <= MAX_PATCHES
-    };
+    let fits = |(w, h): (u32, u32)| w <= max_width && w.div_ceil(PATCH_SIZE) * h.div_ceil(PATCH_SIZE) <= MAX_PATCHES;
     let (mut low, mut high) = (1, longest.min(MAX_EDGE));
     while low < high {
         let edge = (low + high).div_ceil(2);
@@ -121,14 +116,7 @@ pub fn map_ocr(ocr: &mut Value, from: (f64, f64), to: (usize, usize)) {
             continue;
         };
         for row in rows {
-            for (key, k) in [
-                ("x", kx),
-                ("width", kx),
-                ("center_x", kx),
-                ("y", ky),
-                ("height", ky),
-                ("center_y", ky),
-            ] {
+            for (key, k) in [("x", kx), ("width", kx), ("center_x", kx), ("y", ky), ("height", ky), ("center_y", ky)] {
                 if let Some(number) = row.get(key).and_then(Value::as_f64) {
                     row[key] = Value::from((number * k).round() as i64);
                 }
@@ -222,18 +210,9 @@ mod tests {
     #[test]
     fn a_region_is_cut_to_the_surface() {
         let surface = (100, 50, 300, 200);
-        assert_eq!(
-            local_region(surface, Region { x: 120, y: 60, width: 40, height: 30 }),
-            Ok(Region { x: 20, y: 10, width: 40, height: 30 })
-        );
-        assert_eq!(
-            local_region(surface, Region { x: 90, y: 40, width: 50, height: 50 }),
-            Ok(Region { x: 0, y: 0, width: 40, height: 40 })
-        );
-        assert_eq!(
-            local_region(surface, Region { x: 380, y: 240, width: 100, height: 100 }),
-            Ok(Region { x: 280, y: 190, width: 20, height: 10 })
-        );
+        assert_eq!(local_region(surface, Region { x: 120, y: 60, width: 40, height: 30 }), Ok(Region { x: 20, y: 10, width: 40, height: 30 }));
+        assert_eq!(local_region(surface, Region { x: 90, y: 40, width: 50, height: 50 }), Ok(Region { x: 0, y: 0, width: 40, height: 40 }));
+        assert_eq!(local_region(surface, Region { x: 380, y: 240, width: 100, height: 100 }), Ok(Region { x: 280, y: 190, width: 20, height: 10 }));
     }
 
     #[test]
@@ -258,10 +237,7 @@ mod tests {
             "lines": [{ "text": "a", "x": 200, "y": 100, "width": 100, "height": 50 }],
         });
         map_ocr(&mut ocr, (2000.0, 1000.0), (1000, 500));
-        assert_eq!(
-            ocr["words"][0],
-            json!({ "text": "a", "x": 100, "y": 50, "width": 50, "height": 25, "center_x": 125, "center_y": 63 })
-        );
+        assert_eq!(ocr["words"][0], json!({ "text": "a", "x": 100, "y": 50, "width": 50, "height": 25, "center_x": 125, "center_y": 63 }));
         assert_eq!(ocr["lines"][0]["width"], 50);
         assert_eq!((ocr["image_width"].clone(), ocr["image_height"].clone()), (json!(1000), json!(500)));
     }

@@ -6,26 +6,26 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::board::{CancelAll, CancelNotice, JobBoard};
 use mixdog_agent::agent_tool::dispatch::{CloseParts, cancel_agent_tree, close_resolved, park_idle};
-use mixdog_agent::agent_tool::idle_release::IdleRelease;
 use mixdog_agent::agent_tool::error_text::{ErrorText, PlainErrorText};
-use mixdog_tools::orch::agent::ClosedView;
-use mixdog_tools::orch::agent::HideFailed;
 use mixdog_agent::agent_tool::host::CloseOptions;
 use mixdog_agent::agent_tool::host::OpenSession;
 use mixdog_agent::agent_tool::host::Registry;
-use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_agent::agent_tool::host::Sessions;
+use mixdog_agent::agent_tool::idle_release::IdleRelease;
+use mixdog_agent::agent_tool::scope::Scope;
 use mixdog_core_api::ids::ThreadId;
+use mixdog_tools::orch::agent::ClosedView;
+use mixdog_tools::orch::agent::HideFailed;
 use serde_json::Map;
 use serde_json::Value;
 
 use super::AgentRegistry;
-use crate::session::shell_jobs::OwnedShells;
-use mixdog_core_ports::ports::threads::ThreadState;
-use mixdog_tools::fs::ReadState;
 use crate::session::Clock;
 use crate::session::SessionDirectory;
 use crate::session::archive_trees::Mark;
+use crate::session::shell_jobs::OwnedShells;
+use mixdog_core_ports::ports::threads::ThreadState;
+use mixdog_tools::fs::ReadState;
 
 /// The statusline's per-agent route (`clearAgentStatuslineRoute`).
 pub trait AgentStatusline: Send + Sync {
@@ -110,7 +110,7 @@ impl AgentSessions {
         true
     }
 
-/// `closeAll(reason, { callerSessionId: owner, processExit })` (`close-flow/close-all.mjs:48-70`):
+    /// `closeAll(reason, { callerSessionId: owner, processExit })` (`close-flow/close-all.mjs:48-70`):
     /// every worker of `owner` is closed through the same close `agent close` runs, each failure
     /// kept (a worker that cannot close never stops the rest); then the owner's agent jobs still
     /// running are cancelled with `reason`; and unless `keep_rows` (a process exit leaves the rows
@@ -139,7 +139,13 @@ impl AgentSessions {
                 continue;
             }
             board.cancel(&job.task_id, reason, CancelNotice::Default);
-            report.closed.push(ClosedView { closed: true, tag: job.meta.tag.clone(), session_id: job.meta.session_id.clone(), task_id: Some(job.task_id.clone()), ..ClosedView::default() });
+            report.closed.push(ClosedView {
+                closed: true,
+                tag: job.meta.tag.clone(),
+                session_id: job.meta.session_id.clone(),
+                task_id: Some(job.task_id.clone()),
+                ..ClosedView::default()
+            });
         }
         if !keep_rows {
             let closed: std::collections::HashSet<String> = report.closed.iter().filter_map(|view| view.session_id.clone()).collect();
@@ -416,7 +422,6 @@ mod tests {
         assert_eq!(last_handoff(&none, &messages[..1]), "first");
         assert_eq!(last_handoff(&none, &[]), "");
     }
-
 
     /// `__close_all` (`daemon-agent-control.mjs:75-82`): the workers close first, the descendants
     /// are cancelled after that has settled.

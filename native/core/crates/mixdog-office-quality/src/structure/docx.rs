@@ -19,11 +19,8 @@ static HEADING_WORD: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"
 static LEVEL_DIGIT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("([1-9])", ""));
 static LITERAL_BULLET: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[•·●▪◦■*-]\s", ""));
 /// A total row is a total by its label.
-static TOTAL_LABEL: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^(?:(?:grand\s+total|sub\s*total|total)\b|(?:합계|총계|소계|계)(?:\s|$))", "i")
-});
-static FIGURE_TEXT: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^[\s+\-−₩$€¥]*[\d,.]+\s*(?:%|%p|[가-힣A-Za-z]{0,3})?\s*$", ""));
+static TOTAL_LABEL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:(?:grand\s+total|sub\s*total|total)\b|(?:합계|총계|소계|계)(?:\s|$))", "i"));
+static FIGURE_TEXT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[\s+\-−₩$€¥]*[\d,.]+\s*(?:%|%p|[가-힣A-Za-z]{0,3})?\s*$", ""));
 
 fn paragraph_size(paragraph: &Value) -> f64 {
     num0(nested(paragraph, "font", "size"))
@@ -210,9 +207,7 @@ struct Block<'a> {
 fn word_block_order<'a>(document: &'a Value, paragraphs: &'a [Value], tables: &'a [Value]) -> Vec<Block<'a>> {
     let listed = list(field(document, "blockOrder"));
     let mut blocks: Vec<(Block<'a>, f64)> = if listed.is_empty() {
-        let of = |kind: &'static str| {
-            move |entry: &'a Value| (Block { kind: Some(kind), index: field(entry, "index") }, num(field(entry, "start")))
-        };
+        let of = |kind: &'static str| move |entry: &'a Value| (Block { kind: Some(kind), index: field(entry, "index") }, num(field(entry, "start")));
         paragraphs.iter().map(of("paragraph")).chain(tables.iter().map(of("table"))).collect()
     } else {
         listed
@@ -245,21 +240,15 @@ fn orphan_heading_issues(document: &Value, paragraphs: &[Value], tables: &[Value
         if is_true(field(paragraph, "inTable")) || heading_level(Some(paragraph)).is_none() || trimmed(field(paragraph, "text")).is_empty() {
             continue;
         }
-        let next_block = order[position + 1..].iter().find(|entry| {
-            entry.kind == Some("table")
-                || !trimmed(paragraphs_by_index.get(num(entry.index)).and_then(|found| field(found, "text"))).is_empty()
-        });
-        let next = next_block.and_then(|found| {
-            if found.kind == Some("table") { tables_by_index.get(num(found.index)) } else { paragraphs_by_index.get(num(found.index)) }
-        });
+        let next_block = order[position + 1..]
+            .iter()
+            .find(|entry| entry.kind == Some("table") || !trimmed(paragraphs_by_index.get(num(entry.index)).and_then(|found| field(found, "text"))).is_empty());
+        let next = next_block
+            .and_then(|found| if found.kind == Some("table") { tables_by_index.get(num(found.index)) } else { paragraphs_by_index.get(num(found.index)) });
         let heading_page = page_of(paragraph);
         let next_page = next.map_or(f64::NAN, page_of);
         if next_block.is_none() || (heading_page > 0.0 && next_page > 0.0 && heading_page != next_page) {
-            issues.push(warn(
-                "orphan_heading",
-                Some(path_or(paragraph, "/body")),
-                "Heading is separated from the content it introduces.".into(),
-            ));
+            issues.push(warn("orphan_heading", Some(path_or(paragraph, "/body")), "Heading is separated from the content it introduces.".into()));
         }
     }
 }
@@ -270,11 +259,7 @@ fn paragraph_text_issues(content: &[&Value], issues: &mut Vec<Value>) {
     for paragraph in content {
         let body = text(field(paragraph, "text"));
         if length(&body) > 900 {
-            issues.push(warn(
-                "dense_paragraph",
-                Some(path_or(paragraph, "/body")),
-                "Paragraph is too dense for fast document scanning.".into(),
-            ));
+            issues.push(warn("dense_paragraph", Some(path_or(paragraph, "/body")), "Paragraph is too dense for fast document scanning.".into()));
         }
         // Prose set at heading size, read as the Office backend reads it (past 180 characters at 18 pt).
         if length(&body) > 180 && paragraph_size(paragraph) >= 18.0 {
@@ -375,8 +360,7 @@ pub fn review_docx_structure(document: &Value) -> Vec<Value> {
     let tables = list(field(document, "tables"));
     let content: Vec<&Value> =
         paragraphs.iter().filter(|paragraph| !is_true(field(paragraph, "inTable")) && !trimmed(field(paragraph, "text")).is_empty()).collect();
-    let headings: Vec<Heading<'_>> =
-        content.iter().filter_map(|paragraph| heading_level(Some(*paragraph)).map(|level| (*paragraph, level))).collect();
+    let headings: Vec<Heading<'_>> = content.iter().filter_map(|paragraph| heading_level(Some(*paragraph)).map(|level| (*paragraph, level))).collect();
     review_heading_type(&content, &headings, &mut issues);
     heading_hierarchy_issues(&content, &headings, &mut issues);
     orphan_heading_issues(document, paragraphs, tables, &mut issues);

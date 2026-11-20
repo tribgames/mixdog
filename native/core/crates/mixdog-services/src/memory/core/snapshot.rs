@@ -5,14 +5,14 @@
 //! revision, so refreshes that finish out of order cannot roll the file back.
 
 use mixdog_js::{js_trim, js_words, to_number_of, value_to_string};
-use serde_json::Value;
 use mixdog_rt::{DurabilityIo, LaneToken};
+use serde_json::Value;
 use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
-use crate::memory::core::index;
 use crate::memory::core::access::Pool;
+use crate::memory::core::index;
 use crate::memory::error::Result;
 use crate::memory::pg::db::Db;
 use crate::model_install::fsio;
@@ -105,10 +105,7 @@ pub async fn read(lane: DurabilityIo, data_dir: &Path) -> Option<Snapshot> {
         version: VERSION,
         revision: finite_number(parsed.get("revision")).max(0.0) as u64,
         updated_at: finite_number(parsed.get("updatedAt")).max(0.0) as i64,
-        curated: parsed
-            .get("curated")
-            .and_then(Value::as_array)
-            .map_or_else(Vec::new, |rows| rows.iter().filter_map(normalized_entry).collect()),
+        curated: parsed.get("curated").and_then(Value::as_array).map_or_else(Vec::new, |rows| rows.iter().filter_map(normalized_entry).collect()),
     })
 }
 
@@ -139,11 +136,7 @@ pub async fn refresh(lane: DurabilityIo, db: &Db, data_dir: &Path, reserved: &st
         }
         let project_id: Option<String> = row.get(2);
         let agent_id: Option<String> = row.get(3);
-        let address = index::address(
-            &directory,
-            &Pool { project_id: project_id.as_deref(), agent_id: agent_id.as_deref() },
-            id,
-        );
+        let address = index::address(&directory, &Pool { project_id: project_id.as_deref(), agent_id: agent_id.as_deref() }, id);
         curated.push(SnapshotEntry {
             id: address.as_ref().map_or(0, |(position, _)| *position as i64),
             index_revision: address.map(|(_, revision)| revision),
@@ -241,8 +234,7 @@ pub fn session_payload(snapshot: &Snapshot, project_id: Option<&str>, agent_id: 
             Some(project) => (Some(project) == project_id).then_some(1),
         }
     };
-    let mut picked: Vec<(u8, &SnapshotEntry)> =
-        snapshot.curated.iter().filter_map(|entry| rank(entry).map(|rank| (rank, entry))).collect();
+    let mut picked: Vec<(u8, &SnapshotEntry)> = snapshot.curated.iter().filter_map(|entry| rank(entry).map(|rank| (rank, entry))).collect();
     picked.sort_by_key(|(rank, entry)| (*rank, entry.id));
     SessionPayload {
         project_id: project_id.map(str::to_owned),

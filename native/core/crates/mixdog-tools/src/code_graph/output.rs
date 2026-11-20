@@ -1,10 +1,7 @@
 //! What `executeCodeGraphTool` wraps around every answer (`code-graph/dispatch.mjs`): the warning
 //! about files the graph could not index, then the output budget (`capLineOrientedToolOutput`
 //! with `_codeGraphBudgetFooter`, `shared/tool-output-limit.mjs`).
-#![allow(
-    clippy::disallowed_methods,
-    reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)"
-)]
+#![allow(clippy::disallowed_methods, reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)")]
 
 use std::path::{Path, PathBuf};
 
@@ -192,20 +189,23 @@ fn page_footer(args: &Args, kept: &[&str], omitted: &[&str], cap: usize) -> Opti
         if resume > total && recovery.is_none() {
             continue;
         }
-        let file = (0..at).rev().filter_map(lines).find_map(|l| {
-            l.strip_prefix("# file ").or_else(|| l.strip_prefix("# callers "))
-                .filter(|f| files.iter().any(|candidate| candidate == *f))
-        });
+        let file = (0..at)
+            .rev()
+            .filter_map(lines)
+            .find_map(|l| l.strip_prefix("# file ").or_else(|| l.strip_prefix("# callers ")).filter(|f| files.iter().any(|candidate| candidate == *f)));
         let mut target = String::new();
         if symbols.len() > 1 {
             target.push_str(&format!(" symbols:[{}]", Value::from(symbol)));
         }
-        if files.len() > 1 && let Some(file) = file {
+        if files.len() > 1
+            && let Some(file) = file
+        {
             target.push_str(&format!(" files:[{}]", Value::from(file)));
         }
-        if federated && files.is_empty()
-            && let Some(cwd) = (0..at).rev().filter_map(lines)
-                .find_map(|line| line.strip_prefix("# project ")?.strip_suffix(']')?.rsplit_once(" [").map(|(_, cwd)| cwd))
+        if federated
+            && files.is_empty()
+            && let Some(cwd) =
+                (0..at).rev().filter_map(lines).find_map(|line| line.strip_prefix("# project ")?.strip_suffix(']')?.rsplit_once(" [").map(|(_, cwd)| cwd))
         {
             target.push_str(&format!(" cwd:{}", Value::from(cwd)));
         }
@@ -253,12 +253,7 @@ fn footer(args: &Args, kept: &[&str], cap: usize) -> String {
             }
         }
         let rest = Value::from(targets[current..].to_vec()).to_string();
-        return cap_marker(
-            &limit,
-            &format!("{label} from index {current} not fully shown"),
-            None,
-            &format!("re-query {label}={rest} separately"),
-        );
+        return cap_marker(&limit, &format!("{label} from index {current} not fully shown"), None, &format!("re-query {label}={rest} separately"));
     }
     let shown = match targets.first() {
         Some(target) => format!("remainder for {}={} omitted", &label[..label.len() - 1], Value::from(target.as_str())),
@@ -332,7 +327,8 @@ mod tests {
         let answer = numbered_lines(20);
         let args = Args::parse(&json!({ "mode": "symbols", "files": "src/a.mjs" }));
         let capped = cap_to(answer.clone(), 400, &args);
-        let footer = "[output capped at 400 bytes; remainder for file=\"src/a.mjs\" omitted; narrow: add file/path scope, a narrower mode, or a smaller depth/limit]";
+        let footer =
+            "[output capped at 400 bytes; remainder for file=\"src/a.mjs\" omitted; narrow: add file/path scope, a narrower mode, or a smaller depth/limit]";
         let kept = capped.strip_suffix(footer).and_then(|body| body.strip_suffix('\n')).expect("the footer closes the answer");
         assert!(capped.len() <= 400);
         assert!(answer.starts_with(kept) && kept.lines().count() >= 1 && kept.lines().count() < 20, "{capped}");
@@ -354,7 +350,9 @@ mod tests {
         assert!(capped.contains("# find_symbol fn2"), "{capped}");
         assert!(!capped.contains("# find_symbol fn3"), "{capped}");
         assert!(
-            capped.ends_with(&format!("[output capped at {cap} bytes; symbols from index 1 not fully shown; narrow: re-query symbols=[\"fn2\",\"fn3\"] separately]")),
+            capped.ends_with(&format!(
+                "[output capped at {cap} bytes; symbols from index 1 not fully shown; narrow: re-query symbols=[\"fn2\",\"fn3\"] separately]"
+            )),
             "{capped}"
         );
     }

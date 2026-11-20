@@ -31,14 +31,14 @@ use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value, json};
 use tokio_util::sync::CancellationToken;
 
-use crate::run_host::run_seams::EnvReader;
-use mixdog_core_config::config::agent_disabled;
-use crate::run_host::run_seams::token_calibration;
-use mixdog_core_base::support::on_lane;
-use mixdog_core_run::run_host::hop_host::ConfigSnapshot;
 use crate::run_host::retry::{RandomJitter, TimerWait};
-use mixdog_core_run::run_host::session_context_meta::session_context_meta_with;
+use crate::run_host::run_seams::EnvReader;
+use crate::run_host::run_seams::token_calibration;
 use crate::run_host::summary_routes::{MaintainerRoute, SessionRoute, SummaryHost, maintainer_effort};
+use mixdog_core_base::support::on_lane;
+use mixdog_core_config::config::agent_disabled;
+use mixdog_core_run::run_host::hop_host::ConfigSnapshot;
+use mixdog_core_run::run_host::session_context_meta::session_context_meta_with;
 
 /// The Maintainer's agent id (the settings role of `cycle1-agent`'s `maintKey: memory`).
 const MAINTAINER_ROLE: &str = "maintainer";
@@ -285,7 +285,9 @@ mod tests {
     /// `String(cfg.summaryModel || '').trim() || String(process.env.MIXDOG_AGENT_COMPACT_SUMMARY_MODEL || '').trim()`, else null.
     #[test]
     fn the_summary_model_is_the_sessions_configured_one_then_the_environments() {
-        let header = |compaction: Value| -> Header { json!({ "provider": "p", "model": "m", "compaction": compaction }).as_object().cloned().unwrap().into_iter().collect() };
+        let header = |compaction: Value| -> Header {
+            json!({ "provider": "p", "model": "m", "compaction": compaction }).as_object().cloned().unwrap().into_iter().collect()
+        };
         let none = |_: &str| None;
         let env = |name: &str| (name == "MIXDOG_AGENT_COMPACT_SUMMARY_MODEL").then(|| "  env-model ".to_owned());
         assert_eq!(handoff_summary_model(&header(json!({ "summaryModel": " haiku " })), &none).as_deref(), Some("haiku"));

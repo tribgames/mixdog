@@ -95,12 +95,7 @@ pub struct SessionWakeHost {
 impl SessionWakeHost {
     /// `routes`: the runtime's route context (`resolveRoute(config, {})`); `messages`: the home
     /// chats' delivery (`deliverAgentMessage`); `close`: the tombstoning close.
-    pub fn new(
-        directory: Arc<SessionDirectory>,
-        close: Arc<SessionClose>,
-        routes: Arc<dyn RouteContext>,
-        messages: Arc<AgentHomeDelivery>,
-    ) -> Self {
+    pub fn new(directory: Arc<SessionDirectory>, close: Arc<SessionClose>, routes: Arc<dyn RouteContext>, messages: Arc<AgentHomeDelivery>) -> Self {
         Self { close, directory, routes, messages }
     }
 }

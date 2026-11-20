@@ -222,9 +222,7 @@ impl Xref {
     pub fn open(data: Arc<[u8]>, opts: XrefOptions) -> Result<Xref> {
         let mut stream = ByteStream::new(data);
         if stream.length() == 0 {
-            return Err(PdfError::InvalidPdf(
-                "The PDF file is empty, i.e. its size is zero bytes.".to_owned(),
-            ));
+            return Err(PdfError::InvalidPdf("The PDF file is empty, i.e. its size is zero bytes.".to_owned()));
         }
         let version = check_header(&mut stream);
         let linearization = match Linearization::create(&stream, &opts.guard) {
@@ -251,14 +249,7 @@ impl Xref {
             root: None,
             encrypt: None,
         };
-        let xref = Xref {
-            stream,
-            opts,
-            state: RefCell::new(state),
-            version,
-            linearization,
-            start_xref,
-        };
+        let xref = Xref { stream, opts, state: RefCell::new(state), version, linearization, start_xref };
         match xref.parse(false) {
             Ok(()) => Ok(xref),
             Err(PdfError::XRefParse) => {
@@ -320,22 +311,12 @@ impl Xref {
 
     /// The entry of object `num`, when it is in use.
     pub fn entry(&self, num: i64) -> Option<Entry> {
-        self.state
-            .borrow()
-            .entries
-            .get(&num)
-            .filter(|e| !e.free && e.offset != 0)
-            .copied()
+        self.state.borrow().entries.get(&num).filter(|e| !e.free && e.offset != 0).copied()
     }
 
     /// One past the highest object number the table knows.
     pub fn entries_len(&self) -> i64 {
-        self.state
-            .borrow()
-            .entries
-            .keys()
-            .next_back()
-            .map_or(0, |n| n + 1)
+        self.state.borrow().entries.keys().next_back().map_or(0, |n| n + 1)
     }
 
     /// `countUpdatesAfter`: the cross-reference sections (not xref streams of hybrid files) at or after `offset`;
@@ -346,13 +327,7 @@ impl Xref {
             return None;
         }
         let relative = offset - self.stream.start as i64;
-        Some(
-            state
-                .xref_section_offsets
-                .iter()
-                .filter(|o| **o >= relative && !state.xref_stms.contains(*o))
-                .count(),
-        )
+        Some(state.xref_section_offsets.iter().filter(|o| **o >= relative && !state.xref_stms.contains(*o)).count())
     }
 
     // ---- lookups -------------------------------------------------------------------------------------------------
@@ -404,11 +379,7 @@ impl Xref {
     fn cipher_for(&self, num: i64, generation: i64) -> Option<Cipher> {
         let decryptor = self.state.borrow().encrypt.clone()?;
         let decryptor = decryptor.for_object(num, generation).unwrap_or(decryptor);
-        Some(Cipher {
-            decryptor,
-            num,
-            generation,
-        })
+        Some(Cipher { decryptor, num, generation })
     }
 
     /// `fetch`: the object `r` names. A missing or free entry is [`Obj::Null`], a reference met while it is being
@@ -438,11 +409,7 @@ impl Xref {
             }
             state.pending.insert(r);
         }
-        let result = if entry.uncompressed {
-            self.fetch_uncompressed(r, entry, suppress_encryption)
-        } else {
-            self.fetch_compressed(r, entry)
-        };
+        let result = if entry.uncompressed { self.fetch_uncompressed(r, entry, suppress_encryption) } else { self.fetch_compressed(r, entry) };
         self.state.borrow_mut().pending.remove(&r);
         Ok(tag_obj_id(result?, r))
     }
@@ -455,26 +422,14 @@ impl Xref {
             let fallback = self.state.borrow().generation_fallback;
             if fallback && entry.generation < generation {
                 tracing::warn!("{message}");
-                return self.fetch_uncompressed(
-                    Ref::new(num, entry.generation),
-                    entry,
-                    suppress_encryption,
-                );
+                return self.fetch_uncompressed(Ref::new(num, entry.generation), entry, suppress_encryption);
             }
             return Err(PdfError::XRefEntry(message));
         }
         let bad = || PdfError::XRefEntry(format!("Bad (uncompressed) XRef entry: {r}"));
-        let offset = usize::try_from(entry.offset)
-            .ok()
-            .and_then(|o| o.checked_add(self.stream.start))
-            .ok_or_else(bad)?;
+        let offset = usize::try_from(entry.offset).ok().and_then(|o| o.checked_add(self.stream.start)).ok_or_else(bad)?;
         let stream = self.stream.make_sub_stream(offset, None);
-        let mut parser = Parser::new(
-            Lexer::new(stream, self.opts.guard.clone()),
-            Some(self),
-            true,
-            false,
-        )?;
+        let mut parser = Parser::new(Lexer::new(stream, self.opts.guard.clone()), Some(self), true, false)?;
         let obj1 = parser.get_obj(None)?;
         let obj2 = parser.get_obj(None)?;
         let obj3 = parser.get_obj(None)?;
@@ -490,11 +445,7 @@ impl Xref {
             }
             return Err(bad());
         }
-        let cipher = if suppress_encryption {
-            None
-        } else {
-            self.cipher_for(num, generation)
-        };
+        let cipher = if suppress_encryption { None } else { self.cipher_for(num, generation) };
         let obj = parser.get_obj(cipher.as_ref())?;
         if !matches!(obj, Obj::Stream(_)) {
             self.state.borrow_mut().cache.insert(num, obj.clone());
@@ -508,37 +459,23 @@ impl Xref {
         let Obj::Stream(stream) = self.fetch(Ref::new(table_offset, 0), false)? else {
             return Err(PdfError::format("bad ObjStm stream"));
         };
-        let (Some(first), Some(n)) = (
-            self.get(&stream.dict, "First")?.as_int(),
-            self.get(&stream.dict, "N")?.as_int(),
-        ) else {
-            return Err(PdfError::format(
-                "invalid first and n parameters for ObjStm stream",
-            ));
+        let (Some(first), Some(n)) = (self.get(&stream.dict, "First")?.as_int(), self.get(&stream.dict, "N")?.as_int()) else {
+            return Err(PdfError::format("invalid first and n parameters for ObjStm stream"));
         };
         let n = to_index(n, "N of the ObjStm stream")?;
         let decoded = ByteStream::from_vec(stream.decode(&*self.opts.filters, guard)?);
-        let mut parser = Parser::new(
-            Lexer::new(decoded.clone(), guard.clone()),
-            Some(self),
-            true,
-            false,
-        )?;
+        let mut parser = Parser::new(Lexer::new(decoded.clone(), guard.clone()), Some(self), true, false)?;
         let mut nums: Vec<i64> = Vec::new();
         let mut offsets: Vec<i64> = Vec::new();
         for i in 0..n {
             guard.tick()?;
             let num = parser.get_obj(None)?;
             let Some(num) = num.as_int() else {
-                return Err(PdfError::format(format!(
-                    "invalid object number in the ObjStm stream: {num:?}"
-                )));
+                return Err(PdfError::format(format!("invalid object number in the ObjStm stream: {num:?}")));
             };
             let offset = parser.get_obj(None)?;
             let Some(offset) = offset.as_int() else {
-                return Err(PdfError::format(format!(
-                    "invalid object offset in the ObjStm stream: {offset:?}"
-                )));
+                return Err(PdfError::format(format!("invalid object offset in the ObjStm stream: {offset:?}")));
             };
             nums.push(num);
             if let Some(e) = self.state.borrow_mut().entries.get_mut(&num)
@@ -555,11 +492,7 @@ impl Xref {
         let mut objects: Vec<Obj> = Vec::with_capacity(n.min(4096));
         for i in 0..n {
             guard.tick()?;
-            let length = if i + 1 < n {
-                Some(offsets[i + 1] - offsets[i])
-            } else {
-                None
-            };
+            let length = if i + 1 < n { Some(offsets[i + 1] - offsets[i]) } else { None };
             if length.is_some_and(|l| l < 0) {
                 return Err(PdfError::format("Invalid offset in the ObjStm stream."));
             }
@@ -574,25 +507,13 @@ impl Xref {
             }
             let num = nums[i];
             let mut state = self.state.borrow_mut();
-            if state
-                .entries
-                .get(&num)
-                .is_some_and(|e| e.offset == table_offset && e.generation == i as i64)
-            {
+            if state.entries.get(&num).is_some_and(|e| e.offset == table_offset && e.generation == i as i64) {
                 state.cache.insert(num, obj);
             }
         }
         // The entry may have been given its index in the loop above.
-        let index = self
-            .state
-            .borrow()
-            .entries
-            .get(&r.num)
-            .map_or(entry.generation, |e| e.generation);
-        usize::try_from(index)
-            .ok()
-            .and_then(|i| objects.get(i).cloned())
-            .ok_or_else(|| PdfError::XRefEntry(format!("Bad (compressed) XRef entry: {r}")))
+        let index = self.state.borrow().entries.get(&r.num).map_or(entry.generation, |e| e.generation);
+        usize::try_from(index).ok().and_then(|i| objects.get(i).cloned()).ok_or_else(|| PdfError::XRefEntry(format!("Bad (compressed) XRef entry: {r}")))
     }
 
     // ---- reading the cross-reference data -------------------------------------------------------------------------
@@ -601,10 +522,7 @@ impl Xref {
         let mut state = self.state.borrow_mut();
         if !state.entries.contains_key(&num) {
             if state.entries.len() >= self.opts.guard.budget().max_objects {
-                return Err(PdfError::ResourceLimit(format!(
-                    "more than {} cross-reference entries",
-                    self.opts.guard.budget().max_objects
-                )));
+                return Err(PdfError::ResourceLimit(format!("more than {} cross-reference entries", self.opts.guard.budget().max_objects)));
             }
             state.entries.insert(num, entry);
         }
@@ -639,25 +557,16 @@ impl Xref {
         if let Obj::Dict(encrypt) = encrypt {
             let ids = self.get(&trailer, "ID")?;
             let file_id: Vec<u8> = match &ids {
-                Obj::Array(items) => items
-                    .first()
-                    .and_then(Obj::as_str)
-                    .map(<[u8]>::to_vec)
-                    .unwrap_or_default(),
+                Obj::Array(items) => items.first().and_then(Obj::as_str).map(<[u8]>::to_vec).unwrap_or_default(),
                 _ => Vec::new(),
             };
             let mut encrypt_dict = (*encrypt).clone();
             encrypt_dict.suppress_encryption = true;
             if let Some(Obj::Ref(r)) = trailer.get_raw("Encrypt") {
-                self.state
-                    .borrow_mut()
-                    .cache
-                    .insert(r.num, Obj::Dict(Arc::new(encrypt_dict.clone())));
+                self.state.borrow_mut().cache.insert(r.num, Obj::Dict(Arc::new(encrypt_dict.clone())));
             }
             let Some(factory) = self.opts.decryptor.clone() else {
-                return Err(PdfError::Unknown(
-                    "The document is encrypted and no decryptor was given.".to_owned(),
-                ));
+                return Err(PdfError::Unknown("The document is encrypted and no decryptor was given.".to_owned()));
             };
             let decryptor = factory.create(&encrypt_dict, &file_id, self)?;
             self.state.borrow_mut().encrypt = Some(decryptor);
@@ -715,23 +624,14 @@ impl Xref {
         if let Some(top) = self.state.borrow().top_dict.clone() {
             return Ok(Some(top));
         }
-        if recovery_mode {
-            Ok(None)
-        } else {
-            Err(PdfError::XRefParse)
-        }
+        if recovery_mode { Ok(None) } else { Err(PdfError::XRefParse) }
     }
 
     fn read_section(&self, start_xref: i64) -> Result<()> {
         let at = to_index(start_xref, "XRef offset")?.saturating_add(self.stream.start);
         let mut stream = self.stream.clone();
         stream.pos = at;
-        let mut parser = Parser::new(
-            Lexer::new(stream, self.opts.guard.clone()),
-            Some(self),
-            true,
-            false,
-        )?;
+        let mut parser = Parser::new(Lexer::new(stream, self.opts.guard.clone()), Some(self), true, false)?;
         let obj = parser.get_obj(None)?;
         let dict: Arc<Dict>;
         if obj.is_cmd("xref") {
@@ -744,9 +644,7 @@ impl Xref {
                 }
             }
         } else if obj.as_int().is_some() {
-            let stream = if parser.get_obj(None)?.as_int().is_some()
-                && parser.get_obj(None)?.is_cmd("obj")
-            {
+            let stream = if parser.get_obj(None)?.as_int().is_some() && parser.get_obj(None)?.is_cmd("obj") {
                 match parser.get_obj(None)? {
                     Obj::Stream(s) => Some(s),
                     _ => None,
@@ -762,10 +660,7 @@ impl Xref {
         } else {
             return Err(PdfError::format("Invalid XRef stream header"));
         }
-        self.state
-            .borrow_mut()
-            .xref_section_offsets
-            .insert(start_xref);
+        self.state.borrow_mut().xref_section_offsets.insert(start_xref);
         // pdf.js also queues the number of a reference the fetch leaves (an object that holds only `N G R`).
         match self.get(&dict, "Prev")? {
             Obj::Ref(r) => self.state.borrow_mut().queue.push(r.num),
@@ -795,9 +690,7 @@ impl Xref {
             }
             let count = parser.get_obj(None)?;
             let (Some(mut first), Some(count)) = (obj.as_int(), count.as_int()) else {
-                return Err(PdfError::format(
-                    "Invalid XRef table: wrong types in subsection header",
-                ));
+                return Err(PdfError::format("Invalid XRef table: wrong types in subsection header"));
             };
             let mut i: i64 = 0;
             while i < count {
@@ -810,39 +703,23 @@ impl Xref {
                     Obj::Cmd(c) if &**c == "n" => (false, true),
                     _ => (false, false),
                 };
-                let (Some(offset), Some(generation), true) =
-                    (offset.as_int(), generation.as_int(), free || uncompressed)
-                else {
-                    return Err(PdfError::format(format!(
-                        "Invalid entry in XRef subsection: {first}, {count}"
-                    )));
+                let (Some(offset), Some(generation), true) = (offset.as_int(), generation.as_int(), free || uncompressed) else {
+                    return Err(PdfError::format(format!("Invalid entry in XRef subsection: {first}, {count}")));
                 };
                 if i == 0 && free && first == 1 {
                     first = 0;
                 }
-                self.add_entry(
-                    first + i,
-                    Entry {
-                        offset,
-                        generation,
-                        free,
-                        uncompressed,
-                    },
-                )?;
+                self.add_entry(first + i, Entry { offset, generation, free, uncompressed })?;
                 i += 1;
             }
         }
         if self.state.borrow().entries.get(&0).is_some_and(|e| !e.free) {
-            return Err(PdfError::format(
-                "Invalid XRef table: unexpected first object",
-            ));
+            return Err(PdfError::format("Invalid XRef table: unexpected first object"));
         }
         match parser.get_obj(None)? {
             Obj::Dict(dict) => Ok(dict),
             Obj::Stream(stream) => Ok(stream.dict.clone()),
-            _ => Err(PdfError::format(
-                "Invalid XRef table: could not parse trailer dictionary",
-            )),
+            _ => Err(PdfError::format("Invalid XRef table: could not parse trailer dictionary")),
         }
     }
 
@@ -864,23 +741,14 @@ impl Xref {
         let data = stream.decode(&*self.opts.filters, guard)?;
         let mut data = ByteStream::from_vec(data);
         for pair in ranges.chunks(2) {
-            let (Some(first), Some(n)) = (pair[0].as_int(), pair.get(1).and_then(Obj::as_int))
-            else {
+            let (Some(first), Some(n)) = (pair[0].as_int(), pair.get(1).and_then(Obj::as_int)) else {
                 return Err(PdfError::format("Invalid XRef range fields"));
             };
             let [Some(type_width), Some(offset_width), Some(generation_width)] = widths else {
-                return Err(PdfError::format(format!(
-                    "Invalid XRef entry fields length: {first}, {n}"
-                )));
+                return Err(PdfError::format(format!("Invalid XRef entry fields length: {first}, {n}")));
             };
-            if type_width < 0
-                || offset_width < 0
-                || generation_width < 0
-                || type_width + offset_width + generation_width == 0
-            {
-                return Err(PdfError::format(format!(
-                    "Invalid XRef entry fields length: {first}, {n}"
-                )));
+            if type_width < 0 || offset_width < 0 || generation_width < 0 || type_width + offset_width + generation_width == 0 {
+                return Err(PdfError::format(format!("Invalid XRef entry fields length: {first}, {n}")));
             }
             let mut i: i64 = 0;
             while i < n {
@@ -912,12 +780,7 @@ impl Xref {
                     }
                     generation = (generation << 8) | byte;
                 }
-                let mut entry = Entry {
-                    offset: i64::from(offset),
-                    generation: i64::from(generation),
-                    free: false,
-                    uncompressed: false,
-                };
+                let mut entry = Entry { offset: i64::from(offset), generation: i64::from(generation), free: false, uncompressed: false };
                 match kind {
                     0 => entry.free = true,
                     1 => entry.uncompressed = true,

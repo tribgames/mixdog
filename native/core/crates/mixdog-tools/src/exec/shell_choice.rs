@@ -35,11 +35,8 @@ pub(crate) async fn default_program(
     }
     use mixdog_rt::LaneToken;
     let probe = source.clone();
-    let program = lane
-        .submit(cancel, move |_lane| probe.resolve_default())
-        .map_err(|_| "the lane is full".to_owned())?
-        .await
-        .map_err(|error| error.to_string())?;
+    let program =
+        lane.submit(cancel, move |_lane| probe.resolve_default()).map_err(|_| "the lane is full".to_owned())?.await.map_err(|error| error.to_string())?;
     source.keep_default(configured, program.clone());
     Ok(program)
 }
@@ -50,10 +47,7 @@ async fn probe_on_lane(
     probe: impl FnOnce() -> bool + Send + 'static,
 ) -> Result<bool, String> {
     use mixdog_rt::LaneToken;
-    lane.submit(cancel, move |_lane| probe())
-        .map_err(|_| "the lane is full".to_owned())?
-        .await
-        .map_err(|error| error.to_string())
+    lane.submit(cancel, move |_lane| probe()).map_err(|_| "the lane is full".to_owned())?.await.map_err(|error| error.to_string())
 }
 
 /// `gitBashFromKnownWindowsRoots`: the Git-for-Windows install roots of the machine and of the user, then the fixed ones.
@@ -136,7 +130,14 @@ mod tests {
         let probe_ran = ran.clone();
         let cancel = tokio_util::sync::CancellationToken::new();
         cancel.cancel();
-        assert!(probe_on_lane(mixdog_rt::testing::tokens().spawn_io, &cancel, move || { probe_ran.store(true, Ordering::SeqCst); true }).await.is_err());
+        assert!(
+            probe_on_lane(mixdog_rt::testing::tokens().spawn_io, &cancel, move || {
+                probe_ran.store(true, Ordering::SeqCst);
+                true
+            })
+            .await
+            .is_err()
+        );
         assert!(!ran.load(Ordering::SeqCst));
     }
     /// The default program of one spawn.
@@ -197,7 +198,6 @@ mod tests {
         assert!(bash_request_is_posix(false));
     }
 
-
     /// The shell a spawn uses: off Windows always the platform's default; on Windows the setting (stored trimmed, as the
     /// daemon's `ConfiguredShell` does) wins over `MIXDOG_SHELL`, which is used as written, and `bash` names no shell of
     /// the Windows family so it falls back to the default.
@@ -237,28 +237,25 @@ mod tests {
     }
 }
 
-
 /// How long a Git Bash lookup that found nothing is kept (`SHELL_RESOLUTION_MISS_TTL_MS`): a later install is found again.
 const BASH_MISS_TTL: std::time::Duration = std::time::Duration::from_secs(30);
 /// The last Git Bash lookup: whether it found one, and when it was made.
 static GIT_BASH: std::sync::Mutex<Option<(bool, std::time::Instant)>> = std::sync::Mutex::new(None);
 /// The runtime boundary of the Git Bash probe: a cache hit never waits on a probing thread's mutex, while a miss probes
 /// on the existing spawn lane with this call's cancellation token. The lane job is awaited, never detached.
-pub(crate) async fn bash_request_is_posix_on(
-    windows: bool,
-    lane: mixdog_rt::SpawnIo,
-    cancel: &tokio_util::sync::CancellationToken,
-) -> Result<bool, String> {
-    if !windows { return Ok(true); }
-    let read = |slot: &Option<(bool, std::time::Instant)>| {
-        slot.as_ref().filter(|(found, at)| *found || at.elapsed() < BASH_MISS_TTL).map(|(found, _)| *found)
-    };
+pub(crate) async fn bash_request_is_posix_on(windows: bool, lane: mixdog_rt::SpawnIo, cancel: &tokio_util::sync::CancellationToken) -> Result<bool, String> {
+    if !windows {
+        return Ok(true);
+    }
+    let read = |slot: &Option<(bool, std::time::Instant)>| slot.as_ref().filter(|(found, at)| *found || at.elapsed() < BASH_MISS_TTL).map(|(found, _)| *found);
     let cached = match GIT_BASH.try_lock() {
         Ok(slot) => read(&slot),
         Err(std::sync::TryLockError::Poisoned(error)) => read(&error.into_inner()),
         Err(std::sync::TryLockError::WouldBlock) => None,
     };
-    if let Some(found) = cached { return Ok(found); }
+    if let Some(found) = cached {
+        return Ok(found);
+    }
     probe_on_lane(lane, cancel, move || bash_request_is_posix(windows)).await
 }
 /// Whether a call that asks for the `bash` shell (a foreign CLI's `bash` name, `shell: 'bash'`) is read as POSIX syntax
@@ -290,11 +287,7 @@ fn path_entries(cwd: Option<std::path::PathBuf>, path: &str) -> Vec<std::path::P
 #[allow(clippy::disallowed_methods, reason = "Production lookup runs in bash_request_is_posix_on's SpawnIo job; tests use owned fixture paths.")]
 fn existing_on_path(entries: &[std::path::PathBuf], name: &str) -> Vec<std::path::PathBuf> {
     let mut seen = std::collections::HashSet::new();
-    entries
-        .iter()
-        .map(|entry| entry.join(name))
-        .filter(|candidate| seen.insert(candidate.to_string_lossy().to_lowercase()) && candidate.exists())
-        .collect()
+    entries.iter().map(|entry| entry.join(name)).filter(|candidate| seen.insert(candidate.to_string_lossy().to_lowercase()) && candidate.exists()).collect()
 }
 /// The Git-for-Windows launcher under an install root: `bin\bash.exe`, then `usr\bin\bash.exe`.
 #[allow(clippy::disallowed_methods, reason = "Production lookup runs in bash_request_is_posix_on's SpawnIo job; tests use owned fixture paths.")]

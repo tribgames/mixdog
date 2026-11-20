@@ -452,7 +452,6 @@ impl Drop for ExternalExcel {
     }
 }
 
-
 /// `process.platform === 'win32' && process.env.MIXDOG_TEST_LIVE_OFFICE === '1'`.
 fn enabled() -> bool {
     std::env::var("MIXDOG_TEST_LIVE_OFFICE").is_ok_and(|value| value == "1")
@@ -478,7 +477,16 @@ impl LocalBrowser {
         std::fs::create_dir_all(&profile).expect("a browser profile folder");
         let mut command = Command::new(Self::installed());
         command
-            .args(["--headless=new", "--remote-debugging-port=0", "--no-first-run", "--no-default-browser-check", "--force-color-profile=srgb", "--font-render-hinting=none", "--hide-scrollbars", "--mute-audio"])
+            .args([
+                "--headless=new",
+                "--remote-debugging-port=0",
+                "--no-first-run",
+                "--no-default-browser-check",
+                "--force-color-profile=srgb",
+                "--font-render-hinting=none",
+                "--hide-scrollbars",
+                "--mute-audio",
+            ])
             .arg(format!("--user-data-dir={}", profile.display()))
             .stdin(Stdio::null())
             .stdout(Stdio::null())
@@ -526,7 +534,8 @@ impl Scratch {
     fn sweep_stale() {
         let Ok(entries) = std::fs::read_dir(std::env::temp_dir()) else { return };
         for entry in entries.flatten() {
-            let old = entry.metadata().and_then(|meta| meta.modified()).ok().and_then(|at| at.elapsed().ok()).is_some_and(|age| age > Duration::from_secs(3600));
+            let old =
+                entry.metadata().and_then(|meta| meta.modified()).ok().and_then(|at| at.elapsed().ok()).is_some_and(|age| age > Duration::from_secs(3600));
             if old && entry.file_name().to_string_lossy().starts_with(SCRATCH_PREFIX) {
                 let _ = std::fs::remove_dir_all(entry.path());
             }
@@ -586,7 +595,13 @@ impl Live {
 
     /// `await executeOfficeTool(args, { cwd })`: the tool result as it came back.
     pub fn raw(&self, args: Value) -> Value {
-        let (result, _changes) = self.runtime.block_on(self.engine.execute(args, self.cwd.path().to_path_buf(), Some(self.cwd.path().join("mixdog-data")), None, CancellationToken::new()));
+        let (result, _changes) = self.runtime.block_on(self.engine.execute(
+            args,
+            self.cwd.path().to_path_buf(),
+            Some(self.cwd.path().join("mixdog-data")),
+            None,
+            CancellationToken::new(),
+        ));
         result
     }
 
@@ -629,11 +644,13 @@ impl Live {
 impl ExternalExcel {
     /// Starts the PowerShell host (`-Sta`, no console window) and waits up to twenty seconds for it to say READY.
     pub fn start(live: &Live, path: &str) -> Self {
-        let script = live.dir().join(format!("external-excel-{}.ps1", live.dir().file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()));
+        let script =
+            live.dir().join(format!("external-excel-{}.ps1", live.dir().file_name().map(|name| name.to_string_lossy().into_owned()).unwrap_or_default()));
         let mut body = vec![0xEF, 0xBB, 0xBF];
         body.extend_from_slice(EXTERNAL_EXCEL.as_bytes());
         std::fs::write(&script, body).expect("the host script");
-        let powershell = std::env::var("SystemRoot").map_or_else(|_| PathBuf::from("powershell.exe"), |root| PathBuf::from(root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"));
+        let powershell = std::env::var("SystemRoot")
+            .map_or_else(|_| PathBuf::from("powershell.exe"), |root| PathBuf::from(root).join(r"System32\WindowsPowerShell\v1.0\powershell.exe"));
         let mut command = Command::new(powershell);
         command.args(["-NoLogo", "-NoProfile", "-NonInteractive", "-Sta", "-ExecutionPolicy", "Bypass", "-File"]).arg(&script).arg(path);
         std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);

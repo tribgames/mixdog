@@ -47,8 +47,8 @@ pub use self::oauth::OAUTH_FLOW_TTL;
 pub use self::oauth::OAUTH_POLL;
 pub use self::oauth::OAuthKind;
 use self::targets::Target;
-use self::targets::target_of;
 pub use self::targets::has_action;
+use self::targets::target_of;
 use crate::action_route::Resolved;
 use crate::action_route::RouteContext;
 use crate::action_route::RouteError;
@@ -88,9 +88,13 @@ pub struct StoreOptions {
 pub enum ConnectionState {
     Ready,
     /// The socket closed; `attempt` counts the ladder's rounds since the last connection.
-    Reconnecting { attempt: u32 },
+    Reconnecting {
+        attempt: u32,
+    },
     /// Terminal: the store was disposed or the core refused the version.
-    Closed { reason: String },
+    Closed {
+        reason: String,
+    },
 }
 
 /// What a store tells its subscribers.
@@ -99,16 +103,24 @@ pub enum StoreEvent {
     /// A state was published (at most one per [`SessionStore::tick`]).
     State(Arc<Value>),
     /// A message for the transcript or the notice line; `level` is `info`, `warn` or `error` (Node's tone).
-    Notice { text: String, level: String },
+    Notice {
+        text: String,
+        level: String,
+    },
     /// A toast that appeared in the state's `toasts` (the core owns its lifetime).
     Toast(Value),
     ConnectionStatus(ConnectionState),
     /// The setup tool asks this UI to run a settings command: `command` without its slash, `seq` rising with every request.
-    UiOpenRequest { command: String, seq: u64 },
+    UiOpenRequest {
+        command: String,
+        seq: u64,
+    },
     /// A prompt handed back to this composer (`promptRestore` of the state, once per id).
     PromptRestore(Value),
     /// The core stopped following the session for this connection (its subscription could not be restored).
-    SessionLost { reason: String },
+    SessionLost {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, thiserror::Error)]
@@ -505,9 +517,7 @@ impl SessionStore {
         let Some(Target::Method(Resolved { method, params: filter })) = target_of("listSessions", args, thread.as_deref(), false) else {
             return Err(StoreError::Protocol("listSessions has no request".to_owned()));
         };
-        let take_rows = |page: &mut Value| {
-            page.get_mut("data").and_then(Value::as_array_mut).map(std::mem::take).unwrap_or_default()
-        };
+        let take_rows = |page: &mut Value| page.get_mut("data").and_then(Value::as_array_mut).map(std::mem::take).unwrap_or_default();
         if let Some(page) = args.first().map(|options| &options["page"]).filter(|page| page.is_object()) {
             let mut params = filter;
             for key in ["limit", "cursor"] {
@@ -626,11 +636,7 @@ impl Drop for SessionStore {
 
 /// The folder the session works in: the options' `cwd`, else the folder this process runs in (`options.cwd || process.cwd()`).
 fn project_path(options: &StoreOptions) -> Option<String> {
-    options
-        .cwd
-        .clone()
-        .filter(|cwd| !cwd.is_empty())
-        .or_else(|| std::env::current_dir().ok().map(|dir| dir.to_string_lossy().into_owned()))
+    options.cwd.clone().filter(|cwd| !cwd.is_empty()).or_else(|| std::env::current_dir().ok().map(|dir| dir.to_string_lossy().into_owned()))
 }
 
 /// The `thread/start` params of the Node `createSession` options: the project of the folder the session works in.
@@ -691,10 +697,7 @@ mod tests {
             })
         );
         let here = std::env::current_dir().expect("a working folder").to_string_lossy().into_owned();
-        assert_eq!(
-            start_params(&StoreOptions::default()),
-            json!({ "kind": "project", "projectPath": here, "session": { "toolProfile": "interactive" } })
-        );
+        assert_eq!(start_params(&StoreOptions::default()), json!({ "kind": "project", "projectPath": here, "session": { "toolProfile": "interactive" } }));
     }
 
     #[test]

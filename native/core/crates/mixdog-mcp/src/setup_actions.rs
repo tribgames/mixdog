@@ -15,8 +15,8 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-use crate::connectors::CATALOG;
 use crate::connectors::Backend;
+use crate::connectors::CATALOG;
 use crate::connectors::connector;
 use crate::plugin_admin::clean;
 use crate::plugin_admin::truthy;
@@ -83,8 +83,7 @@ fn require_enum(value: &Value, allowed: &[&str], label: &str) -> Result<String, 
 
 /// `validateMcpInput`: no credential values, a plain URL, one transport.
 fn validate_mcp_input(server: &Value) -> Result<(), String> {
-    static KEY: std::sync::LazyLock<JsRegex> =
-        std::sync::LazyLock::new(|| JsRegex::new_static(r"authorization|cookie|api[-_]?key|token|password|secret", "i"));
+    static KEY: std::sync::LazyLock<JsRegex> = std::sync::LazyLock::new(|| JsRegex::new_static(r"authorization|cookie|api[-_]?key|token|password|secret", "i"));
     static QUERY_KEY: std::sync::LazyLock<JsRegex> = std::sync::LazyLock::new(|| JsRegex::new_static(r"key|token|password|secret|auth", "i"));
     for name in ["env", "headers"] {
         let Some(map) = field(server, name).as_object() else { continue };
@@ -204,11 +203,8 @@ pub fn mcp_rows(status: &Value) -> Value {
 /// `publicMcpConfig(row)`: a server's configuration without its raw connection values.
 fn public_mcp_config(row: &Value) -> Value {
     let config = field(row, "config");
-    let endpoint_origin = field(config, "url")
-        .as_str()
-        .filter(|u| !u.is_empty())
-        .and_then(|u| url::Url::parse(u).ok())
-        .map(|u| u.origin().ascii_serialization());
+    let endpoint_origin =
+        field(config, "url").as_str().filter(|u| !u.is_empty()).and_then(|u| url::Url::parse(u).ok()).map(|u| u.origin().ascii_serialization());
     let owner = field(row, "owner");
     let mut out = Map::new();
     out.insert("name".to_owned(), field(row, "name").clone());
@@ -233,10 +229,7 @@ fn public_mcp_config(row: &Value) -> Value {
     }
     let hidden: Vec<&str> = ["command", "args", "url", "env", "headers"].into_iter().filter(|k| config.get(*k).is_some()).collect();
     out.insert("hiddenFields".to_owned(), json!(hidden));
-    out.insert(
-        "note".to_owned(),
-        json!("Raw connection values may contain credentials and are not returned. Omitted fields are preserved when editing."),
-    );
+    out.insert("note".to_owned(), json!("Raw connection values may contain credentials and are not returned. Omitted fields are preserved when editing."));
     Value::Object(out)
 }
 
@@ -294,7 +287,9 @@ pub async fn run(action: &str, args: &Value, rt: &dyn SetupRuntime) -> Result<Va
             let kind = require_enum(field(args, "kind"), &["skills", "mcp", "plugins"], "kind")?;
             let projects: Vec<String> = match field(args, "projects") {
                 Value::Array(list) => list.iter().map(clean).collect(),
-                Value::Null => return Err(format!("Cannot read properties of {} (reading 'map')", if args.get("projects").is_some() { "null" } else { "undefined" })),
+                Value::Null => {
+                    return Err(format!("Cannot read properties of {} (reading 'map')", if args.get("projects").is_some() { "null" } else { "undefined" }));
+                }
                 _ => return Err("args.projects.map is not a function".to_owned()),
             };
             let name = require_text(field(args, "name"), "name")?;
@@ -335,7 +330,13 @@ pub async fn run(action: &str, args: &Value, rt: &dyn SetupRuntime) -> Result<Va
             let mut out = Map::new();
             out.insert("connector".to_owned(), json!(entry.id));
             out.insert("name".to_owned(), json!(entry.name));
-            out.insert("backend".to_owned(), json!(match entry.backend { Backend::OAuth { .. } => "oauth", Backend::ApiKey { .. } => "apiKey" }));
+            out.insert(
+                "backend".to_owned(),
+                json!(match entry.backend {
+                    Backend::OAuth { .. } => "oauth",
+                    Backend::ApiKey { .. } => "apiKey",
+                }),
+            );
             if let Some(server) = server {
                 out.insert("server".to_owned(), field(server, "name").clone());
             }
@@ -345,7 +346,10 @@ pub async fn run(action: &str, args: &Value, rt: &dyn SetupRuntime) -> Result<Va
                 json!(if connected {
                     format!("{} is already connected.", entry.name)
                 } else {
-                    format!("A connect card for {} is shown in this conversation; the user presses it (Desktop: Extensions → 커넥터). Check status mcp afterwards.", entry.name)
+                    format!(
+                        "A connect card for {} is shown in this conversation; the user presses it (Desktop: Extensions → 커넥터). Check status mcp afterwards.",
+                        entry.name
+                    )
                 }),
             );
             Ok(Value::Object(out))

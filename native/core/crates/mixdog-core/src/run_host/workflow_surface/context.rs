@@ -66,9 +66,6 @@ impl WorkflowPacks {
     /// agent scan finds an agent to delegate to.
     pub async fn active(&self, workflow_id: &str, has_agents: bool) -> Result<ActiveWorkflow, SurfaceFailure> {
         let pack = self.load(workflow_id).await?;
-        Ok(ActiveWorkflow {
-            summary: Value::Object(workflow_summary(pack.as_ref(), has_agents)),
-            pack_context: context_block_from_pack(pack.as_ref()),
-        })
+        Ok(ActiveWorkflow { summary: Value::Object(workflow_summary(pack.as_ref(), has_agents)), pack_context: context_block_from_pack(pack.as_ref()) })
     }
 }

@@ -132,7 +132,11 @@ fn facts(route: Value, onboarding: Value, workflows: Value) -> Arc<Facts> {
 async fn web_search_status_shows_the_route_and_is_on_unless_switched_off() {
     let on = Table::of(json!({ "config/getToolModuleSettings": { "webSearch": { "enabled": true } } }));
     let route = json!({ "provider": "openai", "model": "gpt-x" });
-    let build = |route: Value| move |service: SetupService, table: Arc<Table>, _: Config| service.with_status(Arc::new(WorkflowStatus::new(facts(route, Value::Null, Value::Null), table)));
+    let build = |route: Value| {
+        move |service: SetupService, table: Arc<Table>, _: Config| {
+            service.with_status(Arc::new(WorkflowStatus::new(facts(route, Value::Null, Value::Null), table)))
+        }
+    };
     assert_eq!(read(&on, "websearch", build(route.clone())).await, json!({ "domain": "websearch", "route": route, "enabled": true }));
     assert_eq!(read(&on, "websearch", build(Value::Null)).await["route"], Value::Null);
     let off = Table::of(json!({ "config/getToolModuleSettings": { "webSearch": { "enabled": false } } }));
@@ -145,7 +149,11 @@ async fn web_search_status_shows_the_route_and_is_on_unless_switched_off() {
 #[tokio::test]
 async fn onboarding_and_workflow_status_pass_the_owners_answer_and_default_to_empty() {
     let table = Table::of(json!({}));
-    let with = |onboarding: Value, workflows: Value| move |service: SetupService, table: Arc<Table>, _: Config| service.with_status(Arc::new(WorkflowStatus::new(facts(Value::Null, onboarding, workflows), table)));
+    let with = |onboarding: Value, workflows: Value| {
+        move |service: SetupService, table: Arc<Table>, _: Config| {
+            service.with_status(Arc::new(WorkflowStatus::new(facts(Value::Null, onboarding, workflows), table)))
+        }
+    };
     let shown = read(&table, "onboarding", with(json!({ "done": false, "step": "provider" }), Value::Null)).await;
     assert_eq!(shown, json!({ "domain": "onboarding", "done": false, "step": "provider" }));
     assert_eq!(read(&table, "onboarding", with(Value::Null, Value::Null)).await, json!({ "domain": "onboarding" }));
@@ -184,14 +192,20 @@ async fn features_status_keeps_the_switches_the_bridges_the_heartbeat_reactions_
     assert_eq!(shown["memory"], json!({ "enabled": true, "installed": true }), "only the switches show");
     assert_eq!(shown["autoEffort"], json!({ "enabled": true, "installed": true, "supported": true, "ready": false, "installing": true }));
     assert_eq!(shown["instructionFiles"], "agents", "a scalar setting passes through");
-    assert_eq!((shown["browser"].clone(), shown["computer"].clone(), shown["terminal"].clone()), (json!({ "active": true }), json!({ "active": false }), json!({ "active": true })));
+    assert_eq!(
+        (shown["browser"].clone(), shown["computer"].clone(), shown["terminal"].clone()),
+        (json!({ "active": true }), json!({ "active": false }), json!({ "active": true }))
+    );
     assert_eq!(shown["heartbeat"], json!({ "enabled": false, "intervalMinutes": 60 }));
     assert_eq!(shown["reactions"], json!({ "enabled": true }), "reactions are on until switched off");
     assert_eq!(shown["voice"], json!({ "enabled": true, "installed": false, "components": { "whisper": false }, "installing": true }));
 }
 
 fn live() -> Arc<Live> {
-    Arc::new(Live { route: json!({ "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true, "autoEffort": false, "effortOptions": ["low", "high"] }), positions: json!({ "sessions": [{ "id": "s1" }] }) })
+    Arc::new(Live {
+        route: json!({ "provider": "openai", "model": "gpt-x", "effort": "high", "fast": true, "autoEffort": false, "effortOptions": ["low", "high"] }),
+        positions: json!({ "sessions": [{ "id": "s1" }] }),
+    })
 }
 
 struct Live {

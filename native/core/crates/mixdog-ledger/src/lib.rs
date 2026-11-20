@@ -5,10 +5,7 @@
 
 // The ledger's SQL runs on the connection `SqliteStore` lends it; until `mixdog-store::sqlite`
 // lands, `rusqlite::Connection` is named directly (through `db`).
-#![allow(
-    clippy::disallowed_types,
-    reason = "mixdog-store::sqlite has not landed"
-)]
+#![allow(clippy::disallowed_types, reason = "mixdog-store::sqlite has not landed")]
 
 pub mod append;
 pub mod backup;
@@ -30,8 +27,8 @@ pub mod refresh;
 pub mod repair;
 mod reply;
 pub mod requests;
-mod route_merge;
 pub mod rollup;
+mod route_merge;
 pub mod schema;
 pub mod stats;
 pub mod sums;

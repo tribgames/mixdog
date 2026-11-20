@@ -79,7 +79,10 @@ fn answer() -> String {
     let sse = |name: &str, data: Value| format!("event: {name}\ndata: {data}\n\n");
     let usage = json!({ "input_tokens": 5, "output_tokens": 1, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0 });
     [
-        sse("message_start", json!({ "type": "message_start", "message": { "id": "m", "type": "message", "role": "assistant", "model": MODEL, "content": [], "usage": usage } })),
+        sse(
+            "message_start",
+            json!({ "type": "message_start", "message": { "id": "m", "type": "message", "role": "assistant", "model": MODEL, "content": [], "usage": usage } }),
+        ),
         sse("content_block_start", json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "text", "text": "" } })),
         sse("content_block_delta", json!({ "type": "content_block_delta", "index": 0, "delta": { "type": "text_delta", "text": ANSWER } })),
         sse("content_block_stop", json!({ "type": "content_block_stop", "index": 0 })),
@@ -134,7 +137,14 @@ struct Advertised;
 #[async_trait]
 impl ProviderConfigSource for Advertised {
     async fn public(&self) -> Result<(Vec<(String, w::ProxyProviderInfo)>, bool), String> {
-        let info = w::ProxyProviderInfo { enabled: true, kind: None, name: None, hidden_models: None, auth_state: Some("present".into()), model_proxy: w::ProxyTraits::default() };
+        let info = w::ProxyProviderInfo {
+            enabled: true,
+            kind: None,
+            name: None,
+            hidden_models: None,
+            auth_state: Some("present".into()),
+            model_proxy: w::ProxyTraits::default(),
+        };
         Ok((vec![(PROVIDER.to_owned(), info)], true))
     }
 }
@@ -184,10 +194,7 @@ impl Connector for Link {
         }
         let halves = self.inner.open(target).await?;
         let writer = Arc::new(SharedWriter::new(halves.writer));
-        Ok(TransportHalves {
-            writer: Box::new(Writer(writer.clone())),
-            reader: Box::new(Reader { inner: halves.reader, writer, cut: self.cut.clone() }),
-        })
+        Ok(TransportHalves { writer: Box::new(Writer(writer.clone())), reader: Box::new(Reader { inner: halves.reader, writer, cut: self.cut.clone() }) })
     }
 }
 
@@ -252,14 +259,19 @@ async fn attach_pc(server: Arc<dyn Connector>, dir: &std::path::Path) -> Pc {
     config.base_url = "http://anthropic.pc.test".into();
     let adapter = Arc::new(AnthropicAdapter::api_key(config, wire.clone(), Arc::new(Keys), tokens.cpu_bulk));
     let io = mixdog_ai::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
-    let catalog = Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), ModelsDevSource::new(Arc::new(Offline), dir.to_path_buf(), io)).await);
+    let catalog =
+        Arc::new(CatalogService::cold_start(CatalogSnapshot::default(), Vec::new(), ModelsDevSource::new(Arc::new(Offline), dir.to_path_buf(), io)).await);
     let broker = Arc::new(ModelBroker::new(Arc::new(mixdog_ai::admission::Admission::new()), Arc::new(mixdog_ai::retry::StandardRetryDecider)));
-    let runner = ProxyRunner { providers: Arc::new(One(adapter)), broker, quota: Arc::new(Quota), wire: Arc::new(SingleWire), config: Arc::new(Advertised), catalog };
+    let runner =
+        ProxyRunner { providers: Arc::new(One(adapter)), broker, quota: Arc::new(Quota), wire: Arc::new(SingleWire), config: Arc::new(Advertised), catalog };
     let service = Arc::new(ModelProxyService::new(Arc::new(runner), Arc::new(NoHost), Arc::new(NoHost)));
     let (cut, gone) = (Arc::new(tokio::sync::Notify::new()), Arc::new(AtomicBool::new(false)));
     let link = Arc::new(Link { inner: server, cut: cut.clone(), gone: gone.clone() });
     let info = serde_json::from_value(json!({ "name": "pc", "version": env!("CARGO_PKG_VERSION"), "kind": "desktop" })).expect("the PC's client info");
-    let options = ConnectOptions { capabilities: InitializeCapabilities { model_proxy: Some(true), ..InitializeCapabilities::default() }, ..ConnectOptions::new(Target { id: "server".into() }, link, info) };
+    let options = ConnectOptions {
+        capabilities: InitializeCapabilities { model_proxy: Some(true), ..InitializeCapabilities::default() },
+        ..ConnectOptions::new(Target { id: "server".into() }, link, info)
+    };
     let client: Arc<dyn ProtocolClient> = Arc::new(connect(options).await.expect("the PC connects to the server"));
     let allowed: AllowedProviders = Arc::new(|| None);
     let relay = ModelProxyRelay::new(client, Arc::new(ServiceProxy(service)), allowed);
@@ -278,7 +290,9 @@ impl Desktop {
     async fn open(server: &Arc<dyn Connector>) -> Self {
         let halves = server.open(&Target { id: "in-process".into() }).await.expect("a connection");
         let mut desktop = Self { halves, next: 0 };
-        desktop.call("initialize", json!({ "clientInfo": { "name": "desktop", "version": env!("CARGO_PKG_VERSION"), "kind": "desktop" }, "capabilities": {} })).await;
+        desktop
+            .call("initialize", json!({ "clientInfo": { "name": "desktop", "version": env!("CARGO_PKG_VERSION"), "kind": "desktop" }, "capabilities": {} }))
+            .await;
         desktop
     }
 
@@ -343,57 +357,68 @@ fn a_client_mode_server_runs_its_turns_on_the_pc_and_fails_them_without_one() {
     unsafe { std::env::set_var("MIXDOG_MODEL_PROXY", "client") };
     let mut runtime = tokio::runtime::Builder::new_multi_thread();
     runtime.worker_threads(2);
-    crate::compose_test_support::in_child(module_path!(), "a_client_mode_server_runs_its_turns_on_the_pc_and_fails_them_without_one", runtime, |dir| async move {
-        let data = crate::compose_test_support::data_in(&dir);
-        seed(&data);
-        let ws = dir.join("ws");
-        std::fs::create_dir_all(&ws).expect("the workspace");
-        let pc_dir = dir.join("pc");
-        std::fs::create_dir_all(&pc_dir).expect("the PC's folder");
-        let tokens = mixdog_rt::testing::tokens();
-        let outgoing = mixdog_app_server::Outgoing::new();
-        let core = compose(
-            &tokens,
-            ComposeConfig { rebuild: Default::default(),
-                data_dir: data.clone(),
-                user_data_dir: dir.join("userdata"),
-                runtime_root: dir.join("runtime"),
-                js_runtime: crate::js_runtime::fixture(&dir),
-                ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
-                outgoing: outgoing.clone(),
-                ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
-                log: crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
-                stop: mixdog_rt::CancellationToken::new(),
-                catalog_http: crate::compose_test_support::offline_http(),
-                pg_install: None,
-            },
-        )
-        .await
-        .expect("the composed core");
-        let (server, shutdown) = serve_in_process(Arc::new(core), outgoing).expect("the in-process server");
-        let pc = attach_pc(server.clone(), &pc_dir).await;
-        let mut desktop = Desktop::open(&server).await;
-        let op = desktop.op();
-        let started = desktop.call("thread/start", json!({ "opId": op, "kind": "project", "projectPath": ws, "draft": { "route": { "provider": PROVIDER, "model": MODEL } } })).await;
-        let thread = started["thread"]["id"].as_str().expect("thread id").to_owned();
-        let op = desktop.op();
-        desktop.call("route/set", json!({ "opId": op, "threadId": thread, "route": { "provider": PROVIDER, "model": MODEL, "applyToCurrentSession": true, "keepMainModel": false } })).await;
+    crate::compose_test_support::in_child(
+        module_path!(),
+        "a_client_mode_server_runs_its_turns_on_the_pc_and_fails_them_without_one",
+        runtime,
+        |dir| async move {
+            let data = crate::compose_test_support::data_in(&dir);
+            seed(&data);
+            let ws = dir.join("ws");
+            std::fs::create_dir_all(&ws).expect("the workspace");
+            let pc_dir = dir.join("pc");
+            std::fs::create_dir_all(&pc_dir).expect("the PC's folder");
+            let tokens = mixdog_rt::testing::tokens();
+            let outgoing = mixdog_app_server::Outgoing::new();
+            let core = compose(
+                &tokens,
+                ComposeConfig {
+                    rebuild: Default::default(),
+                    data_dir: data.clone(),
+                    user_data_dir: dir.join("userdata"),
+                    runtime_root: dir.join("runtime"),
+                    js_runtime: crate::js_runtime::fixture(&dir),
+                    ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
+                    outgoing: outgoing.clone(),
+                    ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
+                    log: crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), tokens.maintenance_io, mixdog_rt::CancellationToken::new()),
+                    stop: mixdog_rt::CancellationToken::new(),
+                    catalog_http: crate::compose_test_support::offline_http(),
+                    pg_install: None,
+                },
+            )
+            .await
+            .expect("the composed core");
+            let (server, shutdown) = serve_in_process(Arc::new(core), outgoing).expect("the in-process server");
+            let pc = attach_pc(server.clone(), &pc_dir).await;
+            let mut desktop = Desktop::open(&server).await;
+            let op = desktop.op();
+            let started = desktop
+                .call(
+                    "thread/start",
+                    json!({ "opId": op, "kind": "project", "projectPath": ws, "draft": { "route": { "provider": PROVIDER, "model": MODEL } } }),
+                )
+                .await;
+            let thread = started["thread"]["id"].as_str().expect("thread id").to_owned();
+            let op = desktop.op();
+            desktop.call("route/set", json!({ "opId": op, "threadId": thread, "route": { "provider": PROVIDER, "model": MODEL, "applyToCurrentSession": true, "keepMainModel": false } })).await;
 
-        // Answered through the PC: its account's request carried the prompt, and the session shows the PC's answer.
-        desktop.ask(&thread, ANSWERED).await;
-        desktop.until_shown(&thread, ANSWER).await;
-        assert!(pc.wire.posted(ANSWERED), "the PC's provider was sent the session's request");
+            // Answered through the PC: its account's request carried the prompt, and the session shows the PC's answer.
+            desktop.ask(&thread, ANSWERED).await;
+            desktop.until_shown(&thread, ANSWER).await;
+            assert!(pc.wire.posted(ANSWERED), "the PC's provider was sent the session's request");
 
-        // The PC leaves while its provider works on the call: the turn ends on Node's words for it.
-        desktop.ask(&thread, LOST).await;
-        tokio::time::timeout(Duration::from_secs(60), pc.wire.lost_posted.notified()).await.expect("the PC posted the call");
-        pc.leave();
-        desktop.until_shown(&thread, "model proxy unavailable: the desktop client disconnected").await;
+            // The PC leaves while its provider works on the call: the turn ends on Node's words for it.
+            desktop.ask(&thread, LOST).await;
+            tokio::time::timeout(Duration::from_secs(60), pc.wire.lost_posted.notified()).await.expect("the PC posted the call");
+            pc.leave();
+            desktop.until_shown(&thread, "model proxy unavailable: the desktop client disconnected").await;
 
-        // No PC is attached: nothing is sent, and the turn says why.
-        desktop.ask(&thread, UNATTACHED).await;
-        desktop.until_shown(&thread, "model proxy unavailable: no desktop client is connected to run model calls").await;
-        assert!(!pc.wire.posted(UNATTACHED), "no PC was there to send it");
-        shutdown.run().await;
-    });
+            // No PC is attached: nothing is sent, and the turn says why.
+            desktop.ask(&thread, UNATTACHED).await;
+            desktop.until_shown(&thread, "model proxy unavailable: no desktop client is connected to run model calls").await;
+            assert!(!pc.wire.posted(UNATTACHED), "no PC was there to send it");
+            shutdown.run().await;
+        },
+    );
 }

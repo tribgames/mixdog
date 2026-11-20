@@ -18,12 +18,8 @@ use super::wire::{Failure, Wire, connect};
 const LOGOUT_TIMEOUT: Duration = Duration::from_secs(10);
 const MAX_PENDING: usize = 8 * 1024 * 1024;
 /// imapflow's `clientInfo` (package name, version, vendor and support URL).
-const CLIENT_INFO: [(&str, &str); 4] = [
-    ("name", "imapflow"),
-    ("version", "2.5.7"),
-    ("vendor", "Postal Systems"),
-    ("support-url", "https://github.com/postalsys/imapflow/issues"),
-];
+const CLIENT_INFO: [(&str, &str); 4] =
+    [("name", "imapflow"), ("version", "2.5.7"), ("vendor", "Postal Systems"), ("support-url", "https://github.com/postalsys/imapflow/issues")];
 
 /// A connection that ended before the session was set up.
 fn closed() -> Failure {
@@ -355,12 +351,7 @@ impl Session {
     async fn namespace(&mut self) -> Result<(), Failure> {
         let reply = if self.has("NAMESPACE") { self.simple("NAMESPACE").await? } else { self.simple("LIST \"\" \"\"").await? };
         if reply.status == Status::Bad && reply.text.to_ascii_lowercase().contains("user is authenticated but not connected") {
-            return Err(Failure {
-                message: "Authentication failed".into(),
-                response: Some(reply.text),
-                authentication_failed: true,
-                ..Failure::default()
-            });
+            return Err(Failure { message: "Authentication failed".into(), response: Some(reply.text), authentication_failed: true, ..Failure::default() });
         }
         Ok(())
     }
@@ -373,10 +364,7 @@ impl Session {
             return Ok(());
         }
         if !self.wire.pending().is_empty() {
-            return Err(Failure::new(
-                "COMPRESS_TRAILING_DATA",
-                "Server sent data between the COMPRESS response and the compression layer switch",
-            ));
+            return Err(Failure::new("COMPRESS_TRAILING_DATA", "Server sent data between the COMPRESS response and the compression layer switch"));
         }
         self.wire.start_compression();
         Ok(())
@@ -437,14 +425,7 @@ pub(crate) async fn open(leg: &Leg<'_>, email: &str, password: &str) -> Result<S
     let deadline = Instant::now() + leg.timeouts.connection;
     let io = connect(leg.target, leg.tls, deadline, "CONNECT_TIMEOUT", "Failed to establish connection in required time").await?;
     let wire = Wire::new(io, leg.timeouts.socket, ("ETIMEOUT", "Socket timeout"), None, MAX_PENDING);
-    let mut session = Session {
-        wire,
-        caps: HashSet::new(),
-        next_tag: 1,
-        expect_capability_update: false,
-        authenticated: false,
-        server_name: None,
-    };
+    let mut session = Session { wire, caps: HashSet::new(), next_tag: 1, expect_capability_update: false, authenticated: false, server_name: None };
     let greeting_timeout = || Failure::new("GREETING_TIMEOUT", "Failed to receive greeting from server in required time");
     // The greeting timer runs from the connection until the greeting arrives; the session
     // setup after it is bounded by the socket timeout alone.

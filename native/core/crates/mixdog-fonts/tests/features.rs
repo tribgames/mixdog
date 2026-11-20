@@ -181,7 +181,8 @@ fn the_ink_of_a_capital_sits_on_whole_pixels_from_the_baseline() {
 
 #[test]
 fn the_auto_hinter_puts_the_cap_height_and_baseline_on_pixel_rows() {
-    let face = Face::from_file(&Unlaned, &Path::new(env!("CARGO_MANIFEST_DIR")).join("../mixdog-pdf/assets/standard_fonts/LiberationSans-Regular.ttf")).unwrap();
+    let face =
+        Face::from_file(&Unlaned, &Path::new(env!("CARGO_MANIFEST_DIR")).join("../mixdog-pdf/assets/standard_fonts/LiberationSans-Regular.ttf")).unwrap();
     let parsed = face.parsed().unwrap();
     let metrics = autohint::metrics_of(&face).unwrap();
     let glyph = parsed.glyph_index('H').unwrap().0;

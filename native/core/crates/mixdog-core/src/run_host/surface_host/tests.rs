@@ -1,6 +1,5 @@
-
-use mixdog_core_session::session::thread_switches::WorkflowTarget;
 use super::*;
+use mixdog_core_session::session::thread_switches::WorkflowTarget;
 
 /// `configuredOrchestrationMode(config)`, the reader the flip hands `SurfaceSources`: the stored
 /// mode, `balanced` for none or an unknown one.

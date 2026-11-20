@@ -34,17 +34,8 @@ pub struct Submitted {
 
 /// The `SubmitOptions` keys that pass through from the caller's options (`SUBMIT_OPTION_KEYS` of the desktop's service route); the
 /// caller's `id` is `clientSubmissionId`, and the fields the host stamps are not the caller's to send.
-const SUBMIT_OPTION_KEYS: [&str; 9] = [
-    "submittedAt",
-    "goalCommand",
-    "retryFailedTurn",
-    "retryTurnId",
-    "retryAttemptId",
-    "priority",
-    "pastedImages",
-    "pastedTexts",
-    "kickoff",
-];
+const SUBMIT_OPTION_KEYS: [&str; 9] =
+    ["submittedAt", "goalCommand", "retryFailedTurn", "retryTurnId", "retryAttemptId", "priority", "pastedImages", "pastedTexts", "kickoff"];
 
 fn now_ms() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| i64::try_from(elapsed.as_millis()).unwrap_or(i64::MAX))
@@ -54,7 +45,11 @@ fn now_ms() -> i64 {
 fn parts_text(parts: &[Value]) -> String {
     parts
         .iter()
-        .filter(|part| !(part["type"] == "text" && part.get("attachmentReference").is_some_and(|reference| !reference.is_null() && reference != &Value::Bool(false)) && part["text"].is_string()))
+        .filter(|part| {
+            !(part["type"] == "text"
+                && part.get("attachmentReference").is_some_and(|reference| !reference.is_null() && reference != &Value::Bool(false))
+                && part["text"].is_string())
+        })
         .map(|part| match part {
             Value::String(text) => text.clone(),
             part if part["type"] == "text" => part["text"].as_str().unwrap_or_default().to_owned(),
@@ -206,7 +201,8 @@ impl SessionStore {
 
     /// Allows or denies the pending approval `request_id` (the card's id) with the answers the card gives on Enter and on dismiss.
     pub async fn respond_approval(&self, request_id: &str, allow: bool) -> Result<bool, StoreError> {
-        let decision = if allow { json!({ "approved": true, "reason": "answered by user" }) } else { json!({ "approved": false, "reason": "dismissed by user" }) };
+        let decision =
+            if allow { json!({ "approved": true, "reason": "answered by user" }) } else { json!({ "approved": false, "reason": "dismissed by user" }) };
         self.resolve_tool_approval(request_id, &decision).await
     }
 }

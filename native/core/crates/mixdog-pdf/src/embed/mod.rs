@@ -64,12 +64,7 @@ pub(crate) fn be_i16(data: &[u8], at: usize) -> Option<i16> {
 }
 
 pub(crate) fn be_u32(data: &[u8], at: usize) -> Option<u32> {
-    Some(u32::from_be_bytes([
-        *data.get(at)?,
-        *data.get(at + 1)?,
-        *data.get(at + 2)?,
-        *data.get(at + 3)?,
-    ]))
+    Some(u32::from_be_bytes([*data.get(at)?, *data.get(at + 1)?, *data.get(at + 2)?, *data.get(at + 3)?]))
 }
 
 /// The table directory of an sfnt file (`true`, `OTTO` or version 1.0): where each table is.
@@ -84,18 +79,10 @@ impl<'a> Sfnt<'a> {
         let mut tables = Vec::with_capacity(count);
         for index in 0..count {
             let at = 12 + index * 16;
-            let (Some(tag), Some(offset), Some(length)) = (
-                data.get(at..at + 4),
-                be_u32(data, at + 8),
-                be_u32(data, at + 12),
-            ) else {
+            let (Some(tag), Some(offset), Some(length)) = (data.get(at..at + 4), be_u32(data, at + 8), be_u32(data, at + 12)) else {
                 break;
             };
-            tables.push((
-                [tag[0], tag[1], tag[2], tag[3]],
-                offset as usize,
-                length as usize,
-            ));
+            tables.push(([tag[0], tag[1], tag[2], tag[3]], offset as usize, length as usize));
         }
         Self { data, tables }
     }
@@ -130,10 +117,7 @@ impl SuffixRng {
 
     /// `addRandomSuffix(prefix, digits)`: `prefix-N` with N below `10^digits`.
     pub fn name(&mut self, prefix: &str, digits: i32) -> String {
-        format!(
-            "{prefix}-{}",
-            (self.next_fraction() * 10f64.powi(digits)).floor() as u64
-        )
+        format!("{prefix}-{}", (self.next_fraction() * 10f64.powi(digits)).floor() as u64)
     }
 }
 
@@ -180,10 +164,7 @@ pub struct EmbeddedFace {
 
 impl fmt::Debug for EmbeddedFace {
     fn fmt(&self, out: &mut fmt::Formatter<'_>) -> fmt::Result {
-        out.debug_struct("EmbeddedFace")
-            .field("postscript_name", &self.postscript_name)
-            .field("cff", &self.cff)
-            .finish_non_exhaustive()
+        out.debug_struct("EmbeddedFace").field("postscript_name", &self.postscript_name).field("cff", &self.cff).finish_non_exhaustive()
     }
 }
 
@@ -197,70 +178,40 @@ impl EmbeddedFace {
                 return Err(EmbedError::new("_this.font.createSubset is not a function"));
             }
             Some(b"wOFF" | b"wOF2") => {
-                return Err(EmbedError::new(
-                    "WOFF and WOFF2 fonts are not supported: embed the TrueType or OpenType file",
-                ));
+                return Err(EmbedError::new("WOFF and WOFF2 fonts are not supported: embed the TrueType or OpenType file"));
             }
             _ => return Err(EmbedError::new("Unknown font format")),
         }
         let data: Arc<[u8]> = Arc::from(bytes);
         let sfnt = Sfnt::parse(&data);
-        let head = sfnt
-            .table(b"head")
-            .filter(|head| head.len() >= 54)
-            .ok_or_else(|| {
-                EmbedError::new("Cannot read properties of undefined (reading 'unitsPerEm')")
-            })?;
-        let face =
-            Face::new(Arc::clone(&data), 0).map_err(|error| EmbedError::new(error.to_string()))?;
+        let head =
+            sfnt.table(b"head").filter(|head| head.len() >= 54).ok_or_else(|| EmbedError::new("Cannot read properties of undefined (reading 'unitsPerEm')"))?;
+        let face = Face::new(Arc::clone(&data), 0).map_err(|error| EmbedError::new(error.to_string()))?;
         let cff = sfnt.table(b"CFF ").is_some();
         if !cff && sfnt.table(b"glyf").is_none_or(<[u8]>::is_empty) {
-            return Err(EmbedError::new(
-                "The font has no glyph outlines (a glyf or CFF table)",
-            ));
+            return Err(EmbedError::new("The font has no glyph outlines (a glyf or CFF table)"));
         }
-        let units_per_em = be_u16(head, 18)
-            .filter(|units| *units != 0)
-            .ok_or_else(|| EmbedError::new("The font has no units per em"))?;
+        let units_per_em = be_u16(head, 18).filter(|units| *units != 0).ok_or_else(|| EmbedError::new("The font has no units per em"))?;
         let hhea = sfnt.table(b"hhea").unwrap_or(&[]);
         let os2 = sfnt.table(b"OS/2");
         let post = sfnt.table(b"post");
-        let postscript_name = if face.postscript_name.is_empty() {
-            "Font".to_owned()
-        } else {
-            face.postscript_name.clone()
-        };
+        let postscript_name = if face.postscript_name.is_empty() { "Font".to_owned() } else { face.postscript_name.clone() };
         Ok(Self {
             scale: 1000.0 / f64::from(units_per_em),
             cff,
             ascent: be_i16(hhea, 4).unwrap_or(0),
             descent: be_i16(hhea, 6).unwrap_or(0),
             // the OS/2 table has them from version 2
-            cap_height: os2
-                .filter(|table| be_u16(table, 0).unwrap_or(0) >= 2)
-                .and_then(|table| be_i16(table, 88)),
-            x_height: os2
-                .filter(|table| be_u16(table, 0).unwrap_or(0) >= 2)
-                .and_then(|table| be_i16(table, 86)),
-            bbox: [
-                be_i16(head, 36).unwrap_or(0),
-                be_i16(head, 38).unwrap_or(0),
-                be_i16(head, 40).unwrap_or(0),
-                be_i16(head, 42).unwrap_or(0),
-            ],
-            italic_angle: post
-                .and_then(|table| be_u32(table, 4))
-                .map_or(0.0, |angle| f64::from(angle as i32) / 65536.0),
-            fixed_pitch: post
-                .and_then(|table| be_u32(table, 12))
-                .is_some_and(|fixed| fixed != 0),
+            cap_height: os2.filter(|table| be_u16(table, 0).unwrap_or(0) >= 2).and_then(|table| be_i16(table, 88)),
+            x_height: os2.filter(|table| be_u16(table, 0).unwrap_or(0) >= 2).and_then(|table| be_i16(table, 86)),
+            bbox: [be_i16(head, 36).unwrap_or(0), be_i16(head, 38).unwrap_or(0), be_i16(head, 40).unwrap_or(0), be_i16(head, 42).unwrap_or(0)],
+            italic_angle: post.and_then(|table| be_u32(table, 4)).map_or(0.0, |angle| f64::from(angle as i32) / 65536.0),
+            fixed_pitch: post.and_then(|table| be_u32(table, 12)).is_some_and(|fixed| fixed != 0),
             family_class: os2.and_then(|table| be_i16(table, 30)).unwrap_or(0),
             italic: be_u16(head, 44).is_some_and(|style| style & 2 != 0),
             advances: {
                 let hmtx = sfnt.table(b"hmtx").unwrap_or(&[]);
-                (0..usize::from(be_u16(hhea, 34).unwrap_or(0)))
-                    .map(|index| be_u16(hmtx, index * 4).unwrap_or(0))
-                    .collect()
+                (0..usize::from(be_u16(hhea, 34).unwrap_or(0))).map(|index| be_u16(hmtx, index * 4).unwrap_or(0)).collect()
             },
             postscript_name,
             face,
@@ -310,24 +261,10 @@ impl EmbeddedFace {
         clusters.dedup();
         let mut glyphs = Vec::with_capacity(shaped.len());
         for glyph in &shaped {
-            let end = clusters
-                .iter()
-                .find(|cluster| **cluster > glyph.cluster)
-                .copied()
-                .unwrap_or(text.len());
-            let code_points: Vec<u32> = text
-                .get(glyph.cluster..end)
-                .unwrap_or("")
-                .chars()
-                .map(u32::from)
-                .collect();
-            state
-                .first_code_points
-                .entry(glyph.glyph_id)
-                .or_insert(code_points);
-            glyphs.push(Shaped {
-                glyph: glyph.glyph_id,
-            });
+            let end = clusters.iter().find(|cluster| **cluster > glyph.cluster).copied().unwrap_or(text.len());
+            let code_points: Vec<u32> = text.get(glyph.cluster..end).unwrap_or("").chars().map(u32::from).collect();
+            state.first_code_points.entry(glyph.glyph_id).or_insert(code_points);
+            glyphs.push(Shaped { glyph: glyph.glyph_id });
         }
         if state.layouts.len() >= LAYOUT_CACHE_LIMIT {
             state.layouts.clear();
@@ -360,25 +297,13 @@ impl EmbeddedFace {
 
     /// `widthOfTextAtSize`: the `hmtx` advances of the laid-out glyphs, scaled to 1000 units to the em.
     pub fn width_of_text_at_size(&self, text: &str, size: f64) -> f64 {
-        let total: f64 = self
-            .layout(text)
-            .iter()
-            .map(|shaped| self.advance(shaped.glyph) * self.scale)
-            .sum();
+        let total: f64 = self.layout(text).iter().map(|shaped| self.advance(shaped.glyph) * self.scale).sum();
         total * (size / 1000.0)
     }
 
     fn extent(&self) -> (f64, f64) {
-        let top = if self.ascent != 0 {
-            f64::from(self.ascent)
-        } else {
-            f64::from(self.bbox[3])
-        } * self.scale;
-        let bottom = if self.descent != 0 {
-            f64::from(self.descent)
-        } else {
-            f64::from(self.bbox[1])
-        } * self.scale;
+        let top = if self.ascent != 0 { f64::from(self.ascent) } else { f64::from(self.bbox[3]) } * self.scale;
+        let bottom = if self.descent != 0 { f64::from(self.descent) } else { f64::from(self.bbox[1]) } * self.scale;
         (top, bottom)
     }
 
@@ -418,12 +343,7 @@ impl EmbeddedFace {
 
     /// Writes the font into `store` the way `CustomFontEmbedder.embedIntoContext` does (the program, the descriptor, the
     /// CIDFont, the ToUnicode CMap, then the Type0 dictionary, assigned to `target` when given) and returns its reference.
-    pub fn embed_into(
-        &self,
-        store: &mut ObjectStore,
-        target: Option<Ref>,
-        rng: &mut SuffixRng,
-    ) -> Result<Ref, EmbedError> {
+    pub fn embed_into(&self, store: &mut ObjectStore, target: Option<Ref>, rng: &mut SuffixRng) -> Result<Ref, EmbedError> {
         let base_font = rng.name(&self.postscript_name, 4);
         let (encoded, first) = {
             let state = self.lock();
@@ -432,11 +352,7 @@ impl EmbeddedFace {
         let mut glyphs: Vec<u16> = std::iter::once(0).chain(encoded.iter().copied()).collect();
         let sfnt = Sfnt::parse(&self.data);
         let program = if self.cff {
-            subset_cff::subset(
-                sfnt.table(b"CFF ")
-                    .ok_or_else(|| EmbedError::new("The font has no CFF table"))?,
-                &glyphs,
-            )?
+            subset_cff::subset(sfnt.table(b"CFF ").ok_or_else(|| EmbedError::new("The font has no CFF table"))?, &glyphs)?
         } else {
             subset_glyf::subset(&sfnt, &mut glyphs)?
         };
@@ -452,38 +368,18 @@ impl EmbeddedFace {
         descriptor.set("Type", Obj::name("FontDescriptor"));
         descriptor.set("FontName", Obj::name(&base_font));
         descriptor.set("Flags", Obj::Num(self.flags() as f64));
-        descriptor.set(
-            "FontBBox",
-            Obj::Array(Arc::new(
-                self.bbox
-                    .iter()
-                    .map(|value| Obj::Num(f64::from(*value) * scale))
-                    .collect(),
-            )),
-        );
+        descriptor.set("FontBBox", Obj::Array(Arc::new(self.bbox.iter().map(|value| Obj::Num(f64::from(*value) * scale)).collect())));
         descriptor.set("ItalicAngle", Obj::Num(self.italic_angle));
         descriptor.set("Ascent", Obj::Num(f64::from(self.ascent) * scale));
         descriptor.set("Descent", Obj::Num(f64::from(self.descent) * scale));
-        let cap_height = self
-            .cap_height
-            .filter(|height| *height != 0)
-            .unwrap_or(self.ascent);
+        let cap_height = self.cap_height.filter(|height| *height != 0).unwrap_or(self.ascent);
         descriptor.set("CapHeight", Obj::Num(f64::from(cap_height) * scale));
-        descriptor.set(
-            "XHeight",
-            Obj::Num(f64::from(self.x_height.unwrap_or(0)) * scale),
-        );
+        descriptor.set("XHeight", Obj::Num(f64::from(self.x_height.unwrap_or(0)) * scale));
         descriptor.set("StemV", Obj::Num(0.0));
-        descriptor.set(
-            if self.cff { "FontFile3" } else { "FontFile2" },
-            Obj::Ref(program_ref),
-        );
+        descriptor.set(if self.cff { "FontFile3" } else { "FontFile2" }, Obj::Ref(program_ref));
         let descriptor_ref = store.register(Obj::Dict(Arc::new(descriptor)));
 
-        let widths: Vec<Obj> = encoded
-            .iter()
-            .map(|glyph| Obj::Num(self.advance(*glyph) * scale))
-            .collect();
+        let widths: Vec<Obj> = encoded.iter().map(|glyph| Obj::Num(self.advance(*glyph) * scale)).collect();
         let mut w = Vec::new();
         if !widths.is_empty() {
             w.push(Obj::Num(1.0));
@@ -491,14 +387,7 @@ impl EmbeddedFace {
         w.push(Obj::Array(Arc::new(widths)));
         let mut cid = Dict::new();
         cid.set("Type", Obj::name("Font"));
-        cid.set(
-            "Subtype",
-            Obj::name(if self.cff {
-                "CIDFontType0"
-            } else {
-                "CIDFontType2"
-            }),
-        );
+        cid.set("Subtype", Obj::name(if self.cff { "CIDFontType0" } else { "CIDFontType2" }));
         cid.set("CIDToGIDMap", Obj::name("Identity"));
         cid.set("BaseFont", Obj::name(&base_font));
         let mut system_info = Dict::new();
@@ -513,25 +402,16 @@ impl EmbeddedFace {
         let unicode: Vec<GlyphUnicode> = encoded
             .iter()
             .enumerate()
-            .map(|(position, glyph)| GlyphUnicode {
-                glyph_id: (position + 1) as u16,
-                code_points: first.get(glyph).cloned().unwrap_or_default(),
-            })
+            .map(|(position, glyph)| GlyphUnicode { glyph_id: (position + 1) as u16, code_points: first.get(glyph).cloned().unwrap_or_default() })
             .collect();
-        let cmap_ref = store.register(flate_stream(
-            Dict::new(),
-            tounicode::create_cmap(&unicode).as_bytes(),
-        ));
+        let cmap_ref = store.register(flate_stream(Dict::new(), tounicode::create_cmap(&unicode).as_bytes()));
 
         let mut font = Dict::new();
         font.set("Type", Obj::name("Font"));
         font.set("Subtype", Obj::name("Type0"));
         font.set("BaseFont", Obj::name(&base_font));
         font.set("Encoding", Obj::name("Identity-H"));
-        font.set(
-            "DescendantFonts",
-            Obj::Array(Arc::new(vec![Obj::Ref(cid_ref)])),
-        );
+        font.set("DescendantFonts", Obj::Array(Arc::new(vec![Obj::Ref(cid_ref)])));
         font.set("ToUnicode", Obj::Ref(cmap_ref));
         let font = Obj::Dict(Arc::new(font));
         Ok(match target {
@@ -574,17 +454,11 @@ pub struct Font {
 
 impl Font {
     pub fn standard(name: StandardFontName) -> Self {
-        Self {
-            kind: Kind::Standard(StandardFont::new(name)),
-            substitutes: BTreeMap::new(),
-        }
+        Self { kind: Kind::Standard(StandardFont::new(name)), substitutes: BTreeMap::new() }
     }
 
     pub fn embedded(face: EmbeddedFace) -> Self {
-        Self {
-            kind: Kind::Embedded(Arc::new(face)),
-            substitutes: BTreeMap::new(),
-        }
+        Self { kind: Kind::Embedded(Arc::new(face)), substitutes: BTreeMap::new() }
     }
 
     /// The font's name: the PostScript name of the face.
@@ -613,14 +487,7 @@ impl Font {
         if self.substitutes.is_empty() {
             return text.to_owned();
         }
-        text.chars()
-            .map(|character| {
-                self.substitutes
-                    .get(&character)
-                    .copied()
-                    .unwrap_or(character)
-            })
-            .collect()
+        text.chars().map(|character| self.substitutes.get(&character).copied().unwrap_or(character)).collect()
     }
 
     /// `encodeText`: the bytes of the string pdf-lib writes as a hex string (one byte a character for a standard font,
@@ -661,24 +528,14 @@ impl Font {
     /// pdf-fonts.mjs `hasGlyph`: a face is asked for the character; a standard font encodes it (after the stand-ins).
     pub fn has_glyph(&self, character: char) -> bool {
         match &self.kind {
-            Kind::Standard(font) => font.can_encode(
-                self.substitutes
-                    .get(&character)
-                    .copied()
-                    .unwrap_or(character),
-            ),
+            Kind::Standard(font) => font.can_encode(self.substitutes.get(&character).copied().unwrap_or(character)),
             Kind::Embedded(face) => face.has_glyph(character),
         }
     }
 
     fn stand_in(&self, character: char) -> Option<char> {
-        let (_, candidates) = TYPOGRAPHIC_STAND_INS
-            .iter()
-            .find(|(key, _)| *key == character)?;
-        candidates
-            .iter()
-            .copied()
-            .find(|candidate| self.has_glyph(*candidate))
+        let (_, candidates) = TYPOGRAPHIC_STAND_INS.iter().find(|(key, _)| *key == character)?;
+        candidates.iter().copied().find(|candidate| self.has_glyph(*candidate))
     }
 
     /// pdf-fonts.mjs `uncoveredCharacters`: the characters of `text` with no glyph and no stand-in, in first-seen order.
@@ -729,20 +586,12 @@ impl Font {
         if substitutes.is_empty() {
             return self.clone();
         }
-        Font {
-            kind: self.kind.clone(),
-            substitutes,
-        }
+        Font { kind: self.kind.clone(), substitutes }
     }
 
     /// Writes the font into `store` (what `embedIntoContext` does) and returns the reference of its dictionary,
     /// assigned to `target` when given.
-    pub fn embed_into(
-        &self,
-        store: &mut ObjectStore,
-        target: Option<Ref>,
-        rng: &mut SuffixRng,
-    ) -> Result<Ref, EmbedError> {
+    pub fn embed_into(&self, store: &mut ObjectStore, target: Option<Ref>, rng: &mut SuffixRng) -> Result<Ref, EmbedError> {
         match &self.kind {
             Kind::Standard(font) => {
                 let dict = Obj::Dict(Arc::new(font.dictionary()));
@@ -772,11 +621,7 @@ pub struct FontEnv {
 
 /// `😀 (U+1F600)` for each character, for an error that names what blocks the file.
 fn describe_uncovered(characters: &[char]) -> String {
-    characters
-        .iter()
-        .map(|character| format!("{character} (U+{:04X})", u32::from(*character)))
-        .collect::<Vec<_>>()
-        .join(", ")
+    characters.iter().map(|character| format!("{character} (U+{:04X})", u32::from(*character))).collect::<Vec<_>>().join(", ")
 }
 
 /// The bold face that ships beside a regular one: malgun.ttf / malgunbd.ttf, segoeui.ttf / segoeuib.ttf,
@@ -799,16 +644,10 @@ pub fn bold_companions(path: &str) -> Vec<String> {
         }
     };
     if stem_lower.ends_with("-regular") {
-        push(format!(
-            "{}-Bold{extension}",
-            &stem[..stem.len() - "-regular".len()]
-        ));
+        push(format!("{}-Bold{extension}", &stem[..stem.len() - "-regular".len()]));
     }
     if stem_lower.ends_with("regular") {
-        push(format!(
-            "{}Bold{extension}",
-            &stem[..stem.len() - "regular".len()]
-        ));
+        push(format!("{}Bold{extension}", &stem[..stem.len() - "regular".len()]));
     }
     for suffix in ["bd", "b", "-Bold", "Bold"] {
         push(format!("{stem}{suffix}{extension}"));
@@ -846,10 +685,7 @@ pub fn embed_bold_font<P: ReadProof>(proof: &P, font: &Font, font_path: &str, te
         if !mixdog_fsio::exists(proof, &candidate).unwrap_or(false) {
             continue;
         }
-        let Ok(face) = mixdog_fsio::read(proof, &candidate)
-            .map_err(|error| EmbedError::new(error.to_string()))
-            .and_then(EmbeddedFace::from_bytes)
-        else {
+        let Ok(face) = mixdog_fsio::read(proof, &candidate).map_err(|error| EmbedError::new(error.to_string())).and_then(EmbeddedFace::from_bytes) else {
             continue;
         };
         let bold = Font::embedded(face);
@@ -884,19 +720,8 @@ mod tests {
                 "C:/Fonts/NotoSans-RegularBold.ttf",
             ]
         );
-        assert_eq!(
-            bold_companions("/f/DejaVuSans.ttf"),
-            vec![
-                "/f/DejaVuSansbd.ttf",
-                "/f/DejaVuSansb.ttf",
-                "/f/DejaVuSans-Bold.ttf",
-                "/f/DejaVuSansBold.ttf"
-            ]
-        );
-        assert_eq!(
-            bold_companions("/f/RobotoRegular.otf")[0],
-            "/f/RobotoBold.otf"
-        );
+        assert_eq!(bold_companions("/f/DejaVuSans.ttf"), vec!["/f/DejaVuSansbd.ttf", "/f/DejaVuSansb.ttf", "/f/DejaVuSans-Bold.ttf", "/f/DejaVuSansBold.ttf"]);
+        assert_eq!(bold_companions("/f/RobotoRegular.otf")[0], "/f/RobotoBold.otf");
         assert!(bold_companions("/f/font.ttc").is_empty());
         assert!(bold_companions("/f/font").is_empty());
     }
@@ -908,14 +733,8 @@ mod tests {
         assert!(!font.covers("한글"));
         assert!(font.covers(""));
         let wrapped = font.with_stand_ins();
-        assert_eq!(
-            wrapped.encode_text("\u{2212}6").unwrap(),
-            font.encode_text("\u{2013}6").unwrap()
-        );
-        assert_eq!(
-            wrapped.width_of_text_at_size("\u{2212}", 10.0).unwrap(),
-            font.width_of_text_at_size("\u{2013}", 10.0).unwrap()
-        );
+        assert_eq!(wrapped.encode_text("\u{2212}6").unwrap(), font.encode_text("\u{2013}6").unwrap());
+        assert_eq!(wrapped.width_of_text_at_size("\u{2212}", 10.0).unwrap(), font.width_of_text_at_size("\u{2013}", 10.0).unwrap());
         assert!(font.encode_text("\u{2212}").is_err());
     }
 
@@ -926,26 +745,10 @@ mod tests {
 
     #[test]
     fn files_that_are_not_fonts_are_refused_with_the_recorded_texts() {
-        assert_eq!(
-            EmbeddedFace::from_bytes(b"this is not a font file at all".to_vec())
-                .unwrap_err()
-                .to_string(),
-            "Unknown font format"
-        );
-        assert_eq!(
-            EmbeddedFace::from_bytes(b"ttcf\0\x01\0\0".to_vec())
-                .unwrap_err()
-                .to_string(),
-            "_this.font.createSubset is not a function"
-        );
-        assert_eq!(
-            EmbeddedFace::from_bytes(b"true\0\0\0\0".to_vec())
-                .unwrap_err()
-                .to_string(),
-            "Cannot read properties of undefined (reading 'unitsPerEm')"
-        );
+        assert_eq!(EmbeddedFace::from_bytes(b"this is not a font file at all".to_vec()).unwrap_err().to_string(), "Unknown font format");
+        assert_eq!(EmbeddedFace::from_bytes(b"ttcf\0\x01\0\0".to_vec()).unwrap_err().to_string(), "_this.font.createSubset is not a function");
+        assert_eq!(EmbeddedFace::from_bytes(b"true\0\0\0\0".to_vec()).unwrap_err().to_string(), "Cannot read properties of undefined (reading 'unitsPerEm')");
     }
-
 
     #[test]
     fn resolve_folds_dots() {
@@ -954,18 +757,13 @@ mod tests {
     }
 }
 
-
 impl std::error::Error for EmbedError {}
 impl FontEnv {
     /// The setting `MIXDOG_OCR_FONT` and the faces a machine of this platform is likely to have.
     pub fn host() -> Self {
         let mut system_fonts: Vec<&str> = Vec::new();
         if cfg!(windows) {
-            system_fonts.extend([
-                "C:\\Windows\\Fonts\\malgun.ttf",
-                "C:\\Windows\\Fonts\\arialuni.ttf",
-                "C:\\Windows\\Fonts\\segoeui.ttf",
-            ]);
+            system_fonts.extend(["C:\\Windows\\Fonts\\malgun.ttf", "C:\\Windows\\Fonts\\arialuni.ttf", "C:\\Windows\\Fonts\\segoeui.ttf"]);
         }
         if cfg!(target_os = "macos") {
             system_fonts.extend([
@@ -980,20 +778,13 @@ impl FontEnv {
             "/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc",
             "/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc",
         ]);
-        Self {
-            ocr_font: std::env::var("MIXDOG_OCR_FONT").ok(),
-            system_fonts: system_fonts.into_iter().map(str::to_owned).collect(),
-        }
+        Self { ocr_font: std::env::var("MIXDOG_OCR_FONT").ok(), system_fonts: system_fonts.into_iter().map(str::to_owned).collect() }
     }
 }
 /// `path.resolve`: relative to the working directory, `.` and `..` folded away.
 fn resolve(path: &str) -> String {
     let given = Path::new(path);
-    let absolute = if given.is_absolute() {
-        given.to_path_buf()
-    } else {
-        std::env::current_dir().unwrap_or_default().join(given)
-    };
+    let absolute = if given.is_absolute() { given.to_path_buf() } else { std::env::current_dir().unwrap_or_default().join(given) };
     let mut out = PathBuf::new();
     for component in absolute.components() {
         match component {
@@ -1015,109 +806,56 @@ fn unicode_font_candidates<P: ReadProof>(proof: &P, env: &FontEnv, explicit: &st
     if let Some(ocr) = env.ocr_font.as_deref().filter(|path| !path.is_empty()) {
         wanted.push(ocr.to_owned());
     }
-    wanted.extend(
-        env.system_fonts
-            .iter()
-            .filter(|path| !path.is_empty())
-            .cloned(),
-    );
-    wanted
-        .into_iter()
-        .filter(|path| mixdog_fsio::exists(proof, path).unwrap_or(false))
-        .collect()
+    wanted.extend(env.system_fonts.iter().filter(|path| !path.is_empty()).cloned());
+    wanted.into_iter().filter(|path| mixdog_fsio::exists(proof, path).unwrap_or(false)).collect()
 }
 /// `unicodeFontPath`: the first readable Unicode font, or an empty string.
 pub fn unicode_font_path<P: ReadProof>(proof: &P, env: &FontEnv, explicit: &str) -> String {
-    unicode_font_candidates(proof, env, explicit)
-        .into_iter()
-        .next()
-        .unwrap_or_default()
+    unicode_font_candidates(proof, env, explicit).into_iter().next().unwrap_or_default()
 }
 /// `embedDocumentFont`: an explicit fontPath always wins; otherwise the standard font when it can encode the text, else
 /// the first installed Unicode face that covers it. Refuses with a hint instead of the WinAnsi error when no face does.
-pub fn embed_document_font<P: ReadProof>(
-    proof: &P,
-    env: &FontEnv,
-    request: &FontRequest<'_>,
-) -> Result<DocumentFont, EmbedError> {
+pub fn embed_document_font<P: ReadProof>(proof: &P, env: &FontEnv, request: &FontRequest<'_>) -> Result<DocumentFont, EmbedError> {
     let explicit = !request.font_path.is_empty();
     if !explicit {
         let builtin = Font::standard(request.standard);
         if builtin.covers(request.text) {
-            return Ok(DocumentFont {
-                font: builtin.with_stand_ins(),
-                font_path: String::new(),
-                embedded: false,
-            });
+            return Ok(DocumentFont { font: builtin.with_stand_ins(), font_path: String::new(), embedded: false });
         }
     }
     let candidates = unicode_font_candidates(proof, env, request.font_path);
     if explicit && candidates.is_empty() {
-        return Err(EmbedError::new(format!(
-            "PDF font file was not found: {}",
-            request.font_path
-        )));
+        return Err(EmbedError::new(format!("PDF font file was not found: {}", request.font_path)));
     }
     // The first face that embedded is what the missing characters are reported against: it is the coverage the machine
     // actually has.
     let mut widest: Option<Font> = None;
-    let tried: &[String] = if explicit {
-        &candidates[..1]
-    } else {
-        &candidates
-    };
+    let tried: &[String] = if explicit { &candidates[..1] } else { &candidates };
     for candidate in tried {
-        let font = match mixdog_fsio::read(proof, candidate)
-            .map_err(|error| EmbedError::new(error.to_string()))
-            .and_then(EmbeddedFace::from_bytes)
-        {
+        let font = match mixdog_fsio::read(proof, candidate).map_err(|error| EmbedError::new(error.to_string())).and_then(EmbeddedFace::from_bytes) {
             Ok(face) => Font::embedded(face),
             Err(error) => {
                 // Collections (.ttc) and damaged files cannot be embedded; an explicit choice reports it, the fallback moves on.
                 if explicit {
-                    return Err(EmbedError::new(format!(
-                        "PDF font {candidate} could not be embedded: {error}"
-                    )));
+                    return Err(EmbedError::new(format!("PDF font {candidate} could not be embedded: {error}")));
                 }
                 continue;
             }
         };
         if font.covers(request.text) {
-            return Ok(DocumentFont {
-                font: font.with_stand_ins(),
-                font_path: candidate.clone(),
-                embedded: true,
-            });
+            return Ok(DocumentFont { font: font.with_stand_ins(), font_path: candidate.clone(), embedded: true });
         }
         if explicit {
             let missing = describe_uncovered(&font.uncovered(request.text, 6));
-            let shown = if missing.is_empty() {
-                "part of the text"
-            } else {
-                missing.as_str()
-            };
-            return Err(EmbedError::new(format!(
-                "Font {candidate} has no glyph for {shown}; {PDF_FONT_HINT}"
-            )));
+            let shown = if missing.is_empty() { "part of the text" } else { missing.as_str() };
+            return Err(EmbedError::new(format!("Font {candidate} has no glyph for {shown}; {PDF_FONT_HINT}")));
         }
         widest = widest.or(Some(font));
     }
     // Naming the characters is the difference between a fixable answer and a font hunt: an emoji or a rare ideograph no
     // installed face carries is removed or replaced in the text, while a missing script really does want another font.
-    let missing = widest
-        .map(|font| describe_uncovered(&font.uncovered(request.text, 6)))
-        .unwrap_or_default();
-    let (carries, those) = if missing.is_empty() {
-        ("characters ".to_owned(), "them")
-    } else {
-        (format!("{missing} — "), "those characters")
-    };
-    let cannot = if missing.is_empty() {
-        " and the standard PDF fonts cannot encode"
-    } else {
-        ""
-    };
-    Err(EmbedError::new(format!(
-        "PDF text carries {carries}no installed font covers{cannot}. Replace or remove {those}, or {PDF_FONT_HINT}."
-    )))
+    let missing = widest.map(|font| describe_uncovered(&font.uncovered(request.text, 6))).unwrap_or_default();
+    let (carries, those) = if missing.is_empty() { ("characters ".to_owned(), "them") } else { (format!("{missing} — "), "those characters") };
+    let cannot = if missing.is_empty() { " and the standard PDF fonts cannot encode" } else { "" };
+    Err(EmbedError::new(format!("PDF text carries {carries}no installed font covers{cannot}. Replace or remove {those}, or {PDF_FONT_HINT}.")))
 }

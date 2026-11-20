@@ -34,8 +34,10 @@ const HOP_HEADERS: [&str; 7] = ["host", "connection", "content-length", "transfe
 
 /// Node's `Buffer.from(text, 'base64')`: the text is already known to be well formed, but the
 /// unused bits of its last group are not required to be zero.
-const LENIENT: GeneralPurpose =
-    GeneralPurpose::new(&base64::alphabet::STANDARD, GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true).with_decode_padding_mode(DecodePaddingMode::Indifferent));
+const LENIENT: GeneralPurpose = GeneralPurpose::new(
+    &base64::alphabet::STANDARD,
+    GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true).with_decode_padding_mode(DecodePaddingMode::Indifferent),
+);
 
 /// A validated request frame.
 #[derive(Debug, PartialEq, Eq)]
@@ -256,7 +258,6 @@ mod tests {
         base64::engine::general_purpose::STANDARD.decode(reply["body"].as_str().unwrap()).unwrap()
     }
 
-
     #[tokio::test]
     async fn bad_json_gets_no_answer_and_a_bad_frame_with_an_id_gets_a_400() {
         assert_eq!(answer("not json", None).await, None);
@@ -278,7 +279,8 @@ mod tests {
     /// response comes back verbatim.
     #[tokio::test]
     async fn a_frame_is_replayed_against_the_local_server() {
-        let (port, seen) = local_server(b"HTTP/1.1 201 Created\r\nContent-Type: text/plain\r\nContent-Length: 6\r\nConnection: close\r\n\r\nstored".to_vec()).await;
+        let (port, seen) =
+            local_server(b"HTTP/1.1 201 Created\r\nContent-Type: text/plain\r\nContent-Length: 6\r\nConnection: close\r\n\r\nstored".to_vec()).await;
         let raw = json!({
             "type": "http", "id": "req-1", "method": "POST", "path": "/webhook/demo",
             "headers": {"content-type": "application/json", "x-demo": "yes"},
@@ -318,13 +320,19 @@ mod tests {
         for case in cases {
             let (port, _seen) = local_server(case.to_vec()).await;
             let reply: Value = serde_json::from_str(&answer(&raw, Some(port)).await.unwrap()).unwrap();
-            assert_eq!((reply["status"].as_u64(), reply["body"].as_str(), reply["headers"].as_object().map(Map::len)), (Some(502), Some(""), Some(0)), "{}", String::from_utf8_lossy(case));
+            assert_eq!(
+                (reply["status"].as_u64(), reply["body"].as_str(), reply["headers"].as_object().map(Map::len)),
+                (Some(502), Some(""), Some(0)),
+                "{}",
+                String::from_utf8_lossy(case)
+            );
         }
     }
     #[tokio::test]
     async fn a_chunked_local_response_is_decoded_and_an_oversized_one_is_an_empty_502() {
         let raw = frame(json!({"id": "r", "body": ""})).to_string();
-        let (port, _seen) = local_server(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n".to_vec()).await;
+        let (port, _seen) =
+            local_server(b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: close\r\n\r\n3\r\nabc\r\n2\r\nde\r\n0\r\n\r\n".to_vec()).await;
         let reply: Value = serde_json::from_str(&answer(&raw, Some(port)).await.unwrap()).unwrap();
         assert_eq!((reply["status"].as_u64(), decoded(&reply)), (Some(200), b"abcde".to_vec()));
         assert_eq!(reply["headers"]["content-type"], "application/json", "an absent content type defaults");
@@ -353,7 +361,6 @@ mod tests {
         assert_eq!(started.elapsed(), LOCAL_TIMEOUT);
     }
 }
-
 
 /// `handleLegMessage` and the replay: the frame to send back for one text message from the relay,
 /// if any. Text that is not JSON gets no reply; an invalid frame that still carries a string id
@@ -410,8 +417,7 @@ async fn replay(frame: &HookFrame, port: u16) -> Result<LocalReply, Replay> {
         Err(e) if e.kind() == ErrorKind::ConnectionRefused => return Err(Replay::Failed(format!("connect ECONNREFUSED 127.0.0.1:{port}"))),
         Err(e) => return Err(Replay::Failed(e.to_string())),
     };
-    let (mut sender, connection) =
-        within(hyper::client::conn::http1::handshake(TokioIo::new(stream))).await?.map_err(|e| Replay::Failed(e.to_string()))?;
+    let (mut sender, connection) = within(hyper::client::conn::http1::handshake(TokioIo::new(stream))).await?.map_err(|e| Replay::Failed(e.to_string()))?;
     tokio::spawn(async move {
         let _ = connection.await;
     });

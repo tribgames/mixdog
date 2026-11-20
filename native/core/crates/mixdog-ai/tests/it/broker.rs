@@ -62,11 +62,7 @@ impl AttemptSink for Sink {
 }
 
 fn rejected(status: u16) -> MockAttempt {
-    MockAttempt::Rejected(ErrorResponse {
-        status: Some(status),
-        headers: Vec::new(),
-        body: Vec::new(),
-    })
+    MockAttempt::Rejected(ErrorResponse { status: Some(status), headers: Vec::new(), body: Vec::new() })
 }
 
 /// A provider whose first attempt fails with `message`, its retry line worded as the OpenAI-compatible ladder's.
@@ -118,12 +114,7 @@ struct Echo;
 
 #[async_trait]
 impl ModelProxyTransport for Echo {
-    async fn execute(
-        &self,
-        call: JsonValue,
-        events: &mut (dyn FnMut(JsonValue) + Send),
-        cancel: &CancellationToken,
-    ) -> Result<JsonValue, ProxyError> {
+    async fn execute(&self, call: JsonValue, events: &mut (dyn FnMut(JsonValue) + Send), cancel: &CancellationToken) -> Result<JsonValue, ProxyError> {
         if cancel.is_cancelled() {
             return Err(ProxyError::Cancelled);
         }
@@ -136,16 +127,11 @@ impl ModelProxyTransport for Echo {
 async fn proxy_streams_events_and_never_runs_after_cancel() {
     let mut seen = Vec::new();
     let cancel = CancellationToken::new();
-    let result = execute_via_proxy(&Echo, JsonValue::from(1), &mut |e| seen.push(e), &cancel)
-        .await
-        .unwrap();
+    let result = execute_via_proxy(&Echo, JsonValue::from(1), &mut |e| seen.push(e), &cancel).await.unwrap();
     assert_eq!(result, JsonValue::from(1));
     assert_eq!(seen.len(), 1);
     cancel.cancel();
-    assert_eq!(
-        execute_via_proxy(&Echo, JsonValue::from(2), &mut |_| {}, &cancel).await,
-        Err(ProxyError::Cancelled)
-    );
+    assert_eq!(execute_via_proxy(&Echo, JsonValue::from(2), &mut |_| {}, &cancel).await, Err(ProxyError::Cancelled));
 }
 /// A provider whose stream plays `script`, each event after its delay, and
 /// then goes silent for good.
@@ -259,7 +245,6 @@ impl ProviderAdapter for Dying {
     }
 }
 
-
 fn setup() -> (ModelBroker, SendRequest) {
     mixdog_rt::testing::tokens();
     let admission = Arc::new(Admission::new());
@@ -271,31 +256,18 @@ fn setup() -> (ModelBroker, SendRequest) {
         options: RequestOptions::default(),
     });
     let broker = ModelBroker::new(admission, Arc::new(StandardRetryDecider));
-    (
-        broker,
-        SendRequest {
-            request,
-            lane,
-            admission: AdmissionRequest::default(),
-        },
-    )
+    (broker, SendRequest { request, lane, admission: AdmissionRequest::default() })
 }
 #[tokio::test(start_paused = true)]
 async fn retries_through_failures_and_discards_each_failed_attempt() {
     let (broker, send) = setup();
     let provider = MockProvider::new([
         rejected(503),
-        MockAttempt::Fault {
-            fault: TransportFault::Reset,
-            reached: DeliveryState::Ambiguous,
-        },
+        MockAttempt::Fault { fault: TransportFault::Reset, reached: DeliveryState::Ambiguous },
         MockAttempt::Body(b"t:hi\ndone\n".to_vec()),
     ]);
     let mut sink = Sink::default();
-    let attempts = broker
-        .send(&provider, send, &mut sink, &CancellationToken::new())
-        .await
-        .unwrap();
+    let attempts = broker.send(&provider, send, &mut sink, &CancellationToken::new()).await.unwrap();
     assert_eq!(attempts, 3);
     assert_eq!(sink.discards, 2);
     assert!(matches!(sink.events.last(), Some(StreamEvent::Completed { .. })));
@@ -304,10 +276,7 @@ async fn retries_through_failures_and_discards_each_failed_attempt() {
 #[tokio::test(start_paused = true)]
 async fn a_retried_attempt_that_reported_usage_is_handed_to_the_sink_once() {
     let (broker, send) = setup();
-    let provider = MockProvider::new([
-        MockAttempt::Body(b"u:10,5\n".to_vec()),
-        MockAttempt::Body(b"t:hi\ndone\n".to_vec()),
-    ]);
+    let provider = MockProvider::new([MockAttempt::Body(b"u:10,5\n".to_vec()), MockAttempt::Body(b"t:hi\ndone\n".to_vec())]);
     let mut sink = Sink::default();
     let attempts = broker.send(&provider, send, &mut sink, &CancellationToken::new()).await.unwrap();
     assert_eq!(attempts, 2);
@@ -317,10 +286,7 @@ async fn a_retried_attempt_that_reported_usage_is_handed_to_the_sink_once() {
 async fn deterministic_refusal_surfaces_after_one_attempt() {
     let (broker, send) = setup();
     let provider = MockProvider::new([rejected(401)]);
-    let err = broker
-        .send(&provider, send, &mut Sink::default(), &CancellationToken::new())
-        .await
-        .unwrap_err();
+    let err = broker.send(&provider, send, &mut Sink::default(), &CancellationToken::new()).await.unwrap_err();
     assert!(matches!(err, SendError::Provider(e) if e.status == Some(401)));
     assert_eq!(provider.attempts.load(Ordering::Relaxed), 1);
 }
@@ -329,10 +295,7 @@ async fn spent_row_is_exhausted() {
     let (broker, send) = setup();
     // Empty script: every attempt fails to connect.
     let provider = MockProvider::new([]);
-    let err = broker
-        .send(&provider, send, &mut Sink::default(), &CancellationToken::new())
-        .await
-        .unwrap_err();
+    let err = broker.send(&provider, send, &mut Sink::default(), &CancellationToken::new()).await.unwrap_err();
     assert!(matches!(err, SendError::Exhausted(_)));
     assert_eq!(provider.attempts.load(Ordering::Relaxed), 5, "1 + 4 retries");
 }
@@ -346,10 +309,7 @@ async fn cancel_ends_the_retry_wait() {
         mixdog_rt::time::sleep(std::time::Duration::from_millis(50)).await;
         stopper.cancel();
     });
-    let err = broker
-        .send(&provider, send, &mut Sink::default(), &cancel)
-        .await
-        .unwrap_err();
+    let err = broker.send(&provider, send, &mut Sink::default(), &cancel).await.unwrap_err();
     assert!(matches!(err, SendError::Cancelled));
 }
 /// A retry's wait holds no capacity: on a one-slot lane another send is admitted at once while the first one backs off, the
@@ -361,7 +321,12 @@ async fn a_retry_wait_gives_the_lanes_slot_back_and_takes_one_again() {
     let lane = admission.lane(&LaneKey::new("mock".into(), "default"), LaneSettings { concurrency: Some(1), ..LaneSettings::default() });
     let broker = ModelBroker::new(admission.clone(), Arc::new(StandardRetryDecider));
     let request = || SendRequest {
-        request: Arc::new(ModelRequest { model: "m".into(), messages: vec![Message::new(Role::User, Content::Text("hi".into()))], tools: Vec::new(), options: RequestOptions::default() }),
+        request: Arc::new(ModelRequest {
+            model: "m".into(),
+            messages: vec![Message::new(Role::User, Content::Text("hi".into()))],
+            tools: Vec::new(),
+            options: RequestOptions::default(),
+        }),
         lane: lane.clone(),
         admission: AdmissionRequest { owner: Arc::from("backing-off"), ..AdmissionRequest::default() },
     };
@@ -436,14 +401,8 @@ impl ModelStream for ScriptedStream {
 fn start(attended: bool, script: Vec<(Duration, StreamEvent)>) -> Run {
     mixdog_rt::testing::tokens();
     let admission = Arc::new(Admission::new());
-    let lane = admission.lane(
-        &LaneKey::new("mock".into(), "default"),
-        LaneSettings {
-            concurrency: Some(1),
-            unattended_lease: Some(LEASE),
-            ..LaneSettings::default()
-        },
-    );
+    let lane = admission
+        .lane(&LaneKey::new("mock".into(), "default"), LaneSettings { concurrency: Some(1), unattended_lease: Some(LEASE), ..LaneSettings::default() });
     let broker = ModelBroker::new(admission.clone(), Arc::new(StandardRetryDecider));
     let request = SendRequest {
         request: Arc::new(ModelRequest {
@@ -453,15 +412,9 @@ fn start(attended: bool, script: Vec<(Duration, StreamEvent)>) -> Run {
             options: RequestOptions::default(),
         }),
         lane: lane.clone(),
-        admission: AdmissionRequest {
-            liveness: Some(RunLiveness::new(attended)),
-            ..AdmissionRequest::default()
-        },
+        admission: AdmissionRequest { liveness: Some(RunLiveness::new(attended)), ..AdmissionRequest::default() },
     };
-    let provider = Scripted {
-        inner: MockProvider::new([]),
-        script: Mutex::new(Some(script.into())),
-    };
+    let provider = Scripted { inner: MockProvider::new([]), script: Mutex::new(Some(script.into())) };
     let abort = CancellationToken::new();
     let send = {
         let abort = abort.clone();
@@ -495,11 +448,7 @@ async fn a_silent_unattended_send_returns_its_permit_and_stays_abortable() {
     assert_eq!(held(&run.admission), 1);
     settle(Duration::from_secs(1)).await;
     assert_eq!(held(&run.admission), 0);
-    let other = run
-        .admission
-        .acquire(&run.lane, AdmissionRequest::default(), &CancellationToken::new())
-        .await
-        .unwrap();
+    let other = run.admission.acquire(&run.lane, AdmissionRequest::default(), &CancellationToken::new()).await.unwrap();
     assert!(!run.send.is_finished(), "the silent run is still alive");
     run.abort.cancel();
     assert!(matches!(run.send.await.unwrap(), Err(SendError::Cancelled)));

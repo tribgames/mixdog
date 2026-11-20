@@ -44,12 +44,7 @@ fn list_on(c: &Connection, agent_only: bool, after: Option<&CatalogCursor>, limi
     let mut stmt = c.prepare_cached(LIST_SQL)?;
     let found: Vec<(String, u32, bool)> = stmt
         .query_map(
-            params![
-                agent_only,
-                after.map(|a| a.activity),
-                after.map(|a| a.id.clone()),
-                limit.map_or(-1, |n| i64::try_from(n).unwrap_or(i64::MAX))
-            ],
+            params![agent_only, after.map(|a| a.activity), after.map(|a| a.id.clone()), limit.map_or(-1, |n| i64::try_from(n).unwrap_or(i64::MAX))],
             |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
         )?
         .collect::<Result<_, _>>()?;

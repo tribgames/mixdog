@@ -10,9 +10,7 @@
 use std::sync::{Arc, Mutex};
 
 use mixdog_core_api::domain::keepalive::TransportKind;
-use mixdog_core_api::domain::provider::{
-    ErrorResponse, ModelRequest, ProviderError, RequestOptions, WireCodec, WireDecoder, WireRequest,
-};
+use mixdog_core_api::domain::provider::{ErrorResponse, ModelRequest, ProviderError, RequestOptions, WireCodec, WireDecoder, WireRequest};
 use mixdog_protocol::{JsonObject, JsonValue, ProviderId};
 use serde_json::json;
 use sha2::{Digest, Sha256};
@@ -21,17 +19,16 @@ use crate::providers::openai::config::WireContext;
 use crate::providers::openai::continuation::ContinuationSpec;
 use crate::providers::openai::decoder::Framing;
 use crate::providers::openai::profile::{
-    BodyField, BuildInputs, ORDER_ROUTED, ParallelToolCalls, ReasoningSpec, ResponsesProfile, SystemPlacement, ToolLowering,
-    build_body,
+    BodyField, BuildInputs, ORDER_ROUTED, ParallelToolCalls, ReasoningSpec, ResponsesProfile, SystemPlacement, ToolLowering, build_body,
 };
 
 use super::chat::{CompatConfig, system_texts};
-use super::xai_cache::{LaneBook, Routing};
 use super::error;
 use super::models::{CompatModelInfo, fold_declared_effort};
 use super::profile::{CompatProfile, EffortDialect, ResponsesShape, ToolChoiceSupport};
 use super::schema::SchemaMemo;
 use super::schema::report_exclusion;
+use super::xai_cache::{LaneBook, Routing};
 use crate::providers::leak::ToolNames;
 use crate::providers::leak::body_tool_names;
 
@@ -63,7 +60,8 @@ pub(crate) fn session_cache_key(options: &RequestOptions, configured: Option<boo
     if !enabled {
         return String::new();
     }
-    let explicit = ["promptCacheKey", "providerCacheKey"].into_iter()
+    let explicit = ["promptCacheKey", "providerCacheKey"]
+        .into_iter()
         .find_map(|name| parameter(name).and_then(JsonValue::as_str).filter(|s| !s.is_empty()))
         .or(options.prompt_cache_key.as_deref().filter(|s| !s.is_empty()));
     let session = options.session_id.as_deref().filter(|s| !s.is_empty());
@@ -145,11 +143,7 @@ impl CompatResponsesCodec {
     }
 
     fn base_url(&self) -> &str {
-        self.config
-            .base_url
-            .as_deref()
-            .unwrap_or(self.profile.base_url)
-            .trim_end_matches('/')
+        self.config.base_url.as_deref().unwrap_or(self.profile.base_url).trim_end_matches('/')
     }
 
     fn is_socket(&self) -> bool {
@@ -163,8 +157,7 @@ impl CompatResponsesCodec {
         let requested = mixdog_js::js_trim(request.options.effort.as_deref()?).to_lowercase();
         if self.profile.responses == ResponsesShape::Xai {
             let supported = info.is_none_or(|i| i.supports_reasoning != Some(false));
-            return (supported && matches!(requested.as_str(), "low" | "medium" | "high" | "xhigh"))
-                .then_some(requested);
+            return (supported && matches!(requested.as_str(), "low" | "medium" | "high" | "xhigh")).then_some(requested);
         }
         let levels: &[&str] = info.map_or(&[], |i| i.reasoning_levels.as_slice());
         fold_declared_effort(&requested, levels)
@@ -188,10 +181,7 @@ impl CompatResponsesCodec {
                 // The socket takes the system text as `instructions` and has
                 // no `stream` key.
                 profile.stream = false;
-                profile.system = SystemPlacement::Instructions {
-                    fallback: None,
-                    environment_message: false,
-                };
+                profile.system = SystemPlacement::Instructions { fallback: None, environment_message: false };
                 profile.input.system_in_input = false;
                 // xAI rejects `instructions` together with `previous_response_id`.
                 profile.instructions_with_previous_response = false;
@@ -210,10 +200,7 @@ impl CompatResponsesCodec {
                 BodyField::Tools,
                 BodyField::Instructions,
             ];
-            profile.system = SystemPlacement::Instructions {
-                fallback: None,
-                environment_message: false,
-            };
+            profile.system = SystemPlacement::Instructions { fallback: None, environment_message: false };
             profile.input.system_in_input = false;
             profile.parallel_tool_calls = ParallelToolCalls::Omit;
             profile.include_encrypted_reasoning = self.muse_includes_reasoning(request, info);
@@ -229,11 +216,7 @@ impl CompatResponsesCodec {
             && let Some(effort) = self.wire_effort(request, info)
         {
             let requested = mixdog_js::js_trim(request.options.effort.as_deref().unwrap_or_default()).to_lowercase();
-            profile.reasoning = Some(ReasoningSpec {
-                summary: false,
-                default_effort: None,
-                effort_aliases: vec![(requested, effort)],
-            });
+            profile.reasoning = Some(ReasoningSpec { summary: false, default_effort: None, effort_aliases: vec![(requested, effort)] });
         }
         profile
     }
@@ -267,11 +250,7 @@ impl CompatResponsesCodec {
         if Self::muse_forced_off(request) {
             body.insert("reasoning".into(), json!({"effort": "none"}));
         } else if !requested.is_empty() {
-            let allowed: Vec<&str> = info
-                .map(|i| i.reasoning_levels.as_slice())
-                .filter(|levels| !levels.is_empty())
-                .unwrap_or(MUSE_FIVE_LEVELS)
-                .to_vec();
+            let allowed: Vec<&str> = info.map(|i| i.reasoning_levels.as_slice()).filter(|levels| !levels.is_empty()).unwrap_or(MUSE_FIVE_LEVELS).to_vec();
             let downgraded = if requested == "max" { "xhigh" } else { "" };
             let effort = if allowed.contains(&requested.as_str()) { requested.as_str() } else { downgraded };
             if allowed.contains(&effort) {
@@ -359,12 +338,7 @@ impl CompatResponsesCodec {
             let accept = if self.profile.responses == ResponsesShape::Muse { "text/event-stream" } else { "application/json" };
             headers.push(("accept".into(), accept.into()));
         }
-        headers.extend(
-            self.profile
-                .headers
-                .iter()
-                .map(|(k, v)| ((*k).to_owned(), (*v).to_owned())),
-        );
+        headers.extend(self.profile.headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())));
         headers.extend(self.config.extra_headers.iter().cloned());
         headers.extend(super::session_header(&self.profile, request));
         headers
@@ -373,10 +347,7 @@ impl CompatResponsesCodec {
     /// Whether this profile's effort dialect declares levels per model (a
     /// gateway whose reasoning control comes from its listing).
     pub fn declares_levels(&self) -> bool {
-        matches!(
-            self.profile.chat.effort,
-            EffortDialect::Declared | EffortDialect::DeclaredOrBasic
-        )
+        matches!(self.profile.chat.effort, EffortDialect::Declared | EffortDialect::DeclaredOrBasic)
     }
 }
 
@@ -394,11 +365,7 @@ impl WireCodec for CompatResponsesCodec {
             // The key xAI routes by is derived (scope, session, prefix, lane),
             // not the caller's cache key, which only names the namespace.
             let system = system_texts(&self.profile.chat, &request.messages)?;
-            let routing = Routing {
-                environment: self.config.environment.as_ref().map(|env| &*env.0),
-                lanes: &self.lanes,
-                system: &system,
-            };
+            let routing = Routing { environment: self.config.environment.as_ref().map(|env| &*env.0), lanes: &self.lanes, system: &system };
             let mut with_key = request.clone();
             with_key.options.prompt_cache_key = routing.key(request);
             routed = with_key;
@@ -409,17 +376,10 @@ impl WireCodec for CompatResponsesCodec {
         let info = self.config.models.get(&request.model);
         let profile = self.responses_profile(request, info.as_deref());
         let continuation = profile.resume(request)?;
-        let effort = request.options.effort_projection.as_ref()
-            .filter(|_| self.custom_effort_history)
-            .map(crate::effort::EffortProjection::from);
+        let effort = request.options.effort_projection.as_ref().filter(|_| self.custom_effort_history).map(crate::effort::EffortProjection::from);
         let mut built = build_body(
             &profile,
-            &BuildInputs {
-                schemas: Some(&self.schemas),
-                continuation: Some(&continuation),
-                effort: effort.as_ref(),
-                ..BuildInputs::new(request)
-            },
+            &BuildInputs { schemas: Some(&self.schemas), continuation: Some(&continuation), effort: effort.as_ref(), ..BuildInputs::new(request) },
         );
         for exclusion in built.excluded {
             report_exclusion(&request.options, exclusion);
@@ -463,10 +423,8 @@ impl WireCodec for CompatResponsesCodec {
         let profile = self.responses_profile(request, info.as_deref());
         // `streamCompatResponses`: `<provider>:responses` over HTTP/SSE; the socket is the xAI WebSocket (`_wsErrLabel`).
         let label = if self.is_socket() { "xAI WS".to_owned() } else { format!("{}:responses", self.profile.id) };
-        let decoder = profile
-            .decoder_for(request, framing, Arc::new(ClockOnly))
-            .with_label(label)
-            .with_known_tools(body_tool_names(self, request, ToolNames::Named));
+        let decoder =
+            profile.decoder_for(request, framing, Arc::new(ClockOnly)).with_label(label).with_known_tools(body_tool_names(self, request, ToolNames::Named));
         // Over HTTP/SSE a compatible route is folded by Node's compatible events collector; its socket by the WebSocket one.
         Box::new(if self.is_socket() { decoder } else { decoder.compat_events() })
     }

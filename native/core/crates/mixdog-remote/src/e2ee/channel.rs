@@ -8,8 +8,8 @@ use serde_json::{Value, json};
 use super::control::{ControlLane, ControlLanes, LaneSlot};
 use super::pack::{MAX_PLAINTEXT_BYTES, pack_plaintext, unpack_plaintext};
 use super::{
-    BINARY_MAGIC, BOX_HEADER_BYTES, CONTEXT, CONTROL_MAGIC, E2eeError, TRANSPORT_MAX_BOX_BYTES,
-    TRANSPORT_MAX_PLAINTEXT_BYTES, VERSION, b64, is_b64url_len, random, unb64,
+    BINARY_MAGIC, BOX_HEADER_BYTES, CONTEXT, CONTROL_MAGIC, E2eeError, TRANSPORT_MAX_BOX_BYTES, TRANSPORT_MAX_PLAINTEXT_BYTES, VERSION, b64, is_b64url_len,
+    random, unb64,
 };
 
 /// A box as it arrives from the carrier.
@@ -99,11 +99,7 @@ fn decode_binary_box<'a>(bytes: &'a [u8], magic: &[u8; 4]) -> Option<BoxParts<'a
     if !(1..=9_007_199_254_740_991).contains(&sequence) {
         return None;
     }
-    Some(BoxParts {
-        sequence,
-        nonce: bytes[12..24].try_into().ok()?,
-        ciphertext: std::borrow::Cow::Borrowed(&bytes[BOX_HEADER_BYTES..]),
-    })
+    Some(BoxParts { sequence, nonce: bytes[12..24].try_into().ok()?, ciphertext: std::borrow::Cow::Borrowed(&bytes[BOX_HEADER_BYTES..]) })
 }
 
 fn decode_text_box(text: &str) -> Result<BoxParts<'static>, E2eeError> {
@@ -112,9 +108,8 @@ fn decode_text_box(text: &str) -> Result<BoxParts<'static>, E2eeError> {
     let ok = parsed["type"] == "e2ee-box" && parsed["version"] == VERSION;
     let sequence = parsed["sequence"].as_u64().filter(|s| (1..=9_007_199_254_740_991).contains(s));
     let nonce = parsed["nonce"].as_str().filter(|n| is_b64url_len(n, 16));
-    let ct = parsed["ciphertext"]
-        .as_str()
-        .filter(|c| c.len() >= 22 && c.len() % 4 != 1 && c.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
+    let ct =
+        parsed["ciphertext"].as_str().filter(|c| c.len() >= 22 && c.len() % 4 != 1 && c.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_'));
     let (true, Some(sequence), Some(nonce), Some(ct)) = (ok, sequence, nonce, ct) else {
         return Err(bad);
     };
@@ -219,18 +214,14 @@ impl Channel {
         Ok(if binary {
             Sealed::Binary(encode_binary_box(sequence, &nonce, &ciphertext))
         } else {
-            Sealed::Text(
-                json!({"type":"e2ee-box","version":VERSION,"sequence":sequence,"nonce":b64(&nonce),"ciphertext":b64(&ciphertext)})
-                    .to_string(),
-            )
+            Sealed::Text(json!({"type":"e2ee-box","version":VERSION,"sequence":sequence,"nonce":b64(&nonce),"ciphertext":b64(&ciphertext)}).to_string())
         })
     }
 
     /// Opens one application box; the plaintext is the frame's JSON text.
     pub fn open(&mut self, wire: Wire<'_>) -> Result<Vec<u8>, E2eeError> {
         let parts = match wire {
-            Wire::Binary(bytes) => decode_binary_box(bytes, &BINARY_MAGIC)
-                .ok_or(E2eeError::Invalid("Expected an encrypted relay frame."))?,
+            Wire::Binary(bytes) => decode_binary_box(bytes, &BINARY_MAGIC).ok_or(E2eeError::Invalid("Expected an encrypted relay frame."))?,
             Wire::Text(text) => decode_text_box(text)?,
         };
         if parts.sequence <= self.receive_sequence {
@@ -241,9 +232,7 @@ impl Channel {
         }
         let aad = self.app_aad(direction(false, self.role), parts.sequence);
         let cipher = self.transport.as_ref().map_or(&self.key, |t| &t.app_receive);
-        let plaintext = cipher
-            .decrypt(Nonce::from_slice(&parts.nonce), Payload { msg: &parts.ciphertext, aad: &aad })
-            .map_err(|_| E2eeError::Auth)?;
+        let plaintext = cipher.decrypt(Nonce::from_slice(&parts.nonce), Payload { msg: &parts.ciphertext, aad: &aad }).map_err(|_| E2eeError::Auth)?;
         let limit = if self.transport.is_some() { TRANSPORT_MAX_PLAINTEXT_BYTES } else { MAX_PLAINTEXT_BYTES };
         let value = unpack_plaintext(&plaintext, limit)?;
         self.receive_sequence = parts.sequence;
@@ -289,10 +278,8 @@ impl Channel {
         let nonce: [u8; 12] = random();
         let aad = self.control_aad(true, lane, sequence);
         let keys = self.transport_keys()?;
-        let ct = keys
-            .control_send
-            .encrypt(Nonce::from_slice(&nonce), Payload { msg: plaintext, aad: &aad })
-            .map_err(|_| E2eeError::Invalid("encryption failed"))?;
+        let ct =
+            keys.control_send.encrypt(Nonce::from_slice(&nonce), Payload { msg: plaintext, aad: &aad }).map_err(|_| E2eeError::Invalid("encryption failed"))?;
         let mut out = encode_binary_box(sequence, &nonce, &ct);
         out[..4].copy_from_slice(&CONTROL_MAGIC);
         Ok(out)
@@ -302,8 +289,7 @@ impl Channel {
     /// high-water mark, or any box on a retired lane, is `Stale`, never an error.
     pub fn open_control(&mut self, raw: &[u8], lane: &ControlLane) -> Result<ControlOpen, E2eeError> {
         self.transport_keys()?;
-        let parts = decode_binary_box(raw, &CONTROL_MAGIC)
-            .ok_or(E2eeError::Invalid("Expected a transport control box."))?;
+        let parts = decode_binary_box(raw, &CONTROL_MAGIC).ok_or(E2eeError::Invalid("Expected a transport control box."))?;
         let slot = self.lanes.slot(lane)?;
         match self.lanes.high_water(&slot) {
             None => return Ok(ControlOpen::Stale { sequence: parts.sequence }),

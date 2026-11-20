@@ -12,18 +12,12 @@ pub(super) fn publish_live_files(live: &LiveWalk, files: &[PathBuf]) {
 }
 
 pub(super) fn inventory_parallelism() -> usize {
-    let available = std::thread::available_parallelism()
-        .map(|n| n.get())
-        .unwrap_or(2);
-    positive_env_usize("MIXDOG_SEARCH_INVENTORY_INFLIGHT")
-        .unwrap_or_else(|| available.clamp(1, 2))
-        .clamp(1, 8)
+    let available = std::thread::available_parallelism().map(|n| n.get()).unwrap_or(2);
+    positive_env_usize("MIXDOG_SEARCH_INVENTORY_INFLIGHT").unwrap_or_else(|| available.clamp(1, 2)).clamp(1, 8)
 }
 
 pub(super) fn inventory_publish_batch() -> usize {
-    positive_env_usize("MIXDOG_SEARCH_INVENTORY_PUBLISH_BATCH")
-        .unwrap_or(256)
-        .clamp(128, 512)
+    positive_env_usize("MIXDOG_SEARCH_INVENTORY_PUBLISH_BATCH").unwrap_or(256).clamp(128, 512)
 }
 
 pub(super) fn inventory_pool() -> &'static ThreadPool {
@@ -42,11 +36,7 @@ pub(super) fn inventory_walk_threads(operand: &Path) -> usize {
     // I/O workers. Keep ordinary project walks small and both paths bounded.
     let maximum = if is_filesystem_root(operand) { 12 } else { 4 };
     positive_env_usize("MIXDOG_SEARCH_INVENTORY_THREADS")
-        .unwrap_or_else(|| {
-            std::thread::available_parallelism()
-                .map(usize::from)
-                .unwrap_or(2)
-        })
+        .unwrap_or_else(|| std::thread::available_parallelism().map(usize::from).unwrap_or(2))
         .clamp(2, maximum)
 }
 
@@ -78,17 +68,11 @@ impl DirectoryFailure {
         let ignore::Error::Io(io_error) = err.as_ref() else {
             return None;
         };
-        Some(Self {
-            path: path.clone(),
-            raw_os_error: io_error.raw_os_error()?,
-            detail: error.to_string(),
-        })
+        Some(Self { path: path.clone(), raw_os_error: io_error.raw_os_error()?, detail: error.to_string() })
     }
 
     pub(super) fn unchanged(&self) -> bool {
-        std::fs::read_dir(&self.path)
-            .err()
-            .is_some_and(|error| error.raw_os_error() == Some(self.raw_os_error))
+        std::fs::read_dir(&self.path).err().is_some_and(|error| error.raw_os_error() == Some(self.raw_os_error))
     }
 }
 
@@ -110,13 +94,7 @@ pub(super) fn record_walk_error(live: &LiveWalk, detail: impl ToString) {
     if details.len() >= WALK_ERROR_DETAIL_MAX {
         return;
     }
-    details.push(
-        detail
-            .to_string()
-            .chars()
-            .take(WALK_ERROR_DETAIL_CHARS)
-            .collect(),
-    );
+    details.push(detail.to_string().chars().take(WALK_ERROR_DETAIL_CHARS).collect());
 }
 
 pub(super) fn live_walk_error_details(live: &LiveWalk) -> Vec<String> {
@@ -136,12 +114,7 @@ pub(super) fn append_walk_error_details(target: &mut Vec<String>, details: Vec<S
 
 impl<'a> WorkerWalkBatch<'a> {
     pub(super) fn new(live: &'a LiveWalk, capacity: usize) -> Self {
-        Self {
-            live,
-            files: Vec::with_capacity(capacity),
-            capacity,
-            last_flush: None,
-        }
+        Self { live, files: Vec::with_capacity(capacity), capacity, last_flush: None }
     }
 
     pub(super) fn push(&mut self, path: PathBuf) {
@@ -154,11 +127,7 @@ impl<'a> WorkerWalkBatch<'a> {
     }
 
     pub(super) fn flush_due(&mut self) {
-        if !self.files.is_empty()
-            && self
-                .last_flush
-                .is_some_and(|last| last.elapsed() >= Duration::from_millis(10))
-        {
+        if !self.files.is_empty() && self.last_flush.is_some_and(|last| last.elapsed() >= Duration::from_millis(10)) {
             self.flush();
         }
     }
@@ -230,10 +199,7 @@ pub(super) fn repair_anchors(root: &Path, paths: &[PathBuf]) -> Vec<PathBuf> {
     anchors.sort_by_key(|path| path.components().count());
     let mut minimal: Vec<PathBuf> = Vec::new();
     for path in anchors {
-        if !minimal
-            .iter()
-            .any(|ancestor| path_starts_with(&path, ancestor))
-        {
+        if !minimal.iter().any(|ancestor| path_starts_with(&path, ancestor)) {
             minimal.push(path);
         }
     }
@@ -245,21 +211,13 @@ pub(super) fn scan_inventory_subtree(key: &WalkKey, anchor: &Path) -> Result<Vec
     scan_inventory_anchors(key, &[anchor.to_path_buf()])
 }
 
-pub(super) fn scan_inventory_anchors(
-    key: &WalkKey,
-    anchors: &[PathBuf],
-) -> Result<Vec<PathBuf>, String> {
+pub(super) fn scan_inventory_anchors(key: &WalkKey, anchors: &[PathBuf]) -> Result<Vec<PathBuf>, String> {
     // Start at the original root so ignore rules and hidden-directory rules
     // are identical to a full walk. Only descend into changed branches.
     let branches = anchors.to_vec();
     let mut walk = WalkBuilder::new(&key.operand);
-    walk.hidden(!key.hidden)
-        .threads(inventory_walk_threads(&key.operand));
-    walk.filter_entry(move |entry| {
-        branches
-            .iter()
-            .any(|anchor| FileListStore::paths_overlap(entry.path(), anchor))
-    });
+    walk.hidden(!key.hidden).threads(inventory_walk_threads(&key.operand));
+    walk.filter_entry(move |entry| branches.iter().any(|anchor| FileListStore::paths_overlap(entry.path(), anchor)));
     apply_ignore_rules(&mut walk, key.no_ignore, key.no_require_git, key.max_depth);
     if let Some(overrides) = prune_overrides(&key.operand, &key.prune, &key.iglobs) {
         walk.overrides(overrides);
@@ -267,18 +225,13 @@ pub(super) fn scan_inventory_anchors(
     let mut files = Vec::new();
     for entry in walk.build() {
         let entry = entry.map_err(|error| error.to_string())?;
-        if !path_starts_with(entry.path(), &key.operand)
-            || !anchors
-                .iter()
-                .any(|anchor| path_starts_with(entry.path(), anchor))
-        {
+        if !path_starts_with(entry.path(), &key.operand) || !anchors.iter().any(|anchor| path_starts_with(entry.path(), anchor)) {
             continue;
         }
         let (is_file, is_dir, is_symlink) = if let Some(kind) = entry.file_type() {
             (kind.is_file(), kind.is_dir(), kind.is_symlink())
         } else {
-            let metadata =
-                std::fs::symlink_metadata(entry.path()).map_err(|error| error.to_string())?;
+            let metadata = std::fs::symlink_metadata(entry.path()).map_err(|error| error.to_string())?;
             let kind = metadata.file_type();
             (kind.is_file(), kind.is_dir(), kind.is_symlink())
         };
@@ -291,41 +244,24 @@ pub(super) fn scan_inventory_anchors(
     Ok(files)
 }
 
-pub(super) fn repair_inventory(
-    key: &WalkKey,
-    base: &[PathBuf],
-    changed_paths: &[PathBuf],
-) -> Result<Arc<Vec<PathBuf>>, String> {
+pub(super) fn repair_inventory(key: &WalkKey, base: &[PathBuf], changed_paths: &[PathBuf]) -> Result<Arc<Vec<PathBuf>>, String> {
     let anchors = repair_anchors(&key.operand, changed_paths);
     if anchors.is_empty() {
         return Ok(Arc::new(base.to_vec()));
     }
-    let retained = base
-        .iter()
-        .filter(|path| !anchors.iter().any(|anchor| path_starts_with(path, anchor)))
-        .cloned()
-        .collect::<Vec<_>>();
+    let retained = base.iter().filter(|path| !anchors.iter().any(|anchor| path_starts_with(path, anchor))).cloned().collect::<Vec<_>>();
     let additions = scan_inventory_anchors(key, &anchors)?;
     Ok(Arc::new(merge_sorted_inventory(&retained, &additions)))
 }
 
-pub(super) fn reuse_failed_inventory(
-    store: &FileListStore,
-    key: &WalkKey,
-    live: &LiveWalk,
-) -> Option<Arc<Vec<PathBuf>>> {
+pub(super) fn reuse_failed_inventory(store: &FileListStore, key: &WalkKey, live: &LiveWalk) -> Option<Arc<Vec<PathBuf>>> {
     if !live.cacheable.load(Ordering::Acquire) || !store.watcher_healthy.load(Ordering::Acquire) {
         return None;
     }
     let (files, failures) = {
         let ready = lock_recover(&store.ready);
-        let entry = ready.get(key).filter(|entry| {
-            entry.generation == live.generation && !entry.directory_failures.is_empty()
-        })?;
-        (
-            Arc::clone(&entry.files),
-            Arc::clone(&entry.directory_failures),
-        )
+        let entry = ready.get(key).filter(|entry| entry.generation == live.generation && !entry.directory_failures.is_empty())?;
+        (Arc::clone(&entry.files), Arc::clone(&entry.directory_failures))
     };
     // Never serve the saved errors without retrying their actual I/O in this
     // request. Any recovery or different error needs a fresh complete walk.
@@ -338,10 +274,7 @@ pub(super) fn reuse_failed_inventory(
                 eprintln!("inventory-recheck-changed {}", failure.path.display());
             }
             let mut ready = lock_recover(&store.ready);
-            if ready
-                .get(key)
-                .is_some_and(|entry| Arc::ptr_eq(&entry.files, &files))
-            {
+            if ready.get(key).is_some_and(|entry| Arc::ptr_eq(&entry.files, &files)) {
                 ready.remove(key);
             }
             return None;
@@ -371,17 +304,9 @@ fn publish_complete_inventory(live: &LiveWalk, files: &[PathBuf]) {
 
 /// The ignore-file and depth settings both inventory walkers share, so a
 /// repair walk enumerates exactly what the full walk would.
-fn apply_ignore_rules(
-    walk: &mut WalkBuilder,
-    no_ignore: bool,
-    no_require_git: bool,
-    max_depth: Option<usize>,
-) {
+fn apply_ignore_rules(walk: &mut WalkBuilder, no_ignore: bool, no_require_git: bool, max_depth: Option<usize>) {
     if no_ignore {
-        walk.ignore(false)
-            .git_ignore(false)
-            .git_global(false)
-            .git_exclude(false);
+        walk.ignore(false).git_ignore(false).git_global(false).git_exclude(false);
     } else if no_require_git {
         walk.require_git(false);
     }
@@ -394,14 +319,8 @@ fn apply_ignore_rules(
 /// count, depth bound and the directories this operand prunes.
 fn configure_inventory_walk(operand: &Path, parsed: &ParsedArgs) -> WalkBuilder {
     let mut walk = WalkBuilder::new(operand);
-    walk.hidden(!parsed.hidden)
-        .threads(inventory_walk_threads(operand));
-    apply_ignore_rules(
-        &mut walk,
-        parsed.no_ignore,
-        parsed.no_require_git,
-        parsed.max_depth,
-    );
+    walk.hidden(!parsed.hidden).threads(inventory_walk_threads(operand));
+    apply_ignore_rules(&mut walk, parsed.no_ignore, parsed.no_require_git, parsed.max_depth);
     // Prune excluded directories while walking. Without this the
     // inventory descends into .git/node_modules on every request and
     // only discards them later, at scan time.
@@ -431,13 +350,7 @@ fn walk_entry_kinds(live: &LiveWalk, entry: &ignore::DirEntry) -> Option<(bool, 
     }
 }
 
-pub(super) fn start_live_walk(
-    store: Arc<FileListStore>,
-    key: WalkKey,
-    live: Arc<LiveWalk>,
-    operand: PathBuf,
-    parsed: ParsedArgs,
-) {
+pub(super) fn start_live_walk(store: Arc<FileListStore>, key: WalkKey, live: Arc<LiveWalk>, operand: PathBuf, parsed: ParsedArgs) {
     inventory_pool().spawn(move || {
         let result = contain_search_panic("native inventory worker", || {
             if let Some(files) = reuse_failed_inventory(&store, &key, &live) {
@@ -465,9 +378,7 @@ pub(super) fn start_live_walk(
                 let mut batch = WorkerWalkBatch::new(live, publish_batch);
                 Box::new(move |entry| {
                     batch.flush_due();
-                    if abandon_expired_idle_walk(live, serve_search_uptime_ms())
-                        || live.cancelled.load(Ordering::Acquire)
-                    {
+                    if abandon_expired_idle_walk(live, serve_search_uptime_ms()) || live.cancelled.load(Ordering::Acquire) {
                         return ignore::WalkState::Quit;
                     }
                     let entry = match entry {
@@ -480,10 +391,7 @@ pub(super) fn start_live_walk(
                     let Some((is_file, is_dir, is_symlink)) = walk_entry_kinds(live, &entry) else {
                         return ignore::WalkState::Continue;
                     };
-                    if !is_file
-                        && !(parsed.directories
-                            && ((is_dir && entry.path() != operand.as_path()) || is_symlink))
-                    {
+                    if !is_file && !(parsed.directories && ((is_dir && entry.path() != operand.as_path()) || is_symlink)) {
                         return ignore::WalkState::Continue;
                     }
                     let path = entry.into_path();
@@ -510,11 +418,7 @@ pub(super) fn start_live_walk(
             // critical section (`append`/`extend` above) can leave it short.
             // An inventory that may be truncated must fail loudly once, not be
             // cached as the whole answer: the next request restarts the walk.
-            let mut files = live
-                .files
-                .lock()
-                .map_err(|_| "parallel file collector poisoned".to_string())?
-                .clone();
+            let mut files = live.files.lock().map_err(|_| "parallel file collector poisoned".to_string())?.clone();
             // Inventory order is deterministic but duplicate paths are
             // equivalent, so stability buys nothing. Parallel unstable sort
             // removes the single-core tail that cold broad finds previously
@@ -536,11 +440,7 @@ pub(super) fn start_live_walk(
     });
 }
 
-pub(super) fn wait_live_complete(
-    live: &LiveWalk,
-    cancelled: &AtomicBool,
-    deadline_at: Option<Instant>,
-) -> Result<Option<Arc<Vec<PathBuf>>>, String> {
+pub(super) fn wait_live_complete(live: &LiveWalk, cancelled: &AtomicBool, deadline_at: Option<Instant>) -> Result<Option<Arc<Vec<PathBuf>>>, String> {
     let mut state = lock_recover(&live.state);
     loop {
         if cancelled.load(Ordering::Relaxed) {
@@ -551,11 +451,7 @@ pub(super) fn wait_live_complete(
         }
         match &*state {
             LiveState::Running => {
-                state = live
-                    .cond
-                    .wait_timeout(state, Duration::from_millis(10))
-                    .unwrap_or_else(|e| e.into_inner())
-                    .0;
+                state = live.cond.wait_timeout(state, Duration::from_millis(10)).unwrap_or_else(|e| e.into_inner()).0;
             }
             LiveState::Done(files) => return Ok(Some(Arc::clone(files))),
             LiveState::Abandoned => return Ok(None),

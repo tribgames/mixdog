@@ -74,7 +74,6 @@ pub struct SweepStep {
     pub done: bool,
 }
 
-
 fn check(cancel: &CancellationToken) -> Result<(), FlushFailure> {
     if cancel.is_cancelled() { Err(FlushFailure::Cancelled) } else { Ok(()) }
 }
@@ -197,11 +196,7 @@ impl RawEmbedFlush {
             done.attempted += ids.len();
             let (mut batch_done, mut aborted) = (false, false);
             let short_claim = ids.len() < BATCH_SIZE;
-            let batch_demand = if short_claim || !more_visible {
-                BatchDemand::Finish(demand.take())
-            } else {
-                BatchDemand::Continue(&mut demand)
-            };
+            let batch_demand = if short_claim || !more_visible { BatchDemand::Finish(demand.take()) } else { BatchDemand::Continue(&mut demand) };
             let synced = match check(cancel) {
                 Ok(()) => self.sync_roots(&client, &ids, false, cancel, batch_demand).await,
                 Err(cancelled) => {
@@ -259,19 +254,19 @@ impl RawEmbedFlush {
             "SELECT id FROM entries WHERE {PENDING} AND ($2::bigint IS NULL OR id < $2)
              ORDER BY id DESC LIMIT $1 FOR UPDATE SKIP LOCKED"
         );
-        let rows = client
-            .query(&sql, &[&(BATCH_SIZE as i64), &cursor])
-            .await?;
+        let rows = client.query(&sql, &[&(BATCH_SIZE as i64), &cursor]).await?;
         let ids: Vec<i64> = rows.iter().map(|row| row.get(0)).collect();
         let mut more = false;
-        if ids.len() == BATCH_SIZE && let Some(last) = ids.last() {
+        if ids.len() == BATCH_SIZE
+            && let Some(last) = ids.last()
+        {
             // A row that the next claim would skip is not outstanding inference demand.
             // Release the probe's lock without releasing any row in the actual claim.
             client.batch_execute("SAVEPOINT next_root").await?;
-            more = client.query_opt(
-                &format!("SELECT id FROM entries WHERE {PENDING} AND id < $1 ORDER BY id DESC LIMIT 1 FOR UPDATE SKIP LOCKED"),
-                &[last],
-            ).await?.is_some();
+            more = client
+                .query_opt(&format!("SELECT id FROM entries WHERE {PENDING} AND id < $1 ORDER BY id DESC LIMIT 1 FOR UPDATE SKIP LOCKED"), &[last])
+                .await?
+                .is_some();
             client.batch_execute("ROLLBACK TO SAVEPOINT next_root; RELEASE SAVEPOINT next_root").await?;
         }
         Ok((ids, more))
@@ -292,16 +287,16 @@ impl RawEmbedFlush {
         if !self.embeds() {
             return Ok(Vec::new());
         }
-        let rows = client
-            .query("SELECT id, element, summary, content, role FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1", &[&ids])
-            .await?;
+        let rows = client.query("SELECT id, element, summary, content, role FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1", &[&ids]).await?;
         check(cancel)?;
         if rows.is_empty() {
             return Ok(Vec::new());
         }
         let rows: Vec<Row> = rows.iter().map(|r| (r.get(0), r.get(1), r.get(2), r.get(3), r.get(4))).collect();
-        let texts: Vec<String> =
-            rows.iter().map(|(_, element, summary, content, role)| root_embed_text(element.as_deref(), summary.as_deref(), role.as_deref(), content.as_deref())).collect();
+        let texts: Vec<String> = rows
+            .iter()
+            .map(|(_, element, summary, content, role)| root_embed_text(element.as_deref(), summary.as_deref(), role.as_deref(), content.as_deref()))
+            .collect();
         let wanted: Vec<String> = texts.iter().filter(|text| !text.is_empty()).cloned().collect();
         let vectors = self.cached_embed_batch(client, &wanted, &mut None, demand).await?;
         check(cancel)?;
@@ -341,8 +336,7 @@ impl RawEmbedFlush {
             values.join(","),
             if replace { "NOT " } else { "" }
         );
-        let params: Vec<Param<'_>> =
-            updates.iter().flat_map(|u| [&u.id as Param<'_>, &u.vector, &u.element, &u.summary, &u.content]).collect();
+        let params: Vec<Param<'_>> = updates.iter().flat_map(|u| [&u.id as Param<'_>, &u.vector, &u.element, &u.summary, &u.content]).collect();
         let written: Vec<i64> = client.query(&sql, &params).await?.iter().map(|row| row.get::<_, i64>(0)).collect();
         check(cancel)?;
         if written.len() < updates.len() {
@@ -364,8 +358,7 @@ impl RawEmbedFlush {
             )
             .await?;
         type CurrentRoot = (bool, Option<String>, Option<String>, Option<String>);
-        let current: std::collections::HashMap<i64, CurrentRoot> =
-            current.iter().map(|r| (r.get(0), (r.get(1), r.get(2), r.get(3), r.get(4)))).collect();
+        let current: std::collections::HashMap<i64, CurrentRoot> = current.iter().map(|r| (r.get(0), (r.get(1), r.get(2), r.get(3), r.get(4)))).collect();
         let (mut stale, mut concurrent) = (0usize, 0usize);
         for update in missed {
             let Some((has_embedding, element, summary, content)) = current.get(&update.id) else { continue };

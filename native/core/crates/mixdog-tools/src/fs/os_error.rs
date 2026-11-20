@@ -159,10 +159,7 @@ mod tests {
         assert_eq!(write_message(&failing(Some(FsStep::Write)), target.as_path()), format!("{enoent}, write"));
         assert_eq!(write_message(&failing(Some(FsStep::Fsync)), target.as_path()), format!("{enoent}, fsync"));
         let rename = failing(Some(FsStep::Rename { from: tmp.clone(), to: target.clone() }));
-        assert_eq!(
-            write_message(&rename, target.as_path()),
-            format!("{enoent}, rename '{}' -> '{}'", tmp.as_path().display(), target.as_path().display())
-        );
+        assert_eq!(write_message(&rename, target.as_path()), format!("{enoent}, rename '{}' -> '{}'", tmp.as_path().display(), target.as_path().display()));
         let unlink = failing(Some(FsStep::Unlink));
         assert_eq!(write_message(&unlink, target.as_path()), format!("{enoent}, unlink '{}'", target.as_path().display()));
     }

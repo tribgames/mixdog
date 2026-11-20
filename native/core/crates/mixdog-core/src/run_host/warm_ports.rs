@@ -294,9 +294,9 @@ impl TurnWarmth for WarmedTurns {
 mod tests {
     use std::sync::Mutex;
 
+    use mixdog_ai::registry::providers::ProviderBuilder;
     use mixdog_core_api::domain::mock::MockProvider;
     use mixdog_core_api::domain::provider::{Content, Message, MessageSource, ProviderAdapter, RequestOptions, Role};
-    use mixdog_ai::registry::providers::ProviderBuilder;
     use serde_json::json;
 
     use super::*;
@@ -347,12 +347,8 @@ mod tests {
     /// The facts `cacheWarmIneligibility` reads come from the request's options.
     #[test]
     fn the_saved_request_answers_the_facts_the_warmer_reads_of_it() {
-        let request = saved(
-            json!({ "cacheStrategy": { "messages": "1h", "system": "5m" }, "thinkingBudgetTokens": "4096" }),
-            Some("high"),
-            true,
-            Reminder::saying("r"),
-        );
+        let request =
+            saved(json!({ "cacheStrategy": { "messages": "1h", "system": "5m" }, "thinkingBudgetTokens": "4096" }), Some("high"), true, Reminder::saying("r"));
         let strategy = request.cache_strategy().expect("strategy");
         assert_eq!((strategy.messages.as_deref(), strategy.system.as_deref(), strategy.tier3), (Some("1h"), Some("5m"), None));
         assert_eq!(request.thinking_budget_tokens(), 4096.0);

@@ -11,8 +11,8 @@ use mixdog_store::fsio::WriteLane;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-use crate::identity::secret::{SecretError, read_secret, write_secret};
 use crate::identity::roster::is_controller_key;
+use crate::identity::secret::{SecretError, read_secret, write_secret};
 use crate::leg::caps::{NativePlatform, RelayCaps};
 
 pub const MAX_SUBSCRIPTIONS: usize = 32;
@@ -63,8 +63,7 @@ fn valid_token(platform: &str, token: &str) -> bool {
     if platform == "apns" {
         (32..=400).contains(&len) && token.bytes().all(|b| b.is_ascii_hexdigit())
     } else {
-        (32..=4096).contains(&len)
-            && token.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b':' | b'.' | b'-'))
+        (32..=4096).contains(&len) && token.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b':' | b'.' | b'-'))
     }
 }
 
@@ -110,12 +109,7 @@ impl NativePushStore {
 
     /// One registration per paired client; a token moves to its latest owner. In-memory state is
     /// published only after the write succeeds.
-    pub fn register<L: WriteLane>(
-        &mut self,
-        lane: &InLane<L>,
-        input: &NativePushInput<'_>,
-        now_ms: u64,
-    ) -> Result<NativePushSubscription, NativePushError> {
+    pub fn register<L: WriteLane>(&mut self, lane: &InLane<L>, input: &NativePushInput<'_>, now_ms: u64) -> Result<NativePushSubscription, NativePushError> {
         let client_id = mixdog_js::slice_utf16(input.client_id, 64);
         if client_id.is_empty() {
             return Err(NativePushError::NoClient);
@@ -139,8 +133,7 @@ impl NativePushStore {
             sandbox,
             created_at: now_ms,
         };
-        let mut next: Vec<_> =
-            self.rows.iter().filter(|row| row.client_id != client_id && row.token != entry.token).cloned().collect();
+        let mut next: Vec<_> = self.rows.iter().filter(|row| row.client_id != client_id && row.token != entry.token).cloned().collect();
         next.push(entry.clone());
         if next.len() > MAX_SUBSCRIPTIONS {
             next.drain(..next.len() - MAX_SUBSCRIPTIONS);
@@ -165,12 +158,7 @@ impl NativePushStore {
     }
 
     /// Removes the client's registration (or only the row holding `token`).
-    pub fn remove<L: WriteLane>(
-        &mut self,
-        lane: &InLane<L>,
-        client_id: &str,
-        token: Option<&str>,
-    ) -> Result<Vec<NativePushSubscription>, SecretError> {
+    pub fn remove<L: WriteLane>(&mut self, lane: &InLane<L>, client_id: &str, token: Option<&str>) -> Result<Vec<NativePushSubscription>, SecretError> {
         self.drop_where(lane, |row| row.client_id == client_id && token.is_none_or(|t| row.token == t))
     }
 
@@ -195,9 +183,8 @@ fn platform_of(name: &str) -> Option<NativePlatform> {
 /// The relay only sends to tokens this desktop bound to a paired client, so a bind precedes the
 /// first send on every connection.
 pub fn bind_envelope(row: &NativePushSubscription, caps: &RelayCaps) -> Option<Value> {
-    caps.can_deliver_native(platform_of(&row.platform)?).then(|| {
-        json!({ "type": "native-push-bind", "clientId": row.client_id, "platform": row.platform, "token": row.token })
-    })
+    caps.can_deliver_native(platform_of(&row.platform)?)
+        .then(|| json!({ "type": "native-push-bind", "clientId": row.client_id, "platform": row.platform, "token": row.token }))
 }
 
 pub fn unbind_envelope(row: &NativePushSubscription) -> Value {

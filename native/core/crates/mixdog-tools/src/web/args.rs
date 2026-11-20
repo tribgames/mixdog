@@ -83,10 +83,7 @@ fn string(value: Option<&Value>, min_one: bool, url: bool) -> Issues {
                 issues.push(too_small_length("string"));
             }
             if url && Url::parse(text).is_err() {
-                issues.push(Issue {
-                    json: json!({ "code": "invalid_format", "format": "url", "path": [], "message": "Invalid URL" }),
-                    keep_going: true,
-                });
+                issues.push(Issue { json: json!({ "code": "invalid_format", "format": "url", "path": [], "message": "Invalid URL" }), keep_going: true });
             }
             issues
         }
@@ -121,10 +118,7 @@ fn union(branches: [Issues; 2]) -> Issues {
     if branches.iter().any(Vec::is_empty) {
         return Vec::new();
     }
-    let errors: Vec<Value> = branches
-        .iter()
-        .map(|issues| Value::Array(issues.iter().map(|issue| issue.json.clone()).collect()))
-        .collect();
+    let errors: Vec<Value> = branches.iter().map(|issues| Value::Array(issues.iter().map(|issue| issue.json.clone()).collect())).collect();
     let mut open: Vec<Issues> = branches.into_iter().filter(|issues| issues.iter().all(|issue| issue.keep_going)).collect();
     if open.len() == 1 {
         return open.remove(0);
@@ -228,10 +222,7 @@ fn object<'a>(value: &'a Value, check: impl Fn(&'a Map<String, Value>) -> Issues
 fn rejection(issues: Issues) -> ToolError {
     let details: Vec<Value> = issues.into_iter().map(|issue| issue.json).collect();
     let first = details.first();
-    let field = first
-        .and_then(|issue| issue["path"].get(0))
-        .map(|key| key.as_str().map_or_else(|| key.to_string(), str::to_string))
-        .unwrap_or_default();
+    let field = first.and_then(|issue| issue["path"].get(0)).map(|key| key.as_str().map_or_else(|| key.to_string(), str::to_string)).unwrap_or_default();
     let reason = first.and_then(|issue| issue["message"].as_str()).unwrap_or_default().to_string();
     let text = mixdog_js::json_stringify(&json!({ "error": "Invalid arguments", "details": details }));
     ToolError::new(ToolErrorCode::InvalidArgs { field, reason }, text)
@@ -295,12 +286,7 @@ pub(super) fn fetch_args(raw: &Value) -> Result<FetchArgs, ToolError> {
     let empty = json!({});
     let args = normalize_url_args(if truthy(raw) { raw } else { &empty });
     let issues = object(&args, |map| {
-        let mut issues = field(map, "url", false, |url| {
-            union([
-                string(url, false, true),
-                array(url, true, |item| string(item, false, true)),
-            ])
-        });
+        let mut issues = field(map, "url", false, |url| union([string(url, false, true), array(url, true, |item| string(item, false, true))]));
         issues.extend(field(map, "startIndex", true, |v| int(v, 0, None)));
         issues.extend(field(map, "maxLength", true, |v| int(v, 0, None)));
         issues.extend(field(map, "cwd", true, |v| string(v, false, false)));
@@ -314,11 +300,7 @@ pub(super) fn fetch_args(raw: &Value) -> Result<FetchArgs, ToolError> {
         Some(Value::String(text)) => vec![text.clone()],
         _ => Vec::new(),
     };
-    Ok(FetchArgs {
-        urls,
-        start_index: whole(&args, "startIndex").unwrap_or(0),
-        max_length: whole(&args, "maxLength"),
-    })
+    Ok(FetchArgs { urls, start_index: whole(&args, "startIndex").unwrap_or(0), max_length: whole(&args, "maxLength") })
 }
 
 pub(super) struct SearchInput {
@@ -368,10 +350,7 @@ pub(super) fn search_args(raw: &Value) -> Result<SearchInput, ToolError> {
     let mut raw = raw.clone();
     if let Value::Object(map) = &mut raw {
         if map.contains_key("pattern") && !map.contains_key("query") && !map.contains_key("keywords") {
-            return Err(ToolError::new(
-                ToolErrorCode::InvalidArgs { field: "query".into(), reason: PATTERN_ONLY.into() },
-                PATTERN_ONLY,
-            ));
+            return Err(ToolError::new(ToolErrorCode::InvalidArgs { field: "query".into(), reason: PATTERN_ONLY.into() }, PATTERN_ONLY));
         }
         if !map.contains_key("keywords")
             && let Some(query) = map.shift_remove("query")
@@ -382,9 +361,7 @@ pub(super) fn search_args(raw: &Value) -> Result<SearchInput, ToolError> {
     let empty = json!({});
     let args = normalize_search_args(if truthy(&raw) { &raw } else { &empty });
     let issues = object(&args, |map| {
-        let mut issues = field(map, "keywords", false, |v| {
-            union([string(v, true, false), array(v, true, |item| string(item, true, false))])
-        });
+        let mut issues = field(map, "keywords", false, |v| union([string(v, true, false), array(v, true, |item| string(item, true, false))]));
         issues.extend(field(map, "site", true, |v| string(v, false, false)));
         issues.extend(field(map, "maxResults", true, |v| int(v, 1, Some(20))));
         issues.extend(field(map, "locale", true, |v| {

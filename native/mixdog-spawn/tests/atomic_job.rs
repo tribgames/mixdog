@@ -68,10 +68,7 @@ fn ping() -> String {
 }
 
 fn long_running(program: String) -> CommandSpec {
-    CommandSpec::Argv {
-        program,
-        args: vec!["-n".into(), "120".into(), "127.0.0.1".into()],
-    }
+    CommandSpec::Argv { program, args: vec!["-n".into(), "120".into(), "127.0.0.1".into()] }
 }
 
 /// Not a test of its own: the helper process of
@@ -89,9 +86,7 @@ async fn helper_role_creates_a_child_and_waits_to_be_killed() {
     let request = request(&h, long_running(program));
     // On its own task: the launch parks its thread in the window.
     let _spawn = tokio::spawn(async move { m.spawn(request).await });
-    tokio::task::spawn_blocking(mixdog_spawn::testing::wait_created_window_entered)
-        .await
-        .unwrap();
+    tokio::task::spawn_blocking(mixdog_spawn::testing::wait_created_window_entered).await.unwrap();
     println!("{PARKED}");
     std::thread::park();
 }
@@ -134,10 +129,7 @@ fn a_child_does_not_outlive_a_helper_killed_right_after_creating_it() {
     std::thread::spawn(move || {
         let _ = exited.send(helper.wait().map(|_| ()));
     });
-    helper_gone
-        .recv_timeout(WITHIN)
-        .expect("the killed helper did not exit within 20 s")
-        .unwrap();
+    helper_gone.recv_timeout(WITHIN).expect("the killed helper did not exit within 20 s").unwrap();
     reached.expect("the helper did not report its child created within 60 s");
     assert_eq!(pids.len(), 1, "exactly one child of the helper exists: {pids:?}");
     let child: HANDLE = child.unwrap();
@@ -148,10 +140,7 @@ fn a_child_does_not_outlive_a_helper_killed_right_after_creating_it() {
     }
     unsafe { CloseHandle(child) };
     let _ = std::fs::remove_file(&program);
-    assert_eq!(
-        waited, WAIT_OBJECT_0,
-        "the child of the killed helper was still running 20 s later, outside any job"
-    );
+    assert_eq!(waited, WAIT_OBJECT_0, "the child of the killed helper was still running 20 s later, outside any job");
 }
 
 /// What the first of two children owns in the helper, while the second is started, must not reach
@@ -162,20 +151,15 @@ fn a_child_does_not_outlive_a_helper_killed_right_after_creating_it() {
 async fn a_second_child_does_not_hold_the_first_childs_pipe_open() {
     let _alone = ONE_AT_A_TIME.lock().unwrap_or_else(|e| e.into_inner());
     let (mut read, mut write): (HANDLE, HANDLE) = (std::ptr::null_mut(), std::ptr::null_mut());
-    let inheritable = SECURITY_ATTRIBUTES {
-        nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32,
-        lpSecurityDescriptor: std::ptr::null_mut(),
-        bInheritHandle: 1,
-    };
+    let inheritable =
+        SECURITY_ATTRIBUTES { nLength: std::mem::size_of::<SECURITY_ATTRIBUTES>() as u32, lpSecurityDescriptor: std::ptr::null_mut(), bInheritHandle: 1 };
     assert_ne!(unsafe { CreatePipe(&mut read, &mut write, &inheritable, 0) }, 0, "the pipe is created");
     let mut first_output = unsafe { std::fs::File::from_raw_handle(read.cast()) };
 
     let m = manager();
     let second = handle("atomic-second");
-    let spawned = tokio::time::timeout(WITHIN, m.spawn(request(&second, long_running(ping()))))
-        .await
-        .expect("the second child was not started within 20 s")
-        .unwrap();
+    let spawned =
+        tokio::time::timeout(WITHIN, m.spawn(request(&second, long_running(ping())))).await.expect("the second child was not started within 20 s").unwrap();
     // The first child exits: its last owner of the write end lets go.
     unsafe { CloseHandle(write) };
 
@@ -189,8 +173,6 @@ async fn a_second_child_does_not_hold_the_first_childs_pipe_open() {
     let collected = tokio::time::timeout(WITHIN, collect(&m, &second)).await;
     assert!(second_alive, "the second child is still running");
     collected.expect("the killed second child did not end within 20 s");
-    let at_end = first_ended
-        .expect("the first child's pipe did not reach its end within 20 s while the second child ran: the second inherited it")
-        .unwrap();
+    let at_end = first_ended.expect("the first child's pipe did not reach its end within 20 s while the second child ran: the second inherited it").unwrap();
     assert!(at_end, "the pipe's end is reported as the end of the stream");
 }

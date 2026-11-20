@@ -82,10 +82,17 @@ fn is_session_id(value: &str) -> bool {
 }
 
 enum Link {
-    Local { device: String, kind: LocalKind },
+    Local {
+        device: String,
+        kind: LocalKind,
+    },
     /// `generation`: the open of the peer this connection was made for (`connect_relay_in`); a connection resolves only to that open's
     /// record, never to a replacement's. None for a connection registered without one.
-    Relay { peer_id: String, generation: Option<u64>, screen: Screen },
+    Relay {
+        peer_id: String,
+        generation: Option<u64>,
+        screen: Screen,
+    },
 }
 
 /// `setForeground`'s browser id is clipped to this many UTF-16 units.
@@ -189,10 +196,7 @@ impl DeviceRegistry {
             None => true,
             // A transport leg of another open of the id is not this connection's leg.
             Some(leg) if generation.is_some() && leg.generation.is_some() && leg.generation != generation => false,
-            Some(leg) => {
-                !leg.background
-                    && leg.live_at.is_some_and(|at| (self.clock)().saturating_sub(at) < crate::transport::consts::FOREGROUND_STALE_MS)
-            }
+            Some(leg) => !leg.background && leg.live_at.is_some_and(|at| (self.clock)().saturating_sub(at) < crate::transport::consts::FOREGROUND_STALE_MS),
         }
     }
 
@@ -296,7 +300,11 @@ impl DeviceRegistry {
             .connections
             .iter()
             .filter_map(|(id, link)| match link {
-                Link::Relay { peer_id, generation, .. } if !credential.is_empty() && inner.described(peer_id, *generation).is_some_and(|d| d.credential == credential) => Some(*id),
+                Link::Relay { peer_id, generation, .. }
+                    if !credential.is_empty() && inner.described(peer_id, *generation).is_some_and(|d| d.credential == credential) =>
+                {
+                    Some(*id)
+                }
                 _ => None,
             })
             .collect();
@@ -359,9 +367,7 @@ impl DeviceRegistry {
     /// The server accepted the connection a relay peer's bridge opened. It shows nothing until
     /// the phone reports a set.
     pub fn connect_relay(&self, connection: u64, peer_id: &str) {
-        self.inner()
-            .connections
-            .insert(connection, Link::Relay { peer_id: peer_id.to_owned(), generation: None, screen: Screen::default() });
+        self.inner().connections.insert(connection, Link::Relay { peer_id: peer_id.to_owned(), generation: None, screen: Screen::default() });
         self.changed();
     }
 
@@ -369,9 +375,7 @@ impl DeviceRegistry {
     /// resolves to that open's record only, so once a replacement is attached the old connection is attached to nothing and its
     /// screen reports count for no one.
     pub fn connect_relay_in(&self, connection: u64, peer_id: &str, generation: u64) {
-        self.inner()
-            .connections
-            .insert(connection, Link::Relay { peer_id: peer_id.to_owned(), generation: Some(generation), screen: Screen::default() });
+        self.inner().connections.insert(connection, Link::Relay { peer_id: peer_id.to_owned(), generation: Some(generation), screen: Screen::default() });
         self.changed();
     }
 
@@ -443,9 +447,7 @@ impl DeviceRegistry {
             .connections
             .iter()
             .filter_map(|(id, link)| match link {
-                Link::Relay { peer_id, generation, screen } if inner.attached(peer_id, *generation) && (everyone || screen.visualize_lane) => {
-                    Some(*id)
-                }
+                Link::Relay { peer_id, generation, screen } if inner.attached(peer_id, *generation) && (everyone || screen.visualize_lane) => Some(*id),
                 _ => None,
             })
             .collect();
@@ -487,9 +489,7 @@ impl DeviceRegistry {
     pub fn describe(&self, connection: u64) -> Option<Described> {
         let inner = self.inner();
         match inner.connections.get(&connection)? {
-            Link::Local { device, kind } => {
-                Some(Described { device: device.clone(), credential: String::new(), kind: LinkKind::Local(*kind) })
-            }
+            Link::Local { device, kind } => Some(Described { device: device.clone(), credential: String::new(), kind: LinkKind::Local(*kind) }),
             Link::Relay { peer_id, generation, .. } => inner.described(peer_id, *generation).cloned(),
         }
     }
@@ -559,7 +559,8 @@ mod tests {
             registry.connect_relay_in(connection, peer, generation);
         }
         // `chat` is in the foreground on a session with no visualize panel reported.
-        registry.report_screen(10, ScreenReport { sessions: Some(["chat-thread".to_owned()].into()), browser_id: None, visualize: None, foreground: Some(true) });
+        registry
+            .report_screen(10, ScreenReport { sessions: Some(["chat-thread".to_owned()].into()), browser_id: None, visualize: None, foreground: Some(true) });
         assert!(registry.visualize_connections(false).is_empty(), "no lane is registered yet");
         assert!(registry.set_visualize_lane(10, true) && registry.set_visualize_lane(12, true));
         assert!(!registry.set_visualize_lane(99, true), "no such connection");
@@ -568,7 +569,6 @@ mod tests {
         assert_eq!(registry.visualize_connections(true), vec![10, 11], "a URL to open goes to every attached phone");
     }
 }
-
 
 impl Default for DeviceRegistry {
     fn default() -> Self {

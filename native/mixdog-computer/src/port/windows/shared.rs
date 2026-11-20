@@ -9,19 +9,14 @@
 
 use crate::port::AdmissionWord;
 use std::sync::atomic::AtomicU64;
-use windows::core::{PCWSTR, PWSTR};
-use windows::Win32::Foundation::{
-    CloseHandle, GetLastError, LocalFree, SetLastError, ERROR_ALREADY_EXISTS, HANDLE, HLOCAL, INVALID_HANDLE_VALUE,
-};
-use windows::Win32::Security::Authorization::{
-    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
-};
-use windows::Win32::Security::{GetTokenInformation, TokenUser, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER};
+use windows::Win32::Foundation::{CloseHandle, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HLOCAL, INVALID_HANDLE_VALUE, LocalFree, SetLastError};
+use windows::Win32::Security::Authorization::{ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1};
+use windows::Win32::Security::{GetTokenInformation, PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser};
 use windows::Win32::System::Memory::{
-    CreateFileMappingW, MapViewOfFile, OpenFileMappingW, UnmapViewOfFile, FILE_MAP_READ, FILE_MAP_WRITE,
-    MEMORY_MAPPED_VIEW_ADDRESS, PAGE_READWRITE,
+    CreateFileMappingW, FILE_MAP_READ, FILE_MAP_WRITE, MEMORY_MAPPED_VIEW_ADDRESS, MapViewOfFile, OpenFileMappingW, PAGE_READWRITE, UnmapViewOfFile,
 };
 use windows::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
+use windows::core::{PCWSTR, PWSTR};
 
 const SIZE: usize = 8;
 
@@ -110,8 +105,7 @@ pub(crate) fn create(token: &str) -> Result<SharedWord, String> {
             bInheritHandle: false.into(),
         };
         SetLastError(Default::default());
-        let mapping =
-            CreateFileMappingW(INVALID_HANDLE_VALUE, Some(&attributes), PAGE_READWRITE, 0, SIZE as u32, PCWSTR(name.as_ptr()));
+        let mapping = CreateFileMappingW(INVALID_HANDLE_VALUE, Some(&attributes), PAGE_READWRITE, 0, SIZE as u32, PCWSTR(name.as_ptr()));
         let existed = GetLastError() == ERROR_ALREADY_EXISTS;
         let _ = LocalFree(Some(HLOCAL(descriptor.0)));
         let mapping = mapping.map_err(|error| format!("privileged_worker_unavailable: admission section: {error}"))?;

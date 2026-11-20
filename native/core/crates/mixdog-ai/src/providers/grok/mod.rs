@@ -9,12 +9,12 @@
 
 pub mod auth;
 pub mod device_login;
-pub mod listing;
-mod tool_schema;
 #[cfg(test)]
 mod flatten_rules_tests;
+pub mod listing;
 #[cfg(test)]
 mod listing_tests;
+mod tool_schema;
 #[cfg(test)]
 mod version_gate_tests;
 
@@ -32,16 +32,16 @@ use self::auth::GrokCredential;
 use self::listing::GrokListing;
 use self::listing::SeedEffortRule;
 use crate::catalog::ListingLookup;
-use crate::transport::http::HttpSend;
+use crate::providers::compat::CompatConfig;
+use crate::providers::compat::CompatProfile;
+use crate::providers::compat::chat::EnvSource;
+use crate::providers::compat::responses::CompatResponsesCodec;
+use crate::providers::connect::random_uuid;
 use crate::providers::connect::rewrite::HttpAdapter;
 use crate::providers::connect::rewrite::RewriteCodec;
 use crate::providers::connect::rewrite::Rewriter;
-use crate::providers::compat::CompatConfig;
-use crate::providers::compat::chat::EnvSource;
 use crate::registry::keys::ProcessEnv;
-use crate::providers::connect::random_uuid;
-use crate::providers::compat::CompatProfile;
-use crate::providers::compat::responses::CompatResponsesCodec;
+use crate::transport::http::HttpSend;
 
 pub const PROVIDER_ID: &str = "grok-oauth";
 pub const PROXY_BASE_URL: &str = "https://cli-chat-proxy.grok.com/v1";
@@ -160,7 +160,6 @@ fn version_gate(versions: Arc<crate::client_versions::ClientVersions>) -> crate:
     Arc::new(move |error| error.status == Some(426) && versions.learn_grok_required(&error.message))
 }
 
-
 /// The headers for this host, spelled with the names Node's `process` has for it.
 pub(crate) fn sdk_headers() -> Vec<(String, String)> {
     let platform = match std::env::consts::OS {
@@ -216,7 +215,8 @@ impl Rewriter for GrokRewriter {
         if let Ok(mut body) = serde_json::from_slice::<serde_json::Value>(&wire.body) {
             // `send` flattens the tools on each send (`normalizeGrokToolSchemas`); a TypeError it throws fails the send.
             let tool_schema::Flattened { mut changed, marker } = tool_schema::flatten_tools(&mut body).map_err(|tool_schema::TypeError(message)| {
-                let mut error = ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Unknown, mixdog_core_api::domain::provider::DeliveryState::NotSent);
+                let mut error =
+                    ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Unknown, mixdog_core_api::domain::provider::DeliveryState::NotSent);
                 error.message = message;
                 error
             })?;
@@ -252,22 +252,14 @@ pub fn adapter(
         effort_rule: Arc::new(SeedEffortRule),
     };
     let codec: Arc<dyn WireCodec> = Arc::new(RewriteCodec::new(codec_with(&client_version.get(), server_tool_search), rewriter));
-    let listing = GrokListing::new(
-        http.clone(),
-        credential.clone(),
-        codec.clone(),
-        client_version,
-        Arc::new(SeedEffortRule),
-        lookup,
-    );
+    let listing = GrokListing::new(http.clone(), credential.clone(), codec.clone(), client_version, Arc::new(SeedEffortRule), lookup);
     // Grok runs the xAI Responses send, whose ladder writes `[xai:responses]` (openai-compat-xai-send.mjs:154).
     let line = mixdog_core_api::domain::provider::RetryLine {
         tag: "[xai:responses]".into(),
         delay: true,
         style: mixdog_core_api::domain::provider::RetryLineStyle::Attempt,
     };
-    let adapter =
-        HttpAdapter::new(ProviderId::from(PROVIDER_ID), codec, http, credential, retry_policy).with_listing(Arc::new(listing)).with_retry_line(line);
+    let adapter = HttpAdapter::new(ProviderId::from(PROVIDER_ID), codec, http, credential, retry_policy).with_listing(Arc::new(listing)).with_retry_line(line);
     match versions {
         Some(versions) => adapter.with_resend(version_gate(versions)),
         None => adapter,

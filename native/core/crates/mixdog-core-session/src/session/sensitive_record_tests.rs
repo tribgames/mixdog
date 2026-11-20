@@ -41,26 +41,47 @@ fn samples() -> Vec<(Record, bool)> {
     let message = json!({ "role": "user", "content": format!("{CODE} is the code") });
     let digest = format!("sha256:{}", "0".repeat(64));
     let samples: Vec<(Value, bool)> = vec![
-        (json!({"k":"session","v":2,"id":"t","log_id":LOG_ID,"header":{"inline":{"title":format!("{CODE} is the code"),
-            "_repeatFailHistory":[format!("browser:{CODE}")]}}}), true),
-        (json!({"k":"meta","change":{"inline":{"set":{"title":format!("{CODE} is the code"),"_repeatFailGuard":{"sig":format!("browser:{CODE}")}},"unset":[]}}}), true),
-        (json!({"k":"item","iid":"a","role":"user","form":"message","model":true,"visible":true,"prompt":{"inline":format!("{CODE} is the code")},
-            "refs":[],"body":{"inline":message}}), true),
+        (
+            json!({"k":"session","v":2,"id":"t","log_id":LOG_ID,"header":{"inline":{"title":format!("{CODE} is the code"),
+            "_repeatFailHistory":[format!("browser:{CODE}")]}}}),
+            true,
+        ),
+        (
+            json!({"k":"meta","change":{"inline":{"set":{"title":format!("{CODE} is the code"),"_repeatFailGuard":{"sig":format!("browser:{CODE}")}},"unset":[]}}}),
+            true,
+        ),
+        (
+            json!({"k":"item","iid":"a","role":"user","form":"message","model":true,"visible":true,"prompt":{"inline":format!("{CODE} is the code")},
+            "refs":[],"body":{"inline":message}}),
+            true,
+        ),
         (json!({"k":"amend","iid":"a","refs":[],"body":{"inline":message}}), true),
         (json!({"k":"rewind","to_ordinal":1,"reason":"rewind"}), false),
         (json!({"k":"compacted","cid":"c","replacement":{"inline":[{"iid":"s","body":message}]}}), true),
         (json!({"k":"run","rid":"r","phase":"failed","at":1,"detail":{"inline":{"error":{"message":format!("refused {CODE}")}}}}), true),
-        (json!({"k":"approval","aid":"p","rid":"r","phase":"requested","at":1,
-            "body":{"inline":{"tool":"browser","arguments":{"action":"fill","input":{"text":CODE}}}}}), true),
+        (
+            json!({"k":"approval","aid":"p","rid":"r","phase":"requested","at":1,
+            "body":{"inline":{"tool":"browser","arguments":{"action":"fill","input":{"text":CODE}}}}}),
+            true,
+        ),
         (json!({"k":"queue","qid":"q","action":"enqueue","entry":{"inline":{"message":message}}}), true),
-        (json!({"k":"op","op":{"id":"o","method":"turn/start","digest":digest},"state":"rejected","at":1,
-            "detail":{"inline":{"message":format!("refused {CODE}")}}}), true),
-        (json!({"k":"checkpoint","state":{"inline":{"log_id":LOG_ID,"covers_ordinal":3,"history_rev":0,"rows":0,"visible_rows":0,
-            "runs":[],"approvals":[],"queue":[],"header":{"title":format!("{CODE} is the code")}}}}), true),
+        (
+            json!({"k":"op","op":{"id":"o","method":"turn/start","digest":digest},"state":"rejected","at":1,
+            "detail":{"inline":{"message":format!("refused {CODE}")}}}),
+            true,
+        ),
+        (
+            json!({"k":"checkpoint","state":{"inline":{"log_id":LOG_ID,"covers_ordinal":3,"history_rev":0,"rows":0,"visible_rows":0,
+            "runs":[],"approvals":[],"queue":[],"header":{"title":format!("{CODE} is the code")}}}}),
+            true,
+        ),
         (json!({"k":"model_switch","anchor":{"iid":"a","ordinal":1},"entry":{"inline":{"provider":"p","modelId":"m","at":1}}}), false),
         (json!({"k":"draft","rid":"r","body":{"inline":{"text":format!("{CODE} is the code")}}}), true),
-        (json!({"k":"work_stop","sid":"s","phase":"stopped","at":1,"body":{"inline":{"work":["w"],"queues":[],"submissions":[],
-            "disposition":"handedBack","restore":{"text":format!("{CODE} is the code"),"ids":[],"device":"d"}}}}), true),
+        (
+            json!({"k":"work_stop","sid":"s","phase":"stopped","at":1,"body":{"inline":{"work":["w"],"queues":[],"submissions":[],
+            "disposition":"handedBack","restore":{"text":format!("{CODE} is the code"),"ids":[],"device":"d"}}}}),
+            true,
+        ),
     ];
     samples.into_iter().map(|(value, text)| (serde_json::from_value(value).expect("a record"), text)).collect()
 }
@@ -69,10 +90,10 @@ fn samples() -> Vec<(Record, bool)> {
 /// was encoded before the mark.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_record_encoded_before_a_mark_is_appended_without_the_value() {
-    use mixdog_core_api::domain::mock::MockOwnership;
     use super::seams::CommitRecord;
     use super::seams::EncodedRecord;
     use super::seams::ThreadStore;
+    use mixdog_core_api::domain::mock::MockOwnership;
     let data = tempfile::tempdir().expect("data dir");
     let tokens = mixdog_rt::testing::tokens();
     let root = data.path().to_path_buf();
@@ -83,7 +104,9 @@ async fn a_record_encoded_before_a_mark_is_appended_without_the_value() {
     .await
     .expect("job ran")
     .expect("index");
-    let threads = Arc::new(super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+    let threads = Arc::new(
+        super::StoreThreads::over_data_dir(data.path(), index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"),
+    );
     let store = Arc::new(mixdog_services::memory::sensitive::SensitiveStore::default());
     assert!(threads.redact_with(Arc::new(SensitiveMarksOf::new(store.clone()))).is_ok());
     let commit = |value: Value| {

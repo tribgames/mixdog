@@ -5,8 +5,8 @@ use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_scm::engine::Scm;
 use mixdog_rt::LaneTokens;
+use mixdog_scm::engine::Scm;
 use mixdog_scm::git::RunOptions;
 use mixdog_scm::worktree::review_bases::CapturedBases;
 use serde_json::Value;
@@ -14,10 +14,10 @@ use tokio_util::sync::CancellationToken;
 
 use super::disk::LaneDisk;
 use super::ports::GitOptions;
-use super::ports::ReviewDisk;
 use super::ports::GitRun;
 use super::ports::OUTPUT_OVERFLOW;
 use super::ports::ResumeScope;
+use super::ports::ReviewDisk;
 use super::ports::ReviewGit;
 use super::ports::ReviewWorktrees;
 use super::ports::WorktreeBase;

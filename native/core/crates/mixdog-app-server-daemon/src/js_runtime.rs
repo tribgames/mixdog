@@ -74,20 +74,14 @@ fn read_manifest(exe: &Path) -> Result<(PathBuf, PathBuf, Manifest), JsRuntimeEr
         }
         Err(source) => return Err(JsRuntimeError::Read { path: manifest_path, source }),
     };
-    let manifest: Manifest =
-        serde_json::from_str(&text).map_err(|source| JsRuntimeError::Parse { path: manifest_path.clone(), source })?;
+    let manifest: Manifest = serde_json::from_str(&text).map_err(|source| JsRuntimeError::Parse { path: manifest_path.clone(), source })?;
     Ok((dir.to_path_buf(), manifest_path, manifest))
 }
 
 /// One of the resolvers above as a job of `lane`, for a caller on the async runtime.
-async fn on_lane<T: Send + 'static>(
-    lane: impl LaneToken,
-    resolver: fn() -> Result<T, JsRuntimeError>,
-) -> Result<T, JsRuntimeError> {
+async fn on_lane<T: Send + 'static>(lane: impl LaneToken, resolver: fn() -> Result<T, JsRuntimeError>) -> Result<T, JsRuntimeError> {
     let lane_failed = |source| JsRuntimeError::Read { path: PathBuf::from("<lane job>"), source };
-    let job = lane
-        .submit(&CancellationToken::new(), move |_lane| resolver())
-        .map_err(|_| lane_failed(std::io::Error::other("the lane is full")))?;
+    let job = lane.submit(&CancellationToken::new(), move |_lane| resolver()).map_err(|_| lane_failed(std::io::Error::other("the lane is full")))?;
     job.await.map_err(|dropped| lane_failed(std::io::Error::other(dropped)))?
 }
 
@@ -111,10 +105,7 @@ fn copy_dir(from: &Path, to: &Path) {
 ///
 /// Probes the file system: it runs in the lane job of [`resolve_current_on`], or before any
 /// runtime exists ([`resolve_current`]).
-#[allow(
-    clippy::disallowed_methods,
-    reason = "runs in the lane job of `resolve_current_on`, or before any runtime exists in `resolve_current`"
-)]
+#[allow(clippy::disallowed_methods, reason = "runs in the lane job of `resolve_current_on`, or before any runtime exists in `resolve_current`")]
 pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeError> {
     let (dir, manifest_path, manifest) = read_manifest(exe)?;
     let program = if manifest.program.contains(['/', '\\']) {
@@ -129,7 +120,11 @@ pub fn resolve(exe: &Path, path: Option<&OsStr>) -> Result<JsRuntime, JsRuntimeE
     if !package_present(&package_root) {
         return Err(JsRuntimeError::MissingPackage { root: package_root, manifest: manifest_path });
     }
-    Ok(JsRuntime { program, package_root, electron: manifest.electron, core_program: exe.to_path_buf(),
+    Ok(JsRuntime {
+        program,
+        package_root,
+        electron: manifest.electron,
+        core_program: exe.to_path_buf(),
         node_version: manifest.node_version,
         #[cfg(test)]
         ext_worker: None,
@@ -182,9 +177,7 @@ fn package_present(root: &Path) -> bool {
 #[allow(clippy::disallowed_methods, reason = "runs only inside `resolve`")]
 fn which(name: &str, path: Option<&OsStr>) -> Option<PathBuf> {
     let suffixes: &[&str] = if cfg!(windows) { &["", ".exe", ".cmd"] } else { &[""] };
-    std::env::split_paths(path?)
-        .flat_map(|dir| suffixes.iter().map(move |suffix| dir.join(format!("{name}{suffix}"))))
-        .find(|candidate| candidate.is_file())
+    std::env::split_paths(path?).flat_map(|dir| suffixes.iter().map(move |suffix| dir.join(format!("{name}{suffix}")))).find(|candidate| candidate.is_file())
 }
 /// A test install under `root`: a manifest, an interpreter file and a package root holding the
 /// skill entry and `package.json`, resolved through [`resolve`] as a product install is.
@@ -243,7 +236,6 @@ mod tests {
         assert_eq!(empty.root, archive_package.join("src"), "an empty MIXDOG_ROOT counts as unset");
     }
 
-
     #[test]
     fn no_manifest_is_an_error() {
         let (root, exe) = install("{}");
@@ -258,7 +250,10 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let js = fixture(root.path());
         let history = js.package_root.join("src").join("defaults").join("shipped-history.json");
-        assert_eq!(std::fs::read(history).unwrap(), std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../src/defaults/shipped-history.json")).unwrap());
+        assert_eq!(
+            std::fs::read(history).unwrap(),
+            std::fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../../../src/defaults/shipped-history.json")).unwrap()
+        );
     }
     #[test]
     fn the_fixture_install_resolves() {
@@ -267,9 +262,7 @@ mod tests {
     }
     #[test]
     fn desktop_layout_reaches_the_app_binary_and_the_archive() {
-        let (root, exe) = install(
-            r#"{"program":"../app/Mixdog","packageRoot":"../runtime.asar/node_modules/mixdog","electron":true}"#,
-        );
+        let (root, exe) = install(r#"{"program":"../app/Mixdog","packageRoot":"../runtime.asar/node_modules/mixdog","electron":true}"#);
         std::fs::create_dir_all(root.path().join("app")).unwrap();
         std::fs::write(root.path().join("app/Mixdog"), "").unwrap();
         // Inside an archive only the archive file can be checked.

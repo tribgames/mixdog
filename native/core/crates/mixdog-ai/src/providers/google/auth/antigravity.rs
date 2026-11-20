@@ -5,8 +5,8 @@
 //! goes to Google and reads what comes back.
 
 use crate::transport::deadlines::ANTIGRAVITY_PROJECT;
-use crate::transport::deadlines::antigravity_project_within;
 use crate::transport::deadlines::TOKEN_EXCHANGE;
+use crate::transport::deadlines::antigravity_project_within;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -41,11 +41,7 @@ use crate::transport::HttpSend;
 /// The Antigravity IDE's installed-app OAuth client, which every copy of that
 /// IDE ships (a native-app client is not a confidential credential). Stored
 /// as split base64 so no single literal decodes to a whole credential.
-const CLIENT_ID_PARTS: [&str; 3] = [
-    "MTA3MTAwNjA2MDU5MS10bWhzc2luMmgyMWxj",
-    "cmUyMzV2dG9sb2poNGc0MDNlcC5hcHBz",
-    "Lmdvb2dsZXVzZXJjb250ZW50LmNvbQ==",
-];
+const CLIENT_ID_PARTS: [&str; 3] = ["MTA3MTAwNjA2MDU5MS10bWhzc2luMmgyMWxj", "cmUyMzV2dG9sb2poNGc0MDNlcC5hcHBz", "Lmdvb2dsZXVzZXJjb250ZW50LmNvbQ=="];
 const CLIENT_SECRET_PARTS: [&str; 2] = ["R09DU1BYLUs1", "OEZXUjQ4NkxkTEoxbUxCOHNYQzR6NnFEQWY="];
 
 fn decode(parts: &[&str]) -> String {
@@ -101,8 +97,7 @@ pub fn user_agent(version: &str) -> String {
         None => format!("antigravity/hub/{version} (aidev_client; os_type=darwin; arch=arm64)"),
     }
 }
-pub const VERSION_MANIFEST_URL: &str =
-    "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml";
+pub const VERSION_MANIFEST_URL: &str = "https://antigravity-hub-auto-updater-974169037036.us-central1.run.app/manifest/latest-arm64-mac.yml";
 const REFRESH_SKEW_MS: u64 = 5 * 60_000;
 /// `onboardUser` operations are polled at most this many times.
 const ONBOARD_POLLS: u32 = 30;
@@ -137,10 +132,7 @@ pub struct AntigravityAuth {
 impl RequestAuth for AntigravityAuth {
     async fn authorize(&self) -> Result<Authorization, ProviderError> {
         let tokens = self.tokens(false).await?;
-        Ok(Authorization {
-            headers: vec![("authorization".into(), format!("Bearer {}", tokens.access_token))],
-            identity: tokens.project_id,
-        })
+        Ok(Authorization { headers: vec![("authorization".into(), format!("Bearer {}", tokens.access_token))], identity: tokens.project_id })
     }
 
     /// A typed 401 says this access token is no longer accepted whatever the
@@ -239,14 +231,8 @@ pub struct AntigravityLogin {
 
 fn login_failure(err: &ProviderError, email: &str) -> LoginFailure {
     match &err.verification_url {
-        Some(url) => LoginFailure::VerificationRequired {
-            url: url.to_string(),
-            account: (!email.is_empty()).then(|| email.to_owned()),
-        },
-        None => LoginFailure::Failed {
-            code: err.code.clone().unwrap_or_else(|| "antigravity_login_failed".into()),
-            message: err.message.clone(),
-        },
+        Some(url) => LoginFailure::VerificationRequired { url: url.to_string(), account: (!email.is_empty()).then(|| email.to_owned()) },
+        None => LoginFailure::Failed { code: err.code.clone().unwrap_or_else(|| "antigravity_login_failed".into()), message: err.message.clone() },
     }
 }
 
@@ -271,12 +257,7 @@ impl PkceProvider for AntigravityLogin {
 }
 
 fn tier_ids<'a>(list: &'a Value, key: &str) -> Vec<&'a str> {
-    list.as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|t| t.get(key).and_then(Value::as_str))
-        .filter(|id| !id.is_empty())
-        .collect()
+    list.as_array().into_iter().flatten().filter_map(|t| t.get(key).and_then(Value::as_str)).filter(|id| !id.is_empty()).collect()
 }
 
 /// Free tier when Google allows it (or reports no tier list at all);
@@ -285,26 +266,16 @@ fn tier_ids<'a>(list: &'a Value, key: &str) -> Vec<&'a str> {
 fn onboarding_tier(payload: &Value) -> Option<String> {
     let allowed = tier_ids(&payload["allowedTiers"], "id");
     let ineligible = tier_ids(&payload["ineligibleTiers"], "tierId");
-    if allowed.contains(&"free-tier")
-        || (!payload["allowedTiers"].is_array() && !ineligible.contains(&"free-tier"))
-    {
+    if allowed.contains(&"free-tier") || (!payload["allowedTiers"].is_array() && !ineligible.contains(&"free-tier")) {
         return Some("free-tier".into());
     }
     let managed: Vec<&Value> = payload["allowedTiers"]
         .as_array()
         .into_iter()
         .flatten()
-        .filter(|t| {
-            t["id"].as_str().is_some_and(|id| !id.is_empty() && !ineligible.contains(&id))
-                && t["userDefinedCloudaicompanionProject"] != json!(true)
-        })
+        .filter(|t| t["id"].as_str().is_some_and(|id| !id.is_empty() && !ineligible.contains(&id)) && t["userDefinedCloudaicompanionProject"] != json!(true))
         .collect();
-    managed
-        .iter()
-        .find(|t| t["isDefault"] == json!(true))
-        .or(managed.first())
-        .and_then(|t| t["id"].as_str())
-        .map(str::to_owned)
+    managed.iter().find(|t| t["isDefault"] == json!(true)).or(managed.first()).and_then(|t| t["id"].as_str()).map(str::to_owned)
 }
 
 fn no_tier(payload: &Value, email: &str) -> ProviderError {
@@ -315,9 +286,7 @@ fn no_tier(payload: &Value, email: &str) -> ProviderError {
     );
     let blocked = payload["ineligibleTiers"].as_array().and_then(|list| {
         let with_reason = |t: &&Value| t["reasonMessage"].as_str().is_some_and(|m| !m.is_empty());
-        list.iter()
-            .find(|t| t["tierId"] == "free-tier" && with_reason(t))
-            .or_else(|| list.iter().find(with_reason))
+        list.iter().find(|t| t["tierId"] == "free-tier" && with_reason(t)).or_else(|| list.iter().find(with_reason))
     });
     if let Some(tier) = blocked {
         let reason = format!("{}\n({summary})", tier["reasonMessage"].as_str().unwrap_or(""));
@@ -379,11 +348,9 @@ mod tests {
         assert_eq!(doc.expires_at_ms, 1_900_000_000_000);
         assert_eq!(doc.to_json()["expires_at"], json!(1_900_000_000_000_u64));
         assert!(TokenDoc::from_json(&json!({"access_token":"a"})).is_none());
-        let legacy = TokenDoc::from_json(&json!({"access_token":"a","refresh_token":"r","expiresAt":"2030-01-01T00:00:00Z","projectId":"p"}))
-            .unwrap();
+        let legacy = TokenDoc::from_json(&json!({"access_token":"a","refresh_token":"r","expiresAt":"2030-01-01T00:00:00Z","projectId":"p"})).unwrap();
         assert_eq!((legacy.expires_at_ms, legacy.project_id.as_str()), (1_893_456_000_000, "p"));
     }
-
 
     /// The refresh that outlives its timer reads as the real Node function did (`sites.antigravityRefresh`):
     /// `AbortSignal.timeout`'s own error.
@@ -476,7 +443,6 @@ mod tests {
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // Stored credentials
 // ---------------------------------------------------------------------------
@@ -515,9 +481,7 @@ fn expires_at_ms(value: &Value) -> u64 {
 impl TokenDoc {
     /// A document with both tokens; anything else is not a sign-in.
     pub fn from_json(raw: &Value) -> Option<Self> {
-        let text = |keys: &[&str]| {
-            keys.iter().find_map(|k| raw.get(*k).and_then(Value::as_str)).unwrap_or("").to_owned()
-        };
+        let text = |keys: &[&str]| keys.iter().find_map(|k| raw.get(*k).and_then(Value::as_str)).unwrap_or("").to_owned();
         let (access_token, refresh_token) = (text(&["access_token"]), text(&["refresh_token"]));
         if access_token.is_empty() || refresh_token.is_empty() {
             return None;
@@ -574,10 +538,7 @@ impl TokenStore for FileTokenStore {
         self.0.keep(&[&next.access_token, &next.refresh_token]);
         let spent = spent.clone();
         let Value::Object(update) = next.to_json() else { return false };
-        self.0
-            .replace_if(move |stored| TokenDoc::from_json(&Value::Object(stored.clone())).as_ref() == Some(&spent), update)
-            .await
-            .unwrap_or(false)
+        self.0.replace_if(move |stored| TokenDoc::from_json(&Value::Object(stored.clone())).as_ref() == Some(&spent), update).await.unwrap_or(false)
     }
 
     async fn save(&self, doc: &TokenDoc) -> bool {
@@ -595,11 +556,7 @@ pub fn should_refresh(tokens: &TokenDoc, now_ms: u64) -> bool {
     tokens.expires_at_ms != 0 && now_ms + REFRESH_SKEW_MS >= tokens.expires_at_ms
 }
 impl AntigravityAuth {
-    pub fn new(
-        http: Arc<dyn HttpSend>,
-        store: Arc<dyn TokenStore>,
-        now_ms: Box<dyn Fn() -> u64 + Send + Sync>,
-    ) -> Self {
+    pub fn new(http: Arc<dyn HttpSend>, store: Arc<dyn TokenStore>, now_ms: Box<dyn Fn() -> u64 + Send + Sync>) -> Self {
         Self { http, store, now_ms, refreshing: tokio::sync::Semaphore::new(1) }
     }
 
@@ -613,12 +570,7 @@ impl AntigravityAuth {
     async fn refresh(&self, spent: &TokenDoc) -> Result<TokenDoc, ProviderError> {
         let id = client_id();
         let secret = client_secret();
-        let body = form_body(&[
-            ("grant_type", "refresh_token"),
-            ("refresh_token", &spent.refresh_token),
-            ("client_id", &id),
-            ("client_secret", &secret),
-        ]);
+        let body = form_body(&[("grant_type", "refresh_token"), ("refresh_token", &spent.refresh_token), ("client_id", &id), ("client_secret", &secret)]);
         let response = self
             .http
             .send(
@@ -626,10 +578,7 @@ impl AntigravityAuth {
                     transport: TransportKind::Http1,
                     method: "POST".into(),
                     url: TOKEN_URL.into(),
-                    headers: vec![(
-                        "content-type".into(),
-                        "application/x-www-form-urlencoded".into(),
-                    )],
+                    headers: vec![("content-type".into(), "application/x-www-form-urlencoded".into())],
                     body,
                 },
                 TOKEN_EXCHANGE,
@@ -684,17 +633,20 @@ impl CodeAssist<'_> {
         let post = body.is_some();
         let response = self
             .http
-            .send(WireRequest {
-                transport: TransportKind::Http1,
-                method: if post { "POST" } else { "GET" }.into(),
-                url: format!("{ENDPOINT}/v1internal{}{action}", if post { ":" } else { "/" }),
-                headers: vec![
-                    ("content-type".into(), "application/json".into()),
-                    ("authorization".into(), format!("Bearer {}", self.access_token)),
-                    ("user-agent".into(), user_agent(self.client_version)),
-                ],
-                body: body.map(|b| b.to_string().into_bytes()).unwrap_or_default(),
-            }, exchange)
+            .send(
+                WireRequest {
+                    transport: TransportKind::Http1,
+                    method: if post { "POST" } else { "GET" }.into(),
+                    url: format!("{ENDPOINT}/v1internal{}{action}", if post { ":" } else { "/" }),
+                    headers: vec![
+                        ("content-type".into(), "application/json".into()),
+                        ("authorization".into(), format!("Bearer {}", self.access_token)),
+                        ("user-agent".into(), user_agent(self.client_version)),
+                    ],
+                    body: body.map(|b| b.to_string().into_bytes()).unwrap_or_default(),
+                },
+                exchange,
+            )
             .await?;
         let status = response.status;
         let reply = response.read_all().await?;
@@ -752,11 +704,8 @@ impl CodeAssist<'_> {
                 return Err(failure("onboardUser did not finish"));
             }
             pause.pause(Duration::from_secs(1).min(remaining()?)).await;
-            let name = operation["name"]
-                .as_str()
-                .filter(|n| !n.is_empty())
-                .ok_or_else(|| failure("onboardUser returned an operation without a name"))?
-                .to_owned();
+            let name =
+                operation["name"].as_str().filter(|n| !n.is_empty()).ok_or_else(|| failure("onboardUser returned an operation without a name"))?.to_owned();
             operation = self.call_within(&name, None, antigravity_project_within(remaining()?)).await?;
         }
         if !operation["error"].is_null() {
@@ -786,35 +735,22 @@ impl CodeAssist<'_> {
             .filter(|p| !p.is_empty())
             .ok_or_else(|| failure("loadCodeAssist did not return a cloudaicompanionProject"))?
             .to_owned();
-        let tier_id = refreshed["paidTier"]["id"]
-            .as_str()
-            .or_else(|| refreshed["currentTier"]["id"].as_str())
-            .unwrap_or("")
-            .to_owned();
+        let tier_id = refreshed["paidTier"]["id"].as_str().or_else(|| refreshed["currentTier"]["id"].as_str()).unwrap_or("").to_owned();
         Ok(Account { project_id, tier_id })
     }
 }
 impl AntigravityLogin {
     async fn exchange_login(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, LoginFailure> {
         let fail = |err: ProviderError| login_failure(&err, "");
-        let response = self
-            .http
-            .send(
-                exchange_request(code, verifier, redirect_uri),
-                TOKEN_EXCHANGE,
-            )
-            .await
-            .map_err(fail)?;
+        let response = self.http.send(exchange_request(code, verifier, redirect_uri), TOKEN_EXCHANGE).await.map_err(fail)?;
         let status = response.status;
         let reply = response.read_all().await.map_err(fail)?;
         if !(200..300).contains(&status) {
             return Err(fail(token_failure(status, &reply.body, "Antigravity token exchange")));
         }
         let grant = parse_token_grant(&reply.body, "Antigravity token exchange").map_err(fail)?;
-        let refresh_token = grant.refresh_token.ok_or_else(|| LoginFailure::Failed {
-            code: "no_refresh_token".into(),
-            message: "Google returned no refresh token".into(),
-        })?;
+        let refresh_token =
+            grant.refresh_token.ok_or_else(|| LoginFailure::Failed { code: "no_refresh_token".into(), message: "Google returned no refresh token".into() })?;
         // `fetchAccountInfo` (`antigravity-oauth-login.mjs:106-120`): the profile is optional, so a request that fails
         // or is refused reads as an empty one.
         let info = self
@@ -824,36 +760,22 @@ impl AntigravityLogin {
                     transport: TransportKind::Http1,
                     method: "GET".into(),
                     url: USERINFO_URL.into(),
-                    headers: vec![(
-                        "authorization".into(),
-                        format!("Bearer {}", grant.access_token),
-                    )],
+                    headers: vec![("authorization".into(), format!("Bearer {}", grant.access_token))],
                     body: Vec::new(),
                 },
                 TOKEN_EXCHANGE,
             )
             .await;
         let profile: Value = match info {
-            Ok(info) if (200..300).contains(&info.status) => info
-                .read_all()
-                .await
-                .ok()
-                .and_then(|read| serde_json::from_slice(&read.body).ok())
-                .unwrap_or(Value::Null),
+            Ok(info) if (200..300).contains(&info.status) => {
+                info.read_all().await.ok().and_then(|read| serde_json::from_slice(&read.body).ok()).unwrap_or(Value::Null)
+            }
             _ => Value::Null,
         };
         let email = profile["email"].as_str().unwrap_or("").to_owned();
         let user_id = profile["id"].as_str().or_else(|| profile["sub"].as_str()).unwrap_or("").to_owned();
-        let assist = CodeAssist {
-            http: self.http.as_ref(),
-            access_token: &grant.access_token,
-            client_version: &self.client_version,
-            email: &email,
-        };
-        let account = assist
-            .discover_account(self.pause.as_ref())
-            .await
-            .map_err(|err| login_failure(&err, &email))?;
+        let assist = CodeAssist { http: self.http.as_ref(), access_token: &grant.access_token, client_version: &self.client_version, email: &email };
+        let account = assist.discover_account(self.pause.as_ref()).await.map_err(|err| login_failure(&err, &email))?;
         let doc = TokenDoc {
             access_token: grant.access_token.clone(),
             refresh_token,
@@ -864,10 +786,7 @@ impl AntigravityLogin {
             user_id,
         };
         if !self.store.save(&doc).await {
-            return Err(LoginFailure::Failed {
-                code: "credential_write_failed".into(),
-                message: "the credential file could not be written".into(),
-            });
+            return Err(LoginFailure::Failed { code: "credential_write_failed".into(), message: "the credential file could not be written".into() });
         }
         Ok((!email.is_empty()).then_some(email))
     }

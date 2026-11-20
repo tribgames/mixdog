@@ -173,12 +173,7 @@ fn tokens(args: &[String], options: &[OptionSpec]) -> Vec<Item> {
             // `-fFILE`
             let short = second.unwrap_or('-');
             let value: String = arg.chars().skip(2).collect();
-            items.push(Item::Option(Token {
-                name: long_for_short(options, short),
-                raw_name: format!("-{short}"),
-                value: Some(value),
-                inline_value: true,
-            }));
+            items.push(Item::Option(Token { name: long_for_short(options, short), raw_name: format!("-{short}"), value: Some(value), inline_value: true }));
             continue;
         }
         if length(&arg) > 2 && starts_double && !has_equals_from_three(&arg) {
@@ -210,16 +205,11 @@ fn check(options: &[OptionSpec], allow_positionals: bool, token: &Token) -> Resu
         let mut quoted = String::new();
         json_quote(&token.raw_name, &mut quoted);
         let suggestion = if allow_positionals {
-            format!(
-                ". To specify a positional argument starting with a '-', place it at the end of the command after '--', as in '-- {quoted}"
-            )
+            format!(". To specify a positional argument starting with a '-', place it at the end of the command after '--', as in '-- {quoted}")
         } else {
             String::new()
         };
-        return Err(ParseArgsError {
-            code: "ERR_PARSE_ARGS_UNKNOWN_OPTION",
-            message: format!("Unknown option '{}'{suggestion}", token.raw_name),
-        });
+        return Err(ParseArgsError { code: "ERR_PARSE_ARGS_UNKNOWN_OPTION", message: format!("Unknown option '{}'{suggestion}", token.raw_name) });
     };
     let short_and_long = match spec.short {
         Some(short) => format!("-{short}, --{}", spec.name),
@@ -273,12 +263,8 @@ pub fn parse_args(args: &[String], config: &ParseConfig<'_>) -> Result<Parsed, P
 mod tests {
     use super::*;
 
-    const OPTIONS: &[OptionSpec] = &[
-        OptionSpec::string("provider").short('p'),
-        OptionSpec::boolean("no-vision"),
-        OptionSpec::boolean("v").short('v'),
-        OptionSpec::string("o"),
-    ];
+    const OPTIONS: &[OptionSpec] =
+        &[OptionSpec::string("provider").short('p'), OptionSpec::boolean("no-vision"), OptionSpec::boolean("v").short('v'), OptionSpec::string("o")];
 
     fn run(args: &[&str]) -> Result<Parsed, ParseArgsError> {
         let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
@@ -342,6 +328,5 @@ mod tests {
         assert_eq!(positional.message, "Unexpected argument 'a'. This command does not take positional arguments");
     }
 }
-
 
 impl std::error::Error for ParseArgsError {}

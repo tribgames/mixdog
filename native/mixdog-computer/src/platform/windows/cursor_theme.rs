@@ -7,12 +7,12 @@ mod client;
 mod lease;
 pub(super) mod watchdog;
 
-use client::{complete, Guard, Wire};
+use client::{Guard, Wire, complete};
 use std::io::{BufRead, BufReader, Write};
 use std::os::windows::process::CommandExt;
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::mpsc::{self, Receiver};
 use std::sync::Mutex;
+use std::sync::mpsc::{self, Receiver};
 use std::time::Duration;
 use windows::Win32::System::Threading::{CREATE_BREAKAWAY_FROM_JOB, CREATE_NO_WINDOW};
 
@@ -39,9 +39,7 @@ struct ChildWire {
 
 impl Wire for ChildWire {
     fn send(&mut self, line: &str) -> bool {
-        self.stdin
-            .as_mut()
-            .is_some_and(|stdin| writeln!(stdin, "{line}").and_then(|()| stdin.flush()).is_ok())
+        self.stdin.as_mut().is_some_and(|stdin| writeln!(stdin, "{line}").and_then(|()| stdin.flush()).is_ok())
     }
 
     fn recv(&mut self, within: Duration) -> Line {

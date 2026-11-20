@@ -9,8 +9,7 @@ use std::sync::Mutex;
 use serde::Serialize;
 
 use super::decision::{
-    Conversation, Decision, DecisionInput, Event, LocalClock, Origin, PreferencesView, SkipReason,
-    allows_device_notice, decide, DESKTOP_HOLD_MS,
+    Conversation, DESKTOP_HOLD_MS, Decision, DecisionInput, Event, LocalClock, Origin, PreferencesView, SkipReason, allows_device_notice, decide,
 };
 use super::held::{HELD_PUSH_TITLE, HeldRequestEvent, held_request_push_text};
 use super::preview::notification_preview;
@@ -167,13 +166,7 @@ impl NotificationEngine {
 
     fn toast(&self, thread_id: &str, title: &str, body: &str) -> HostToast {
         let style = (self.style)();
-        HostToast {
-            title: title.to_owned(),
-            body: body.to_owned(),
-            thread_id: thread_id.to_owned(),
-            sound: style.sound,
-            volume: style.volume,
-        }
+        HostToast { title: title.to_owned(), body: body.to_owned(), thread_id: thread_id.to_owned(), sound: style.sound, volume: style.volume }
     }
 
     /// The host toasts of one event: one for every attached host that does not show the thread, when this PC's decision is to
@@ -241,13 +234,7 @@ impl NotificationEngine {
     /// Allow on it. It is an approval wait of an automatic run: `conversation` is the session's
     /// own, its origin is a schedule's and its bot is the session's, else the run's agent. No host
     /// toast: only phones hear it. A request with no session or no id is not pushed.
-    pub fn on_held_request(
-        &self,
-        held: &HeldRequestEvent,
-        conversation: &Conversation,
-        audience: &Audience,
-        now_ms: i64,
-    ) -> Plan {
+    pub fn on_held_request(&self, held: &HeldRequestEvent, conversation: &Conversation, audience: &Audience, now_ms: i64) -> Plan {
         if held.session_id.is_empty() || held.request_id.is_empty() {
             return Plan::default();
         }
@@ -317,10 +304,7 @@ impl NotificationEngine {
 fn device_pushes(event: &ThreadEvent, body: &str, audience: &Audience) -> Vec<PushRequest> {
     let clock = LocalClock::at(event.now_ms);
     let approval = match (event.event, &event.approval) {
-        (Event::Approval, Some(shown)) => Some(PushApproval {
-            id: mixdog_js::slice_utf16(&shown.id, APPROVAL_ID_UNITS),
-            allow_once: shown.allow_once,
-        }),
+        (Event::Approval, Some(shown)) => Some(PushApproval { id: mixdog_js::slice_utf16(&shown.id, APPROVAL_ID_UNITS), allow_once: shown.allow_once }),
         _ => None,
     };
     let mut pushes = Vec::new();
@@ -355,8 +339,7 @@ fn device_pushes(event: &ThreadEvent, body: &str, audience: &Audience) -> Vec<Pu
 /// An in-app notice that belongs to no conversation (a server window's link dropping or coming
 /// back): the device's scope and quiet hours decide.
 pub fn device_notice(view: &PreferencesView, title: &str, body: &str, now_ms: i64) -> Option<Notice> {
-    allows_device_notice(&view.preferences, LocalClock::at(now_ms))
-        .then(|| Notice { title: title.to_owned(), body: body.to_owned() })
+    allows_device_notice(&view.preferences, LocalClock::at(now_ms)).then(|| Notice { title: title.to_owned(), body: body.to_owned() })
 }
 
 #[cfg(test)]
@@ -390,10 +373,7 @@ mod tests {
     fn audience(hosts: &[&str], devices: Vec<PairedDevice>) -> Audience {
         Audience {
             pc: view(DevicePreferences::default()),
-            hosts: hosts
-                .iter()
-                .map(|id| HostConnection { connection_id: (*id).into(), foreground_thread: None })
-                .collect(),
+            hosts: hosts.iter().map(|id| HostConnection { connection_id: (*id).into(), foreground_thread: None }).collect(),
             devices,
             desktop_active: false,
         }
@@ -467,10 +447,7 @@ mod tests {
     fn pushes_follow_each_devices_preferences_and_hold_while_the_pc_is_in_use() {
         let mut a = audience(
             &["c1"],
-            vec![
-                device("phone", DevicePreferences::default()),
-                device("off", DevicePreferences { scope: Scope::Off, ..Default::default() }),
-            ],
+            vec![device("phone", DevicePreferences::default()), device("off", DevicePreferences { scope: Scope::Off, ..Default::default() })],
         );
         let e = engine();
         let plan = plan_of(&e, &event(), &a);
@@ -484,13 +461,8 @@ mod tests {
 
     #[test]
     fn test_notification_reaches_desktop_and_each_paired_device() {
-        let a = audience(
-            &["c1"],
-            vec![
-                device("p1", DevicePreferences { scope: Scope::Off, ..Default::default() }),
-                device("p2", DevicePreferences::default()),
-            ],
-        );
+        let a =
+            audience(&["c1"], vec![device("p1", DevicePreferences { scope: Scope::Off, ..Default::default() }), device("p2", DevicePreferences::default())]);
         let e = engine();
         let all = e.test(&TestTarget::All, &a);
         assert_eq!((all.toasts.len(), all.pushes.len()), (1, 2));
@@ -504,11 +476,7 @@ mod tests {
     fn an_approval_push_carries_its_clipped_id_and_allow_flag_and_other_events_none() {
         let a = audience(&[], vec![device("phone", DevicePreferences::default())]);
         let long = format!("{}😀{}", "a".repeat(119), "tail");
-        let waiting = ThreadEvent {
-            event: Event::Approval,
-            approval: Some(PushApproval { id: long, allow_once: true }),
-            ..event()
-        };
+        let waiting = ThreadEvent { event: Event::Approval, approval: Some(PushApproval { id: long, allow_once: true }), ..event() };
         let plan = plan_of(&engine(), &waiting, &a);
         let approval = plan.pushes[0].approval.clone().expect("approval push");
         // 119 units + the emoji's high surrogate: `slice(0, 120)` cuts the pair.

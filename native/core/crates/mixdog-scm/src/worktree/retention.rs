@@ -20,41 +20,24 @@ pub struct SnapshotRetention {
 
 impl Retention for SnapshotRetention {
     fn owner_live(&self, record: &WorktreeRecord) -> bool {
-        record
-            .owner_session_id
-            .as_ref()
-            .is_some_and(|owner| self.live_sessions.contains(owner))
-            || self.leased.contains(&record.id)
+        record.owner_session_id.as_ref().is_some_and(|owner| self.live_sessions.contains(owner)) || self.leased.contains(&record.id)
     }
 
     fn retained(&self, record: &WorktreeRecord) -> bool {
-        record
-            .owner_session_id
-            .iter()
-            .chain(record.shared_session_ids.iter())
-            .any(|session| self.retained_sessions.contains(session))
+        record.owner_session_id.iter().chain(record.shared_session_ids.iter()).any(|session| self.retained_sessions.contains(session))
     }
 }
 
 impl Worktrees {
     /// The view of who keeps what, now. `live` and `retained` are the session layer's.
-    pub async fn retention(
-        &self,
-        live: HashSet<String>,
-        retained: HashSet<String>,
-        cancel: &CancellationToken,
-    ) -> Result<SnapshotRetention, ScmFailure> {
+    pub async fn retention(&self, live: HashSet<String>, retained: HashSet<String>, cancel: &CancellationToken) -> Result<SnapshotRetention, ScmFailure> {
         let mut leased = HashSet::new();
         for record in self.all_records(cancel).await? {
             if self.owner_live(&record, cancel).await? {
                 leased.insert(record.id.clone());
             }
         }
-        Ok(SnapshotRetention {
-            live_sessions: live,
-            retained_sessions: retained,
-            leased,
-        })
+        Ok(SnapshotRetention { live_sessions: live, retained_sessions: retained, leased })
     }
 }
 
@@ -100,11 +83,7 @@ mod tests {
 
     #[test]
     fn a_session_the_store_keeps_retains_and_a_live_session_or_lease_holds() {
-        let view = SnapshotRetention {
-            live_sessions: ["a".to_owned()].into(),
-            retained_sessions: ["b".to_owned()].into(),
-            leased: ["x".to_owned()].into(),
-        };
+        let view = SnapshotRetention { live_sessions: ["a".to_owned()].into(), retained_sessions: ["b".to_owned()].into(), leased: ["x".to_owned()].into() };
         assert!(view.owner_live(&record(Some("a"), &[])));
         assert!(!view.owner_live(&record(Some("c"), &[])));
         assert!(view.retained(&record(Some("c"), &["b"])));

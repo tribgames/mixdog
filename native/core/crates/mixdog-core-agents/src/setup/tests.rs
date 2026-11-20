@@ -118,8 +118,6 @@ impl SetupVoice for Voice {
     }
 }
 
-
-
 fn message(error: &PortError) -> String {
     match error {
         PortError::Denied(message) => message.clone(),
@@ -128,8 +126,6 @@ fn message(error: &PortError) -> String {
         other => format!("{other:?}"),
     }
 }
-
-
 
 /// `getUpdateSettings()` over a fixed check state, as the recorder's runtime answered it.
 struct UpdateView {
@@ -152,24 +148,8 @@ impl UpdateSettings for UpdateView {
     }
 }
 
-
-
-
-
-
-
-
-
 /// An attached UI that takes (or declines) every navigation and remembers what it was asked.
 struct OpenUi(bool, Mutex<Vec<(String, String)>>);
-
-
-
-
-
-
-
-
 
 /// A saved `lead` permission row is Mixy's policy: its receipt names where it applies; another agent's keeps the generic one
 /// (a deliberate difference from Node, which promised "every session").
@@ -202,11 +182,8 @@ async fn settings_service(
         store.schedule(&request).await.unwrap();
     }
     let settings = Settings::new(config.clone(), Arc::new(NoEffects), Arc::new(|_| None));
-    let owner = SettingsSetup::new(
-        settings.clone(),
-        Arc::new(UpdateView { settings, config: config.clone() }),
-        QuotaAutoResume::new(config.clone(), store.clone()),
-    );
+    let owner =
+        SettingsSetup::new(settings.clone(), Arc::new(UpdateView { settings, config: config.clone() }), QuotaAutoResume::new(config.clone(), store.clone()));
     let service = SetupService::new(config.clone(), modules, Arc::new(Callers(world.clone())), Arc::new(Desktop), Arc::new(Voice(world.clone())))
         .with_actions(Arc::new(owner));
     (service, config, store)
@@ -274,5 +251,3 @@ impl SetupUiSurface for OpenUi {
         self.0
     }
 }
-
-

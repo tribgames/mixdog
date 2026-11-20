@@ -78,7 +78,10 @@ fn a_models_dev_row_gives_limits_prices_in_dollars_per_million_and_a_clean_displ
     assert!(close(&meta["inputCostPerM"], 1.5) && close(&meta["outputCostPerM"], 6.0) && close(&meta["cacheReadCostPerM"], 0.15));
     assert_eq!(meta["pricingSource"], "models.dev");
     assert_eq!(meta["displayName"], "GPT M", "a marketing tail in brackets is dropped");
-    assert_eq!((meta["supportsVision"].clone(), meta["supportsReasoning"].clone(), meta["supportsPromptCaching"].clone()), (json!(true), json!(true), json!(true)));
+    assert_eq!(
+        (meta["supportsVision"].clone(), meta["supportsReasoning"].clone(), meta["supportsPromptCaching"].clone()),
+        (json!(true), json!(true), json!(true))
+    );
 }
 
 #[test]

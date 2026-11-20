@@ -26,8 +26,7 @@ pub fn web_search_from_node(tool: &Value, anthropic: bool, include: &[String]) -
         city: text_of(location.get("city")),
         timezone: text_of(location.get("timezone")),
     });
-    let tool_type =
-        if anthropic { "web_search".to_owned() } else { text_of(tool.get("type")).unwrap_or_else(|| "web_search".to_owned()) };
+    let tool_type = if anthropic { "web_search".to_owned() } else { text_of(tool.get("type")).unwrap_or_else(|| "web_search".to_owned()) };
     HostedTool::WebSearch(HostedWebSearch {
         tool_type,
         allowed_domains: domains
@@ -44,12 +43,7 @@ pub fn web_search_from_node(tool: &Value, anthropic: bool, include: &[String]) -
 fn location(location: &UserLocation) -> Value {
     let mut out = Map::new();
     out.insert("type".into(), json!("approximate"));
-    for (key, value) in [
-        ("country", &location.country),
-        ("region", &location.region),
-        ("city", &location.city),
-        ("timezone", &location.timezone),
-    ] {
+    for (key, value) in [("country", &location.country), ("region", &location.region), ("city", &location.city), ("timezone", &location.timezone)] {
         if let Some(value) = value {
             out.insert(key.into(), json!(value));
         }
@@ -114,9 +108,7 @@ pub fn gemini_tools(options: &RequestOptions) -> Vec<Value> {
     options
         .hosted_tools
         .iter()
-        .filter(|HostedTool::WebSearch(search)| {
-            matches!(search.tool_type.trim().to_lowercase().as_str(), "google_search" | "google_search_retrieval")
-        })
+        .filter(|HostedTool::WebSearch(search)| matches!(search.tool_type.trim().to_lowercase().as_str(), "google_search" | "google_search_retrieval"))
         .map(|_| json!({ "googleSearch": {} }))
         .collect()
 }

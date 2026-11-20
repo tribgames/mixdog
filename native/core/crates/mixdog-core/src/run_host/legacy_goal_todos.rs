@@ -217,7 +217,10 @@ mod tests {
         let goals = legacy_goal(dir.path(), &thread).await;
         let task = |content: &str| TodoTask { content: content.into(), status: TodoStatus::Completed, note: None };
         let listed = TodoList {
-            phases: vec![TodoPhase { name: "Tasks".into(), tasks: vec![task("Write the notes"), task("Tag the build"), task("Tell the team"), task("Old idea")] }],
+            phases: vec![TodoPhase {
+                name: "Tasks".into(),
+                tasks: vec![task("Write the notes"), task("Tag the build"), task("Tell the team"), task("Old idea")],
+            }],
             updated_at_ms: 5,
         };
         let lists = Arc::new(Lists { list: Mutex::new(listed.clone()), fail: true });
@@ -239,7 +242,10 @@ mod tests {
         assert_eq!(goals.legacy_tasks(thread.as_str()).await.len(), 4, "kept for the next load");
 
         let listed = TodoList {
-            phases: vec![TodoPhase { name: "Tasks".into(), tasks: vec![TodoTask { content: "Tag the build".into(), status: TodoStatus::Completed, note: None }] }],
+            phases: vec![TodoPhase {
+                name: "Tasks".into(),
+                tasks: vec![TodoTask { content: "Tag the build".into(), status: TodoStatus::Completed, note: None }],
+            }],
             updated_at_ms: 5,
         };
         let lists = Arc::new(Lists { list: Mutex::new(listed), fail: false });

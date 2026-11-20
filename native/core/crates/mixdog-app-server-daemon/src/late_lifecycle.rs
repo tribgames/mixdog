@@ -34,12 +34,12 @@ use crate::lifecycle::ActivityInfo;
 use crate::lifecycle::ActivityKind;
 use crate::lifecycle::BUSY_WORK_SETTLED;
 use crate::lifecycle::CancelRegistry;
+use crate::lifecycle::ClientKind;
+use crate::lifecycle::ConnectionGuard;
 use crate::lifecycle::CorePort;
 use crate::lifecycle::DiscoveryState;
 use crate::lifecycle::DrainNotice;
 use crate::lifecycle::Exiter;
-use crate::lifecycle::ClientKind;
-use crate::lifecycle::ConnectionGuard;
 use crate::lifecycle::Lifecycle;
 use crate::lifecycle::LifecycleConfig;
 use crate::lifecycle::Ports;
@@ -79,7 +79,13 @@ pub type WorkLog = Arc<dyn Fn(&str) + Send + Sync>;
 /// a confirmed stop's abort cancels the running work by ([`Self::cancels`]), and where running work that came before the bind
 /// is said ([`Self::logging`]).
 #[derive(Default)]
-pub struct LateLifecycle(OnceLock<Arc<Lifecycle>>, Mutex<HashMap<ConnectionId, ConnectionGuard>>, watch::Sender<StartHold>, Arc<CancelRegistry>, Option<WorkLog>);
+pub struct LateLifecycle(
+    OnceLock<Arc<Lifecycle>>,
+    Mutex<HashMap<ConnectionId, ConnectionGuard>>,
+    watch::Sender<StartHold>,
+    Arc<CancelRegistry>,
+    Option<WorkLog>,
+);
 
 /// The registry a connection is in on Node's side: the channel bridge's, the remote clients' (phone, remote desktop), or the
 /// session transport's.
@@ -196,7 +202,11 @@ impl LateLifecycle {
     /// admission from, and the sessions' copy of the hold is kept at the lifecycle's (`Lifecycle::hold_gate`: closed once the drain
     /// commit dropped a hold, open again when that drain is cancelled), whose latest reading is the whole of it. Subscribed when
     /// called, so a move made before the future first runs is not missed.
-    pub fn follow<F: Fn(CoreState) + Send + 'static>(self: &Arc<Self>, lifecycle: &Lifecycle, on_state: F) -> impl Future<Output = ()> + Send + 'static + use<F> {
+    pub fn follow<F: Fn(CoreState) + Send + 'static>(
+        self: &Arc<Self>,
+        lifecycle: &Lifecycle,
+        on_state: F,
+    ) -> impl Future<Output = ()> + Send + 'static + use<F> {
         let (late, mut state, mut hold) = (self.clone(), lifecycle.state(), lifecycle.hold_gate());
         async move {
             loop {
@@ -254,7 +264,8 @@ mod tests {
         use crate::lifecycle::ClientGrace;
         use std::time::Duration;
         let grace = ClientGrace { local: ClientGrace::NODE_LOCAL, remote: Some(ClientGrace::NODE_REMOTE) };
-        for (origin, expected) in [(Origin::Ssh, ClientGrace::NODE_REMOTE), (Origin::Relay, ClientGrace::NODE_LOCAL), (Origin::Local, ClientGrace::NODE_LOCAL)] {
+        for (origin, expected) in [(Origin::Ssh, ClientGrace::NODE_REMOTE), (Origin::Relay, ClientGrace::NODE_LOCAL), (Origin::Local, ClientGrace::NODE_LOCAL)]
+        {
             let timer = crate::lifecycle::testing::ManualTimer::new();
             let fx = crate::lifecycle::testing::fixture_with_grace(grace, timer.clone());
             fx.lifecycle.set_serving().unwrap();
@@ -314,7 +325,6 @@ mod tests {
         drop(busy);
         fx.recorder.wait_exit();
     }
-
 
     /// Waits for the sessions' copy of the hold to read `expected`.
     async fn reads(gate: &mut watch::Receiver<StartHold>, expected: StartHold) {
@@ -388,6 +398,4 @@ mod tests {
         drop(work);
         fx.recorder.wait_exit();
     }
-
-
 }

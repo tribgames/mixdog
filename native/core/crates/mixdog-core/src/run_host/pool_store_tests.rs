@@ -12,15 +12,15 @@ use mixdog_core_agents::agents::RuntimeEntry;
 use mixdog_core_api::domain::mock::MockOwnership;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::threads::ThreadState;
+use mixdog_core_session::session::Clock;
+use mixdog_core_session::session::SessionDirectory;
+use mixdog_core_session::session::StoreThreads;
 use mixdog_core_session::session::agent_registry::AgentRegistry;
 use mixdog_core_session::session::agent_registry::KeptRows;
 use mixdog_core_session::session::agent_registry::ReapWindow;
 use mixdog_core_session::session::agent_registry::StoreWorkers;
 use mixdog_core_session::session::testing::Rig;
 use mixdog_core_session::session::thread_state::SessionThreads;
-use mixdog_core_session::session::Clock;
-use mixdog_core_session::session::SessionDirectory;
-use mixdog_core_session::session::StoreThreads;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
@@ -91,7 +91,8 @@ async fn world(running: &[&str]) -> World {
     .await
     .expect("job ran")
     .expect("index");
-    let store = Arc::new(StoreThreads::over_data_dir(&root, index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("thread store"));
+    let store =
+        Arc::new(StoreThreads::over_data_dir(&root, index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("thread store"));
     let rig = Rig::new();
     let directory = Arc::new(SessionDirectory::new(Arc::new(rig.deps_parts(store.clone()))));
     let threads: Arc<dyn ThreadState> = Arc::new(SessionThreads::new(directory.clone()));
@@ -126,8 +127,13 @@ async fn a_worker_session_is_listed_by_its_row_and_by_whether_this_daemon_runs_i
     world.directory.create_with_id(ThreadId::from("sess_beta"), worker_header("sess_beta", "beta", "running"), json!({})).await.expect("beta");
     world.directory.create_with_id(ThreadId::from("sess_plain"), json!({ "owner": "agent" }).as_object().unwrap().clone(), json!({})).await.expect("plain");
     let rows = listed(&world).await;
-    let shown: Vec<(&str, &str, &str)> = rows.iter().map(|row| (row["tag"].as_str().unwrap(), row["sessionId"].as_str().unwrap(), row["status"].as_str().unwrap())).collect();
-    assert_eq!(shown, [("alpha", "sess_alpha", "running"), ("beta", "sess_beta", "unknown")], "a row nobody runs is unknown; a session with no row is not listed");
+    let shown: Vec<(&str, &str, &str)> =
+        rows.iter().map(|row| (row["tag"].as_str().unwrap(), row["sessionId"].as_str().unwrap(), row["status"].as_str().unwrap())).collect();
+    assert_eq!(
+        shown,
+        [("alpha", "sess_alpha", "running"), ("beta", "sess_beta", "unknown")],
+        "a row nobody runs is unknown; a session with no row is not listed"
+    );
     assert_eq!(rows[0]["title"], "title of alpha", "the session's own title fills what the row lacks");
 }
 
@@ -137,6 +143,10 @@ async fn a_row_rewritten_through_the_threads_header_is_listed_as_rewritten_right
     world.directory.create_with_id(ThreadId::from("sess_alpha"), worker_header("sess_alpha", "alpha", "running"), json!({})).await.expect("alpha");
     assert_eq!(listed(&world).await[0]["tag"], "alpha");
     let renamed = worker_header("sess_alpha", "renamed", "running");
-    world.threads.patch_header(&ThreadId::from("sess_alpha"), renamed.into_iter().filter(|(key, _)| key == "worker").collect(), Vec::new()).await.expect("thread/header/patch");
+    world
+        .threads
+        .patch_header(&ThreadId::from("sess_alpha"), renamed.into_iter().filter(|(key, _)| key == "worker").collect(), Vec::new())
+        .await
+        .expect("thread/header/patch");
     assert_eq!(listed(&world).await[0]["tag"], "renamed");
 }

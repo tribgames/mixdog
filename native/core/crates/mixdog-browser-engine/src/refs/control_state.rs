@@ -14,8 +14,8 @@ use super::probes::Point;
 use super::ref_actions::RefActions;
 use crate::runner::timing_rows::timed;
 use crate::settle::actionability::ACTIONABILITY_TIMEOUT;
-use crate::settle::actionability::ActionableError;
 use crate::settle::actionability::ActionabilityError;
+use crate::settle::actionability::ActionableError;
 use crate::settle::actionability::ProbeFailure;
 use crate::settle::actionability::wait_for_actionable;
 
@@ -91,10 +91,7 @@ mod tests {
     async fn a_custom_control_has_no_option_list_to_read() {
         let host = Arc::new(FakeHost::scripted(vec![call(json!({"custom": true}))]));
         let error = actions(host).list_select_options(REF).await.expect_err("custom");
-        assert_eq!(
-            error.to_string(),
-            format!("ref {REF} is not a native <select>; click it to open the list, then read the options from the fresh snapshot")
-        );
+        assert_eq!(error.to_string(), format!("ref {REF} is not a native <select>; click it to open the list, then read the options from the fresh snapshot"));
     }
 
     #[tokio::test]
@@ -109,7 +106,9 @@ mod tests {
         let host = Arc::new(FakeHost::scripted(vec![
             state(false, false),
             point(),
-            batch_done().with_params(json!({"steps": [{"op": "pointer", "kind": "click", "x": 10.0, "y": 20.0, "button": "left", "hitGuard": {"snapshotId": "p1-s2", "ref": REF}}]})),
+            batch_done().with_params(
+                json!({"steps": [{"op": "pointer", "kind": "click", "x": 10.0, "y": 20.0, "button": "left", "hitGuard": {"snapshotId": "p1-s2", "ref": REF}}]}),
+            ),
             state(true, false),
         ]));
         assert_eq!(actions(host.clone()).set_checked_ref(REF, true).await, Ok(()));
@@ -145,7 +144,6 @@ mod tests {
         assert!(error.to_string().contains("transformed parent frame"));
     }
 }
-
 
 impl RefActions {
     /// `listSelectOptions`: what a control offers, without choosing anything. A custom dropdown puts its options in the page

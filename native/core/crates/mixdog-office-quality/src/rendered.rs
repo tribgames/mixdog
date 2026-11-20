@@ -8,7 +8,7 @@ use base64::Engine;
 use base64::alphabet;
 use base64::engine::{DecodePaddingMode, GeneralPurpose, GeneralPurposeConfig};
 use mixdog_js::math::{max, round, to_fixed};
-use mixdog_js::{json_number, js_to_lowercase, number_to_string, to_number, to_number_of};
+use mixdog_js::{js_to_lowercase, json_number, number_to_string, to_number, to_number_of};
 use mixdog_raster::Image;
 use mixdog_raster::canvas::{Bitmap, Canvas, ImageData};
 use serde_json::{Map, Value, json};
@@ -241,14 +241,7 @@ pub struct RenderedOptions {
 
 impl Default for RenderedOptions {
     fn default() -> Self {
-        Self {
-            format: String::new(),
-            page_roles: json!({}),
-            small_worksheet: false,
-            page_count: 0.0,
-            designed_pages: false,
-            forced_break_pages: None,
-        }
+        Self { format: String::new(), page_roles: json!({}), small_worksheet: false, page_count: 0.0, designed_pages: false, forced_break_pages: None }
     }
 }
 
@@ -270,11 +263,8 @@ fn percent(share: f64) -> String {
 pub fn review_rendered_office_pages(images: &[Value], options: &RenderedOptions) -> Result<Value, String> {
     let normalized = js_to_lowercase(&options.format);
     let page_images = rendered_page_images(images);
-    let last_page = if options.page_count.is_nan() || options.page_count == 0.0 {
-        page_images.iter().flat_map(image_pages).fold(0.0, max)
-    } else {
-        options.page_count
-    };
+    let last_page =
+        if options.page_count.is_nan() || options.page_count == 0.0 { page_images.iter().flat_map(image_pages).fold(0.0, max) } else { options.page_count };
     let forced_breaks = options.forced_break_pages.as_deref();
     let forced = |page: f64| forced_breaks.is_some_and(|pages| pages.contains(&page));
     let mut pages = Vec::new();

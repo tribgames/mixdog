@@ -12,9 +12,7 @@ use std::sync::Arc;
 
 use crate::document::Document;
 use crate::error::{PdfError, Result};
-use crate::fonts::font::{
-    CharProcFirstOp, FONT_IDENTITY_MATRIX, FontLoader, LoadContext, Type3CharProcs,
-};
+use crate::fonts::font::{CharProcFirstOp, FONT_IDENTITY_MATRIX, FontLoader, LoadContext, Type3CharProcs};
 use crate::object::{Dict, Obj, Ref};
 use crate::oplist::interpreter;
 use crate::oplist::{Op, OperatorList, ParamOp, truthy};
@@ -35,12 +33,7 @@ struct Type3Scan<'a> {
 }
 
 impl Type3CharProcs for Type3Scan<'_> {
-    fn first_operation(
-        &self,
-        char_proc: &Obj,
-        resources: &Dict,
-        _font_ref: Option<Ref>,
-    ) -> CharProcFirstOp {
+    fn first_operation(&self, char_proc: &Obj, resources: &Dict, _font_ref: Option<Ref>) -> CharProcFirstOp {
         let Obj::Stream(stream) = char_proc else {
             return CharProcFirstOp::Other;
         };
@@ -52,17 +45,7 @@ impl Type3CharProcs for Type3Scan<'_> {
         let resources = Arc::new(resources.clone());
         let mut evaluator = interpreter::Evaluator::new(self.document, None, 0);
         let mut list = OperatorList::new();
-        if evaluator
-            .get_operator_list(
-                content,
-                stream.dict.obj_id.as_deref(),
-                &resources,
-                &mut list,
-                None,
-                &[],
-            )
-            .is_err()
-        {
+        if evaluator.get_operator_list(content, stream.dict.obj_id.as_deref(), &resources, &mut list, None, &[]).is_err() {
             return CharProcFirstOp::Other;
         }
         match list.ops().first() {
@@ -148,16 +131,8 @@ fn chars_of<'b>(state: &TextState, arg: Option<&'b Obj>) -> Result<Chars<'b>> {
         Some(Obj::Str(bytes)) if bytes.is_empty() => Ok(Chars::Empty),
         Some(Obj::Str(bytes)) => Ok(Chars::Bytes(&bytes[..])),
         Some(obj) if !truthy(obj) => Ok(Chars::Empty),
-        Some(Obj::Array(items))
-            if !items.is_empty()
-                && state
-                    .font
-                    .as_ref()
-                    .is_some_and(|font| font.font().is_some()) =>
-        {
-            Err(PdfError::Unknown(
-                "chars.charCodeAt is not a function".to_owned(),
-            ))
+        Some(Obj::Array(items)) if !items.is_empty() && state.font.as_ref().is_some_and(|font| font.font().is_some()) => {
+            Err(PdfError::Unknown("chars.charCodeAt is not a function".to_owned()))
         }
         Some(_) => Ok(Chars::NoGlyphs),
     }
@@ -202,24 +177,14 @@ impl<'a> Evaluator<'a> {
         let mut seen: Vec<String> = prev_refs.to_vec();
         if let Some(id) = stream_id {
             if prev_refs.iter().any(|reference| reference == id) {
-                return Err(PdfError::Format(format!(
-                    "getTextContent - ignoring circular reference: {id}"
-                )));
+                return Err(PdfError::Format(format!("getTextContent - ignoring circular reference: {id}")));
             }
             seen.push(id.to_owned());
         }
         let mut pre = Preprocessor::new(content, self.xref)?;
         let mut builder = Builder::new(sink, self.view_box);
         let mut cache = EmptyCache::default();
-        let outcome = self.run(
-            &mut pre,
-            &mut manager,
-            resources,
-            &mut builder,
-            &mut cache,
-            &seen,
-            depth,
-        );
+        let outcome = self.run(&mut pre, &mut manager, resources, &mut builder, &mut cache, &seen, depth);
         match outcome {
             Ok(()) => {
                 builder.flush();
@@ -227,9 +192,7 @@ impl<'a> Evaluator<'a> {
             }
             Err(error) if error.is_fatal() => Err(error),
             Err(error) if self.ignore_errors => {
-                tracing::warn!(
-                    "getTextContent - ignoring errors during \"TextContent\" task: \"{error}\"."
-                );
+                tracing::warn!("getTextContent - ignoring errors during \"TextContent\" task: \"{error}\".");
                 builder.flush();
                 Ok(())
             }
@@ -261,26 +224,11 @@ impl<'a> Evaluator<'a> {
     }
 
     /// `handleSetFont`: the font becomes the state's font.
-    fn handle_set_font(
-        &self,
-        font_name: Option<&str>,
-        font: Option<&Obj>,
-        resources: &Dict,
-        state: &mut TextState,
-    ) -> Result<()> {
-        let context = LoadContext {
-            type3_font_refs: &self.no_refs,
-            parsing_type3_font: false,
-            type3: &self.type3,
-        };
-        let translated = self
-            .fonts
-            .load_font(self.xref, font_name, font, resources, &context)?;
+    fn handle_set_font(&self, font_name: Option<&str>, font: Option<&Obj>, resources: &Dict, state: &mut TextState) -> Result<()> {
+        let context = LoadContext { type3_font_refs: &self.no_refs, parsing_type3_font: false, type3: &self.type3 };
+        let translated = self.fonts.load_font(self.xref, font_name, font, resources, &context)?;
         state.loaded_name = Some(translated.loaded_name.clone());
-        state.font_matrix = translated
-            .font()
-            .and_then(|font| font.font_matrix)
-            .unwrap_or(FONT_IDENTITY_MATRIX);
+        state.font_matrix = translated.font().and_then(|font| font.font_matrix).unwrap_or(FONT_IDENTITY_MATRIX);
         state.font = Some(translated);
         Ok(())
     }
@@ -307,11 +255,7 @@ impl<'a> Evaluator<'a> {
                     let name = args.first().and_then(Obj::as_name).map(str::to_owned);
                     let size = number_at(&args, 1);
                     let state = &mut manager.state;
-                    if state.font.is_some()
-                        && name.is_some()
-                        && name == state.font_name
-                        && size == state.font_size
-                    {
+                    if state.font.is_some() && name.is_some() && name == state.font_name && size == state.font_size {
                         continue;
                     }
                     state.font_name.clone_from(&name);
@@ -388,19 +332,14 @@ impl<'a> Evaluator<'a> {
                     {
                         continue;
                     }
-                    let outcome = self.paint_xobject(
-                        name, resources, manager, builder, cache, seen, depth,
-                    );
+                    let outcome = self.paint_xobject(name, resources, manager, builder, cache, seen, depth);
                     self.swallow("XObject", outcome)?;
                 }
                 TextOp::SetGState => {
-                    let outcome =
-                        self.set_gstate(args.first(), resources, builder, &mut manager.state);
+                    let outcome = self.set_gstate(args.first(), resources, builder, &mut manager.state);
                     self.swallow("ExtGState", outcome)?;
                 }
-                TextOp::BeginMarkedContent
-                | TextOp::BeginMarkedContentProps
-                | TextOp::EndMarkedContent => builder.flush(),
+                TextOp::BeginMarkedContent | TextOp::BeginMarkedContentProps | TextOp::EndMarkedContent => builder.flush(),
                 _ => {}
             }
         }
@@ -408,12 +347,7 @@ impl<'a> Evaluator<'a> {
 
     /// `TJ`: the strings of the array are shown, a number moves the text by that many thousandths of the font size
     /// (the other way in a vertical font) after the glyphs before it.
-    fn show_spaced_text(
-        &self,
-        array: Option<&Obj>,
-        builder: &mut Builder<'_>,
-        state: &mut TextState,
-    ) -> Result<()> {
+    fn show_spaced_text(&self, array: Option<&Obj>, builder: &mut Builder<'_>, state: &mut TextState) -> Result<()> {
         let items: &[Obj] = match array {
             Some(Obj::Array(items)) => items.as_slice(),
             Some(single @ Obj::Str(_)) => std::slice::from_ref(single),
@@ -428,11 +362,7 @@ impl<'a> Evaluator<'a> {
             match item {
                 Obj::Str(bytes) => buffer.extend_from_slice(bytes),
                 Obj::Num(spacing) if *spacing != 0.0 => {
-                    let chars = if buffer.is_empty() {
-                        Chars::Empty
-                    } else {
-                        Chars::Bytes(&buffer)
-                    };
+                    let chars = if buffer.is_empty() { Chars::Empty } else { Chars::Bytes(&buffer) };
                     builder.build_text_content_item(state, chars, spacing * space_factor)?;
                     buffer.clear();
                 }
@@ -446,22 +376,12 @@ impl<'a> Evaluator<'a> {
     }
 
     /// `gs`: an `ExtGState` that names a font sets it.
-    fn set_gstate(
-        &self,
-        operand: Option<&Obj>,
-        resources: &Arc<Dict>,
-        builder: &mut Builder<'_>,
-        state: &mut TextState,
-    ) -> Result<()> {
+    fn set_gstate(&self, operand: Option<&Obj>, resources: &Arc<Dict>, builder: &mut Builder<'_>, state: &mut TextState) -> Result<()> {
         let Some(name) = operand.and_then(Obj::as_name) else {
-            return Err(PdfError::Format(
-                "GState must be referred to by name.".to_owned(),
-            ));
+            return Err(PdfError::Format("GState must be referred to by name.".to_owned()));
         };
         let Obj::Dict(ext_gstate) = self.xref.get(resources, "ExtGState")? else {
-            return Err(PdfError::Format(
-                "ExtGState should be a dictionary.".to_owned(),
-            ));
+            return Err(PdfError::Format("ExtGState should be a dictionary.".to_owned()));
         };
         let Obj::Dict(gstate) = self.xref.get(&ext_gstate, name)? else {
             return Err(PdfError::Format("GState should be a dictionary.".to_owned()));
@@ -494,16 +414,12 @@ impl<'a> Evaluator<'a> {
         depth: usize,
     ) -> Result<()> {
         let Some(name) = name else {
-            return Err(PdfError::Format(
-                "XObject must be referred to by name.".to_owned(),
-            ));
+            return Err(PdfError::Format("XObject must be referred to by name.".to_owned()));
         };
         let xobjects = match self.xref.get(resources, "XObject")? {
             Obj::Dict(dict) => dict,
             other if truthy(&other) => {
-                return Err(PdfError::Unknown(
-                    "xobjs.getRaw is not a function".to_owned(),
-                ));
+                return Err(PdfError::Unknown("xobjs.getRaw is not a function".to_owned()));
             }
             _ => Arc::new(Dict::new()),
         };
@@ -518,18 +434,14 @@ impl<'a> Evaluator<'a> {
             return Err(PdfError::Format("XObject should be a stream".to_owned()));
         };
         let Obj::Name(subtype) = self.xref.get(&stream.dict, "Subtype")? else {
-            return Err(PdfError::Format(
-                "XObject should have a Name subtype".to_owned(),
-            ));
+            return Err(PdfError::Format("XObject should have a Name subtype".to_owned()));
         };
         if &*subtype != "Form" {
             cache.set(name, stream.dict.obj_id.as_deref());
             return Ok(());
         }
         if depth + 1 > MAX_FORM_DEPTH {
-            return Err(PdfError::Format(format!(
-                "form XObjects are nested deeper than {MAX_FORM_DEPTH}"
-            )));
+            return Err(PdfError::Format(format!("form XObjects are nested deeper than {MAX_FORM_DEPTH}")));
         }
         let mut form_manager = StateManager::new(manager.state.clone());
         if let Some(matrix) = lookup_matrix(&self.xref.get_array(&stream.dict, "Matrix")?) {
@@ -541,15 +453,7 @@ impl<'a> Evaluator<'a> {
         };
         let content = stream.decode(self.xref.filters().as_ref(), self.xref.guard())?;
         let before = builder.sink.items.len();
-        self.get_text_content(
-            content,
-            stream.dict.obj_id.as_deref(),
-            &form_resources,
-            form_manager,
-            seen,
-            &mut *builder.sink,
-            depth + 1,
-        )?;
+        self.get_text_content(content, stream.dict.obj_id.as_deref(), &form_resources, form_manager, seen, &mut *builder.sink, depth + 1)?;
         if builder.sink.items.len() == before {
             cache.set(name, stream.dict.obj_id.as_deref());
         }
@@ -579,11 +483,7 @@ mod tests {
         assert_eq!(lookup_matrix(&six), Some([1.0, 2.0, 3.0, 4.0, 5.0, 6.0]));
         let short = Obj::Array(Arc::new(vec![Obj::Num(1.0)]));
         assert_eq!(lookup_matrix(&short), None);
-        let mixed = Obj::Array(Arc::new(
-            (0..6)
-                .map(|n| if n == 2 { Obj::name("x") } else { Obj::Num(1.0) })
-                .collect(),
-        ));
+        let mixed = Obj::Array(Arc::new((0..6).map(|n| if n == 2 { Obj::name("x") } else { Obj::Num(1.0) }).collect()));
         assert_eq!(lookup_matrix(&mixed), None);
     }
 
@@ -591,21 +491,9 @@ mod tests {
     fn a_false_or_empty_operand_shows_only_the_spacing() {
         let state = TextState::new();
         assert!(matches!(chars_of(&state, None), Ok(Chars::Empty)));
-        assert!(matches!(
-            chars_of(&state, Some(&Obj::string(b""))),
-            Ok(Chars::Empty)
-        ));
-        assert!(matches!(
-            chars_of(&state, Some(&Obj::Num(0.0))),
-            Ok(Chars::Empty)
-        ));
-        assert!(matches!(
-            chars_of(&state, Some(&Obj::string(b"ab"))),
-            Ok(Chars::Bytes(b"ab"))
-        ));
-        assert!(matches!(
-            chars_of(&state, Some(&Obj::name("N"))),
-            Ok(Chars::NoGlyphs)
-        ));
+        assert!(matches!(chars_of(&state, Some(&Obj::string(b""))), Ok(Chars::Empty)));
+        assert!(matches!(chars_of(&state, Some(&Obj::Num(0.0))), Ok(Chars::Empty)));
+        assert!(matches!(chars_of(&state, Some(&Obj::string(b"ab"))), Ok(Chars::Bytes(b"ab"))));
+        assert!(matches!(chars_of(&state, Some(&Obj::name("N"))), Ok(Chars::NoGlyphs)));
     }
 }

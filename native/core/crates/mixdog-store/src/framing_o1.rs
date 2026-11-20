@@ -41,9 +41,7 @@ fn is_hex(byte: u8) -> bool {
 }
 
 fn hex_value(digits: &[u8]) -> u64 {
-    digits
-        .iter()
-        .fold(0, |v, &b| v * 16 + u64::from((b as char).to_digit(16).unwrap_or(0)))
+    digits.iter().fold(0, |v, &b| v * 16 + u64::from((b as char).to_digit(16).unwrap_or(0)))
 }
 
 /// FORMAT.md §3.2 rule 3 over the present header bytes `h` (1..=44). `Ok(Some(len))` for a
@@ -67,10 +65,7 @@ pub fn check_header(h: &[u8], expected: u64) -> Result<Option<usize>, CorruptCau
         return Err(CorruptCause::Ordinal);
     }
     // 3. separators 16, 25, 34.
-    if SEPARATORS[..3]
-        .iter()
-        .any(|&at| h.get(at).is_some_and(|&b| b != SEPARATOR))
-    {
+    if SEPARATORS[..3].iter().any(|&at| h.get(at).is_some_and(|&b| b != SEPARATOR)) {
         return Err(CorruptCause::Header);
     }
     // 4. len: hex digits whose smallest completion is in range.
@@ -136,11 +131,7 @@ pub fn scan(buf: &[u8], base: u64, start: usize, expected: u64) -> Scan {
     let mut expected = expected;
     loop {
         let at = base + p as u64;
-        let corrupt = |cause, ordinal| ScanEnd::Corrupt {
-            offset: at,
-            ordinal,
-            cause,
-        };
+        let corrupt = |cause, ordinal| ScanEnd::Corrupt { offset: at, ordinal, cause };
         if p == buf.len() {
             return Scan { frames, end: ScanEnd::Clean };
         }
@@ -216,10 +207,7 @@ pub fn reverse_scan(buf: &[u8], buf_is_file_start: bool) -> Option<Anchor> {
     }
     while end > 0 {
         let line_end = end; // one past the LF
-        let start = buf[..line_end - 1]
-            .iter()
-            .rposition(|&b| b == TERMINATOR)
-            .map(|i| i + 1);
+        let start = buf[..line_end - 1].iter().rposition(|&b| b == TERMINATOR).map(|i| i + 1);
         let start = match start {
             Some(s) => s,
             None if buf_is_file_start => 0,
@@ -243,6 +231,5 @@ fn anchor_at(line: &[u8], start: usize) -> Option<Anchor> {
     }
     let ordinal = hex_value(ordinal_digits);
     let payload = check_frame(line, ordinal).ok()?;
-    (payload.starts_with(br#"{"k":"checkpoint","#) || payload.starts_with(br#"{"k":"session","#))
-        .then_some(Anchor { start, ordinal })
+    (payload.starts_with(br#"{"k":"checkpoint","#) || payload.starts_with(br#"{"k":"session","#)).then_some(Anchor { start, ordinal })
 }

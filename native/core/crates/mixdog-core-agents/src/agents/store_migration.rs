@@ -32,13 +32,13 @@ use serde_json::Value;
 use sha2::Digest as _;
 use sha2::Sha256;
 
+use super::files::BOTS_DIR;
+use super::files::DELETED_MARKER;
+use super::files::MIXY_BOT_ID;
 use super::files::STARTERS;
 use super::files::explicit_kind;
 use super::files::is_dialog_default_body;
 use super::files::manifest_of;
-use super::files::BOTS_DIR;
-use super::files::DELETED_MARKER;
-use super::files::MIXY_BOT_ID;
 const MANIFEST: &str = "migration.json";
 const MANIFEST_VERSION: i64 = 1;
 /// Mixy's home thread keeps the id it always had (`sess_home_lead`): its messages never move.
@@ -129,7 +129,8 @@ fn read_text(file: &Path) -> String {
 
 fn sub_dirs(root: &Path) -> Vec<String> {
     let Ok(entries) = std::fs::read_dir(root) else { return Vec::new() };
-    let mut names: Vec<String> = entries.flatten().filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir())).map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
+    let mut names: Vec<String> =
+        entries.flatten().filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir())).map(|entry| entry.file_name().to_string_lossy().into_owned()).collect();
     names.sort();
     names
 }
@@ -230,7 +231,8 @@ fn folder_hash(dir: &Path) -> String {
     let mut hash = Sha256::new();
     for file in folder_files(dir) {
         let mut bytes = std::fs::read(&file).unwrap_or_default();
-        if file.file_name().is_some_and(|name| name == "agent.json") && file.parent() == Some(dir)
+        if file.file_name().is_some_and(|name| name == "agent.json")
+            && file.parent() == Some(dir)
             && let Some(mut manifest) = read_json(&file)
         {
             for key in SPLIT_STORE_ONLY_KEYS {
@@ -362,7 +364,14 @@ fn front_matter_block(text: &str) -> Option<(usize, usize, usize)> {
     let rest = text.strip_prefix("---")?;
     let rest_trimmed = rest.trim_start_matches([' ', '\t']);
     let after_dashes = text.len() - rest_trimmed.len();
-    let head_end = after_dashes + if rest_trimmed.starts_with("\r\n") { 2 } else if rest_trimmed.starts_with('\n') { 1 } else { return None };
+    let head_end = after_dashes
+        + if rest_trimmed.starts_with("\r\n") {
+            2
+        } else if rest_trimmed.starts_with('\n') {
+            1
+        } else {
+            return None;
+        };
     for at in head_end..=text.len() {
         if !text.is_char_boundary(at) {
             continue;
@@ -449,7 +458,6 @@ mod tests {
         no_leftovers(&bots);
     }
 
-
     fn lane() -> mixdog_rt::DurabilityIo {
         mixdog_rt::testing::tokens().durability_io
     }
@@ -475,9 +483,11 @@ mod tests {
         let backups = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let counted = backups.clone();
         let (dir, with) = (path.clone(), facts.clone());
-        let report = run_on(move |lane| migrate_bots_to_own_store(lane, &dir, &with, TEST_NOW, &|_| {
-            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        }))
+        let report = run_on(move |lane| {
+            migrate_bots_to_own_store(lane, &dir, &with, TEST_NOW, &|_| {
+                counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            })
+        })
         .await;
         assert_eq!(report.bots, ["buddy"]);
         assert_eq!(report.changed, ["buddy"]);
@@ -652,7 +662,6 @@ mod tests {
     }
 }
 
-
 /// `BOT_MIGRATION_LOCK`: beside, never inside, `bots/` and `agents/`.
 pub const LOCK_FILE: &str = ".bot-split.lock";
 /// The first half of the kind stamp: what is written and what still has to be brought back.
@@ -681,14 +690,26 @@ fn now_ms() -> i64 {
 }
 /// `migrateBotsToOwnStore`: the split, and on every later start the re-sync (`backup` first whenever something is to
 /// be copied). Runs under the cross-process migration lock: a second process waits, then reads the profile as it is.
-pub fn migrate_bots_to_own_store(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_iso: &str, backup: &dyn Fn(&InLane<DurabilityIo>)) -> SplitReport {
+pub fn migrate_bots_to_own_store(
+    lane: &InLane<DurabilityIo>,
+    data: &Path,
+    facts: &Facts,
+    now_iso: &str,
+    backup: &dyn Fn(&InLane<DurabilityIo>),
+) -> SplitReport {
     let opts = state::LockOpts { timeout: Some(LOCK_WAIT), ..Default::default() };
     match state::with_lock(lane, &data.join(LOCK_FILE), &opts, || migrate_locked(lane, data, facts, now_iso, backup)) {
         Ok(report) => report,
         Err(error) => {
             let done = read_manifest_now(&data.join(BOTS_DIR));
             tracing::warn!("[bot-split] another start is migrating; this one reads the profile as it is: {error}");
-            SplitReport { failed: true, busy: true, bots: strings(done.as_ref().and_then(|m| m.get("bots"))), mixy: done.as_ref().is_some_and(|m| m.get("mixy") == Some(&Value::Bool(true))), ..Default::default() }
+            SplitReport {
+                failed: true,
+                busy: true,
+                bots: strings(done.as_ref().and_then(|m| m.get("bots"))),
+                mixy: done.as_ref().is_some_and(|m| m.get("mixy") == Some(&Value::Bool(true))),
+                ..Default::default()
+            }
         }
     }
 }
@@ -799,7 +820,8 @@ fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_i
         });
         if mixy_to_migrate(data, facts) && (mixy_entry.is_none() || lead_edited) {
             let current = if mixy_dir.exists() { read_json(&mixy_dir.join("agent.json")).unwrap_or_default() } else { Map::new() };
-            let untouched = mixy_entry.as_ref().is_some_and(|entry| Some(folder_hash(&mixy_dir)) == entry.get("copy").and_then(Value::as_str).map(str::to_owned));
+            let untouched =
+                mixy_entry.as_ref().is_some_and(|entry| Some(folder_hash(&mixy_dir)) == entry.get("copy").and_then(Value::as_str).map(str::to_owned));
             if mixy_entry.is_some() && !untouched {
                 tracing::warn!("[bot-split] Mixy: edited in both agents/lead and bots/mixy; bots/mixy is kept");
             } else {
@@ -830,7 +852,10 @@ fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_i
                 if let Some(created) = current.get("created").filter(|value| value.is_boolean()) {
                     manifest.insert("created".into(), created.clone());
                 }
-                if let Some(route) = complete_route(current.get("route")).or_else(|| complete_route(facts.mixy_thread_route.as_ref())).or_else(|| complete_route(facts.lead_route.as_ref())) {
+                if let Some(route) = complete_route(current.get("route"))
+                    .or_else(|| complete_route(facts.mixy_thread_route.as_ref()))
+                    .or_else(|| complete_route(facts.lead_route.as_ref()))
+                {
                     manifest.insert("route".into(), route);
                 }
                 manifest.insert("homeSessionId".into(), Value::String(MIXY_HOME_SESSION_ID.into()));
@@ -840,11 +865,15 @@ fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_i
                 mixy = true;
             }
         }
-        retired.extend(changes.iter().filter_map(|change| change.old.as_ref()).filter_map(|old| old.file_name()).map(|name| name.to_string_lossy().into_owned()));
+        retired
+            .extend(changes.iter().filter_map(|change| change.old.as_ref()).filter_map(|old| old.file_name()).map(|name| name.to_string_lossy().into_owned()));
         retired.sort();
         let mut next = Map::new();
         next.insert("version".into(), Value::from(MANIFEST_VERSION));
-        next.insert("completedAt".into(), done.as_ref().and_then(|m| m.get("completedAt").cloned()).filter(|v| truthy(Some(v))).unwrap_or_else(|| Value::String(now_iso.to_owned())));
+        next.insert(
+            "completedAt".into(),
+            done.as_ref().and_then(|m| m.get("completedAt").cloned()).filter(|v| truthy(Some(v))).unwrap_or_else(|| Value::String(now_iso.to_owned())),
+        );
         next.insert("bots".into(), Value::from(bots.iter().cloned().collect::<Vec<_>>()));
         next.insert("mixy".into(), Value::Bool(mixy));
         next.insert("mixyHomeSessionId".into(), if mixy { Value::String(MIXY_HOME_SESSION_ID.into()) } else { Value::Null });
@@ -880,7 +909,12 @@ fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_i
                 }
             }
             tracing::warn!("[bot-split] migration failed; the profile is unchanged: {error}");
-            return SplitReport { failed: true, bots: strings(done.as_ref().and_then(|m| m.get("bots"))), mixy: done.as_ref().is_some_and(|m| m.get("mixy") == Some(&Value::Bool(true))), ..Default::default() };
+            return SplitReport {
+                failed: true,
+                bots: strings(done.as_ref().and_then(|m| m.get("bots"))),
+                mixy: done.as_ref().is_some_and(|m| m.get("mixy") == Some(&Value::Bool(true))),
+                ..Default::default()
+            };
         }
     };
     // Committed. Removing the set-aside copies is best-effort: the manifest names them as retired.
@@ -894,7 +928,12 @@ fn migrate_locked(lane: &InLane<DurabilityIo>, data: &Path, facts: &Facts, now_i
     if done.is_some() && changes.is_empty() {
         return SplitReport { skipped: true, bots, mixy, ..Default::default() };
     }
-    SplitReport { bots, mixy, changed: changes.iter().filter_map(|change| change.target.file_name()).map(|n| n.to_string_lossy().into_owned()).collect(), ..Default::default() }
+    SplitReport {
+        bots,
+        mixy,
+        changed: changes.iter().filter_map(|change| change.target.file_name()).map(|n| n.to_string_lossy().into_owned()).collect(),
+        ..Default::default()
+    }
 }
 /// `withAgentKindMarker`: the `AGENT.md` text with `kind: agent` in its front matter, every other line kept.
 pub fn with_agent_kind_marker(text: &str) -> String {

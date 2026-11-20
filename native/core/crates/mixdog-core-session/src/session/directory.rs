@@ -164,9 +164,7 @@ struct Opened {
 }
 
 fn lock<T>(mutex: &Mutex<T>) -> MutexGuard<'_, T> {
-    mutex
-        .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner())
+    mutex.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
 }
 
 /// The members of `header` named in `fields`, in the header's own order (all of it for `None`).
@@ -191,21 +189,13 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
         let display = match &record {
             Record::Item(item) => Display::Items(deps.transcript.items(lane, item)),
             Record::Queue(queue) => match &queue.entry {
-                Some(Slot::Inline(entry)) => {
-                    Display::Queued(deps.transcript.queued(queue.qid.as_str(), entry))
-                }
+                Some(Slot::Inline(entry)) => Display::Queued(deps.transcript.queued(queue.qid.as_str(), entry)),
                 _ => Display::None,
             },
             _ => Display::None,
         };
         next_ordinal = next_ordinal.max(ordinal + 1);
-        state.apply(
-            &Change::Record {
-                record: Arc::new(record),
-                display,
-            },
-            Some(ordinal),
-        );
+        state.apply(&Change::Record { record: Arc::new(record), display }, Some(ordinal));
     };
     for (ordinal, run) in log.runs {
         apply(&mut state, ordinal, Record::Run(run));
@@ -249,15 +239,8 @@ fn fold_opened(lane: &InLane<CpuInteractive>, deps: &SessionDeps, log: OpenedLog
             run.restore(draft);
         }
     }
-    state.prompt_history =
-        Arc::new(super::prompt_history::merge(&state.prompt_session, &state.prompt_persisted));
-    Opened {
-        state,
-        control: log.control,
-        log_id: log.log_id,
-        next_ordinal,
-        log: LogInit::Open(log.append),
-    }
+    state.prompt_history = Arc::new(super::prompt_history::merge(&state.prompt_session, &state.prompt_persisted));
+    Opened { state, control: log.control, log_id: log.log_id, next_ordinal, log: LogInit::Open(log.append) }
 }
 
 #[cfg(test)]
@@ -283,7 +266,6 @@ mod shutdown_ingest_tests {
     }
 }
 
-
 #[cfg(test)]
 mod create_count_tests {
     use std::sync::atomic::AtomicUsize;
@@ -303,7 +285,6 @@ mod create_count_tests {
         assert_eq!(count.load(Ordering::SeqCst), 0);
     }
 }
-
 
 /// `INGEST_DEADLINE_MS` (`memory-ingest.mjs:4`): how long shutdown waits for the ingests.
 const SHUTDOWN_INGEST_DEADLINE: std::time::Duration = std::time::Duration::from_millis(2500);
@@ -598,12 +579,7 @@ impl SessionDirectory {
 }
 /// The refusal of a create whose id is taken.
 fn exists() -> CoreError {
-    CoreError::PreconditionFailed {
-        precondition: mixdog_core_api::error::Precondition::Revision {
-            expected: "absent".into(),
-            actual: "exists".into(),
-        },
-    }
+    CoreError::PreconditionFailed { precondition: mixdog_core_api::error::Precondition::Revision { expected: "absent".into(), actual: "exists".into() } }
 }
 impl DirInner {
     fn shard(&self, id: &ThreadId) -> &Mutex<HashMap<ThreadId, Slot_>> {
@@ -682,12 +658,7 @@ impl DirInner {
     /// Drops the loaded thread whose cell is `cell` when it still has no subscriber, and
     /// closes the cell under the shard lock. `None` when a subscriber came back meanwhile.
     /// The actor signals its own disposal before the close work runs; a reopen waits for both.
-    pub(crate) fn unload(
-        &self,
-        id: &ThreadId,
-        cell: &Arc<ControlCell>,
-        teardown: futures::future::BoxFuture<'static, ()>,
-    ) -> Option<oneshot::Sender<()>> {
+    pub(crate) fn unload(&self, id: &ThreadId, cell: &Arc<ControlCell>, teardown: futures::future::BoxFuture<'static, ()>) -> Option<oneshot::Sender<()>> {
         let mut shard = lock(self.shard(id));
         let ours = matches!(shard.get(id), Some(Slot_::Loaded(h)) if Arc::ptr_eq(&h.cell, cell));
         // The check and the close are one transition of the admission word: an attach that
@@ -813,7 +784,8 @@ impl DirInner {
             // wedged or shut down) or failed answers nothing for these sessions, as a record read refused the same way
             // does: a record is read only for a session the index itself answers it cannot vouch for, never because
             // the index could not be asked.
-            let rows = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.listed_rows(lane, &asked)).await;
+            let rows =
+                mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &CancellationToken::new(), move |lane| store.listed_rows(lane, &asked)).await;
             let Ok(Ok(rows)) = rows else {
                 return out.into_iter().map(Option::flatten).collect();
             };
@@ -821,7 +793,8 @@ impl DirInner {
                 out[at] = row.map(|listed| listed.map(|header| keep_fields(&header, Some(fields))));
             }
         }
-        let records = futures::future::join_all(ids.iter().zip(&out).filter(|(_, answer)| answer.is_none()).map(|(id, _)| self.read_listed_record(id, fields))).await;
+        let records =
+            futures::future::join_all(ids.iter().zip(&out).filter(|(_, answer)| answer.is_none()).map(|(id, _)| self.read_listed_record(id, fields))).await;
         let mut records = records.into_iter();
         out.into_iter().map(|answer| answer.unwrap_or_else(|| records.next().flatten())).collect()
     }
@@ -981,7 +954,13 @@ impl DirInner {
                         // An open a person waits for: one that took long says which step did.
                         let ended = me.deps.clock.now_ms();
                         if ended - began >= SLOW_OPEN_MS {
-                            tracing::warn!(thread = thread.as_str(), before_ms = waited - began, load_ms = loaded - waited, tools_ms = ended - loaded, "slow session open");
+                            tracing::warn!(
+                                thread = thread.as_str(),
+                                before_ms = waited - began,
+                                load_ms = loaded - waited,
+                                tools_ms = ended - loaded,
+                                "slow session open"
+                            );
                         }
                         let result = me.publish_opened(&thread, &opening, result);
                         tx.send_replace(Some(result));
@@ -1078,27 +1057,16 @@ impl DirInner {
         if let Some(log) = super::delegation::room_log_surface(id.as_str()) {
             return Lineage { surface: log, chain: Vec::new() };
         }
-        let Some(parent) = header
-            .get("parentSessionId")
-            .and_then(Value::as_str)
-            .filter(|parent| !parent.is_empty())
-            .map(ThreadId::from)
-        else {
+        let Some(parent) = header.get("parentSessionId").and_then(Value::as_str).filter(|parent| !parent.is_empty()).map(ThreadId::from) else {
             return Lineage::top_level(id);
         };
         match self.loaded(&parent) {
             Some(handle) => {
                 let mut chain = handle.lineage.chain.clone();
                 chain.push(parent);
-                Lineage {
-                    surface: handle.lineage.surface.clone(),
-                    chain,
-                }
+                Lineage { surface: handle.lineage.surface.clone(), chain }
             }
-            None => Lineage {
-                surface: parent.clone(),
-                chain: vec![parent],
-            },
+            None => Lineage { surface: parent.clone(), chain: vec![parent] },
         }
     }
 
@@ -1129,9 +1097,7 @@ impl DirInner {
         let (ctl_tx, ctl_rx) = mpsc::channel(limits.control_lane);
         let (inbox_tx, inbox_rx) = mpsc::channel(limits.inbox);
         let (prod_tx, prod_rx) = mpsc::channel(limits.producer_lane);
-        let (dur_tx, dur_in) = mpsc::channel(
-            limits.window_records + limits.reserve_records + limits.control_lane + 1,
-        );
+        let (dur_tx, dur_in) = mpsc::channel(limits.window_records + limits.reserve_records + limits.control_lane + 1);
         let (dur_out, dur_rx) = mpsc::channel(8);
         #[cfg(feature = "replay-settled")]
         let settled = super::replay_settled::Lane::register(id.as_str(), &ctl_tx, &inbox_tx, &prod_tx);
@@ -1240,15 +1206,7 @@ impl DirInner {
             loaded_seq: self.loads.fetch_add(1, std::sync::atomic::Ordering::SeqCst),
         });
         let lease = SlotLease { directory: self.me.clone(), id: id.clone(), cell: cell.clone() };
-        let durability = DurabilityTask::new(
-            id.clone(),
-            deps.store.clone(),
-            deps.lanes.durability,
-            limits.batch_bytes,
-            log,
-            dur_in,
-            dur_out,
-        );
+        let durability = DurabilityTask::new(id.clone(), deps.store.clone(), deps.lanes.durability, limits.batch_bytes, log, dur_in, dur_out);
         let actor = SessionActor::new(
             id,
             deps.clone(),
@@ -1288,10 +1246,7 @@ impl DirInner {
         let _settled = super::prewarm_signals::WakeOnDrop(self.deps.code_graph_prewarm.clone());
         let _creating = InFlight::enter(&self.creating);
         let id = spec.id.unwrap_or_else(|| self.mint_session_id());
-        let invalid = |path: &str| CoreError::InvalidParams {
-            path: path.into(),
-            expected: "a shorter value".into(),
-        };
+        let invalid = |path: &str| CoreError::InvalidParams { path: path.into(), expected: "a shorter value".into() };
         let mut header = spec.header;
         header.insert("id".into(), Value::String(id.as_str().to_owned()));
         // Joined to its tree before the count moves: a preparation that reads the count after this finds the link.
@@ -1314,10 +1269,7 @@ impl DirInner {
             Some(op) => Some(mixdog_store::schema::record::OpRef {
                 id: Text::try_from(op.as_str()).map_err(|_| invalid("opId"))?,
                 method: Text::try_from(spec.method.as_str()).map_err(|_| invalid("method"))?,
-                digest: mixdog_store::schema::bounded::Digest::try_from(super::ops::digest(
-                    &spec.params,
-                ))
-                .expect("digest is well formed"),
+                digest: mixdog_store::schema::bounded::Digest::try_from(super::ops::digest(&spec.params)).expect("digest is well formed"),
                 audience: spec.op_audience,
                 result: None,
             }),
@@ -1359,14 +1311,7 @@ impl DirInner {
                 log_id,
                 0,
                 LogInit::Create,
-                Init::Create {
-                    session,
-                    tx: Some(tx),
-                    value: json!({}),
-                    seed: spec.seed,
-                    settings: spec.settings,
-                    kept: spec.method.as_str() == "thread/fork",
-                },
+                Init::Create { session, tx: Some(tx), value: json!({}), seed: spec.seed, settings: spec.settings, kept: spec.method.as_str() == "thread/fork" },
             );
             shard.insert(id.clone(), Slot_::Loaded(handle.clone()));
             (handle, launch)
@@ -1387,7 +1332,13 @@ impl SessionDirectory {
     /// step enters the draft step where the draft's workflow, orchestration mode (when `configure`: Node's `configureDraft` runs on a
     /// `reserved` receipt only) and route are applied (Node's `setWorkflow`, `setOrchestrationMode`, `setRoute`, awaited in that order
     /// after `client.create` returned, session-host-lifecycle.ts:765-779).
-    pub(super) async fn begin_thread(&self, req: &CoreRequest, params: &ThreadStartParams, id: Option<ThreadId>, attempt: Option<(&super::new_task::StepCell, bool)>) -> Result<Arc<SessionHandle>, CoreError> {
+    pub(super) async fn begin_thread(
+        &self,
+        req: &CoreRequest,
+        params: &ThreadStartParams,
+        id: Option<ThreadId>,
+        attempt: Option<(&super::new_task::StepCell, bool)>,
+    ) -> Result<Arc<SessionHandle>, CoreError> {
         let now = self.inner.deps.clock.now_ms();
         let mut header = Header::new();
         header.insert("createdAt".into(), json!(now));
@@ -1454,7 +1405,9 @@ impl SessionDirectory {
                 let draft = params.draft.as_ref();
                 let settings = &self.inner.deps.draft_settings;
                 // `requiredNewTaskDraft` kept the draft's workflow id trimmed.
-                if let Some(workflow) = draft.and_then(|draft| draft.workflow_id.as_deref()).map(mixdog_js::js_trim).filter(|workflow| configure && !workflow.is_empty()) {
+                if let Some(workflow) =
+                    draft.and_then(|draft| draft.workflow_id.as_deref()).map(mixdog_js::js_trim).filter(|workflow| configure && !workflow.is_empty())
+                {
                     step.set(super::new_task::Step::Configuring);
                     super::new_task::quit_gate("setWorkflow", &closing).await;
                     if let Err(error) = settings.set_workflow(&id, workflow).await {
@@ -1492,9 +1445,7 @@ impl SessionDirectory {
         } else {
             self.inner.deps.new_tools.seed(&id, &header)
         };
-        let header = seeding.await.map_err(|message| {
-            mixdog_core_base::support::failed("session", format!("session: tools: {message}"))
-        })?;
+        let header = seeding.await.map_err(|message| mixdog_core_base::support::failed("session", format!("session: tools: {message}")))?;
         let handle = self
             .inner
             .create(CreateSpec {
@@ -1548,7 +1499,12 @@ impl SessionDirectory {
         let Some(rows) = super::lifecycle_hooks::session_start_rows(&context) else { return };
         // Model context only, never displayed: rows of no turn.
         let rows: Vec<Value> = rows.into_iter().map(|body| json!({ "body": body, "visible": false })).collect();
-        let commit = CoreRequest { method: Method("thread/roomRows/commit"), params: json!({ "rows": rows }), op: None, ctx: CallContext::internal("session-start-hook") };
+        let commit = CoreRequest {
+            method: Method("thread/roomRows/commit"),
+            params: json!({ "rows": rows }),
+            op: None,
+            ctx: CallContext::internal("session-start-hook"),
+        };
         if let Err(error) = handle.request(commit).await {
             tracing::warn!("session {}: the SessionStart hook context was not stored: {error}", handle.id.as_str());
         }
@@ -1654,30 +1610,18 @@ impl ThreadDirectory for SessionDirectory {
     }
 
     fn get(&self, id: &ThreadId) -> Option<Arc<dyn ThreadHandle>> {
-        self.inner
-            .loaded(id)
-            .map(|handle| handle as Arc<dyn ThreadHandle>)
+        self.inner.loaded(id).map(|handle| handle as Arc<dyn ThreadHandle>)
     }
 
-    async fn open(
-        &self,
-        id: &ThreadId,
-        ctx: &CallContext,
-    ) -> Result<Arc<dyn ThreadHandle>, CoreError> {
-        self.inner
-            .open(id, ctx)
-            .await
-            .map(|handle| handle as Arc<dyn ThreadHandle>)
+    async fn open(&self, id: &ThreadId, ctx: &CallContext) -> Result<Arc<dyn ThreadHandle>, CoreError> {
+        self.inner.open(id, ctx).await.map(|handle| handle as Arc<dyn ThreadHandle>)
     }
 
     async fn request(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         match req.method.as_str() {
             "thread/start" => {
                 let params: ThreadStartParams = serde_json::from_value(req.params.clone())
-                    .map_err(|_| CoreError::InvalidParams {
-                        path: "params".into(),
-                        expected: "ThreadStartParams".into(),
-                    })?;
+                    .map_err(|_| CoreError::InvalidParams { path: "params".into(), expected: "ThreadStartParams".into() })?;
                 if super::new_task::starts_new_task(&req.params) {
                     return self.start_new_task(req, params).await;
                 }
@@ -1718,10 +1662,7 @@ impl ThreadDirectory for SessionDirectory {
             "thread/inheritancePreflight" => self.inheritance_preflight(&req.params).await.map(Reply::Value),
             "thread/approval/answerNotification" => self.answer_approval_notification(&req).await,
             "thread/approval/answer" => self.answer_approval(&req).await,
-            _ => Err(CoreError::InvalidParams {
-                path: "method".into(),
-                expected: "a session-directory method".into(),
-            }),
+            _ => Err(CoreError::InvalidParams { path: "method".into(), expected: "a session-directory method".into() }),
         }
     }
 
@@ -1758,7 +1699,8 @@ async fn image_gate_run(deps: Arc<SessionDeps>, id: ThreadId, gate: Arc<super::i
         rows.retain(|(id, _)| !id.as_str().is_empty());
         sensitive.held(&thread, &mut rows);
         scan.page(rows, &overlay);
-    }).await;
+    })
+    .await;
     let (run_items, pending) = match scan {
         Ok(scan) => scan.finish(),
         Err(error) => {
@@ -1775,12 +1717,20 @@ async fn image_gate_run(deps: Arc<SessionDeps>, id: ThreadId, gate: Arc<super::i
     let vault = mixdog_image_vault::ImageVault::for_blobs(deps.attachments.0.clone());
     let run_gate = gate.clone();
     let report = mixdog_core_base::support::on_lane_wait(deps.lanes.io, &CancellationToken::new(), move |lane| {
-        mixdog_image_vault::migration::migrate(&vault, lane, &run_items, &mixdog_image_egress::admission::Cancel::default(), &mut |progress| run_gate.progress(progress))
+        mixdog_image_vault::migration::migrate(&vault, lane, &run_items, &mixdog_image_egress::admission::Cancel::default(), &mut |progress| {
+            run_gate.progress(progress)
+        })
     })
     .await;
     match report {
         Ok(report) => gate.finish(&pending, &report),
-        Err(_) => gate.finish(&pending, &mixdog_image_vault::migration::Report { results: pending.iter().map(|item| (item.key.clone(), mixdog_image_vault::migration::ItemResult::NotRun)).collect(), cancelled: true }),
+        Err(_) => gate.finish(
+            &pending,
+            &mixdog_image_vault::migration::Report {
+                results: pending.iter().map(|item| (item.key.clone(), mixdog_image_vault::migration::ItemResult::NotRun)).collect(),
+                cancelled: true,
+            },
+        ),
     }
 }
 
@@ -1788,7 +1738,6 @@ async fn wait_without_cancelling(deadline: std::time::Duration, work: impl std::
     let task = mixdog_rt::spawn("core-session.shutdown-ingest", TaskClass::Work, work);
     let _ = mixdog_rt::time::timeout(deadline, task).await;
 }
-
 
 impl SessionDirectory {
     pub fn new(deps: Arc<SessionDeps>) -> Self {
@@ -1924,7 +1873,10 @@ impl SessionDirectory {
 
     /// The turn gate, for the tests that hold a start's admission or a delete's fence.
     #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
     pub(crate) fn turn_gate(&self) -> &Arc<super::turn_gate::TurnGate> {
         self.inner.gate()
     }
@@ -2030,11 +1982,7 @@ impl SessionDirectory {
     }
 
     /// The live history row `iid` with its ordinal, as the transcript reads it.
-    pub(crate) async fn history_row(
-        &self,
-        id: &ThreadId,
-        iid: &str,
-    ) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
+    pub(crate) async fn history_row(&self, id: &ThreadId, iid: &str) -> Result<Option<(u64, mixdog_store::schema::record::ItemRecord)>, CoreError> {
         let deps = &self.inner.deps;
         deps.store.unheld().await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
@@ -2070,11 +2018,7 @@ impl SessionDirectory {
     }
 
     /// The live compaction (ordinal and `cid`) whose replacement holds the entry `iid`.
-    pub(crate) async fn compaction_entry(
-        &self,
-        id: &ThreadId,
-        iid: &str,
-    ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
+    pub(crate) async fn compaction_entry(&self, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         let deps = &self.inner.deps;
         deps.store.unheld().await;
         let (store, thread, iid) = (deps.store.clone(), id.clone(), iid.to_owned());
@@ -2172,13 +2116,7 @@ impl SessionDirectory {
     /// no other member of its tree (`peers`, each with the activity the pass read) is open or
     /// has moved, and that `cancel` (the sweep's shutdown) has not fired; any refuses with
     /// `false`.
-    pub async fn delete_stored(
-        &self,
-        id: &str,
-        activity: f64,
-        peers: &[(String, f64)],
-        cancel: &CancellationToken,
-    ) -> Result<bool, CoreError> {
+    pub async fn delete_stored(&self, id: &str, activity: f64, peers: &[(String, f64)], cancel: &CancellationToken) -> Result<bool, CoreError> {
         let judged = self.deps().archive.snapshot().entry(mixdog_js::js_trim(id));
         self.delete_stored_judged(id, activity, peers, cancel, judged).await
     }
@@ -2217,7 +2155,10 @@ impl SessionDirectory {
 
     /// Holds the next adoption between its listing and its writes ([`DirInner::adoption_gate`]).
     #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
     pub(super) fn gate_adoption(&self, arrived: Arc<tokio::sync::Notify>, go: std::sync::mpsc::Receiver<()>) {
         *lock(&self.inner.adoption_gate) = Some((arrived, go));
     }
@@ -2278,13 +2219,7 @@ impl SessionDirectory {
         self.inner
             .shards
             .iter()
-            .flat_map(|shard| {
-                lock(shard)
-                    .iter()
-                    .filter(|(_, slot)| matches!(slot, Slot_::Loaded(_)))
-                    .map(|(id, _)| id.clone())
-                    .collect::<Vec<_>>()
-            })
+            .flat_map(|shard| lock(shard).iter().filter(|(_, slot)| matches!(slot, Slot_::Loaded(_))).map(|(id, _)| id.clone()).collect::<Vec<_>>())
             .collect()
     }
 
@@ -2448,7 +2383,18 @@ impl SessionDirectory {
             .seed_agent(&id, &header)
             .await
             .map_err(|message| mixdog_core_base::support::failed("session", format!("session: tools: {message}")))?;
-        let spec = CreateSpec { id: Some(id), header, base: None, op: None, op_audience: None, method: Method("thread/start"), params, seed: None, settings: None, starting: None };
+        let spec = CreateSpec {
+            id: Some(id),
+            header,
+            base: None,
+            op: None,
+            op_audience: None,
+            method: Method("thread/start"),
+            params,
+            seed: None,
+            settings: None,
+            starting: None,
+        };
         self.inner.create(spec).await.map(|handle| handle.id.clone())
     }
 
@@ -2606,11 +2552,7 @@ impl SessionDirectory {
     }
 
     /// Opens (single-flight) and returns the concrete handle.
-    pub async fn open_handle(
-        &self,
-        id: &ThreadId,
-        ctx: &CallContext,
-    ) -> Result<Arc<SessionHandle>, CoreError> {
+    pub async fn open_handle(&self, id: &ThreadId, ctx: &CallContext) -> Result<Arc<SessionHandle>, CoreError> {
         self.inner.open(id, ctx).await
     }
 

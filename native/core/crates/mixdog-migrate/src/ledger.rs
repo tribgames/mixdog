@@ -6,11 +6,7 @@
 
 // The migration is a sanctioned blocking-I/O home (RL §13): it runs once, before the
 // runtime, on its own thread.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "one-time migration: the ledger's SQLite file opened directly on the migration thread"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "one-time migration: the ledger's SQLite file opened directly on the migration thread")]
 
 use std::collections::BTreeSet;
 use std::path::Path;
@@ -56,14 +52,9 @@ const SUMMARY_FILE: &str = "tables-before.txt";
 type Objects = BTreeSet<(String, String, Option<String>)>;
 
 fn objects(conn: &Connection, path: &Path) -> Result<Objects> {
-    let mut stmt = conn
-        .prepare("SELECT type, name, sql FROM sqlite_master")
-        .map_err(|e| Blocked::sqlite("read_schema", path, e))?;
-    let rows = stmt
-        .query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
-        .map_err(|e| Blocked::sqlite("read_schema", path, e))?;
-    rows.collect::<std::result::Result<_, _>>()
-        .map_err(|e| Blocked::sqlite("read_schema", path, e))
+    let mut stmt = conn.prepare("SELECT type, name, sql FROM sqlite_master").map_err(|e| Blocked::sqlite("read_schema", path, e))?;
+    let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).map_err(|e| Blocked::sqlite("read_schema", path, e))?;
+    rows.collect::<std::result::Result<_, _>>().map_err(|e| Blocked::sqlite("read_schema", path, e))
 }
 
 fn memory_objects(scripts: &[&str]) -> Objects {
@@ -75,8 +66,7 @@ fn memory_objects(scripts: &[&str]) -> Objects {
 }
 
 fn user_version(conn: &Connection, path: &Path) -> Result<i64> {
-    conn.query_row("PRAGMA user_version", [], |r| r.get(0))
-        .map_err(|e| Blocked::sqlite("read_version", path, e))
+    conn.query_row("PRAGMA user_version", [], |r| r.get(0)).map_err(|e| Blocked::sqlite("read_version", path, e))
 }
 
 fn shape(conn: &Connection, path: &Path) -> Result<LedgerShape> {
@@ -86,9 +76,7 @@ fn shape(conn: &Connection, path: &Path) -> Result<LedgerShape> {
     } else if found == memory_objects(&[LEDGER_V2_BASE, LEDGER_V2_DEV]) {
         Ok(LedgerShape::Dev146)
     } else {
-        Err(Blocked::LedgerSchema {
-            detail: format!("{} objects match neither 1.4.5 nor 1.4.6-dev", found.len()),
-        })
+        Err(Blocked::LedgerSchema { detail: format!("{} objects match neither 1.4.5 nor 1.4.6-dev", found.len()) })
     }
 }
 
@@ -107,30 +95,17 @@ fn tables_summary(conn: &Connection, path: &Path) -> Result<String> {
             .prepare("SELECT name FROM pragma_table_info(?1) WHERE pk > 0 ORDER BY pk")
             .and_then(|mut s| s.query_map([&table], |r| r.get(0))?.collect())
             .expect("primary key");
-        let order = if pk.is_empty() {
-            "rowid".to_string()
-        } else {
-            pk.iter()
-                .map(|c| format!("\"{c}\""))
-                .collect::<Vec<_>>()
-                .join(", ")
-        };
+        let order = if pk.is_empty() { "rowid".to_string() } else { pk.iter().map(|c| format!("\"{c}\"")).collect::<Vec<_>>().join(", ") };
         let sql = format!("SELECT * FROM \"{table}\" ORDER BY {order}");
-        let mut stmt = conn
-            .prepare(&sql)
-            .map_err(|e| Blocked::sqlite("read_table", path, e))?;
+        let mut stmt = conn.prepare(&sql).map_err(|e| Blocked::sqlite("read_table", path, e))?;
         let columns = stmt.column_count();
-        let mut rows = stmt
-            .query([])
-            .map_err(|e| Blocked::sqlite("read_table", path, e))?;
+        let mut rows = stmt.query([]).map_err(|e| Blocked::sqlite("read_table", path, e))?;
         let mut hasher = Sha256::new();
         let mut count = 0u64;
         while let Some(row) = rows.next().map_err(|e| Blocked::sqlite("read_table", path, e))? {
             count += 1;
             for i in 0..columns {
-                let value = row
-                    .get_ref(i)
-                    .map_err(|e| Blocked::sqlite("read_table", path, e))?;
+                let value = row.get_ref(i).map_err(|e| Blocked::sqlite("read_table", path, e))?;
                 match value {
                     ValueRef::Null => hasher.update(b"n"),
                     ValueRef::Integer(n) => hasher.update(format!("i{n};")),
@@ -154,11 +129,8 @@ fn tables_summary(conn: &Connection, path: &Path) -> Result<String> {
 
 fn open(path: &Path) -> Result<Connection> {
     let conn = Connection::open(path).map_err(|e| Blocked::sqlite("open", path, e))?;
-    conn.execute_batch(&format!(
-        "PRAGMA busy_timeout = 0; PRAGMA synchronous = {};",
-        mixdog_store::fsio::sqlite_synchronous()
-    ))
-    .map_err(|e| Blocked::sqlite("pragma", path, e))?;
+    conn.execute_batch(&format!("PRAGMA busy_timeout = 0; PRAGMA synchronous = {};", mixdog_store::fsio::sqlite_synchronous()))
+        .map_err(|e| Blocked::sqlite("pragma", path, e))?;
     Ok(conn)
 }
 
@@ -168,24 +140,14 @@ pub fn imported_through(data: &Path) -> Result<bool> {
     if !path.is_file() {
         return Ok(false);
     }
-    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| Blocked::sqlite("open", &path, e))?;
+    let conn = Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| Blocked::sqlite("open", &path, e))?;
     let has_table: bool = conn
-        .query_row(
-            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata')",
-            [],
-            |r| r.get(0),
-        )
+        .query_row("SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata')", [], |r| r.get(0))
         .map_err(|e| Blocked::sqlite("read", &path, e))?;
     if !has_table {
         return Ok(false);
     }
-    conn.query_row(
-        "SELECT EXISTS(SELECT 1 FROM metadata WHERE key='importedThrough')",
-        [],
-        |r| r.get(0),
-    )
-    .map_err(|e| Blocked::sqlite("read", &path, e))
+    conn.query_row("SELECT EXISTS(SELECT 1 FROM metadata WHERE key='importedThrough')", [], |r| r.get(0)).map_err(|e| Blocked::sqlite("read", &path, e))
 }
 
 #[derive(Default)]
@@ -203,14 +165,7 @@ impl ItemDriver for LedgerDriver {
                 sources.push(sink.source(Root::Data, &rel, false)?);
             }
         }
-        sink.add_item(plan::item(
-            LEDGER_KEY,
-            KindGroup::Data,
-            ItemKind::Ledger,
-            Contract::Convert,
-            sources,
-            Some(Target::Ledger),
-        )?)
+        sink.add_item(plan::item(LEDGER_KEY, KindGroup::Data, ItemKind::Ledger, Contract::Convert, sources, Some(Target::Ledger))?)
     }
 
     fn owns(&self, item: &ManifestItem) -> bool {
@@ -225,20 +180,12 @@ impl ItemDriver for LedgerDriver {
         let path = cx.roots.data.join(LEDGER_PATH);
         let conn = open(&path)?;
         if user_version(&conn, &path)? != 2 {
-            return Err(Blocked::LedgerSchema {
-                detail: format!("user_version {}", user_version(&conn, &path)?),
-            });
+            return Err(Blocked::LedgerSchema { detail: format!("user_version {}", user_version(&conn, &path)?) });
         }
         shape(&conn, &path)?;
         let summary = tables_summary(&conn, &path)?;
-        durable::write_synced(
-            &cx.stage_dir(item.key.as_str()).join(SUMMARY_FILE),
-            summary.as_bytes(),
-        )?;
-        Ok(Staged::Output {
-            output_sha256: durable::sha256_hex(summary.as_bytes()),
-            replaced_surrogates: 0,
-        })
+        durable::write_synced(&cx.stage_dir(item.key.as_str()).join(SUMMARY_FILE), summary.as_bytes())?;
+        Ok(Staged::Output { output_sha256: durable::sha256_hex(summary.as_bytes()), replaced_surrogates: 0 })
     }
 
     fn publish(&self, cx: &ItemContext<'_>, _item: &ManifestItem, _staged: &StagedEntry) -> Result<()> {
@@ -248,15 +195,11 @@ impl ItemDriver for LedgerDriver {
             return Ok(());
         }
         let dev = shape(&conn, &path)? == LedgerShape::Dev146;
-        let tx = conn
-            .transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)
-            .map_err(|e| Blocked::sqlite("begin", &path, e))?;
+        let tx = conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(|e| Blocked::sqlite("begin", &path, e))?;
         if dev {
-            tx.execute_batch(LEDGER_DROP_DEV)
-                .map_err(|e| Blocked::sqlite("upgrade", &path, e))?;
+            tx.execute_batch(LEDGER_DROP_DEV).map_err(|e| Blocked::sqlite("upgrade", &path, e))?;
         }
-        tx.execute_batch(LEDGER_V3_DELTA)
-            .map_err(|e| Blocked::sqlite("upgrade", &path, e))?;
+        tx.execute_batch(LEDGER_V3_DELTA).map_err(|e| Blocked::sqlite("upgrade", &path, e))?;
         durable::step(durable::Step::SqliteCommit, &path, &[]);
         tx.commit().map_err(|e| Blocked::sqlite("commit", &path, e))?;
         conn.close().map_err(|(_, e)| Blocked::sqlite("close", &path, e))
@@ -265,10 +208,7 @@ impl ItemDriver for LedgerDriver {
     fn verify(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Verdict> {
         let path = cx.roots.data.join(LEDGER_PATH);
         let conn = open(&path)?;
-        let quarantine = |detail: String| Verdict::Quarantine {
-            code: QuarantineCode::DigestMismatch,
-            detail,
-        };
+        let quarantine = |detail: String| Verdict::Quarantine { code: QuarantineCode::DigestMismatch, detail };
         if user_version(&conn, &path)? != 3 {
             return Ok(quarantine("user_version is not 3".into()));
         }
@@ -280,8 +220,6 @@ impl ItemDriver for LedgerDriver {
         if before != after.as_bytes() {
             return Ok(quarantine("1.4.5 table rows differ after the upgrade".into()));
         }
-        Ok(Verdict::Verified {
-            digest: Some(crate::json::hex_digest(&durable::sha256_hex(&before))),
-        })
+        Ok(Verdict::Verified { digest: Some(crate::json::hex_digest(&durable::sha256_hex(&before))) })
     }
 }

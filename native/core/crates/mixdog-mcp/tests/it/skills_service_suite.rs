@@ -150,12 +150,16 @@ fn fixture(existing: &[(&str, &str)]) -> Fixture {
     }
     let config = Arc::new(Config { agent: Mutex::default() });
     let host = Arc::new(Host { log: Mutex::default(), cwd: cwd.clone() });
-    let settings: Arc<dyn SkillSettingsSource> =
-        Arc::new(Settings(SkillSettings { gate: SkillGate { disabled: Default::default(), active_features: Default::default() }, scopes: ExtensionScopes::from_config(&Value::Null) }));
+    let settings: Arc<dyn SkillSettingsSource> = Arc::new(Settings(SkillSettings {
+        gate: SkillGate { disabled: Default::default(), active_features: Default::default() },
+        scopes: ExtensionScopes::from_config(&Value::Null),
+    }));
     let tokens = mixdog_rt::testing::tokens();
     let root = SkillRoot { dir: data.join("skills"), source: SkillSource::Global, plugin: None };
-    let catalog = SkillCatalog::new(data.clone(), tokens.maintenance_io.clone(), Arc::new(move |_| vec![root.clone()]), Arc::clone(&settings), &SkillsWatch::new());
-    let service = SkillsService::new(catalog, settings, config.clone(), host.clone(), Arc::new(Projects), tokens.maintenance_io, tokens.durability_io, data.clone());
+    let catalog =
+        SkillCatalog::new(data.clone(), tokens.maintenance_io.clone(), Arc::new(move |_| vec![root.clone()]), Arc::clone(&settings), &SkillsWatch::new());
+    let service =
+        SkillsService::new(catalog, settings, config.clone(), host.clone(), Arc::new(Projects), tokens.maintenance_io, tokens.durability_io, data.clone());
     Fixture { _dir: dir, data, cwd, service, config, host }
 }
 
@@ -177,13 +181,17 @@ const DEMO: &str = "---\nname: demo\ndescription: Does a thing.\n---\n\nStep one
 #[tokio::test(flavor = "multi_thread")]
 async fn a_skill_added_is_written_listed_as_the_users_own_and_announced() {
     let f = fixture(&[]);
-    let added = call(&f.service, "skills/addSkill", json!({"input": {"name": "demo", "description": "Does a thing.", "instructions": "Step one."}})).await.unwrap();
+    let added =
+        call(&f.service, "skills/addSkill", json!({"input": {"name": "demo", "description": "Does a thing.", "instructions": "Step one."}})).await.unwrap();
     assert_eq!(added["skill"]["name"], "demo");
     let file = f.data.join("skills").join("demo").join("SKILL.md");
     assert_eq!(std::fs::read_to_string(&file).unwrap(), "---\nname: demo\ndescription: Does a thing.\n---\n\nStep one.\n");
     assert_eq!(names(&added["status"]), ["demo"]);
     let row = &added["status"]["skills"][0];
-    assert_eq!((row["editable"].clone(), row["source"].clone(), row["owner"].clone(), row["enabled"].clone()), (json!(true), json!("global"), json!({"kind": "user"}), json!(true)));
+    assert_eq!(
+        (row["editable"].clone(), row["source"].clone(), row["owner"].clone(), row["enabled"].clone()),
+        (json!(true), json!("global"), json!({"kind": "user"}), json!(true))
+    );
     assert_eq!(added["status"]["cwd"], f.cwd.to_string_lossy().as_ref());
     assert_eq!(added["status"]["tools"], json!([{"name": "read"}]));
     assert_eq!(*f.host.log.lock().unwrap(), ["announce:skills"]);
@@ -208,7 +216,10 @@ async fn a_lookup_with_no_name_or_an_unknown_name_is_refused_in_words() {
     assert_eq!(call(&f.service, "skills/skillContent", json!({"name": "  "})).await.unwrap_err(), "skill name is required");
     assert_eq!(call(&f.service, "skills/skillContent", json!({"name": " nope "})).await.unwrap_err(), "skill not found: nope");
     assert_eq!(call(&f.service, "skills/removeSkill", json!({"input": {"name": "nope"}})).await.unwrap_err(), "skill not found: nope");
-    assert_eq!(call(&f.service, "skills/saveSkill", json!({"input": {"originalName": "nope", "name": "nope", "description": "d"}})).await.unwrap_err(), "skill not found: nope");
+    assert_eq!(
+        call(&f.service, "skills/saveSkill", json!({"input": {"originalName": "nope", "name": "nope", "description": "d"}})).await.unwrap_err(),
+        "skill not found: nope"
+    );
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -216,11 +227,22 @@ async fn a_rename_moves_the_folder_and_the_switched_off_state_to_the_new_name_an
     let f = fixture(&[("demo", DEMO), ("other", "---\nname: other\ndescription: Another.\n---\n\nBody\n")]);
     call(&f.service, "skills/setDisabledSkills", json!({"names": ["demo"]})).await.unwrap();
 
-    let taken = call(&f.service, "skills/saveSkill", json!({"input": {"originalName": "demo", "name": "other", "description": "Does a thing.", "instructions": "Step one."}})).await;
+    let taken = call(
+        &f.service,
+        "skills/saveSkill",
+        json!({"input": {"originalName": "demo", "name": "other", "description": "Does a thing.", "instructions": "Step one."}}),
+    )
+    .await;
     assert_eq!(taken.unwrap_err(), "skill already exists: other");
     assert!(f.data.join("skills").join("demo").is_dir());
 
-    let saved = call(&f.service, "skills/saveSkill", json!({"input": {"originalName": "demo", "name": "renamed", "description": "Does a thing.", "instructions": "Step one."}})).await.unwrap();
+    let saved = call(
+        &f.service,
+        "skills/saveSkill",
+        json!({"input": {"originalName": "demo", "name": "renamed", "description": "Does a thing.", "instructions": "Step one."}}),
+    )
+    .await
+    .unwrap();
     assert_eq!((saved["skill"]["originalName"].as_str(), saved["skill"]["name"].as_str()), (Some("demo"), Some("renamed")));
     assert!(!f.data.join("skills").join("demo").exists());
     let text = std::fs::read_to_string(f.data.join("skills").join("renamed").join("SKILL.md")).unwrap();

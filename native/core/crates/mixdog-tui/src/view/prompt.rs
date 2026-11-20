@@ -37,7 +37,11 @@ pub fn paint_prompt_box(painter: &mut Painter, y: i32, frame_columns: usize, box
         for (row, spans) in render.rows.iter().enumerate() {
             let mut at = x;
             for span in spans {
-                let style = Style { fg: grid_color(theme_color(span.fg)), bg: span.bg.map_or_else(Default::default, |key| grid_color(theme_color(key))), ..Style::default() };
+                let style = Style {
+                    fg: grid_color(theme_color(span.fg)),
+                    bg: span.bg.map_or_else(Default::default, |key| grid_color(theme_color(key))),
+                    ..Style::default()
+                };
                 at += painter.line(at, top + row as i32, &span.text, style) as i32;
             }
         }

@@ -57,7 +57,10 @@ impl StoresSettled {
         Self { directory, writers, gateway_usage, ledgers }
     }
 
-    #[allow(clippy::disallowed_methods, reason = "Replay-controls-only filesystem drain watchdog must expire independently of the recorded clock; this service is refused in release builds.")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "Replay-controls-only filesystem drain watchdog must expire independently of the recorded clock; this service is refused in release builds."
+    )]
     async fn settle(&self) -> Result<usize, String> {
         // Every writer's accepted count as the call arrives, all of them before any wait: a write accepted while one store
         // is still being waited for is not the call's, whichever store takes it.

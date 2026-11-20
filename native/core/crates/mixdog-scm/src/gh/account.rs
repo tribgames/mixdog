@@ -53,12 +53,7 @@ pub(crate) async fn auth_status(
 }
 
 fn first_version(output: &str, prefix: &str) -> String {
-    output
-        .lines()
-        .find_map(|line| line.trim().strip_prefix(prefix))
-        .and_then(|rest| rest.split_whitespace().next())
-        .unwrap_or("")
-        .to_owned()
+    output.lines().find_map(|line| line.trim().strip_prefix(prefix)).and_then(|rest| rest.split_whitespace().next()).unwrap_or("").to_owned()
 }
 #[cfg(test)]
 mod tests {
@@ -138,7 +133,6 @@ mod tests {
         }
     }
 
-
     fn scm(start: Start) -> Arc<Scm> {
         Scm::new(Arc::new(Scripted(start)), mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir())
     }
@@ -186,7 +180,6 @@ mod tests {
         );
     }
 }
-
 
 impl Scm {
     /// `github/status`: whether `gh` is installed and signed in.
@@ -253,16 +246,11 @@ impl Scm {
                 text: if detail.is_empty() { "gh could not read the signed-in user.".into() } else { detail.to_owned() },
             });
         }
-        let data: Value = serde_json::from_str(&output.stdout).map_err(|_| ScmFailure::Command {
-            domain: crate::error::GITHUB_DOMAIN,
-            text: "gh returned an unreadable user payload.".into(),
-        })?;
+        let data: Value = serde_json::from_str(&output.stdout)
+            .map_err(|_| ScmFailure::Command { domain: crate::error::GITHUB_DOMAIN, text: "gh returned an unreadable user payload.".into() })?;
         let login = data.get("login").and_then(Value::as_str).unwrap_or("");
         if login.is_empty() {
-            return Err(ScmFailure::Command {
-                domain: crate::error::GITHUB_DOMAIN,
-                text: "gh returned no signed-in user.".into(),
-            });
+            return Err(ScmFailure::Command { domain: crate::error::GITHUB_DOMAIN, text: "gh returned no signed-in user.".into() });
         }
         let id = data.get("id").and_then(Value::as_u64).unwrap_or(0);
         let named = |key: &str| data.get(key).and_then(Value::as_str).filter(|v| !v.is_empty()).map(str::to_owned);
@@ -284,7 +272,8 @@ impl Scm {
         let base = ["auth", "logout", "--hostname", HOSTNAME];
         let mut result = self.github.output(&home, cancel, &base).await?;
         if !result.success()
-            && let Some(login) = status.get("login").and_then(Value::as_str) {
+            && let Some(login) = status.get("login").and_then(Value::as_str)
+        {
             // Several signed-in accounts make gh demand an explicit --user.
             let mut with_user = base.to_vec();
             with_user.extend(["--user", login]);
@@ -301,14 +290,7 @@ impl Scm {
     }
 
     pub async fn gh_install(self: &Arc<Self>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
-        self.install_with_package_manager(
-            cancel,
-            "GitHub CLI",
-            "https://cli.github.com",
-            "GitHub.cli",
-            &["install", "gh"],
-        )
-        .await?;
+        self.install_with_package_manager(cancel, "GitHub CLI", "https://cli.github.com", "GitHub.cli", &["install", "gh"]).await?;
         let status = self.gh_status(cancel, true).await?;
         if status["installed"] != true {
             return Err(ScmFailure::refused(
@@ -326,8 +308,7 @@ impl Scm {
         if existing["installed"] == true {
             return Ok(existing);
         }
-        self.install_with_package_manager(cancel, "Git", "https://git-scm.com", "Git.Git", &["install", "git"])
-            .await?;
+        self.install_with_package_manager(cancel, "Git", "https://git-scm.com", "Git.Git", &["install", "git"]).await?;
         let status = self.git_cli_status(cancel, true).await?;
         if status["installed"] != true {
             return Err(ScmFailure::refused(
@@ -351,8 +332,15 @@ impl Scm {
                 "winget",
                 "winget",
                 [
-                    "install", "--id", winget_id, "--exact", "--source", "winget",
-                    "--accept-package-agreements", "--accept-source-agreements", "--disable-interactivity",
+                    "install",
+                    "--id",
+                    winget_id,
+                    "--exact",
+                    "--source",
+                    "winget",
+                    "--accept-package-agreements",
+                    "--accept-source-agreements",
+                    "--disable-interactivity",
                 ]
                 .iter()
                 .map(|arg| (*arg).to_owned())
@@ -383,15 +371,13 @@ impl Scm {
             Ok(output) => Err(failed(output.stderr_text())),
             // execFile kills at its timeout and fails the run like any other; the killed child's stderr is not kept.
             Err(ScmFailure::TimedOut { .. }) => Err(failed(String::new())),
-            Err(ScmFailure::Unavailable { .. } | ScmFailure::Spawn { code: "ENOENT", .. }) => Err(ScmFailure::refused(
-                "INSTALL_UNAVAILABLE",
-                format!("{manager} is unavailable. Install {label} from {homepage} and try again."),
-            )),
+            Err(ScmFailure::Unavailable { .. } | ScmFailure::Spawn { code: "ENOENT", .. }) => {
+                Err(ScmFailure::refused("INSTALL_UNAVAILABLE", format!("{manager} is unavailable. Install {label} from {homepage} and try again.")))
+            }
             // `run` (`cli-run.ts`) answers any other refused start with execFile's message as stderr, its last line the detail.
-            Err(ScmFailure::Spawn { code, .. }) => Err(ScmFailure::refused(
-                "INSTALL_FAILED",
-                format!("{program} could not install {label}: {}", crate::exec::spawn_message(program, code)),
-            )),
+            Err(ScmFailure::Spawn { code, .. }) => {
+                Err(ScmFailure::refused("INSTALL_FAILED", format!("{program} could not install {label}: {}", crate::exec::spawn_message(program, code))))
+            }
             Err(other) => Err(other),
         }
     }

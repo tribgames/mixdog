@@ -97,10 +97,7 @@ fn header<'a>(headers: &'a [(String, String)], name: &str) -> Option<&'a str> {
 /// The server's window: an explicit `retryAfterMs`, else the Retry-After headers (the unified reset
 /// header is deliberately not a window).
 fn server_window_ms(error: &CapacityError<'_>) -> Option<f64> {
-    error
-        .retry_after_ms
-        .filter(|ms| ms.is_finite() && *ms >= 0.0)
-        .or_else(|| super::errors::retry_after_ms(error.headers))
+    error.retry_after_ms.filter(|ms| ms.is_finite() && *ms >= 0.0).or_else(|| super::errors::retry_after_ms(error.headers))
 }
 
 impl FastMode {

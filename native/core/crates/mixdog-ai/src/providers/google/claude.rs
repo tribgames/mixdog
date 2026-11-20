@@ -4,15 +4,15 @@
 //! with the Vertex bearer; the answer is Anthropic's SSE stream, billed as the requested publisher model.
 
 use mixdog_core_api::domain::keepalive::TransportKind;
-use mixdog_core_api::domain::provider::ErrorResponse;
+use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
+use mixdog_core_api::domain::provider::ErrorResponse;
 use mixdog_core_api::domain::provider::Exposure;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::WireDecoder;
 use mixdog_core_api::domain::provider::WireRequest;
-use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_protocol::ProviderId;
 use serde_json::Value;
 use serde_json::json;
@@ -98,9 +98,7 @@ impl ClaudeDecoder {
         events
             .into_iter()
             .map(|event| match event {
-                StreamEvent::Completed { stop, request_ms, .. } => {
-                    StreamEvent::Completed { stop, pricing_model: Some(self.pricing_model.clone()), request_ms }
-                }
+                StreamEvent::Completed { stop, request_ms, .. } => StreamEvent::Completed { stop, pricing_model: Some(self.pricing_model.clone()), request_ms },
                 other => other,
             })
             .collect()

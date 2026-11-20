@@ -20,15 +20,15 @@ use mixdog_protocol::ThreadId;
 use mixdog_protocol::TurnId;
 use tokio_util::sync::CancellationToken;
 
-use crate::boundary::CompactSettings;
 use crate::boundary::Baseline;
+use crate::boundary::CompactSettings;
 use crate::env::DrainRequest;
 use crate::env::DrainStage;
 use crate::env::Priority;
 use crate::env::RunEnv;
 use crate::env::RunEvent;
-use crate::env::UsageDelta;
 use crate::env::Ticket;
+use crate::env::UsageDelta;
 use crate::env::or_cancelled;
 use crate::limits;
 use crate::limits::TurnLimits;
@@ -181,7 +181,11 @@ pub struct CacheReadings {
 
 impl CacheReadings {
     pub(crate) fn messages_ttl(saved: &serde_json::Map<String, serde_json::Value>) -> Option<i64> {
-        let ttl = saved.get("providerCacheOpts").and_then(|opts| opts.get("cacheStrategy")).and_then(|strategy| strategy.get("messages")).and_then(serde_json::Value::as_str);
+        let ttl = saved
+            .get("providerCacheOpts")
+            .and_then(|opts| opts.get("cacheStrategy"))
+            .and_then(|strategy| strategy.get("messages"))
+            .and_then(serde_json::Value::as_str);
         match ttl {
             Some("5m") => Some(5 * 60 * 1000),
             Some("1h") => Some(60 * 60 * 1000),
@@ -213,7 +217,10 @@ impl RunCarry {
             saved.insert("wireRoute".into(), route.clone());
         }
         if self.cache.changed {
-            saved.insert("lastProviderCacheObservation".into(), self.cache.observation.as_ref().map_or(serde_json::Value::Null, crate::cache_observation::Observation::saved));
+            saved.insert(
+                "lastProviderCacheObservation".into(),
+                self.cache.observation.as_ref().map_or(serde_json::Value::Null, crate::cache_observation::Observation::saved),
+            );
             if let Some(tokens) = self.cache.cached_prefix_tokens {
                 saved.insert("lastProviderCachedPrefixTokens".into(), mixdog_js::json_number(tokens));
             }
@@ -330,17 +337,8 @@ fn unknown_or<T: std::fmt::Display>(value: Option<T>) -> String {
 }
 
 fn target(provider: &str, model: &str) -> String {
-    let joined = [provider, model]
-        .iter()
-        .filter(|part| !part.is_empty())
-        .copied()
-        .collect::<Vec<_>>()
-        .join("/");
-    if joined.is_empty() {
-        "target model".to_owned()
-    } else {
-        joined
-    }
+    let joined = [provider, model].iter().filter(|part| !part.is_empty()).copied().collect::<Vec<_>>().join("/");
+    if joined.is_empty() { "target model".to_owned() } else { joined }
 }
 
 impl std::fmt::Display for AgentError {
@@ -367,11 +365,7 @@ impl std::fmt::Display for AgentError {
                 "agent compact failed ({}, stage={}){}",
                 target(&c.provider, &c.model),
                 c.stage,
-                if c.cause.is_empty() {
-                    String::new()
-                } else {
-                    format!(": {}", c.cause)
-                },
+                if c.cause.is_empty() { String::new() } else { format!(": {}", c.cause) },
             ),
         }
     }
@@ -592,10 +586,7 @@ impl Run {
         let retry = RetryStates::new(&model);
         let provider_state = config.options.provider_state.clone();
         let cache_break_intent = config.cache_break_intent.clone();
-        let context = crate::boundary::ContextReading {
-            tokens: config.compact.as_ref().and_then(|c| c.last_context_tokens),
-            stale_after_compact: false,
-        };
+        let context = crate::boundary::ContextReading { tokens: config.compact.as_ref().and_then(|c| c.last_context_tokens), stale_after_compact: false };
         Self {
             provider_state,
             provider_state_changed: false,
@@ -684,11 +675,7 @@ impl Run {
     }
 
     pub(crate) fn throw_if_aborted(&self) -> Result<(), AgentError> {
-        if self.cancel.is_cancelled() {
-            Err(AgentError::Aborted)
-        } else {
-            Ok(())
-        }
+        if self.cancel.is_cancelled() { Err(AgentError::Aborted) } else { Ok(()) }
     }
 
     /// Appends to the model context and queues the message for durability.
@@ -707,11 +694,7 @@ impl Run {
 
     /// Takes the host's queued input for this boundary and appends it to the
     /// transcript. Returns whether anything was injected.
-    pub(crate) async fn drain_steering(
-        &mut self,
-        stage: DrainStage,
-        max_priority: Priority,
-    ) -> Result<bool, AgentError> {
+    pub(crate) async fn drain_steering(&mut self, stage: DrainStage, max_priority: Priority) -> Result<bool, AgentError> {
         let merged = self.take_steering(stage, max_priority).await?;
         if merged.is_empty() {
             return Ok(false);
@@ -722,20 +705,8 @@ impl Run {
 
     /// The normalized entries a drain yields; nothing is appended yet, so the
     /// terminal boundary can commit the ended answer first.
-    pub(crate) async fn take_steering(
-        &self,
-        stage: DrainStage,
-        max_priority: Priority,
-    ) -> Result<Vec<steer::Merged>, AgentError> {
-        let drained = or_cancelled(
-            &self.cancel,
-            self.env.steer.drain(DrainRequest {
-                stage,
-                max_priority,
-            }),
-        )
-        .await
-        .ok_or(AgentError::Aborted)?;
+    pub(crate) async fn take_steering(&self, stage: DrainStage, max_priority: Priority) -> Result<Vec<steer::Merged>, AgentError> {
+        let drained = or_cancelled(&self.cancel, self.env.steer.drain(DrainRequest { stage, max_priority })).await.ok_or(AgentError::Aborted)?;
         Ok(drained.iter().filter_map(steer::normalize).collect())
     }
 
@@ -767,12 +738,7 @@ impl Run {
         self.emit(RunEvent::TurnEffort(seeded));
         match self.drive().await {
             Ok(()) => Ok(self.finish()),
-            Err(error) => Err(RunFailure {
-                error,
-                carried_report: self.no_tool.ended_report(),
-                transcript: self.messages,
-                carry: self.carry,
-            }),
+            Err(error) => Err(RunFailure { error, carried_report: self.no_tool.ended_report(), transcript: self.messages, carry: self.carry }),
         }
     }
 
@@ -807,11 +773,7 @@ impl Run {
             // ends here with no reply, keeping the answers it went past.
             if self.turn_limit_ended {
                 let response = self.response.take().unwrap_or_default();
-                let ended = ModelResponse {
-                    content: String::new(),
-                    tool_calls: Vec::new(),
-                    ..response
-                };
+                let ended = ModelResponse { content: String::new(), tool_calls: Vec::new(), ..response };
                 self.response = Some(self.no_tool.finalize(ended));
                 if !self.no_tool.stop_asked {
                     self.hold_stop(None).await?;
@@ -832,11 +794,7 @@ impl Run {
         // Queued entries attach after tool results and before the
         // continuation, not on arbitrary non-tool continuations.
         if self.tool_batch_just_completed {
-            let priority = if self.last_batch_later {
-                Priority::Later
-            } else {
-                Priority::Next
-            };
+            let priority = if self.last_batch_later { Priority::Later } else { Priority::Next };
             self.drain_steering(DrainStage::PreSend, priority).await?;
             self.tool_batch_just_completed = false;
             self.last_batch_later = false;
@@ -930,9 +888,7 @@ impl Run {
             self.first_turn_usage = self.last_usage.clone();
         }
         let input_excludes_cache = self.input_excludes_cache();
-        if crate::cache_observation::is_anthropic(self.provider.id().as_str())
-            && !crate::cache_observation::has_prompt(&response.usage)
-        {
+        if crate::cache_observation::is_anthropic(self.provider.id().as_str()) && !crate::cache_observation::has_prompt(&response.usage) {
             self.baseline = None;
             self.context = crate::boundary::ContextReading { tokens: None, stale_after_compact: true };
         } else {
@@ -958,11 +914,7 @@ impl Run {
             sent_at_ms: self.request_started_ms,
             tail_book: self.config.options.tail_gate.as_ref().and_then(|gate| gate.0.snapshot()),
         };
-        self.emit(RunEvent::Usage {
-            iteration: self.iterations,
-            usage: response.usage.clone(),
-            delta,
-        });
+        self.emit(RunEvent::Usage { iteration: self.iterations, usage: response.usage.clone(), delta });
         self.response = Some(response.clone());
         Ok(())
     }
@@ -981,12 +933,8 @@ impl Run {
         let last_turn_usage = response.usage.clone();
         let usage = self.last_usage.unwrap_or_else(|| last_turn_usage.clone());
         let first_turn_usage = self.first_turn_usage.clone().unwrap_or_else(|| last_turn_usage.clone());
-        let usage_segments = self
-            .env
-            .route
-            .as_ref()
-            .map(|route| route.usage_segments(&usage, (&self.provider.id().to_string(), &self.model)))
-            .unwrap_or_default();
+        let usage_segments =
+            self.env.route.as_ref().map(|route| route.usage_segments(&usage, (&self.provider.id().to_string(), &self.model))).unwrap_or_default();
         let mut termination = classify_termination(&response, self.config.hidden_agent);
         // A reaction-only turn is a successful completion, never an empty
         // finish; so is an empty end after a kept answer only todo bookkeeping
@@ -1035,12 +983,7 @@ impl Run {
             return Ok(());
         }
         let now = self.env.clock.now_ms();
-        let notice = limits::notice_if_reached(
-            self.turn_limits(),
-            self.tool_calls_total,
-            u64::from(self.iterations),
-            now,
-        );
+        let notice = limits::notice_if_reached(self.turn_limits(), self.tool_calls_total, u64::from(self.iterations), now);
         if let Some(notice) = notice {
             self.turn_limit_noticed = true;
             self.push(notice).await?;

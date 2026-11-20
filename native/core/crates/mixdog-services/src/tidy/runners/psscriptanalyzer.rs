@@ -168,7 +168,15 @@ mod tests {
         let payload = r#"{"diagnostics":[{"file":"/r/a.ps1","line":0,"col":0,"code":"PSFormatting","message":"m","severity":"Warning","format":true,"failed":false},{"file":"/r/a.ps1","line":3,"col":1,"code":"PSAvoidUsingWriteHost","message":"x","severity":"ParseError","format":false,"failed":false},{"file":"/r/b.ps1","line":0,"col":0,"code":"PSScriptAnalyzer","message":"Unable to translate bytes","severity":"Error","format":false,"failed":true}],"modulePath":"/m/PSScriptAnalyzer.psd1"}"#;
         let out = parse_psscriptanalyzer_json(payload, Path::new("/r")).unwrap();
         assert_eq!(out.findings.changed, ["a.ps1"]);
-        assert_eq!((out.findings.diagnostics.len(), out.findings.diagnostics[0].fixable, out.findings.diagnostics[1].severity.as_str(), out.findings.diagnostics[1].line), (2, true, "error", 3));
+        assert_eq!(
+            (
+                out.findings.diagnostics.len(),
+                out.findings.diagnostics[0].fixable,
+                out.findings.diagnostics[1].severity.as_str(),
+                out.findings.diagnostics[1].line
+            ),
+            (2, true, "error", 3)
+        );
         assert_eq!(out.failed, [("b.ps1".to_owned(), "Unable to translate bytes".to_owned())]);
         assert_eq!(out.module.as_deref(), Some("/m/PSScriptAnalyzer.psd1"));
         assert!(parse_psscriptanalyzer_json("", Path::new("/r")).is_none());
@@ -183,13 +191,28 @@ mod tests {
 
     #[async_trait]
     impl Spawn for Fake {
-        async fn run(&self, _: &str, _: &[String], _: &Path, _: std::time::Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, input: Option<Vec<u8>>) -> ProcessResult {
+        async fn run(
+            &self,
+            _: &str,
+            _: &[String],
+            _: &Path,
+            _: std::time::Duration,
+            _: Option<&CancellationToken>,
+            _: Option<&HashMap<String, String>>,
+            input: Option<Vec<u8>>,
+        ) -> ProcessResult {
             (self.0)(&serde_json::from_slice::<Vec<String>>(&input.unwrap()).unwrap())
         }
     }
 
     fn request(files: &[&str], reply: impl Fn(&[String]) -> ProcessResult + Send + Sync + 'static) -> RunRequest {
-        RunRequest::new(Path::new("/r"), "pwsh", files.iter().map(|f| (*f).to_owned()).collect(), Arc::new(Fake(Box::new(reply))), mixdog_rt::testing::tokens().durability_io)
+        RunRequest::new(
+            Path::new("/r"),
+            "pwsh",
+            files.iter().map(|f| (*f).to_owned()).collect(),
+            Arc::new(Fake(Box::new(reply))),
+            mixdog_rt::testing::tokens().durability_io,
+        )
     }
 
     #[tokio::test]
@@ -201,7 +224,11 @@ mod tests {
         let out = PsScriptAnalyzer.check(&request(&["a.ps1", "bad.ps1", "c.ps1", "d.ps1", "e.ps1"], script)).await;
         assert_eq!((out.files_checked, out.unprocessed.clone(), out.error.clone()), (Some(4), vec![("bad.ps1".to_owned(), "not UTF-8".to_owned())], None));
         assert_eq!(out.note.as_deref(), Some("PSScriptAnalyzer module: /m/PSSA.psd1"));
-        let no_module = |_: &[String]| ProcessResult { code: 1, stderr: "Import-Module: The specified module 'PSScriptAnalyzer' was not loaded".into(), ..Default::default() };
+        let no_module = |_: &[String]| ProcessResult {
+            code: 1,
+            stderr: "Import-Module: The specified module 'PSScriptAnalyzer' was not loaded".into(),
+            ..Default::default()
+        };
         let failed = PsScriptAnalyzer.fix(&request(&["a.ps1", "b.ps1"], no_module)).await;
         assert!(failed.error.as_deref().is_some_and(|e| e.contains("was not loaded")), "{:?}", failed.error);
         // A write whose report was cut is not run again over files it has already written.

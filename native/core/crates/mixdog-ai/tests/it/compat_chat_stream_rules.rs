@@ -241,9 +241,14 @@ fn a_usage_only_frame_after_the_finish_is_reported_before_the_turn_completes() {
 
 #[test]
 fn compatible_chat_reports_the_last_observed_usage_on_error_or_truncated_eof() {
-    let usage = |read| format!("data: {}\n\n", json!({
-        "model":"actually-served", "choices":[], "usage":{"prompt_tokens":80, "prompt_cache_hit_tokens":read}
-    }));
+    let usage = |read| {
+        format!(
+            "data: {}\n\n",
+            json!({
+                "model":"actually-served", "choices":[], "usage":{"prompt_tokens":80, "prompt_cache_hit_tokens":read}
+            })
+        )
+    };
     for tail in ["", "data: {\"error\":{\"message\":\"refused\"}}\n\n"] {
         let (_, err) = run(&mut decoder(&[]), &[usage(10), usage(40), tail.to_owned()]);
         let err = err.expect("no clean completion");
@@ -429,7 +434,12 @@ fn a_tool_round_trip_is_lowered_to_an_assistant_call_and_a_tool_message() {
 #[test]
 fn multipart_content_is_lowered_per_role() {
     let image = || ContentPart::Image(ImageSource::Base64 { data: "QUJD".into(), mime_type: "image/png".into(), width: None, height: None });
-    let note = |data: &str| ContentPart::File { source: BinarySource::Base64(data.into()), mime_type: "text/plain".into(), filename: Some("n.txt".into()), text: None };
+    let note = |data: &str| ContentPart::File {
+        source: BinarySource::Base64(data.into()),
+        mime_type: "text/plain".into(),
+        filename: Some("n.txt".into()),
+        text: None,
+    };
     let sent = body(&request(
         vec![
             // Outside a user message the parts are joined by newlines and media is dropped.
@@ -511,7 +521,14 @@ fn a_refused_key_is_an_auth_error_that_shows_the_providers_text_and_a_login_issu
         if id != "opencode-go-oauth" {
             assert!(refused.message.contains(refusal), "{id}: the provider's own words are kept: {}", refused.message);
         }
-        let bad = rejection(&CompatChatCodec::new(CompatProfile::plain("p", "https://p.invalid/v1", CredentialKind::StaticKey { reauth_on_401: false }), CompatConfig::default()), 400, json!({"error": {"message": "bad field"}}));
+        let bad = rejection(
+            &CompatChatCodec::new(
+                CompatProfile::plain("p", "https://p.invalid/v1", CredentialKind::StaticKey { reauth_on_401: false }),
+                CompatConfig::default(),
+            ),
+            400,
+            json!({"error": {"message": "bad field"}}),
+        );
         assert_eq!((bad.kind, bad.status, bad.reauth_required), (ErrorKind::InvalidRequest, Some(400), false));
     }
 }

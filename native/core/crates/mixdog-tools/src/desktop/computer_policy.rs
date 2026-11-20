@@ -18,8 +18,8 @@ use super::computer_env::RETAIN_REF_ACTIONS;
 use super::computer_frames::FrameStore;
 use super::computer_internal_windows;
 use super::computer_launch_policy::AuthorizationSettings;
-use super::computer_launch_policy::LaunchPolicy;
 use super::computer_launch_policy::LIFECYCLE_ACTIONS;
+use super::computer_launch_policy::LaunchPolicy;
 use super::computer_launch_policy::STEP_ACTIONS;
 use super::computer_launch_policy::WindowFacts;
 
@@ -185,7 +185,11 @@ mod tests {
         let shared = ComputerShared { observe_only: Arc::new(|| true), ..ComputerShared::default() };
         let backend = ProcessComputerBackend::new(ComputerConfig::new("helper", "s1"), manager.clone()).with_shared(shared);
         let refused = ComputerSecretHost::execute(&backend, command("type")).await;
-        assert_eq!(refused, Err("observation_only: Computer Use is observing only, so 'type' input is blocked. Turn off \"Observation only\" in Settings to allow input.".to_owned()));
+        assert_eq!(
+            refused,
+            Err("observation_only: Computer Use is observing only, so 'type' input is blocked. Turn off \"Observation only\" in Settings to allow input."
+                .to_owned())
+        );
         assert_eq!(manager.starts(), 0, "nothing was started");
         assert!(ComputerSecretHost::execute(&backend, command("find")).await.is_ok());
     }
@@ -217,7 +221,6 @@ mod tests {
         assert!(!writable.is_empty(), "the act's input is not a read-only run: {sent:?}");
         assert!(writable.iter().all(|line| line["allow_elevated_input"] == json!(true)), "{sent:?}");
     }
-
 
     /// The commands a tool call becomes: the reads pass while observing only, and each one that could change the desktop is
     /// refused under the name the desktop host refuses it by. With the mode off nothing is refused.
@@ -288,7 +291,9 @@ mod tests {
         refused_with(admit_launch(&settings, &zoom, &frame_of(Some("hwnd:0x2")), 1.0), "computer_policy_denied");
         refused_with(admit_launch(&settings, &zoom, &frame_of(None), 1.0), "computer_policy_denied");
         let other = json!({"action": "zoom", "frame_id": "frame-9"}).as_object().cloned().unwrap();
-        assert!(matches!(admit_launch(&settings, &other, &frame_of(Some("hwnd:0x1")), 1.0), Err(ComputerError::Failed { message, .. }) if message.starts_with("stale_frame")));
+        assert!(
+            matches!(admit_launch(&settings, &other, &frame_of(Some("hwnd:0x1")), 1.0), Err(ComputerError::Failed { message, .. }) if message.starts_with("stale_frame"))
+        );
     }
     /// A restricted session's window rows are those it may capture, by id and owning process; an open one sees every row.
     #[test]
@@ -308,7 +313,6 @@ mod tests {
         assert!(ended.is_empty());
     }
 }
-
 
 /// The launch policy and the narrowing the harness sets on it, read once from the environment the core was started with. The harness
 /// narrows it through `authorization()`; nothing a tool call carries can reach it.
@@ -381,7 +385,8 @@ pub(super) fn narrow_window_list(session_id: &str, result: &mut Map<String, Valu
     if windows.len() == before {
         return;
     }
-    let visible: HashSet<String> = windows.iter().filter_map(|window| window.get("id").and_then(Value::as_str)).map(computer_internal_windows::normalized).collect();
+    let visible: HashSet<String> =
+        windows.iter().filter_map(|window| window.get("id").and_then(Value::as_str)).map(computer_internal_windows::normalized).collect();
     if let Some(Value::String(listed)) = result.get_mut("text") {
         *listed = computer_internal_windows::list_text(listed, &visible);
     }

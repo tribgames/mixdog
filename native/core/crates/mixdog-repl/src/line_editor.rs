@@ -562,11 +562,7 @@ fn locate(start: usize, text: &str, columns: usize) -> Place {
         }
         column += cluster.width;
     }
-    if column >= columns {
-        Place { row: row + 1, column: 0, pending: true }
-    } else {
-        Place { row, column, pending: false }
-    }
+    if column >= columns { Place { row: row + 1, column: 0, pending: true } } else { Place { row, column, pending: false } }
 }
 
 #[cfg(test)]

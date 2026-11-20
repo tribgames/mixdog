@@ -355,22 +355,20 @@ pub fn is_cancel_like_error(error: Js) -> bool {
 // One-line reason per provider kind. Fixed sentences (optionally with a parenthesised value) are the renderer's
 // translation keys.
 fn kind_line(provider_kind: &str, retry_after_ms: Option<f64>) -> Option<String> {
-    Some(
-        match provider_kind {
-            "overloaded" => "Provider is busy at capacity.".to_owned(),
-            "rate_limited" => match retry_after_ms {
-                Some(ms) if ms != 0.0 => format!("Provider is rate-limited (retry in {}).", format_duration_ms(ms)),
-                _ => "Provider is rate-limited.".to_owned(),
-            },
-            "quota_exhausted" => "Provider usage limit reached.".to_owned(),
-            "entitlement" => "Not included in your plan.".to_owned(),
-            "billing" => "Out of credits or at spend limit.".to_owned(),
-            "permission" => "Access denied by the provider.".to_owned(),
-            "policy" => "Refused by the provider safety policy.".to_owned(),
-            "auth" => "Provider authentication failed.".to_owned(),
-            _ => return None,
+    Some(match provider_kind {
+        "overloaded" => "Provider is busy at capacity.".to_owned(),
+        "rate_limited" => match retry_after_ms {
+            Some(ms) if ms != 0.0 => format!("Provider is rate-limited (retry in {}).", format_duration_ms(ms)),
+            _ => "Provider is rate-limited.".to_owned(),
         },
-    )
+        "quota_exhausted" => "Provider usage limit reached.".to_owned(),
+        "entitlement" => "Not included in your plan.".to_owned(),
+        "billing" => "Out of credits or at spend limit.".to_owned(),
+        "permission" => "Access denied by the provider.".to_owned(),
+        "policy" => "Refused by the provider safety policy.".to_owned(),
+        "auth" => "Provider authentication failed.".to_owned(),
+        _ => return None,
+    })
 }
 
 // Typed evidence: a persisted descriptor or structured status/code fields. A bare message carries none, so its wording keeps
@@ -430,7 +428,8 @@ pub fn present_error_text(error: Js, options: &PresentOptions) -> String {
     let subject = subject_for_surface(surface);
     let max = options.max.unwrap_or(240.0);
     let mut text = err_text(error);
-    let (name, code) = if is_object(error) { (string_or_empty(get(error, "name")), string_or_empty(get(error, "code"))) } else { (String::new(), String::new()) };
+    let (name, code) =
+        if is_object(error) { (string_or_empty(get(error, "name")), string_or_empty(get(error, "code"))) } else { (String::new(), String::new()) };
     let status = error_http_status(error);
     // The fixed request overhead error is actionable as written (sizes, contributors, remedy): keep its lines instead of a
     // generic "Context too large." that would suggest compacting.
@@ -486,7 +485,8 @@ pub fn present_error_text(error: Js, options: &PresentOptions) -> String {
         // Cooldown refusals are recoverable right now by switching accounts: surface that path instead of leaving only the
         // wait option.
         let hint = if COOLDOWN.is_match(&text) { " Re-login or switch the provider account to continue now." } else { "" };
-        let retry = quota_retry.filter(|token| !token.is_empty()).map(|token| format!("; retry after {}", humanize_retry_after_token(&token))).unwrap_or_default();
+        let retry =
+            quota_retry.filter(|token| !token.is_empty()).map(|token| format!("; retry after {}", humanize_retry_after_token(&token))).unwrap_or_default();
         return format!("{provider} quota/rate limit hit{retry}.{hint}");
     }
 
@@ -668,9 +668,15 @@ mod tests {
     fn present_error_text_collapses_known_failures() {
         assert_eq!(present(json!("Error: first byte timed out after 90000ms")), "No first response 90s.");
         assert_eq!(present(json!({ "status": 429, "retryAfterMs": 90_000 })), "Provider is rate-limited (retry in 90s).");
-        assert_eq!(present(json!("429 rate limit retryAfter=5m: cooldown")), "Provider quota/rate limit hit; retry after 5m. Re-login or switch the provider account to continue now.");
+        assert_eq!(
+            present(json!("429 rate limit retryAfter=5m: cooldown")),
+            "Provider quota/rate limit hit; retry after 5m. Re-login or switch the provider account to continue now."
+        );
         assert_eq!(present(json!({ "code": "ECONNRESET", "message": "read ECONNRESET" })), "Connection to the provider was lost (ECONNRESET).");
-        assert_eq!(present(json!({ "timeoutPhase": "headers", "waitedMs": 30_000, "attempts": 2, "message": "x" })), "Model still thinking: no output in 30s; the provider sent nothing yet; attempts: 2.");
+        assert_eq!(
+            present(json!({ "timeoutPhase": "headers", "waitedMs": 30_000, "attempts": 2, "message": "x" })),
+            "Model still thinking: no output in 30s; the provider sent nothing yet; attempts: 2."
+        );
         assert_eq!(present(json!({ "name": "AbortError", "message": "The operation was aborted" })), "Tool was cancelled.");
         assert_eq!(present(json!("{\"error\":\"disk full\"}")), "disk full");
         assert_eq!(present(json!("")), "Unknown error");

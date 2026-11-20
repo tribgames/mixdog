@@ -192,8 +192,7 @@ mod tests {
     #[test]
     fn the_request_is_the_present_blocks_in_nodes_order_with_nodes_tiers() {
         let h = header(json!({"bp3EnvSplit": true, "promptBase": "rules", "bp3CoreContext": "core", "promptEnv": "env", "other": 1}));
-        let tiers: Vec<(Role, Option<CacheTier>, Content)> =
-            request_system_messages(&h).into_iter().map(|m| (m.role, m.cache_tier, m.content)).collect();
+        let tiers: Vec<(Role, Option<CacheTier>, Content)> = request_system_messages(&h).into_iter().map(|m| (m.role, m.cache_tier, m.content)).collect();
         assert_eq!(
             tiers,
             vec![

@@ -30,9 +30,7 @@ fn main() {
         "--probe" => std::process::exit(host::probe()),
         // `--cursor-watchdog <parent_pid>`: the child that keeps the cursor
         // theme and restores it when its parent dies (CursorTheme.cs).
-        "--cursor-watchdog" => std::process::exit(platform::cursor_watchdog(
-            &std::env::args().nth(2).unwrap_or_default(),
-        )),
+        "--cursor-watchdog" => std::process::exit(platform::cursor_watchdog(&std::env::args().nth(2).unwrap_or_default())),
         // `--elevated-request <dir> ...`: the one-action worker a UAC launch
         // starts (elevated-program.ts).
         // `--screen-input`: the remote screen's input process

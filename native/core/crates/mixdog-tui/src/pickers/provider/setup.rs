@@ -12,18 +12,16 @@ use serde_json::{Map, Value, json};
 
 use super::format::{key_console_url, provider_detail_text, provider_status_footer};
 use super::items::{ListOptions, main_list_items, managed_by_client, provider_main_initial_index};
-use super::panel::{
-    ConfirmBar, PanelFooter, PanelOwner, PanelRow, ProviderPanel, ProviderRef, RowKind,
-};
+use super::panel::{ConfirmBar, PanelFooter, PanelOwner, PanelRow, ProviderPanel, ProviderRef, RowKind};
 use super::{Callback, ProviderHost, callback_from_value, run_callback, with_flow};
 use crate::slash::host::{PromptSurface, TextPrompt, Tone};
 use crate::slash::notices::{truthy, value_text};
 use crate::surface::{SurfaceClaim, SurfaceKind};
 
-const VERTEX_EXPRESS_HINT: &str = "Express mode API keys serve Gemini models on the global location only. Claude and MaaS models need a service-account key or the gcloud login.";
+const VERTEX_EXPRESS_HINT: &str =
+    "Express mode API keys serve Gemini models on the global location only. Claude and MaaS models need a service-account key or the gcloud login.";
 // Shown with every device code: a code someone else hands you signs THEM in to your account. One row that fits 80 columns.
-const DEVICE_CODE_WARNING: &str =
-    "Continue only if you started this. Never enter a code someone sent you.";
+const DEVICE_CODE_WARNING: &str = "Continue only if you started this. Never enter a code someone sent you.";
 const CHOOSE_HELP: &str = "\u{2191}/\u{2193} Select \u{b7} Enter Choose \u{b7} Esc Providers";
 
 /// How the setup picker is opened (`options` of `openProviderSetupPicker`).
@@ -58,13 +56,7 @@ impl SetupOptions {
     /// The options of an open request that arrives as JSON (`{ title, description, continueLabel, continueDescription,
     /// forceRefresh, highlightProviderValue, returnTo, onContinue, onCancel }`, the targets as `{ "opener", "options" }`).
     pub fn from_value(value: &Value) -> Self {
-        let text = |key: &str| {
-            value
-                .get(key)
-                .filter(|member| truthy(member))
-                .map(value_text)
-                .unwrap_or_default()
-        };
+        let text = |key: &str| value.get(key).filter(|member| truthy(member)).map(value_text).unwrap_or_default();
         let target = |key: &str| value.get(key).and_then(callback_from_value);
         Self {
             title: text("title"),
@@ -75,10 +67,7 @@ impl SetupOptions {
             on_continue: target("onContinue"),
             on_cancel: target("onCancel"),
             confirm_bar: None,
-            preloaded_setup: value
-                .get("preloadedSetup")
-                .filter(|setup| setup.is_object())
-                .cloned(),
+            preloaded_setup: value.get("preloadedSetup").filter(|setup| setup.is_object()).cloned(),
             force_refresh: value.get("forceRefresh") == Some(&Value::Bool(true)),
             highlight_provider_value: text("highlightProviderValue"),
         }
@@ -130,15 +119,7 @@ pub fn open_provider_setup(host: &mut dyn ProviderHost, mut options: SetupOption
     host.close_usage_panel();
     let claim = host.claim_surface(SurfaceKind::Picker);
     let preloaded = options.preloaded_setup.take().filter(Value::is_object);
-    let mut flow = ProviderSetup {
-        options,
-        setup: Value::Null,
-        claim,
-        screen: Screen::Loading,
-        panel: None,
-        login: None,
-        closed: false,
-    };
+    let mut flow = ProviderSetup { options, setup: Value::Null, claim, screen: Screen::Loading, panel: None, login: None, closed: false };
     match preloaded {
         Some(setup) => flow.setup = setup,
         None => {
@@ -264,9 +245,7 @@ impl ProviderSetup {
 
     fn remember(&mut self, item: &ProviderRef) {
         if !item.value.is_empty() {
-            self.options
-                .highlight_provider_value
-                .clone_from(&item.value);
+            self.options.highlight_provider_value.clone_from(&item.value);
         }
     }
 
@@ -280,19 +259,11 @@ impl ProviderSetup {
     }
 
     fn title_or(&self, fallback: &str) -> String {
-        if self.options.title.is_empty() {
-            fallback.to_owned()
-        } else {
-            self.options.title.clone()
-        }
+        if self.options.title.is_empty() { fallback.to_owned() } else { self.options.title.clone() }
     }
 
     fn description_or(&self, fallback: &str) -> String {
-        if self.options.description.is_empty() {
-            fallback.to_owned()
-        } else {
-            self.options.description.clone()
-        }
+        if self.options.description.is_empty() { fallback.to_owned() } else { self.options.description.clone() }
     }
 
     /// `loadProviderSetup`: the placeholder frame, then the fetch; false when it failed (reported) or answered nothing.
@@ -301,23 +272,13 @@ impl ProviderSetup {
             PanelOwner::ProviderSetup,
             &self.title_or("Providers"),
             "providers-loading",
-            vec![row(
-                "checking",
-                "Checking Providers",
-                "",
-                "please wait",
-                RowKind::Loading,
-            )],
+            vec![row("checking", "Checking Providers", "", "please wait", RowKind::Loading)],
         );
         loading.description = self.description_or("Choose a provider to configure.");
         loading.label_width = Some(18);
         loading.meta_width = Some(10);
         self.paint(host, loading);
-        let args = if self.options.force_refresh {
-            json!([{"force": true}])
-        } else {
-            json!([])
-        };
+        let args = if self.options.force_refresh { json!([{"force": true}]) } else { json!([]) };
         match host.store_call("getProviderSetup", args) {
             Ok(setup) if truthy(&setup) => {
                 self.setup = setup;
@@ -342,20 +303,8 @@ impl ProviderSetup {
         };
         let rows = main_list_items(&self.setup, &list, can_continue, &*host);
         let highlight = self.options.highlight_provider_value.clone();
-        let key = format!(
-            "providers-main:{}",
-            if highlight.is_empty() {
-                "root"
-            } else {
-                &highlight
-            }
-        );
-        let mut panel = ProviderPanel::new(
-            PanelOwner::ProviderSetup,
-            &self.title_or("Providers"),
-            &key,
-            Vec::new(),
-        );
+        let key = format!("providers-main:{}", if highlight.is_empty() { "root" } else { &highlight });
+        let mut panel = ProviderPanel::new(PanelOwner::ProviderSetup, &self.title_or("Providers"), &key, Vec::new());
         panel.description = if managed {
             "Manage provider sign-ins and accounts in the local desktop window. Refresh to update availability.".to_owned()
         } else {
@@ -375,21 +324,14 @@ impl ProviderSetup {
         panel.meta_width = Some(12);
         panel.initial_index = provider_main_initial_index(&rows, &highlight);
         panel.items = rows;
-        panel.confirm_bar = self.options.confirm_bar.as_ref().map(|bar| ConfirmBar {
-            buttons: bar.buttons.clone(),
-        });
+        panel.confirm_bar = self.options.confirm_bar.as_ref().map(|bar| ConfirmBar { buttons: bar.buttons.clone() });
         self.screen = Screen::Main;
         self.paint(host, panel);
     }
 
     /// Enter on row `index` of the panel on screen.
     pub fn select(&mut self, host: &mut dyn ProviderHost, index: usize) {
-        let Some(row) = self
-            .panel
-            .as_ref()
-            .and_then(|panel| panel.items.get(index))
-            .cloned()
-        else {
+        let Some(row) = self.panel.as_ref().and_then(|panel| panel.items.get(index)).cloned() else {
             return;
         };
         match self.screen.clone() {
@@ -406,9 +348,7 @@ impl ProviderSetup {
             }
             Screen::OAuthActions(item) => match row.kind {
                 RowKind::LoginOAuth => self.start_login(host, &item),
-                RowKind::ForgetOAuth => {
-                    self.forget_provider_auth(host, &item, Screen::OAuthActions(item.clone()))
-                }
+                RowKind::ForgetOAuth => self.forget_provider_auth(host, &item, Screen::OAuthActions(item.clone())),
                 _ => {}
             },
             Screen::OAuthProgress(item) => {
@@ -431,12 +371,7 @@ impl ProviderSetup {
             }
             Screen::Main => {
                 self.close(host);
-                if let Some(target) = self
-                    .options
-                    .on_cancel
-                    .clone()
-                    .or_else(|| self.options.return_to.clone())
-                {
+                if let Some(target) = self.options.on_cancel.clone().or_else(|| self.options.return_to.clone()) {
                     run_callback(host, &target);
                 }
             }
@@ -452,11 +387,7 @@ impl ProviderSetup {
         if !matches!(self.screen, Screen::Main) {
             return;
         }
-        let provider = self
-            .panel
-            .as_ref()
-            .and_then(|panel| panel.items.get(index))
-            .and_then(|row| row.provider.clone());
+        let provider = self.panel.as_ref().and_then(|panel| panel.items.get(index)).and_then(|row| row.provider.clone());
         if let Some(provider) = provider {
             self.remember(&provider);
         }
@@ -483,12 +414,7 @@ impl ProviderSetup {
         self.release_surface(host);
         match &row.kind {
             RowKind::Continue => {
-                if let Some(target) = self
-                    .options
-                    .on_continue
-                    .clone()
-                    .or_else(|| self.options.return_to.clone())
-                {
+                if let Some(target) = self.options.on_continue.clone().or_else(|| self.options.return_to.clone()) {
                     run_callback(host, &target);
                 }
             }
@@ -506,19 +432,9 @@ impl ProviderSetup {
         }
     }
 
-    fn action_panel(
-        &self,
-        item: &ProviderRef,
-        description: &str,
-        label_width: usize,
-        rows: Vec<PanelRow>,
-    ) -> ProviderPanel {
-        let mut panel = ProviderPanel::new(
-            PanelOwner::ProviderSetup,
-            &format!("Provider \u{b7} {}", item.name),
-            &format!("providers-action:{}", item.value),
-            rows,
-        );
+    fn action_panel(&self, item: &ProviderRef, description: &str, label_width: usize, rows: Vec<PanelRow>) -> ProviderPanel {
+        let mut panel =
+            ProviderPanel::new(PanelOwner::ProviderSetup, &format!("Provider \u{b7} {}", item.name), &format!("providers-action:{}", item.value), rows);
         panel.description = description.to_owned();
         panel.footer = PanelFooter::Lines(provider_status_footer(Some(&item.row)));
         panel.help = Some(CHOOSE_HELP.to_owned());
@@ -539,17 +455,10 @@ impl ProviderSetup {
         let has_auth = item.authenticated || provider.get("authenticated").is_some_and(truthy);
         let env = provider.get("env").is_some_and(truthy);
         let has_stored_key = provider.get("stored").is_some_and(truthy) || (!env && has_auth);
-        let env_name = provider
-            .get("envName")
-            .filter(|name| truthy(name))
-            .map(value_text);
+        let env_name = provider.get("envName").filter(|name| truthy(name)).map(value_text);
         let mut rows = vec![row(
             "set-key",
-            if has_auth {
-                "Replace API key"
-            } else {
-                "Add API key"
-            },
+            if has_auth { "Replace API key" } else { "Add API key" },
             "",
             &match &env_name {
                 Some(name) => format!("masked input \u{b7} {name}"),
@@ -559,27 +468,11 @@ impl ProviderSetup {
         )];
         let key_url = key_console_url(provider);
         if !key_url.is_empty() && !has_auth {
-            rows.push(row(
-                "get-key",
-                "Get API key (browser)",
-                "",
-                &key_url,
-                RowKind::GetKey,
-            ));
+            rows.push(row("get-key", "Get API key (browser)", "", &key_url, RowKind::GetKey));
         }
         if has_stored_key {
-            let description = if env {
-                "remove keychain key; env key remains active"
-            } else {
-                "remove stored key for this provider"
-            };
-            rows.push(row(
-                "forget-key",
-                "Delete API key",
-                "",
-                description,
-                RowKind::ForgetKey,
-            ));
+            let description = if env { "remove keychain key; env key remains active" } else { "remove stored key for this provider" };
+            rows.push(row("forget-key", "Delete API key", "", description, RowKind::ForgetKey));
         }
         let panel = self.action_panel(item, "Choose an API-key action.", 22, rows);
         self.screen = Screen::ApiActions(item.clone());
@@ -601,9 +494,7 @@ impl ProviderSetup {
                 host.push_notice(&format!("opened {url}"), Tone::Info);
                 self.api_key_prompt(host, item, None);
             }
-            RowKind::ForgetKey => {
-                self.forget_provider_auth(host, item, Screen::ApiActions(item.clone()))
-            }
+            RowKind::ForgetKey => self.forget_provider_auth(host, item, Screen::ApiActions(item.clone())),
             _ => {}
         }
     }
@@ -611,27 +502,11 @@ impl ProviderSetup {
     /// Vertex AI takes either a service-account key or an express-mode API key.
     fn open_vertex_mode(&mut self, host: &mut dyn ProviderHost, item: &ProviderRef) {
         let rows = vec![
-            row(
-                "service-account",
-                "Service account key",
-                "",
-                "service-account JSON",
-                RowKind::VertexServiceAccount,
-            ),
-            row(
-                "api-key",
-                "API key (express mode)",
-                "",
-                "Gemini only \u{b7} global location",
-                RowKind::VertexApiKey,
-            ),
+            row("service-account", "Service account key", "", "service-account JSON", RowKind::VertexServiceAccount),
+            row("api-key", "API key (express mode)", "", "Gemini only \u{b7} global location", RowKind::VertexApiKey),
         ];
-        let mut panel = ProviderPanel::new(
-            PanelOwner::ProviderSetup,
-            &format!("Provider \u{b7} {}", item.name),
-            &format!("providers-vertex-mode:{}", item.value),
-            rows,
-        );
+        let mut panel =
+            ProviderPanel::new(PanelOwner::ProviderSetup, &format!("Provider \u{b7} {}", item.name), &format!("providers-vertex-mode:{}", item.value), rows);
         panel.description = "Choose the Vertex AI key type.".to_owned();
         panel.help = Some(CHOOSE_HELP.replace("Esc Providers", "Esc Back"));
         panel.index_mode = IndexMode::Always;
@@ -641,12 +516,7 @@ impl ProviderSetup {
     }
 
     /// `setApiKeyPrompt`: the masked key entry (the value is only ever sent to `saveProviderApiKey`, never logged).
-    fn api_key_prompt(
-        &mut self,
-        host: &mut dyn ProviderHost,
-        item: &ProviderRef,
-        extra: Option<(&str, &str)>,
-    ) {
+    fn api_key_prompt(&mut self, host: &mut dyn ProviderHost, item: &ProviderRef, extra: Option<(&str, &str)>) {
         if !self.owns(host) {
             return;
         }
@@ -659,20 +529,8 @@ impl ProviderSetup {
             prompt.hint = hint.to_owned();
         }
         fields.insert("providerId".to_owned(), json!(item.id));
-        fields.insert(
-            "mode".to_owned(),
-            json!(if item.authenticated { "replace" } else { "set" }),
-        );
-        fields.insert(
-            "envName".to_owned(),
-            json!(
-                provider
-                    .get("envName")
-                    .filter(|name| truthy(name))
-                    .map(value_text)
-                    .unwrap_or_default()
-            ),
-        );
+        fields.insert("mode".to_owned(), json!(if item.authenticated { "replace" } else { "set" }));
+        fields.insert("envName".to_owned(), json!(provider.get("envName").filter(|name| truthy(name)).map(value_text).unwrap_or_default()));
         fields.insert("source".to_owned(), json!(provider_detail_text(provider)));
         fields.insert("keyUrl".to_owned(), json!(key_console_url(provider)));
         if self.options.return_to.is_some() {
@@ -684,17 +542,8 @@ impl ProviderSetup {
 
     /// `forgetProviderAuth`: navigates only once the removal is acknowledged, and returns to the provider's own action panel
     /// when it fails.
-    fn forget_provider_auth(
-        &mut self,
-        host: &mut dyn ProviderHost,
-        item: &ProviderRef,
-        reopen: Screen,
-    ) {
-        let result = if host.has_store_method("forgetProviderAuth") {
-            host.store_call("forgetProviderAuth", json!([item.id]))
-        } else {
-            Ok(Value::Null)
-        };
+    fn forget_provider_auth(&mut self, host: &mut dyn ProviderHost, item: &ProviderRef, reopen: Screen) {
+        let result = if host.has_store_method("forgetProviderAuth") { host.store_call("forgetProviderAuth", json!([item.id])) } else { Ok(Value::Null) };
         match result {
             Ok(_) => {
                 host.clear_model_caches("all");
@@ -719,29 +568,17 @@ impl ProviderSetup {
         }
         self.remember(item);
         let provider = &item.row;
-        let has_auth = item.authenticated
-            || provider.get("authenticated").is_some_and(truthy)
-            || provider.get("reauthRequired") == Some(&Value::Bool(true));
+        let has_auth = item.authenticated || provider.get("authenticated").is_some_and(truthy) || provider.get("reauthRequired") == Some(&Value::Bool(true));
         let detail = provider_detail_text(provider);
         let mut rows = vec![row(
             "login-oauth",
             if has_auth { "Re-login" } else { "Login" },
             "",
-            if detail.is_empty() {
-                "open browser or OAuth flow"
-            } else {
-                &detail
-            },
+            if detail.is_empty() { "open browser or OAuth flow" } else { &detail },
             RowKind::LoginOAuth,
         )];
         if has_auth {
-            rows.push(row(
-                "forget-oauth",
-                "Forget login",
-                "",
-                "remove stored OAuth credentials",
-                RowKind::ForgetOAuth,
-            ));
+            rows.push(row("forget-oauth", "Forget login", "", "remove stored OAuth credentials", RowKind::ForgetOAuth));
         }
         let panel = self.action_panel(item, "Choose an OAuth login action.", 22, rows);
         self.screen = Screen::OAuthActions(item.clone());
@@ -749,12 +586,7 @@ impl ProviderSetup {
     }
 
     fn frame(&self, item: &ProviderRef, key: &str, rows: Vec<PanelRow>) -> ProviderPanel {
-        let mut panel = ProviderPanel::new(
-            PanelOwner::ProviderSetup,
-            &format!("Provider \u{b7} {}", item.name),
-            key,
-            rows,
-        );
+        let mut panel = ProviderPanel::new(PanelOwner::ProviderSetup, &format!("Provider \u{b7} {}", item.name), key, rows);
         panel.footer = PanelFooter::Lines(provider_status_footer(Some(&item.row)));
         panel.label_width = Some(22);
         panel.meta_width = Some(12);
@@ -762,41 +594,14 @@ impl ProviderSetup {
         panel
     }
 
-    fn show_progress(
-        &mut self,
-        host: &mut dyn ProviderHost,
-        item: &ProviderRef,
-        message: &str,
-        detail: &str,
-        device_code: bool,
-    ) {
+    fn show_progress(&mut self, host: &mut dyn ProviderHost, item: &ProviderRef, message: &str, detail: &str, device_code: bool) {
         let rows = vec![
-            row(
-                "waiting",
-                "Waiting for login",
-                "Running",
-                "finish the sign-in shown above",
-                RowKind::Waiting,
-            ),
-            row(
-                "back",
-                "Back",
-                "",
-                "return to provider actions",
-                RowKind::Back,
-            ),
+            row("waiting", "Waiting for login", "Running", "finish the sign-in shown above", RowKind::Waiting),
+            row("back", "Back", "", "return to provider actions", RowKind::Back),
         ];
-        let mut panel = self.frame(
-            item,
-            &format!("providers-oauth-progress:{}", item.value),
-            rows,
-        );
+        let mut panel = self.frame(item, &format!("providers-oauth-progress:{}", item.value), rows);
         if device_code {
-            panel.footer = PanelFooter::Lines(vec![FooterInput::Object {
-                glyph: "!".to_owned(),
-                color: None,
-                text: DEVICE_CODE_WARNING.to_owned(),
-            }]);
+            panel.footer = PanelFooter::Lines(vec![FooterInput::Object { glyph: "!".to_owned(), color: None, text: DEVICE_CODE_WARNING.to_owned() }]);
         }
         panel.description = message.to_owned();
         panel.detail = detail.to_owned();
@@ -805,40 +610,14 @@ impl ProviderSetup {
         self.paint(host, panel);
     }
 
-    fn show_result(
-        &mut self,
-        host: &mut dyn ProviderHost,
-        item: &ProviderRef,
-        ok: bool,
-        message: &str,
-    ) {
+    fn show_result(&mut self, host: &mut dyn ProviderHost, item: &ProviderRef, ok: bool, message: &str) {
         host.set_prompt(PromptSurface::Provider, None);
         let rows = if ok {
-            vec![row(
-                "success",
-                "Success",
-                "Done",
-                "refresh provider status",
-                RowKind::Success,
-            )]
+            vec![row("success", "Success", "Done", "refresh provider status", RowKind::Success)]
         } else {
-            vec![row(
-                "back",
-                "Back",
-                "Ready",
-                "return to provider actions",
-                RowKind::Back,
-            )]
+            vec![row("back", "Back", "Ready", "return to provider actions", RowKind::Back)]
         };
-        let mut panel = self.frame(
-            item,
-            &format!(
-                "providers-oauth-result:{}:{}",
-                item.value,
-                if ok { "ok" } else { "fail" }
-            ),
-            rows,
-        );
+        let mut panel = self.frame(item, &format!("providers-oauth-result:{}:{}", item.value, if ok { "ok" } else { "fail" }), rows);
         panel.description = if !message.is_empty() {
             message.to_owned()
         } else if ok {
@@ -846,18 +625,8 @@ impl ProviderSetup {
         } else {
             "Login did not complete.".to_owned()
         };
-        panel.help = Some(
-            if ok {
-                "Enter Refresh Providers \u{b7} Esc Providers"
-            } else {
-                "Enter Back \u{b7} Esc Providers"
-            }
-            .to_owned(),
-        );
-        self.screen = Screen::OAuthResult {
-            item: item.clone(),
-            ok,
-        };
+        panel.help = Some(if ok { "Enter Refresh Providers \u{b7} Esc Providers" } else { "Enter Back \u{b7} Esc Providers" }.to_owned());
+        self.screen = Screen::OAuthResult { item: item.clone(), ok };
         self.paint(host, panel);
     }
 
@@ -878,12 +647,7 @@ impl ProviderSetup {
     }
 
     fn start_login(&mut self, host: &mut dyn ProviderHost, item: &ProviderRef) {
-        self.login = Some(LoginState {
-            item: item.clone(),
-            flow_id: None,
-            backed_out: false,
-            handled: false,
-        });
+        self.login = Some(LoginState { item: item.clone(), flow_id: None, backed_out: false, handled: false });
         self.show_progress(host, item, "Starting login flow\u{2026}", "", false);
         if host.has_store_method("beginOAuthProviderLogin") {
             self.begin_interactive_login(host, item);
@@ -923,10 +687,7 @@ impl ProviderSetup {
         let name = login_name(item);
         // Headless machines never try a browser; the URL is shown in the panel either way.
         let open_browser = host.can_open_browser();
-        let started = match host.store_call(
-            "beginOAuthProviderLogin",
-            json!([item.id, {"openBrowser": open_browser}]),
-        ) {
+        let started = match host.store_call("beginOAuthProviderLogin", json!([item.id, {"openBrowser": open_browser}])) {
             Ok(started) => started,
             Err(error) => {
                 host.push_notice(&format!("{name} login failed: {error}"), Tone::Error);
@@ -934,29 +695,16 @@ impl ProviderSetup {
                 return;
             }
         };
-        let member = |key: &str| {
-            started
-                .get(key)
-                .filter(|value| truthy(value))
-                .map(value_text)
-                .unwrap_or_default()
-        };
+        let member = |key: &str| started.get(key).filter(|value| truthy(value)).map(value_text).unwrap_or_default();
         let (url, manual_url, user_code) = (member("url"), member("manualUrl"), member("userCode"));
-        let login_url = if manual_url.is_empty() {
-            url.clone()
-        } else {
-            manual_url.clone()
-        };
+        let login_url = if manual_url.is_empty() { url.clone() } else { manual_url.clone() };
         if open_browser {
             let target = if url.is_empty() { &manual_url } else { &url };
             if !target.is_empty() {
                 host.open_in_browser(target);
             }
         }
-        let flow_id = started
-            .get("flowId")
-            .and_then(Value::as_str)
-            .map(str::to_owned);
+        let flow_id = started.get("flowId").and_then(Value::as_str).map(str::to_owned);
         if let Some(login) = self.login.as_mut() {
             login.flow_id.clone_from(&flow_id);
         }
@@ -978,26 +726,13 @@ impl ProviderSetup {
         } else if !self.backed_out() && self.owns(host) {
             // Device-code and URL-only polling logins stay in the progress panel, with the code and URL, until the result
             // panel replaces it or Back.
-            let opened = if open_browser {
-                " (browser opened)"
-            } else {
-                ""
-            };
+            let opened = if open_browser { " (browser opened)" } else { "" };
             let (message, detail) = if !user_code.is_empty() {
-                (
-                    format!("Enter code {user_code} at{opened}:"),
-                    login_url.clone(),
-                )
+                (format!("Enter code {user_code} at{opened}:"), login_url.clone())
             } else if !login_url.is_empty() {
-                (
-                    format!("Open this URL to sign in{opened}:"),
-                    login_url.clone(),
-                )
+                (format!("Open this URL to sign in{opened}:"), login_url.clone())
             } else {
-                (
-                    "Finish signing in for this provider.".to_owned(),
-                    String::new(),
-                )
+                ("Finish signing in for this provider.".to_owned(), String::new())
             };
             self.show_progress(host, item, &message, &detail, !user_code.is_empty());
         }
@@ -1006,23 +741,13 @@ impl ProviderSetup {
         }
     }
 
-    fn oauth_code_prompt(
-        &mut self,
-        host: &mut dyn ProviderHost,
-        item: &ProviderRef,
-        name: &str,
-        started: &Value,
-        manual_url: &str,
-        login_url: &str,
-    ) {
+    fn oauth_code_prompt(&mut self, host: &mut dyn ProviderHost, item: &ProviderRef, name: &str, started: &Value, manual_url: &str, login_url: &str) {
         let mut prompt = TextPrompt::new("oauth-code");
         prompt.label = format!("{name} OAuth code");
         prompt.hint = if !manual_url.is_empty() {
             "If the browser callback does not finish, open the URL below manually and paste code#state.".to_owned()
         } else if !login_url.is_empty() {
-            format!(
-                "Open the URL below to sign in, then paste the authorization code or full redirect URL for {name}."
-            )
+            format!("Open the URL below to sign in, then paste the authorization code or full redirect URL for {name}.")
         } else {
             format!("Paste the authorization code or full redirect URL for {name}.")
         };
@@ -1031,10 +756,7 @@ impl ProviderSetup {
         fields.insert("providerName".to_owned(), json!(name));
         // Shown inside the live panel only: never written to the transcript, so it cannot linger in scrollback.
         fields.insert("detail".to_owned(), json!(login_url));
-        fields.insert(
-            "_login".to_owned(),
-            started.get("flowId").cloned().unwrap_or(Value::Null),
-        );
+        fields.insert("_login".to_owned(), started.get("flowId").cloned().unwrap_or(Value::Null));
         fields.insert("_successReturn".to_owned(), json!(true));
         fields.insert("_failureReturn".to_owned(), json!(true));
         fields.insert("_cancelReturn".to_owned(), json!(true));
@@ -1075,12 +797,7 @@ impl ProviderSetup {
         self.show_result(host, &item, ok, &message);
     }
 
-    fn settled(
-        &mut self,
-        host: &mut dyn ProviderHost,
-        flow_id: &str,
-        result: Result<Value, String>,
-    ) {
+    fn settled(&mut self, host: &mut dyn ProviderHost, flow_id: &str, result: Result<Value, String>) {
         let Some(login) = self.login.as_ref() else {
             return;
         };
@@ -1091,15 +808,9 @@ impl ProviderSetup {
         match result {
             Ok(status) => match status.get("state").and_then(Value::as_str) {
                 // A callback that resolved with a result; a code submitted in the prompt reports itself.
-                Some("complete") if !host.oauth_submitting() => {
-                    self.finish_login(host, true, &format!("{name} login complete"))
-                }
+                Some("complete") if !host.oauth_submitting() => self.finish_login(host, true, &format!("{name} login complete")),
                 Some("failed" | "expired") => {
-                    let error = status
-                        .get("error")
-                        .filter(|e| truthy(e))
-                        .map(value_text)
-                        .unwrap_or_default();
+                    let error = status.get("error").filter(|e| truthy(e)).map(value_text).unwrap_or_default();
                     // The core's text for a callback that resolved with nothing: Node left the panel as it was.
                     if error != "OAuth login did not complete." {
                         self.finish_login(host, false, &format!("{name} login failed: {error}"));

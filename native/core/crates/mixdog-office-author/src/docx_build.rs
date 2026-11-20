@@ -327,7 +327,10 @@ fn lenient_base64(encoded: &str) -> Vec<u8> {
     if clean.len() % 4 == 1 {
         clean.pop();
     }
-    let engine = GeneralPurpose::new(&base64::alphabet::STANDARD, GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent).with_decode_allow_trailing_bits(true));
+    let engine = GeneralPurpose::new(
+        &base64::alphabet::STANDARD,
+        GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent).with_decode_allow_trailing_bits(true),
+    );
     engine.decode(&clean).unwrap_or_default()
 }
 
@@ -440,7 +443,9 @@ impl<P: ReadProof> BodyWriter<'_, P> {
                 let heading = field(block, "heading");
                 let style_id = if is_true(block, "heading") && heading <= 3.0 { self.heading_style(heading as u64) } else { String::new() };
                 let zip = &mut *self.zip;
-                let runs = runs_xml(array(block, "runs"), &mut |href| add_package_relationship(zip, "word/_rels/document.xml.rels", HYPERLINK_RELATIONSHIP, href, "External"));
+                let runs = runs_xml(array(block, "runs"), &mut |href| {
+                    add_package_relationship(zip, "word/_rels/document.xml.rels", HYPERLINK_RELATIONSHIP, href, "External")
+                });
                 Ok(format!("<w:p>{}{}</w:p>", paragraph_properties(block, &style_id, numbering.as_ref(), true), runs))
             }
         }
@@ -629,7 +634,11 @@ fn running_operations(kind: &str, running: &Value) -> Vec<Value> {
 
 /// The page, document font, styles and running lines of the flow as the operations that write them.
 fn setup_operations(flow: &Value, page: &DocxPage) -> Vec<Value> {
-    let first_heading = |level: u64| array(flow, "blocks").iter().find(|block| block.get("heading").is_some_and(|heading| heading.as_u64() == Some(level)) && !array(block, "runs").is_empty());
+    let first_heading = |level: u64| {
+        array(flow, "blocks")
+            .iter()
+            .find(|block| block.get("heading").is_some_and(|heading| heading.as_u64() == Some(level)) && !array(block, "runs").is_empty())
+    };
     let mut heading_styles = Map::new();
     for level in 1..=3_u64 {
         let Some(run) = first_heading(level).and_then(|block| array(block, "runs").iter().find(|run| is_true(run, "text"))) else { continue };
@@ -698,7 +707,17 @@ pub fn build_docx_from_flow<P: ReadProof>(
     let measurer = TextMeasurer::new(proof, registry);
     apply_docx(proof, &measurer, &mut zip, &setup_operations(flow, page))?;
     let xml = {
-        let mut writer = BodyWriter { proof, zip: &mut zip, captures, inline, notes: &mut notes, drawing_id: 1000, lists: Vec::new(), bullet: None, heading_styles: BTreeMap::new() };
+        let mut writer = BodyWriter {
+            proof,
+            zip: &mut zip,
+            captures,
+            inline,
+            notes: &mut notes,
+            drawing_id: 1000,
+            lists: Vec::new(),
+            bullet: None,
+            heading_styles: BTreeMap::new(),
+        };
         let blocks = array(flow, "blocks");
         let mut xml = writer.blocks(blocks, false)?;
         if xml.is_empty() {
@@ -756,7 +775,10 @@ mod tests {
             "shading": "FDF1EC", "before": 2, "after": 4, "line": 16, "indentLeft": 8, "firstLine": -4, "align": "center",
         });
         let xml = paragraph_properties(&block, "Heading1", Some(&Numbering { num_id: 3, level: json!(1) }), true);
-        let order: Vec<usize> = ["<w:pStyle", "<w:keepNext", "<w:pageBreakBefore", "<w:numPr>", "<w:pBdr>", "<w:shd", "<w:spacing", "<w:ind", "<w:jc"].iter().map(|tag| xml.find(tag).unwrap_or_else(|| panic!("{tag} in {xml}"))).collect();
+        let order: Vec<usize> = ["<w:pStyle", "<w:keepNext", "<w:pageBreakBefore", "<w:numPr>", "<w:pBdr>", "<w:shd", "<w:spacing", "<w:ind", "<w:jc"]
+            .iter()
+            .map(|tag| xml.find(tag).unwrap_or_else(|| panic!("{tag} in {xml}")))
+            .collect();
         assert!(order.windows(2).all(|pair| pair[0] < pair[1]), "{xml}");
         assert!(xml.contains("w:hanging=\"160\""), "a list item hangs by its indent: {xml}");
         assert!(xml.contains("w:w=\"nil\"") || xml.contains("w:val=\"dashed\" w:sz=\"24\" w:space=\"1\""), "{xml}");
@@ -774,10 +796,13 @@ mod tests {
 
     #[test]
     fn runs_carry_their_marks_and_a_break_is_a_run_of_its_own() {
-        let xml = runs_xml(&[
-            json!({ "text": "a", "font": "Georgia", "size": 11, "bold": true, "strike": true, "shading": "FFF2A8", "vertAlign": "superscript" }),
-            json!({ "br": true }),
-        ], &mut |_| unreachable!());
+        let xml = runs_xml(
+            &[
+                json!({ "text": "a", "font": "Georgia", "size": 11, "bold": true, "strike": true, "shading": "FFF2A8", "vertAlign": "superscript" }),
+                json!({ "br": true }),
+            ],
+            &mut |_| unreachable!(),
+        );
         assert!(xml.contains("<w:rFonts w:ascii=\"Georgia\" w:hAnsi=\"Georgia\" w:eastAsia=\"Georgia\"/>"), "{xml}");
         assert!(xml.contains("<w:strike/><w:shd w:val=\"clear\" w:color=\"auto\" w:fill=\"FFF2A8\"/><w:vertAlign w:val=\"superscript\"/>"), "{xml}");
         assert!(xml.ends_with("<w:r><w:br/></w:r>"));
@@ -786,7 +811,13 @@ mod tests {
     #[test]
     fn a_linked_run_is_a_hyperlink_whose_relationship_targets_the_url() {
         let run = |label: &str, href: &str| json!({ "text": label, "size": 11, "href": href });
-        let runs = json!([run("Alpha", "https://a.test/?x=1&y=2"), run("Beta", "mailto:b@b.test"), run("Evil", "javascript:alert(1)"), run("Plain", ""), run("Ctl", "https://ctl.test/a\u{1}")]);
+        let runs = json!([
+            run("Alpha", "https://a.test/?x=1&y=2"),
+            run("Beta", "mailto:b@b.test"),
+            run("Evil", "javascript:alert(1)"),
+            run("Plain", ""),
+            run("Ctl", "https://ctl.test/a\u{1}")
+        ]);
         let cell_runs = json!([run("CellOne", "https://c.test/one"), run("CellTwo", "https://c.test/two"), run("CellEvil", "file:///c:/secret")]);
         let flow = json!({ "blocks": [
             { "kind": "p", "runs": runs, "before": 0, "after": 8, "line": 17.6, "align": "left" },
@@ -823,7 +854,10 @@ mod tests {
     #[test]
     fn a_footer_of_page_and_pages_is_the_page_field_with_the_total() {
         let operations = running_operations("footer", &json!({ "text": "{page} / {pages}", "align": "center", "size": 9 }));
-        assert_eq!(operations, vec![json!({ "op": "add_page_numbers", "kind": "footer", "prefix": "", "separator": "/", "includeTotal": true, "alignment": "center" })]);
+        assert_eq!(
+            operations,
+            vec![json!({ "op": "add_page_numbers", "kind": "footer", "prefix": "", "separator": "/", "includeTotal": true, "alignment": "center" })]
+        );
         let prefixed = running_operations("footer", &json!({ "text": "Page {page}" }));
         assert_eq!(prefixed, vec![json!({ "op": "add_page_numbers", "kind": "footer", "prefix": "Page", "includeTotal": false })]);
     }
@@ -890,7 +924,10 @@ mod tests {
         let (package, _) = built(&json!({ "blocks": [paragraph("표 1. 처리량"), table] }));
         let document = package.text(DOCUMENT_PART);
         assert_eq!(document.matches("<w:keepNext/>").count(), 2, "the caption and the first row: {document}");
-        assert!(document.contains("<w:trPr><w:trHeight w:val=\"390\" w:hRule=\"atLeast\"/></w:trPr>"), "a data table's row may split and is at least as tall as measured: {document}");
+        assert!(
+            document.contains("<w:trPr><w:trHeight w:val=\"390\" w:hRule=\"atLeast\"/></w:trPr>"),
+            "a data table's row may split and is at least as tall as measured: {document}"
+        );
     }
 
     #[test]

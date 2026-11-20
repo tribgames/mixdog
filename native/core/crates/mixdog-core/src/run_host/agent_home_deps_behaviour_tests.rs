@@ -114,9 +114,7 @@ async fn real_store(data: &std::path::Path) -> (Arc<StoreThreads>, Arc<SqliteSto
     .await
     .expect("job ran")
     .expect("index");
-    let store = StoreThreads::over_data_dir(data, index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io)
-        .await
-        .expect("the thread store");
+    let store = StoreThreads::over_data_dir(data, index.clone(), Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store");
     (Arc::new(store), Arc::new(index))
 }
 
@@ -187,10 +185,9 @@ async fn catalog_feed(world: &World) -> (Arc<ThreadListService>, Arc<ThreadEdges
     let feed = Arc::new(MockFeed::new("app".into(), epoch(1), Arc::new(EchoView), limits));
     let app = MockConnection::new(ConnectionId(1), limits);
     let source: Arc<dyn FeedSource> = feed.clone();
-    let attached = mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &app)
-        .expect("subscribe to the app feed");
-    mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release)
-        .expect("release the feed");
+    let attached =
+        mixdog_core_api::feed::subscribe(&source, "app".into(), mixdog_core_api::feed::Window::Fixed, None, &app).expect("subscribe to the app feed");
+    mixdog_core_api::sink::ConnectionSink::send_control_release(&app, bytes::Bytes::from_static(b"{}"), attached.release).expect("release the feed");
     drop(app.drain_text());
 
     let section = Arc::new(SectionFeedState::new(feed));
@@ -204,9 +201,7 @@ async fn catalog_feed(world: &World) -> (Arc<ThreadListService>, Arc<ThreadEdges
 }
 
 fn app_frames(app: &mixdog_core_api::mock::MockConnection) -> Vec<Value> {
-    app.drain_text().into_iter()
-        .map(|text| serde_json::from_str(&text[text.find('{').expect("JSON body")..]).unwrap())
-        .collect()
+    app.drain_text().into_iter().map(|text| serde_json::from_str(&text[text.find('{').expect("JSON body")..]).unwrap()).collect()
 }
 
 fn connection() -> CallContext {
@@ -277,7 +272,10 @@ async fn a_reset_is_refused_while_the_home_thread_runs_a_turn_and_keeps_the_conv
 async fn the_deps_read_the_catalog_and_report_a_missing_session_as_unavailable() {
     let world = world().await;
     let agents = world.deps.list_agents().await.unwrap();
-    assert_eq!(agents, json!([{ "id": "ada", "custom": true, "kind": "bot", "disabled": false, "route": { "provider": "openai", "model": "gpt-x", "effort": "low" } }]));
+    assert_eq!(
+        agents,
+        json!([{ "id": "ada", "custom": true, "kind": "bot", "disabled": false, "route": { "provider": "openai", "model": "gpt-x", "effort": "low" } }])
+    );
     let missing = world.deps.read_session("sess_nowhere").await.unwrap_err();
     assert_eq!(missing.message, "Session sess_nowhere is not available");
     assert_eq!(missing.code.as_deref(), Some("SESSION_NOT_AVAILABLE"));
@@ -289,7 +287,6 @@ async fn the_deps_read_the_catalog_and_report_a_missing_session_as_unavailable()
 fn stamped(header: &mixdog_store::schema::record::Header, key: &str) -> bool {
     header.get(key).and_then(Value::as_f64).is_some_and(|at| at > 0.0)
 }
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_reset_keeps_the_old_conversation_archived_durable_and_restorable() {
@@ -369,7 +366,8 @@ async fn restoring_a_deleted_bot_replaces_its_archived_catalog_row_on_the_open_a
 
     homes.restore("ada").await.expect("restores");
     // Like the open sidebar, take only feed updates after restore; do not list again.
-    let restored = app_frames(&app).into_iter()
+    let restored = app_frames(&app)
+        .into_iter()
         .filter(|frame| frame["method"] == "thread/summary/updated" && frame["params"]["thread"]["id"] == home)
         .map(|frame| frame["params"]["thread"].clone())
         .last()
@@ -387,8 +385,7 @@ async fn reopening_an_unchanged_bot_after_public_archive_restores_its_row_on_the
     let opened = homes.open("ada").await.expect("opens");
     let home = opened["sessionId"].as_str().unwrap();
     let id = ThreadId::from(home);
-    world.state.patch_header(&id, json!({"title": "Ada's conversation"}).as_object().unwrap().clone(), Vec::new())
-        .await.expect("give the home a catalog row");
+    world.state.patch_header(&id, json!({"title": "Ada's conversation"}).as_object().unwrap().clone(), Vec::new()).await.expect("give the home a catalog row");
     assert!(list.summary(&id).await.unwrap().is_some());
     edges.settled().await;
     let active = app_frames(&app).into_iter()
@@ -405,7 +402,8 @@ async fn reopening_an_unchanged_bot_after_public_archive_restores_its_row_on_the
     assert!(!archived.iter().any(|frame| frame["params"]["thread"]["id"] == home));
 
     assert_eq!(homes.open("ada").await.expect("reopens"), opened);
-    let restored: Vec<_> = app_frames(&app).into_iter()
+    let restored: Vec<_> = app_frames(&app)
+        .into_iter()
         .filter(|frame| frame["method"] == "thread/summary/updated" && frame["params"]["thread"]["id"] == home)
         .map(|frame| frame["params"]["thread"].clone())
         .collect();

@@ -3,34 +3,20 @@
 //! `loadSkillToolDependencies` leaves it, and the transcript answers whether a skill body is still
 //! in the conversation as `skillBodyPresentInSession` does.
 
-
 use serde_json::json;
 
-use mixdog_core::run_host::skill_session::*;
-use mixdog_mcp::skill_port::TranscriptTexts as _;
-use std::sync::Arc;
 use async_trait::async_trait;
+use mixdog_core::run_host::skill_session::*;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::memory_source::ThreadMessages;
+use mixdog_mcp::skill_port::TranscriptTexts as _;
 use mixdog_tools::orch::util::PortError;
 use serde_json::Value;
-
+use std::sync::Arc;
 
 fn thread() -> ThreadId {
     ThreadId::from("t1")
 }
-
-
-
-
-
-
-
-
-
-
-
-
 
 /// The thread's model conversation, as `thread/messages/read` answers it.
 struct Rows {
@@ -55,5 +41,3 @@ async fn an_unreadable_transcript_is_an_error() {
     let transcript = transcript(Rows { rows: vec![json!({"role": "user", "content": "hi"})], unreadable: true });
     assert_eq!(transcript.user_texts(&thread()).await, Err(PortError::Denied("no such thread".into())));
 }
-
-

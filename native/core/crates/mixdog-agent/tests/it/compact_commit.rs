@@ -1,13 +1,6 @@
 //! Legacy compaction settings are normalised: the retired compaction keys are dropped.
 
-
 use serde_json::Value;
-
-
-
-
-
-
 
 /// compact-smoke.mjs's migration check: `normalizeCompactionConfig` drops the retired compaction types and their knobs.
 #[test]
@@ -19,5 +12,3 @@ fn the_retired_compaction_keys_are_dropped() {
     }
     assert_eq!(migrated.get("auto"), Some(&Value::Bool(true)));
 }
-
-

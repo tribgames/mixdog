@@ -25,7 +25,8 @@ fn pages_text(path: &std::path::Path) -> Vec<String> {
 #[test]
 fn prose_longer_than_a_page_flows_onto_more_pages_in_reading_order() {
     let path = scratch("flow").join("flow.pdf");
-    let blocks: Vec<Value> = (1..=80).map(|n| json!({ "type": "paragraph", "text": format!("Paragraph number {n} says something worth reading twice.") })).collect();
+    let blocks: Vec<Value> =
+        (1..=80).map(|n| json!({ "type": "paragraph", "text": format!("Paragraph number {n} says something worth reading twice.") })).collect();
     let result = write(&path, &json!({ "blocks": blocks })).expect("written");
     assert_eq!(result["ok"], true);
     let pages = result["pages"].as_u64().expect("page count");

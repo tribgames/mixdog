@@ -25,7 +25,6 @@ use mixdog_rt::CancellationToken;
 use serde_json::{Map, Value};
 use std::sync::LazyLock;
 
-
 use super::design::{DesignContext, resolve_office_design_context};
 use super::mode::{OfficeHost, select_mode};
 use super::registry::Registry;
@@ -47,16 +46,7 @@ pub struct SofficeConverter<'a, P: WriteProof> {
 
 impl<P: WriteProof> LegacyConverter for SofficeConverter<'_, P> {
     fn convert(&self, path: &Path, output: &Path) -> Result<(), String> {
-        self.soffice
-            .convert_legacy_office(
-                self.proof,
-                path,
-                output,
-                self.cancel,
-                &ScratchHooks::default(),
-            )
-            .map(drop)
-            .map_err(|error| error.to_string())
+        self.soffice.convert_legacy_office(self.proof, path, output, self.cancel, &ScratchHooks::default()).map(drop).map_err(|error| error.to_string())
     }
 }
 
@@ -85,46 +75,30 @@ pub struct OpenedSession {
 
 impl OpenedSession {
     pub(crate) fn reused(handle: SessionHandle) -> Self {
-        Self {
-            handle,
-            reused: true,
-        }
+        Self { handle, reused: true }
     }
 
     pub(crate) fn fresh(handle: SessionHandle) -> Self {
-        Self {
-            handle,
-            reused: false,
-        }
+        Self { handle, reused: false }
     }
 }
 
 /// `args[name]` as the text `String(args[name])` gives when it is truthy, else empty.
 pub(crate) fn text_arg(args: &Value, name: &str) -> String {
-    args.get(name)
-        .filter(|value| truthy(value))
-        .map(value_to_string)
-        .unwrap_or_default()
+    args.get(name).filter(|value| truthy(value)).map(value_to_string).unwrap_or_default()
 }
 
 // Word, Excel, and PowerPoint answer a damaged file with their own wording, in the language they are installed in, and nothing
 // else: the caller still needs to know which file refused to open and what to do about it. The application refusing to automate
 // is not a damaged document: sending the caller to repair an intact file wastes the turn, while the route that works (no
 // Office at all, or co-editing the instance already running) goes unsaid.
-static APPLICATION_REFUSAL: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(
-        r"shared or unidentified application|already running|RPC server|automation server|is busy|call was rejected",
-        "i",
-    )
-});
+static APPLICATION_REFUSAL: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"shared or unidentified application|already running|RPC server|automation server|is busy|call was rejected", "i"));
 static TRAILING_DOTS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\.+$", ""));
 
 /// `officeOpenFailure(reason, path)`.
 pub fn office_open_failure(reason: Option<&Value>, path: &str) -> String {
-    let text = reason
-        .filter(|reason| truthy(reason))
-        .map(value_to_string)
-        .unwrap_or_default();
+    let text = reason.filter(|reason| truthy(reason)).map(value_to_string).unwrap_or_default();
     let message = TRAILING_DOTS.replace_all_with(js_trim(&text), |_| String::new());
     if message.is_empty() {
         return format!("Microsoft Office could not open {path}");
@@ -144,10 +118,7 @@ pub fn office_open_failure(reason: Option<&Value>, path: &str) -> String {
 
 /// `pptxReviewDesignState(design, format)`.
 pub(crate) fn review_design_state(design: &Value, format: &str) -> DesignState {
-    DesignState::empty(
-        format == "pptx" && design.pointer("/review/required").is_some_and(truthy),
-        true,
-    )
+    DesignState::empty(format == "pptx" && design.pointer("/review/required").is_some_and(truthy), true)
 }
 
 /// `portableCreateDesignState()`.
@@ -171,10 +142,7 @@ pub(crate) struct Record {
 }
 
 /// `buildOfficeSessionRecord({...})`: the session record, not yet registered.
-pub(crate) fn build_session<P: WriteProof, H: OfficeHost>(
-    env: &SessionEnv<'_, P, H>,
-    record: Record,
-) -> Session {
+pub(crate) fn build_session<P: WriteProof, H: OfficeHost>(env: &SessionEnv<'_, P, H>, record: Record) -> Session {
     let mut session = Session::new(SessionInit {
         id: record.id,
         source: record.source,
@@ -217,11 +185,7 @@ pub(crate) async fn attach_microsoft_office<H: OfficeHost>(
     payload.insert("path".to_owned(), Value::from(session.target.clone()));
     let opened = host.open_session(&Value::Object(payload), cancel).await;
     if !opened.get("ok").is_some_and(truthy) {
-        let named = if session.source.is_empty() {
-            &session.target
-        } else {
-            &session.source
-        };
+        let named = if session.source.is_empty() { &session.target } else { &session.source };
         return Err(office_open_failure(opened.get("error"), named));
     }
     session.apply_com_fields(&opened);
@@ -231,19 +195,14 @@ pub(crate) async fn attach_microsoft_office<H: OfficeHost>(
 /// `packageSource(path, signal)`: a legacy binary file is saved once as its package beside the original, and that package is
 /// what the session reads and edits. An earlier conversion or a file of the same name is never overwritten: the caller is sent
 /// to it instead. Answers the file to open and the legacy file it came from (empty when there was none).
-fn package_source<P: WriteProof, H: OfficeHost>(
-    env: &SessionEnv<'_, P, H>,
-    path: &str,
-) -> Result<(String, String), String> {
+fn package_source<P: WriteProof, H: OfficeHost>(env: &SessionEnv<'_, P, H>, path: &str) -> Result<(String, String), String> {
     let kind = legacy_package_kind(path);
     if kind.is_empty() {
         return Ok((path.to_owned(), String::new()));
     }
     let converted = join(&dirname(path), &format!("{}.{kind}", stem(path)));
     if exists(env.design.lane, &converted) {
-        return Err(format!(
-            "{path} is a legacy binary file and {converted} already exists; open {converted} directly, or move it aside to convert again."
-        ));
+        return Err(format!("{path} is a legacy binary file and {converted} already exists; open {converted} directly, or move it aside to convert again."));
     }
     env.note.note_write(Path::new(&converted));
     env.legacy.convert(Path::new(path), Path::new(&converted))?;
@@ -251,11 +210,7 @@ fn package_source<P: WriteProof, H: OfficeHost>(
 }
 
 /// `openSession(args, cwd, dataDir, { readOnly })`.
-pub async fn open_session<P: WriteProof, H: OfficeHost>(
-    env: &SessionEnv<'_, P, H>,
-    args: &Value,
-    read_only: bool,
-) -> Result<OpenedSession, String> {
+pub async fn open_session<P: WriteProof, H: OfficeHost>(env: &SessionEnv<'_, P, H>, args: &Value, read_only: bool) -> Result<OpenedSession, String> {
     let proof = env.design.lane;
     let requested = full_path(&text_arg(args, "path"), env.cwd)?;
     if !exists(proof, &requested) {
@@ -268,18 +223,10 @@ pub async fn open_session<P: WriteProof, H: OfficeHost>(
     // Reading a document does not need a copy of it, and making one overwrote the working copy an earlier edit had already been
     // told was saved: the next read of the same path silently threw that edit away. A read opens the file itself; the working
     // copy appears when an edit does.
-    let reads = read_only
-        && !args.get("output").is_some_and(truthy)
-        && matches!(
-            selected.backend,
-            Backend::MixdogOoxml | Backend::MixdogPdf | Backend::MixdogTabular
-        );
+    let reads =
+        read_only && !args.get("output").is_some_and(truthy) && matches!(selected.backend, Backend::MixdogOoxml | Backend::MixdogPdf | Backend::MixdogTabular);
     let copies = !reads && matches!(selected.mode, Mode::Background | Mode::Portable);
-    let target = if copies {
-        editable_target(proof, args, env.cwd, &source)?
-    } else {
-        source.clone()
-    };
+    let target = if copies { editable_target(proof, args, env.cwd, &source)? } else { source.clone() };
     if let Some(existing) = env.registry.for_document(env.design.env, &target) {
         return Ok(OpenedSession::reused(existing));
     }
@@ -288,15 +235,7 @@ pub async fn open_session<P: WriteProof, H: OfficeHost>(
         env.note.note_write(Path::new(&target));
         mixdog_fsio::copy(proof, &source, &target).map_err(|error| error.to_string())?;
     }
-    let design_context = resolve_office_design_context(
-        env.design,
-        env.data_dir,
-        args,
-        &target,
-        &source,
-        format,
-        false,
-    )?;
+    let design_context = resolve_office_design_context(env.design, env.data_dir, args, &target, &source, format, false)?;
     let design_state = review_design_state(&design_context.design, format);
     let mut session = build_session(
         env,
@@ -323,9 +262,7 @@ pub async fn open_session<P: WriteProof, H: OfficeHost>(
     if selected.backend == Backend::MicrosoftOfficeCom {
         attach_microsoft_office(env.host, &mut session, None, env.cancel).await?;
     }
-    Ok(OpenedSession::fresh(
-        env.registry.register(env.design, session),
-    ))
+    Ok(OpenedSession::fresh(env.registry.register(env.design, session)))
 }
 
 /// What `resolveSession` answers: the session, and whether the call opened it from a path (`implicit`).
@@ -336,28 +273,18 @@ pub struct ResolvedSession {
 
 /// `resolveSession(args, cwd, dataDir, { readOnly })`: the session an action names by id, or the one opened implicitly from
 /// its path.
-pub async fn resolve_session<P: WriteProof, H: OfficeHost>(
-    env: &SessionEnv<'_, P, H>,
-    args: &Value,
-    read_only: bool,
-) -> Result<ResolvedSession, String> {
+pub async fn resolve_session<P: WriteProof, H: OfficeHost>(env: &SessionEnv<'_, P, H>, args: &Value, read_only: bool) -> Result<ResolvedSession, String> {
     if args.get("session").is_some_and(truthy) {
         let id = text_arg(args, "session");
         let Some(handle) = env.registry.get(&id) else {
             return Err(format!("Unknown or closed Office Use session: {id}"));
         };
-        return Ok(ResolvedSession {
-            opened: OpenedSession::fresh(handle),
-            implicit: false,
-        });
+        return Ok(ResolvedSession { opened: OpenedSession::fresh(handle), implicit: false });
     }
     if !args.get("path").is_some_and(truthy) {
         return Err("session or path is required".to_owned());
     }
-    Ok(ResolvedSession {
-        opened: open_session(env, args, read_only).await?,
-        implicit: true,
-    })
+    Ok(ResolvedSession { opened: open_session(env, args, read_only).await?, implicit: true })
 }
 
 /// A future that answers a session's close (`closeSession(session)` of the finalize stage): the Office document saved and
@@ -375,18 +302,9 @@ mod tests {
     #[test]
     fn a_failed_open_names_the_file_and_the_way_forward() {
         let path = "C:\\work\\a.docx";
-        assert_eq!(
-            office_open_failure(None, path),
-            "Microsoft Office could not open C:\\work\\a.docx"
-        );
-        assert_eq!(
-            office_open_failure(Some(&json!("  ")), path),
-            "Microsoft Office could not open C:\\work\\a.docx"
-        );
-        assert_eq!(
-            office_open_failure(Some(&json!("it said C:\\work\\a.docx is bad.")), path),
-            "it said C:\\work\\a.docx is bad"
-        );
+        assert_eq!(office_open_failure(None, path), "Microsoft Office could not open C:\\work\\a.docx");
+        assert_eq!(office_open_failure(Some(&json!("  ")), path), "Microsoft Office could not open C:\\work\\a.docx");
+        assert_eq!(office_open_failure(Some(&json!("it said C:\\work\\a.docx is bad.")), path), "it said C:\\work\\a.docx is bad");
         assert_eq!(
             office_open_failure(Some(&json!("File is damaged...")), path),
             "Microsoft Office could not open C:\\work\\a.docx: File is damaged. If the file is damaged or incomplete, ask for an intact copy or let Office repair it and save a fresh file."

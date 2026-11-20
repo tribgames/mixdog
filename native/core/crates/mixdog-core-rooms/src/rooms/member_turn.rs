@@ -309,9 +309,16 @@ impl Ctx {
             let room = self.room();
             (room.name.clone(), room.share_tools, room.members.clone())
         };
-        let members: Vec<PromptMember> = member_ids.iter().map(|id| PromptMember { id: id.clone(), name: self.labels.get(id).map_or_else(|| id.clone(), |label| label.name.clone()) }).collect();
+        let members: Vec<PromptMember> = member_ids
+            .iter()
+            .map(|id| PromptMember { id: id.clone(), name: self.labels.get(id).map_or_else(|| id.clone(), |label| label.name.clone()) })
+            .collect();
         let myself = PromptMember { id: self.member.id.clone(), name: self.member.name.clone() };
-        let mentioned_by = if turn.mentioned_by.is_empty() { String::new() } else { self.labels.get(&turn.mentioned_by).map_or_else(|| turn.mentioned_by.clone(), |label| label.name.clone()) };
+        let mentioned_by = if turn.mentioned_by.is_empty() {
+            String::new()
+        } else {
+            self.labels.get(&turn.mentioned_by).map_or_else(|| turn.mentioned_by.clone(), |label| label.name.clone())
+        };
         let prompt = room_turn_prompt(&PromptInput {
             room_name: &name,
             myself: &myself,
@@ -352,7 +359,8 @@ impl Ctx {
         let started_at = host.now();
         // Every member submission has a stable id (a turn no call rides, too), registered with the exchange before the submission
         // is awaited: a Stop from here freezes it, in flight or not. An exchange a Stop sealed already submits nothing.
-        let submission = call.map(|call| call.id.clone()).filter(|id| !id.is_empty()).unwrap_or_else(|| format!("{ROOM_SUBMISSION_PREFIX}{}", uuid::Uuid::now_v7()));
+        let submission =
+            call.map(|call| call.id.clone()).filter(|id| !id.is_empty()).unwrap_or_else(|| format!("{ROOM_SUBMISSION_PREFIX}{}", uuid::Uuid::now_v7()));
         if !self.state.run.register(&session, &submission) {
             return Ok(Attempt::Return(Answer::of(TurnResult::Stopped)));
         }
@@ -403,7 +411,13 @@ pub async fn member_turn(
     outcome: &Arc<Outcome>,
 ) -> Result<Answer, String> {
     let room = host.room()?;
-    let member = labels.get(agent_id).cloned().unwrap_or_else(|| MemberLabel { id: agent_id.to_owned(), name: agent_id.to_owned(), route: Value::Null, description: String::new(), disabled: false });
+    let member = labels.get(agent_id).cloned().unwrap_or_else(|| MemberLabel {
+        id: agent_id.to_owned(),
+        name: agent_id.to_owned(),
+        route: Value::Null,
+        description: String::new(),
+        disabled: false,
+    });
     let ctx = Arc::new(Ctx {
         host: Arc::clone(host),
         state: Arc::clone(state),
@@ -526,7 +540,11 @@ pub async fn member_turn(
         if let Some(usage) = room_usage_limit(&done, &ctx.member.route) {
             return Ok(retired(host, state, Answer { failed: true, usage: Some(usage), ..Answer::of(TurnResult::Pass) }));
         }
-        state.push_failure(Failure { id: agent_id.to_owned(), name: ctx.member.name.clone(), reason: done.get("detail").and_then(Value::as_str).unwrap_or("").to_owned() });
+        state.push_failure(Failure {
+            id: agent_id.to_owned(),
+            name: ctx.member.name.clone(),
+            reason: done.get("detail").and_then(Value::as_str).unwrap_or("").to_owned(),
+        });
         return Ok(retired(host, state, Answer { failed: true, ..Answer::of(TurnResult::Pass) }));
     }
     *outcome.text.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) = text.clone();
@@ -543,7 +561,14 @@ pub async fn member_turn(
 /// used again). The turn takes the first unused submission id among them (a fresh one when all are
 /// used) and their highest hop; every covered call's watch follows that id, recorded before the
 /// turn is submitted.
-pub async fn speak_in_room(host: &Arc<dyn MemberHost>, state: &Arc<TurnState>, labels: &Arc<HashMap<String, MemberLabel>>, agent_id: &str, turn: &Turn, calls: &[RoomCall]) -> Result<Answer, String> {
+pub async fn speak_in_room(
+    host: &Arc<dyn MemberHost>,
+    state: &Arc<TurnState>,
+    labels: &Arc<HashMap<String, MemberLabel>>,
+    agent_id: &str,
+    turn: &Turn,
+    calls: &[RoomCall],
+) -> Result<Answer, String> {
     let settle = |detail: Settled| {
         for call in calls {
             call.settle_with(&detail);

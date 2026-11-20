@@ -59,9 +59,7 @@ fn is_reserved(slug: &str) -> bool {
     let lower = slug.to_lowercase();
     !cfg!(windows)
         && (matches!(lower.as_str(), "con" | "prn" | "aux" | "nul")
-            || ((lower.starts_with("com") || lower.starts_with("lpt"))
-                && lower.len() == 4
-                && lower.as_bytes()[3].is_ascii_digit()))
+            || ((lower.starts_with("com") || lower.starts_with("lpt")) && lower.len() == 4 && lower.as_bytes()[3].is_ascii_digit()))
 }
 
 fn trim_slug(value: &str, max: usize) -> String {
@@ -120,7 +118,6 @@ pub fn unique_slug(base: &str, is_taken: impl Fn(&str) -> bool) -> String {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -138,9 +135,11 @@ mod tests {
 
     /// `<prefix>-` and exactly eight lowercase hex digits.
     fn is_random_suffixed(candidate: &str, prefix: &str) -> bool {
-        candidate.strip_prefix(prefix).and_then(|rest| rest.strip_prefix('-')).is_some_and(|hex| hex.len() == 8 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+        candidate
+            .strip_prefix(prefix)
+            .and_then(|rest| rest.strip_prefix('-'))
+            .is_some_and(|hex| hex.len() == 8 && hex.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
     }
-
 
     /// Accents fold to their base letters, anything else becomes a word break, words join with `-` while the slug stays within 40
     /// characters, and a first word longer than that is cut and loses a trailing `-`.

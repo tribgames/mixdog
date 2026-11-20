@@ -22,10 +22,7 @@ pub mod protection;
 pub use cfb::{CfbError, CompoundFile};
 pub use decrypt::{CryptoError, decrypt_package, package_intact};
 pub use descriptor::{AgileCipher, AgileDescriptor, Descriptor, Integrity, StandardDescriptor, ooxml_encryption};
-pub use keys::{
-    CancelToken, DerivationCounts, KeyDerivation, KeyError, MAX_KEY_DERIVATIONS, key_derivations, password_key,
-};
+pub use keys::{CancelToken, DerivationCounts, KeyDerivation, KeyError, MAX_KEY_DERIVATIONS, key_derivations, password_key};
 pub use protection::{
-    EncryptedOoxml, is_encrypted_binary_presentation, is_encrypted_ooxml, is_encrypted_word_document,
-    read_encrypted_ooxml, read_ooxml_encryption_info,
+    EncryptedOoxml, is_encrypted_binary_presentation, is_encrypted_ooxml, is_encrypted_word_document, read_encrypted_ooxml, read_ooxml_encryption_info,
 };

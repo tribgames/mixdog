@@ -34,12 +34,7 @@ pub struct HistSummary {
 
 impl Histogram {
     pub(crate) fn new() -> Self {
-        Self {
-            buckets: std::array::from_fn(|_| AtomicU64::new(0)),
-            count: AtomicU64::new(0),
-            sum_us: AtomicU64::new(0),
-            max_us: AtomicU64::new(0),
-        }
+        Self { buckets: std::array::from_fn(|_| AtomicU64::new(0)), count: AtomicU64::new(0), sum_us: AtomicU64::new(0), max_us: AtomicU64::new(0) }
     }
 
     pub(crate) fn record(&self, value: Duration) {

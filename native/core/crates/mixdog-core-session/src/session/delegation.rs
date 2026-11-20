@@ -89,10 +89,8 @@ fn submission_chain(meta: Option<&Value>) -> Vec<String> {
     let mut ids = vec![text(meta.and_then(|m| m.get("checkpointId")))];
     ids.extend(meta.and_then(|m| m.get("submissionIds")).and_then(Value::as_array).into_iter().flatten().map(|id| text(Some(id))));
     let known = submissions();
-    let recorded: Vec<&str> = ids
-        .iter()
-        .flat_map(|id| known.iter().filter(move |(name, _)| name == id).flat_map(|(_, bots)| bots.iter().map(String::as_str)))
-        .collect();
+    let recorded: Vec<&str> =
+        ids.iter().flat_map(|id| known.iter().filter(move |(name, _)| name == id).flat_map(|(_, bots)| bots.iter().map(String::as_str))).collect();
     bot_chain_of(recorded)
 }
 
@@ -311,13 +309,7 @@ pub async fn delegation_for_new_session(opts: &Header, id: &str, records: &dyn R
 /// caller, nothing different). `caller_run` is `runOfSession(caller)`; `turn_in_flight` whether
 /// the session's turn runs (a turn already running is never made a run mid-turn). The returned
 /// map is set on the header: `delegation` when re-rooted, `run` (null = attended).
-pub async fn rebind_patch(
-    session: &str,
-    caller: &str,
-    caller_run: Option<Value>,
-    turn_in_flight: bool,
-    records: &dyn Records,
-) -> Option<Map<String, Value>> {
+pub async fn rebind_patch(session: &str, caller: &str, caller_run: Option<Value>, turn_in_flight: bool, records: &dyn Records) -> Option<Map<String, Value>> {
     let (id, caller) = (clean_str(session), clean_str(caller));
     let record = records.record(&id).await?;
     if record.get("closed") == Some(&Value::Bool(true)) || caller.is_empty() || caller == id {

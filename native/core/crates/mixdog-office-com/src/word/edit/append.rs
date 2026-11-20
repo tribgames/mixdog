@@ -35,12 +35,11 @@ pub(super) fn end_paragraph(document: &Obj, for_table: bool) -> Result<i32> {
         let mut after_table = false;
         let mut after_break = false;
         if let Some(before) = &previous {
-            after_table = (|| -> Result<bool> { Ok(super::truth(&super::indexed(&before.member("Range")?, "Information", &[Com::I4(12)])?)) })()
-                .unwrap_or(false);
+            after_table =
+                (|| -> Result<bool> { Ok(super::truth(&super::indexed(&before.member("Range")?, "Information", &[Com::I4(12)])?)) })().unwrap_or(false);
             // A page or column break sits before its paragraph's mark; a section break is the mark.
             after_break = !after_table
-                && text::is_match(&super::string(&before.member("Range")?.member("Text")?), "[\\x0c\\x0e]\r?$", false)
-                    .map_err(crate::com::Error::host)?;
+                && text::is_match(&super::string(&before.member("Range")?.member("Text")?), "[\\x0c\\x0e]\r?$", false).map_err(crate::com::Error::host)?;
         }
         waiting = previous.is_none() || after_break || (after_table && !for_table);
     }
@@ -51,8 +50,7 @@ pub(super) fn end_paragraph(document: &Obj, for_table: bool) -> Result<i32> {
     // tracked as a change of its own, every appended paragraph showed a reviewer a "Formatted" revision the portable
     // writer never records. A paragraph taken as it stood stays tracked.
     let mut quiet = !waiting
-        && (|| -> Result<bool> { Ok(super::truth(&document.get("TrackRevisions")?) && super::truth(&document.get("TrackFormatting")?)) })()
-            .unwrap_or(false);
+        && (|| -> Result<bool> { Ok(super::truth(&document.get("TrackRevisions")?) && super::truth(&document.get("TrackFormatting")?)) })().unwrap_or(false);
     if quiet && document.put("TrackFormatting", Com::Bool(false)).is_err() {
         quiet = false;
     }
@@ -82,11 +80,8 @@ pub(super) fn format_appended(document: &Obj, paragraph: &Para, paragraph_index:
     // was dropped in Word and kept by the portable writer.
     let style = style_of(op);
     // The paragraph opens as Normal (Word-EndParagraph resets it), so Normal is not applied again.
-    let style_not_found = if !style.is_empty() && !formatting::style_value(&style).is_normal() {
-        formatting::set_style(&paragraph.range()?, &style)
-    } else {
-        None
-    };
+    let style_not_found =
+        if !style.is_empty() && !formatting::style_value(&style).is_normal() { formatting::set_style(&paragraph.range()?, &style) } else { None };
     let kind = prop(&props, "listKind");
     if truthy(&kind) {
         let kind = text::to_lower_invariant(&text_of(&kind));
@@ -100,7 +95,11 @@ pub(super) fn format_appended(document: &Obj, paragraph: &Para, paragraph_index:
             }
         };
         // A named style stays on the item, as the portable writer keeps it; with none, both paths use List Paragraph.
-        if style.is_empty() { apply()? } else { lists::in_list_style(document, apply)? }
+        if style.is_empty() {
+            apply()?
+        } else {
+            lists::in_list_style(document, apply)?
+        }
         let level = super::cast_int(&prop(&props, "listLevel"))?;
         if level > 0 {
             // The level is a property of the list format; indenting one step at a time depends on the template's tab

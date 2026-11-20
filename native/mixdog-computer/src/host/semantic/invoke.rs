@@ -1,9 +1,9 @@
 //! The semantic actions that press an element: invoke, toggle, and menu
 //! paths.
 
-use crate::host::windows::effect;
-use crate::host::{sleep_ms, Host, Res};
 use crate::a11y::Element;
+use crate::host::windows::effect;
+use crate::host::{Host, Res, sleep_ms};
 use crate::platform::WindowInfo;
 use crate::protocol::{Obj, Req};
 use serde_json::json;
@@ -17,20 +17,12 @@ impl Host {
     /// with: Windows reports UIA (uia_invoke, "through UIA") as the PowerShell
     /// worker did, other platforms the generic accessibility wording.
     pub(in crate::host) fn semantic_words(&self) -> (&'static str, &'static str) {
-        if self.desktop.element_source() == "uia" {
-            ("uia", "UIA")
-        } else {
-            ("a11y", "accessibility")
-        }
+        if self.desktop.element_source() == "uia" { ("uia", "UIA") } else { ("a11y", "accessibility") }
     }
 
     pub(in crate::host) fn invoke_menu(&self, req: &Req) -> Res<Obj> {
         let info: WindowInfo = self.resolve_window(req)?;
-        let path: Vec<String> = req
-            .strings("path")
-            .into_iter()
-            .filter(|segment| !segment.trim().is_empty())
-            .collect();
+        let path: Vec<String> = req.strings("path").into_iter().filter(|segment| !segment.trim().is_empty()).collect();
         if path.is_empty() || path.len() > 8 {
             return Err("menu path must have 1..8 segments".into());
         }
@@ -38,26 +30,13 @@ impl Host {
         // Each action of the walk is authorized on its own; the platform's port arbitrates each against the scope.
         let authorize = || self.authorize(req, info.handle);
         let outcome = a11y.invoke_menu(&info, &path, &authorize)?;
-        Ok(self.action_result(
-            "invoke_menu",
-            outcome.path,
-            effect(outcome.verified),
-            outcome.verified,
-            &outcome.message,
-            None,
-            "background",
-            Some(info.id()),
-        ))
+        Ok(self.action_result("invoke_menu", outcome.path, effect(outcome.verified), outcome.verified, &outcome.message, None, "background", Some(info.id())))
     }
 
     /// The element's own semantic action: toggle, expand/collapse, press, or
     /// select. With `allow_native_click`, an element that has none returns
     /// `None` so the caller may use a target-bound pointer event instead.
-    pub(in crate::host) fn do_invoke(
-        &self,
-        req: &Req,
-        allow_native_click: bool,
-    ) -> Res<Option<Obj>> {
+    pub(in crate::host) fn do_invoke(&self, req: &Req, allow_native_click: bool) -> Res<Option<Obj>> {
         let reference = req.text("ref");
         let (element, window) = self.ref_record(&reference)?;
         let id = Some(window);
@@ -79,46 +58,20 @@ impl Host {
             element.press()?;
             let after = wait_for_change(&before, || element.toggle_state());
             let verified = after != before;
-            let message = format!(
-                "activated {reference} through {tree} toggle from {before} to {after}"
-            );
-            return Ok(Some(self.action_result(
-                "invoke",
-                &format!("{prefix}_toggle"),
-                effect(verified),
-                verified,
-                &message,
-                None,
-                "background",
-                id,
-            )));
+            let message = format!("activated {reference} through {tree} toggle from {before} to {after}");
+            return Ok(Some(self.action_result("invoke", &format!("{prefix}_toggle"), effect(verified), verified, &message, None, "background", id)));
         }
         // A leaf node has nothing to expand: it is invoked, else selected
         // (Do-Invoke's ExpandCollapse branch).
-        let expandable = element
-            .expand_state()
-            .filter(|state| EXPANDABLE_STATES.contains(&state.as_str()));
+        let expandable = element.expand_state().filter(|state| EXPANDABLE_STATES.contains(&state.as_str()));
         if let Some(before) = expandable {
-            let expected = if before == "Expanded" {
-                "Collapsed"
-            } else {
-                "Expanded"
-            };
+            let expected = if before == "Expanded" { "Collapsed" } else { "Expanded" };
             self.authorize_current(0)?;
             element.set_expanded(expected == "Expanded")?;
             let after = wait_for_change(&before, || element.expand_state());
             let verified = after == expected;
             let message = format!("activated {reference} through {tree} expand/collapse from {before} to {after}");
-            return Ok(Some(self.action_result(
-                "invoke",
-                &format!("{prefix}_expand_collapse"),
-                effect(verified),
-                verified,
-                &message,
-                None,
-                "background",
-                id,
-            )));
+            return Ok(Some(self.action_result("invoke", &format!("{prefix}_expand_collapse"), effect(verified), verified, &message, None, "background", id)));
         }
         if element.can_press() {
             self.authorize_current(0)?;
@@ -152,25 +105,13 @@ impl Host {
             return Ok(None);
         }
         let message = format!("element {reference} exposes no semantic toggle/invoke/select action; no physical fallback was attempted");
-        Ok(Some(self.background_unavailable(
-            "invoke",
-            &message,
-            id,
-            "background_unavailable",
-            false,
-        )))
+        Ok(Some(self.background_unavailable("invoke", &message, id, "background_unavailable", false)))
     }
 
     /// An MSAA ref's default action (Do-Invoke, the msaa branch). An element
     /// with no default action yields `None` under `allow_native_click`, so
     /// the pointer route runs.
-    fn invoke_msaa(
-        &self,
-        reference: &str,
-        element: &dyn Element,
-        id: Option<String>,
-        allow_native_click: bool,
-    ) -> Res<Option<Obj>> {
+    fn invoke_msaa(&self, reference: &str, element: &dyn Element, id: Option<String>, allow_native_click: bool) -> Res<Option<Obj>> {
         if !element.enabled() {
             return Ok(Some(self.background_unavailable(
                 "invoke",
@@ -196,13 +137,9 @@ impl Host {
                 "background",
                 id,
             ),
-            Err(error) => self.background_unavailable(
-                "invoke",
-                &format!("MSAA default action failed for {reference}: {error}"),
-                id,
-                "msaa_action_failed",
-                true,
-            ),
+            Err(error) => {
+                self.background_unavailable("invoke", &format!("MSAA default action failed for {reference}: {error}"), id, "msaa_action_failed", true)
+            }
         }))
     }
 
@@ -248,28 +185,20 @@ fn wait_for_change(before: &str, read: impl Fn() -> Option<String>) -> String {
 
 #[cfg(test)]
 mod tests {
-    use crate::host::semantic::observable::probe::{probe_node, Probe};
-    use crate::host::semantic::tests::{host, named, part_node, snapshot, Log, Part};
-    use std::rc::Rc;
+    use crate::host::semantic::observable::probe::{Probe, probe_node};
+    use crate::host::semantic::tests::{Log, Part, host, named, part_node, snapshot};
     use crate::protocol::{Obj, Req};
     use serde_json::json;
     use std::cell::Cell;
+    use std::rc::Rc;
 
     /// Invokes the one tree item of a window, in expand state `expand`.
     fn invoke(expand: &'static str, pressable: bool, selectable: bool) -> (Obj, Log) {
         let log = Log::default();
-        let (host, _) = host(vec![part_node(Part {
-            expand: Cell::new(Some(expand)),
-            pressable,
-            selectable,
-            log: log.clone(),
-            ..named("TreeItem", "key", "a")
-        })]);
+        let (host, _) =
+            host(vec![part_node(Part { expand: Cell::new(Some(expand)), pressable, selectable, log: log.clone(), ..named("TreeItem", "key", "a") })]);
         snapshot(&host, json!({}));
-        let result = host
-            .do_invoke(&Req(json!({ "ref": "s1:e0" })), false)
-            .expect("invoke")
-            .expect("a semantic result");
+        let result = host.do_invoke(&Req(json!({ "ref": "s1:e0" })), false).expect("invoke").expect("a semantic result");
         (result, log)
     }
 
@@ -302,9 +231,7 @@ mod tests {
         let probe = Rc::new(probe);
         let (host, _) = host(vec![probe_node(&probe)]);
         snapshot(&host, json!({}));
-        let result = host
-            .do_invoke(&Req(json!({ "ref": "s1:e0" })), allow_native_click)
-            .expect("invoke");
+        let result = host.do_invoke(&Req(json!({ "ref": "s1:e0" })), allow_native_click).expect("invoke");
         (result, probe)
     }
 

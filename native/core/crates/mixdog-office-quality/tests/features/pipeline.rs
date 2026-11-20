@@ -26,11 +26,7 @@ fn the_polish_plan_lists_errors_first_then_paths_and_one_target_per_path() {
     assert_eq!(paths, ["/z", "/a", "/b"]);
     assert_eq!(targets[0]["severity"], "error");
     assert_eq!(targets[1]["codes"], json!(["second_kind", "third_kind"]));
-    assert_eq!(
-        targets[2]["actions"],
-        json!(["Correct first_kind at /b, then render and inspect the affected page again."]),
-        "a repeated record is one action"
-    );
+    assert_eq!(targets[2]["actions"], json!(["Correct first_kind at /b, then render and inspect the affected page again."]), "a repeated record is one action");
     assert_eq!(plan["nextAction"], "Edit only the reported targets in one atomic batch, render the changed pages, then run QA again.");
 }
 

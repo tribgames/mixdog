@@ -15,11 +15,7 @@
 //! entries and exceptions that have no exact rule leave routing untouched. Any
 //! read failure means no system proxy.
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "the registry read is a bounded child process run on a blocking thread"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the registry read is a bounded child process run on a blocking thread")]
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -52,15 +48,7 @@ use super::route::EnvLookup;
 pub const HANDOFF_VAR: &str = "MIXDOG_SYSTEM_PROXY_HANDOFF";
 
 const INTERNET_SETTINGS_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Internet Settings";
-const USER_PROXY_VARS: [&str; 7] = [
-    "HTTPS_PROXY",
-    "https_proxy",
-    "HTTP_PROXY",
-    "http_proxy",
-    "ALL_PROXY",
-    "all_proxy",
-    "NODE_USE_ENV_PROXY",
-];
+const USER_PROXY_VARS: [&str; 7] = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy", "NODE_USE_ENV_PROXY"];
 const RESOLVE_TIMEOUT: Duration = Duration::from_millis(3_000);
 const ROUTE_TTL: Duration = Duration::from_millis(5 * 60_000);
 /// A failed lookup is asked again sooner, but not on every request of a burst.
@@ -257,9 +245,7 @@ pub fn translate_proxy_override(value: &str) -> Option<Bypass> {
         }
         if let Some(caps) = regex(&WILDCARD_HOST, r"^\*\.((?:[a-z0-9_-]+\.)*[a-z0-9_-]+)$", "").captures(&entry) {
             bypass.suffixes.push(caps.get(1).unwrap_or_default().to_owned());
-        } else if regex(&PLAIN_HOST, r"^(?:[a-z0-9_-]+\.)*[a-z0-9_-]+$", "").is_match(&entry)
-            && !regex(&DIGITS_DOTS, r"^[\d.]+$", "").is_match(&entry)
-        {
+        } else if regex(&PLAIN_HOST, r"^(?:[a-z0-9_-]+\.)*[a-z0-9_-]+$", "").is_match(&entry) && !regex(&DIGITS_DOTS, r"^[\d.]+$", "").is_match(&entry) {
             bypass.hosts.push(entry);
         } else {
             return None;
@@ -286,8 +272,8 @@ pub fn system_proxy_from_registry(values: Option<&RegistryValues>) -> Result<Dec
         return Err(skip("a PAC script is configured", false));
     }
     let pair = parse_proxy_server(server).map_err(|reason| skip(&reason, false))?;
-    let bypass = translate_proxy_override(values.proxy_override.as_deref().unwrap_or(""))
-        .ok_or_else(|| skip("proxy exceptions cannot be translated exactly", false))?;
+    let bypass =
+        translate_proxy_override(values.proxy_override.as_deref().unwrap_or("")).ok_or_else(|| skip("proxy exceptions cannot be translated exactly", false))?;
     Ok(Decision { proxy: Some(pair), bypass })
 }
 
@@ -302,10 +288,7 @@ fn usable_proxy_url(value: &Value) -> Option<String> {
 }
 
 fn string_list(value: Option<&Value>) -> Vec<String> {
-    value
-        .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect())
-        .unwrap_or_default()
+    value.and_then(Value::as_array).map(|items| items.iter().filter_map(|item| item.as_str().map(str::to_owned)).collect()).unwrap_or_default()
 }
 
 enum Handoff {
@@ -333,10 +316,7 @@ fn parse_handoff(text: Option<&str>) -> Handoff {
 fn decision_of(https: String, http: Option<String>, bypass: Option<&Value>) -> Decision {
     Decision {
         proxy: Some(ProxyPair { https, http }),
-        bypass: Bypass {
-            hosts: string_list(bypass.and_then(|b| b.get("hosts"))),
-            suffixes: string_list(bypass.and_then(|b| b.get("suffixes"))),
-        },
+        bypass: Bypass { hosts: string_list(bypass.and_then(|b| b.get("hosts"))), suffixes: string_list(bypass.and_then(|b| b.get("suffixes"))) },
     }
 }
 
@@ -543,13 +523,7 @@ impl SystemProxy {
     /// environment) is the decision; without one, Windows reads the registry.
     /// Nothing happens when the user set a proxy variable or
     /// `MIXDOG_SYSTEM_PROXY=0`. Returns true when a proxy was applied.
-    pub async fn adopt(
-        &self,
-        env: &dyn EnvLookup,
-        handoff: Option<&str>,
-        windows: bool,
-        reader: &dyn RegistryReader,
-    ) -> bool {
+    pub async fn adopt(&self, env: &dyn EnvLookup, handoff: Option<&str>, windows: bool, reader: &dyn RegistryReader) -> bool {
         let handoff = parse_handoff(handoff);
         {
             let mut state = self.inner.state();
@@ -558,9 +532,7 @@ impl SystemProxy {
             state.routing_installed = false;
             state.resolvers.clear();
             Inner::reset_routes(&mut state);
-            if env.get("MIXDOG_SYSTEM_PROXY").as_deref() == Some("0")
-                || USER_PROXY_VARS.iter().any(|name| env.get(name).is_some())
-            {
+            if env.get("MIXDOG_SYSTEM_PROXY").as_deref() == Some("0") || USER_PROXY_VARS.iter().any(|name| env.get(name).is_some()) {
                 return false;
             }
             state.install_routing = true;
@@ -623,11 +595,7 @@ impl SystemProxy {
             return Vec::new();
         }
         let Some(proxy) = self.route(&url.origin().ascii_serialization()).await.proxy else { return Vec::new() };
-        vec![
-            ("npm_config_proxy", proxy.clone()),
-            ("npm_config_https_proxy", proxy),
-            ("npm_config_noproxy", "localhost,127.0.0.1,::1,.local".to_owned()),
-        ]
+        vec![("npm_config_proxy", proxy.clone()), ("npm_config_https_proxy", proxy), ("npm_config_noproxy", "localhost,127.0.0.1,::1,.local".to_owned())]
     }
 
     pub fn handoff_env(&self) -> Option<(&'static str, String)> {
@@ -666,11 +634,7 @@ fn reg_exe() -> std::path::PathBuf {
 fn query_registry_key(key: &str) -> Option<HashMap<String, String>> {
     use std::io::Read;
     let mut command = std::process::Command::new(reg_exe());
-    command
-        .args(["query", key])
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null());
+    command.args(["query", key]).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::piped()).stderr(std::process::Stdio::null());
     #[cfg(windows)]
     std::os::windows::process::CommandExt::creation_flags(&mut command, 0x0800_0000);
     let mut child = command.spawn().ok()?;

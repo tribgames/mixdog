@@ -28,7 +28,9 @@ pub enum Poll<T> {
         fault: LoginFailure,
     },
     /// The request itself failed (timeout, connection); `fault` as above.
-    Network { fault: LoginFailure },
+    Network {
+        fault: LoginFailure,
+    },
     /// An answer that ends the login.
     Fatal(LoginFailure),
 }
@@ -105,22 +107,14 @@ impl Schedule {
 }
 
 /// Polls until a grant, a refusal, or the device code's expiry.
-pub async fn run<T, F, Fut>(
-    pace: &dyn Pace,
-    schedule: Schedule,
-    mut poll: F,
-) -> Result<T, LoginFailure>
+pub async fn run<T, F, Fut>(pace: &dyn Pace, schedule: Schedule, mut poll: F) -> Result<T, LoginFailure>
 where
     F: FnMut() -> Fut,
     Fut: std::future::Future<Output = Poll<T>>,
 {
     let mut interval = schedule.interval;
     let mut failures = 0;
-    let left = |now: u64| {
-        schedule
-            .deadline_ms
-            .map(|d| Duration::from_millis(d.saturating_sub(now)))
-    };
+    let left = |now: u64| schedule.deadline_ms.map(|d| Duration::from_millis(d.saturating_sub(now)));
     let mut attempts = 0u32;
     if schedule.wait_first {
         match left(pace.now_ms()) {
@@ -147,11 +141,7 @@ where
             Poll::Expired => return Err(LoginFailure::Expired),
             Poll::Denied => return Err(LoginFailure::Denied),
             Poll::Fatal(failure) => return Err(failure),
-            Poll::Transient {
-                rate_limited,
-                retry_after,
-                fault,
-            } => {
+            Poll::Transient { rate_limited, retry_after, fault } => {
                 failures += 1;
                 if failures >= schedule.max_consecutive_errors {
                     return Err(fault);
@@ -195,12 +185,7 @@ mod tests {
     use crate::oauth::pace::FakePace;
 
     fn schedule(deadline_ms: Option<u64>) -> Schedule {
-        Schedule {
-            interval: Duration::from_secs(5),
-            deadline_ms,
-            back_off_on_network: true,
-            ..Schedule::default()
-        }
+        Schedule { interval: Duration::from_secs(5), deadline_ms, back_off_on_network: true, ..Schedule::default() }
     }
 
     fn waits_ms(pace: &FakePace) -> Vec<u128> {
@@ -227,27 +212,15 @@ mod tests {
         replies.push(Poll::Granted(1));
         let got = run(&pace, Schedule::cursor(), script(replies)).await;
         assert_eq!(got, Ok(1));
-        assert_eq!(
-            waits_ms(&pace),
-            [1000, 1200, 1440, 1728, 2074, 2489, 2987, 3585, 4302, 5163, 6196, 7436, 8924, 10000, 10000]
-        );
+        assert_eq!(waits_ms(&pace), [1000, 1200, 1440, 1728, 2074, 2489, 2987, 3585, 4302, 5163, 6196, 7436, 8924, 10000, 10000]);
     }
 
     #[tokio::test]
     async fn cursor_schedule_counts_consecutive_errors_and_a_pending_answer_resets_them() {
         let pace = FakePace::default();
-        let ok = run(
-            &pace,
-            Schedule::cursor(),
-            script(vec![network(), network(), Poll::Pending, network(), network(), Poll::Granted(2)]),
-        )
-        .await;
+        let ok = run(&pace, Schedule::cursor(), script(vec![network(), network(), Poll::Pending, network(), network(), Poll::Granted(2)])).await;
         assert_eq!(ok, Ok(2));
-        assert_eq!(
-            waits_ms(&pace),
-            [1000, 1000, 1000, 1200, 1200, 1200],
-            "errors leave the interval alone; the pending answer grew it"
-        );
+        assert_eq!(waits_ms(&pace), [1000, 1000, 1000, 1200, 1200, 1200], "errors leave the interval alone; the pending answer grew it");
         let pace = FakePace::default();
         let failed = run(&pace, Schedule::cursor(), script(vec![network(), network(), network()])).await;
         assert_eq!(failed, Err(LoginFailure::Denied), "the third consecutive error ends the flow");
@@ -280,35 +253,17 @@ mod tests {
     #[tokio::test]
     async fn slow_down_widens_the_interval_for_the_rest_of_the_flow() {
         let pace = FakePace::default();
-        let got = run(
-            &pace,
-            schedule(None),
-            script(vec![Poll::Pending, Poll::SlowDown, Poll::Pending, Poll::Granted(7)]),
-        )
-        .await;
+        let got = run(&pace, schedule(None), script(vec![Poll::Pending, Poll::SlowDown, Poll::Pending, Poll::Granted(7)])).await;
         assert_eq!(got, Ok(7));
         assert_eq!(waits(&pace), [5, 10, 10]);
     }
 
     #[tokio::test]
     async fn rate_limits_honour_retry_after_and_run_out() {
-        let transient = |after| Poll::Transient {
-            rate_limited: true,
-            retry_after: after,
-            fault: LoginFailure::Denied,
-        };
+        let transient = |after| Poll::Transient { rate_limited: true, retry_after: after, fault: LoginFailure::Denied };
         let pace = FakePace::default();
-        let got: Result<u32, _> = run(
-            &pace,
-            schedule(None),
-            script(vec![
-                transient(Some(Duration::from_secs(40))),
-                transient(None),
-                transient(None),
-                transient(None),
-            ]),
-        )
-        .await;
+        let got: Result<u32, _> =
+            run(&pace, schedule(None), script(vec![transient(Some(Duration::from_secs(40))), transient(None), transient(None), transient(None)])).await;
         assert_eq!(got, Err(LoginFailure::Denied), "the fourth transient answer gives up");
         assert_eq!(waits(&pace), [40, 15, 20]);
     }
@@ -316,23 +271,14 @@ mod tests {
     #[tokio::test]
     async fn the_device_codes_own_expiry_ends_the_flow() {
         let pace = FakePace::default();
-        let got: Result<u32, _> = run(
-            &pace,
-            schedule(Some(12_000)),
-            script(vec![Poll::Pending, Poll::Pending, Poll::Pending]),
-        )
-        .await;
+        let got: Result<u32, _> = run(&pace, schedule(Some(12_000)), script(vec![Poll::Pending, Poll::Pending, Poll::Pending])).await;
         assert_eq!(got, Err(LoginFailure::Expired));
         assert_eq!(waits(&pace), [5, 5, 2], "the last wait stops at the deadline");
     }
 
     #[tokio::test]
     async fn network_faults_back_off_until_the_cap() {
-        let net = || Poll::Network {
-            fault: LoginFailure::Unavailable {
-                capability: "net".into(),
-            },
-        };
+        let net = || Poll::Network { fault: LoginFailure::Unavailable { capability: "net".into() } };
         let pace = FakePace::default();
         let mut s = schedule(None);
         s.interval = Duration::from_secs(40);

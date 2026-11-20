@@ -101,12 +101,7 @@ pub struct LayoutOptions {
 
 impl Default for LayoutOptions {
     fn default() -> Self {
-        LayoutOptions {
-            pages: None,
-            max_items: DEFAULT_MAX_ITEMS,
-            shapes: true,
-            cancel: None,
-        }
+        LayoutOptions { pages: None, max_items: DEFAULT_MAX_ITEMS, shapes: true, cancel: None }
     }
 }
 
@@ -125,12 +120,7 @@ enum Shape {
 }
 
 fn line_shape(x1: f64, y1: f64, x2: f64, y2: f64) -> Shape {
-    Shape::Line(RuledLine {
-        x1: round2(x1),
-        y1: round2(y1),
-        x2: round2(x2),
-        y2: round2(y2),
-    })
+    Shape::Line(RuledLine { x1: round2(x1), y1: round2(y1), x2: round2(x2), y2: round2(y2) })
 }
 
 /// One straight subpath in page space: a hairline stroke or a thin filled bar reads as a line, an axis-aligned closed
@@ -143,19 +133,11 @@ fn shape_of_subpath(points: &[(f64, f64)], filled: bool, stroked: bool) -> Optio
     let height = max_of(points.iter().map(|p| p.1)) - top;
     if points.len() == 2 {
         if stroked && (near(height, 0.0, 1.0) || near(width, 0.0, 1.0)) {
-            return Some(line_shape(
-                points[0].0,
-                points[0].1,
-                points[1].0,
-                points[1].1,
-            ));
+            return Some(line_shape(points[0].0, points[0].1, points[1].0, points[1].1));
         }
         return None;
     }
-    let closed = points.len() == 4
-        || (points.len() == 5
-            && near(points[0].0, points[4].0, 0.5)
-            && near(points[0].1, points[4].1, 0.5));
+    let closed = points.len() == 4 || (points.len() == 5 && near(points[0].0, points[4].0, 0.5) && near(points[0].1, points[4].1, 0.5));
     if !closed {
         return None;
     }
@@ -167,20 +149,10 @@ fn shape_of_subpath(points: &[(f64, f64)], filled: bool, stroked: bool) -> Optio
         return None;
     }
     if filled && height <= 1.5 && width > 6.0 {
-        return Some(line_shape(
-            x,
-            top + height / 2.0,
-            x + width,
-            top + height / 2.0,
-        ));
+        return Some(line_shape(x, top + height / 2.0, x + width, top + height / 2.0));
     }
     if filled && width <= 1.5 && height > 6.0 {
-        return Some(line_shape(
-            x + width / 2.0,
-            top,
-            x + width / 2.0,
-            top + height,
-        ));
+        return Some(line_shape(x + width / 2.0, top, x + width / 2.0, top + height));
     }
     if width >= 2.0 && height >= 2.0 {
         return Some(Shape::Box(BoxShape {
@@ -190,28 +162,18 @@ fn shape_of_subpath(points: &[(f64, f64)], filled: bool, stroked: bool) -> Optio
             height: round2(height),
             filled,
             stroked,
-            checkbox: (6.0..=24.0).contains(&width)
-                && (6.0..=24.0).contains(&height)
-                && (width - height).abs() <= 2.0,
+            checkbox: (6.0..=24.0).contains(&width) && (6.0..=24.0).contains(&height) && (width - height).abs() <= 2.0,
         }));
     }
     None
 }
 
-fn page_shapes(
-    document: &Document,
-    page: &Page,
-    viewport: &Viewport,
-) -> Result<(Vec<RuledLine>, Vec<BoxShape>), PdfError> {
+fn page_shapes(document: &Document, page: &Page, viewport: &Viewport) -> Result<(Vec<RuledLine>, Vec<BoxShape>), PdfError> {
     let list = oplist::get_operator_list_with_annotations(document, page, None)?;
     let mut lines = Vec::new();
     let mut boxes = Vec::new();
     for (ctm, op) in list.with_transforms() {
-        let Op::ConstructPath {
-            paint,
-            path: Some(path),
-        } = op
-        else {
+        let Op::ConstructPath { paint, path: Some(path) } = op else {
             continue;
         };
         let (filled, stroked) = (paint.fills(), paint.strokes());
@@ -223,11 +185,7 @@ fn page_shapes(
             if subpath.curved {
                 continue;
             }
-            let points: Vec<(f64, f64)> = subpath
-                .points
-                .iter()
-                .map(|point| apply_point(*point, &full))
-                .collect();
+            let points: Vec<(f64, f64)> = subpath.points.iter().map(|point| apply_point(*point, &full)).collect();
             match shape_of_subpath(&points, filled, stroked) {
                 Some(Shape::Line(line)) => lines.push(line),
                 Some(Shape::Box(shape)) => boxes.push(shape),
@@ -245,29 +203,21 @@ fn page_shapes(
 
 /// The page a destination's first element names: a page reference is looked up, a whole number is a page index.
 /// `None` when it names neither or the lookup fails; a cancellation or a budget failure propagates.
-pub(crate) fn destination_page(
-    document: &Document,
-    target: Option<&Obj>,
-) -> Result<Option<i64>, PdfError> {
+pub(crate) fn destination_page(document: &Document, target: Option<&Obj>) -> Result<Option<i64>, PdfError> {
     match target {
         Some(Obj::Ref(reference)) => match outline_read::get_page_index(document, *reference) {
             Ok(index) => Ok(Some(index as i64 + 1)),
             Err(error) if error.is_fatal() => Err(error),
             Err(_) => Ok(None),
         },
-        Some(Obj::Num(number)) if number.is_finite() && number.fract() == 0.0 => {
-            Ok(Some(*number as i64 + 1))
-        }
+        Some(Obj::Num(number)) if number.is_finite() && number.fract() == 0.0 => Ok(Some(*number as i64 + 1)),
         _ => Ok(None),
     }
 }
 
 /// The explicit destination a `dest` stands for: a name is looked up, an array is the destination. `None` for an empty
 /// name, an unknown one, or a lookup that fails; a cancellation or a budget failure propagates.
-pub(crate) fn explicit_destination(
-    document: &Document,
-    dest: &outline_read::Dest,
-) -> Result<Option<Vec<Obj>>, PdfError> {
+pub(crate) fn explicit_destination(document: &Document, dest: &outline_read::Dest) -> Result<Option<Vec<Obj>>, PdfError> {
     match dest {
         outline_read::Dest::Named(name) if name.is_empty() => Ok(None),
         outline_read::Dest::Named(name) => match outline_read::get_destination(document, name) {
@@ -281,11 +231,7 @@ pub(crate) fn explicit_destination(
 
 /// Link annotations in the same top-left coordinates as the text, so a reader can say where a link sits and what it
 /// opens.
-fn page_links(
-    document: &Document,
-    page: &Page,
-    viewport: &Viewport,
-) -> Result<Vec<Link>, PdfError> {
+fn page_links(document: &Document, page: &Page, viewport: &Viewport) -> Result<Vec<Link>, PdfError> {
     let mut links = Vec::new();
     let found = match annotations::get_annotations(document, page) {
         Ok(found) => found,
@@ -311,11 +257,7 @@ fn page_links(
         };
         // unsafeUrl is the string the file carries; url is pdf.js's normalized copy (a trailing slash appears).
         let action = &annotation.action;
-        let url = action
-            .unsafe_url
-            .as_ref()
-            .filter(|url| !url.is_empty())
-            .or(action.url.as_ref().filter(|url| !url.is_empty()));
+        let url = action.unsafe_url.as_ref().filter(|url| !url.is_empty()).or(action.url.as_ref().filter(|url| !url.is_empty()));
         if let Some(url) = url {
             entry.url = Some(url.clone());
         } else if let Some(dest) = &action.dest
@@ -339,11 +281,7 @@ fn page_links(
 fn layout_item(viewport: &Viewport, item: &TextItem, text: String) -> LayoutItem {
     let [a, b, c, d, e, f] = transform(&viewport.transform, &item.transform);
     let hypot = a.hypot(b);
-    let advance = if hypot == 0.0 || hypot.is_nan() {
-        1.0
-    } else {
-        hypot
-    };
+    let advance = if hypot == 0.0 || hypot.is_nan() { 1.0 } else { hypot };
     let run = [(a / advance) * item.width, (b / advance) * item.width];
     let xs = [e, e + run[0], e + c, e + run[0] + c];
     let ys = [f, f + run[1], f + d, f + run[1] + d];
@@ -366,14 +304,7 @@ fn layout_item(viewport: &Viewport, item: &TextItem, text: String) -> LayoutItem
     }
 }
 
-fn page_layout(
-    document: &Document,
-    page: &Page,
-    number: usize,
-    viewport: &Viewport,
-    items: Vec<LayoutItem>,
-    shapes: bool,
-) -> Result<PageLayout, PdfError> {
+fn page_layout(document: &Document, page: &Page, number: usize, viewport: &Viewport, items: Vec<LayoutItem>, shapes: bool) -> Result<PageLayout, PdfError> {
     let mut layout = PageLayout {
         page: number,
         width: round2(viewport.width),
@@ -401,11 +332,7 @@ fn page_layout(
         Err(error) if error.is_fatal() => return Err(error),
         Err(error) => {
             let message = error.message();
-            layout.shapes_unavailable = Some(if message.is_empty() {
-                error.to_string()
-            } else {
-                message.to_owned()
-            });
+            layout.shapes_unavailable = Some(if message.is_empty() { error.to_string() } else { message.to_owned() });
         }
     }
     layout.links = page_links(document, page, viewport)?;
@@ -413,11 +340,7 @@ fn page_layout(
 }
 
 /// `extractPdfTextLayout(path, { pages, maxItems, shapes, signal })`.
-pub fn extract_pdf_text_layout<P: ReadProof>(
-    proof: &P,
-    source: PdfSource<'_>,
-    options: &LayoutOptions,
-) -> Result<PdfLayout, AnalysisError> {
+pub fn extract_pdf_text_layout<P: ReadProof>(proof: &P, source: PdfSource<'_>, options: &LayoutOptions) -> Result<PdfLayout, AnalysisError> {
     let reader = |error: PdfError| AnalysisError::from_pdf_or_cancelled(&error, CANCELLED);
     let document = open_pdf(proof, source, options.cancel.clone())?;
     let fonts = text::font_loader(&document);
@@ -443,19 +366,12 @@ pub fn extract_pdf_text_layout<P: ReadProof>(
             items.push(layout_item(&viewport, item, item.text()));
         }
         item_count += items.len();
-        pages.push(
-            page_layout(&document, &page, number, &viewport, items, options.shapes)
-                .map_err(reader)?,
-        );
+        pages.push(page_layout(&document, &page, number, &viewport, items, options.shapes).map_err(reader)?);
         if truncated {
             break;
         }
     }
-    Ok(PdfLayout {
-        page_count: document.num_pages(),
-        pages,
-        truncated,
-    })
+    Ok(PdfLayout { page_count: document.num_pages(), pages, truncated })
 }
 
 // ---- the JSON Node returns -------------------------------------------------------------------------------------------
@@ -483,12 +399,7 @@ impl LayoutItem {
 
 impl RuledLine {
     pub fn to_json(&self) -> Value {
-        object(vec![
-            ("x1", json_number(self.x1)),
-            ("y1", json_number(self.y1)),
-            ("x2", json_number(self.x2)),
-            ("y2", json_number(self.y2)),
-        ])
+        object(vec![("x1", json_number(self.x1)), ("y1", json_number(self.y1)), ("x2", json_number(self.x2)), ("y2", json_number(self.y2))])
     }
 }
 
@@ -508,12 +419,8 @@ impl BoxShape {
 
 impl Link {
     pub fn to_json(&self) -> Value {
-        let mut pairs = vec![
-            ("x", json_number(self.x)),
-            ("top", json_number(self.top)),
-            ("width", json_number(self.width)),
-            ("height", json_number(self.height)),
-        ];
+        let mut pairs =
+            vec![("x", json_number(self.x)), ("top", json_number(self.top)), ("width", json_number(self.width)), ("height", json_number(self.height))];
         if let Some(url) = &self.url {
             pairs.push(("url", Value::from(url.clone())));
         } else if let Some(page) = self.page {
@@ -525,40 +432,18 @@ impl Link {
 
 impl PageLayout {
     pub fn to_json(&self) -> Value {
-        let mut pairs = vec![
-            ("page", Value::from(self.page)),
-            ("width", json_number(self.width)),
-            ("height", json_number(self.height)),
-        ];
+        let mut pairs = vec![("page", Value::from(self.page)), ("width", json_number(self.width)), ("height", json_number(self.height))];
         if let Some((x, y)) = self.origin {
-            pairs.push((
-                "origin",
-                object(vec![("x", json_number(x)), ("y", json_number(y))]),
-            ));
+            pairs.push(("origin", object(vec![("x", json_number(x)), ("y", json_number(y))])));
         }
-        pairs.push((
-            "transform",
-            Value::Array(self.transform.iter().map(|v| json_number(*v)).collect()),
-        ));
-        pairs.push((
-            "items",
-            Value::Array(self.items.iter().map(LayoutItem::to_json).collect()),
-        ));
-        pairs.push((
-            "lines",
-            Value::Array(self.lines.iter().map(RuledLine::to_json).collect()),
-        ));
-        pairs.push((
-            "boxes",
-            Value::Array(self.boxes.iter().map(BoxShape::to_json).collect()),
-        ));
+        pairs.push(("transform", Value::Array(self.transform.iter().map(|v| json_number(*v)).collect())));
+        pairs.push(("items", Value::Array(self.items.iter().map(LayoutItem::to_json).collect())));
+        pairs.push(("lines", Value::Array(self.lines.iter().map(RuledLine::to_json).collect())));
+        pairs.push(("boxes", Value::Array(self.boxes.iter().map(BoxShape::to_json).collect())));
         if let Some(reason) = &self.shapes_unavailable {
             pairs.push(("shapesUnavailable", Value::from(reason.clone())));
         }
-        pairs.push((
-            "links",
-            Value::Array(self.links.iter().map(Link::to_json).collect()),
-        ));
+        pairs.push(("links", Value::Array(self.links.iter().map(Link::to_json).collect())));
         object(pairs)
     }
 }
@@ -567,10 +452,7 @@ impl PdfLayout {
     pub fn to_json(&self) -> Value {
         object(vec![
             ("pageCount", Value::from(self.page_count)),
-            (
-                "pages",
-                Value::Array(self.pages.iter().map(PageLayout::to_json).collect()),
-            ),
+            ("pages", Value::Array(self.pages.iter().map(PageLayout::to_json).collect())),
             ("truncated", Value::Bool(self.truncated)),
         ])
     }
@@ -609,15 +491,9 @@ mod tests {
     #[test]
     fn a_thin_filled_bar_is_a_line_through_its_middle() {
         let across = only_line(shape_of_subpath(&rect(10.0, 20.0, 100.0, 1.0), true, false));
-        assert_eq!(
-            (across.x1, across.y1, across.x2, across.y2),
-            (10.0, 20.5, 110.0, 20.5)
-        );
+        assert_eq!((across.x1, across.y1, across.x2, across.y2), (10.0, 20.5, 110.0, 20.5));
         let down = only_line(shape_of_subpath(&rect(10.0, 20.0, 1.0, 40.0), true, false));
-        assert_eq!(
-            (down.x1, down.y1, down.x2, down.y2),
-            (10.5, 20.0, 10.5, 60.0)
-        );
+        assert_eq!((down.x1, down.y1, down.x2, down.y2), (10.5, 20.0, 10.5, 60.0));
     }
 
     #[test]
@@ -650,21 +526,8 @@ mod tests {
             direction: "ltr".into(),
             font: "g_d0_f1".into(),
         };
-        assert_eq!(
-            item.to_json().to_string(),
-            r#"{"text":"a","x":1,"top":2.5,"width":3,"height":4,"reversed":true,"direction":"ltr","font":"g_d0_f1"}"#
-        );
-        let link = Link {
-            x: 1.0,
-            top: 1.0,
-            width: 1.0,
-            height: 1.0,
-            url: None,
-            page: Some(2),
-        };
-        assert_eq!(
-            link.to_json().to_string(),
-            r#"{"x":1,"top":1,"width":1,"height":1,"page":2}"#
-        );
+        assert_eq!(item.to_json().to_string(), r#"{"text":"a","x":1,"top":2.5,"width":3,"height":4,"reversed":true,"direction":"ltr","font":"g_d0_f1"}"#);
+        let link = Link { x: 1.0, top: 1.0, width: 1.0, height: 1.0, url: None, page: Some(2) };
+        assert_eq!(link.to_json().to_string(), r#"{"x":1,"top":1,"width":1,"height":1,"page":2}"#);
     }
 }

@@ -163,7 +163,8 @@ async fn a_change_the_first_load_took_in_is_not_applied_again() {
     let mut changes = rig.config.changes();
     let touched = tokio::sync::Notify::new();
     touched.notify_one();
-    let agent: Value = serde_json::from_str(&agent_hiding(&scenario, "custom-aaaa", &["m1"]).to_string().replace("__BASE_URL__", "http://127.0.0.1:9")).unwrap();
+    let agent: Value =
+        serde_json::from_str(&agent_hiding(&scenario, "custom-aaaa", &["m1"]).to_string().replace("__BASE_URL__", "http://127.0.0.1:9")).unwrap();
     let stored = agent.as_object().cloned().unwrap();
     rig.config
         .update_agent(move |doc| {

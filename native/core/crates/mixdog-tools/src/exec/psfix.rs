@@ -44,8 +44,7 @@ fn missing_command_names(err: &str) -> Vec<String> {
 /// A one-line PowerShell equivalent for a failed command whose stderr is the shell's own
 /// bash-ism error; empty when nothing applies. Only meaningful on Windows.
 pub fn powershell_bashism_hint(command: &str, stderr: &str) -> String {
-    let parser_rejected =
-        lazy_re!(r"^ParserError:|\b(?:RedirectionNotSupported|MissingFileSpecification)\b", "m").is_match(stderr);
+    let parser_rejected = lazy_re!(r"^ParserError:|\b(?:RedirectionNotSupported|MissingFileSpecification)\b", "m").is_match(stderr);
     if lazy_re!(r"<\s*/dev/null", "").is_match(command) && parser_rejected {
         return "hint: PowerShell has no `<` redirection; drop </dev/null.".to_owned();
     }
@@ -114,14 +113,15 @@ fn base64_utf16le(script: &str) -> String {
 
 fn wmic_fields(normalized: &str) -> Vec<String> {
     let defaults = || DEFAULT_FIELDS.iter().map(|f| (*f).to_owned()).collect();
-    let Some(m) = lazy_re!(r#"\bget\s+([\s\S]+?)(?:\s+/format:\w+)?\s*["']?\s*$"#, "i").captures(normalized)
-    else {
+    let Some(m) = lazy_re!(r#"\bget\s+([\s\S]+?)(?:\s+/format:\w+)?\s*["']?\s*$"#, "i").captures(normalized) else {
         return defaults();
     };
     let mut fields: Vec<String> = Vec::new();
     for raw in m.get(1).unwrap_or("").split(|c: char| c == ',' || mixdog_js::is_js_space(c)) {
         let key: String = js_trim(raw).chars().filter(|c| c.is_ascii_alphanumeric() || *c == '_').collect();
-        if let Some((_, field)) = FIELD_MAP.iter().find(|(k, _)| *k == key.to_lowercase()) && !fields.iter().any(|f| f == field) {
+        if let Some((_, field)) = FIELD_MAP.iter().find(|(k, _)| *k == key.to_lowercase())
+            && !fields.iter().any(|f| f == field)
+        {
             fields.push((*field).to_owned());
         }
     }
@@ -131,17 +131,15 @@ fn wmic_fields(normalized: &str) -> Vec<String> {
 /// `None` for a command that is not a plain `wmic process` call (composite commands keep their
 /// surrounding context); `Err` for the probe without a `get`.
 pub fn rewrite_wmic_process(text: &str) -> Option<Result<WmicRewrite, String>> {
-    if !lazy_re!(
-        r#"^\s*(?:&\s*)?(?:cmd(?:\.exe)?\s+/c\s+["']?)?(?:\S*[\\/])?wmic(?:\.exe)?\s+process\b"#,
-        "i"
-    )
-    .is_match(text)
+    if !lazy_re!(r#"^\s*(?:&\s*)?(?:cmd(?:\.exe)?\s+/c\s+["']?)?(?:\S*[\\/])?wmic(?:\.exe)?\s+process\b"#, "i").is_match(text)
         || lazy_re!(r"[|&;]|\$\(|`", "").is_match(text)
     {
         return None;
     }
     if !lazy_re!(r"\bget\b", "i").is_match(text) {
-        return Some(Err("wmic process commands are disabled because WMIC can stall for minutes; use PowerShell Get-CimInstance/Get-Process instead.".to_owned()));
+        return Some(Err(
+            "wmic process commands are disabled because WMIC can stall for minutes; use PowerShell Get-CimInstance/Get-Process instead.".to_owned()
+        ));
     }
     let normalized = text.replace("\\\"", "\"");
     let mut names: Vec<String> = Vec::new();
@@ -153,7 +151,9 @@ pub fn rewrite_wmic_process(text: &str) -> Option<Result<WmicRewrite, String>> {
     }
     let mut pids: Vec<u64> = Vec::new();
     for m in lazy_re!(r"\bprocessid\s*=\s*(\d+)", "gi").captures_iter(&normalized) {
-        if let Some(pid) = m.get(1).and_then(|p| p.parse().ok()) && !pids.contains(&pid) {
+        if let Some(pid) = m.get(1).and_then(|p| p.parse().ok())
+            && !pids.contains(&pid)
+        {
             pids.push(pid);
         }
     }
@@ -235,7 +235,12 @@ mod tests {
             let refusal = rewrite_wmic_process(command).expect("a decision").expect_err("refused");
             assert_eq!(refusal, "wmic process commands are disabled because WMIC can stall for minutes; use PowerShell Get-CimInstance/Get-Process instead.");
         }
-        for command in ["& C:\\Windows\\System32\\wbem\\wmic.exe process get executablepath", "wmic process get name | findstr node", "echo wmic process get name", "wmic os get caption"] {
+        for command in [
+            "& C:\\Windows\\System32\\wbem\\wmic.exe process get executablepath",
+            "wmic process get name | findstr node",
+            "echo wmic process get name",
+            "wmic os get caption",
+        ] {
             assert!(rewrite_wmic_process(command).is_none(), "{command:?}");
         }
     }
@@ -246,7 +251,11 @@ mod tests {
             ("cat x </dev/null", "ParserError: nope", "hint: PowerShell has no `<` redirection; drop </dev/null."),
             ("cat <<EOF\nx\nEOF", "ParserError: nope", "hint: PowerShell has no heredoc; use @'\\n…\\n'@ | python - (or node -)."),
             ("ls 2>/dev/null", "Out-File : Could not find a part of the path 'C:\\dev\\null'.", "hint: use 2>$null in PowerShell."),
-            ("ls | head -5", "head: The term 'head' is not recognized as a name of a cmdlet.\nCommandNotFoundException\n", "hint: no `head` in PowerShell; use Select-Object -First N."),
+            (
+                "ls | head -5",
+                "head: The term 'head' is not recognized as a name of a cmdlet.\nCommandNotFoundException\n",
+                "hint: no `head` in PowerShell; use Select-Object -First N.",
+            ),
             ("wc -l f", "wc: \n The term 'wc' is not recognized\n", "hint: no `wc` in PowerShell; use Measure-Object -Line."),
             ("x | grep y", "CommandNotFoundException\n ObjectNotFound: (grep:String)", "hint: no `grep` in PowerShell; use the grep tool."),
             ("pgrep node", "ObjectNotFound: (pgrep:String) CommandNotFoundException", "hint: no `pgrep` in PowerShell; use Get-Process -Name <name>."),
@@ -259,5 +268,3 @@ mod tests {
         assert_eq!(powershell_bashism_hint("echo hi", ""), "");
     }
 }
-
-

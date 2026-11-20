@@ -18,15 +18,34 @@ fn describe_lists_the_actions_and_a_misspelled_operation_names_the_nearest() {
     assert_eq!(
         actions,
         [
-            "detect", "transactions", "recover", "describe", "author", "create", "attach", "open", "secure", "begin", "snapshot", "get", "query", "batch",
-            "diff", "commit", "rollback", "issues", "qa", "validate", "render", "save", "finalize", "close"
+            "detect",
+            "transactions",
+            "recover",
+            "describe",
+            "author",
+            "create",
+            "attach",
+            "open",
+            "secure",
+            "begin",
+            "snapshot",
+            "get",
+            "query",
+            "batch",
+            "diff",
+            "commit",
+            "rollback",
+            "issues",
+            "qa",
+            "validate",
+            "render",
+            "save",
+            "finalize",
+            "close"
         ]
     );
     let unknown = office.call(json!({ "action": "describe", "format": "xlsx", "operation": "add_chrt" }));
-    assert_eq!(
-        unknown["error"],
-        "Error: Unknown XLSX operation \"add_chrt\". Did you mean: add_chart? Call describe with format:\"xlsx\" to list operations."
-    );
+    assert_eq!(unknown["error"], "Error: Unknown XLSX operation \"add_chrt\". Did you mean: add_chart? Call describe with format:\"xlsx\" to list operations.");
 }
 
 #[test]
@@ -97,11 +116,14 @@ fn the_issues_of_a_delimited_file_name_ragged_rows_and_values_a_spreadsheet_woul
 #[test]
 fn a_rolled_back_transaction_restores_the_file_and_the_cell() {
     let office = Harness::new();
-    let session = session_of(&office.call(json!({ "action": "create", "path": "table.csv", "operations": [{ "op": "set_range", "range": "A1:B2", "values": [["name", "n"], ["row", 1]] }] })));
+    let session = session_of(&office.call(
+        json!({ "action": "create", "path": "table.csv", "operations": [{ "op": "set_range", "range": "A1:B2", "values": [["name", "n"], ["row", 1]] }] }),
+    ));
     let target = "/sheet[table]/cell[A1]";
     assert_eq!(office.call(json!({ "action": "get", "session": session, "target": target }))["element"]["value"], "name");
     office.call(json!({ "action": "begin", "session": session }));
-    let changed = office.call(json!({ "action": "batch", "session": session, "operations": [{ "op": "set_cell", "sheet": "table", "cell": "A1", "value": "temporary" }] }));
+    let changed = office
+        .call(json!({ "action": "batch", "session": session, "operations": [{ "op": "set_cell", "sheet": "table", "cell": "A1", "value": "temporary" }] }));
     assert_eq!(changed["ok"], true);
     assert_eq!(office.call(json!({ "action": "get", "session": session, "target": target }))["element"]["value"], "temporary");
     let rolled = office.call(json!({ "action": "rollback", "session": session }));
@@ -115,7 +137,9 @@ fn a_rolled_back_transaction_restores_the_file_and_the_cell() {
 fn a_snapshot_is_read_in_pages_by_cursor_and_a_cursor_goes_stale_when_the_document_changes() {
     let office = Harness::new();
     let rows: Vec<Value> = (1..=2505).map(|n| json!([format!("row-{n}")])).collect();
-    let session = session_of(&office.call(json!({ "action": "create", "path": "large.csv", "operations": [{ "op": "set_range", "range": "A1:A2505", "values": rows }] })));
+    let session = session_of(
+        &office.call(json!({ "action": "create", "path": "large.csv", "operations": [{ "op": "set_range", "range": "A1:A2505", "values": rows }] })),
+    );
     let first = office.call(json!({ "action": "snapshot", "session": session, "limit": 1000 }));
     let cells = first["document"]["sheets"][0]["cells"].as_array().expect("cells");
     assert!(cells.len() <= 1000 && !cells.is_empty());
@@ -133,7 +157,9 @@ fn a_snapshot_is_read_in_pages_by_cursor_and_a_cursor_goes_stale_when_the_docume
 #[test]
 fn finalizing_a_delimited_session_saves_closes_and_reviews_it() {
     let office = Harness::new();
-    let session = session_of(&office.call(json!({ "action": "create", "path": "table.csv", "operations": [{ "op": "set_range", "range": "A1:B2", "values": [["name", "n"], ["row", 1]] }] })));
+    let session = session_of(&office.call(
+        json!({ "action": "create", "path": "table.csv", "operations": [{ "op": "set_range", "range": "A1:B2", "values": [["name", "n"], ["row", 1]] }] }),
+    ));
     let done = office.call(json!({ "action": "finalize", "session": session }));
     assert_eq!(done["ok"], true);
     assert_eq!(done["finalized"], true);
@@ -152,7 +178,13 @@ fn calls_made_together_each_from_its_own_thread_all_answer() {
             let (engine, answers, docs, data) = (Arc::clone(&engine), Arc::clone(&answers), office.docs.clone(), office.data.clone());
             std::thread::spawn(move || {
                 let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("runtime");
-                let (result, _) = runtime.block_on(engine.execute(json!({ "action": "describe", "format": "csv" }), docs, Some(data), None, mixdog_rt::CancellationToken::new()));
+                let (result, _) = runtime.block_on(engine.execute(
+                    json!({ "action": "describe", "format": "csv" }),
+                    docs,
+                    Some(data),
+                    None,
+                    mixdog_rt::CancellationToken::new(),
+                ));
                 answers.lock().expect("lock").push(result["content"][0]["text"].as_str().expect("text").to_owned());
             })
         })
@@ -166,7 +198,9 @@ fn calls_made_together_each_from_its_own_thread_all_answer() {
 }
 
 fn csv_session(office: &Harness) -> String {
-    session_of(&office.call(json!({ "action": "create", "path": "table.csv", "operations": [{ "op": "set_range", "range": "A1:B2", "values": [["name", "n"], ["row", 1]] }] })))
+    session_of(&office.call(
+        json!({ "action": "create", "path": "table.csv", "operations": [{ "op": "set_range", "range": "A1:B2", "values": [["name", "n"], ["row", 1]] }] }),
+    ))
 }
 
 #[test]

@@ -51,8 +51,8 @@ pub fn session_context_measurement(session: &Value, has_conversation_activity: b
     let compact_at = number_or_zero(field(compaction, "lastChangedAt")).max(number_or_zero(field(compaction, "lastCompactAt")));
     let baseline_provider = field(session, "contextPressureBaselineProvider");
     let baseline_model = field(session, "contextPressureBaselineModel");
-    let route_mismatch = (truthy(baseline_provider) && baseline_provider != field(session, "provider"))
-        || (truthy(baseline_model) && baseline_model != field(session, "model"));
+    let route_mismatch =
+        (truthy(baseline_provider) && baseline_provider != field(session, "provider")) || (truthy(baseline_model) && baseline_model != field(session, "model"));
     if route_mismatch || (compact_at > 0.0 && updated_at <= compact_at) {
         return pending;
     }
@@ -89,12 +89,12 @@ pub fn context_measurement_stats(context: Option<&Value>) -> Value {
     let given = present(field(context, "measurement"));
     let stale = truthy(field(context, "lastApiRequestStale"));
     let (tokens, source, updated_at) = match given {
-        Some(measurement) => (field(Some(measurement), "tokens"), field(Some(measurement), "source").map(value_to_string), field(Some(measurement), "updatedAt")),
-        None => (
-            if stale { None } else { field(context, "lastApiRequestTokens") },
-            Some((if stale { "pending" } else { "last_api_request" }).to_owned()),
-            None,
-        ),
+        Some(measurement) => {
+            (field(Some(measurement), "tokens"), field(Some(measurement), "source").map(value_to_string), field(Some(measurement), "updatedAt"))
+        }
+        None => {
+            (if stale { None } else { field(context, "lastApiRequestTokens") }, Some((if stale { "pending" } else { "last_api_request" }).to_owned()), None)
+        }
     };
     let n = to_number_of(tokens);
     let known = source.as_deref() == Some("last_api_request") && n.is_finite() && n > 0.0;
@@ -129,10 +129,7 @@ pub fn measured_context_usage(input: &Value) -> Value {
     let source = if truthy(source_value) { source_value.map(value_to_string).unwrap_or_default() } else { String::new() };
     let tokens = field(stats, "currentContextTokens");
     let token_number = to_number_of(tokens);
-    let known = tokens.is_some_and(|t| !t.is_null())
-        && token_number.is_finite()
-        && token_number > 0.0
-        && (source == "last_api_request" || source.is_empty());
+    let known = tokens.is_some_and(|t| !t.is_null()) && token_number.is_finite() && token_number > 0.0 && (source == "last_api_request" || source.is_empty());
     let used = known.then_some(token_number);
     let mut map = Map::new();
     map.insert("used".into(), used.map_or(Value::Null, json_number));
@@ -244,12 +241,14 @@ mod tests {
 
     #[test]
     fn measured_usage_needs_a_known_last_request() {
-        let usage = measured_context_usage(&json!({ "contextWindow": 1000, "stats": { "currentContextTokens": 250, "currentContextSource": "last_api_request" } }));
+        let usage =
+            measured_context_usage(&json!({ "contextWindow": 1000, "stats": { "currentContextTokens": 250, "currentContextSource": "last_api_request" } }));
         assert_eq!(usage["used"], json!(250));
         assert_eq!(usage["percent"], json!(25));
         assert_eq!(usage["known"], json!(true));
         assert_eq!(usage["limit"], json!(1000));
-        let estimate = measured_context_usage(&json!({ "displayContextWindow": 1000, "stats": { "currentContextTokens": 250, "currentContextSource": "estimate" } }));
+        let estimate =
+            measured_context_usage(&json!({ "displayContextWindow": 1000, "stats": { "currentContextTokens": 250, "currentContextSource": "estimate" } }));
         assert_eq!(estimate["known"], json!(false));
         assert_eq!(estimate["source"], "pending");
         assert_eq!(estimate["percent"], Value::Null);

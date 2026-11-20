@@ -15,9 +15,7 @@ use serde_json::{Value, json};
 
 use crate::snapshot_docx::{append_docx_block, docx_body_model};
 use crate::text_metrics::FontSpec;
-use crate::xml::{
-    WORD_RUN_SOURCE, compiled, container_inner, rebuild_text_nodes, text_nodes, top_level_elements, xml_decode, xml_encode,
-};
+use crate::xml::{WORD_RUN_SOURCE, compiled, container_inner, rebuild_text_nodes, text_nodes, top_level_elements, xml_decode, xml_encode};
 
 /// `Math.max(1, Math.round(Number(value) * 20))`.
 fn points_to_twips(value: f64) -> f64 {
@@ -88,8 +86,7 @@ static DEFAULT_TABLE_BORDERS: LazyLock<Value> = LazyLock::new(|| {
 
 // A rule's line as w:val spells it. The Word backend reads solid (any name it does not know is a single line), dash, and dot;
 // written through as given, style:'solid' made a file Word refused to open.
-const WORD_BORDER_STYLES: [&str; 11] =
-    ["single", "thick", "double", "dotted", "dashed", "dotDash", "dotDotDash", "triple", "wave", "none", "nil"];
+const WORD_BORDER_STYLES: [&str; 11] = ["single", "thick", "double", "dotted", "dashed", "dotDash", "dotDotDash", "triple", "wave", "none", "nil"];
 
 fn word_border_style(style: Option<&Value>) -> String {
     let name = if present(style) { style.map(value_to_string).unwrap_or_default() } else { "single".to_owned() };
@@ -149,10 +146,7 @@ pub fn word_table_properties(properties: &Value, total_width: f64) -> String {
     // Two ways to say it: one spec for every side, or a spec per side. Naming one side used to fall back to the whole object
     // for the others, so asking for a single rule on top drew a full grid.
     let per_side = TABLE_SIDES.iter().any(|side| borders.get(*side).is_some());
-    let side_rules: String = TABLE_SIDES
-        .iter()
-        .map(|side| border_rule(side, if per_side { borders.get(*side) } else { Some(&borders) }))
-        .collect();
+    let side_rules: String = TABLE_SIDES.iter().map(|side| border_rule(side, if per_side { borders.get(*side) } else { Some(&borders) })).collect();
     let border_xml = if key_count(&borders) > 0 { format!("<w:tblBorders>{side_rules}</w:tblBorders>") } else { String::new() };
     let table_style = if present(style) {
         format!("<w:tblStyle w:val=\"{}\"/>", xml_encode(&docx_style_id(&value_to_string(style.unwrap_or(&Value::Null)))))
@@ -207,18 +201,12 @@ fn word_cell_properties(properties: &Value) -> String {
 
 // Word keeps cell properties in a fixed order too. Restyling one cell (a fill on the "after" column head) replaces only the
 // properties it names; the width and the vertical alignment the table was written with stay.
-const CELL_PROPERTY_ORDER: [&str; 11] = [
-    "w:tcW", "w:gridSpan", "w:vMerge", "w:tcBorders", "w:shd", "w:noWrap", "w:tcMar", "w:textDirection", "w:tcFitText", "w:vAlign",
-    "w:hideMark",
-];
+const CELL_PROPERTY_ORDER: [&str; 11] =
+    ["w:tcW", "w:gridSpan", "w:vMerge", "w:tcBorders", "w:shd", "w:noWrap", "w:tcMar", "w:textDirection", "w:tcFitText", "w:vAlign", "w:hideMark"];
 
 /// `mergeWordCellProperties(cellXml, properties)`: the cell's properties with the ones named replaced in place.
 pub fn merge_word_cell_properties(cell_xml: &str, properties: &Value) -> String {
-    let mut existing = compiled(r"<w:tcPr(?:\s[^>]*)?>([\s\S]*?)<\/w:tcPr>", "")
-        .captures(cell_xml)
-        .and_then(|found| found.get(1))
-        .unwrap_or("")
-        .to_owned();
+    let mut existing = compiled(r"<w:tcPr(?:\s[^>]*)?>([\s\S]*?)<\/w:tcPr>", "").captures(cell_xml).and_then(|found| found.get(1)).unwrap_or("").to_owned();
     // A filled cell is a field again, and its text needs the padding back: a layout table's flush edge is dropped when the
     // cell takes a fill.
     if present(properties.get("fillColor")) {
@@ -236,8 +224,7 @@ pub fn merge_word_cell_properties(cell_xml: &str, properties: &Value) -> String 
 /// `{ bold }` of `wordTableRunProperties`.
 fn word_table_run_properties(properties: &Value, bold: bool) -> String {
     let latin = if present(properties.get("fontName")) { xml_encode(&string_or_empty(properties.get("fontName"))) } else { String::new() };
-    let east_asia =
-        if present(properties.get("fontNameEastAsia")) { xml_encode(&string_or_empty(properties.get("fontNameEastAsia"))) } else { String::new() };
+    let east_asia = if present(properties.get("fontNameEastAsia")) { xml_encode(&string_or_empty(properties.get("fontNameEastAsia"))) } else { String::new() };
     let size = num(properties.get("fontSize"));
     let color = properties.get("color");
     [
@@ -264,11 +251,7 @@ fn word_table_run_properties(properties: &Value, bold: bool) -> String {
 fn word_table_paragraph_properties(properties: &Value, keep_next: bool) -> String {
     let spacing = num(properties.get("spacingAfter"));
     let size = if num(properties.get("fontSize")) > 0.0 { num(properties.get("fontSize")) } else { 11.0 };
-    let after = if spacing.is_finite() {
-        format!(" w:after=\"{}\"", number_to_string(math::max(0.0, math::round(spacing * 20.0))))
-    } else {
-        String::new()
-    };
+    let after = if spacing.is_finite() { format!(" w:after=\"{}\"", number_to_string(math::max(0.0, math::round(spacing * 20.0)))) } else { String::new() };
     [
         if present(properties.get("textStyle")) {
             format!("<w:pStyle w:val=\"{}\"/>", xml_encode(&docx_style_id(&string_or_empty(properties.get("textStyle")))))
@@ -355,11 +338,7 @@ fn is_layout_table(properties: &Value) -> bool {
 pub fn section_text_width(document: &str, position: usize) -> f64 {
     let section_pattern = compiled(r"<w:sectPr\b[\s\S]*?<\/w:sectPr>", "");
     let after = document.get(position..).unwrap_or("");
-    let section = section_pattern
-        .find(after)
-        .map(|range| &after[range])
-        .or_else(|| section_pattern.find(document).map(|range| &document[range]))
-        .unwrap_or("");
+    let section = section_pattern.find(after).map(|range| &after[range]).or_else(|| section_pattern.find(document).map(|range| &document[range])).unwrap_or("");
     let page = compiled(r#"<w:pgSz\b[^>]*\bw:w="(\d+)""#, "").captures(section).and_then(|found| found.get(1).map(str::to_owned));
     let margins = compiled(r#"<w:pgMar\b[^>]*\bw:left="(\d+)"[^>]*\bw:right="(\d+)""#, "")
         .captures(section)
@@ -383,12 +362,7 @@ pub type MeasureText<'a, E> = &'a mut dyn FnMut(&str, &FontSpec) -> Result<f64, 
 /// widths, across the text width (`natural_column_widths`), measured in the table's own face. The widths are always
 /// written: a grid without them spans the page in the LibreOffice preview and shrinks to its text in Word. `None` when the
 /// table has no column or nothing is available.
-pub fn natural_table_column_widths<E>(
-    values: &Value,
-    properties: &Value,
-    available: f64,
-    measure: MeasureText<'_, E>,
-) -> Result<Option<Vec<f64>>, E> {
+pub fn natural_table_column_widths<E>(values: &Value, properties: &Value, available: f64, measure: MeasureText<'_, E>) -> Result<Option<Vec<f64>>, E> {
     let rows: Vec<Vec<String>> = values
         .as_array()
         .map(|rows| {
@@ -527,11 +501,7 @@ fn flush_cell_margins(first: bool, last: bool) -> String {
 
 /// A list of numbers an operation declares (`columnWidths`, `rowHeights`): each entry as `Number(entry)`.
 fn number_list(value: Option<&Value>) -> Vec<f64> {
-    value
-        .filter(|value| truthy(value))
-        .and_then(Value::as_array)
-        .map(|list| list.iter().map(|entry| to_number(entry)).collect())
-        .unwrap_or_default()
+    value.filter(|value| truthy(value)).and_then(Value::as_array).map(|list| list.iter().map(|entry| to_number(entry)).collect()).unwrap_or_default()
 }
 
 fn truthy_number(value: Option<f64>) -> Option<f64> {
@@ -568,20 +538,15 @@ pub fn word_table_xml<E>(operation: &Value, available: f64, measure: MeasureText
     let headers = table_header_rows(properties, rows);
     let row_run_properties =
         |row: usize| word_table_run_properties(&row_type_properties(properties, row), row_bold(properties, row, rows, header_bold && row < headers));
-    let total_border = format!(
-        "<w:tcBorders><w:top w:val=\"single\" w:sz=\"{TOTAL_ROW_RULE_SIZE}\" w:space=\"0\" w:color=\"{TOTAL_ROW_RULE_COLOR}\"/></w:tcBorders>"
-    );
+    let total_border =
+        format!("<w:tcBorders><w:top w:val=\"single\" w:sz=\"{TOTAL_ROW_RULE_SIZE}\" w:space=\"0\" w:color=\"{TOTAL_ROW_RULE_COLOR}\"/></w:tcBorders>");
     let gutters = if layout { Vec::new() } else { gutter_columns(properties) };
     // A page break never strands a table's edge: the header travels with the first two rows and the last two rows travel
     // together (widow and orphan control, row by row); a table of six rows or fewer moves whole, as a split one is reported;
     // a longer one still breaks between those rows. keepWithNext holds the last row to what follows (its caption): gluing
     // every row instead carried a 25-row table whole to the next page and left half a page blank.
     let kept_row = |row: usize| {
-        if row + 1 < rows {
-            rows <= 6 || row <= headers || row + 2 == rows
-        } else {
-            present(properties.get("keepWithNext"))
-        }
+        if row + 1 < rows { rows <= 6 || row <= headers || row + 2 == rows } else { present(properties.get("keepWithNext")) }
     };
     let paragraph_properties = |row: usize| word_table_paragraph_properties(&row_type_properties(properties, row), kept_row(row));
     let grid: String = (0..columns)
@@ -630,11 +595,8 @@ pub fn word_table_xml<E>(operation: &Value, available: f64, measure: MeasureText
             // edge put it on the last. The header row sits on its rule (its bottom edge), so a header that wraps stands on
             // the same line as the ones beside it. The exact line pitch keeps a Latin-only figure and a Hangul label on one
             // baseline either way; set_table_cell_style verticalAlignment overrides per cell.
-            let margins = if layout {
-                flush_cell_margins(column == 0, column + 1 == columns)
-            } else {
-                gutter_margin(gutters.get(column).copied().unwrap_or(false))
-            };
+            let margins =
+                if layout { flush_cell_margins(column == 0, column + 1 == columns) } else { gutter_margin(gutters.get(column).copied().unwrap_or(false)) };
             let edge = if row < headers && header_bold { "bottom" } else { "top" };
             let rule = if is_total_row(properties, row, rows) { total_border.as_str() } else { "" };
             body.push_str(&format!(
@@ -646,10 +608,7 @@ pub fn word_table_xml<E>(operation: &Value, available: f64, measure: MeasureText
         body.push_str("</w:tr>");
     }
     let total_width = if widths.len() == columns { widths.iter().map(|width| points_to_twips(*width)).sum::<f64>() } else { 0.0 };
-    Ok(format!(
-        "<w:tbl><w:tblPr>{}</w:tblPr><w:tblGrid>{grid}</w:tblGrid>{body}</w:tbl>",
-        word_table_properties(properties, total_width)
-    ))
+    Ok(format!("<w:tbl><w:tblPr>{}</w:tblPr><w:tblGrid>{grid}</w:tblGrid>{body}</w:tbl>", word_table_properties(properties, total_width)))
 }
 
 /// `text.split(/\r?\n/)`.
@@ -702,8 +661,29 @@ pub fn docx_style_id(name: &str) -> String {
 // Word keeps run properties in a fixed order and honours the last value it reads: appending a colour beside the one already
 // there leaves the old ink winning, so a restyled cell must replace the property it sets, in place.
 const RUN_PROPERTY_ORDER: [&str; 23] = [
-    "w:rStyle", "w:rFonts", "w:b", "w:bCs", "w:i", "w:iCs", "w:caps", "w:smallCaps", "w:strike", "w:dstrike", "w:vanish", "w:color",
-    "w:spacing", "w:w", "w:kern", "w:position", "w:sz", "w:szCs", "w:highlight", "w:u", "w:vertAlign", "w:rtl", "w:lang",
+    "w:rStyle",
+    "w:rFonts",
+    "w:b",
+    "w:bCs",
+    "w:i",
+    "w:iCs",
+    "w:caps",
+    "w:smallCaps",
+    "w:strike",
+    "w:dstrike",
+    "w:vanish",
+    "w:color",
+    "w:spacing",
+    "w:w",
+    "w:kern",
+    "w:position",
+    "w:sz",
+    "w:szCs",
+    "w:highlight",
+    "w:u",
+    "w:vertAlign",
+    "w:rtl",
+    "w:lang",
 ];
 
 /// `(tag, xml)` of each property element of a fragment, in source order.
@@ -885,7 +865,8 @@ pub fn word_paragraph(text: &str, alignment: &str, style: &str, run_properties: 
 
 /// `blankTableCells(xml)`: every text element emptied.
 pub fn blank_table_cells(xml: &str) -> String {
-    compiled(r"(<w:t(?:\s[^>]*)?>)[\s\S]*?(<\/w:t>)", "g").replace_all_with(xml, |found| format!("{}{}", found.get(1).unwrap_or(""), found.get(2).unwrap_or("")))
+    compiled(r"(<w:t(?:\s[^>]*)?>)[\s\S]*?(<\/w:t>)", "g")
+        .replace_all_with(xml, |found| format!("{}{}", found.get(1).unwrap_or(""), found.get(2).unwrap_or("")))
 }
 
 /// A match of a table's row or cell: the element and where it starts in what was searched (`match.index`).
@@ -902,8 +883,7 @@ pub fn rewrite_table_columns(table_xml: &str, column_index: usize, deleting: boo
     let at = column_index.saturating_sub(1);
     let mut next = table_xml.to_owned();
     if let Some(grid) = grid {
-        let mut columns: Vec<String> =
-            compiled(r"<w:gridCol\b[^>]*\/>", "g").find_iter(&grid).map(|range| grid[range].to_owned()).collect();
+        let mut columns: Vec<String> = compiled(r"<w:gridCol\b[^>]*\/>", "g").find_iter(&grid).map(|range| grid[range].to_owned()).collect();
         if deleting {
             if columns.len() <= 1 {
                 return Err("A table must keep at least one column".to_owned());
@@ -1010,8 +990,7 @@ fn table_summary(table_xml: &str) -> String {
     let rows = table_row_matches(table_xml);
     let columns = table_column_count(table_xml, &rows);
     let first_cell = rows.first().and_then(|row| row_cell_matches(&row.xml).into_iter().next()).map(|cell| cell.xml).unwrap_or_default();
-    let words: String =
-        compiled(r"<w:t\b[^>]*>([^<]*)<\/w:t>", "g").captures_iter(&first_cell).map(|found| xml_decode(found.get(1).unwrap_or(""))).collect();
+    let words: String = compiled(r"<w:t\b[^>]*>([^<]*)<\/w:t>", "g").captures_iter(&first_cell).map(|found| xml_decode(found.get(1).unwrap_or(""))).collect();
     let start = slice_utf16(js_trim(&words), 24);
     format!("{}×{}{}", rows.len(), columns, if start.is_empty() { String::new() } else { format!(" starting \"{start}\"") })
 }
@@ -1128,9 +1107,7 @@ fn tab_leader(name: &str) -> Option<&'static str> {
 
 fn tab_stop_xml(tab: &Value) -> String {
     let alignment = js_to_lowercase(&string_or_empty(tab.get("alignment")));
-    let leader = tab_leader(&js_to_lowercase(&string_or_empty(tab.get("leader"))))
-        .map(|name| format!(" w:leader=\"{name}\""))
-        .unwrap_or_default();
+    let leader = tab_leader(&js_to_lowercase(&string_or_empty(tab.get("leader")))).map(|name| format!(" w:leader=\"{name}\"")).unwrap_or_default();
     let value = if ["left", "center", "right", "decimal", "bar"].contains(&alignment.as_str()) { alignment.as_str() } else { "left" };
     let position = if present(tab.get("position")) { num(tab.get("position")) } else { 0.0 };
     format!("<w:tab w:val=\"{value}\" w:pos=\"{}\"{leader}/>", twips_text(position))
@@ -1196,8 +1173,7 @@ pub fn with_first_run_text(xml: &str, text: &str) -> String {
     }
     let Some((first, rest)) = nodes.split_first() else { return xml.to_owned() };
     let tail = &xml[first.end..];
-    let shifted: Vec<_> =
-        rest.iter().map(|node| crate::xml::TextNode { start: node.start - first.end, end: node.end - first.end, ..node.clone() }).collect();
+    let shifted: Vec<_> = rest.iter().map(|node| crate::xml::TextNode { start: node.start - first.end, end: node.end - first.end, ..node.clone() }).collect();
     format!("{}{}{}", &xml[..first.start], word_text_content(text, false), rebuild_text_nodes(tail, "w:t", &shifted))
 }
 
@@ -1292,7 +1268,10 @@ mod tests {
         assert_eq!(row_cell_matches(&table_row_matches(&wider)[1].xml).len(), 3);
         let narrower = rewrite_table_columns(&wider, 1, true).expect("a column removed");
         assert_eq!(narrower.matches("<w:gridCol").count(), 2);
-        assert_eq!(rewrite_table_columns("<w:tbl><w:tblGrid><w:gridCol/></w:tblGrid></w:tbl>", 1, true), Err("A table must keep at least one column".to_owned()));
+        assert_eq!(
+            rewrite_table_columns("<w:tbl><w:tblGrid><w:gridCol/></w:tblGrid></w:tbl>", 1, true),
+            Err("A table must keep at least one column".to_owned())
+        );
         let error = check_docx_column(&json!({ "op": "insert_table_column", "table": 1, "column": 9 }), &table).expect_err("past the end");
         assert!(error.ends_with("insert_table_column column is the position the new column takes, 1 to 3 (3 adds it at the end)"), "{error}");
         assert_eq!(docx_style_id(" Table Grid "), "TableGrid");

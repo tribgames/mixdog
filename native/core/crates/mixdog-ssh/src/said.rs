@@ -25,7 +25,16 @@ mod tests {
     #[test]
     fn the_server_side_shell_names_the_codes_it_raises_and_each_is_in_the_list() {
         let program = crate::install_wire::REMOTE_PROGRAM;
-        for code in ["install-no-gzip", "install-no-tar", "install-no-checksum-tool", "upload-not-stored", "upload-checksum-mismatch", "upload-folder-failed", "upload-not-unpacked", "upload-no-program"] {
+        for code in [
+            "install-no-gzip",
+            "install-no-tar",
+            "install-no-checksum-tool",
+            "upload-not-stored",
+            "upload-checksum-mismatch",
+            "upload-folder-failed",
+            "upload-not-unpacked",
+            "upload-no-program",
+        ] {
             assert!(program.contains(code) && ALL.iter().any(|text| text.code == code), "{code}");
         }
     }

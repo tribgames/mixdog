@@ -21,8 +21,8 @@ use mixdog_core_api::domain::ext::ExtCall;
 use mixdog_core_api::domain::ext::ExtError;
 use mixdog_core_api::domain::ext::ExtFrame;
 use mixdog_core_api::domain::ext::ExtPool;
-use mixdog_core_api::domain::ext::ImageResizeError;
 use mixdog_core_api::domain::ext::ImageProfile;
+use mixdog_core_api::domain::ext::ImageResizeError;
 use mixdog_core_api::domain::ext::ImageResizer;
 use mixdog_core_api::domain::ext::ProfiledImageResizer;
 use mixdog_core_api::domain::ext::ProfiledResizeError;
@@ -94,10 +94,7 @@ fn with_image_data(thread: &ThreadId, method: &str, mut params: JsonValue, bytes
     let overhead = crate::frame::call(0, method, &params, &[], thread.as_str()).len() - 4;
     let encoded_len = bytes.len().div_ceil(3).saturating_mul(4);
     if overhead.saturating_add(encoded_len) > crate::frame::MAX_FRAME_BYTES {
-        return Err(Failure::Host(ExtError::Failed {
-            code: "too_large".to_owned(),
-            message: format!("{method} image exceeds the extension frame limit"),
-        }));
+        return Err(Failure::Host(ExtError::Failed { code: "too_large".to_owned(), message: format!("{method} image exceeds the extension frame limit") }));
     }
     params["data"] = JsonValue::String(STANDARD.encode(bytes));
     Ok(params)
@@ -169,12 +166,7 @@ impl ExtImageCodec {
     /// The media store's `encodeStill`: the webp rendition of a still, EXIF-rotated, at the
     /// variant's size and quality. `Ok(None)` is Node's `null`: no sharp, or a source that does not
     /// decode (Node does not tell them apart). `Err` is a host that could not answer.
-    pub async fn still_rendition(
-        &self,
-        thread: &ThreadId,
-        bytes: &[u8],
-        variant: RenditionVariant,
-    ) -> Result<Option<StillRendition>, ExtError> {
+    pub async fn still_rendition(&self, thread: &ThreadId, bytes: &[u8], variant: RenditionVariant) -> Result<Option<StillRendition>, ExtError> {
         let method = "image.still";
         let variant = match variant {
             RenditionVariant::Thumb => "thumb",
@@ -200,10 +192,7 @@ impl ExtImageCodec {
 
     /// The answer's `ok`, or the way the call failed.
     async fn ask(&self, thread: &ThreadId, method: &str, params: JsonValue) -> Result<JsonValue, Failure> {
-        let mut stream = self
-            .pool
-            .call(ExtCall { thread: thread.clone(), method: method.to_owned(), params, paths: Vec::new() })
-            .map_err(Failure::Host)?;
+        let mut stream = self.pool.call(ExtCall { thread: thread.clone(), method: method.to_owned(), params, paths: Vec::new() }).map_err(Failure::Host)?;
         let mut answer = loop {
             match stream.next().await {
                 Some(ExtFrame::Chunk(_)) => {}
@@ -233,14 +222,7 @@ fn read_resized(mut ok: JsonValue) -> Option<ReadResize> {
     let display = size(dimensions, "displayWidth", "displayHeight")?;
     let JsonValue::String(data_base64) = ok.get_mut("data")?.take() else { return None };
     let JsonValue::String(mime) = ok.get_mut("mimeType")?.take() else { return None };
-    Some(ReadResize {
-        data_base64,
-        mime,
-        original_w: original.width,
-        original_h: original.height,
-        display_w: display.width,
-        display_h: display.height,
-    })
+    Some(ReadResize { data_base64, mime, original_w: original.width, original_h: original.height, display_w: display.width, display_h: display.height })
 }
 
 #[async_trait::async_trait]
@@ -267,7 +249,14 @@ impl ImageResizer for ExtImageCodec {
 impl ProfiledImageResizer for ExtImageCodec {
     async fn resize_profiled(&self, thread: &ThreadId, bytes: &[u8], ext: &str, profile: ImageProfile) -> Result<Option<ResizedImage>, ProfiledResizeError> {
         match self.resize_with(thread, bytes, ext, Some(profile)).await {
-            Ok(resized) => Ok(resized.map(|r| ResizedImage { data_base64: r.data_base64, mime: r.mime, original_w: r.original_w, original_h: r.original_h, display_w: r.display_w, display_h: r.display_h })),
+            Ok(resized) => Ok(resized.map(|r| ResizedImage {
+                data_base64: r.data_base64,
+                mime: r.mime,
+                original_w: r.original_w,
+                original_h: r.original_h,
+                display_w: r.display_w,
+                display_h: r.display_h,
+            })),
             Err(Failure::Invalid(message)) => Err(ProfiledResizeError::Invalid(message)),
             Err(other) => Err(ProfiledResizeError::Host(host_error(other))),
         }
@@ -297,10 +286,7 @@ impl ImageCodec for ExtImageCodec {
         let params = with_image_data(&thread, method, params, bytes).map_err(codec_error)?;
         let ok = self.ask(&thread, method, params).await.map_err(codec_error)?;
         let data = ok.get("data").and_then(JsonValue::as_str).ok_or_else(malformed)?;
-        Ok(Encoded {
-            bytes: STANDARD.decode(data).map_err(|_| malformed())?,
-            size: size(&ok, "width", "height").ok_or_else(malformed)?,
-        })
+        Ok(Encoded { bytes: STANDARD.decode(data).map_err(|_| malformed())?, size: size(&ok, "width", "height").ok_or_else(malformed)? })
     }
 
     async fn validate(&self, bytes: &[u8], format: &str) -> Result<(), CodecError> {
@@ -408,14 +394,8 @@ mod tests {
             codec(Ok(json!({ "ok": { "width": 3 } }))).probe(b"x").await,
             Err(CodecError::Environment(Some(format!("{:?}", bad_answer("image.probe")))))
         );
-        assert_eq!(
-            codec(Ok(json!({ "ok": { "data": "AA==" } }))).read_resize(&thread, b"x", "png").await,
-            Err(bad_answer_error("image.resize"))
-        );
-        assert_eq!(
-            codec(Ok(json!({}))).read_resize(&thread, b"x", "png").await,
-            Err(bad_answer_error("image.resize"))
-        );
+        assert_eq!(codec(Ok(json!({ "ok": { "data": "AA==" } }))).read_resize(&thread, b"x", "png").await, Err(bad_answer_error("image.resize")));
+        assert_eq!(codec(Ok(json!({}))).read_resize(&thread, b"x", "png").await, Err(bad_answer_error("image.resize")));
     }
 
     #[tokio::test]
@@ -436,9 +416,7 @@ mod tests {
     #[tokio::test]
     async fn a_still_rendition_is_the_webp_or_nodes_null_or_a_host_error() {
         let thread = ThreadId::from("t");
-        let got = codec(Ok(json!({ "ok": { "extension": ".webp", "data": "AQID" } })))
-            .still_rendition(&thread, b"x", RenditionVariant::Display)
-            .await;
+        let got = codec(Ok(json!({ "ok": { "extension": ".webp", "data": "AQID" } }))).still_rendition(&thread, b"x", RenditionVariant::Display).await;
         assert_eq!(got, Ok(Some(StillRendition { extension: ".webp".into(), bytes: vec![1, 2, 3] })));
         assert_eq!(codec(Ok(json!({ "ok": null }))).still_rendition(&thread, b"x", RenditionVariant::Thumb).await, Ok(None));
         let partial = codec(Ok(json!({ "ok": { "extension": ".webp" } })));

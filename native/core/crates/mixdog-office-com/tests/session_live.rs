@@ -63,7 +63,8 @@ fn background_sessions_create_save_and_close_without_leaving_an_office_process()
     for format in ["docx", "xlsx", "pptx"] {
         let before: Vec<Vec<i32>> = ["docx", "xlsx", "pptx"].iter().map(|kind| platform.office_process_ids(kind)).collect();
         let path = dir.join(format!("live.{format}"));
-        let request = json!({"action": "open_session", "session": format!("live-{format}"), "format": format, "path": path, "mode": "background", "create": true});
+        let request =
+            json!({"action": "open_session", "session": format!("live-{format}"), "format": format, "path": path, "mode": "background", "create": true});
         let (opened, closed, ok) = run_session(&env, &request, true);
         assert!(opened.contains("\"opened\":true") && opened.contains("\"mode\":\"background\""), "{format}: {opened}");
         assert!(ok && closed.contains("\"closed\":true"), "{format}: {closed}");

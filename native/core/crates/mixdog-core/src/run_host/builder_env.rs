@@ -11,10 +11,11 @@
 
 use std::sync::Arc;
 
+use mixdog_ai::accounts::AccountStore;
 use mixdog_ai::catalog::CatalogService;
 use mixdog_ai::client_versions::{ClientVersions, Live};
-use mixdog_ai::oauth::pace::SystemPace;
 use mixdog_ai::oauth::CredentialIo;
+use mixdog_ai::oauth::pace::SystemPace;
 pub use mixdog_ai::providers::anthropic::catalog_caps::CatalogCaps;
 use mixdog_ai::providers::google::traits::CatalogGoogleTraits;
 use mixdog_ai::providers::openai::adapter::SessionContext;
@@ -23,11 +24,10 @@ use mixdog_ai::registry::builder::BuilderEnv;
 use mixdog_ai::registry::keys::{ApiKeyStore, Environment};
 use mixdog_ai::service::admin_models::provider_available;
 use mixdog_ai::transport::{KeepaliveDialer, KeepaliveSchedule, ReqwestLink};
-use mixdog_ai::accounts::AccountStore;
 use mixdog_protocol::ProviderId;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::process::{remote_client, HostInfo, ProcessServices};
+use super::process::{HostInfo, ProcessServices, remote_client};
 
 pub use mixdog_ai::client_versions::CODEX_CLIENT_VERSION_FLOOR;
 const CODEX_ORIGINATOR: &str = "codex_cli_rs";
@@ -57,13 +57,7 @@ pub fn client_identity(env: &Arc<dyn Environment>, host: &HostInfo, installation
         set(&*agent_env, "MIXDOG_CODEX_USER_AGENT").unwrap_or_else(|| {
             let originator = set(&*agent_env, "MIXDOG_CODEX_ORIGINATOR").unwrap_or_else(|| CODEX_ORIGINATOR.to_owned());
             let terminal = set(&*agent_env, "TERM_PROGRAM").unwrap_or_else(|| "unknown".to_owned());
-            format!(
-                "{originator}/{} ({} {}; {}) {terminal}",
-                agent_versions.codex(),
-                agent_host.os_type,
-                agent_host.os_release,
-                agent_host.arch
-            )
+            format!("{originator}/{} ({} {}; {}) {terminal}", agent_versions.codex(), agent_host.os_type, agent_host.os_release, agent_host.arch)
         })
     });
     let (version_env, version_versions) = (Arc::clone(env), Arc::clone(versions));
@@ -109,7 +103,18 @@ fn undated(id: &str) -> &str {
 
 const PRE_CATALOG_GPT_56_PLUS: [&str; 7] = ["gpt-6-astra", "gpt-6-sol", "gpt-6-luna", "gpt-6.1-sol", "gpt-5.6-sol", "gpt-5.6-terra", "gpt-5.6-luna"];
 const EXTENDED_RETENTION: [&str; 12] = [
-    "gpt-5.5", "gpt-5.5-pro", "gpt-5.4", "gpt-5.2", "gpt-5.1-codex-max", "gpt-5.1", "gpt-5.1-codex", "gpt-5.1-codex-mini", "gpt-5.1-chat-latest", "gpt-5", "gpt-5-codex", "gpt-4.1",
+    "gpt-5.5",
+    "gpt-5.5-pro",
+    "gpt-5.4",
+    "gpt-5.2",
+    "gpt-5.1-codex-max",
+    "gpt-5.1",
+    "gpt-5.1-codex",
+    "gpt-5.1-codex-mini",
+    "gpt-5.1-chat-latest",
+    "gpt-5",
+    "gpt-5-codex",
+    "gpt-4.1",
 ];
 
 impl CatalogOpenAiFacts {
@@ -223,7 +228,11 @@ pub fn builder_env_shared(p: &ProcessServices) -> (BuilderEnv, BuilderShared) {
         keys: ApiKeyStore::new(p.vault.clone(), p.env.clone(), client),
         accounts: AccountStore::new(p.plugin_data.clone(), io).remote_client(client).with_env(p.env.clone()),
         anthropic_caps: CatalogCaps::new(p.catalog.clone(), &*p.env).lookup(),
-        google_traits: Arc::new(CatalogGoogleTraits(["gemini", "vertex-ai", "antigravity-oauth"].map(|id| Arc::new(p.catalog.traits(ProviderId::from(id))) as Arc<dyn mixdog_ai::catalog::ModelTraits>).to_vec())),
+        google_traits: Arc::new(CatalogGoogleTraits(
+            ["gemini", "vertex-ai", "antigravity-oauth"]
+                .map(|id| Arc::new(p.catalog.traits(ProviderId::from(id))) as Arc<dyn mixdog_ai::catalog::ModelTraits>)
+                .to_vec(),
+        )),
         route_traits: {
             let catalog = p.catalog.clone();
             Arc::new(move |id| Some(Arc::new(catalog.traits(ProviderId::from(id))) as Arc<dyn mixdog_ai::catalog::ModelTraits>))

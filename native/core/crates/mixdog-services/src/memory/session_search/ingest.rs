@@ -161,24 +161,14 @@ impl SessionSearchIngest {
     /// order is the write order.
     fn enqueue(&self, session_id: &str) -> Slot {
         let mut queues = self.queues.lock().expect("queue map");
-        let queue = queues.entry(session_id.to_owned()).or_insert_with(|| Queue {
-            token: CancellationToken::new(),
-            tail: None,
-            waiting: 0,
-        });
+        let queue = queues.entry(session_id.to_owned()).or_insert_with(|| Queue { token: CancellationToken::new(), tail: None, waiting: 0 });
         // A closed session's queue starts a new lifetime for the writes after the close.
         if queue.token.is_cancelled() {
             queue.token = CancellationToken::new();
         }
         queue.waiting += 1;
         let (done, tail) = watch::channel(());
-        Slot {
-            queues: self.queues.clone(),
-            session_id: session_id.to_owned(),
-            token: queue.token.clone(),
-            after: queue.tail.replace(tail),
-            _done: done,
-        }
+        Slot { queues: self.queues.clone(), session_id: session_id.to_owned(), token: queue.token.clone(), after: queue.tail.replace(tail), _done: done }
     }
 
     /// Resolves once every write the session has queued so far has settled.
@@ -324,61 +314,57 @@ impl SessionSearchIngest {
         Ok(ingested)
     }
 
-    async fn backfill_one(
-        &self,
-        stored: &dyn StoredSessions,
-        session_id: &str,
-        recorded: Option<&str>,
-    ) -> Result<Backfilled> {
-        self.enqueue(session_id).run(|_| async {
-            // A busy record is left unstamped to be read again, never taken as gone.
-            let observe = |stamp: SessionStamp| match stamp {
-                SessionStamp::At(stamp) => Ok(stamp),
-                SessionStamp::Busy => Err(Backfilled::Unread),
-                SessionStamp::Gone => Err(Backfilled::Gone),
-            };
-            let mut stamp = match observe(stored.stamp(session_id).await?) {
-                Ok(stamp) => stamp,
-                Err(outcome) => return Ok(outcome),
-            };
-            for _ in 0..2 {
-                if recorded == Some(stamp.as_str()) {
-                    return Ok(Backfilled::Unchanged);
-                }
-                let session = stored.read(session_id).await.filter(|s| s.id == session_id);
-                let after = match observe(stored.stamp(session_id).await?) {
-                    Ok(after) => after,
+    async fn backfill_one(&self, stored: &dyn StoredSessions, session_id: &str, recorded: Option<&str>) -> Result<Backfilled> {
+        self.enqueue(session_id)
+            .run(|_| async {
+                // A busy record is left unstamped to be read again, never taken as gone.
+                let observe = |stamp: SessionStamp| match stamp {
+                    SessionStamp::At(stamp) => Ok(stamp),
+                    SessionStamp::Busy => Err(Backfilled::Unread),
+                    SessionStamp::Gone => Err(Backfilled::Gone),
+                };
+                let mut stamp = match observe(stored.stamp(session_id).await?) {
+                    Ok(stamp) => stamp,
                     Err(outcome) => return Ok(outcome),
                 };
-                if stamp != after {
-                    // Retry once from the newly observed identity, never attach it to
-                    // an earlier read. A busier session remains unstamped for later recovery.
-                    stamp = after;
-                    continue;
+                for _ in 0..2 {
+                    if recorded == Some(stamp.as_str()) {
+                        return Ok(Backfilled::Unchanged);
+                    }
+                    let session = stored.read(session_id).await.filter(|s| s.id == session_id);
+                    let after = match observe(stored.stamp(session_id).await?) {
+                        Ok(after) => after,
+                        Err(outcome) => return Ok(outcome),
+                    };
+                    if stamp != after {
+                        // Retry once from the newly observed identity, never attach it to
+                        // an earlier read. A busier session remains unstamped for later recovery.
+                        stamp = after;
+                        continue;
+                    }
+                    let Some(IngestSession { messages, agent_only, .. }) = session else { return Ok(Backfilled::Unread) };
+                    let indexed = !agent_only;
+                    let rows = if indexed {
+                        // A redacted message is only needed until its search row has been derived.
+                        messages
+                            .into_iter()
+                            .enumerate()
+                            .filter_map(|(index, message)| {
+                                let redacted = self.sensitive.redact_message(session_id, &message);
+                                drop(message);
+                                search_row(session_id, &redacted, index)
+                            })
+                            .collect::<Vec<_>>()
+                    } else {
+                        drop(messages);
+                        Vec::new()
+                    };
+                    self.db.store_backfill(session_id, &rows, &stamp).await?;
+                    return Ok(if indexed { Backfilled::Indexed } else { Backfilled::Stamped });
                 }
-                let Some(IngestSession { messages, agent_only, .. }) = session else { return Ok(Backfilled::Unread) };
-                let indexed = !agent_only;
-                let rows = if indexed {
-                    // A redacted message is only needed until its search row has been derived.
-                    messages
-                        .into_iter()
-                        .enumerate()
-                        .filter_map(|(index, message)| {
-                            let redacted = self.sensitive.redact_message(session_id, &message);
-                            drop(message);
-                            search_row(session_id, &redacted, index)
-                        })
-                        .collect::<Vec<_>>()
-                } else {
-                    drop(messages);
-                    Vec::new()
-                };
-                self.db.store_backfill(session_id, &rows, &stamp).await?;
-                return Ok(if indexed { Backfilled::Indexed } else { Backfilled::Stamped });
-            }
-            Ok(Backfilled::Unread)
-        })
-        .await
+                Ok(Backfilled::Unread)
+            })
+            .await
     }
 }
 

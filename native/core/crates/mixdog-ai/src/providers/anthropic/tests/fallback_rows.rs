@@ -3,12 +3,12 @@
 
 use super::*;
 use crate::catalog::PricedUsage;
+use crate::catalog::UsageArgs;
 use crate::registry::accounted::AccountedAdapter;
 use crate::registry::accounted::AccountingDeps;
 use crate::registry::accounting::UsagePricing;
 use crate::registry::accounting::UsageRow;
 use crate::registry::accounting::UsageSink;
-use crate::catalog::UsageArgs;
 
 struct Unpriced;
 

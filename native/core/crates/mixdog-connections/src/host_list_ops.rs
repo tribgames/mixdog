@@ -117,7 +117,10 @@ mod forget_results_tests;
 pub enum LocalForget {
     Done,
     /// The cause in English and by code (always present: a failed forget never reaches the window as raw text).
-    Failed { message: String, notice: SshMessage },
+    Failed {
+        message: String,
+        notice: SshMessage,
+    },
 }
 
 /// The one local forget of a saved server, used by the list's Forget and by the cleanup that removes the server software. It never

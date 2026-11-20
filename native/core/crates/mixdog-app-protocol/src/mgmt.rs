@@ -77,14 +77,7 @@ pub enum ActivityKind {
 
 impl ActivityKind {
     pub fn blocks_idle(self) -> bool {
-        matches!(
-            self,
-            ActivityKind::Turn
-                | ActivityKind::ApprovalWait
-                | ActivityKind::SubAgent
-                | ActivityKind::ScheduledRun
-                | ActivityKind::BackgroundShell
-        )
+        matches!(self, ActivityKind::Turn | ActivityKind::ApprovalWait | ActivityKind::SubAgent | ActivityKind::ScheduledRun | ActivityKind::BackgroundShell)
     }
 }
 

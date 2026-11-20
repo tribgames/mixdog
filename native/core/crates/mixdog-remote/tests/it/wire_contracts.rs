@@ -3,10 +3,10 @@
 
 use std::time::Duration;
 
-use mixdog_remote::leg::redial::{Redial, RETRY_MAX, RETRY_MIN};
+use mixdog_remote::leg::redial::{RETRY_MAX, RETRY_MIN, Redial};
 use mixdog_remote::transport::consts::{CHUNK_BYTES, CHUNK_HEADER_BYTES};
-use mixdog_remote::transport::frame::{Message, RecordMessage, decode_message, encode_control, encode_record};
 use mixdog_remote::transport::consts::{FRAGMENT_BYTES, MAX_RECORD_PLAINTEXT_BYTES};
+use mixdog_remote::transport::frame::{Message, RecordMessage, decode_message, encode_control, encode_record};
 use mixdog_remote::transport::path::{PathMonitor, RttEstimate, Stall};
 use mixdog_remote::transport::signal::{Role, Signal, parse_signal};
 use mixdog_remote::transport::split::{Assembly, AssemblyPool, MessageAssembler, split_payload};
@@ -67,7 +67,21 @@ fn a_phones_close_signal_names_its_peer_connection_a_known_reason_and_a_short_de
     let id = "abcdefghijklmnop";
     let signal = close(id, "viewer-left", Some("x".repeat(200)));
     assert_eq!(ClientSignal::parse(&signal).expect("valid").to_json(), signal);
-    for name in ["viewer-left", "superseded", "unsupported", "turn-unavailable", "negotiation-timeout", "ice-failed", "dtls-failed", "fingerprint-mismatch", "media-timeout", "channel-failed", "sender-failed", "unauthorized", "protocol-error"] {
+    for name in [
+        "viewer-left",
+        "superseded",
+        "unsupported",
+        "turn-unavailable",
+        "negotiation-timeout",
+        "ice-failed",
+        "dtls-failed",
+        "fingerprint-mismatch",
+        "media-timeout",
+        "channel-failed",
+        "sender-failed",
+        "unauthorized",
+        "protocol-error",
+    ] {
         assert_eq!(CloseReason::from_wire(name).map(CloseReason::wire_name), Some(name));
         assert!(ClientSignal::parse(&close(id, name, None)).is_ok(), "{name}");
     }

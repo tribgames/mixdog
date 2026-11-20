@@ -75,7 +75,8 @@ impl Extensions {
                 } else {
                     "(no message)".to_owned()
                 };
-                let label = format!("{}  {}", format_session_updated_at(session.get("updatedAt"), now), format_session_message_count(session.get("messageCount")));
+                let label =
+                    format!("{}  {}", format_session_updated_at(session.get("updatedAt"), now), format_session_message_count(session.get("messageCount")));
                 ExtItem::new(&or_text(session, "id", ""), &label, &description, Action::Noop)
             })
             .collect();

@@ -394,7 +394,10 @@ fn run_log_file_name(session: &str) -> String {
     format!("{name}.jsonl")
 }
 
-#[allow(clippy::disallowed_methods, reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job"
+)]
 fn prune_run_logs(directory: &Path) {
     let Ok(read) = fs::read_dir(directory) else { return };
     let mut files: Vec<(PathBuf, SystemTime)> = read
@@ -438,7 +441,11 @@ impl RunLog {
         let _ = self.write_line(id, record);
     }
 
-    #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job")]
+    #[allow(
+        clippy::disallowed_methods,
+        clippy::disallowed_types,
+        reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job"
+    )]
     fn write_line(&self, id: &str, record: Map<String, Value>) -> std::io::Result<()> {
         let path = self.directory.join(run_log_file_name(id));
         fs::create_dir_all(&self.directory)?;
@@ -474,7 +481,10 @@ impl RunLog {
         json!({ "history": records, "returned": records.len() })
     }
 
-    #[allow(clippy::disallowed_methods, reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job"
+    )]
     fn records(&self, session: &str, limit: usize) -> Vec<Value> {
         let id = mixdog_js::js_trim(session);
         if id.is_empty() {
@@ -837,7 +847,6 @@ mod tests {
     }
 }
 
-
 /// `process.platform`.
 fn platform() -> &'static str {
     match std::env::consts::OS {
@@ -856,7 +865,10 @@ impl FailureBundles {
     }
 
     /// The bundle files, newest first.
-    #[allow(clippy::disallowed_methods, reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job"
+    )]
     fn files(&self) -> std::io::Result<Vec<String>> {
         let mut files: Vec<(String, SystemTime)> = fs::read_dir(&self.directory)?
             .filter_map(Result::ok)
@@ -904,7 +916,11 @@ impl FailureBundles {
 
     /// Writes `session`'s bundle (`bundle.records`): a pending file first, renamed into place, then the oldest bundles beyond 20
     /// are removed. One session keeps one bundle id, so its later failures replace its file.
-    #[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "Called by record in the awaited backend InteractiveIo diagnostic job; file creation and retention stay one synchronous operation")]
+    #[allow(
+        clippy::disallowed_methods,
+        clippy::disallowed_types,
+        reason = "Called by record in the awaited backend InteractiveIo diagnostic job; file creation and retention stay one synchronous operation"
+    )]
     pub fn write(&self, session: &str, bundle: Value) -> Result<(), ComputerError> {
         let key = session_key(session);
         fs::create_dir_all(&self.directory).map_err(|e| failure("computer_failure_bundle_failed", e))?;

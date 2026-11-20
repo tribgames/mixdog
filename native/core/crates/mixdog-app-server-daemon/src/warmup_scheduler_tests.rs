@@ -109,7 +109,10 @@ impl World {
     /// Waits until `ready` holds, re-checked on every change, under one real-time deadline for the whole wait. The
     /// deadline is a blocking task: while it runs the paused clock does not advance by itself (Tokio inhibits
     /// auto-advance while a blocking task runs), so only a `tick` moves time.
-    #[allow(clippy::disallowed_methods, reason = "Test-only blocking watchdog/exit wait; its owned completion signal is released by the fixture, not product work.")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "Test-only blocking watchdog/exit wait; its owned completion signal is released by the fixture, not product work."
+    )]
     async fn until(&self, what: &str, mut ready: impl FnMut(&mut Inner) -> bool) {
         let (done, ended) = std::sync::mpsc::channel::<()>();
         let mut deadline = tokio::task::spawn_blocking(move || matches!(ended.recv_timeout(DEADLINE), Err(std::sync::mpsc::RecvTimeoutError::Timeout)));
@@ -370,11 +373,8 @@ fn warmups(spec: Spec) -> Warmups {
         Arc::new(move || w.inner.lock().unwrap().route.clone())
     };
     statusline.bind(route, Arc::new(Port(w.clone())), Arc::new(Port(w.clone())), gates).unwrap();
-    let catalog_env = if spec.catalog_enabled {
-        vec![("MIXDOG_MODEL_CATALOG_WARMUP_DELAY_MS", "0")]
-    } else {
-        vec![("MIXDOG_DISABLE_MODEL_CATALOG_WARMUP", "1")]
-    };
+    let catalog_env =
+        if spec.catalog_enabled { vec![("MIXDOG_MODEL_CATALOG_WARMUP_DELAY_MS", "0")] } else { vec![("MIXDOG_DISABLE_MODEL_CATALOG_WARMUP", "1")] };
     let schedulers = WarmupSchedulers { providers, models, setup, catalog, statusline };
     Warmups { world: w, schedulers, catalog_env }
 }

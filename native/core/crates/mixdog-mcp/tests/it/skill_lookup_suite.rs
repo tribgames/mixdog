@@ -66,7 +66,8 @@ fn port_over(base: &Path, disabled: &[&str]) -> CatalogSkillPort {
     };
     let root = SkillRoot { dir: skills, source: SkillSource::Global, plugin: None };
     let tokens = mixdog_rt::testing::tokens();
-    let catalog = SkillCatalog::new(base.join("data"), tokens.maintenance_io, Arc::new(move |_| vec![root.clone()]), Arc::new(Settings(settings)), &SkillsWatch::new());
+    let catalog =
+        SkillCatalog::new(base.join("data"), tokens.maintenance_io, Arc::new(move |_| vec![root.clone()]), Arc::new(Settings(settings)), &SkillsWatch::new());
     CatalogSkillPort::new(catalog, Arc::new(NoArm), Arc::new(NoTranscript))
 }
 

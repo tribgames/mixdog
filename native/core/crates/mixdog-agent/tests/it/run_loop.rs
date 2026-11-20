@@ -69,9 +69,6 @@ use mixdog_protocol::TurnId;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
-
-
-
 #[path = "stream_cut_cases.rs"]
 mod stream_cut_cases;
 
@@ -80,7 +77,6 @@ mod stream_cut_burst_cases;
 
 #[path = "loop_behaviours.rs"]
 mod loop_behaviours;
-
 
 // ---------------------------------------------------------------------------
 // Scripted provider
@@ -109,7 +105,12 @@ enum Attempt {
 }
 
 /// The stream, and the count of completed tool calls it has handed to the core.
-struct ScriptedStream(VecDeque<Step>, Option<Arc<dyn Fn() + Send + Sync>>, Arc<std::sync::atomic::AtomicU64>, Option<mixdog_core_api::domain::provider::SendIdentity>);
+struct ScriptedStream(
+    VecDeque<Step>,
+    Option<Arc<dyn Fn() + Send + Sync>>,
+    Arc<std::sync::atomic::AtomicU64>,
+    Option<mixdog_core_api::domain::provider::SendIdentity>,
+);
 
 #[async_trait]
 impl ModelStream for ScriptedStream {
@@ -253,10 +254,7 @@ impl ProviderAdapter for Scripted {
     fn send_stages(&self, _model: &str) -> mixdog_core_api::domain::provider::SendStages {
         self.stages
     }
-    async fn attempt(
-        &self,
-        request: Arc<ModelRequest>,
-    ) -> Result<Box<dyn ModelStream>, ProviderError> {
+    async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError> {
         if self.raises_requesting {
             request.options.send_identity.raise_requesting_once();
             let held = self.hold.lock().unwrap().take();
@@ -269,7 +267,8 @@ impl ProviderAdapter for Scripted {
             request.options.send_identity.raise_stage_with(stage, payload);
         }
         if let Some(log) = &self.order {
-            let messages = request.messages.iter().map(|m| (wire_role(&AgentMessage::new(m.clone())).to_owned(), AgentMessage::new(m.clone()).text())).collect();
+            let messages =
+                request.messages.iter().map(|m| (wire_role(&AgentMessage::new(m.clone())).to_owned(), AgentMessage::new(m.clone()).text())).collect();
             log.0.lock().unwrap().push((false, messages));
         }
         let identity = request.options.send_identity.clone();
@@ -297,12 +296,7 @@ fn done(stop: StopReason) -> Step {
 }
 
 fn call(id: &str, name: &str, args: JsonValue) -> Step {
-    Step::Event(StreamEvent::ToolCallDone(ToolCall {
-        id: id.into(),
-        name: name.into(),
-        arguments: args,
-        native_type: None,
-    }))
+    Step::Event(StreamEvent::ToolCallDone(ToolCall { id: id.into(), name: name.into(), arguments: args, native_type: None }))
 }
 
 fn turn(steps: Vec<Step>) -> Attempt {
@@ -372,8 +366,7 @@ impl Steer {
 impl SteerSource for Steer {
     async fn drain(&self, request: DrainRequest) -> Vec<SteerEntry> {
         let mut queue = self.0.lock().unwrap();
-        let (taken, kept): (Vec<_>, Vec<_>) =
-            queue.drain(..).partition(|(stage, _)| *stage == request.stage);
+        let (taken, kept): (Vec<_>, Vec<_>) = queue.drain(..).partition(|(stage, _)| *stage == request.stage);
         *queue = kept;
         taken.into_iter().map(|(_, entry)| entry).collect()
     }
@@ -390,13 +383,7 @@ struct Observer {
 }
 impl Observer {
     fn new(retract: Retracted) -> Arc<Self> {
-        Arc::new(Self {
-            events: Mutex::new(Vec::new()),
-            retract,
-            reset_channel: true,
-            requesting: Mutex::new(None),
-            early_arrived: tokio::sync::Notify::new(),
-        })
+        Arc::new(Self { events: Mutex::new(Vec::new()), retract, reset_channel: true, requesting: Mutex::new(None), early_arrived: tokio::sync::Notify::new() })
     }
     /// Resolves when the observer is given its first `requesting` stage.
     fn on_requesting(&self) -> tokio::sync::oneshot::Receiver<()> {
@@ -508,10 +495,7 @@ impl Compactor for Compactor100 {
         if !self.preflight || !messages.iter().any(|m| m.message.content == attached) {
             return None;
         }
-        let next = messages
-            .iter()
-            .map(|m| if m.message.content == attached { AgentMessage::user("referenced") } else { m.clone() })
-            .collect();
+        let next = messages.iter().map(|m| if m.message.content == attached { AgentMessage::user("referenced") } else { m.clone() }).collect();
         Some(mixdog_agent::compact::fresh::Preflight { messages: next, referenced_messages: 1, inline_tokens_before: 1, budget_tokens: 0 })
     }
     async fn reduces(&self, request: &CompactRequest<'_>) -> bool {
@@ -521,10 +505,7 @@ impl Compactor for Compactor100 {
         self.request_media
     }
     async fn compact(&self, request: CompactRequest<'_>) -> Result<CompactOutput, CompactError> {
-        self.requests
-            .lock()
-            .unwrap()
-            .push((request.messages.len(), request.trigger.clone()));
+        self.requests.lock().unwrap().push((request.messages.len(), request.trigger.clone()));
         if let Some((clock, ms)) = &self.takes {
             clock.0.fetch_add(*ms, Ordering::Relaxed);
         }
@@ -558,11 +539,7 @@ impl Echo {
             aliases: Vec::new(),
             description: "echo".into(),
             input_schema: json!({"type": "object"}),
-            annotations: ToolAnnotations {
-                read_only_hint: Some(true),
-                idempotent_hint: Some(true),
-                ..ToolAnnotations::default()
-            },
+            annotations: ToolAnnotations { read_only_hint: Some(true), idempotent_hint: Some(true), ..ToolAnnotations::default() },
             parallel_safe: true,
             exclusive_with: Vec::new(),
         }))
@@ -574,10 +551,7 @@ impl Tool for Echo {
         &self.0
     }
     async fn call(&self, _ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
-        Ok(ToolOutput {
-            parts: vec![ToolPart::Text(format!("echo:{args}"))],
-            ..ToolOutput::default()
-        })
+        Ok(ToolOutput { parts: vec![ToolPart::Text(format!("echo:{args}"))], ..ToolOutput::default() })
     }
 }
 
@@ -625,10 +599,7 @@ impl ReuseWrite for Stored {
 async fn cache_admission_keeps_text_but_not_partial_or_structured_results() {
     for (complete, rich, stored) in [(true, false, vec!["body"]), (false, false, vec![]), (true, true, vec![])] {
         let reuse = Arc::new(Stored::default());
-        let mut h = Harness::new(vec![
-            turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-            turn(vec![text("ok"), done(StopReason::EndTurn)]),
-        ]);
+        let mut h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
         h.reuse = Some(reuse.clone());
         finish(h.run(config(), vec![Arc::new(Marked(complete, rich))], vec![AgentMessage::user("go")])).await;
         assert_eq!(*reuse.0.lock().unwrap(), stored, "complete = {complete}, rich = {rich}");
@@ -738,10 +709,18 @@ async fn warm_results_cannot_bypass_policy_rewrites_or_denied_approval() {
         let (h, tool, reuse) = run(Arc::new(AskFirst));
         h.approvals.script.lock().unwrap().push_back(ApprovalResolution::Decided {
             decision: ToolApprovalDecision {
-                approved, reason: Some("Not now.".into()), answers: None, reply: None, response: None,
-                edited_args: None, remember: None, scope: None,
+                approved,
+                reason: Some("Not now.".into()),
+                answers: None,
+                reply: None,
+                response: None,
+                edited_args: None,
+                remember: None,
+                scope: None,
             },
-            device: "desk".into(), connection_kind: mixdog_protocol::ConnectionKind::Desktop, at: 0,
+            device: "desk".into(),
+            connection_kind: mixdog_protocol::ConnectionKind::Desktop,
+            at: 0,
         });
         let out = finish(h.run(config(), vec![tool], vec![AgentMessage::user("go")])).await;
         assert_eq!(h.approvals.asks.lock().unwrap().len(), 1);
@@ -829,17 +808,18 @@ impl Tool for WorkspaceTool {
 
 #[tokio::test]
 async fn a_scoped_call_after_a_streamed_shell_waits_for_the_mutation_before_lookup_and_execution() {
-    let workspace = Arc::new(OrderedWorkspace {
-        changed: false.into(),
-        allow_change: tokio::sync::Notify::new(),
-        lookups: Mutex::new(Vec::new()),
-    });
+    let workspace = Arc::new(OrderedWorkspace { changed: false.into(), allow_change: tokio::sync::Notify::new(), lookups: Mutex::new(Vec::new()) });
     let release = workspace.clone();
     let mut h = Harness::new(vec![
         turn(vec![
             call("w", "shell", json!({"command": "change files"})),
             call("l", "list", json!({})),
-            Step::Wire(Box::pin(async move { release.allow_change.notify_one(); }), "release the write after streaming both calls"),
+            Step::Wire(
+                Box::pin(async move {
+                    release.allow_change.notify_one();
+                }),
+                "release the write after streaming both calls",
+            ),
             done(StopReason::ToolUse),
         ]),
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
@@ -850,10 +830,7 @@ async fn a_scoped_call_after_a_streamed_shell_waits_for_the_mutation_before_look
     shell.annotations = ToolAnnotations::default();
     let mut list = Echo::tool().spec().clone();
     list.name = "list".into();
-    let tools: Vec<Arc<dyn Tool>> = vec![
-        Arc::new(WorkspaceTool(shell, workspace.clone())),
-        Arc::new(WorkspaceTool(list, workspace.clone())),
-    ];
+    let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(WorkspaceTool(shell, workspace.clone())), Arc::new(WorkspaceTool(list, workspace.clone()))];
     let out = finish(h.run(config(), tools, vec![AgentMessage::user("go")])).await;
     assert!(dump(&out.transcript).iter().any(|row| row == "tool#l(Normal):after the write"));
     assert!(!workspace.lookups.lock().unwrap().is_empty());
@@ -922,12 +899,7 @@ async fn an_edit_behind_an_ambiguous_streamed_edit_runs_before_the_group_retry()
     let file = AnchoredFile::new("same\nsame\n");
     let edit = |id: &str, new: &str| call(id, "edit", json!({ "file_path": "a.txt", "old_string": "same", "new_string": new }));
     let h = Harness::new(vec![
-        turn(vec![
-            edit("x1", "one"),
-            edit("x2", "two"),
-            Step::Until(file.ended.subscribe(), 2, "both streamed edits to end"),
-            done(StopReason::ToolUse),
-        ]),
+        turn(vec![edit("x1", "one"), edit("x2", "two"), Step::Until(file.ended.subscribe(), 2, "both streamed edits to end"), done(StopReason::ToolUse)]),
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
     ]);
     finish(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")])).await;
@@ -1055,14 +1027,8 @@ async fn a_retry_reached_between_two_settlements_runs_between_the_edits_they_let
     ]);
     finish_with(h.run(config(), vec![file.clone()], vec![AgentMessage::user("go")]), release_after_the_retry(&hold, &file, 2)).await;
     let runs = file.runs.lock().unwrap().clone();
-    let want: Vec<(String, Option<u32>)> = vec![
-        ("x1".into(), None),
-        ("x2".into(), None),
-        ("x1".into(), Some(3)),
-        ("x3".into(), None),
-        ("x2".into(), Some(2)),
-        ("x3".into(), None),
-    ];
+    let want: Vec<(String, Option<u32>)> =
+        vec![("x1".into(), None), ("x2".into(), None), ("x1".into(), Some(3)), ("x3".into(), None), ("x2".into(), Some(2)), ("x3".into(), None)];
     assert_eq!(runs, want);
     assert_eq!(*file.text.lock().unwrap(), "one\ntwo\nthree\n");
 }
@@ -1100,10 +1066,7 @@ impl Tool for Notifying {
 async fn the_turns_notify_hook_reaches_each_tool_call_s_options() {
     let seen = Arc::new(Mutex::new(Vec::new()));
     for hook in [true, false] {
-        let h = Harness::new(vec![
-            turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-            turn(vec![text("ok"), done(StopReason::EndTurn)]),
-        ]);
+        let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
         let mut tool_env = h.tool_env();
         if hook {
             let seen = seen.clone();
@@ -1131,15 +1094,8 @@ async fn the_turns_notify_hook_reaches_each_tool_call_s_options() {
 
 #[tokio::test]
 async fn a_tool_results_ui_diff_rides_its_message_as_a_string_and_stays_off_the_wire() {
-    for (meta, want) in [
-        (json!({ "uiDiff": "@@ -1 +1 @@" }), Some("@@ -1 +1 @@")),
-        (json!({ "uiDiff": 7 }), None),
-        (json!({ "other": "x" }), None),
-    ] {
-        let h = Harness::new(vec![
-            turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-            turn(vec![text("ok"), done(StopReason::EndTurn)]),
-        ]);
+    for (meta, want) in [(json!({ "uiDiff": "@@ -1 +1 @@" }), Some("@@ -1 +1 @@")), (json!({ "uiDiff": 7 }), None), (json!({ "other": "x" }), None)] {
+        let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
         let out = finish(h.run(config(), vec![Arc::new(WithMeta(meta.clone()))], vec![AgentMessage::user("go")])).await;
         let result = out.transcript.iter().find(|m| m.tool_call_id() == Some("c1")).expect("tool result");
         assert_eq!(result.ui_diff.as_deref(), want, "{meta}");
@@ -1154,10 +1110,7 @@ async fn a_tool_results_ui_diff_rides_its_message_as_a_string_and_stays_off_the_
 async fn a_tool_results_tool_meta_rides_its_message_and_its_stored_row() {
     let owner = json!({ "code": "visualize_owner", "missing": [], "ownerSessionId": "sess_lead1x" });
     for (meta, want) in [(owner.clone(), Some(owner.clone())), (json!({ "uiDiff": "d" }), None), (json!({ "code": "" }), None)] {
-        let h = Harness::new(vec![
-            turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-            turn(vec![text("ok"), done(StopReason::EndTurn)]),
-        ]);
+        let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
         let out = finish(h.run(config(), vec![Arc::new(WithMeta(meta.clone()))], vec![AgentMessage::user("go")])).await;
         let result = out.transcript.iter().find(|m| m.tool_call_id() == Some("c1")).expect("tool result");
         assert_eq!(result.tool_meta, want, "{meta}");
@@ -1306,25 +1259,14 @@ async fn finish(run: Run) -> RunOutput {
 #[tokio::test]
 async fn tool_round_then_final_text() {
     let h = Harness::new(vec![
-        turn(vec![
-            text("looking"),
-            call("c1", "echo", json!({"a": 1})),
-            done(StopReason::ToolUse),
-        ]),
+        turn(vec![text("looking"), call("c1", "echo", json!({"a": 1})), done(StopReason::ToolUse)]),
         turn(vec![text("all done"), done(StopReason::EndTurn)]),
     ]);
     let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.response.content, "all done");
     assert_eq!(output.iterations, 2);
     assert_eq!(output.tool_calls_total, 1);
-    assert_eq!(
-        dump(&output.transcript),
-        [
-            "user:go",
-            "assistant[echo#c1]:looking",
-            "tool#c1(Normal):echo:{\"a\":1}",
-        ]
-    );
+    assert_eq!(dump(&output.transcript), ["user:go", "assistant[echo#c1]:looking", "tool#c1(Normal):echo:{\"a\":1}",]);
     let second = &h.provider.requests()[1];
     assert_eq!(wire_dump(second), ["User:go", "Assistant:looking", "Tool:echo:{\"a\":1}"]);
     // the assistant turn with calls and each result reached the sink in order
@@ -1335,7 +1277,10 @@ async fn tool_round_then_final_text() {
 struct NoBook;
 
 impl mixdog_core_api::domain::cache_tail::TailGate for NoBook {
-    fn admit<'a>(&'a self, _: mixdog_core_api::domain::cache_tail::Admission<'a>) -> std::pin::Pin<Box<dyn std::future::Future<Output = mixdog_core_api::domain::cache_tail::Verdict> + Send + 'a>> {
+    fn admit<'a>(
+        &'a self,
+        _: mixdog_core_api::domain::cache_tail::Admission<'a>,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = mixdog_core_api::domain::cache_tail::Verdict> + Send + 'a>> {
         unreachable!("the scripted provider asks no gate")
     }
     fn settle(&self, _: &mixdog_core_api::domain::cache_tail::Permit, _: Option<mixdog_core_api::domain::cache_tail::Counters>) {}
@@ -1382,7 +1327,8 @@ async fn a_stale_request_goes_on_from_the_stored_history_at_its_generation() {
     config.options.tail_generation = Some(1);
     let retired = serde_json::from_value(serde_json::json!({
         "compatResponses": { "previousResponseId": "resp_retired", "store": true, "seenMessageCount": 1 }
-    })).unwrap();
+    }))
+    .unwrap();
     config.options.provider_state = Some(retired);
     config.history = Some(history.clone());
     let output = finish(h.run(config, vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
@@ -1390,7 +1336,11 @@ async fn a_stale_request_goes_on_from_the_stored_history_at_its_generation() {
     assert_eq!(*history.0.lock().unwrap(), 1, "reloaded once");
     let requests = h.provider.requests();
     assert_eq!((wire_dump(&requests[0]), requests[0].options.tail_generation), (vec!["User:go".to_owned()], Some(1)));
-    assert_eq!((wire_dump(&requests[1]), requests[1].options.tail_generation), (vec!["User:compacted: go".to_owned()], Some(3)), "the stored history, at its own generation");
+    assert_eq!(
+        (wire_dump(&requests[1]), requests[1].options.tail_generation),
+        (vec!["User:compacted: go".to_owned()], Some(3)),
+        "the stored history, at its own generation"
+    );
     assert!(requests[0].options.provider_state.is_some());
     assert!(requests[1].options.provider_state.is_none(), "the rebuilt history cannot reuse an anchor into the retired transcript");
 }
@@ -1427,10 +1377,7 @@ impl ToolHooks for StopHook {
 /// reaches the model as a hook note, and the next ask says `stop_hook_active`.
 #[tokio::test]
 async fn a_stop_block_continues_the_turn_with_its_reason() {
-    let mut h = Harness::new(vec![
-        turn(vec![text("first"), done(StopReason::EndTurn)]),
-        turn(vec![text("second"), done(StopReason::EndTurn)]),
-    ]);
+    let mut h = Harness::new(vec![turn(vec![text("first"), done(StopReason::EndTurn)]), turn(vec![text("second"), done(StopReason::EndTurn)])]);
     let hook = Arc::new(StopHook::new(1, "run the tests"));
     h.hooks = Some(hook.clone());
     let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
@@ -1462,27 +1409,22 @@ async fn stop_continuations_are_capped_per_turn() {
 /// their block is ignored with a warning and the turn ends (B-5: every completed turn fires Stop).
 #[tokio::test]
 async fn a_turn_ending_on_a_refusal_asks_the_stop_hooks_once_and_ignores_a_block() {
-    let mut h = Harness::new(vec![
-        turn(vec![text("no"), done(StopReason::Refusal)]),
-        turn(vec![text("still no"), done(StopReason::Refusal)]),
-    ]);
+    let mut h = Harness::new(vec![turn(vec![text("no"), done(StopReason::Refusal)]), turn(vec![text("still no"), done(StopReason::Refusal)])]);
     let hook = Arc::new(StopHook::new(usize::MAX, "go on"));
     h.hooks = Some(hook.clone());
     let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.iterations, 2);
     assert_eq!(*hook.asked.lock().unwrap(), [false]);
     assert_eq!(*hook.settled.lock().unwrap(), [false], "a block of a turn that cannot go on ends it");
-    let warned = h.observer.events().iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { tone: Tone::Warn, message }) if message.contains("cannot go on")));
+    let warned =
+        h.observer.events().iter().any(|e| matches!(e, RunEvent::Stage(Stage::Notice { tone: Tone::Warn, message }) if message.contains("cannot go on")));
     assert!(warned);
 }
 
 /// The host's request hook runs before every provider attempt of the turn, once per request.
 #[tokio::test]
 async fn the_request_hook_runs_before_each_provider_attempt() {
-    let h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let begun = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let mut config = config();
     let counter = begun.clone();
@@ -1499,11 +1441,7 @@ async fn provider_state_is_sent_updated_by_the_provider_and_handed_back() {
     use mixdog_core_api::domain::provider::ProviderState;
     // An empty reported state means "clear"; it is still a reported change.
     let h = Harness::new(vec![
-        turn(vec![
-            Step::Event(StreamEvent::ProviderState(ProviderState::default())),
-            call("c1", "echo", json!({})),
-            done(StopReason::ToolUse),
-        ]),
+        turn(vec![Step::Event(StreamEvent::ProviderState(ProviderState::default())), call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
     ]);
     let mut cfg = config();
@@ -1520,24 +1458,12 @@ async fn provider_state_is_sent_updated_by_the_provider_and_handed_back() {
     assert_eq!(output.provider_state, None);
 }
 
-
 #[tokio::test]
 async fn steering_enters_after_the_tool_batch_and_before_the_next_request() {
-    let h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     h.steer.push(DrainStage::PreSend, "  also check b ");
     let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
-    assert_eq!(
-        dump(&output.transcript),
-        [
-            "user:go",
-            "assistant[echo#c1]:",
-            "tool#c1(Normal):echo:{}",
-            "user<Steering>:also check b",
-        ]
-    );
+    assert_eq!(dump(&output.transcript), ["user:go", "assistant[echo#c1]:", "tool#c1(Normal):echo:{}", "user<Steering>:also check b",]);
     let second = &h.provider.requests()[1];
     let last = second.messages.last().unwrap();
     assert_eq!(last.source, Some(MessageSource::Steering));
@@ -1558,16 +1484,10 @@ async fn steering_enters_after_the_tool_batch_and_before_the_next_request() {
 
 #[tokio::test]
 async fn terminal_steering_keeps_the_ended_answer_and_resumes() {
-    let h = Harness::new(vec![
-        turn(vec![text("first"), done(StopReason::EndTurn)]),
-        turn(vec![text("second"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![turn(vec![text("first"), done(StopReason::EndTurn)]), turn(vec![text("second"), done(StopReason::EndTurn)])]);
     h.steer.push(DrainStage::Terminal, "one more thing");
     let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
-    assert_eq!(
-        dump(&output.transcript),
-        ["user:go", "assistant:first", "user<Steering>:one more thing"]
-    );
+    assert_eq!(dump(&output.transcript), ["user:go", "assistant:first", "user<Steering>:one more thing"]);
     // the caller gets every segment, history keeps the terminal one
     assert_eq!(output.response.content, "first\n\nsecond");
     assert_eq!(output.response.history_text(), "second");
@@ -1576,11 +1496,7 @@ async fn terminal_steering_keeps_the_ended_answer_and_resumes() {
 #[tokio::test]
 async fn output_limit_ladder_escalates_once_then_resumes_then_ends() {
     let cut = |t: &str| turn(vec![text(t), done(StopReason::MaxTokens)]);
-    let h = Harness::new(vec![
-        cut("aa"),
-        cut("bb"),
-        turn(vec![text("cc"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![cut("aa"), cut("bb"), turn(vec![text("cc"), done(StopReason::EndTurn)])]);
     let mut cfg = config();
     cfg.escalated_max_output_tokens = Some(8_000);
     let output = finish(h.run(cfg, vec![], vec![AgentMessage::user("go")])).await;
@@ -1610,9 +1526,9 @@ async fn output_limit_ladder_ends_with_the_visible_notice() {
     let h = Harness::new(vec![cut("a"), cut("b"), cut("c"), cut("d")]);
     let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.response.max_output_recovery_attempts, Some(3));
-    assert!(output.response.content.ends_with(
-        "d\n\n[mixdog-runtime] The model hit its output limit and the response stayed truncated after 3 recovery attempts."
-    ));
+    assert!(
+        output.response.content.ends_with("d\n\n[mixdog-runtime] The model hit its output limit and the response stayed truncated after 3 recovery attempts.")
+    );
     assert_eq!(output.termination, Some(mixdog_agent::response::Termination::Truncated));
 }
 
@@ -1624,19 +1540,13 @@ async fn empty_turns_are_nudged_three_times_then_end_empty() {
     assert_eq!(output.termination, Some(mixdog_agent::response::Termination::Empty));
     let dumped = dump(&output.transcript);
     assert_eq!(dumped.len(), 4);
-    assert_eq!(
-        dumped[3],
-        "user:[mixdog-runtime] Empty response (3/3). Return final text, or use tools only for required evidence still missing."
-    );
+    assert_eq!(dumped[3], "user:[mixdog-runtime] Empty response (3/3). Return final text, or use tools only for required evidence still missing.");
 }
 
 #[tokio::test]
 async fn a_transient_failure_is_retried_through_the_decider_and_the_host_wait() {
     let reset = ProviderError::transport(TransportFault::Reset, DeliveryState::Ambiguous);
-    let h = Harness::new(vec![
-        Attempt::Reject(reset),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![Attempt::Reject(reset), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.response.content, "ok");
     // request row: exponential 200 ms, symmetric jitter drawn at 0.5 → unchanged
@@ -1715,21 +1625,10 @@ async fn a_reissued_stream_raises_requesting_again() {
     assert_eq!(stages(vec![Attempt::Reject(reset()), ok()]).await, ["requesting", "reconnecting"]);
 }
 
-
-
-
-
 #[tokio::test]
 async fn a_deterministic_refusal_surfaces_without_a_wait() {
-    let h = Harness::new(vec![Attempt::Reject(ProviderError::new(
-        ErrorKind::Auth,
-        DeliveryState::Accepted,
-    ))]);
-    let failure = h
-        .run(config(), vec![], vec![AgentMessage::user("go")])
-        .run()
-        .await
-        .expect_err("auth surfaces");
+    let h = Harness::new(vec![Attempt::Reject(ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted))]);
+    let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("auth surfaces");
     assert!(matches!(failure.error, AgentError::Provider(_)));
     assert!(h.waiter.0.lock().unwrap().is_empty());
 }
@@ -1778,8 +1677,11 @@ async fn websocket_connection_limit_and_handshake_share_one_budget_in_agent_and_
         assert_eq!(error.code.as_deref(), Some("websocket_connection_limit_reached"));
         assert!(error.recovery_exhausted);
         assert_eq!(error.should_retry, Some(false));
-        assert_eq!(dial.wire().iter().filter(|event| matches!(event, Wire::Upgrade { .. })).count(), 6,
-            "one initial exchange plus five retries, shared across both failure phases");
+        assert_eq!(
+            dial.wire().iter().filter(|event| matches!(event, Wire::Upgrade { .. })).count(),
+            6,
+            "one initial exchange plus five retries, shared across both failure phases"
+        );
     }
 }
 
@@ -1812,15 +1714,9 @@ async fn websocket_connection_limit_continues_the_agent_without_consulting_fallb
 #[tokio::test]
 async fn parsed_tool_calls_survive_a_cut_stream() {
     let cut = ProviderError::transport(TransportFault::TruncatedStream, DeliveryState::Accepted);
-    let h = Harness::new(vec![
-        turn(vec![text("x"), call("c1", "echo", json!({})), Step::Fail(cut)]),
-        turn(vec![text("fin"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![turn(vec![text("x"), call("c1", "echo", json!({})), Step::Fail(cut)]), turn(vec![text("fin"), done(StopReason::EndTurn)])]);
     let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
-    assert_eq!(
-        dump(&output.transcript),
-        ["user:go", "assistant[echo#c1]:x", "tool#c1(Normal):echo:{}"]
-    );
+    assert_eq!(dump(&output.transcript), ["user:go", "assistant[echo#c1]:x", "tool#c1(Normal):echo:{}"]);
     assert!(h.waiter.0.lock().unwrap().is_empty(), "continued, not replayed");
 }
 
@@ -1837,10 +1733,7 @@ fn idle_stall(text_emitted: bool) -> ProviderError {
 /// withdraw it is kept and continued, not failed with a timeout.
 #[tokio::test]
 async fn a_stalled_stream_after_shown_text_continues_from_the_shown_text() {
-    let mut h = Harness::new(vec![
-        turn(vec![text("part"), Step::Fail(idle_stall(true))]),
-        turn(vec![text(" rest"), done(StopReason::EndTurn)]),
-    ]);
+    let mut h = Harness::new(vec![turn(vec![text("part"), Step::Fail(idle_stall(true))]), turn(vec![text(" rest"), done(StopReason::EndTurn)])]);
     h.observer = Observer::new(Retracted::Refused);
     Arc::get_mut(&mut h.observer).unwrap().reset_channel = false;
     let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
@@ -1997,25 +1890,15 @@ async fn a_stall_after_reasoning_is_not_replayed_if_the_owner_refuses_the_reset(
 #[tokio::test]
 async fn turn_limits_answer_extra_calls_unrun_and_forbid_tools_after_the_notice() {
     let h = Harness::new(vec![
-        turn(vec![
-            call("c1", "echo", json!({"n": 1})),
-            call("c2", "echo", json!({"n": 2})),
-            done(StopReason::ToolUse),
-        ]),
+        turn(vec![call("c1", "echo", json!({"n": 1})), call("c2", "echo", json!({"n": 2})), done(StopReason::ToolUse)]),
         turn(vec![text("wrap"), done(StopReason::EndTurn)]),
     ]);
     let mut cfg = config();
-    cfg.limits = Some(TurnLimits {
-        max_tool_calls: Some(1),
-        ..TurnLimits::default()
-    });
+    cfg.limits = Some(TurnLimits { max_tool_calls: Some(1), ..TurnLimits::default() });
     let output = finish(h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
     let dumped = dump(&output.transcript);
     assert_eq!(dumped[2], "tool#c1(Normal):echo:{\"n\":1}");
-    assert_eq!(
-        dumped[3],
-        "tool#c2(Error):[turn-limit] This turn has reached its tool-call or time limit; this call was not run. Reply now without tools."
-    );
+    assert_eq!(dumped[3], "tool#c2(Error):[turn-limit] This turn has reached its tool-call or time limit; this call was not run. Reply now without tools.");
     assert!(dumped[4].starts_with("user<TurnLimit>:[mixdog-runtime] This turn has reached"));
     let requests = h.provider.requests();
     assert_eq!(requests[0].options.tool_choice, None);
@@ -2025,11 +1908,7 @@ async fn turn_limits_answer_extra_calls_unrun_and_forbid_tools_after_the_notice(
 #[tokio::test]
 async fn identical_read_only_calls_in_one_turn_run_once() {
     let h = Harness::new(vec![
-        turn(vec![
-            call("c1", "echo", json!({"p": "x"})),
-            call("c2", "echo", json!({"p": "x"})),
-            done(StopReason::ToolUse),
-        ]),
+        turn(vec![call("c1", "echo", json!({"p": "x"})), call("c2", "echo", json!({"p": "x"})), done(StopReason::ToolUse)]),
         turn(vec![text("k"), done(StopReason::EndTurn)]),
     ]);
     let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
@@ -2071,17 +1950,9 @@ async fn a_compaction_that_replaces_the_transcript_starts_a_new_read_epoch_and_o
 #[tokio::test]
 async fn compaction_runs_at_the_request_boundary_and_resets_the_epoch() {
     let mut h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
-    h.compactor = Some(Arc::new(Compactor100 {
-        requests: Mutex::new(Vec::new()),
-        ..Default::default()
-    }));
+    h.compactor = Some(Arc::new(Compactor100 { requests: Mutex::new(Vec::new()), ..Default::default() }));
     let mut cfg = config();
-    cfg.compact = Some(CompactSettings {
-        auto: true,
-        context_window: Some(1_000),
-        token_calibration: 1.0,
-        ..CompactSettings::default()
-    });
+    cfg.compact = Some(CompactSettings { auto: true, context_window: Some(1_000), token_calibration: 1.0, ..CompactSettings::default() });
     // 11 messages × 100 estimated tokens + 0 reserve ≥ the 1,000-token trigger
     let mut messages: Vec<AgentMessage> = (0..10).map(|i| AgentMessage::user(format!("m{i}"))).collect();
     messages.push(AgentMessage::user("latest"));
@@ -2338,13 +2209,23 @@ async fn a_send_the_run_measured_lifts_the_unanchored_mark() {
 
 #[tokio::test]
 async fn a_calls_usage_event_carries_what_nodes_usage_delta_needs() {
-    let reported = mixdog_core_api::domain::provider::Usage { input_tokens: 120, output_tokens: 30, raw: Some(json!({ "output_tokens_details": { "reasoning_tokens": 9 } })), ..Default::default() };
+    let reported = mixdog_core_api::domain::provider::Usage {
+        input_tokens: 120,
+        output_tokens: 30,
+        raw: Some(json!({ "output_tokens_details": { "reasoning_tokens": 9 } })),
+        ..Default::default()
+    };
     let h = Harness::new(vec![
         turn(vec![Step::Event(StreamEvent::Usage(reported)), call("c1", "echo", json!({})), call("c2", "echo", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![Step::Event(StreamEvent::Usage(mixdog_core_api::domain::provider::Usage { input_tokens: 5, ..Default::default() })), text("ok"), done(StopReason::EndTurn)]),
+        turn(vec![
+            Step::Event(StreamEvent::Usage(mixdog_core_api::domain::provider::Usage { input_tokens: 5, ..Default::default() })),
+            text("ok"),
+            done(StopReason::EndTurn),
+        ]),
     ]);
     finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
-    let deltas: Vec<UsageDelta> = h.observer.events().into_iter().filter_map(|e| if let RunEvent::Usage { delta, .. } = e { Some(delta) } else { None }).collect();
+    let deltas: Vec<UsageDelta> =
+        h.observer.events().into_iter().filter_map(|e| if let RunEvent::Usage { delta, .. } = e { Some(delta) } else { None }).collect();
     assert_eq!(deltas.len(), 2);
     assert_eq!((deltas[0].delta_tool_calls, deltas[0].delta_prompt), (2, 120));
     assert_eq!(deltas[0].requested_model, deltas[0].model);
@@ -2364,12 +2245,17 @@ async fn a_usage_event_reports_the_ledgers_time_and_each_reasoning_figure_as_nod
         // A reported zero stays 0 and wins over the raw usage; the ledger's time is used.
         turn(vec![Step::Event(StreamEvent::Usage(usage(Some(0), Some(json!({ "thinking_tokens": 7 }))))), call("c1", "echo", json!({})), timed(750)]),
         // A missing figure falls back to the raw usage; an untimed send falls back to the loop's clock.
-        turn(vec![Step::Event(StreamEvent::Usage(usage(None, Some(json!({ "thoughtsTokenCount": 4 }))))), call("c2", "echo", json!({})), done(StopReason::ToolUse)]),
+        turn(vec![
+            Step::Event(StreamEvent::Usage(usage(None, Some(json!({ "thoughtsTokenCount": 4 }))))),
+            call("c2", "echo", json!({})),
+            done(StopReason::ToolUse),
+        ]),
         // A reported figure is a count even when 0, so none and a raw zero differ from missing.
         turn(vec![Step::Event(StreamEvent::Usage(usage(None, Some(json!({ "thinking_tokens": 0 }))))), text("ok"), done(StopReason::EndTurn)]),
     ]);
     finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
-    let deltas: Vec<UsageDelta> = h.observer.events().into_iter().filter_map(|e| if let RunEvent::Usage { delta, .. } = e { Some(delta) } else { None }).collect();
+    let deltas: Vec<UsageDelta> =
+        h.observer.events().into_iter().filter_map(|e| if let RunEvent::Usage { delta, .. } = e { Some(delta) } else { None }).collect();
     assert_eq!(deltas.len(), 3);
     assert_eq!((deltas[0].reasoning_tokens, deltas[0].reasoning_tokens_complete, deltas[0].request_ms), (Some(0), true, 750));
     assert_eq!((deltas[1].reasoning_tokens, deltas[1].reasoning_tokens_complete, deltas[1].request_ms), (Some(4), true, 0));
@@ -2382,22 +2268,10 @@ async fn a_context_overflow_compacts_reactively_and_replays_once() {
         Attempt::Reject(ProviderError::new(ErrorKind::ContextOverflow, DeliveryState::Accepted)),
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
     ]);
-    h.compactor = Some(Arc::new(Compactor100 {
-        requests: Mutex::new(Vec::new()),
-        ..Default::default()
-    }));
+    h.compactor = Some(Arc::new(Compactor100 { requests: Mutex::new(Vec::new()), ..Default::default() }));
     let mut cfg = config();
-    cfg.compact = Some(CompactSettings {
-        auto: true,
-        context_window: Some(100_000),
-        token_calibration: 1.0,
-        ..CompactSettings::default()
-    });
-    let messages = vec![
-        AgentMessage::user("a"),
-        AgentMessage::assistant("b", Vec::new()),
-        AgentMessage::user("c"),
-    ];
+    cfg.compact = Some(CompactSettings { auto: true, context_window: Some(100_000), token_calibration: 1.0, ..CompactSettings::default() });
+    let messages = vec![AgentMessage::user("a"), AgentMessage::assistant("b", Vec::new()), AgentMessage::user("c")];
     let output = finish(h.run(cfg, vec![], messages)).await;
     assert_eq!(output.response.content, "ok");
     let compactor = h.compactor.as_ref().unwrap();
@@ -2409,25 +2283,12 @@ async fn a_context_overflow_compacts_reactively_and_replays_once() {
 async fn a_second_overflow_surfaces_with_the_overflow_text() {
     let overflow = || Attempt::Reject(ProviderError::new(ErrorKind::ContextOverflow, DeliveryState::Accepted));
     let mut h = Harness::new(vec![overflow(), overflow()]);
-    h.compactor = Some(Arc::new(Compactor100 {
-        requests: Mutex::new(Vec::new()),
-        ..Default::default()
-    }));
+    h.compactor = Some(Arc::new(Compactor100 { requests: Mutex::new(Vec::new()), ..Default::default() }));
     let mut cfg = config();
-    cfg.compact = Some(CompactSettings {
-        auto: true,
-        context_window: Some(100_000),
-        token_calibration: 1.0,
-        ..CompactSettings::default()
-    });
+    cfg.compact = Some(CompactSettings { auto: true, context_window: Some(100_000), token_calibration: 1.0, ..CompactSettings::default() });
     let messages = vec![AgentMessage::user("a"), AgentMessage::user("b"), AgentMessage::user("c")];
     let failure = h.run(cfg, vec![], messages).run().await.expect_err("overflow");
-    assert!(
-        failure
-            .error
-            .to_string()
-            .starts_with("agent context overflow (scripted/m, stage=send): latest turn cannot fit target context budget=100000")
-    );
+    assert!(failure.error.to_string().starts_with("agent context overflow (scripted/m, stage=send): latest turn cannot fit target context budget=100000"));
 }
 
 #[tokio::test]
@@ -2456,12 +2317,7 @@ async fn a_boundary_without_a_window_leaves_the_overflow_budget_and_window_unkno
     let mut h = Harness::new(vec![overflow(), overflow()]);
     h.compactor = Some(Arc::new(Compactor100 { requests: Mutex::new(Vec::new()), ..Default::default() }));
     let mut cfg = config();
-    cfg.compact = Some(CompactSettings {
-        auto: true,
-        explicit_boundary: Some(10_000),
-        token_calibration: 1.0,
-        ..CompactSettings::default()
-    });
+    cfg.compact = Some(CompactSettings { auto: true, explicit_boundary: Some(10_000), token_calibration: 1.0, ..CompactSettings::default() });
     let messages = vec![AgentMessage::user("a"), AgentMessage::user("b"), AgentMessage::user("c")];
     let failure = h.run(cfg, vec![], messages).run().await.expect_err("overflow");
     let text = failure.error.to_string();
@@ -2494,12 +2350,7 @@ async fn abort_while_the_provider_is_silent_returns_at_once() {
     let cancel = h.cancel.clone();
     let task = tokio::spawn(run.run());
     // wait until the partial text was relayed, then cancel
-    while !h
-        .observer
-        .events()
-        .iter()
-        .any(|e| matches!(e, RunEvent::TextDelta(_)))
-    {
+    while !h.observer.events().iter().any(|e| matches!(e, RunEvent::TextDelta(_))) {
         tokio::task::yield_now().await;
     }
     cancel.cancel();
@@ -2525,10 +2376,7 @@ async fn abort_does_not_wait_for_stalled_storage() {
     assert!(h.provider.requests().is_empty(), "no request before the ack");
 
     // The assistant item that carries tool calls: tools start only after its ack.
-    let h = Harness::new(vec![turn(vec![
-        call("c1", "echo", json!({})),
-        done(StopReason::ToolUse),
-    ])]);
+    let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)])]);
     h.sink.stalled.store(true, Ordering::Relaxed);
     let task = tokio::spawn(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run());
     while h.sink.committed.lock().unwrap().is_empty() {
@@ -2573,14 +2421,20 @@ impl TranscriptSink for OrderedSink {
 /// `Run::send_attempts` (`send.rs`).
 #[tokio::test]
 async fn each_request_leaves_after_the_mark_of_its_send_is_stored() {
-    let h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let sink = Arc::new(OrderedSink { provider: h.provider.clone(), tickets: AtomicU64::new(0), log: Mutex::new(Vec::new()) });
     let mut env = h.run_env();
     env.sink = sink.clone();
-    let run = Run::new(env, h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(vec![Echo::tool()], vec!["echo".into()]), h.tool_env(), config(), vec![AgentMessage::user("go")], RunCarry::default());
+    let run = Run::new(
+        env,
+        h.cancel.clone(),
+        h.provider.clone(),
+        ToolSet::with_builtins(vec![Echo::tool()], vec!["echo".into()]),
+        h.tool_env(),
+        config(),
+        vec![AgentMessage::user("go")],
+        RunCarry::default(),
+    );
     finish(run).await;
     assert_eq!(h.provider.requests().len(), 2);
     let log = sink.log.lock().unwrap().clone();
@@ -2594,14 +2448,20 @@ async fn each_request_leaves_after_the_mark_of_its_send_is_stored() {
 /// a cancelled call instead. Fails without `Run::drive`'s wait on the last pushed ticket (`run.rs`).
 #[tokio::test]
 async fn the_request_after_a_tool_batch_waits_until_its_tool_result_is_durable() {
-    let h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let sink = Arc::new(OrderedSink { provider: h.provider.clone(), tickets: AtomicU64::new(0), log: Mutex::new(Vec::new()) });
     let mut env = h.run_env();
     env.sink = sink.clone();
-    let run = Run::new(env, h.cancel.clone(), h.provider.clone(), ToolSet::with_builtins(vec![Echo::tool()], vec!["echo".into()]), h.tool_env(), config(), vec![AgentMessage::user("go")], RunCarry::default());
+    let run = Run::new(
+        env,
+        h.cancel.clone(),
+        h.provider.clone(),
+        ToolSet::with_builtins(vec![Echo::tool()], vec!["echo".into()]),
+        h.tool_env(),
+        config(),
+        vec![AgentMessage::user("go")],
+        RunCarry::default(),
+    );
     finish(run).await;
     assert_eq!(h.provider.requests().len(), 2);
     let log = sink.log.lock().unwrap().clone();
@@ -2676,11 +2536,7 @@ async fn a_refused_commit_fails_the_run_with_the_commit_error() {
 
 #[tokio::test]
 async fn abort_during_a_tool_cancels_its_token_and_keeps_finished_results() {
-    let h = Harness::new(vec![turn(vec![
-        call("c1", "echo", json!({})),
-        call("c2", "hang", json!({})),
-        done(StopReason::ToolUse),
-    ])]);
+    let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), call("c2", "hang", json!({})), done(StopReason::ToolUse)])]);
     let run = h.run(config(), vec![Echo::tool(), Hang::tool()], vec![AgentMessage::user("go")]);
     let cancel = h.cancel.clone();
     let sink = h.sink.clone();
@@ -2708,21 +2564,14 @@ async fn abort_during_a_tool_cancels_its_token_and_keeps_finished_results() {
         reason: mixdog_agent::interrupt::AbortReason::UserCancel,
     });
     let tail = dump(&closed.transcript);
-    assert_eq!(
-        &tail[tail.len() - 2..],
-        ["tool#c2(Error):Cancelled", "user:[Request interrupted by user for tool use]"]
-    );
+    assert_eq!(&tail[tail.len() - 2..], ["tool#c2(Error):Cancelled", "user:[Request interrupted by user for tool use]"]);
 }
 
 /// A call of a parallel batch that finishes while an earlier one still runs is told finished at once, and its row still waits for
 /// its place in call order: nothing is committed past the running call.
 #[tokio::test]
 async fn a_finished_call_is_told_at_once_while_an_earlier_call_runs_and_rows_keep_call_order() {
-    let h = Harness::new(vec![turn(vec![
-        call("c1", "hang", json!({})),
-        call("c2", "echo", json!({})),
-        done(StopReason::ToolUse),
-    ])]);
+    let h = Harness::new(vec![turn(vec![call("c1", "hang", json!({})), call("c2", "echo", json!({})), done(StopReason::ToolUse)])]);
     let run = h.run(config(), vec![Echo::tool(), Hang::tool()], vec![AgentMessage::user("go")]);
     let task = tokio::spawn(run.run());
     let told = |id: &str| h.observer.events().iter().any(|e| matches!(e, RunEvent::EarlyResult(m) if m.tool_call_id() == Some(id)));
@@ -2779,10 +2628,7 @@ async fn a_denied_approval_answers_the_call_without_running_it() {
 
 #[tokio::test]
 async fn pause_turn_continues_in_the_same_turn() {
-    let h = Harness::new(vec![
-        turn(vec![text("part"), done(StopReason::Other("pause_turn".into()))]),
-        turn(vec![text("rest"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![turn(vec![text("part"), done(StopReason::Other("pause_turn".into()))]), turn(vec![text("rest"), done(StopReason::EndTurn)])]);
     let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.provider_continuations, 1);
     assert_eq!(dump(&output.transcript), ["user:go", "assistant:part"]);
@@ -2831,10 +2677,6 @@ impl Tool for Boom {
     }
 }
 
-
-
-
-
 fn rejection(kind: ErrorKind, code: Option<&str>) -> Attempt {
     let mut error = ProviderError::new(kind, DeliveryState::Accepted);
     error.code = code.map(str::to_owned);
@@ -2873,22 +2715,14 @@ async fn a_stored_text_reference_reaches_the_request_as_its_text_and_stays_a_ref
     };
     let text_ref = reference("text-ref", Some(TextAttachment { kind: Some("file".into()) }));
     let image_ref = reference("image-ref", None);
-    let prompt = AgentMessage::user_content(Content::Parts(vec![
-        ContentPart::Text("see".into(), None),
-        text_ref,
-        image_ref.clone(),
-    ]));
+    let prompt = AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("see".into(), None), text_ref, image_ref.clone()]));
     let mut cfg = config();
     cfg.attachments = Some(Arc::new(Refs));
     let output = finish(h.run(cfg, vec![], vec![prompt])).await;
     let sent = &h.provider.requests()[0].messages[0].content;
     assert_eq!(
         sent,
-        &Content::Parts(vec![
-            ContentPart::Text("see".into(), None),
-            ContentPart::Text("<file name=\"notes.md\">\nbody\n</file>".into(), None),
-            image_ref,
-        ])
+        &Content::Parts(vec![ContentPart::Text("see".into(), None), ContentPart::Text("<file name=\"notes.md\">\nbody\n</file>".into(), None), image_ref,])
     );
     assert!(matches!(&output.transcript[0].message.content, Content::Parts(p) if matches!(p[1], ContentPart::File { .. })));
 }
@@ -2900,10 +2734,7 @@ async fn an_image_the_person_chose_to_continue_without_leaves_the_request_and_st
     use mixdog_core_api::domain::provider::ContentPart;
     use mixdog_core_api::domain::provider::ImageSource;
     let h = Harness::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
-    let mut prompt = AgentMessage::user_content(Content::Parts(vec![
-        ContentPart::Text("look".into(), None),
-        ContentPart::Image(ImageSource::Url("u".into())),
-    ]));
+    let mut prompt = AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("look".into(), None), ContentPart::Image(ImageSource::Url("u".into()))]));
     prompt.message_id = Some("m0".into());
     let mut overlay = ImageOverlay::default();
     overlay.omit(PartKey { message_id: "m0".into(), part: 1 });
@@ -2913,7 +2744,10 @@ async fn an_image_the_person_chose_to_continue_without_leaves_the_request_and_st
     let requests = h.provider.requests();
     assert_eq!(requests.len(), 1);
     assert_eq!(requests[0].messages[0].content, Content::Parts(vec![ContentPart::Text("look".into(), None)]));
-    assert!(matches!(&output.transcript[0].message.content, Content::Parts(p) if p.len() == 2 && matches!(p[1], ContentPart::Image(_))), "the transcript keeps the original");
+    assert!(
+        matches!(&output.transcript[0].message.content, Content::Parts(p) if p.len() == 2 && matches!(p[1], ContentPart::Image(_))),
+        "the transcript keeps the original"
+    );
 }
 
 #[tokio::test]
@@ -2944,14 +2778,8 @@ async fn a_message_recorded_without_an_id_is_sent_under_the_id_its_image_choices
 async fn an_image_the_provider_rejects_is_never_removed_and_replayed_the_failure_surfaces_with_one_send() {
     use mixdog_core_api::domain::provider::ContentPart;
     use mixdog_core_api::domain::provider::ImageSource;
-    let h = Harness::new(vec![
-        rejection(ErrorKind::ImageRejected, None),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
-    let prompt = AgentMessage::user_content(Content::Parts(vec![
-        ContentPart::Text("look".into(), None),
-        ContentPart::Image(ImageSource::Url("u".into())),
-    ]));
+    let h = Harness::new(vec![rejection(ErrorKind::ImageRejected, None), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
+    let prompt = AgentMessage::user_content(Content::Parts(vec![ContentPart::Text("look".into(), None), ContentPart::Image(ImageSource::Url("u".into()))]));
     let failure = h.run(config(), vec![], vec![prompt]).run().await.expect_err("the provider's rejection surfaces");
     let AgentError::Provider(error) = &failure.error else { panic!("a provider failure: {:?}", failure.error) };
     assert_eq!(error.kind, ErrorKind::ImageRejected);
@@ -2960,7 +2788,6 @@ async fn an_image_the_provider_rejects_is_never_removed_and_replayed_the_failure
     assert_eq!(requests.len(), 1);
     assert!(matches!(&requests[0].messages[0].content, Content::Parts(p) if p.len() == 2 && matches!(p[1], ContentPart::Image(_))));
 }
-
 
 /// The `traceCacheBreak` records the loop hands its host.
 #[derive(Default)]
@@ -2977,14 +2804,6 @@ impl ToolFailureLog for CacheBreaks {
         self.0.lock().unwrap().push(record);
     }
 }
-
-
-
-
-
-
-
-
 
 fn wire_role(message: &AgentMessage) -> &'static str {
     use mixdog_core_api::domain::provider::Role;
@@ -3010,11 +2829,7 @@ async fn a_retried_send_keeps_one_group_and_settles_nothing_on_success() {
 #[tokio::test]
 async fn a_request_changing_replay_settles_the_old_group_and_starts_a_new_one() {
     use mixdog_core_api::domain::provider::SendEnd;
-    let h = Harness::new(vec![
-        rejection(ErrorKind::ReplayRejected, None),
-        overloaded(),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![rejection(ErrorKind::ReplayRejected, None), overloaded(), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let mut assistant = AgentMessage::assistant("t", Vec::new());
     assistant.message.assistant_blocks = Some(json!([{"type": "thinking", "thinking": "x"}, {"type": "text", "text": "t"}]));
     finish(h.run(config(), vec![], vec![AgentMessage::user("a"), assistant, AgentMessage::user("b")])).await;
@@ -3093,10 +2908,7 @@ fn a_turn_dropped_outside_a_runtime_lets_go_of_its_group() {
 
 #[tokio::test]
 async fn a_rejected_replay_is_dropped_from_the_newest_assistant_turn() {
-    let h = Harness::new(vec![
-        rejection(ErrorKind::ReplayRejected, None),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![rejection(ErrorKind::ReplayRejected, None), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let mut assistant = AgentMessage::assistant("t", Vec::new());
     assistant.message.assistant_blocks = Some(json!([
         {"type": "thinking", "thinking": "x"},
@@ -3104,10 +2916,7 @@ async fn a_rejected_replay_is_dropped_from_the_newest_assistant_turn() {
     ]));
     let messages = vec![AgentMessage::user("a"), assistant, AgentMessage::user("b")];
     let output = finish(h.run(config(), vec![], messages)).await;
-    assert_eq!(
-        output.transcript[1].message.assistant_blocks,
-        Some(json!([{"type": "text", "text": "t"}]))
-    );
+    assert_eq!(output.transcript[1].message.assistant_blocks, Some(json!([{"type": "text", "text": "t"}])));
     assert_eq!(h.provider.requests().len(), 2);
     let replaced = h.sink.replaced.lock().unwrap();
     assert_eq!(replaced.len(), 1, "the repair is persisted");
@@ -3116,9 +2925,7 @@ async fn a_rejected_replay_is_dropped_from_the_newest_assistant_turn() {
 
 #[tokio::test]
 async fn a_rejected_tool_schema_drops_the_tool_and_refuses_later_calls() {
-    let Attempt::Reject(mut schema) = rejection(ErrorKind::ToolSchemaRejected, None) else {
-        unreachable!()
-    };
+    let Attempt::Reject(mut schema) = rejection(ErrorKind::ToolSchemaRejected, None) else { unreachable!() };
     schema.rejected_tool = Some("echo".into());
     let h = Harness::new(vec![
         Attempt::Reject(schema),
@@ -3156,10 +2963,7 @@ async fn each_request_carries_the_effort_projection_of_its_transcript() {
     use mixdog_agent::effort::EffortRoute;
     use mixdog_agent::effort::EffortSnapshot;
     use mixdog_agent::effort::EffortWiring;
-    let h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
     let snap = |effort: &str| EffortSnapshot {
         provider: "openai".into(),
@@ -3219,20 +3023,13 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     use mixdog_agent::effort::EffortRoute;
     use mixdog_agent::effort::EffortSnapshot;
     use mixdog_agent::effort::EffortWiring;
-    let mut h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({"i": 1})), done(StopReason::ToolUse)]),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let mut h =
+        Harness::new(vec![turn(vec![call("c1", "echo", json!({"i": 1})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let timer = Arc::new(HeldTimer::default());
     h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(timer.clone())));
     let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
-    let seed = EffortSnapshot {
-        provider: "openai".into(),
-        model: "gpt-6-1".into(),
-        mode: EffortMode::Responses,
-        initial_effort: "low".into(),
-        effort: "low".into(),
-    };
+    let seed =
+        EffortSnapshot { provider: "openai".into(), model: "gpt-6-1".into(), mode: EffortMode::Responses, initial_effort: "low".into(), effort: "low".into() };
     let mut cfg = config();
     cfg.effort = Some(EffortWiring {
         route: EffortRoute {
@@ -3264,8 +3061,6 @@ async fn the_next_request_waits_for_the_step_judgment_and_carries_it() {
     assert_eq!(output.transcript[2].effort.as_ref().map(|s| s.effort.as_str()), Some("high"));
 }
 
-
-
 /// Never answers.
 struct SilentJudge;
 #[async_trait]
@@ -3281,20 +3076,13 @@ async fn a_step_judge_that_never_answers_holds_the_next_request_for_the_grace_on
     use mixdog_agent::effort::EffortRoute;
     use mixdog_agent::effort::EffortSnapshot;
     use mixdog_agent::effort::EffortWiring;
-    let mut h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({"i": 1})), done(StopReason::ToolUse)]),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let mut h =
+        Harness::new(vec![turn(vec![call("c1", "echo", json!({"i": 1})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let timer = Arc::new(HeldTimer::default());
     h.waiter = Arc::new(RecordedWait(Mutex::default(), Some(timer.clone())));
     let adapter = Arc::new(RecordingEffort { provider: h.provider.clone(), seen: Mutex::new(Vec::new()) });
-    let seed = EffortSnapshot {
-        provider: "openai".into(),
-        model: "gpt-6-1".into(),
-        mode: EffortMode::Responses,
-        initial_effort: "low".into(),
-        effort: "low".into(),
-    };
+    let seed =
+        EffortSnapshot { provider: "openai".into(), model: "gpt-6-1".into(), mode: EffortMode::Responses, initial_effort: "low".into(), effort: "low".into() };
     let mut cfg = config();
     cfg.effort = Some(EffortWiring {
         route: EffortRoute {
@@ -3345,10 +3133,7 @@ impl Tool for BigTool {
 
 #[tokio::test]
 async fn an_oversized_result_is_stored_and_replaced_by_a_pointer_in_the_transcript() {
-    let mut h = Harness::new(vec![
-        turn(vec![call("c1", "grep", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let mut h = Harness::new(vec![turn(vec![call("c1", "grep", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let mut spec = Echo::tool().spec().clone();
     spec.name = "grep".into();
     let artifacts = Arc::new(Artifacts(Mutex::new(Vec::new())));
@@ -3405,10 +3190,7 @@ async fn a_one_shot_call_retries_through_the_decider_keeps_its_cap_and_sends_row
     use mixdog_agent::one_shot::OneShotCall;
     let mut transient = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
     transient.message = "blip".into();
-    let h = Harness::new(vec![
-        Attempt::Reject(transient),
-        turn(vec![text("SUMMARY"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![Attempt::Reject(transient), turn(vec![text("SUMMARY"), done(StopReason::EndTurn)])]);
     let one = OneShot::new(&h.run_env(), h.tool_env(), h.provider.clone(), h.cancel.clone());
     let call = OneShotCall { model: "m".into(), max_output_tokens: Some(4096), fast: true, shape: CallShape::compaction() };
     // a prompt that the loop would wrap as a synthetic row goes out as written
@@ -3599,10 +3381,20 @@ async fn a_switch_drops_the_left_providers_state_and_renews_its_one_shot_recover
     state.rest.insert("slot".into(), json!({ "id": "resp_1" }));
     let next = Scripted::new(vec![turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let route = PlayRoute::new(
-        RouteDecision::Switch(RouteSwitch { provider: next.clone(), model: "m2".into(), notice: "m1 refused — switched to m2.".into(), request: Default::default(), effort: None, text_only: None }),
+        RouteDecision::Switch(RouteSwitch {
+            provider: next.clone(),
+            model: "m2".into(),
+            notice: "m1 refused — switched to m2.".into(),
+            request: Default::default(),
+            effort: None,
+            text_only: None,
+        }),
         Vec::new(),
     );
-    let mut h = Harness::new(vec![turn(vec![Step::Event(StreamEvent::ProviderState(state)), Step::Fail(ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted))])]);
+    let mut h = Harness::new(vec![turn(vec![
+        Step::Event(StreamEvent::ProviderState(state)),
+        Step::Fail(ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted)),
+    ])]);
     h.route = Some(route);
     finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
     let sent = next.requests();
@@ -3614,10 +3406,8 @@ async fn a_switch_drops_the_left_providers_state_and_renews_its_one_shot_recover
 async fn a_surface_decision_ends_the_ask_with_the_error_it_carries() {
     let mut error = ProviderError::new(ErrorKind::Auth, DeliveryState::Accepted);
     error.message = "first failed\nEvery model in the fallback chain failed — a/m1: first failed; b/m2: second failed".into();
-    let route = PlayRoute::new(
-        RouteDecision::Surface(Box::new(ChainSurface { error, attempts: vec![json!({ "provider": "a" })], stopped_before: None })),
-        Vec::new(),
-    );
+    let route =
+        PlayRoute::new(RouteDecision::Surface(Box::new(ChainSurface { error, attempts: vec![json!({ "provider": "a" })], stopped_before: None })), Vec::new());
     let mut h = Harness::new(vec![refused()]);
     h.route = Some(route);
     let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("the chain ran out");
@@ -3667,10 +3457,7 @@ impl Yielder for Cancelled {
 #[tokio::test]
 async fn each_provider_request_runs_with_the_slot_handed_back() {
     let slot = Arc::new(Slot::default());
-    let h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let mut cfg = config();
     cfg.slot = Some(slot.clone());
     finish(h.run(cfg, vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
@@ -3707,9 +3494,7 @@ async fn a_cancelled_reacquisition_ends_the_ask_with_the_cancels_text() {
 /// aborted the session's controller with (Node's provider-request signal), not a bare abort.
 #[tokio::test]
 async fn a_turn_cancelled_in_the_slot_wait_reads_its_sources_reason() {
-    use mixdog_agent::cancel::{
-        AGENT_TASK_CANCEL, CLI_ABORT, PARENT_ABORTED, abort_session_turn_reason, close_session_reason, runtime_abort_reason,
-    };
+    use mixdog_agent::cancel::{AGENT_TASK_CANCEL, CLI_ABORT, PARENT_ABORTED, abort_session_turn_reason, close_session_reason, runtime_abort_reason};
     let cases = [
         ("job cancel", close_session_reason("sess_w1", AGENT_TASK_CANCEL), "Session \"sess_w1\" closed: closeSession (reason=agent-task-cancel)"),
         ("user stop", runtime_abort_reason("sess_w1", CLI_ABORT), "Session \"sess_w1\" closed: runtime abort (reason=cli-abort)"),
@@ -3759,10 +3544,7 @@ impl mixdog_agent::env::SendTicket for SideTicket {
 #[tokio::test]
 async fn each_send_is_captured_with_its_request_and_settled_with_its_reply() {
     let log = Arc::new(SideLog::default());
-    let mut h = Harness::new(vec![
-        turn(vec![text("first"), done(StopReason::EndTurn)]),
-        turn(vec![text("second"), done(StopReason::EndTurn)]),
-    ]);
+    let mut h = Harness::new(vec![turn(vec![text("first"), done(StopReason::EndTurn)]), turn(vec![text("second"), done(StopReason::EndTurn)])]);
     h.side = Some(Arc::new(SideTap(log.clone())));
     h.steer.push(DrainStage::Terminal, "one more thing");
     finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
@@ -3794,15 +3576,15 @@ impl mixdog_agent::env::McpCatalog for SwapMcp {
 #[tokio::test]
 async fn a_changed_mcp_definition_reaches_the_next_request_and_an_eager_one_does_not() {
     let echo = Echo::tool();
-    let described = |name: &str, description: &str| -> Arc<dyn Tool> { Arc::new(Echo(ToolSpec { name: name.into(), description: description.into(), ..echo.spec().clone() })) };
+    let described = |name: &str, description: &str| -> Arc<dyn Tool> {
+        Arc::new(Echo(ToolSpec { name: name.into(), description: description.into(), ..echo.spec().clone() }))
+    };
     let set = |echo_text: &str, ping_text: &str| mixdog_agent::tools::ToolSet::new(vec![described("echo", echo_text), described("mcp__srv__ping", ping_text)]);
-    let mut h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("done"), done(StopReason::EndTurn)]),
-    ]);
+    let mut h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("done"), done(StopReason::EndTurn)])]);
     h.mcp = Some(Arc::new(SwapMcp(std::sync::Mutex::new([set("echo", "ping v1"), set("echo changed", "ping v2")].into()))));
     finish(h.run(config(), vec![echo.clone(), described("mcp__srv__ping", "ping v1")], vec![AgentMessage::user("go")])).await;
-    let sent: Vec<Vec<(String, String)>> = h.provider.requests().iter().map(|r| r.tools.iter().map(|t| (t.name.clone(), t.description.clone())).collect()).collect();
+    let sent: Vec<Vec<(String, String)>> =
+        h.provider.requests().iter().map(|r| r.tools.iter().map(|t| (t.name.clone(), t.description.clone())).collect()).collect();
     let pair = |name: &str, text: &str| (name.to_owned(), text.to_owned());
     assert_eq!(sent[0], [pair("echo", "echo"), pair("mcp__srv__ping", "ping v1")]);
     assert_eq!(sent[1], [pair("echo", "echo"), pair("mcp__srv__ping", "ping v2")]);
@@ -3815,9 +3597,19 @@ struct SnapshotMcp;
 impl mixdog_agent::env::McpCatalog for SnapshotMcp {
     async fn refresh(&self) {}
 
-    async fn snapshot(&self, mut tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>, messages: &[AgentMessage]) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, String> {
+    async fn snapshot(
+        &self,
+        mut tools: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+        messages: &[AgentMessage],
+    ) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, String> {
         assert!(!messages.is_empty(), "the snapshot reads the transcript the request is built from");
-        tools.push(mixdog_core_api::domain::provider::ToolDefinition { name: "office".into(), description: "Create a document.".into(), input_schema: json!({"type": "object"}), defer_loading: true, freeform: None });
+        tools.push(mixdog_core_api::domain::provider::ToolDefinition {
+            name: "office".into(),
+            description: "Create a document.".into(),
+            input_schema: json!({"type": "object"}),
+            defer_loading: true,
+            freeform: None,
+        });
         Ok(tools)
     }
 }
@@ -3840,7 +3632,11 @@ struct FailingMcp;
 impl mixdog_agent::env::McpCatalog for FailingMcp {
     async fn refresh(&self) {}
 
-    async fn snapshot(&self, _: Vec<mixdog_core_api::domain::provider::ToolDefinition>, _: &[AgentMessage]) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, String> {
+    async fn snapshot(
+        &self,
+        _: Vec<mixdog_core_api::domain::provider::ToolDefinition>,
+        _: &[AgentMessage],
+    ) -> Result<Vec<mixdog_core_api::domain::provider::ToolDefinition>, String> {
         Err("provider tool snapshot: selected tool identity mismatch".into())
     }
 }
@@ -3850,7 +3646,11 @@ async fn a_failed_tool_snapshot_fails_the_request() {
     let mut h = Harness::new(vec![turn(vec![text("done"), done(StopReason::EndTurn)])]);
     h.mcp = Some(Arc::new(FailingMcp));
     let failure = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await.expect_err("the snapshot threw");
-    assert!(matches!(&failure.error, AgentError::RequestTools(text) if text == "provider tool snapshot: selected tool identity mismatch"), "{:?}", failure.error);
+    assert!(
+        matches!(&failure.error, AgentError::RequestTools(text) if text == "provider tool snapshot: selected tool identity mismatch"),
+        "{:?}",
+        failure.error
+    );
     assert!(h.provider.requests().is_empty(), "nothing was sent");
 }
 
@@ -3868,7 +3668,10 @@ impl mixdog_agent::env::McpCatalog for MigrateMcp {
 
     async fn migrate(&self, messages: &[AgentMessage]) -> Result<Option<Vec<AgentMessage>>, String> {
         let boundary = self.0.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        assert!(messages.iter().any(|m| m.role() == mixdog_core_api::domain::provider::Role::System), "the transcript the request is built from carries its system prompt");
+        assert!(
+            messages.iter().any(|m| m.role() == mixdog_core_api::domain::provider::Role::System),
+            "the transcript the request is built from carries its system prompt"
+        );
         Ok((boundary == 0).then(|| vec![system_message("migrated rules")]))
     }
 }
@@ -3877,16 +3680,15 @@ impl mixdog_agent::env::McpCatalog for MigrateMcp {
 /// working transcript's system prompt, and the provider state of the old surface is not sent again.
 #[tokio::test]
 async fn the_exposure_migration_runs_at_every_request_boundary() {
-    let mut h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("done"), done(StopReason::EndTurn)]),
-    ]);
+    let mut h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("done"), done(StopReason::EndTurn)])]);
     let boundaries = Arc::new(MigrateMcp(AtomicU64::new(0)));
     h.mcp = Some(boundaries.clone());
     finish(h.run(config(), vec![Echo::tool()], vec![system_message("old rules"), AgentMessage::user("go")])).await;
     assert_eq!(boundaries.0.load(std::sync::atomic::Ordering::SeqCst), 2);
     let sent = h.provider.requests();
-    let first_system = |request: &mixdog_core_api::domain::provider::ModelRequest| request.messages.iter().find(|m| m.role == mixdog_core_api::domain::provider::Role::System).map(|m| format!("{:?}", m.content));
+    let first_system = |request: &mixdog_core_api::domain::provider::ModelRequest| {
+        request.messages.iter().find(|m| m.role == mixdog_core_api::domain::provider::Role::System).map(|m| format!("{:?}", m.content))
+    };
     assert!(first_system(&sent[0]).unwrap().contains("migrated rules"), "the first request is built from the migrated prompt");
     assert!(first_system(&sent[1]).unwrap().contains("migrated rules"));
 }
@@ -3909,14 +3711,13 @@ impl mixdog_agent::env::McpCatalog for MigrateAfterSendMcp {
 /// (the migration's intent is no compaction intent, so the guard would call it a rewritten prefix).
 #[tokio::test]
 async fn a_migration_after_a_send_that_rewrites_the_system_prompt_is_not_a_prefix_mutation() {
-    let mut h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("done"), done(StopReason::EndTurn)]),
-    ]);
+    let mut h = Harness::new(vec![turn(vec![call("c1", "echo", json!({})), done(StopReason::ToolUse)]), turn(vec![text("done"), done(StopReason::EndTurn)])]);
     h.mcp = Some(Arc::new(MigrateAfterSendMcp(AtomicU64::new(0))));
     let output = finish(h.run(config(), vec![Echo::tool()], vec![system_message("old rules"), AgentMessage::user("go")])).await;
     let sent = h.provider.requests();
-    let system = |request: &mixdog_core_api::domain::provider::ModelRequest| request.messages.iter().find(|m| m.role == mixdog_core_api::domain::provider::Role::System).map(|m| format!("{:?}", m.content)).unwrap_or_default();
+    let system = |request: &mixdog_core_api::domain::provider::ModelRequest| {
+        request.messages.iter().find(|m| m.role == mixdog_core_api::domain::provider::Role::System).map(|m| format!("{:?}", m.content)).unwrap_or_default()
+    };
     assert!(system(&sent[0]).contains("old rules") && system(&sent[1]).contains("migrated rules"), "the second request carries the migrated prompt");
     assert!(output.carry.prefix_guard.is_some(), "the accepted send is the guard's new baseline");
 }
@@ -3941,13 +3742,6 @@ async fn the_mcp_catalog_is_refreshed_where_node_refreshes_it() {
 // Text-leaked tool calls: what the loop dispatches, returns and stores, against the Node loop
 // (`fixtures/agent/leaked-toolcall/record.mjs`: the real agent loop over the route's real decoder)
 // ---------------------------------------------------------------------------
-
-
-
-
-
-
-
 
 /// A gate whose surface refuses `blocked` before any call is dispatched.
 struct BlockedSurface;
@@ -4022,10 +3816,7 @@ async fn the_failure_log_gets_the_executed_calls_that_ended_as_errors() {
     agent.0.name = "agent".into();
     finish(h.run(config(), vec![Boom::tool(), Echo::tool(), Arc::new(ErrorText(agent.0))], vec![AgentMessage::user("go")])).await;
     let seen: Vec<(String, String)> = log.0.lock().unwrap().iter().map(|c| (c.tool_name.clone(), c.result_text.clone())).collect();
-    assert_eq!(
-        seen,
-        [("boom".to_owned(), "Error: boom".to_owned()), ("agent".to_owned(), "Error: agent: unknown type \"x\"".to_owned())]
-    );
+    assert_eq!(seen, [("boom".to_owned(), "Error: boom".to_owned()), ("agent".to_owned(), "Error: agent: unknown type \"x\"".to_owned())]);
 }
 
 /// Answers `Error: …` text the tool itself declares a success (an MCP result without `isError`).
@@ -4044,10 +3835,7 @@ impl Tool for ExplicitSuccessText {
 /// the provider, nothing in the failure log.
 #[tokio::test]
 async fn an_explicit_success_is_not_classified_by_its_wording() {
-    let mut h = Harness::new(vec![
-        turn(vec![call("c1", "agent", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let mut h = Harness::new(vec![turn(vec![call("c1", "agent", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let log = Arc::new(FailureLog::default());
     h.failures = Some(log.clone());
     let mut agent = Echo(Echo::tool().spec().clone());
@@ -4066,11 +3854,7 @@ impl Tool for SkillBody {
     }
     async fn call(&self, _ctx: &ToolContext, _args: JsonValue) -> ToolOutcome {
         let follow_up = |text: &str| FollowUpMessage { text: text.into(), meta: None };
-        Ok(ToolOutput {
-            parts: vec![ToolPart::Text("loaded".into())],
-            follow_up_messages: vec![follow_up("BODY"), follow_up("  ")],
-            ..ToolOutput::default()
-        })
+        Ok(ToolOutput { parts: vec![ToolPart::Text("loaded".into())], follow_up_messages: vec![follow_up("BODY"), follow_up("  ")], ..ToolOutput::default() })
     }
 }
 
@@ -4109,7 +3893,12 @@ impl mixdog_agent::offload::ArtifactStore for Persisting {
         self.preview(content).await
     }
     async fn preview(&self, content: &str) -> Option<mixdog_agent::offload::Artifact> {
-        Some(mixdog_agent::offload::Artifact { display_path: "/art/x.txt".into(), path: "/art/x.txt".into(), lines: content.split('\n').count(), sha256: "ab".repeat(32) })
+        Some(mixdog_agent::offload::Artifact {
+            display_path: "/art/x.txt".into(),
+            path: "/art/x.txt".into(),
+            lines: content.split('\n').count(),
+            sha256: "ab".repeat(32),
+        })
     }
 }
 
@@ -4119,10 +3908,7 @@ impl mixdog_agent::offload::ArtifactStore for Persisting {
 /// scenario "a returned error that is offloaded".
 #[tokio::test]
 async fn an_offloaded_returned_error_keeps_its_failure_row() {
-    let mut h = Harness::new(vec![
-        turn(vec![call("c1", "big", json!({})), done(StopReason::ToolUse)]),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let mut h = Harness::new(vec![turn(vec![call("c1", "big", json!({})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let log = Arc::new(FailureLog::default());
     h.failures = Some(log.clone());
     h.artifacts = Some(Arc::new(Persisting));
@@ -4176,12 +3962,7 @@ impl ReuseWrite for StepWrite {
 #[tokio::test]
 async fn each_calls_failure_row_and_cache_write_come_in_call_order() {
     let mut h = Harness::new(vec![
-        turn(vec![
-            call("c1", "echo", json!({"n": 1})),
-            call("c2", "agent", json!({})),
-            call("c3", "echo", json!({"n": 3})),
-            done(StopReason::ToolUse),
-        ]),
+        turn(vec![call("c1", "echo", json!({"n": 1})), call("c2", "agent", json!({})), call("c3", "echo", json!({"n": 3})), done(StopReason::ToolUse)]),
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
     ]);
     let steps = Arc::new(Steps::default());
@@ -4210,10 +3991,8 @@ impl mixdog_agent::env::ToolFailureLog for Sends {
 /// from the second send on the time since the run's tool batch ended (on a still clock every span is 0).
 #[tokio::test]
 async fn every_completed_send_reports_its_loop_timing() {
-    let mut h = Harness::new(vec![
-        turn(vec![call("c1", "echo", json!({"n": 1})), done(StopReason::ToolUse)]),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let mut h =
+        Harness::new(vec![turn(vec![call("c1", "echo", json!({"n": 1})), done(StopReason::ToolUse)]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let sends = Arc::new(Sends::default());
     h.failures = Some(sends.clone());
     finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
@@ -4270,11 +4049,7 @@ async fn a_replayed_sends_loop_row_times_the_round_that_settled_it() {
 async fn a_call_with_unparseable_arguments_is_answered_with_the_retry_notice_and_not_run() {
     let h = Harness::new(vec![
         turn(vec![
-            call(
-                "c1",
-                "echo",
-                json!({"__invalidToolArgs": true, "__rawArguments": "{\"a\":", "__parseError": "Unexpected end of JSON input"}),
-            ),
+            call("c1", "echo", json!({"__invalidToolArgs": true, "__rawArguments": "{\"a\":", "__parseError": "Unexpected end of JSON input"})),
             done(StopReason::ToolUse),
         ]),
         turn(vec![text("ok"), done(StopReason::EndTurn)]),
@@ -4370,7 +4145,8 @@ async fn a_call_after_a_switch_in_one_batch_runs_in_the_folder_the_batch_began_i
         let live = live.clone();
         move || Some(live.lock().unwrap().clone())
     }));
-    let tools: Vec<Arc<dyn Tool>> = vec![Arc::new(SwitchTool { spec: switch_spec, live: live.clone(), go, landed: landed_tx }), Arc::new(WhereTool(probe_spec, ran.clone()))];
+    let tools: Vec<Arc<dyn Tool>> =
+        vec![Arc::new(SwitchTool { spec: switch_spec, live: live.clone(), go, landed: landed_tx }), Arc::new(WhereTool(probe_spec, ran.clone()))];
     finish(h.run(cfg, tools, vec![AgentMessage::user("go")])).await;
     let projects = [a.as_path().to_path_buf(), live.lock().unwrap().as_path().to_path_buf()];
     assert_ne!(projects[0], projects[1]);
@@ -4565,7 +4341,8 @@ async fn a_dead_stream_is_not_reissued_without_the_withdrawal_or_by_a_provider_t
     let _ = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await;
     assert!(provider.reissued.lock().unwrap().is_empty());
 
-    let provider = Reissuing::new(vec![turn(vec![text("par"), Step::Fail(truncated())]), turn(vec![text("again"), done(StopReason::EndTurn)])], vec![], false, false);
+    let provider =
+        Reissuing::new(vec![turn(vec![text("par"), Step::Fail(truncated())]), turn(vec![text("again"), done(StopReason::EndTurn)])], vec![], false, false);
     let h = Harness::with_adapter(provider.clone());
     let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.response.content, "again");
@@ -4653,11 +4430,14 @@ async fn a_terminal_unary_refusal_replaces_the_cut_stream_error_without_losing_u
         unary.status = status;
         unary.recovery_terminal = true;
         unary.partial_usage = unary_input.map(|input_tokens| Box::new(Usage { input_tokens, ..Usage::default() }));
-        let provider = || Reissuing::new(
-            vec![turn(vec![Step::Event(StreamEvent::Usage(stream_usage.clone())), Step::Fail(cut.clone())])],
-            vec![Attempt::Reject(unary.clone())],
-            false, true,
-        );
+        let provider = || {
+            Reissuing::new(
+                vec![turn(vec![Step::Event(StreamEvent::Usage(stream_usage.clone())), Step::Fail(cut.clone())])],
+                vec![Attempt::Reject(unary.clone())],
+                false,
+                true,
+            )
+        };
         let check = |error: &ProviderError| {
             assert_eq!((error.kind, error.status, error.transport.as_ref()), (kind, status, None));
             assert_eq!(error.partial_usage.as_deref().map(|usage| usage.input_tokens), unary_input);
@@ -4757,7 +4537,10 @@ impl Harness {
             clock: self.clock.clone(),
             jitter: Arc::new(HalfJitter),
             waiter: self.waiter.clone(),
-            decider: self.real.as_ref().map_or_else(|| Arc::new(MockRetryDecider) as Arc<dyn mixdog_core_api::domain::retry::RetryDecider>, |(_, decider)| decider.clone()),
+            decider: self
+                .real
+                .as_ref()
+                .map_or_else(|| Arc::new(MockRetryDecider) as Arc<dyn mixdog_core_api::domain::retry::RetryDecider>, |(_, decider)| decider.clone()),
             steer: self.steer.clone(),
             observer: self.observer.clone(),
             sink: self.sink.clone(),
@@ -4786,11 +4569,7 @@ impl Harness {
             turn_id: TurnId::from("r"),
             cwd: self.sandbox.as_ref().map_or_else(|| mixdog_core_api::domain::common::AbsPath::new(std::env::temp_dir()).unwrap(), |(cwd, _)| cwd.clone()),
             surface: SurfaceKind::Lead,
-            io: ToolIo {
-                interactive: tokens.interactive_io,
-                durability: tokens.durability_io,
-                maintenance: tokens.maintenance_io,
-            },
+            io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
             approvals: self.approvals.clone(),
             files: self.sandbox.as_ref().map_or_else(|| Arc::new(MockFileService::default()), |(_, files)| files.clone()),
             processes: Arc::new(MockProcessManager::default()),
@@ -4801,13 +4580,7 @@ impl Harness {
         }
     }
 
-    fn run_with_builtins(
-        &self,
-        config: RunConfig,
-        tools: Vec<Arc<dyn Tool>>,
-        builtins: Vec<String>,
-        messages: Vec<AgentMessage>,
-    ) -> Run {
+    fn run_with_builtins(&self, config: RunConfig, tools: Vec<Arc<dyn Tool>>, builtins: Vec<String>, messages: Vec<AgentMessage>) -> Run {
         let env = self.run_env();
         let tool_env = self.tool_env();
         Run::new(
@@ -4840,13 +4613,12 @@ async fn websocket_close_1000_uses_owner_retraction_without_refilling_the_send_b
         } else {
             r#"{"type":"response.output_text.delta","output_index":0,"item_id":"msg","delta":"visible"}"#
         };
-        let mut script: Vec<_> = (0..failures).map(|_| Dialed::Socket {
-            frames: vec![
-                r#"{"type":"response.created","response":{"id":"cut"}}"#.into(),
-                delta.into(),
-            ],
-            close: (1000, String::new()),
-        }).collect();
+        let mut script: Vec<_> = (0..failures)
+            .map(|_| Dialed::Socket {
+                frames: vec![r#"{"type":"response.created","response":{"id":"cut"}}"#.into(), delta.into()],
+                close: (1000, String::new()),
+            })
+            .collect();
         script.push(Dialed::Socket {
             frames: vec![r#"{"type":"response.completed","response":{"id":"continued","status":"completed","output":[{"type":"message","id":"msg","role":"assistant","content":[{"type":"output_text","text":"continued"}]}],"usage":{"input_tokens":1,"output_tokens":1}}}"#.into()],
             close: (1000, String::new()),
@@ -4861,7 +4633,12 @@ async fn websocket_close_1000_uses_owner_retraction_without_refilling_the_send_b
         }
         let result = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await;
         if succeeds {
-            let output = result.unwrap_or_else(|e| panic!("Node's owner recovery continues this close (reasoning {reasoning}, reset channel {reset_channel}, {ack:?}, {failures} failures): {:?}", e.error));
+            let output = result.unwrap_or_else(|e| {
+                panic!(
+                    "Node's owner recovery continues this close (reasoning {reasoning}, reset channel {reset_channel}, {ack:?}, {failures} failures): {:?}",
+                    e.error
+                )
+            });
             // Text shown with no way to withdraw it is kept, and the next response continues it.
             let kept = if !reasoning && !reset_channel { "visible" } else { "" };
             assert_eq!(output.response.content, format!("{kept}continued"));
@@ -4873,8 +4650,11 @@ async fn websocket_close_1000_uses_owner_retraction_without_refilling_the_send_b
         }
         let upgrades = dial.wire().iter().filter(|event| matches!(event, Wire::Upgrade { .. })).count();
         assert_eq!(upgrades, failures + usize::from(succeeds), "every owner replay opens a fresh socket");
-        assert_eq!(*h.waiter.0.lock().unwrap(), [5, 15, 30][..waits].iter().map(|s| Duration::from_secs(*s)).collect::<Vec<_>>(),
-            "Node's bounded outer transport ladder, not another five-retry send ladder");
+        assert_eq!(
+            *h.waiter.0.lock().unwrap(),
+            [5, 15, 30][..waits].iter().map(|s| Duration::from_secs(*s)).collect::<Vec<_>>(),
+            "Node's bounded outer transport ladder, not another five-retry send ladder"
+        );
     }
 }
 #[tokio::test]
@@ -4885,16 +4665,20 @@ async fn a_quota_hop_sends_the_destination_tuning_and_keeps_prior_work() {
     let segments = vec![UsageSegment { provider: "a".into(), model: "m1".into(), usage: Default::default() }];
     let route = PlayRoute::new(
         RouteDecision::Switch(RouteSwitch {
-            provider: next.clone(), model: "gpt-6.2-sol".into(), notice: "m1 refused — switched to m2.".into(),
+            provider: next.clone(),
+            model: "gpt-6.2-sol".into(),
+            notice: "m1 refused — switched to m2.".into(),
             request: mixdog_agent::env::RouteSwitchRequest {
                 options: mixdog_core_api::domain::provider::RequestOptions {
-                    effort: Some("high".into()), fast: true,
+                    effort: Some("high".into()),
+                    fast: true,
                     model_parameters: Some(json!({ "serviceTier": "ultrafast" })),
                     ..Default::default()
                 },
                 ..Default::default()
             },
-            effort: None, text_only: None,
+            effort: None,
+            text_only: None,
         }),
         segments.clone(),
     );
@@ -5033,7 +4817,12 @@ async fn a_quota_hop_moves_the_request_capture_and_the_compactor_to_the_destinat
             model: "gpt-6.2-sol".into(),
             notice: "m refused — switched to gpt-6.2-sol.".into(),
             request: mixdog_agent::env::RouteSwitchRequest {
-                compact: Some(mixdog_agent::boundary::CompactSettings { auto: true, context_window: Some(640_000), token_calibration: 1.0, ..Default::default() }),
+                compact: Some(mixdog_agent::boundary::CompactSettings {
+                    auto: true,
+                    context_window: Some(640_000),
+                    token_calibration: 1.0,
+                    ..Default::default()
+                }),
                 header: json!({ "provider": "openai-oauth", "model": "gpt-6.2-sol" }).as_object().unwrap().clone(),
                 ..Default::default()
             },
@@ -5080,22 +4869,21 @@ async fn the_request_a_run_sends_is_what_the_shared_assembly_gives_for_a_model_w
     assert_eq!(sent.model, assembled.model);
 }
 
-
-
-
-
-
 #[tokio::test]
 async fn a_later_loader_keeps_its_receipt_and_only_registers_new_or_changed_schemas() {
     for (name, definition, want_update) in [("Skill", "original", false), ("load_tool", "original", false), ("load_tool", "revised", true)] {
         let loader = |name: &str, description| {
             let mut spec = Echo::tool().spec().clone();
             spec.name = name.into();
-            Arc::new(Loader(spec, json!({"nativeToolSearch": {
-                "provider": "openai", "toolReferences": ["linked"],
-                "openaiTools": [{"type":"function","name":"linked","description":description}],
-                "summary": "Loaded linked"
-            }}).to_string()))
+            Arc::new(Loader(
+                spec,
+                json!({"nativeToolSearch": {
+                    "provider": "openai", "toolReferences": ["linked"],
+                    "openaiTools": [{"type":"function","name":"linked","description":description}],
+                    "summary": "Loaded linked"
+                }})
+                .to_string(),
+            ))
         };
         let h = Harness::new(vec![
             turn(vec![call("first", "Skill", json!({"name":"alpha"})), done(StopReason::ToolUse)]),
@@ -5120,4 +4908,3 @@ async fn a_later_loader_keeps_its_receipt_and_only_registers_new_or_changed_sche
         }
     }
 }
-

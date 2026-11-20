@@ -32,10 +32,7 @@ pub struct LegacyEndpoint {
 pub fn read_discovery(path: &Path) -> Option<LegacyEndpoint> {
     let value: Value = serde_json::from_slice(&crate::durable::read(path).ok()?).ok()?;
     let session = value.get("endpoints")?.get("session")?;
-    Some(LegacyEndpoint {
-        port: u16::try_from(session.get("port")?.as_u64()?).ok()?,
-        token: session.get("token")?.as_str()?.to_string(),
-    })
+    Some(LegacyEndpoint { port: u16::try_from(session.get("port")?.as_u64()?).ok()?, token: session.get("token")?.as_str()?.to_string() })
 }
 
 /// An HTTP answer: status and JSON body.
@@ -55,31 +52,17 @@ fn request(endpoint: &LegacyEndpoint, method: &str, path: &str, body: Option<&Va
         endpoint.token,
         payload.len()
     );
-    stream
-        .write_all(head.as_bytes())
-        .and_then(|()| stream.write_all(payload.as_bytes()))
-        .map_err(|e| e.to_string())?;
+    stream.write_all(head.as_bytes()).and_then(|()| stream.write_all(payload.as_bytes())).map_err(|e| e.to_string())?;
     let mut raw = Vec::new();
     stream.read_to_end(&mut raw).map_err(|e| e.to_string())?;
-    let split = raw
-        .windows(4)
-        .position(|w| w == b"\r\n\r\n")
-        .ok_or("no HTTP header end")?;
+    let split = raw.windows(4).position(|w| w == b"\r\n\r\n").ok_or("no HTTP header end")?;
     let head = String::from_utf8_lossy(&raw[..split]);
-    let status = head
-        .split_whitespace()
-        .nth(1)
-        .and_then(|s| s.parse().ok())
-        .ok_or("no HTTP status")?;
+    let status = head.split_whitespace().nth(1).and_then(|s| s.parse().ok()).ok_or("no HTTP status")?;
     let mut body = raw[split + 4..].to_vec();
     if head.to_ascii_lowercase().contains("transfer-encoding: chunked") {
         body = dechunk(&body)?;
     }
-    let body = if body.is_empty() {
-        Value::Null
-    } else {
-        serde_json::from_slice(&body).map_err(|e| e.to_string())?
-    };
+    let body = if body.is_empty() { Value::Null } else { serde_json::from_slice(&body).map_err(|e| e.to_string())? };
     Ok(Answer { status, body })
 }
 
@@ -88,8 +71,7 @@ fn dechunk(mut raw: &[u8]) -> Result<Vec<u8>, String> {
     loop {
         let line_end = raw.windows(2).position(|w| w == b"\r\n").ok_or("bad chunk")?;
         let size_text = String::from_utf8_lossy(&raw[..line_end]);
-        let size = usize::from_str_radix(size_text.split(';').next().unwrap_or("").trim(), 16)
-            .map_err(|e| e.to_string())?;
+        let size = usize::from_str_radix(size_text.split(';').next().unwrap_or("").trim(), 16).map_err(|e| e.to_string())?;
         raw = &raw[line_end + 2..];
         if size == 0 {
             return Ok(out);

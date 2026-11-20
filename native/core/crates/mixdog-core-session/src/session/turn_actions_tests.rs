@@ -13,10 +13,10 @@ use mixdog_core_api::domain::ext::ProfiledResizeError;
 use mixdog_core_api::domain::ext::ResizedImage;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_base::support::on_lane;
-use mixdog_rt::DurabilityIo;
-use mixdog_rt::InLane;
 use mixdog_core_base::support::testing::request;
 use mixdog_core_base::support::testing::value;
+use mixdog_rt::DurabilityIo;
+use mixdog_rt::InLane;
 use serde_json::Value;
 use serde_json::json;
 use sha2::Digest as _;
@@ -27,7 +27,6 @@ use super::secret_input::SECRET_INPUT_TIMEOUT;
 use super::secret_input::SecretInputService;
 use super::secret_input::SecretSlots;
 use super::staged_originals::StagedOriginals;
-
 
 fn sha(bytes: &[u8]) -> String {
     Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect()
@@ -42,8 +41,12 @@ async fn provide_secret_holds_the_value_and_answers_only_that_it_was_taken() {
     let answered = value(&service, request("approval/provideSecret", params(" secret_0123456789ab ", "482190"), Some(1))).await.unwrap();
     assert_eq!(answered, json!({}));
     assert_eq!(slots.take(id), "482190");
-    for (bad, message) in [(params("nope", "v"), "secret was not accepted."), (params(id, ""), "secret was not accepted."), (params("  ", "v"), "secret request id is invalid.")] {
-        let CoreError::DomainError { message: Some(got), .. } = value(&service, request("approval/provideSecret", bad, Some(2))).await.unwrap_err() else { panic!("a domain error") };
+    for (bad, message) in
+        [(params("nope", "v"), "secret was not accepted."), (params(id, ""), "secret was not accepted."), (params("  ", "v"), "secret request id is invalid.")]
+    {
+        let CoreError::DomainError { message: Some(got), .. } = value(&service, request("approval/provideSecret", bad, Some(2))).await.unwrap_err() else {
+            panic!("a domain error")
+        };
         assert_eq!(&*got, message);
         assert!(!slots.has(id));
     }
@@ -51,9 +54,6 @@ async fn provide_secret_holds_the_value_and_answers_only_that_it_was_taken() {
     assert!(matches!(missing, CoreError::OpIdRequired));
     assert!(!slots.has(id), "no value is kept without an op id");
 }
-
-
-
 
 #[tokio::test]
 async fn a_resizer_that_returns_no_image_never_lets_the_picked_bytes_through() {
@@ -75,7 +75,6 @@ async fn a_resizer_that_returns_no_image_never_lets_the_picked_bytes_through() {
     }
     assert_eq!(run(Vec::new(), "image/png").await.err().unwrap(), "image is empty");
 }
-
 
 /// A message keeps every original whose bytes are in the store; only one that is not there loses its original (the image
 /// keeps its resized copy).
@@ -168,7 +167,13 @@ async fn b_stages_bytes_a_holds_a_redacts_and_b_still_sends_its_original() {
     };
 
     // Session A commits a message that references the bytes.
-    let session = encode_record(serde_json::from_value(json!({ "k": "session", "v": 2, "id": "sess_a", "log_id": "4f1c2a9e0b7d3c5a6e8f9012", "header": { "inline": { "title": "a" } } })).unwrap()).unwrap();
+    let session = encode_record(
+        serde_json::from_value(
+            json!({ "k": "session", "v": 2, "id": "sess_a", "log_id": "4f1c2a9e0b7d3c5a6e8f9012", "header": { "inline": { "title": "a" } } }),
+        )
+        .unwrap(),
+    )
+    .unwrap();
     let message = Encoded::new(
         serde_json::from_value(json!({ "k": "item", "iid": "a1", "role": "user", "form": "message", "model": true, "visible": true,
             "refs": [digest.as_str()], "body": { "inline": { "content": "the photo", "role": "user" } } }))
@@ -176,7 +181,12 @@ async fn b_stages_bytes_a_holds_a_redacts_and_b_still_sends_its_original() {
         vec![PendingBlob { digest: digest.clone(), bytes: PICKED.to_vec() }],
     )
     .unwrap();
-    let writer_deps = WriterDeps { io: std::sync::Arc::new(OsIo), blobs: BlobStore::new(&data), ownership: std::sync::Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()), index: std::sync::Arc::new(NoLineage) };
+    let writer_deps = WriterDeps {
+        io: std::sync::Arc::new(OsIo),
+        blobs: BlobStore::new(&data),
+        ownership: std::sync::Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
+        index: std::sync::Arc::new(NoLineage),
+    };
     let dir_a = data.join("sessions").join("sess_a");
     io(move |lane| {
         let (mut writer, _) = LogWriter::create(lane, &dir_a, session, writer_deps).unwrap();
@@ -195,7 +205,12 @@ async fn b_stages_bytes_a_holds_a_redacts_and_b_still_sends_its_original() {
         let redacted: Record = serde_json::from_value(json!({ "k": "item", "iid": "a1", "role": "user", "form": "message", "model": true, "visible": true,
             "refs": [], "body": { "inline": { "content": "[redacted]", "role": "user" } } }))
         .unwrap();
-        assert!(mixdog_store::log_rewrite::plan(lane, &rewrite_data, "sess_a", &OsIo, &blobs, &mut |record: &Record| matches!(record, Record::Item(_)).then(|| redacted.clone())).unwrap(), "the message changed");
+        assert!(
+            mixdog_store::log_rewrite::plan(lane, &rewrite_data, "sess_a", &OsIo, &blobs, &mut |record: &Record| matches!(record, Record::Item(_))
+                .then(|| redacted.clone()))
+            .unwrap(),
+            "the message changed"
+        );
         mixdog_store::log_rewrite::settle(lane, &rewrite_data, "sess_a", &OsIo, &blobs, &mut || Ok(())).unwrap();
     })
     .await;
@@ -240,7 +255,8 @@ async fn a_turn_keeps_every_stored_original_on_every_send() {
     let directory = super::SessionDirectory::new(deps.clone());
     let handle = super::tests::start_thread(&directory).await;
     let (stored, never) = (stage_bytes(&deps.staged_originals, b"picked".to_vec()).await.unwrap(), sha(b"never staged"));
-    let image = |id: i64, original: &str| json!({ "id": id, "type": "image", "mediaType": "image/jpeg", "originalRef": original, "originalMediaType": "image/png" });
+    let image =
+        |id: i64, original: &str| json!({ "id": id, "type": "image", "mediaType": "image/jpeg", "originalRef": original, "originalMediaType": "image/png" });
     use mixdog_core_api::ThreadHandle as _;
     for (n, op) in ["op-first", "op-retry", "op-other-window"].into_iter().enumerate() {
         let params = json!({
@@ -255,10 +271,12 @@ async fn a_turn_keeps_every_stored_original_on_every_send() {
     // A replay of a send already answered (same op id, same `clientSubmissionId`, which is what the session joins a retried
     // send by, `drain-enqueue.mjs:37`; an op id alone is the RPC layer's and a session starts a new turn for it): the same
     // answer, no second run, and the stored original is still the one the message was sent with.
-    let message = |op: &str| json!({
-        "threadId": handle.id, "opId": op,
-        "input": { "prompt": "look", "options": { "clientSubmissionId": "sub-replayed", "pastedImages": { "1": image(1, &stored), "2": image(2, &never) } } },
-    });
+    let message = |op: &str| {
+        json!({
+            "threadId": handle.id, "opId": op,
+            "input": { "prompt": "look", "options": { "clientSubmissionId": "sub-replayed", "pastedImages": { "1": image(1, &stored), "2": image(2, &never) } } },
+        })
+    };
     let Reply::Value(first) = handle.request(request("turn/start", message("op-replayed"), Some(10))).await.unwrap() else { panic!("a value") };
     crate::eventually_on!(&[&handle.cell.stepped], || (seen.lock().unwrap().len() == 4 && missing_marks(&handle).len() == 4).then_some(())).await;
     let Reply::Value(replayed) = handle.request(request("turn/start", message("op-replayed"), Some(11))).await.unwrap() else { panic!("a value") };
@@ -276,11 +294,13 @@ async fn a_send_replayed_after_a_restart_adds_no_run_and_no_second_note() {
     let (rig, seen) = options_rig();
     let deps = stored_rows_deps(&rig);
     let never = sha(b"never staged");
-    let message = |thread: &ThreadId| json!({
-        "threadId": thread, "opId": "op-replayed",
-        "input": { "prompt": "look", "options": { "clientSubmissionId": "sub-replayed",
-            "pastedImages": { "1": { "id": 1, "type": "image", "mediaType": "image/jpeg", "originalRef": never, "originalMediaType": "image/png" } } } },
-    });
+    let message = |thread: &ThreadId| {
+        json!({
+            "threadId": thread, "opId": "op-replayed",
+            "input": { "prompt": "look", "options": { "clientSubmissionId": "sub-replayed",
+                "pastedImages": { "1": { "id": 1, "type": "image", "mediaType": "image/jpeg", "originalRef": never, "originalMediaType": "image/png" } } } },
+        })
+    };
     use mixdog_core_api::ThreadHandle as _;
     let (id, first) = {
         let directory = super::SessionDirectory::new(deps.clone());
@@ -337,7 +357,8 @@ async fn a_message_sent_without_a_missing_original_tells_the_sender() {
     let directory = super::SessionDirectory::new(deps.clone());
     let handle = super::tests::start_thread(&directory).await;
     let (stored, never) = (stage_bytes(&deps.staged_originals, b"picked".to_vec()).await.unwrap(), sha(b"never staged"));
-    let image = |id: i64, original: &str| json!({ "id": id, "type": "image", "mediaType": "image/jpeg", "originalRef": original, "originalMediaType": "image/png" });
+    let image =
+        |id: i64, original: &str| json!({ "id": id, "type": "image", "mediaType": "image/jpeg", "originalRef": original, "originalMediaType": "image/png" });
     use mixdog_core_api::ThreadHandle as _;
     let send = |op: &'static str, id: u64, images: Value| {
         let params = json!({ "threadId": handle.id, "opId": op, "input": { "prompt": "look", "options": { "pastedImages": images } } });
@@ -372,7 +393,8 @@ async fn a_first_message_is_told_the_cores_count_of_missing_originals() {
     let deps = stored_rows_deps(&rig);
     let directory = super::SessionDirectory::new(deps.clone());
     let (stored, never) = (stage_bytes(&deps.staged_originals, b"picked".to_vec()).await.unwrap(), sha(b"never staged"));
-    let image = |id: i64, original: &str| json!({ "id": id, "type": "image", "mediaType": "image/jpeg", "originalRef": original, "originalMediaType": "image/png" });
+    let image =
+        |id: i64, original: &str| json!({ "id": id, "type": "image", "mediaType": "image/jpeg", "originalRef": original, "originalMediaType": "image/png" });
     let start = |op: &str, images: Value| {
         let params = json!({
             "opId": op, "kind": "project", "projectPath": "/ws",
@@ -386,12 +408,10 @@ async fn a_first_message_is_told_the_cores_count_of_missing_originals() {
         "initialInput": { "prompt": "look", "options": { "originalImagesMissing": 9, "pastedImages": { "1": image(1, &stored) } } },
     });
     assert!(directory.request(request("thread/start", claimed, Some(1))).await.is_err(), "a claimed count is no submit option");
-    for (n, (op, images, marks)) in [
-        ("op-lost-one", json!({ "1": image(1, &stored), "2": image(2, &never) }), vec![1]),
-        ("op-lost-none", json!({ "1": image(1, &stored) }), vec![]),
-    ]
-    .into_iter()
-    .enumerate()
+    for (n, (op, images, marks)) in
+        [("op-lost-one", json!({ "1": image(1, &stored), "2": image(2, &never) }), vec![1]), ("op-lost-none", json!({ "1": image(1, &stored) }), vec![])]
+            .into_iter()
+            .enumerate()
     {
         let Reply::Subscribe(started) = start(op, images).await.unwrap() else { panic!("thread/start subscribes") };
         let handle = directory.handle(&ThreadId::from(started.result["thread"]["id"].as_str().unwrap())).expect("loaded");
@@ -431,7 +451,8 @@ async fn a_queued_message_taken_back_and_sent_again_is_told_its_missing_original
     let directory = super::SessionDirectory::new(deps.clone());
     let handle = super::tests::start_thread(&directory).await;
     let (stored, never) = (stage_bytes(&deps.staged_originals, b"picked".to_vec()).await.unwrap(), sha(b"never staged"));
-    let image = |id: i64, original: &str| json!({ "id": id, "type": "image", "mediaType": "image/jpeg", "originalRef": original, "originalMediaType": "image/png" });
+    let image =
+        |id: i64, original: &str| json!({ "id": id, "type": "image", "mediaType": "image/jpeg", "originalRef": original, "originalMediaType": "image/png" });
     use mixdog_core_api::ThreadHandle as _;
     assert_eq!(super::tests::turn(&handle, "first", "op-first").await["kind"], "started");
     let images = json!({ "1": image(1, &stored), "2": image(2, &never), "3": image(3, &never) });
@@ -553,7 +574,8 @@ async fn a_message_the_intake_refuses_answers_its_text() {
     let staged = stage_bytes(&deps.staged_originals, b"original".to_vec()).await.unwrap();
     let image = json!({ "id": 1, "type": "image", "mediaType": "image/jpeg", "originalRef": staged, "originalMediaType": "image/png" });
     let missing = json!({ "id": 2, "type": "image", "mediaType": "image/jpeg", "originalRef": sha(b"never staged"), "originalMediaType": "image/png" });
-    let params = json!({ "threadId": handle.id, "opId": "op-refused", "input": { "prompt": "look", "options": { "pastedImages": { "1": image, "2": missing } } } });
+    let params =
+        json!({ "threadId": handle.id, "opId": "op-refused", "input": { "prompt": "look", "options": { "pastedImages": { "1": image, "2": missing } } } });
     use mixdog_core_api::ThreadHandle as _;
     let refused = handle.request(request("turn/start", params, Some(1))).await.expect_err("refused");
     let CoreError::DomainError { message, code, .. } = refused else { panic!("a domain error: {refused:?}") };
@@ -562,5 +584,3 @@ async fn a_message_the_intake_refuses_answers_its_text() {
     super::tests::caught_up(&handle).await;
     assert!(missing_marks(&handle).is_empty(), "a refused send did not go, so it records nothing of its image going smaller");
 }
-
-

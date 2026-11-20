@@ -692,11 +692,7 @@ pub enum DomainErrorDetail {
     },
     /// `WORKTREE_FILE_RECOVERY`.
     #[serde(rename_all = "camelCase")]
-    WorktreeFileRecovery {
-        entry_id: String,
-        path: String,
-        recovery_root: String,
-    },
+    WorktreeFileRecovery { entry_id: String, path: String, recovery_root: String },
     /// `WORKTREE_DEFAULT_BRANCH`.
     #[serde(rename_all = "camelCase")]
     WorktreeDefaultBranch { branch: String },

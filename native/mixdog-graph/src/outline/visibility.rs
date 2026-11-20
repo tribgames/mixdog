@@ -97,15 +97,7 @@ impl FileVisibility {
 ///   * ruby matches the nearest preceding section marker, with class/module
 ///     bodies and dedented `end`s resetting it, not a full scope parse.
 ///   * a C++ in-class `private:` label is not read (only `static` is).
-pub(super) fn is_exported(
-    graph_lang: &str,
-    candidate: &Candidate,
-    head: &str,
-    top_level: bool,
-    local: bool,
-    text: &str,
-    visibility: &FileVisibility,
-) -> bool {
+pub(super) fn is_exported(graph_lang: &str, candidate: &Candidate, head: &str, top_level: bool, local: bool, text: &str, visibility: &FileVisibility) -> bool {
     let name = candidate.name.as_str();
     if local {
         return false;
@@ -116,24 +108,15 @@ pub(super) fn is_exported(
         // class member, an object-literal property, an interface signature —
         // none of them can carry an `export`, and an `export { name }` clause
         // of the same word names the module-level declaration, not the method.
-        "typescript" | "javascript" => {
-            !candidate.member
-                && candidate.kind != "method"
-                && (candidate.rule_exported || visibility.names(name))
-        }
+        "typescript" | "javascript" => !candidate.member && candidate.kind != "method" && (candidate.rule_exported || visibility.names(name)),
         // `#[macro_export]` is an attribute item ABOVE the declaration, so it
         // is the one export marker that is not in the head.
-        "rust" => {
-            has_modifier(head, "pub")
-                || (candidate.kind == "macro" && macro_exported(text, candidate.start_byte))
-        }
+        "rust" => has_modifier(head, "pub") || (candidate.kind == "macro" && macro_exported(text, candidate.start_byte)),
         "zig" => has_modifier(head, "pub"),
         "go" => name.starts_with(|ch: char| ch.is_uppercase()),
         "python" => top_level && !name.starts_with('_'),
         "java" | "csharp" => has_modifier(head, "public"),
-        "kotlin" | "scala" | "swift" => {
-            !has_any_modifier(head, &["private", "protected", "internal", "fileprivate"])
-        }
+        "kotlin" | "scala" | "swift" => !has_any_modifier(head, &["private", "protected", "internal", "fileprivate"]),
         "php" => !has_any_modifier(head, &["private", "protected"]),
         "ruby" => match visibility {
             FileVisibility::Ruby(sections) => ruby_exported(text, sections, candidate.start_byte),
@@ -142,10 +125,7 @@ pub(super) fn is_exported(
         // Elixir marks a private definition with a trailing `p` on the
         // defining form: `defp` / `defmacrop` / `defguardp` are private,
         // `def` / `defmacro` / `defmodule` / `defprotocol` are not.
-        "elixir" => !head
-            .split(|ch: char| !ch.is_alphanumeric() && ch != '_')
-            .next()
-            .is_some_and(|form| form.ends_with('p')),
+        "elixir" => !head.split(|ch: char| !ch.is_alphanumeric() && ch != '_').next().is_some_and(|form| form.ends_with('p')),
         // The module header IS the file's identity and an instance is global
         // in Haskell: neither one is ever named in an export list.
         "haskell" => match (candidate.kind, visibility) {
@@ -177,11 +157,7 @@ fn export_clause_names(text: &str) -> HashSet<String> {
     let mut names = HashSet::new();
     let bytes = text.as_bytes();
     for (start, _) in text.match_indices("export") {
-        if !starts_word_at(text, start, "export")
-            || start
-                .checked_sub(1)
-                .is_some_and(|before| is_word_byte(bytes[before]))
-        {
+        if !starts_word_at(text, start, "export") || start.checked_sub(1).is_some_and(|before| is_word_byte(bytes[before])) {
             continue;
         }
         let mut at = skip_spaces(bytes, start + "export".len());
@@ -189,9 +165,8 @@ fn export_clause_names(text: &str) -> HashSet<String> {
             // `export default expression;` exports a declaration only when
             // the expression IS one name (`export default Panel;`).
             let value_start = skip_spaces(bytes, at + "default".len());
-            let value_end = text[value_start..]
-                .find(|ch: char| !(ch.is_alphanumeric() || ch == '_' || ch == '$'))
-                .map_or(text.len(), |offset| value_start + offset);
+            let value_end =
+                text[value_start..].find(|ch: char| !(ch.is_alphanumeric() || ch == '_' || ch == '$')).map_or(text.len(), |offset| value_start + offset);
             let rest = text[value_end..].trim_start_matches([' ', '\t', '\r']);
             if value_end > value_start && (rest.starts_with(';') || rest.starts_with('\n')) {
                 names.insert(text[value_start..value_end].to_string());
@@ -225,11 +200,7 @@ fn export_clause_names(text: &str) -> HashSet<String> {
 
 /// The declaration at `start` is preceded by a `#[macro_export]` attribute.
 fn macro_exported(text: &str, start: usize) -> bool {
-    text[..start]
-        .trim_end()
-        .rsplit('\n')
-        .next()
-        .is_some_and(|line| line.trim_start().starts_with("#[macro_export]"))
+    text[..start].trim_end().rsplit('\n').next().is_some_and(|line| line.trim_start().starts_with("#[macro_export]"))
 }
 
 /// Ruby's bare visibility markers as `(byte offset, hides what follows)`, in
@@ -255,11 +226,8 @@ fn ruby_sections(text: &str) -> Vec<(usize, bool)> {
                 marker_indent = Some(indent);
             }
             _ => {
-                let opens_body = ["class", "module"]
-                    .iter()
-                    .any(|keyword| starts_word_at(trimmed, 0, keyword));
-                let closes_body =
-                    trimmed == "end" && marker_indent.is_some_and(|marker| indent < marker);
+                let opens_body = ["class", "module"].iter().any(|keyword| starts_word_at(trimmed, 0, keyword));
+                let closes_body = trimmed == "end" && marker_indent.is_some_and(|marker| indent < marker);
                 if opens_body || closes_body {
                     sections.push((offset, false));
                     marker_indent = None;
@@ -387,33 +355,22 @@ mod tests {
         assert!(!record(&ts, "local").exported);
         assert!(record(&ts, "shared").exported);
 
-        let python = records(
-            "python",
-            "py",
-            "def public_one():\n    pass\n\ndef _private():\n    pass\n\nclass Service:\n    def method(self):\n        pass\n",
-        );
+        let python =
+            records("python", "py", "def public_one():\n    pass\n\ndef _private():\n    pass\n\nclass Service:\n    def method(self):\n        pass\n");
         assert!(record(&python, "public_one").exported);
         assert!(!record(&python, "_private").exported);
         assert!(record(&python, "Service").exported);
         // module level only: a method is not a module export
         assert!(!record(&python, "method").exported);
 
-        let rust = records(
-            "rust",
-            "rs",
-            "pub fn shown() {}\nfn hidden() {}\npub(crate) struct Crated;\nconst LOCAL: u8 = 1;\npub const SHARED: u8 = 2;\n",
-        );
+        let rust = records("rust", "rs", "pub fn shown() {}\nfn hidden() {}\npub(crate) struct Crated;\nconst LOCAL: u8 = 1;\npub const SHARED: u8 = 2;\n");
         assert!(record(&rust, "shown").exported);
         assert!(!record(&rust, "hidden").exported);
         assert!(record(&rust, "Crated").exported);
         assert!(!record(&rust, "LOCAL").exported);
         assert!(record(&rust, "SHARED").exported);
 
-        let go = records(
-            "go",
-            "go",
-            "package p\n\nfunc Exported() {}\n\nfunc unexported() {}\n\ntype Public struct{}\n\ntype private struct{}\n",
-        );
+        let go = records("go", "go", "package p\n\nfunc Exported() {}\n\nfunc unexported() {}\n\ntype Public struct{}\n\ntype private struct{}\n");
         assert!(record(&go, "Exported").exported);
         assert!(!record(&go, "unexported").exported);
         assert!(record(&go, "Public").exported);
@@ -424,55 +381,31 @@ mod tests {
         assert!(record(&bash, "helper").exported);
 
         // Ruby's `private` section hides what follows it, inside the class.
-        let ruby = records(
-            "ruby",
-            "rb",
-            "class Store\n  def open; end\n\n  private\n\n  def secret; end\nend\n",
-        );
+        let ruby = records("ruby", "rb", "class Store\n  def open; end\n\n  private\n\n  def secret; end\nend\n");
         assert!(record(&ruby, "open").exported);
         assert!(!record(&ruby, "secret").exported);
 
         // Haskell: the export list decides, and the header itself always goes.
-        let haskell = records(
-            "haskell",
-            "hs",
-            "module Demo (shown) where\n\nshown :: Int\nshown = 1\n\nhidden :: Int\nhidden = 2\n",
-        );
+        let haskell = records("haskell", "hs", "module Demo (shown) where\n\nshown :: Int\nshown = 1\n\nhidden :: Int\nhidden = 2\n");
         assert!(record(&haskell, "Demo").exported);
         assert!(record(&haskell, "shown").exported);
         assert!(!record(&haskell, "hidden").exported);
-        let open = records(
-            "haskell",
-            "hs",
-            "module Demo where\n\nshown :: Int\nshown = 1\n",
-        );
+        let open = records("haskell", "hs", "module Demo where\n\nshown :: Int\nshown = 1\n");
         assert!(record(&open, "shown").exported);
 
         // C: a `static` function is file-local.
-        let c = records(
-            "c",
-            "c",
-            "int shared(void) { return 0; }\nstatic int local(void) { return 0; }\n",
-        );
+        let c = records("c", "c", "int shared(void) { return 0; }\nstatic int local(void) { return 0; }\n");
         assert!(record(&c, "shared").exported);
         assert!(!record(&c, "local").exported);
 
         // Elixir: `defp` is private, `def` is not.
-        let elixir = records(
-            "elixir",
-            "ex",
-            "defmodule M do\n  def shown(a), do: a\n  defp hidden(a), do: a\n  defmacrop quiet(a), do: a\nend\n",
-        );
+        let elixir = records("elixir", "ex", "defmodule M do\n  def shown(a), do: a\n  defp hidden(a), do: a\n  defmacrop quiet(a), do: a\nend\n");
         assert!(record(&elixir, "shown").exported);
         assert!(!record(&elixir, "hidden").exported);
         assert!(!record(&elixir, "quiet").exported);
 
         // Solidity: a function needs `public`/`external`.
-        let solidity = records(
-            "solidity",
-            "sol",
-            "contract C {\n  function open() external {}\n  function shut() private {}\n}\n",
-        );
+        let solidity = records("solidity", "sol", "contract C {\n  function open() external {}\n  function shut() private {}\n}\n");
         assert!(record(&solidity, "C").exported);
         assert!(record(&solidity, "open").exported);
         assert!(!record(&solidity, "shut").exported);
@@ -489,23 +422,14 @@ mod tests {
             "const alpha = 1;\nfunction beta() {}\nclass Panel {}\ntype Shape = { a: number };\nconst hidden = 2;\nexport { alpha, beta as bee, type Shape };\nexport default Panel;\nexport { elsewhere } from \"./other.js\";\n",
         );
         assert!(record(&clause, "alpha").exported);
-        assert!(
-            record(&clause, "beta").exported,
-            "`beta as bee` exports beta"
-        );
+        assert!(record(&clause, "beta").exported, "`beta as bee` exports beta");
         assert!(record(&clause, "Shape").exported);
-        assert!(
-            record(&clause, "Panel").exported,
-            "`export default X` exports X"
-        );
+        assert!(record(&clause, "Panel").exported, "`export default X` exports X");
         assert!(!record(&clause, "hidden").exported);
 
         // A declaration inside a function body is local, whatever it says.
-        let kotlin = records(
-            "kotlin",
-            "kt",
-            "class Holder {\n    fun visible(): Int {\n        fun localHelper(y: Int) = y\n        return localHelper(1)\n    }\n}\n",
-        );
+        let kotlin =
+            records("kotlin", "kt", "class Holder {\n    fun visible(): Int {\n        fun localHelper(y: Int) = y\n        return localHelper(1)\n    }\n}\n");
         assert!(record(&kotlin, "visible").exported);
         assert!(!record(&kotlin, "localHelper").exported);
         let rust = records(
@@ -514,10 +438,7 @@ mod tests {
             "pub fn outer() {\n    pub fn nested() {}\n}\n#[macro_export]\nmacro_rules! shout { () => {}; }\nmacro_rules! quiet { () => {}; }\n",
         );
         assert!(record(&rust, "outer").exported);
-        assert!(
-            !record(&rust, "nested").exported,
-            "a `pub fn` in a body is unreachable"
-        );
+        assert!(!record(&rust, "nested").exported, "a `pub fn` in a body is unreachable");
         assert!(record(&rust, "shout").exported, "#[macro_export]");
         assert!(!record(&rust, "quiet").exported);
 
@@ -536,18 +457,11 @@ mod tests {
 
         // A Solidity free function carries no visibility modifier at all and
         // is importable; Lua's `local function` is its file-private form.
-        let solidity = records(
-            "solidity",
-            "sol",
-            "contract C {\n  function shut() private {}\n}\nfunction free(uint256 a) pure returns (uint256) { return a; }\n",
-        );
+        let solidity =
+            records("solidity", "sol", "contract C {\n  function shut() private {}\n}\nfunction free(uint256 a) pure returns (uint256) { return a; }\n");
         assert!(record(&solidity, "free").exported);
         assert!(!record(&solidity, "shut").exported);
-        let lua = records(
-            "lua",
-            "lua",
-            "function open(a)\n  return a\nend\n\nlocal function shut(a)\n  return a\nend\n",
-        );
+        let lua = records("lua", "lua", "function open(a)\n  return a\nend\n\nlocal function shut(a)\n  return a\nend\n");
         assert!(record(&lua, "open").exported);
         assert!(!record(&lua, "shut").exported);
     }

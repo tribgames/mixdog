@@ -23,7 +23,6 @@ pub struct ContextMeta {
     pub compact_boundary_tokens: Value,
 }
 
-
 type Obj = Map<String, Value>;
 
 /// The session boundary is the model's full raw window; headroom is the compact policy's.
@@ -122,13 +121,7 @@ pub fn resolve_context_meta(info: Option<&Obj>, catalog: Option<&Obj>, provider:
     let selected_tokens = positive_int(seed_field("contextTokens"));
     let requested = positive_int(seed_field("selectedContextWindow"))
         .or_else(|| selected_tokens.map(|tokens| tokens.min(served)))
-        .unwrap_or_else(|| {
-            if records_selection {
-                served
-            } else {
-                context_window_range(&provider, Some(&json_number(served)), None).0
-            }
-        });
+        .unwrap_or_else(|| if records_selection { served } else { context_window_range(&provider, Some(&json_number(served)), None).0 });
     let raw = match positive_int(field(info, "runtimeContextWindow")) {
         Some(runtime) => requested.min(runtime),
         None => requested,
@@ -168,11 +161,9 @@ fn cached_row(catalog: &CatalogService, provider: &str, model: &str) -> Option<O
     let snapshot = catalog.snapshot();
     let record = snapshot.models_of(&ProviderId::from(provider)).iter().find(|r| r.id == model)?;
     let mut row = Obj::new();
-    for (key, window) in [
-        ("contextWindow", record.context_window),
-        ("maxContextWindow", record.max_context_window),
-        ("runtimeContextWindow", record.runtime_context_window),
-    ] {
+    for (key, window) in
+        [("contextWindow", record.context_window), ("maxContextWindow", record.max_context_window), ("runtimeContextWindow", record.runtime_context_window)]
+    {
         if let Some(window) = window {
             row.insert(key.into(), Value::from(window));
         }
@@ -204,18 +195,15 @@ mod tests {
 
     use super::*;
 
-
-
-
     #[test]
     fn the_catalog_outranks_a_stale_cached_window_and_a_live_field_outranks_both() {
         let row = |value: Value| value.as_object().cloned();
-        let pick = |info: Option<Obj>, catalog: Option<Obj>| resolve_context_meta(info.as_ref(), catalog.as_ref(), "anthropic", "claude-opus-4-8", &json!({}), true).raw_context_window;
+        let pick = |info: Option<Obj>, catalog: Option<Obj>| {
+            resolve_context_meta(info.as_ref(), catalog.as_ref(), "anthropic", "claude-opus-4-8", &json!({}), true).raw_context_window
+        };
         assert_eq!(pick(row(json!({ "contextWindow": 272000 })), row(json!({ "contextWindow": 1000000 }))), 1_000_000);
         assert_eq!(pick(row(json!({ "context_window": 2000000, "contextWindow": 272000 })), row(json!({ "contextWindow": 1000000 }))), 2_000_000);
         assert_eq!(pick(None, row(json!({ "maxContextWindow": 640000 }))), 640_000);
         assert_eq!(pick(None, None), 1_000_000);
     }
-
-
 }

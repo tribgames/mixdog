@@ -76,9 +76,11 @@ impl MemoryCallers for ThreadMemoryCallers {
         let mut owner = thread.as_str().to_owned();
         let mut passed = std::collections::HashSet::new();
         while passed.insert(owner.clone()) {
-            let parent = self.sessions.header(&ThreadId::from(owner.as_str())).await.and_then(|header| {
-                header.get("parentSessionId").and_then(Value::as_str).filter(|parent| !parent.is_empty()).map(str::to_owned)
-            });
+            let parent = self
+                .sessions
+                .header(&ThreadId::from(owner.as_str()))
+                .await
+                .and_then(|header| header.get("parentSessionId").and_then(Value::as_str).filter(|parent| !parent.is_empty()).map(str::to_owned));
             match parent {
                 Some(parent) => owner = parent,
                 None => break,

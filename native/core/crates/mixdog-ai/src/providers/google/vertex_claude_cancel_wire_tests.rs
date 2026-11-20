@@ -8,12 +8,3 @@
 //! (so no retry fires after the cancel), the connections the endpoint saw the client close, the callbacks in order, the
 //! caller's result (Node's `AbortError` is the broker's `Cancelled`), and the admission slot released. The cancel in the
 //! retry wait ends the send under a paused clock that has not moved. Every wait has one deadline naming its step.
-
-
-
-
-
-
-
-
-

@@ -27,11 +27,7 @@ use super::walk;
 /// The colour of a slide's own background, as `RRGGBB`, when it is one solid colour (`$field` of the script), else nothing.
 fn background_field(slide: &Com) -> Result<String> {
     let fill = slide.member("Background")?.member("Fill")?;
-    if int_value(&fill.member("Type")?)? == 1 {
-        Ok(color_hex(long_cast(&fill.member("ForeColor")?.member("RGB")?)?))
-    } else {
-        Ok(String::new())
-    }
+    if int_value(&fill.member("Type")?)? == 1 { Ok(color_hex(long_cast(&fill.member("ForeColor")?.member("RGB")?)?)) } else { Ok(String::new()) }
 }
 
 /// `Set-PowerPointFooterFace`: a footer or page number as the portable writer sets it, 10 pt in the quiet ink, the footer from
@@ -76,10 +72,9 @@ fn placeholder_footer(slide: &Com, op: &Value) -> Result<()> {
 fn textbox_footer(presentation: &Com, slide: &Com, op: &Value) -> Result<()> {
     let width = single_value(&walk(presentation, &["PageSetup", "SlideWidth"])?)?;
     let height = single_value(&walk(presentation, &["PageSetup", "SlideHeight"])?)?;
-    let band = slide.member("Shapes")?.call_member(
-        "AddTextbox",
-        &[i4(1), r4(58.0), Com::R8(f64::from(height) - 40.0), Com::R8(f64::from(width) - 240.0), r4(24.0)],
-    )?;
+    let band = slide
+        .member("Shapes")?
+        .call_member("AddTextbox", &[i4(1), r4(58.0), Com::R8(f64::from(height) - 40.0), Com::R8(f64::from(width) - 240.0), r4(24.0)])?;
     walk(&band, &["TextFrame", "TextRange"])?.set_member("Text", bstr(&text_of(&prop(op, "text"))))?;
     put_path(&band, &["TextFrame", "TextRange", "Font", "Size"], i4(10))?;
     put_path(&band, &["TextFrame", "VerticalAnchor"], i4(3))?;
@@ -115,9 +110,5 @@ pub(crate) fn set_slide_number(presentation: &Com, op: &Value) -> Result<Value> 
     if visible {
         set_footer_face(&slide, false)?;
     }
-    Ok(record(vec![
-        ("op", Value::string("set_slide_number")),
-        ("changed", Value::Bool(true)),
-        ("visible", Value::Bool(visible)),
-    ]))
+    Ok(record(vec![("op", Value::string("set_slide_number")), ("changed", Value::Bool(true)), ("visible", Value::Bool(visible))]))
 }

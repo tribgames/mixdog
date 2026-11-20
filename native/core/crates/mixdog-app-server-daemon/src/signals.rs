@@ -164,7 +164,8 @@ mod tests {
             },
         );
         lifecycle.set_serving().unwrap();
-        let work = lifecycle.begin_activity(ActivityInfo { kind: ActivityKind::Turn, thread_id: Some("t".into()), turn_id: Some("u".into()), title: "turn".into() });
+        let work =
+            lifecycle.begin_activity(ActivityInfo { kind: ActivityKind::Turn, thread_id: Some("t".into()), turn_id: Some("u".into()), title: "turn".into() });
 
         stop_for(&lifecycle, StopSignal::Terminate);
         // The idle wait: a turn runs, so the process neither exits nor starts its barriers, however long it takes.

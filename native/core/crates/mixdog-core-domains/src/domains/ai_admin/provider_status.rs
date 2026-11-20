@@ -172,11 +172,7 @@ impl ProvidersStatus {
                     entry.insert("reauthRequired".into(), json!(true));
                 }
                 if kind == "oauth" && counts {
-                    let count = if authenticated {
-                        self.roster_of(row).await?["accounts"].as_array().map_or(0, Vec::len)
-                    } else {
-                        0
-                    };
+                    let count = if authenticated { self.roster_of(row).await?["accounts"].as_array().map_or(0, Vec::len) } else { 0 };
                     entry.insert("accounts".into(), json!(count));
                 }
                 providers.push(Value::Object(entry));

@@ -27,11 +27,7 @@ impl Ref {
 impl fmt::Display for Ref {
     /// pdf.js's `Ref.toString()`: `12R`, or `12R3` for a non-zero generation.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        if self.generation == 0 {
-            write!(f, "{}R", self.num)
-        } else {
-            write!(f, "{}R{}", self.num, self.generation)
-        }
+        if self.generation == 0 { write!(f, "{}R", self.num) } else { write!(f, "{}R{}", self.num, self.generation) }
     }
 }
 
@@ -273,10 +269,6 @@ impl Dict {
                 merged.set(&name, Obj::Dict(Arc::new(sub)));
             }
         }
-        if merged.is_empty() {
-            None
-        } else {
-            Some(merged)
-        }
+        if merged.is_empty() { None } else { Some(merged) }
     }
 }

@@ -289,8 +289,7 @@ fn expected_text(text: &Text, symbols: &[Vec<Vec<u8>>], instances: &[Instance]) 
 
 /// The instances in the order the strips take them: by the strip their T coordinate is in.
 fn by_strip(text: &Text, symbols: &[Vec<Vec<u8>>], instances: &[Instance]) -> Vec<(Instance, (i64, i64, i64))> {
-    let mut placed: Vec<_> =
-        instances.iter().map(|i| (i.clone(), placement(text, drawn(symbols, i), i.x, i.y))).collect();
+    let mut placed: Vec<_> = instances.iter().map(|i| (i.clone(), placement(text, drawn(symbols, i), i.x, i.y))).collect();
     placed.sort_by_key(|(_, p)| p.2.div_euclid(text.strips));
     placed
 }
@@ -301,9 +300,7 @@ fn encode_shifted(coder: &mut MqEncoder, base: usize, target: &[Vec<u8>], refere
     for y in 0..target.len() as i32 {
         for x in 0..target[0].len() as i32 {
             let mut context = coding.iter().fold(0, |acc, &(ox, oy)| (acc << 1) | pixel(target, x + ox, y + oy));
-            context = refer.iter().fold(context, |acc, &(ox, oy)| {
-                (acc << 1) | pixel(reference, x - shift.0 as i32 + ox, y - shift.1 as i32 + oy)
-            });
+            context = refer.iter().fold(context, |acc, &(ox, oy)| (acc << 1) | pixel(reference, x - shift.0 as i32 + ox, y - shift.1 as i32 + oy));
             coder.encode(base + context, target[y as usize][x as usize]);
         }
     }
@@ -458,32 +455,104 @@ type Line = (u32, u32, i32);
 const B3: &[Line] = &[(8, 8, -256), (1, 0, 0), (2, 0, 1), (3, 0, 2), (4, 3, 3), (5, 6, 11), (8, 32, -257), (7, 32, 75), (6, 0, 0)];
 const B5: &[Line] = &[(7, 8, -255), (1, 0, 1), (2, 0, 2), (3, 0, 3), (4, 3, 4), (5, 6, 12), (7, 32, -256), (6, 32, 76)];
 const B7: &[Line] = &[
-    (4, 9, -1024), (3, 8, -512), (4, 7, -256), (5, 6, -128), (5, 5, -64), (4, 5, -32), (4, 5, 0), (5, 5, 32), (5, 6, 64),
-    (4, 7, 128), (3, 8, 256), (3, 9, 512), (3, 10, 1024), (5, 32, -1025), (5, 32, 2048),
+    (4, 9, -1024),
+    (3, 8, -512),
+    (4, 7, -256),
+    (5, 6, -128),
+    (5, 5, -64),
+    (4, 5, -32),
+    (4, 5, 0),
+    (5, 5, 32),
+    (5, 6, 64),
+    (4, 7, 128),
+    (3, 8, 256),
+    (3, 9, 512),
+    (3, 10, 1024),
+    (5, 32, -1025),
+    (5, 32, 2048),
 ];
 const B9: &[Line] = &[
-    (8, 4, -31), (9, 2, -15), (8, 2, -11), (9, 1, -7), (7, 1, -5), (4, 1, -3), (3, 1, -1), (3, 1, 1), (5, 1, 3), (6, 1, 5),
-    (3, 5, 7), (6, 2, 39), (4, 5, 43), (4, 6, 75), (5, 7, 139), (5, 8, 267), (6, 8, 523), (7, 9, 779), (6, 11, 1291),
-    (9, 32, -32), (9, 32, 3339), (2, 0, 0),
+    (8, 4, -31),
+    (9, 2, -15),
+    (8, 2, -11),
+    (9, 1, -7),
+    (7, 1, -5),
+    (4, 1, -3),
+    (3, 1, -1),
+    (3, 1, 1),
+    (5, 1, 3),
+    (6, 1, 5),
+    (3, 5, 7),
+    (6, 2, 39),
+    (4, 5, 43),
+    (4, 6, 75),
+    (5, 7, 139),
+    (5, 8, 267),
+    (6, 8, 523),
+    (7, 9, 779),
+    (6, 11, 1291),
+    (9, 32, -32),
+    (9, 32, 3339),
+    (2, 0, 0),
 ];
 const B10: &[Line] = &[
-    (7, 4, -21), (8, 0, -5), (7, 0, -4), (5, 0, -3), (2, 2, -2), (5, 0, 2), (6, 0, 3), (7, 0, 4), (8, 0, 5), (2, 6, 6),
-    (5, 5, 70), (6, 5, 102), (6, 6, 134), (6, 7, 198), (6, 8, 326), (6, 9, 582), (6, 10, 1094), (7, 11, 2118),
-    (8, 32, -22), (8, 32, 4166), (2, 0, 0),
+    (7, 4, -21),
+    (8, 0, -5),
+    (7, 0, -4),
+    (5, 0, -3),
+    (2, 2, -2),
+    (5, 0, 2),
+    (6, 0, 3),
+    (7, 0, 4),
+    (8, 0, 5),
+    (2, 6, 6),
+    (5, 5, 70),
+    (6, 5, 102),
+    (6, 6, 134),
+    (6, 7, 198),
+    (6, 8, 326),
+    (6, 9, 582),
+    (6, 10, 1094),
+    (7, 11, 2118),
+    (8, 32, -22),
+    (8, 32, 4166),
+    (2, 0, 0),
 ];
 const B12: &[Line] = &[
-    (1, 0, 1), (2, 0, 2), (3, 1, 3), (5, 0, 5), (5, 1, 6), (6, 1, 8), (7, 0, 10), (7, 1, 11), (7, 2, 13), (7, 3, 17),
-    (7, 4, 25), (8, 5, 41), (0, 32, 0), (8, 32, 73),
+    (1, 0, 1),
+    (2, 0, 2),
+    (3, 1, 3),
+    (5, 0, 5),
+    (5, 1, 6),
+    (6, 1, 8),
+    (7, 0, 10),
+    (7, 1, 11),
+    (7, 2, 13),
+    (7, 3, 17),
+    (7, 4, 25),
+    (8, 5, 41),
+    (0, 32, 0),
+    (8, 32, 73),
 ];
 const B13: &[Line] = &[
-    (1, 0, 1), (3, 0, 2), (4, 0, 3), (5, 0, 4), (4, 1, 5), (3, 3, 7), (6, 1, 15), (6, 2, 17), (6, 3, 21), (6, 4, 29),
-    (6, 5, 45), (7, 6, 77), (0, 32, 0), (7, 32, 141),
+    (1, 0, 1),
+    (3, 0, 2),
+    (4, 0, 3),
+    (5, 0, 4),
+    (4, 1, 5),
+    (3, 3, 7),
+    (6, 1, 15),
+    (6, 2, 17),
+    (6, 3, 21),
+    (6, 4, 29),
+    (6, 5, 45),
+    (7, 6, 77),
+    (0, 32, 0),
+    (7, 32, 141),
 ];
 const B14: &[Line] = &[(3, 0, -2), (3, 0, -1), (1, 0, 0), (3, 0, 1), (3, 0, 2), (0, 32, -3), (0, 32, 3)];
-const B15: &[Line] = &[
-    (7, 4, -24), (6, 2, -8), (5, 1, -4), (4, 0, -2), (3, 0, -1), (1, 0, 0), (3, 0, 1), (4, 0, 2), (5, 1, 3), (6, 2, 5),
-    (7, 4, 9), (7, 32, -25), (7, 32, 25),
-];
+const B15: &[Line] =
+    &[(7, 4, -24), (6, 2, -8), (5, 1, -4), (4, 0, -2), (3, 0, -1), (1, 0, 0), (3, 0, 1), (4, 0, 2), (5, 1, 3), (6, 2, 5), (7, 4, 9), (7, 32, -25), (7, 32, 25)];
 
 /// A table the coder uses: the selector value the segment carries, its lines (the ranges, the lower and upper range
 /// and the out-of-band value if there is one) and, for a table of its own, the data of its table segment.
@@ -524,10 +593,7 @@ fn code(table: &Table, value: Option<i64>) -> String {
         return codes[count - 1].clone();
     };
     let plain = count - 2 - usize::from(table.oob);
-    if let Some((i, line)) = table.lines[..plain]
-        .iter()
-        .enumerate()
-        .find(|(_, l)| l.0 > 0 && value >= i64::from(l.2) && value < i64::from(l.2) + (1i64 << l.1))
+    if let Some((i, line)) = table.lines[..plain].iter().enumerate().find(|(_, l)| l.0 > 0 && value >= i64::from(l.2) && value < i64::from(l.2) + (1i64 << l.1))
     {
         let offset = if line.1 == 0 { String::new() } else { format!("{:0w$b}", value - i64::from(line.2), w = line.1 as usize) };
         return format!("{}{offset}", codes[i]);
@@ -733,7 +799,16 @@ fn huffman_strips(
 }
 
 /// A Huffman coded text region segment (`kind` 4, 6 or 7); `referred` lists the dictionary and the table segments.
-fn huffman_text(number: u32, kind: u8, text: &Text, symbols: &[Vec<Vec<u8>>], instances: &[Instance], lengths: &[u32], tables: &Tables, referred: &[u32]) -> Vec<u8> {
+fn huffman_text(
+    number: u32,
+    kind: u8,
+    text: &Text,
+    symbols: &[Vec<Vec<u8>>],
+    instances: &[Instance],
+    lengths: &[u32],
+    tables: &Tables,
+    referred: &[u32],
+) -> Vec<u8> {
     let (id_bits, id_codes) = symbol_id_table(lengths);
     let mut out = BitOut::default();
     out.put(&id_bits);
@@ -949,7 +1024,12 @@ fn refagg_dictionary(d: &Refagg, contexts: Option<&[(usize, u8)]>) -> (Vec<u8>, 
     }
     let exported: Vec<Vec<Vec<u8>>> = known.iter().zip(d.exports).filter(|(_, e)| **e).map(|(s, _)| s.clone()).collect();
     let mut data = Vec::new();
-    let flags = 0x2u16 | (u16::from(d.huffman)) | (u16::from(d.agg.is_some()) << 7) | (u16::from(d.r_template) << 12) | (u16::from(d.reuse) << 8) | (u16::from(d.retain) << 9);
+    let flags = 0x2u16
+        | (u16::from(d.huffman))
+        | (u16::from(d.agg.is_some()) << 7)
+        | (u16::from(d.r_template) << 12)
+        | (u16::from(d.reuse) << 8)
+        | (u16::from(d.retain) << 9);
     data.extend(flags.to_be_bytes());
     if !d.huffman {
         data.extend(template_at_default());
@@ -1077,14 +1157,12 @@ fn template_at_default() -> Vec<u8> {
 fn dictionaries_that_refine_and_aggregate_work_in_both_coding_modes_and_with_both_refinement_templates() {
     let input = symbols();
     let refined = rows(&["11111", "11001", "10011", "11111"]);
-    let new = [
-        New::Refine { from: 1, bitmap: refined.clone() },
-        New::Aggregate { parts: vec![(0, 0), (2, 3)], width: 7, height: 6 },
-    ];
+    let new = [New::Refine { from: 1, bitmap: refined.clone() }, New::Aggregate { parts: vec![(0, 0), (2, 3)], width: 7, height: 6 }];
     let exports = [false, false, false, true, true];
     for huffman in [false, true] {
         for r_template in 0..2u8 {
-            let d = Refagg { number: 2, huffman, r_template, referred: &[1], inputs: &input, new: &new, exports: &exports, reuse: false, retain: false, agg: None };
+            let d =
+                Refagg { number: 2, huffman, r_template, referred: &[1], inputs: &input, new: &new, exports: &exports, reuse: false, retain: false, agg: None };
             let (segment, _, exported) = refagg_dictionary(&d, None);
             let text = Text::new(16, 12);
             let placed = vec![at(0, 1, 0), at(1, 8, 0)];
@@ -1100,15 +1178,35 @@ fn dictionaries_that_refine_and_aggregate_work_in_both_coding_modes_and_with_bot
 #[test]
 fn a_refining_dictionary_may_continue_the_refinement_contexts_of_the_one_it_refers_to() {
     let input = symbols();
-    let first_new = [
-        New::Refine { from: 1, bitmap: rows(&["11111", "11001", "10011", "11111"]) },
-        New::Aggregate { parts: vec![(0, 0), (2, 3)], width: 7, height: 6 },
-    ];
-    let first = Refagg { number: 2, huffman: false, r_template: 1, referred: &[1], inputs: &input, new: &first_new, exports: &[false, false, false, true, true], reuse: false, retain: true, agg: None };
+    let first_new =
+        [New::Refine { from: 1, bitmap: rows(&["11111", "11001", "10011", "11111"]) }, New::Aggregate { parts: vec![(0, 0), (2, 3)], width: 7, height: 6 }];
+    let first = Refagg {
+        number: 2,
+        huffman: false,
+        r_template: 1,
+        referred: &[1],
+        inputs: &input,
+        new: &first_new,
+        exports: &[false, false, false, true, true],
+        reuse: false,
+        retain: true,
+        agg: None,
+    };
     let (first_segment, states, exported) = refagg_dictionary(&first, None);
     // The second dictionary refines the first's first symbol and exports it with the first's second.
     let second_new = [New::Refine { from: 0, bitmap: rows(&["11111", "10001", "10101", "11111"]) }];
-    let second = Refagg { number: 3, huffman: false, r_template: 1, referred: &[2], inputs: &exported, new: &second_new, exports: &[false, true, true], reuse: true, retain: false, agg: None };
+    let second = Refagg {
+        number: 3,
+        huffman: false,
+        r_template: 1,
+        referred: &[2],
+        inputs: &exported,
+        new: &second_new,
+        exports: &[false, true, true],
+        reuse: true,
+        retain: false,
+        agg: None,
+    };
     let (second_segment, _, exported_again) = refagg_dictionary(&second, Some(&states));
     let text = Text::new(16, 12);
     let placed = vec![at(0, 1, 0), at(1, 8, 0)];
@@ -1353,7 +1451,17 @@ fn a_halftone_grid_may_be_skewed_skip_cells_outside_the_region_and_combine_with_
     let grid = vec![vec![1, 2, 0], vec![3, 1, 0]];
     for skip in [false, true] {
         for (op, def_pixel) in [(0u8, 0u8), (1, 1), (2, 0), (3, 1), (4, 1)] {
-            let h = Halftone { skip, op, def_pixel, template: 1, grid_x: 2 << 8, grid_y: 2 << 8, step_x: 4 << 8, step_y: 1 << 8, ..Halftone::new(10, 8, grid.clone()) };
+            let h = Halftone {
+                skip,
+                op,
+                def_pixel,
+                template: 1,
+                grid_x: 2 << 8,
+                grid_y: 2 << 8,
+                step_x: 4 << 8,
+                step_y: 1 << 8,
+                ..Halftone::new(10, 8, grid.clone())
+            };
             assert!(h.skipped(0, 2, &patterns[0]) && h.skipped(1, 2, &patterns[0]) && !h.skipped(1, 1, &patterns[0]));
             let stream = halftone_stream(&h, &patterns, 1, 22);
             // The unused bits at the end of a row hold the page's default pixel, here white.
@@ -1493,12 +1601,21 @@ fn streams_that_break_the_rules_of_the_standard_are_refused() {
 #[test]
 fn a_refining_huffman_dictionary_may_count_its_instances_with_a_table_of_its_own() {
     let input = symbols();
-    let new = [
-        New::Refine { from: 1, bitmap: rows(&["11111", "11001", "10011", "11111"]) },
-        New::Aggregate { parts: vec![(0, 0), (2, 3)], width: 7, height: 6 },
-    ];
+    let new =
+        [New::Refine { from: 1, bitmap: rows(&["11111", "11001", "10011", "11111"]) }, New::Aggregate { parts: vec![(0, 0), (2, 3)], width: 7, height: 6 }];
     let table = custom(1, false);
-    let d = Refagg { number: 12, huffman: true, r_template: 0, referred: &[1, 11], inputs: &input, new: &new, exports: &[false, false, false, true, true], reuse: false, retain: false, agg: Some(&table) };
+    let d = Refagg {
+        number: 12,
+        huffman: true,
+        r_template: 0,
+        referred: &[1, 11],
+        inputs: &input,
+        new: &new,
+        exports: &[false, false, false, true, true],
+        reuse: false,
+        retain: false,
+        agg: Some(&table),
+    };
     let (segment, _, exported) = refagg_dictionary(&d, None);
     let text = Text::new(16, 12);
     let placed = vec![at(0, 1, 0), at(1, 8, 0)];
@@ -1553,7 +1670,6 @@ fn segment_numbers_above_256_and_65536_and_a_four_byte_page_association_are_read
     }
 }
 
-
 /// A text region of one instance of symbol 0 whose refinement changes the size by (`dw`, `dh`): only the sizes are coded,
 /// because a size the decoder refuses is never decoded into.
 fn refined_to_size(number: u32, dw: i64, dh: i64) -> Vec<u8> {
@@ -1590,11 +1706,21 @@ fn region_streams() -> Vec<(&'static str, Vec<u8>, i32, i32)> {
     vec![
         ("generic", [page(16, 6, 0), generic_region(16, 6, 0, 0, 0, &at_bytes, &encode_generic(&black, &offsets))].concat(), 16, 6),
         ("mmr", [page(16, 5, 0), generic_region(8, 3, 4, 1, 1, &[], &pack_bits("001 1000 11 1   1 1 1   010 1 1"))].concat(), 16, 5),
-        ("refinement", [page(16, 6, 0), generic_region(16, 6, 0, 0, 0, &at_bytes, &encode_generic(&before, &offsets)), segment_with(2, 42, &[], &refinement)].concat(), 16, 6),
+        (
+            "refinement",
+            [page(16, 6, 0), generic_region(16, 6, 0, 0, 0, &at_bytes, &encode_generic(&before, &offsets)), segment_with(2, 42, &[], &refinement)].concat(),
+            16,
+            6,
+        ),
         ("text", [page(24, 16, 0), symbol_dictionary(1, &symbols), arithmetic_text(2, 6, &text, &symbols, &instances, &[1])].concat(), 24, 16),
         ("huffman text", huffman_text_stream(&text, &symbols, &instances, &[1, 2, 2], &Tables::standard(0, 0, 0, 0)), 24, 16),
         ("dictionary", [page(24, 16, 0), symbol_dictionary(1, &symbols)].concat(), 24, 16),
-        ("huffman dictionary", [page(24, 16, 0), huffman_dictionary(1, &symbols, false, &standard(0, B4, false), &standard(0, B2, true), &standard(0, B1, false), &[])].concat(), 24, 16),
+        (
+            "huffman dictionary",
+            [page(24, 16, 0), huffman_dictionary(1, &symbols, false, &standard(0, B4, false), &standard(0, B2, true), &standard(0, B1, false), &[])].concat(),
+            24,
+            16,
+        ),
         ("patterns", [page(12, 8, 0), pattern_dictionary(1, &patterns, 0, false)].concat(), 12, 8),
         ("halftone", halftone_stream(&halftone, &patterns, 0, 22), 12, 8),
         ("mmr halftone", halftone_stream(&mmr_halftone, &patterns, 0, 22), 12, 8),

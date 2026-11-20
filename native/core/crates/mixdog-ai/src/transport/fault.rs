@@ -50,11 +50,7 @@ pub fn fault_from_chain(err: &(dyn Error + 'static), connecting: bool) -> Transp
         }
         cursor = current.source();
     }
-    if connecting {
-        TransportFault::Connect { os_code: None }
-    } else {
-        TransportFault::Closed
-    }
+    if connecting { TransportFault::Connect { os_code: None } } else { TransportFault::Closed }
 }
 
 /// What ended an HTTP/2 connection, for the daemon log: the GOAWAY or RST_STREAM with its code, or the I/O error (its kind and
@@ -144,13 +140,9 @@ mod tests {
 pub fn fault_from_ws_error(err: &tungstenite::Error) -> TransportFault {
     match err {
         tungstenite::Error::Io(io) => fault_from_io(io, false),
-        tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed => {
-            TransportFault::Closed
-        }
+        tungstenite::Error::ConnectionClosed | tungstenite::Error::AlreadyClosed => TransportFault::Closed,
         tungstenite::Error::Tls(_) => TransportFault::Tls,
-        tungstenite::Error::Protocol(
-            tungstenite::error::ProtocolError::ResetWithoutClosingHandshake,
-        ) => TransportFault::Reset,
+        tungstenite::Error::Protocol(tungstenite::error::ProtocolError::ResetWithoutClosingHandshake) => TransportFault::Reset,
         _ => TransportFault::Io { os_code: None },
     }
 }

@@ -50,7 +50,15 @@ fn scripted() -> (Scripted, Handle) {
 }
 
 fn picture(seq: u64) -> VideoFrame {
-    VideoFrame { width: 2, height: 2, stride: 8, format: PixelFormat::Bgra, data: Bytes::from(vec![seq as u8; 16]), seq, captured_at: Duration::from_millis(seq) }
+    VideoFrame {
+        width: 2,
+        height: 2,
+        stride: 8,
+        format: PixelFormat::Bgra,
+        data: Bytes::from(vec![seq as u8; 16]),
+        seq,
+        captured_at: Duration::from_millis(seq),
+    }
 }
 
 async fn next_shot(shots: &mut watch::Receiver<Option<mixdog_remote::webrtc::capture::Shot>>) -> Option<mixdog_remote::webrtc::capture::Shot> {

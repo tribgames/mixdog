@@ -24,8 +24,8 @@ use mixdog_core_api::domain::tool::ToolIo;
 use mixdog_core_api::turn_review::CallChange;
 use mixdog_core_api::turn_review::ReviewContent;
 use mixdog_core_api::turn_review::TurnReviewApi;
-use mixdog_services::tidy::apply::FileChange;
 use mixdog_services::local_provider::assets::Fetcher;
+use mixdog_services::tidy::apply::FileChange;
 use mixdog_services::tidy::apply::WriteHost;
 use mixdog_services::tidy::function_length::OutlineSource;
 use mixdog_services::tidy::tool::TidyHost;
@@ -182,7 +182,6 @@ mod tests {
             ReviewContent::Omitted { size: PATCH_EDIT_MAX_BYTES as u64 + 1, reason: Some("oversized".into()) }
         );
     }
-
 
     /// Node asks `graphBinaryPath()` at each tidy call, so a binary that appears after the host
     /// was built (the code-graph tool's download) is found by the next call.

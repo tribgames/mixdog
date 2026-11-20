@@ -25,6 +25,7 @@ use mixdog_core_api::domain::media::MediaError;
 use mixdog_core_api::domain::media::MediaFrameSource;
 use mixdog_core_api::domain::media::PixelFormat;
 use mixdog_core_api::domain::media::VideoFrame;
+use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_domains::domains::host::ScreenEvents;
@@ -34,7 +35,6 @@ use mixdog_core_domains::domains::pc_access::CredentialRequest;
 use mixdog_core_domains::domains::pc_access::HelperState;
 use mixdog_core_domains::domains::pc_access::PcAccessService;
 use mixdog_core_domains::domains::pc_access::PcCredential;
-use mixdog_core_api::domain::process::ProcessManager;
 use mixdog_remote::registry::DeviceRegistry;
 use mixdog_rt::TaskClass;
 use mixdog_tools::desktop::computer_pixels::ComputerBlobs;
@@ -107,7 +107,8 @@ impl ScreenService {
             displays: Some(Arc::new(HostDisplays::new(host.clone()))),
             installer: helper,
             input_host: Arc::new(move || {
-                Arc::new(InputHost { input: Arc::new(ScreenInput::new(manager.clone(), ScreenInputConfig::new(binary.clone(), cwd.clone()))) }) as Arc<dyn ScreenInputHost>
+                Arc::new(InputHost { input: Arc::new(ScreenInput::new(manager.clone(), ScreenInputConfig::new(binary.clone(), cwd.clone()))) })
+                    as Arc<dyn ScreenInputHost>
             }),
             indicator: {
                 let (host, stops) = (host.clone(), stops.clone());
@@ -443,7 +444,8 @@ impl DisplayPixels for HostPixels {
                 "format": "jpeg",
                 "quality": PIXELS_QUALITY,
             });
-            let reply = desktop.request(HostCapability::Computer, Method("host/computer/pixels"), request).await.map_err(|error| unavailable(format!("{error:?}")))?;
+            let reply =
+                desktop.request(HostCapability::Computer, Method("host/computer/pixels"), request).await.map_err(|error| unavailable(format!("{error:?}")))?;
             let reply: PixelsReply = serde_json::from_value(reply).map_err(|_| unavailable("the desktop's capture reply is malformed".to_owned()))?;
             if reply.capture_width == 0 || reply.capture_height == 0 || reply.blob.mime_type != "image/jpeg" {
                 return Err(unavailable("the desktop's capture is not a JPEG with a size".to_owned()));

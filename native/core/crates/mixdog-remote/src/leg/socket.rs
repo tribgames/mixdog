@@ -71,11 +71,7 @@ pub fn device_socket_request(relay_url: &str, identity: &DeviceIdentity) -> Resu
 }
 
 /// A leg's URL on `path` and its Basic credential.
-pub fn leg_socket_request(
-    relay_url: &str,
-    path: &str,
-    identity: &DeviceIdentity,
-) -> Result<(Url, String), RelayUrlError> {
+pub fn leg_socket_request(relay_url: &str, path: &str, identity: &DeviceIdentity) -> Result<(Url, String), RelayUrlError> {
     let mut url = validated_relay_url(relay_url)?;
     url.set_path(path);
     url.set_query(None);
@@ -110,7 +106,9 @@ pub enum LegEvent {
     /// A text message of a [`Framing::Raw`] leg, undecoded.
     Raw(String),
     /// The current leg closed while the client still runs; a redial follows.
-    Lost { code: Option<u16> },
+    Lost {
+        code: Option<u16>,
+    },
 }
 
 /// What the leg's messages are.
@@ -152,15 +150,7 @@ impl LegConfig {
 
     /// The webhook tunnel leg: `/hookleg`, 25 s heartbeat, backoff reset on open, raw frames.
     pub fn hook(relay_url: String, identity: DeviceIdentity, max_payload: usize) -> Self {
-        Self {
-            relay_url,
-            identity,
-            max_payload,
-            path: HOOK_PATH.to_owned(),
-            heartbeat: HOOK_HEARTBEAT,
-            stable_reset: None,
-            framing: Framing::Raw,
-        }
+        Self { relay_url, identity, max_payload, path: HOOK_PATH.to_owned(), heartbeat: HOOK_HEARTBEAT, stable_reset: None, framing: Framing::Raw }
     }
 }
 
@@ -179,9 +169,7 @@ async fn serve_leg(
 ) -> Result<Ended, ()> {
     let (url, authorization) = leg_socket_request(&config.relay_url, &config.path, &config.identity).map_err(|_| ())?;
     let mut request = url.as_str().into_client_request().map_err(|_| ())?;
-    request
-        .headers_mut()
-        .insert("Authorization", HeaderValue::from_str(&authorization).map_err(|_| ())?);
+    request.headers_mut().insert("Authorization", HeaderValue::from_str(&authorization).map_err(|_| ())?);
     let mut ws_config = WebSocketConfig::default();
     ws_config.max_message_size = Some(config.max_payload);
     ws_config.max_frame_size = Some(config.max_payload);
@@ -274,12 +262,7 @@ where
 
 /// Dials, serves and redials until `cancel` fires. A relay URL that fails policy ends the loop
 /// at once: there is nothing to redial.
-pub async fn run_leg(
-    config: LegConfig,
-    events: mpsc::Sender<LegEvent>,
-    mut outgoing: mpsc::Receiver<Outgoing>,
-    cancel: CancellationToken,
-) {
+pub async fn run_leg(config: LegConfig, events: mpsc::Sender<LegEvent>, mut outgoing: mpsc::Receiver<Outgoing>, cancel: CancellationToken) {
     let mut redial = Redial::default();
     loop {
         let ended = serve_leg(&config, &events, &mut outgoing, &mut redial, &cancel).await;
@@ -333,14 +316,9 @@ mod tests {
         let (events, mut opened) = mpsc::channel(1);
         // One slot: a send that completes proves the leg has taken the previous message.
         let (outgoing, mut queue) = mpsc::channel(1);
-        let config = LegConfig::desktop(
-            "ws://127.0.0.1".to_owned(),
-            DeviceIdentity { device_id: "00000000".to_owned(), device_secret: "0".repeat(16) },
-            PIPE_ROOM,
-        );
-        let leg = tokio::spawn(async move {
-            serve_socket(desktop, &config, &events, &mut queue, &mut Redial::default(), &CancellationToken::new()).await
-        });
+        let config =
+            LegConfig::desktop("ws://127.0.0.1".to_owned(), DeviceIdentity { device_id: "00000000".to_owned(), device_secret: "0".repeat(16) }, PIPE_ROOM);
+        let leg = tokio::spawn(async move { serve_socket(desktop, &config, &events, &mut queue, &mut Redial::default(), &CancellationToken::new()).await });
         assert!(matches!(opened.recv().await, Some(LegEvent::Open)));
         Pipe { relay, outgoing, leg }
     }

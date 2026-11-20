@@ -23,8 +23,7 @@ use super::format::clip;
 
 const CACHE_TTL: Duration = Duration::from_secs(30 * 60);
 const NODE_PROVIDER: &str = "native-web-search";
-const PROVIDER_UNAVAILABLE: &str =
-    "web search provider unavailable: open /websearch to choose a web search provider/model";
+const PROVIDER_UNAVAILABLE: &str = "web search provider unavailable: open /websearch to choose a web search provider/model";
 
 #[derive(Clone, Debug)]
 pub struct NativeSearchRequest {
@@ -184,11 +183,7 @@ fn locale_label(args: &SearchArgs) -> Option<String> {
 }
 
 fn build_prompt(args: &SearchArgs) -> String {
-    let mut lines = vec![
-        "Perform a concise web research task for Mixdog web search.".to_string(),
-        String::new(),
-        format!("Query: {}", args.query),
-    ];
+    let mut lines = vec!["Perform a concise web research task for Mixdog web search.".to_string(), String::new(), format!("Query: {}", args.query)];
     if let Some(site) = &args.site {
         lines.push(format!("Site/domain restriction: {site}"));
     }
@@ -281,13 +276,7 @@ pub(super) fn normalize(result: NativeSearchResult, max_results: usize) -> Searc
             .find(|candidate| !candidate.is_empty())
             .unwrap_or("(untitled)")
             .to_string();
-        hits.push(SearchHit {
-            title,
-            url,
-            snippet: collapse(&source.snippet),
-            from_call,
-            published_date: source.published_date.clone(),
-        });
+        hits.push(SearchHit { title, url, snippet: collapse(&source.snippet), from_call, published_date: source.published_date.clone() });
     };
     for citation in &result.citations {
         add(citation, "", false);
@@ -319,13 +308,7 @@ pub(super) fn normalize(result: NativeSearchResult, max_results: usize) -> Searc
 
 impl SearchService {
     pub fn new(provider: Option<Arc<dyn NativeWebSearch>>, cache: Arc<NodeCache>) -> Self {
-        Self {
-            core: Arc::new(Core {
-                provider,
-                cache,
-                flights: Mutex::new(HashMap::new()),
-            }),
-        }
+        Self { core: Arc::new(Core { provider, cache, flights: Mutex::new(HashMap::new()) }) }
     }
 
     /// One query. Identical in-flight searches share one provider call (the first caller's thread
@@ -340,18 +323,11 @@ impl SearchService {
         }
         let flight = {
             let mut flights = self.core.flights.lock().unwrap_or_else(|p| p.into_inner());
-            let flight = flights
-                .entry(key.clone())
-                .or_insert_with(|| self.start(&key, args, thread))
-                .clone();
+            let flight = flights.entry(key.clone()).or_insert_with(|| self.start(&key, args, thread)).clone();
             flight.waiters.fetch_add(1, Ordering::SeqCst);
             flight
         };
-        let _leave = Leave {
-            core: &self.core,
-            key: &key,
-            flight: flight.clone(),
-        };
+        let _leave = Leave { core: &self.core, key: &key, flight: flight.clone() };
         tokio::select! {
             () = cancel.cancelled() => Err(NativeSearchError::Failed("web search aborted".into())),
             result = Self::await_outcome(flight.outcome.clone()) => result,
@@ -401,11 +377,7 @@ impl SearchService {
             .await;
             let _ = sender.send(Some(result));
         });
-        Arc::new(Flight {
-            cancel,
-            waiters: AtomicUsize::new(0),
-            outcome,
-        })
+        Arc::new(Flight { cancel, waiters: AtomicUsize::new(0), outcome })
     }
 }
 
@@ -461,11 +433,7 @@ pub fn format_results(payload: &SearchPayload) -> String {
         blocks.push("(no search results)".to_string());
         return blocks.join("\n\n");
     }
-    let shown_answer = if payload.answer.is_empty() {
-        String::new()
-    } else {
-        clip(&payload.answer, ANSWER_CAP)
-    };
+    let shown_answer = if payload.answer.is_empty() { String::new() } else { clip(&payload.answer, ANSWER_CAP) };
     if !shown_answer.is_empty() {
         blocks.push(shown_answer.clone());
     }
@@ -483,15 +451,9 @@ pub fn format_results(payload: &SearchPayload) -> String {
     for hit in &results {
         let snippet = clip(mixdog_js::js_trim(&hit.snippet), SNIPPET_CAP);
         let date = hit.published_date.as_deref().unwrap_or("");
-        let url_part = [hit.url.as_str(), date]
-            .into_iter()
-            .filter(|part| !part.is_empty())
-            .collect::<Vec<_>>()
-            .join(" — ");
-        let query_labelled = hit.title.is_empty()
-            || hit.title == hit.url
-            || hit.from_call
-            || urls_by_title.get(hit.title.as_str()).is_some_and(|urls| urls.len() > 1);
+        let url_part = [hit.url.as_str(), date].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" — ");
+        let query_labelled =
+            hit.title.is_empty() || hit.title == hit.url || hit.from_call || urls_by_title.get(hit.title.as_str()).is_some_and(|urls| urls.len() > 1);
         if !hit.url.is_empty() && snippet.is_empty() && query_labelled {
             if !text_cites_url(&shown_answer, &hit.url) {
                 entries.push(format!("{}. {url_part}", entries.len() + 1));

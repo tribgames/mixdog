@@ -136,7 +136,10 @@ pub struct PlanInput<'a> {
 #[derive(Clone, PartialEq, Debug)]
 pub enum Plan {
     /// Warm: `warms` further warms are what the return needs, `p` the chance of it.
-    Warm { warms: f64, p: f64 },
+    Warm {
+        warms: f64,
+        p: f64,
+    },
     Stop(&'static str),
 }
 
@@ -289,15 +292,4 @@ pub fn warming_enabled(config: Option<&Value>) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
-
-
-
-
-
-
-
-
-}
-
-
+mod tests {}

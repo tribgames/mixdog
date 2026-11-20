@@ -239,10 +239,7 @@ fn message(error: RemoteError) -> String {
 impl PcAccessRoster for RuntimeRoster {
     async fn keys(&self) -> Result<Vec<PairedKey>, String> {
         let records = self.0.controller_keys().await.map_err(message)?;
-        Ok(records
-            .into_iter()
-            .map(|record| PairedKey { client_id: record.client_id, public_key: record.public_key, unpaired: record.unpaired })
-            .collect())
+        Ok(records.into_iter().map(|record| PairedKey { client_id: record.client_id, public_key: record.public_key, unpaired: record.unpaired }).collect())
     }
 
     async fn owed(&self) -> Result<Owed, String> {
@@ -544,9 +541,7 @@ impl Inner {
         // Only the phone this connection is, still paired, under the key it delivered.
         if let Some(phone) = &phone {
             let records = self.roster.keys().await?;
-            let paired = records
-                .iter()
-                .any(|record| record.client_id == phone.client_id && record.public_key == phone.public_key && !record.unpaired);
+            let paired = records.iter().any(|record| record.client_id == phone.client_id && record.public_key == phone.public_key && !record.unpaired);
             if owed.keys.iter().any(|key| key == phone.public_key) || !paired {
                 return Ok(Authorized::Ran(failure(KeyOutcome::Failed, NOT_PAIRED)));
             }

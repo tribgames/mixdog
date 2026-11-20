@@ -14,16 +14,61 @@ pub const TRANSCRIPT_MOVED_ERROR: &str = "compact: the conversation changed whil
 /// Fields of `session.compaction` the saved configuration owns (`COMPACTION_CONFIG_KEYS`): a commit
 /// writes them back from the live record, never from the plan it started with.
 pub const CONFIG_KEYS: [&str; 38] = [
-    "auto", "onModelChange", "summaryMode", "type", "compactType", "compact_type", "semantic", "semanticModel", "prune", "tailTurns", "recallMemoryTimeoutMs", "recallIngestLimit",
-    "recallChunkLimit", "recallLimit", "recallCycle1BatchSize", "recallRowsPerSession", "recallWindowSize", "recallConcurrency", "recallCycle1DeadlineMs", "enabled", "useMaintainer",
-    "model", "summaryModel", "timeoutMs", "memoryTimeoutMs", "buffer", "bufferTokens", "reservedTokens", "bufferPercent", "bufferPct", "bufferRatio", "bufferFraction",
-    "mainBufferTokens", "mainBuffer", "mainBufferPercent", "mainBufferPct", "mainBufferRatio", "mainBufferFraction",
+    "auto",
+    "onModelChange",
+    "summaryMode",
+    "type",
+    "compactType",
+    "compact_type",
+    "semantic",
+    "semanticModel",
+    "prune",
+    "tailTurns",
+    "recallMemoryTimeoutMs",
+    "recallIngestLimit",
+    "recallChunkLimit",
+    "recallLimit",
+    "recallCycle1BatchSize",
+    "recallRowsPerSession",
+    "recallWindowSize",
+    "recallConcurrency",
+    "recallCycle1DeadlineMs",
+    "enabled",
+    "useMaintainer",
+    "model",
+    "summaryModel",
+    "timeoutMs",
+    "memoryTimeoutMs",
+    "buffer",
+    "bufferTokens",
+    "reservedTokens",
+    "bufferPercent",
+    "bufferPct",
+    "bufferRatio",
+    "bufferFraction",
+    "mainBufferTokens",
+    "mainBuffer",
+    "mainBufferPercent",
+    "mainBufferPct",
+    "mainBufferRatio",
+    "mainBufferFraction",
 ];
 
 /// `withoutLegacyCompactFields`.
 const LEGACY_FIELDS: [&str; 13] = [
-    "type", "compactType", "semantic", "semanticModel", "semanticTimeoutMs", "tailTurns", "lastCompactType", "lastSemantic", "lastSemanticError", "lastRecallFastTrack",
-    "lastRecallFastTrackError", "lastRecallFastTrackQuerySha", "lastSemanticUsage",
+    "type",
+    "compactType",
+    "semantic",
+    "semanticModel",
+    "semanticTimeoutMs",
+    "tailTurns",
+    "lastCompactType",
+    "lastSemantic",
+    "lastSemanticError",
+    "lastRecallFastTrack",
+    "lastRecallFastTrackError",
+    "lastRecallFastTrackQuerySha",
+    "lastSemanticUsage",
 ];
 
 /// The summary pass as the commit reads it (`freshContextResult`).
@@ -186,7 +231,14 @@ fn record_of(session: &Header, archive: Option<Value>, telemetry: Vec<(&str, Val
 }
 
 /// The plan's own telemetry, then the pass's.
-fn telemetry(plan: &CompactionPlan, stage: &str, after: &After, now: f64, reserve: Vec<(&'static str, Value)>, outcome: Vec<(&'static str, Value)>) -> Vec<(&'static str, Value)> {
+fn telemetry(
+    plan: &CompactionPlan,
+    stage: &str,
+    after: &After,
+    now: f64,
+    reserve: Vec<(&'static str, Value)>,
+    outcome: Vec<(&'static str, Value)>,
+) -> Vec<(&'static str, Value)> {
     let mut out = vec![
         ("boundaryTokens", num(plan.boundary)),
         ("triggerTokens", num(plan.trigger_tokens)),
@@ -241,7 +293,9 @@ pub fn commit_compaction(input: &CommitInput<'_>) -> Committed {
     let transcript_len = input.compacted.len() + input.appended.len();
     // `afterTranscriptTokens`: the calibrated estimate plus the request reserve of the final transcript.
     let (tokens, request_reserve, reserve, policy) = match worker_policy(status.env, session, &input.after_tools, true) {
-        Some(Worker::Policy(policy)) => (current_estimate_tokens(message_tokens, &policy), policy.request_reserve_tokens, policy.reserve_tokens, Some(policy_header(&policy))),
+        Some(Worker::Policy(policy)) => {
+            (current_estimate_tokens(message_tokens, &policy), policy.request_reserve_tokens, policy.reserve_tokens, Some(policy_header(&policy)))
+        }
         Some(Worker::Off) => (current_estimate_tokens(message_tokens, &Policy::default()), None, None, None),
         None => (message_tokens + plan.reserve_tokens, None, None, None),
     };
@@ -271,10 +325,7 @@ pub fn commit_compaction(input: &CommitInput<'_>) -> Committed {
         Value::Object(archive)
     });
     let stage = if input.auto_mode { "post_turn" } else { "manual" };
-    let reserve_fields = vec![
-        ("requestReserveTokens", num(request_reserve.unwrap_or(0.0))),
-        ("reserveTokens", num(reserve.unwrap_or(plan.reserve_tokens))),
-    ];
+    let reserve_fields = vec![("requestReserveTokens", num(request_reserve.unwrap_or(0.0))), ("reserveTokens", num(reserve.unwrap_or(plan.reserve_tokens)))];
     let mut compaction = record_of(session, archive_claim, telemetry(plan, stage, &after, input.now, reserve_fields, outcome));
     // `recordCompactionTiming`.
     let summary_run = fresh.summary_route.as_ref().filter(|r| !r.is_empty()).map(|route| format!("{}:{route}", if fresh.forked { "fork" } else { "isolated" }));
@@ -294,7 +345,13 @@ pub fn commit_compaction(input: &CommitInput<'_>) -> Committed {
         compaction.insert(key.to_owned(), value);
     }
     let archived = input.archived.as_ref().filter(|_| changed);
-    let reason = if changed { Value::Null } else if plan.force { json!("nothing to compact") } else { json!("below threshold") };
+    let reason = if changed {
+        Value::Null
+    } else if plan.force {
+        json!("nothing to compact")
+    } else {
+        json!("below threshold")
+    };
     let outcome_map = Map::from_iter([("changed".to_owned(), json!(changed)), ("reason".to_owned(), reason)]);
     let tail = Map::from_iter([
         ("freshContext".to_owned(), json!(fresh.fresh_context)),

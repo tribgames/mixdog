@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
+)]
 //! "Download to this PC": a stepwise, cancellable copy of one server file into this PC's download folder
 //! (`createServerDownloads` of the desktop's server-file-access.ts). Each step moves one ranged read, so the
 //! caller owns progress and cancel. The server is untrusted: every size, offset and byte count it returns is
@@ -325,7 +329,17 @@ mod tests {
     fn a_stat_is_checked() {
         assert_eq!(server_file_stat(&json!({ "size": 12, "mtimeMs": 3.5 })).unwrap(), (12, 3.5));
         assert_eq!(server_file_stat(&json!({ "size": 12.0, "mtimeMs": 0 })).unwrap(), (12, 0.0));
-        for bad in [json!(null), json!([]), json!({ "mtimeMs": 1 }), json!({ "size": -1, "mtimeMs": 1 }), json!({ "size": 1.5, "mtimeMs": 1 }), json!({ "size": "7", "mtimeMs": 1 }), json!({ "size": 9007199254740992u64, "mtimeMs": 1 }), json!({ "size": 1, "mtimeMs": -1 }), json!({ "size": 1 })] {
+        for bad in [
+            json!(null),
+            json!([]),
+            json!({ "mtimeMs": 1 }),
+            json!({ "size": -1, "mtimeMs": 1 }),
+            json!({ "size": 1.5, "mtimeMs": 1 }),
+            json!({ "size": "7", "mtimeMs": 1 }),
+            json!({ "size": 9007199254740992u64, "mtimeMs": 1 }),
+            json!({ "size": 1, "mtimeMs": -1 }),
+            json!({ "size": 1 }),
+        ] {
             assert!(server_file_stat(&bad).unwrap_err().message.starts_with("The server sent an invalid response"), "{bad}");
         }
     }
@@ -336,13 +350,21 @@ mod tests {
         let (bytes, size, mtime) = server_read_range(&ok(json!(3), "YWJj"), 3, 3).unwrap();
         assert_eq!((&bytes[..], size, mtime), (&b"abc"[..], 9, 1.0));
         assert!(server_read_range(&ok(json!(3), ""), 3, 3).unwrap().0.is_empty());
-        for (offset, data, requested) in [(json!(4), "YWJj", 3u64), (json!("3"), "YWJj", 3), (json!(3), "YWJjZA==", 3), (json!(3), "YW Jj", 3), (json!(3), "YWJ", 3), (json!(3), "=YWJ", 3), (json!(3), "YQ===", 3), (json!(3), "YWJj", 2)] {
+        for (offset, data, requested) in [
+            (json!(4), "YWJj", 3u64),
+            (json!("3"), "YWJj", 3),
+            (json!(3), "YWJjZA==", 3),
+            (json!(3), "YW Jj", 3),
+            (json!(3), "YWJ", 3),
+            (json!(3), "=YWJ", 3),
+            (json!(3), "YQ===", 3),
+            (json!(3), "YWJj", 2),
+        ] {
             assert!(server_read_range(&ok(offset.clone(), data), 3, requested).is_err(), "{offset} {data} {requested}");
         }
         assert!(server_read_range(&json!({ "offset": 3, "size": 9, "mtimeMs": 1, "data": 5 }), 3, 3).is_err());
         assert!(server_read_range(&json!("x"), 3, 3).is_err());
     }
-
 
     fn lanes() -> Lanes {
         let tokens = mixdog_rt::testing::tokens();
@@ -488,7 +510,6 @@ mod tests {
     }
 }
 
-
 pub struct ServerDownloads {
     me: Weak<ServerDownloads>,
     max_bytes: u64,
@@ -548,10 +569,7 @@ impl ServerDownloads {
     pub async fn begin(&self, reader: Arc<dyn RemoteFileReader>, downloads_dir: &Path, root: &str, rel: &str) -> WsResult<Begun> {
         let (size, mtime_ms) = server_file_stat(&reader.stat(root, rel).await?)?;
         if size > self.max_bytes {
-            return Err(WsError::plain(format!(
-                "The file is larger than the {} MB download limit.",
-                (self.max_bytes as f64 / 1024.0 / 1024.0).round()
-            )));
+            return Err(WsError::plain(format!("The file is larger than the {} MB download limit.", (self.max_bytes as f64 / 1024.0 / 1024.0).round())));
         }
         if downloads_dir.as_os_str().is_empty() {
             return Err(WsError::plain("This PC has no download folder."));

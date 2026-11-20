@@ -88,7 +88,10 @@ fn fallback_title_from_text(content: &Value) -> String {
 /// `isHumanAuthoredTurn`: a turn the human typed. Provenance lives in `meta` (`source` of an injected goal,
 /// notification or compaction turn, `synthetic`), never on the message root.
 fn is_human_authored_turn(message: &Value) -> bool {
-    if message.get("role").and_then(Value::as_str) != Some("user") || message.get("internal") == Some(&Value::Bool(true)) || message.get("synthetic") == Some(&Value::Bool(true)) {
+    if message.get("role").and_then(Value::as_str) != Some("user")
+        || message.get("internal") == Some(&Value::Bool(true))
+        || message.get("synthetic") == Some(&Value::Bool(true))
+    {
         return false;
     }
     if let Some(meta @ (Value::Object(_) | Value::Array(_))) = message.get("meta") {
@@ -107,7 +110,12 @@ fn is_human_authored_turn(message: &Value) -> bool {
 /// that names a titleless session from the earliest human turn in its history, else from this turn's prompt
 /// (`prompt` is `None` for a runtime-injected turn, which never names it). `None` when the session already has a
 /// usable title, a locked or generated one, or nothing in the transcript is usable.
-pub fn fallback_title_change(header: &Map<String, Value>, history: &[Value], prompt: Option<&Value>, now: i64) -> Option<mixdog_store::schema::record::HeaderChange> {
+pub fn fallback_title_change(
+    header: &Map<String, Value>,
+    history: &[Value],
+    prompt: Option<&Value>,
+    now: i64,
+) -> Option<mixdog_store::schema::record::HeaderChange> {
     // `isUsableTitle(session.title)`: `String(title || '')`, so a stored number is its text.
     if header.get("title").is_some_and(|title| js_truthy(title) && is_usable_title(&mixdog_js::value_to_string(title))) {
         return None;
@@ -655,17 +663,4 @@ impl TitleHooks {
 }
 
 #[cfg(test)]
-mod tests {
-
-
-
-
-
-
-
-
-
-
-}
-
-
+mod tests {}

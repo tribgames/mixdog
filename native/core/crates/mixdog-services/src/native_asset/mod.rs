@@ -115,7 +115,6 @@ pub struct GraphBinary {
     platforms: Vec<String>,
 }
 
-
 impl GraphBinary {
     /// `manifest` is [`bundled_manifest`] in the product.
     pub fn new(data_dir: PathBuf, manifest: Value, durability: DurabilityIo, bulk: CpuBulk, downloader: Arc<dyn AssetDownloader>, now: NowMs) -> Self {
@@ -173,7 +172,8 @@ impl GraphBinary {
         let file_name = self.file_name();
         let dest = dir.join(&file_name);
         let expected = sha256.to_lowercase();
-        if fsio::exists(self.durability, &dest).await.map_err(|e| e.to_string())? && sha256_file(self.bulk, &dest).await.is_ok_and(|actual| actual == expected) {
+        if fsio::exists(self.durability, &dest).await.map_err(|e| e.to_string())? && sha256_file(self.bulk, &dest).await.is_ok_and(|actual| actual == expected)
+        {
             return Ok(dest);
         }
         let tmp = dir.join(format!("{file_name}.tmp-{}-{}", std::process::id(), (self.now)()));

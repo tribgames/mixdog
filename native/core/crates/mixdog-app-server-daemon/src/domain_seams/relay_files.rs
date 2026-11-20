@@ -33,7 +33,13 @@ fn scope_of(scope: mixdog_exthost::PaneScope) -> mixdog_workspace::visualize_pan
         panes: scope
             .panes
             .into_iter()
-            .map(|pane| mixdog_workspace::visualize_pane::TabPane { kind: pane.kind, path: pane.path, root: pane.root, inline: pane.inline, version: pane.version })
+            .map(|pane| mixdog_workspace::visualize_pane::TabPane {
+                kind: pane.kind,
+                path: pane.path,
+                root: pane.root,
+                inline: pane.inline,
+                version: pane.version,
+            })
             .collect(),
     }
 }

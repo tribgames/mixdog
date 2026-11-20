@@ -92,13 +92,7 @@ impl Default for DevicePreferences {
             scope: Scope::All,
             events: EventToggles { finished: true, question: true, approval: true, error: false },
             automatic_runs: true,
-            quiet_hours: QuietHours {
-                enabled: false,
-                start: "23:00".into(),
-                end: "08:00".into(),
-                days: QuietDays::Every,
-                allow_waiting: false,
-            },
+            quiet_hours: QuietHours { enabled: false, start: "23:00".into(), end: "08:00".into(), days: QuietDays::Every, allow_waiting: false },
             hold_while_desktop_active: true,
             taskbar_flash: true,
         }
@@ -125,7 +119,9 @@ pub enum TargetKind {
 pub enum OverrideSetting {
     Always,
     /// `until` is epoch ms; `None` mutes with no end.
-    Muted { until: Option<i64> },
+    Muted {
+        until: Option<i64>,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -186,12 +182,7 @@ impl Conversation {
             .or_else(|| room_id_of_session(session_id))
             .or_else(|| member.as_ref().map(|m| m.room_id.clone()))
             .unwrap_or_default();
-        let home_agent = fields
-            .agent_home
-            .clone()
-            .filter(|id| !id.is_empty())
-            .or_else(|| agent_id_of_home_session(session_id))
-            .unwrap_or_default();
+        let home_agent = fields.agent_home.clone().filter(|id| !id.is_empty()).or_else(|| agent_id_of_home_session(session_id)).unwrap_or_default();
         let agent_id = if !home_agent.is_empty() {
             home_agent.clone()
         } else if let Some(member) = &member {
@@ -208,13 +199,7 @@ impl Conversation {
         } else {
             ConversationKind::Coding
         };
-        Self {
-            session_id: session_id.to_owned(),
-            kind,
-            origin: fields.origin.unwrap_or(Origin::User),
-            agent_id,
-            room_id,
-        }
+        Self { session_id: session_id.to_owned(), kind, origin: fields.origin.unwrap_or(Origin::User), agent_id, room_id }
     }
 }
 
@@ -234,24 +219,14 @@ pub struct LocalClock {
 
 impl LocalClock {
     pub fn at(now_ms: i64) -> Self {
-        let at = Local
-            .timestamp_millis_opt(now_ms)
-            .earliest()
-            .unwrap_or_else(|| Local.timestamp_millis_opt(0).unwrap());
-        Self {
-            minute_of_day: at.hour() * 60 + at.minute(),
-            weekday: at.weekday().num_days_from_sunday(),
-        }
+        let at = Local.timestamp_millis_opt(now_ms).earliest().unwrap_or_else(|| Local.timestamp_millis_opt(0).unwrap());
+        Self { minute_of_day: at.hour() * 60 + at.minute(), weekday: at.weekday().num_days_from_sunday() }
     }
 }
 
 fn minutes_of(value: &str) -> u32 {
     let bytes = value.as_bytes();
-    if bytes.len() == 5
-        && bytes[2] == b':'
-        && bytes[..2].iter().all(u8::is_ascii_digit)
-        && bytes[3..].iter().all(u8::is_ascii_digit)
-    {
+    if bytes.len() == 5 && bytes[2] == b':' && bytes[..2].iter().all(u8::is_ascii_digit) && bytes[3..].iter().all(u8::is_ascii_digit) {
         let number = |a: u8, b: u8| u32::from(a - b'0') * 10 + u32::from(b - b'0');
         return number(bytes[0], bytes[1]) * 60 + number(bytes[3], bytes[4]);
     }
@@ -298,16 +273,8 @@ pub fn active_overrides(overrides: &[ConversationOverride], now_ms: i64) -> Vec<
 }
 
 /// The most specific override in force: the session, then its room, then its bot.
-pub fn conversation_override<'a>(
-    conversation: &Conversation,
-    overrides: &'a [ConversationOverride],
-    now_ms: i64,
-) -> Option<&'a ConversationOverride> {
-    let find = |kind: TargetKind, id: &str| {
-        (!id.is_empty())
-            .then(|| overrides.iter().find(|e| in_force(e, now_ms) && e.kind == kind && e.id == id))
-            .flatten()
-    };
+pub fn conversation_override<'a>(conversation: &Conversation, overrides: &'a [ConversationOverride], now_ms: i64) -> Option<&'a ConversationOverride> {
+    let find = |kind: TargetKind, id: &str| (!id.is_empty()).then(|| overrides.iter().find(|e| in_force(e, now_ms) && e.kind == kind && e.id == id)).flatten();
     find(TargetKind::Session, &conversation.session_id)
         .or_else(|| find(TargetKind::Room, &conversation.room_id))
         .or_else(|| find(TargetKind::Agent, &conversation.agent_id))
@@ -372,9 +339,7 @@ pub fn decide(input: &DecisionInput<'_>) -> Decision {
         if prefs.scope == Scope::Off {
             return Decision::Skip(SkipReason::Scope);
         }
-        if prefs.scope == Scope::Bots
-            && !matches!(conversation.kind, ConversationKind::Bot | ConversationKind::Room)
-        {
+        if prefs.scope == Scope::Bots && !matches!(conversation.kind, ConversationKind::Bot | ConversationKind::Room) {
             return Decision::Skip(SkipReason::Scope);
         }
         if !prefs.events.allows(event) {
@@ -397,19 +362,11 @@ pub fn decide(input: &DecisionInput<'_>) -> Decision {
 }
 
 /// This PC's taskbar flash for a finished turn: its own switch, quiet hours and a conversation mute.
-pub fn allows_taskbar_flash(
-    view: &PreferencesView,
-    conversation: &Conversation,
-    now_ms: i64,
-    clock: LocalClock,
-) -> bool {
+pub fn allows_taskbar_flash(view: &PreferencesView, conversation: &Conversation, now_ms: i64, clock: LocalClock) -> bool {
     if !view.preferences.taskbar_flash || in_quiet_hours(&view.preferences.quiet_hours, clock) {
         return false;
     }
-    !matches!(
-        conversation_override(conversation, &view.overrides, now_ms).map(|o| &o.setting),
-        Some(OverrideSetting::Muted { .. })
-    )
+    !matches!(conversation_override(conversation, &view.overrides, now_ms).map(|o| &o.setting), Some(OverrideSetting::Muted { .. }))
 }
 
 /// Notices that belong to no conversation: the device's scope and quiet hours.
@@ -448,10 +405,7 @@ mod tests {
         convo("sess_desktop_task", SessionFields { task_agent: true, ..Default::default() })
     }
     fn run() -> Conversation {
-        convo(
-            "sess_desktop_run",
-            SessionFields { agent_mode: true, origin: Some(Origin::Schedule), ..Default::default() },
-        )
+        convo("sess_desktop_run", SessionFields { agent_mode: true, origin: Some(Origin::Schedule), ..Default::default() })
     }
     fn quiet(patch: impl FnOnce(&mut QuietHours)) -> DevicePreferences {
         let mut prefs = DevicePreferences::default();
@@ -465,14 +419,7 @@ mod tests {
     fn ov(kind: TargetKind, id: &str, setting: OverrideSetting) -> ConversationOverride {
         ConversationOverride { kind, id: id.into(), setting }
     }
-    fn run_decision(
-        event: Event,
-        conversation: &Conversation,
-        v: &PreferencesView,
-        clock: LocalClock,
-        foreground: bool,
-        desktop_active: bool,
-    ) -> Decision {
+    fn run_decision(event: Event, conversation: &Conversation, v: &PreferencesView, clock: LocalClock, foreground: bool, desktop_active: bool) -> Decision {
         decide(&DecisionInput { event, conversation, view: v, now_ms: 1_000, clock, foreground, desktop_active })
     }
     fn d(event: Event, conversation: &Conversation, v: &PreferencesView) -> Decision {
@@ -525,27 +472,16 @@ mod tests {
             assert_eq!(run_decision(event, &coding(), &v, night, false, false), Decision::Notify);
         }
         for event in [Event::Finished, Event::Error] {
-            assert_eq!(
-                run_decision(event, &coding(), &v, night, false, false),
-                Decision::Skip(SkipReason::QuietHours)
-            );
+            assert_eq!(run_decision(event, &coding(), &v, night, false, false), Decision::Skip(SkipReason::QuietHours));
         }
         let always = view(quiet(|_| {}), vec![ov(TargetKind::Session, "sess_desktop_a", OverrideSetting::Always)]);
-        assert_eq!(
-            run_decision(Event::Finished, &coding(), &always, night, false, false),
-            Decision::Skip(SkipReason::QuietHours)
-        );
+        assert_eq!(run_decision(Event::Finished, &coding(), &always, night, false, false), Decision::Skip(SkipReason::QuietHours));
     }
 
     #[test]
     fn most_specific_override_wins_and_expired_mutes_are_gone() {
-        let conversation = Conversation {
-            session_id: "s1".into(),
-            kind: ConversationKind::Room,
-            origin: Origin::User,
-            agent_id: "gh".into(),
-            room_id: "r1".into(),
-        };
+        let conversation =
+            Conversation { session_id: "s1".into(), kind: ConversationKind::Room, origin: Origin::User, agent_id: "gh".into(), room_id: "r1".into() };
         let mute_bot = ov(TargetKind::Agent, "gh", OverrideSetting::Muted { until: None });
         let always_room = ov(TargetKind::Room, "r1", OverrideSetting::Always);
         let mute_session = ov(TargetKind::Session, "s1", OverrideSetting::Muted { until: None });
@@ -588,19 +524,9 @@ mod tests {
         assert_eq!(d(Event::Finished, &run(), &no_auto), Decision::Skip(SkipReason::AutomaticRuns));
         assert_eq!(d(Event::Question, &run(), &no_auto), Decision::Notify, "waits follow events");
         let auto = view(DevicePreferences::default(), vec![]);
-        assert_eq!(
-            run_decision(Event::Finished, &run(), &auto, FRIDAY_NOON, true, false),
-            Decision::Notify,
-            "an automatic result notifies on screen"
-        );
-        assert_eq!(
-            run_decision(Event::Question, &run(), &auto, FRIDAY_NOON, true, false),
-            Decision::Skip(SkipReason::Foreground)
-        );
-        assert_eq!(
-            run_decision(Event::Finished, &coding(), &auto, FRIDAY_NOON, false, true),
-            Decision::Skip(SkipReason::DesktopActive)
-        );
+        assert_eq!(run_decision(Event::Finished, &run(), &auto, FRIDAY_NOON, true, false), Decision::Notify, "an automatic result notifies on screen");
+        assert_eq!(run_decision(Event::Question, &run(), &auto, FRIDAY_NOON, true, false), Decision::Skip(SkipReason::Foreground));
+        assert_eq!(run_decision(Event::Finished, &coding(), &auto, FRIDAY_NOON, false, true), Decision::Skip(SkipReason::DesktopActive));
         let hold_off = view(DevicePreferences { hold_while_desktop_active: false, ..Default::default() }, vec![]);
         assert_eq!(run_decision(Event::Finished, &coding(), &hold_off, FRIDAY_NOON, false, true), Decision::Notify);
     }
@@ -618,9 +544,7 @@ mod tests {
 
     #[test]
     fn taskbar_flash_and_device_notice() {
-        let flash = |p: DevicePreferences, o: Vec<ConversationOverride>, c: LocalClock| {
-            allows_taskbar_flash(&view(p, o), &coding(), 1_000, c)
-        };
+        let flash = |p: DevicePreferences, o: Vec<ConversationOverride>, c: LocalClock| allows_taskbar_flash(&view(p, o), &coding(), 1_000, c);
         assert!(flash(Default::default(), vec![], FRIDAY_NOON));
         assert!(!flash(DevicePreferences { taskbar_flash: false, ..Default::default() }, vec![], FRIDAY_NOON));
         assert!(!flash(quiet(|_| {}), vec![], at(5, 23, 30)));

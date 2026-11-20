@@ -36,7 +36,6 @@ fn category_of(name: &str) -> ActionKind {
     if name == "trash_emails" { ActionKind::Trash } else { ActionKind::Email }
 }
 
-
 #[tokio::test(flavor = "multi_thread")]
 async fn a_card_of_another_kind_is_left_alone() {
     let dir = tempfile::tempdir().unwrap();

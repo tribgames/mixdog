@@ -1,10 +1,6 @@
 //! The rows the trace builds: the common row, usage and compaction records, tool rows with their summarised arguments,
 //! the record builders of the call sites, and the rotation of the trace file.
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "test fixture I/O"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixture I/O")]
 
 use std::collections::BTreeMap;
 use std::fs;
@@ -181,14 +177,23 @@ fn reasoning_tokens_are_read_from_the_usage_shapes_providers_send() {
 #[test]
 fn small_call_site_records_round_default_and_null_their_fields() {
     let timing = t::turn_timing_record(&object(json!({"sessionId": "s", "ttftMs": 12.5, "queueMs": "x"})));
-    assert_eq!((timing["payload"]["status"].clone(), timing["payload"]["ttft_ms"].clone(), timing["payload"]["queue_ms"].clone()), (json!("unknown"), json!(13), Value::Null));
+    assert_eq!(
+        (timing["payload"]["status"].clone(), timing["payload"]["ttft_ms"].clone(), timing["payload"]["queue_ms"].clone()),
+        (json!("unknown"), json!(13), Value::Null)
+    );
     assert_eq!(timing["ttft_ms"], 13, "the payload's fields are also on the row");
     assert_eq!(t::compress_record(&object(json!({"before": 200, "after": 50})))["payload"]["savings_pct"], 75);
     assert_eq!(t::compress_record(&object(json!({"before": 0, "after": 50})))["payload"]["savings_pct"], 0);
     let looped = t::loop_record(&object(json!({"sessionId": "s", "iteration": 1, "agent": "", "sendMs": 3, "messageCount": 4})));
-    assert_eq!((looped["agent"].clone(), looped["pre_send_ms"].clone(), looped["body_bytes_est"].clone(), looped["send_ms"].clone()), (Value::Null, Value::Null, Value::Null, json!(3)));
+    assert_eq!(
+        (looped["agent"].clone(), looped["pre_send_ms"].clone(), looped["body_bytes_est"].clone(), looped["send_ms"].clone()),
+        (Value::Null, Value::Null, Value::Null, json!(3))
+    );
     let preset = t::preset_assign_record(&object(json!({"sessionId": "s", "parentSessionId": "p", "presetName": "fast"})));
-    assert_eq!((preset["preset_name"].clone(), preset["parent_session_id"].clone(), preset["parentSessionId"].clone()), (json!("fast"), json!("p"), json!("p")));
+    assert_eq!(
+        (preset["preset_name"].clone(), preset["parent_session_id"].clone(), preset["parentSessionId"].clone()),
+        (json!("fast"), json!("p"), json!("p"))
+    );
 }
 
 #[test]
@@ -202,7 +207,10 @@ fn a_cache_chain_is_continuous_only_when_the_sent_response_id_is_the_last_one() 
     assert_eq!(chain(Some("r2"), Some("reset"))["chainContinuous"], false);
     assert_eq!(chain(Some("r2"), Some("reset"))["continuationResetReason"], "reset");
     let none = chain(None, Some(""));
-    assert_eq!((none["requestPrevResponseId"].clone(), none["chainContinuous"].clone(), none["continuationResetReason"].clone()), (Value::Null, json!(false), Value::Null));
+    assert_eq!(
+        (none["requestPrevResponseId"].clone(), none["chainContinuous"].clone(), none["continuationResetReason"].clone()),
+        (Value::Null, json!(false), Value::Null)
+    );
 }
 
 #[test]

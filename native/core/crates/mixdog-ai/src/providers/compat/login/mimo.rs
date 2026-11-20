@@ -20,9 +20,10 @@ use serde::Deserialize;
 use serde::Serialize;
 
 use super::Http;
+use crate::oauth::CredentialFile;
 use crate::oauth::FlowGuard;
+use crate::oauth::Probe;
 use crate::oauth::http::call_under;
-use crate::transport::deadlines::TOKEN_PROBE;
 use crate::oauth::http::failed;
 use crate::oauth::loopback;
 use crate::oauth::loopback::Handled;
@@ -30,8 +31,6 @@ use crate::oauth::loopback::Request;
 use crate::oauth::loopback::Response;
 use crate::oauth::scrub::scrubbed_excerpt;
 use crate::oauth::start_session;
-use crate::oauth::CredentialFile;
-use crate::oauth::Probe;
 use crate::providers::compat::creds::MIMO_DEFAULT_BASE_URL;
 use crate::providers::compat::creds::MIMO_PLATFORM_ORIGIN;
 use crate::providers::compat::creds::MIMO_TOKEN_PLAN_BASE_URLS;
@@ -39,6 +38,7 @@ use crate::providers::compat::creds::MimoCredentials;
 use crate::providers::compat::creds::MimoLoginKey;
 use crate::providers::compat::creds::mimo_authorize_url;
 use crate::providers::compat::creds::mimo_code_from_input;
+use crate::transport::deadlines::TOKEN_PROBE;
 
 pub const PROVIDER_ID: &str = "mimo-oauth";
 const SOURCE_HEADER: (&str, &str) = ("x-mimo-source", "mimocode-cli");
@@ -92,10 +92,7 @@ pub async fn probe_token_plan(http: &Http, api_key: &str) -> Result<&'static str
     }
     if all_rejected {
         let suffix = if last_detail.is_empty() { String::new() } else { format!(": {last_detail}") };
-        return Err(failed(
-            "invalid_grant",
-            format!("[mimo-oauth] API key rejected (401) \u{2014} open /providers in mixdog to sign in again{suffix}"),
-        ));
+        return Err(failed("invalid_grant", format!("[mimo-oauth] API key rejected (401) \u{2014} open /providers in mixdog to sign in again{suffix}")));
     }
     Err(last)
 }
@@ -139,18 +136,17 @@ pub struct MimoLogin {
 
 impl MimoLogin {
     pub fn new(http: Http, file: CredentialFile, key_name_file: CredentialFile) -> Self {
-        Self {
-            target: LoginTarget::Provider(ProviderId::from(PROVIDER_ID)),
-            http,
-            file,
-            key_name_file,
-            running: Arc::new(AtomicBool::new(false)),
-        }
+        Self { target: LoginTarget::Provider(ProviderId::from(PROVIDER_ID)), http, file, key_name_file, running: Arc::new(AtomicBool::new(false)) }
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+    use crate::oauth::CredentialIo;
+    use crate::oauth::Probe;
+    use crate::oauth::http::testing::Scripted;
+    use crate::oauth::http::testing::finish;
     use aes_gcm::Aes256Gcm;
     use aes_gcm::Nonce;
     use aes_gcm::aead::Aead;
@@ -164,11 +160,6 @@ mod tests {
     use tokio::net::TcpStream;
     use x25519_dalek::PublicKey;
     use x25519_dalek::StaticSecret;
-use crate::oauth::http::testing::Scripted;
-use crate::oauth::http::testing::finish;
-    use super::*;
-    use crate::oauth::CredentialIo;
-    use crate::oauth::Probe;
 
     /// The platform's side: seals `doc` to the public key found in the authorize URL.
     fn seal(authorize_url: &str, doc: &serde_json::Value) -> String {
@@ -215,29 +206,18 @@ use crate::oauth::http::testing::finish;
     fn a_failed_settle_redirects_with_its_message_not_its_debug_form() {
         let failure = failed("store", "disk full");
         let response = result_redirect(Some(&failure_message(&failure)));
-        let location = response
-            .headers
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case("location"))
-            .map(|(_, v)| v.clone())
-            .unwrap();
+        let location = response.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("location")).map(|(_, v)| v.clone()).unwrap();
         let url = url::Url::parse(&location).unwrap();
         let pairs: Vec<_> = url.query_pairs().map(|(k, v)| (k.into_owned(), v.into_owned())).collect();
         assert_eq!(pairs, [("status".into(), "error".into()), ("message".into(), "disk full".into())]);
     }
     fn names(dir: &tempfile::TempDir) -> CredentialFile {
         let tokens = mixdog_rt::testing::tokens();
-        CredentialFile::new(
-            key_name_path(dir.path()),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
+        CredentialFile::new(key_name_path(dir.path()), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io })
     }
     fn store(dir: &tempfile::TempDir) -> CredentialFile {
         let tokens = mixdog_rt::testing::tokens();
-        CredentialFile::new(
-            dir.path().join("mimo-oauth.json"),
-            CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-        )
+        CredentialFile::new(dir.path().join("mimo-oauth.json"), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io })
     }
     #[tokio::test]
     async fn the_loopback_reply_stores_the_credential_and_redirects() {
@@ -294,7 +274,6 @@ use crate::oauth::http::testing::finish;
         assert_eq!(saved.base_url, "https://token-plan-ams.xiaomimimo.com/v1");
     }
 
-
     /// A Token Plan probe whose every region never answers tries each region under a timer of its own and then fails.
     #[tokio::test(start_paused = true)]
     async fn a_probe_whose_regions_never_answer_tries_each_and_fails() {
@@ -318,15 +297,10 @@ use crate::oauth::http::testing::finish;
         let http: Http = transport.clone();
         let failure = probe_token_plan(&http, "k").await.expect_err("never answers");
         assert_transport("mimoProbe", &transport);
-        assert_eq!(
-            transport.seen().len(),
-            crate::transport::site_probe::armed_count("mimoProbe"),
-            "every region is tried under a timer of its own"
-        );
+        assert_eq!(transport.seen().len(), crate::transport::site_probe::armed_count("mimoProbe"), "every region is tried under a timer of its own");
         assert_thrown("mimoProbe", login_message(&failure));
     }
 }
-
 
 /// `ensureTokenPlanBaseUrl`: a stored Token Plan key whose gateway is unknown is resolved on first use and written
 /// back, but only over the credential that was probed (a newer sign-in must not be overwritten).
@@ -338,16 +312,29 @@ pub async fn ensure_token_plan_base_url(http: &Http, file: &CredentialFile, cred
     let base_url = probe_token_plan(http, &credentials.api_key).await?.to_owned();
     let held = credentials.clone();
     let update = [("baseUrl".into(), serde_json::Value::String(base_url.clone()))].into_iter().collect();
-    if file.replace_if(move |current| {
-        current.get("apiKey").and_then(serde_json::Value::as_str) == Some(held.api_key.as_str())
-            && current.get("uid").and_then(serde_json::Value::as_str).unwrap_or_default() == held.uid
-            && current.get("baseUrl").and_then(serde_json::Value::as_str).unwrap_or_default() == held.base_url
-    }, update).await.map_err(|err| failed("store", err.to_string()))? {
+    if file
+        .replace_if(
+            move |current| {
+                current.get("apiKey").and_then(serde_json::Value::as_str) == Some(held.api_key.as_str())
+                    && current.get("uid").and_then(serde_json::Value::as_str).unwrap_or_default() == held.uid
+                    && current.get("baseUrl").and_then(serde_json::Value::as_str).unwrap_or_default() == held.base_url
+            },
+            update,
+        )
+        .await
+        .map_err(|err| failed("store", err.to_string()))?
+    {
         return Ok(MimoCredentials { base_url, ..credentials });
     }
     match file.load::<MimoCredentials>().await {
-        Probe::Present(current) if current.api_key == credentials.api_key && current.uid == credentials.uid
-            && !current.base_url.is_empty() && current.base_url != MIMO_DEFAULT_BASE_URL => Ok(current),
+        Probe::Present(current)
+            if current.api_key == credentials.api_key
+                && current.uid == credentials.uid
+                && !current.base_url.is_empty()
+                && current.base_url != MIMO_DEFAULT_BASE_URL =>
+        {
+            Ok(current)
+        }
         _ => Err(failed("credential_changed", "[mimo-oauth] the login changed during Token Plan discovery; retry the request")),
     }
 }
@@ -375,9 +362,7 @@ async fn key_name(file: &CredentialFile) -> Result<String, LoginFailure> {
         return Ok(saved.key_name);
     }
     let name = format!("mimo-code-cli-key-{:08x}", rand::random::<u32>());
-    file.save(&KeyName { key_name: name.clone() })
-        .await
-        .map_err(|err| failed("store", err.to_string()))?;
+    file.save(&KeyName { key_name: name.clone() }).await.map_err(|err| failed("store", err.to_string()))?;
     Ok(name)
 }
 #[async_trait]
@@ -388,19 +373,13 @@ impl LoginFlow for MimoLogin {
 
     async fn start(&self) -> Result<Box<dyn LoginSession>, LoginError> {
         let guard = FlowGuard::claim(&self.running).ok_or(LoginError::Busy)?;
-        let (listeners, port) = loopback::bind(0, true).await.map_err(|err| {
-            LoginError::Failed(failed("listen_failed", err.kind().to_string()))
-        })?;
+        let (listeners, port) = loopback::bind(0, true).await.map_err(|err| LoginError::Failed(failed("listen_failed", err.kind().to_string())))?;
         let key = Arc::new(MimoLoginKey::generate());
         let key_name = key_name(&self.key_name_file).await.map_err(LoginError::Failed)?;
         let url = mimo_authorize_url(&key.public_key_b64(), &format!("http://localhost:{port}/"), &key_name);
         let (http, file) = (self.http.clone(), self.file.clone());
         // Node `manualRedirectUri`: the platform's own page shows the sealed code to paste.
-        let manual_url = mimo_authorize_url(
-            &key.public_key_b64(),
-            &format!("{MIMO_PLATFORM_ORIGIN}/authorize/code/callback"),
-            &key_name,
-        );
+        let manual_url = mimo_authorize_url(&key.public_key_b64(), &format!("{MIMO_PLATFORM_ORIGIN}/authorize/code/callback"), &key_name);
         let state = LoginState::Authorize { url, manual_url: Some(manual_url) };
         Ok(start_session(guard, state, true, move |mut ctx, _| async move {
             ctx.set(LoginState::Waiting);

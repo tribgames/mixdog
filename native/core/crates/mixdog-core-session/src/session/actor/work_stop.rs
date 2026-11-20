@@ -37,7 +37,9 @@ impl SessionActor {
 
     /// Whether `identity` is terminal: latched by a Stop of this process, or folded from a durable Stop.
     pub(super) fn stopped_identity(&self, identity: &str) -> bool {
-        self.stops.latched_identity(identity).is_some() || self.cell.stop_latches.latched(&self.id, identity) || work_stops::stopped(&self.projected.header, identity).is_some()
+        self.stops.latched_identity(identity).is_some()
+            || self.cell.stop_latches.latched(&self.id, identity)
+            || work_stops::stopped(&self.projected.header, identity).is_some()
     }
 
     /// The Stop that froze `work` ([`Self::stop_of`]); work latched from outside the actor ([`super::super::control::StopLatches`])
@@ -55,13 +57,20 @@ impl SessionActor {
 
     /// The Stop that froze `work`, if one did.
     pub(super) fn stop_of(&self, work: &WorkRef) -> Option<String> {
-        self.stops.latched(work).or_else(|| work.identities().iter().find_map(|identity| work_stops::stopped(&self.projected.header, identity)).map(str::to_owned))
+        self.stops
+            .latched(work)
+            .or_else(|| work.identities().iter().find_map(|identity| work_stops::stopped(&self.projected.header, identity)).map(str::to_owned))
     }
 
     /// A queued copy of stopped work: by its queue id, or the submission it answers.
     pub(super) fn queued_stopped(&self, queued: &Queued) -> bool {
         self.stopped_identity(&work_stops::queued(&queued.qid))
-            || queued.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()).is_some_and(|id| self.stopped_identity(&work_stops::submission(id)))
+            || queued
+                .entry
+                .pointer("/options/clientSubmissionId")
+                .and_then(Value::as_str)
+                .filter(|id| !id.is_empty())
+                .is_some_and(|id| self.stopped_identity(&work_stops::submission(id)))
     }
 
     /// Freezes `work` under a Stop and appends its record, or joins the Stop that already froze it. Answers the Stop's id and its
@@ -69,7 +78,14 @@ impl SessionActor {
     /// A hand-back (`restore`) is owed until its rewind is done and it was offered ([`super::super::stop::OwedHandback`]): `row`
     /// is the stopped run's input row its rewind takes out (none for work that never ran), `by_reply` whether the Stop's own
     /// reply carries it. The record stamps the restore's `at` (the Stop's time), from which its id is derived on every path.
-    pub(super) fn record_stop(&mut self, work: &WorkRef, turn: Option<&TurnId>, row: Option<&str>, restore: Option<&Restore>, by_reply: bool) -> (String, StopWait) {
+    pub(super) fn record_stop(
+        &mut self,
+        work: &WorkRef,
+        turn: Option<&TurnId>,
+        row: Option<&str>,
+        restore: Option<&Restore>,
+        by_reply: bool,
+    ) -> (String, StopWait) {
         if let Some(sid) = self.stop_of(work) {
             return (sid.clone(), self.stops.join(&sid));
         }
@@ -172,7 +188,8 @@ impl SessionActor {
     /// rewind, as `PromptRewound` does). A row no longer live (rewound already) takes nothing: the rewind is done once.
     pub(super) fn rewind_row(&mut self, row: &str) {
         let window = &self.acked.window;
-        let Some((index, ordinal)) = window.iter().position(|shown| shown.item.id().as_str() == row).and_then(|index| Some((index, window[index].ordinal?))) else {
+        let Some((index, ordinal)) = window.iter().position(|shown| shown.item.id().as_str() == row).and_then(|index| Some((index, window[index].ordinal?)))
+        else {
             return;
         };
         let previous = index.checked_sub(1).map(|i| window[i].item.id().clone());
@@ -192,7 +209,8 @@ impl SessionActor {
     /// by the reply and its Stop settles with its record.
     pub(super) fn stop_queued(&mut self, qid: &str, canceller: &str) -> Option<(Option<String>, StopWait)> {
         let queued = self.projected.queue.iter().find(|queued| queued.qid == qid && !self.queued_stopped(queued)).cloned()?;
-        let submissions = queued.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned).into_iter().collect();
+        let submissions =
+            queued.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()).map(str::to_owned).into_iter().collect();
         let device = queued.entry.pointer("/transcriptMeta/device").and_then(Value::as_str).filter(|device| !device.is_empty()).unwrap_or(canceller).to_owned();
         let work = WorkRef { id: qid.to_owned(), qids: vec![qid.to_owned()], submissions, handback: Some(Handback { text: Taken::of(&queued).text, device }) };
         let restore = work.restore();
@@ -299,7 +317,8 @@ impl SessionActor {
             None => {
                 // The base unit: the run's work less what it took at boundaries.
                 let qids = run.work.qids.iter().filter(|qid| !run.injected.iter().any(|unit| unit.qids.contains(qid))).cloned().collect();
-                let submissions = run.work.submissions.iter().filter(|owned| !run.injected.iter().any(|unit| unit.submissions.contains(owned))).cloned().collect();
+                let submissions =
+                    run.work.submissions.iter().filter(|owned| !run.injected.iter().any(|unit| unit.submissions.contains(owned))).cloned().collect();
                 WorkRef { id: run.work.id.clone(), qids, submissions, handback: None }
             }
         };
@@ -352,7 +371,12 @@ impl SessionActor {
     /// run's close.
     /// Answers the decision, the Stop's durable-only waiter and the id of the hand-back it owes (which a reply carrying the
     /// restored text names).
-    pub(super) fn stop_active_run(&mut self, restore_prompt: Option<bool>, canceller: &str, unreadable: bool) -> (super::super::stop::Decision, StopWait, Option<String>) {
+    pub(super) fn stop_active_run(
+        &mut self,
+        restore_prompt: Option<bool>,
+        canceller: &str,
+        unreadable: bool,
+    ) -> (super::super::stop::Decision, StopWait, Option<String>) {
         let steering = self.projected.queue.iter().any(|queued| super::super::control::is_editable_entry(&queued.entry));
         let run = self.run.as_ref().expect("a running turn");
         let turn = run.turn.clone();
@@ -364,7 +388,12 @@ impl SessionActor {
         };
         let _ = self.cell.abort(&turn, &mixdog_agent::cancel::Abort::runtime_abort(self.id.as_str(), name));
         let facts = run.prompt.snapshot();
-        let restore = facts.reclaim.as_ref().map(|reclaim| Restore { text: reclaim.text.clone(), ids: reclaim.ids.clone(), device: reclaim.handoff.clone().unwrap_or_else(|| facts.device.clone()), at: 0 });
+        let restore = facts.reclaim.as_ref().map(|reclaim| Restore {
+            text: reclaim.text.clone(),
+            ids: reclaim.ids.clone(),
+            device: reclaim.handoff.clone().unwrap_or_else(|| facts.device.clone()),
+            at: 0,
+        });
         let (work, row) = (run.work.clone(), run.input_item.as_str().to_owned());
         // The canceller's own prompt travels in this Stop's reply; another device's goes through the session state.
         let by_reply = !decision.restore_text.is_empty();

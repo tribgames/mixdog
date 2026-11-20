@@ -6,7 +6,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use mixdog_relay::http1::{Handler, HandlerFuture, Headers, HeaderValue, Limits, Request, ResponseWriter, UpgradeRequest, fail_request};
+use mixdog_relay::http1::{Handler, HandlerFuture, HeaderValue, Headers, Limits, Request, ResponseWriter, UpgradeRequest, fail_request};
 use mixdog_relay::net::{Server, tls};
 use mixdog_rt::time::{sleep, timeout};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -175,7 +175,6 @@ async fn route(events: Arc<Mutex<Vec<String>>>, mut request: Request, mut respon
 
 // ---- the byte comparison ----
 
-
 fn latin1_text(bytes: &[u8]) -> String {
     bytes.iter().map(|&b| char::from(b)).collect()
 }
@@ -194,11 +193,6 @@ fn mask_date(text: &str) -> String {
     out.push_str(rest);
     out
 }
-
-
-
-
-
 
 // ---- what a recording cannot show ----
 
@@ -430,10 +424,7 @@ async fn tls_is_served_with_no_alpn_and_an_upgrade_hands_over_the_decrypted_stre
 
     let tcp = TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, server.port())).await.unwrap();
     let mut stream = connector.connect(name, tcp).await.unwrap();
-    stream
-        .write_all(b"GET /ws HTTP/1.1\r\nHost: relay.test\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n\x81\x80abcd")
-        .await
-        .unwrap();
+    stream.write_all(b"GET /ws HTTP/1.1\r\nHost: relay.test\r\nConnection: Upgrade\r\nUpgrade: websocket\r\n\r\n\x81\x80abcd").await.unwrap();
     let mut out = Vec::new();
     let _ = timeout(Duration::from_secs(5), stream.read_to_end(&mut out)).await;
     assert!(latin1_text(&out).ends_with("head=818061626364"), "the leftover is the decrypted bytes: {:?}", latin1_text(&out));
@@ -441,8 +432,6 @@ async fn tls_is_served_with_no_alpn_and_an_upgrade_hands_over_the_decrypted_stre
     assert!(matches!(seen.as_slice(), [(true, _)]), "the request knew it was encrypted");
     server.terminate_connections();
 }
-
-
 
 // ---- framing, as raw bytes ----
 
@@ -459,11 +448,7 @@ fn status_lines(text: &str) -> Vec<&str> {
 #[tokio::test]
 async fn a_connection_is_kept_alive_across_requests_until_a_response_says_close() {
     let (server, addr) = echo_server().await;
-    let text = exchange(
-        addr,
-        b"GET /hello HTTP/1.1\r\nHost: h\r\n\r\nGET /close HTTP/1.1\r\nHost: h\r\n\r\nGET /hello HTTP/1.1\r\nHost: h\r\n\r\n",
-    )
-    .await;
+    let text = exchange(addr, b"GET /hello HTTP/1.1\r\nHost: h\r\n\r\nGET /close HTTP/1.1\r\nHost: h\r\n\r\nGET /hello HTTP/1.1\r\nHost: h\r\n\r\n").await;
     // The third request is never read: the second response closes the connection.
     assert_eq!(status_lines(&text), ["HTTP/1.1 200 OK", "HTTP/1.1 200 OK"], "{text}");
     assert!(text.contains("Connection: keep-alive\r\nKeep-Alive: timeout=5\r\nContent-Length: 5\r\n\r\nhello"), "{text}");
@@ -522,9 +507,7 @@ async fn request_bodies_are_read_by_length_or_in_chunks() {
     let (server, addr) = echo_server().await;
     let sized = exchange(addr, b"POST /body HTTP/1.1\r\nHost: h\r\nContent-Length: 5\r\n\r\nhello").await;
     assert!(sized.ends_with("len=5 body=hello"), "{sized}");
-    let chunked =
-        exchange(addr, b"POST /body HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n4\r\ndefg\r\n0\r\n\r\n")
-            .await;
+    let chunked = exchange(addr, b"POST /body HTTP/1.1\r\nHost: h\r\nTransfer-Encoding: chunked\r\n\r\n3\r\nabc\r\n4\r\ndefg\r\n0\r\n\r\n").await;
     assert!(chunked.ends_with("len=7 body=abcdefg"), "{chunked}");
     server.terminate_connections();
 }
@@ -579,11 +562,8 @@ async fn an_upgrade_request_is_handed_over_with_the_bytes_that_followed_its_head
 #[tokio::test]
 async fn the_request_headers_are_reported_lower_cased_with_repeats_joined_or_listed() {
     let (server, addr) = echo_server().await;
-    let text = exchange(
-        addr,
-        b"GET /echo?q=1 HTTP/1.1\r\nHost: h\r\nX-A: 1\r\nx-a: 2\r\nCookie: a=1\r\nCookie: b=2\r\nSet-Cookie: s\r\nSet-Cookie: t\r\n\r\n",
-    )
-    .await;
+    let text =
+        exchange(addr, b"GET /echo?q=1 HTTP/1.1\r\nHost: h\r\nX-A: 1\r\nx-a: 2\r\nCookie: a=1\r\nCookie: b=2\r\nSet-Cookie: s\r\nSet-Cookie: t\r\n\r\n").await;
     assert!(text.contains("\"url\":\"/echo?q=1\"") && text.contains("\"httpVersion\":\"1.1\""), "{text}");
     assert!(text.contains("\"x-a\":\"1, 2\""), "repeated headers are joined: {text}");
     assert!(text.contains("\"cookie\":\"a=1; b=2\""), "cookies are joined with a semicolon: {text}");

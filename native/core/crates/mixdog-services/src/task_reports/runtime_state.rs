@@ -36,9 +36,7 @@ impl RuntimeEntry {
     /// The session record of an entry for the session with `header`: the [`SESSION_FIELDS`](Self::SESSION_FIELDS) it
     /// holds, and nothing else of it (a live entry keeps no copy of the header's catalogs).
     pub fn session_of(header: &serde_json::Map<String, Value>) -> Value {
-        Value::Object(
-            Self::SESSION_FIELDS.iter().filter_map(|key| header.get(*key).map(|value| ((*key).to_owned(), value.clone()))).collect(),
-        )
+        Value::Object(Self::SESSION_FIELDS.iter().filter_map(|key| header.get(*key).map(|value| ((*key).to_owned(), value.clone()))).collect())
     }
 
     /// `isTurnInFlight(entry)`.
@@ -167,7 +165,8 @@ impl RuntimeLiveness {
             working.insert(id.clone());
             let owner_session_id = js_trim(&text_of(&first_truthy(&entry.session, "ownerSessionId", "parentSessionId"))).to_owned();
             let agent = lower(&entry.session, "agent");
-            if !owner_session_id.is_empty() && owner_session_id != *id && (lower(&entry.session, "owner") == "agent" || (!agent.is_empty() && agent != "lead")) {
+            if !owner_session_id.is_empty() && owner_session_id != *id && (lower(&entry.session, "owner") == "agent" || (!agent.is_empty() && agent != "lead"))
+            {
                 agent_working.insert(owner_session_id);
             }
         }
@@ -207,13 +206,11 @@ mod tests {
     use super::*;
     use serde_json::json;
 
-
     fn names(set: &HashSet<String>) -> Vec<String> {
         let mut names: Vec<String> = set.iter().cloned().collect();
         names.sort();
         names
     }
-
 
     fn answer(activity: &InFlight) -> (Vec<String>, Vec<String>) {
         (names(&activity.working), names(&activity.agent_working))
@@ -222,7 +219,10 @@ mod tests {
     #[test]
     fn an_entry_removed_or_closed_stops_working() {
         let live = RuntimeLiveness::new();
-        live.set_entry("a", RuntimeEntry { stage: Some("streaming".into()), session: json!({"owner": "agent", "ownerSessionId": "lead"}), ..RuntimeEntry::default() });
+        live.set_entry(
+            "a",
+            RuntimeEntry { stage: Some("streaming".into()), session: json!({"owner": "agent", "ownerSessionId": "lead"}), ..RuntimeEntry::default() },
+        );
         assert_eq!(answer(&live.in_flight_session_activity()), (vec!["a".to_owned()], vec!["lead".to_owned()]));
         live.set_entry("a", RuntimeEntry { closed: true, stage: Some("streaming".into()), ..RuntimeEntry::default() });
         assert_eq!(answer(&live.in_flight_session_activity()), (vec![], vec![]));
@@ -257,6 +257,4 @@ mod tests {
         live.set_entry("worker", RuntimeEntry { closed: true, stage: Some("streaming".into()), ..RuntimeEntry::default() });
         assert_eq!(told(), 4, "a closed entry stops working");
     }
-
-
 }

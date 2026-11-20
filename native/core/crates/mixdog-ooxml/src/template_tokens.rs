@@ -20,10 +20,7 @@ pub struct TemplateToken {
 pub fn template_token_matches(text: &str) -> Vec<TemplateToken> {
     compiled(TEMPLATE_TOKEN_SOURCE, "gu")
         .captures_iter(text)
-        .map(|found| TemplateToken {
-            raw: text[found.range()].to_owned(),
-            key: found.get(1).unwrap_or("").to_owned(),
-        })
+        .map(|found| TemplateToken { raw: text[found.range()].to_owned(), key: found.get(1).unwrap_or("").to_owned() })
         .collect()
 }
 
@@ -75,13 +72,7 @@ fn add_filled(filled: &mut Map<String, Value>, key: &str, count: usize) {
 /// is missing reads as empty). The tokens given are first tried with the Korean particle written after them, then plain.
 /// An error when `tokens` is not an object, when `strict` and a token stays unfilled, and when nothing was filled while
 /// tokens remain (the names given and the document's do not meet).
-pub fn fill_template_parts(
-    zip: &mut Package,
-    parts: &[String],
-    tag: &str,
-    operation: &FillTemplate<'_>,
-    replace: Replace<'_>,
-) -> Result<FillResult, String> {
+pub fn fill_template_parts(zip: &mut Package, parts: &[String], tag: &str, operation: &FillTemplate<'_>, replace: Replace<'_>) -> Result<FillResult, String> {
     let Value::Object(tokens) = operation.tokens else {
         return Err("fill_template requires tokens as an object".to_owned());
     };
@@ -180,10 +171,7 @@ mod tests {
         let found = template_token_matches("a {{ 계약명 }} b {{x.y-1}} {{ }} {{a b}}");
         assert_eq!(
             found,
-            vec![
-                TemplateToken { raw: "{{ 계약명 }}".into(), key: "계약명".into() },
-                TemplateToken { raw: "{{x.y-1}}".into(), key: "x.y-1".into() },
-            ]
+            vec![TemplateToken { raw: "{{ 계약명 }}".into(), key: "계약명".into() }, TemplateToken { raw: "{{x.y-1}}".into(), key: "x.y-1".into() },]
         );
     }
 
@@ -214,10 +202,7 @@ mod tests {
             "fill_template changed nothing: the document carries {{a}}, {{b}} and tokens named z"
         );
         let mut zip = document(&["{{a}}"]);
-        assert_eq!(
-            fill(&mut zip, &json!({}), false).unwrap_err(),
-            "fill_template changed nothing: the document carries {{a}} and tokens named nothing"
-        );
+        assert_eq!(fill(&mut zip, &json!({}), false).unwrap_err(), "fill_template changed nothing: the document carries {{a}} and tokens named nothing");
         let mut zip = document(&["plain"]);
         let result = fill(&mut zip, &json!({}), false).unwrap();
         assert!(!result.changed);

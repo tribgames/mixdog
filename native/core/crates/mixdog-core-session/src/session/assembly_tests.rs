@@ -135,10 +135,5 @@ async fn a_closing_session_is_ingested_by_the_memory_module() {
     ingest.ingest(&ThreadId::from("sess_2"), "/ws", Vec::new()).await;
     ingest.ingest(&ThreadId::from("sess_4"), "/ws", messages.clone()).await;
     super::MemoryCloseIngest::new(None, sensitive).ingest(&ThreadId::from("sess_3"), "/ws", messages.clone()).await;
-    assert_eq!(
-        *lock(&memory.0),
-        [json!({ "action": "ingest_session", "sessionId": "sess_1", "cwd": "/ws", "messages": messages })]
-    );
+    assert_eq!(*lock(&memory.0), [json!({ "action": "ingest_session", "sessionId": "sess_1", "cwd": "/ws", "messages": messages })]);
 }
-
-

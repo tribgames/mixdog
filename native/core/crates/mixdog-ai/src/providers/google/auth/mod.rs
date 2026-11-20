@@ -97,14 +97,9 @@ pub fn form_body(fields: &[(&str, &str)]) -> Vec<u8> {
 /// transient and the stored credential stays.
 pub fn token_failure(status: u16, body: &[u8], what: &str) -> ProviderError {
     let parsed: Option<Value> = serde_json::from_slice(body).ok();
-    let code = parsed
-        .as_ref()
-        .and_then(|v| v.get("error"))
-        .and_then(|e| e.as_str().or_else(|| e.get("status").and_then(Value::as_str)))
-        .unwrap_or("")
-        .to_owned();
-    let dead = matches!(status, 400 | 401)
-        && matches!(code.as_str(), "invalid_grant" | "invalid_token" | "unauthorized_client");
+    let code =
+        parsed.as_ref().and_then(|v| v.get("error")).and_then(|e| e.as_str().or_else(|| e.get("status").and_then(Value::as_str))).unwrap_or("").to_owned();
+    let dead = matches!(status, 400 | 401) && matches!(code.as_str(), "invalid_grant" | "invalid_token" | "unauthorized_client");
     let kind = if status >= 500 || status == 429 { ErrorKind::Transient } else { ErrorKind::Auth };
     let mut err = ProviderError::new(kind, DeliveryState::NotSent);
     err.status = Some(status);
@@ -129,7 +124,6 @@ pub fn parse_token_grant(body: &[u8], what: &str) -> Result<TokenGrant, Provider
     })
 }
 
-
 impl ApiKeyAuth {
     pub fn new(key: impl Into<String>) -> Self {
         Self { source: Arc::new(HeldKey(key.into())) }
@@ -141,7 +135,6 @@ impl ApiKeyAuth {
         Self { source }
     }
 }
-
 
 /// A refused Antigravity refresh (`refreshTokens`): the status and the redacted start of the body, and a sign-in
 /// is asked for on any 400 or 401 (an `invalid_grant` is the user's revocation or the token's age).

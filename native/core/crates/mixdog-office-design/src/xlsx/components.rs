@@ -393,7 +393,18 @@ mod tests {
         let mut output = Vec::new();
         let end = add_xlsx_decision_panel(
             &mut output,
-            &Panel { sheet: "S", row: 3, start_column: 1, columns: 6, design: &design, decision: "Go", gates: None, actions: Some(&actions), label: "", width_points: 0.0 },
+            &Panel {
+                sheet: "S",
+                row: 3,
+                start_column: 1,
+                columns: 6,
+                design: &design,
+                decision: "Go",
+                gates: None,
+                actions: Some(&actions),
+                label: "",
+                width_points: 0.0,
+            },
         );
         // The heading, the decision, a blank row, then four bullets.
         assert_eq!(end, 3 + 1 + 1 + 1 + 4);

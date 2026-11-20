@@ -49,8 +49,21 @@ fn retired_and_non_chat_openai_models_cannot_search_and_current_ones_can() {
         assert!(capable("openai-oauth", id), "{id}");
     }
     for id in [
-        "gpt-3.5-turbo", "gpt-4", "gpt-4-turbo", "o1", "o1-mini", "o2-pro", "text-davinci-003", "davinci-002", "babbage-002",
-        "gpt-5-codex", "text-embedding-3-large", "gpt-image-1", "gpt-4o-search-preview", "omni-moderation-latest", "whisper-tts",
+        "gpt-3.5-turbo",
+        "gpt-4",
+        "gpt-4-turbo",
+        "o1",
+        "o1-mini",
+        "o2-pro",
+        "text-davinci-003",
+        "davinci-002",
+        "babbage-002",
+        "gpt-5-codex",
+        "text-embedding-3-large",
+        "gpt-image-1",
+        "gpt-4o-search-preview",
+        "omni-moderation-latest",
+        "whisper-tts",
     ] {
         assert!(!capable("openai", id), "{id}");
     }
@@ -74,8 +87,18 @@ fn only_gemini_chat_models_of_the_search_generations_can_search() {
         assert!(capable("gemini", id), "{id}");
     }
     for id in [
-        "gemini-1.5-pro", "gemini-1-ultra", "gemini-pro", "gemini-ultra", "gemini-2.0-pro-exp", "gemini-2.5-computer-use",
-        "gemini-3-pro-customtools", "gemini-2.5-flash-image", "gemini-embedding-001", "imagen-4", "veo-3", "learnlm-2",
+        "gemini-1.5-pro",
+        "gemini-1-ultra",
+        "gemini-pro",
+        "gemini-ultra",
+        "gemini-2.0-pro-exp",
+        "gemini-2.5-computer-use",
+        "gemini-3-pro-customtools",
+        "gemini-2.5-flash-image",
+        "gemini-embedding-001",
+        "imagen-4",
+        "veo-3",
+        "learnlm-2",
     ] {
         assert!(!capable("antigravity-oauth", id), "{id}");
     }
@@ -112,10 +135,7 @@ fn a_saved_web_search_route_keeps_its_provider_model_and_known_settings_in_wire_
         "provider": "openai-api", "junk": 1,
     });
     let saved = normalize_web_search_route_config(&route, &json!({})).unwrap().unwrap();
-    assert_eq!(
-        saved.to_string(),
-        r#"{"provider":"openai","model":"gpt-5.5","effort":"high","fast":true,"modelParameters":{"a":1},"toolType":"web_search"}"#
-    );
+    assert_eq!(saved.to_string(), r#"{"provider":"openai","model":"gpt-5.5","effort":"high","fast":true,"modelParameters":{"a":1},"toolType":"web_search"}"#);
     let sparse = json!({"provider": "gemini", "model": "gemini-2.5-pro", "effort": "auto", "fast": "yes", "modelParameters": [1]});
     assert_eq!(
         normalize_web_search_route_config(&sparse, &json!({})).unwrap().unwrap().to_string(),
@@ -191,14 +211,29 @@ fn a_chain_runs_the_primary_then_the_fallbacks_on_providers_not_already_used() {
 
 #[test]
 fn the_api_names_of_a_provider_are_its_canonical_provider() {
-    for (name, canonical) in [("openai-api", "openai"), ("xai-api", "xai"), ("gemini-api", "gemini"), ("anthropic-api", "anthropic"), (" openai-api ", "openai"), ("openai-oauth", "openai-oauth"), ("custom-x", "custom-x")] {
+    for (name, canonical) in [
+        ("openai-api", "openai"),
+        ("xai-api", "xai"),
+        ("gemini-api", "gemini"),
+        ("anthropic-api", "anthropic"),
+        (" openai-api ", "openai"),
+        ("openai-oauth", "openai-oauth"),
+        ("custom-x", "custom-x"),
+    ] {
         assert_eq!(canonical_route_provider(name), canonical);
     }
 }
 
 #[test]
 fn a_gpt_model_version_is_major_and_minor_and_only_the_gpt_n_family_has_one() {
-    for (id, version) in [("gpt-5", Some((5, 0))), ("gpt-5.5", Some((5, 5))), ("gpt-5.5-luna", Some((5, 5))), ("gpt-5.4-luna-mini", Some((5, 4))), ("gpt-5-luna", Some((5, 0))), ("gpt-10.2", Some((10, 2)))] {
+    for (id, version) in [
+        ("gpt-5", Some((5, 0))),
+        ("gpt-5.5", Some((5, 5))),
+        ("gpt-5.5-luna", Some((5, 5))),
+        ("gpt-5.4-luna-mini", Some((5, 4))),
+        ("gpt-5-luna", Some((5, 0))),
+        ("gpt-10.2", Some((10, 2))),
+    ] {
         assert_eq!(gpt_version(id), version, "{id}");
     }
     for id in ["gpt-", "gpt-x", "gpt-5x", "gpt-5.x", "o3", "claude-sonnet-4", "gpt-55"] {
@@ -209,7 +244,10 @@ fn a_gpt_model_version_is_major_and_minor_and_only_the_gpt_n_family_has_one() {
 #[test]
 fn the_lighter_model_orders_claude_versions_numerically_not_as_text() {
     let rows = |ids: &[&str]| -> Vec<Value> { ids.iter().map(|id| json!({"id": id, "family": "haiku"})).collect() };
-    assert_eq!(lighter_subscription_model("anthropic-oauth", &rows(&["claude-haiku-4-5", "claude-haiku-10-1", "claude-haiku-4-10"])).as_deref(), Some("claude-haiku-10-1"));
+    assert_eq!(
+        lighter_subscription_model("anthropic-oauth", &rows(&["claude-haiku-4-5", "claude-haiku-10-1", "claude-haiku-4-10"])).as_deref(),
+        Some("claude-haiku-10-1")
+    );
     assert_eq!(lighter_subscription_model("anthropic-oauth", &rows(&["claude-haiku-4-5", "claude-haiku-4-10"])).as_deref(), Some("claude-haiku-4-10"));
     assert_eq!(lighter_subscription_model("anthropic-oauth", &rows(&["claude-haiku-4"])).as_deref(), Some("claude-haiku-4"));
 }

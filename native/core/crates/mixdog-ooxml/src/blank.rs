@@ -21,8 +21,7 @@ const NOTES_WIDTH: u32 = 6_858_000;
 const NOTES_HEIGHT: u32 = 9_144_000;
 
 /// The kinds a package can be created as, with the family each is built from (`FILE_KIND_FAMILIES`).
-pub const FILE_KIND_FAMILIES: [(&str, &str); 6] =
-    [("docx", "docx"), ("dotx", "docx"), ("xlsx", "xlsx"), ("xltx", "xlsx"), ("pptx", "pptx"), ("potx", "pptx")];
+pub const FILE_KIND_FAMILIES: [(&str, &str); 6] = [("docx", "docx"), ("dotx", "docx"), ("xlsx", "xlsx"), ("xltx", "xlsx"), ("pptx", "pptx"), ("potx", "pptx")];
 
 /// `FILE_KIND_FAMILIES[kind]`.
 pub fn kind_family(kind: &str) -> Option<&'static str> {
@@ -56,9 +55,7 @@ fn office(kind: &str) -> String {
 fn relationships(entries: &[(&str, String, &str)]) -> String {
     let items: String = entries
         .iter()
-        .map(|(id, relationship_type, target)| {
-            format!("<Relationship Id=\"{id}\" Type=\"{relationship_type}\" Target=\"{}\"/>", xml_encode(target))
-        })
+        .map(|(id, relationship_type, target)| format!("<Relationship Id=\"{id}\" Type=\"{relationship_type}\" Target=\"{}\"/>", xml_encode(target)))
         .collect();
     document(&format!("<Relationships xmlns=\"{PACKAGE_RELATIONSHIP_NS}\">{items}</Relationships>"))
 }
@@ -68,11 +65,8 @@ fn content_types(defaults: &[(&str, &str)], overrides: &[(&str, &str)]) -> Strin
     default_entries.extend_from_slice(defaults);
     let defaults_text: String =
         default_entries.iter().map(|(extension, kind)| format!("<Default Extension=\"{extension}\" ContentType=\"{kind}\"/>")).collect();
-    let overrides_text: String =
-        overrides.iter().map(|(part, kind)| format!("<Override PartName=\"{part}\" ContentType=\"{kind}\"/>")).collect();
-    document(&format!(
-        "<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">{defaults_text}{overrides_text}</Types>"
-    ))
+    let overrides_text: String = overrides.iter().map(|(part, kind)| format!("<Override PartName=\"{part}\" ContentType=\"{kind}\"/>")).collect();
+    document(&format!("<Types xmlns=\"http://schemas.openxmlformats.org/package/2006/content-types\">{defaults_text}{overrides_text}</Types>"))
 }
 
 /// The date written as `toISOString` does, without the fraction of a second.
@@ -183,20 +177,11 @@ fn docx_package(title: &str, file_kind: &str) -> Parts {
         ),
         part(
             "_rels/.rels",
-            relationships(&[
-                ("rId1", office("officeDocument"), "word/document.xml"),
-                ("rId2", CORE_PROPERTY_RELATIONSHIP.to_owned(), "docProps/core.xml"),
-            ]),
+            relationships(&[("rId1", office("officeDocument"), "word/document.xml"), ("rId2", CORE_PROPERTY_RELATIONSHIP.to_owned(), "docProps/core.xml")]),
         ),
         part("docProps/core.xml", core_properties(title)),
         part("word/document.xml", word_document()),
-        part(
-            "word/_rels/document.xml.rels",
-            relationships(&[
-                ("rId1", office("styles"), "styles.xml"),
-                ("rId2", office("settings"), "settings.xml"),
-            ]),
-        ),
+        part("word/_rels/document.xml.rels", relationships(&[("rId1", office("styles"), "styles.xml"), ("rId2", office("settings"), "settings.xml")])),
         part("word/styles.xml", word_styles()),
         part("word/settings.xml", word_settings()),
     ]
@@ -226,10 +211,7 @@ fn xlsx_package(title: &str, file_kind: &str, sheet_name: &str) -> Parts {
         ),
         part(
             "_rels/.rels",
-            relationships(&[
-                ("rId1", office("officeDocument"), "xl/workbook.xml"),
-                ("rId2", CORE_PROPERTY_RELATIONSHIP.to_owned(), "docProps/core.xml"),
-            ]),
+            relationships(&[("rId1", office("officeDocument"), "xl/workbook.xml"), ("rId2", CORE_PROPERTY_RELATIONSHIP.to_owned(), "docProps/core.xml")]),
         ),
         part("docProps/core.xml", core_properties(title)),
         part(
@@ -299,38 +281,37 @@ fn presentation_theme() -> String {
     ]
     .concat();
     let lines = format!("<a:lnStyleLst>{}{}{}</a:lnStyleLst>", theme_line(6350), theme_line(12700), theme_line(19050));
-    let background_fills = [
-        theme_fill(""),
-        theme_fill("<a:tint val=\"95000\"/><a:satMod val=\"170000\"/>"),
-        theme_fill("<a:shade val=\"90000\"/><a:satMod val=\"150000\"/>"),
-    ]
-    .concat();
-    document(&[
-        open.as_str(),
-        "<a:themeElements>",
-        colour_scheme.as_str(),
-        "<a:fontScheme name=\"Mixdog\">",
-        "<a:majorFont><a:latin typeface=\"Calibri Light\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/></a:majorFont>",
-        "<a:minorFont><a:latin typeface=\"Calibri\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/></a:minorFont>",
-        "</a:fontScheme>",
-        "<a:fmtScheme name=\"Mixdog\">",
-        "<a:fillStyleLst>",
-        fills.as_str(),
-        "</a:fillStyleLst>",
-        lines.as_str(),
-        "<a:effectStyleLst>",
-        "<a:effectStyle><a:effectLst/></a:effectStyle>",
-        "<a:effectStyle><a:effectLst/></a:effectStyle>",
-        "<a:effectStyle><a:effectLst/></a:effectStyle>",
-        "</a:effectStyleLst>",
-        "<a:bgFillStyleLst>",
-        background_fills.as_str(),
-        "</a:bgFillStyleLst>",
-        "</a:fmtScheme>",
-        "</a:themeElements>",
-        "</a:theme>",
-    ]
-    .concat())
+    let background_fills =
+        [theme_fill(""), theme_fill("<a:tint val=\"95000\"/><a:satMod val=\"170000\"/>"), theme_fill("<a:shade val=\"90000\"/><a:satMod val=\"150000\"/>")]
+            .concat();
+    document(
+        &[
+            open.as_str(),
+            "<a:themeElements>",
+            colour_scheme.as_str(),
+            "<a:fontScheme name=\"Mixdog\">",
+            "<a:majorFont><a:latin typeface=\"Calibri Light\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/></a:majorFont>",
+            "<a:minorFont><a:latin typeface=\"Calibri\"/><a:ea typeface=\"\"/><a:cs typeface=\"\"/></a:minorFont>",
+            "</a:fontScheme>",
+            "<a:fmtScheme name=\"Mixdog\">",
+            "<a:fillStyleLst>",
+            fills.as_str(),
+            "</a:fillStyleLst>",
+            lines.as_str(),
+            "<a:effectStyleLst>",
+            "<a:effectStyle><a:effectLst/></a:effectStyle>",
+            "<a:effectStyle><a:effectLst/></a:effectStyle>",
+            "<a:effectStyle><a:effectLst/></a:effectStyle>",
+            "</a:effectStyleLst>",
+            "<a:bgFillStyleLst>",
+            background_fills.as_str(),
+            "</a:bgFillStyleLst>",
+            "</a:fmtScheme>",
+            "</a:themeElements>",
+            "</a:theme>",
+        ]
+        .concat(),
+    )
 }
 
 fn empty_shape_tree() -> &'static str {
@@ -366,13 +347,7 @@ fn slide_master() -> String {
 fn slide_layout() -> String {
     let open = format!("<p:sldLayout {} type=\"blank\" preserve=\"1\">", presentation_namespaces());
     let shapes = format!("<p:cSld name=\"Blank\">{}</p:cSld>", empty_shape_tree());
-    document(&[
-        open.as_str(),
-        shapes.as_str(),
-        "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>",
-        "</p:sldLayout>",
-    ]
-    .concat())
+    document(&[open.as_str(), shapes.as_str(), "<p:clrMapOvr><a:masterClrMapping/></p:clrMapOvr>", "</p:sldLayout>"].concat())
 }
 
 fn pptx_package(title: &str, file_kind: &str) -> Parts {
@@ -392,10 +367,7 @@ fn pptx_package(title: &str, file_kind: &str) -> Parts {
         ),
         part(
             "_rels/.rels",
-            relationships(&[
-                ("rId1", office("officeDocument"), "ppt/presentation.xml"),
-                ("rId2", CORE_PROPERTY_RELATIONSHIP.to_owned(), "docProps/core.xml"),
-            ]),
+            relationships(&[("rId1", office("officeDocument"), "ppt/presentation.xml"), ("rId2", CORE_PROPERTY_RELATIONSHIP.to_owned(), "docProps/core.xml")]),
         ),
         part("docProps/core.xml", core_properties(title)),
         part(
@@ -407,24 +379,15 @@ fn pptx_package(title: &str, file_kind: &str) -> Parts {
         ),
         part(
             "ppt/_rels/presentation.xml.rels",
-            relationships(&[
-                ("rId1", office("slideMaster"), "slideMasters/slideMaster1.xml"),
-                ("rId2", office("theme"), "theme/theme1.xml"),
-            ]),
+            relationships(&[("rId1", office("slideMaster"), "slideMasters/slideMaster1.xml"), ("rId2", office("theme"), "theme/theme1.xml")]),
         ),
         part("ppt/slideMasters/slideMaster1.xml", slide_master()),
         part(
             "ppt/slideMasters/_rels/slideMaster1.xml.rels",
-            relationships(&[
-                ("rId1", office("slideLayout"), "../slideLayouts/slideLayout1.xml"),
-                ("rId2", office("theme"), "../theme/theme1.xml"),
-            ]),
+            relationships(&[("rId1", office("slideLayout"), "../slideLayouts/slideLayout1.xml"), ("rId2", office("theme"), "../theme/theme1.xml")]),
         ),
         part("ppt/slideLayouts/slideLayout1.xml", slide_layout()),
-        part(
-            "ppt/slideLayouts/_rels/slideLayout1.xml.rels",
-            relationships(&[("rId1", office("slideMaster"), "../slideMasters/slideMaster1.xml")]),
-        ),
+        part("ppt/slideLayouts/_rels/slideLayout1.xml.rels", relationships(&[("rId1", office("slideMaster"), "../slideMasters/slideMaster1.xml")])),
         part("ppt/theme/theme1.xml", presentation_theme()),
     ]
 }
@@ -465,10 +428,7 @@ fn worksheet_with_rows(rows: &[Value]) -> String {
                         cells.push_str(&format!("<c r=\"{reference}\"><v>{text}</v></c>"));
                     }
                     other => {
-                        cells.push_str(&format!(
-                            "<c r=\"{reference}\" t=\"inlineStr\"><is><t>{}</t></is></c>",
-                            xml_encode(&value_to_string(other))
-                        ));
+                        cells.push_str(&format!("<c r=\"{reference}\" t=\"inlineStr\"><is><t>{}</t></is></c>", xml_encode(&value_to_string(other))));
                     }
                 }
             }

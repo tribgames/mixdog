@@ -24,11 +24,11 @@ use super::computer_command::text;
 use super::computer_frames::Frame;
 use super::computer_frames::FrameStore;
 use super::computer_pixels::ComputerBlobs;
-use super::computer_pixels::check_shape;
 use super::computer_pixels::DisplayOcr;
+use super::computer_pixels::check_shape;
 use super::computer_pixels::fetch;
-use super::computer_pixels::recognize;
 use super::computer_pixels::read_displays;
+use super::computer_pixels::recognize;
 
 /// `DEFAULT_OCR_MAX_WORDS`: the words a zoom's recognition asks for.
 const DEFAULT_OCR_MAX_WORDS: i64 = 300;
@@ -241,10 +241,7 @@ pub(super) async fn zoom_display(
 
     let displays = read_displays(desktop, cancel).await?;
     frames.assert_display_unchanged(&displays)?;
-    let display = displays
-        .iter()
-        .find(|display| display.id == source.display_id)
-        .ok_or_else(|| stale(&format!("display layout changed ({})", frame.id)))?;
+    let display = displays.iter().find(|display| display.id == source.display_id).ok_or_else(|| stale(&format!("display layout changed ({})", frame.id)))?;
     let pixels = fetch(desktop, blobs, display, max_width, quality, Some([physical.x, physical.y, physical.width, physical.height]), cancel).await?;
     let delivered = Rect { x: pixels.source.x, y: pixels.source.y, width: pixels.source.width, height: pixels.source.height };
     if delivered != physical {
@@ -350,7 +347,10 @@ mod tests {
         let unreported = reason(check_surface(&object(json!({"x":-1920,"y":100,"width":300,"height":200})), base).unwrap_err());
         assert!(unreported.starts_with("stale_frame: native capture did not report the surface"), "{unreported}");
         let moved = check_surface(&object(json!({"surface":{"x":-1900,"y":100,"width":300,"height":200}})), base).unwrap_err();
-        assert_eq!(moved, ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: native capture geometry changed; capture fresh state".into() });
+        assert_eq!(
+            moved,
+            ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: native capture geometry changed; capture fresh state".into() }
+        );
     }
 
     #[test]
@@ -363,7 +363,13 @@ mod tests {
         let whole = reason(check_crop(&object(json!({"x":-1920,"y":100,"width":300,"height":200})), region, (62, 80)).unwrap_err());
         assert!(whole.starts_with("stale_frame: native capture did not cut the requested region"), "{whole}");
         let squashed = check_crop(&delivered, region, (300, 200)).unwrap_err();
-        assert_eq!(squashed, ComputerError::Failed { code: "coordinate_mismatch".into(), message: "coordinate_mismatch: capture dimensions do not match the target coordinate space".into() });
+        assert_eq!(
+            squashed,
+            ComputerError::Failed {
+                code: "coordinate_mismatch".into(),
+                message: "coordinate_mismatch: capture dimensions do not match the target coordinate space".into()
+            }
+        );
     }
 
     #[test]
@@ -402,8 +408,12 @@ mod tests {
         let frames = FrameStore::default();
         let mut shown = frame();
         (shown.window_id, shown.related_window_ids, shown.id) = (None, None, "frame-d".into());
-        (shown.origin_x, shown.origin_y, shown.physical_width, shown.physical_height, shown.capture_width, shown.capture_height) = (-3000, 0, 3000, 1500, 1500, 750);
-        frames.remember_display(shown, super::super::computer_frames::DisplaySource { display_id: "7".into(), x: -3000, y: 0, width: 3000, height: 1500, scale_factor: 2.0 });
+        (shown.origin_x, shown.origin_y, shown.physical_width, shown.physical_height, shown.capture_width, shown.capture_height) =
+            (-3000, 0, 3000, 1500, 1500, 750);
+        frames.remember_display(
+            shown,
+            super::super::computer_frames::DisplaySource { display_id: "7".into(), x: -3000, y: 0, width: 3000, height: 1500, scale_factor: 2.0 },
+        );
         (Desktop::new(displays, reply), Blobs([("sha256:bb".to_owned(), b"abc".to_vec())].into()), frames)
     }
 
@@ -416,7 +426,15 @@ mod tests {
     #[test]
     fn a_display_frame_zooms_into_a_display_frame_of_its_own() {
         let (desktop, blobs, frames) = display_world();
-        let parts = run(zoom_display(&desktop, &blobs, &frames, None, object(json!({"frame_id":"frame-d","region":[100,50,300,150],"include_ocr":true})), &CancellationToken::new())).unwrap();
+        let parts = run(zoom_display(
+            &desktop,
+            &blobs,
+            &frames,
+            None,
+            object(json!({"frame_id":"frame-d","region":[100,50,300,150],"include_ocr":true})),
+            &CancellationToken::new(),
+        ))
+        .unwrap();
         let ToolPart::Text(text) = &parts[0] else { panic!("text first") };
         assert!(text.starts_with("Zoom of frame-d region (100,50)-(300,150) (400x200, 3 bytes, JPEG quality 55); frame_id=frame-"), "{text}");
         assert!(text.ends_with("\nOCR unavailable: the display's pixels carry no text recognition"), "{text}");
@@ -450,18 +468,34 @@ mod tests {
     fn a_display_zoom_recognizes_its_crop() {
         let (desktop, blobs, frames) = display_world();
         let reads = Reads(object(json!({"language": "en-US", "words": [], "lines": [{"text": "Hello", "x": 1, "y": 2, "width": 30, "height": 9}]})));
-        let parts = run(zoom_display(&desktop, &blobs, &frames, Some(&reads), object(json!({"frame_id":"frame-d","region":[100,50,300,150],"include_ocr":true})), &CancellationToken::new())).unwrap();
+        let parts = run(zoom_display(
+            &desktop,
+            &blobs,
+            &frames,
+            Some(&reads),
+            object(json!({"frame_id":"frame-d","region":[100,50,300,150],"include_ocr":true})),
+            &CancellationToken::new(),
+        ))
+        .unwrap();
         let ToolPart::Text(text) = &parts[0] else { panic!("text first") };
-        assert!(text.ends_with("
+        assert!(
+            text.ends_with(
+                "
 OCR 1 lines, language en-US; boxes are pixels in this frame:
-[1,2 30x9] Hello"), "{text}");
+[1,2 30x9] Hello"
+            ),
+            "{text}"
+        );
     }
 
     #[test]
     fn a_zoom_of_a_display_frame_after_the_layout_changed_is_stale() {
         let (desktop, blobs, frames) = display_world();
-        *desktop.displays.lock().unwrap() = json!([{"index": 0, "id": "7", "primary": true, "scale_factor": 2.0, "width": 1280, "height": 720, "x": 0, "y": 0}]);
-        let error = run(zoom_display(&desktop, &blobs, &frames, None, object(json!({"frame_id":"frame-d","region":[100,50,300,150]})), &CancellationToken::new())).unwrap_err();
+        *desktop.displays.lock().unwrap() =
+            json!([{"index": 0, "id": "7", "primary": true, "scale_factor": 2.0, "width": 1280, "height": 720, "x": 0, "y": 0}]);
+        let error =
+            run(zoom_display(&desktop, &blobs, &frames, None, object(json!({"frame_id":"frame-d","region":[100,50,300,150]})), &CancellationToken::new()))
+                .unwrap_err();
         assert_eq!(error, ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: display layout changed (frame-d)".into() });
         assert!(desktop.asked.lock().unwrap().iter().all(|(method, _)| method != "host/computer/pixels"));
     }
@@ -470,12 +504,15 @@ OCR 1 lines, language en-US; boxes are pixels in this frame:
     fn a_display_zoom_of_another_rectangle_is_refused() {
         let (desktop, blobs, frames) = display_world();
         desktop.pixels.lock().unwrap().as_mut().unwrap()["source"]["x"] = json!(-3000);
-        let error = run(zoom_display(&desktop, &blobs, &frames, None, object(json!({"frame_id":"frame-d","region":[100,50,300,150]})), &CancellationToken::new())).unwrap_err();
+        let error =
+            run(zoom_display(&desktop, &blobs, &frames, None, object(json!({"frame_id":"frame-d","region":[100,50,300,150]})), &CancellationToken::new()))
+                .unwrap_err();
         assert!(reason(error).starts_with("stale_frame: native capture did not cut the requested region"));
         // A frame that is no display frame has no display to ask.
         let window = FrameStore::default();
         window.remember(frame());
-        let error = run(zoom_display(&desktop, &blobs, &window, None, object(json!({"frame_id":"frame-a","region":[0,0,50,50]})), &CancellationToken::new())).unwrap_err();
+        let error = run(zoom_display(&desktop, &blobs, &window, None, object(json!({"frame_id":"frame-a","region":[0,0,50,50]})), &CancellationToken::new()))
+            .unwrap_err();
         assert!(reason(error).starts_with("stale_frame: exact capture source is unavailable"));
     }
 }

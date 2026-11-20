@@ -135,13 +135,7 @@ impl Drop for BusyGuard<'_> {
 
 impl VoiceSetup {
     pub fn new(pipeline: Arc<VoicePipeline>, store: Arc<dyn VoiceEnabledStore>, installer: Arc<dyn VoiceInstaller>) -> Self {
-        Self {
-            pipeline,
-            store,
-            installer,
-            busy: AtomicBool::new(false),
-            off_generation: Arc::default(),
-        }
+        Self { pipeline, store, installer, busy: AtomicBool::new(false), off_generation: Arc::default() }
     }
 
     /// Reads the managed runtime state without installing or cleaning up anything.
@@ -200,11 +194,7 @@ impl VoiceSetup {
             return ToggleResult::Busy;
         }
         let _busy = BusyGuard(&self.busy);
-        let missing = Missing {
-            whisper: !runtime.binary || runtime.server_cmd.is_none() || runtime.stale,
-            model: !runtime.model,
-            ffmpeg: !runtime.ffmpeg,
-        };
+        let missing = Missing { whisper: !runtime.binary || runtime.server_cmd.is_none() || runtime.stale, model: !runtime.model, ffmpeg: !runtime.ffmpeg };
         let progress = hint.clone().map(throttled_hint);
         let result = async {
             if !runtime.installed || runtime.stale {
@@ -212,9 +202,7 @@ impl VoiceSetup {
                     return ToggleResult::Failed(format!("Voice setup failed: {error}"));
                 }
                 if !self.pipeline.runtime().await.is_ok_and(|runtime| runtime.installed) {
-                    return ToggleResult::Failed(
-                        "Voice setup failed: voice runtime install did not complete (still missing a required component)".into(),
-                    );
+                    return ToggleResult::Failed("Voice setup failed: voice runtime install did not complete (still missing a required component)".into());
                 }
             }
             let generation = self.off_generation.clone();

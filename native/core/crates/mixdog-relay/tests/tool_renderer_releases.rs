@@ -5,9 +5,7 @@ use std::path::{Path, PathBuf};
 
 use mixdog_fsio::Unlaned;
 use mixdog_relay::js;
-use mixdog_relay::tools::renderer_releases::{
-    PrepareOptions, PrepareOutcome, link_tree, prepare_releases, read_reporting_devices, release_id_for, run,
-};
+use mixdog_relay::tools::renderer_releases::{PrepareOptions, PrepareOutcome, link_tree, prepare_releases, read_reporting_devices, release_id_for, run};
 use mixdog_relay::web::releases::{DeviceReport, DeviceSeen, ReleaseIndex};
 use serde_json::Value;
 
@@ -50,10 +48,8 @@ fn failure(releases: &Path, renderer: &Path, version: &str, now: f64) -> String 
 }
 
 fn names(dir: &Path) -> Vec<String> {
-    let mut found: Vec<String> = mixdog_fsio::read_dir(&Unlaned, dir)
-        .expect("a listing")
-        .map(|entry| entry.expect("an entry").file_name().to_string_lossy().into_owned())
-        .collect();
+    let mut found: Vec<String> =
+        mixdog_fsio::read_dir(&Unlaned, dir).expect("a listing").map(|entry| entry.expect("an entry").file_name().to_string_lossy().into_owned()).collect();
     found.sort();
     found
 }
@@ -187,9 +183,6 @@ fn the_cli_reads_reporting_devices_from_devices_json_and_prints_one_json_result(
     assert_eq!(run(&["prepare".to_owned()]).expect_err("a bare word").to_string(), "Invalid argument: prepare");
 }
 
-
-
-
 #[test]
 fn the_registry_the_tool_writes_lists_legacy_first_then_each_release_with_its_versions() {
     let (_guard, root, releases) = sandbox();
@@ -201,7 +194,10 @@ fn the_registry_the_tool_writes_lists_legacy_first_then_each_release_with_its_ve
     assert_eq!(document["schemaVersion"], 1);
     let rows = document["releases"].as_array().expect("releases");
     assert_eq!(rows.len(), 2);
-    assert_eq!((rows[0]["id"].as_str(), rows[0]["legacy"].as_bool(), rows[0]["shellVersion"].as_str()), (Some("legacy"), Some(true), Some(installed_shell.as_str())));
+    assert_eq!(
+        (rows[0]["id"].as_str(), rows[0]["legacy"].as_bool(), rows[0]["shellVersion"].as_str()),
+        (Some("legacy"), Some(true), Some(installed_shell.as_str()))
+    );
     assert_eq!(rows[1]["id"].as_str(), Some(id.as_str()));
     assert_eq!(rows[1]["desktopVersion"], "1.5.0");
     assert_eq!(rows[1]["shellVersion"].as_str(), Some(new_shell.as_str()));

@@ -39,10 +39,7 @@ pub(super) fn as_stream(response: &[u8]) -> Option<Vec<u8>> {
         }
     }
     chunk.insert("object".into(), json!("chat.completion.chunk"));
-    chunk.insert(
-        "choices".into(),
-        json!([{ "index": 0, "delta": delta, "finish_reason": choice.get("finish_reason").cloned().unwrap_or(Value::Null) }]),
-    );
+    chunk.insert("choices".into(), json!([{ "index": 0, "delta": delta, "finish_reason": choice.get("finish_reason").cloned().unwrap_or(Value::Null) }]));
     if let Some(usage) = response.get("usage").filter(|usage| !usage.is_null()) {
         chunk.insert("usage".into(), usage.clone());
     }

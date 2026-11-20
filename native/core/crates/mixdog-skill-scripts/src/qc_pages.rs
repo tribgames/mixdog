@@ -52,8 +52,7 @@ const QC_MAX_ROUNDS: usize = 2;
 const CHILD_FEATURES: [(&str, &str); 4] =
     [("MIXDOG_FEATURE_OFFICE", "1"), ("MIXDOG_FEATURE_GIT", "0"), ("MIXDOG_FEATURE_BROWSER", "0"), ("MIXDOG_FEATURE_COMPUTER", "0")];
 
-const USAGE: &str =
-    "Usage: qc-pages.mjs deck.pptx --provider <provider> --model <model> --output qc-report.json [--pages 1-12] [--no-vision]";
+const USAGE: &str = "Usage: qc-pages.mjs deck.pptx --provider <provider> --model <model> --output qc-report.json [--pages 1-12] [--no-vision]";
 
 /// `Number(value.toFixed(2))` of a finite number, null otherwise.
 fn number(value: Option<&Value>) -> Value {
@@ -125,8 +124,7 @@ pub fn slide_inventory(document: &Value, page: usize) -> Vec<String> {
             } else {
                 "shape".to_owned()
             };
-            let sides: Vec<Option<f64>> =
-                ["left", "top", "width", "height"].iter().map(|key| finite(get(shape, key)).map(to_fixed_2)).collect();
+            let sides: Vec<Option<f64>> = ["left", "top", "width", "height"].iter().map(|key| finite(get(shape, key)).map(to_fixed_2)).collect();
             let geometry = match sides.as_slice() {
                 [Some(left), Some(top), Some(width), Some(height)] => format!(
                     " left {} top {} width {} height {}",
@@ -220,9 +218,7 @@ pub fn others_changed(before: &Fingerprints, after: &Fingerprints, page: usize) 
     if before.len() != after.len() {
         return true;
     }
-    before.iter().any(|(index, print)| {
-        *index != page as f64 && after.iter().find(|(known, _)| same_key(*known, *index)).map(|(_, after)| after) != Some(print)
-    })
+    before.iter().any(|(index, print)| *index != page as f64 && after.iter().find(|(known, _)| same_key(*known, *index)).map(|(_, after)| after) != Some(print))
 }
 
 /// One page's verdict from the measured evidence alone; the model's own account of what it fixed never decides.
@@ -256,7 +252,9 @@ pub fn qc_instruction(input: &Instruction<'_>) -> String {
     let rendering = if image_path.is_empty() {
         "No rendering is available: judge only from the inventory and the measured defects below, and do not infer a visual problem the measurements do not establish.".to_owned()
     } else {
-        format!("Rendered page: {image_path} — open it with the read tool first. The picture is the ground truth; the inventory below carries the ids the tools accept.")
+        format!(
+            "Rendered page: {image_path} — open it with the read tool first. The picture is the ground truth; the inventory below carries the ids the tools accept."
+        )
     };
     let measured = if defects.is_empty() {
         "The measured audit found nothing on this slide — trust the rendering for what it cannot measure: collisions, clipping, contrast, crowding.".to_owned()
@@ -395,7 +393,14 @@ fn render_page<P: WriteProof>(run: &Run<'_, '_, P>, page: usize) -> Result<Strin
 
 /// Keep/discard verdict for an edited copy from its re-measurement; an unedited page is kept as it is (or marked
 /// execution_failed when the run never completed).
-fn judge_page<P: WriteProof>(run: &Run<'_, '_, P>, entry: &mut Map<String, Value>, copy: &str, code: i32, page: usize, fingerprints: &Fingerprints) -> (bool, &'static str) {
+fn judge_page<P: WriteProof>(
+    run: &Run<'_, '_, P>,
+    entry: &mut Map<String, Value>,
+    copy: &str,
+    code: i32,
+    page: usize,
+    fingerprints: &Fingerprints,
+) -> (bool, &'static str) {
     if entry.get("edited") != Some(&json!(true)) {
         return (true, if code == 0 { "unchanged" } else { "execution_failed" });
     }
@@ -407,7 +412,14 @@ fn judge_page<P: WriteProof>(run: &Run<'_, '_, P>, entry: &mut Map<String, Value
     decide_page(before, after, scope_changed, end.is_none())
 }
 
-fn qc_page_body<P: WriteProof>(run: &Run<'_, '_, P>, report: &mut Report, outcome: &mut Outcome, entry: &mut Map<String, Value>, copy: &str, page: usize) -> Result<(), String> {
+fn qc_page_body<P: WriteProof>(
+    run: &Run<'_, '_, P>,
+    report: &mut Report,
+    outcome: &mut Outcome,
+    entry: &mut Map<String, Value>,
+    copy: &str,
+    page: usize,
+) -> Result<(), String> {
     let deck = run.deck.as_str();
     let start = measure(run.host, deck)?;
     let defects = page_defects(&start.issues, page);
@@ -610,7 +622,8 @@ mod tests {
     fn the_instruction_names_the_deck_copy_page_inventory_and_defects() {
         let defects = vec![json!({ "code": "overflow", "path": "/slide[1]/shape[1]", "message": "too long" })];
         let inventory = vec!["shape[1] text".to_owned()];
-        let with_image = qc_instruction(&Instruction { deck: "D", copy: "C", page: 1, total: 4, inventory: &inventory, defects: &defects, image_path: "P.png" });
+        let with_image =
+            qc_instruction(&Instruction { deck: "D", copy: "C", page: 1, total: 4, inventory: &inventory, defects: &defects, image_path: "P.png" });
         assert!(with_image.contains("Rendered page: P.png — open it with the read tool first."));
         assert!(with_image.contains("Slide 1 of 4. Canvas 960 × 540 pt"));
         assert!(with_image.contains("Measured defects on this slide (1):\n- overflow /slide[1]/shape[1]: too long"));
@@ -682,14 +695,17 @@ mod tests {
     fn setup(engine_measures: Vec<(&str, Measured)>, render: Option<&str>) -> (tempfile::TempDir, Scripted) {
         let root = tempfile::tempdir().expect("temp dir");
         mixdog_testkit::write(root.path().join("deck.pptx"), "original");
-        let engine = Scripted { measures: engine_measures.into_iter().map(|(name, m)| (name.to_owned(), m)).collect(), render: render.map(str::to_owned), calls: Mutex::new(Vec::new()) };
+        let engine = Scripted {
+            measures: engine_measures.into_iter().map(|(name, m)| (name.to_owned(), m)).collect(),
+            render: render.map(str::to_owned),
+            calls: Mutex::new(Vec::new()),
+        };
         (root, engine)
     }
 
     fn report_of(root: &Path) -> Value {
         serde_json::from_slice(&mixdog_testkit::read(root.join("out/qc.json"))).expect("report")
     }
-
 
     #[test]
     fn a_fix_that_lowers_the_defects_is_adopted() {
@@ -702,7 +718,10 @@ mod tests {
         assert_eq!(report["isolation"], "pristine-per-page");
         assert_eq!((report["fixed"].clone(), report["total"].clone(), report["skippedPages"].clone()), (json!(1), json!(1), json!([])));
         let page = &report["pages"][0];
-        assert_eq!((page["reason"].clone(), page["kept"].clone(), page["edited"].clone(), page["vision"].clone()), (json!("improved"), json!(true), json!(true), json!(true)));
+        assert_eq!(
+            (page["reason"].clone(), page["kept"].clone(), page["edited"].clone(), page["vision"].clone()),
+            (json!("improved"), json!(true), json!(true), json!(true))
+        );
         assert_eq!((page["before"].clone(), page["after"].clone(), page["reply"].clone()), (json!(2), json!(1), json!("OK")));
         assert_eq!(mixdog_testkit::read(root.path().join("deck.pptx")), b"edited");
         assert!(!mixdog_testkit::exists(root.path().join("deck.qc-page-1.pptx")));
@@ -750,7 +769,10 @@ mod tests {
         let outcome = run_qc_pages(&Unlaned, &args(&["--no-vision"]), &host);
         assert_eq!(outcome.code, 0, "{}", outcome.stderr);
         let report = report_of(root.path());
-        assert_eq!((report["skipped"].clone(), report["pages"][0]["reason"].clone(), report["pages"][0]["vision"].clone()), (json!(1), json!("clean"), json!(false)));
+        assert_eq!(
+            (report["skipped"].clone(), report["pages"][0]["reason"].clone(), report["pages"][0]["vision"].clone()),
+            (json!(1), json!("clean"), json!(false))
+        );
     }
     #[test]
     fn a_missing_renderer_leaves_the_page_to_the_geometry_read() {
@@ -791,7 +813,6 @@ mod tests {
     }
 }
 
-
 /// `runPageQc`: `Err` is a failure thrown before the pages were worked or while the report was written.
 pub fn run_page_qc<P: WriteProof>(proof: &P, request: QcRequest<'_>, host: &OfficeHost<'_>, outcome: &mut Outcome) -> Result<Report, String> {
     let provider = request.provider.unwrap_or_default();
@@ -825,17 +846,7 @@ pub fn run_page_qc<P: WriteProof>(proof: &P, request: QcRequest<'_>, host: &Offi
         skipped: 0,
         failed: 0,
     };
-    let run = Run {
-        proof,
-        host,
-        deck,
-        total,
-        provider: provider.to_owned(),
-        model: model.to_owned(),
-        effort,
-        target: target.clone(),
-        vision: request.vision,
-    };
+    let run = Run { proof, host, deck, total, provider: provider.to_owned(), model: model.to_owned(), effort, target: target.clone(), vision: request.vision };
     for page in selected {
         qc_page(&run, &mut report, outcome, page);
     }

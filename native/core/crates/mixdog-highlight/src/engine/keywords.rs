@@ -8,9 +8,7 @@ use crate::languages::{Raw, RawObject};
 pub(crate) type KeywordTable = HashMap<String, (String, f64)>;
 
 /// Keywords that carry no default relevance.
-const COMMON_KEYWORDS: [&str; 11] = [
-    "of", "and", "for", "in", "not", "or", "if", "then", "parent", "list", "value",
-];
+const COMMON_KEYWORDS: [&str; 11] = ["of", "and", "for", "in", "not", "or", "if", "then", "parent", "list", "value"];
 
 /// The class a bare list of keywords gets.
 pub(crate) const DEFAULT_KEYWORD_CLASSNAME: &str = "keyword";
@@ -29,18 +27,9 @@ fn score_for_keyword(keyword: &str, provided: Option<&str>) -> f64 {
     }
 }
 
-fn compile_list<'a>(
-    class_name: &str,
-    list: impl Iterator<Item = &'a str>,
-    case_insensitive: bool,
-    table: &mut KeywordTable,
-) {
+fn compile_list<'a>(class_name: &str, list: impl Iterator<Item = &'a str>, case_insensitive: bool, table: &mut KeywordTable) {
     for keyword in list {
-        let keyword = if case_insensitive {
-            mixdog_js::js_to_lowercase(keyword)
-        } else {
-            keyword.to_string()
-        };
+        let keyword = if case_insensitive { mixdog_js::js_to_lowercase(keyword) } else { keyword.to_string() };
         let mut pair = keyword.split('|');
         let word = pair.next().unwrap_or("");
         let score = score_for_keyword(word, pair.next());
@@ -53,13 +42,7 @@ fn compile_list<'a>(
 
 /// `compileKeywords(raw, caseInsensitive, className)`: `raw` is a string of words, a list, or an object whose
 /// keys are class names (the keys are walked in order, later ones overriding earlier ones).
-pub(crate) fn compile_keywords(
-    raw: &Raw,
-    nodes: &[RawObject],
-    case_insensitive: bool,
-    class_name: &str,
-    table: &mut KeywordTable,
-) {
+pub(crate) fn compile_keywords(raw: &Raw, nodes: &[RawObject], case_insensitive: bool, class_name: &str, table: &mut KeywordTable) {
     match raw {
         Raw::Str(text) => compile_list(class_name, text.split(' '), case_insensitive, table),
         Raw::Arr(items) => {
@@ -111,10 +94,7 @@ mod tests {
             frozen: false,
             fields: vec![
                 ("keyword".to_string(), Raw::Str("a b".to_string())),
-                (
-                    "built_in".to_string(),
-                    Raw::Arr(vec![Raw::Str("b|3".to_string()), Raw::Str("c".to_string())]),
-                ),
+                ("built_in".to_string(), Raw::Arr(vec![Raw::Str("b|3".to_string()), Raw::Str("c".to_string())])),
             ],
         };
         let table = table_of(Raw::Obj(0), &[node], false);

@@ -251,11 +251,13 @@ pub fn compare_newest_first(a: &Row, b: &Row) -> Ordering {
     if a.ts != b.ts {
         return b.ts.cmp(&a.ts);
     }
-    if !a.session().is_empty() && a.session() == b.session()
+    if !a.session().is_empty()
+        && a.session() == b.session()
         && let (Some(turn_a), Some(turn_b)) = (a.source_turn, b.source_turn)
-            && turn_a != turn_b {
-                return turn_b.cmp(&turn_a);
-            }
+        && turn_a != turn_b
+    {
+        return turn_b.cmp(&turn_a);
+    }
     b.sort_id().cmp(&a.sort_id())
 }
 

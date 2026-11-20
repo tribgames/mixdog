@@ -80,7 +80,9 @@ fn truthy(value: Option<&Value>) -> bool {
 fn normalize_expires_at_ms(value: Option<&Value>) -> f64 {
     let Some(value) = value.filter(|v| !v.is_null()) else { return 0.0 };
     if let Value::String(text) = value
-        && mixdog_js::string_to_number(js_trim(text)).is_nan() && !js_trim(text).is_empty() {
+        && mixdog_js::string_to_number(js_trim(text)).is_nan()
+        && !js_trim(text).is_empty()
+    {
         return chrono::DateTime::parse_from_rfc3339(js_trim(text)).map_or(0.0, |at| at.timestamp_millis() as f64);
     }
     let number = if truthy(Some(value)) { to_number(value) } else { 0.0 };
@@ -117,7 +119,10 @@ fn signed_in_until(doc: &Value) -> f64 {
 
 /// `nanoGptHost`.
 fn nano_gpt_host(base_url: &str) -> bool {
-    reqwest::Url::parse(base_url).ok().and_then(|url| url.host_str().map(str::to_lowercase)).is_some_and(|host| host == "nano-gpt.com" || host.ends_with(".nano-gpt.com"))
+    reqwest::Url::parse(base_url)
+        .ok()
+        .and_then(|url| url.host_str().map(str::to_lowercase))
+        .is_some_and(|host| host == "nano-gpt.com" || host.ends_with(".nano-gpt.com"))
 }
 
 pub struct FileAccountProbe {
@@ -237,7 +242,10 @@ impl FileAccountProbe {
             "grok-oauth" => ("GROK_OAUTH_CREDENTIALS_PATH", "grok-oauth.json"),
             _ => ("ANTIGRAVITY_OAUTH_CREDENTIALS_PATH", "antigravity-oauth.json"),
         };
-        account.map(Path::to_owned).or_else(|| self.env(variable).filter(|p| !p.is_empty()).map(PathBuf::from)).unwrap_or_else(|| self.parts.data_dir.join(legacy))
+        account
+            .map(Path::to_owned)
+            .or_else(|| self.env(variable).filter(|p| !p.is_empty()).map(PathBuf::from))
+            .unwrap_or_else(|| self.parts.data_dir.join(legacy))
     }
 
     /// The three OAuth probes: `present` when the token document is usable right now.
@@ -246,7 +254,13 @@ impl FileAccountProbe {
             return false;
         }
         let path = self.credential_file(provider, account);
-        let Some(doc) = on_lane(self.parts.lane, move || read_content(&path)).await.ok().and_then(Result::ok).flatten().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()) else {
+        let Some(doc) = on_lane(self.parts.lane, move || read_content(&path))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .flatten()
+            .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
+        else {
             return false;
         };
         let now = (self.parts.now)() as f64;
@@ -335,7 +349,11 @@ impl CatalogSource for ProviderSource {
         .map_err(|error| Self::failure(&error))?;
         // A one-way scope hash, never a key or a bearer: a rotating bearer would be a permanent
         // cache miss, so the stable account identity (Cloud project or account id) plays that role.
-        let identity = [auth.project_id.as_deref(), auth.account_id.as_deref(), Some(auth.token.as_str())].into_iter().flatten().find(|id| !id.is_empty()).unwrap_or_default();
+        let identity = [auth.project_id.as_deref(), auth.account_id.as_deref(), Some(auth.token.as_str())]
+            .into_iter()
+            .flatten()
+            .find(|id| !id.is_empty())
+            .unwrap_or_default();
         let scope: String = Sha256::digest(identity.as_bytes()).iter().map(|b| format!("{b:02x}")).collect::<String>().chars().take(24).collect();
         self.auth.lock().unwrap().insert(lane.to_owned(), auth);
         Ok(Target { key: format!("{lane}-{scope}"), revision, cached: true })
@@ -347,7 +365,9 @@ impl CatalogSource for ProviderSource {
             let rows = self.probe.parts.provider_auth.provider_rows(lane, &auth).await;
             // The account's Codex list: none at all is an outage, not an empty catalog.
             match rows {
-                Ok(Value::Array(rows)) if lane == "openai-oauth" && rows.is_empty() => Err(FetchError { message: "Codex catalog unavailable".to_owned(), code: None, status: None, timed_out: false }),
+                Ok(Value::Array(rows)) if lane == "openai-oauth" && rows.is_empty() => {
+                    Err(FetchError { message: "Codex catalog unavailable".to_owned(), code: None, status: None, timed_out: false })
+                }
                 other => other,
             }
         } else {

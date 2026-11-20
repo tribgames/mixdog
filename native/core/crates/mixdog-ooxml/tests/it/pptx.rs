@@ -181,7 +181,9 @@ fn a_chart_is_a_part_with_its_workbook_and_its_data_can_be_replaced() {
     assert!(doc.package().names().iter().any(|name| name.starts_with("ppt/embeddings/")));
     let chart = doc.part("ppt/charts/chart1.xml");
     assert!(chart.contains("<c:barChart>") && chart.contains("Alpha") && chart.contains("Feb"), "{chart}");
-    doc.apply(json!([{ "op": "set_chart_data", "slide": 1, "shape": 1, "categories": ["Mar", "Apr", "May"], "series": [{ "name": "Beta", "values": [4, 5, 6] }] }]));
+    doc.apply(
+        json!([{ "op": "set_chart_data", "slide": 1, "shape": 1, "categories": ["Mar", "Apr", "May"], "series": [{ "name": "Beta", "values": [4, 5, 6] }] }]),
+    );
     let chart = doc.part("ppt/charts/chart1.xml");
     assert!(chart.contains("Beta") && chart.contains("May") && !chart.contains("Alpha"), "{chart}");
     doc.apply(json!([{ "op": "set_chart_axis", "slide": 1, "shape": 1, "axis": "value", "minimum": 0, "maximum": 10 }]));

@@ -54,9 +54,7 @@ pub fn decode_catalog_cursor(cursor: Option<&str>) -> Result<Option<CatalogCurso
     let parsed: Value = serde_json::from_slice(&bytes).map_err(|_| InvalidCursor)?;
     match parsed.as_array().map(Vec::as_slice) {
         // `Number.isFinite(parsed[0]) && typeof parsed[1] === 'string'`; extra elements are ignored.
-        Some([Value::Number(activity), Value::String(id), ..]) => {
-            Ok(Some(CatalogCursor { activity: activity.as_f64().ok_or(InvalidCursor)?, id: id.clone() }))
-        }
+        Some([Value::Number(activity), Value::String(id), ..]) => Ok(Some(CatalogCursor { activity: activity.as_f64().ok_or(InvalidCursor)?, id: id.clone() })),
         _ => Err(InvalidCursor),
     }
 }
@@ -123,7 +121,9 @@ pub fn lead_page_of(rows: Vec<LeadRow>, after: Option<&CatalogCursor>, filter: &
         .filter(|row| is_lead_visible_row(&row.row) && filter.keeps(row))
         .map(|row| (activity_of(&row.row), row))
         .filter(|(activity, row)| {
-            after.is_none_or(|after| *activity < after.activity || (*activity == after.activity && row.row["id"].as_str().unwrap_or_default() > after.id.as_str()))
+            after.is_none_or(|after| {
+                *activity < after.activity || (*activity == after.activity && row.row["id"].as_str().unwrap_or_default() > after.id.as_str())
+            })
         })
         .collect();
     kept.sort_by(|(left, a), (right, b)| {
@@ -184,8 +184,7 @@ impl SqliteStore {
         let archive = self.archive_snapshot();
         self.read(move |c| {
             let mut stmt = c.prepare_cached(&format!("SELECT summary, archived, {} FROM sessions WHERE deleted = 0", super::WITHHELD_COL))?;
-            let found: Vec<(String, bool, bool)> =
-                stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
+            let found: Vec<(String, bool, bool)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
             found
                 .into_iter()
                 .map(|(summary, archived, withheld)| match serde_json::from_str::<Value>(&summary) {
@@ -213,10 +212,9 @@ impl SqliteStore {
             let mut rows = Vec::new();
             loop {
                 let batch: Vec<(String, f64, String, bool, bool)> = stmt
-                    .query_map(
-                        params![position.as_ref().map(|p| p.activity), position.as_ref().map(|p| p.id.clone()), SCAN_BATCH as i64],
-                        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?)),
-                    )?
+                    .query_map(params![position.as_ref().map(|p| p.activity), position.as_ref().map(|p| p.id.clone()), SCAN_BATCH as i64], |r| {
+                        Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))
+                    })?
                     .collect::<Result<_, _>>()?;
                 let scanned = batch.len();
                 for (summary, activity, id, archived, withheld) in batch {
@@ -228,11 +226,7 @@ impl SqliteStore {
                             row
                         }
                         _ => {
-                            return Err(DbError::Sqlite(rusqlite::Error::InvalidColumnType(
-                                0,
-                                "summary".into(),
-                                rusqlite::types::Type::Text,
-                            )));
+                            return Err(DbError::Sqlite(rusqlite::Error::InvalidColumnType(0, "summary".into(), rusqlite::types::Type::Text)));
                         }
                     };
                     // Resolved before the filter and the page: a commit of the authority the index has not taken yet is listed as committed.

@@ -119,17 +119,11 @@ mod tests {
 
     use super::*;
     use crate::notify::decision::{DESKTOP_HOLD_MS, DevicePreferences, PreferencesView};
-    use crate::notify::engine::{
-        Audience, NotificationEngine, PairedDevice, PushApproval, ToastStyle,
-    };
-
+    use crate::notify::engine::{Audience, NotificationEngine, PairedDevice, PushApproval, ToastStyle};
 
     fn engine() -> NotificationEngine {
         NotificationEngine::new(Arc::new(|| ToastStyle::for_volume(50)))
     }
-
-
-
 
     struct Listeners(Mutex<Audience>);
 
@@ -172,12 +166,8 @@ mod tests {
     }
 
     fn rig(devices: Vec<PairedDevice>, desktop_active: bool) -> Rig {
-        let audience = Audience {
-            pc: PreferencesView { preferences: DevicePreferences::default(), overrides: Vec::new() },
-            hosts: Vec::new(),
-            devices,
-            desktop_active,
-        };
+        let audience =
+            Audience { pc: PreferencesView { preferences: DevicePreferences::default(), overrides: Vec::new() }, hosts: Vec::new(), devices, desktop_active };
         let listeners = Arc::new(Listeners(Mutex::new(audience)));
         let relay = Arc::new(Relay::default());
         let on = Arc::new(AtomicBool::new(true));
@@ -208,12 +198,7 @@ mod tests {
     }
 
     fn held() -> HeldRequestEvent {
-        HeldRequestEvent {
-            session_id: "sess_home_ann".into(),
-            agent_id: "ann".into(),
-            agent_name: "ann".into(),
-            request_id: "held_1".into(),
-        }
+        HeldRequestEvent { session_id: "sess_home_ann".into(), agent_id: "ann".into(), agent_name: "ann".into(), request_id: "held_1".into() }
     }
 
     async fn run_tasks() {
@@ -278,6 +263,4 @@ mod tests {
         run_tasks().await;
         assert_eq!(*rig.logs.lock().unwrap(), ["[mixdog-remote-push] The relay is not connected right now."]);
     }
-
-
 }

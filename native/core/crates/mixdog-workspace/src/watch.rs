@@ -50,11 +50,7 @@ impl WatchRegistry {
 }
 
 fn fold(path: &Path) -> PathBuf {
-    if cfg!(windows) {
-        PathBuf::from(path.to_string_lossy().to_lowercase())
-    } else {
-        path.to_path_buf()
-    }
+    if cfg!(windows) { PathBuf::from(path.to_string_lossy().to_lowercase()) } else { path.to_path_buf() }
 }
 
 /// Events under a git dir's `objects/` are not delivered.

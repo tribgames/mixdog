@@ -37,10 +37,7 @@ pub fn panel_signature_flags(signature: &str) -> SignatureFlags {
     let at = |index: usize| parts.get(index).copied().unwrap_or("");
     SignatureFlags {
         slash: at(token::SLASH) == "slash",
-        picker_kind: at(token::PICKER)
-            .strip_prefix("picker:")
-            .map(|rest| rest.split(':').next().unwrap_or("").to_owned())
-            .unwrap_or_default(),
+        picker_kind: at(token::PICKER).strip_prefix("picker:").map(|rest| rest.split(':').next().unwrap_or("").to_owned()).unwrap_or_default(),
         text_kind: at(token::TEXT).strip_prefix("text:").unwrap_or("").to_owned(),
     }
 }

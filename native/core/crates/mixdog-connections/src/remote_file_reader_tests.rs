@@ -4,11 +4,10 @@
 use std::sync::Mutex;
 
 use mixdog_app_protocol::JsonRpcErrorBody;
-use mixdog_app_server_client::mock::MockConn;
 use mixdog_app_server_client::api::{
-    BlobRef, ClientEvent, ConnectionStatus, FoldStore, InitializeResponse, ResumeWindow, ServerRequest, ServerRequestAnswer, ThreadId,
-    ThreadResumeResponse,
+    BlobRef, ClientEvent, ConnectionStatus, FoldStore, InitializeResponse, ResumeWindow, ServerRequest, ServerRequestAnswer, ThreadId, ThreadResumeResponse,
 };
+use mixdog_app_server_client::mock::MockConn;
 use serde_json::json;
 use tokio::sync::broadcast;
 

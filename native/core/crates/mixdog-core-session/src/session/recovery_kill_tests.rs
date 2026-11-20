@@ -10,17 +10,17 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use mixdog_core_api::call::{CallContext, CoreRequest};
-use mixdog_core_api::ids::{ItemId, Method};
 use mixdog_core_api::feed::Window;
 use mixdog_core_api::ids::{ConnectionId, SubscriptionId};
+use mixdog_core_api::ids::{ItemId, Method};
 use mixdog_core_api::mock::{MockConnection, MockLimits};
 use mixdog_core_api::sink::ConnectionSink;
 use mixdog_core_api::{FeedSource, Reply, ThreadDirectory, ThreadHandle};
 use serde_json::json;
 
+use super::seams::RunOutcome;
 use super::testing::{CallCounted, CommitHook, Rig};
 use super::tests::{real_store, start_thread, turn};
-use super::seams::RunOutcome;
 use super::{ItemCommit, SessionDirectory};
 
 const STAGE: &str = "MIXDOG_RECOVERY_KILL_STAGE";
@@ -70,7 +70,12 @@ fn dies_after_call(rig: &Rig, call: &'static str, told: Arc<tokio::sync::Notify>
 
 /// `thread/modelMessages/list`: what a client reads, as (role, content) with the whole rows for the mark check.
 async fn listed(directory: &SessionDirectory, id: &mixdog_core_api::ids::ThreadId) -> Vec<serde_json::Value> {
-    let read = CoreRequest { method: Method("thread/modelMessages/list"), params: json!({ "threadId": id, "start": 0 }), op: None, ctx: CallContext::internal("test") };
+    let read = CoreRequest {
+        method: Method("thread/modelMessages/list"),
+        params: json!({ "threadId": id, "start": 0 }),
+        op: None,
+        ctx: CallContext::internal("test"),
+    };
     let Reply::Value(reply) = directory.request(read).await.expect("thread/modelMessages/list") else { panic!("a value reply") };
     reply["messages"].as_array().cloned().expect("the messages")
 }
@@ -80,8 +85,11 @@ async fn listed(directory: &SessionDirectory, id: &mixdog_core_api::ids::ThreadI
 /// stage stays as stored.
 #[test]
 fn only_a_transient_compacting_stage_is_normalized() {
-    let header = |compaction: serde_json::Value| -> mixdog_store::schema::record::Header { serde_json::from_value(json!({ "id": "s", "compaction": compaction })).expect("a header") };
-    let change = |compaction: serde_json::Value| super::actor::stale_compacting_change(&header(compaction), 77).map(|change| serde_json::Value::Object(change.set));
+    let header = |compaction: serde_json::Value| -> mixdog_store::schema::record::Header {
+        serde_json::from_value(json!({ "id": "s", "compaction": compaction })).expect("a header")
+    };
+    let change =
+        |compaction: serde_json::Value| super::actor::stale_compacting_change(&header(compaction), 77).map(|change| serde_json::Value::Object(change.set));
     assert_eq!(
         change(json!({ "lastCheckedAt": 5, "lastStage": "compacting", "compactCount": 2 })),
         Some(json!({ "compaction": { "lastCheckedAt": 77, "lastStage": "interrupted", "compactCount": 2, "inProgress": false } }))
@@ -95,7 +103,6 @@ fn only_a_transient_compacting_stage_is_normalized() {
     }
     assert_eq!(super::actor::stale_compacting_change(&header(json!(null)), 77), None);
 }
-
 
 /// The child half: a no-op in a normal run. `seed` leaves a thread whose process died with a tool call unanswered; `recover`
 /// opens it with the commit hook that holds at the point `POINT` names; `verify` opens it plainly and checks the conversation.
@@ -113,7 +120,8 @@ async fn recovery_kill_child() {
         let told = told.clone();
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
-            let call = json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] });
+            let call =
+                json!({ "role": "assistant", "content": "Reading.", "toolCalls": [{ "id": "call_1", "name": "read", "arguments": { "path": "a.txt" } }] });
             let item = ItemCommit { iid: ItemId::from("itm_call"), role: Some("assistant".into()), model: true, visible: true, body: call, prompt: None };
             run.port.commit_item(item).await.expect("commit");
             told.notify_one();
@@ -151,7 +159,11 @@ async fn recovery_kill_child() {
         let Reply::Value(read) = reopened.request(read).await.expect("read") else { panic!("a value") };
         let messages = read["messages"].as_array().expect("messages");
         let shown: Vec<(&str, &str)> = messages.iter().map(|m| (m["role"].as_str().unwrap_or_default(), m["content"].as_str().unwrap_or_default())).collect();
-        assert_eq!(shown, [("user", "read a"), ("assistant", "Reading."), ("tool", "Cancelled"), ("user", "[Request interrupted by process restart]")], "{read}");
+        assert_eq!(
+            shown,
+            [("user", "read a"), ("assistant", "Reading."), ("tool", "Cancelled"), ("user", "[Request interrupted by process restart]")],
+            "{read}"
+        );
         // A client attaching now is sent the recovered turn in its feed: the call closed as cancelled and the cancelled end of the turn
         // (Node shows the stored restart line as a cancelled end, `restore.mjs` `isTranscriptCancelledStatusText`), each once.
         let connection = MockConnection::new(ConnectionId(1), MockLimits::default());
@@ -225,7 +237,12 @@ async fn a_recovery_in_a_fork_leaves_the_rows_of_the_recovered_parent_alone() {
     // The process dies; the next open recovers the parent, and a fork is taken from the recovered thread.
     let second = SessionDirectory::new(rig.deps_on(store.clone()));
     let recovered = second.open_handle(&parent.id, &CallContext::internal("test")).await.expect("the parent reopens");
-    let fork = CoreRequest { method: Method("thread/fork"), params: json!({ "threadId": parent.id, "opId": "op-fork" }), op: Some(mixdog_core_api::ids::OpId::from("op-fork")), ctx: CallContext::internal("test") };
+    let fork = CoreRequest {
+        method: Method("thread/fork"),
+        params: json!({ "threadId": parent.id, "opId": "op-fork" }),
+        op: Some(mixdog_core_api::ids::OpId::from("op-fork")),
+        ctx: CallContext::internal("test"),
+    };
     let Reply::Value(forked) = recovered.request(fork).await.expect("thread/fork") else { panic!("thread/fork answers a value") };
     let fork_id = mixdog_core_api::ids::ThreadId::from(forked["thread"]["id"].as_str().expect("the fork's id"));
     let parent_rows = listed(&second, &parent.id).await;

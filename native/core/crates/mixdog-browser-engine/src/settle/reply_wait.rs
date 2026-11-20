@@ -136,7 +136,15 @@ pub(crate) async fn read_page_text(host: &dyn BrowserHost, page_id: &str, cancel
         let params = HostBrowserPageReadParams {
             page_id: page_id.to_owned(),
             kind: BrowserPageReadKind::Text,
-            options: Some(BrowserPageReadOptions { max_chars: Some(POSTCONDITION_READ_CHARS), frame: None, selector: None, include_hidden: None, offset, attributes: None, limit: None }),
+            options: Some(BrowserPageReadOptions {
+                max_chars: Some(POSTCONDITION_READ_CHARS),
+                frame: None,
+                selector: None,
+                include_hidden: None,
+                offset,
+                attributes: None,
+                limit: None,
+            }),
         };
         let read = host.page_read(params, cancel).await?;
         let payload = &read.payload;
@@ -241,7 +249,6 @@ mod tests {
         assert_eq!(host.count("read"), 10, "the parts are bounded");
     }
 
-
     #[tokio::test]
     async fn a_postcondition_that_holds_is_found_after_the_gesture_and_reports_how_long_it_took() {
         let (probe, host) = rig("Saved successfully");
@@ -255,9 +262,16 @@ mod tests {
     #[tokio::test]
     async fn a_postcondition_that_never_holds_ends_at_its_budget_and_says_so() {
         let (probe, host) = rig("Still loading");
-        let wait = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({"text": "Saved", "timeoutMs": 500})), &ReplyWaitOptions::default(), &live())
-            .await
-            .expect("wait");
+        let wait = await_reply_ready(
+            &page(&host, &probe),
+            &fast_policy(),
+            None,
+            Some(&json!({"text": "Saved", "timeoutMs": 500})),
+            &ReplyWaitOptions::default(),
+            &live(),
+        )
+        .await
+        .expect("wait");
         assert!(!wait.postcondition_matched);
         assert!(wait.postcondition_elapsed >= Duration::from_millis(500));
         assert!(host.count("read") > 1, "the page was read again while waiting");
@@ -286,7 +300,9 @@ mod tests {
         let (probe, host) = rig("");
         let started = time::Instant::now();
         let options = ReplyWaitOptions { expected: Some(None), ..ReplyWaitOptions::default() };
-        let wait = await_reply_ready(&page(&host, &probe), &fast_policy(), Some(&json!(40)), Some(&json!({"text": "ignored"})), &options, &live()).await.expect("wait");
+        let wait = await_reply_ready(&page(&host, &probe), &fast_policy(), Some(&json!(40)), Some(&json!({"text": "ignored"})), &options, &live())
+            .await
+            .expect("wait");
         assert!(started.elapsed() >= Duration::from_millis(40));
         assert_eq!(wait.settle, Duration::from_millis(40));
         assert_eq!(wait.expected, None);
@@ -296,10 +312,14 @@ mod tests {
     #[tokio::test]
     async fn an_unreadable_expect_or_settle_ms_fails_before_anything_waits() {
         let (probe, host) = rig("");
-        let bad = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({})), &ReplyWaitOptions::default(), &live()).await.expect_err("bad expect");
+        let bad = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({})), &ReplyWaitOptions::default(), &live())
+            .await
+            .expect_err("bad expect");
         assert!(matches!(bad, ReplyWaitError::Expect(_)));
         assert!(bad.to_string().contains("requires text"));
-        let worse = await_reply_ready(&page(&host, &probe), &fast_policy(), Some(&json!("soon")), None, &ReplyWaitOptions::default(), &live()).await.expect_err("bad settleMs");
+        let worse = await_reply_ready(&page(&host, &probe), &fast_policy(), Some(&json!("soon")), None, &ReplyWaitOptions::default(), &live())
+            .await
+            .expect_err("bad settleMs");
         assert_eq!(worse.to_string(), "settleMs must be a finite number");
         assert!(host.called().is_empty());
     }
@@ -312,14 +332,20 @@ mod tests {
             time::sleep(Duration::from_millis(30)).await;
             source.cancel("user took control");
         });
-        let error = await_reply_ready(&page(&host, &probe), &fast_policy(), None, Some(&json!({"text": "Saved", "timeoutMs": 20_000})), &ReplyWaitOptions::default(), &view)
-            .await
-            .expect_err("cancelled");
+        let error = await_reply_ready(
+            &page(&host, &probe),
+            &fast_policy(),
+            None,
+            Some(&json!({"text": "Saved", "timeoutMs": 20_000})),
+            &ReplyWaitOptions::default(),
+            &view,
+        )
+        .await
+        .expect_err("cancelled");
         canceller.await.expect("canceller");
         assert_eq!(error.to_string(), "user took control");
     }
 }
-
 
 impl std::error::Error for ReplyWaitError {}
 /// Polls until the postcondition holds or its budget ends; `announce` is cancelled the moment it holds so the settle can stop
@@ -369,12 +395,8 @@ pub async fn await_reply_ready(
         previous_url: options.baseline_url.clone(),
     };
     let (_, _, (elapsed, matched)) = try_join3(
-        async {
-            if options.settle_action { settle_after_action(page, policy, cancel, settle_until, &after_action).await } else { Ok(()) }
-        },
-        async {
-            if settle.is_zero() { Ok(()) } else { pause(settle, cancel).await.map_err(SettleError::from) }
-        },
+        async { if options.settle_action { settle_after_action(page, policy, cancel, settle_until, &after_action).await } else { Ok(()) } },
+        async { if settle.is_zero() { Ok(()) } else { pause(settle, cancel).await.map_err(SettleError::from) } },
         async {
             match &expected {
                 Some(expected) => poll_postcondition(page, expected, &satisfied, cancel).await,

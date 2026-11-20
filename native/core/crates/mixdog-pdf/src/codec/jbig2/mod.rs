@@ -77,11 +77,7 @@ pub struct BitStream<'a> {
 
 impl<'a> BitStream<'a> {
     pub fn new(data: &'a [u8]) -> Self {
-        BitStream {
-            data,
-            byte_index: 0,
-            bit_index: 0,
-        }
+        BitStream { data, byte_index: 0, bit_index: 0 }
     }
 
     fn length(&self) -> u32 {
@@ -112,12 +108,7 @@ impl<'a> BitStream<'a> {
         }
         let i = self.byte_index as usize;
         self.byte_index += 4;
-        Some(u32::from_be_bytes([
-            self.data[i],
-            self.data[i + 1],
-            self.data[i + 2],
-            self.data[i + 3],
-        ]))
+        Some(u32::from_be_bytes([self.data[i], self.data[i + 1], self.data[i + 2], self.data[i + 3]]))
     }
 
     /// The byte at the cursor, without moving it.
@@ -229,27 +220,17 @@ struct Context<'a> {
 
 /// `FindSegmentByNumber`: the globals' segments first, then the stream's own.
 fn find_segment<'s>(globals: Option<&'s Context<'_>>, own: &'s [Segment], number: u32) -> Option<&'s Segment> {
-    globals
-        .and_then(|g| g.segments.iter().find(|s| s.number == number))
-        .or_else(|| own.iter().find(|s| s.number == number))
+    globals.and_then(|g| g.segments.iter().find(|s| s.number == number)).or_else(|| own.iter().find(|s| s.number == number))
 }
 
 impl<'a> Context<'a> {
     fn new(data: &'a [u8]) -> Self {
-        Context {
-            stream: BitStream::new(data),
-            segments: Vec::new(),
-            in_page: false,
-        }
+        Context { stream: BitStream::new(data), segments: Vec::new(), in_page: false }
     }
 
     /// `DecodeSequential`: reads segments until the data is used up or an end segment comes. `page` is the buffer the
     /// regions are composed onto (the globals have none).
-    fn decode_sequential(
-        &mut self,
-        globals: Option<&Context<'_>>,
-        mut page: Option<&mut Page>,
-    ) -> Result<Outcome, Failure> {
+    fn decode_sequential(&mut self, globals: Option<&Context<'_>>, mut page: Option<&mut Page>) -> Result<Outcome, Failure> {
         if self.stream.byte_left() == 0 {
             return Ok(Outcome::EndReached);
         }
@@ -260,8 +241,7 @@ impl<'a> Context<'a> {
                 return Ok(Outcome::Success);
             }
             if segment.data_length != u32::MAX {
-                self.stream
-                    .set_byte_index(data_start.saturating_add(segment.data_length));
+                self.stream.set_byte_index(data_start.saturating_add(segment.data_length));
             } else {
                 self.stream.add_offset(4);
             }
@@ -306,22 +286,11 @@ impl<'a> Context<'a> {
             stream.read_u8().ok_or(Failure)?;
         }
         let data_length = stream.read_u32().ok_or(Failure)?;
-        Ok(Segment {
-            number,
-            kind: flags & 0x3f,
-            referred,
-            data_length,
-            result: SegmentResult::None,
-        })
+        Ok(Segment { number, kind: flags & 0x3f, referred, data_length, result: SegmentResult::None })
     }
 
     /// `ParseSegmentData`.
-    fn parse_data(
-        &mut self,
-        segment: &mut Segment,
-        globals: Option<&Context<'_>>,
-        page: Option<&mut Page>,
-    ) -> Result<Flow, Failure> {
+    fn parse_data(&mut self, segment: &mut Segment, globals: Option<&Context<'_>>, page: Option<&mut Page>) -> Result<Flow, Failure> {
         match segment.kind {
             0 => self.parse_symbol_dict(segment, globals),
             4 | 6 | 7 => {
@@ -384,24 +353,12 @@ impl<'a> Context<'a> {
         let x = stream.read_u32().ok_or(Failure)? as i32;
         let y = stream.read_u32().ok_or(Failure)? as i32;
         let flags = stream.read_u8().ok_or(Failure)?;
-        Ok(RegionInfo {
-            width,
-            height,
-            x,
-            y,
-            flags,
-        })
+        Ok(RegionInfo { width, height, x, y, flags })
     }
 
     /// What a decoded region becomes: the result of an intermediate segment (type `intermediate`), or composed onto the
     /// page.
-    fn finish_region(
-        segment: &mut Segment,
-        image: Image,
-        info: &RegionInfo,
-        page: Option<&mut Page>,
-        intermediate: u8,
-    ) {
+    fn finish_region(segment: &mut Segment, image: Image, info: &RegionInfo, page: Option<&mut Page>, intermediate: u8) {
         if segment.kind == intermediate {
             segment.result = SegmentResult::Image(image);
         } else if let Some(page) = page {
@@ -427,18 +384,9 @@ impl<'a> Context<'a> {
         if !Image::is_valid_region_size(info.width, info.height) {
             return Err(Failure);
         }
-        let region = GenericRegion {
-            width: info.width,
-            height: info.height,
-            template,
-            tpgdon,
-            skip: None,
-            at,
-        };
+        let region = GenericRegion { width: info.width, height: info.height, template, tpgdon, skip: None, at };
         let (image, rows) = if mmr {
-            let (image, bits) = region
-                .decode_mmr(self.stream.data(), self.stream.bit_position())
-                .ok_or(Failure)?;
+            let (image, bits) = region.decode_mmr(self.stream.data(), self.stream.bit_position()).ok_or(Failure)?;
             self.stream.set_bit_position(bits);
             self.stream.align_byte();
             (image, info.height)
@@ -460,12 +408,7 @@ impl<'a> Context<'a> {
     }
 
     /// `ParseGenericRefinementRegion` (T.88 7.4.7): types 40 (intermediate), 42 and 43 (immediate).
-    fn parse_refinement_region(
-        &mut self,
-        segment: &mut Segment,
-        globals: Option<&Context<'_>>,
-        page: Option<&mut Page>,
-    ) -> Result<Flow, Failure> {
+    fn parse_refinement_region(&mut self, segment: &mut Segment, globals: Option<&Context<'_>>, page: Option<&mut Page>) -> Result<Flow, Failure> {
         let info = self.read_region_info()?;
         let flags = self.stream.read_u8().ok_or(Failure)?;
         let template = flags & 1;
@@ -484,10 +427,7 @@ impl<'a> Context<'a> {
         let reference: &Image = if segment.referred.is_empty() {
             // the part of the page the region covers
             page_reference = match page.as_deref() {
-                Some(page) => page
-                    .image()
-                    .sub_image(info.x, info.y, info.width, info.height)
-                    .ok_or(Failure)?,
+                Some(page) => page.image().sub_image(info.x, info.y, info.width, info.height).ok_or(Failure)?,
                 None => {
                     blank = Image::new(info.width, info.height).ok_or(Failure)?;
                     blank
@@ -508,16 +448,7 @@ impl<'a> Context<'a> {
                 _ => return Err(Failure),
             }
         };
-        let region = RefinementRegion {
-            width: info.width,
-            height: info.height,
-            template,
-            tpgron,
-            reference,
-            dx: 0,
-            dy: 0,
-            at,
-        };
+        let region = RefinementRegion { width: info.width, height: info.height, template, tpgron, reference, dx: 0, dy: 0, at };
         let mut contexts = vec![ArithCx::default(); refine::context_count(template)];
         let mut decoder = ArithDecoder::new(self.stream.data(), self.stream.byte_index());
         let image = region.decode(&mut decoder, &mut contexts).ok_or(Failure)?;
@@ -527,13 +458,7 @@ impl<'a> Context<'a> {
         if segment.kind == 40 {
             segment.result = SegmentResult::Image(image);
         } else if let Some(page) = page {
-            page.compose(
-                &image,
-                info.x,
-                info.y,
-                ComposeOp::from_flags(info.flags),
-                0..info.height,
-            );
+            page.compose(&image, info.x, info.y, ComposeOp::from_flags(info.flags), 0..info.height);
         }
         Ok(Flow::Continue)
     }
@@ -578,13 +503,7 @@ mod tests {
 
     fn rows(out: &[u8], width: usize) -> Vec<String> {
         let pitch = width.div_ceil(8);
-        out.chunks(pitch)
-            .map(|row| {
-                (0..width)
-                    .map(|x| if row[x / 8] >> (7 - x % 8) & 1 == 1 { '.' } else { '#' })
-                    .collect()
-            })
-            .collect()
+        out.chunks(pitch).map(|row| (0..width).map(|x| if row[x / 8] >> (7 - x % 8) & 1 == 1 { '.' } else { '#' }).collect()).collect()
     }
 
     #[test]
@@ -624,10 +543,7 @@ mod tests {
         assert_eq!(rows(&decode(&black, 8, 2, None).unwrap(), 8), ["########", "########"]);
         let mut replace = page_info(4);
         replace.extend(mmr_region(38, 0, 4));
-        assert_eq!(
-            rows(&decode(&replace, 8, 2, None).unwrap(), 8),
-            ["........", "..###..."]
-        );
+        assert_eq!(rows(&decode(&replace, 8, 2, None).unwrap(), 8), ["........", "..###..."]);
         let mut xor = page_info(4);
         xor.extend(mmr_region(38, 0, 2));
         assert_eq!(rows(&decode(&xor, 8, 2, None).unwrap(), 8), ["########", "##...###"]);
@@ -649,10 +565,7 @@ mod tests {
 
     #[test]
     fn short_data_is_not_an_error_and_an_unknown_segment_is_skipped() {
-        assert_eq!(
-            rows(&decode(&[1, 2, 3], 8, 2, None).unwrap(), 8),
-            ["........", "........"]
-        );
+        assert_eq!(rows(&decode(&[1, 2, 3], 8, 2, None).unwrap(), 8), ["........", "........"]);
         let mut stream = page_info(0);
         stream.extend(segment(2, 63, &[1, 2, 3]));
         stream.extend(mmr_region(38, 0, 0));
@@ -679,10 +592,7 @@ mod tests {
         let mut stream = page_info(0);
         stream.extend(mmr_region(38, 0, 0));
         assert!(decode(&stream, 8, 2, Some(&globals)).is_ok());
-        assert_eq!(
-            decode(&stream, 8, 2, Some(&mmr_region(38, 0, 0))),
-            Err(CodecError::Unknown)
-        );
+        assert_eq!(decode(&stream, 8, 2, Some(&mmr_region(38, 0, 0))), Err(CodecError::Unknown));
         // a few bytes of globals are less than a segment and are ignored
         assert!(decode(&stream, 8, 2, Some(&[1, 2, 3])).is_ok());
     }

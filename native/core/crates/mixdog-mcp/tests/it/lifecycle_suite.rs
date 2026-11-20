@@ -126,7 +126,8 @@ fn payload(event: &str, cwd: &Path, extra: Value) -> Value {
 #[tokio::test(flavor = "multi_thread")]
 async fn session_start_sends_source_and_model_and_returns_the_added_context() {
     let dir = tempfile::tempdir().unwrap();
-    let outputs = [json!(json!({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "first"}}).to_string()), json!("second"), json!("")];
+    let outputs =
+        [json!(json!({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": "first"}}).to_string()), json!("second"), json!("")];
     let (bus, hub) = wired(dir.path(), "SessionStart", Some("startup"), &outputs).await;
     assert!(bus.bind_transcripts(Arc::new(Exported)).is_ok());
     let cwd = dir.path().join("work");

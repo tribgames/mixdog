@@ -84,10 +84,7 @@ mod tests {
     #[test]
     fn an_ink_that_is_not_six_hex_digits_is_refused_with_the_scripts_texts() {
         assert!(ink_luminance("FFF").unwrap_err().starts_with("Exception calling \"Substring\""));
-        assert_eq!(
-            ink_luminance("GG0000").unwrap_err(),
-            "Exception calling \"ToInt32\" with \"2\" argument(s): \"Could not find any recognizable digits.\""
-        );
+        assert_eq!(ink_luminance("GG0000").unwrap_err(), "Exception calling \"ToInt32\" with \"2\" argument(s): \"Could not find any recognizable digits.\"");
         assert_eq!(
             ink_luminance("0G0000").unwrap_err(),
             "Exception calling \"ToInt32\" with \"2\" argument(s): \"Additional non-parsable characters are at the end of the string.\""

@@ -93,8 +93,7 @@ impl State {
         let waiting_owners = self.groups.iter().filter(|g| !g.queue.is_empty()).count();
         // While another owner waits, no owner is handed its last free turn (with one turn, every owner may take it).
         let cap = if waiting_owners > 1 { self.limit.saturating_sub(1).max(1) } else { self.limit };
-        let mut ready: Vec<usize> =
-            (0..self.groups.len()).filter(|&i| !self.groups[i].queue.is_empty() && self.groups[i].active < cap).collect();
+        let mut ready: Vec<usize> = (0..self.groups.len()).filter(|&i| !self.groups[i].queue.is_empty() && self.groups[i].active < cap).collect();
         // An owner holding no turn is served before one that already holds one (with one turn, nobody holds one here).
         if ready.iter().any(|&i| self.groups[i].active == 0) {
             ready.retain(|&i| self.groups[i].active == 0);

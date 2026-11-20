@@ -24,19 +24,12 @@ pub enum ApplyError {
 
 impl ApplyError {
     pub fn quarantine(code: QuarantineCode, detail: impl Into<String>) -> Self {
-        Self::Quarantine(ItemFailure {
-            code,
-            detail: detail.into(),
-        })
+        Self::Quarantine(ItemFailure { code, detail: detail.into() })
     }
 
     /// A step that stops the run for a reason outside the item.
     pub fn blocked(op: &'static str, path: &Path, os_error: impl fmt::Display) -> Self {
-        Self::Blocked(Blocked::Io {
-            op,
-            path: path.to_path_buf(),
-            os_error: os_error.to_string(),
-        })
+        Self::Blocked(Blocked::Io { op, path: path.to_path_buf(), os_error: os_error.to_string() })
     }
 
     pub fn io(op: &'static str, path: &Path, error: std::io::Error) -> Self {

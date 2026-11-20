@@ -12,10 +12,10 @@ use mixdog_agent::compact::settings::{Doc, normalize_auto_clear, resolve_idle_ms
 use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value, json};
 
-use mixdog_core_config::config::hidden_agents::hidden_agent_traits;
 use mixdog_core_base::rooms::ids::agent_home_session_id;
 use mixdog_core_base::rooms::ids::agent_id_of_home_session;
 use mixdog_core_base::rooms::ids::room_member_of_session;
+use mixdog_core_config::config::hidden_agents::hidden_agent_traits;
 
 /// `PROVIDER_CACHE_CAPABILITY`: the providers whose cache is written with explicit breakpoints.
 fn is_explicit_breakpoint(provider: &str) -> bool {
@@ -58,9 +58,7 @@ pub fn is_agent_mode_session(header: &Header) -> bool {
 
 /// `isOneShotMaintenanceAgent(agent)`.
 fn is_one_shot(agent: Option<&str>) -> bool {
-    agent
-        .and_then(hidden_agent_traits)
-        .is_some_and(|(kind, profile)| is_one_shot_maintenance(kind.as_deref(), profile.as_deref()))
+    agent.and_then(hidden_agent_traits).is_some_and(|(kind, profile)| is_one_shot_maintenance(kind.as_deref(), profile.as_deref()))
 }
 
 /// `resolveLeadMessagesTtl(autoClear)`: the Lead's message tail lives as long as the idle sweep lets it.

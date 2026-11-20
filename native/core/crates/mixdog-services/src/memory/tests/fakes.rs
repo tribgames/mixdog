@@ -65,7 +65,10 @@ fn describe(pid: u32) -> String {
         let (class, mut exit) = (GetPriorityClass(process), 0u32);
         GetExitCodeProcess(process, &mut exit);
         CloseHandle(process);
-        format!("priority class {class:#x} (below normal is {:#x}), exit code {exit} (259 = still running)", windows_sys::Win32::System::Threading::BELOW_NORMAL_PRIORITY_CLASS)
+        format!(
+            "priority class {class:#x} (below normal is {:#x}), exit code {exit} (259 = still running)",
+            windows_sys::Win32::System::Threading::BELOW_NORMAL_PRIORITY_CLASS
+        )
     }
 }
 

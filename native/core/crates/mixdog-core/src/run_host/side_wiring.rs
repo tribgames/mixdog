@@ -57,7 +57,7 @@ mod tests {
     use mixdog_core_api::domain::mock::{MockAttempt, MockProvider};
     use mixdog_core_api::domain::provider::{Content, Message, ModelRequest, RequestOptions, Role};
     use mixdog_core_api::ids::ThreadId;
-    use mixdog_core_session::session::turn_ops::{ask_side_question, SIDE_QUESTION_NO_REQUEST};
+    use mixdog_core_session::session::turn_ops::{SIDE_QUESTION_NO_REQUEST, ask_side_question};
     use serde_json::json;
 
     use super::super::side_requests::RunSide;
@@ -156,13 +156,19 @@ mod tests {
         let saved = |compacted: bool| store.saved_request(&thread).map(|r| r.compacted == compacted);
         let side = SideWiring::new(SideRequests { store: store.clone(), ..requests(dir.path()).await });
         side.requests().tap(run).begin(&request(1)).settle(&reply());
-        let ask = |budget_tokens| CompactRequest { messages: &[], budget_tokens, trigger: CompactTrigger::Auto, require_reduction: false, reference_latest_attachments: false, active_turn: true, latest_user_prefix: "" };
+        let ask = |budget_tokens| CompactRequest {
+            messages: &[],
+            budget_tokens,
+            trigger: CompactTrigger::Auto,
+            require_reduction: false,
+            reference_latest_attachments: false,
+            active_turn: true,
+            latest_user_prefix: "",
+        };
 
         retiring.compact(ask(0)).await.unwrap();
         assert_eq!(saved(false), Some(true), "a skipped pass adopts nothing");
         retiring.compact(ask(1)).await.unwrap();
         assert_eq!(saved(true), Some(true), "the saved request is marked as rewritten");
     }
-
-
 }

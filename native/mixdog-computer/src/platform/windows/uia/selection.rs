@@ -65,22 +65,16 @@ impl Item for UiaItem<'_> {
             return Ok(None);
         };
         // SAFETY: a plain property read.
-        unsafe { selection.CurrentCanSelectMultiple() }
-            .map(|flag| Some(flag.as_bool()))
-            .map_err(|error| error.message())
+        unsafe { selection.CurrentCanSelectMultiple() }.map(|flag| Some(flag.as_bool())).map_err(|error| error.message())
     }
     fn selected(&self) -> Result<bool, String> {
         // SAFETY: a plain property read.
-        unsafe { self.pattern.CurrentIsSelected() }
-            .map(|flag| flag.as_bool())
-            .map_err(|error| error.message())
+        unsafe { self.pattern.CurrentIsSelected() }.map(|flag| flag.as_bool()).map_err(|error| error.message())
     }
     fn selected_count(&self) -> Result<usize, String> {
         let selection = self.container()?.ok_or(UNREAD)?;
         // SAFETY: plain reads of the container's current selection.
-        unsafe { selection.GetCurrentSelection().and_then(|items| items.Length()) }
-            .map(|length| length.max(0) as usize)
-            .map_err(|error| error.message())
+        unsafe { selection.GetCurrentSelection().and_then(|items| items.Length()) }.map(|length| length.max(0) as usize).map_err(|error| error.message())
     }
     fn select(&self) -> Result<(), String> {
         self.owner.held(crate::port::windows::A11y::Select(&self.pattern))

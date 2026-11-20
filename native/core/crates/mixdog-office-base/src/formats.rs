@@ -96,11 +96,7 @@ fn extname(path: &str) -> &str {
         }
     }
     match (start_dot, end) {
-        (Some(dot), Some(end))
-            if pre_dot_state != 0 && !(pre_dot_state == 1 && dot + 1 == end && dot == start_part + 1) =>
-        {
-            &path[dot..end]
-        }
+        (Some(dot), Some(end)) if pre_dot_state != 0 && !(pre_dot_state == 1 && dot + 1 == end && dot == start_part + 1) => &path[dot..end],
         _ => "",
     }
 }

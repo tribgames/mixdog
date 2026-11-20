@@ -64,10 +64,7 @@ fn required(lit: Lit) -> Option<Vec<String>> {
 /// The longest-shortest of the sets: the one whose shortest string is longest, the smaller on a tie.
 fn best(candidates: Vec<Vec<String>>) -> Option<Vec<String>> {
     let shortest = |set: &Vec<String>| set.iter().map(String::len).min().unwrap_or(0);
-    candidates
-        .into_iter()
-        .filter(|set| shortest(set) > 0)
-        .max_by(|a, b| shortest(a).cmp(&shortest(b)).then(b.len().cmp(&a.len())))
+    candidates.into_iter().filter(|set| shortest(set) > 0).max_by(|a, b| shortest(a).cmp(&shortest(b)).then(b.len().cmp(&a.len())))
 }
 
 fn concat(parts: Vec<Lit>) -> Lit {
@@ -315,11 +312,8 @@ impl Needles {
             let lower = text.to_ascii_lowercase();
             return !self.strings.iter().any(|s| lower.contains(s.as_str()));
         }
-        let read: Vec<u8> =
-            text.chars().map(|c| if c.is_ascii() { c.to_ascii_lowercase() as u8 } else { ANY_CHARACTER }).collect();
-        !self.strings.iter().any(|s| {
-            read.windows(s.len()).any(|at| at.iter().zip(s.as_bytes()).all(|(&t, &n)| t == n || t == ANY_CHARACTER))
-        })
+        let read: Vec<u8> = text.chars().map(|c| if c.is_ascii() { c.to_ascii_lowercase() as u8 } else { ANY_CHARACTER }).collect();
+        !self.strings.iter().any(|s| read.windows(s.len()).any(|at| at.iter().zip(s.as_bytes()).all(|(&t, &n)| t == n || t == ANY_CHARACTER)))
     }
 }
 
@@ -479,19 +473,10 @@ pub fn regex_is_match_utf16(pattern: &[u16], text: &[u16], flags: &str) -> Resul
     } else {
         regress::Regex::from_unicode(source.iter().copied().map(u32::from), engine_flags)
     }
-    .map_err(|error| {
-        format!(
-            "Invalid regular expression: /{}/{flags}: unsupported by the regex engine ({error})",
-            String::from_utf16_lossy(pattern),
-        )
-    })?;
+    .map_err(|error| format!("Invalid regular expression: /{}/{flags}: unsupported by the regex engine ({error})", String::from_utf16_lossy(pattern),))?;
     // Utf16Input always decodes valid pairs. Ucs2Input deliberately visits each
     // unit: a non-u dot sees half an astral character, exactly as JavaScript.
-    let found = if unicode {
-        regex.find_from_utf16(text, 0).next()
-    } else {
-        regex.find_from_ucs2(text, 0).next()
-    };
+    let found = if unicode { regex.find_from_utf16(text, 0).next() } else { regex.find_from_ucs2(text, 0).next() };
     Ok(found.is_some_and(|found| !flags.contains('y') || found.start() == 0))
 }
 
@@ -499,13 +484,7 @@ fn raw_pattern_forms(pattern: &[u16], unicode: bool, sets: bool) -> Vec<u16> {
     let mut output = Vec::new();
     let mut at = 0;
     let mut depth = 0usize;
-    let hex = |at: usize| {
-        pattern
-            .get(at)
-            .and_then(|u| char::from_u32(u32::from(*u)))
-            .filter(char::is_ascii_hexdigit)
-            .and_then(|c| c.to_digit(16))
-    };
+    let hex = |at: usize| pattern.get(at).and_then(|u| char::from_u32(u32::from(*u))).filter(char::is_ascii_hexdigit).and_then(|c| c.to_digit(16));
     while at < pattern.len() {
         let unit = pattern[at];
         if unit == u16::from(b'\\') && at + 1 < pattern.len() {
@@ -531,10 +510,7 @@ fn raw_pattern_forms(pattern: &[u16], unicode: bool, sets: bool) -> Vec<u16> {
                     }
                 }
             }
-            if !unicode
-                && escaped == u16::from(b'x')
-                && (hex(at + 2).is_none() || hex(at + 3).is_none())
-            {
+            if !unicode && escaped == u16::from(b'x') && (hex(at + 2).is_none() || hex(at + 3).is_none()) {
                 output.push(escaped);
             } else if sets && depth > 0 && escaped == u16::from(b'b') {
                 output.extend("\\x08".encode_utf16());
@@ -554,13 +530,7 @@ fn raw_pattern_forms(pattern: &[u16], unicode: bool, sets: bool) -> Vec<u16> {
                 let negation = unit == u16::from(b'^')
                     && at > 0
                     && pattern[at - 1] == u16::from(b'[')
-                    && pattern[..at - 1]
-                        .iter()
-                        .rev()
-                        .take_while(|u| **u == u16::from(b'\\'))
-                        .count()
-                        % 2
-                        == 0;
+                    && pattern[..at - 1].iter().rev().take_while(|u| **u == u16::from(b'\\')).count() % 2 == 0;
                 if !negation {
                     if pattern.get(at + 1) == Some(&unit) {
                         output.extend([unit, unit]);
@@ -609,9 +579,9 @@ impl JsRegex {
         };
         #[cfg(feature = "prefilter-probe")]
         prefilter_probe::note(pattern, flags);
-        regress::Regex::with_flags(&source, flags).map(|regex| Self(regex, Needles::of(pattern, flags))).map_err(|error| {
-            format!("Invalid regular expression: /{pattern}/{flags}: unsupported by the regex engine ({error})")
-        })
+        regress::Regex::with_flags(&source, flags)
+            .map(|regex| Self(regex, Needles::of(pattern, flags)))
+            .map_err(|error| format!("Invalid regular expression: /{pattern}/{flags}: unsupported by the regex engine ({error})"))
     }
 
     /// A pattern fixed in the source; panics on a bad one.
@@ -838,10 +808,7 @@ mod tests {
 
     #[test]
     fn a_bad_pattern_reports_v8s_message() {
-        assert_eq!(
-            JsRegex::new("(", "").err().as_deref(),
-            Some("Invalid regular expression: /(/: Unterminated group")
-        );
+        assert_eq!(JsRegex::new("(", "").err().as_deref(), Some("Invalid regular expression: /(/: Unterminated group"));
     }
 }
 
@@ -873,4 +840,3 @@ mod sweep {
         assert!(shown.is_empty(), "{}", shown.join("\n"));
     }
 }
-

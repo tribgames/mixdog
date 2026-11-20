@@ -10,21 +10,18 @@ use mixdog_ooxml::xlsx_formula_audit::{AuditOptions, audit_xlsx_formulas};
 use serde_json::Value;
 
 use super::{list, nested, num, num0, record, text, trimmed, warn};
-use crate::{field, field_of, is_truthy, is_true, strict_equals, template_text};
+use crate::{field, field_of, is_true, is_truthy, strict_equals, template_text};
 
 /// How far a series may stop above the data before the gap reads as a deliberate window rather than as the row someone
 /// forgot to include.
 const CHART_SHORT_ROWS: f64 = 2.0;
 
-static FORMULA_RANGE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"\$?([A-Z]{1,3})\$?([1-9]\d*):\$?([A-Z]{1,3})\$?([1-9]\d*)", "i"));
+static FORMULA_RANGE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\$?([A-Z]{1,3})\$?([1-9]\d*):\$?([A-Z]{1,3})\$?([1-9]\d*)", "i"));
 static PRINT_AREA: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^([A-Za-z]+)(\d+)(?::([A-Za-z]+)(\d+))?$", ""));
 static TOTAL_ROW_LABEL: LazyLock<JsRegex> =
     LazyLock::new(|| JsRegex::new_static(r"^(?:(?:grand\s+total|sub\s*total|total)\b|(?:합계|총계|소계)(?:\s|$))", "i"));
-static TOTAL_LABEL_PREFIX: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^(?:grand\s+total|sub\s*total|total|합계|총계|소계)", "i"));
-static FORMULA_ERROR: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^#(?:DIV\/0|VALUE|REF|NAME|N\/A|NUM|NULL|SPILL|CALC|FIELD)\??!?$", "i"));
+static TOTAL_LABEL_PREFIX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:grand\s+total|sub\s*total|total|합계|총계|소계)", "i"));
+static FORMULA_ERROR: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^#(?:DIV\/0|VALUE|REF|NAME|N\/A|NUM|NULL|SPILL|CALC|FIELD)\??!?$", "i"));
 static PLAIN_COLOR: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("^(?:#?000000|auto)?$", "i"));
 
 /// `String(value ?? '')`.
@@ -143,10 +140,7 @@ fn base_face(cells: &[&Value], defaults: Option<&Value>) -> Face {
     }
     let face = best.map_or("\u{0}", |entry| entry.0.as_str());
     let (name, size) = face.split_once('\u{0}').unwrap_or((face, ""));
-    Face {
-        font_name: Some(Value::String(name.to_owned())),
-        font_size: if size.is_empty() { f64::NAN } else { string_to_number(size) },
-    }
+    Face { font_name: Some(Value::String(name.to_owned())), font_size: if size.is_empty() { f64::NAN } else { string_to_number(size) } }
 }
 
 /// A cell is styled by what it states beyond that face. The Office reader reports the workbook font on every cell,
@@ -169,11 +163,7 @@ fn review_hierarchy(sheet: &Value, cells: &[&Value], issues: &mut Vec<Value>, de
     if cells.iter().any(|cell| styled_cell(field(cell, "style"), &base)) {
         return;
     }
-    issues.push(warn(
-        "worksheet_hierarchy_missing",
-        Some(sheet_path(sheet)),
-        "Data sheet has no styled title, header, table, or visual hierarchy.".into(),
-    ));
+    issues.push(warn("worksheet_hierarchy_missing", Some(sheet_path(sheet)), "Data sheet has no styled title, header, table, or visual hierarchy.".into()));
 }
 
 /// The rows whose label says total, in the order the cells list them.
@@ -198,13 +188,7 @@ fn review_formula_errors(sheet: &Value, cells: &[&Value], issues: &mut Vec<Value
         }
         let path = text(field(cell, "path"));
         let path = if path.is_empty() { format!("{}/cell[{}]", sheet_path(sheet), text(field(cell, "ref"))) } else { path };
-        issues.push(record(
-            "formula_error",
-            Some(path),
-            format!("Formula evaluates to {}.", template_text(field(cell, "value"))),
-            "format-review",
-            "error",
-        ));
+        issues.push(record("formula_error", Some(path), format!("Formula evaluates to {}.", template_text(field(cell, "value"))), "format-review", "error"));
     }
 }
 
@@ -270,10 +254,7 @@ fn review_chart_ranges(sheet: &Value, cells: &[&Value], totals: &[f64], issues: 
 fn review_print_fit(sheet: &Value, page_setup: Option<&Value>, issues: &mut Vec<Value>) {
     let rows = num0(field(sheet, "rows"));
     let columns = num0(field(sheet, "columns"));
-    if !(rows >= 40.0 || columns >= 12.0)
-        || num(field_of(page_setup, "fitToPagesWide")) == 1.0
-        || !(num(field_of(page_setup, "zoom")) > 100.0)
-    {
+    if !(rows >= 40.0 || columns >= 12.0) || num(field_of(page_setup, "fitToPagesWide")) == 1.0 || !(num(field_of(page_setup, "zoom")) > 100.0) {
         return;
     }
     issues.push(warn(
@@ -334,16 +315,9 @@ fn review_print_area(sheet: &Value, page_setup: Option<&Value>, drawings: &[Draw
         }
         let span = drawing.span();
         let message = if areas.is_empty() {
-            format!(
-                "{} spans {span} and the sheet declares no print area or one-page-wide fit, so an export may paginate through it.",
-                drawing.kind
-            )
+            format!("{} spans {span} and the sheet declares no print area or one-page-wide fit, so an export may paginate through it.", drawing.kind)
         } else {
-            format!(
-                "{} spans {span}, past the print area {}; a print or PDF export cuts it.",
-                drawing.kind,
-                template_text(field_of(page_setup, "printArea"))
-            )
+            format!("{} spans {span}, past the print area {}; a print or PDF export cuts it.", drawing.kind, template_text(field_of(page_setup, "printArea")))
         };
         issues.push(record(
             "drawing_outside_print_area",
@@ -369,13 +343,7 @@ fn review_drawing_overlap(sheet: &Value, drawings: &[Drawing<'_>], issues: &mut 
             issues.push(record(
                 "drawing_overlap",
                 Some(right.path(sheet)),
-                format!(
-                    "{} spans {}, over the {} at {}; place it below or beside it.",
-                    right.kind,
-                    right.span(),
-                    left.kind.to_lowercase(),
-                    left.span()
-                ),
+                format!("{} spans {}, over the {} at {}; place it below or beside it.", right.kind, right.span(), left.kind.to_lowercase(), left.span()),
                 "format-review",
                 "warning",
             ));
@@ -421,9 +389,7 @@ fn review_drawing_cover(sheet: &Value, cells: &[&Value], drawings: &[Drawing<'_>
 }
 
 fn is_figure(cell: Option<&Value>) -> bool {
-    cell.is_some_and(|inner| {
-        matches!(field(inner, "value"), Some(Value::Number(_))) && field(inner, "dataType") != Some(&Value::String("text".into()))
-    })
+    cell.is_some_and(|inner| matches!(field(inner, "value"), Some(Value::Number(_))) && field(inner, "dataType") != Some(&Value::String("text".into())))
 }
 
 /// `/sheet[name]/cell[ref]`, with the name or the reference `undefined` when the snapshot lacks it.

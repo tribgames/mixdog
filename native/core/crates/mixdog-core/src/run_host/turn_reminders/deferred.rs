@@ -110,7 +110,8 @@ fn delta_lines(header: &Header, added: &[Added], removed: &[String], removed_ser
         }
     }
 
-    let connected: Option<Vec<String>> = header.get("deferredMcpToolNames").and_then(Value::as_array).map(|names| names.iter().map(|name| clean(Some(name))).collect());
+    let connected: Option<Vec<String>> =
+        header.get("deferredMcpToolNames").and_then(Value::as_array).map(|names| names.iter().map(|name| clean(Some(name))).collect());
     let live_servers: Vec<String> = connected.iter().flatten().map(|name| server_of(name, None)).filter(|server| !server.is_empty()).collect();
     let mut removed_by_server: Vec<(String, usize)> = Vec::new();
     let mut removed_items: Vec<Item> = Vec::new();

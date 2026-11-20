@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::collections::{HashMap, HashSet};
-use std::fs::{metadata, File, OpenOptions};
+use std::fs::{File, OpenOptions, metadata};
 use std::io::{BufRead, Read, Seek, SeekFrom, Write};
 use std::process::ExitStatus;
 #[cfg(unix)]
@@ -19,11 +19,9 @@ use std::os::windows::io::AsRawHandle;
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 #[cfg(windows)]
 use windows_sys::Win32::System::JobObjects::{
-    CreateJobObjectW, JobObjectBasicAccountingInformation,
-    JobObjectExtendedLimitInformation, QueryInformationJobObject, SetInformationJobObject,
-    TerminateJobObject, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
-    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JOB_OBJECT_LIMIT_BREAKAWAY_OK,
-    JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+    CreateJobObjectW, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, JOBOBJECT_BASIC_ACCOUNTING_INFORMATION,
+    JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectBasicAccountingInformation, JobObjectExtendedLimitInformation, QueryInformationJobObject,
+    SetInformationJobObject, TerminateJobObject,
 };
 
 #[cfg(windows)]
@@ -127,11 +125,7 @@ fn signal_name(signal: i32) -> String {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_millis()
-        .min(u64::MAX as u128) as u64
+    SystemTime::now().duration_since(UNIX_EPOCH).unwrap_or_default().as_millis().min(u64::MAX as u128) as u64
 }
 
 /// The child's kernel creation time as a FILETIME (100 ns ticks since 1601
@@ -143,58 +137,30 @@ fn now_ms() -> u64 {
 fn creation_filetime(child: &ChildProcess) -> Option<u64> {
     use windows_sys::Win32::Foundation::FILETIME;
     use windows_sys::Win32::System::Threading::GetProcessTimes;
-    let zero = FILETIME {
-        dwLowDateTime: 0,
-        dwHighDateTime: 0,
-    };
+    let zero = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
     let (mut created, mut exited, mut kernel, mut user) = (zero, zero, zero, zero);
-    let ok = unsafe {
-        GetProcessTimes(
-            child.as_raw_handle().cast(),
-            &mut created,
-            &mut exited,
-            &mut kernel,
-            &mut user,
-        )
-    };
-    (ok != 0).then(|| {
-        (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime)
-    })
+    let ok = unsafe { GetProcessTimes(child.as_raw_handle().cast(), &mut created, &mut exited, &mut kernel, &mut user) };
+    (ok != 0).then(|| (u64::from(created.dwHighDateTime) << 32) | u64::from(created.dwLowDateTime))
 }
 
 /// The child command a spawn request describes: stdio wiring (capture files
 /// when both opened, pipes otherwise), cwd, a replaced environment, and the
 /// platform flags that keep the child windowless / in its own process group.
 #[cfg(windows)]
-fn start_child(
-    req: &SpawnRequest,
-    capture_files: Option<(File, File)>,
-    control: &ProcessControl,
-) -> std::io::Result<StartedChild> {
+fn start_child(req: &SpawnRequest, capture_files: Option<(File, File)>, control: &ProcessControl) -> std::io::Result<StartedChild> {
     use std::os::windows::io::AsHandle;
-    let stdin = if req.stdin_pipe {
-        Some(std::io::pipe()?)
-    } else {
-        None
-    };
+    let stdin = if req.stdin_pipe { Some(std::io::pipe()?) } else { None };
     let (stdout, stderr) = match capture_files {
         Some(_) => (None, None),
         None => (Some(std::io::pipe()?), Some(std::io::pipe()?)),
     };
-    let env: Option<Vec<(std::ffi::OsString, std::ffi::OsString)>> = req
-        .env
-        .as_ref()
-        .map(|env| env.iter().map(|(k, v)| (k.into(), v.into())).collect());
+    let env: Option<Vec<(std::ffi::OsString, std::ffi::OsString)>> = req.env.as_ref().map(|env| env.iter().map(|(k, v)| (k.into(), v.into())).collect());
     let mut command_line = winspawn::quote_windows_arg(&req.program);
     for arg in &req.args {
         command_line.push(' ');
         command_line.push_str(&winspawn::quote_windows_arg(arg));
     }
-    let cwd = req
-        .cwd
-        .as_deref()
-        .filter(|cwd| !cwd.is_empty())
-        .map(std::path::Path::new);
+    let cwd = req.cwd.as_deref().filter(|cwd| !cwd.is_empty()).map(std::path::Path::new);
     let process = winspawn::spawn(
         control.handle,
         &winspawn::Spawn {
@@ -204,14 +170,8 @@ fn start_child(
             env: env.as_deref(),
             stdio: winspawn::Stdio::Handles {
                 stdin: stdin.as_ref().map(|(read, _)| read.as_handle()),
-                stdout: capture_files
-                    .as_ref()
-                    .map(|(out_file, _)| out_file.as_handle())
-                    .or_else(|| stdout.as_ref().map(|(_, write)| write.as_handle())),
-                stderr: capture_files
-                    .as_ref()
-                    .map(|(_, err_file)| err_file.as_handle())
-                    .or_else(|| stderr.as_ref().map(|(_, write)| write.as_handle())),
+                stdout: capture_files.as_ref().map(|(out_file, _)| out_file.as_handle()).or_else(|| stdout.as_ref().map(|(_, write)| write.as_handle())),
+                stderr: capture_files.as_ref().map(|(_, err_file)| err_file.as_handle()).or_else(|| stderr.as_ref().map(|(_, write)| write.as_handle())),
             },
         },
     )?;
@@ -226,24 +186,12 @@ fn start_child(
 }
 
 #[cfg(unix)]
-fn start_child(
-    req: &SpawnRequest,
-    capture_files: Option<(File, File)>,
-) -> std::io::Result<StartedChild> {
+fn start_child(req: &SpawnRequest, capture_files: Option<(File, File)>) -> std::io::Result<StartedChild> {
     let mut child = build_command(req, capture_files).spawn()?;
     Ok(StartedChild {
-        stdin: child
-            .stdin
-            .take()
-            .map(|pipe| Box::new(pipe) as Box<dyn Write + Send>),
-        stdout: child
-            .stdout
-            .take()
-            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
-        stderr: child
-            .stderr
-            .take()
-            .map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
+        stdin: child.stdin.take().map(|pipe| Box::new(pipe) as Box<dyn Write + Send>),
+        stdout: child.stdout.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
+        stderr: child.stderr.take().map(|pipe| Box::new(pipe) as Box<dyn Read + Send>),
         process: child,
     })
 }
@@ -251,15 +199,10 @@ fn start_child(
 #[cfg(unix)]
 fn build_command(req: &SpawnRequest, capture_files: Option<(File, File)>) -> Command {
     let mut cmd = Command::new(&req.program);
-    cmd.args(&req.args).stdin(if req.stdin_pipe {
-        Stdio::piped()
-    } else {
-        Stdio::null()
-    });
+    cmd.args(&req.args).stdin(if req.stdin_pipe { Stdio::piped() } else { Stdio::null() });
     match capture_files {
         Some((out_file, err_file)) => {
-            cmd.stdout(Stdio::from(out_file))
-                .stderr(Stdio::from(err_file));
+            cmd.stdout(Stdio::from(out_file)).stderr(Stdio::from(err_file));
         }
         None => {
             cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
@@ -276,19 +219,11 @@ fn build_command(req: &SpawnRequest, capture_files: Option<(File, File)>) -> Com
     cmd
 }
 
-fn initial_task_state(
-    req: &SpawnRequest,
-    job_id: Option<String>,
-    output_limit: usize,
-    contained: bool,
-) -> TaskState {
+fn initial_task_state(req: &SpawnRequest, job_id: Option<String>, output_limit: usize, contained: bool) -> TaskState {
     TaskState {
         job_id,
         status: "running".to_string(),
-        command: req
-            .command
-            .clone()
-            .unwrap_or_else(|| format!("{} {}", req.program, req.args.join(" "))),
+        command: req.command.clone().unwrap_or_else(|| format!("{} {}", req.program, req.args.join(" "))),
         cwd: req.cwd.clone().unwrap_or_default(),
         shell_type: req.shell_type.clone(),
         owner_session_id: req.owner_session_id.clone(),
@@ -370,10 +305,7 @@ fn deregister_held(manager: &Manager, managed: &ManagedProcess, state: &TaskStat
         return;
     }
     let mut live = manager.lock_live();
-    if live
-        .get(&managed.request_id)
-        .is_some_and(|entry| std::ptr::eq(entry.as_ref(), managed))
-    {
+    if live.get(&managed.request_id).is_some_and(|entry| std::ptr::eq(entry.as_ref(), managed)) {
         live.remove(&managed.request_id);
     }
 }
@@ -455,13 +387,7 @@ fn verify_kill(managed: &Arc<ManagedProcess>, manager: &Arc<Manager>) {
         return emit_tree(managed.request_id, &state);
     }
     drop(state);
-    watch_late(
-        Arc::clone(managed),
-        Arc::clone(manager),
-        LATE_EMPTY_POLL,
-        LATE_VERIFY_DEADLINE,
-        LATE_FAILURE_LIMIT,
-    );
+    watch_late(Arc::clone(managed), Arc::clone(manager), LATE_EMPTY_POLL, LATE_VERIFY_DEADLINE, LATE_FAILURE_LIMIT);
 }
 
 /// Watch survivors kept in their job (Preserved) at `poll` until a kill or
@@ -471,12 +397,7 @@ fn verify_kill(managed: &Arc<ManagedProcess>, manager: &Arc<Manager>) {
 /// that acts inside it; on its verdict the registry entry, and with it the job
 /// handle, is let go.
 #[cfg(windows)]
-fn watch_kept(
-    managed: Arc<ManagedProcess>,
-    manager: Arc<Manager>,
-    poll: Duration,
-    deadline: Duration,
-) -> thread::JoinHandle<()> {
+fn watch_kept(managed: Arc<ManagedProcess>, manager: Arc<Manager>, poll: Duration, deadline: Duration) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let started = std::time::Instant::now();
         let id = managed.request_id;
@@ -539,12 +460,7 @@ fn settle_tree(managed: &Arc<ManagedProcess>, manager: &Arc<Manager>, exited_on_
                 state.tree = Tree::Empty;
             } else if control.keep_survivors() {
                 state.tree = Tree::Preserved;
-                watch_kept(
-                    Arc::clone(managed),
-                    Arc::clone(manager),
-                    LATE_EMPTY_POLL,
-                    KEPT_WATCH,
-                );
+                watch_kept(Arc::clone(managed), Arc::clone(manager), LATE_EMPTY_POLL, KEPT_WATCH);
             } else {
                 release_held(managed, &mut state);
             }
@@ -579,12 +495,7 @@ struct LateCheck {
 #[cfg(any(windows, test))]
 impl LateCheck {
     fn new(deadline: Duration, failure_limit: u32) -> Self {
-        Self {
-            started: std::time::Instant::now(),
-            deadline,
-            failure_limit,
-            failures: 0,
-        }
+        Self { started: std::time::Instant::now(), deadline, failure_limit, failures: 0 }
     }
 
     fn step(&mut self, active: Option<u32>, kill: impl FnOnce() -> bool) -> Option<Tree> {
@@ -593,8 +504,7 @@ impl LateCheck {
             Some(_) if kill() => self.failures = 0,
             _ => self.failures += 1,
         }
-        (self.failures >= self.failure_limit || self.started.elapsed() >= self.deadline)
-            .then_some(Tree::Unverified)
+        (self.failures >= self.failure_limit || self.started.elapsed() >= self.deadline).then_some(Tree::Unverified)
     }
 }
 
@@ -603,13 +513,7 @@ impl LateCheck {
 /// Killing). On its verdict it reports EMPTY or UNVERIFIED and lets the
 /// registry entry, and with it the job handle, go.
 #[cfg(windows)]
-fn watch_late(
-    managed: Arc<ManagedProcess>,
-    manager: Arc<Manager>,
-    poll: Duration,
-    deadline: Duration,
-    failure_limit: u32,
-) -> thread::JoinHandle<()> {
+fn watch_late(managed: Arc<ManagedProcess>, manager: Arc<Manager>, poll: Duration, deadline: Duration, failure_limit: u32) -> thread::JoinHandle<()> {
     thread::spawn(move || {
         let mut check = LateCheck::new(deadline, failure_limit);
         loop {
@@ -668,11 +572,7 @@ fn settle_exit(state: &mut TaskState, status: std::io::Result<ExitStatus>) {
                     state.signal = Some("SIGKILL".to_string());
                 }
             } else {
-                state.status = if exit.success() {
-                    "completed".to_string()
-                } else {
-                    "failed".to_string()
-                };
+                state.status = if exit.success() { "completed".to_string() } else { "failed".to_string() };
             }
         }
         Err(error) => {
@@ -686,14 +586,7 @@ fn settle_exit(state: &mut TaskState, status: std::io::Result<ExitStatus>) {
 /// there is no pipe to pump (file capture).
 type Pump = (Arc<AtomicBool>, Option<thread::JoinHandle<()>>);
 
-fn start_pump<R: Read + Send + 'static>(
-    id: u64,
-    kind: &'static str,
-    pipe: Option<R>,
-    managed: &Arc<ManagedProcess>,
-    stream: bool,
-    raw_output: bool,
-) -> Pump {
+fn start_pump<R: Read + Send + 'static>(id: u64, kind: &'static str, pipe: Option<R>, managed: &Arc<ManagedProcess>, stream: bool, raw_output: bool) -> Pump {
     let done = Arc::new(AtomicBool::new(pipe.is_none()));
     let thread = pipe.map(|pipe| {
         let managed = Arc::clone(managed);
@@ -730,10 +623,7 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     // id of a command still registered (running, or keeping survivors) is
     // refused and spawns nothing, so it never takes that command's place.
     if !manager.reserve(id) {
-        spawn_error(
-            id,
-            format!("request id {id} was already used by a spawn in this session"),
-        );
+        spawn_error(id, format!("request id {id} was already used by a spawn in this session"));
         return;
     }
     let capture_files = open_capture_files(req.stdout_path.as_deref(), req.stderr_path.as_deref());
@@ -754,12 +644,7 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     let started = start_child(&req, capture_files, &control);
     #[cfg(unix)]
     let started = start_child(&req, capture_files);
-    let StartedChild {
-        process: mut child,
-        stdin: stdin_handle,
-        stdout: child_stdout,
-        stderr: child_stderr,
-    } = match started {
+    let StartedChild { process: mut child, stdin: stdin_handle, stdout: child_stdout, stderr: child_stderr } = match started {
         Ok(started) => started,
         Err(error) => {
             spawn_io_error(id, error);
@@ -770,28 +655,16 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     #[cfg(unix)]
     let control = ProcessControl { pid };
 
-    let output_limit = if req.output_limit > 0 {
-        req.output_limit
-    } else {
-        DEFAULT_OUTPUT_LIMIT
-    };
+    let output_limit = if req.output_limit > 0 { req.output_limit } else { DEFAULT_OUTPUT_LIMIT };
     // A supplied job id tracks foreground work from spawn time without
     // changing its streaming behavior. `background` controls stream/retention;
     // identity and ownership are orthogonal.
-    let job_id = req
-        .job_id
-        .clone()
-        .or_else(|| req.background.then(|| format!("job_{}_{}", now_ms(), id)));
+    let job_id = req.job_id.clone().or_else(|| req.background.then(|| format!("job_{}_{}", now_ms(), id)));
     let managed = Arc::new(ManagedProcess {
         request_id: id,
         pid,
         control,
-        state: Mutex::new(initial_task_state(
-            &req,
-            job_id.clone(),
-            output_limit,
-            contained,
-        )),
+        state: Mutex::new(initial_task_state(&req, job_id.clone(), output_limit, contained)),
         done: AtomicBool::new(false),
         retained: AtomicBool::new(req.background),
         stdin: Mutex::new(stdin_handle),
@@ -803,9 +676,7 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
         shutdown_held(&managed, &manager, &mut managed.lock_state());
     }
     if let Some(job_id) = &job_id {
-        manager
-            .lock_jobs()
-            .insert(job_id.clone(), Arc::clone(&managed));
+        manager.lock_jobs().insert(job_id.clone(), Arc::clone(&managed));
     }
 
     #[allow(unused_mut)]
@@ -824,44 +695,21 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     }
     arm_timeout(Arc::clone(&managed), req.timeout_ms);
     if file_capture {
-        arm_output_size_watchdog(
-            Arc::clone(&managed),
-            req.stdout_path.clone().unwrap_or_default(),
-            req.stderr_path.clone().unwrap_or_default(),
-        );
+        arm_output_size_watchdog(Arc::clone(&managed), req.stdout_path.clone().unwrap_or_default(), req.stderr_path.clone().unwrap_or_default());
     }
 
     // File capture leaves both handles None, so the pump threads below are
     // skipped and both drained flags start already satisfied.
     let stream = !req.background;
-    let stdout_pump = start_pump(
-        id,
-        "stdout",
-        child_stdout,
-        &managed,
-        stream,
-        req.raw_output,
-    );
-    let stderr_pump = start_pump(
-        id,
-        "stderr",
-        child_stderr,
-        &managed,
-        stream,
-        req.raw_output,
-    );
+    let stdout_pump = start_pump(id, "stdout", child_stdout, &managed, stream, req.raw_output);
+    let stderr_pump = start_pump(id, "stderr", child_stderr, &managed, stream, req.raw_output);
 
     let status = child.wait();
     // Final sizes and preview tails before the terminal snapshot: the watchdog
     // polls on an interval, so everything written since its last tick would
     // otherwise be missing from the completion envelope.
     if file_capture {
-        refresh_capture_state(
-            &managed,
-            req.stdout_path.as_deref().unwrap_or(""),
-            req.stderr_path.as_deref().unwrap_or(""),
-            false,
-        );
+        refresh_capture_state(&managed, req.stdout_path.as_deref().unwrap_or(""), req.stderr_path.as_deref().unwrap_or(""), false);
     }
     // From here no cancel or deadline kills an uncontained command: a root
     // that exited on its own leaves its survivors running, let go in this same
@@ -870,8 +718,7 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
     // refused, so nothing can leave it unseen before then.
     let exited_on_its_own = {
         let state = managed.lock_state();
-        let natural =
-            status.is_ok() && !state.killed && !state.timed_out && state.status == "running";
+        let natural = status.is_ok() && !state.killed && !state.timed_out && state.status == "running";
         if !(natural && contained) {
             managed.done.store(true, Ordering::Release);
         }
@@ -906,34 +753,21 @@ fn run_spawn(req: SpawnRequest, manager: Arc<Manager>) {
 
 /// Settle the terminal state, publish the completion events, and release or
 /// retain the job identity once the root process and its pumps are done.
-fn finalize_process(
-    id: u64,
-    managed: &Arc<ManagedProcess>,
-    manager: &Arc<Manager>,
-    status: std::io::Result<ExitStatus>,
-) {
+fn finalize_process(id: u64, managed: &Arc<ManagedProcess>, manager: &Arc<Manager>, status: std::io::Result<ExitStatus>) {
     {
         let mut state = managed.lock_state();
         settle_exit(&mut state, status);
         state.reported = true;
         deregister_held(manager, managed, &state);
     }
-    let (exit_code, signal) = managed
-        .state
-        .lock()
-        .map(|state| (state.exit_code, state.signal.clone()))
-        .unwrap_or((None, None));
+    let (exit_code, signal) = managed.state.lock().map(|state| (state.exit_code, state.signal.clone())).unwrap_or((None, None));
     if managed.snapshot().is_some() {
         emit_task(id, "task_complete", managed);
     }
     // Foreground identities exist only while the process is live. A promoted
     // or explicitly-background task is retained for later task read/list.
     if !managed.retained.load(Ordering::Acquire) {
-        let job_id = managed
-            .state
-            .lock()
-            .ok()
-            .and_then(|state| state.job_id.clone());
+        let job_id = managed.state.lock().ok().and_then(|state| state.job_id.clone());
         if let Some(job_id) = job_id {
             manager.lock_jobs().remove(&job_id);
             emit(&json!({ "id": id, "event": "task_released", "jobId": job_id }));
@@ -967,13 +801,7 @@ fn track(req: TrackRequest, manager: &Arc<Manager>) {
     };
     if let Ok(mut state) = managed.state.lock() {
         state.job_id = Some(req.job_id.clone());
-        state.update_metadata(
-            req.command,
-            req.cwd,
-            req.shell_type,
-            req.owner_session_id,
-            req.client_host_pid,
-        );
+        state.update_metadata(req.command, req.cwd, req.shell_type, req.owner_session_id, req.client_host_pid);
     }
     manager.lock_jobs().insert(req.job_id, Arc::clone(&managed));
     emit_task(req.id, "task_started", &managed);
@@ -987,13 +815,7 @@ fn promote(req: PromoteRequest, manager: &Arc<Manager>) {
     };
     managed.retained.store(true, Ordering::Release);
     if let Ok(mut state) = managed.state.lock() {
-        state.update_metadata(
-            req.command,
-            req.cwd,
-            req.shell_type,
-            req.owner_session_id,
-            req.client_host_pid,
-        );
+        state.update_metadata(req.command, req.cwd, req.shell_type, req.owner_session_id, req.client_host_pid);
     }
     arm_timeout(Arc::clone(&managed), req.timeout_ms);
     emit_task(req.id, "task_started", &managed);
@@ -1029,33 +851,16 @@ fn main() {
                 let manager = Arc::clone(&manager);
                 thread::spawn(move || run_spawn(req, manager));
             }
-            Ok(WireRequest::StdinWrite {
-                stdin_write,
-                data,
-                close,
-            }) => stdin_write_request(&manager, stdin_write, data, close),
-            Ok(WireRequest::StdinClose { stdin_close }) => {
-                stdin_close_request(&manager, stdin_close)
-            }
+            Ok(WireRequest::StdinWrite { stdin_write, data, close }) => stdin_write_request(&manager, stdin_write, data, close),
+            Ok(WireRequest::StdinClose { stdin_close }) => stdin_close_request(&manager, stdin_close),
             Ok(WireRequest::Cancel { cancel }) => cancel_request(&manager, cancel),
             Ok(WireRequest::Track(req)) => track(req, &manager),
             Ok(WireRequest::Promote(req)) => promote(req, &manager),
-            Ok(WireRequest::CancelTask { id, cancel_task }) => {
-                cancel_task_request(&manager, id, &cancel_task)
-            }
-            Ok(WireRequest::CancelOwner {
-                id,
-                cancel_owner_session,
-            }) => cancel_owner_request(&manager, id, &cancel_owner_session),
-            Ok(WireRequest::ReleaseTask { id, release_task }) => {
-                release_task_request(&manager, id, release_task)
-            }
-            Ok(WireRequest::TaskStatus { id, task_status }) => {
-                task_status_request(&manager, id, &task_status)
-            }
-            Ok(WireRequest::TaskList { id, task_list }) => {
-                task_list_request(&manager, id, task_list)
-            }
+            Ok(WireRequest::CancelTask { id, cancel_task }) => cancel_task_request(&manager, id, &cancel_task),
+            Ok(WireRequest::CancelOwner { id, cancel_owner_session }) => cancel_owner_request(&manager, id, &cancel_owner_session),
+            Ok(WireRequest::ReleaseTask { id, release_task }) => release_task_request(&manager, id, release_task),
+            Ok(WireRequest::TaskStatus { id, task_status }) => task_status_request(&manager, id, &task_status),
+            Ok(WireRequest::TaskList { id, task_list }) => task_list_request(&manager, id, task_list),
             Err(error) => spawn_error(0, format!("bad request: {error}")),
         }
     }
@@ -1086,11 +891,7 @@ fn stdin_write_request(manager: &Manager, stdin_write: u64, data: String, close:
 fn stdin_close_request(manager: &Manager, stdin_close: u64) {
     let managed = manager.live_process(stdin_close);
     if let Some(managed) = managed {
-        let _ = managed
-            .stdin
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .take();
+        let _ = managed.stdin.lock().unwrap_or_else(|e| e.into_inner()).take();
     }
 }
 
@@ -1104,9 +905,7 @@ fn cancel_request(manager: &Arc<Manager>, cancel: u64) {
 }
 
 fn cancel_task_request(manager: &Arc<Manager>, id: u64, cancel_task: &str) {
-    let managed = manager
-        .job(cancel_task)
-        .or_else(|| manager.entry_of_job(cancel_task));
+    let managed = manager.job(cancel_task).or_else(|| manager.entry_of_job(cancel_task));
     if let Some(managed) = managed {
         cancel_targeted(&managed, manager, true);
     } else {
@@ -1121,10 +920,7 @@ fn cancel_owner_request(manager: &Manager, id: u64, cancel_owner_session: &str) 
     let mut cancelled = 0usize;
     for managed in live {
         let mut state = managed.lock_state();
-        if state.owner_session_id.as_deref() == Some(cancel_owner_session)
-            && state.status == "running"
-            && kill_running(&managed, &mut state)
-        {
+        if state.owner_session_id.as_deref() == Some(cancel_owner_session) && state.status == "running" && kill_running(&managed, &mut state) {
             state.status = "cancelled".to_string();
             state.error = Some("cancelled because the owning session closed".to_string());
             cancelled += 1;
@@ -1172,11 +968,7 @@ fn task_list_request(manager: &Manager, id: u64, task_list: bool) {
         spawn_error(id, "invalid task list request");
         return;
     }
-    let tasks: Vec<TaskSnapshot> = manager
-        .lock_jobs()
-        .values()
-        .filter_map(|managed| managed.snapshot())
-        .collect();
+    let tasks: Vec<TaskSnapshot> = manager.lock_jobs().values().filter_map(|managed| managed.snapshot()).collect();
     emit(&json!({ "id": id, "event": "task_list", "tasks": tasks }));
 }
 
@@ -1239,12 +1031,7 @@ mod tests {
 
     /// Run a late check to its verdict, one check per `poll`: the verdict and
     /// how many checks it took.
-    fn late(
-        mut check: LateCheck,
-        poll: Duration,
-        mut active: impl FnMut() -> Option<u32>,
-        mut kill: impl FnMut() -> bool,
-    ) -> (Tree, u32) {
+    fn late(mut check: LateCheck, poll: Duration, mut active: impl FnMut() -> Option<u32>, mut kill: impl FnMut() -> bool) -> (Tree, u32) {
         let mut checks = 0;
         loop {
             checks += 1;
@@ -1280,12 +1067,7 @@ mod tests {
     #[test]
     fn late_verification_gives_up_at_its_deadline_on_a_job_that_never_empties() {
         let started = std::time::Instant::now();
-        let (tree, _) = late(
-            LateCheck::new(Duration::from_millis(50), u32::MAX),
-            Duration::from_millis(1),
-            || Some(1),
-            || true,
-        );
+        let (tree, _) = late(LateCheck::new(Duration::from_millis(50), u32::MAX), Duration::from_millis(1), || Some(1), || true);
         assert_eq!(tree, Tree::Unverified);
         assert!(started.elapsed() >= Duration::from_millis(50));
     }
@@ -1311,8 +1093,8 @@ mod tests {
     /// deterministically.
     #[cfg(windows)]
     pub(crate) mod gates {
-        use std::sync::mpsc::{channel, Receiver, Sender};
         use std::sync::Mutex;
+        use std::sync::mpsc::{Receiver, Sender, channel};
 
         struct Gate {
             id: u64,
@@ -1343,24 +1125,14 @@ mod tests {
         pub(crate) fn hold(id: u64, point: &'static str) -> Held {
             let (arrived, arrived_rx) = channel();
             let (release_tx, release) = channel();
-            GATES.lock().unwrap().push(Gate {
-                id,
-                point,
-                arrived,
-                release,
-            });
-            Held {
-                arrived: arrived_rx,
-                release: release_tx,
-            }
+            GATES.lock().unwrap().push(Gate { id, point, arrived, release });
+            Held { arrived: arrived_rx, release: release_tx }
         }
 
         pub(crate) fn pause(id: u64, point: &'static str) {
             let gate = {
                 let mut gates = GATES.lock().unwrap_or_else(|e| e.into_inner());
-                let at = gates
-                    .iter()
-                    .position(|gate| gate.id == id && gate.point == point);
+                let at = gates.iter().position(|gate| gate.id == id && gate.point == point);
                 at.map(|at| gates.remove(at))
             };
             if let Some(gate) = gate {
@@ -1409,11 +1181,7 @@ mod tests {
                     command_line: &format!("{program} -n {pings} 127.0.0.1"),
                     cwd: None,
                     env: None,
-                    stdio: winspawn::Stdio::Handles {
-                        stdin: None,
-                        stdout: None,
-                        stderr: None,
-                    },
+                    stdio: winspawn::Stdio::Handles { stdin: None, stdout: None, stderr: None },
                 },
             )
             .unwrap();
@@ -1421,12 +1189,7 @@ mod tests {
                 request_id: id,
                 pid: member.id(),
                 control,
-                state: Mutex::new(initial_task_state(
-                    &request,
-                    Some(format!("job_{id}")),
-                    0,
-                    true,
-                )),
+                state: Mutex::new(initial_task_state(&request, Some(format!("job_{id}")), 0, true)),
                 done: AtomicBool::new(false),
                 retained: AtomicBool::new(false),
                 stdin: Mutex::new(None),
@@ -1462,27 +1225,15 @@ mod tests {
 
         /// Its root exited on its own and settlement kept its survivors in
         /// the job (as settle_tree decides), watched with a short deadline.
-        fn preserved(
-            manager: &Arc<Manager>,
-            managed: &Arc<ManagedProcess>,
-            deadline: Duration,
-        ) -> thread::JoinHandle<()> {
+        fn preserved(manager: &Arc<Manager>, managed: &Arc<ManagedProcess>, deadline: Duration) -> thread::JoinHandle<()> {
             let mut state = managed.lock_state();
             assert!(managed.control.keep_survivors());
             managed.done.store(true, Ordering::Release);
             state.tree = Tree::Preserved;
-            watch_kept(
-                Arc::clone(managed),
-                Arc::clone(manager),
-                Duration::from_millis(5),
-                deadline,
-            )
+            watch_kept(Arc::clone(managed), Arc::clone(manager), Duration::from_millis(5), deadline)
         }
 
-        fn settle_on_thread(
-            manager: &Arc<Manager>,
-            managed: &Arc<ManagedProcess>,
-        ) -> thread::JoinHandle<()> {
+        fn settle_on_thread(manager: &Arc<Manager>, managed: &Arc<ManagedProcess>) -> thread::JoinHandle<()> {
             let (manager, managed) = (Arc::clone(manager), Arc::clone(managed));
             thread::spawn(move || settle_tree(&managed, &manager, true))
         }
@@ -1496,8 +1247,7 @@ mod tests {
         /// The survivors were let go: no kill on close, breakaway allowed
         /// again, and the server refuses to kill them.
         fn let_go(managed: &ManagedProcess) -> bool {
-            managed.control.limit_flags() == JOB_OBJECT_LIMIT_BREAKAWAY_OK
-                && !managed.control.terminate()
+            managed.control.limit_flags() == JOB_OBJECT_LIMIT_BREAKAWAY_OK && !managed.control.terminate()
         }
 
         // The job counts a process out as it exits; its handle is signalled a
@@ -1540,11 +1290,7 @@ mod tests {
             report(&manager, &managed);
             assert!(manager.entry(42).is_some(), "still registered: kept");
             cancel_request(&manager, 42);
-            assert!(
-                becomes(&managed, Tree::Empty),
-                "verified empty: {:?}",
-                tree(&managed)
-            );
+            assert!(becomes(&managed, Tree::Empty), "verified empty: {:?}", tree(&managed));
             assert!(exits(&mut member), "the survivor died with the job");
             assert!(deregistered(&manager, 42), "the job handle is let go");
         }
@@ -1555,11 +1301,7 @@ mod tests {
             settle_tree(&managed, &manager, true);
             report(&manager, &managed);
             cancel_task_request(&manager, 99, "job_44");
-            assert!(
-                becomes(&managed, Tree::Empty),
-                "verified empty: {:?}",
-                tree(&managed)
-            );
+            assert!(becomes(&managed, Tree::Empty), "verified empty: {:?}", tree(&managed));
             assert!(exits(&mut member));
         }
 
@@ -1606,15 +1348,7 @@ mod tests {
             // From now on the job kill is refused, so the member never leaves.
             managed.preserve_descendants().unwrap();
             managed.lock_state().tree = Tree::Killing;
-            watch_late(
-                Arc::clone(&managed),
-                Arc::clone(&manager),
-                Duration::from_millis(5),
-                FOREVER,
-                3,
-            )
-            .join()
-            .unwrap();
+            watch_late(Arc::clone(&managed), Arc::clone(&manager), Duration::from_millis(5), FOREVER, 3).join().unwrap();
             assert_eq!(tree(&managed), Tree::Unverified);
             assert!(manager.entry(43).is_none());
             assert_eq!(Arc::strong_count(&managed), 1, "the watcher let the job go");
@@ -1798,8 +1532,7 @@ mod tests {
             settle_tree(&managed, &manager, true);
             report(&manager, &managed);
             assert_eq!(tree(&managed), Tree::Preserved);
-            let marker =
-                std::env::temp_dir().join(format!("mixdog-spawn-dup-{}", std::process::id()));
+            let marker = std::env::temp_dir().join(format!("mixdog-spawn-dup-{}", std::process::id()));
             let _ = std::fs::remove_file(&marker);
             let request: SpawnRequest = serde_json::from_value(json!({
                 "id": 61,
@@ -1863,10 +1596,7 @@ mod tests {
                 while !*is_open {
                     is_open = opened.wait(is_open).unwrap();
                 }
-                self.lines
-                    .lock()
-                    .unwrap()
-                    .push_str(&String::from_utf8_lossy(buf));
+                self.lines.lock().unwrap().push_str(&String::from_utf8_lossy(buf));
                 Ok(buf.len())
             }
 
@@ -1891,29 +1621,20 @@ mod tests {
         // order, and no state lock is held on the writer's account.
         #[test]
         fn while_stdout_is_not_read_transitions_and_shutdown_decide_promptly() {
-            let stdout = UnreadStdout {
-                open: Arc::new((Mutex::new(false), std::sync::Condvar::new())),
-                lines: Arc::new(Mutex::new(String::new())),
-            };
+            let stdout = UnreadStdout { open: Arc::new((Mutex::new(false), std::sync::Condvar::new())), lines: Arc::new(Mutex::new(String::new())) };
             output::replace_writer(stdout.clone());
             emit(&json!({ "id": 64, "event": "probe" })); // the writer is stuck on this
             let (manager_a, a, mut member_a) = exited_root_with_member(64);
             let (manager_b, b, mut member_b) = exited_root_with_member(65);
             let watcher = preserved(&manager_a, &a, Duration::from_millis(50));
-            assert!(
-                finishes(&watcher, Duration::from_secs(2)),
-                "the watcher decided"
-            );
+            assert!(finishes(&watcher, Duration::from_secs(2)), "the watcher decided");
             assert_eq!(tree(&a), Tree::Released);
             let kept = preserved(&manager_b, &b, FOREVER);
             let reaping = {
                 let manager_b = Arc::clone(&manager_b);
                 thread::spawn(move || reap_on_shutdown(&manager_b))
             };
-            assert!(
-                finishes(&reaping, Duration::from_secs(2)),
-                "the reap decided"
-            );
+            assert!(finishes(&reaping, Duration::from_secs(2)), "the reap decided");
             assert_eq!(tree(&b), Tree::Released);
             // b's watcher polls under b's state lock until it sees the tree is no longer
             // Preserved; joining it is the event after which no other holder is left, so
@@ -1921,10 +1642,7 @@ mod tests {
             kept.join().unwrap();
             assert!(a.state.try_lock().is_ok() && b.state.try_lock().is_ok());
             assert!(alive(&mut member_a) && alive(&mut member_b));
-            assert!(
-                stdout.lines.lock().unwrap().is_empty(),
-                "nothing written yet"
-            );
+            assert!(stdout.lines.lock().unwrap().is_empty(), "nothing written yet");
             // The client reads again: everything goes out, in order.
             let (open, opened) = &*stdout.open;
             *open.lock().unwrap() = true;
@@ -1937,19 +1655,13 @@ mod tests {
             let at = |event: &str, id: u64| {
                 written
                     .lines()
-                    .position(|line| {
-                        serde_json::from_str::<serde_json::Value>(line)
-                            .is_ok_and(|v| v["event"] == event && v["id"] == id)
-                    })
+                    .position(|line| serde_json::from_str::<serde_json::Value>(line).is_ok_and(|v| v["event"] == event && v["id"] == id))
                     .unwrap_or(usize::MAX)
             };
             let probe = at("probe", 64);
             let released_a = at("tree_released", 64);
             let released_b = at("tree_released", 65);
-            assert!(
-                probe < released_a && released_a < released_b && released_b < usize::MAX,
-                "{written}"
-            );
+            assert!(probe < released_a && released_a < released_b && released_b < usize::MAX, "{written}");
         }
 
         // Restoring breakaway fails: the tree is still RELEASED (final, never
@@ -1957,23 +1669,14 @@ mod tests {
         #[test]
         fn a_release_whose_breakaway_cannot_be_restored_stays_released_and_says_so() {
             let (manager, managed, mut member) = exited_root_with_member(63);
-            managed
-                .control
-                .refuse_release
-                .store(true, Ordering::Release);
-            preserved(&manager, &managed, Duration::from_millis(50))
-                .join()
-                .unwrap();
+            managed.control.refuse_release.store(true, Ordering::Release);
+            preserved(&manager, &managed, Duration::from_millis(50)).join().unwrap();
             assert_eq!(tree(&managed), Tree::Released);
             assert!(managed.lock_state().breakaway_unrestored);
             let snapshot = managed.snapshot().unwrap();
             assert_eq!(snapshot.tree_outcome.as_deref(), Some("released"));
             assert_eq!(snapshot.breakaway_restored, Some(false));
-            assert_ne!(
-                managed.control.limit_flags(),
-                JOB_OBJECT_LIMIT_BREAKAWAY_OK,
-                "breakaway is not restored"
-            );
+            assert_ne!(managed.control.limit_flags(), JOB_OBJECT_LIMIT_BREAKAWAY_OK, "breakaway is not restored");
             cancel_request(&manager, 63);
             reap_on_shutdown(&manager);
             assert_eq!(tree(&managed), Tree::Released, "final either way");

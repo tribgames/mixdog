@@ -264,7 +264,9 @@ impl Parser {
                     j += 1;
                 }
                 let next = self.c.get(j).copied();
-                let ends = next.is_none_or(|n| is_flow_indicator(n) || n == '#' || (n == ':' && self.c.get(j + 1).is_none_or(|a| a.is_whitespace() || is_flow_indicator(*a))));
+                let ends = next.is_none_or(|n| {
+                    is_flow_indicator(n) || n == '#' || (n == ':' && self.c.get(j + 1).is_none_or(|a| a.is_whitespace() || is_flow_indicator(*a)))
+                });
                 if ends {
                     break;
                 }
@@ -529,11 +531,7 @@ fn indent_comment(comment: &str, indent: &str) -> String {
     if indent.is_empty() {
         return comment.to_owned();
     }
-    comment
-        .split('\n')
-        .map(|line| if line.chars().all(|c| c == ' ') { line.to_owned() } else { format!("{indent}{line}") })
-        .collect::<Vec<_>>()
-        .join("\n")
+    comment.split('\n').map(|line| if line.chars().all(|c| c == ' ') { line.to_owned() } else { format!("{indent}{line}") }).collect::<Vec<_>>().join("\n")
 }
 
 fn line_comment(text: &str, indent: &str, comment: &str) -> String {
@@ -632,8 +630,7 @@ fn stringify_collection(node: &Node, ctx: &Fc) -> Result<String, SkillDocumentEr
         Body::Seq(items) => (items.clone(), "[", "]", format!("{}  ", ctx.s.indent)),
         _ => return Ok(String::new()),
     };
-    let all_null = ctx.all_null_values
-        || matches!(&node.body, Body::Map(pairs) if !pairs.is_empty() && pairs.iter().all(|p| p.value.is_none()));
+    let all_null = ctx.all_null_values || matches!(&node.body, Body::Map(pairs) if !pairs.is_empty() && pairs.iter().all(|p| p.value.is_none()));
     let item_indent = format!("{base}{STEP}");
     let item_ctx = Fc { s: Ctx { indent: item_indent.clone(), in_flow: true, ..ctx.s.clone() }, all_null_values: all_null };
     let mut required_newline = false;
@@ -795,9 +792,8 @@ pub(crate) fn print_flow_document(front: &str, wanted: &[(&str, Option<&String>)
     }
     let Body::Map(pairs) = &mut root.body else { return Err(SkillDocumentError::NotMapping) };
     for (key, value) in wanted {
-        let position = pairs.iter().position(|p| {
-            p.key.as_ref().is_some_and(|k| matches!(&k.body, Body::Scalar(Scalar { val: Val::Str(text), .. }) if text == key))
-        });
+        let position =
+            pairs.iter().position(|p| p.key.as_ref().is_some_and(|k| matches!(&k.body, Body::Scalar(Scalar { val: Val::Str(text), .. }) if text == key)));
         match (position, value) {
             (Some(at), Some(text)) => {
                 let slot = &mut pairs[at].value;

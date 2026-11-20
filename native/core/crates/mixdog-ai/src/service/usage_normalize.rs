@@ -115,11 +115,7 @@ pub fn window_from_percent(label: &str, value: Option<&Value>, source: &str, now
     let limit_usd = num(first(entry, &["limitUsd", "limit_usd", "limit_dollars", "monthly_limit"]), None);
     let used_usd = num(first(entry, &["usedUsd", "used_usd", "used_dollars", "used_credits"]), None);
     let remaining_usd = num(first(entry, &["remainingUsd", "remaining_usd", "remaining_dollars"]), None);
-    let reset_at = reset_at_ms(
-        first(entry, &["resetAt", "resetsAt", "reset_at", "resets_at"]),
-        entry.get("reset_after_seconds"),
-        now_ms,
-    );
+    let reset_at = reset_at_ms(first(entry, &["resetAt", "resetsAt", "reset_at", "resets_at"]), entry.get("reset_after_seconds"), now_ms);
     let seconds = if window_seconds != 0.0 { window_seconds } else { window_minutes * 60.0 };
     let mut out = Obj::new();
     out.insert("label".into(), Value::String(label_for_duration(seconds, label)));
@@ -285,24 +281,16 @@ pub fn normalize_codex_reset_credits(data: Option<&Value>, account_id: &str, now
         return None;
     }
     let available_count = explicit.unwrap_or(available.len() as f64).floor().max(0.0);
-    let mut list: Vec<(Option<f64>, Option<f64>)> = available
-        .iter()
-        .map(|c| (c.1.filter(|v| *v > 0.0), c.2.filter(|v| *v > 0.0)))
-        .collect();
-    list.sort_by(|a, b| {
-        a.0.unwrap_or(f64::INFINITY).partial_cmp(&b.0.unwrap_or(f64::INFINITY)).unwrap_or(std::cmp::Ordering::Equal)
-    });
+    let mut list: Vec<(Option<f64>, Option<f64>)> = available.iter().map(|c| (c.1.filter(|v| *v > 0.0), c.2.filter(|v| *v > 0.0))).collect();
+    list.sort_by(|a, b| a.0.unwrap_or(f64::INFINITY).partial_cmp(&b.0.unwrap_or(f64::INFINITY)).unwrap_or(std::cmp::Ordering::Equal));
     let expiries: Vec<f64> = available.iter().filter_map(|c| c.1).filter(|v| *v > 0.0).collect();
     let next_expires_at = reset_at_ms(first(data, &["next_expires_at", "nextExpiresAt"]), None, now_ms)
         .filter(|v| *v != 0.0)
         .or_else(|| expiries.iter().copied().reduce(f64::min));
     // The offer's identity is count + soonest expiry, so the detail endpoint
     // and the embedded counts give one revision.
-    let identity = obj(vec![
-        ("accountId", account_id.into()),
-        ("availableCount", jn(available_count)),
-        ("nextExpiresAt", next_expires_at.map_or(Value::Null, jn)),
-    ]);
+    let identity =
+        obj(vec![("accountId", account_id.into()), ("availableCount", jn(available_count)), ("nextExpiresAt", next_expires_at.map_or(Value::Null, jn))]);
     let digest = Sha256::digest(identity.to_string().as_bytes());
     let revision = format!("v1:{}", digest.iter().map(|b| format!("{b:02x}")).collect::<String>());
     let mut out = Obj::new();
@@ -335,8 +323,7 @@ pub fn normalize_codex_reset_credits(data: Option<&Value>, account_id: &str, now
 
 fn money_value(value: Option<&Value>) -> Option<f64> {
     match value {
-        Some(v @ Value::Object(_)) => num(v.get("amount_minor"), None)
-            .map(|minor| minor / 10f64.powf(num_or(v.get("exponent"), 2.0))),
+        Some(v @ Value::Object(_)) => num(v.get("amount_minor"), None).map(|minor| minor / 10f64.powf(num_or(v.get("exponent"), 2.0))),
         other => num(other, None),
     }
 }
@@ -349,8 +336,7 @@ fn minor_to_units(v: Option<&Value>) -> Option<f64> {
 fn balance_from_anthropic_spend(spend: Option<&Value>) -> Value {
     let Some(spend @ Value::Object(_)) = spend else { return Value::Null };
     let used_currency = spend.get("used").and_then(|u| u.get("currency")).filter(|c| !c.is_null());
-    let currency = clean(used_currency.or_else(|| spend.get("limit").and_then(|l| l.get("currency"))))
-        .unwrap_or_else(|| "USD".into());
+    let currency = clean(used_currency.or_else(|| spend.get("limit").and_then(|l| l.get("currency")))).unwrap_or_else(|| "USD".into());
     let result = |remaining: f64, spent: f64| {
         obj(vec![
             ("source", "anthropic-oauth-spend".into()),
@@ -468,12 +454,7 @@ fn scoped_anthropic_windows(data: &Value, source: &str, now_ms: i64) -> Vec<Valu
             ]);
             if let Some(w) = window_from_percent(&label, Some(&pct), source, now_ms) {
                 // Only a model scope can bind inference; a surface scope never does.
-                let family = scope
-                    .and_then(|s| s.get("model"))
-                    .filter(|m| truthy(Some(m)))
-                    .and(name)
-                    .and_then(|n| n.split_whitespace().next())
-                    .unwrap_or("");
+                let family = scope.and_then(|s| s.get("model")).filter(|m| truthy(Some(m))).and(name).and_then(|n| n.split_whitespace().next()).unwrap_or("");
                 put(label, bind_inference_family(w, family, true));
             }
         }
@@ -491,10 +472,7 @@ fn anthropic_extra_usage_window(extra: Option<&Value>, now_ms: i64) -> Option<Va
         ("used_dollars", jn(used_usd)),
         ("remaining_dollars", jn((limit_usd - used_usd).max(0.0))),
     ]);
-    let mut w = window_from_percent("EXTRA", Some(&entry), "anthropic-oauth-extra", now_ms)?
-        .as_object()
-        .cloned()
-        .unwrap_or_default();
+    let mut w = window_from_percent("EXTRA", Some(&entry), "anthropic-oauth-extra", now_ms)?.as_object().cloned().unwrap_or_default();
     w.insert("models".into(), Value::Array(Vec::new()));
     Some(Value::Object(w))
 }
@@ -504,13 +482,11 @@ pub fn normalize_anthropic_usage(data: &Value, source: &str, now_ms: i64) -> Opt
     if !data.is_object() {
         return None;
     }
-    let mut windows: Vec<Value> = [
-        window_from_percent("5H", data.get("five_hour"), source, now_ms),
-        window_from_percent("7D", data.get("seven_day"), source, now_ms),
-    ]
-    .into_iter()
-    .flatten()
-    .collect();
+    let mut windows: Vec<Value> =
+        [window_from_percent("5H", data.get("five_hour"), source, now_ms), window_from_percent("7D", data.get("seven_day"), source, now_ms)]
+            .into_iter()
+            .flatten()
+            .collect();
     if windows.is_empty()
         && let Some(Value::Array(limits)) = data.get("limits")
     {
@@ -519,10 +495,8 @@ pub fn normalize_anthropic_usage(data: &Value, source: &str, now_ms: i64) -> Opt
             .filter(|x| truthy(Some(x)))
             .filter(|x| !truthy(x.get("scope").and_then(|s| s.get("model"))) && !truthy(x.get("scope").and_then(|s| s.get("surface"))))
             .filter_map(|x| {
-                let pct = obj(vec![
-                    ("percent", x.get("percent").cloned().unwrap_or(Value::Null)),
-                    ("resets_at", x.get("resets_at").cloned().unwrap_or(Value::Null)),
-                ]);
+                let pct =
+                    obj(vec![("percent", x.get("percent").cloned().unwrap_or(Value::Null)), ("resets_at", x.get("resets_at").cloned().unwrap_or(Value::Null))]);
                 window_from_percent(&limit_window_label(x), Some(&pct), source, now_ms)
             })
             .collect();
@@ -566,7 +540,8 @@ pub fn grok_billing_cadence(config: &Value, now_ms: i64) -> Option<(&'static str
     let start = reset_at_ms(first(config, &["billingPeriodStart", "billing_period_start"]), None, now_ms);
     let end = reset_at_ms(first(config, &["billingPeriodEnd", "billing_period_end"]), None, now_ms);
     if let (Some(s), Some(e)) = (start, end)
-        && e > s && e - s <= 10.0 * 86_400_000.0
+        && e > s
+        && e - s <= 10.0 * 86_400_000.0
     {
         return Some(("W", "weekly"));
     }
@@ -592,10 +567,7 @@ pub fn credit_window_from_billing(config: &Value, now_ms: i64) -> Option<Value> 
     }
     let (label, _) = grok_billing_cadence(config, now_ms)?;
     let current = or_truthy(config, &["currentPeriod", "current_period"]);
-    let end = current
-        .and_then(|c| c.get("end"))
-        .filter(|x| !x.is_null())
-        .or_else(|| first(config, &["billingPeriodEnd", "billing_period_end"]));
+    let end = current.and_then(|c| c.get("end")).filter(|x| !x.is_null()).or_else(|| first(config, &["billingPeriodEnd", "billing_period_end"]));
     let reset_at = reset_at_ms(end, None, now_ms);
     // `weeklyLimit?.val ?? weeklyLimit ?? monthlyLimit?.val ?? monthlyLimit ?? includedLimit?.val`
     let limit = num(

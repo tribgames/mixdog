@@ -67,25 +67,20 @@ fn a_wedged_lane_resolves_every_caller_instead_of_stalling_them() {
     let parked_token = CancellationToken::new();
     let mut parked = Box::pin(lane.submit_wait(&parked_token, |_| 4));
     assert!(rt.block_on(poll_once(&mut parked)).is_pending(), "the caller waits behind the room");
-    assert_eq!(
-        executors.diagnostics().lanes.iter().find(|l| l.kind == LaneKind::CpuBulk).unwrap().waiters,
-        1
-    );
-    assert_eq!(
-        lane.submit(&never, |_| 3).err(),
-        Some(LaneFull {
-            lane: LaneKind::CpuBulk
-        })
-    );
+    assert_eq!(executors.diagnostics().lanes.iter().find(|l| l.kind == LaneKind::CpuBulk).unwrap().waiters, 1);
+    assert_eq!(lane.submit(&never, |_| 3).err(), Some(LaneFull { lane: LaneKind::CpuBulk }));
 
     // Lease expiry: a replacement worker serves the queue and the parked caller gets through.
     // A is not abandoned: it is still running and its handle stays unresolved.
     executors.sweep_leases(Instant::now() + PAST_ANY_LEASE);
-    bounded(&rt, Box::pin(async move {
-        assert_eq!(q1.await, Ok(1));
-        assert_eq!(q2.await, Ok(2));
-        assert_eq!(parked.await.expect("the parked caller is admitted").await, Ok(4));
-    }));
+    bounded(
+        &rt,
+        Box::pin(async move {
+            assert_eq!(q1.await, Ok(1));
+            assert_eq!(q2.await, Ok(2));
+            assert_eq!(parked.await.expect("the parked caller is admitted").await, Ok(4));
+        }),
+    );
 
     // The replacement wedges as well: job B, then a queue holding its room, then a parked caller.
     let (release_b, b_gate) = mpsc::channel::<()>();
@@ -107,63 +102,51 @@ fn a_wedged_lane_resolves_every_caller_instead_of_stalling_them() {
     // No healthy worker is left: queued jobs (which never ran) are dropped, the parked caller
     // and every new caller are answered `Wedged` at once. B, running, is not dropped.
     executors.sweep_leases(Instant::now() + PAST_ANY_LEASE);
-    let wedged = SubmitWaitError::Wedged(LaneWedged {
-        lane: LaneKind::CpuBulk,
-    });
+    let wedged = SubmitWaitError::Wedged(LaneWedged { lane: LaneKind::CpuBulk });
     let after = rt.spawn(async move { lane.submit_wait(&CancellationToken::new(), |_| 8).await.err() });
-    bounded(&rt, Box::pin(async move {
-        assert_eq!(c1.await, Err(JobDropped::Dropped));
-        assert_eq!(c2.await, Err(JobDropped::Dropped));
-        assert_eq!(parked.await.err(), Some(wedged));
-        assert_eq!(after.await.unwrap(), Some(wedged));
-    }));
+    bounded(
+        &rt,
+        Box::pin(async move {
+            assert_eq!(c1.await, Err(JobDropped::Dropped));
+            assert_eq!(c2.await, Err(JobDropped::Dropped));
+            assert_eq!(parked.await.err(), Some(wedged));
+            assert_eq!(after.await.unwrap(), Some(wedged));
+        }),
+    );
     assert!(executors.lane_wedged(LaneKind::CpuBulk));
-    assert_eq!(
-        lane.submit(&never, |_| 9).err(),
-        Some(LaneFull {
-            lane: LaneKind::CpuBulk
-        })
-    );
-    assert_eq!(
-        executors
-            .diagnostics()
-            .lanes
-            .iter()
-            .find(|l| l.kind == LaneKind::CpuBulk)
-            .unwrap()
-            .wedged,
-        2
-    );
+    assert_eq!(lane.submit(&never, |_| 9).err(), Some(LaneFull { lane: LaneKind::CpuBulk }));
+    assert_eq!(executors.diagnostics().lanes.iter().find(|l| l.kind == LaneKind::CpuBulk).unwrap().wedged, 2);
 
     // The stuck jobs return late: their callers get the real results (the writes they stood
     // for happened, and nobody was told otherwise), and the lane recovers and serves again.
     drop(release_a);
     drop(release_b);
-    bounded(&rt, Box::pin(async move {
-        assert_eq!(a.await, Ok(11));
-        assert_eq!(b.await, Ok(12));
-    }));
+    bounded(
+        &rt,
+        Box::pin(async move {
+            assert_eq!(a.await, Ok(11));
+            assert_eq!(b.await, Ok(12));
+        }),
+    );
     let freed = executors.capacity_notify(LaneKind::CpuBulk).unwrap();
-    bounded(&rt, Box::pin({
-        let executors = executors.clone();
-        async move {
-            loop {
-                let notified = freed.notified();
-                let mut notified = pin!(notified);
-                // Registered before the check, so a recovery in between is not missed.
-                notified.as_mut().enable();
-                if !executors.lane_wedged(LaneKind::CpuBulk) {
-                    break;
+    bounded(
+        &rt,
+        Box::pin({
+            let executors = executors.clone();
+            async move {
+                loop {
+                    let notified = freed.notified();
+                    let mut notified = pin!(notified);
+                    // Registered before the check, so a recovery in between is not missed.
+                    notified.as_mut().enable();
+                    if !executors.lane_wedged(LaneKind::CpuBulk) {
+                        break;
+                    }
+                    notified.await;
                 }
-                notified.await;
             }
-        }
-    }));
-    let served = rt.block_on(async {
-        lane.submit_wait(&CancellationToken::new(), |_| 10)
-            .await
-            .unwrap()
-            .await
-    });
+        }),
+    );
+    let served = rt.block_on(async { lane.submit_wait(&CancellationToken::new(), |_| 10).await.unwrap().await });
     assert_eq!(served, Ok(10));
 }

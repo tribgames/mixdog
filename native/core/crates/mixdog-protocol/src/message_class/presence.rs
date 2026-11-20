@@ -98,11 +98,7 @@ fn events_shown(message: &Value) -> bool {
     {
         return true;
     }
-    if field(message, "/meta/transcript/completion")
-        .filter(|c| c.is_object())
-        .and_then(completion)
-        == Some("failed")
-    {
+    if field(message, "/meta/transcript/completion").filter(|c| c.is_object()).and_then(completion) == Some("failed") {
         return true;
     }
     let list = |key: &str| -> Vec<&Value> {

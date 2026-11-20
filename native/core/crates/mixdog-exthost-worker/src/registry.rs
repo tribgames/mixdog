@@ -51,10 +51,7 @@ impl Registry {
         F: Fn(CallCtx) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = HandlerResult> + Send + 'static,
     {
-        self.handlers.insert(
-            name.to_owned(),
-            Arc::new(move |ctx| -> BoxFuture<HandlerResult> { Box::pin(handler(ctx)) }),
-        );
+        self.handlers.insert(name.to_owned(), Arc::new(move |ctx| -> BoxFuture<HandlerResult> { Box::pin(handler(ctx)) }));
     }
 
     /// Serves `name` with CPU-bound code. It runs on its own thread, so the frame loop keeps reading (a cancel, a bye) while it
@@ -69,27 +66,14 @@ impl Registry {
             let handler = handler.clone();
             async move {
                 let (done, answer) = tokio::sync::oneshot::channel();
-                let spawned = std::thread::Builder::new()
-                    .name("ext-worker-blocking".to_owned())
-                    .spawn(move || {
-                        let outcome =
-                            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-                                (*handler)(ctx)
-                            }));
-                        let _ = done.send(outcome.unwrap_or_else(|payload| {
-                            Err(CodedError::failed(panic_text(&*payload)))
-                        }));
-                    });
+                let spawned = std::thread::Builder::new().name("ext-worker-blocking".to_owned()).spawn(move || {
+                    let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| (*handler)(ctx)));
+                    let _ = done.send(outcome.unwrap_or_else(|payload| Err(CodedError::failed(panic_text(&*payload)))));
+                });
                 if let Err(error) = spawned {
-                    return Err(CodedError::failed(format!(
-                        "cannot start a thread: {error}"
-                    )));
+                    return Err(CodedError::failed(format!("cannot start a thread: {error}")));
                 }
-                answer.await.unwrap_or_else(|_| {
-                    Err(CodedError::failed(
-                        "the handler's thread ended without an answer",
-                    ))
-                })
+                answer.await.unwrap_or_else(|_| Err(CodedError::failed("the handler's thread ended without an answer")))
             }
         });
     }

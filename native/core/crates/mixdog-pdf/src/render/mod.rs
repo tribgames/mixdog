@@ -67,10 +67,7 @@ impl RenderedPage {
 
     /// The pixels as straight RGBA8 (`getImageData`).
     pub fn rgba(&self) -> Result<Vec<u8>> {
-        let data = self
-            .canvas
-            .get_image_data(0, 0, self.canvas.width(), self.canvas.height())
-            .map_err(raster)?;
+        let data = self.canvas.get_image_data(0, 0, self.canvas.width(), self.canvas.height()).map_err(raster)?;
         Ok(data.into_data())
     }
 
@@ -81,11 +78,7 @@ impl RenderedPage {
 }
 
 /// Renders `page`: its operator list, then the list painted.
-pub fn render_page(
-    document: &Document,
-    page: &Page,
-    options: &RenderOptions<'_>,
-) -> Result<RenderedPage> {
+pub fn render_page(document: &Document, page: &Page, options: &RenderOptions<'_>) -> Result<RenderedPage> {
     let operators = oplist::get_page_operators(document, page, options.fonts)?;
     paint_operator_list(document, page, &operators.list, options, operators.fonts)
 }
@@ -93,57 +86,31 @@ pub fn render_page(
 /// Paints an operator list of `page` (the list [`render_page`] reads, or one built by the caller) on a white canvas of
 /// the size of the page's viewport at `options.scale` (`Math.ceil` of the viewport's width and height). A list built by
 /// the caller does not bring its fonts, so the text of its Type3 fonts moves the text position and draws nothing.
-pub fn render_operator_list(
-    document: &Document,
-    page: &Page,
-    list: &OperatorList,
-    options: &RenderOptions<'_>,
-) -> Result<RenderedPage> {
+pub fn render_operator_list(document: &Document, page: &Page, list: &OperatorList, options: &RenderOptions<'_>) -> Result<RenderedPage> {
     paint_operator_list(document, page, list, options, Vec::new())
 }
 
 /// The list painted, with the fonts it was made with (their Type3 glyph procedures).
-fn paint_operator_list(
-    document: &Document,
-    page: &Page,
-    list: &OperatorList,
-    options: &RenderOptions<'_>,
-    fonts: Vec<FontHandle>,
-) -> Result<RenderedPage> {
+fn paint_operator_list(document: &Document, page: &Page, list: &OperatorList, options: &RenderOptions<'_>, fonts: Vec<FontHandle>) -> Result<RenderedPage> {
     document.guard().check_now()?;
     let viewport = page.viewport(options.scale);
     let (width, height) = (viewport.width.ceil(), viewport.height.ceil());
     if !(width >= 1.0 && height >= 1.0 && width <= f64::from(u32::MAX) && height <= f64::from(u32::MAX)) {
-        return Err(PdfError::Unknown(format!(
-            "a page of {width} by {height} pixels cannot be rendered"
-        )));
+        return Err(PdfError::Unknown(format!("a page of {width} by {height} pixels cannot be rendered")));
     }
     let mut canvas = Canvas::new(width as u32, height as u32).map_err(raster)?;
     canvas.set_fill_color("rgb(255,255,255)");
     canvas.fill_rect(0.0, 0.0, width as f32, height as f32);
     canvas.set_fill_color("#000000");
     let m = viewport.transform;
-    canvas.transform(
-        m[0] as f32,
-        m[1] as f32,
-        m[2] as f32,
-        m[3] as f32,
-        m[4] as f32,
-        m[5] as f32,
-    );
+    canvas.transform(m[0] as f32, m[1] as f32, m[2] as f32, m[3] as f32, m[4] as f32, m[5] as f32);
     let resources = page.resources(document)?;
     let optional_content = OptionalContentConfig::read(document)?;
     let mut painter = Painter::new(canvas, document, resources, options.drawing, optional_content);
-    let type3: HashMap<String, FontHandle> = fonts
-        .into_iter()
-        .filter(|font| font.type3.is_some())
-        .map(|font| (font.loaded_name.clone(), font))
-        .collect();
+    let type3: HashMap<String, FontHandle> = fonts.into_iter().filter(|font| font.type3.is_some()).map(|font| (font.loaded_name.clone(), font)).collect();
     painter.type3_fonts = Arc::new(type3);
     painter.execute(list)?;
-    Ok(RenderedPage {
-        canvas: painter.into_base_canvas(),
-    })
+    Ok(RenderedPage { canvas: painter.into_base_canvas() })
 }
 
 #[cfg(test)]
@@ -161,12 +128,7 @@ mod tests {
 
     /// A stream object: `dict` entries (without `/Length`) and the bytes.
     fn stream(dict: &str, bytes: &[u8]) -> Vec<u8> {
-        [
-            format!("<< {dict} /Length {} >>\nstream\n", bytes.len()).as_bytes(),
-            bytes,
-            b"\nendstream",
-        ]
-        .concat()
+        [format!("<< {dict} /Length {} >>\nstream\n", bytes.len()).as_bytes(), bytes, b"\nendstream"].concat()
     }
 
     /// A one-page PDF with `resources` for its page and `extra` objects, numbered from 5.
@@ -174,10 +136,7 @@ mod tests {
         let mut objects: Vec<Vec<u8>> = vec![
             b"<< /Type /Catalog /Pages 2 0 R >>".to_vec(),
             b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec(),
-            format!(
-                "<< /Type /Page /Parent 2 0 R /MediaBox [{media_box}] /Contents 4 0 R /Resources {resources} >>"
-            )
-            .into_bytes(),
+            format!("<< /Type /Page /Parent 2 0 R /MediaBox [{media_box}] /Contents 4 0 R /Resources {resources} >>").into_bytes(),
             stream("", content),
         ];
         objects.extend(extra.iter().cloned());
@@ -195,9 +154,7 @@ mod tests {
         for offset in offsets {
             out.extend_from_slice(format!("{offset:010} 00000 n \n").as_bytes());
         }
-        out.extend_from_slice(
-            format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes(),
-        );
+        out.extend_from_slice(format!("trailer\n<< /Size {size} /Root 1 0 R >>\nstartxref\n{xref}\n%%EOF\n").as_bytes());
         out
     }
 
@@ -206,14 +163,9 @@ mod tests {
     }
 
     fn render_with(media_box: &str, content: &[u8], resources: &str, extra: &[Vec<u8>], scale: f64) -> RenderedPage {
-        let document = Document::open(pdf_with(media_box, content, resources, extra), &OpenOptions::default())
-            .expect("the PDF opens");
+        let document = Document::open(pdf_with(media_box, content, resources, extra), &OpenOptions::default()).expect("the PDF opens");
         let page = document.page(0).expect("page");
-        let options = RenderOptions {
-            scale,
-            fonts: None,
-            drawing: None,
-        };
+        let options = RenderOptions { scale, fonts: None, drawing: None };
         render_page(&document, &page, &options).expect("the page renders")
     }
 
@@ -250,18 +202,10 @@ mod tests {
 
     #[test]
     fn even_odd_fill_and_clip_leave_the_inner_square_open() {
-        let fill = render(
-            "0 0 100 100",
-            b"0 1 0 rg 10 10 80 80 re 30 30 40 40 re f*",
-            1.0,
-        );
+        let fill = render("0 0 100 100", b"0 1 0 rg 10 10 80 80 re 30 30 40 40 re f*", 1.0);
         assert_eq!(pixel(&fill, 20, 50), [0, 255, 0, 255]);
         assert_eq!(pixel(&fill, 50, 50), [255, 255, 255, 255]);
-        let clip = render(
-            "0 0 100 100",
-            b"10 10 80 80 re 30 30 40 40 re W* n 0 0 0 rg 0 0 100 100 re f",
-            1.0,
-        );
+        let clip = render("0 0 100 100", b"10 10 80 80 re 30 30 40 40 re W* n 0 0 0 rg 0 0 100 100 re f", 1.0);
         assert_eq!(pixel(&clip, 20, 50), [0, 0, 0, 255]);
         assert_eq!(pixel(&clip, 50, 50), [255, 255, 255, 255]);
     }
@@ -306,10 +250,7 @@ mod tests {
             "0 0 100 100",
             b"/S1 sh",
             "<< /Shading << /S1 5 0 R >> >>",
-            &[
-                b"<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [10 0 90 0] /Function 6 0 R /Extend [true true] >>".to_vec(),
-                red_to_blue(),
-            ],
+            &[b"<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [10 0 90 0] /Function 6 0 R /Extend [true true] >>".to_vec(), red_to_blue()],
             1.0,
         );
         assert!(near(&page, 1, 50, [255, 0, 0], 3), "{:?}", pixel(&page, 1, 50));
@@ -323,10 +264,7 @@ mod tests {
             "0 0 100 100",
             b"/S1 sh",
             "<< /Shading << /S1 5 0 R >> >>",
-            &[
-                b"<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [20 0 80 0] /Function 6 0 R >>".to_vec(),
-                red_to_blue(),
-            ],
+            &[b"<< /ShadingType 2 /ColorSpace /DeviceRGB /Coords [20 0 80 0] /Function 6 0 R >>".to_vec(), red_to_blue()],
             1.0,
         );
         assert_eq!(pixel(&page, 5, 50), [255, 255, 255, 255]);
@@ -340,10 +278,7 @@ mod tests {
             "0 0 100 100",
             b"/Pattern cs /P1 scn 20 20 60 60 re f",
             "<< /Pattern << /P1 5 0 R >> >>",
-            &[
-                b"<< /PatternType 2 /Shading << /ShadingType 2 /ColorSpace /DeviceRGB /Coords [20 0 80 0] /Function 6 0 R >> >>".to_vec(),
-                red_to_blue(),
-            ],
+            &[b"<< /PatternType 2 /Shading << /ShadingType 2 /ColorSpace /DeviceRGB /Coords [20 0 80 0] /Function 6 0 R >> >>".to_vec(), red_to_blue()],
             1.0,
         );
         assert!(near(&page, 22, 50, [235, 0, 20], 12), "{:?}", pixel(&page, 22, 50));
@@ -354,17 +289,8 @@ mod tests {
 
     #[test]
     fn a_tiling_pattern_repeats_its_cell_across_the_shape() {
-        let cell = stream(
-            "/PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources << >>",
-            b"1 0 0 rg 0 0 5 5 re f",
-        );
-        let page = render_with(
-            "0 0 100 100",
-            b"/Pattern cs /P1 scn 0 0 100 100 re f",
-            "<< /Pattern << /P1 5 0 R >> >>",
-            &[cell],
-            1.0,
-        );
+        let cell = stream("/PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources << >>", b"1 0 0 rg 0 0 5 5 re f");
+        let page = render_with("0 0 100 100", b"/Pattern cs /P1 scn 0 0 100 100 re f", "<< /Pattern << /P1 5 0 R >> >>", &[cell], 1.0);
         // The red square of each cell is the lower left quarter: device rows 95..100 of the bottom cell.
         assert_eq!(pixel(&page, 2, 97), [255, 0, 0, 255]);
         assert_eq!(pixel(&page, 42, 57), [255, 0, 0, 255]);
@@ -374,10 +300,7 @@ mod tests {
 
     #[test]
     fn an_uncoloured_tiling_pattern_takes_the_colour_it_is_selected_with() {
-        let cell = stream(
-            "/PatternType 1 /PaintType 2 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources << >>",
-            b"0 0 5 5 re f",
-        );
+        let cell = stream("/PatternType 1 /PaintType 2 /TilingType 1 /BBox [0 0 10 10] /XStep 10 /YStep 10 /Resources << >>", b"0 0 5 5 re f");
         let page = render_with(
             "0 0 100 100",
             b"/CS1 cs 0 0 1 /P1 scn 0 0 100 100 re f",
@@ -390,10 +313,7 @@ mod tests {
     }
 
     fn luminosity_mask_page(mask: &str) -> RenderedPage {
-        let group = stream(
-            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /CS /DeviceGray >> /Resources << >>",
-            mask.as_bytes(),
-        );
+        let group = stream("/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /CS /DeviceGray >> /Resources << >>", mask.as_bytes());
         render_with(
             "0 0 100 100",
             b"/GS1 gs 1 0 0 rg 0 0 100 100 re f",
@@ -413,10 +333,7 @@ mod tests {
 
     #[test]
     fn an_alpha_soft_mask_follows_the_alpha_of_its_group() {
-        let group = stream(
-            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency >> /Resources << >>",
-            b"0 g 0 0 50 100 re f",
-        );
+        let group = stream("/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency >> /Resources << >>", b"0 g 0 0 50 100 re f");
         let page = render_with(
             "0 0 100 100",
             b"/GS1 gs 0 0 1 rg 0 0 100 100 re f",
@@ -430,10 +347,8 @@ mod tests {
 
     #[test]
     fn a_soft_mask_ends_with_the_state_that_selected_it() {
-        let group = stream(
-            "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /CS /DeviceGray >> /Resources << >>",
-            b"1 g 0 0 50 100 re f",
-        );
+        let group =
+            stream("/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /CS /DeviceGray >> /Resources << >>", b"1 g 0 0 50 100 re f");
         let page = render_with(
             "0 0 100 100",
             b"q /GS1 gs 1 0 0 rg 0 0 100 40 re f Q 0 1 0 rg 0 60 100 40 re f",
@@ -454,13 +369,7 @@ mod tests {
             "/Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /I true >> /Resources << >>",
             b"1 0 0 rg 10 10 50 50 re f 0 0 1 rg 40 40 50 50 re f",
         );
-        let page = render_with(
-            "0 0 100 100",
-            b"q /GS1 gs /Fm1 Do Q",
-            "<< /ExtGState << /GS1 << /ca 0.5 >> >> /XObject << /Fm1 5 0 R >> >>",
-            &[form],
-            1.0,
-        );
+        let page = render_with("0 0 100 100", b"q /GS1 gs /Fm1 Do Q", "<< /ExtGState << /GS1 << /ca 0.5 >> >> /XObject << /Fm1 5 0 R >> >>", &[form], 1.0);
         // Where the squares overlap the blue one is on top inside the group, so the red does not show through it.
         assert!(near(&page, 50, 50, [128, 128, 255], 3), "{:?}", pixel(&page, 50, 50));
         assert!(near(&page, 20, 80, [255, 128, 128], 3), "{:?}", pixel(&page, 20, 80));
@@ -497,23 +406,12 @@ mod tests {
     fn a_cancelled_document_stops_the_render() {
         let stop = Arc::new(AtomicBool::new(false));
         let flag = stop.clone();
-        let options = OpenOptions {
-            cancel: Some(Arc::new(move || flag.load(Ordering::Relaxed))),
-            ..OpenOptions::default()
-        };
-        let document =
-            Document::open(pdf("0 0 10 10", b"0 0 5 5 re f"), &options).expect("opens while running");
+        let options = OpenOptions { cancel: Some(Arc::new(move || flag.load(Ordering::Relaxed))), ..OpenOptions::default() };
+        let document = Document::open(pdf("0 0 10 10", b"0 0 5 5 re f"), &options).expect("opens while running");
         let page = document.page(0).expect("page");
-        let render_options = RenderOptions {
-            scale: 1.0,
-            fonts: None,
-            drawing: None,
-        };
+        let render_options = RenderOptions { scale: 1.0, fonts: None, drawing: None };
         assert!(render_page(&document, &page, &render_options).is_ok());
         stop.store(true, Ordering::Relaxed);
-        assert!(matches!(
-            render_page(&document, &page, &render_options),
-            Err(PdfError::Cancelled)
-        ));
+        assert!(matches!(render_page(&document, &page, &render_options), Err(PdfError::Cancelled)));
     }
 }

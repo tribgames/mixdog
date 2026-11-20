@@ -82,11 +82,10 @@ impl AccessSettings {
         Stored {
             enabled: value.get("enabled").and_then(serde_json::Value::as_bool),
             name: value.get("name").and_then(serde_json::Value::as_str).map(str::to_owned),
-            device_aliases: value.get("deviceAliases").and_then(serde_json::Value::as_object).map(|map| {
-                map.iter()
-                    .filter_map(|(id, alias)| alias.as_str().filter(|a| !a.is_empty()).map(|a| (id.clone(), a.to_owned())))
-                    .collect()
-            }),
+            device_aliases: value
+                .get("deviceAliases")
+                .and_then(serde_json::Value::as_object)
+                .map(|map| map.iter().filter_map(|(id, alias)| alias.as_str().filter(|a| !a.is_empty()).map(|a| (id.clone(), a.to_owned()))).collect()),
         }
     }
 

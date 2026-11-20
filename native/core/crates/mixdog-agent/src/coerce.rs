@@ -39,11 +39,7 @@ fn declared_types(property: &JsonValue, depth: usize, out: &mut HashSet<String>)
     if out.is_empty() && map.get("items").is_some_and(|i| !i.is_null()) {
         out.insert("array".into());
     }
-    if map
-        .get("enum")
-        .and_then(JsonValue::as_array)
-        .is_some_and(|e| e.iter().any(JsonValue::is_string))
-    {
+    if map.get("enum").and_then(JsonValue::as_array).is_some_and(|e| e.iter().any(JsonValue::is_string)) {
         out.insert("string".into());
     }
 }
@@ -55,8 +51,7 @@ fn fits(value: &JsonValue, types: &HashSet<String>) -> bool {
         JsonValue::Object(_) => types.contains("object"),
         JsonValue::Bool(_) => types.contains("boolean"),
         JsonValue::Number(n) => {
-            types.contains("number")
-                || (types.contains("integer") && (n.is_i64() || n.is_u64() || n.as_f64().is_some_and(|f| f.fract() == 0.0)))
+            types.contains("number") || (types.contains("integer") && (n.is_i64() || n.is_u64() || n.as_f64().is_some_and(|f| f.fract() == 0.0)))
         }
         JsonValue::String(_) => false,
     }
@@ -72,10 +67,7 @@ fn parse_json_text(text: &str) -> Option<JsonValue> {
 }
 
 pub fn coerce_args_to_schema(args: &mut JsonValue, schema: &JsonValue) {
-    let (Some(args), Some(properties)) = (
-        args.as_object_mut(),
-        schema.get("properties").and_then(JsonValue::as_object),
-    ) else {
+    let (Some(args), Some(properties)) = (args.as_object_mut(), schema.get("properties").and_then(JsonValue::as_object)) else {
         return;
     };
     let keys: Vec<String> = args.keys().cloned().collect();

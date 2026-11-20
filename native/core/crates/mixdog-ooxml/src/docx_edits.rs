@@ -16,21 +16,20 @@ use serde_json::{Map, Value, json};
 use crate::docx_formatting::{format_first_body_phrase, patch_paragraph_format};
 use crate::docx_operations::{docx_heading_levels, docx_toc_cache_runs, docx_toc_entries, replace_tracked_paragraphs};
 use crate::docx_parts::{
-    HeaderFooter, LIST_HANGING_POINTS, NumberingChoice, PartDefinition, PartText, SETTINGS_CONTENT_TYPE, SETTINGS_ORDER, WORD_2010_NS,
-    WordDrawing, add_document_image, anchor_docx_comment, appended_numbering, comment_paragraph_id, document_section_spans,
-    ensure_comments_part, ensure_docx_update_fields, ensure_numbering, ensure_part, forget_comment_identity, mark_runs_deleted,
-    next_revision_id, numbered_list_scheme, numbering_after, register_comment_identity, register_comment_thread, revision_attributes,
-    trailing_section_properties, upsert_section_child, upsert_section_reference, word_drawing_xml, write_every_section_properties,
-    write_header_footer_part,
+    HeaderFooter, LIST_HANGING_POINTS, NumberingChoice, PartDefinition, PartText, SETTINGS_CONTENT_TYPE, SETTINGS_ORDER, WORD_2010_NS, WordDrawing,
+    add_document_image, anchor_docx_comment, appended_numbering, comment_paragraph_id, document_section_spans, ensure_comments_part, ensure_docx_update_fields,
+    ensure_numbering, ensure_part, forget_comment_identity, mark_runs_deleted, next_revision_id, numbered_list_scheme, numbering_after,
+    register_comment_identity, register_comment_thread, revision_attributes, trailing_section_properties, upsert_section_child, upsert_section_reference,
+    word_drawing_xml, write_every_section_properties, write_header_footer_part,
 };
 use crate::docx_runs::normalize_docx_runs;
 use crate::docx_styles::document_style_id;
 use crate::docx_tracked_edits::{PhraseMarkers, anchor_phrase_in_paragraph, tracked_paragraph_rewrite};
 use crate::docx_xml::{
-    Numbering, align_word_table_columns, blank_table_cells, check_docx_column, docx_table, insert_docx_block_at,
-    missing_docx_cell_error, missing_docx_row_error, paragraph_format_xml, replace_docx_table, replace_word_properties, rewrite_table_columns,
-    row_cell_matches, section_text_width, table_row_matches, with_first_run_text, word_justification, word_paragraph, word_run_properties,
-    word_table_properties, word_table_xml, word_text_content, word_text_element,
+    Numbering, align_word_table_columns, blank_table_cells, check_docx_column, docx_table, insert_docx_block_at, missing_docx_cell_error,
+    missing_docx_row_error, paragraph_format_xml, replace_docx_table, replace_word_properties, rewrite_table_columns, row_cell_matches, section_text_width,
+    table_row_matches, with_first_run_text, word_justification, word_paragraph, word_run_properties, word_table_properties, word_table_xml, word_text_content,
+    word_text_element,
 };
 use crate::opc::{PIXELS_TO_POINTS, add_package_relationship, part_relationship_path, provenance_citation};
 use crate::slide_shapes::replace_first_with;
@@ -39,8 +38,8 @@ use crate::template_tokens::{FillTemplate, fill_template_parts};
 use crate::text_metrics::TextMeasurer;
 use crate::xlsx_audit_support::truthy;
 use crate::xml::{
-    Container, OFFICE_RELATIONSHIP_BASE, Replaced, WORD_MAIN_NS, XML_HEADER, compiled, container_inner, paragraph_texts, replace_across_runs,
-    text_nodes, top_level_elements, upsert_ordered_child, xml_encode,
+    Container, OFFICE_RELATIONSHIP_BASE, Replaced, WORD_MAIN_NS, XML_HEADER, compiled, container_inner, paragraph_texts, replace_across_runs, text_nodes,
+    top_level_elements, upsert_ordered_child, xml_encode,
 };
 use crate::zipio::Package;
 
@@ -128,9 +127,7 @@ fn body_paragraphs(model: &DocxBodyModel) -> Vec<&BodyBlock> {
 
 /// The 1-based body paragraph an operation names, or the usual error.
 fn body_paragraph_at(model: &DocxBodyModel, ordinal: Option<&Value>) -> Result<BodyBlock, String> {
-    nth(&body_paragraphs(model), number_of(ordinal))
-        .map(|paragraph| (*paragraph).clone())
-        .ok_or_else(|| format!("DOCX paragraph {} not found", shown(ordinal)))
+    nth(&body_paragraphs(model), number_of(ordinal)).map(|paragraph| (*paragraph).clone()).ok_or_else(|| format!("DOCX paragraph {} not found", shown(ordinal)))
 }
 
 /// `insertDocxBlockAt(document, block, op.paragraph)`: the block after the numbered paragraph, or at the end of the body when the
@@ -245,9 +242,7 @@ fn append_comment(zip: &mut Package, comments: &PartText, op: &Value, text: &str
 fn docx_story_part_names(zip: &Package) -> Vec<String> {
     let story = compiled(r"^word\/(?:document|header\d+|footer\d+|footnotes|endnotes)\.xml$", "i");
     let mut names: Vec<String> = zip.names().into_iter().filter(|name| story.is_match(name)).collect();
-    names.sort_by(|left, right| {
-        (right == DOCUMENT_PART).cmp(&(left == DOCUMENT_PART)).then_with(|| locale_compare_en(left, right))
-    });
+    names.sort_by(|left, right| (right == DOCUMENT_PART).cmp(&(left == DOCUMENT_PART)).then_with(|| locale_compare_en(left, right)));
     names
 }
 
@@ -284,12 +279,7 @@ pub fn set_docx_track_changes(zip: &mut Package, op: &Value) -> (Value, bool) {
     let created = format!("{XML_HEADER}<w:settings xmlns:w=\"{WORD_MAIN_NS}\"></w:settings>");
     let settings = ensure_part(
         zip,
-        &PartDefinition {
-            part,
-            xml: &created,
-            content_type: SETTINGS_CONTENT_TYPE,
-            relationship: &format!("{OFFICE_RELATIONSHIP_BASE}/settings"),
-        },
+        &PartDefinition { part, xml: &created, content_type: SETTINGS_CONTENT_TYPE, relationship: &format!("{OFFICE_RELATIONSHIP_BASE}/settings") },
     );
     zip.set(part, upsert_ordered_child(&settings, &SETTINGS_ORDER, "w:trackRevisions", if enabled { "<w:trackRevisions/>" } else { "" }));
     let mut result = result_of(op);
@@ -599,15 +589,13 @@ pub fn set_docx_table_style(zip: &mut Package, requested: &Value) -> Result<Valu
     let current = zip.text(DOCUMENT_PART);
     let table = docx_table(&current, op.get("table"))?;
     // Restyling a table must not undo its width: the declared width is part of the layout, not of the style being replaced.
-    let declared_width = first_group(r#"<w:tblW\b[^>]*\bw:w="(\d+)"[^>]*\bw:type="dxa""#, &table.xml)
-        .map_or(0.0, |digits| or_else(to_number(&Value::String(digits)), 0.0));
+    let declared_width =
+        first_group(r#"<w:tblW\b[^>]*\bw:w="(\d+)"[^>]*\bw:type="dxa""#, &table.xml).map_or(0.0, |digits| or_else(to_number(&Value::String(digits)), 0.0));
     let no_properties = Value::Null;
     let properties = op.get("properties").unwrap_or(&no_properties);
     let alignments: Vec<Value> = properties.get("columnAlignments").and_then(Value::as_array).cloned().unwrap_or_default();
-    let next_table = align_word_table_columns(
-        &replace_word_properties(&table.xml, "tbl", "tblPr", &word_table_properties(properties, declared_width)),
-        &alignments,
-    );
+    let next_table =
+        align_word_table_columns(&replace_word_properties(&table.xml, "tbl", "tblPr", &word_table_properties(properties, declared_width)), &alignments);
     zip.set(DOCUMENT_PART, replace_docx_table(&current, &table, &next_table));
     let mut result = result_of(&op);
     result.insert("changed".to_owned(), json!(next_table != table.xml));
@@ -644,10 +632,8 @@ pub fn edit_docx_table_rows_or_columns(zip: &mut Package, op: &Value) -> Result<
                     return Err(missing_docx_row_error(op, &table.xml));
                 }
             }
-            let position = mixdog_js::math::max(
-                1.0,
-                mixdog_js::math::min(or_else(number_of(op.get("row")), (rows.len() + 1) as f64), (rows.len() + 1) as f64),
-            ) as usize;
+            let position =
+                mixdog_js::math::max(1.0, mixdog_js::math::min(or_else(number_of(op.get("row")), (rows.len() + 1) as f64), (rows.len() + 1) as f64)) as usize;
             let template = &rows[position.min(rows.len()) - 1];
             let blank = blank_table_cells(&template.xml);
             next_table = if position > rows.len() {
@@ -684,11 +670,7 @@ pub fn set_docx_paragraph_format(zip: &mut Package, op: &Value) -> Result<Value,
     // listKind:'none' takes the paragraph out of its list, as set_list does; it had drawn a bullet here.
     if list_kind == "number" {
         let scheme = numbered_list_scheme(&paragraph_texts(&paragraph.xml, "w:t").join(""), &text_or_blank(properties.get("listNumbering")))?;
-        numbering = Some(numbering_after(
-            zip,
-            &body.inner[..paragraph.start],
-            &NumberingChoice { continued: truthy(properties.get("listContinue")), scheme },
-        ));
+        numbering = Some(numbering_after(zip, &body.inner[..paragraph.start], &NumberingChoice { continued: truthy(properties.get("listContinue")), scheme }));
     } else if !list_kind.is_empty() && list_kind != "none" {
         numbering = Some(ensure_numbering(zip, "bullet", false));
     }
@@ -791,7 +773,8 @@ pub fn set_docx_list(zip: &mut Package, op: &Value) -> Result<Value, String> {
     // List Paragraph as the document names it ("a6" in a Korean Word document).
     let list_style = document_style_id(zip, "List Paragraph", "paragraph").id;
     let level = mixdog_js::math::max(0.0, mixdog_js::math::min(2.0, or_else(number_of(op.get("level")), 0.0)));
-    let cleaned = replace_first_with(&compiled(r"<w:pStyle\b[^>]*\/>", ""), &replace_first_with(&list_reference, &existing, |_| String::new()), |_| String::new());
+    let cleaned =
+        replace_first_with(&compiled(r"<w:pStyle\b[^>]*\/>", ""), &replace_first_with(&list_reference, &existing, |_| String::new()), |_| String::new());
     let properties = format!(
         "<w:pStyle w:val=\"{}\"/><w:numPr><w:ilvl w:val=\"{}\"/><w:numId w:val=\"{}\"/></w:numPr>{cleaned}",
         xml_encode(&list_style),
@@ -957,21 +940,15 @@ pub fn reply_or_resolve_docx_comment(zip: &mut Package, op: &Value) -> Result<Va
         return Err("add_comment_reply requires text".to_owned());
     }
     let id = append_comment(zip, &comments, op, &text, parent);
-    let marks = format!(
-        "<w:commentRangeStart w:id=\"{id}\"/><w:commentRangeEnd w:id=\"{id}\"/><w:r><w:commentReference w:id=\"{id}\"/></w:r>"
-    );
+    let marks = format!("<w:commentRangeStart w:id=\"{id}\"/><w:commentRangeEnd w:id=\"{id}\"/><w:r><w:commentReference w:id=\"{id}\"/></w:r>");
     // The reply spans its parent's words, as Word writes a reply: its start beside the parent's start, its end and reference after
     // the parent's reference. Marked as an empty range before the parent's end, Word read it as a second comment of its own on no
     // text rather than as an answer in the thread.
     // The parent may be anchored in any story: the body, a header, a footer, a note. A reply marked only where the body happens
     // to hold the id reached no story at all, and the next accept-all pruned it as orphaned.
     let start_pattern = compiled(&format!(r#"<w:commentRangeStart\b[^>]*\bw:id="{parent}"[^>]*\/>"#), "");
-    let reference_pattern = compiled(
-        &format!(
-            r#"<w:r\b[^>]*>(?:(?!<\/w:r>)[\s\S])*?<w:commentReference\b[^>]*\bw:id="{parent}"[^>]*\/>(?:(?!<\/w:r>)[\s\S])*?<\/w:r>"#
-        ),
-        "",
-    );
+    let reference_pattern =
+        compiled(&format!(r#"<w:r\b[^>]*>(?:(?!<\/w:r>)[\s\S])*?<w:commentReference\b[^>]*\bw:id="{parent}"[^>]*\/>(?:(?!<\/w:r>)[\s\S])*?<\/w:r>"#), "");
     let end_pattern = compiled(&format!(r#"<w:commentRangeEnd\b[^>]*\bw:id="{parent}"[^>]*\/>"#), "");
     for part in docx_story_part_names(zip) {
         let story = zip.text(&part);
@@ -1013,11 +990,8 @@ pub fn delete_docx_comment(zip: &mut Package, op: &Value) -> Result<Value, Strin
     let current = zip.text(DOCUMENT_PART);
     let next = compiled(&format!(r#"<w:commentRangeStart\b[^>]*\bw:id="{id}"[^>]*\/>"#), "g").replace_all_with(&current, |_| String::new());
     let next = compiled(&format!(r#"<w:commentRangeEnd\b[^>]*\bw:id="{id}"[^>]*\/>"#), "g").replace_all_with(&next, |_| String::new());
-    let next = compiled(
-        &format!(r#"<w:r\b[^>]*>(?:(?!<\/w:r>)[\s\S])*?<w:commentReference\b[^>]*\bw:id="{id}"[^>]*\/>[\s\S]*?<\/w:r>"#),
-        "g",
-    )
-    .replace_all_with(&next, |_| String::new());
+    let next = compiled(&format!(r#"<w:r\b[^>]*>(?:(?!<\/w:r>)[\s\S])*?<w:commentReference\b[^>]*\bw:id="{id}"[^>]*\/>[\s\S]*?<\/w:r>"#), "g")
+        .replace_all_with(&next, |_| String::new());
     zip.set(DOCUMENT_PART, next);
     let mut result = result_of(op);
     result.insert("changed".to_owned(), json!(true));
@@ -1130,8 +1104,7 @@ pub fn set_docx_header_footer(zip: &mut Package, op: &Value) -> Result<Value, St
 /// footer printed "3" alone. includeTotal:false still keeps the number alone.
 fn page_numbers_include_total(op: &Value) -> bool {
     let include = op.get("includeTotal");
-    include == Some(&Value::Bool(true))
-        || (include != Some(&Value::Bool(false)) && !js_trim(&text_or_blank(op.get("separator"))).is_empty())
+    include == Some(&Value::Bool(true)) || (include != Some(&Value::Bool(false)) && !js_trim(&text_or_blank(op.get("separator"))).is_empty())
 }
 
 /// `addDocxPageNumbers(zip, op)`: the same vocabulary as set_header_footer: kind names the story (the footer unless the caller

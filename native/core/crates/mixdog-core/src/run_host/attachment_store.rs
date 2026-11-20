@@ -23,11 +23,11 @@ use mixdog_core_base::support::on_lane_wait as on_lane;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::{DurabilityIo, InLane, InteractiveIo, LaneTokens};
 use mixdog_statefile::IoLane;
-use mixdog_store::blobs::{digest_of_reference, BlobStore, LaneBlobs};
+use mixdog_store::blobs::{BlobStore, LaneBlobs, digest_of_reference};
 use tokio_util::sync::CancellationToken;
 
 use super::attachment_reference::{AttachmentFiles, InvalidReference, OriginalFile, StoredFile};
-use super::media::{base64_byte_length, AttachmentFacts, StoredFacts, MAX_PDF_BYTES};
+use super::media::{AttachmentFacts, MAX_PDF_BYTES, StoredFacts, base64_byte_length};
 
 /// The stored attachments as the compaction and the transcript commit read them
 /// (`readAttachmentTextWithin`, [`LaneBlobs`]): their work runs as one interactive-lane job.
@@ -46,9 +46,7 @@ impl StoreBlobs {
 impl BlobReads for StoreBlobs {
     async fn read_with(&self, work: StoreWork) -> Result<(), StoreUnavailable> {
         let blobs = self.blobs.clone();
-        on_lane(self.interactive, &CancellationToken::new(), move |lane| work(&LaneBlobs { blobs: &blobs, lane }))
-            .await
-            .map_err(|_| StoreUnavailable)
+        on_lane(self.interactive, &CancellationToken::new(), move |lane| work(&LaneBlobs { blobs: &blobs, lane })).await.map_err(|_| StoreUnavailable)
     }
 }
 
@@ -83,7 +81,10 @@ impl StoreFacts {
     async fn pdf_counts(&self, reference: &str, path: PathBuf) -> Option<PdfCounts> {
         let interactive = self.interactive;
         self.count_once(reference, async move {
-            let bytes = on_lane(interactive, &CancellationToken::new(), move |lane| mixdog_statefile::read_range(lane, &path, 0, MAX_PDF_BYTES as usize)).await.ok()?.ok()?;
+            let bytes = on_lane(interactive, &CancellationToken::new(), move |lane| mixdog_statefile::read_range(lane, &path, 0, MAX_PDF_BYTES as usize))
+                .await
+                .ok()?
+                .ok()?;
             Some(bytes.starts_with(b"%PDF-").then(|| STANDARD.encode(&bytes)))
         })
         .await
@@ -129,7 +130,10 @@ impl AttachmentFacts for StoreFacts {
     async fn facts(&self, reference: &str) -> Option<StoredFacts> {
         let path = self.blobs.path(&digest_of_reference(reference)?);
         let stat = path.clone();
-        let size = on_lane(self.interactive, &CancellationToken::new(), move |lane| mixdog_statefile::metadata(lane, &stat).map(|meta| meta.len())).await.ok()?.ok()?;
+        let size = on_lane(self.interactive, &CancellationToken::new(), move |lane| mixdog_statefile::metadata(lane, &stat).map(|meta| meta.len()))
+            .await
+            .ok()?
+            .ok()?;
         Some(facts_of(size, self.pdf_counts(reference, path).await))
     }
 
@@ -250,11 +254,7 @@ pub fn attachment_file_name(name: &str, mime_type: &str, fallback: &str) -> Stri
         let keep = exts[0];
         return mixdog_js::slice_utf16(&base, MAX_NAME_LENGTH - keep.len()) + keep;
     }
-    if mixdog_js::utf16_len(&base) <= MAX_NAME_LENGTH {
-        base
-    } else {
-        mixdog_js::slice_utf16(&base, MAX_NAME_LENGTH - mixdog_js::utf16_len(keep)) + keep
-    }
+    if mixdog_js::utf16_len(&base) <= MAX_NAME_LENGTH { base } else { mixdog_js::slice_utf16(&base, MAX_NAME_LENGTH - mixdog_js::utf16_len(keep)) + keep }
 }
 
 /// `canonicalBase64Buffer`: the bytes of a base64 string that re-encodes to the same string.
@@ -280,7 +280,15 @@ struct CopyPlan {
 /// `namedCopyPlan`: the blob is proven by its size on disk (a file of 1 to `MAX_BLOB_BYTES` bytes), and a copy
 /// that is already there by a stat (a file of the blob's size). Neither is read then; only a missing or torn copy
 /// has the blob read.
-fn copy_plan(lane: &InLane<DurabilityIo>, blobs: &BlobStore, files_dir: &Path, key_ref: &str, type_for_name: &str, filename: &str, mime_type: &str) -> Option<CopyPlan> {
+fn copy_plan(
+    lane: &InLane<DurabilityIo>,
+    blobs: &BlobStore,
+    files_dir: &Path,
+    key_ref: &str,
+    type_for_name: &str,
+    filename: &str,
+    mime_type: &str,
+) -> Option<CopyPlan> {
     let size = blobs.len(lane, &digest_of_reference(key_ref)?).ok()??;
     if size == 0 || size > mixdog_protocol::MAX_BLOB_BYTES {
         return None;
@@ -348,10 +356,12 @@ impl mixdog_agent::offload::ImageIntake for StoreFiles {
     async fn store_blob(&self, reference: &str, name: &str) -> Option<(String, String)> {
         let vault = mixdog_image_vault::ImageVault::new(self.blobs.clone(), &self.data_dir);
         let (reference, name) = (reference.to_owned(), name.to_owned());
-        let manifest = on_lane(self.durability, &CancellationToken::new(), move |lane| vault.import_blob_ref(lane, &reference, &name, &mixdog_image_egress::admission::Cancel::default()))
-            .await
-            .ok()?
-            .ok()?;
+        let manifest = on_lane(self.durability, &CancellationToken::new(), move |lane| {
+            vault.import_blob_ref(lane, &reference, &name, &mixdog_image_egress::admission::Cancel::default())
+        })
+        .await
+        .ok()?
+        .ok()?;
         let mime = match &manifest.outcome {
             mixdog_image_egress::Outcome::Accepted { kind, .. } => kind.mime(),
             mixdog_image_egress::Outcome::Refused { .. } => "image/*",
@@ -366,10 +376,12 @@ impl StoreFiles {
     async fn import_image(&self, base64: &str, name: &str) -> Option<mixdog_image_egress::Manifest> {
         let vault = mixdog_image_vault::ImageVault::new(self.blobs.clone(), &self.data_dir);
         let (base64, name) = (base64.to_owned(), name.to_owned());
-        on_lane(self.durability, &CancellationToken::new(), move |lane| vault.import_base64(lane, &base64, &name, &mixdog_image_egress::admission::Cancel::default()))
-            .await
-            .ok()?
-            .ok()
+        on_lane(self.durability, &CancellationToken::new(), move |lane| {
+            vault.import_base64(lane, &base64, &name, &mixdog_image_egress::admission::Cancel::default())
+        })
+        .await
+        .ok()?
+        .ok()
     }
 
     pub fn new(blobs: BlobStore, data_dir: &Path, tokens: &LaneTokens) -> Self {
@@ -397,10 +409,18 @@ impl AttachmentFiles for StoreFiles {
             // An image is judged by its bytes once, here: the vault keeps the original with its verdict and the rendition a
             // destination may need; a refused one is not stored as a reference (it stays inline, where egress refuses it by name).
             let (vault, name) = (mixdog_image_vault::ImageVault::new(blobs, &self.data_dir), filename.to_owned());
-            let manifest = on_lane(self.durability, &CancellationToken::new(), move |lane| vault.import(lane, &bytes, &name, &mixdog_image_egress::admission::Cancel::default())).await.ok()?.ok()?;
+            let manifest = on_lane(self.durability, &CancellationToken::new(), move |lane| {
+                vault.import(lane, &bytes, &name, &mixdog_image_egress::admission::Cancel::default())
+            })
+            .await
+            .ok()?
+            .ok()?;
             return matches!(manifest.outcome, mixdog_image_egress::Outcome::Accepted { .. }).then(|| StoredFile { reference: manifest.original, size_bytes });
         }
-        let digest = on_lane(self.durability, &CancellationToken::new(), move |lane| blobs.put_with(lane, &bytes, mixdog_store::fsio::Access::Inherit)).await.ok()?.ok()?;
+        let digest = on_lane(self.durability, &CancellationToken::new(), move |lane| blobs.put_with(lane, &bytes, mixdog_store::fsio::Access::Inherit))
+            .await
+            .ok()?
+            .ok()?;
         let reference = mixdog_store::blobs::hex(&digest).to_owned();
         Some(StoredFile { reference, size_bytes })
     }
@@ -419,11 +439,13 @@ impl AttachmentFiles for StoreFiles {
     async fn named_file(&self, reference: &str, filename: &str, mime_type: &str, original: Option<&OriginalFile>) -> Result<String, ()> {
         let (blobs, files_dir) = (self.blobs.clone(), self.files_dir.clone());
         let (reference, filename, mime_type, original) = (reference.to_owned(), filename.to_owned(), mime_type.to_owned(), original.cloned());
-        on_lane(self.durability, &CancellationToken::new(), move |lane| named_copy(lane, &blobs, &files_dir, &reference, &filename, &mime_type, original.as_ref()))
-            .await
-            .ok()
-            .flatten()
-            .ok_or(())
+        on_lane(self.durability, &CancellationToken::new(), move |lane| {
+            named_copy(lane, &blobs, &files_dir, &reference, &filename, &mime_type, original.as_ref())
+        })
+        .await
+        .ok()
+        .flatten()
+        .ok_or(())
     }
 
     /// `attachmentFilePath`: the blob's path; a reference off the pattern is `attachmentPath`'s
@@ -462,7 +484,4 @@ mod tests {
             assert_eq!(named("n", format.media_type(), "x"), format!("n{}", format.extensions()[0]));
         }
     }
-
 }
-
-

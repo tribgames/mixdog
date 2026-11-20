@@ -117,11 +117,7 @@ pub(super) enum Wait {
 /// returned, `None` when the lock was not taken. The hold releases the lock when dropped.
 fn hold<R: Send + 'static>(paths: &Paths, wait: Wait, body: impl FnOnce() -> R + Send + 'static) -> (mpsc::Receiver<Option<R>>, LockHold) {
     let (answer, receive) = mpsc::channel();
-    let opts = LockOpts {
-        timeout: Some(if wait == Wait::Never { Duration::ZERO } else { LOCK_TIMEOUT }),
-        stale: Some(LOCK_STALE),
-        strict_owner: false,
-    };
+    let opts = LockOpts { timeout: Some(if wait == Wait::Never { Duration::ZERO } else { LOCK_TIMEOUT }), stale: Some(LOCK_STALE), strict_owner: false };
     let acquired = move |taken: Result<(), mixdog_statefile::LockError>| {
         let _ = answer.send(taken.ok().map(|()| body()));
     };
@@ -250,7 +246,6 @@ mod tests {
         assert_eq!(locked(&paths, Wait::Never, || 1), Some(1));
     }
 }
-
 
 /// [`locked`] for a caller on an executor: the wait is a sleep, not a block of the thread.
 pub(super) async fn locked_async<R: Send + 'static>(paths: &Paths, body: impl FnOnce() -> R + Send + 'static) -> Option<R> {

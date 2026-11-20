@@ -14,8 +14,8 @@ use serde_json::{Map, Value, json};
 use crate::chart::{ChartSpec, SLIDE_CHART_TEXT, chart_workbook_rows, chart_xml};
 use crate::opc::{add_package_relationship, part_relationship_path, posix, relationship_target, relationship_target_by_type};
 use crate::pptx_chart::{
-    CHART_AXIS_ORDER, LABEL_POSITION_CODES, chart_categories, chart_frame_xml, chart_title_text, detect_chart_type,
-    read_chart_presentation, resolve_slide_chart, write_presentation_chart,
+    CHART_AXIS_ORDER, LABEL_POSITION_CODES, chart_categories, chart_frame_xml, chart_title_text, detect_chart_type, read_chart_presentation,
+    resolve_slide_chart, write_presentation_chart,
 };
 use crate::pptx_core::{append_slide_shape, next_shape_id, pptx_related_part, theme_color};
 use crate::pptx_deck::Handled;
@@ -147,8 +147,7 @@ pub fn handle_add_chart(zip: &mut Package, slides: &[SlideRef], op: &Value) -> H
 // between the bars, the accent point, and the axis the author hid all stay as authored. When the new data has the chart's own
 // series and every series one value per category, the caches and ranges are rewritten in place; anything else (another series
 // count or a type change) takes the rebuild. A new title is words, set in the chart's own title block either way.
-const REBUILD_FIELDS: [&str; 7] =
-    ["chartType", "showValues", "showLegend", "zeroBaseline", "valueNumberFormat", "dataLabelPosition", "dataLabelColor"];
+const REBUILD_FIELDS: [&str; 7] = ["chartType", "showValues", "showLegend", "zeroBaseline", "valueNumberFormat", "dataLabelPosition", "dataLabelColor"];
 
 /// An accent on the last point marks the latest period; when the refresh changes the number of points it moves to the new
 /// last one. Kept at its index, a monthly refresh left April lit under a title about May.
@@ -160,17 +159,14 @@ fn accent_on_last_point(series: &str, count: usize) -> String {
     let series_color = group(r#"<a:srgbClr val="([0-9A-Fa-f]{6})""#, before_points).unwrap_or_default();
     let point_at = |point: &str| group(r#"<c:idx val="(\d+)""#, point).map_or(f64::NAN, |text| string_to_number(&text));
     let points = blocks(r"<c:dPt>[\s\S]*?</c:dPt>", &block);
-    let accents: Vec<&String> = points
-        .iter()
-        .filter(|point| group(r#"<a:srgbClr val="([0-9A-Fa-f]{6})""#, point).is_none_or(|color| color != series_color))
-        .collect();
+    let accents: Vec<&String> =
+        points.iter().filter(|point| group(r#"<a:srgbClr val="([0-9A-Fa-f]{6})""#, point).is_none_or(|color| color != series_color)).collect();
     let count_value = count as f64;
     if count_value != previous_count && accents.len() == 1 && point_at(accents[0]) == previous_count - 1.0 {
         // The accent and the point now last trade places; one past the new end is dropped by the caller.
         let displaced = points.iter().find(|point| point_at(point) == count_value - 1.0);
-        let moved = |point: &str, to: f64| {
-            replace_first_with(&compiled(r#"<c:idx val="\d+"/>"#, ""), point, |_| format!("<c:idx val=\"{}\"/>", number_to_string(to)))
-        };
+        let moved =
+            |point: &str, to: f64| replace_first_with(&compiled(r#"<c:idx val="\d+"/>"#, ""), point, |_| format!("<c:idx val=\"{}\"/>", number_to_string(to)));
         block = block.replacen(accents[0].as_str(), &moved(accents[0], count_value - 1.0), 1);
         if let Some(displaced) = displaced {
             block = block.replacen(displaced.as_str(), &moved(displaced, previous_count - 1.0), 1);
@@ -410,8 +406,7 @@ fn with_kept_colors(series: &[Value], kept: &KeptColors, previous_count: usize) 
         .collect()
 }
 
-const BOTTOM_UP_NOTE: &str =
-    "The bars read from the bottom up, the first category lowest, as this chart was authored; categoryOrder:'topDown' lists them from the top in the order given.";
+const BOTTOM_UP_NOTE: &str = "The bars read from the bottom up, the first category lowest, as this chart was authored; categoryOrder:'topDown' lists them from the top in the order given.";
 
 fn kept_strings(kept: &Value, key: &str) -> Vec<String> {
     kept[key].as_array().map(|list| list.iter().map(|item| item.as_str().unwrap_or("").to_owned()).collect()).unwrap_or_default()
@@ -456,10 +451,7 @@ pub fn handle_set_chart_data(zip: &mut Package, slides: &[SlideRef], op: &Value)
     }
     let kept_colors = KeptColors {
         series: series_colors,
-        points: kept["pointColors"]
-            .as_array()
-            .map(|lists| lists.iter().map(|list| list.as_array().cloned().unwrap_or_default()).collect())
-            .unwrap_or_default(),
+        points: kept["pointColors"].as_array().map(|lists| lists.iter().map(|list| list.as_array().cloned().unwrap_or_default()).collect()).unwrap_or_default(),
     };
     let previous_count = chart_categories(&existing).len();
     let coloured = with_kept_colors(&series, &kept_colors, previous_count);
@@ -611,7 +603,8 @@ pub fn handle_set_chart_axis(zip: &mut Package, slides: &[SlideRef], op: &Value)
     }
     if is_set(op, "numberFormat") {
         let format = &op["numberFormat"];
-        let element = if truthy(format) { format!("<c:numFmt formatCode=\"{}\" sourceLinked=\"0\"/>", xml_encode(&value_to_string(format))) } else { String::new() };
+        let element =
+            if truthy(format) { format!("<c:numFmt formatCode=\"{}\" sourceLinked=\"0\"/>", xml_encode(&value_to_string(format))) } else { String::new() };
         updated = upsert_ordered_child(&updated, &CHART_AXIS_ORDER, "c:numFmt", &element);
     }
     if is_set(op, "majorUnit") {
@@ -870,7 +863,11 @@ mod tests {
     #[test]
     fn error_bars_need_a_direction_and_a_positive_amount() {
         assert!(error_bars_xml(&json!({ "amount": 2.5 })).unwrap().contains("<c:errDir val=\"y\"/><c:errBarType val=\"both\"/>"));
-        assert!(error_bars_xml(&json!({ "amount": 1, "direction": "Horizontal", "endStyle": "plus" })).unwrap().contains("<c:errDir val=\"x\"/><c:errBarType val=\"plus\"/>"));
+        assert!(
+            error_bars_xml(&json!({ "amount": 1, "direction": "Horizontal", "endStyle": "plus" }))
+                .unwrap()
+                .contains("<c:errDir val=\"x\"/><c:errBarType val=\"plus\"/>")
+        );
         assert!(error_bars_xml(&json!({ "amount": 1, "endStyle": "wide" })).unwrap().contains("<c:errBarType val=\"both\"/>"));
         assert_eq!(error_bars_xml(&json!({ "amount": 1, "direction": "z" })).unwrap_err(), "set_chart_error_bars direction must be x or y");
         for amount in [json!(0), json!(-1), json!("many"), Value::Null] {
@@ -893,7 +890,10 @@ mod tests {
     fn the_category_axis_turns_over_with_the_value_axis_crossing_at_the_far_end() {
         let chart = "<c:catAx><c:scaling><c:orientation val=\"minMax\"/></c:scaling></c:catAx><c:valAx><c:crossAx val=\"1\"/></c:valAx>";
         let turned = with_category_orientation(chart, "maxMin");
-        assert_eq!(turned, "<c:catAx><c:scaling><c:orientation val=\"maxMin\"/></c:scaling></c:catAx><c:valAx><c:crossAx val=\"1\"/><c:crosses val=\"max\"/></c:valAx>");
+        assert_eq!(
+            turned,
+            "<c:catAx><c:scaling><c:orientation val=\"maxMin\"/></c:scaling></c:catAx><c:valAx><c:crossAx val=\"1\"/><c:crosses val=\"max\"/></c:valAx>"
+        );
         assert_eq!(category_orientation_of(&turned), "maxMin");
         assert_eq!(with_category_orientation("<c:catAx/>", "maxMin"), "<c:catAx/>");
     }

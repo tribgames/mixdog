@@ -94,11 +94,7 @@ pub fn entry_arguments(command_line: &[String], carried: Option<&str>) -> EntryA
 /// The entry's contract around a script run. No target prints the usage text on stderr and exits 2; a run
 /// that fails prints the failure (its stack when it has one, otherwise its message) on stderr and exits 1;
 /// otherwise the script's own outcome stands.
-pub fn run_entry(
-    command_line: &[String],
-    carried: Option<&str>,
-    run: impl FnOnce(&str, &[String]) -> Result<Outcome, String>,
-) -> Outcome {
+pub fn run_entry(command_line: &[String], carried: Option<&str>, run: impl FnOnce(&str, &[String]) -> Result<Outcome, String>) -> Outcome {
     let EntryArguments { target, args } = entry_arguments(command_line, carried);
     let mut outcome = Outcome::default();
     let Some(target) = target.filter(|target| !target.is_empty()) else {

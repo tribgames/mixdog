@@ -39,10 +39,6 @@ fn write_files(base: &Path, files: &Value) {
     }
 }
 
-
-
-
-
 #[tokio::test]
 async fn the_task_workspace_is_made_and_named_by_its_real_path() {
     let dir = tempfile::tempdir().unwrap();
@@ -208,15 +204,43 @@ async fn a_connector_edit_keeps_the_definition_and_a_removed_policy_reads_as_non
 async fn the_id_of_an_unnamed_create_is_fixed_before_it_queues() {
     let (_dir, agents) = writable(json!({})).await;
     let payload = json!({ "name": "Concurrent", "body": "Body" }).as_object().unwrap().clone();
-    let first = agents.job({ let p = payload.clone(); move |f, l| edit::plan_save(f, l, &p, None) }).await.unwrap().unwrap();
-    let second = agents.job({ let p = payload.clone(); move |f, l| edit::plan_save(f, l, &p, None) }).await.unwrap().unwrap();
+    let first = agents
+        .job({
+            let p = payload.clone();
+            move |f, l| edit::plan_save(f, l, &p, None)
+        })
+        .await
+        .unwrap()
+        .unwrap();
+    let second = agents
+        .job({
+            let p = payload.clone();
+            move |f, l| edit::plan_save(f, l, &p, None)
+        })
+        .await
+        .unwrap()
+        .unwrap();
     // Two creates that are both waiting have not written yet: both name the same id.
     assert_eq!((first.id.as_str(), second.id.as_str()), ("concurrent", "concurrent"));
     agents.save(&payload).await.unwrap();
     // After the first wrote, the one queued behind it still saves to the id it was queued under.
-    let queued = agents.job({ let p = payload.clone(); move |f, l| edit::plan_save(f, l, &p, Some("concurrent")) }).await.unwrap().unwrap();
+    let queued = agents
+        .job({
+            let p = payload.clone();
+            move |f, l| edit::plan_save(f, l, &p, Some("concurrent"))
+        })
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(queued.id, "concurrent");
-    let late = agents.job({ let p = payload.clone(); move |f, l| edit::plan_save(f, l, &p, None) }).await.unwrap().unwrap();
+    let late = agents
+        .job({
+            let p = payload.clone();
+            move |f, l| edit::plan_save(f, l, &p, None)
+        })
+        .await
+        .unwrap()
+        .unwrap();
     assert_eq!(late.id, "concurrent-2");
 }
 
@@ -227,10 +251,8 @@ async fn the_id_keeps_its_turn_until_the_write_job_has_finished() {
     let writes = agents.writes().unwrap();
     let turn = lifecycle(&data, "held").await;
     let probe_data = data.clone();
-    let (busy_inside, turn) = agents
-        .write_job(&writes, turn, move |_, _| futures::FutureExt::now_or_never(lifecycle(&probe_data, "held")).is_none())
-        .await
-        .unwrap();
+    let (busy_inside, turn) =
+        agents.write_job(&writes, turn, move |_, _| futures::FutureExt::now_or_never(lifecycle(&probe_data, "held")).is_none()).await.unwrap();
     assert!(busy_inside, "another change of the id started beside the write");
     assert!(futures::FutureExt::now_or_never(lifecycle(&data, "held")).is_none(), "the caller still holds the turn");
     drop(turn);
@@ -282,5 +304,3 @@ async fn the_catalog_shows_the_avatars_of_rows_lead_and_archived_agents() {
     let who = agents.archived_identity("pal").await.unwrap().unwrap();
     assert_eq!((who.name.as_str(), who.avatar["kind"].as_str()), ("Pal", Some("mascot")));
 }
-
-

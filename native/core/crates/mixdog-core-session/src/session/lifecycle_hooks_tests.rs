@@ -100,7 +100,10 @@ async fn a_started_thread_fires_session_start_and_keeps_its_context_ahead_of_the
     assert_eq!(
         stored,
         [
-            (json!({ "role": "user", "content": "<system-reminder>\n# SessionStart Hook Context\nuse the staging database\n\nbe brief\n</system-reminder>" }), false),
+            (
+                json!({ "role": "user", "content": "<system-reminder>\n# SessionStart Hook Context\nuse the staging database\n\nbe brief\n</system-reminder>" }),
+                false
+            ),
             (json!({ "role": "assistant", "content": ".", "meta": { "source": "context-ack" } }), false),
         ]
     );

@@ -17,11 +17,18 @@ const DUPLICATE_WARNING: &str = "[core-memory] duplicate keys preserved; resolve
 
 fn add(element: &str, summary: &str, agent: Option<&str>) -> String {
     let agent = agent.map_or("NULL".to_owned(), |a| format!("'{a}'"));
-    format!("INSERT INTO core_entries (element, summary, category, project_id, agent_id, created_at, updated_at) VALUES ('{element}', '{summary}', 'rule', NULL, {agent}, 0, 0)")
+    format!(
+        "INSERT INTO core_entries (element, summary, category, project_id, agent_id, created_at, updated_at) VALUES ('{element}', '{summary}', 'rule', NULL, {agent}, 0, 0)"
+    )
 }
 
 async fn indexes(db: &Db) -> Vec<String> {
-    db.query("SELECT indexname FROM pg_indexes WHERE schemaname = 'memory' AND tablename = 'core_entries' ORDER BY 1", &[]).await.expect("indexes").iter().map(|r| r.get(0)).collect()
+    db.query("SELECT indexname FROM pg_indexes WHERE schemaname = 'memory' AND tablename = 'core_entries' ORDER BY 1", &[])
+        .await
+        .expect("indexes")
+        .iter()
+        .map(|r| r.get(0))
+        .collect()
 }
 
 async fn count(db: &Db) -> i64 {
@@ -29,7 +36,11 @@ async fn count(db: &Db) -> i64 {
 }
 
 fn core_lines(lines: &std::sync::Mutex<Vec<(Origin, Channel, String)>>) -> Vec<String> {
-    std::mem::take(&mut *lines.lock().unwrap()).into_iter().filter(|(origin, channel, line)| *origin == Origin::MemoryWorker && *channel == Channel::Stderr && line.starts_with("[core-memory]")).map(|(_, _, line)| line).collect()
+    std::mem::take(&mut *lines.lock().unwrap())
+        .into_iter()
+        .filter(|(origin, channel, line)| *origin == Origin::MemoryWorker && *channel == Channel::Stderr && line.starts_with("[core-memory]"))
+        .map(|(_, _, line)| line)
+        .collect()
 }
 
 #[tokio::test]
@@ -64,7 +75,13 @@ async fn a_store_with_duplicate_keys_opens_keeps_both_rows_and_says_so_once() {
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
     ensure_memory_schema(&db, 384, &IDENTITY()).await.unwrap();
-    db.batch(&format!("DROP INDEX {KEY};\n{};\n{};\nCREATE UNIQUE INDEX core_entries_unique_proj_elem ON core_entries (project_id, (element || id::text))", add("key", "First approved preference", None), add("key", "Second approved preference", None))).await.expect("a store an old build left");
+    db.batch(&format!(
+        "DROP INDEX {KEY};\n{};\n{};\nCREATE UNIQUE INDEX core_entries_unique_proj_elem ON core_entries (project_id, (element || id::text))",
+        add("key", "First approved preference", None),
+        add("key", "Second approved preference", None)
+    ))
+    .await
+    .expect("a store an old build left");
     let (lines, _guard) = mixdog_rt::node_log::capture();
     ensure_memory_schema(&db, 384, &IDENTITY()).await.expect("it opens");
     assert_eq!(core_lines(&lines), [DUPLICATE_WARNING]);
@@ -78,7 +95,13 @@ async fn once_the_duplicates_are_resolved_the_next_open_installs_the_pool_key_an
     let pg = TestPg::start().await;
     let db = pg.db(Schema::Memory).await;
     ensure_memory_schema(&db, 384, &IDENTITY()).await.unwrap();
-    db.batch(&format!("DROP INDEX {KEY};\n{};\n{};\nCREATE UNIQUE INDEX core_entries_unique_proj_elem ON core_entries (project_id, (element || id::text))", add("key", "First", None), add("key", "Second", None))).await.unwrap();
+    db.batch(&format!(
+        "DROP INDEX {KEY};\n{};\n{};\nCREATE UNIQUE INDEX core_entries_unique_proj_elem ON core_entries (project_id, (element || id::text))",
+        add("key", "First", None),
+        add("key", "Second", None)
+    ))
+    .await
+    .unwrap();
     ensure_memory_schema(&db, 384, &IDENTITY()).await.unwrap();
     db.execute("UPDATE core_entries SET element = 'resolved' WHERE id = 2", &[]).await.unwrap();
     let (lines, _guard) = mixdog_rt::node_log::capture();
@@ -120,7 +143,10 @@ async fn two_starters_building_the_missing_key_at_once_both_open_and_the_key_exi
     for opening in openings {
         awaiting("a starter's opening", opening).await.expect("the starter ran").expect("a starter opens whichever wins");
     }
-    assert!(core_lines(&lines).iter().all(|line| line == "[core-memory] concurrent key conflict preserved; unique index deferred until explicit resolution"), "only the race's own line may be said");
+    assert!(
+        core_lines(&lines).iter().all(|line| line == "[core-memory] concurrent key conflict preserved; unique index deferred until explicit resolution"),
+        "only the race's own line may be said"
+    );
     ensure_memory_schema(&db, 384, &IDENTITY()).await.unwrap();
     assert!(indexes(&db).await.contains(&KEY.to_owned()), "the next open leaves the key in place");
     assert_eq!(count(&db).await, 1);

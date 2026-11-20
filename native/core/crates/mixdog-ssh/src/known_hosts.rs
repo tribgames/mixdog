@@ -1,10 +1,10 @@
 //! known_hosts reading: which keys the user's files (and the system-wide one) hold for a server, including hashed
 //! entries, wildcard patterns and the @revoked / @cert-authority markers. Pure text in, entries out.
 
-use base64::alphabet;
-use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD, STANDARD_NO_PAD};
-use base64::engine::DecodePaddingMode;
 use base64::Engine;
+use base64::alphabet;
+use base64::engine::DecodePaddingMode;
+use base64::engine::general_purpose::{GeneralPurpose, GeneralPurposeConfig, STANDARD, STANDARD_NO_PAD};
 use hmac::{Hmac, Mac};
 use regex::RegexBuilder;
 use sha1::Sha1;
@@ -58,12 +58,7 @@ pub fn parse(text: &str) -> Vec<KnownHostEntry> {
         }
         let [hosts, key_type, key, ..] = fields[..] else { continue };
         if !key.is_empty() && key.bytes().all(|byte| byte.is_ascii_alphanumeric() || matches!(byte, b'+' | b'/' | b'=')) {
-            entries.push(KnownHostEntry {
-                marker,
-                hosts: hosts.to_owned(),
-                key_type: key_type.to_owned(),
-                key: key.to_owned(),
-            });
+            entries.push(KnownHostEntry { marker, hosts: hosts.to_owned(), key_type: key_type.to_owned(), key: key.to_owned() });
         }
     }
     entries
@@ -83,7 +78,10 @@ fn wildcard_matches(pattern: &str, spec: &str) -> bool {
 }
 
 fn lenient_base64() -> GeneralPurpose {
-    GeneralPurpose::new(&alphabet::STANDARD, GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent).with_decode_allow_trailing_bits(true))
+    GeneralPurpose::new(
+        &alphabet::STANDARD,
+        GeneralPurposeConfig::new().with_decode_padding_mode(DecodePaddingMode::Indifferent).with_decode_allow_trailing_bits(true),
+    )
 }
 
 fn pattern_matches(pattern: &str, spec: &str) -> bool {

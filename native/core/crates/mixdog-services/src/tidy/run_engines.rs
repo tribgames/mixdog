@@ -18,8 +18,8 @@ use super::apply::{FileChange, WriteHost, full_path_for, guard_tidy_write_path};
 use super::languages::files_for_languages;
 use super::process::{Processes, map_limit};
 use super::resolve::Resolved;
-use super::runners::shared::{DEFAULT_ENGINE_TIMEOUT, RunRequest, RunnerResult, Spawn, SystemSpawn};
 use super::runners::runner_for;
+use super::runners::shared::{DEFAULT_ENGINE_TIMEOUT, RunRequest, RunnerResult, Spawn, SystemSpawn};
 
 const CHECK_CONCURRENCY: usize = 3;
 
@@ -45,7 +45,11 @@ fn read_files_blocking(paths: Vec<PathBuf>) -> HashMap<PathBuf, Vec<u8>> {
 async fn digests(lane: DurabilityIo, cwd: &Path, files: &[String]) -> Result<HashMap<String, String>, String> {
     let paths: Vec<PathBuf> = files.iter().map(|f| full_path_for(cwd, f)).collect();
     let mut read = read_files(lane, paths.clone()).await?;
-    Ok(files.iter().zip(paths).map(|(f, p)| (f.clone(), read.remove(&p).map(|b| Sha256::digest(&b).iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default())).collect())
+    Ok(files
+        .iter()
+        .zip(paths)
+        .map(|(f, p)| (f.clone(), read.remove(&p).map(|b| Sha256::digest(&b).iter().map(|x| format!("{x:02x}")).collect()).unwrap_or_default()))
+        .collect())
 }
 
 /// Files an engine's check pass says it would rewrite, plus fixable findings.
@@ -79,7 +83,19 @@ pub struct SuiteOptions {
 
 impl SuiteOptions {
     pub fn new(cwd: &Path, files: Vec<String>, processes: &Processes) -> Self {
-        Self { files, cwd: cwd.to_owned(), mode: "check".into(), apply: false, timeout: DEFAULT_ENGINE_TIMEOUT, cancel: None, session_id: None, extensions: None, host: None, spawn: Arc::new(SystemSpawn(processes.clone())), lane: processes.durability() }
+        Self {
+            files,
+            cwd: cwd.to_owned(),
+            mode: "check".into(),
+            apply: false,
+            timeout: DEFAULT_ENGINE_TIMEOUT,
+            cancel: None,
+            session_id: None,
+            extensions: None,
+            host: None,
+            spawn: Arc::new(SystemSpawn(processes.clone())),
+            lane: processes.durability(),
+        }
     }
 }
 
@@ -175,7 +191,8 @@ async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Ran {
     }
     // Only a file this engine was given is a file it may write: a path it names beyond those (a
     // file it followed an include into, a path printed in another form) was not asked for.
-    let (candidates, unrequested): (Vec<String>, Vec<String>) = fix_candidates(&check).into_iter().filter(|f| guard_tidy_write_path(&full_path_for(&o.cwd, f)).is_none()).partition(|f| scope.contains(f));
+    let (candidates, unrequested): (Vec<String>, Vec<String>) =
+        fix_candidates(&check).into_iter().filter(|f| guard_tidy_write_path(&full_path_for(&o.cwd, f)).is_none()).partition(|f| scope.contains(f));
     if let Some(first) = unrequested.first() {
         let left_out = format!("{} file(s) the engine named were not among those requested and were not written, the first being {first}", unrequested.len());
         put(&mut result, "note", json!(check.note.iter().cloned().chain([left_out]).collect::<Vec<_>>().join("; ")));
@@ -226,7 +243,10 @@ async fn run_one(engine: &Resolved, o: &SuiteOptions) -> Ran {
         if let (Some(session), Some(baselines)) = (o.session_id.as_deref(), baselines) {
             match read_files(o.lane, changed_paths.clone()).await {
                 Ok(mut written) => {
-                    let changes: Vec<FileChange> = changed_paths.iter().filter_map(|p| Some(FileChange { full_path: p.clone(), before: baselines.get(p)?.clone(), after: written.remove(p)? })).collect();
+                    let changes: Vec<FileChange> = changed_paths
+                        .iter()
+                        .filter_map(|p| Some(FileChange { full_path: p.clone(), before: baselines.get(p)?.clone(), after: written.remove(p)? }))
+                        .collect();
                     if !changes.is_empty() {
                         host.record_changes(&o.cwd, session, changes).await;
                     }
@@ -314,7 +334,16 @@ mod tests {
 
     #[async_trait]
     impl Spawn for FakeShfmt {
-        async fn run(&self, _: &str, args: &[String], _: &Path, _: Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> ProcessResult {
+        async fn run(
+            &self,
+            _: &str,
+            args: &[String],
+            _: &Path,
+            _: Duration,
+            _: Option<&CancellationToken>,
+            _: Option<&HashMap<String, String>>,
+            _: Option<Vec<u8>>,
+        ) -> ProcessResult {
             self.calls.lock().unwrap().push(args.to_vec());
             if args.iter().any(|a| a == "-w") {
                 std::fs::write(self.dir.join("a.sh"), "formatted\n").unwrap();
@@ -325,7 +354,15 @@ mod tests {
     }
 
     fn shfmt() -> Resolved {
-        Resolved { id: "shfmt".into(), source: "path".into(), command: "shfmt".into(), languages: vec!["bash".into()], kind: vec!["format".into()], version: "3.0".into(), ..Default::default() }
+        Resolved {
+            id: "shfmt".into(),
+            source: "path".into(),
+            command: "shfmt".into(),
+            languages: vec!["bash".into()],
+            kind: vec!["format".into()],
+            version: "3.0".into(),
+            ..Default::default()
+        }
     }
 
     fn setup() -> (tempfile::TempDir, Arc<FakeShfmt>) {
@@ -342,7 +379,10 @@ mod tests {
         o.spawn = spawn.clone();
         let engine = shfmt();
         let check = run_engine_suite(&[&engine], &o).await.results;
-        assert_eq!((check[0]["filesChecked"].clone(), check[0]["filesChanged"].clone(), check[0]["version"].clone()), (json!(1), json!(["a.sh"]), json!("3.0")));
+        assert_eq!(
+            (check[0]["filesChecked"].clone(), check[0]["filesChanged"].clone(), check[0]["version"].clone()),
+            (json!(1), json!(["a.sh"]), json!("3.0"))
+        );
         assert_eq!(std::fs::read_to_string(dir.path().join("a.sh")).unwrap(), "messy");
         o.mode = "fix".into();
         let dry = run_engine_suite(&[&engine], &o).await.results;
@@ -384,7 +424,16 @@ mod tests {
 
     #[async_trait]
     impl Spawn for Picky {
-        async fn run(&self, _: &str, args: &[String], _: &Path, _: Duration, _: Option<&CancellationToken>, _: Option<&HashMap<String, String>>, _: Option<Vec<u8>>) -> ProcessResult {
+        async fn run(
+            &self,
+            _: &str,
+            args: &[String],
+            _: &Path,
+            _: Duration,
+            _: Option<&CancellationToken>,
+            _: Option<&HashMap<String, String>>,
+            _: Option<Vec<u8>>,
+        ) -> ProcessResult {
             let files: Vec<&String> = args.iter().filter(|a| a.ends_with(".sh")).collect();
             if args.iter().any(|a| a == "-w") {
                 files.iter().for_each(|f| std::fs::write(self.0.join(f), "formatted\n").unwrap());
@@ -425,9 +474,6 @@ mod tests {
         assert_eq!(fix_candidates(&result), ["a.ts", "b.ts"]);
     }
 
-
-
-
     /// A read that never ran is an error: an empty map would make a rewritten file look unchanged.
     #[tokio::test]
     async fn a_file_read_that_never_ran_is_an_error_not_an_empty_digest() {
@@ -438,6 +484,4 @@ mod tests {
         assert!(digests(lane, dir.path(), &["a.sh".into()]).await.unwrap_err().contains("did not run the read"));
         assert!(read_files(lane, vec![dir.path().join("a.sh")]).await.is_err());
     }
-
-
 }

@@ -73,9 +73,5 @@ pub(crate) fn nearest_line(lines: &[String], expected: &str, preferred: usize) -
 /// `line` with tabs escaped, cut to `max` UTF-16 units (`…` replaces the last kept one).
 pub(crate) fn compact_preview(line: &str, max: usize) -> String {
     let text = line.replace('\t', "\\t");
-    if utf16_len(&text) > max {
-        format!("{}…", slice_utf16(&text, max - 1))
-    } else {
-        text
-    }
+    if utf16_len(&text) > max { format!("{}…", slice_utf16(&text, max - 1)) } else { text }
 }

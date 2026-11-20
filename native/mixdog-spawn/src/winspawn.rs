@@ -49,11 +49,7 @@ use windows_sys::Win32::System::Threading::WaitForSingleObject;
 pub(crate) enum Stdio<'a> {
     /// These handles; `None` is the null device. They stay the caller's: the child gets its own
     /// inheritable duplicates, closed here as soon as it exists.
-    Handles {
-        stdin: Option<BorrowedHandle<'a>>,
-        stdout: Option<BorrowedHandle<'a>>,
-        stderr: Option<BorrowedHandle<'a>>,
-    },
+    Handles { stdin: Option<BorrowedHandle<'a>>, stdout: Option<BorrowedHandle<'a>>, stderr: Option<BorrowedHandle<'a>> },
     /// The pseudo-console (an `HPCON`); the child inherits no handle at all.
     Console(isize),
 }
@@ -246,10 +242,7 @@ fn resolve_program(program: &str, env: Option<&[(OsString, OsString)]>) -> io::R
         .chain(system_directory(GetSystemDirectoryW))
         .chain(system_directory(GetWindowsDirectoryW))
         .chain(
-            std::env::var_os("PATH")
-                .into_iter()
-                .flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>())
-                .filter(|dir| !dir.as_os_str().is_empty()),
+            std::env::var_os("PATH").into_iter().flat_map(|paths| std::env::split_paths(&paths).collect::<Vec<_>>()).filter(|dir| !dir.as_os_str().is_empty()),
         );
     directories
         .map(|dir| dir.join(&file))
@@ -265,17 +258,7 @@ impl Inheritable {
     fn of(source: BorrowedHandle<'_>) -> io::Result<Self> {
         let mut duplicate: HANDLE = std::ptr::null_mut();
         let process = unsafe { GetCurrentProcess() };
-        let ok = unsafe {
-            DuplicateHandle(
-                process,
-                source.as_raw_handle().cast(),
-                process,
-                &mut duplicate,
-                0,
-                1,
-                DUPLICATE_SAME_ACCESS,
-            )
-        };
+        let ok = unsafe { DuplicateHandle(process, source.as_raw_handle().cast(), process, &mut duplicate, 0, 1, DUPLICATE_SAME_ACCESS) };
         if ok == 0 {
             return Err(io::Error::last_os_error());
         }
@@ -311,9 +294,7 @@ impl AttributeList {
 
     /// `value` must stay where it is until the process is created.
     fn set(&mut self, attribute: u32, value: *const std::ffi::c_void, size: usize) -> io::Result<()> {
-        let ok = unsafe {
-            UpdateProcThreadAttribute(self.raw(), 0, attribute as usize, value, size, std::ptr::null_mut(), std::ptr::null())
-        };
+        let ok = unsafe { UpdateProcThreadAttribute(self.raw(), 0, attribute as usize, value, size, std::ptr::null_mut(), std::ptr::null()) };
         if ok == 0 {
             return Err(io::Error::last_os_error());
         }
@@ -344,21 +325,13 @@ fn spawn_with(job: HANDLE, spec: &Spawn<'_>, observe: impl FnOnce()) -> io::Resu
     let (flags, inherit, duplicates) = match &spec.stdio {
         Stdio::Handles { stdin, stdout, stderr } => {
             let needs_null = stdin.is_none() || stdout.is_none() || stderr.is_none();
-            null_device = if needs_null {
-                Some(File::options().read(true).write(true).open("NUL")?)
-            } else {
-                None
-            };
+            null_device = if needs_null { Some(File::options().read(true).write(true).open("NUL")?) } else { None };
             let one = |handle: &Option<BorrowedHandle<'_>>| match (handle, &null_device) {
                 (Some(handle), _) => Inheritable::of(*handle),
                 (None, Some(null)) => Inheritable::of(borrow(null)),
                 (None, None) => unreachable!("a missing stream opens the null device"),
             };
-            (
-                CREATE_NO_WINDOW,
-                1,
-                Some([one(stdin)?, one(stdout)?, one(stderr)?]),
-            )
+            (CREATE_NO_WINDOW, 1, Some([one(stdin)?, one(stdout)?, one(stderr)?]))
         }
         Stdio::Console(_) => (0, 0, None),
     };
@@ -412,10 +385,7 @@ fn spawn_with(job: HANDLE, spec: &Spawn<'_>, observe: impl FnOnce()) -> io::Resu
         return Err(io::Error::last_os_error());
     }
     unsafe { CloseHandle(info.hThread) };
-    let process = WinProcess {
-        pid: info.dwProcessId,
-        handle: info.hProcess,
-    };
+    let process = WinProcess { pid: info.dwProcessId, handle: info.hProcess };
     observe();
     Ok(process)
 }
@@ -440,16 +410,7 @@ mod tests {
     fn refusal(program: &str, command_line: &str, env: Option<&[(OsString, OsString)]>) -> io::ErrorKind {
         let job = unsafe { CreateJobObjectW(std::ptr::null(), std::ptr::null()) };
         assert!(!job.is_null());
-        let started = spawn(
-            job,
-            &Spawn {
-                program,
-                command_line,
-                cwd: None,
-                env,
-                stdio: Stdio::Handles { stdin: None, stdout: None, stderr: None },
-            },
-        );
+        let started = spawn(job, &Spawn { program, command_line, cwd: None, env, stdio: Stdio::Handles { stdin: None, stdout: None, stderr: None } });
         let kind = match started {
             Ok(process) => {
                 let _ = process.terminate(1);
@@ -494,13 +455,7 @@ mod tests {
         assert!(!job.is_null());
         let started = spawn(
             job,
-            &Spawn {
-                program: &exe,
-                command_line: &line,
-                cwd: Some(&dir),
-                env: Some(&env),
-                stdio: Stdio::Handles { stdin: None, stdout: None, stderr: None },
-            },
+            &Spawn { program: &exe, command_line: &line, cwd: Some(&dir), env: Some(&env), stdio: Stdio::Handles { stdin: None, stdout: None, stderr: None } },
         );
         let outcome = match &started {
             Ok(child) => child.wait_for(60_000).map_err(|error| error.to_string()),

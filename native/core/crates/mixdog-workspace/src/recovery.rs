@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
+)]
 //! Host-private byte journals for multi-file edits (port of
 //! `project-recovery-store.ts` and `project-recovery.ts`). Publication precedes
 //! the first target mutation; this module never restores a file without an
@@ -151,11 +155,7 @@ struct Location {
 pub fn is_record_id(text: &str) -> bool {
     let groups: Vec<&str> = text.split('-').collect();
     let lens = [8, 4, 4, 4, 12];
-    groups.len() == 5
-        && groups
-            .iter()
-            .zip(lens)
-            .all(|(g, n)| g.len() == n && g.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+    groups.len() == 5 && groups.iter().zip(lens).all(|(g, n)| g.len() == n && g.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
 }
 
 fn location_name(name: &str) -> Option<Location> {
@@ -277,11 +277,7 @@ fn validate_directory(directory: &Path) -> WsResult<()> {
 fn storage_error(error: WsError) -> WsError {
     let denied = matches!(error.reason, Reason::PermissionDenied | Reason::Io)
         && ["No space", "not enough space", "disk full", "Read-only"].iter().any(|t| error.message.contains(t));
-    if denied {
-        recovery_err("RECOVERY_STORAGE", "Recovery storage is unavailable. Check free space and permissions.")
-    } else {
-        error
-    }
+    if denied { recovery_err("RECOVERY_STORAGE", "Recovery storage is unavailable. Check free space and permissions.") } else { error }
 }
 
 fn now_ms() -> i64 {
@@ -339,10 +335,7 @@ fn optional_entries(path: &Path) -> io::Result<Option<fs::ReadDir>> {
 /// A backup file or a complete journal directory is the indivisible adoption unit.
 /// Never merge payloads or state from two journals, including owned/retired names
 /// that refer to the same logical record ID.
-fn adopt_units(
-    from: &Path, to: &Path, archive: &Path, records: bool,
-    before_move: &dyn Fn(&Path, &Path) -> io::Result<()>,
-) -> WsResult<()> {
+fn adopt_units(from: &Path, to: &Path, archive: &Path, records: bool, before_move: &dyn Fn(&Path, &Path) -> io::Result<()>) -> WsResult<()> {
     let Some(entries) = optional_entries(from)? else { return Ok(()) };
     for entry in entries {
         let entry = entry?;
@@ -358,8 +351,8 @@ fn adopt_units(
             Err(error) => return Err(error.into()),
         };
         if records {
-            let location = location_name(&entry.file_name().to_string_lossy())
-                .ok_or_else(|| recovery_err("RECOVERY_STORAGE", "Migrated journal has an invalid name."))?;
+            let location =
+                location_name(&entry.file_name().to_string_lossy()).ok_or_else(|| recovery_err("RECOVERY_STORAGE", "Migrated journal has an invalid name."))?;
             if let Some(existing) = optional_entries(to)? {
                 for other in existing {
                     let other = other?;
@@ -476,11 +469,7 @@ impl RecoveryStore {
         if !is_record_id(id) {
             return Err(WsError::invalid("Invalid recovery ID."));
         }
-        let mut matches: Vec<PathBuf> = self
-            .locations(root)?
-            .into_iter()
-            .filter(|p| location_name(&base_name(p)).is_some_and(|l| l.id == id))
-            .collect();
+        let mut matches: Vec<PathBuf> = self.locations(root)?.into_iter().filter(|p| location_name(&base_name(p)).is_some_and(|l| l.id == id)).collect();
         if matches.len() != 1 {
             return Err(recovery_err("RECOVERY_UNAVAILABLE", "Recovery record moved or is unavailable. Refresh the list."));
         }
@@ -571,12 +560,10 @@ impl RecoveryStore {
     pub fn read_record(&self, directory: &Path) -> WsResult<Record> {
         self.adopt()?;
         validate_directory(directory)?;
-        let id = location_name(&base_name(directory))
-            .map(|l| l.id)
-            .ok_or_else(|| WsError::new(Reason::InvalidParams, "Recovery location is invalid."))?;
+        let id = location_name(&base_name(directory)).map(|l| l.id).ok_or_else(|| WsError::new(Reason::InvalidParams, "Recovery location is invalid."))?;
         let raw = read_limited(&directory.join("manifest.json"), MANIFEST_MAX)?;
-        let manifest: Manifest = serde_json::from_slice(&raw)
-            .map_err(|_| WsError::new(Reason::InvalidParams, "Recovery manifest is invalid. No file will be restored."))?;
+        let manifest: Manifest =
+            serde_json::from_slice(&raw).map_err(|_| WsError::new(Reason::InvalidParams, "Recovery manifest is invalid. No file will be restored."))?;
         if !valid_manifest(&manifest, &id) {
             return Err(WsError::new(Reason::InvalidParams, "Recovery manifest is invalid. No file will be restored."));
         }
@@ -593,11 +580,8 @@ impl RecoveryStore {
             // manifest invalid (plain serde above; decisions.md "frame-lone-surrogate").
             let state: State = serde_json::from_slice(&mixdog_js::json_well_formed(&state_bytes))
                 .map_err(|_| WsError::new(Reason::InvalidParams, "Recovery state is invalid. No file will be restored."))?;
-            let lone_path = std::str::from_utf8(&state_bytes)
-                .map(mixdog_js::json_lone_surrogate_pointers)
-                .unwrap_or_default()
-                .iter()
-                .any(|pointer| pointer != "/message");
+            let lone_path =
+                std::str::from_utf8(&state_bytes).map(mixdog_js::json_lone_surrogate_pointers).unwrap_or_default().iter().any(|pointer| pointer != "/message");
             let known = |rel: &String| manifest.files.iter().any(|f| &f.rel_path == rel);
             if lone_path || state.message.chars().count() > 8000 || state.restored.len() > manifest.files.len() || !state.restored.iter().all(known) {
                 return Err(WsError::new(Reason::InvalidParams, "Recovery state is invalid. No file will be restored."));
@@ -679,10 +663,7 @@ impl RecoveryStore {
     fn prepare(&self, root: &Path, files: Vec<PreparedFile>) -> WsResult<Journal> {
         let total: u64 = files.iter().map(|f| (f.before.len() + f.after.len()) as u64).sum();
         if files.is_empty() || files.len() > 100 || total > RECOVERY_MAX_BYTES {
-            return Err(recovery_err(
-                "RECOVERY_BATCH_LIMIT",
-                "Workspace edit exceeds the recovery budget. Split the edit into smaller batches.",
-            ));
+            return Err(recovery_err("RECOVERY_BATCH_LIMIT", "Workspace edit exceeds the recovery budget. Split the edit into smaller batches."));
         }
         let parent = self.store_path(root);
         let grand = parent.parent().expect("store has a parent").to_path_buf();
@@ -691,10 +672,7 @@ impl RecoveryStore {
         fs::create_dir_all(&parent)?;
         require_directory(&parent)?;
         if self.locations(root)?.len() >= RECOVERY_MAX_RECORDS {
-            return Err(recovery_err(
-                "RECOVERY_CAPACITY",
-                "Recovery storage is full. Inspect and explicitly discard records before another workspace edit.",
-            ));
+            return Err(recovery_err("RECOVERY_CAPACITY", "Recovery storage is full. Inspect and explicitly discard records before another workspace edit."));
         }
         let id = uuid::Uuid::new_v4().to_string();
         let directory = parent.join(self.owned_name(&id));
@@ -802,7 +780,8 @@ fn valid_manifest(m: &Manifest, id: &str) -> bool {
     let mut paths = HashSet::new();
     let mut bytes = 0u64;
     for f in &m.files {
-        let sha = |r: &ByteRef| r.size <= RECOVERY_MAX_BYTES && r.sha256.len() == 64 && r.sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+        let sha =
+            |r: &ByteRef| r.size <= RECOVERY_MAX_BYTES && r.sha256.len() == 64 && r.sha256.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
         if f.rel_path.is_empty()
             || f.rel_path.len() > 4096
             || Path::new(&f.rel_path).is_absolute()
@@ -1005,11 +984,7 @@ impl RecoveryStore {
                 Err(error) => {
                     let status = if error.reason == Reason::NotFound { FileStatus::Missing } else { FileStatus::Unavailable };
                     observations.push(format!("{:?}", (&entry.rel_path, status)));
-                    files.push(FileDetail {
-                        rel_path: entry.rel_path.clone(),
-                        status,
-                        reason: Some(error.message.chars().take(512).collect()),
-                    });
+                    files.push(FileDetail { rel_path: entry.rel_path.clone(), status, reason: Some(error.message.chars().take(512).collect()) });
                 }
             }
         }
@@ -1028,12 +1003,8 @@ impl RecoveryStore {
 
     fn overview(&self, root: &Path) -> WsResult<Response> {
         let records = self.list(root)?;
-        let root_available = fs::symlink_metadata(root).is_ok_and(|m| m.is_dir())
-            && canonical(root).is_ok_and(|r| comparable(&r) == comparable(root));
-        let resolved = records
-            .iter()
-            .filter(|r| matches!(r.phase, Phase::Completed | Phase::Recovered | Phase::Retired))
-            .count();
+        let root_available = fs::symlink_metadata(root).is_ok_and(|m| m.is_dir()) && canonical(root).is_ok_and(|r| comparable(&r) == comparable(root));
+        let resolved = records.iter().filter(|r| matches!(r.phase, Phase::Completed | Phase::Recovered | Phase::Retired)).count();
         Ok(Response {
             storage: Some(Storage {
                 used_records: records.len(),
@@ -1074,7 +1045,8 @@ impl RecoveryStore {
                 require_revision(&approved, &revision)?;
                 if !Self::is_retired(&owned)
                     && let Ok(record) = self.read_record(&owned)
-                    && !belongs_to(root, &record.manifest) {
+                    && !belongs_to(root, &record.manifest)
+                {
                     return Err(recovery_err(
                         "RECOVERY_MANUAL_INSPECTION",
                         "Recovery record belongs to another project root. Inspect the host recovery folder manually.",
@@ -1113,12 +1085,7 @@ impl RecoveryStore {
         if matches!(approved.summary.phase, Phase::Invalid | Phase::Retired | Phase::Completed) {
             return Err(recovery_err("RECOVERY_NOT_RESTORABLE", "Recovery record is no longer restorable."));
         }
-        let mut restored: HashSet<String> = approved
-            .files
-            .iter()
-            .filter(|f| f.status == FileStatus::Restored)
-            .map(|f| f.rel_path.clone())
-            .collect();
+        let mut restored: HashSet<String> = approved.files.iter().filter(|f| f.status == FileStatus::Restored).map(|f| f.rel_path.clone()).collect();
         let mut failures = Vec::new();
         self.write_state(owned, &State { phase: StatePhase::Restoring, message: String::new(), restored: restored.iter().cloned().collect() })?;
         for index in (0..manifest.files.len()).rev() {
@@ -1153,11 +1120,7 @@ impl RecoveryStore {
                 failures.push(format!("{:?}: {message}", entry.rel_path));
             }
         }
-        let skipped = approved
-            .files
-            .iter()
-            .filter(|f| matches!(f.status, FileStatus::External | FileStatus::Missing | FileStatus::Unavailable))
-            .count();
+        let skipped = approved.files.iter().filter(|f| matches!(f.status, FileStatus::External | FileStatus::Missing | FileStatus::Unavailable)).count();
         let incomplete = !failures.is_empty() || skipped > 0;
         self.write_state(
             owned,
@@ -1165,11 +1128,7 @@ impl RecoveryStore {
                 phase: if incomplete { StatePhase::Failed } else { StatePhase::Recovered },
                 restored: restored.into_iter().collect(),
                 message: if incomplete {
-                    format!(
-                        "{} restoration failures; {skipped} changed or unavailable files were left untouched. {}",
-                        failures.len(),
-                        failures.join("; ")
-                    )
+                    format!("{} restoration failures; {skipped} changed or unavailable files were left untouched. {}", failures.len(), failures.join("; "))
                 } else {
                     "Original bytes restored. No changed, missing or unavailable file was overwritten.".to_owned()
                 },
@@ -1197,7 +1156,14 @@ mod tests {
         let data = tempfile::tempdir().unwrap();
         let project = tempfile::tempdir().unwrap();
         let root = canonical(project.path()).unwrap();
-        let file = PreparedFile { rel_path: "a.txt".to_owned(), destination: root.join("a.txt"), parent: identity_of(&root).unwrap(), mode: 0o644, before: b"before".to_vec(), after: b"after".to_vec() };
+        let file = PreparedFile {
+            rel_path: "a.txt".to_owned(),
+            destination: root.join("a.txt"),
+            parent: identity_of(&root).unwrap(),
+            mode: 0o644,
+            before: b"before".to_vec(),
+            after: b"after".to_vec(),
+        };
         let old = RecoveryStore::new(data.path().join("old-store"));
         let journal = old.begin(&root, vec![file]).unwrap();
         // The process that began it is gone: its journal carries the plain id.
@@ -1243,15 +1209,13 @@ mod tests {
         assert!(!from.exists());
         assert_eq!(fs::read_to_string(to.join(id).join("manifest.json")).unwrap(), "current manifest");
         assert!(!to.join(id).join("0.before").exists());
-        let preserved = fs::read_dir(&archive).unwrap().map(|slot| slot.unwrap().path().join(id))
-            .find(|path| path.join("manifest.json").is_file()).unwrap();
+        let preserved = fs::read_dir(&archive).unwrap().map(|slot| slot.unwrap().path().join(id)).find(|path| path.join("manifest.json").is_file()).unwrap();
         assert_eq!(fs::read_to_string(preserved.join("manifest.json")).unwrap(), "old manifest");
         assert_eq!(fs::read_to_string(preserved.join("0.before")).unwrap(), "old payload");
         fs::remove_dir_all(to.join(id)).unwrap();
         adopt_units(&from, &to, &archive, true, &|_, _| Ok(())).unwrap();
         assert!(!to.join(id).exists());
     }
-
 
     /// A journal whose paths held a lone surrogate (Node writes one for a desktop batch edit of such a name: relPath and
     /// destination with the escape, `native/core/fixtures/lone-surrogate-files` `project-recovery-lone-path`). A path is no

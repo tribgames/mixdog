@@ -8,7 +8,7 @@ type MediaTextFactory = dyn Fn(&Value) -> Arc<dyn mixdog_agent::text_only::Media
 use std::sync::Arc;
 
 use mixdog_agent::attachments::AttachmentText;
-use mixdog_agent::compact::tool_schema::{estimate_request_reserve_tokens, RequestTools};
+use mixdog_agent::compact::tool_schema::{RequestTools, estimate_request_reserve_tokens};
 use mixdog_agent::limits::TurnLimits;
 use mixdog_agent::step_effort::StepAutoEffort;
 use mixdog_core_api::domain::provider::{ProviderAdapter, ToolDefinition};
@@ -17,8 +17,8 @@ use mixdog_store::schema::record::Header;
 use serde_json::Value;
 
 use super::assemble::RunSettings;
-use mixdog_core_run::run_host::hop_host::HopWiring;
 use mixdog_core_config::tool_modules::value::auto_effort_base;
+use mixdog_core_run::run_host::hop_host::HopWiring;
 
 /// `HEARTBEAT_TURN_LIMITS` (`shared/routine-trigger.mjs:82`).
 const HEARTBEAT_MAX_TOOL_CALLS: u64 = 8;
@@ -114,10 +114,8 @@ pub fn merge_settings(mut base: RunSettings, sources: &SettingsSources, turn: &T
         && turn.header.get("autoEffort") != Some(&Value::Bool(false))
         && !turn.request.is_empty()
         && !turn.request.starts_with('<');
-    base.step_auto_effort = (auto && base.effort.is_some() && sources.auto_effort.steps_enabled()).then(|| StepAutoEffort {
-        request: turn.request.to_owned(),
-        base: auto_effort_base(sources.auto_effort.base_setting().as_ref()).to_owned(),
-    });
+    base.step_auto_effort = (auto && base.effort.is_some() && sources.auto_effort.steps_enabled())
+        .then(|| StepAutoEffort { request: turn.request.to_owned(), base: auto_effort_base(sources.auto_effort.base_setting().as_ref()).to_owned() });
 
     let ceilings = sources.ceilings.ceilings(provider, model, turn.header);
     base.escalated_max_output_tokens = ceilings.escalated;
@@ -131,11 +129,13 @@ pub fn merge_settings(mut base: RunSettings, sources: &SettingsSources, turn: &T
     };
     base.attachments = Some(sources.attachments.clone());
     base.vision = sources.vision.clone();
-    base.file_text = sources.media.as_ref().map(|media| media(&Value::Object({
-        let mut row = serde_json::Map::new();
-        row.insert("id".into(), Value::String(turn.thread.as_str().to_owned()));
-        row
-    })));
+    base.file_text = sources.media.as_ref().map(|media| {
+        media(&Value::Object({
+            let mut row = serde_json::Map::new();
+            row.insert("id".into(), Value::String(turn.thread.as_str().to_owned()));
+            row
+        }))
+    });
 
     // The request's reserve is what the tools sent cost (`estimateRequestReserveTokens`); no provider adds native tools.
     if let Some(compact) = base.compact.as_mut() {
@@ -178,11 +178,13 @@ mod tests {
     struct NoText;
     #[async_trait::async_trait]
     impl AttachmentText for NoText {
-        async fn text_of(&self, _: &mixdog_core_api::domain::provider::ContentPart) -> Result<Option<String>, Box<mixdog_core_api::domain::provider::ProviderError>> {
+        async fn text_of(
+            &self,
+            _: &mixdog_core_api::domain::provider::ContentPart,
+        ) -> Result<Option<String>, Box<mixdog_core_api::domain::provider::ProviderError>> {
             Ok(None)
         }
     }
-
 
     struct NullProvider {
         id: mixdog_protocol::ProviderId,
@@ -215,7 +217,10 @@ mod tests {
         fn keepalive(&self) -> &mixdog_core_api::domain::keepalive::KeepaliveSchedule {
             &self.keepalive
         }
-        async fn attempt(&self, _: Arc<mixdog_core_api::domain::provider::ModelRequest>) -> Result<Box<dyn mixdog_core_api::domain::provider::ModelStream>, mixdog_core_api::domain::provider::ProviderError> {
+        async fn attempt(
+            &self,
+            _: Arc<mixdog_core_api::domain::provider::ModelRequest>,
+        ) -> Result<Box<dyn mixdog_core_api::domain::provider::ModelStream>, mixdog_core_api::domain::provider::ProviderError> {
             unreachable!("the settings never send")
         }
     }
@@ -239,7 +244,16 @@ mod tests {
     }
 
     fn sources(heartbeat: &'static str) -> SettingsSources {
-        SettingsSources { wiring: Arc::new(Wiring), attachments: Arc::new(NoText), media: None, heartbeats: Arc::new(Marks(heartbeat)), ceilings: Arc::new(Ceilings), auto_effort: Arc::new(Auto), first_auto_effort: None, vision: None }
+        SettingsSources {
+            wiring: Arc::new(Wiring),
+            attachments: Arc::new(NoText),
+            media: None,
+            heartbeats: Arc::new(Marks(heartbeat)),
+            ceilings: Arc::new(Ceilings),
+            auto_effort: Arc::new(Auto),
+            first_auto_effort: None,
+            vision: None,
+        }
     }
 
     #[test]
@@ -248,7 +262,16 @@ mod tests {
         let thread = ThreadId::from("t1");
         let provider: Arc<dyn ProviderAdapter> = Arc::new(NullProvider::new());
         let prior = [json!({ "role": "user" })];
-        let turn = |injected| TurnFacts { thread: &thread, header: &header, provider: &provider, prior: &prior, request: "fix it", injected, tools: &[], now_ms: 1_000 };
+        let turn = |injected| TurnFacts {
+            thread: &thread,
+            header: &header,
+            provider: &provider,
+            prior: &prior,
+            request: "fix it",
+            injected,
+            tools: &[],
+            now_ms: 1_000,
+        };
 
         let merged = merge_settings(base(), &sources("other"), &turn(false), None);
         assert!(merged.hidden_agent && merged.agent_mode && merged.read_body_required, "the config's fields are kept");
@@ -268,7 +291,8 @@ mod tests {
         let thread = ThreadId::from("t1");
         let provider: Arc<dyn ProviderAdapter> = Arc::new(NullProvider::new());
         let prior = [json!({ "role": "user" })];
-        let turn = TurnFacts { thread: &thread, header: &header, provider: &provider, prior: &prior, request: "fix it", injected: false, tools: &[], now_ms: 5_000 };
+        let turn =
+            TurnFacts { thread: &thread, header: &header, provider: &provider, prior: &prior, request: "fix it", injected: false, tools: &[], now_ms: 5_000 };
         let marks = mixdog_services::bots::HeartbeatSessions::new();
         let sources = SettingsSources { heartbeats: marks.clone(), ..sources("") };
 
@@ -280,9 +304,12 @@ mod tests {
         assert!(merge_settings(base(), &sources, &turn, None).limits.is_none());
     }
 
-
     impl HopWiring for Wiring {
-        fn wiring(&self, updated: &Value, _: &Arc<dyn ProviderAdapter>) -> (Option<mixdog_agent::effort::EffortWiring>, Option<mixdog_agent::text_only::TextOnlyInput>) {
+        fn wiring(
+            &self,
+            updated: &Value,
+            _: &Arc<dyn ProviderAdapter>,
+        ) -> (Option<mixdog_agent::effort::EffortWiring>, Option<mixdog_agent::text_only::TextOnlyInput>) {
             assert_eq!(updated["messages"], json!([{ "role": "user" }]), "the stored rows ride the session row");
             (None, None)
         }

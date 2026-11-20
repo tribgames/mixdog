@@ -192,11 +192,7 @@ fn replace_rules(document: Option<Value>, rules: Vec<Value>) -> Value {
 
 /// `saveRules(update)` (`updateHookRules`): under the file's lock, the rule objects of the file go
 /// through `update` and come back written, the replaced file kept as `.bak`. Answers the new list.
-fn save_rules(
-    lane: &InLane<MaintenanceIo>,
-    path: &Path,
-    update: impl FnOnce(Vec<Value>) -> Result<Vec<Value>, String>,
-) -> Result<Vec<Value>, String> {
+fn save_rules(lane: &InLane<MaintenanceIo>, path: &Path, update: impl FnOnce(Vec<Value>) -> Result<Vec<Value>, String>) -> Result<Vec<Value>, String> {
     let mut saved = Vec::new();
     let opts = mixdog_statefile::Opts { backup: true, ..mixdog_statefile::Opts::default() };
     mixdog_statefile::update_json(
@@ -331,7 +327,6 @@ mod tests {
 
     use super::*;
 
-
     #[test]
     fn the_rules_file_is_the_environment_override_or_hooks_json() {
         let none: EnvReader = std::sync::Arc::new(|_| None);
@@ -341,7 +336,4 @@ mod tests {
         let set: EnvReader = std::sync::Arc::new(|name| (name == "MIXDOG_HOOKS_FILE").then(|| "rules.json".to_owned()));
         assert!(hook_rules_path(&set, Path::new("/d")).is_absolute());
     }
-
-
-
 }

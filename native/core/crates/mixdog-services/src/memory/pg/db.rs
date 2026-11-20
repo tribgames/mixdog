@@ -6,8 +6,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use futures::future::BoxFuture;
 use deadpool_postgres::{Manager, ManagerConfig, Object, Pool, RecyclingMethod, Runtime};
+use futures::future::BoxFuture;
 use tokio_postgres::{Config, NoTls, Row, ToStatement, types::ToSql};
 
 use crate::memory::error::{MemoryError, Result};
@@ -67,17 +67,8 @@ impl Schema {
 
 pub(super) fn config(port: u16, database: &str, search_path: Option<&str>) -> Config {
     let mut config = Config::new();
-    config
-        .host("127.0.0.1")
-        .port(port)
-        .user(USER)
-        .dbname(database)
-        .connect_timeout(BUDGET.connect);
-    let mut options = format!(
-        "-c lock_timeout={} -c statement_timeout={}",
-        BUDGET.lock.as_millis(),
-        BUDGET.statement.as_millis()
-    );
+    config.host("127.0.0.1").port(port).user(USER).dbname(database).connect_timeout(BUDGET.connect);
+    let mut options = format!("-c lock_timeout={} -c statement_timeout={}", BUDGET.lock.as_millis(), BUDGET.statement.as_millis());
     if let Some(path) = search_path {
         options.push_str(&format!(" -c search_path={}", path.replace(' ', "\\ ")));
     }
@@ -120,10 +111,7 @@ impl Drop for CutOnDrop {
 }
 
 impl deadpool_postgres::Connect for OwnedConnect {
-    fn connect(
-        &self,
-        pg_config: &Config,
-    ) -> BoxFuture<'_, std::result::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>), tokio_postgres::Error>> {
+    fn connect(&self, pg_config: &Config) -> BoxFuture<'_, std::result::Result<(tokio_postgres::Client, tokio::task::JoinHandle<()>), tokio_postgres::Error>> {
         let pg_config = pg_config.clone();
         Box::pin(async move {
             // The connect itself is the slot's work: the slot is registered before the socket is opened, the connection is established inside it,
@@ -163,13 +151,7 @@ impl deadpool_postgres::Connect for OwnedConnect {
 }
 
 fn build_pool(config: Config, size: usize, scope: &Scope) -> Result<Pool> {
-    let manager = Manager::from_connect(
-        config,
-        OwnedConnect { transport: scope.transport() },
-        ManagerConfig {
-            recycling_method: RecyclingMethod::Fast,
-        },
-    );
+    let manager = Manager::from_connect(config, OwnedConnect { transport: scope.transport() }, ManagerConfig { recycling_method: RecyclingMethod::Fast });
     Pool::builder(manager)
         .max_size(size)
         .runtime(Runtime::Tokio1)
@@ -261,15 +243,8 @@ where
     let lease = Lease::over(pool.get().await?);
     // The wait for another process's first-boot DDL is longer than a row-lock wait; the
     // session returns to the pool budget when the lock is released.
-    lease
-        .batch_execute(&format!(
-            "SET lock_timeout = {}",
-            BUDGET.cluster_lock.as_millis()
-        ))
-        .await?;
-    lease
-        .execute("SELECT pg_advisory_lock($1, $2)", &[&LOCK_CLASS, &object])
-        .await?;
+    lease.batch_execute(&format!("SET lock_timeout = {}", BUDGET.cluster_lock.as_millis())).await?;
+    lease.execute("SELECT pg_advisory_lock($1, $2)", &[&LOCK_CLASS, &object]).await?;
     let result = body(&lease).await;
     if lease.execute("SELECT pg_advisory_unlock($1, $2)", &[&LOCK_CLASS, &object]).await.is_ok() {
         lease.release(Some("RESET lock_timeout")).await;
@@ -508,10 +483,7 @@ mod tests {
         });
         let pool = build_pool(config(port, DATABASE, Some("memory, public")), 1, &Scope::new()).unwrap();
         let outcome = mixdog_rt::time::timeout(BUDGET.connect * 3, pool.get()).await;
-        assert!(
-            matches!(outcome, Ok(Err(_))),
-            "the budget ends the checkout, the test timeout does not"
-        );
+        assert!(matches!(outcome, Ok(Err(_))), "the budget ends the checkout, the test timeout does not");
         silent.abort();
     }
 

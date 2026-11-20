@@ -154,20 +154,9 @@ pub fn resolve_policy(agent: AgentKind<'_>, overrides: Overrides, env: Env<'_>) 
     let max_before_warn = (warn_s * 1000 - STALL_TICK_MS).max(1000);
     let provider_first_byte = timeout_ms(env, &["MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS"], 60_000, 30_000, max_before_warn);
     let semantic_max = (base_abort_s * 1000 - STALL_TICK_MS).max(10_000);
-    let semantic_idle = timeout_ms(
-        env,
-        &["MIXDOG_PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS", "MIXDOG_PROVIDER_SSE_IDLE_TIMEOUT_MS"],
-        300_000,
-        10_000,
-        semantic_max,
-    );
-    let ws_semantic_idle = timeout_ms(
-        env,
-        &["MIXDOG_PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS", "MIXDOG_PROVIDER_WS_OUTPUT_IDLE_TIMEOUT_MS"],
-        300_000,
-        10_000,
-        semantic_max,
-    );
+    let semantic_idle = timeout_ms(env, &["MIXDOG_PROVIDER_SEMANTIC_IDLE_TIMEOUT_MS", "MIXDOG_PROVIDER_SSE_IDLE_TIMEOUT_MS"], 300_000, 10_000, semantic_max);
+    let ws_semantic_idle =
+        timeout_ms(env, &["MIXDOG_PROVIDER_WS_SEMANTIC_IDLE_TIMEOUT_MS", "MIXDOG_PROVIDER_WS_OUTPUT_IDLE_TIMEOUT_MS"], 300_000, 10_000, semantic_max);
     // The provider's recovery window must always fire before the watchdog's terminal abort.
     let recovery_floor = semantic_idle.max(ws_semantic_idle) + STALL_TICK_MS;
 
@@ -240,7 +229,6 @@ mod tests {
 
     use super::*;
 
-
     /// A provider that declares per-phase windows is not cut sooner than they: the first-transport deadline sits one tick above the
     /// declared head window (an attempt's 285 s first-byte window), and the first-output one above a declared window longer than
     /// the 600 s default; one that declares none keeps the 120 s and 600 s defaults.
@@ -254,6 +242,4 @@ mod tests {
         let longer = Overrides { provider_first_byte_timeout_ms: Some(285_000), provider_first_output_timeout_ms: Some(900_000), ..Overrides::default() };
         assert_eq!(resolve_policy(AgentKind::default(), longer, &|_| None).first_semantic_ms, 900_000 + STALL_TICK_MS);
     }
-
-
 }

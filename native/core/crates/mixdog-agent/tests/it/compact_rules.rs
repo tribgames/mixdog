@@ -105,10 +105,7 @@ fn only_the_replay_of_the_sessions_own_provider_is_priced() {
 fn transcript_for_dropping() -> Vec<AgentMessage> {
     vec![
         with_id("u1", AgentMessage::user("first request")),
-        with_id(
-            "a1",
-            AgentMessage::assistant("checking", vec![call("c1", "read", json!({ "path": "a" })), call("c2", "read", json!({ "path": "b" }))]),
-        ),
+        with_id("a1", AgentMessage::assistant("checking", vec![call("c1", "read", json!({ "path": "a" })), call("c2", "read", json!({ "path": "b" }))])),
         with_id("t1", AgentMessage::tool_text("c1", "contents a", ToolKind::Normal)),
         with_id("t2", AgentMessage::tool_text("c2", "contents b", ToolKind::Normal)),
         with_id("u2", AgentMessage::user("next request")),
@@ -149,15 +146,8 @@ fn a_message_without_a_stable_id_is_never_reported_dropped() {
 
 // ---- the summary's structure -------------------------------------------------------------------------------
 
-const SECTIONS: [&str; 7] = [
-    "## Goal",
-    "## Constraints & Preferences",
-    "## Progress",
-    "## Key Decisions",
-    "## Next Steps",
-    "## Critical Context",
-    "## Relevant Files",
-];
+const SECTIONS: [&str; 7] =
+    ["## Goal", "## Constraints & Preferences", "## Progress", "## Key Decisions", "## Next Steps", "## Critical Context", "## Relevant Files"];
 
 fn heading_positions(text: &str) -> Vec<usize> {
     SECTIONS.iter().map(|h| text.find(h).unwrap_or_else(|| panic!("{h} missing in:\n{text}"))).collect()
@@ -218,7 +208,13 @@ fn a_prompt_is_offered_only_when_it_and_the_system_prompt_fit_the_target() {
 fn valid_summary() -> String {
     SECTIONS
         .iter()
-        .map(|h| if *h == "## Progress" { format!("{h}\n### Done\n- parsed\n\n### In Progress\n- (none)\n\n### Blocked\n- (none)") } else { format!("{h}\n- body of {h}") })
+        .map(|h| {
+            if *h == "## Progress" {
+                format!("{h}\n### Done\n- parsed\n\n### In Progress\n- (none)\n\n### Blocked\n- (none)")
+            } else {
+                format!("{h}\n- body of {h}")
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n\n")
 }
@@ -244,10 +240,7 @@ fn a_heading_only_counts_when_it_names_a_section_and_a_foreign_heading_makes_the
 
 #[test]
 fn a_broken_summary_is_repaired_by_keeping_what_the_model_wrote_and_scaffolding_the_rest() {
-    let head = vec![
-        AgentMessage::user("Please fix src/lib.rs and then Cargo.toml"),
-        AgentMessage::assistant("Looking at src/lib.rs again", Vec::new()),
-    ];
+    let head = vec![AgentMessage::user("Please fix src/lib.rs and then Cargo.toml"), AgentMessage::assistant("Looking at src/lib.rs again", Vec::new())];
     let tail = vec![AgentMessage::user("now run the tests")];
     let broken = "Stray preamble line\n## Goal\n- ship it\n## Progress\n### Done\n- parsed\n## Next Steps\n- release\n## Random Notes\n- stray";
     let fixed = enforce_compact_summary_schema(broken, &head, &tail);
@@ -289,7 +282,13 @@ fn long_summary() -> String {
     SECTIONS
         .iter()
         .enumerate()
-        .map(|(s, h)| if *h == "## Progress" { format!("{h}\n### Done\n{}\n\n### In Progress\n- (none)\n\n### Blocked\n- (none)", points(s)) } else { format!("{h}\n{}", points(s)) })
+        .map(|(s, h)| {
+            if *h == "## Progress" {
+                format!("{h}\n### Done\n{}\n\n### In Progress\n- (none)\n\n### Blocked\n- (none)", points(s))
+            } else {
+                format!("{h}\n{}", points(s))
+            }
+        })
         .collect::<Vec<_>>()
         .join("\n\n")
 }
@@ -308,7 +307,10 @@ fn the_summary_message_names_what_it_replaced_and_shrinks_into_the_room_it_has_w
     assert!(text.contains("generated_handoff=true provider=anthropic model=opus"));
     for s in 0..SECTIONS.len() {
         for n in [0, 59] {
-            assert!(text.contains(&format!("- point {n} of section {s}\n")) || text.ends_with(&format!("- point {n} of section {s}")), "a summary that fits is kept whole: section {s} point {n}");
+            assert!(
+                text.contains(&format!("- point {n} of section {s}\n")) || text.ends_with(&format!("- point {n} of section {s}")),
+                "a summary that fits is kept whole: section {s} point {n}"
+            );
         }
     }
 
@@ -424,10 +426,7 @@ fn an_image_file_read_is_kept_for_the_whole_request_and_replaced_once_a_newer_re
     let Content::Parts(parts) = &replaced.message.content else { panic!("parts stay parts") };
     assert_eq!(
         parts,
-        &[ContentPart::Text(
-            "[Image read of shots/a.png superseded: a newer read of this file follows. Read the file again to view it. ORIGIN]".into(),
-            None
-        )],
+        &[ContentPart::Text("[Image read of shots/a.png superseded: a newer read of this file follows. Read the file again to view it. ORIGIN]".into(), None)],
         "the pixels are gone, a one-line note says why"
     );
 }
@@ -498,7 +497,16 @@ fn only_the_persons_own_text_is_an_instruction_not_summaries_reminders_or_runtim
     assert!(!instruction(&AgentMessage::user("   ")));
     assert!(!instruction(&AgentMessage::user("<system-reminder>state</system-reminder>")), "a reminder envelope is context");
     assert!(instruction(&AgentMessage::user("<system-reminder>state</system-reminder>\nplease fix the bug")), "text after the envelope is the request");
-    for source in [Source::TaskNotification, Source::CompactSummary, Source::Skill, Source::GoalContinuation, Source::ScheduleResult, Source::CompactContext, Source::ActiveTurnContinuation, Source::StreamCutRecovery] {
+    for source in [
+        Source::TaskNotification,
+        Source::CompactSummary,
+        Source::Skill,
+        Source::GoalContinuation,
+        Source::ScheduleResult,
+        Source::CompactContext,
+        Source::ActiveTurnContinuation,
+        Source::StreamCutRecovery,
+    ] {
         assert!(!instruction(&AgentMessage::sourced(source, "text a model needs")), "{source:?}");
     }
     assert!(!instruction(&AgentMessage::assistant("I will", Vec::new())));
@@ -518,7 +526,10 @@ fn a_visualize_readout_is_replaced_by_a_newer_one_of_the_same_tab_and_viewport_o
     let stale = stale_observations(&messages);
     assert_eq!(stale_indices(&messages), [2]);
     let replaced = supersede_observation(&messages[2], &stale[&2], "ORIGIN");
-    assert_eq!(replaced.text(), "[Visualize inspect of tab t1 superseded: a newer inspect of this tab follows. Run visualize inspect on the tab again to get it. ORIGIN]");
+    assert_eq!(
+        replaced.text(),
+        "[Visualize inspect of tab t1 superseded: a newer inspect of this tab follows. Run visualize inspect on the tab again to get it. ORIGIN]"
+    );
 
     // Within one request both stay; another viewport or tab is another observation.
     let mut same_request = vec![AgentMessage::user("design")];
@@ -583,7 +594,16 @@ fn a_frame_nested_under_an_observation_is_reduced_in_place() {
 #[test]
 fn the_saved_summary_mode_is_kept_when_it_names_one_else_the_retired_switch_decides() {
     use mixdog_agent::compact::settings::normalize_compaction;
-    let modes = [Some(json!("smart")), Some(json!("maintainer")), Some(json!("self")), None, Some(json!("unknown")), Some(json!("Smart")), Some(json!(5)), Some(json!(null))];
+    let modes = [
+        Some(json!("smart")),
+        Some(json!("maintainer")),
+        Some(json!("self")),
+        None,
+        Some(json!("unknown")),
+        Some(json!("Smart")),
+        Some(json!(5)),
+        Some(json!(null)),
+    ];
     let switches = [None, Some(json!(true)), Some(json!(false)), Some(json!("false")), Some(json!(null))];
     for mode in &modes {
         for switch in &switches {
@@ -606,7 +626,15 @@ fn the_saved_summary_mode_is_kept_when_it_names_one_else_the_retired_switch_deci
             assert!(!got.contains_key("useMaintainer"), "the retired switch is not kept: {saved:?}");
             // The loop reads the same mode from the same saved values.
             let loop_mode = SummaryMode::normalize(saved.get("summaryMode").and_then(|m| m.as_str()), saved.get("useMaintainer").and_then(|s| s.as_bool()));
-            assert_eq!(match loop_mode { SummaryMode::Smart => "smart", SummaryMode::Maintainer => "maintainer", SummaryMode::Session => "self" }, want, "{saved:?}");
+            assert_eq!(
+                match loop_mode {
+                    SummaryMode::Smart => "smart",
+                    SummaryMode::Maintainer => "maintainer",
+                    SummaryMode::Session => "self",
+                },
+                want,
+                "{saved:?}"
+            );
         }
     }
     assert_eq!(normalize_compaction(None)["summaryMode"], "smart", "nothing saved");

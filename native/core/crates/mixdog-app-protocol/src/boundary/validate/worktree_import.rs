@@ -57,10 +57,7 @@ impl<'a> Obj<'a> {
 
     /// `Number.isSafeInteger(input[key])`, as the integer's value.
     fn safe_integer(&self, key: &str) -> Option<f64> {
-        self.map
-            .get(key)
-            .and_then(Value::as_f64)
-            .filter(|number| number.fract() == 0.0 && number.abs() <= MAX_SAFE_INTEGER)
+        self.map.get(key).and_then(Value::as_f64).filter(|number| number.fract() == 0.0 && number.abs() <= MAX_SAFE_INTEGER)
     }
 
     /// An object that must be there: `{}` is a value here, not an absent argument.
@@ -190,11 +187,7 @@ fn inspect_project_branch(params: &Value) -> Checked {
 fn manage_project_branch(params: &Value) -> Checked {
     let name = "manageProjectBranch input";
     with_object(params, "input", name, false, |input| {
-        allow_keys(
-            input,
-            &["projectPath", "branch", "action", "commit", "target", "targetCommit", "confirmed", "force"],
-            name,
-        )?;
+        allow_keys(input, &["projectPath", "branch", "action", "commit", "target", "targetCommit", "confirmed", "force"], name)?;
         project_path_text(input, "projectPath", "projectPath")?;
         ref_text(input, "branch", "branch")?;
         commit_id(input, "commit", "commit")?;
@@ -245,10 +238,7 @@ fn select_project_branch(params: &Value) -> Checked {
         if input.has("detach") {
             commit_id(input, "detach", "selectProjectBranch input.detach")?;
             if ["branch", "create", "remote", "startPoint"].iter().any(|key| input.has(key)) {
-                return input.fail(
-                    "detach",
-                    "selectProjectBranch input.detach excludes branch, create, remote and startPoint.".to_owned(),
-                );
+                return input.fail("detach", "selectProjectBranch input.detach excludes branch, create, remote and startPoint.".to_owned());
             }
             return Ok(());
         }
@@ -256,10 +246,7 @@ fn select_project_branch(params: &Value) -> Checked {
         optional_boolean(input, "create", name)?;
         optional_boolean(input, "remote", name)?;
         if input.is_true("create") && input.is_true("remote") {
-            return input.fail(
-                "remote",
-                "selectProjectBranch input cannot both create and check out a remote branch.".to_owned(),
-            );
+            return input.fail("remote", "selectProjectBranch input cannot both create and check out a remote branch.".to_owned());
         }
         if input.has("startPoint") {
             commit_id(input, "startPoint", "selectProjectBranch input.startPoint")?;
@@ -326,25 +313,14 @@ fn set_worktree_settings(params: &Value) -> Checked {
     with_object(params, "patch", name, false, |patch| {
         allow_keys(
             patch,
-            &[
-                "newTaskDefault",
-                "branchPrefix",
-                "sizeWarnBytes",
-                "autoCleanup",
-                "maxWorktrees",
-                "unusedDays",
-                "cleanupArchived",
-                "deleteBranch",
-            ],
+            &["newTaskDefault", "branchPrefix", "sizeWarnBytes", "autoCleanup", "maxWorktrees", "unusedDays", "cleanupArchived", "deleteBranch"],
             name,
         )?;
         if patch.has("newTaskDefault") && !patch.is("newTaskDefault", "branch") && !patch.is("newTaskDefault", "worktree") {
             return patch.fail("newTaskDefault", format!("{name} newTaskDefault must be branch or worktree."));
         }
         // "" (no prefix) is a valid choice; the runtime checks the ref shape.
-        if patch.has("branchPrefix")
-            && !patch.map["branchPrefix"].as_str().is_some_and(|prefix| utf16_len(prefix) <= MAX_REF_LENGTH)
-        {
+        if patch.has("branchPrefix") && !patch.map["branchPrefix"].as_str().is_some_and(|prefix| utf16_len(prefix) <= MAX_REF_LENGTH) {
             return patch.fail("branchPrefix", format!("{name} branchPrefix must be a string."));
         }
         if patch.has("sizeWarnBytes") && !patch.safe_integer("sizeWarnBytes").is_some_and(|bytes| bytes >= 0.0) {
@@ -547,10 +523,7 @@ mod validate_worktree_import {
         let unread = serde_json::json!({ "branch": "dev", "txId": "c2", "prompt": "fix it" });
         assert_eq!(
             call("thread/selectBranch", unread),
-            Some(Err(ErrorData::InvalidParams {
-                path: "/input".to_owned(),
-                expected: "selectBranch input contains an unsupported field.".to_owned(),
-            }))
+            Some(Err(ErrorData::InvalidParams { path: "/input".to_owned(), expected: "selectBranch input contains an unsupported field.".to_owned() }))
         );
     }
 

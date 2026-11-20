@@ -50,23 +50,13 @@ pub struct RollupQuery {
 
 impl Default for RollupQuery {
     fn default() -> Self {
-        RollupQuery {
-            from_day: FIRST_DAY.to_string(),
-            to_day: LAST_DAY.to_string(),
-            from_ms: None,
-            to_ms: None,
-            hourly_day: None,
-        }
+        RollupQuery { from_day: FIRST_DAY.to_string(), to_day: LAST_DAY.to_string(), from_ms: None, to_ms: None, hourly_day: None }
     }
 }
 
 impl RollupQuery {
     pub fn days(from_day: &str, to_day: &str) -> Self {
-        RollupQuery {
-            from_day: from_day.to_string(),
-            to_day: to_day.to_string(),
-            ..Self::default()
-        }
+        RollupQuery { from_day: from_day.to_string(), to_day: to_day.to_string(), ..Self::default() }
     }
 }
 
@@ -132,15 +122,7 @@ impl Hourly {
 impl Rollup {
     pub fn to_value(&self) -> Value {
         let mut out = Map::new();
-        out.insert(
-            "days".to_string(),
-            Value::Object(
-                self.days
-                    .iter()
-                    .map(|(k, v)| (k.clone(), v.clone()))
-                    .collect(),
-            ),
-        );
+        out.insert("days".to_string(), Value::Object(self.days.iter().map(|(k, v)| (k.clone(), v.clone())).collect()));
         if let Some(hourly) = &self.hourly {
             out.insert("hourly".to_string(), hourly.to_value());
         }
@@ -234,10 +216,7 @@ impl Route {
         out.insert("provider".to_string(), Value::from(self.provider.as_str()));
         out.insert("model".to_string(), Value::from(self.model.as_str()));
         out.insert("kind".to_string(), Value::from(self.kind.as_str()));
-        out.insert(
-            "conversation".to_string(),
-            Value::Object(self.conversation.to_object()),
-        );
+        out.insert("conversation".to_string(), Value::Object(self.conversation.to_object()));
         self.tier.put_fields(&mut out);
         if let Some((output, ms)) = self.speed {
             out.insert("speedOutput".to_string(), js_number(output));
@@ -263,13 +242,7 @@ struct Day {
 
 impl Day {
     fn new() -> Self {
-        Day {
-            bucket: Bucket::new(),
-            conversation: Bucket::new(),
-            models: Ordered::default(),
-            imported_partial: false,
-            restored: false,
-        }
+        Day { bucket: Bucket::new(), conversation: Bucket::new(), models: Ordered::default(), imported_partial: false, restored: false }
     }
 
     fn to_value(&self) -> Value {
@@ -289,10 +262,7 @@ impl Day {
                     .collect(),
             ),
         );
-        out.insert(
-            "conversation".to_string(),
-            Value::Object(self.conversation.to_object()),
-        );
+        out.insert("conversation".to_string(), Value::Object(self.conversation.to_object()));
         if self.imported_partial {
             out.insert("importedPartial".to_string(), Value::Bool(true));
         }
@@ -368,33 +338,13 @@ fn amount_from_events(row: &rusqlite::Row<'_>) -> rusqlite::Result<AmountRow> {
 /// `ts` keeps the time index for a bounded window; an unbounded one matches every row, so
 /// `+ts` scans the table instead of paying one primary-key search per index entry.
 fn ts_expr(alias: &str, from_ts: i64, to_ts: i64) -> String {
-    if from_ts > 0 || to_ts < MAX_SAFE_INTEGER {
-        format!("{alias}ts")
-    } else {
-        format!("+{alias}ts")
-    }
+    if from_ts > 0 || to_ts < MAX_SAFE_INTEGER { format!("{alias}ts") } else { format!("+{alias}ts") }
 }
 
-fn read_hourly_rows(
-    conn: &Connection,
-    query: &RollupQuery,
-    hourly_day: &str,
-    from_ts: i64,
-    to_ts: i64,
-) -> Result<Vec<HourRow>> {
+fn read_hourly_rows(conn: &Connection, query: &RollupQuery, hourly_day: &str, from_ts: i64, to_ts: i64) -> Result<Vec<HourRow>> {
     let date = parse_day(hourly_day)?;
-    let (lo, hi) = (
-        if query.from_ms.is_none() {
-            local_midnight_ms(date)
-        } else {
-            from_ts
-        },
-        if query.to_ms.is_none() {
-            next_midnight_ms(date)
-        } else {
-            to_ts
-        },
-    );
+    let (lo, hi) =
+        (if query.from_ms.is_none() { local_midnight_ms(date) } else { from_ts }, if query.to_ms.is_none() { next_midnight_ms(date) } else { to_ts });
     let mut stmt = conn.prepare(&format!(
         "SELECT e.ts,e.provider,e.source_type,e.input,e.output,e.cache_read,e.cache_write,e.cost_usd
          FROM events e JOIN ({BEST_SQL}) b USING(day,provider,model,rank)
@@ -422,12 +372,7 @@ fn read_hourly_rows(
 
 /// Partial calendar days must be rebuilt from retained timestamps; cached whole-day totals
 /// would include usage outside a rolling window.
-fn read_daily_amounts(
-    conn: &Connection,
-    query: &RollupQuery,
-    from_ts: i64,
-    to_ts: i64,
-) -> Result<Vec<AmountRow>> {
+fn read_daily_amounts(conn: &Connection, query: &RollupQuery, from_ts: i64, to_ts: i64) -> Result<Vec<AmountRow>> {
     if query.from_ms.is_none() {
         let mut stmt = conn.prepare(&format!(
             "SELECT d.day,d.provider,d.model,d.kind,d.cost_source,d.conversation,d.turns,d.input,d.output,
@@ -445,10 +390,7 @@ fn read_daily_amounts(
          WHERE e.ts>=? AND e.ts<? AND e.cost_source<>'{NO_USAGE_COST_SOURCE}'
          GROUP BY e.day,e.rank,e.provider,e.model,e.kind,e.cost_source,e.source_type"
     ))?;
-    let rows = stmt.query_map(
-        params![query.from_day, query.to_day, from_ts, to_ts],
-        amount_from_events,
-    )?;
+    let rows = stmt.query_map(params![query.from_day, query.to_day, from_ts, to_ts], amount_from_events)?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)
 }
 
@@ -460,14 +402,11 @@ fn fold_daily_amounts(days: &mut Days, amounts: &[AmountRow]) -> Result<()> {
         };
         let route = match day
             .models
-            .entry(&SpeedTier::Standard.route_key(&row.provider, &row.model), || {
-                Model::Built(Box::new(Route::new(row, SpeedTier::Standard)))
-            }) {
+            .entry(&SpeedTier::Standard.route_key(&row.provider, &row.model), || Model::Built(Box::new(Route::new(row, SpeedTier::Standard))))
+        {
             Model::Built(route) => route,
             Model::Raw(_) => {
-                return Err(LedgerError::Inconsistent(
-                    "a raw route before the legacy merge",
-                ));
+                return Err(LedgerError::Inconsistent("a raw route before the legacy merge"));
             }
         };
         let amount = row.amount();
@@ -486,12 +425,7 @@ fn fold_daily_amounts(days: &mut Days, amounts: &[AmountRow]) -> Result<()> {
 
 /// Premium-speed calls (the tier is on the route signature, not in the daily totals) read from
 /// the retained originals, to become a route of their own.
-fn read_premium_amounts(
-    conn: &Connection,
-    query: &RollupQuery,
-    from_ts: i64,
-    to_ts: i64,
-) -> Result<Vec<(AmountRow, SpeedTier)>> {
+fn read_premium_amounts(conn: &Connection, query: &RollupQuery, from_ts: i64, to_ts: i64) -> Result<Vec<(AmountRow, SpeedTier)>> {
     let ts = ts_expr("e.", from_ts, to_ts);
     // Routes are few and events many: a ledger with no premium route
     // skips the event scan, and the tier is read once per route, not per event.
@@ -510,14 +444,10 @@ fn read_premium_amounts(
         ) WHERE speed_tier<>'standard'",
         tier = speed_tier_sql("r.signature")
     );
-    let any: Option<i64> = conn
-        .prepare(&format!("{premium_routes} LIMIT 1"))?
-        .query_row([], |r| r.get(0))
-        .map(Some)
-        .or_else(|e| match e {
-            rusqlite::Error::QueryReturnedNoRows => Ok(None),
-            e => Err(e),
-        })?;
+    let any: Option<i64> = conn.prepare(&format!("{premium_routes} LIMIT 1"))?.query_row([], |r| r.get(0)).map(Some).or_else(|e| match e {
+        rusqlite::Error::QueryReturnedNoRows => Ok(None),
+        e => Err(e),
+    })?;
     if any.is_none() {
         return Ok(Vec::new());
     }
@@ -536,10 +466,7 @@ fn read_premium_amounts(
         GROUP BY f.day,f.rank,f.provider,f.model,f.kind,f.cost_source,f.source_type,f.speed_tier",
         day = day_text_sql("e"),
     ))?;
-    let rows = stmt.query_map(
-        params![from_ts, to_ts, query.from_day, query.to_day],
-        |row| Ok((amount_from_events(row)?, row.get(14)?)),
-    )?;
+    let rows = stmt.query_map(params![from_ts, to_ts, query.from_day, query.to_day], |row| Ok((amount_from_events(row)?, row.get(14)?)))?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)
 }
 
@@ -553,8 +480,7 @@ fn fold_premium_amounts(days: &mut Days, rows: &[(AmountRow, SpeedTier)]) -> Res
             continue;
         }
         let key = tier.route_key(&row.provider, &row.model);
-        day.models
-            .entry(&key, || Model::Built(Box::new(Route::new(row, *tier))));
+        day.models.entry(&key, || Model::Built(Box::new(Route::new(row, *tier))));
         let amount = row.amount();
         for (target_key, sign) in [(key, 1.0), (normal_key, -1.0)] {
             let route = built_route(day, &target_key)?;
@@ -574,9 +500,7 @@ fn fold_premium_amounts(days: &mut Days, rows: &[(AmountRow, SpeedTier)]) -> Res
             .iter()
             .filter(|(key, model)| {
                 matches!(model, Model::Built(route) if route.tier == SpeedTier::Standard && route.bucket.turns <= 0.0)
-                    && [SpeedTier::Fast, SpeedTier::Ultrafast]
-                        .into_iter()
-                        .any(|tier| day.models.contains_key(&tier.key(key)))
+                    && [SpeedTier::Fast, SpeedTier::Ultrafast].into_iter().any(|tier| day.models.contains_key(&tier.key(key)))
             })
             .map(|(key, _)| key.clone())
             .collect();
@@ -604,12 +528,7 @@ struct SessionRow {
 /// `day_sessions` cannot attribute an id to a route. Use the retained originals, without
 /// modifying them or guessing from account/pool ids. Compact integer keys are aggregated
 /// BEFORE the attribution is decoded.
-fn read_session_attribution(
-    conn: &Connection,
-    query: &RollupQuery,
-    from_ts: i64,
-    to_ts: i64,
-) -> Result<Vec<SessionRow>> {
+fn read_session_attribution(conn: &Connection, query: &RollupQuery, from_ts: i64, to_ts: i64) -> Result<Vec<SessionRow>> {
     let ts = ts_expr("", from_ts, to_ts);
     let mut stmt = conn.prepare(&format!(
         "WITH grouped AS (
@@ -636,44 +555,34 @@ fn read_session_attribution(
         day = day_text_sql("e"),
         tier = speed_tier_sql("r.signature"),
     ))?;
-    let rows = stmt.query_map(
-        params![from_ts, to_ts, query.from_day, query.to_day],
-        |row| {
-            Ok(SessionRow {
-                day: row.get(0)?,
-                provider: row.get(1)?,
-                model: row.get(2)?,
-                source_type: row.get(3)?,
-                origin: row.get(4)?,
-                tier: row.get(5)?,
-                session_id: row.get(6)?,
-                input: row.get(7)?,
-                output: row.get(8)?,
-                cache_read: row.get(9)?,
-                cache_write: row.get(10)?,
-            })
-        },
-    )?;
+    let rows = stmt.query_map(params![from_ts, to_ts, query.from_day, query.to_day], |row| {
+        Ok(SessionRow {
+            day: row.get(0)?,
+            provider: row.get(1)?,
+            model: row.get(2)?,
+            source_type: row.get(3)?,
+            origin: row.get(4)?,
+            tier: row.get(5)?,
+            session_id: row.get(6)?,
+            input: row.get(7)?,
+            output: row.get(8)?,
+            cache_read: row.get(9)?,
+            cache_write: row.get(10)?,
+        })
+    })?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)
 }
 
 fn fold_session_attribution(days: &mut Days, rows: &[SessionRow]) -> Result<()> {
     for row in rows {
-        let classified =
-            row.origin != "trace" || row.source_type.as_deref().is_some_and(|s| !s.is_empty());
+        let classified = row.origin != "trace" || row.source_type.as_deref().is_some_and(|s| !s.is_empty());
         if classified && !is_conversation_source(row.source_type.as_deref()) {
             continue;
         }
         let day = built(days, &row.day)?;
         let key = row.tier.route_key(&row.provider, &row.model);
-        let named = classified
-            && !row.session_id.is_empty()
-            && !["no-session", "(none)"].contains(&row.session_id.as_str());
-        let tokens = if is_unmeasuring_provider(&row.provider) {
-            row.output
-        } else {
-            row.input + row.output + row.cache_read + row.cache_write
-        };
+        let named = classified && !row.session_id.is_empty() && !["no-session", "(none)"].contains(&row.session_id.as_str());
+        let tokens = if is_unmeasuring_provider(&row.provider) { row.output } else { row.input + row.output + row.cache_read + row.cache_write };
         let route = built_route(day, &key)?;
         for target in [&mut route.bucket, &mut route.conversation] {
             attribute(target, &row.session_id, named, tokens);
@@ -695,12 +604,7 @@ fn attribute(target: &mut Bucket, session_id: &str, named: bool, tokens: f64) {
 
 /// Output speed: output tokens over the wall time of the requests that produced them. Only
 /// timed requests with output count, so untimed output never dilutes a route's figure.
-fn read_output_speed(
-    conn: &Connection,
-    query: &RollupQuery,
-    from_ts: i64,
-    to_ts: i64,
-) -> Result<Vec<SpeedRow>> {
+fn read_output_speed(conn: &Connection, query: &RollupQuery, from_ts: i64, to_ts: i64) -> Result<Vec<SpeedRow>> {
     let ts = ts_expr("", from_ts, to_ts);
     let mut stmt = conn.prepare(&format!(
         "WITH timed AS (
@@ -721,19 +625,9 @@ fn read_output_speed(
         day = day_text_sql("t"),
         tier = speed_tier_sql("r.signature"),
     ))?;
-    let rows = stmt.query_map(
-        params![from_ts, to_ts, query.from_day, query.to_day],
-        |row| {
-            Ok((
-                row.get(0)?,
-                row.get(1)?,
-                row.get(2)?,
-                row.get(3)?,
-                row.get(4)?,
-                row.get(5)?,
-            ))
-        },
-    )?;
+    let rows = stmt.query_map(params![from_ts, to_ts, query.from_day, query.to_day], |row| {
+        Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?, row.get(4)?, row.get(5)?))
+    })?;
     Ok(rows.collect::<std::result::Result<_, _>>()?)
 }
 
@@ -763,21 +657,10 @@ fn unmeasure(provider: &str, source: &Value) -> Value {
         return source.clone();
     }
     let mut out = source.as_object().cloned().unwrap_or_default();
-    for name in [
-        "input",
-        "cacheRead",
-        "cacheWrite",
-        "costUsd",
-        "costBilled",
-        "costEstimated",
-        "costKnownTurns",
-    ] {
+    for name in ["input", "cacheRead", "cacheWrite", "costUsd", "costBilled", "costEstimated", "costKnownTurns"] {
         out.insert(name.to_string(), js_number(0.0));
     }
-    out.insert(
-        "unmeasuredTurns".to_string(),
-        js_number(field(source, "turns")),
-    );
+    out.insert("unmeasuredTurns".to_string(), js_number(field(source, "turns")));
     Value::Object(out)
 }
 
@@ -788,27 +671,17 @@ fn normalize_legacy_day(mut day: Value) -> Value {
         return day;
     };
     for (key, route) in models {
-        let provider = match route
-            .get("provider")
-            .and_then(Value::as_str)
-            .filter(|p| !p.is_empty())
-        {
+        let provider = match route.get("provider").and_then(Value::as_str).filter(|p| !p.is_empty()) {
             Some(provider) => provider.to_string(),
             None => match key.find('/') {
                 Some(i) => key[..i].to_string(),
-                None => key
-                    .chars()
-                    .take(key.chars().count().saturating_sub(1))
-                    .collect(),
+                None => key.chars().take(key.chars().count().saturating_sub(1)).collect(),
             },
         };
         if !is_unmeasuring_provider(&provider) {
             continue;
         }
-        for (target_at, source) in [
-            (None, Some(&route)),
-            (Some("conversation"), route.get("conversation")),
-        ] {
+        for (target_at, source) in [(None, Some(&route)), (Some("conversation"), route.get("conversation"))] {
             let target = match target_at {
                 None => Some(&mut day),
                 Some(name) => day.get_mut(name),
@@ -819,15 +692,7 @@ fn normalize_legacy_day(mut day: Value) -> Value {
             let (Some(target), true) = (target.as_object_mut(), source.is_object()) else {
                 continue;
             };
-            for name in [
-                "input",
-                "cacheRead",
-                "cacheWrite",
-                "costUsd",
-                "costBilled",
-                "costEstimated",
-                "costKnownTurns",
-            ] {
+            for name in ["input", "cacheRead", "cacheWrite", "costUsd", "costBilled", "costEstimated", "costKnownTurns"] {
                 let left = json_or_zero(target.get(name)) - field(source, name);
                 target.insert(name.to_string(), js_number(left.max(0.0)));
             }
@@ -867,28 +732,16 @@ fn merge_legacy_bucket(target: &mut Bucket, source: &Value, kind: &str) {
     target.sessions_complete = false;
 }
 
-fn merge_legacy_days(
-    conn: &Connection,
-    days: &mut Days,
-    hourly: &mut Option<Hourly>,
-    query: &RollupQuery,
-) -> Result<()> {
-    let mut stmt =
-        conn.prepare("SELECT day, document FROM legacy_days WHERE day BETWEEN ?1 AND ?2")?;
-    let documents: Vec<(String, String)> = stmt
-        .query_map(params![query.from_day, query.to_day], |r| {
-            Ok((r.get(0)?, r.get(1)?))
-        })?
-        .collect::<std::result::Result<_, _>>()?;
+fn merge_legacy_days(conn: &Connection, days: &mut Days, hourly: &mut Option<Hourly>, query: &RollupQuery) -> Result<()> {
+    let mut stmt = conn.prepare("SELECT day, document FROM legacy_days WHERE day BETWEEN ?1 AND ?2")?;
+    let documents: Vec<(String, String)> =
+        stmt.query_map(params![query.from_day, query.to_day], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<std::result::Result<_, _>>()?;
     let mut unallocated: Vec<Value> = Vec::new();
     for (name, document) in documents {
         let legacy = normalize_legacy_day(serde_json::from_str(&document)?);
         let is_hourly = query.hourly_day.as_deref() == Some(name.as_str());
-        let legacy_models: Vec<(String, Value)> = legacy
-            .get("models")
-            .and_then(Value::as_object)
-            .map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect())
-            .unwrap_or_default();
+        let legacy_models: Vec<(String, Value)> =
+            legacy.get("models").and_then(Value::as_object).map(|m| m.iter().map(|(k, v)| (k.clone(), v.clone())).collect()).unwrap_or_default();
         let Some(entry) = days.get_mut(&name) else {
             let mut raw = legacy;
             raw["importedPartial"] = Value::Bool(true);
@@ -905,10 +758,7 @@ fn merge_legacy_days(
             let (base, tier) = SpeedTier::split_key(&key);
             // A legacy Fast key could cover either premium tier; don't add its aggregate
             // back in when the retained requests split out only an Ultra Fast row.
-            if day.models.contains_key(&key)
-                || (tier == SpeedTier::Fast
-                    && day.models.contains_key(&SpeedTier::Ultrafast.key(base)))
-            {
+            if day.models.contains_key(&key) || (tier == SpeedTier::Fast && day.models.contains_key(&SpeedTier::Ultrafast.key(base))) {
                 continue;
             }
             // A disjoint historical route is preserved, not an inferred balance of an
@@ -925,10 +775,7 @@ fn merge_legacy_days(
                 merge_legacy_bucket(&mut day.conversation, conversation, kind);
             }
             day.imported_partial = true;
-            if legacy
-                .get("restored")
-                .is_some_and(|v| !v.is_null() && v != &Value::Bool(false))
-            {
+            if legacy.get("restored").is_some_and(|v| !v.is_null() && v != &Value::Bool(false)) {
                 day.restored = true;
             }
         }
@@ -950,10 +797,7 @@ pub(crate) fn rollup_usage(conn: &Connection, query: &RollupQuery) -> Result<Rol
     fold_daily_amounts(&mut days, &read_daily_amounts(conn, query, from_ts, to_ts)?)?;
     fold_premium_amounts(&mut days, &read_premium_amounts(conn, query, from_ts, to_ts)?)?;
     fold_output_speed(&mut days, &read_output_speed(conn, query, from_ts, to_ts)?);
-    fold_session_attribution(
-        &mut days,
-        &read_session_attribution(conn, query, from_ts, to_ts)?,
-    )?;
+    fold_session_attribution(&mut days, &read_session_attribution(conn, query, from_ts, to_ts)?)?;
     // Timeless legacy totals cannot establish membership in a rolling window; they remain
     // available in the calendar and history views.
     if query.from_ms.is_none() {

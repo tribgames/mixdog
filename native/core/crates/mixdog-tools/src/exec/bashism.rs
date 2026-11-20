@@ -175,9 +175,7 @@ enum Heredoc {
 /// shapes.
 fn rewrite_one_heredoc(text: &[char], at: usize) -> Heredoc {
     let tail = string_of(&text[at..]);
-    let Some(opener) =
-        lazy_re!(r#"^<<(?![<-])[ \t]*(?:'([A-Za-z_]\w*)'|"([A-Za-z_]\w*)"|([A-Za-z_]\w*))"#, "").captures(&tail)
-    else {
+    let Some(opener) = lazy_re!(r#"^<<(?![<-])[ \t]*(?:'([A-Za-z_]\w*)'|"([A-Za-z_]\w*)"|([A-Za-z_]\w*))"#, "").captures(&tail) else {
         return Heredoc::Skip;
     };
     let Some(delimiter) = opener_delimiter(&opener) else { return Heredoc::Skip };
@@ -257,8 +255,7 @@ fn rewrite_heredocs(text: &str, notes: &mut Vec<String>) -> Option<String> {
     let mut current: Vec<char> = text.chars().collect();
     for _ in 0..20 {
         let mask = code_mask(&current)?;
-        let at = (0..current.len().saturating_sub(1))
-            .find(|&i| current[i] == '<' && current[i + 1] == '<' && mask[i]);
+        let at = (0..current.len().saturating_sub(1)).find(|&i| current[i] == '<' && current[i + 1] == '<' && mask[i]);
         let Some(at) = at else { return Some(string_of(&current)) };
         match rewrite_one_heredoc(&current, at) {
             Heredoc::Skip => return None,
@@ -289,9 +286,7 @@ fn collect_edits(text: &[char], mask: &[bool], notes: &mut Vec<String>) -> Vec<E
         // `&>` (both streams) and a 1>/2> stream prefix belong to the redirection.
         let before = index.checked_sub(1).map(|k| code_chars[k]);
         let two_back = index.checked_sub(2).map(|k| code_chars[k]);
-        let prefixed = before == Some('&')
-            || (matches!(before, Some('1' | '2'))
-                && !two_back.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_'));
+        let prefixed = before == Some('&') || (matches!(before, Some('1' | '2')) && !two_back.is_some_and(|c| c.is_ascii_alphanumeric() || c == '_'));
         let start = if prefixed { index - 1 } else { index };
         let stream = match (prefixed, before) {
             (true, Some('&')) => "*".to_owned(),
@@ -336,13 +331,9 @@ mod tests {
 
     #[test]
     fn a_heredoc_that_cannot_be_carried_by_a_here_string_is_left_alone() {
-        for command in [
-            "python <<-EOF\nprint(1)\nEOF",
-            "cat <<'EOF' > f\nx\nEOF",
-            "python <<EOF\nprint($x)\nEOF",
-            "python <<'EOF'\n'@\nEOF",
-            "python <<'EOF'\nprint(1)\n",
-        ] {
+        for command in
+            ["python <<-EOF\nprint(1)\nEOF", "cat <<'EOF' > f\nx\nEOF", "python <<EOF\nprint($x)\nEOF", "python <<'EOF'\n'@\nEOF", "python <<'EOF'\nprint(1)\n"]
+        {
             assert_eq!(rewritten(command), None, "{command:?}");
         }
     }
@@ -383,8 +374,6 @@ mod tests {
         }
     }
 }
-
-
 
 /// `(command, note)` when something was rewritten, else `None`.
 pub fn rewrite_powershell_bashisms(command: &str) -> Option<(String, String)> {

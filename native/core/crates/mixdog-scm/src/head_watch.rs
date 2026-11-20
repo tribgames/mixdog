@@ -364,7 +364,6 @@ mod tests {
         assert_eq!(read_head(&layout).0, Some((None, Some("abcdef0123456789abcdef0123456789abcdef01".to_owned()))));
     }
 
-
     async fn heard(follow: &mut HeadFollow) -> bool {
         mixdog_rt::time::timeout(Duration::from_secs(5), follow.moved()).await.unwrap_or(false)
     }
@@ -457,7 +456,6 @@ mod tests {
         assert_eq!(watchers.folders().unwrap().open_watches(), 0);
     }
 }
-
 
 /// Resolves `cwd`: the checkout holding it and what it has checked out (`last` keeps the answer across a half-written HEAD), or, in
 /// a folder outside any repository, the `.git` of the folder and of each ancestor (`followDotGitsAbove`), each ancestor also

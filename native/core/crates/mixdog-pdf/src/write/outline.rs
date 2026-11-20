@@ -42,24 +42,15 @@ impl PdfDocument {
             };
             page_refs.push(*page);
         }
-        let catalog_ref = self
-            .store
-            .trailer
-            .root
-            .ok_or_else(|| invalid("the file has no catalog"))?;
-        let outlines = self
-            .store
-            .dict(catalog_ref)
-            .and_then(|catalog| catalog.get_raw("Outlines"))
-            .cloned();
+        let catalog_ref = self.store.trailer.root.ok_or_else(|| invalid("the file has no catalog"))?;
+        let outlines = self.store.dict(catalog_ref).and_then(|catalog| catalog.get_raw("Outlines")).cloned();
         // An `/Outlines` that is a dictionary written inline in the catalog becomes an indirect object, so its items
         // can name it as their `Parent`.
         let existing: Option<Ref> = match &outlines {
             Some(Obj::Ref(r)) if matches!(self.store.get(*r), Some(Obj::Dict(_))) => Some(*r),
             Some(Obj::Dict(dict)) => {
                 let promoted = self.store.register(Obj::Dict(dict.clone()));
-                self.store
-                    .modify_dict(catalog_ref, |catalog| catalog.set("Outlines", Obj::Ref(promoted)));
+                self.store.modify_dict(catalog_ref, |catalog| catalog.set("Outlines", Obj::Ref(promoted)));
                 Some(promoted)
             }
             _ => None,
@@ -69,23 +60,13 @@ impl PdfDocument {
             None => self.store.next_ref(),
         };
         let refs: Vec<Ref> = entries.iter().map(|_| self.store.next_ref()).collect();
-        let previous_last: Option<Obj> = existing
-            .and_then(|root| self.store.dict(root))
-            .and_then(|root| root.get_raw("Last"))
-            .cloned();
+        let previous_last: Option<Obj> = existing.and_then(|root| self.store.dict(root)).and_then(|root| root.get_raw("Last")).cloned();
         for (at, entry) in entries.iter().enumerate() {
             let mut item = Dict::new();
             item.set("Title", Obj::Str(Arc::from(encode_text_string(&entry.title))));
             item.set("Parent", Obj::Ref(root_ref));
-            item.set(
-                "Dest",
-                Obj::Array(Arc::new(vec![Obj::Ref(page_refs[at]), Obj::name("Fit")])),
-            );
-            let previous = if at > 0 {
-                refs.get(at - 1).map(|r| Obj::Ref(*r))
-            } else {
-                previous_last.clone()
-            };
+            item.set("Dest", Obj::Array(Arc::new(vec![Obj::Ref(page_refs[at]), Obj::name("Fit")])));
+            let previous = if at > 0 { refs.get(at - 1).map(|r| Obj::Ref(*r)) } else { previous_last.clone() };
             if let Some(previous) = previous {
                 item.set("Prev", previous);
             }
@@ -101,16 +82,9 @@ impl PdfDocument {
                 let Obj::Ref(previous_ref) = previous else {
                     return Err(invalid("the outline's Last is not a reference"));
                 };
-                self.store
-                    .modify_dict(*previous_ref, |item| item.set("Next", Obj::Ref(first)))
-                    .ok_or_else(|| not_a("PDFDict", "Last"))?;
+                self.store.modify_dict(*previous_ref, |item| item.set("Next", Obj::Ref(first))).ok_or_else(|| not_a("PDFDict", "Last"))?;
             }
-            let count = self
-                .store
-                .dict(root_ref)
-                .and_then(|root| self.store.lookup(root, "Count"))
-                .and_then(Obj::as_num)
-                .unwrap_or(0.0);
+            let count = self.store.dict(root_ref).and_then(|root| self.store.lookup(root, "Count")).and_then(Obj::as_num).unwrap_or(0.0);
             let total = count.max(0.0) + entries.len() as f64;
             let set_first = previous_last.is_none();
             self.store.modify_dict(root_ref, |root| {
@@ -127,8 +101,7 @@ impl PdfDocument {
             root.set("Last", Obj::Ref(last));
             root.set("Count", Obj::Num(entries.len() as f64));
             self.store.assign(root_ref, Obj::Dict(Arc::new(root)));
-            self.store
-                .modify_dict(catalog_ref, |catalog| catalog.set("Outlines", Obj::Ref(root_ref)));
+            self.store.modify_dict(catalog_ref, |catalog| catalog.set("Outlines", Obj::Ref(root_ref)));
         }
         Ok(entries.len())
     }
@@ -157,10 +130,7 @@ impl PdfDocument {
                 _ => String::new(),
             };
             let page_index = match self.store.lookup(item, "Dest") {
-                Some(Obj::Array(dest)) => dest
-                    .first()
-                    .and_then(Obj::as_ref_value)
-                    .and_then(|page| pages.iter().position(|candidate| *candidate == page)),
+                Some(Obj::Array(dest)) => dest.first().and_then(Obj::as_ref_value).and_then(|page| pages.iter().position(|candidate| *candidate == page)),
                 _ => None,
             };
             items.push(OutlineItem { title, page_index });

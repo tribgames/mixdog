@@ -244,7 +244,11 @@ pub fn turn_chain(messages: &[Value], run_id: &str) -> Option<Chain> {
         match message.get("role").and_then(Value::as_str) {
             Some("assistant") => {
                 for call in message.get("toolCalls").and_then(Value::as_array).into_iter().flatten() {
-                    let name = call.get("name").filter(|n| !n.is_null()).or_else(|| call.get("function").and_then(|f| f.get("name"))).map_or_else(String::new, value_to_string);
+                    let name = call
+                        .get("name")
+                        .filter(|n| !n.is_null())
+                        .or_else(|| call.get("function").and_then(|f| f.get("name")))
+                        .map_or_else(String::new, value_to_string);
                     let kind = call_arguments(call).get("type").filter(|t| truthy(Some(t))).map_or_else(|| "spawn".to_owned(), value_to_string);
                     if name == "agent"
                         && STARTING_AGENT_CALLS.contains(&js_trim(&kind))
@@ -312,9 +316,8 @@ fn statuses(row: &Value) -> Vec<String> {
 // Asked of every pool row on every pending-work check: compiled once.
 static CANCELLED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("cancel|killed|aborted|interrupted", "i"));
 static TERMINAL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static("idle|done|complete|success|closed|error|fail|cancel|killed|timeout", "i"));
-static ACTIVE: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|resource_wait)$", "i")
-});
+static ACTIVE: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^(?:connecting|requesting|streaming|tool[-_\s]?running|running|queued|pending|starting|resource_wait)$", "i"));
 static CANCEL_UNCONFIRMED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"cancel[-_\s]?(?:unconfirmed|pending)|cancell?ing", "i"));
 
 fn is_active_row(row: &Value) -> bool {

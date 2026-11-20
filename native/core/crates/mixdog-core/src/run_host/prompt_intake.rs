@@ -31,7 +31,11 @@ impl PromptIntake for PdfPromptIntake {
         let native = (self.native_pdf)(provider);
         for part in parts {
             let is_pdf = part.get("type").and_then(Value::as_str) == Some("file")
-                && part.get("mimeType").or_else(|| part.get("mediaType")).and_then(Value::as_str).is_some_and(|mime| mime.eq_ignore_ascii_case("application/pdf"));
+                && part
+                    .get("mimeType")
+                    .or_else(|| part.get("mediaType"))
+                    .and_then(Value::as_str)
+                    .is_some_and(|mime| mime.eq_ignore_ascii_case("application/pdf"));
             if !is_pdf {
                 continue;
             }
@@ -52,7 +56,4 @@ impl PromptIntake for PdfPromptIntake {
 }
 
 #[cfg(test)]
-mod tests {
-}
-
-
+mod tests {}

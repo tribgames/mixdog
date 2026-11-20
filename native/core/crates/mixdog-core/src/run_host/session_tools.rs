@@ -13,19 +13,19 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_core_api::domain::approval::ActionKind;
 use mixdog_core_api::domain::tool::{Freeform, StoredTool, Tool, ToolContext, ToolOutcome, ToolSpec};
-use mixdog_js::{js_trim, JsRegex};
-use mixdog_mcp::scopes::ExtensionScopes;
+use mixdog_js::{JsRegex, js_trim};
 use mixdog_mcp::McpHub;
 use mixdog_mcp::hub::normalize_scope;
+use mixdog_mcp::scopes::ExtensionScopes;
 use mixdog_store::schema::record::Header;
-use mixdog_tools::policy::surface::{AGENT_DENIED_TOOLS, READONLY_FS_TOOL_NAMES};
 use mixdog_tools::policy::SessionSurface;
 use mixdog_tools::policy::Withdrawal;
-use serde_json::{json, Map, Value};
+use mixdog_tools::policy::surface::{AGENT_DENIED_TOOLS, READONLY_FS_TOOL_NAMES};
+use serde_json::{Map, Value, json};
 
+use super::agent_variants::{VariantError, check_pool};
 use super::assemble::SessionTools;
-use super::agent_variants::{check_pool, VariantError};
-use super::tool_surface::{bind_edit_dialect, filter_model_edit_tool_names, fixed_surface_mode, ROUTE_TOOL_ORDER};
+use super::tool_surface::{ROUTE_TOOL_ORDER, bind_edit_dialect, filter_model_edit_tool_names, fixed_surface_mode};
 
 type Tools = Vec<Arc<dyn Tool>>;
 
@@ -139,8 +139,11 @@ const STANDALONE_ORDER: &[&str] = &[
 /// `STANDALONE_ORDER` does not name follows the named ones in pool order. A `public:false` tool never enters
 /// any model-visible schema, so it is left out.
 pub fn internal_tools(pool: &[Arc<dyn Tool>]) -> Tools {
-    let mut tools: Tools =
-        pool.iter().filter(|t| t.spec().public && (!is_builtin(name(t)) || name(t) == CODE_GRAPH) && ![TODO, "call_tool"].contains(&name(t))).cloned().collect();
+    let mut tools: Tools = pool
+        .iter()
+        .filter(|t| t.spec().public && (!is_builtin(name(t)) || name(t) == CODE_GRAPH) && ![TODO, "call_tool"].contains(&name(t)))
+        .cloned()
+        .collect();
     tools.sort_by_key(|t| STANDALONE_ORDER.iter().position(|n| *n == name(t)).unwrap_or(STANDALONE_ORDER.len()));
     tools
 }
@@ -159,7 +162,10 @@ pub fn session_doc(pool: &[Arc<dyn Tool>], tool: &Arc<dyn Tool>) -> Value {
     let mut projected = Map::new();
     projected.insert("name".to_owned(), doc["name"].clone());
     projected.insert("description".to_owned(), Value::String(doc.get("description").and_then(Value::as_str).unwrap_or_default().to_owned()));
-    projected.insert("inputSchema".to_owned(), doc.get("inputSchema").filter(|schema| !schema.is_null()).cloned().unwrap_or_else(|| json!({ "type": "object", "properties": {} })));
+    projected.insert(
+        "inputSchema".to_owned(),
+        doc.get("inputSchema").filter(|schema| !schema.is_null()).cloned().unwrap_or_else(|| json!({ "type": "object", "properties": {} })),
+    );
     projected.insert("annotations".to_owned(), doc.get("annotations").cloned().unwrap_or_else(|| json!({})));
     Value::Object(projected)
 }
@@ -384,12 +390,7 @@ impl SessionToolBuilder {
             .iter()
             .filter(|active| !surface.route_excluded.iter().any(|(excluded, _)| excluded == *active))
             .filter_map(|active| {
-                let live = resolved
-                    .iter()
-                    .chain(&bridge)
-                    .chain(&standalone)
-                    .find(|t| name(t) == active)
-                    .cloned();
+                let live = resolved.iter().chain(&bridge).chain(&standalone).find(|t| name(t) == active).cloned();
                 // Fixed surfaces keep the stored MCP definition even on reconnect. Bind it here, before any request
                 // assembly, so a caller that doesn't run the boundary snapshot sees the same definition.
                 if (live.is_none() || (fixed && active.starts_with("mcp__")))
@@ -604,7 +605,10 @@ mod tests {
             Arc::new(Stub(ToolSpec { title: Some("T".into()), trigger: Some("when".into()), description: "what".into(), annotations, ..spec_of(name) }))
         };
         let pool = vec![with_trigger("read"), with_trigger("session")];
-        assert_eq!(session_doc(&pool, &pool[1]), json!({ "name": "session", "description": "what", "inputSchema": {}, "annotations": { "readOnlyHint": true } }));
+        assert_eq!(
+            session_doc(&pool, &pool[1]),
+            json!({ "name": "session", "description": "what", "inputSchema": {}, "annotations": { "readOnlyHint": true } })
+        );
         assert_eq!(session_doc(&pool, &pool[0]), pool[0].spec().definition());
     }
 
@@ -617,5 +621,4 @@ mod tests {
         let read = stub("read");
         assert!(Arc::ptr_eq(&bound_to_model(read.clone(), "gpt-5"), &read), "a description without the token is left as it is");
     }
-
 }

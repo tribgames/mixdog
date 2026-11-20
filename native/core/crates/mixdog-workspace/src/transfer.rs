@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
+)]
 //! Transfers (DS §4.4): ranged reads of a project file, an absolute local file
 //! or a zipped folder; chunked uploads staged beside the target and committed by
 //! rename. A transfer belongs to its owner (a connection or a paired device) and
@@ -388,8 +392,10 @@ pub struct Range {
 
 /// JavaScript's `\s`.
 fn js_space(c: char) -> bool {
-    matches!(c, '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}')
-        || ('\u{2000}'..='\u{200a}').contains(&c)
+    matches!(
+        c,
+        '\t' | '\n' | '\u{b}' | '\u{c}' | '\r' | ' ' | '\u{a0}' | '\u{1680}' | '\u{2028}' | '\u{2029}' | '\u{202f}' | '\u{205f}' | '\u{3000}' | '\u{feff}'
+    ) || ('\u{2000}'..='\u{200a}').contains(&c)
 }
 
 /// Node's `sanitizedFileName` (`ipc-validation.ts`): runs of control and reserved characters
@@ -606,7 +612,8 @@ impl Transfers {
     /// Tells the replay how many files the downloads hold open, and the instant the sweeper counts from (see `replay_controls.rs`).
     #[cfg(feature = "replay-controls")]
     fn report(&self) {
-        let held = self.grants.lock().expect("transfer grants").len() + self.reads.lock().expect("transfer reads").values().filter(|r| r.lease.is_some()).count();
+        let held =
+            self.grants.lock().expect("transfer grants").len() + self.reads.lock().expect("transfer reads").values().filter(|r| r.lease.is_some()).count();
         crate::replay_controls::publish("held", &held.to_string());
         crate::replay_controls::publish("staged", &self.staged_files().to_string());
     }
@@ -642,7 +649,14 @@ impl Transfers {
                 excess -= 1;
             }
             let location = folder.join(STAGED_PAYLOAD);
-            staged.push(Staged { owner: owner.to_owned(), session: session.to_owned(), location, expires_at, staging: true, _file: Cleanup(folder.to_owned()) });
+            staged.push(Staged {
+                owner: owner.to_owned(),
+                session: session.to_owned(),
+                location,
+                expires_at,
+                staging: true,
+                _file: Cleanup(folder.to_owned()),
+            });
             (dropped_grants, dropped)
         };
         // The grants' handles close before their files are removed.
@@ -692,7 +706,6 @@ impl Transfers {
         };
         drop(gone);
     }
-
 
     fn generation(&self, owner: &str, session: &str) -> u64 {
         self.generations.lock().expect("generations").of(owner, session)
@@ -895,9 +908,7 @@ impl Transfers {
         let cleanup = source.cleanup.map(Cleanup);
         let file = source.file;
         let location = crate::ident::handle_path(&file)?;
-        if cleanup.as_ref().is_none_or(|folder| {
-            location.parent().is_none_or(|parent| comparable(parent) != comparable(&folder.0))
-        }) {
+        if cleanup.as_ref().is_none_or(|folder| location.parent().is_none_or(|parent| comparable(parent) != comparable(&folder.0))) {
             return Err(download_changed());
         }
         prove_opened(&file, &location)?;
@@ -986,7 +997,20 @@ impl Transfers {
         let Grant { file, location, session, size, version, name, mime, cleanup, .. } = grant;
         reads.insert(
             transfer_id.clone(),
-            Read { owner: owner.to_owned(), session, file, location: Some(location), size, version: version.clone(), mime: mime.clone(), media_id: Some(media_id.clone()), lease: Some(times), ends: EndOnDrop::new(), _cleanup: cleanup, opened: Instant::now() },
+            Read {
+                owner: owner.to_owned(),
+                session,
+                file,
+                location: Some(location),
+                size,
+                version: version.clone(),
+                mime: mime.clone(),
+                media_id: Some(media_id.clone()),
+                lease: Some(times),
+                ends: EndOnDrop::new(),
+                _cleanup: cleanup,
+                opened: Instant::now(),
+            },
         );
         drop(reads);
         drop(gate);
@@ -1059,11 +1083,8 @@ impl Transfers {
         let now = self.clock.now();
         let abandoned: Vec<Upload> = {
             let mut writes = self.writes.lock().expect("transfer writes");
-            let stale: Vec<String> = writes
-                .iter()
-                .filter(|(_, upload)| now.saturating_duration_since(upload.fed) >= self.idle)
-                .map(|(id, _)| id.clone())
-                .collect();
+            let stale: Vec<String> =
+                writes.iter().filter(|(_, upload)| now.saturating_duration_since(upload.fed) >= self.idle).map(|(id, _)| id.clone()).collect();
             stale.into_iter().filter_map(|id| writes.remove(&id)).collect()
         };
         for upload in abandoned {
@@ -1084,7 +1105,20 @@ impl Transfers {
         let name = sanitized_file_name(&name);
         reads.insert(
             id.clone(),
-            Read { owner: owner.to_owned(), session: String::new(), file, location: None, size, version: version.clone(), mime: mime.to_owned(), media_id: None, lease: None, ends: EndOnDrop::new(), _cleanup: cleanup.map(Cleanup), opened: Instant::now() },
+            Read {
+                owner: owner.to_owned(),
+                session: String::new(),
+                file,
+                location: None,
+                size,
+                version: version.clone(),
+                mime: mime.to_owned(),
+                media_id: None,
+                lease: None,
+                ends: EndOnDrop::new(),
+                _cleanup: cleanup.map(Cleanup),
+                opened: Instant::now(),
+            },
         );
         Ok(Opened { transfer_id: id, size, mime_type: mime.to_owned(), name, version, range_max_bytes: RANGE_MAX_BYTES })
     }
@@ -1171,10 +1205,14 @@ impl Transfers {
         self.sweep_downloads();
         let owner = if device.starts_with("connection:") { device.to_owned() } else { format!("device:{device}") };
         let reads = self.reads.lock().expect("transfer reads");
-        reads
-            .iter()
-            .find(|(_, r)| r.owner == owner && r.lease.is_some() && r.media_id.as_deref() == Some(media_id))
-            .map(|(id, r)| MediaLease { owner: owner.clone(), transfer_id: id.clone(), size: r.size, mime: r.mime.clone(), version: r.version.clone(), ended: r.ends.token() })
+        reads.iter().find(|(_, r)| r.owner == owner && r.lease.is_some() && r.media_id.as_deref() == Some(media_id)).map(|(id, r)| MediaLease {
+            owner: owner.clone(),
+            transfer_id: id.clone(),
+            size: r.size,
+            mime: r.mime.clone(),
+            version: r.version.clone(),
+            ended: r.ends.token(),
+        })
     }
 
     /// Runs `write` in one step with the test that `lease` is still held: the transfer is in the table for the device it was leased
@@ -1185,9 +1223,9 @@ impl Transfers {
         let reads = self.reads.lock().expect("transfer reads");
         // Sampled after the lock is taken: a delivery that waited for it across a deadline is judged at the time it holds it.
         let now = self.now_ms();
-        let held = reads
-            .get(&lease.transfer_id)
-            .is_some_and(|read| read.owner == lease.owner && !read.ends.is_ended() && read.lease.is_some_and(|times| times.expires_at > now && times.idle_until > now));
+        let held = reads.get(&lease.transfer_id).is_some_and(|read| {
+            read.owner == lease.owner && !read.ends.is_ended() && read.lease.is_some_and(|times| times.expires_at > now && times.idle_until > now)
+        });
         if held {
             write();
         }
@@ -1307,7 +1345,17 @@ impl Transfers {
         let file = File::options().write(true).create_new(true).open(&temp)?;
         self.writes.lock().expect("transfer writes").insert(
             id.clone(),
-            Upload { owner: owner.to_owned(), temp, target: dir.join(upload_file_name(name)), file, size, written: 0, unique: true, writing: false, fed: self.clock.now() },
+            Upload {
+                owner: owner.to_owned(),
+                temp,
+                target: dir.join(upload_file_name(name)),
+                file,
+                size,
+                written: 0,
+                unique: true,
+                writing: false,
+                fed: self.clock.now(),
+            },
         );
         self.armed.notify_one();
         Ok(id)
@@ -1495,7 +1543,8 @@ pub(crate) fn required_session_id(value: Option<&serde_json::Value>) -> WsResult
 pub(crate) fn required_download_id(value: Option<&serde_json::Value>, name: &str) -> WsResult<String> {
     let valid = |id: &str| {
         let groups: Vec<&str> = id.split('-').collect();
-        groups.iter().map(|group| group.len()).eq([8, 4, 4, 4, 12]) && groups.iter().all(|group| group.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+        groups.iter().map(|group| group.len()).eq([8, 4, 4, 4, 12])
+            && groups.iter().all(|group| group.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
     };
     value.and_then(serde_json::Value::as_str).filter(|id| valid(id)).map(str::to_owned).ok_or_else(|| WsError::invalid(format!("{name} is invalid.")))
 }
@@ -1527,7 +1576,11 @@ impl DownloadRequest {
             }
             Some("sessionFile") => Ok(Self::Session(required_text(source.get("path"), "path", 4_096)?)),
             Some("folder") => Ok(Self::Folder(required_text(source.get("path"), "path", 4_096)?)),
-            Some("export") => source.get("input").and_then(serde_json::Value::as_object).cloned().map(Self::Export)
+            Some("export") => source
+                .get("input")
+                .and_then(serde_json::Value::as_object)
+                .cloned()
+                .map(Self::Export)
                 .ok_or_else(|| WsError::invalid("download source is invalid.")),
             Some("mediaAsset") => {
                 let asset = required_text(source.get("assetId"), "asset id", 128)?;
@@ -1575,7 +1628,8 @@ fn decode_uri_component(text: &str) -> Option<String> {
 /// The path part of a link, without the `path:12`, `path:12:4`, `path:12-20` or `path#L12…` location it carries (`parseLocalFileLocation`,
 /// `shared/local-files.ts`): the location is dropped whether or not its numbers are valid, and a drive letter is never a line.
 fn link_location_path(raw: &str) -> &str {
-    static HASH: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)#L(\d+)(?:C(\d+))?(?:-L?(\d+)(?:C(\d+))?)?$").expect("pattern"));
+    static HASH: std::sync::LazyLock<regex::Regex> =
+        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)#L(\d+)(?:C(\d+))?(?:-L?(\d+)(?:C(\d+))?)?$").expect("pattern"));
     static COLON: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| regex::Regex::new(r":(\d+)(?::(\d+))?(?:-(\d+))?$").expect("pattern"));
     if let Some(found) = HASH.find(raw) {
         return &raw[..found.start()];
@@ -1722,7 +1776,8 @@ fn refuse_windows_name(path: &str) -> WsResult<()> {
     }
     let last = path.rsplit(['/', '\\']).next().unwrap_or_default();
     let stem = last.split('.').next().unwrap_or_default().to_ascii_uppercase();
-    let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL") || ((stem.starts_with("COM") || stem.starts_with("LPT")) && stem.len() == 4 && stem.as_bytes()[3].is_ascii_digit() && stem.as_bytes()[3] != b'0');
+    let device = matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL")
+        || ((stem.starts_with("COM") || stem.starts_with("LPT")) && stem.len() == 4 && stem.as_bytes()[3].is_ascii_digit() && stem.as_bytes()[3] != b'0');
     if (last.ends_with('.') && last != "." && last != "..") || device {
         return Err(download("file-download:not-found", "The file no longer exists."));
     }
@@ -1761,7 +1816,8 @@ fn requested_session_path(path: &str, cwd: &str) -> WsResult<PathBuf> {
 /// `lexicalInProject`: the requested path is inside the registered project, or inside the project as the conversation states it.
 fn lexically_in_project(requested: &Path, project: Option<&Path>, project_given: Option<&Path>) -> bool {
     project.is_some_and(|root| {
-        crate::pathguard::is_within(root, requested) || project_given.is_some_and(|given| crate::pathguard::is_within(&crate::pathguard::resolve(given), requested))
+        crate::pathguard::is_within(root, requested)
+            || project_given.is_some_and(|given| crate::pathguard::is_within(&crate::pathguard::resolve(given), requested))
     })
 }
 
@@ -2016,10 +2072,7 @@ mod tests {
         assert_eq!((range.length, range.eof), (64, false));
         assert_eq!(STANDARD.decode(&range.data).unwrap(), b"0123456789abcdef".repeat(4));
         assert_eq!(t.read_range(&["dev-b"], &opened.transfer_id, 0, 8, None).unwrap_err().reason, Reason::DownloadExpired);
-        assert_eq!(
-            t.read_range(&["dev-a"], &opened.transfer_id, 1000, 8, None).unwrap_err().message,
-            "offset is past the end of the file."
-        );
+        assert_eq!(t.read_range(&["dev-a"], &opened.transfer_id, 1000, 8, None).unwrap_err().message, "offset is past the end of the file.");
         std::fs::OpenOptions::new().append(true).open(root.join("report.bin")).unwrap().write_all(b"x").unwrap();
         assert_eq!(t.read_range(&["dev-a"], &opened.transfer_id, 0, 8, None).unwrap_err().message, "The file changed on the host.");
         t.end_owner("dev-a");
@@ -2241,12 +2294,14 @@ mod tests {
         let transfers = Transfers::default();
         let owner = "device:phone-1";
         let session = "conversation-1";
-        let grant = transfers.authorize_source(owner, session, transfers.mark(owner, session), SourceFile {
-            file: File::open(&path).unwrap(),
-            name: "chart.pdf".into(),
-            mime_type: "application/pdf".into(),
-            cleanup: Some(folder.clone()),
-        }).unwrap();
+        let grant = transfers
+            .authorize_source(
+                owner,
+                session,
+                transfers.mark(owner, session),
+                SourceFile { file: File::open(&path).unwrap(), name: "chart.pdf".into(), mime_type: "application/pdf".into(), cleanup: Some(folder.clone()) },
+            )
+            .unwrap();
         let opened = transfers.begin_grant(owner, &grant.grant_id).unwrap();
         let lease = transfers.media_lease("phone-1", &opened.media.asset_id).unwrap();
         assert_eq!(transfers.read_media(&lease, 0, 8).unwrap(), b"exported");
@@ -2345,8 +2400,12 @@ mod tests {
             async move { t.run_lease_ends(&*timer).await }
         });
         let ended = |lease: &MediaLease| lease.ended.clone();
-        let within = |token: tokio_util::sync::CancellationToken| async move { tokio::time::timeout(std::time::Duration::from_secs(5), token.cancelled()).await.is_ok() };
-        let still = |token: tokio_util::sync::CancellationToken| async move { tokio::time::timeout(std::time::Duration::from_millis(100), token.cancelled()).await.is_err() };
+        let within = |token: tokio_util::sync::CancellationToken| async move {
+            tokio::time::timeout(std::time::Duration::from_secs(5), token.cancelled()).await.is_ok()
+        };
+        let still = |token: tokio_util::sync::CancellationToken| async move {
+            tokio::time::timeout(std::time::Duration::from_millis(100), token.cancelled()).await.is_err()
+        };
         let idle = LEASE_IDLE_MS as u64;
         // An untouched lease ends at its idle deadline, with no call of any stream.
         let untouched = t.begin_grant("device:phone", &grant_of(&t, dir.path(), "device:phone", "s1").grant_id).unwrap();
@@ -2528,7 +2587,10 @@ mod tests {
     async fn the_sweeper_closes_expired_handles_at_its_ticks_with_no_call() {
         let manual = Manual::new();
         let t = Arc::new(Transfers::with_clock(manual.clone(), UPLOAD_IDLE));
-        let sweeping = { let (t, manual) = (t.clone(), manual.clone()); tokio::spawn(async move { t.run_download_sweeper(&*manual).await }) };
+        let sweeping = {
+            let (t, manual) = (t.clone(), manual.clone());
+            tokio::spawn(async move { t.run_download_sweeper(&*manual).await })
+        };
         let dir = tempfile::tempdir().unwrap();
         grant_of(&t, dir.path(), "dev", "s1");
         manual.advance(5_000);
@@ -2558,7 +2620,6 @@ mod tests {
         assert_eq!(t.commit("o", &id).unwrap().0, 5);
         assert_eq!(std::fs::read(root.join("in/up.txt")).unwrap(), b"hello");
     }
-
 
     /// What an upload chunk answers: the bytes received on success (a retry of the last chunk is acknowledged, not rewritten), and the
     /// refusal for a chunk ahead of the received bytes, bad base64, an empty or out-of-range offset, a chunk met mid-write, one past
@@ -2604,7 +2665,12 @@ mod tests {
             ("file moved", 3 | 4) => serde_json::json!({ "ok": true }),
             ("ancestor swapped between resolving and opening", 0) => refusal(OUTSIDE),
             ("file moved", 1 | 5 | 9 | 11 | 14) => refusal(CHANGED),
-            ("unpair during a read", 2) | ("session deleted before begin", 2) | ("session deleted between ranges", 3) | ("grant expiry", 3) | ("file moved", 6) | ("relay close during a read", 2) => refusal(EXPIRED),
+            ("unpair during a read", 2)
+            | ("session deleted before begin", 2)
+            | ("session deleted between ranges", 3)
+            | ("grant expiry", 3)
+            | ("file moved", 6)
+            | ("relay close during a read", 2) => refusal(EXPIRED),
             other => panic!("no such call {other:?}"),
         }
     }
@@ -2892,4 +2958,3 @@ mod tests {
         assert_eq!(refused.message, "The file is outside the conversation's project.");
     }
 }
-

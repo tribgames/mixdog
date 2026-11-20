@@ -35,12 +35,12 @@ use serde_json::json;
 use super::adapter::Credential;
 use super::adapter::CredentialSource;
 use crate::accounts::validity::normalize_expires_at_ms;
-use crate::oauth::RefreshFailure;
-use crate::oauth::classify_refresh_failure;
 use crate::oauth::CredentialFile;
 use crate::oauth::Pace;
 use crate::oauth::Probe;
+use crate::oauth::RefreshFailure;
 use crate::oauth::SystemPace;
+use crate::oauth::classify_refresh_failure;
 use crate::oauth::lease::LockProcess;
 use crate::oauth::lease::REFRESH_LEASE;
 use crate::oauth::lease::lease_error;
@@ -118,9 +118,7 @@ fn permanent_refusal(status: Option<u16>, body: &[u8]) -> bool {
 }
 
 fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// The claims object of a JWT (any base64 alphabet, padded or not), if it has one.
@@ -246,16 +244,18 @@ impl OpenAiOAuth {
     /// A credential whose refresh lease is taken as `process`: a second one over the same file excludes this one as
     /// another process does.
     pub fn in_process(file: CredentialFile, http: Arc<dyn HttpSend>, process: Arc<LockProcess>) -> Self {
-        Self { inner: Arc::new(Inner {
-            file,
-            http,
-            inflight: Mutex::new(Vec::new()),
-            flights: AtomicU64::new(0),
-            refused: Mutex::new(None),
-            coast: Mutex::new(None),
-            process,
-            pace: Arc::new(SystemPace),
-        }) }
+        Self {
+            inner: Arc::new(Inner {
+                file,
+                http,
+                inflight: Mutex::new(Vec::new()),
+                flights: AtomicU64::new(0),
+                refused: Mutex::new(None),
+                coast: Mutex::new(None),
+                process,
+                pace: Arc::new(SystemPace),
+            }),
+        }
     }
 }
 
@@ -345,10 +345,7 @@ impl Inner {
                     transport: TransportKind::Http1,
                     method: "POST".into(),
                     url: TOKEN_URL.into(),
-                    headers: vec![(
-                        "Content-Type".into(),
-                        "application/x-www-form-urlencoded".into(),
-                    )],
+                    headers: vec![("Content-Type".into(), "application/x-www-form-urlencoded".into())],
                     body,
                 },
                 TOKEN_OPENAI,
@@ -410,10 +407,7 @@ impl Inner {
         mixdog_rt::node_stderr!("[openai-oauth] Token refreshed, expires in {}s", (left_ms + 500) / 1000);
         let mut update = Map::new();
         update.insert("access_token".into(), json!(access_token));
-        update.insert(
-            "refresh_token".into(),
-            json!(json.get("refresh_token").and_then(Value::as_str).unwrap_or(&refresh_token)),
-        );
+        update.insert("refresh_token".into(), json!(json.get("refresh_token").and_then(Value::as_str).unwrap_or(&refresh_token)));
         update.insert("expires_at".into(), json!(expires_at));
         // `account_id: extractAccountId(json.access_token)`: the refreshed token's own claim, and none when it names
         // none (Node stores the refreshed tokens in place of the old document, `publishRefreshedTokens`).
@@ -422,11 +416,7 @@ impl Inner {
         let published = self
             .file
             // `expires_at` is the one spelling Node writes: an imported `expiresAt` does not stay beside it.
-            .replace_if_without(
-                move |doc| doc.get("refresh_token").and_then(Value::as_str) == Some(expected.as_str()),
-                update,
-                &["expiresAt"],
-            )
+            .replace_if_without(move |doc| doc.get("refresh_token").and_then(Value::as_str) == Some(expected.as_str()), update, &["expiresAt"])
             .await
             .map_err(|_| {
                 let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent);
@@ -481,11 +471,7 @@ impl Inner {
                 Err(err)
             }
             verdict => {
-                let kind = if verdict == RefreshFailure::Transient {
-                    ErrorKind::Transient
-                } else {
-                    ErrorKind::Auth
-                };
+                let kind = if verdict == RefreshFailure::Transient { ErrorKind::Transient } else { ErrorKind::Auth };
                 let mut err = ProviderError::new(kind, DeliveryState::NotSent);
                 // Node's wrapper (`openai-oauth-tokens.mjs:354`) words every failure; its cause is the timer's own
                 // text (`:276`, the bare-`setTimeout` abort) or the fetch's for a request that got no answer, and
@@ -613,7 +599,9 @@ impl OpenAiOAuth {
         Some(match shared.await {
             Err(err) if ordinary && stored.usable_at(now_ms(), 0) => {
                 if err.message == UNSTORED {
-                    tracing::warn!("[openai-oauth] The refreshed login could not be stored, so its rotated refresh token was not saved; serving the still-valid current token, and the next refresh may need a new sign-in");
+                    tracing::warn!(
+                        "[openai-oauth] The refreshed login could not be stored, so its rotated refresh token was not saved; serving the still-valid current token, and the next refresh may need a new sign-in"
+                    );
                 }
                 Ok(Refreshed::Coasted(stored.credential()))
             }
@@ -677,7 +665,6 @@ mod tests {
         assert_eq!(read(r#"{"access_token":"a","expires_at":null,"expiresAt":1893456000}"#).expires_at, 1_893_456_000_000);
         assert_eq!(read(r#"{"access_token":"a","expiresAt":"2030-01-01T00:00:00Z"}"#).expires_at, 1_893_456_000_000);
     }
-
 
     /// The refresh that outlives its timer reads as the real Node function did (`sites.openaiRefresh`): the bare-`setTimeout`
     /// abort, worded by the refresh's own catch and wrapped by the caller.

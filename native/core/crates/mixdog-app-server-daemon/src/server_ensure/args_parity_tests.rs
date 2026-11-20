@@ -94,11 +94,7 @@ fn every_error_code_the_server_prints_is_a_bootstrap_code() {
         EnsureError::Arguments("x".into()),
     ];
     for error in errors {
-        assert!(
-            wire::BootstrapCode::parse(error.code()).is_some(),
-            "the desktop does not know the server's error code {}",
-            error.code()
-        );
+        assert!(wire::BootstrapCode::parse(error.code()).is_some(), "the desktop does not know the server's error code {}", error.code());
     }
 }
 
@@ -115,8 +111,5 @@ fn the_drain_the_server_prints_is_the_drain_the_desktop_reads() {
     let read: wire::RemoteDrain = serde_json::from_str(&line).expect("the desktop reads a drain");
     assert_eq!((read.drain_id.as_str(), read.confirm_token.as_str()), ("d1", "tok"));
     assert_eq!(read.running.len(), 1);
-    assert_eq!(
-        (read.running[0].kind.as_str(), read.running[0].thread_id.as_deref(), read.running[0].title.as_str()),
-        ("turn", Some("th"), "Fix the build")
-    );
+    assert_eq!((read.running[0].kind.as_str(), read.running[0].thread_id.as_deref(), read.running[0].title.as_str()), ("turn", Some("th"), "Fix the build"));
 }

@@ -185,11 +185,7 @@ fn size_label(size: &Value) -> String {
     if bytes >= 1_048_576.0 {
         return format!("{} MB", to_fixed_1(bytes / 1_048_576.0));
     }
-    if bytes >= 1024.0 {
-        format!("{} KB", number_to_string(mixdog_js::math::round(bytes / 1024.0)))
-    } else {
-        format!("{} B", number_to_string(bytes))
-    }
+    if bytes >= 1024.0 { format!("{} KB", number_to_string(mixdog_js::math::round(bytes / 1024.0))) } else { format!("{} B", number_to_string(bytes)) }
 }
 
 /// `x.toFixed(1)` for a positive finite `x`: the nearest tenth of the exact value, a tie going up
@@ -384,7 +380,10 @@ pub fn routine_omitted_message(count: &Value, message_id: &str, now: i64) -> Val
 /// `agentTaskRelayFailedMessage`: the relay turn never finished.
 pub fn agent_task_relay_failed_message(count: f64, tries: u64, message_id: &str, now: i64) -> Value {
     user_message(
-        format!("[mixdog-runtime] The bot's turn to relay {} task result(s) above did not finish after {tries} tries; they stay in this chat for the user to read.", number_to_string(count)),
+        format!(
+            "[mixdog-runtime] The bot's turn to relay {} task result(s) above did not finish after {tries} tries; they stay in this chat for the user to read.",
+            number_to_string(count)
+        ),
         json!({ "source": ROUTINE_RESULT_SOURCE, "routine": { "relayFailed": jnum(count) }, "transcript": transcript_meta(json!(now), message_id, &[]) }),
     )
 }
@@ -537,9 +536,7 @@ fn condensed_report(message: &Value) -> Option<String> {
 /// `agentTaskWakePrompt`: the hidden prompt that wakes the agent once its task results are
 /// posted; `more` counts posted reports it carries only as rows in the thread.
 pub fn agent_task_wake_prompt(messages: &[Value], more: f64) -> String {
-    let files = messages.iter().any(|message| {
-        message.pointer("/meta/routine/files").and_then(Value::as_array).is_some_and(|files| !files.is_empty())
-    });
+    let files = messages.iter().any(|message| message.pointer("/meta/routine/files").and_then(Value::as_array).is_some_and(|files| !files.is_empty()));
     let mut contents: Vec<String> = Vec::new();
     let mut used = 0;
     let mut left = more;
@@ -669,15 +666,7 @@ pub fn routine_result_notice(message: &Value) -> Value {
 }
 
 /// `routineRunNotice`: the live-only row of a run that has no stored result in the home.
-pub fn routine_run_notice(
-    kind: &str,
-    name: &str,
-    run_id: &str,
-    state: &str,
-    ok: bool,
-    run_session_id: Option<&str>,
-    message_id: &str,
-) -> Value {
+pub fn routine_run_notice(kind: &str, name: &str, run_id: &str, state: &str, ok: bool, run_session_id: Option<&str>, message_id: &str) -> Value {
     let webhook = kind == "webhook";
     let running = state == "running";
     let label = format!("{} · {name}", if webhook { "🔗 Webhook" } else { "⏱ Schedule" });
@@ -686,7 +675,16 @@ pub fn routine_run_notice(
         routine.insert("kind".into(), json!("webhook"));
     }
     routine.insert("name".into(), json!(name));
-    routine.insert("status".into(), json!(if running { "running" } else if ok { "completed" } else { "failed" }));
+    routine.insert(
+        "status".into(),
+        json!(if running {
+            "running"
+        } else if ok {
+            "completed"
+        } else {
+            "failed"
+        }),
+    );
     routine.insert("runId".into(), json!(run_id));
     if let Some(session) = run_session_id.filter(|s| !s.is_empty()) {
         routine.insert("runSessionId".into(), json!(session));

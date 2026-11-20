@@ -45,24 +45,20 @@ use std::time::{Duration, Instant};
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 
-use windows::core::{PCWSTR, PWSTR};
 use windows::Win32::Foundation::{GENERIC_WRITE, HANDLE};
 use windows::Win32::Storage::FileSystem::{
-    CreateFileW, FILE_FLAGS_AND_ATTRIBUTES, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_SHARE_MODE,
-    OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
+    CreateFileW, FILE_FLAG_FIRST_PIPE_INSTANCE, FILE_FLAGS_AND_ATTRIBUTES, FILE_SHARE_MODE, OPEN_EXISTING, PIPE_ACCESS_DUPLEX,
 };
 use windows::Win32::System::Pipes::{
-    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PeekNamedPipe, PIPE_READMODE_BYTE,
-    PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT,
+    ConnectNamedPipe, CreateNamedPipeW, DisconnectNamedPipe, PIPE_READMODE_BYTE, PIPE_REJECT_REMOTE_CLIENTS, PIPE_TYPE_BYTE, PIPE_WAIT, PeekNamedPipe,
 };
 use windows::Win32::System::RemoteDesktop::{WTSGetActiveConsoleSessionId, WTSSendMessageW};
-use windows::Win32::System::Threading::{
-    OpenProcess, QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
-};
+use windows::Win32::System::Threading::{OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW};
 use windows::Win32::UI::WindowsAndMessaging::{MB_OK, MESSAGEBOX_RESULT};
+use windows::core::{PCWSTR, PWSTR};
 
 use crate::service::NO_ACTIVE_SESSION;
-use crate::winutil::{client_user_sid, wide, OwnedHandle, SecurityDescriptor};
+use crate::winutil::{OwnedHandle, SecurityDescriptor, client_user_sid, wide};
 use crate::{install, ipc, log, paths, security, signature};
 
 /// The delegation pipe. Distinct from the control pipe
@@ -95,17 +91,9 @@ pub fn request_stop() {
     let name = wide(DELEGATION_PIPE_NAME);
     // A best-effort self-connect to break `ConnectNamedPipe`; the loop then
     // sees `stopping()` and returns. Errors are ignored (nothing to wake).
-    if let Ok(handle) = unsafe {
-        CreateFileW(
-            PCWSTR(name.as_ptr()),
-            GENERIC_WRITE.0,
-            FILE_SHARE_MODE(0),
-            None,
-            OPEN_EXISTING,
-            FILE_FLAGS_AND_ATTRIBUTES(0),
-            None,
-        )
-    } {
+    if let Ok(handle) =
+        unsafe { CreateFileW(PCWSTR(name.as_ptr()), GENERIC_WRITE.0, FILE_SHARE_MODE(0), None, OPEN_EXISTING, FILE_FLAGS_AND_ATTRIBUTES(0), None) }
+    {
         drop(OwnedHandle::new(handle));
     }
 }
@@ -151,21 +139,11 @@ struct Reply {
 
 impl Reply {
     fn ok(changed: bool) -> Self {
-        Reply {
-            ok: true,
-            changed,
-            reason: None,
-            error: None,
-        }
+        Reply { ok: true, changed, reason: None, error: None }
     }
 
     fn denied(denial: Denial, error: &str) -> Self {
-        Reply {
-            ok: false,
-            changed: false,
-            reason: Some(denial.reason().to_string()),
-            error: Some(error.to_string()),
-        }
+        Reply { ok: false, changed: false, reason: Some(denial.reason().to_string()), error: Some(error.to_string()) }
     }
 }
 
@@ -174,14 +152,7 @@ impl Reply {
 /// be the installing user in the active console session, and its image must be
 /// the authorized signer. `signer_ok` is the result of the (impure) Authenticode
 /// verification against the stored policy.
-fn caller_allowed(
-    enabled: bool,
-    installing_sid: &str,
-    serviced_session: u32,
-    caller_sid: &str,
-    caller_session: u32,
-    signer_ok: bool,
-) -> Result<(), Denial> {
+fn caller_allowed(enabled: bool, installing_sid: &str, serviced_session: u32, caller_sid: &str, caller_session: u32, signer_ok: bool) -> Result<(), Denial> {
     if !enabled {
         return Err(Denial::Disabled);
     }
@@ -213,10 +184,7 @@ fn read_exact_io<R: Read>(reader: &mut R, buf: &mut [u8]) -> io::Result<()> {
     while filled < buf.len() {
         let read = reader.read(&mut buf[filled..])?;
         if read == 0 {
-            return Err(io::Error::new(
-                io::ErrorKind::UnexpectedEof,
-                "the peer closed the delegation pipe",
-            ));
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "the peer closed the delegation pipe"));
         }
         filled += read;
     }
@@ -229,10 +197,7 @@ fn read_frame<R: Read>(reader: &mut R) -> io::Result<Vec<u8>> {
     read_exact_io(reader, &mut length)?;
     let length = u32::from_be_bytes(length) as usize;
     if length > MAX_FRAME {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "delegation frame too large",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "delegation frame too large"));
     }
     let mut body = vec![0u8; length];
     read_exact_io(reader, &mut body)?;
@@ -248,23 +213,17 @@ pub fn request_key_change(op: &str, key: &str) -> i32 {
     let handle = match ipc::connect(DELEGATION_PIPE_NAME) {
         Ok(handle) => handle,
         Err(error) => {
-            install::emit(
-                json!({ "ok": false, "delegation": "unavailable", "error": error.to_string() }),
-            );
+            install::emit(json!({ "ok": false, "delegation": "unavailable", "error": error.to_string() }));
             return install::EXIT_DELEGATION_UNAVAILABLE;
         }
     };
-    let request = Request {
-        op: op.to_string(),
-        key: key.to_string(),
-    };
+    let request = Request { op: op.to_string(), key: key.to_string() };
     let body = serde_json::to_vec(&request).expect("a request always serializes");
     let mut io = ipc::PipeIo(handle.get());
     let reply = (|| -> io::Result<Reply> {
         write_frame(&mut io, &body)?;
         let frame = read_frame(&mut io)?;
-        serde_json::from_slice::<Reply>(&frame)
-            .map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
+        serde_json::from_slice::<Reply>(&frame).map_err(|error| io::Error::new(io::ErrorKind::InvalidData, error))
     })();
     match reply {
         Ok(reply) if reply.ok => {
@@ -272,9 +231,7 @@ pub fn request_key_change(op: &str, key: &str) -> i32 {
             0
         }
         Ok(reply) => {
-            let detail = reply
-                .error
-                .unwrap_or_else(|| "the delegated request was refused".into());
+            let detail = reply.error.unwrap_or_else(|| "the delegated request was refused".into());
             install::emit(json!({ "ok": false, "delegation": reply.reason, "error": detail }));
             match reply.reason.as_deref() {
                 Some("disabled") => install::EXIT_DELEGATION_DISABLED,
@@ -282,9 +239,7 @@ pub fn request_key_change(op: &str, key: &str) -> i32 {
             }
         }
         Err(error) => {
-            install::emit(
-                json!({ "ok": false, "delegation": "unavailable", "error": error.to_string() }),
-            );
+            install::emit(json!({ "ok": false, "delegation": "unavailable", "error": error.to_string() }));
             install::EXIT_DELEGATION_UNAVAILABLE
         }
     }
@@ -299,10 +254,7 @@ pub fn request_key_change(op: &str, key: &str) -> i32 {
 /// unavailable then, and the client reports it.
 pub fn serve(installing_sid: &str) {
     let Some(sddl) = security::pipe_sddl(installing_sid) else {
-        log::event(
-            "delegation",
-            "install state has an invalid user SID; delegation server not started",
-        );
+        log::event("delegation", "install state has an invalid user SID; delegation server not started");
         return;
     };
     log::event("delegation", "delegation server started");
@@ -310,10 +262,7 @@ pub fn serve(installing_sid: &str) {
         let pipe = match create_pipe(&sddl) {
             Ok(pipe) => pipe,
             Err(error) => {
-                log::event(
-                    "delegation",
-                    &format!("create delegation pipe failed: {error}; server stopping"),
-                );
+                log::event("delegation", &format!("create delegation pipe failed: {error}; server stopping"));
                 return;
             }
         };
@@ -361,8 +310,7 @@ fn create_pipe(sddl: &str) -> Result<OwnedHandle, String> {
             Some(&attributes),
         )
     };
-    OwnedHandle::new(handle)
-        .ok_or_else(|| "CreateNamedPipeW returned an invalid handle".to_string())
+    OwnedHandle::new(handle).ok_or_else(|| "CreateNamedPipeW returned an invalid handle".to_string())
 }
 
 /// Authenticate the connected client, read its request, apply it against the
@@ -374,13 +322,7 @@ fn serve_connection(pipe: &OwnedHandle, installing_sid: &str) {
         Ok(frame) => match serde_json::from_slice::<Request>(&frame) {
             Ok(request) => request,
             Err(error) => {
-                let _ = write_frame(
-                    &mut io,
-                    &reply_bytes(&Reply::denied(
-                        Denial::Denied,
-                        &format!("malformed request: {error}"),
-                    )),
-                );
+                let _ = write_frame(&mut io, &reply_bytes(&Reply::denied(Denial::Denied, &format!("malformed request: {error}"))));
                 return;
             }
         },
@@ -407,10 +349,7 @@ fn evaluate(pipe: &OwnedHandle, installing_sid: &str, request: &Request) -> Repl
         return Reply::denied(Denial::Denied, "unknown delegated operation");
     }
     if security::decode_controller_key(&request.key).is_none() {
-        return Reply::denied(
-            Denial::Denied,
-            "the controller key is not an uncompressed P-256 point",
-        );
+        return Reply::denied(Denial::Denied, "the controller key is not an uncompressed P-256 point");
     }
 
     // The policy as it stands now (disable is immediate).
@@ -422,37 +361,16 @@ fn evaluate(pipe: &OwnedHandle, installing_sid: &str, request: &Request) -> Repl
     let caller_sid = client_user_sid(pipe.get());
     let caller_session = ipc::client_session_id(pipe);
     let serviced_session = unsafe { WTSGetActiveConsoleSessionId() };
-    let signer_ok = signer
-        .as_ref()
-        .map(|policy| verify_caller_image(pipe, policy))
-        .unwrap_or(false);
+    let signer_ok = signer.as_ref().map(|policy| verify_caller_image(pipe, policy)).unwrap_or(false);
 
     match (caller_sid, caller_session) {
         (Some(caller_sid), Some(caller_session)) => {
-            if let Err(denial) = caller_allowed(
-                enabled,
-                installing_sid,
-                serviced_session,
-                &caller_sid,
-                caller_session,
-                signer_ok,
-            ) {
-                log::event(
-                    "delegation",
-                    &format!("refused a delegated {} ({denial:?})", request.op),
-                );
-                return Reply::denied(
-                    denial,
-                    "the calling app could not be authenticated for delegation",
-                );
+            if let Err(denial) = caller_allowed(enabled, installing_sid, serviced_session, &caller_sid, caller_session, signer_ok) {
+                log::event("delegation", &format!("refused a delegated {} ({denial:?})", request.op));
+                return Reply::denied(denial, "the calling app could not be authenticated for delegation");
             }
         }
-        _ => {
-            return Reply::denied(
-                Denial::Denied,
-                "the caller identity could not be determined",
-            )
-        }
+        _ => return Reply::denied(Denial::Denied, "the caller identity could not be determined"),
     }
 
     // `caller_allowed` passed, so a signer policy was present and verified.
@@ -466,10 +384,7 @@ fn evaluate(pipe: &OwnedHandle, installing_sid: &str, request: &Request) -> Repl
             if changed && request.op == "enroll" {
                 notify_enrollment(serviced_session);
             }
-            log::event(
-                "delegation",
-                &format!("delegated {} applied (changed={changed})", request.op),
-            );
+            log::event("delegation", &format!("delegated {} applied (changed={changed})", request.op));
             Reply::ok(changed)
         }
         Err(error) => Reply::denied(Denial::Denied, &error),
@@ -483,13 +398,7 @@ fn load_delegation() -> Option<(bool, Option<signature::SignerPolicy>)> {
     let text = std::fs::read_to_string(paths::state_file()).ok()?;
     let state = security::InstallState::from_json(&text).ok()?;
     let policy =
-        state
-            .delegation
-            .authorized_signer()
-            .map(|(subject, eku)| signature::SignerPolicy {
-                subject: subject.to_string(),
-                profile_eku: eku.to_string(),
-            });
+        state.delegation.authorized_signer().map(|(subject, eku)| signature::SignerPolicy { subject: subject.to_string(), profile_eku: eku.to_string() });
     Some((state.delegation.enabled, policy))
 }
 
@@ -518,26 +427,14 @@ fn verify_caller_image(pipe: &OwnedHandle, policy: &signature::SignerPolicy) -> 
     // terminator, the longest image path `QueryFullProcessImageNameW` can return.
     let mut buffer = vec![0u16; 32 * 1024];
     let mut size = buffer.len() as u32;
-    if unsafe {
-        QueryFullProcessImageNameW(
-            process.get(),
-            PROCESS_NAME_WIN32,
-            PWSTR(buffer.as_mut_ptr()),
-            &mut size,
-        )
-    }
-    .is_err()
-    {
+    if unsafe { QueryFullProcessImageNameW(process.get(), PROCESS_NAME_WIN32, PWSTR(buffer.as_mut_ptr()), &mut size) }.is_err() {
         return false;
     }
     let path = String::from_utf16_lossy(&buffer[..size as usize]);
     match signature::verify_file_against(std::path::Path::new(&path), policy) {
         Ok(_) => true,
         Err(refusal) => {
-            log::event(
-                "delegation",
-                &format!("caller image refused: {}", refusal.message()),
-            );
+            log::event("delegation", &format!("caller image refused: {}", refusal.message()));
             false
         }
     }
@@ -568,10 +465,7 @@ fn notify_enrollment(session: u32) {
         )
     };
     if let Err(error) = result {
-        log::event(
-            "delegation",
-            &format!("enrollment notification failed: {error}"),
-        );
+        log::event("delegation", &format!("enrollment notification failed: {error}"));
     }
 }
 
@@ -590,10 +484,7 @@ fn read_frame_bounded(pipe: &OwnedHandle) -> io::Result<Vec<u8>> {
     read_exact_io(&mut io, &mut length)?;
     let length = u32::from_be_bytes(length) as usize;
     if length > MAX_FRAME {
-        return Err(io::Error::new(
-            io::ErrorKind::InvalidData,
-            "delegation frame too large",
-        ));
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "delegation frame too large"));
     }
     wait_for_bytes(pipe, length, deadline)?;
     let mut body = vec![0u8; length];
@@ -607,19 +498,13 @@ fn read_frame_bounded(pipe: &OwnedHandle) -> io::Result<Vec<u8>> {
 fn wait_for_bytes(pipe: &OwnedHandle, need: usize, deadline: Instant) -> io::Result<()> {
     loop {
         if stopping() {
-            return Err(io::Error::new(
-                io::ErrorKind::Interrupted,
-                "service stopping",
-            ));
+            return Err(io::Error::new(io::ErrorKind::Interrupted, "service stopping"));
         }
         if peek_available(pipe.get())? as usize >= need {
             return Ok(());
         }
         if Instant::now() >= deadline {
-            return Err(io::Error::new(
-                io::ErrorKind::TimedOut,
-                "delegation request did not arrive in time",
-            ));
+            return Err(io::Error::new(io::ErrorKind::TimedOut, "delegation request did not arrive in time"));
         }
         std::thread::sleep(STOP_POLL);
     }
@@ -629,8 +514,7 @@ fn wait_for_bytes(pipe: &OwnedHandle, need: usize, deadline: Instant) -> io::Res
 /// (client closed) is an error.
 fn peek_available(pipe: HANDLE) -> io::Result<u32> {
     let mut available = 0u32;
-    unsafe { PeekNamedPipe(pipe, None, 0, None, Some(&mut available), None) }
-        .map_err(|error| io::Error::new(io::ErrorKind::BrokenPipe, error.to_string()))?;
+    unsafe { PeekNamedPipe(pipe, None, 0, None, Some(&mut available), None) }.map_err(|error| io::Error::new(io::ErrorKind::BrokenPipe, error.to_string()))?;
     Ok(available)
 }
 
@@ -645,32 +529,14 @@ mod tests {
         // The happy path: enabled, installing user, console session, trusted image.
         assert_eq!(caller_allowed(true, SID, 1, SID, 1, true), Ok(()));
         // Case-insensitive SID match (SIDs are compared case-insensitively).
-        assert_eq!(
-            caller_allowed(true, SID, 1, &SID.to_lowercase(), 1, true),
-            Ok(())
-        );
+        assert_eq!(caller_allowed(true, SID, 1, &SID.to_lowercase(), 1, true), Ok(()));
         // Disabled beats everything else.
-        assert_eq!(
-            caller_allowed(false, SID, 1, SID, 1, true),
-            Err(Denial::Disabled)
-        );
+        assert_eq!(caller_allowed(false, SID, 1, SID, 1, true), Err(Denial::Disabled));
         // A different user, the wrong session, or an untrusted image are each denied.
-        assert_eq!(
-            caller_allowed(true, SID, 1, "S-1-5-21-9-9-9-500", 1, true),
-            Err(Denial::Denied)
-        );
-        assert_eq!(
-            caller_allowed(true, SID, 1, SID, 2, true),
-            Err(Denial::Denied)
-        );
-        assert_eq!(
-            caller_allowed(true, SID, NO_ACTIVE_SESSION, SID, NO_ACTIVE_SESSION, true),
-            Err(Denial::Denied)
-        );
-        assert_eq!(
-            caller_allowed(true, SID, 1, SID, 1, false),
-            Err(Denial::Denied)
-        );
+        assert_eq!(caller_allowed(true, SID, 1, "S-1-5-21-9-9-9-500", 1, true), Err(Denial::Denied));
+        assert_eq!(caller_allowed(true, SID, 1, SID, 2, true), Err(Denial::Denied));
+        assert_eq!(caller_allowed(true, SID, NO_ACTIVE_SESSION, SID, NO_ACTIVE_SESSION, true), Err(Denial::Denied));
+        assert_eq!(caller_allowed(true, SID, 1, SID, 1, false), Err(Denial::Denied));
     }
 
     #[test]
@@ -695,8 +561,7 @@ mod tests {
         let ok = String::from_utf8(reply_bytes(&Reply::ok(true))).unwrap();
         assert!(ok.contains("\"ok\":true") && ok.contains("\"changed\":true"));
         assert!(!ok.contains("reason") && !ok.contains("error"));
-        let denied =
-            String::from_utf8(reply_bytes(&Reply::denied(Denial::Disabled, "off"))).unwrap();
+        let denied = String::from_utf8(reply_bytes(&Reply::denied(Denial::Disabled, "off"))).unwrap();
         assert!(denied.contains("\"ok\":false") && denied.contains("\"reason\":\"disabled\""));
         assert!(denied.contains("\"error\":\"off\""));
     }

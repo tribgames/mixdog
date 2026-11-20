@@ -161,9 +161,7 @@ fn base36(mut n: u64) -> String {
 /// `requiredFlowId`: `/^oauth_[a-z0-9_]+$/i`.
 fn required_flow_id(value: &str) -> Result<String, Failure> {
     let id = mixdog_js::js_trim(value);
-    let valid = id.get(..6).is_some_and(|p| p.eq_ignore_ascii_case("oauth_"))
-        && id.len() > 6
-        && id[6..].chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    let valid = id.get(..6).is_some_and(|p| p.eq_ignore_ascii_case("oauth_")) && id.len() > 6 && id[6..].chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
     if valid { Ok(id.to_owned()) } else { Err(Failure::type_error("OAuth flow id is invalid.")) }
 }
 
@@ -246,7 +244,8 @@ impl OAuthFlows {
         let (id, status) = {
             let mut reg = self.lock();
             if let Some(prior) = reg.active_by_provider.get(&provider).cloned()
-                && reg.finish(&prior, State::Cancelled, Some("Superseded by a newer OAuth login.".into()), Ending::None) {
+                && reg.finish(&prior, State::Cancelled, Some("Superseded by a newer OAuth login.".into()), Ending::None)
+            {
                 reg.flows[&prior].session.cancel();
             }
             reg.sequence += 1;
@@ -311,9 +310,7 @@ impl OAuthFlows {
                     let mut reg = self.lock();
                     match outcome {
                         Ok(true) => reg.finish(&id, State::Complete, None, Ending::None),
-                        Ok(false) if via_code => {
-                            reg.finish(&id, State::Failed, Some("OAuth code did not complete the login.".into()), Ending::Falsy)
-                        }
+                        Ok(false) if via_code => reg.finish(&id, State::Failed, Some("OAuth code did not complete the login.".into()), Ending::Falsy),
                         Ok(false) => reg.finish(&id, State::Failed, Some("OAuth login did not complete.".into()), Ending::None),
                         Err(message) => reg.finish(&id, State::Failed, Some(message.clone()), Ending::Threw(message)),
                     };
@@ -342,11 +339,7 @@ impl OAuthFlows {
 
     fn require(reg: &Registry, id: &str) -> Result<String, Failure> {
         let key = required_flow_id(id)?;
-        if reg.flows.contains_key(&key) {
-            Ok(key)
-        } else {
-            Err(Failure::error("OAuth login flow is no longer available."))
-        }
+        if reg.flows.contains_key(&key) { Ok(key) } else { Err(Failure::error("OAuth login flow is no longer available.")) }
     }
 
     pub fn status(&self, id: &str) -> Result<Value, Failure> {

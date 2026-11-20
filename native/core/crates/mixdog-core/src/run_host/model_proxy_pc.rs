@@ -282,7 +282,8 @@ impl ProviderConfigSource for PcProviderConfig {
             let instance = live.iter().find(|(live_name, _)| live_name == name).map(|(_, adapter)| adapter);
             let configured = available.get(name).and_then(Value::as_object).cloned().unwrap_or_default();
             let auth_state = self.credentials.auth_state(name, &configured).await?;
-            let configured_enabled = configured.get("enabled") == Some(&Value::Bool(true)) || configured.get("credentialProbeUnavailable") == Some(&Value::Bool(true));
+            let configured_enabled =
+                configured.get("enabled") == Some(&Value::Bool(true)) || configured.get("credentialProbeUnavailable") == Some(&Value::Bool(true));
             // Only the fields the public projection reads are carried: no key, URL or account leaves this map.
             let mut item = Map::new();
             for key in ["type", "name", "models", "modelOverrides"] {
@@ -301,7 +302,9 @@ impl ProviderConfigSource for PcProviderConfig {
             .as_object()
             .into_iter()
             .flatten()
-            .map(|(name, info)| serde_json::from_value::<w::ProxyProviderInfo>(info.clone()).map(|info| (name.clone(), info)).map_err(|error| error.to_string()))
+            .map(|(name, info)| {
+                serde_json::from_value::<w::ProxyProviderInfo>(info.clone()).map(|info| (name.clone(), info)).map_err(|error| error.to_string())
+            })
             .collect::<Result<Vec<_>, _>>()?;
         Ok((list, true))
     }
@@ -326,10 +329,7 @@ impl ProviderLookup for PcProviderConfig {
 }
 
 #[cfg(test)]
-mod tests {
-}
-
-
+mod tests {}
 
 #[cfg(test)]
 mod quota_window_tests {

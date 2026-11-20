@@ -15,9 +15,8 @@ use crate::tool_primitives::truthy;
 
 /// Every runtime control row written as a user turn when a turn is cut short (including the bare `[Request interrupted]` a
 /// kept Stop prompt gets): not real conversation, for the real-turn count and the preview and title noise filter alike.
-static CONTROL_MARKER: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^\[(?:truncated|request interrupted(?: by user(?: for tool use)?| by process restart)?)\]$", "i")
-});
+static CONTROL_MARKER: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^\[(?:truncated|request interrupted(?: by user(?: for tool use)?| by process restart)?)\]$", "i"));
 static CANCELLED_STATUS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\[request interrupted(?: by process restart)?\]$", "i"));
 static BUILTIN_SKILL_RESULT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^Loaded built-in skill:", "i"));
 

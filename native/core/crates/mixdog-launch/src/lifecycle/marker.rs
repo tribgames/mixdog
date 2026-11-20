@@ -154,7 +154,9 @@ impl Inner {
             if !marker_matches(&marker.path, &marker.previous) {
                 continue;
             }
-            let observed = pid_of(marker.previous.get("pid")).and_then(|pid| identities.iter().find(|(known, _)| *known == pid)).and_then(|(_, identity)| identity.as_ref());
+            let observed = pid_of(marker.previous.get("pid"))
+                .and_then(|pid| identities.iter().find(|(known, _)| *known == pid))
+                .and_then(|(_, identity)| identity.as_ref());
             if identity::same_identity(marker.previous.get("processIdentity"), observed) == Some(false) {
                 self.record_prior_vanished(marker);
             }
@@ -197,7 +199,9 @@ impl Inner {
 /// `markerMatchesSnapshot`: the file still holds the marker that was scanned.
 fn marker_matches(path: &Path, previous: &Value) -> bool {
     let Some(current) = read_marker(path) else { return false };
-    current.get("pid") == previous.get("pid") && current.get("token") == previous.get("token") && current.get("processIdentity") == previous.get("processIdentity")
+    current.get("pid") == previous.get("pid")
+        && current.get("token") == previous.get("token")
+        && current.get("processIdentity") == previous.get("processIdentity")
 }
 
 #[cfg(test)]
@@ -206,7 +210,15 @@ mod tests {
 
     #[test]
     fn only_a_pid_a_process_can_have_is_one() {
-        for (value, expected) in [(json!(4242), Some(4242)), (json!(4242.0), Some(4242)), (json!(0), None), (json!(-3), None), (json!(2_147_483_648u64), None), (json!("7"), None), (json!(1.5), None)] {
+        for (value, expected) in [
+            (json!(4242), Some(4242)),
+            (json!(4242.0), Some(4242)),
+            (json!(0), None),
+            (json!(-3), None),
+            (json!(2_147_483_648u64), None),
+            (json!("7"), None),
+            (json!(1.5), None),
+        ] {
             assert_eq!(pid_of(Some(&value)), expected, "{value}");
         }
         assert_eq!(pid_of(None), None);

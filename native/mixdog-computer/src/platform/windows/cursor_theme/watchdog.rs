@@ -4,18 +4,16 @@
 //! its own when the person touches the input, its parent exits, or its 60 s
 //! run out. The protocol runs over its stdin and stdout.
 
-use super::lease::{CursorApi, Lease, WinCursorApi, ROLES};
 use super::Line;
+use super::lease::{CursorApi, Lease, ROLES, WinCursorApi};
 use crate::config;
 use crate::observer::Observer;
 use std::io::{BufRead, Write};
 use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
-use windows::core::PCWSTR;
 use windows::Win32::Foundation::{CloseHandle, HANDLE, WAIT_ABANDONED, WAIT_OBJECT_0};
-use windows::Win32::System::Threading::{
-    CreateMutexW, OpenProcess, ReleaseMutex, WaitForSingleObject, PROCESS_SYNCHRONIZE,
-};
+use windows::Win32::System::Threading::{CreateMutexW, OpenProcess, PROCESS_SYNCHRONIZE, ReleaseMutex, WaitForSingleObject};
+use windows::core::PCWSTR;
 
 /// The mutex one watchdog per desktop session holds; a second exits without READY.
 const MUTEX_NAME: &str = "Local\\MixdogCursorTheme";

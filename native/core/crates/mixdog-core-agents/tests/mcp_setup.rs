@@ -9,8 +9,6 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_core_agents::setup::McpSetup;
-use mixdog_core_ports::ports::setup_actions::SetupActions;
-use mixdog_core_ports::ports::setup_actions::SetupCall;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::DomainService;
@@ -18,6 +16,8 @@ use mixdog_core_api::Reply;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
+use mixdog_core_ports::ports::setup_actions::SetupActions;
+use mixdog_core_ports::ports::setup_actions::SetupCall;
 use mixdog_mcp::extension_service::ExtensionConfig;
 use mixdog_mcp::extension_service::ExtensionHost;
 use mixdog_mcp::mcp_secrets::McpServerSecrets;
@@ -131,7 +131,12 @@ impl McpRuntime for Runtime {
     }
 
     async fn status(&self) -> Value {
-        let rows: Vec<Value> = self.catalog_now().servers.iter().map(|(name, cfg)| json!({"name": name, "enabled": cfg.get("enabled") != Some(&json!(false)), "transport": cfg.get("type")})).collect();
+        let rows: Vec<Value> = self
+            .catalog_now()
+            .servers
+            .iter()
+            .map(|(name, cfg)| json!({"name": name, "enabled": cfg.get("enabled") != Some(&json!(false)), "transport": cfg.get("type")}))
+            .collect();
         json!({"servers": rows, "connectedCount": 0})
     }
 
@@ -311,7 +316,14 @@ fn fixture() -> Fixture {
     let mcp = Arc::new(McpService::new(config.clone(), host, runtime, secrets, dir.path().join("home"), Arc::new(NoToasts)));
     let skills = Arc::new(Recorder { methods: &["skills/setDisabledSkills"], failing: &[], seen: Mutex::default() });
     let plugins = Arc::new(Recorder {
-        methods: &["plugins/addPlugin", "plugins/updatePlugin", "plugins/setPluginEnabled", "plugins/removePlugin", "plugins/pluginsStatus", "config/setExtensionScope"],
+        methods: &[
+            "plugins/addPlugin",
+            "plugins/updatePlugin",
+            "plugins/setPluginEnabled",
+            "plugins/removePlugin",
+            "plugins/pluginsStatus",
+            "config/setExtensionScope",
+        ],
         failing: &[],
         seen: Mutex::default(),
     });
@@ -351,7 +363,6 @@ async fn a_failure_of_the_service_is_the_message_node_throws() {
     assert!(run(&f, json!({"action": "connect_connector", "connector": "nope"})).await.unwrap_err().starts_with("connector must be one of airtable, "));
 }
 
-
 #[tokio::test]
 async fn skills_and_plugins_actions_reach_their_services_with_the_runtime_api_parameters() {
     let f = fixture();
@@ -364,7 +375,11 @@ async fn skills_and_plugins_actions_reach_their_services_with_the_runtime_api_pa
     let cases = [
         (json!({"action": "add_plugin", "source": "github:a/b"}), "plugins/addPlugin", json!({"source": "github:a/b", "threadId": "s"})),
         (json!({"action": "update_plugin", "name": "alpha"}), "plugins/updatePlugin", json!({"plugin": "alpha", "threadId": "s"})),
-        (json!({"action": "set_plugin_enabled", "name": "alpha", "enabled": false}), "plugins/setPluginEnabled", json!({"plugin": "alpha", "enabled": false, "threadId": "s"})),
+        (
+            json!({"action": "set_plugin_enabled", "name": "alpha", "enabled": false}),
+            "plugins/setPluginEnabled",
+            json!({"plugin": "alpha", "enabled": false, "threadId": "s"}),
+        ),
         (json!({"action": "remove_plugin", "name": "alpha"}), "plugins/removePlugin", json!({"plugin": "alpha", "threadId": "s"})),
     ];
     for (args, method, params) in cases {

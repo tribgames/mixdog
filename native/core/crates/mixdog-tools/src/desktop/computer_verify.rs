@@ -127,22 +127,37 @@ fn evaluate(predicate: &Map<String, Value>, observation: &Observation) -> Status
 /// `verifyUnknownReason`: why a text predicate could not be decided, and what to change.
 fn unknown_reason(needs_text: bool, state: &State, gave_up: Option<GiveUp>) -> Option<(&'static str, &'static str)> {
     if state.provider_error.contains(INTEGRITY_BLOCK_CODE) {
-        return Some((INTEGRITY_BLOCK_CODE, "Windows hides this window's text from a lower-integrity host; capture it for pixels or OCR, or verify title_contains/window_exists instead"));
+        return Some((
+            INTEGRITY_BLOCK_CODE,
+            "Windows hides this window's text from a lower-integrity host; capture it for pixels or OCR, or verify title_contains/window_exists instead",
+        ));
     }
     if gave_up == Some(GiveUp::RepeatedTimeouts) {
-        return Some(("provider_timeout", "consecutive window reads timed out, so verify stopped before its deadline instead of restarting the provider again; the window may be busy, so capture it or verify title_contains/window_exists"));
+        return Some((
+            "provider_timeout",
+            "consecutive window reads timed out, so verify stopped before its deadline instead of restarting the provider again; the window may be busy, so capture it or verify title_contains/window_exists",
+        ));
     }
     if state.provider_error.contains(TIMEOUT_CODE) {
-        return Some(("provider_timeout", "the latest window read did not answer within its budget and the deadline passed without a decision; the window may be busy, so retry with a longer timeout_ms or verify title_contains/window_exists"));
+        return Some((
+            "provider_timeout",
+            "the latest window read did not answer within its budget and the deadline passed without a decision; the window may be busy, so retry with a longer timeout_ms or verify title_contains/window_exists",
+        ));
     }
     if !state.provider_error.is_empty() {
-        return Some(("provider_error", "the latest window read failed and the deadline passed without a decision; see provider_error, retry, or verify title_contains/window_exists"));
+        return Some((
+            "provider_error",
+            "the latest window read failed and the deadline passed without a decision; see provider_error, retry, or verify title_contains/window_exists",
+        ));
     }
     if !needs_text || state.text_complete {
         return None;
     }
     if state.observed_elements > 0 {
-        Some(("element_text_incomplete", "the provider did not complete its element-text read; capture the window for visible evidence, or verify title_contains/window_exists instead"))
+        Some((
+            "element_text_incomplete",
+            "the provider did not complete its element-text read; capture the window for visible evidence, or verify title_contains/window_exists instead",
+        ))
     } else {
         Some(("element_text_empty", "the window published no element text, which never proves a string is absent; capture the window to see what it exposes"))
     }
@@ -355,7 +370,8 @@ async fn verify(reader: &dyn Reader, command: &Map<String, Value>, cancel: &Canc
     if !state.provider_error.is_empty() {
         payload.insert("provider_error".into(), json!(state.provider_error));
     }
-    let results: Vec<Value> = predicates.iter().zip(&state.statuses).map(|(predicate, status)| json!({ "predicate": predicate, "status": status.as_str() })).collect();
+    let results: Vec<Value> =
+        predicates.iter().zip(&state.statuses).map(|(predicate, status)| json!({ "predicate": predicate, "status": status.as_str() })).collect();
     payload.insert("results".into(), json!(results));
     payload.insert("timings_ms".into(), json!({ "total_ms": started.elapsed().as_millis() as u64 }));
     Ok(Value::Object(payload).to_string())
@@ -414,7 +430,12 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn met_on_the_third_sample_with_two_stable() {
-        let fake = Fake::new(vec![read("Notepad", &["x"], true), read("Notepad", &["hello"], true), read("Notepad", &["hello"], true), read("Notepad", &["hello"], true)]);
+        let fake = Fake::new(vec![
+            read("Notepad", &["x"], true),
+            read("Notepad", &["hello"], true),
+            read("Notepad", &["hello"], true),
+            read("Notepad", &["hello"], true),
+        ]);
         let out = run_verify(&fake, json!({ "expect": [{ "present": "HELLO" }], "stable_samples": 2 })).await.expect("verdict");
         assert_eq!(out["decision"], "satisfied");
         assert_eq!(out["ok"], true);
@@ -457,7 +478,10 @@ mod tests {
 
     #[tokio::test(start_paused = true)]
     async fn an_integrity_block_stops_the_wait() {
-        let fake = Fake::new(vec![Err(ComputerError::Failed { code: INTEGRITY_BLOCK_CODE.into(), message: format!("{INTEGRITY_BLOCK_CODE}: this window runs higher") })]);
+        let fake = Fake::new(vec![Err(ComputerError::Failed {
+            code: INTEGRITY_BLOCK_CODE.into(),
+            message: format!("{INTEGRITY_BLOCK_CODE}: this window runs higher"),
+        })]);
         let out = run_verify(&fake, json!({ "expect": [{ "present": "x" }] })).await.expect("verdict");
         assert_eq!(out["unknown_reason"], INTEGRITY_BLOCK_CODE);
         assert_eq!(fake.call_count(), 1);

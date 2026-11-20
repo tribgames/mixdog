@@ -16,9 +16,7 @@ use std::time::{Duration, Instant};
 use mixdog_fsio::Unlaned;
 use mixdog_relay::ice::turn::{turn_password, verify_turn_credential};
 use mixdog_relay::tools::coturn::credential::credential_line;
-use mixdog_relay::tools::coturn::reserved_ports::{
-    add_ranges, covers_range, format_ranges, missing_ranges, parse_ranges, run, subtract_ranges,
-};
+use mixdog_relay::tools::coturn::reserved_ports::{add_ranges, covers_range, format_ranges, missing_ranges, parse_ranges, run, subtract_ranges};
 use mixdog_relay::tools::coturn::stun_probe::{
     Mapped, STUN_RC, STUN_RM, STUN_RTO_MS, binding_request, parse_binding_response, probe_stun, retransmit_schedule,
 };
@@ -435,9 +433,7 @@ fn answer_for(request: &[u8], body: &[u8], length: Option<u16>) -> Vec<u8> {
 #[test]
 fn probe_stun_resends_the_same_request_on_the_doubling_schedule_and_answers_on_a_later_copy() {
     let rto = Duration::from_millis(20);
-    let server = Endpoint::start(|count, request| {
-        (count == 3).then(|| vec![answer_for(request, &mapped([198, 51, 100, 7], 4000), None)])
-    });
+    let server = Endpoint::start(|count, request| (count == 3).then(|| vec![answer_for(request, &mapped([198, 51, 100, 7], 4000), None)]));
     let found = probe_stun("127.0.0.1", server.port, rto).expect("answered");
     assert_eq!(found, Mapped { address: Ipv4Addr::new(198, 51, 100, 7), port: 4000 });
     let log = server.received.lock().unwrap().clone();

@@ -6,7 +6,10 @@ use mixdog_core_api::domain::tool::Tool;
 use mixdog_workspace::localfs::LocalFileService;
 use serde_json::json;
 
-use super::{GlobTool, ListTool, tests::{StatControl, StatFails, context_seeded, small_dir, text_of}};
+use super::{
+    GlobTool, ListTool,
+    tests::{StatControl, StatFails, context_seeded, small_dir, text_of},
+};
 
 #[tokio::test]
 async fn a_late_list_page_adds_metadata_without_changing_its_entries() {
@@ -56,14 +59,9 @@ async fn list_pages_a_global_size_ranking_before_rendering() {
 #[tokio::test]
 async fn a_recursive_glob_pages_the_whole_matching_scope() {
     let (_dir, root) = small_dir();
-    for (name, seconds) in [
-        ("src/a/tie.ts", 1),
-        ("src/z/tie.ts", 1),
-        ("src/z/new.ts", 2),
-        ("src/z/new.js", 3),
-        ("src/node_modules/pkg/noise.ts", 3),
-        ("outside/new.ts", 3),
-    ] {
+    for (name, seconds) in
+        [("src/a/tie.ts", 1), ("src/z/tie.ts", 1), ("src/z/new.ts", 2), ("src/z/new.js", 3), ("src/node_modules/pkg/noise.ts", 3), ("outside/new.ts", 3)]
+    {
         let path = root.as_path().join(name);
         std::fs::create_dir_all(path.parent().unwrap()).unwrap();
         let file = std::fs::File::create(path).unwrap();

@@ -14,13 +14,11 @@ mod sealed;
 
 pub use channel::{Channel, ControlOpen, Sealed, Wire};
 pub use control::ControlLane;
-pub use handshake::{
-    accept_client_hello, create_client_handshake, is_hello, secret_from_jwk, Challenge, ClientHandshakeOptions, ServerIdentity,
-};
-pub use pack::{pack_plaintext, unpack_plaintext, MAX_PLAINTEXT_BYTES};
+pub use handshake::{Challenge, ClientHandshakeOptions, ServerIdentity, accept_client_hello, create_client_handshake, is_hello, secret_from_jwk};
+pub use pack::{MAX_PLAINTEXT_BYTES, pack_plaintext, unpack_plaintext};
 pub use sealed::{
-    generate_claim_key_pair, is_claim_public_key, open_sealed_pairing, open_web_push_keys, seal_pairing, seal_web_push_keys,
-    ClaimKeyPair, PairingMaterial, SealedBox, WebPushKeys,
+    ClaimKeyPair, PairingMaterial, SealedBox, WebPushKeys, generate_claim_key_pair, is_claim_public_key, open_sealed_pairing, open_web_push_keys, seal_pairing,
+    seal_web_push_keys,
 };
 
 use base64::Engine;
@@ -58,9 +56,7 @@ pub(crate) fn b64(bytes: &[u8]) -> String {
 }
 
 pub(crate) fn unb64(value: &str) -> Result<Vec<u8>, E2eeError> {
-    URL_SAFE_NO_PAD
-        .decode(value)
-        .map_err(|_| E2eeError::Invalid("Invalid base64url value."))
+    URL_SAFE_NO_PAD.decode(value).map_err(|_| E2eeError::Invalid("Invalid base64url value."))
 }
 
 pub(crate) fn random<const N: usize>() -> [u8; N] {

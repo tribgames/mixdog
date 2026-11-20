@@ -162,10 +162,7 @@ pub fn normalize_prefs(value: &Value) -> DesktopPetPrefs {
 
 /// `readDesktopPetPrefs`: a file that is missing, unreadable or not JSON reads as the default.
 pub fn read_prefs(path: &Path) -> DesktopPetPrefs {
-    std::fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .map_or_else(default_prefs, |value| normalize_prefs(&value))
+    std::fs::read(path).ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()).map_or_else(default_prefs, |value| normalize_prefs(&value))
 }
 
 /// `writeDesktopPetPrefs`: `JSON.stringify(prefs, null, 2)` and a newline, written atomically.

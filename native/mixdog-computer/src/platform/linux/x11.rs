@@ -7,15 +7,13 @@ use crate::keys::Key;
 use crate::platform::{Button, Wid, WinState, WindowInfo};
 use std::cell::RefCell;
 use std::time::Duration;
+use x11rb::CURRENT_TIME;
 use x11rb::connection::Connection;
+use x11rb::protocol::Event;
 use x11rb::protocol::res::{ClientIdMask, ClientIdSpec, ConnectionExt as _};
 use x11rb::protocol::screensaver::ConnectionExt as _;
-use x11rb::protocol::xproto::{
-    self, Atom, AtomEnum, ClientMessageEvent, ConnectionExt as _, EventMask, MapState, Window,
-};
-use x11rb::protocol::Event;
+use x11rb::protocol::xproto::{self, Atom, AtomEnum, ClientMessageEvent, ConnectionExt as _, EventMask, MapState, Window};
 use x11rb::rust_connection::RustConnection;
-use x11rb::CURRENT_TIME;
 
 macro_rules! atoms {
     ($($name:ident),* $(,)?) => {
@@ -55,14 +53,8 @@ atoms!(
 );
 
 pub fn connect() -> Result<(RustConnection, Window), String> {
-    let (conn, screen) =
-        x11rb::connect(None).map_err(|error| format!("x11_unavailable: {error}"))?;
-    let root = conn
-        .setup()
-        .roots
-        .get(screen)
-        .map(|screen| screen.root)
-        .ok_or("x11_unavailable: no screen")?;
+    let (conn, screen) = x11rb::connect(None).map_err(|error| format!("x11_unavailable: {error}"))?;
+    let root = conn.setup().roots.get(screen).map(|screen| screen.root).ok_or("x11_unavailable: no screen")?;
     Ok((conn, root))
 }
 
@@ -76,16 +68,8 @@ impl Keymap {
     fn load(conn: &RustConnection) -> Result<Keymap, String> {
         let setup = conn.setup();
         let (min, max) = (setup.min_keycode, setup.max_keycode);
-        let reply = conn
-            .get_keyboard_mapping(min, max - min + 1)
-            .map_err(|error| error.to_string())?
-            .reply()
-            .map_err(|error| error.to_string())?;
-        Ok(Keymap {
-            min,
-            per: reply.keysyms_per_keycode as usize,
-            syms: reply.keysyms,
-        })
+        let reply = conn.get_keyboard_mapping(min, max - min + 1).map_err(|error| error.to_string())?.reply().map_err(|error| error.to_string())?;
+        Ok(Keymap { min, per: reply.keysyms_per_keycode as usize, syms: reply.keysyms })
     }
 
     /// The keycode that types `sym`, and whether Shift selects it.
@@ -105,12 +89,7 @@ impl Keymap {
 
     /// A keycode with no symbols, free to borrow for characters the layout lacks.
     fn spare(&self) -> Option<u8> {
-        self.syms
-            .chunks(self.per.max(1))
-            .enumerate()
-            .rev()
-            .find(|(_, chunk)| chunk.iter().all(|sym| *sym == 0))
-            .map(|(index, _)| self.min + index as u8)
+        self.syms.chunks(self.per.max(1)).enumerate().rev().find(|(_, chunk)| chunk.iter().all(|sym| *sym == 0)).map(|(index, _)| self.min + index as u8)
     }
 }
 
@@ -136,20 +115,7 @@ impl X11 {
         let keymap = Keymap::load(&conn)?;
         super::mpx::remove_stale(&conn);
         let selection_window = conn.generate_id().map_err(e)?;
-        conn.create_window(
-            0,
-            selection_window,
-            root,
-            -1,
-            -1,
-            1,
-            1,
-            0,
-            xproto::WindowClass::INPUT_ONLY,
-            0,
-            &Default::default(),
-        )
-        .map_err(e)?;
+        conn.create_window(0, selection_window, root, -1, -1, 1, 1, 0, xproto::WindowClass::INPUT_ONLY, 0, &Default::default()).map_err(e)?;
         conn.flush().map_err(e)?;
         Ok(X11 {
             conn,
@@ -172,58 +138,31 @@ impl X11 {
     }
 
     fn prop_text(&self, window: Window, property: Atom, kind: impl Into<Atom>) -> Vec<u8> {
-        self.conn
-            .get_property(false, window, property, kind, 0, 16384)
-            .ok()
-            .and_then(|cookie| cookie.reply().ok())
-            .map(|reply| reply.value)
-            .unwrap_or_default()
+        self.conn.get_property(false, window, property, kind, 0, 16384).ok().and_then(|cookie| cookie.reply().ok()).map(|reply| reply.value).unwrap_or_default()
     }
 
     fn title(&self, window: Window) -> String {
         let utf8 = self.prop_text(window, self.atoms._NET_WM_NAME, self.atoms.UTF8_STRING);
-        let bytes = if utf8.is_empty() {
-            self.prop_text(window, AtomEnum::WM_NAME.into(), AtomEnum::ANY)
-        } else {
-            utf8
-        };
-        String::from_utf8_lossy(&bytes)
-            .trim_end_matches('\0')
-            .to_string()
+        let bytes = if utf8.is_empty() { self.prop_text(window, AtomEnum::WM_NAME.into(), AtomEnum::ANY) } else { utf8 };
+        String::from_utf8_lossy(&bytes).trim_end_matches('\0').to_string()
     }
 
     fn class(&self, window: Window) -> (String, String) {
         let bytes = self.prop_text(window, AtomEnum::WM_CLASS.into(), AtomEnum::STRING);
-        let mut parts = bytes
-            .split(|byte| *byte == 0)
-            .map(|part| String::from_utf8_lossy(part).into_owned());
-        (
-            parts.next().unwrap_or_default(),
-            parts.next().unwrap_or_default(),
-        )
+        let mut parts = bytes.split(|byte| *byte == 0).map(|part| String::from_utf8_lossy(part).into_owned());
+        (parts.next().unwrap_or_default(), parts.next().unwrap_or_default())
     }
 
     pub fn pid(&self, window: Window) -> i64 {
-        if let Some(pid) = self
-            .prop32(window, self.atoms._NET_WM_PID, AtomEnum::CARDINAL)
-            .first()
-        {
+        if let Some(pid) = self.prop32(window, self.atoms._NET_WM_PID, AtomEnum::CARDINAL).first() {
             return *pid as i64;
         }
-        let spec = ClientIdSpec {
-            client: window,
-            mask: ClientIdMask::LOCAL_CLIENT_PID,
-        };
+        let spec = ClientIdSpec { client: window, mask: ClientIdMask::LOCAL_CLIENT_PID };
         self.conn
             .res_query_client_ids(&[spec])
             .ok()
             .and_then(|cookie| cookie.reply().ok())
-            .and_then(|reply| {
-                reply
-                    .ids
-                    .into_iter()
-                    .find_map(|id| id.value.first().copied())
-            })
+            .and_then(|reply| reply.ids.into_iter().find_map(|id| id.value.first().copied()))
             .map_or(0, |pid| pid as i64)
     }
 
@@ -233,11 +172,7 @@ impl X11 {
 
     /// Managed windows, front to back.
     pub fn clients(&self) -> Vec<Window> {
-        let mut list = self.prop32(
-            self.root,
-            self.atoms._NET_CLIENT_LIST_STACKING,
-            AtomEnum::WINDOW,
-        );
+        let mut list = self.prop32(self.root, self.atoms._NET_CLIENT_LIST_STACKING, AtomEnum::WINDOW);
         if list.is_empty() {
             list = self.prop32(self.root, self.atoms._NET_CLIENT_LIST, AtomEnum::WINDOW);
         }
@@ -248,31 +183,15 @@ impl X11 {
     /// The window's client area in root coordinates.
     fn client_rect(&self, window: Window) -> Option<(i32, i32, i32, i32)> {
         let geometry = self.conn.get_geometry(window).ok()?.reply().ok()?;
-        let origin = self
-            .conn
-            .translate_coordinates(window, self.root, 0, 0)
-            .ok()?
-            .reply()
-            .ok()?;
-        Some((
-            origin.dst_x as i32,
-            origin.dst_y as i32,
-            geometry.width as i32,
-            geometry.height as i32,
-        ))
+        let origin = self.conn.translate_coordinates(window, self.root, 0, 0).ok()?.reply().ok()?;
+        Some((origin.dst_x as i32, origin.dst_y as i32, geometry.width as i32, geometry.height as i32))
     }
 
     fn frame_rect(&self, window: Window) -> Option<(i32, i32, i32, i32)> {
         let (x, y, width, height) = self.client_rect(window)?;
         let extents = self.prop32(window, self.atoms._NET_FRAME_EXTENTS, AtomEnum::CARDINAL);
-        let [left, right, top, bottom] =
-            [0, 1, 2, 3].map(|index| extents.get(index).copied().unwrap_or(0) as i32);
-        Some((
-            x - left,
-            y - top,
-            width + left + right,
-            height + top + bottom,
-        ))
+        let [left, right, top, bottom] = [0, 1, 2, 3].map(|index| extents.get(index).copied().unwrap_or(0) as i32);
+        Some((x - left, y - top, width + left + right, height + top + bottom))
     }
 
     fn hidden(&self, window: Window, states: &[Atom]) -> bool {
@@ -293,14 +212,7 @@ impl X11 {
         let states = self.states(window);
         let (instance, class) = self.class(window);
         let pid = self.pid(window);
-        let app = if class.is_empty() {
-            std::fs::read_to_string(format!("/proc/{pid}/comm"))
-                .unwrap_or_default()
-                .trim()
-                .to_string()
-        } else {
-            class
-        };
+        let app = if class.is_empty() { std::fs::read_to_string(format!("/proc/{pid}/comm")).unwrap_or_default().trim().to_string() } else { class };
         Some(WindowInfo {
             handle: window as Wid,
             title: self.title(window),
@@ -308,16 +220,11 @@ impl X11 {
             app,
             pid,
             parent_pid: crate::platform::parent_pid(pid),
-            owner: self
-                .prop32(window, AtomEnum::WM_TRANSIENT_FOR.into(), AtomEnum::WINDOW)
-                .first()
-                .copied()
-                .unwrap_or(0) as Wid,
+            owner: self.prop32(window, AtomEnum::WM_TRANSIENT_FOR.into(), AtomEnum::WINDOW).first().copied().unwrap_or(0) as Wid,
             focused: window == active,
             minimized: self.hidden(window, &states),
             maximized: states.contains(&self.atoms._NET_WM_STATE_FULLSCREEN)
-                || (states.contains(&self.atoms._NET_WM_STATE_MAXIMIZED_VERT)
-                    && states.contains(&self.atoms._NET_WM_STATE_MAXIMIZED_HORZ)),
+                || (states.contains(&self.atoms._NET_WM_STATE_MAXIMIZED_VERT) && states.contains(&self.atoms._NET_WM_STATE_MAXIMIZED_HORZ)),
             x,
             y,
             width,
@@ -328,10 +235,7 @@ impl X11 {
     }
 
     pub fn active(&self) -> Window {
-        self.prop32(self.root, self.atoms._NET_ACTIVE_WINDOW, AtomEnum::WINDOW)
-            .first()
-            .copied()
-            .unwrap_or(0)
+        self.prop32(self.root, self.atoms._NET_ACTIVE_WINDOW, AtomEnum::WINDOW).first().copied().unwrap_or(0)
     }
 
     /// One window-manager request, through the executor's port.
@@ -341,11 +245,7 @@ impl X11 {
 
     pub fn focus(&self, window: Window) -> bool {
         let current = self.active();
-        let _ = self.client_message(
-            window,
-            self.atoms._NET_ACTIVE_WINDOW,
-            [2, CURRENT_TIME, current, 0, 0],
-        );
+        let _ = self.client_message(window, self.atoms._NET_ACTIVE_WINDOW, [2, CURRENT_TIME, current, 0, 0]);
         for attempt in 0..30 {
             if self.active() == window {
                 return true;
@@ -373,8 +273,7 @@ impl X11 {
                 continue;
             }
             // This app's own always-on-top overlays let the pointer through.
-            if states.contains(&self.atoms._NET_WM_STATE_ABOVE) && self.pid(window) == self.host_pid
-            {
+            if states.contains(&self.atoms._NET_WM_STATE_ABOVE) && self.pid(window) == self.host_pid {
                 continue;
             }
             if let Some((fx, fy, width, height)) = self.frame_rect(window) {
@@ -386,21 +285,10 @@ impl X11 {
         0
     }
 
-    pub fn move_window(
-        &self,
-        window: Window,
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-    ) -> Result<(), String> {
+    pub fn move_window(&self, window: Window, x: i32, y: i32, width: i32, height: i32) -> Result<(), String> {
         // Static gravity: the coordinates are the client area's own.
         let flags = 10 | (0xF << 8) | (2 << 12);
-        self.client_message(
-            window,
-            self.atoms._NET_MOVERESIZE_WINDOW,
-            [flags, x as u32, y as u32, width as u32, height as u32],
-        )?;
+        self.client_message(window, self.atoms._NET_MOVERESIZE_WINDOW, [flags, x as u32, y as u32, width as u32, height as u32])?;
         std::thread::sleep(Duration::from_millis(120));
         if self.client_rect(window) != Some((x, y, width, height)) {
             super::port::x_request(super::port::XRequest::Configure { window, x, y, width, height })?;
@@ -411,54 +299,22 @@ impl X11 {
     pub fn set_state(&self, window: Window, state: WinState) -> Result<(), String> {
         let atoms = &self.atoms;
         match state {
-            WinState::Minimize => {
-                self.client_message(window, atoms.WM_CHANGE_STATE, [3, 0, 0, 0, 0])
+            WinState::Minimize => self.client_message(window, atoms.WM_CHANGE_STATE, [3, 0, 0, 0, 0]),
+            WinState::Maximize => {
+                self.client_message(window, atoms._NET_WM_STATE, [1, atoms._NET_WM_STATE_MAXIMIZED_VERT, atoms._NET_WM_STATE_MAXIMIZED_HORZ, 2, 0])
             }
-            WinState::Maximize => self.client_message(
-                window,
-                atoms._NET_WM_STATE,
-                [
-                    1,
-                    atoms._NET_WM_STATE_MAXIMIZED_VERT,
-                    atoms._NET_WM_STATE_MAXIMIZED_HORZ,
-                    2,
-                    0,
-                ],
-            ),
             WinState::Restore => {
                 if self.hidden(window, &self.states(window)) {
-                    self.client_message(
-                        window,
-                        atoms._NET_ACTIVE_WINDOW,
-                        [2, CURRENT_TIME, 0, 0, 0],
-                    )?;
+                    self.client_message(window, atoms._NET_ACTIVE_WINDOW, [2, CURRENT_TIME, 0, 0, 0])?;
                 }
-                self.client_message(
-                    window,
-                    atoms._NET_WM_STATE,
-                    [
-                        0,
-                        atoms._NET_WM_STATE_MAXIMIZED_VERT,
-                        atoms._NET_WM_STATE_MAXIMIZED_HORZ,
-                        2,
-                        0,
-                    ],
-                )?;
-                self.client_message(
-                    window,
-                    atoms._NET_WM_STATE,
-                    [0, atoms._NET_WM_STATE_FULLSCREEN, 0, 2, 0],
-                )
+                self.client_message(window, atoms._NET_WM_STATE, [0, atoms._NET_WM_STATE_MAXIMIZED_VERT, atoms._NET_WM_STATE_MAXIMIZED_HORZ, 2, 0])?;
+                self.client_message(window, atoms._NET_WM_STATE, [0, atoms._NET_WM_STATE_FULLSCREEN, 0, 2, 0])
             }
         }
     }
 
     pub fn close(&self, window: Window) -> Result<bool, String> {
-        self.client_message(
-            window,
-            self.atoms._NET_CLOSE_WINDOW,
-            [CURRENT_TIME, 2, 0, 0, 0],
-        )?;
+        self.client_message(window, self.atoms._NET_CLOSE_WINDOW, [CURRENT_TIME, 2, 0, 0, 0])?;
         Ok(true)
     }
 
@@ -468,34 +324,22 @@ impl X11 {
         let protocols = self.prop32(window, self.atoms.WM_PROTOCOLS, AtomEnum::ATOM);
         if !protocols.contains(&self.atoms._NET_WM_PING) {
             let pid = self.pid(window);
-            let state = std::fs::read_to_string(format!("/proc/{pid}/stat"))
-                .ok()
-                .and_then(|stat| {
-                    let rest = stat[stat.rfind(')')? + 2..].to_string();
-                    rest.chars().next()
-                });
+            let state = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok().and_then(|stat| {
+                let rest = stat[stat.rfind(')')? + 2..].to_string();
+                rest.chars().next()
+            });
             return !matches!(state, Some('T') | Some('Z') | Some('t'));
         }
         let Ok((conn, root)) = connect() else {
             return true;
         };
-        let listen =
-            xproto::ChangeWindowAttributesAux::new().event_mask(EventMask::SUBSTRUCTURE_NOTIFY);
+        let listen = xproto::ChangeWindowAttributesAux::new().event_mask(EventMask::SUBSTRUCTURE_NOTIFY);
         if conn.change_window_attributes(root, &listen).is_err() {
             return true;
         }
         let stamp = 0x6d78_u32;
-        let ping = ClientMessageEvent::new(
-            32,
-            window,
-            self.atoms.WM_PROTOCOLS,
-            [self.atoms._NET_WM_PING, stamp, window, 0, 0],
-        );
-        if conn
-            .send_event(false, window, EventMask::NO_EVENT, ping)
-            .is_err()
-            || conn.flush().is_err()
-        {
+        let ping = ClientMessageEvent::new(32, window, self.atoms.WM_PROTOCOLS, [self.atoms._NET_WM_PING, stamp, window, 0, 0]);
+        if conn.send_event(false, window, EventMask::NO_EVENT, ping).is_err() || conn.flush().is_err() {
             return true;
         }
         let deadline = std::time::Instant::now() + Duration::from_millis(1000);
@@ -503,10 +347,7 @@ impl X11 {
             while let Ok(Some(event)) = conn.poll_for_event() {
                 if let Event::ClientMessage(message) = event {
                     let data = message.data.as_data32();
-                    if message.type_ == self.atoms.WM_PROTOCOLS
-                        && data[0] == self.atoms._NET_WM_PING
-                        && data[2] == window
-                    {
+                    if message.type_ == self.atoms.WM_PROTOCOLS && data[0] == self.atoms._NET_WM_PING && data[2] == window {
                         return true;
                     }
                 }
@@ -517,13 +358,7 @@ impl X11 {
     }
 
     pub fn cursor(&self) -> (i32, i32) {
-        self.conn
-            .query_pointer(self.root)
-            .ok()
-            .and_then(|cookie| cookie.reply().ok())
-            .map_or((0, 0), |pointer| {
-                (pointer.root_x as i32, pointer.root_y as i32)
-            })
+        self.conn.query_pointer(self.root).ok().and_then(|cookie| cookie.reply().ok()).map_or((0, 0), |pointer| (pointer.root_x as i32, pointer.root_y as i32))
     }
 
     /// One XTest event through the executor's port (`port::core_event`): a press owned from its hand-over, a release the
@@ -537,29 +372,11 @@ impl X11 {
     }
 
     pub fn button(&self, button: u8, down: bool) -> Result<(), String> {
-        self.fake(
-            if down {
-                xproto::BUTTON_PRESS_EVENT
-            } else {
-                xproto::BUTTON_RELEASE_EVENT
-            },
-            button,
-            0,
-            0,
-        )
+        self.fake(if down { xproto::BUTTON_PRESS_EVENT } else { xproto::BUTTON_RELEASE_EVENT }, button, 0, 0)
     }
 
     fn key_code(&self, code: u8, down: bool) -> Result<(), String> {
-        self.fake(
-            if down {
-                xproto::KEY_PRESS_EVENT
-            } else {
-                xproto::KEY_RELEASE_EVENT
-            },
-            code,
-            0,
-            0,
-        )
+        self.fake(if down { xproto::KEY_PRESS_EVENT } else { xproto::KEY_RELEASE_EVENT }, code, 0, 0)
     }
 
     /// The keycode for `sym`, borrowing a spare keycode when the layout has none.
@@ -608,17 +425,11 @@ impl X11 {
                     _ => keysym::of_char(c),
                 };
                 let (code, shift) = self.code_for(sym)?;
-                let shift_code = if shift {
-                    Some(self.code_for(keysym::SHIFT_L)?.0)
-                } else {
-                    None
-                };
+                let shift_code = if shift { Some(self.code_for(keysym::SHIFT_L)?.0) } else { None };
                 if let Some(shift_code) = shift_code {
                     self.key_code(shift_code, true)?;
                 }
-                let typed = self
-                    .key_code(code, true)
-                    .and_then(|_| self.key_code(code, false));
+                let typed = self.key_code(code, true).and_then(|_| self.key_code(code, false));
                 if let Some(shift_code) = shift_code {
                     self.key_code(shift_code, false)?;
                 }
@@ -631,61 +442,31 @@ impl X11 {
     }
 
     pub fn input_held(&self) -> bool {
-        let keys = self
-            .conn
-            .query_keymap()
-            .ok()
-            .and_then(|cookie| cookie.reply().ok())
-            .is_some_and(|reply| reply.keys.iter().any(|byte| *byte != 0));
-        let buttons = self
-            .conn
-            .query_pointer(self.root)
-            .ok()
-            .and_then(|cookie| cookie.reply().ok())
-            .is_some_and(|pointer| u16::from(pointer.mask) & 0x1F00 != 0);
+        let keys = self.conn.query_keymap().ok().and_then(|cookie| cookie.reply().ok()).is_some_and(|reply| reply.keys.iter().any(|byte| *byte != 0));
+        let buttons =
+            self.conn.query_pointer(self.root).ok().and_then(|cookie| cookie.reply().ok()).is_some_and(|pointer| u16::from(pointer.mask) & 0x1F00 != 0);
         keys || buttons
     }
 
     pub fn screen_active(&self) -> bool {
-        self.conn
-            .screensaver_query_info(self.root)
-            .ok()
-            .and_then(|cookie| cookie.reply().ok())
-            .is_none_or(|info| info.state != 1)
+        self.conn.screensaver_query_info(self.root).ok().and_then(|cookie| cookie.reply().ok()).is_none_or(|info| info.state != 1)
     }
 
     /// Reads the clipboard by asking its owner to convert it to UTF-8 text.
     pub fn clipboard_read(&self) -> Result<String, String> {
         let atoms = &self.atoms;
-        self.conn
-            .convert_selection(
-                self.selection_window,
-                atoms.CLIPBOARD,
-                atoms.UTF8_STRING,
-                atoms.MIXDOG_SELECTION,
-                CURRENT_TIME,
-            )
-            .map_err(e)?;
+        self.conn.convert_selection(self.selection_window, atoms.CLIPBOARD, atoms.UTF8_STRING, atoms.MIXDOG_SELECTION, CURRENT_TIME).map_err(e)?;
         self.conn.flush().map_err(e)?;
         let deadline = std::time::Instant::now() + Duration::from_millis(1500);
         while std::time::Instant::now() < deadline {
             match self.conn.poll_for_event().map_err(e)? {
-                Some(Event::SelectionNotify(notify))
-                    if notify.requestor == self.selection_window =>
-                {
+                Some(Event::SelectionNotify(notify)) if notify.requestor == self.selection_window => {
                     if notify.property == x11rb::NONE {
                         return Ok(String::new());
                     }
                     let reply = self
                         .conn
-                        .get_property(
-                            true,
-                            self.selection_window,
-                            atoms.MIXDOG_SELECTION,
-                            AtomEnum::ANY,
-                            0,
-                            1 << 24,
-                        )
+                        .get_property(true, self.selection_window, atoms.MIXDOG_SELECTION, AtomEnum::ANY, 0, 1 << 24)
                         .map_err(e)?
                         .reply()
                         .map_err(e)?;

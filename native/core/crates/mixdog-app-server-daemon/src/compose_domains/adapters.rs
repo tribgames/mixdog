@@ -7,42 +7,42 @@ use std::sync::Weak;
 
 use async_trait::async_trait;
 use mixdog_ai::catalog::CatalogService;
+use mixdog_app_protocol::v2::host::PowerEvent;
+use mixdog_core_agents::setup::DomainCalls;
+use mixdog_core_agents::setup::ProviderAccounts;
+use mixdog_core_agents::setup::UpdateSettings;
+use mixdog_core_agents::setup::WorkflowFacts;
 use mixdog_core_api::CallContext;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ids::Method;
+use mixdog_core_api::ids::ThreadId;
 use mixdog_core_base::support::failed;
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::LocalCatalogRefresh;
-use mixdog_mcp::extension_service::ExtensionConfig;
-use serde_json::Map;
-use mixdog_app_protocol::v2::host::PowerEvent;
+use mixdog_core_config::config::Settings;
+use mixdog_core_config::workflow::WorkflowConfig;
 use mixdog_core_domains::domains::Domains;
+use mixdog_core_domains::domains::ai_admin::provider_status::ProviderRoster;
 use mixdog_core_domains::domains::client::AppInputSink;
+use mixdog_core_domains::domains::diagnostics::DoctorSources;
+use mixdog_core_domains::domains::diagnostics::Probe;
+use mixdog_core_domains::domains::diagnostics::ProbeFailed;
 use mixdog_core_domains::domains::host::PowerSink;
 use mixdog_core_domains::domains::host::RemoteBridge;
 use mixdog_core_domains::domains::host::RemoteTarget;
+use mixdog_core_domains::domains::update::UpdateService;
+use mixdog_mcp::extension_service::ExtensionConfig;
 use mixdog_remote::access::RemoteRuntime;
 use mixdog_remote::bridge::Dialer;
 use mixdog_remote::bridge::ws::WsDialer;
 use mixdog_rt::TaskClass;
 use mixdog_services::bots::beat::UserActivity;
-use mixdog_core_api::ids::ThreadId;
-use mixdog_core_domains::domains::diagnostics::DoctorSources;
-use mixdog_core_domains::domains::diagnostics::Probe;
-use mixdog_core_domains::domains::diagnostics::ProbeFailed;
+use mixdog_tools::orch::util::PortError;
+use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
-use mixdog_core_agents::setup::DomainCalls;
-use mixdog_core_agents::setup::ProviderAccounts;
-use mixdog_core_domains::domains::ai_admin::provider_status::ProviderRoster;
-use mixdog_core_agents::setup::WorkflowFacts;
-use mixdog_core_config::workflow::WorkflowConfig;
-use mixdog_core_agents::setup::UpdateSettings;
-use mixdog_core_config::config::Settings;
-use mixdog_core_domains::domains::update::UpdateService;
-use mixdog_tools::orch::util::PortError;
 
 /// `getProviderAccounts(provider)` of the setup tool: the provider admin's roster read.
 pub(super) struct RosterAccounts(pub(super) Arc<dyn ProviderRoster>);
@@ -233,10 +233,11 @@ impl UpdateSettings for UpdateSetup {
             .set_auto_update(&Value::Bool(enabled))
             .await
             .map_err(|error| PortError::Failed { capability: "setup".into(), message: error.to_string() })?;
-        let update = self.update.0.get().ok_or_else(|| PortError::Unavailable {
-            capability: "update".into(),
-            message: "the update service is not composed yet".into(),
-        })?;
+        let update = self
+            .update
+            .0
+            .get()
+            .ok_or_else(|| PortError::Unavailable { capability: "update".into(), message: "the update service is not composed yet".into() })?;
         Ok(update.settings())
     }
 }

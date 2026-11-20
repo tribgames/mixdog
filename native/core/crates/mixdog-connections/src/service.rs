@@ -17,14 +17,12 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::connections::{
-    ConnectionEndpoint, ConnectionIdParams, ConnectionNotice, ConnectionsIdParams, ConnectionsNoParams, ConnectionsNoticeParams,
-    ConnectionsRenameParams, ConnectionsRestoreState, ConnectionsSignInParams, ConnectionsSubscribeParams,
-    ConnectionsUnsubscribeParams,
-    HostWindowCloseParams, HostWindowClosedParams, HostWindowFocusParams, HostWindowKind, HostWindowOpenParams, HostWindowOpenResult,
-    PortForward, PortsDismissParams, PortsForwardParams, PortsStopParams, RemoteHost as RemoteHostView, RemoteHostPresenceParams,
-    RemoteHostPresenceResult, RemoteHostRedeemParams, ServerPortsView, SshAskpass, SshCancelParams, SshAskpassReplyParams,
-    SshCleanupParams, SshCleanupProgressParams, SshConfigHost, SshConnectParams, SshDiagnosticsRefParams, SshDiagnosticsText,
-    SshInspectParams, SshOpenEphemeralParams, SshProgress, SshServerLoginCompleteParams, SshServerLoginFlow, SshServerLoginFlowParams,
+    ConnectionEndpoint, ConnectionIdParams, ConnectionNotice, ConnectionsIdParams, ConnectionsNoParams, ConnectionsNoticeParams, ConnectionsRenameParams,
+    ConnectionsRestoreState, ConnectionsSignInParams, ConnectionsSubscribeParams, ConnectionsUnsubscribeParams, HostWindowCloseParams, HostWindowClosedParams,
+    HostWindowFocusParams, HostWindowKind, HostWindowOpenParams, HostWindowOpenResult, PortForward, PortsDismissParams, PortsForwardParams, PortsStopParams,
+    RemoteHost as RemoteHostView, RemoteHostPresenceParams, RemoteHostPresenceResult, RemoteHostRedeemParams, ServerPortsView, SshAskpass,
+    SshAskpassReplyParams, SshCancelParams, SshCleanupParams, SshCleanupProgressParams, SshConfigHost, SshConnectParams, SshDiagnosticsRefParams,
+    SshDiagnosticsText, SshInspectParams, SshOpenEphemeralParams, SshProgress, SshServerLoginCompleteParams, SshServerLoginFlow, SshServerLoginFlowParams,
     SshServerLoginProviderParams, SshServerLoginSaveKeyParams, SshServerLoginUpdatedParams, SshServerLogins, SshUpdateSettingsParams,
 };
 use mixdog_app_protocol::v2::feed::EmptyResult;
@@ -46,14 +44,14 @@ use mixdog_ssh::context::{AttemptContext, SshEnv};
 use mixdog_ssh::diagnostics::diagnostics_key_for;
 use mixdog_ssh::session::{Endpoint, Progress};
 use serde::Serialize;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tokio::sync::{broadcast, watch};
 use tokio::task::{AbortHandle, JoinHandle};
 use tokio_util::sync::CancellationToken;
 
 use crate::attempts::{ConnectionsPush, ServerLinks};
 use crate::cleanup_ops::{Cleanup, CleanupProgressSink};
-use crate::connect::{Connect, ServerWindows, EPHEMERAL_ID};
+use crate::connect::{Connect, EPHEMERAL_ID, ServerWindows};
 use crate::diagnostics_ops::{Asker, DiagnosticsOps};
 use crate::host_list_ops::{HostLinks, HostList};
 use crate::host_store::SshHostStore;
@@ -65,12 +63,12 @@ use crate::policy;
 use crate::port_forwards::PortError;
 use crate::reattach::ReattachReport;
 use crate::remote_hosts::{
-    fetch_host_presence, parse_pair_code_input, parse_remote_host_link, redeem_pair_code, relay_http_origin, PairRedeemError,
-    PresenceQuery, RedeemedPairCode, RemoteHost as StoredRemoteHost, RemoteHostStore,
+    PairRedeemError, PresenceQuery, RedeemedPairCode, RemoteHost as StoredRemoteHost, RemoteHostStore, fetch_host_presence, parse_pair_code_input,
+    parse_remote_host_link, redeem_pair_code, relay_http_origin,
 };
-use crate::restore::{attempt_context, Restore, RestoreLinks, RestoreWindows};
+use crate::restore::{Restore, RestoreLinks, RestoreWindows, attempt_context};
 use crate::server_logins::{LoginError, ServerLogins};
-use crate::view::{connection_link_view, ConnectionsFeed};
+use crate::view::{ConnectionsFeed, connection_link_view};
 use crate::window_restore_store::WindowRestoreStore;
 
 /// How long the host may be away before the links close: a desktop that restarts or reconnects finds its windows as they were.
@@ -428,7 +426,13 @@ impl PoolHandle {
         Arc::new(PoolLink { link, watchers: self.watchers.clone() })
     }
 
-    async fn open_link(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>, cancel: Option<&CancellationToken>) -> Result<LinkOpen, ConnectError> {
+    async fn open_link(
+        &self,
+        spec: LinkSpec,
+        context: AttemptContext,
+        progress: Option<Progress>,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<LinkOpen, ConnectError> {
         let opened = ServerLinks::open(&self.pool, spec, context, progress, cancel).await;
         self.announce();
         opened
@@ -489,7 +493,13 @@ impl ServerLinks for PoolHandle {
         ServerLinks::is_open(&self.pool, id)
     }
 
-    async fn open(&self, spec: LinkSpec, context: AttemptContext, progress: Option<Progress>, cancel: Option<&CancellationToken>) -> Result<LinkOpen, ConnectError> {
+    async fn open(
+        &self,
+        spec: LinkSpec,
+        context: AttemptContext,
+        progress: Option<Progress>,
+        cancel: Option<&CancellationToken>,
+    ) -> Result<LinkOpen, ConnectError> {
         self.open_link(spec, context, progress, cancel).await
     }
 
@@ -973,7 +983,8 @@ impl Inner {
             inner.deps.links.close_identity(id, lease.link.identity()).await;
             // A window the user closed is not reopened at the next launch; one that closed because the app quits is.
             if params.by_user
-                && let Err(error) = inner.deps.window_restore.forget(&params.connection_id).await {
+                && let Err(error) = inner.deps.window_restore.forget(&params.connection_id).await
+            {
                 tracing::warn!("[connections] a closed server window could not be forgotten: {error}");
             }
         }));
@@ -998,8 +1009,7 @@ impl Inner {
             target: record.as_ref().map_or_else(|| link.target().display.clone(), |record| record.target.clone()),
         };
         self.deps.windows.focus_main().await;
-        let mains: Vec<ConnectionId> =
-            locked(&self.state).subscribers.iter().filter(|(_, scope)| scope.is_none()).map(|(main, _)| *main).collect();
+        let mains: Vec<ConnectionId> = locked(&self.state).subscribers.iter().filter(|(_, scope)| scope.is_none()).map(|(main, _)| *main).collect();
         for main in mains {
             self.notify(main, "connections/signIn", &params);
         }
@@ -1365,12 +1375,8 @@ impl Inner {
             }
             "remoteHosts/presence" => {
                 let params: RemoteHostPresenceParams = decode(req)?;
-                let queries: Vec<PresenceQuery> = params
-                    .ids
-                    .iter()
-                    .filter_map(|id| deps.remote_hosts.get(id))
-                    .map(|host| PresenceQuery { id: host.id, url: host.url })
-                    .collect();
+                let queries: Vec<PresenceQuery> =
+                    params.ids.iter().filter_map(|id| deps.remote_hosts.get(id)).map(|host| PresenceQuery { id: host.id, url: host.url }).collect();
                 let reported = deps.relay.presence(&queries).await;
                 // A host whose relay could not be asked is in neither list: the window shows its state as unknown, not as offline.
                 let (mut online, mut offline) = (Vec::new(), Vec::new());

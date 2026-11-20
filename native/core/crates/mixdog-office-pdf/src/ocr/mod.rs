@@ -95,7 +95,8 @@ pub async fn pdf_ocr_readiness(lanes: &LaneTokens, data_dir: &Path) -> Result<Va
     let cancel = CancellationToken::new();
     let (available, cached) = lane_job(lanes.durability_io, &cancel, move |lane| {
         let platform = install::platform_key();
-        let available = install::engine_installed(lane, &engine_root, install::ENGINE_ASSETS, &platform) || install::asset_for(install::ENGINE_ASSETS, &platform).is_some();
+        let available =
+            install::engine_installed(lane, &engine_root, install::ENGINE_ASSETS, &platform) || install::asset_for(install::ENGINE_ASSETS, &platform).is_some();
         (available, install::cached_languages(lane, &listed))
     })
     .await
@@ -158,7 +159,13 @@ pub async fn recognize_pdf_page_texts(
     result
 }
 
-async fn read_pages(context: &OcrContext, engine: &OcrEngine, path: &Path, pages: &[usize], cancel: &Option<CancellationToken>) -> Result<Vec<PageText>, AnalysisError> {
+async fn read_pages(
+    context: &OcrContext,
+    engine: &OcrEngine,
+    path: &Path,
+    pages: &[usize],
+    cancel: &Option<CancellationToken>,
+) -> Result<Vec<PageText>, AnalysisError> {
     let mut out = Vec::new();
     for batch in pages.chunks(MAX_RENDER_IMAGES) {
         if is_cancelled(cancel) {
@@ -314,7 +321,8 @@ impl Call<'_> {
         for entry in &recognized_pages {
             let page = *refs.get(entry.page_number - 1).ok_or_else(|| AnalysisError::plain(format!("PDF page out of range: {}", entry.page_number)))?;
             let size = document.media_box(page).map_err(edit_error)?;
-            let placements = layer::plan_page(entry, size.width, size.height, &chosen.font, minimum, &mut tally).map_err(|error| AnalysisError::plain(error.to_string()))?;
+            let placements =
+                layer::plan_page(entry, size.width, size.height, &chosen.font, minimum, &mut tally).map_err(|error| AnalysisError::plain(error.to_string()))?;
             planned.push((page, placements));
         }
         layer::draw_layer(document, &chosen.font, &planned).map_err(|error| AnalysisError::plain(error.to_string()))?;

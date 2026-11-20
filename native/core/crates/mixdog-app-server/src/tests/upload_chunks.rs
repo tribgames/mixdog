@@ -126,10 +126,24 @@ async fn another_upload_is_not_held_behind_a_busy_one() {
     let queues = KeyedQueues::new();
     let (release, hold) = oneshot::channel::<()>();
     let (key, access) = key_of(&chunk_request("up-1", 0));
-    queues.enqueue(key, access, CancellationToken::new(), Box::pin(async move { let _ = hold.await; }));
+    queues.enqueue(
+        key,
+        access,
+        CancellationToken::new(),
+        Box::pin(async move {
+            let _ = hold.await;
+        }),
+    );
     let (done, finished) = oneshot::channel::<()>();
     let (key, access) = key_of(&chunk_request("up-2", 0));
-    queues.enqueue(key, access, CancellationToken::new(), Box::pin(async move { let _ = done.send(()); }));
+    queues.enqueue(
+        key,
+        access,
+        CancellationToken::new(),
+        Box::pin(async move {
+            let _ = done.send(());
+        }),
+    );
     finished.await.unwrap();
     release.send(()).unwrap();
 }

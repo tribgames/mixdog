@@ -51,11 +51,7 @@ pub struct OpRequest {
 impl OpRequest {
     /// `params` are the request's params; their `opId` is left out of the digest.
     pub fn new(id: OpId, method: impl Into<Arc<str>>, params: &Value) -> Self {
-        Self {
-            id,
-            method: method.into(),
-            digest: PayloadDigest::of_params(params),
-        }
+        Self { id, method: method.into(), digest: PayloadDigest::of_params(params) }
     }
 }
 
@@ -80,13 +76,7 @@ impl OpOutcome {
         match self {
             OpOutcome::Applied(applied) => Ok(applied),
             OpOutcome::Rejected(error) => Err(error),
-            OpOutcome::ExternalUnknown { effect, target } => {
-                Err(CoreError::ExternalOutcomeUnknown {
-                    op_id: op_id.clone(),
-                    effect,
-                    target,
-                })
-            }
+            OpOutcome::ExternalUnknown { effect, target } => Err(CoreError::ExternalOutcomeUnknown { op_id: op_id.clone(), effect, target }),
         }
     }
 
@@ -94,10 +84,7 @@ impl OpOutcome {
         match state {
             OpState::Applied { seq, result } => OpOutcome::Applied(AppliedOp { seq, result }),
             OpState::Rejected { error } => OpOutcome::Rejected(error),
-            OpState::ExternalPending { effect, target }
-            | OpState::ExternalUnknown { effect, target } => {
-                OpOutcome::ExternalUnknown { effect, target }
-            }
+            OpState::ExternalPending { effect, target } | OpState::ExternalUnknown { effect, target } => OpOutcome::ExternalUnknown { effect, target },
         }
     }
 
@@ -105,9 +92,7 @@ impl OpOutcome {
         match self {
             OpOutcome::Applied(AppliedOp { seq, result }) => OpState::Applied { seq, result },
             OpOutcome::Rejected(error) => OpState::Rejected { error },
-            OpOutcome::ExternalUnknown { effect, target } => {
-                OpState::ExternalUnknown { effect, target }
-            }
+            OpOutcome::ExternalUnknown { effect, target } => OpState::ExternalUnknown { effect, target },
         }
     }
 
@@ -115,9 +100,7 @@ impl OpOutcome {
         match self {
             OpOutcome::Applied(AppliedOp { seq, result }) => OpStatus::Applied { seq, result },
             OpOutcome::Rejected(error) => OpStatus::Rejected { error },
-            OpOutcome::ExternalUnknown { effect, target } => {
-                OpStatus::ExternalUnknown { effect, target }
-            }
+            OpOutcome::ExternalUnknown { effect, target } => OpStatus::ExternalUnknown { effect, target },
         }
     }
 }
@@ -188,12 +171,7 @@ impl OpGate {
         Ok(Self::new(scope, store.clone(), Some(store), watermark))
     }
 
-    fn new(
-        scope: OpScope,
-        store: Arc<dyn OpStore>,
-        retention: Option<Arc<dyn OpRetention>>,
-        watermark: u64,
-    ) -> Self {
+    fn new(scope: OpScope, store: Arc<dyn OpStore>, retention: Option<Arc<dyn OpRetention>>, watermark: u64) -> Self {
         Self {
             inner: Arc::new(Inner {
                 scope,
@@ -223,15 +201,9 @@ impl OpGate {
                 let mut slots = self.inner.lock();
                 match slots.get(&req.id) {
                     None => break self.inner.claim(&mut slots, &req.id),
-                    Some(Slot {
-                        kind: SlotKind::Executing { request, audience: owner },
-                        signal,
-                        ..
-                    }) => {
+                    Some(Slot { kind: SlotKind::Executing { request, audience: owner }, signal, .. }) => {
                         if request != req || owner != &audience {
-                            return Err(CoreError::OpIdConflict {
-                                op_id: req.id.clone(),
-                            });
+                            return Err(CoreError::OpIdConflict { op_id: req.id.clone() });
                         }
                         (signal.clone(), true)
                     }
@@ -247,16 +219,12 @@ impl OpGate {
             }
         };
         match self.inner.store.get(&req.id).await? {
-            Some(OpRecord::Fenced) => Err(CoreError::OpFenced {
-                op_id: req.id.clone(),
-            }),
+            Some(OpRecord::Fenced) => Err(CoreError::OpFenced { op_id: req.id.clone() }),
             Some(OpRecord::Settled { method, digest, audience: owner, state }) => {
                 if method == req.method && digest == req.digest && owner.as_ref() == Some(&audience) {
                     Ok(Begin::Done(OpOutcome::from_state(state)))
                 } else {
-                    Err(CoreError::OpIdConflict {
-                        op_id: req.id.clone(),
-                    })
+                    Err(CoreError::OpIdConflict { op_id: req.id.clone() })
                 }
             }
             None => {
@@ -269,12 +237,7 @@ impl OpGate {
 
     /// `op/status` (P §9.4): one status per id, in order. With `fence`, an id not found and
     /// not below the watermark is recorded fenced before its `notApplied` answer.
-    pub async fn status(
-        &self,
-        ids: &[OpId],
-        fence: bool,
-        ctx: &CallContext,
-    ) -> Result<Vec<OpStatus>, CoreError> {
+    pub async fn status(&self, ids: &[OpId], fence: bool, ctx: &CallContext) -> Result<Vec<OpStatus>, CoreError> {
         let mut statuses = Vec::with_capacity(ids.len());
         for id in ids {
             statuses.push(self.status_one(id, fence, ctx).await?);
@@ -282,12 +245,7 @@ impl OpGate {
         Ok(statuses)
     }
 
-    async fn status_one(
-        &self,
-        id: &OpId,
-        fence: bool,
-        ctx: &CallContext,
-    ) -> Result<OpStatus, CoreError> {
+    async fn status_one(&self, id: &OpId, fence: bool, ctx: &CallContext) -> Result<OpStatus, CoreError> {
         let at = op_time_ms(id, "opIds")?;
         if self.inner.unexpired(id, at).is_err() {
             return Ok(OpStatus::Expired);
@@ -298,10 +256,7 @@ impl OpGate {
                 let mut slots = self.inner.lock();
                 match slots.get(id) {
                     None => break self.inner.claim(&mut slots, id),
-                    Some(Slot {
-                        kind: SlotKind::Executing { request, audience: owner },
-                        ..
-                    }) => {
+                    Some(Slot { kind: SlotKind::Executing { request, audience: owner }, .. }) => {
                         if owner != &audience || !may_read_status(ctx, &request.method) {
                             return Err(status_denied(ctx));
                         }
@@ -353,10 +308,7 @@ impl OpGate {
             return Ok(PruneStep::default());
         }
         let deleted = retention.delete_before(watermark, PRUNE_BATCH).await?;
-        Ok(PruneStep {
-            deleted,
-            more: deleted == PRUNE_BATCH,
-        })
+        Ok(PruneStep { deleted, more: deleted == PRUNE_BATCH })
     }
 }
 
@@ -368,18 +320,13 @@ pub struct PruneStep {
 
 impl Inner {
     fn lock(&self) -> MutexGuard<'_, HashMap<OpId, Slot>> {
-        self.slots
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.slots.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn unexpired(&self, id: &OpId, at: u64) -> Result<(), CoreError> {
         let watermark = self.watermark.load(Ordering::SeqCst);
         if at < watermark {
-            return Err(CoreError::OpIdExpired {
-                op_id: id.clone(),
-                watermark: watermark_text(watermark),
-            });
+            return Err(CoreError::OpIdExpired { op_id: id.clone(), watermark: watermark_text(watermark) });
         }
         Ok(())
     }
@@ -387,54 +334,24 @@ impl Inner {
     fn claim(self: &Arc<Self>, slots: &mut HashMap<OpId, Slot>, id: &OpId) -> Claim {
         let claim = self.next_claim.fetch_add(1, Ordering::Relaxed);
         let (signal_tx, signal) = watch::channel(None);
-        slots.insert(
-            id.clone(),
-            Slot {
-                claim,
-                kind: SlotKind::Busy,
-                signal,
-            },
-        );
-        Claim {
-            inner: self.clone(),
-            id: id.clone(),
-            claim,
-            signal: signal_tx,
-        }
+        slots.insert(id.clone(), Slot { claim, kind: SlotKind::Busy, signal });
+        Claim { inner: self.clone(), id: id.clone(), claim, signal: signal_tx }
     }
 }
 
 /// Waits on an executing slot: `Some` with the outcome of its execution, `None` when it was
 /// abandoned, after which the caller decides again.
-async fn settled(
-    mut signal: watch::Receiver<Option<OpOutcome>>,
-    ctx: &CallContext,
-) -> Result<Option<OpOutcome>, CoreError> {
-    let wait = async move {
-        signal
-            .wait_for(Option::is_some)
-            .await
-            .ok()
-            .and_then(|outcome| outcome.clone())
-    };
-    ctx.cancel
-        .run_until_cancelled(wait)
-        .await
-        .ok_or(CoreError::ConnectionClosed)
+async fn settled(mut signal: watch::Receiver<Option<OpOutcome>>, ctx: &CallContext) -> Result<Option<OpOutcome>, CoreError> {
+    let wait = async move { signal.wait_for(Option::is_some).await.ok().and_then(|outcome| outcome.clone()) };
+    ctx.cancel.run_until_cancelled(wait).await.ok_or(CoreError::ConnectionClosed)
 }
 
 /// Waits on a busy slot until it turns executing or is released; the caller decides again.
-async fn changed(
-    mut signal: watch::Receiver<Option<OpOutcome>>,
-    ctx: &CallContext,
-) -> Result<(), CoreError> {
+async fn changed(mut signal: watch::Receiver<Option<OpOutcome>>, ctx: &CallContext) -> Result<(), CoreError> {
     let wait = async move {
         let _ = signal.changed().await;
     };
-    ctx.cancel
-        .run_until_cancelled(wait)
-        .await
-        .ok_or(CoreError::ConnectionClosed)
+    ctx.cancel.run_until_cancelled(wait).await.ok_or(CoreError::ConnectionClosed)
 }
 
 /// Holds an op's slot; dropping it releases the slot and wakes its waiters.
@@ -450,27 +367,17 @@ impl Claim {
         if let Some(slot) = self.inner.lock().get_mut(&self.id)
             && slot.claim == self.claim
         {
-            slot.kind = SlotKind::Executing {
-                request: request.clone(),
-                audience: audience.clone(),
-            };
+            slot.kind = SlotKind::Executing { request: request.clone(), audience: audience.clone() };
         }
         self.signal.send_replace(None);
-        OpTicket {
-            claim: self,
-            request,
-            audience,
-        }
+        OpTicket { claim: self, request, audience }
     }
 }
 
 impl Drop for Claim {
     fn drop(&mut self) {
         let mut slots = self.inner.lock();
-        if slots
-            .get(&self.id)
-            .is_some_and(|slot| slot.claim == self.claim)
-        {
+        if slots.get(&self.id).is_some_and(|slot| slot.claim == self.claim) {
             slots.remove(&self.id);
         }
     }
@@ -492,23 +399,13 @@ impl OpTicket {
 
     /// The record for an owner that commits its effect and op result in one transaction.
     pub fn settled_record(&self, state: OpState) -> OpRecord {
-        OpRecord::Settled {
-            method: self.request.method.clone(),
-            digest: self.request.digest.clone(),
-            audience: Some(self.audience.clone()),
-            state,
-        }
+        OpRecord::Settled { method: self.request.method.clone(), digest: self.request.digest.clone(), audience: Some(self.audience.clone()), state }
     }
 
     /// Records `externalPending{effect, target}` durably; call before the external action
     /// starts (P §9.6).
-    pub async fn external_pending(
-        &self,
-        effect: Arc<str>,
-        target: Arc<str>,
-    ) -> Result<(), CoreError> {
-        self.record(OpState::ExternalPending { effect, target })
-            .await
+    pub async fn external_pending(&self, effect: Arc<str>, target: Arc<str>) -> Result<(), CoreError> {
+        self.record(OpState::ExternalPending { effect, target }).await
     }
 
     /// Records `outcome` durably, then completes. For outcomes not carried by the owner's own

@@ -48,8 +48,7 @@ impl<F: FnMut(Attempted) + Send> RecordingSink<F> {
     pub async fn finish_accounting(&mut self, outcome: Outcome<'_>) -> Option<Recorded> {
         let recorded = self.accounting.as_mut()?.finish(outcome).await;
         if let Some(ms) = recorded.request_ms
-            && let Some(StreamEvent::Completed { request_ms, .. }) =
-                self.events.iter_mut().rev().find(|event| matches!(event, StreamEvent::Completed { .. }))
+            && let Some(StreamEvent::Completed { request_ms, .. }) = self.events.iter_mut().rev().find(|event| matches!(event, StreamEvent::Completed { .. }))
         {
             *request_ms = Some(ms);
         }
@@ -119,11 +118,7 @@ mod tests {
         drop(sink);
         assert_eq!(
             heard,
-            vec![
-                Attempted::Event(StreamEvent::TextDelta("a".into())),
-                Attempted::Restart,
-                Attempted::Event(StreamEvent::TextDelta("b".into())),
-            ]
+            vec![Attempted::Event(StreamEvent::TextDelta("a".into())), Attempted::Restart, Attempted::Event(StreamEvent::TextDelta("b".into())),]
         );
     }
 }

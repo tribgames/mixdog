@@ -1,6 +1,6 @@
 mod common;
 mod conformance;
-mod connection_lifetime;
 mod conformance_inprocess;
 mod conformance_ws;
+mod connection_lifetime;
 mod feed_lanes;

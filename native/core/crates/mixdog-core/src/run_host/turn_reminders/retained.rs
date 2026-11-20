@@ -48,8 +48,13 @@ fn stripped(content: &Value, role: Option<&Value>, context: Option<&Value>) -> O
             Some(Value::String(text[prefix.len()..text.len() - suffix.len()].to_owned()))
         }
         Value::Array(parts) => {
-            let block = |part: Option<&Value>, want: &str| part.is_some_and(|part| part.get("type").and_then(Value::as_str) == Some("text") && part.get("text").and_then(Value::as_str) == Some(want));
-            if (!prefix.is_empty() && !block(parts.first(), prefix)) || (!suffix.is_empty() && !block(parts.last(), suffix)) || parts.len() < usize::from(!prefix.is_empty()) + usize::from(!suffix.is_empty()) {
+            let block = |part: Option<&Value>, want: &str| {
+                part.is_some_and(|part| part.get("type").and_then(Value::as_str) == Some("text") && part.get("text").and_then(Value::as_str) == Some(want))
+            };
+            if (!prefix.is_empty() && !block(parts.first(), prefix))
+                || (!suffix.is_empty() && !block(parts.last(), suffix))
+                || parts.len() < usize::from(!prefix.is_empty()) + usize::from(!suffix.is_empty())
+            {
                 return None;
             }
             Some(Value::Array(parts[usize::from(!prefix.is_empty())..parts.len() - usize::from(!suffix.is_empty())].to_vec()))

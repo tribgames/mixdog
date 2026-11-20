@@ -24,17 +24,14 @@ use serde_json::Value;
 use crate::config::McpServerConfig;
 use crate::config::TransportConfig;
 use crate::connector_accounts::AccountError;
-use crate::connector_accounts::Chosen;
 use crate::connector_accounts::ChooseCall;
+use crate::connector_accounts::Chosen;
 use crate::connector_accounts::ConnectorAccounts;
 use crate::connector_accounts::split_mcp_tool_name;
 use crate::oauth::AccountMode;
 use crate::oauth::McpLoginFlow;
 use crate::oauth::McpOAuth;
 use crate::oauth::OAuthEnv;
-use crate::sign_in_notice::NoticingAuthorizer;
-use crate::sign_in_notice::SignInNotices;
-use crate::transport::Authorizer;
 use crate::result::OutputPolicy;
 use crate::result::Spiller;
 use crate::scopes::ExtensionScopes;
@@ -42,7 +39,10 @@ use crate::server::McpIo;
 use crate::server::McpServer;
 use crate::server::ServerState;
 use crate::server::ToolEntry;
+use crate::sign_in_notice::NoticingAuthorizer;
+use crate::sign_in_notice::SignInNotices;
 use crate::tools::McpTool;
+use crate::transport::Authorizer;
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ServerStatus {
@@ -371,10 +371,7 @@ impl McpHub {
 
     /// [`apply_in`](Self::apply_in) that connects again only the failed servers `retry` names; the
     /// other failed ones stay as they are (a one-server toggle touches only its own server).
-    fn apply_retrying(
-        self: &Arc<Self>, scope: &str, configs: Vec<McpServerConfig>, retry: &dyn Fn(&str) -> bool,
-        previous: &[Arc<McpServer>],
-    ) -> ApplyWork {
+    fn apply_retrying(self: &Arc<Self>, scope: &str, configs: Vec<McpServerConfig>, retry: &dyn Fn(&str) -> bool, previous: &[Arc<McpServer>]) -> ApplyWork {
         let scope = normalize_scope(Some(scope));
         let mut kept: Vec<String> = Vec::new();
         // The servers the scope takes on, in configuration order, and those of them it connects (the others it adopted),
@@ -394,10 +391,7 @@ impl McpHub {
                 // although its configuration is unchanged, as Node's reconcile retries its recorded
                 // failures (`server-connection.mjs` `reconcileServers`): a fixed command or a sign-in
                 // made elsewhere needs no configuration change.
-                Some(existing)
-                    if *existing.config() == config
-                        && !(matches!(&*existing.state(), ServerState::Failed { .. }) && retry(&config.name)) =>
-                {
+                Some(existing) if *existing.config() == config && !(matches!(&*existing.state(), ServerState::Failed { .. }) && retry(&config.name)) => {
                     kept.push(config.name.clone());
                     if let Some(kept) = previous_oauth.get(&(scope.clone(), config.name.clone())) {
                         next_oauth.insert(config.name.clone(), Arc::clone(kept));
@@ -462,11 +456,7 @@ impl McpHub {
         drop(previous_oauth);
         let mut next: Vec<Arc<McpServer>> = current.iter().filter(|s| kept.iter().any(|n| n == s.name())).cloned().collect();
         next.extend(added);
-        let retired: Vec<Arc<McpServer>> = current
-            .iter()
-            .filter(|old| !next.iter().any(|kept| Arc::ptr_eq(kept, old)))
-            .cloned()
-            .collect();
+        let retired: Vec<Arc<McpServer>> = current.iter().filter(|old| !next.iter().any(|kept| Arc::ptr_eq(kept, old))).cloned().collect();
         self.accounts.rcu(|all| {
             let mut live = HashMap::clone(all);
             live.retain(|held, _| held.0 != scope || next.iter().any(|s| s.name() == held.1));
@@ -482,15 +472,15 @@ impl McpHub {
             registry
         });
         let closing = unheld(&mut shared, &self.servers.load(), &scope, retired);
-        let closing = closing.into_iter().map(|server| {
-            let replacement = next.iter().any(|kept| kept.name() == server.name());
-            let why = if replacement {
-                "replaced by a new server (config changed or failed server retried)"
-            } else {
-                "removed from the scope's configuration"
-            };
-            mixdog_rt::spawn("mcp.hub.close", TaskClass::Work, async move { server.close_because(why).await })
-        }).collect();
+        let closing = closing
+            .into_iter()
+            .map(|server| {
+                let replacement = next.iter().any(|kept| kept.name() == server.name());
+                let why =
+                    if replacement { "replaced by a new server (config changed or failed server retried)" } else { "removed from the scope's configuration" };
+                mixdog_rt::spawn("mcp.hub.close", TaskClass::Work, async move { server.close_because(why).await })
+            })
+            .collect();
         for (server, dead) in started {
             let mut scheduled = server.scheduled_start.lock().unwrap_or_else(|e| e.into_inner());
             if scheduled.as_ref().is_some_and(|done| !done.is_cancelled()) {
@@ -523,10 +513,11 @@ impl McpHub {
     }
 
     fn pending_starts_of(servers: &[Arc<McpServer>]) -> Vec<CancellationToken> {
-        servers.iter().flat_map(|server| std::iter::once(server.clone()).chain(server.account_servers())).filter_map(|server| {
-            server.scheduled_start.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
-                .filter(|done| !done.is_cancelled()).cloned()
-        }).collect()
+        servers
+            .iter()
+            .flat_map(|server| std::iter::once(server.clone()).chain(server.account_servers()))
+            .filter_map(|server| server.scheduled_start.lock().unwrap_or_else(|e| e.into_inner()).as_ref().filter(|done| !done.is_cancelled()).cloned())
+            .collect()
     }
 
     pub(crate) fn pending_starts(&self, scope: &str) -> Vec<CancellationToken> {
@@ -630,7 +621,9 @@ impl McpHub {
                 let Some(catalog) = server.catalog() else { continue };
                 published.push((server.name().to_owned(), catalog.entries.iter().map(|entry| entry.qualified.clone()).collect()));
                 if *key == scope && scopes.mcp_server_allowed_for_cwd(server.name(), server.config().plugin_id.as_deref(), cwd) {
-                    tools.extend(catalog.entries.iter().map(|entry| Arc::new(McpTool::in_scope(Arc::clone(server), Arc::clone(entry), &scope)) as Arc<dyn Tool>));
+                    tools.extend(
+                        catalog.entries.iter().map(|entry| Arc::new(McpTool::in_scope(Arc::clone(server), Arc::clone(entry), &scope)) as Arc<dyn Tool>),
+                    );
                 }
             }
         }
@@ -677,9 +670,7 @@ impl McpHub {
         let mut out: Vec<Arc<dyn Tool>> = Vec::new();
         for server in self.in_scope(&scope).iter().filter(|server| keep(server)) {
             if let Some(catalog) = server.catalog() {
-                out.extend(catalog.entries.iter().map(|entry| {
-                    Arc::new(McpTool::in_scope(Arc::clone(server), Arc::clone(entry), &scope)) as Arc<dyn Tool>
-                }));
+                out.extend(catalog.entries.iter().map(|entry| Arc::new(McpTool::in_scope(Arc::clone(server), Arc::clone(entry), &scope)) as Arc<dyn Tool>));
             }
         }
         out
@@ -739,9 +730,7 @@ impl McpHub {
     /// lock, so a release or a newer full connect can neither be overtaken nor resurrected by a late
     /// operation (`connectServer`'s `genAtStart`, `mcp/client.mjs:199,405,447`). Of the failed
     /// servers, those `retry` names connect again. Whether it applied.
-    pub fn apply_at(
-        self: &Arc<Self>, scope: &str, generation: u64, configs: Vec<McpServerConfig>, retry: &dyn Fn(&str) -> bool,
-    ) -> bool {
+    pub fn apply_at(self: &Arc<Self>, scope: &str, generation: u64, configs: Vec<McpServerConfig>, retry: &dyn Fn(&str) -> bool) -> bool {
         self.apply_at_tracked(scope, generation, configs, retry).is_some()
     }
 
@@ -759,7 +748,11 @@ impl McpHub {
 
     /// Applies the second half of a reset, retaining predecessors from before its empty registry publication.
     pub(crate) fn apply_after_at(
-        self: &Arc<Self>, scope: &str, generation: u64, configs: Vec<McpServerConfig>, retry: &dyn Fn(&str) -> bool,
+        self: &Arc<Self>,
+        scope: &str,
+        generation: u64,
+        configs: Vec<McpServerConfig>,
+        retry: &dyn Fn(&str) -> bool,
         previous: &[Arc<McpServer>],
     ) -> Option<ApplyWork> {
         let key = normalize_scope(Some(scope));

@@ -35,47 +35,23 @@ pub fn response_frame(id: &RequestId, result: &Value) -> Bytes {
 /// `{id, error:{code, message, data}}`; `data` is `{reason, …}` and the English `message`
 /// is for logs only.
 pub fn error_frame(id: &RequestId, data: &ErrorData) -> Bytes {
-    encode(&JsonRpcError {
-        error: data.clone().into_body(message(data)),
-        id: id.clone(),
-        lone_surrogates: Vec::new(),
-    })
+    encode(&JsonRpcError { error: data.clone().into_body(message(data)), id: id.clone(), lone_surrogates: Vec::new() })
 }
 
 /// The connection-scoped `error` notification (P §8.4 step 5).
 pub fn error_notification_frame(data: &ErrorData) -> Bytes {
-    let params = ErrorNotificationParams {
-        error: data.clone().into_body(message(data)),
-        thread_id: None,
-        will_retry: None,
-        provider_error: None,
-    };
-    notification_frame(
-        "error",
-        serde_json::to_value(params).expect("error params serialize"),
-    )
+    let params = ErrorNotificationParams { error: data.clone().into_body(message(data)), thread_id: None, will_retry: None, provider_error: None };
+    notification_frame("error", serde_json::to_value(params).expect("error params serialize"))
 }
 
 /// A connection-scoped server notification: no `feed` stamp.
 pub(crate) fn notification_frame(method: &str, params: Value) -> Bytes {
-    encode(&JsonRpcNotification {
-        method: method.to_owned(),
-        params: Some(params),
-        emitted_at_ms: Some(now_ms()),
-        feed: None,
-        lone_surrogates: Vec::new(),
-    })
+    encode(&JsonRpcNotification { method: method.to_owned(), params: Some(params), emitted_at_ms: Some(now_ms()), feed: None, lone_surrogates: Vec::new() })
 }
 
 /// A server request to a client (`host/*`).
 pub(crate) fn request_frame(id: RequestId, method: &str, params: Value) -> Bytes {
-    encode(&JsonRpcRequest {
-        id,
-        method: method.to_owned(),
-        params: Some(params),
-        trace: None,
-        lone_surrogates: Vec::new(),
-    })
+    encode(&JsonRpcRequest { id, method: method.to_owned(), params: Some(params), trace: None, lone_surrogates: Vec::new() })
 }
 
 /// `serverRequest/resolved` for a `host/*` request its asker gave up (cancelled, timed out, dropped): the claimant ends the
@@ -92,7 +68,5 @@ pub(crate) fn abandoned_request_frame(id: &RequestId) -> Bytes {
 }
 
 fn now_ms() -> i64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |elapsed| elapsed.as_millis() as i64)
+    SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_millis() as i64)
 }

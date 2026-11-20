@@ -16,10 +16,10 @@ use mixdog_fsio::Unlaned;
 use crate::binary::ssh_tool_command;
 use crate::command::SshTarget;
 use crate::context::{AttemptContext, ConfigFile, ReviewedConfig, SshConfigFiles, SshEnv, ToolOutput};
-use crate::diagnostics::{describe_argv, DiagnosticKind};
-use crate::pins::owner_of;
+use crate::diagnostics::{DiagnosticKind, describe_argv};
 use crate::host_key::ResolvedHost;
-use crate::mixdog_config::{word, MixdogSshConfig};
+use crate::mixdog_config::{MixdogSshConfig, word};
+use crate::pins::owner_of;
 
 const TOOL_TIMEOUT: Duration = Duration::from_millis(8_000);
 const MAX_CHAIN: usize = 6;
@@ -47,18 +47,14 @@ const GENERATED_HEADER: &str = "# Written by Mixdog from what ssh resolves for t
 /// The header of a config that is the user's own, as it was read, behind Mixdog's known_hosts settings.
 const SNAPSHOT_HEADER: &str = "# Written by Mixdog for one connection: the user's ssh config as it was read, behind Mixdog's known_hosts settings.";
 /// Values that are file names: quoted when they hold spaces, which some ssh builds print bare.
-const PATH_KEYS: [&str; 7] =
-    ["identityfile", "certificatefile", "controlpath", "identityagent", "revokedhostkeys", "pkcs11provider", "securitykeyprovider"];
+const PATH_KEYS: [&str; 7] = ["identityfile", "certificatefile", "controlpath", "identityagent", "revokedhostkeys", "pkcs11provider", "securitykeyprovider"];
 
 /// One `ssh -G` line: lower-cased key and its value.
 pub type DumpLine = (String, String);
 
 /// The lines of an `ssh -G` dump.
 pub fn parse_dump(stdout: &str) -> Vec<DumpLine> {
-    stdout
-        .lines()
-        .filter_map(|line| line.trim().split_once(char::is_whitespace).map(|(key, value)| (key.to_lowercase(), value.trim().to_owned())))
-        .collect()
+    stdout.lines().filter_map(|line| line.trim().split_once(char::is_whitespace).map(|(key, value)| (key.to_lowercase(), value.trim().to_owned()))).collect()
 }
 
 fn is_forwarding(key: &str) -> bool {
@@ -241,7 +237,14 @@ impl ResolvedConfigs {
     /// route) with Mixdog's known_hosts settings for every server of the route ahead of it. Either way each server's ssh consults
     /// the files the inspection judged it by. The file becomes the one later ssh runs of the target find. Gives the forwards of the
     /// user's config that then apply (none for the route's own options).
-    pub(crate) async fn write_reviewed(&self, env: &SshEnv, ctx: &AttemptContext, target: &SshTarget, route: &Route, user_config: Option<&str>) -> std::io::Result<(ReviewedConfig, Vec<String>)> {
+    pub(crate) async fn write_reviewed(
+        &self,
+        env: &SshEnv,
+        ctx: &AttemptContext,
+        target: &SshTarget,
+        route: &Route,
+        user_config: Option<&str>,
+    ) -> std::io::Result<(ReviewedConfig, Vec<String>)> {
         let key = target.key();
         let Some(config) = &self.config else { return Ok((ReviewedConfig { target_key: key, file: None }, Vec::new())) };
         let own = config.known_hosts_file().to_string_lossy().into_owned();

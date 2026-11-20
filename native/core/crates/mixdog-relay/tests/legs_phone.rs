@@ -4,9 +4,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::Duration;
 
 use bytes::Bytes;
-use mixdog_relay::close_codes::{
-    DESKTOP_HANDSHAKE_STALLED, DESKTOP_OFFLINE, DESKTOP_REJECTED_CLIENT, PAIRING_RESCAN_REQUIRED, REVOKED, SUPERSEDED,
-};
+use mixdog_relay::close_codes::{DESKTOP_HANDSHAKE_STALLED, DESKTOP_OFFLINE, DESKTOP_REJECTED_CLIENT, PAIRING_RESCAN_REQUIRED, REVOKED, SUPERSEDED};
 use mixdog_relay::http1::Headers;
 use mixdog_relay::legs::envelope::decode_frame;
 use mixdog_relay::legs::hub::{Hub, HubConfig, LegSocket, Liveness, SweepLeg};
@@ -93,11 +91,7 @@ impl Fake {
 
     fn frames_of(&self, kind: &str) -> Vec<Value> {
         let texts = self.inner().texts.clone();
-        texts
-            .iter()
-            .filter_map(|text| mixdog_relay::js::parse(text).ok())
-            .filter(|value| value.get("type").and_then(Value::as_str) == Some(kind))
-            .collect()
+        texts.iter().filter_map(|text| mixdog_relay::js::parse(text).ok()).filter(|value| value.get("type").and_then(Value::as_str) == Some(kind)).collect()
     }
 }
 
@@ -306,7 +300,6 @@ async fn eventually(what: &str, mut condition: impl FnMut() -> bool) {
     }
 }
 
-
 // ---- rigs ----
 
 fn io() -> mixdog_rt::DurabilityIo {
@@ -321,7 +314,8 @@ async fn build_with(limits: PhoneLimits, max_frame_bytes: usize) -> Rig {
     assert!(store.authenticate(DEVICE, SECRET).await);
     let registered = store.register_client(DEVICE, "bbbbbbbb", &ProfileInput::default()).await.expect("a browser credential");
     // A watchdog that never fires within a test.
-    let config = HubConfig { max_frame_bytes, handshake: HandshakeTiming { stall: Duration::from_secs(600), probe: Duration::from_secs(600) }, ..HubConfig::default() };
+    let config =
+        HubConfig { max_frame_bytes, handshake: HandshakeTiming { stall: Duration::from_secs(600), probe: Duration::from_secs(600) }, ..HubConfig::default() };
     let hub = Hub::new(store, config, IngressPool::new());
     let unauthorized = Arc::new(Mutex::new(RateLimiter::new(1000, 60_000)));
     let sockets = Arc::new(WebSocketServer::new(ServerOptions::new(64 * 1024 * 1024)));

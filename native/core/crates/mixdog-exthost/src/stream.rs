@@ -34,9 +34,7 @@ impl EventSource<ExtFrame> for CallStream {
         }
         let frame = self.frames.recv().await.unwrap_or_else(|| {
             // The dispatcher is gone; nothing will ever answer this call.
-            ExtFrame::Done(Err(ExtError::Unavailable {
-                reason: "extension host stopped".to_owned(),
-            }))
+            ExtFrame::Done(Err(ExtError::Unavailable { reason: "extension host stopped".to_owned() }))
         });
         match &frame {
             ExtFrame::Chunk(bytes) => {

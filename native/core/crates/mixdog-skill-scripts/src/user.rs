@@ -39,7 +39,11 @@ impl UserScriptRuntime {
     }
 }
 
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "the skill-run process starts the interpreter it waits on with inherited stdio; it has no runtime or lane")]
+#[allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "the skill-run process starts the interpreter it waits on with inherited stdio; it has no runtime or lane"
+)]
 fn run_interpreter(program: &Path, entry: &Path, electron: bool, script: &Path, args: &[String], carried: bool) -> i32 {
     let mut command = std::process::Command::new(program);
     command.arg(entry);

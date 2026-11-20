@@ -1,8 +1,8 @@
 //! Headless embedding model process.
 
-use std::path::PathBuf;
 use mixdog_rt::Backend;
 use mixdog_services::memory::embed::engine::EmbedConfig;
+use std::path::PathBuf;
 
 pub fn run(cache_dir: PathBuf, model_id: String, ort_library: PathBuf, dtype: Option<String>) -> i32 {
     let (executors, tokens) = match crate::boot_executors() {
@@ -13,8 +13,5 @@ pub fn run(cache_dir: PathBuf, model_id: String, ort_library: PathBuf, dtype: Op
         }
     };
     let config = EmbedConfig { cache_dir, model_id, ort_library, dtype, sessions: 1, lane: tokens.cpu_bulk };
-    mixdog_services::memory::embed::host::serve(
-        config, &executors.handle(mixdog_rt::TaskClass::Work),
-        std::io::stdin().lock(), std::io::stdout().lock(),
-    )
+    mixdog_services::memory::embed::host::serve(config, &executors.handle(mixdog_rt::TaskClass::Work), std::io::stdin().lock(), std::io::stdout().lock())
 }

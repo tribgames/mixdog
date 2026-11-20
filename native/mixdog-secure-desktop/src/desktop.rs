@@ -12,18 +12,15 @@
 //! desktop, so this attach is the pivot that follows the input across the UAC
 //! transition and back.
 
-use windows::core::PWSTR;
 use windows::Win32::Foundation::HANDLE;
 use windows::Win32::System::RemoteDesktop::{
-    WTSFreeMemory, WTSQuerySessionInformationW, WTSSessionInfoEx, WTSINFOEXW,
-    WTS_SESSIONSTATE_LOCK, WTS_SESSIONSTATE_UNLOCK,
+    WTS_SESSIONSTATE_LOCK, WTS_SESSIONSTATE_UNLOCK, WTSFreeMemory, WTSINFOEXW, WTSQuerySessionInformationW, WTSSessionInfoEx,
 };
 use windows::Win32::System::StationsAndDesktops::{
-    GetUserObjectInformationW, OpenInputDesktop, SetThreadDesktop, DESKTOP_ACCESS_FLAGS,
-    DESKTOP_CONTROL_FLAGS, DESKTOP_CREATEMENU, DESKTOP_CREATEWINDOW, DESKTOP_ENUMERATE,
-    DESKTOP_HOOKCONTROL, DESKTOP_READOBJECTS, DESKTOP_SWITCHDESKTOP, DESKTOP_WRITEOBJECTS,
-    UOI_NAME,
+    DESKTOP_ACCESS_FLAGS, DESKTOP_CONTROL_FLAGS, DESKTOP_CREATEMENU, DESKTOP_CREATEWINDOW, DESKTOP_ENUMERATE, DESKTOP_HOOKCONTROL, DESKTOP_READOBJECTS,
+    DESKTOP_SWITCHDESKTOP, DESKTOP_WRITEOBJECTS, GetUserObjectInformationW, OpenInputDesktop, SetThreadDesktop, UOI_NAME,
 };
+use windows::core::PWSTR;
 
 use crate::protocol::MAX_DESKTOP_NAME;
 use crate::winutil::OwnedDesktop;
@@ -47,14 +44,8 @@ fn object_name(handle: HANDLE) -> Option<String> {
     let mut buffer = [0u16; MAX_DESKTOP_NAME];
     let mut needed = 0u32;
     unsafe {
-        GetUserObjectInformationW(
-            handle,
-            UOI_NAME,
-            Some(buffer.as_mut_ptr() as *mut _),
-            (buffer.len() * std::mem::size_of::<u16>()) as u32,
-            Some(&mut needed),
-        )
-        .ok()?;
+        GetUserObjectInformationW(handle, UOI_NAME, Some(buffer.as_mut_ptr() as *mut _), (buffer.len() * std::mem::size_of::<u16>()) as u32, Some(&mut needed))
+            .ok()?;
     }
     let end = buffer.iter().position(|&c| c == 0).unwrap_or(buffer.len());
     Some(String::from_utf16_lossy(&buffer[..end]))
@@ -66,8 +57,7 @@ fn object_name(handle: HANDLE) -> Option<String> {
 /// `Winlogon` desktop, so there is no separate "locked" desktop to report.
 /// Comparing this against the attached desktop detects a UAC / lock transition.
 pub fn input_desktop_name() -> Option<String> {
-    let desktop =
-        unsafe { OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, input_access()).ok()? };
+    let desktop = unsafe { OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, input_access()).ok()? };
     let owned = OwnedDesktop::new(desktop)?;
     object_name(HANDLE(owned.get().0))
 }
@@ -90,10 +80,8 @@ pub fn session_locked(session: u32) -> Option<bool> {
     unsafe {
         let mut buffer = PWSTR::null();
         let mut bytes = 0u32;
-        WTSQuerySessionInformationW(None, session, WTSSessionInfoEx, &mut buffer, &mut bytes)
-            .ok()?;
-        let info = (bytes as usize >= std::mem::size_of::<WTSINFOEXW>())
-            .then(|| *(buffer.0 as *const WTSINFOEXW));
+        WTSQuerySessionInformationW(None, session, WTSSessionInfoEx, &mut buffer, &mut bytes).ok()?;
+        let info = (bytes as usize >= std::mem::size_of::<WTSINFOEXW>()).then(|| *(buffer.0 as *const WTSINFOEXW));
         WTSFreeMemory(buffer.0 as *mut _);
         let info = info.filter(|info| info.Level == 1)?;
         match info.Data.WTSInfoExLevel1.SessionFlags as u32 {
@@ -115,9 +103,7 @@ pub fn attach_to_input_desktop() -> windows::core::Result<(OwnedDesktop, String)
         let desktop = OpenInputDesktop(DESKTOP_CONTROL_FLAGS(0), false, input_access())?;
         let owned = OwnedDesktop::new(desktop).ok_or_else(windows::core::Error::from_thread)?;
         SetThreadDesktop(owned.get())?;
-        let name = object_name(HANDLE(owned.get().0))
-            .filter(|name| !name.is_empty())
-            .ok_or_else(windows::core::Error::from_thread)?;
+        let name = object_name(HANDLE(owned.get().0)).filter(|name| !name.is_empty()).ok_or_else(windows::core::Error::from_thread)?;
         Ok((owned, name))
     }
 }

@@ -68,7 +68,10 @@ async fn a_failure_the_pc_retried_out_is_final_here() {
     let provider = Arc::new(MockProvider::new((0..6).map(|_| rejected(503))));
     let pc = loopback_on(provider.clone()).await;
     let Err(error) = stand_in(pc).attempt(Arc::new(hi())).await else { panic!("the call failed before any stream opened") };
-    assert_eq!((error.status, error.should_retry, error.delivery, provider.attempts.load(Ordering::SeqCst)), (Some(503), Some(false), p::DeliveryState::Accepted, 5));
+    assert_eq!(
+        (error.status, error.should_retry, error.delivery, provider.attempts.load(Ordering::SeqCst)),
+        (Some(503), Some(false), p::DeliveryState::Accepted, 5)
+    );
 }
 
 /// The PC's ladder ended on repeated overload and named the model to send again with: this attempt's failure carries it, so

@@ -354,91 +354,91 @@ fn latin_blues(face: &ttf_parser::Face<'_>, upem: i64, strings: &[BlueString]) -
     let mut blues = Vec::new();
     let flat_threshold = upem / 14;
     for string in strings {
-            let (mut rounds, mut flats): (Vec<i64>, Vec<i64>) = (Vec::new(), Vec::new());
-            let (mut ascender, mut descender) = (i64::MIN, i64::MAX);
-            for character in string.chars.chars() {
-                let Some(glyph) = face.glyph_index(character) else { continue };
-                let Some(contours) = raw_outline(face, glyph.0) else { continue };
-                let mut best: Option<(usize, usize)> = None;
-                let mut best_y = 0_i64;
-                for (index, contour) in contours.iter().enumerate() {
-                    if contour.len() < 2 {
-                        continue;
-                    }
-                    for (at, point) in contour.iter().enumerate() {
-                        let y = i64::from(point.y);
-                        ascender = ascender.max(y);
-                        descender = descender.min(y);
-                        let better = match best {
-                            None => true,
-                            Some(_) => {
-                                if string.top {
-                                    y > best_y
-                                } else {
-                                    y < best_y
-                                }
+        let (mut rounds, mut flats): (Vec<i64>, Vec<i64>) = (Vec::new(), Vec::new());
+        let (mut ascender, mut descender) = (i64::MIN, i64::MAX);
+        for character in string.chars.chars() {
+            let Some(glyph) = face.glyph_index(character) else { continue };
+            let Some(contours) = raw_outline(face, glyph.0) else { continue };
+            let mut best: Option<(usize, usize)> = None;
+            let mut best_y = 0_i64;
+            for (index, contour) in contours.iter().enumerate() {
+                if contour.len() < 2 {
+                    continue;
+                }
+                for (at, point) in contour.iter().enumerate() {
+                    let y = i64::from(point.y);
+                    ascender = ascender.max(y);
+                    descender = descender.min(y);
+                    let better = match best {
+                        None => true,
+                        Some(_) => {
+                            if string.top {
+                                y > best_y
+                            } else {
+                                y < best_y
                             }
-                        };
-                        if better {
-                            best = Some((index, at));
-                            best_y = y;
                         }
+                    };
+                    if better {
+                        best = Some((index, at));
+                        best_y = y;
                     }
-                }
-                let Some((index, at)) = best else { continue };
-                let contour = &contours[index];
-                let n = contour.len();
-                let best_x = i64::from(contour[at].x);
-                let (mut first_seg, mut last_seg) = (at, at);
-                let (mut on_first, mut on_last): (Option<usize>, Option<usize>) = if contour[at].tag == Tag::On { (Some(at), Some(at)) } else { (None, None) };
-                let mut prev = at;
-                loop {
-                    prev = (prev + n - 1) % n;
-                    let dist = (i64::from(contour[prev].y) - best_y).abs();
-                    if dist > 5 && (i64::from(contour[prev].x) - best_x).abs() <= 20 * dist {
-                        break;
-                    }
-                    first_seg = prev;
-                    if contour[prev].tag == Tag::On {
-                        on_first = Some(prev);
-                        if on_last.is_none() {
-                            on_last = Some(prev);
-                        }
-                    }
-                    if prev == at {
-                        break;
-                    }
-                }
-                let mut next = at;
-                loop {
-                    next = (next + 1) % n;
-                    let dist = (i64::from(contour[next].y) - best_y).abs();
-                    if dist > 5 && (i64::from(contour[next].x) - best_x).abs() <= 20 * dist {
-                        break;
-                    }
-                    last_seg = next;
-                    if contour[next].tag == Tag::On {
-                        on_last = Some(next);
-                        if on_first.is_none() {
-                            on_first = Some(next);
-                        }
-                    }
-                    if next == at {
-                        break;
-                    }
-                }
-                let round = match (on_first, on_last) {
-                    (Some(a), Some(b)) if (i64::from(contour[b].x) - i64::from(contour[a].x)).abs() > flat_threshold => false,
-                    _ => contour[first_seg].tag != Tag::On || contour[last_seg].tag != Tag::On,
-                };
-                if round {
-                    rounds.push(best_y);
-                } else {
-                    flats.push(best_y);
                 }
             }
-            let Some(blue) = zone_of(&mut rounds, &mut flats, string.top, string.adjustment, ascender, descender) else { continue };
-            blues.push(blue);
+            let Some((index, at)) = best else { continue };
+            let contour = &contours[index];
+            let n = contour.len();
+            let best_x = i64::from(contour[at].x);
+            let (mut first_seg, mut last_seg) = (at, at);
+            let (mut on_first, mut on_last): (Option<usize>, Option<usize>) = if contour[at].tag == Tag::On { (Some(at), Some(at)) } else { (None, None) };
+            let mut prev = at;
+            loop {
+                prev = (prev + n - 1) % n;
+                let dist = (i64::from(contour[prev].y) - best_y).abs();
+                if dist > 5 && (i64::from(contour[prev].x) - best_x).abs() <= 20 * dist {
+                    break;
+                }
+                first_seg = prev;
+                if contour[prev].tag == Tag::On {
+                    on_first = Some(prev);
+                    if on_last.is_none() {
+                        on_last = Some(prev);
+                    }
+                }
+                if prev == at {
+                    break;
+                }
+            }
+            let mut next = at;
+            loop {
+                next = (next + 1) % n;
+                let dist = (i64::from(contour[next].y) - best_y).abs();
+                if dist > 5 && (i64::from(contour[next].x) - best_x).abs() <= 20 * dist {
+                    break;
+                }
+                last_seg = next;
+                if contour[next].tag == Tag::On {
+                    on_last = Some(next);
+                    if on_first.is_none() {
+                        on_first = Some(next);
+                    }
+                }
+                if next == at {
+                    break;
+                }
+            }
+            let round = match (on_first, on_last) {
+                (Some(a), Some(b)) if (i64::from(contour[b].x) - i64::from(contour[a].x)).abs() > flat_threshold => false,
+                _ => contour[first_seg].tag != Tag::On || contour[last_seg].tag != Tag::On,
+            };
+            if round {
+                rounds.push(best_y);
+            } else {
+                flats.push(best_y);
+            }
+        }
+        let Some(blue) = zone_of(&mut rounds, &mut flats, string.top, string.adjustment, ascender, descender) else { continue };
+        blues.push(blue);
     }
     blues
 }
@@ -455,7 +455,9 @@ fn widths_of_axis(face: &ttf_parser::Face<'_>, upem: i64, standard: char, horizo
         && let Some(mut contours) = raw_outline(face, glyph.0)
     {
         if horizontal {
-            for point in contours.iter_mut().flatten() { (point.x, point.y) = (-point.y, point.x); }
+            for point in contours.iter_mut().flatten() {
+                (point.x, point.y) = (-point.y, point.x);
+            }
         }
         let truetype = is_truetype_orientation(&contours);
         let mut hints = Hints::load(&contours, upem, truetype);
@@ -463,7 +465,8 @@ fn widths_of_axis(face: &ttf_parser::Face<'_>, upem: i64, standard: char, horizo
         hints.link_segments(0);
         for (index, segment) in hints.segments.iter().enumerate() {
             if let Some(link) = segment.link
-                && hints.segments[link].link == Some(index) && link > index
+                && hints.segments[link].link == Some(index)
+                && link > index
             {
                 stem_widths.push((segment.pos - hints.segments[link].pos).abs());
             }
@@ -813,9 +816,13 @@ impl Hints {
             let mut round = false;
             while point != last {
                 let next = self.next_of(contour, point);
-                if self.points[point].tag == Tag::On && self.points[next].tag == Tag::On { break; }
+                if self.points[point].tag == Tag::On && self.points[next].tag == Tag::On {
+                    break;
+                }
                 point = next;
-                if point == last { round = true; }
+                if point == last {
+                    round = true;
+                }
             }
             self.segments[at].round = round;
         }
@@ -828,14 +835,21 @@ impl Hints {
         let len_threshold = 8 * self.upem / 2048;
         let dist_threshold = div_fix(192, scale);
         for a in 0..count {
-            if self.segments[a].dir != self.major_dir { continue; }
+            if self.segments[a].dir != self.major_dir {
+                continue;
+            }
             for b in 0..count {
-                if a == b || self.segments[a].dir + self.segments[b].dir != 0 { continue; }
+                if a == b || self.segments[a].dir + self.segments[b].dir != 0 {
+                    continue;
+                }
                 let dist = self.segments[b].pos - self.segments[a].pos;
-                if dist < 0 { continue; }
-                let len = self.segments[a].max_coord.min(self.segments[b].max_coord)
-                    - self.segments[a].min_coord.max(self.segments[b].min_coord);
-                if len < len_threshold { continue; }
+                if dist < 0 {
+                    continue;
+                }
+                let len = self.segments[a].max_coord.min(self.segments[b].max_coord) - self.segments[a].min_coord.max(self.segments[b].min_coord);
+                if len < len_threshold {
+                    continue;
+                }
                 for (here, other) in [(a, b), (b, a)] {
                     let score = self.segments[here].score;
                     if dist * 8 < score * 9 && (dist * 8 < score * 7 || lengths[here] < len) {
@@ -848,14 +862,23 @@ impl Hints {
         }
         for a in 0..count {
             let Some(link_a) = self.segments[a].link else { continue };
-            if self.segments[link_a].link != Some(a) || self.segments[link_a].pos <= self.segments[a].pos
-                || self.segments[a].score >= dist_threshold { continue; }
+            if self.segments[link_a].link != Some(a) || self.segments[link_a].pos <= self.segments[a].pos || self.segments[a].score >= dist_threshold {
+                continue;
+            }
             for b in 0..count {
-                if a == b || self.segments[b].pos > self.segments[a].pos { continue; }
+                if a == b || self.segments[b].pos > self.segments[a].pos {
+                    continue;
+                }
                 let Some(link_b) = self.segments[b].link else { continue };
-                if self.segments[link_b].link != Some(b) || self.segments[link_b].pos < self.segments[link_a].pos { continue; }
-                if self.segments[a].pos == self.segments[b].pos && self.segments[link_a].pos == self.segments[link_b].pos { continue; }
-                if self.segments[b].score <= self.segments[a].score || self.segments[a].score * 4 <= self.segments[b].score { continue; }
+                if self.segments[link_b].link != Some(b) || self.segments[link_b].pos < self.segments[link_a].pos {
+                    continue;
+                }
+                if self.segments[a].pos == self.segments[b].pos && self.segments[link_a].pos == self.segments[link_b].pos {
+                    continue;
+                }
+                if self.segments[b].score <= self.segments[a].score || self.segments[a].score * 4 <= self.segments[b].score {
+                    continue;
+                }
                 if lengths[a] >= lengths[b] * 3 {
                     for segment in &mut self.segments {
                         if segment.link == Some(b) {
@@ -891,7 +914,9 @@ impl Hints {
             div_fix(mul_fix(edge_distance_threshold, scale).min(16), scale)
         } else if mul_fix(edge_distance_threshold, scale) > 64 / 4 {
             div_fix(64 / 4, scale)
-        } else { edge_distance_threshold };
+        } else {
+            edge_distance_threshold
+        };
         // CJK chooses the nearest compatible edge, including the linked-segment distances.
         let cjk = self.cjk;
         let mut edges: Vec<Edge> = Vec::new();
@@ -900,10 +925,16 @@ impl Hints {
             if segment.dir == DIR_NONE {
                 continue;
             }
-            let reaches = |edge: &Edge| (segment.pos - edge.fpos).abs() < threshold && edge.dir == segment.dir
-                && (!cjk || segment.link.is_none_or(|link| edge.segments.iter().all(|at| {
-                    self.segments[*at].link.is_none_or(|other| (self.segments[link].pos - self.segments[other].pos).abs() < threshold)
-                })));
+            let reaches = |edge: &Edge| {
+                (segment.pos - edge.fpos).abs() < threshold
+                    && edge.dir == segment.dir
+                    && (!cjk
+                        || segment.link.is_none_or(|link| {
+                            edge.segments
+                                .iter()
+                                .all(|at| self.segments[*at].link.is_none_or(|other| (self.segments[link].pos - self.segments[other].pos).abs() < threshold))
+                        }))
+            };
             let found = if cjk {
                 edges.iter().enumerate().filter(|(_, edge)| reaches(edge)).min_by_key(|(at, edge)| ((segment.pos - edge.fpos).abs(), *at)).map(|(at, _)| at)
             } else {
@@ -1169,7 +1200,11 @@ impl Hints {
                             self.edges[index].pos = self.edges[before].pos;
                         } else {
                             self.edges[index].pos = self.edges[before].pos
-                                + mul_div(self.edges[index].opos - self.edges[before].opos, self.edges[after].pos - self.edges[before].pos, self.edges[after].opos - self.edges[before].opos);
+                                + mul_div(
+                                    self.edges[index].opos - self.edges[before].opos,
+                                    self.edges[after].pos - self.edges[before].pos,
+                                    self.edges[after].opos - self.edges[before].opos,
+                                );
                         }
                     } else {
                         let anchor_index = anchor.expect("an anchor");
@@ -1208,14 +1243,17 @@ impl Hints {
             if offset < 32 && (u1 <= offset || d2 <= offset) {
                 0
             } else {
-                if offset >= 32 { offset = 64 - threshold; }
+                if offset >= 32 {
+                    offset = 64 - threshold;
+                }
                 let (down1, up1) = (threshold - u1, u1 - offset);
                 let (down2, up2) = (d2 - offset, threshold - d2);
                 let first = if down1 <= up1 { -down1 } else { up1 };
                 let second = if down2 <= up2 { -down2 } else { up2 };
                 if first.abs() <= second.abs() { first } else { second }
             }
-        }.clamp(-14, 14);
+        }
+        .clamp(-14, 14);
         if self.edges[a].opos < self.edges[b].opos {
             self.edges[a].pos = start + delta;
             self.edges[b].pos = start + delta + len;
@@ -1233,8 +1271,13 @@ impl Hints {
         let mut anchor = self.edges.iter().any(|edge| edge.done);
         let mut delta = 0;
         for a in 0..self.edges.len() {
-            if self.edges[a].done { continue; }
-            let Some(b) = self.edges[a].link else { skipped += 1; continue };
+            if self.edges[a].done {
+                continue;
+            }
+            let Some(b) = self.edges[a].link else {
+                skipped += 1;
+                continue;
+            };
             if last_stem.is_some_and(|last| self.edges[a].pos < last + 64 || self.edges[b].pos < last + 64) {
                 skipped += 1;
                 continue;
@@ -1266,37 +1309,49 @@ impl Hints {
             let (a, b, c) = if count == 6 { (0, 2, 4) } else { (1, 5, 9) };
             let dist1 = self.edges[b].opos - self.edges[a].opos;
             let dist2 = self.edges[c].opos - self.edges[b].opos;
-            if self.edges[a].link == Some(a + 1) && self.edges[b].link == Some(b + 1)
-                && self.edges[c].link == Some(c + 1) && (dist1 - dist2).abs() < 8 {
+            if self.edges[a].link == Some(a + 1) && self.edges[b].link == Some(b + 1) && self.edges[c].link == Some(c + 1) && (dist1 - dist2).abs() < 8 {
                 let shift = self.edges[c].pos - (2 * self.edges[b].pos - self.edges[a].pos);
                 self.edges[c].pos -= shift;
                 self.edges[c + 1].pos -= shift;
                 self.edges[c].done = true;
                 self.edges[c + 1].done = true;
-                if count == 12 { self.edges[8].pos -= shift; self.edges[11].pos -= shift; }
+                if count == 12 {
+                    self.edges[8].pos -= shift;
+                    self.edges[11].pos -= shift;
+                }
             }
         }
-        if skipped == 0 { return; }
+        if skipped == 0 {
+            return;
+        }
         for a in 0..self.edges.len() {
-            if self.edges[a].done { continue; }
+            if self.edges[a].done {
+                continue;
+            }
             if let Some(base) = self.edges[a].serif {
                 self.align_linked(base, a);
                 self.edges[a].done = true;
                 skipped -= 1;
             }
         }
-        if skipped == 0 { return; }
+        if skipped == 0 {
+            return;
+        }
         // Deliberately do not mark interpolated edges DONE: upstream interpolates all remaining
         // edges from the originally fitted stems/serifs, independent of iteration order.
         for a in 0..self.edges.len() {
-            if self.edges[a].done { continue; }
+            if self.edges[a].done {
+                continue;
+            }
             let before = (0..a).rev().find(|at| self.edges[*at].done);
             let after = (a + 1..self.edges.len()).find(|at| self.edges[*at].done);
             match (before, after) {
                 (Some(b), Some(c)) => {
-                    self.edges[a].pos = if self.edges[b].fpos == self.edges[c].fpos { self.edges[b].pos } else {
-                        self.edges[b].pos + mul_div(self.edges[a].fpos - self.edges[b].fpos,
-                            self.edges[c].pos - self.edges[b].pos, self.edges[c].fpos - self.edges[b].fpos)
+                    self.edges[a].pos = if self.edges[b].fpos == self.edges[c].fpos {
+                        self.edges[b].pos
+                    } else {
+                        self.edges[b].pos
+                            + mul_div(self.edges[a].fpos - self.edges[b].fpos, self.edges[c].pos - self.edges[b].pos, self.edges[c].fpos - self.edges[b].fpos)
                     };
                 }
                 (Some(base), None) | (None, Some(base)) => self.align_linked(base, a),
@@ -1498,7 +1553,8 @@ impl Metrics {
             .map(|blue| {
                 let ref_cur = mul_fix(blue.ref_org, scale);
                 let shoot_cur = mul_fix(blue.shoot_org, scale);
-                let mut zone = ScaledBlue { ref_org: blue.ref_org, shoot_org: blue.shoot_org, ref_fit: ref_cur, shoot_fit: shoot_cur, top: blue.top, active: false };
+                let mut zone =
+                    ScaledBlue { ref_org: blue.ref_org, shoot_org: blue.shoot_org, ref_fit: ref_cur, shoot_fit: shoot_cur, top: blue.top, active: false };
                 let dist = mul_fix(blue.ref_org - blue.shoot_org, scale);
                 if (-48..=48).contains(&dist) {
                     if cjk {
@@ -1571,8 +1627,8 @@ impl Metrics {
             // Unlike Latin, af_cjk_hints_init does NOT set NO_HORIZONTAL in light mode.
             // Rotate by 90 degrees to use the same segment/point machinery: original
             // major UP becomes LEFT and original x becomes the fitted y coordinate.
-            let rotated: Vec<Vec<RawPoint>> = contours.iter().map(|contour| contour.iter().map(|p|
-                RawPoint { x: -p.y, y: p.x, tag: p.tag }).collect()).collect();
+            let rotated: Vec<Vec<RawPoint>> =
+                contours.iter().map(|contour| contour.iter().map(|p| RawPoint { x: -p.y, y: p.x, tag: p.tag }).collect()).collect();
             let mut horizontal = Hints::load(&rotated, self.upem, truetype);
             horizontal.cjk = true;
             horizontal.horizontal = true;
@@ -1604,7 +1660,9 @@ impl Metrics {
 /// font unit.
 pub fn scaled_outline(face: &ttf_parser::Face<'_>, glyph: u16, scale_x: f32, scale_y: f32) -> Option<HintedGlyph> {
     let contours = raw_outline(face, glyph)?;
-    Some(HintedGlyph { contours: contours.iter().map(|contour| contour.iter().map(|p| (p.x as f32 * scale_x, p.y as f32 * scale_y, p.tag)).collect()).collect() })
+    Some(HintedGlyph {
+        contours: contours.iter().map(|contour| contour.iter().map(|p| (p.x as f32 * scale_x, p.y as f32 * scale_y, p.tag)).collect()).collect(),
+    })
 }
 
 /// The control box of contours (px, y up) grown by `half_width` on every side, with the miter tips of a stroke of that

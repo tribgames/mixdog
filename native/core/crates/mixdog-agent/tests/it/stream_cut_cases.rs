@@ -80,10 +80,8 @@ async fn a_cut_with_nothing_shown_is_retried_in_place_and_shows_reconnecting() {
 
 #[tokio::test]
 async fn shown_reasoning_is_replayed_on_the_loop_ladder_with_no_withdrawal_asked() {
-    let (h, provider) = product(vec![
-        turn(vec![reasoning("thinking"), Step::Fail(connection_cut(shown()))]),
-        turn(vec![text("ok"), done(StopReason::EndTurn)]),
-    ]);
+    let (h, provider) =
+        product(vec![turn(vec![reasoning("thinking"), Step::Fail(connection_cut(shown()))]), turn(vec![text("ok"), done(StopReason::EndTurn)])]);
     let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.response.content, "ok");
     assert_eq!(provider.requests().len(), 2);
@@ -93,10 +91,7 @@ async fn shown_reasoning_is_replayed_on_the_loop_ladder_with_no_withdrawal_asked
 
 #[tokio::test]
 async fn shown_text_the_owner_cannot_withdraw_is_kept_and_continued_never_replayed() {
-    let (h, _) = product(vec![
-        turn(vec![text("part"), Step::Fail(connection_cut(shown()))]),
-        turn(vec![text(" rest"), done(StopReason::EndTurn)]),
-    ]);
+    let (h, _) = product(vec![turn(vec![text("part"), Step::Fail(connection_cut(shown()))]), turn(vec![text(" rest"), done(StopReason::EndTurn)])]);
     let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
     assert!(output.response.content.starts_with("part"), "{}", output.response.content);
     assert!(waits(&h).is_empty(), "continued, not replayed");
@@ -105,10 +100,7 @@ async fn shown_text_the_owner_cannot_withdraw_is_kept_and_continued_never_replay
 
 #[tokio::test]
 async fn shown_text_the_owner_withdrew_is_replayed_on_the_loop_ladder_without_repeating_it() {
-    let (h, provider) = withdrawing(vec![
-        turn(vec![text("part"), Step::Fail(connection_cut(shown()))]),
-        turn(vec![text("whole"), done(StopReason::EndTurn)]),
-    ]);
+    let (h, provider) = withdrawing(vec![turn(vec![text("part"), Step::Fail(connection_cut(shown()))]), turn(vec![text("whole"), done(StopReason::EndTurn)])]);
     let output = finish(h.run(config(), vec![], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.response.content, "whole", "the dead attempt's text is not part of the turn");
     assert_eq!(provider.requests().len(), 2);
@@ -132,10 +124,7 @@ async fn a_withdrawal_the_owner_refuses_ends_the_turn_and_nothing_is_replayed() 
 
 #[tokio::test]
 async fn a_cut_tool_input_is_replayed_with_the_split_call_notice_and_the_call_never_runs() {
-    let (h, provider) = product(vec![
-        turn(vec![Step::Fail(connection_cut(input_cut()))]),
-        turn(vec![text("split"), done(StopReason::EndTurn)]),
-    ]);
+    let (h, provider) = product(vec![turn(vec![Step::Fail(connection_cut(input_cut()))]), turn(vec![text("split"), done(StopReason::EndTurn)])]);
     let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.tool_calls_total, 0, "the half-streamed call is dropped unrun");
     assert_eq!(provider.requests().len(), 2);
@@ -148,10 +137,8 @@ async fn a_cut_tool_input_is_replayed_with_the_split_call_notice_and_the_call_ne
 async fn reasoning_then_a_cut_tool_input_is_replayed_with_the_notice() {
     let mut exposure = input_cut();
     exposure.text_emitted = true;
-    let (h, provider) = product(vec![
-        turn(vec![reasoning("planning the write"), Step::Fail(connection_cut(exposure))]),
-        turn(vec![text("split"), done(StopReason::EndTurn)]),
-    ]);
+    let (h, provider) =
+        product(vec![turn(vec![reasoning("planning the write"), Step::Fail(connection_cut(exposure))]), turn(vec![text("split"), done(StopReason::EndTurn)])]);
     let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
     assert_eq!(provider.requests().len(), 2);
     assert_eq!(notices(&output), 1);
@@ -164,10 +151,7 @@ async fn reasoning_then_a_cut_tool_input_is_replayed_with_the_notice() {
 async fn shown_text_then_a_cut_tool_input_the_owner_cannot_withdraw_ends_the_turn() {
     let mut exposure = input_cut();
     exposure.text_emitted = true;
-    let (h, provider) = product(vec![
-        turn(vec![text("part"), Step::Fail(connection_cut(exposure))]),
-        turn(vec![text("never"), done(StopReason::EndTurn)]),
-    ]);
+    let (h, provider) = product(vec![turn(vec![text("part"), Step::Fail(connection_cut(exposure))]), turn(vec![text("never"), done(StopReason::EndTurn)])]);
     let failure = h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")]).run().await.expect_err("the cut surfaces");
     assert!(matches!(failure.error, AgentError::Provider(ref error) if error.transport == Some(TransportFault::H2GoAway { code: 0 })));
     assert_eq!(provider.requests().len(), 1, "not replayed, not continued");
@@ -178,10 +162,8 @@ async fn shown_text_then_a_cut_tool_input_the_owner_cannot_withdraw_ends_the_tur
 async fn a_finished_call_before_a_cut_tool_input_runs_once_and_nothing_is_replayed() {
     let mut exposure = input_cut();
     exposure.tool_dispatched = true;
-    let (h, provider) = product(vec![
-        turn(vec![call("c1", "echo", json!({})), Step::Fail(connection_cut(exposure))]),
-        turn(vec![text("fin"), done(StopReason::EndTurn)]),
-    ]);
+    let (h, provider) =
+        product(vec![turn(vec![call("c1", "echo", json!({})), Step::Fail(connection_cut(exposure))]), turn(vec![text("fin"), done(StopReason::EndTurn)])]);
     let output = finish(h.run(config(), vec![Echo::tool()], vec![AgentMessage::user("go")])).await;
     assert_eq!(output.tool_calls_total, 1, "the dispatched call ran exactly once");
     assert_eq!(dump(&output.transcript).iter().filter(|line| line.starts_with("tool#c1")).count(), 1);
@@ -194,10 +176,7 @@ async fn a_cut_after_a_dispatch_the_loop_holds_no_call_for_is_never_replayed() {
     for owner in [product, withdrawing] {
         let mut exposure = shown();
         exposure.tool_dispatched = true;
-        let (h, provider) = owner(vec![
-            turn(vec![text("part"), Step::Fail(connection_cut(exposure))]),
-            turn(vec![text("never"), done(StopReason::EndTurn)]),
-        ]);
+        let (h, provider) = owner(vec![turn(vec![text("part"), Step::Fail(connection_cut(exposure))]), turn(vec![text("never"), done(StopReason::EndTurn)])]);
         let failure = h.run(config(), vec![], vec![AgentMessage::user("go")]).run().await.expect_err("a dispatched call is a replay boundary");
         assert!(matches!(failure.error, AgentError::Provider(_)));
         assert_eq!(provider.requests().len(), 1, "no second request");

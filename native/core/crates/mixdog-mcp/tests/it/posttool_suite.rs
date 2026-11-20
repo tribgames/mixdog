@@ -55,7 +55,6 @@ impl ProcessManager for NoProcesses {
     }
 }
 
-
 /// A reported call names its id as `tool_use_id`, after `tool_input` (`toolPayload`, `session-hooks.mjs`).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reported_call_names_its_id_as_tool_use_id() {
@@ -135,5 +134,3 @@ async fn a_bound_transcript_export_names_the_path_the_handlers_receive() {
     );
     hub.close_all().await;
 }
-
-

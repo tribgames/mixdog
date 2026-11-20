@@ -59,13 +59,7 @@ pub(super) fn kind_by_ast_kind(lang: &str, ast_kind: &str) -> Option<Option<&'st
         ("typescript", "ambient_declaration") => None,
         ("typescript", "interface_declaration") => Some("interface"),
         ("typescript", "enum_declaration") => Some("enum"),
-        (
-            "typescript" | "javascript",
-            "function_declaration"
-            | "function_expression"
-            | "generator_function"
-            | "function_signature",
-        ) => Some("function"),
+        ("typescript" | "javascript", "function_declaration" | "function_expression" | "generator_function" | "function_signature") => Some("function"),
         // A METHOD SIGNATURE — of an interface, of a type literal, or the
         // `abstract` form in a class — declares a method with no body, and is
         // the only declaration of that name. A PROPERTY signature is a data
@@ -81,14 +75,9 @@ pub(super) fn kind_by_ast_kind(lang: &str, ast_kind: &str) -> Option<Option<&'st
         // class body has none. Reporting the field would need its own rule and
         // would put a second `method` on lines a class member rule already
         // owns, so an arrow-valued field stays what it is — a field.
-        (
-            "typescript" | "javascript",
-            "public_field_definition"
-            | "field_definition"
-            | "property_signature"
-            | "property_identifier"
-            | "enum_assignment",
-        ) => None,
+        ("typescript" | "javascript", "public_field_definition" | "field_definition" | "property_signature" | "property_identifier" | "enum_assignment") => {
+            None
+        }
         ("python", "assignment") => None,
         ("go", "type_spec") => Some("type"),
         // An interface method element is a bodyless method declaration.
@@ -113,20 +102,9 @@ pub(super) fn kind_by_ast_kind(lang: &str, ast_kind: &str) -> Option<Option<&'st
         ("kotlin", "companion_object" | "secondary_constructor" | "property_declaration") => None,
         ("csharp", "record_declaration") => Some("record"),
         ("csharp", "local_function_statement") => Some("local-function"),
-        (
-            "csharp",
-            "delegate_declaration"
-            | "property_declaration"
-            | "field_declaration"
-            | "enum_member_declaration"
-            | "variable_declarator",
-        ) => None,
+        ("csharp", "delegate_declaration" | "property_declaration" | "field_declaration" | "enum_member_declaration" | "variable_declarator") => None,
         ("c", "union_specifier" | "declaration" | "field_declaration" | "enumerator") => None,
-        (
-            "cpp",
-            "union_specifier" | "declaration" | "field_declaration" | "enumerator"
-            | "concept_definition",
-        ) => None,
+        ("cpp", "union_specifier" | "declaration" | "field_declaration" | "enumerator" | "concept_definition") => None,
         // `require 'x'` is a plain method call, never a symbol.
         ("ruby", "assignment" | "call" | "command") => None,
         ("php", "trait_declaration") => Some("trait"),
@@ -310,18 +288,9 @@ mod tests {
     fn the_javascript_grammar_has_no_method_signature_node() {
         let lang = scan_lang_for_ext("js").expect("js has a scan language");
         let grammar = ast_grep_core::tree_sitter::LanguageExt::get_ts_language(&lang);
-        let node_kinds: Vec<&str> = (0..grammar.node_kind_count())
-            .filter_map(|id| grammar.node_kind_for_id(id as u16))
-            .collect();
-        assert!(
-            node_kinds.contains(&"method_definition"),
-            "sanity check on the grammar dump ({} kinds)",
-            node_kinds.len()
-        );
-        assert!(
-            !node_kinds.contains(&"method_signature"),
-            "javascript gained a method_signature node: restore it to the non-symbol arm"
-        );
+        let node_kinds: Vec<&str> = (0..grammar.node_kind_count()).filter_map(|id| grammar.node_kind_for_id(id as u16)).collect();
+        assert!(node_kinds.contains(&"method_definition"), "sanity check on the grammar dump ({} kinds)", node_kinds.len());
+        assert!(!node_kinds.contains(&"method_signature"), "javascript gained a method_signature node: restore it to the non-symbol arm");
     }
 
     #[test]
@@ -379,44 +348,20 @@ const store = { method() {} };
 "#;
         assert_eq!(
             kinds("javascript", "js", source),
-            named(&[
-                ("function", "outer"),
-                ("function", "inner"),
-                ("class", "Nested"),
-                ("method", "run"),
-                ("variable", "store"),
-                ("method", "method"),
-            ])
+            named(&[("function", "outer"), ("function", "inner"), ("class", "Nested"), ("method", "run"), ("variable", "store"), ("method", "method"),])
         );
     }
 
     #[test]
     fn python_methods_are_functions() {
         let source = "class Store:\n    def read(self):\n        def inner():\n            pass\n        return inner\n\ndef top():\n    pass\n";
-        assert_eq!(
-            kinds("python", "py", source),
-            named(&[
-                ("class", "Store"),
-                ("function", "read"),
-                ("function", "inner"),
-                ("function", "top"),
-            ])
-        );
+        assert_eq!(kinds("python", "py", source), named(&[("class", "Store"), ("function", "read"), ("function", "inner"), ("function", "top"),]));
     }
 
     #[test]
     fn go_reports_one_symbol_per_type_spec() {
         let source = "package p\n\ntype (\n\tA struct{}\n\tB int\n)\n\ntype C interface{}\n\nfunc F() {}\n\nfunc (a A) M() {}\n";
-        assert_eq!(
-            kinds("go", "go", source),
-            named(&[
-                ("type", "A"),
-                ("type", "B"),
-                ("type", "C"),
-                ("function", "F"),
-                ("method", "M"),
-            ])
-        );
+        assert_eq!(kinds("go", "go", source), named(&[("type", "A"), ("type", "B"), ("type", "C"), ("function", "F"), ("method", "M"),]));
     }
 
     #[test]
@@ -471,8 +416,7 @@ macro_rules! shout { () => {} }
             ])
         );
 
-        let kotlin =
-            "class C {\n  fun m() {}\n}\ninterface I\nenum class E { A }\nobject O\nfun top() {}\n";
+        let kotlin = "class C {\n  fun m() {}\n}\ninterface I\nenum class E { A }\nobject O\nfun top() {}\n";
         assert_eq!(
             kinds("kotlin", "kt", kotlin),
             named(&[
@@ -505,29 +449,13 @@ macro_rules! shout { () => {} }
     #[test]
     fn c_family_kinds() {
         let c = "struct S { int a; };\nenum E { A };\nint f(void) { return 0; }\nchar *g(void) { return 0; }\n";
-        assert_eq!(
-            kinds("c", "c", c),
-            named(&[
-                ("struct", "S"),
-                ("enum", "E"),
-                ("function", "f"),
-                ("function", "g"),
-            ])
-        );
+        assert_eq!(kinds("c", "c", c), named(&[("struct", "S"), ("enum", "E"), ("function", "f"), ("function", "g"),]));
 
         let cpp = "class C { public: void m() {} };\nstruct S {};\nvoid C::out() {}\nint *p() { return 0; }\n";
-        assert_eq!(
-            kinds("cpp", "cpp", cpp),
-            named(&[
-                ("class", "C"),
-                ("method", "m"),
-                ("struct", "S"),
-                ("function", "out"),
-                ("function", "p"),
-            ])
-        );
+        assert_eq!(kinds("cpp", "cpp", cpp), named(&[("class", "C"), ("method", "m"), ("struct", "S"), ("function", "out"), ("function", "p"),]));
 
-        let objc = "@protocol P\n- (void)p;\n@end\n@interface A : NSObject\n- (void)a;\n@end\n@implementation A\n- (void)a {}\n@end\nint f(void) { return 0; }\n";
+        let objc =
+            "@protocol P\n- (void)p;\n@end\n@interface A : NSObject\n- (void)a;\n@end\n@implementation A\n- (void)a {}\n@end\nint f(void) { return 0; }\n";
         assert_eq!(
             kinds("objc", "m", objc),
             named(&[
@@ -547,26 +475,16 @@ macro_rules! shout { () => {} }
     fn script_and_functional_kinds() {
         assert_eq!(
             kinds("ruby", "rb", "module M\n  class C\n    def m; end\n    def self.s; end\n  end\nend\ndef top; end\n"),
-            named(&[
-                ("module", "M"),
-                ("class", "C"),
-                ("method", "m"),
-                ("method", "s"),
-                ("method", "top"),
-            ])
+            named(&[("module", "M"), ("class", "C"), ("method", "m"), ("method", "s"), ("method", "top"),])
         );
 
         assert_eq!(
-            kinds("php", "php", "<?php\ninterface I {}\ntrait T {}\nenum E { case A; public function l(): string { return 'a'; } }\nclass C { public function m() {} }\nfunction f() {}\n"),
-            named(&[
-                ("interface", "I"),
-                ("trait", "T"),
-                ("enum", "E"),
-                ("method", "l"),
-                ("class", "C"),
-                ("method", "m"),
-                ("function", "f"),
-            ])
+            kinds(
+                "php",
+                "php",
+                "<?php\ninterface I {}\ntrait T {}\nenum E { case A; public function l(): string { return 'a'; } }\nclass C { public function m() {} }\nfunction f() {}\n"
+            ),
+            named(&[("interface", "I"), ("trait", "T"), ("enum", "E"), ("method", "l"), ("class", "C"), ("method", "m"), ("function", "f"),])
         );
 
         assert_eq!(
@@ -584,38 +502,18 @@ macro_rules! shout { () => {} }
         );
 
         assert_eq!(
-            kinds(
-                "scala",
-                "scala",
-                "trait T\nclass C { def m(): Int = 1 }\nobject O { def o(): Int = 2 }\n"
-            ),
-            named(&[
-                ("trait", "T"),
-                ("class", "C"),
-                ("function", "m"),
-                ("class", "O"),
-                ("function", "o"),
-            ])
+            kinds("scala", "scala", "trait T\nclass C { def m(): Int = 1 }\nobject O { def o(): Int = 2 }\n"),
+            named(&[("trait", "T"), ("class", "C"), ("function", "m"), ("class", "O"), ("function", "o"),])
         );
 
-        assert_eq!(
-            kinds("bash", "sh", "f() { :; }\nfunction g() { :; }\n"),
-            named(&[("function", "f"), ("function", "g")])
-        );
+        assert_eq!(kinds("bash", "sh", "f() { :; }\nfunction g() { :; }\n"), named(&[("function", "f"), ("function", "g")]));
 
         assert_eq!(
-            kinds(
-                "lua",
-                "lua",
-                "function f() end\nfunction M.g() end\nfunction M:h() end\n"
-            ),
+            kinds("lua", "lua", "function f() end\nfunction M.g() end\nfunction M:h() end\n"),
             named(&[("function", "f"), ("function", "g"), ("function", "h"),])
         );
 
-        assert_eq!(
-            kinds("r", "r", "f <- function(x) x\ng = function(x) x\n"),
-            named(&[("function", "f"), ("function", "g")])
-        );
+        assert_eq!(kinds("r", "r", "f <- function(x) x\ng = function(x) x\n"), named(&[("function", "f"), ("function", "g")]));
 
         assert_eq!(
             kinds("dart", "dart", "class C { void m() {} }\nmixin M {}\nenum E { a }\nextension X on C {}\nvoid top() {}\n"),
@@ -632,12 +530,7 @@ macro_rules! shout { () => {} }
 
         assert_eq!(
             kinds("elixir", "ex", "defmodule M do\n  def f(a), do: a\n  defp g(a), do: a\n  defmacro h(a), do: a\nend\n"),
-            named(&[
-                ("module", "M"),
-                ("function", "f"),
-                ("function", "g"),
-                ("macro", "h"),
-            ])
+            named(&[("module", "M"), ("function", "f"), ("function", "g"), ("macro", "h"),])
         );
 
         assert_eq!(
@@ -664,9 +557,7 @@ macro_rules! shout { () => {} }
             "export interface Host {\n  preflightSteps?(cmd: string): Promise<void>;\n  flag: boolean;\n}\ntype Lit = { onTick(n: number): void; value: number };\nabstract class Base { abstract doIt(): void; }\n",
         );
         assert_eq!(
-            ts.iter()
-                .map(|symbol| (symbol.kind, symbol.name.as_str(), symbol.parent.as_str()))
-                .collect::<Vec<_>>(),
+            ts.iter().map(|symbol| (symbol.kind, symbol.name.as_str(), symbol.parent.as_str())).collect::<Vec<_>>(),
             vec![
                 ("interface", "Host", ""),
                 ("method", "preflightSteps", "Host"),
@@ -676,99 +567,24 @@ macro_rules! shout { () => {} }
                 ("method", "doIt", "Base"),
             ]
         );
-        assert_eq!(
-            record(&ts, "preflightSteps").sig,
-            "preflightSteps?(cmd: string): Promise<void>"
-        );
+        assert_eq!(record(&ts, "preflightSteps").sig, "preflightSteps?(cmd: string): Promise<void>");
 
         // A signature declared in one language keeps that language's own kind
         // for methods: go/dart/objc/java/csharp/php `method`, rust/scala/
         // swift/kotlin/haskell/solidity `function`.
         let cases: &[(&str, &str, &str, &str, &str)] = &[
-            (
-                "go",
-                "go",
-                "package p\ntype Reader interface {\n\tRead(p []byte) (int, error)\n}\n",
-                "method",
-                "Read",
-            ),
-            (
-                "rust",
-                "rs",
-                "pub trait Handler {\n    fn handle(&self) -> bool;\n}\n",
-                "function",
-                "handle",
-            ),
-            (
-                "swift",
-                "swift",
-                "protocol Service {\n    func start()\n}\n",
-                "function",
-                "start",
-            ),
-            (
-                "dart",
-                "dart",
-                "abstract class Service {\n  void start();\n}\n",
-                "method",
-                "start",
-            ),
-            (
-                "scala",
-                "scala",
-                "trait Service {\n  def start(): Unit\n}\n",
-                "function",
-                "start",
-            ),
-            (
-                "java",
-                "java",
-                "public interface Service {\n  void start();\n}\n",
-                "method",
-                "start",
-            ),
-            (
-                "csharp",
-                "cs",
-                "public interface IService {\n  void Start();\n}\n",
-                "method",
-                "Start",
-            ),
-            (
-                "kotlin",
-                "kt",
-                "interface Service {\n    fun start()\n}\n",
-                "function",
-                "start",
-            ),
-            (
-                "php",
-                "php",
-                "<?php\ninterface Service {\n  public function start();\n}\n",
-                "method",
-                "start",
-            ),
-            (
-                "objc",
-                "m",
-                "@protocol Service <NSObject>\n- (void)start;\n@end\n",
-                "method",
-                "start",
-            ),
-            (
-                "solidity",
-                "sol",
-                "interface IService {\n    function start() external;\n}\n",
-                "function",
-                "start",
-            ),
-            (
-                "haskell",
-                "hs",
-                "module M where\nclass Service a where\n  start :: a -> IO ()\n",
-                "function",
-                "start",
-            ),
+            ("go", "go", "package p\ntype Reader interface {\n\tRead(p []byte) (int, error)\n}\n", "method", "Read"),
+            ("rust", "rs", "pub trait Handler {\n    fn handle(&self) -> bool;\n}\n", "function", "handle"),
+            ("swift", "swift", "protocol Service {\n    func start()\n}\n", "function", "start"),
+            ("dart", "dart", "abstract class Service {\n  void start();\n}\n", "method", "start"),
+            ("scala", "scala", "trait Service {\n  def start(): Unit\n}\n", "function", "start"),
+            ("java", "java", "public interface Service {\n  void start();\n}\n", "method", "start"),
+            ("csharp", "cs", "public interface IService {\n  void Start();\n}\n", "method", "Start"),
+            ("kotlin", "kt", "interface Service {\n    fun start()\n}\n", "function", "start"),
+            ("php", "php", "<?php\ninterface Service {\n  public function start();\n}\n", "method", "start"),
+            ("objc", "m", "@protocol Service <NSObject>\n- (void)start;\n@end\n", "method", "start"),
+            ("solidity", "sol", "interface IService {\n    function start() external;\n}\n", "function", "start"),
+            ("haskell", "hs", "module M where\nclass Service a where\n  start :: a -> IO ()\n", "function", "start"),
         ];
         for (graph_lang, ext, source, kind, name) in cases {
             let symbols = records(graph_lang, ext, source);
@@ -780,15 +596,8 @@ macro_rules! shout { () => {} }
 
         // A bodied declaration of the same language keeps its span and kind:
         // the signature rules add symbols, they do not take one over.
-        let dart = records(
-            "dart",
-            "dart",
-            "abstract class Service {\n  void start();\n  void stop() {}\n}\n",
-        );
+        let dart = records("dart", "dart", "abstract class Service {\n  void start();\n  void stop() {}\n}\n");
         let stop = record(&dart, "stop");
-        assert_eq!(
-            (stop.kind, stop.start_line, stop.end_line),
-            ("method", 3, 3)
-        );
+        assert_eq!((stop.kind, stop.start_line, stop.end_line), ("method", 3, 3));
     }
 }

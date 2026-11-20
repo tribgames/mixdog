@@ -48,14 +48,7 @@ impl PatternDict {
     /// The patterns cut out of the collective bitmap.
     fn cut(&self, collective: &Image) -> Option<Vec<Image>> {
         (0..=self.gray_max)
-            .map(|gray| {
-                collective.sub_image(
-                    (gray * u32::from(self.pattern_width)) as i32,
-                    0,
-                    i32::from(self.pattern_width),
-                    i32::from(self.pattern_height),
-                )
-            })
+            .map(|gray| collective.sub_image((gray * u32::from(self.pattern_width)) as i32, 0, i32::from(self.pattern_width), i32::from(self.pattern_height)))
             .collect()
     }
 
@@ -96,16 +89,8 @@ impl HalftoneRegion<'_> {
     fn cell(&self, m: u32, n: u32) -> (i32, i32) {
         let (m, n) = (m as i32, n as i32);
         let (rx, ry) = (i32::from(self.step_x), i32::from(self.step_y));
-        let x = self
-            .grid_x
-            .wrapping_add(m.wrapping_mul(ry))
-            .wrapping_add(n.wrapping_mul(rx))
-            >> 8;
-        let y = self
-            .grid_y
-            .wrapping_add(m.wrapping_mul(rx))
-            .wrapping_sub(n.wrapping_mul(ry))
-            >> 8;
+        let x = self.grid_x.wrapping_add(m.wrapping_mul(ry)).wrapping_add(n.wrapping_mul(rx)) >> 8;
+        let y = self.grid_y.wrapping_add(m.wrapping_mul(rx)).wrapping_sub(n.wrapping_mul(ry)) >> 8;
         (x, y)
     }
 
@@ -155,14 +140,8 @@ impl HalftoneRegion<'_> {
         if self.template == 0 {
             at[2..].copy_from_slice(&[-3, -1, 2, -2, -2, -2]);
         }
-        let plane = GenericRegion {
-            width: self.grid_width as i32,
-            height: self.grid_height as i32,
-            template: self.template,
-            tpgdon: false,
-            skip: skip.as_ref(),
-            at,
-        };
+        let plane =
+            GenericRegion { width: self.grid_width as i32, height: self.grid_height as i32, template: self.template, tpgdon: false, skip: skip.as_ref(), at };
         // decoded from the most significant plane down; each is the exclusive or of itself and the one above
         let mut planes: Vec<Image> = Vec::with_capacity(bits as usize);
         for _ in 0..bits {
@@ -179,14 +158,7 @@ impl HalftoneRegion<'_> {
     /// `DecodeMMR`: the gray-scale image of `HBPP` MMR coded bitplanes, each followed by the end-of-block bytes.
     fn decode_mmr(&self, stream: &mut BitStream) -> Option<Image> {
         let bits = gray_bits(self.patterns.len() as u32);
-        let plane = GenericRegion {
-            width: self.grid_width as i32,
-            height: self.grid_height as i32,
-            template: 0,
-            tpgdon: false,
-            skip: None,
-            at: [0; 8],
-        };
+        let plane = GenericRegion { width: self.grid_width as i32, height: self.grid_height as i32, template: 0, tpgdon: false, skip: None, at: [0; 8] };
         let mut planes: Vec<Image> = Vec::with_capacity(bits as usize);
         for _ in 0..bits {
             let (mut image, position) = plane.decode_mmr(stream.data(), stream.bit_position())?;
@@ -213,13 +185,7 @@ impl Context<'_> {
         if gray_max > MAX_GRAY_MAX {
             return Err(Failure);
         }
-        let dict = PatternDict {
-            pattern_width,
-            pattern_height,
-            gray_max,
-            mmr: flags & 1 != 0,
-            template: (flags >> 1) & 3,
-        };
+        let dict = PatternDict { pattern_width, pattern_height, gray_max, mmr: flags & 1 != 0, template: (flags >> 1) & 3 };
         let patterns = if dict.mmr {
             let patterns = dict.decode_mmr(&mut self.stream).ok_or(Failure)?;
             self.stream.align_byte();
@@ -252,9 +218,7 @@ impl Context<'_> {
         let grid_y = self.stream.read_u32().ok_or(Failure)? as i32;
         let step_x = self.stream.read_u16().ok_or(Failure)?;
         let step_y = self.stream.read_u16().ok_or(Failure)?;
-        if !Image::is_valid_region_size(grid_width as i32, grid_height as i32)
-            || !Image::is_valid_region_size(info.width, info.height)
-        {
+        if !Image::is_valid_region_size(grid_width as i32, grid_height as i32) || !Image::is_valid_region_size(info.width, info.height) {
             return Err(Failure);
         }
         if segment.referred.len() != 1 {
@@ -315,21 +279,10 @@ mod tests {
     }
 
     fn render(img: &Image) -> Vec<String> {
-        (0..img.height())
-            .map(|y| {
-                (0..img.width())
-                    .map(|x| if img.get_pixel(x, y) == 1 { '#' } else { '.' })
-                    .collect()
-            })
-            .collect()
+        (0..img.height()).map(|y| (0..img.width()).map(|x| if img.get_pixel(x, y) == 1 { '#' } else { '.' }).collect()).collect()
     }
 
-    fn halftone<'a>(
-        patterns: &'a [Image],
-        grid: (u32, u32),
-        step: (u16, u16),
-        origin: (i32, i32),
-    ) -> HalftoneRegion<'a> {
+    fn halftone<'a>(patterns: &'a [Image], grid: (u32, u32), step: (u16, u16), origin: (i32, i32)) -> HalftoneRegion<'a> {
         HalftoneRegion {
             width: 8,
             height: 4,
@@ -384,35 +337,20 @@ mod tests {
 
     #[test]
     fn the_pattern_dictionary_region_puts_the_first_adaptive_pixel_one_pattern_to_the_left() {
-        let dict = PatternDict {
-            pattern_width: 4,
-            pattern_height: 4,
-            gray_max: 15,
-            mmr: false,
-            template: 0,
-        };
+        let dict = PatternDict { pattern_width: 4, pattern_height: 4, gray_max: 15, mmr: false, template: 0 };
         let region = dict.region();
         assert_eq!((region.width, region.height), (64, 4));
         assert_eq!(region.at, [-4, 0, -3, -1, 2, -2, -2, -2]);
         let other = PatternDict { template: 2, ..dict };
         assert_eq!(other.region().at, [-4, 0, 0, 0, 0, 0, 0, 0]);
         // the offset is stored in a signed byte
-        let wide = PatternDict {
-            pattern_width: 255,
-            ..other
-        };
+        let wide = PatternDict { pattern_width: 255, ..other };
         assert_eq!(wide.region().at[0], 1);
     }
 
     #[test]
     fn patterns_are_cut_from_the_collective_bitmap() {
-        let dict = PatternDict {
-            pattern_width: 2,
-            pattern_height: 2,
-            gray_max: 1,
-            mmr: false,
-            template: 0,
-        };
+        let dict = PatternDict { pattern_width: 2, pattern_height: 2, gray_max: 1, mmr: false, template: 0 };
         let collective = pattern(&["#..#", ".##."]);
         let patterns = dict.cut(&collective).unwrap();
         assert_eq!(render(&patterns[0]), ["#.", ".#"]);

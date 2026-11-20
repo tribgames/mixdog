@@ -93,11 +93,7 @@ impl Rat {
             return B::zero();
         }
         let excess = Rat { n: self.n.sub(&self.d), d: self.d.clone() };
-        if excess.n.top() < excess.d.top() - 1 {
-            super::ball::log1p(&excess.ball())
-        } else {
-            super::ball::ln(&self.ball())
-        }
+        if excess.n.top() < excess.d.top() - 1 { super::ball::log1p(&excess.ball()) } else { super::ball::ln(&self.ball()) }
     }
 
     /// The nearest double (through a ball at 128 bits; exact rationals of doubles never sit within 2^-128 of a

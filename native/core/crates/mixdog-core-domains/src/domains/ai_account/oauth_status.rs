@@ -265,8 +265,7 @@ fn describe_antigravity(tokens: &Value, now: f64) -> Value {
 
 /// `describeAnthropicOAuthCredentials`: `creds` is `loadCredentials()`'s document.
 fn describe_anthropic(creds: &Value, now: f64) -> Value {
-    let has_inference_scope =
-        creds.get("scopes").and_then(Value::as_array).is_some_and(|scopes| scopes.iter().any(|scope| scope == "user:inference"));
+    let has_inference_scope = creds.get("scopes").and_then(Value::as_array).is_some_and(|scopes| scopes.iter().any(|scope| scope == "user:inference"));
     let has_refresh = truthy(creds.get("refreshToken"));
     let expires_at = normalize_expires_at_ms(creds.get("expiresAt"));
     let detail = text(creds.get("path")).unwrap_or_default();

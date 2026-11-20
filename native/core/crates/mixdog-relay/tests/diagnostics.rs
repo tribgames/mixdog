@@ -4,8 +4,8 @@ use std::sync::{Arc, Mutex, MutexGuard, PoisonError};
 use std::time::Duration;
 
 use mixdog_relay::diagnostics::{
-    DesktopSockets, LagProbe, LagWindow, LoopDelayProbe, PhoneSocket, SOCKET_REPORT_INTERVAL, Snapshot, SocketDiagnostics,
-    collect_sockets, start_socket_diagnostics_with, watch_interval,
+    DesktopSockets, LagProbe, LagWindow, LoopDelayProbe, PhoneSocket, SOCKET_REPORT_INTERVAL, Snapshot, SocketDiagnostics, collect_sockets,
+    start_socket_diagnostics_with, watch_interval,
 };
 use mixdog_relay::logline::{self, LoopDelay, Stream};
 
@@ -39,11 +39,7 @@ fn desktop(id: &str, socket: Option<u64>, phones: &[u64]) -> DesktopSockets {
         device_id: id.to_owned(),
         socket_attached: socket.is_some(),
         socket_buffered: socket.unwrap_or(0),
-        phones: phones
-            .iter()
-            .enumerate()
-            .map(|(index, buffered)| PhoneSocket { client_id: format!("phone-{index}-xxxxxxxx"), buffered: *buffered })
-            .collect(),
+        phones: phones.iter().enumerate().map(|(index, buffered)| PhoneSocket { client_id: format!("phone-{index}-xxxxxxxx"), buffered: *buffered }).collect(),
     }
 }
 
@@ -111,7 +107,6 @@ fn a_window_reports_nearest_rank_percentiles_and_opens_a_fresh_one() {
     let again = window.take();
     assert_eq!((again.p50, again.p99, again.max), (0.0, 0.0, 0.0));
 }
-
 
 /// `count` watch ticks: each moves the clock 5 s and lets the report task run.
 async fn watch_ticks(count: usize) {

@@ -8,13 +8,11 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_app_protocol::v2::connections::{
-    SshAgentState, SshAgentStatus, SshCleanupResult, SshFailed, SshFailure, SshFailureKind,
-};
 #[cfg(test)]
 use mixdog_app_protocol::v2::connections::SshConnectResult;
+use mixdog_app_protocol::v2::connections::{SshAgentState, SshAgentStatus, SshCleanupResult, SshFailed, SshFailure, SshFailureKind};
 use mixdog_rt::DurabilityIo;
-use mixdog_ssh::agent::{agent_status, AgentState};
+use mixdog_ssh::agent::{AgentState, agent_status};
 use mixdog_ssh::askpass::{AskpassKind, AskpassPrompter, AskpassServer, AskpassSession};
 use mixdog_ssh::context::{AskpassEnv, AttemptContext, ClaimedResources, SshEnv};
 use mixdog_ssh::private_dir::resolve_plain_dir;
@@ -44,7 +42,11 @@ fn refused_answer(failed: SshFailed, refused: AskpassKind) -> SshFailed {
     .plain();
     SshFailed {
         ok: false,
-        failure: SshFailure { kind: SshFailureKind::Failed { message: said.english }, notice: Some(Box::new(said.message)), code: Some("login-refused".to_owned()) },
+        failure: SshFailure {
+            kind: SshFailureKind::Failed { message: said.english },
+            notice: Some(Box::new(said.message)),
+            code: Some("login-refused".to_owned()),
+        },
     }
 }
 
@@ -58,10 +60,9 @@ fn refused(failed: &SshFailed) -> bool {
 
 fn agent_added(failed: SshFailed, agent: SshAgentStatus) -> SshFailed {
     match failed.failure {
-        SshFailure { kind: SshFailureKind::Auth { keygen, register, .. }, notice, code } => SshFailed {
-            ok: false,
-            failure: SshFailure { kind: SshFailureKind::Auth { keygen, register, agent: Some(agent) }, notice, code },
-        },
+        SshFailure { kind: SshFailureKind::Auth { keygen, register, .. }, notice, code } => {
+            SshFailed { ok: false, failure: SshFailure { kind: SshFailureKind::Auth { keygen, register, agent: Some(agent) }, notice, code } }
+        }
         _ => failed,
     }
 }
@@ -220,10 +221,7 @@ fn agent_state(state: AgentState) -> SshAgentState {
 impl LoginHelpers for EnvLoginHelpers {
     async fn start_askpass(&self, prompter: Arc<dyn AskpassPrompter>) -> io::Result<StartedAskpass> {
         let env = self.resources.applied(&self.env);
-        let helper = env
-            .askpass_helper
-            .clone()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the askpass helper is not installed"))?;
+        let helper = env.askpass_helper.clone().ok_or_else(|| io::Error::new(io::ErrorKind::NotFound, "the askpass helper is not installed"))?;
         let base = resolve_plain_dir(&env, &self.user_data, "askpass").await;
         let session = Arc::new(AskpassServer::new(prompter, self.io, env.platform).with_plain_base(base).start(&helper).await?);
         Ok(StartedAskpass { env: session.clone(), control: session })

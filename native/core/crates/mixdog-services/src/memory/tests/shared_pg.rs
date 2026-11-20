@@ -47,40 +47,14 @@ struct Ready {
 }
 
 fn check_profile(base: &Path, profile: &Path) {
-    assert_eq!(
-        profile.parent(),
-        Some(base),
-        "a supervisor's profile is a direct scratch child"
-    );
-    assert!(
-        profile
-            .file_name()
-            .unwrap_or_default()
-            .to_string_lossy()
-            .starts_with("cluster-"),
-        "a generated test profile"
-    );
-    assert!(
-        !std::fs::symlink_metadata(profile)
-            .expect("test profile")
-            .file_type()
-            .is_symlink(),
-        "test profile must not be a link"
-    );
-    assert_eq!(
-        profile.canonicalize().expect("test profile").parent(),
-        Some(base.canonicalize().expect("scratch directory").as_path())
-    );
+    assert_eq!(profile.parent(), Some(base), "a supervisor's profile is a direct scratch child");
+    assert!(profile.file_name().unwrap_or_default().to_string_lossy().starts_with("cluster-"), "a generated test profile");
+    assert!(!std::fs::symlink_metadata(profile).expect("test profile").file_type().is_symlink(), "test profile must not be a link");
+    assert_eq!(profile.canonicalize().expect("test profile").parent(), Some(base.canonicalize().expect("scratch directory").as_path()));
 }
 
 fn open_lock_file(path: &Path) -> File {
-    OpenOptions::new()
-        .create(true)
-        .read(true)
-        .write(true)
-        .truncate(false)
-        .open(path)
-        .unwrap_or_else(|e| panic!("{}: {e}", path.display()))
+    OpenOptions::new().create(true).read(true).write(true).truncate(false).open(path).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
 /// The only recursively cleaned cluster directory is one freshly created by this
@@ -98,9 +72,8 @@ static LEASE: OnceLock<(PathBuf, File)> = OnceLock::new();
 #[cfg(windows)]
 fn job_forbids_breakaway() -> bool {
     use windows_sys::Win32::System::JobObjects::{
-        IsProcessInJob, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK,
-        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation,
-        QueryInformationJobObject,
+        IsProcessInJob, JOB_OBJECT_LIMIT_BREAKAWAY_OK, JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK, JOBOBJECT_EXTENDED_LIMIT_INFORMATION,
+        JobObjectExtendedLimitInformation, QueryInformationJobObject,
     };
     use windows_sys::Win32::System::Threading::GetCurrentProcess;
     // nextest 0.9.151 / nextest-runner 0.129.0 create_job() sets BREAKAWAY_OK.
@@ -108,12 +81,7 @@ fn job_forbids_breakaway() -> bool {
     // selects the old owned-cluster path; query/spawn/auth/database failures remain errors.
     unsafe {
         let mut in_job = 0;
-        assert_ne!(
-            IsProcessInJob(GetCurrentProcess(), std::ptr::null_mut(), &mut in_job),
-            0,
-            "query current job: {}",
-            std::io::Error::last_os_error()
-        );
+        assert_ne!(IsProcessInJob(GetCurrentProcess(), std::ptr::null_mut(), &mut in_job), 0, "query current job: {}", std::io::Error::last_os_error());
         if in_job == 0 {
             return false;
         }
@@ -130,9 +98,7 @@ fn job_forbids_breakaway() -> bool {
             "query job limits: {}",
             std::io::Error::last_os_error()
         );
-        limits.BasicLimitInformation.LimitFlags
-            & (JOB_OBJECT_LIMIT_BREAKAWAY_OK | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK)
-            == 0
+        limits.BasicLimitInformation.LimitFlags & (JOB_OBJECT_LIMIT_BREAKAWAY_OK | JOB_OBJECT_LIMIT_SILENT_BREAKAWAY_OK) == 0
     }
 }
 
@@ -144,14 +110,8 @@ struct NotInherited(Vec<(windows_sys::Win32::Foundation::HANDLE, u32)>);
 impl NotInherited {
     fn std_handles() -> Self {
         use std::os::windows::io::AsRawHandle;
-        use windows_sys::Win32::Foundation::{
-            GetHandleInformation, HANDLE_FLAG_INHERIT, SetHandleInformation,
-        };
-        let raw = [
-            std::io::stdin().as_raw_handle(),
-            std::io::stdout().as_raw_handle(),
-            std::io::stderr().as_raw_handle(),
-        ];
+        use windows_sys::Win32::Foundation::{GetHandleInformation, HANDLE_FLAG_INHERIT, SetHandleInformation};
+        let raw = [std::io::stdin().as_raw_handle(), std::io::stdout().as_raw_handle(), std::io::stderr().as_raw_handle()];
         let mut saved = Vec::new();
         for handle in raw {
             let handle = handle as windows_sys::Win32::Foundation::HANDLE;
@@ -184,11 +144,7 @@ impl Drop for NotInherited {
 
 fn assert_database_name(name: &str) {
     assert!(
-        name.starts_with('t')
-            && name.len() <= 63
-            && name
-                .bytes()
-                .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'),
+        name.starts_with('t') && name.len() <= 63 && name.bytes().all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_'),
         "generated test database identifier"
     );
 }
@@ -225,17 +181,9 @@ fn publication_is_excluded_from_scans_until_the_lease_is_locked() {
     let gate = open_lock_file(&scratch.path().join("start.lock"));
     gate.lock().unwrap();
     let path = leases.join(format!("{}.lease", uuid::Uuid::new_v4().simple()));
-    let lease = OpenOptions::new()
-        .create_new(true)
-        .read(true)
-        .write(true)
-        .open(&path)
-        .unwrap();
+    let lease = OpenOptions::new().create_new(true).read(true).write(true).open(&path).unwrap();
     let scanner = open_lock_file(&scratch.path().join("start.lock"));
-    assert!(
-        matches!(scanner.try_lock(), Err(TryLockError::WouldBlock)),
-        "no scan in the creation/locking gap"
-    );
+    assert!(matches!(scanner.try_lock(), Err(TryLockError::WouldBlock)), "no scan in the creation/locking gap");
     lease.lock().unwrap();
     drop(gate);
     scanner.lock().unwrap();
@@ -255,12 +203,7 @@ fn releasing_one_lease_does_not_remove_another_generation() {
     std::fs::create_dir(&leases).unwrap();
     let make = || {
         let path = leases.join(format!("{}.lease", uuid::Uuid::new_v4().simple()));
-        let file = OpenOptions::new()
-            .create_new(true)
-            .read(true)
-            .write(true)
-            .open(&path)
-            .unwrap();
+        let file = OpenOptions::new().create_new(true).read(true).write(true).open(&path).unwrap();
         file.lock().unwrap();
         (path, file)
     };
@@ -275,28 +218,11 @@ fn releasing_one_lease_does_not_remove_another_generation() {
     assert!(!leases_held(&leases));
 }
 
-
 fn check_base(base: &Path, runtime: &Path) {
-    assert_eq!(
-        base,
-        base_dir(runtime),
-        "the supervisor only owns this test binary's scratch directory"
-    );
-    assert!(
-        !std::fs::symlink_metadata(base)
-            .expect("scratch directory")
-            .file_type()
-            .is_symlink(),
-        "scratch directory must not be a link"
-    );
-    let parent = std::env::temp_dir()
-        .canonicalize()
-        .expect("temporary directory");
-    assert_eq!(
-        base.canonicalize().expect("scratch directory").parent(),
-        Some(parent.as_path()),
-        "scratch stays directly inside the temporary directory"
-    );
+    assert_eq!(base, base_dir(runtime), "the supervisor only owns this test binary's scratch directory");
+    assert!(!std::fs::symlink_metadata(base).expect("scratch directory").file_type().is_symlink(), "scratch directory must not be a link");
+    let parent = std::env::temp_dir().canonicalize().expect("temporary directory");
+    assert_eq!(base.canonicalize().expect("scratch directory").parent(), Some(parent.as_path()), "scratch stays directly inside the temporary directory");
 }
 fn base_dir(runtime: &Path) -> PathBuf {
     use std::hash::{Hash, Hasher};
@@ -324,20 +250,18 @@ pub(super) fn owned_fallback_lock(runtime: &Path) -> File {
 }
 impl OwnedProfile {
     fn new(base: &Path, runtime: &Path) -> Self {
-        let directory = tempfile::Builder::new()
-            .prefix("cluster-")
-            .tempdir_in(base)
-            .expect("a unique profile");
+        let directory = tempfile::Builder::new().prefix("cluster-").tempdir_in(base).expect("a unique profile");
         check_profile(base, directory.path());
-        std::fs::write(directory.path().join("owner.json"), serde_json::to_vec(&serde_json::json!({
-            "supervisorPid": std::process::id(), "generation": uuid::Uuid::new_v4().to_string(),
-            "profile": directory.path(), "runtime": runtime, "testBinary": std::env::current_exe().expect("binary")
-        })).expect("owner JSON")).expect("owner record");
-        Self {
-            directory: Some(directory),
-            runtime: runtime.to_owned(),
-            base: base.to_owned(),
-        }
+        std::fs::write(
+            directory.path().join("owner.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "supervisorPid": std::process::id(), "generation": uuid::Uuid::new_v4().to_string(),
+                "profile": directory.path(), "runtime": runtime, "testBinary": std::env::current_exe().expect("binary")
+            }))
+            .expect("owner JSON"),
+        )
+        .expect("owner record");
+        Self { directory: Some(directory), runtime: runtime.to_owned(), base: base.to_owned() }
     }
 }
 impl Drop for OwnedProfile {
@@ -351,10 +275,7 @@ impl Drop for OwnedProfile {
         check_profile(&self.base, directory.path());
         if !stop_postmaster_of(&self.runtime, &directory.path().join("pgdata")) {
             let kept = directory.keep();
-            eprintln!(
-                "shared test Postgres: bounded stop failed; retained owned generation {} with owner.json",
-                kept.display()
-            );
+            eprintln!("shared test Postgres: bounded stop failed; retained owned generation {} with owner.json", kept.display());
         }
         // Otherwise TempDir removes this exact generated directory after the bounded stop.
     }
@@ -363,9 +284,7 @@ impl Drop for OwnedProfile {
 pub(super) fn acquire(runtime: &Path) -> Option<Shared> {
     #[cfg(windows)]
     if job_forbids_breakaway() {
-        eprintln!(
-            "shared test Postgres: current Windows job forbids breakaway; using a test-owned cluster (same assertions)"
-        );
+        eprintln!("shared test Postgres: current Windows job forbids breakaway; using a test-owned cluster (same assertions)");
         return None;
     }
     let base = base_dir(runtime);
@@ -375,29 +294,16 @@ pub(super) fn acquire(runtime: &Path) -> Option<Shared> {
     let start_lock = open_lock_file(&base.join("start.lock"));
     start_lock.lock().expect("start.lock");
     std::fs::create_dir_all(&leases).expect("lease directory");
-    assert!(
-        !std::fs::symlink_metadata(&leases)
-            .expect("leases")
-            .file_type()
-            .is_symlink()
-    );
+    assert!(!std::fs::symlink_metadata(&leases).expect("leases").file_type().is_symlink());
     // Both publication and every scan/removal hold start.lock. A scanner can never
     // observe the gap between file creation and locking. UUIDs prevent PID reuse/ABA.
     let (lease_base, _) = LEASE.get_or_init(|| {
         let path = leases.join(format!("{}.lease", uuid::Uuid::new_v4().simple()));
-        let lease = OpenOptions::new()
-            .create_new(true)
-            .read(true)
-            .write(true)
-            .open(path)
-            .expect("a unique lease");
+        let lease = OpenOptions::new().create_new(true).read(true).write(true).open(path).expect("a unique lease");
         lease.lock().expect("the lease");
         (base.clone(), lease)
     });
-    assert_eq!(
-        lease_base, &base,
-        "one test process uses one runtime/binary generation"
-    );
+    assert_eq!(lease_base, &base, "one test process uses one runtime/binary generation");
     let supervisor_free = || {
         let probe = open_lock_file(&base.join("supervisor.lock"));
         match probe.try_lock() {
@@ -419,18 +325,13 @@ pub(super) fn acquire(runtime: &Path) -> Option<Shared> {
             assert!(!supervisor_free(), "ready belongs to a live supervisor holding supervisor.lock");
             check_profile(&base, &ready.profile);
             assert!(ready.port != 0);
-            return Some(Shared {
-                port: ready.port,
-                profile: ready.profile,
-            });
+            return Some(Shared { port: ready.port, profile: ready.profile });
         }
         if let Some(child) = spawned.as_mut()
             && let Ok(Some(status)) = child.try_wait()
         {
             let log = std::fs::read_to_string(base.join("supervisor.log")).unwrap_or_default();
-            panic!(
-                "the shared test cluster's supervisor ended before it was ready ({status}):\n{log}"
-            );
+            panic!("the shared test cluster's supervisor ended before it was ready ({status}):\n{log}");
         }
         if started.elapsed() > READY_WAIT {
             if let Some(child) = spawned.as_mut() {
@@ -443,21 +344,12 @@ pub(super) fn acquire(runtime: &Path) -> Option<Shared> {
         std::thread::sleep(Duration::from_millis(50));
     }
 }
-#[allow(
-    clippy::disallowed_methods,
-    reason = "test support: the detached supervisor of the shared cluster"
-)]
+#[allow(clippy::disallowed_methods, reason = "test support: the detached supervisor of the shared cluster")]
 fn spawn_supervisor(runtime: &Path, base: &Path) -> std::process::Child {
     let log = File::create(base.join("supervisor.log")).expect("the supervisor's log");
     let mut command = Command::new(std::env::current_exe().expect("the test binary"));
     command
-        .args([
-            "--exact",
-            "memory::tests::shared_pg::supervisor_entry",
-            "--include-ignored",
-            "--nocapture",
-            "--test-threads=1",
-        ])
+        .args(["--exact", "memory::tests::shared_pg::supervisor_entry", "--include-ignored", "--nocapture", "--test-threads=1"])
         .env(SUPERVISE_ENV, base)
         .env("MIXDOG_PG_RUNTIME", runtime)
         .stdin(Stdio::null())
@@ -485,31 +377,20 @@ fn spawn_supervisor(runtime: &Path, base: &Path) -> std::process::Child {
 /// A database of the shared cluster for one test, dropped by [`drop_database`].
 pub(super) async fn create_database(port: u16, name: &str) {
     assert_database_name(name);
-    tokio::time::timeout(Duration::from_secs(30), create_database_inner(port, name))
-        .await
-        .expect("test database creation completes within 30 seconds");
+    tokio::time::timeout(Duration::from_secs(30), create_database_inner(port, name)).await.expect("test database creation completes within 30 seconds");
 }
 async fn create_database_inner(port: u16, name: &str) {
-    let (client, connection) = tokio_postgres::connect(
-        &format!("host=127.0.0.1 port={port} user=postgres dbname=postgres"),
-        tokio_postgres::NoTls,
-    )
-    .await
-    .expect("the shared cluster answers");
+    let (client, connection) = tokio_postgres::connect(&format!("host=127.0.0.1 port={port} user=postgres dbname=postgres"), tokio_postgres::NoTls)
+        .await
+        .expect("the shared cluster answers");
     let driver = tokio::spawn(connection);
     // The template is copied only while nothing is connected to it (the supervisor's setup connection closes a moment after it
     // reported done), and copies made at the same moment may refuse each other: tried again.
     let mut tries = 0;
     loop {
-        match client
-            .batch_execute(&format!("CREATE DATABASE {name} TEMPLATE {TEMPLATE}"))
-            .await
-        {
+        match client.batch_execute(&format!("CREATE DATABASE {name} TEMPLATE {TEMPLATE}")).await {
             Ok(()) => break,
-            Err(error)
-                if tries < 400
-                    && error.code() == Some(&tokio_postgres::error::SqlState::OBJECT_IN_USE) =>
-            {
+            Err(error) if tries < 400 && error.code() == Some(&tokio_postgres::error::SqlState::OBJECT_IN_USE) => {
                 tries += 1;
                 tokio::time::sleep(Duration::from_millis(25)).await;
             }
@@ -523,24 +404,16 @@ pub(super) fn drop_database(port: u16, name: String) {
     assert_database_name(&name);
     // From a thread of its own: a test's runtime may be ending.
     let work = std::thread::spawn(move || {
-        let runtime = tokio::runtime::Builder::new_current_thread()
-            .enable_all()
-            .build()
-            .expect("a runtime");
+        let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("a runtime");
         runtime.block_on(async {
             let _ = tokio::time::timeout(Duration::from_secs(15), async {
-                let Ok((client, connection)) = tokio_postgres::connect(
-                    &format!("host=127.0.0.1 port={port} user=postgres dbname=postgres"),
-                    tokio_postgres::NoTls,
-                )
-                .await
+                let Ok((client, connection)) =
+                    tokio_postgres::connect(&format!("host=127.0.0.1 port={port} user=postgres dbname=postgres"), tokio_postgres::NoTls).await
                 else {
                     return;
                 };
                 let driver = tokio::spawn(connection);
-                let _ = client
-                    .batch_execute(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)"))
-                    .await;
+                let _ = client.batch_execute(&format!("DROP DATABASE IF EXISTS {name} WITH (FORCE)")).await;
                 drop(client);
                 let _ = driver.await;
             })
@@ -557,18 +430,10 @@ fn supervisor_entry() {
         return;
     };
     let runtime = PathBuf::from(std::env::var_os("MIXDOG_PG_RUNTIME").expect("MIXDOG_PG_RUNTIME"));
-    let tokio = tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(2)
-        .enable_all()
-        .build()
-        .expect("a runtime");
+    let tokio = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().expect("a runtime");
     tokio.block_on(supervise(&base, &runtime));
 }
-async fn ensure(
-    runtime: &Path,
-    profile: &Path,
-    lane: mixdog_rt::DurabilityIo,
-) -> crate::memory::error::Result<PgCluster> {
+async fn ensure(runtime: &Path, profile: &Path, lane: mixdog_rt::DurabilityIo) -> crate::memory::error::Result<PgCluster> {
     PgCluster::ensure(
         PgRuntime::new(runtime),
         profile,
@@ -591,12 +456,7 @@ async fn supervise(base: &Path, runtime: &Path) {
     // A new supervisor owns only the directory it just created. Windows postmasters
     // are in the supervisor's existing PgCluster kill-on-close containment.
     let profile_owner = OwnedProfile::new(base, runtime);
-    let profile = profile_owner
-        .directory
-        .as_ref()
-        .expect("owned profile")
-        .path()
-        .to_owned();
+    let profile = profile_owner.directory.as_ref().expect("owned profile").path().to_owned();
     check_profile(base, &profile);
     let _ = std::fs::remove_file(base.join("ready"));
     let cluster = tokio::time::timeout(Duration::from_secs(180), initialize(runtime, &profile))
@@ -604,15 +464,7 @@ async fn supervise(base: &Path, runtime: &Path) {
         .expect("shared cluster initialization completes within 180 seconds");
     let port = cluster.port();
     let ready = base.join("ready.tmp");
-    std::fs::write(
-        &ready,
-        serde_json::to_vec(&Ready {
-            port,
-            profile: profile.clone(),
-        })
-        .expect("ready JSON"),
-    )
-    .expect("ready");
+    std::fs::write(&ready, serde_json::to_vec(&Ready { port, profile: profile.clone() }).expect("ready JSON")).expect("ready");
     std::fs::rename(&ready, base.join("ready")).expect("ready renamed");
     let leases = base.join("leases");
     let mut last_held = Instant::now();
@@ -645,73 +497,41 @@ async fn supervise(base: &Path, runtime: &Path) {
 }
 async fn initialize(runtime: &Path, profile: &Path) -> PgCluster {
     let lane = mixdog_rt::testing::tokens().durability_io;
-    let first = ensure(runtime, profile, lane)
-        .await
-        .expect("the shared cluster starts");
+    let first = ensure(runtime, profile, lane).await.expect("the shared cluster starts");
     // A cluster made here accepts 32 connections: parallel tests need more, which the postmaster reads at its start.
-    first
-        .stop(Duration::from_secs(30))
-        .await
-        .expect("the first start stops");
+    first.stop(Duration::from_secs(30)).await.expect("the first start stops");
     let conf = first.data_dir().join("postgresql.conf");
     let mut text = std::fs::read_to_string(&conf).expect("postgresql.conf");
     text.push_str(&format!("\nmax_connections = {MAX_CONNECTIONS}\n"));
     std::fs::write(&conf, text).expect("postgresql.conf written");
-    let cluster = ensure(runtime, profile, lane)
-        .await
-        .expect("the shared cluster starts again");
+    let cluster = ensure(runtime, profile, lane).await.expect("the shared cluster starts again");
     let port = cluster.port();
     {
-        let (client, connection) = tokio_postgres::connect(
-            &format!("host=127.0.0.1 port={port} user=postgres dbname=postgres"),
-            tokio_postgres::NoTls,
-        )
-        .await
-        .expect("the cluster answers");
-        let driver = tokio::spawn(connection);
-        client
-            .batch_execute(&format!("CREATE DATABASE {TEMPLATE}"))
+        let (client, connection) = tokio_postgres::connect(&format!("host=127.0.0.1 port={port} user=postgres dbname=postgres"), tokio_postgres::NoTls)
             .await
-            .expect("the template database");
+            .expect("the cluster answers");
+        let driver = tokio::spawn(connection);
+        client.batch_execute(&format!("CREATE DATABASE {TEMPLATE}")).await.expect("the template database");
         drop(client);
         let _ = driver.await;
     }
-    Db::bootstrap_database(port, TEMPLATE)
-        .await
-        .expect("the template's schemas");
+    Db::bootstrap_database(port, TEMPLATE).await.expect("the template's schemas");
     cluster
 }
 /// `pg_ctl stop -m immediate` on a data directory (only the postmaster of that directory), when it holds a cluster.
-#[allow(
-    clippy::disallowed_methods,
-    reason = "test support: ends only this supervisor's newly created cluster"
-)]
+#[allow(clippy::disallowed_methods, reason = "test support: ends only this supervisor's newly created cluster")]
 fn stop_postmaster_of(runtime: &Path, data_dir: &Path) -> bool {
     if !data_dir.join("postmaster.pid").exists() {
         return true;
     }
     let bin = runtime.join("bin");
-    let mut stop = Command::new(bin.join(if cfg!(windows) {
-        "pg_ctl.exe"
-    } else {
-        "pg_ctl"
-    }));
-    stop.args(["stop", "-m", "immediate", "-w", "-t", "30", "-D"])
-        .arg(data_dir)
-        .stdout(Stdio::null())
-        .stderr(Stdio::null());
+    let mut stop = Command::new(bin.join(if cfg!(windows) { "pg_ctl.exe" } else { "pg_ctl" }));
+    stop.args(["stop", "-m", "immediate", "-w", "-t", "30", "-D"]).arg(data_dir).stdout(Stdio::null()).stderr(Stdio::null());
     #[cfg(windows)]
     {
         use std::os::windows::process::CommandExt;
         stop.creation_flags(0x0800_0000);
-        stop.env(
-            "PATH",
-            format!(
-                "{};{}",
-                bin.display(),
-                std::env::var("PATH").unwrap_or_default()
-            ),
-        );
+        stop.env("PATH", format!("{};{}", bin.display(), std::env::var("PATH").unwrap_or_default()));
     }
     if let Ok(mut child) = stop.spawn() {
         let start = Instant::now();

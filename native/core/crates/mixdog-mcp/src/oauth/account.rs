@@ -101,12 +101,7 @@ fn text(value: Option<&Value>) -> String {
 
 fn id_token_claims(id_token: Option<&Value>) -> Value {
     let payload = id_token.and_then(Value::as_str).and_then(|t| t.split('.').nth(1)).unwrap_or_default();
-    URL_SAFE_NO_PAD
-        .decode(payload)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .filter(Value::is_object)
-        .unwrap_or(Value::Null)
+    URL_SAFE_NO_PAD.decode(payload).ok().and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok()).filter(Value::is_object).unwrap_or(Value::Null)
 }
 
 /// `{ account, workspace }` from a token endpoint response: the OIDC id_token claims and the
@@ -130,12 +125,7 @@ pub fn identity_from_token_response(body: &Value) -> Option<Identity> {
         owner_user.and_then(|u| u.pointer("/person/email")),
         owner_user.and_then(|u| u.get("name")),
     ]);
-    let workspace = first(&[
-        body.get("workspace_name"),
-        body.pointer("/team/name"),
-        body.pointer("/organization/name"),
-        body.pointer("/org/name"),
-    ]);
+    let workspace = first(&[body.get("workspace_name"), body.pointer("/team/name"), body.pointer("/organization/name"), body.pointer("/org/name")]);
     (!account.is_empty() || !workspace.is_empty()).then_some(Identity { account, workspace })
 }
 

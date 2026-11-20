@@ -172,7 +172,10 @@ impl BridgeApprovals {
 
     /// A schedule or webhook run (and the work it started) never asks: saving the routine was the user's grant. The bot that owns
     /// the run still blocks (an operator `confirm` always asks and a payment is refused, both in `ask`).
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation")]
+    #[allow(
+        clippy::result_large_err,
+        reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation"
+    )]
     async fn unattended(&self, prompt: &BrowserApprovalPrompt) -> Result<ApprovalAnswer, ToolError> {
         let owner = js_trim(&prompt.unattended_agent);
         if owner.is_empty() {
@@ -310,7 +313,8 @@ fn input_fields(def: &'static str) -> Map<String, Value> {
 /// fields, or the bridge's own sentence for a request it refuses. The one validation `test/browserEngine/run` applies too.
 pub fn validated_command(input: Map<String, Value>) -> Result<(String, Map<String, Value>), String> {
     static SCHEMAS: std::sync::OnceLock<(Map<String, Value>, Map<String, Value>)> = std::sync::OnceLock::new();
-    let (browser, devtools) = SCHEMAS.get_or_init(|| (input_fields(include_str!("defs/browser.json")), input_fields(include_str!("defs/browser_devtools.json"))));
+    let (browser, devtools) =
+        SCHEMAS.get_or_init(|| (input_fields(include_str!("defs/browser.json")), input_fields(include_str!("defs/browser_devtools.json"))));
     let action = input.get("action").and_then(Value::as_str).unwrap_or_default();
     let schema = if DEVTOOLS_ACTIONS.contains(&js_trim(action)) { devtools } else { browser };
     let validated = validate("", &Value::Object(input), schema)?;
@@ -480,7 +484,11 @@ impl BrowserBridgeRun {
         let thread = ThreadId::from(session);
         if phase == Phase::Begin {
             // The engine owns a page by the turn of the command that opened it, so a turn's start has nothing to record there.
-            return if self.engine_serves() { Ok(json!({ "text": "Browser turn started." })) } else { self.send(&thread, "begin_turn", json!({ "turn_id": turn }), cancel).await };
+            return if self.engine_serves() {
+                Ok(json!({ "text": "Browser turn started." }))
+            } else {
+                self.send(&thread, "begin_turn", json!({ "turn_id": turn }), cancel).await
+            };
         }
         self.wait_idle(session, except, cancel).await;
         if self.engine_serves() {
@@ -573,8 +581,8 @@ mod tests {
     use mixdog_browser_engine::BlobPort;
     use mixdog_browser_engine::FilePort;
     use mixdog_browser_engine::TakeoverPort;
-    use mixdog_browser_engine::approval::classify::ActionPolicy;
     use mixdog_browser_engine::actions::registry::is_action;
+    use mixdog_browser_engine::approval::classify::ActionPolicy;
     use mixdog_browser_engine::fake::Expect;
     use mixdog_browser_engine::fake::FakeHost;
     use mixdog_browser_engine::fake::page_facts;
@@ -809,7 +817,11 @@ mod tests {
     #[tokio::test]
     async fn only_the_host_claimant_calls_it() {
         let rig = rig();
-        for (method, params) in [(BRIDGE_RUN, json!({"command": {}, "signalId": "a"})), (BRIDGE_TURN, json!({"phase": "begin", "turnId": 1})), (BRIDGE_ABORT, json!({"signalId": "a"}))] {
+        for (method, params) in [
+            (BRIDGE_RUN, json!({"command": {}, "signalId": "a"})),
+            (BRIDGE_TURN, json!({"phase": "begin", "turnId": 1})),
+            (BRIDGE_ABORT, json!({"signalId": "a"})),
+        ] {
             let refused = rig.service.call(call(method, params, false, CancellationToken::new())).await;
             assert!(matches!(refused, Err(CoreError::PermissionDenied { .. })), "{method}");
         }
@@ -827,7 +839,10 @@ mod tests {
         assert_eq!(reply, json!({"ok": true, "value": {"text": "OK"}}));
         let (session, action, input) = rig.commands.seen().remove(0);
         assert_eq!((session.as_str(), action.as_str()), ("s1", "click"));
-        assert_eq!(input, json!({"ref": "e1", "turn_id": 3, "unattended_run": true, "unattended_agent": "bot", "session_life": "5:0", "mail_link": {"url": "https://a.example"}}));
+        assert_eq!(
+            input,
+            json!({"ref": "e1", "turn_id": 3, "unattended_run": true, "unattended_agent": "bot", "session_life": "5:0", "mail_link": {"url": "https://a.example"}})
+        );
     }
 
     #[tokio::test]
@@ -883,7 +898,11 @@ mod tests {
         rig.commands.answer(Ok(json!({"text": "typed hunter2", "image": {"mimeType": "image/png", "data": "AA=="}, "outcome": "ok"})));
         let reply = run(&rig.service, json!({"action": "read"})).await;
         assert_eq!(reply, json!({"ok": true, "value": {"text": "typed [secret]", "image": {"mimeType": "image/png", "data": "AA=="}, "outcome": "ok"}}));
-        rig.commands.answer(Err(HostCommandError::Rpc { code: HOST_COMMAND_FAILED, message: "could not type hunter2 at https://a.example/?token=abcdef123456".to_owned(), timing: Some(json!({"commandMs": 2})) }));
+        rig.commands.answer(Err(HostCommandError::Rpc {
+            code: HOST_COMMAND_FAILED,
+            message: "could not type hunter2 at https://a.example/?token=abcdef123456".to_owned(),
+            timing: Some(json!({"commandMs": 2})),
+        }));
         let failure = run(&rig.service, json!({"action": "read"})).await;
         assert_eq!(failure["ok"], false);
         let message = failure["error"].as_str().unwrap();
@@ -915,11 +934,17 @@ mod tests {
     #[tokio::test]
     async fn the_turn_starts_and_ends_through_run_and_through_the_turn_method() {
         let rig = rig();
-        for command in [json!({"action": "begin_turn", "session_id": "s1", "turn_id": 4}), json!({"action": "finish_turn", "session_id": "s1", "turn_id": 4, "aborted": true})] {
+        for command in [
+            json!({"action": "begin_turn", "session_id": "s1", "turn_id": 4}),
+            json!({"action": "finish_turn", "session_id": "s1", "turn_id": 4, "aborted": true}),
+        ] {
             let reply = run(&rig.service, command.clone()).await;
             assert_eq!(reply["ok"], true, "{command}: {reply}");
         }
-        assert_eq!(turn(&rig.service, json!({"phase": "begin", "sessionId": "s1", "turnId": 4})).await, json!({"ok": true, "value": {"text": "Browser turn started."}}));
+        assert_eq!(
+            turn(&rig.service, json!({"phase": "begin", "sessionId": "s1", "turnId": 4})).await,
+            json!({"ok": true, "value": {"text": "Browser turn started."}})
+        );
         assert_eq!(
             turn(&rig.service, json!({"phase": "finish", "sessionId": "s1", "turnId": 4})).await,
             json!({"ok": true, "value": {"text": "Browser task cleanup complete: 0 temporary page(s) closed."}})
@@ -1064,7 +1089,11 @@ mod tests {
         assert_eq!(policy.approvals.ask(payment).await.unwrap_err().message_for_model, PAYMENT_IN_RUN);
         let mut confirmed_payment = unattended(MARKETER, &[Confirm], "marketer");
         confirmed_payment.payment = true;
-        assert_eq!(policy.approvals.ask(confirmed_payment).await.unwrap_err().message_for_model, PAYMENT_IN_RUN, "a run's payment is refused before its confirm asks");
+        assert_eq!(
+            policy.approvals.ask(confirmed_payment).await.unwrap_err().message_for_model,
+            PAYMENT_IN_RUN,
+            "a run's payment is refused before its confirm asks"
+        );
         let ownerless = policy.approvals.ask(unattended(MARKETER, &[Submit], "  ")).await.unwrap_err();
         assert_eq!(ownerless.message_for_model, NO_RUN_OWNER);
 

@@ -11,7 +11,7 @@ use tokio_util::sync::CancellationToken;
 
 use crate::memory::embed::engine::EmbedConfig;
 use crate::memory::embed::provider::EmbeddingProvider;
-use crate::memory::ingest::embed_flush::{FlushFailure, RawEmbedFlush, ROOT_EMBED_SWEEP_META_KEY, RootFlush, SweepStep, start_root_embed_sweep};
+use crate::memory::ingest::embed_flush::{FlushFailure, ROOT_EMBED_SWEEP_META_KEY, RawEmbedFlush, RootFlush, SweepStep, start_root_embed_sweep};
 use crate::memory::pg::db::Schema;
 use crate::memory::reindex::{PASS_PAUSE, ROOT_SWEEP_PAUSE, ReindexSummary, SweepSummary, drain_embedding_reindex, run_root_embed_sweep};
 use crate::memory::schema::ensure_memory_schema;
@@ -26,10 +26,7 @@ fn pass(attempted: usize, succeeded: usize, failed: &[i64], timed_out: bool) -> 
 }
 
 /// Runs the drain over `script(n)` for pass `n`; returns the answer and when each pass started.
-async fn drain(
-    script: impl Fn(usize) -> Result<RootFlush, FlushFailure>,
-    cancel: &CancellationToken,
-) -> (Result<ReindexSummary, FlushFailure>, Vec<Duration>) {
+async fn drain(script: impl Fn(usize) -> Result<RootFlush, FlushFailure>, cancel: &CancellationToken) -> (Result<ReindexSummary, FlushFailure>, Vec<Duration>) {
     let start = tokio::time::Instant::now();
     let starts = Mutex::new(Vec::new());
     let result = drain_embedding_reindex(
@@ -51,11 +48,7 @@ async fn drain(
 
 #[tokio::test(start_paused = true)]
 async fn passes_go_on_a_second_apart_while_one_times_out_with_progress() {
-    let (result, starts) = drain(
-        |n| if n < 2 { pass(6, 5, &[7], true) } else { pass(2, 2, &[], false) },
-        &CancellationToken::new(),
-    )
-    .await;
+    let (result, starts) = drain(|n| if n < 2 { pass(6, 5, &[7], true) } else { pass(2, 2, &[], false) }, &CancellationToken::new()).await;
     assert_eq!(result, Ok(ReindexSummary { passes: 3, attempted: 14, succeeded: 12, failed: 2 }));
     assert_eq!(starts, secs(&[0, 1, 2]));
 }
@@ -181,5 +174,3 @@ async fn roots_get_vectors_and_the_sweep_replaces_old_ones_then_finishes() {
     assert_eq!(state, json!({ "cursor": a.min(b), "done": true }));
     assert_eq!(flush.sweep_root_text(8, &cancel).await.expect("again"), SweepStep { claimed: 0, replaced: 0, done: true });
 }
-
-

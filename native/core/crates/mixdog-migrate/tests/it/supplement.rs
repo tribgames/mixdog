@@ -37,11 +37,7 @@ impl Dirs {
     }
 
     fn roots(&self) -> MigrationRoots {
-        MigrationRoots {
-            data: self.data(),
-            home: self.root.path().join("home"),
-            profile: Some(self.profile()),
-        }
+        MigrationRoots { data: self.data(), home: self.root.path().join("home"), profile: Some(self.profile()) }
     }
 
     fn put(&self, name: &str, bytes: &[u8]) {
@@ -58,21 +54,11 @@ impl Dirs {
 }
 
 fn migrator(roots: &MigrationRoots, fault: Option<FaultHook>) -> Migrator {
-    Migrator::new(
-        roots.clone(),
-        vec![Arc::new(DesktopProfileDriver::new())],
-        MigrateOptions { workers: 1, fault, verified: None },
-    )
+    Migrator::new(roots.clone(), vec![Arc::new(DesktopProfileDriver::new())], MigrateOptions { workers: 1, fault, verified: None })
 }
 
 fn stop_at(point: &'static str) -> FaultHook {
-    Arc::new(move |at| {
-        if at == point {
-            Err(Blocked::Interrupted { point: at.to_owned() })
-        } else {
-            Ok(())
-        }
-    })
+    Arc::new(move |at| if at == point { Err(Blocked::Interrupted { point: at.to_owned() }) } else { Ok(()) })
 }
 
 fn exists(path: &Path) -> bool {
@@ -216,15 +202,11 @@ fn gen2_conflicting_target_kept() {
 
     assert_eq!(dirs.moved("ssh-hosts.json").as_deref(), Some(&b"{\"hosts\":[\"core\"]}"[..]));
     assert!(!exists(&dirs.profile().join("ssh-hosts.json")));
-    assert_eq!(
-        std::fs::read(dirs.profile().join("ssh-hosts.json.superseded")).expect("set aside"),
-        b"{\"hosts\":[\"old\"]}"
-    );
+    assert_eq!(std::fs::read(dirs.profile().join("ssh-hosts.json.superseded")).expect("set aside"), b"{\"hosts\":[\"old\"]}");
     // The other file moved as usual.
     assert!(dirs.moved("port-forwards.json").is_some());
     assert_eq!(dirs.marker()["generation"], supplement::GENERATION);
 }
-
 
 // JSONC is the user-editable Electron settings format; preserve its comments and trailing comma.
 const EDITOR_SETTINGS: &[u8] = b"{\n // personal settings\n \"editor.tabSize\": 2,\n \"editor.insertSpaces\": false,\n}\n";
@@ -259,9 +241,7 @@ fn gen3_completed_gen2_settings_apply_and_resume_at_each_step() {
         assert_eq!(dirs.marker()["generation"], supplement::GENERATION);
         assert_eq!(std::fs::read(dirs.data().join("userdata/User/settings.json")).unwrap(), EDITOR_SETTINGS);
         assert_eq!(std::fs::read(dirs.data().join("userdata/User/settings.json.bak")).unwrap(), b"{\"editor.tabSize\": 8}");
-        let settings = mixdog_workspace::editorcfg::read_editor_settings(
-            &dirs.data().join("userdata"), dirs.root.path(), "a.ts", None, None,
-        ).unwrap();
+        let settings = mixdog_workspace::editorcfg::read_editor_settings(&dirs.data().join("userdata"), dirs.root.path(), "a.ts", None, None).unwrap();
         assert_eq!(settings["tabSize"], 2);
         assert_eq!(settings["insertSpaces"], false);
         assert!(exists(&dirs.profile().join("ssh-hosts.json")));

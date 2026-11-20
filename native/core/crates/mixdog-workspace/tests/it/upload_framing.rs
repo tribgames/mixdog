@@ -3,13 +3,13 @@
 //! the advertised chunk size is admitted by the server's own frame decoder (`maxInboundFrameBytes` of `Limits::default()`, what
 //! the daemon serves), and the bytes that come out of those frames are the file.
 
+use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use mixdog_app_protocol::InboundText;
 use mixdog_app_protocol::JsonRpcMessage;
 use mixdog_app_protocol::decode_inbound_text;
 use mixdog_app_protocol::limits::Limits;
 use mixdog_workspace::transfer::Transfers;
-use base64::Engine;
-use base64::engine::general_purpose::STANDARD;
 use serde_json::json;
 
 #[test]

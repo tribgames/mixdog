@@ -120,11 +120,7 @@ fn tool_call_line(name: &str, arguments: &serde_json::Value, result: Option<&Age
     // can split a secret from its key.
     let outcome = js_trim(&redact_raw_secret_string(&result.map(|r| content_text(&r.message.content)).unwrap_or_default())).to_owned();
     // An ask_user or handoff_user result is the user's own answer: never cut.
-    let shown = if matches!(name, "ask_user" | "handoff_user") {
-        outcome
-    } else {
-        bounded(&collapse_space(&outcome), SUMMARY_TOOL_OUTCOME_CHARS)
-    };
+    let shown = if matches!(name, "ask_user" | "handoff_user") { outcome } else { bounded(&collapse_space(&outcome), SUMMARY_TOOL_OUTCOME_CHARS) };
     let tail = match result {
         None => "(no result)".to_owned(),
         Some(_) if shown.is_empty() => "(empty result)".to_owned(),
@@ -134,11 +130,7 @@ fn tool_call_line(name: &str, arguments: &serde_json::Value, result: Option<&Age
 }
 
 fn conversation_rows(messages: &[AgentMessage], summary: bool) -> Vec<AgentMessage> {
-    let results: HashMap<&str, &AgentMessage> = messages
-        .iter()
-        .filter(|m| m.role() == Role::Tool)
-        .filter_map(|m| m.tool_call_id().map(|id| (id, m)))
-        .collect();
+    let results: HashMap<&str, &AgentMessage> = messages.iter().filter(|m| m.role() == Role::Tool).filter_map(|m| m.tool_call_id().map(|id| (id, m))).collect();
     let mut out = Vec::new();
     for m in messages {
         let content = js_trim(&content_text(&m.message.content)).to_owned();
@@ -158,11 +150,7 @@ fn conversation_rows(messages: &[AgentMessage], summary: bool) -> Vec<AgentMessa
             out.extend(chunk(role, &content));
         }
         if summary && m.role() == Role::Assistant && !m.tool_calls().is_empty() {
-            let lines: Vec<String> = m
-                .tool_calls()
-                .iter()
-                .map(|c| tool_call_line(&c.name, &c.arguments, results.get(c.id.as_str()).copied()))
-                .collect();
+            let lines: Vec<String> = m.tool_calls().iter().map(|c| tool_call_line(&c.name, &c.arguments, results.get(c.id.as_str()).copied())).collect();
             out.extend(chunk(Role::Assistant, &lines.join("\n")));
         }
     }
@@ -181,13 +169,7 @@ pub async fn conversation_compaction_input(
     let source = split_fresh_source(ctx, messages).await;
     let mut turn_input: Vec<usize> = pending_task_notification_indexes(&source.live);
     turn_input.extend(latest_actual_user_instruction_index(&source.live));
-    let rest: Vec<AgentMessage> = source
-        .live
-        .iter()
-        .enumerate()
-        .filter(|(i, _)| !turn_input.contains(i))
-        .map(|(_, m)| m.clone())
-        .collect();
+    let rest: Vec<AgentMessage> = source.live.iter().enumerate().filter(|(i, _)| !turn_input.contains(i)).map(|(_, m)| m.clone()).collect();
     let rest = super::text_utils::with_referenced_text(ctx.attachments, rest).await?;
     let mut out: Vec<AgentMessage> = source.previous_summary.into_iter().collect();
     out.extend(conversation_rows(&rest, summary));

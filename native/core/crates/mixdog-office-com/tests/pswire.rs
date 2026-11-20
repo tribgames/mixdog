@@ -1,7 +1,6 @@
 //! The PowerShell value semantics the Office COM hosts' results depend on (`mixdog_office_com::ps`): each test states the
 //! text or the value Windows PowerShell 5.1 gives for its input. No COM object and no Office is involved.
 
-
 use mixdog_office_com::ps::Value;
 use mixdog_office_com::ps::collate;
 use mixdog_office_com::ps::collate::SortOptions;

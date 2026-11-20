@@ -24,12 +24,10 @@ use sheet::{Layout, PrintEnd, number_or};
 use crate::prop;
 use crate::tokens::{provenance_text, strings};
 
-static LATIN_OFFICE_FACE: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^(?:calibri|arial|cambria|bookman old style|courier new|times new roman|georgia|segoe ui|aptos)$", "i")
-});
-static SERIF_FACE: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^(?:cambria|georgia|bookman old style|times new roman|garamond|book antiqua|palatino linotype|constantia)$", "i")
-});
+static LATIN_OFFICE_FACE: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^(?:calibri|arial|cambria|bookman old style|courier new|times new roman|georgia|segoe ui|aptos)$", "i"));
+static SERIF_FACE: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^(?:cambria|georgia|bookman old style|times new roman|garamond|book antiqua|palatino linotype|constantia)$", "i"));
 
 /// The Latin faces the presets assign carry no Hangul, and set beside it their digits print smaller than the Korean
 /// face the reader substitutes, so a Korean sheet sets each such role in the Korean face of its class (a sheet cell
@@ -66,12 +64,16 @@ fn push_band(output: &mut Vec<Value>, sheet: &str, last_column: &str, row: usize
     if last_column != "A" {
         output.push(operation("merge_cells", vec![("sheet", text_value(sheet)), ("range", text_value(&format!("A{row}:{last_column}{row}")))]));
     }
-    output.push(operation("set_style", vec![("sheet", text_value(sheet)), ("range", text_value(&format!("A{row}:{last_column}{row}"))), ("properties", properties)]));
+    output.push(operation(
+        "set_style",
+        vec![("sheet", text_value(sheet)), ("range", text_value(&format!("A{row}:{last_column}{row}"))), ("properties", properties)],
+    ));
 }
 
 /// Hangul, kana and Han have no italic: the renderer slants them synthetically.
 fn has_no_italic_script(text: &str) -> bool {
-    text.chars().any(|c| matches!(c, '\u{1100}'..='\u{11FF}' | '\u{3040}'..='\u{30FF}' | '\u{3130}'..='\u{318F}' | '\u{3400}'..='\u{9FFF}' | '\u{AC00}'..='\u{D7AF}'))
+    text.chars()
+        .any(|c| matches!(c, '\u{1100}'..='\u{11FF}' | '\u{3040}'..='\u{30FF}' | '\u{3130}'..='\u{318F}' | '\u{3400}'..='\u{9FFF}' | '\u{AC00}'..='\u{D7AF}'))
 }
 
 /// Eyebrow (dashboards), title and subtitle bands, and the source line; the first free row.
@@ -108,7 +110,8 @@ fn push_title_bands(output: &mut Vec<Value>, layout: &Layout, input: &Value) -> 
                 Some(value) if truthy(value) => value_to_string(value),
                 _ => {
                     let headers = Value::Array(layout.headers.iter().map(|header| text_value(header)).collect());
-                    let sample = Value::Array(vec![title.clone(), prop(input, "subtitle").cloned().unwrap_or(Value::Null), headers, Value::Array(layout.rows.to_vec())]);
+                    let sample =
+                        Value::Array(vec![title.clone(), prop(input, "subtitle").cloned().unwrap_or(Value::Null), headers, Value::Array(layout.rows.to_vec())]);
                     preset_labels(&sample).eyebrow.to_owned()
                 }
             };
@@ -158,7 +161,10 @@ fn push_title_bands(output: &mut Vec<Value>, layout: &Layout, input: &Value) -> 
             ]),
         );
         // A merged band never grows to its wrapped lines: the band takes the lines the title needs across its width.
-        output.push(operation("set_row_height", vec![("sheet", text_value(sheet)), ("row", num(row as f64)), ("height", num(band_height(&wrapped, title_size, band_points)))]));
+        output.push(operation(
+            "set_row_height",
+            vec![("sheet", text_value(sheet)), ("row", num(row as f64)), ("height", num(band_height(&wrapped, title_size, band_points)))],
+        ));
         row += 1;
     }
     if let Some(subtitle) = prop(input, "subtitle").filter(|subtitle| truthy(subtitle)) {
@@ -315,7 +321,23 @@ mod tests {
         let list = ops(&json!({ "title": "Sales", "headers": ["Menu", "Sales"], "rows": [["Coffee", 30], ["Cake", 20]] }));
         assert_eq!(
             kinds(&list),
-            ["set_cell", "merge_cells", "set_style", "set_row_height", "set_range", "set_style", "set_style", "add_table", "freeze_panes", "set_style", "set_style", "autofit_range", "autofit_range", "set_page_setup", "set_sheet_view"]
+            [
+                "set_cell",
+                "merge_cells",
+                "set_style",
+                "set_row_height",
+                "set_range",
+                "set_style",
+                "set_style",
+                "add_table",
+                "freeze_panes",
+                "set_style",
+                "set_style",
+                "autofit_range",
+                "autofit_range",
+                "set_page_setup",
+                "set_sheet_view"
+            ]
         );
         // The title band, then the gap row under it: the table starts on row 3.
         assert_eq!(list[4]["range"], json!("A3:B5"));
@@ -336,7 +358,9 @@ mod tests {
 
     #[test]
     fn a_figure_written_as_text_lands_as_the_number_it_shows() {
-        let list = ops(&json!({ "kind": "dashboard", "headers": ["a", "b"], "rows": [["x", 1]], "metrics": [{ "label": "L", "value": "92.8%" }, { "label": "M", "value": "+1,240" }] }));
+        let list = ops(
+            &json!({ "kind": "dashboard", "headers": ["a", "b"], "rows": [["x", 1]], "metrics": [{ "label": "L", "value": "92.8%" }, { "label": "M", "value": "+1,240" }] }),
+        );
         let formats: Vec<&Value> = list.iter().filter_map(|entry| entry.get("properties")?.get("numberFormat")).collect();
         assert!(formats.contains(&&json!("0.0%")));
         assert!(formats.contains(&&json!("+#,##0;-#,##0;#,##0")));

@@ -93,9 +93,7 @@ impl Liveness {
     /// Runs `work` against the head deadline.
     pub async fn bound_head<T>(self, work: impl Future<Output = T>) -> Result<T, Expired> {
         match self.head_deadline() {
-            Some(after) => crate::time::timeout(after, work)
-                .await
-                .map_err(|_| Expired { after }),
+            Some(after) => crate::time::timeout(after, work).await.map_err(|_| Expired { after }),
             None => Ok(work.await),
         }
     }
@@ -109,22 +107,13 @@ mod tests {
     async fn a_silent_head_expires_on_the_virtual_clock() {
         let stalled = std::future::pending::<()>();
         let stream = Liveness::stream(Duration::from_secs(600));
-        assert_eq!(
-            stream.bound_head(stalled).await,
-            Err(Expired {
-                after: Duration::from_secs(600)
-            })
-        );
+        assert_eq!(stream.bound_head(stalled).await, Err(Expired { after: Duration::from_secs(600) }));
         assert_eq!(stream.total_deadline(), None);
         let unary = Liveness::unary(Duration::from_secs(30));
         assert_eq!(unary.total_deadline(), Some(Duration::from_secs(30)));
         assert_eq!(unary.bound_head(async { 7 }).await, Ok(7));
         // A cancel-only exchange has no timer: only the caller's own bound ends it.
-        let waited = crate::time::timeout(
-            Duration::from_secs(24 * 3600),
-            Liveness::cancel_only().bound_head(std::future::pending::<()>()),
-        )
-        .await;
+        let waited = crate::time::timeout(Duration::from_secs(24 * 3600), Liveness::cancel_only().bound_head(std::future::pending::<()>())).await;
         assert!(waited.is_err());
     }
 }

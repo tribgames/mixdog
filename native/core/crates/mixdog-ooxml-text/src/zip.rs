@@ -75,23 +75,10 @@ impl<'a> Zip<'a> {
         };
         let count = u16_at(buf, eocd + 10);
         let mut off = u64::from(u32_at(buf, eocd + 16));
-        let max_container = if limits.max_container_bytes == 0 {
-            CONTAINER_MAX_INFLATED_BYTES
-        } else {
-            CONTAINER_MAX_INFLATED_BYTES.min(limits.max_container_bytes)
-        };
-        let max_part_bytes = if limits.max_part_bytes == 0 {
-            PART_MAX_INFLATED_BYTES
-        } else {
-            PART_MAX_INFLATED_BYTES.min(limits.max_part_bytes)
-        };
-        let mut zip = Zip {
-            buf,
-            entries: Vec::new(),
-            by_name: HashMap::new(),
-            remaining: Cell::new(max_container),
-            max_part_bytes,
-        };
+        let max_container =
+            if limits.max_container_bytes == 0 { CONTAINER_MAX_INFLATED_BYTES } else { CONTAINER_MAX_INFLATED_BYTES.min(limits.max_container_bytes) };
+        let max_part_bytes = if limits.max_part_bytes == 0 { PART_MAX_INFLATED_BYTES } else { PART_MAX_INFLATED_BYTES.min(limits.max_part_bytes) };
+        let mut zip = Zip { buf, entries: Vec::new(), by_name: HashMap::new(), remaining: Cell::new(max_container), max_part_bytes };
         let len = buf.len() as u64;
         for _ in 0..count {
             if off + 46 > len || u32_at(buf, off as usize) != CDIR_SIG {
@@ -162,10 +149,7 @@ impl<'a> Zip<'a> {
         if entry.method == 0 {
             // stored: not counted against the container's budget
             if raw.len() as u64 > self.max_part_bytes {
-                return Err(Failure::Other(format!(
-                    "zip entry {} is too large when decompressed (limit {} bytes)",
-                    entry.name, self.max_part_bytes
-                )));
+                return Err(Failure::Other(format!("zip entry {} is too large when decompressed (limit {} bytes)", entry.name, self.max_part_bytes)));
             }
             return Ok(raw.to_vec());
         }
@@ -174,10 +158,7 @@ impl<'a> Zip<'a> {
         }
         let limit = self.max_part_bytes.min(self.remaining.get());
         let out = inflate_raw(raw, limit.max(1)).map_err(|error| match error {
-            Inflate::TooLarge => Failure::Other(format!(
-                "zip entry {} is too large when decompressed (limit {limit} bytes)",
-                entry.name
-            )),
+            Inflate::TooLarge => Failure::Other(format!("zip entry {} is too large when decompressed (limit {limit} bytes)", entry.name)),
             Inflate::Broken(message) => Failure::Other(message),
         })?;
         self.remaining.set(self.remaining.get().saturating_sub(out.len() as u64));

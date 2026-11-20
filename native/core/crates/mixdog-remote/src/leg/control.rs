@@ -35,12 +35,7 @@ impl ControlRequests {
 
     /// Sends `{type, requestId, ...payload}` through `send` and waits for the relay's answer.
     /// `send` returns false when the leg is down.
-    pub async fn request(
-        &self,
-        kind: &str,
-        payload: Map<String, Value>,
-        send: impl FnOnce(Value) -> bool,
-    ) -> Answer {
+    pub async fn request(&self, kind: &str, payload: Map<String, Value>, send: impl FnOnce(Value) -> bool) -> Answer {
         let request_id = uuid::Uuid::new_v4().to_string();
         let (tx, rx) = oneshot::channel();
         self.pending().insert(request_id.clone(), tx);

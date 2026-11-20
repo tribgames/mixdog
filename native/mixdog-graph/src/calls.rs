@@ -54,17 +54,15 @@ use std::collections::HashMap;
 use std::sync::{Arc, LazyLock, RwLock};
 
 use ast_grep_config::GlobalRules;
+use ast_grep_core::Node;
 use ast_grep_core::replacer::{Content, Replacer};
 use ast_grep_core::tree_sitter::StrDoc;
-use ast_grep_core::Node;
-use ast_grep_outline::extractor::{parse_outline_rules, ItemExtractor, SerializableOutlineRule};
+use ast_grep_outline::extractor::{ItemExtractor, SerializableOutlineRule, parse_outline_rules};
 use ast_grep_outline::options::OutlineEntryDetail;
 use serde::Serialize;
 
-use crate::outline::{
-    collapse_whitespace, index_by_kind, marker_value, split_yaml_documents, tsx_variant,
-};
-use crate::scan_lang::{cached_for_lang, graph_lang_scan_langs, ScanLang};
+use crate::outline::{collapse_whitespace, index_by_kind, marker_value, split_yaml_documents, tsx_variant};
+use crate::scan_lang::{ScanLang, cached_for_lang, graph_lang_scan_langs};
 use crate::spans::{ContainmentSweep, SymbolSpan};
 
 /// `rules/calls/*.yml`, concatenated by build.rs (may be empty).
@@ -153,15 +151,7 @@ pub struct CallDebug<'a> {
 
 impl<'a> From<&'a CallInfo> for CallDebug<'a> {
     fn from(call: &'a CallInfo) -> Self {
-        Self {
-            name: &call.name,
-            line: call.line,
-            col: call.col,
-            end_col: call.end_col,
-            kind: call.kind,
-            recv: &call.recv,
-            in_symbol: &call.in_symbol,
-        }
+        Self { name: &call.name, line: call.line, col: call.col, end_col: call.end_col, kind: call.kind, recv: &call.recv, in_symbol: &call.in_symbol }
     }
 }
 
@@ -212,11 +202,7 @@ fn call_kind_of(doc: &str) -> Result<&'static str, String> {
     let Some(token) = marker_value(doc, "# mixdog-call-kind:") else {
         return Err("no `# mixdog-call-kind: call|method|new` marker".to_string());
     };
-    KINDS
-        .iter()
-        .find(|kind| **kind == token)
-        .copied()
-        .ok_or_else(|| format!("unknown call kind `{token}`; use call, method or new"))
+    KINDS.iter().find(|kind| **kind == token).copied().ok_or_else(|| format!("unknown call kind `{token}`; use call, method or new"))
 }
 
 /// `# mixdog-call-recv: <text>`, the optional literal-receiver marker. The
@@ -230,13 +216,7 @@ fn call_recv_of(doc: &str) -> Option<&'static str> {
     Some(Box::leak(token.to_string().into_boxed_str()))
 }
 
-fn parse_call_document(
-    doc: &str,
-    origin: &str,
-    number: usize,
-    rules: &mut Vec<CallRule>,
-    errors: &mut Vec<String>,
-) {
+fn parse_call_document(doc: &str, origin: &str, number: usize, rules: &mut Vec<CallRule>, errors: &mut Vec<String>) {
     if doc.trim().is_empty() {
         return;
     }
@@ -251,18 +231,13 @@ fn parse_call_document(
     // binds it can only produce positionless calls: refuse it at load time
     // rather than dropping its matches one by one at walk time.
     if !doc.contains("$NAME") {
-        errors.push(format!(
-            "{origin}: document {number}: call rule does not bind `$NAME` to the callee name node"
-        ));
+        errors.push(format!("{origin}: document {number}: call rule does not bind `$NAME` to the callee name node"));
         return;
     }
     match parse_outline_rules::<ScanLang>(doc) {
         Ok(parsed) => {
             if parsed.len() != 1 {
-                let ids: Vec<&str> = parsed
-                    .iter()
-                    .map(|rule| rule.common().id.as_str())
-                    .collect();
+                let ids: Vec<&str> = parsed.iter().map(|rule| rule.common().id.as_str()).collect();
                 errors.push(format!(
                     "{origin}: document {number}: {} rules in one YAML document ({}); \
                      split them with `---` so `# mixdog-call-kind:` binds to one rule",
@@ -290,20 +265,11 @@ fn parse_call_document(
 fn load_rules() -> LoadedCallRules {
     let mut rules = Vec::new();
     let mut errors = Vec::new();
-    for (index, doc) in split_yaml_documents(BUNDLED_CALL_RULES)
-        .into_iter()
-        .enumerate()
-    {
+    for (index, doc) in split_yaml_documents(BUNDLED_CALL_RULES).into_iter().enumerate() {
         parse_call_document(doc, "rules/calls", index + 1, &mut rules, &mut errors);
         // `.tsx` parses with its own grammar and needs the identical rule.
         if let Some(tsx) = tsx_variant(doc) {
-            parse_call_document(
-                &tsx,
-                "rules/calls (tsx copy)",
-                index + 1,
-                &mut rules,
-                &mut errors,
-            );
+            parse_call_document(&tsx, "rules/calls (tsx copy)", index + 1, &mut rules, &mut errors);
         }
     }
     LoadedCallRules { rules, errors }
@@ -319,19 +285,12 @@ pub fn load_errors() -> &'static [String] {
 
 /// Compile diagnostics for one graph language's call rules.
 pub fn language_rule_errors(graph_lang: &str) -> Vec<String> {
-    graph_lang_scan_langs(graph_lang)
-        .iter()
-        .flat_map(|lang| extractors_for(*lang).errors.clone())
-        .collect()
+    graph_lang_scan_langs(graph_lang).iter().flat_map(|lang| extractors_for(*lang).errors.clone()).collect()
 }
 
 /// Number of loaded call rules for one graph language (reporting/tests).
 pub fn rule_count(graph_lang: &str) -> usize {
-    graph_lang_scan_langs(graph_lang)
-        .iter()
-        .map(|lang| extractors_for(*lang).items.len())
-        .max()
-        .unwrap_or(0)
+    graph_lang_scan_langs(graph_lang).iter().map(|lang| extractors_for(*lang).items.len()).max().unwrap_or(0)
 }
 
 // ------------------------------------------------------------- compilation
@@ -373,21 +332,13 @@ impl CallExtractors {
                     kinds.push(entry.kind);
                     recvs.push(entry.recv);
                 }
-                Err(error) => errors.push(format!(
-                    "{lang}: call rule `{id}` does not compile: {error}"
-                )),
+                Err(error) => errors.push(format!("{lang}: call rule `{id}` does not compile: {error}")),
             }
         }
 
         let by_kind = index_by_kind(lang, "call", &items, &mut errors);
 
-        Self {
-            items,
-            kinds,
-            recvs,
-            by_kind,
-            errors,
-        }
+        Self { items, kinds, recvs, by_kind, errors }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -433,14 +384,11 @@ impl CallExtractors {
     }
 }
 
-static COMPILED: LazyLock<RwLock<HashMap<ScanLang, Arc<CallExtractors>>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
+static COMPILED: LazyLock<RwLock<HashMap<ScanLang, Arc<CallExtractors>>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Compiled call extractors for `lang`, compiled on first use and shared after.
 pub fn extractors_for(lang: ScanLang) -> Arc<CallExtractors> {
-    cached_for_lang(&COMPILED, lang, "call cache", || {
-        CallExtractors::compile(lang, &RULES.rules)
-    })
+    cached_for_lang(&COMPILED, lang, "call cache", || CallExtractors::compile(lang, &RULES.rules))
 }
 
 /// Resolve `inSymbol` and emit the contract order.
@@ -457,19 +405,8 @@ pub fn finish(mut raw: Vec<RawCall>, symbols: &[SymbolSpan<'_>]) -> Vec<CallInfo
     let mut sweep = ContainmentSweep::new(symbols);
     let mut calls = Vec::with_capacity(raw.len());
     for call in raw {
-        let in_symbol = sweep
-            .innermost_at(call.name_start)
-            .map(str::to_string)
-            .unwrap_or_default();
-        calls.push(CallInfo {
-            name: call.name,
-            line: call.line,
-            col: call.col,
-            end_col: call.end_col,
-            kind: call.kind,
-            recv: call.recv,
-            in_symbol,
-        });
+        let in_symbol = sweep.innermost_at(call.name_start).map(str::to_string).unwrap_or_default();
+        calls.push(CallInfo { name: call.name, line: call.line, col: call.col, end_col: call.end_col, kind: call.kind, recv: call.recv, in_symbol });
     }
     calls
 }
@@ -480,82 +417,37 @@ mod tests {
     use crate::scan_lang::scan_lang_for_ext;
 
     /// `(name, line, col, endCol, kind, recv, inSymbol)` for one source.
-    fn calls(
-        graph_lang: &str,
-        ext: &str,
-        source: &str,
-    ) -> Vec<(String, u32, u32, u32, &'static str, String, String)> {
+    fn calls(graph_lang: &str, ext: &str, source: &str) -> Vec<(String, u32, u32, u32, &'static str, String, String)> {
         let lang = scan_lang_for_ext(ext).expect("test extension has a language");
         extract(source, graph_lang, lang)
             .calls
             .expect("an extraction language answers with a list")
             .into_iter()
-            .map(|call| {
-                (
-                    call.name,
-                    call.line,
-                    call.col,
-                    call.end_col,
-                    call.kind,
-                    call.recv,
-                    call.in_symbol,
-                )
-            })
+            .map(|call| (call.name, call.line, call.col, call.end_col, call.kind, call.recv, call.in_symbol))
             .collect()
     }
 
     fn named(calls: &[(String, u32, u32, u32, &'static str, String, String)]) -> Vec<String> {
-        calls
-            .iter()
-            .map(|(name, _, _, _, kind, recv, _)| {
-                format!("{kind} {name} {recv}").trim_end().to_string()
-            })
-            .collect()
+        calls.iter().map(|(name, _, _, _, kind, recv, _)| format!("{kind} {name} {recv}").trim_end().to_string()).collect()
     }
 
     #[test]
     fn typescript_plain_call_reports_the_callee_name_node() {
         let found = calls("typescript", "ts", "run();\n");
-        assert_eq!(
-            found,
-            vec![(
-                "run".to_string(),
-                1,
-                0,
-                3,
-                "call",
-                String::new(),
-                String::new()
-            )]
-        );
+        assert_eq!(found, vec![("run".to_string(), 1, 0, 3, "call", String::new(), String::new())]);
     }
 
     #[test]
     fn typescript_method_call_carries_the_receiver() {
         let found = calls("typescript", "ts", "const x = a.b.foo(1);\n");
         // Last segment only, and the receiver is the qualifier source text.
-        assert_eq!(
-            found,
-            vec![(
-                "foo".to_string(),
-                1,
-                14,
-                17,
-                "method",
-                "a.b".to_string(),
-                "x".to_string()
-            )]
-        );
+        assert_eq!(found, vec![("foo".to_string(), 1, 14, 17, "method", "a.b".to_string(), "x".to_string())]);
     }
 
     #[test]
     fn typescript_new_expression_is_kind_new() {
         assert_eq!(
-            named(&calls(
-                "typescript",
-                "ts",
-                "new Widget();\nnew a.Widget();\n"
-            )),
+            named(&calls("typescript", "ts", "new Widget();\nnew a.Widget();\n")),
             // Last segment only, qualifier as the receiver, kind still `new`.
             vec!["new Widget", "new Widget a"]
         );
@@ -563,20 +455,9 @@ mod tests {
 
     #[test]
     fn typescript_in_symbol_is_the_innermost_enclosing_symbol() {
-        let source =
-            "function outer() {\n  function inner() {\n    run();\n  }\n  helper();\n}\ntop();\n";
-        let found: Vec<(String, String)> = calls("typescript", "ts", source)
-            .into_iter()
-            .map(|(name, _, _, _, _, _, in_symbol)| (name, in_symbol))
-            .collect();
-        assert_eq!(
-            found,
-            vec![
-                ("run".to_string(), "inner".to_string()),
-                ("helper".to_string(), "outer".to_string()),
-                ("top".to_string(), String::new()),
-            ]
-        );
+        let source = "function outer() {\n  function inner() {\n    run();\n  }\n  helper();\n}\ntop();\n";
+        let found: Vec<(String, String)> = calls("typescript", "ts", source).into_iter().map(|(name, _, _, _, _, _, in_symbol)| (name, in_symbol)).collect();
+        assert_eq!(found, vec![("run".to_string(), "inner".to_string()), ("helper".to_string(), "outer".to_string()), ("top".to_string(), String::new()),]);
     }
 
     #[test]
@@ -609,17 +490,8 @@ mod tests {
     #[test]
     fn python_in_symbol_and_comment_exclusion() {
         let source = "# hidden()\nclass Store:\n    def read(self):\n        load()\n\nload()\n";
-        let found: Vec<(String, String)> = calls("python", "py", source)
-            .into_iter()
-            .map(|(name, _, _, _, _, _, in_symbol)| (name, in_symbol))
-            .collect();
-        assert_eq!(
-            found,
-            vec![
-                ("load".to_string(), "read".to_string()),
-                ("load".to_string(), String::new()),
-            ]
-        );
+        let found: Vec<(String, String)> = calls("python", "py", source).into_iter().map(|(name, _, _, _, _, _, in_symbol)| (name, in_symbol)).collect();
+        assert_eq!(found, vec![("load".to_string(), "read".to_string()), ("load".to_string(), String::new()),]);
     }
 
     #[test]
@@ -636,20 +508,9 @@ mod tests {
     #[test]
     fn a_parsed_file_without_calls_answers_with_an_empty_list() {
         let ts = scan_lang_for_ext("ts").expect("ts");
-        assert_eq!(
-            extract("export const answer = 42;\n", "typescript", ts).calls,
-            Some(Vec::new())
-        );
+        assert_eq!(extract("export const answer = 42;\n", "typescript", ts).calls, Some(Vec::new()));
         assert_eq!(extract("", "typescript", ts).calls, Some(Vec::new()));
-        assert_eq!(
-            extract(
-                "# only a comment\n",
-                "python",
-                scan_lang_for_ext("py").expect("py")
-            )
-            .calls,
-            Some(Vec::new())
-        );
+        assert_eq!(extract("# only a comment\n", "python", scan_lang_for_ext("py").expect("py")).calls, Some(Vec::new()));
     }
 
     /// Wire v2: a positional tuple with a numeric kind, no `endCol`, and
@@ -657,13 +518,8 @@ mod tests {
     #[test]
     fn calls_serialize_as_positional_tuples() {
         let lang = scan_lang_for_ext("ts").expect("ts");
-        let calls = extract("run();\nnew Widget();\na.b();\n", "typescript", lang)
-            .calls
-            .expect("list");
-        assert_eq!(
-            serde_json::to_string(&calls).unwrap(),
-            r#"[["run",1,0,0,"",""],["Widget",2,4,2,"",""],["b",3,2,1,"a",""]]"#
-        );
+        let calls = extract("run();\nnew Widget();\na.b();\n", "typescript", lang).calls.expect("list");
+        assert_eq!(serde_json::to_string(&calls).unwrap(), r#"[["run",1,0,0,"",""],["Widget",2,4,2,"",""],["b",3,2,1,"a",""]]"#);
         // `endCol` is derivable and therefore not on the wire.
         assert_eq!(calls[0].end_col, calls[0].col + 3);
     }
@@ -675,15 +531,7 @@ mod tests {
     #[test]
     fn call_tuples_escape_strings_and_keep_empty_fields() {
         let calls = vec![
-            super::CallInfo {
-                name: "quote\"x".to_string(),
-                line: 1,
-                col: 0,
-                end_col: 7,
-                kind: "call",
-                recv: String::new(),
-                in_symbol: String::new(),
-            },
+            super::CallInfo { name: "quote\"x".to_string(), line: 1, col: 0, end_col: 7, kind: "call", recv: String::new(), in_symbol: String::new() },
             super::CallInfo {
                 name: "back\\slash".to_string(),
                 line: 2,
@@ -747,23 +595,13 @@ mod tests {
         // A string-literal receiver of non-BMP emoji: 4 bytes per character,
         // and the quote inside `recv` also has to survive JSON escaping.
         let emoji = "🙂".repeat(80);
-        let found = calls(
-            "typescript",
-            "ts",
-            &format!("const z = \"{emoji}\".trim();\n"),
-        );
+        let found = calls("typescript", "ts", &format!("const z = \"{emoji}\".trim();\n"));
         let (_, _, _, _, _, recv, _) = &found[0];
         assert_eq!(recv.chars().count(), 64);
         assert_eq!(*recv, format!("\"{}…", "🙂".repeat(62)));
         assert!(recv.chars().all(|ch| ch == '"' || ch == '🙂' || ch == '…'));
         let json = serde_json::to_string(
-            &extract(
-                &format!("const z = \"{emoji}\".trim();\n"),
-                "typescript",
-                scan_lang_for_ext("ts").expect("ts"),
-            )
-            .calls
-            .expect("list"),
+            &extract(&format!("const z = \"{emoji}\".trim();\n"), "typescript", scan_lang_for_ext("ts").expect("ts")).calls.expect("list"),
         )
         .expect("serializes");
         assert!(json.contains(r#"\"🙂"#), "{json}");
@@ -779,17 +617,7 @@ mod tests {
     #[test]
     fn rust_macro_arguments_still_report_their_calls() {
         let source = "fn main() {\n    assert_eq!(foo(), 1);\n    let v = vec![f()];\n    println!(\"{}\", g());\n}\n";
-        assert_eq!(
-            named(&calls("rust", "rs", source)),
-            vec![
-                "call assert_eq",
-                "call foo",
-                "call vec",
-                "call f",
-                "call println",
-                "call g",
-            ]
-        );
+        assert_eq!(named(&calls("rust", "rs", source)), vec!["call assert_eq", "call foo", "call vec", "call f", "call println", "call g",]);
     }
 
     /// `cfg(not(windows))` / `cfg_attr(test, allow(..))` are configuration
@@ -800,27 +628,15 @@ mod tests {
     #[test]
     fn rust_attribute_predicates_are_not_calls_and_macro_names_are_not_doubled() {
         let source = "#![cfg_attr(test, allow(dead_code))]\n#[cfg(not(windows))]\n#[cfg(all(test, feature = \"x\"))]\nfn main() {\n    assert!(matches!(mode(), Mode::On));\n}\n";
-        assert_eq!(
-            named(&calls("rust", "rs", source)),
-            vec!["call assert", "call mode"]
-        );
+        assert_eq!(named(&calls("rust", "rs", source)), vec!["call assert", "call mode"]);
     }
 
     /// A parenthesised or awaited receiver is still a receiver.
     #[test]
     fn parenthesised_and_awaited_receivers_are_reported() {
-        let source =
-            "async function run() {\n  (await import('x')).foo();\n  (await load()).baz();\n}\n";
+        let source = "async function run() {\n  (await import('x')).foo();\n  (await load()).baz();\n}\n";
         for (lang, ext) in [("typescript", "ts"), ("javascript", "mjs")] {
-            assert_eq!(
-                named(&calls(lang, ext, source)),
-                vec![
-                    "method foo (await import('x'))",
-                    "call load",
-                    "method baz (await load())",
-                ],
-                "{lang}"
-            );
+            assert_eq!(named(&calls(lang, ext, source)), vec!["method foo (await import('x'))", "call load", "method baz (await load())",], "{lang}");
         }
     }
 
@@ -831,33 +647,21 @@ mod tests {
         for (graph_lang, ext) in [("css", "css"), ("yaml", "yaml"), ("json", "json")] {
             let lang = scan_lang_for_ext(ext).expect("scan language");
             if !crate::outline::has_rules(graph_lang) {
-                assert_eq!(
-                    extract("a { b: c }\n", graph_lang, lang).calls,
-                    None,
-                    "{graph_lang}"
-                );
+                assert_eq!(extract("a { b: c }\n", graph_lang, lang).calls, None, "{graph_lang}");
             }
         }
     }
 
     #[test]
     fn every_call_rule_file_compiles_for_every_extraction_language() {
-        assert!(
-            super::load_errors().is_empty(),
-            "{:?}",
-            super::load_errors()
-        );
+        assert!(super::load_errors().is_empty(), "{:?}", super::load_errors());
         for info in crate::scan_lang::LANG_INFOS {
             if !info.extract() {
                 continue;
             }
             let errors = super::language_rule_errors(info.id);
             assert!(errors.is_empty(), "{}: {errors:?}", info.id);
-            assert!(
-                super::rule_count(info.id) > 0,
-                "{}: no call rules loaded",
-                info.id
-            );
+            assert!(super::rule_count(info.id) > 0, "{}: no call rules loaded", info.id);
         }
     }
 
@@ -867,15 +671,9 @@ mod tests {
     /// `.collect::<Vec<_>>()` in a Rust file is silently missing.
     #[test]
     fn rust_turbofish_calls_keep_their_name_node() {
-        let source = "fn probe(text: &str) {\n    let a = text.parse::<u32>();\n    let b = serde_json::from_str::<Vec<u32>>(text);\n    let c = plain::<u32>(1);\n}\n";
-        assert_eq!(
-            named(&calls("rust", "rs", source)),
-            vec![
-                "method parse text",
-                "method from_str serde_json",
-                "call plain"
-            ]
-        );
+        let source =
+            "fn probe(text: &str) {\n    let a = text.parse::<u32>();\n    let b = serde_json::from_str::<Vec<u32>>(text);\n    let c = plain::<u32>(1);\n}\n";
+        assert_eq!(named(&calls("rust", "rs", source)), vec!["method parse text", "method from_str serde_json", "call plain"]);
         // The name node is the identifier alone: the type arguments are not
         // part of `name`, and `endCol` stops before `::<`.
         let parse = &calls("rust", "rs", source)[0];
@@ -889,15 +687,7 @@ mod tests {
     #[test]
     fn csharp_generic_and_null_conditional_calls() {
         let source = "class H {\n  void Go(S sp) {\n    sp.GetService<IFoo>();\n    Resolve<IBar>(2);\n    sp?.Maybe();\n    sp.Items?.Count();\n  }\n}\n";
-        assert_eq!(
-            named(&calls("csharp", "cs", source)),
-            vec![
-                "method GetService sp",
-                "call Resolve",
-                "method Maybe sp",
-                "method Count sp.Items",
-            ]
-        );
+        assert_eq!(named(&calls("csharp", "cs", source)), vec!["method GetService sp", "call Resolve", "method Maybe sp", "method Count sp.Items",]);
         let generic = &calls("csharp", "cs", source)[0];
         assert_eq!((generic.1, generic.2, generic.3), (3, 7, 17));
     }
@@ -907,30 +697,12 @@ mod tests {
     /// qualifier, a template/generic wrapper, or both.
     #[test]
     fn qualified_and_generic_constructors_name_the_last_segment() {
+        assert_eq!(named(&calls("csharp", "cs", "class H { void Go() { var a = new System.Collections.Generic.List<int>(); } }\n")), vec!["new List"]);
         assert_eq!(
-            named(&calls(
-                "csharp",
-                "cs",
-                "class H { void Go() { var a = new System.Collections.Generic.List<int>(); } }\n"
-            )),
-            vec!["new List"]
-        );
-        assert_eq!(
-            named(&calls(
-                "java",
-                "java",
-                "class P { void go() { var a = new java.util.ArrayList<String>(); var b = new java.util.HashMap(); } }\n"
-            )),
+            named(&calls("java", "java", "class P { void go() { var a = new java.util.ArrayList<String>(); var b = new java.util.HashMap(); } }\n")),
             vec!["new ArrayList", "new HashMap"]
         );
-        assert_eq!(
-            named(&calls(
-                "cpp",
-                "cpp",
-                "void go() { auto *v = new std::vector<std::string>(); }\n"
-            )),
-            vec!["new vector"]
-        );
+        assert_eq!(named(&calls("cpp", "cpp", "void go() { auto *v = new std::vector<std::string>(); }\n")), vec!["new vector"]);
     }
 
     /// `finish()` collapses only the SAME name node reported twice by
@@ -939,23 +711,14 @@ mod tests {
     #[test]
     fn duplicate_collapse_never_merges_two_genuine_calls() {
         assert_eq!(
-            calls("typescript", "ts", "f(f(x));\n")
-                .iter()
-                .map(|call| (call.0.clone(), call.2))
-                .collect::<Vec<_>>(),
+            calls("typescript", "ts", "f(f(x));\n").iter().map(|call| (call.0.clone(), call.2)).collect::<Vec<_>>(),
             vec![("f".to_string(), 0), ("f".to_string(), 2)]
         );
         // A chain that calls the same method twice: same name, same line, two
         // receivers, two columns.
         assert_eq!(
-            calls("typescript", "ts", "a.b().b();\n")
-                .iter()
-                .map(|call| (call.0.clone(), call.2, call.5.clone()))
-                .collect::<Vec<_>>(),
-            vec![
-                ("b".to_string(), 2, "a".to_string()),
-                ("b".to_string(), 6, "a.b()".to_string()),
-            ]
+            calls("typescript", "ts", "a.b().b();\n").iter().map(|call| (call.0.clone(), call.2, call.5.clone())).collect::<Vec<_>>(),
+            vec![("b".to_string(), 2, "a".to_string()), ("b".to_string(), 6, "a.b()".to_string()),]
         );
     }
 
@@ -965,10 +728,7 @@ mod tests {
     #[test]
     fn in_symbol_resolves_nested_and_single_line_spans() {
         let source = "class Store {\n  read() {\n    function inner() { deep(); }\n    inner();\n  }\n}\nfunction a() { x(); } function b() { y(); }\n";
-        let found: Vec<(String, String)> = calls("typescript", "ts", source)
-            .into_iter()
-            .map(|(name, _, _, _, _, _, in_symbol)| (name, in_symbol))
-            .collect();
+        let found: Vec<(String, String)> = calls("typescript", "ts", source).into_iter().map(|(name, _, _, _, _, _, in_symbol)| (name, in_symbol)).collect();
         assert_eq!(
             found,
             vec![
@@ -990,12 +750,10 @@ mod tests {
         let body = "language: TypeScript\nrole: item\nsymbolType: function\nrule:\n  kind: call_expression\n  has:\n    field: function\n    kind: identifier\n    pattern: $NAME\nname: $NAME\n";
         let cases = [
             (format!("id: no-marker\n{body}"), "mixdog-call-kind"),
+            (format!("# mixdog-call-kind: invoke\nid: bad-kind\n{body}"), "unknown call kind"),
             (
-                format!("# mixdog-call-kind: invoke\nid: bad-kind\n{body}"),
-                "unknown call kind",
-            ),
-            (
-                "# mixdog-call-kind: call\nid: no-name\nlanguage: TypeScript\nrole: item\nsymbolType: function\nrule:\n  kind: call_expression\nname: callee\n".to_string(),
+                "# mixdog-call-kind: call\nid: no-name\nlanguage: TypeScript\nrole: item\nsymbolType: function\nrule:\n  kind: call_expression\nname: callee\n"
+                    .to_string(),
                 "$NAME",
             ),
             (
@@ -1045,25 +803,12 @@ mod tests {
         assert!(!compiled.is_empty());
         // … and both unusable rules are named in the per-language diagnostics.
         let reported = compiled.errors.join("\n");
-        assert!(
-            reported.contains("broken-kind") && reported.contains("unindexable"),
-            "both broken call rules must be reported: {reported}"
-        );
+        assert!(reported.contains("broken-kind") && reported.contains("unindexable"), "both broken call rules must be reported: {reported}");
 
         // A language whose call rules are ALL unusable still extracts symbols.
         let none = super::CallExtractors::compile(lang, &[]);
         assert!(none.is_empty());
-        let extraction = extract(
-            "export class Widget { run() { helper(); } }\n",
-            "typescript",
-            lang,
-        );
-        assert!(
-            extraction
-                .symbols
-                .iter()
-                .any(|symbol| symbol.name == "Widget"),
-            "symbol extraction is independent of the call rules"
-        );
+        let extraction = extract("export class Widget { run() { helper(); } }\n", "typescript", lang);
+        assert!(extraction.symbols.iter().any(|symbol| symbol.name == "Widget"), "symbol extraction is independent of the call rules");
     }
 }

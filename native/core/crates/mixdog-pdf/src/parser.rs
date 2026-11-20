@@ -26,24 +26,9 @@ pub struct Parser<'x> {
 impl<'x> Parser<'x> {
     /// `new Parser({lexer, xref, allowStreams, recoveryMode})`. `xref` is where references met while parsing are
     /// fetched from (the `/Length` of a stream, a `/Filter` held in an object).
-    pub fn new(
-        lexer: Lexer,
-        xref: Option<&'x Xref>,
-        allow_streams: bool,
-        recovery_mode: bool,
-    ) -> Result<Self> {
+    pub fn new(lexer: Lexer, xref: Option<&'x Xref>, allow_streams: bool, recovery_mode: bool) -> Result<Self> {
         let guard = lexer.guard().clone();
-        let mut parser = Parser {
-            lexer,
-            xref,
-            allow_streams,
-            recovery_mode,
-            buf1: Obj::Null,
-            buf2: Obj::Null,
-            depth: 0,
-            objects: 0,
-            guard,
-        };
+        let mut parser = Parser { lexer, xref, allow_streams, recovery_mode, buf1: Obj::Null, buf2: Obj::Null, depth: 0, objects: 0, guard };
         parser.refill()?;
         Ok(parser)
     }
@@ -141,9 +126,7 @@ impl<'x> Parser<'x> {
                         if self.recovery_mode {
                             return Ok(Obj::Dict(Arc::new(dict)));
                         }
-                        return Err(PdfError::ParserEof(
-                            "End of file inside dictionary.".to_owned(),
-                        ));
+                        return Err(PdfError::ParserEof("End of file inside dictionary.".to_owned()));
                     }
                     if self.buf2.is_cmd("stream") {
                         if self.allow_streams {
@@ -166,12 +149,7 @@ impl<'x> Parser<'x> {
                 Ok(buf1.clone())
             }
             Obj::Str(bytes) => match cipher {
-                Some(c) => Ok(Obj::Str(Arc::from(c.decryptor.decrypt_string(
-                    c.num,
-                    c.generation,
-                    bytes,
-                    self.xref,
-                )?))),
+                Some(c) => Ok(Obj::Str(Arc::from(c.decryptor.decrypt_string(c.num, c.generation, bytes, self.xref)?))),
                 None => Ok(buf1.clone()),
             },
             _ => Ok(buf1.clone()),
@@ -213,15 +191,9 @@ impl<'x> Parser<'x> {
         let start_pos = self.lexer.stream.pos;
         let stream = &mut self.lexer.stream;
         let length = match filter_name.as_deref() {
-            Some("DCT" | "DCTDecode") => {
-                find_dct_decode_inline_stream_end(stream, known.as_ref(), &guard)?
-            }
-            Some("A85" | "ASCII85Decode") => {
-                find_ascii85_decode_inline_stream_end(stream, known.as_ref(), &guard)?
-            }
-            Some("AHx" | "ASCIIHexDecode") => {
-                find_ascii_hex_decode_inline_stream_end(stream, known.as_ref(), &guard)?
-            }
+            Some("DCT" | "DCTDecode") => find_dct_decode_inline_stream_end(stream, known.as_ref(), &guard)?,
+            Some("A85" | "ASCII85Decode") => find_ascii85_decode_inline_stream_end(stream, known.as_ref(), &guard)?,
+            Some("AHx" | "ASCIIHexDecode") => find_ascii_hex_decode_inline_stream_end(stream, known.as_ref(), &guard)?,
             _ => find_default_inline_stream_end(stream, known.as_ref(), &guard)?,
         };
         let length = usize::try_from(length).unwrap_or(0);
@@ -247,8 +219,7 @@ impl<'x> Parser<'x> {
         while stream.pos < stream.end {
             self.guard.tick()?;
             let scan = stream.peek_bytes(SCAN_BLOCK_LENGTH).to_vec();
-            let Some(scan_length) = scan.len().checked_sub(SIGNATURE_LENGTH).filter(|n| *n > 0)
-            else {
+            let Some(scan_length) = scan.len().checked_sub(SIGNATURE_LENGTH).filter(|n| *n > 0) else {
                 break;
             };
             let mut pos = 0;
@@ -271,10 +242,7 @@ impl<'x> Parser<'x> {
                         if k >= part.len() {
                             let last_byte = scan.get(pos + j + k).map_or(-1, |b| i32::from(*b));
                             if is_white_space(last_byte) {
-                                tracing::debug!(
-                                    "Found \"end{}\" when searching for endstream command.",
-                                    String::from_utf8_lossy(part)
-                                );
+                                tracing::debug!("Found \"end{}\" when searching for endstream command.", String::from_utf8_lossy(part));
                                 found = true;
                             }
                             break;
@@ -307,8 +275,7 @@ impl<'x> Parser<'x> {
                 0
             }
         };
-        self.lexer.stream.pos =
-            usize::try_from((start_pos as i64).saturating_add(length)).unwrap_or(0);
+        self.lexer.stream.pos = usize::try_from((start_pos as i64).saturating_add(length)).unwrap_or(0);
         self.lexer.next_char();
         if self.try_shift()? && self.buf2.is_cmd("endstream") {
             self.shift()?;
@@ -338,23 +305,11 @@ impl<'x> Parser<'x> {
         };
         if let Some(c) = cipher {
             if !has_crypt {
-                c.decryptor
-                    .validate_stream(c.num, c.generation, None, embedded_file, self.xref)?;
+                c.decryptor.validate_stream(c.num, c.generation, None, embedded_file, self.xref)?;
             } else if raw.length() != 0 {
                 for spec in chain.iter().filter(|spec| spec.name == "Crypt") {
-                    let name = spec
-                        .params
-                        .as_ref()
-                        .and_then(|p| p.get_raw("Name"))
-                        .and_then(Obj::as_name)
-                        .unwrap_or("Identity");
-                    if let Err(error) = c.decryptor.validate_stream(
-                        c.num,
-                        c.generation,
-                        Some(name),
-                        embedded_file,
-                        self.xref,
-                    ) {
+                    let name = spec.params.as_ref().and_then(|p| p.get_raw("Name")).and_then(Obj::as_name).unwrap_or("Identity");
+                    if let Err(error) = c.decryptor.validate_stream(c.num, c.generation, Some(name), embedded_file, self.xref) {
                         if error.is_fatal() {
                             return Err(error);
                         }
@@ -372,14 +327,7 @@ impl<'x> Parser<'x> {
             }
         }
 
-        let stream = PdfStream::new(
-            Arc::new(dict),
-            raw,
-            chain,
-            cipher.cloned(),
-            cipher.is_some() && !has_crypt,
-            embedded_file,
-        );
+        let stream = PdfStream::new(Arc::new(dict), raw, chain, cipher.cloned(), cipher.is_some() && !has_crypt, embedded_file);
         Ok(Obj::Stream(Arc::new(stream)))
     }
 
@@ -394,10 +342,7 @@ impl<'x> Parser<'x> {
                     tracing::warn!("/DecodeParms should not be an Array, when /Filter is a Name.");
                 }
                 has_crypt = &**name == "Crypt";
-                chain.push(FilterSpec {
-                    name: name.to_string(),
-                    params: self.resolve_params(&params)?,
-                });
+                chain.push(FilterSpec { name: name.to_string(), params: self.resolve_params(&params)? });
             }
             Obj::Array(items) => {
                 for (i, item) in items.iter().enumerate() {
@@ -422,10 +367,7 @@ impl<'x> Parser<'x> {
                         },
                         _ => Obj::Null,
                     };
-                    chain.push(FilterSpec {
-                        name: name.to_string(),
-                        params: self.resolve_params(&param)?,
-                    });
+                    chain.push(FilterSpec { name: name.to_string(), params: self.resolve_params(&param)? });
                 }
             }
             _ => {}
@@ -455,11 +397,7 @@ impl<'x> Parser<'x> {
 
 /// `findDefaultInlineStreamEnd`: scans for `EI` followed by white space, then asks whether what follows reads as
 /// content-stream operators (the argument counts of `known_commands`). The returned length excludes the `EI`.
-fn find_default_inline_stream_end(
-    stream: &mut ByteStream,
-    known: Option<&Arc<KnownCommands>>,
-    guard: &Arc<Guard>,
-) -> Result<i64> {
+fn find_default_inline_stream_end(stream: &mut ByteStream, known: Option<&Arc<KnownCommands>>, guard: &Arc<Guard>) -> Result<i64> {
     const E: i32 = 0x45;
     const I: i32 = 0x49;
     const SPACE: i32 = 0x20;
@@ -505,11 +443,7 @@ fn find_default_inline_stream_end(
                 continue;
             };
             let tail = stream.peek_bytes(5 * N).to_vec();
-            let mut tmp = Lexer::with_known_commands(
-                ByteStream::from_vec(tail),
-                guard.clone(),
-                Some(known.clone()),
-            );
+            let mut tmp = Lexer::with_known_commands(ByteStream::from_vec(tail), guard.clone(), Some(known.clone()));
             let mut num_args = 0_usize;
             loop {
                 let next = tmp.get_obj()?;
@@ -524,11 +458,7 @@ fn find_default_inline_stream_end(
                             break;
                         }
                         Some(known_command) => {
-                            let fits = if known_command.variable_args {
-                                num_args <= known_command.num_args
-                            } else {
-                                num_args == known_command.num_args
-                            };
+                            let fits = if known_command.variable_args { num_args <= known_command.num_args } else { num_args == known_command.num_args };
                             if fits {
                                 break;
                             }
@@ -547,9 +477,7 @@ fn find_default_inline_stream_end(
         }
     }
     if ch == -1 {
-        tracing::warn!(
-            "findDefaultInlineStreamEnd: Reached the end of the stream without finding a valid EI marker"
-        );
+        tracing::warn!("findDefaultInlineStreamEnd: Reached the end of the stream without finding a valid EI marker");
         if maybe_ei_pos != 0 {
             tracing::warn!("... trying to recover by using the last \"EI\" occurrence.");
             stream.skip(-((stream.pos as isize) - (maybe_ei_pos as isize)));
@@ -566,11 +494,7 @@ fn find_default_inline_stream_end(
 }
 
 /// `findDCTDecodeInlineStreamEnd`: follows the JPEG markers to the end-of-image marker.
-fn find_dct_decode_inline_stream_end(
-    stream: &mut ByteStream,
-    known: Option<&Arc<KnownCommands>>,
-    guard: &Arc<Guard>,
-) -> Result<i64> {
+fn find_dct_decode_inline_stream_end(stream: &mut ByteStream, known: Option<&Arc<KnownCommands>>, guard: &Arc<Guard>) -> Result<i64> {
     let start_pos = stream.pos;
     let mut found_eoi = false;
     let mut b;
@@ -603,9 +527,7 @@ fn find_dct_decode_inline_stream_end(
     }
     let length = stream.pos as i64 - start_pos as i64;
     if b == -1 {
-        tracing::warn!(
-            "Inline DCTDecode image stream: EOI marker not found, searching for /EI/ instead."
-        );
+        tracing::warn!("Inline DCTDecode image stream: EOI marker not found, searching for /EI/ instead.");
         stream.skip(-(length as isize));
         return find_default_inline_stream_end(stream, known, guard);
     }
@@ -614,11 +536,7 @@ fn find_dct_decode_inline_stream_end(
 }
 
 /// `findASCII85DecodeInlineStreamEnd`: up to the `~>` marker.
-fn find_ascii85_decode_inline_stream_end(
-    stream: &mut ByteStream,
-    known: Option<&Arc<KnownCommands>>,
-    guard: &Arc<Guard>,
-) -> Result<i64> {
+fn find_ascii85_decode_inline_stream_end(stream: &mut ByteStream, known: Option<&Arc<KnownCommands>>, guard: &Arc<Guard>) -> Result<i64> {
     const TILDE: i32 = 0x7e;
     const GT: i32 = 0x3e;
     let start_pos = stream.pos;
@@ -650,9 +568,7 @@ fn find_ascii85_decode_inline_stream_end(
     }
     let length = stream.pos as i64 - start_pos as i64;
     if ch == -1 {
-        tracing::warn!(
-            "Inline ASCII85Decode image stream: EOD marker not found, searching for /EI/ instead."
-        );
+        tracing::warn!("Inline ASCII85Decode image stream: EOD marker not found, searching for /EI/ instead.");
         stream.skip(-(length as isize));
         return find_default_inline_stream_end(stream, known, guard);
     }
@@ -661,11 +577,7 @@ fn find_ascii85_decode_inline_stream_end(
 }
 
 /// `findASCIIHexDecodeInlineStreamEnd`: up to the `>` marker.
-fn find_ascii_hex_decode_inline_stream_end(
-    stream: &mut ByteStream,
-    known: Option<&Arc<KnownCommands>>,
-    guard: &Arc<Guard>,
-) -> Result<i64> {
+fn find_ascii_hex_decode_inline_stream_end(stream: &mut ByteStream, known: Option<&Arc<KnownCommands>>, guard: &Arc<Guard>) -> Result<i64> {
     const GT: i32 = 0x3e;
     let start_pos = stream.pos;
     let mut ch;
@@ -678,9 +590,7 @@ fn find_ascii_hex_decode_inline_stream_end(
     }
     let length = stream.pos as i64 - start_pos as i64;
     if ch == -1 {
-        tracing::warn!(
-            "Inline ASCIIHexDecode image stream: EOD marker not found, searching for /EI/ instead."
-        );
+        tracing::warn!("Inline ASCIIHexDecode image stream: EOD marker not found, searching for /EI/ instead.");
         stream.skip(-(length as isize));
         return find_default_inline_stream_end(stream, known, guard);
     }
@@ -733,9 +643,7 @@ impl Linearization {
             {
                 return Ok(n);
             }
-            Err(PdfError::format(format!(
-                "The \"{name}\" parameter in the linearization dictionary is invalid."
-            )))
+            Err(PdfError::format(format!("The \"{name}\" parameter in the linearization dictionary is invalid.")))
         }
         fn get_hints(dict: &Dict) -> Result<Vec<i64>> {
             if let Some(Obj::Array(hints)) = dict.get_raw("H")
@@ -746,25 +654,16 @@ impl Linearization {
                     match hint.as_int() {
                         Some(n) if n > 0 => out.push(n),
                         _ => {
-                            return Err(PdfError::format(format!(
-                                "Hint ({index}) in the linearization dictionary is invalid."
-                            )));
+                            return Err(PdfError::format(format!("Hint ({index}) in the linearization dictionary is invalid.")));
                         }
                     }
                 }
                 return Ok(out);
             }
-            Err(PdfError::format(
-                "Hint array in the linearization dictionary is invalid.",
-            ))
+            Err(PdfError::format("Hint array in the linearization dictionary is invalid."))
         }
 
-        let mut parser = Parser::new(
-            Lexer::new(stream.clone(), guard.clone()),
-            None,
-            false,
-            false,
-        )?;
+        let mut parser = Parser::new(Lexer::new(stream.clone(), guard.clone()), None, false, false)?;
         let obj1 = parser.get_obj(None)?;
         let obj2 = parser.get_obj(None)?;
         let obj3 = parser.get_obj(None)?;
@@ -772,19 +671,13 @@ impl Linearization {
         let Obj::Dict(lin_dict) = lin_dict else {
             return Ok(None);
         };
-        let linearized = lin_dict
-            .get_raw("Linearized")
-            .and_then(Obj::as_num)
-            .is_some_and(|n| n > 0.0);
-        if !(obj1.as_int().is_some() && obj2.as_int().is_some() && obj3.is_cmd("obj") && linearized)
-        {
+        let linearized = lin_dict.get_raw("Linearized").and_then(Obj::as_num).is_some_and(|n| n > 0.0);
+        if !(obj1.as_int().is_some() && obj2.as_int().is_some() && obj3.is_cmd("obj") && linearized) {
             return Ok(None);
         }
         let length = get_int(&lin_dict, "L", false)?;
         if usize::try_from(length).ok() != Some(stream.length()) {
-            return Err(PdfError::format(
-                "The \"L\" parameter in the linearization dictionary does not equal the stream length.",
-            ));
+            return Err(PdfError::format("The \"L\" parameter in the linearization dictionary does not equal the stream length."));
         }
         Ok(Some(Linearization {
             length: stream.length(),
@@ -793,11 +686,7 @@ impl Linearization {
             end_first: get_int(&lin_dict, "E", false)?,
             num_pages: get_int(&lin_dict, "N", false)?,
             main_xref_entries_offset: get_int(&lin_dict, "T", false)?,
-            page_first: if lin_dict.has("P") {
-                get_int(&lin_dict, "P", true)?
-            } else {
-                0
-            },
+            page_first: if lin_dict.has("P") { get_int(&lin_dict, "P", true)? } else { 0 },
         }))
     }
 }

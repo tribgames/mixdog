@@ -149,11 +149,7 @@ impl Block {
         let (r, c) = (r as i32, c as i32);
         let at = |dr: i32, dc: i32| u32::from(self.sig(r + dr, c + dc));
         let below = u32::from(self.sees_below(r as usize));
-        (
-            at(0, -1) + at(0, 1),
-            at(-1, 0) + below * at(1, 0),
-            at(-1, -1) + at(-1, 1) + below * (at(1, -1) + at(1, 1)),
-        )
+        (at(0, -1) + at(0, 1), at(-1, 0) + below * at(1, 0), at(-1, -1) + at(-1, 1) + below * (at(1, -1) + at(1, 1)))
     }
 
     fn context(&self, r: usize, c: usize) -> usize {
@@ -605,7 +601,15 @@ fn analyse_53(signal: &mut [i32], first: usize) {
         }
         return;
     }
-    let mirror = |i: isize| -> usize { if i < 0 { (-i) as usize } else if i >= n as isize { (2 * (n as isize - 1) - i) as usize } else { i as usize } };
+    let mirror = |i: isize| -> usize {
+        if i < 0 {
+            (-i) as usize
+        } else if i >= n as isize {
+            (2 * (n as isize - 1) - i) as usize
+        } else {
+            i as usize
+        }
+    };
     for parity in [1, 0] {
         for i in (0..n).filter(|i| (i + first) % 2 == parity) {
             let sum = signal[mirror(i as isize - 1)] + signal[mirror(i as isize + 1)];
@@ -811,7 +815,14 @@ pub fn general_bound(rows: usize, columns: usize, levels: usize, origin: (usize,
         copy
     };
     let blank = |bands: &[Level<f64>]| -> Vec<Level<f64>> {
-        bands.iter().map(|l| Level { hl: l.hl.iter().map(|r| vec![0.0; r.len()]).collect(), lh: l.lh.iter().map(|r| vec![0.0; r.len()]).collect(), hh: l.hh.iter().map(|r| vec![0.0; r.len()]).collect() }).collect()
+        bands
+            .iter()
+            .map(|l| Level {
+                hl: l.hl.iter().map(|r| vec![0.0; r.len()]).collect(),
+                lh: l.lh.iter().map(|r| vec![0.0; r.len()]).collect(),
+                hh: l.hh.iter().map(|r| vec![0.0; r.len()]).collect(),
+            })
+            .collect()
     };
     let step_of = |kind: usize, resolution: usize| irreversible_step(8, kind, resolution, false);
     for r in 0..ll.len() {
@@ -1031,9 +1042,8 @@ fn plan_component(ll: &Grid<i32>, bands: &[Level<i32>], bounds: (usize, usize, u
                             let x_to = ((first_x + kx + 1) << block_shift).min(qx1);
                             let y_from = ((first_y + ky) << block_shift).max(qy0);
                             let y_to = ((first_y + ky + 1) << block_shift).min(qy1);
-                            let cut: Grid<i32> = (y_from..y_to)
-                                .map(|y| (x_from..x_to).map(|x| grid[(y - by0) as usize][(x - bx0) as usize]).collect())
-                                .collect();
+                            let cut: Grid<i32> =
+                                (y_from..y_to).map(|y| (x_from..x_to).map(|x| grid[(y - by0) as usize][(x - bx0) as usize]).collect()).collect();
                             let coded = encode_block(&cut, kinds_of_band[kind], style);
                             let first_layer = usize::from(settings.layers > 1 && counter % 3 == 1);
                             counter += 1;
@@ -1064,13 +1074,7 @@ fn plan_component(ll: &Grid<i32>, bands: &[Level<i32>], bounds: (usize, usize, u
 /// The packet order of the progression `progression` over the ranges of a progression change (T.800 B.12): packets
 /// are `(layer, resolution, component, precinct)`. The position-based orders visit the precincts by the place of their
 /// first sample on the reference grid.
-fn progression(
-    plans: &[ComponentPlan],
-    sampling: &[(usize, usize)],
-    layers: usize,
-    progression: u8,
-    ranges: [usize; 4],
-) -> Vec<(usize, usize, usize, usize)> {
+fn progression(plans: &[ComponentPlan], sampling: &[(usize, usize)], layers: usize, progression: u8, ranges: [usize; 4]) -> Vec<(usize, usize, usize, usize)> {
     let [res0, comp0, res1, comp1] = ranges;
     let mut keyed = Vec::new();
     for (c, plan) in plans.iter().enumerate().take(comp1).skip(comp0) {
@@ -1111,11 +1115,7 @@ fn marker(code: u8, body: &[u8]) -> Vec<u8> {
 }
 
 fn precinct_bytes(settings: &Settings, levels: usize) -> Vec<u8> {
-    if settings.precincts {
-        (0..=levels).map(|r| ((precinct_exponent(settings, r) << 4) | precinct_exponent(settings, r)) as u8).collect()
-    } else {
-        Vec::new()
-    }
+    if settings.precincts { (0..=levels).map(|r| ((precinct_exponent(settings, r) << 4) | precinct_exponent(settings, r)) as u8).collect() } else { Vec::new() }
 }
 
 /// The SPcod / SPcoc parameters: levels, code-block size exponents (minus two), style, transform, precincts.
@@ -1160,9 +1160,8 @@ pub fn encode_samples(planes: &[Grid<i32>], settings: &Settings) -> Vec<u8> {
     // The reference grid is the first component's, which is sampled at every point.
     let (reference_rows, reference_columns) = (planes[0].len() * sampling(0).1, planes[0][0].len() * sampling(0).0);
     let (end_x, end_y) = (origin_x + reference_columns, origin_y + reference_rows);
-    let (tile_width, tile_height) = settings.tile.unwrap_or((end_x - tile_origin_x, end_y - tile_origin_y));    let colour = settings.colour
-        && count == 3
-        && planes.iter().all(|p| p.len() == planes[0].len() && p[0].len() == planes[0][0].len());
+    let (tile_width, tile_height) = settings.tile.unwrap_or((end_x - tile_origin_x, end_y - tile_origin_y));
+    let colour = settings.colour && count == 3 && planes.iter().all(|p| p.len() == planes[0].len() && p[0].len() == planes[0][0].len());
     let level_shift = if settings.signed { 0 } else { 1 << (settings.precision - 1) };
     let roi_shift = if settings.roi { settings.precision + 4 } else { 0 };
     let sampling_all: Vec<(usize, usize)> = (0..count).map(sampling).collect();
@@ -1245,7 +1244,8 @@ pub fn encode_samples(planes: &[Grid<i32>], settings: &Settings) -> Vec<u8> {
                     }
                     plan_component(&ll, &bands, bounds[c], style, settings, roi_shift)
                 })
-                .collect();            let layers = settings.layers;
+                .collect();
+            let layers = settings.layers;
             let mut order = Vec::new();
             let mut seen = std::collections::HashSet::new();
             let changes: Vec<[usize; 6]> = if tile_index == 1 && !settings.tile_poc.is_empty() {
@@ -1466,8 +1466,7 @@ pub fn encode_samples(planes: &[Grid<i32>], settings: &Settings) -> Vec<u8> {
 
 /// 8-bit planes coded as `settings` ask.
 pub fn encode_with(planes: &[Vec<Vec<u8>>], settings: Settings) -> Vec<u8> {
-    let samples: Vec<Grid<i32>> =
-        planes.iter().map(|p| p.iter().map(|row| row.iter().map(|&v| i32::from(v)).collect()).collect()).collect();
+    let samples: Vec<Grid<i32>> = planes.iter().map(|p| p.iter().map(|row| row.iter().map(|&v| i32::from(v)).collect()).collect()).collect();
     encode_samples(&samples, &settings)
 }
 

@@ -167,18 +167,12 @@ impl PathFilter {
         // operand is an exact file, using that file as the root makes its
         // relative path empty, so ordinary filters such as `*.mjs` reject the
         // file. Match ripgrep by evaluating file operands from their parent.
-        let filter_root = if root.is_file() {
-            root.parent().unwrap_or(root)
-        } else {
-            root
-        };
+        let filter_root = if root.is_file() { root.parent().unwrap_or(root) } else { root };
         let mut globs = OverrideBuilder::new(filter_root);
         for glob in &parsed.globs {
             globs.add(glob).map_err(|error| format!("glob: {error}"))?;
         }
-        globs
-            .case_insensitive(true)
-            .map_err(|error| format!("iglob: {error}"))?;
+        globs.case_insensitive(true).map_err(|error| format!("iglob: {error}"))?;
         for glob in &parsed.iglobs {
             globs.add(glob).map_err(|error| format!("iglob: {error}"))?;
         }
@@ -197,11 +191,7 @@ impl PathFilter {
     }
 
     pub(super) fn allows(&self, path: &Path) -> bool {
-        !self.globs.matched(path, false).is_ignore()
-            && !self
-                .types
-                .as_ref()
-                .is_some_and(|matcher| matcher.matched(path, false).is_ignore())
+        !self.globs.matched(path, false).is_ignore() && !self.types.as_ref().is_some_and(|matcher| matcher.matched(path, false).is_ignore())
     }
 }
 
@@ -222,9 +212,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
     let mut options = true;
     let take = |i: &mut usize, args: &[String]| -> Result<String, String> {
         *i += 1;
-        args.get(*i)
-            .cloned()
-            .ok_or_else(|| "missing flag value".to_string())
+        args.get(*i).cloned().ok_or_else(|| "missing flag value".to_string())
     };
     while i < args.len() {
         let a = args[i].as_str();
@@ -277,9 +265,7 @@ pub(super) fn parse_args(args: &[String]) -> Result<ParsedArgs, String> {
                 p.after = n;
             }
             _ if a.starts_with("--max-columns=") => {
-                p.max_columns = a["--max-columns=".len()..]
-                    .parse()
-                    .map_err(|_| "bad --max-columns")?;
+                p.max_columns = a["--max-columns=".len()..].parse().map_err(|_| "bad --max-columns")?;
             }
             _ if a.starts_with("--threads=") || a.starts_with("-j") && a.len() > 2 => {}
             _ if !a.starts_with('-') => p.targets.push(a.to_string()),

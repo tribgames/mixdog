@@ -18,10 +18,6 @@ fn push(trace: &Trace, line: impl Into<String>) {
     trace.lock().unwrap().push(line.into());
 }
 
-
-
-
-
 /// The steps of the lane, counted.
 struct Counting(Trace);
 
@@ -103,12 +99,7 @@ async fn the_servers_handshake_and_app_subscribe_start_the_lane_once() {
 
     mixdog_rt::testing::tokens();
     let app_methods: &'static [&'static str] = Box::leak(
-        mixdog_app_protocol::CLIENT_METHODS
-            .iter()
-            .map(|spec| spec.method)
-            .filter(|method| method.starts_with("app/"))
-            .collect::<Vec<_>>()
-            .into_boxed_slice(),
+        mixdog_app_protocol::CLIENT_METHODS.iter().map(|spec| spec.method).filter(|method| method.starts_with("app/")).collect::<Vec<_>>().into_boxed_slice(),
     );
     let core = Arc::new(MockCore::new(app_methods, MockLimits::default()));
     let outgoing = mixdog_app_server::Outgoing::new();
@@ -193,5 +184,3 @@ async fn a_non_desktop_clients_handshake_starts_the_lane() {
     quiesce(&coordinator).await;
     assert_eq!(*trace.lock().unwrap(), ["recover", "quota-start"]);
 }
-
-

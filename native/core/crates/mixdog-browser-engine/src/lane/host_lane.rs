@@ -118,12 +118,12 @@ mod tests {
     use crate::queue::key::QueueKey;
     use mixdog_app_protocol::v2::browser_engine::BrowserPageCloseReason;
     use mixdog_app_protocol::v2::browser_engine::BrowserUserInputReason;
-    use mixdog_app_protocol::v2::browser_engine::HostBrowserUserInputParams;
     use mixdog_app_protocol::v2::browser_engine::HostBrowserEventsParams;
     use mixdog_app_protocol::v2::browser_engine::HostBrowserLeaseReleaseParams;
     use mixdog_app_protocol::v2::browser_engine::HostBrowserPageFactsParams;
     use mixdog_app_protocol::v2::browser_engine::HostBrowserPageStopParams;
     use mixdog_app_protocol::v2::browser_engine::HostBrowserPagesCloseParams;
+    use mixdog_app_protocol::v2::browser_engine::HostBrowserUserInputParams;
     use mixdog_core_api::CoreError;
     use serde_json::json;
     use std::collections::HashMap;
@@ -402,13 +402,7 @@ mod tests {
     #[tokio::test]
     async fn closing_a_page_ends_the_hold_a_person_had_on_it() {
         let (lane, script, sink) = rig();
-        sink.user_input(HostBrowserUserInputParams {
-            page_id: "p1".into(),
-            seq: 1,
-            held: true,
-            until: None,
-            reason: BrowserUserInputReason::Pointer,
-        });
+        sink.user_input(HostBrowserUserInputParams { page_id: "p1".into(), seq: 1, held: true, until: None, reason: BrowserUserInputReason::Pointer });
         let key = QueueKey::new("foreground", Some("p1".into()));
         assert!(lane.hold().takeover_error(&key).is_err());
         script.reply(PAGES_CLOSE, Reply::Result(json!({"closed": true})));
@@ -429,12 +423,8 @@ mod tests {
     async fn a_blob_is_read_by_digest() {
         let (lane, _script, _sink) = rig();
         assert_eq!(lane.read_blob(&BrowserBlobRef { digest: "d1".into(), size: 6 }).await.expect("read"), Bytes::from_static(b"pixels"));
-        assert_eq!(
-            lane.read_blob(&BrowserBlobRef { digest: "d2".into(), size: 0 }).await.unwrap_err(),
-            HostCallError::Failed { message: "no blob d2".into() }
-        );
+        assert_eq!(lane.read_blob(&BrowserBlobRef { digest: "d2".into(), size: 0 }).await.unwrap_err(), HostCallError::Failed { message: "no blob d2".into() });
     }
-
 
     #[tokio::test]
     async fn a_gap_is_synced_at_once() {
@@ -483,7 +473,6 @@ mod tests {
         assert!(lost, "the loss after the hand-over is latched where it is produced");
     }
 }
-
 
 /// What a command fails with when its claim ended after one of its requests was handed to the outgoing path (the writer's queue,
 /// not a confirmed socket write): the command may have run.
@@ -550,7 +539,11 @@ impl HostLane {
             Scoped::Cancelled => Err(HostCallError::Cancelled),
             Scoped::Done(Caught::Up) => Ok(()),
             Scoped::Done(Caught::Unseen) => {
-                if self.mirror.resync(claim, facts) { Ok(()) } else { Err(claim_ended()) }
+                if self.mirror.resync(claim, facts) {
+                    Ok(())
+                } else {
+                    Err(claim_ended())
+                }
             }
             Scoped::Done(Caught::Gapped) | Scoped::DeadlineExceeded => self.sync(&facts.page_id, cancel, claim).await,
         }

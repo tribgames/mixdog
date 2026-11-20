@@ -11,12 +11,11 @@ use crate::opc::{part_relationship_path, relationship_target};
 use crate::pptx_package::presentation_slides;
 use crate::relations::shape_identity;
 use crate::slide_shapes::{
-    EMU_PER_POINT, SLIDE_SHAPE_TAGS, background_xml, first_group, from_emu, is_set, num, remove_first, solid_fill_xml, text_or_empty,
-    to_emu_of,
+    EMU_PER_POINT, SLIDE_SHAPE_TAGS, background_xml, first_group, from_emu, is_set, num, remove_first, solid_fill_xml, text_or_empty, to_emu_of,
 };
 use crate::xml::{
-    Container, Element, compiled, container_body, container_inner, element_spans, rebuild_text_nodes, text_nodes, top_level_elements,
-    xml_attribute, xml_decode, xml_encode,
+    Container, Element, compiled, container_body, container_inner, element_spans, rebuild_text_nodes, text_nodes, top_level_elements, xml_attribute,
+    xml_decode, xml_encode,
 };
 use crate::zipio::Package;
 
@@ -55,9 +54,8 @@ fn covers_bounds(entry: &Frame, bounds: &Frame) -> bool {
 
 /// The colour a translucent fill shows: `foreground` at `alpha` (0-1) over `background`, per channel.
 fn blend_hex(foreground: &str, background: &str, alpha: f64) -> String {
-    let channel = |hex: &str, at: usize| -> f64 {
-        hex.get(at..at + 2).and_then(|pair| i64::from_str_radix(pair, 16).ok()).map_or(f64::NAN, |value| value as f64)
-    };
+    let channel =
+        |hex: &str, at: usize| -> f64 { hex.get(at..at + 2).and_then(|pair| i64::from_str_radix(pair, 16).ok()).map_or(f64::NAN, |value| value as f64) };
     [0, 2, 4]
         .iter()
         .map(|at| math::round(alpha * channel(foreground, *at) + (1.0 - alpha) * channel(background, *at)))
@@ -135,10 +133,8 @@ pub fn shape_paragraphs(shape_xml: &str) -> Option<Vec<Value>> {
         }
         paragraph.insert("bold".to_owned(), Value::Bool(xml_attribute(&run_properties, "b") == "1"));
         paragraph.insert("italic".to_owned(), Value::Bool(xml_attribute(&run_properties, "i") == "1"));
-        paragraph.insert(
-            "color".to_owned(),
-            Value::String(first_group(&compiled(r#"<a:srgbClr val="([0-9A-Fa-f]{6})""#, ""), run_element).unwrap_or_default()),
-        );
+        paragraph
+            .insert("color".to_owned(), Value::String(first_group(&compiled(r#"<a:srgbClr val="([0-9A-Fa-f]{6})""#, ""), run_element).unwrap_or_default()));
         let face = first_group(&compiled(r#"<a:latin\b[^>]*\btypeface="([^"]*)""#, ""), block).filter(|face| !face.is_empty());
         paragraph.insert("fontName".to_owned(), Value::String(face.unwrap_or_else(|| "Calibri".to_owned())));
         paragraphs.push(Value::Object(paragraph));
@@ -313,9 +309,7 @@ fn inspect_pptx_shape(shape: &Element, slide: usize, number: usize, page: &mut P
         page.painted.push(Painted { frame: bounds, color: own_fill.clone() });
     }
     let paragraphs = shape_paragraphs(&shape.xml);
-    let has_text = paragraphs
-        .as_ref()
-        .is_some_and(|list| list.iter().any(|paragraph| !js_trim(&text_or_empty(paragraph.get("text"))).is_empty()));
+    let has_text = paragraphs.as_ref().is_some_and(|list| list.iter().any(|paragraph| !js_trim(&text_or_empty(paragraph.get("text"))).is_empty()));
     if !own_fill.is_empty() || has_text {
         let mut entry = located(slide, number);
         entry.insert("kind".to_owned(), Value::from("p:sp"));
@@ -345,11 +339,7 @@ fn inspect_pptx_shape(shape: &Element, slide: usize, number: usize, page: &mut P
         "autofit".to_owned(),
         Value::Bool(compiled(r"<a:normAutofit\b", "").is_match(&shape.xml) || compiled(r"<a:spAutoFit\b", "").is_match(&shape.xml)),
     );
-    let background = if !own_fill.is_empty() {
-        own_fill
-    } else {
-        covering.filter(|color| !color.is_empty()).unwrap_or_else(|| page.background.clone())
-    };
+    let background = if !own_fill.is_empty() { own_fill } else { covering.filter(|color| !color.is_empty()).unwrap_or_else(|| page.background.clone()) };
     entry.insert("background".to_owned(), Value::String(background));
     entry.insert("paragraphs".to_owned(), Value::Array(paragraphs));
     page.boxes.push(Value::Object(entry));
@@ -400,11 +390,7 @@ fn set_table_cell_text(cell: &str, text: &Value) -> Result<String, String> {
         return Ok(rebuild_text_nodes(cell, "a:t", &nodes));
     }
     let spaced = value.chars().next().is_some_and(mixdog_js::is_js_space) || value.chars().next_back().is_some_and(mixdog_js::is_js_space);
-    let run = format!(
-        "<a:r><a:rPr lang=\"en-US\" dirty=\"0\"/><a:t{}>{}</a:t></a:r>",
-        if spaced { " xml:space=\"preserve\"" } else { "" },
-        xml_encode(&value)
-    );
+    let run = format!("<a:r><a:rPr lang=\"en-US\" dirty=\"0\"/><a:t{}>{}</a:t></a:r>", if spaced { " xml:space=\"preserve\"" } else { "" }, xml_encode(&value));
     if let Some(range) = compiled(r"<a:p(?:\s[^>]*)?>[\s\S]*?</a:p>", "").find(cell) {
         let paragraph = &cell[range.clone()];
         let replaced = match paragraph.strip_suffix("</a:p>") {
@@ -495,7 +481,8 @@ pub fn set_table_values(shape_xml: &str, values: &[Value]) -> Result<Value, Stri
             let source = values.get(row_index).and_then(Value::as_array);
             let mut extra = String::new();
             for offset in 0..added_columns {
-                let text = source.and_then(|cells_of| cells_of.get(cells.len() + offset)).filter(|value| !value.is_null()).cloned().unwrap_or_else(|| Value::from(""));
+                let text =
+                    source.and_then(|cells_of| cells_of.get(cells.len() + offset)).filter(|value| !value.is_null()).cloned().unwrap_or_else(|| Value::from(""));
                 extra.push_str(&set_table_cell_text(&last_cell.xml, &text)?);
             }
             let next_row = format!("{}{extra}{}", &row.xml[..last_cell.end], &row.xml[last_cell.end..]);
@@ -511,7 +498,8 @@ pub fn set_table_values(shape_xml: &str, values: &[Value]) -> Result<Value, Stri
         let mut body = template.xml.clone();
         for cell_index in (0..cells.len()).rev() {
             let cell = &cells[cell_index];
-            let text = source.as_array().and_then(|cells_of| cells_of.get(cell_index)).filter(|value| !value.is_null()).cloned().unwrap_or_else(|| Value::from(""));
+            let text =
+                source.as_array().and_then(|cells_of| cells_of.get(cell_index)).filter(|value| !value.is_null()).cloned().unwrap_or_else(|| Value::from(""));
             body = format!("{}{}{}", &body[..cell.start], set_table_cell_text(&cell.xml, &text)?, &body[cell.end..]);
         }
         added_height += first_group(&compiled(r#"^<a:tr\b[^>]*\bh="(\d+)""#, ""), &template.xml).map_or(0.0, |value| string_to_number(&value));
@@ -550,10 +538,7 @@ pub fn shape_frame(shape_xml: &str) -> Option<Frame> {
 pub fn presentation_slide_size(zip: &Package) -> (f64, f64) {
     let presentation = zip.text("ppt/presentation.xml");
     match compiled(r#"<p:sldSz\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)""#, "").captures(&presentation) {
-        Some(found) => (
-            string_to_number(found.get(1).unwrap_or("")) / EMU_PER_POINT,
-            string_to_number(found.get(2).unwrap_or("")) / EMU_PER_POINT,
-        ),
+        Some(found) => (string_to_number(found.get(1).unwrap_or("")) / EMU_PER_POINT, string_to_number(found.get(2).unwrap_or("")) / EMU_PER_POINT),
         None => (960.0, 540.0),
     }
 }
@@ -623,17 +608,21 @@ pub fn update_shape_geometry(shape: &str, properties: &Value) -> String {
         let frame_tag = if compiled(r"<p:graphicFrame[\s>]", "").is_match(&next) { "p:xfrm" } else { "a:xfrm" };
         let current = compiled(&format!(r"<{frame_tag}\b[^>]*?(?:/>|>[\s\S]*?</{frame_tag}>)"), "").find(&next);
         let current_text = current.clone().map(|range| next[range].to_owned());
-        let offset = current_text.as_deref().and_then(|text| compiled(r#"<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)""#, "").captures(text).map(|found| (found.get(1).unwrap_or("").to_owned(), found.get(2).unwrap_or("").to_owned())));
-        let extent = current_text.as_deref().and_then(|text| compiled(r#"<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)""#, "").captures(text).map(|found| (found.get(1).unwrap_or("").to_owned(), found.get(2).unwrap_or("").to_owned())));
+        let offset = current_text.as_deref().and_then(|text| {
+            compiled(r#"<a:off\b[^>]*\bx="(-?\d+)"[^>]*\by="(-?\d+)""#, "")
+                .captures(text)
+                .map(|found| (found.get(1).unwrap_or("").to_owned(), found.get(2).unwrap_or("").to_owned()))
+        });
+        let extent = current_text.as_deref().and_then(|text| {
+            compiled(r#"<a:ext\b[^>]*\bcx="(\d+)"[^>]*\bcy="(\d+)""#, "")
+                .captures(text)
+                .map(|found| (found.get(1).unwrap_or("").to_owned(), found.get(2).unwrap_or("").to_owned()))
+        });
         let current_rotation = {
             let stated = string_to_number(&current_text.as_deref().map(|text| xml_attribute(text, "rot")).unwrap_or_default());
             if stated.is_nan() { 0.0 } else { stated }
         };
-        let rotation = if is_set(properties.get("rotation")) {
-            math::round(to_number_of(properties.get("rotation")) * 60_000.0)
-        } else {
-            current_rotation
-        };
+        let rotation = if is_set(properties.get("rotation")) { math::round(to_number_of(properties.get("rotation")) * 60_000.0) } else { current_rotation };
         let stated = |value: Option<&String>, fallback: f64| -> f64 { value.map_or(fallback, |text| string_to_number(text)) };
         let coordinate = |key: &str, value: Option<&String>| -> String {
             if is_set(properties.get(key)) { num(to_emu_of(properties.get(key))) } else { num(stated(value, 0.0)) }
@@ -692,9 +681,5 @@ pub fn update_shape_geometry(shape: &str, properties: &Value) -> String {
 
 /// `nextShapeId(xml)`: one more than the highest shape id the slide uses.
 pub fn next_shape_id(xml: &str) -> f64 {
-    compiled(r#"\bcNvPr\s+id="(\d+)""#, "g")
-        .captures_iter(xml)
-        .map(|found| string_to_number(found.get(1).unwrap_or("")))
-        .fold(1.0, math::max)
-        + 1.0
+    compiled(r#"\bcNvPr\s+id="(\d+)""#, "g").captures_iter(xml).map(|found| string_to_number(found.get(1).unwrap_or(""))).fold(1.0, math::max) + 1.0
 }

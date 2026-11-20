@@ -19,10 +19,10 @@ use async_trait::async_trait;
 use mixdog_app_protocol::v2::host::{
     ModelProxyCancelParams, ModelProxyEventParams, ModelProxyExecuteParams, ModelProxyHeartbeatParams, ModelProxyResult, ModelProxyTailParams,
 };
-pub use mixdog_core_domains::domains::ai_admin::model_proxy::OwnerLink;
 use mixdog_app_protocol::v2::model_proxy::{ProxyAnswer, ProxyCall, ProxyEvent, ProxyFailure};
 use mixdog_app_protocol::{RequestId, ServerRequest};
 use mixdog_app_server_client::{AttachmentId, ClientError, ClientEvent, ConnectionStatus, ProtocolClient, ReplyAddress, ServerRequestAnswer};
+pub use mixdog_core_domains::domains::ai_admin::model_proxy::OwnerLink;
 use tokio::sync::{broadcast, mpsc};
 use tokio::task::JoinHandle;
 use tokio_util::sync::CancellationToken;
@@ -235,7 +235,8 @@ impl ModelProxyRelay {
             let (gone, kept): (Vec<Run>, Vec<Run>) = std::mem::take(&mut state.runs).into_iter().partition(|run| run.address.attachment == attachment);
             state.runs = kept;
             if state.runs.is_empty()
-                && let Some(beat) = state.beat.take() {
+                && let Some(beat) = state.beat.take()
+            {
                 beat.abort();
             }
             gone
@@ -330,7 +331,8 @@ impl ModelProxyRelay {
     /// are abandoned.
     async fn notify<P: serde::Serialize>(&self, attachment: AttachmentId, method: &str, params: &P) {
         if let Ok(params) = serde_json::to_value(params)
-            && let Err(ClientError::StaleAttachment) = self.client.notify_on(attachment, method, params).await {
+            && let Err(ClientError::StaleAttachment) = self.client.notify_on(attachment, method, params).await
+        {
             self.abandon_attachment(attachment);
         }
     }
@@ -377,21 +379,13 @@ impl ModelProxyRelay {
         }
         let (answer, settled, failure) = match outcome {
             Ok(ProxyAnswer::Failed { failure }) => (
-                ServerRequestAnswer::Error {
-                    code: FAILED_CODE,
-                    message: failure.message.clone(),
-                    data: serde_json::to_value(&failure).ok(),
-                },
+                ServerRequestAnswer::Error { code: FAILED_CODE, message: failure.message.clone(), data: serde_json::to_value(&failure).ok() },
                 CallOutcome::Failed,
                 Some(failure),
             ),
             Ok(result) => match serde_json::to_value(ModelProxyResult { result }) {
                 Ok(value) => (ServerRequestAnswer::Result(value), CallOutcome::Answered, None),
-                Err(error) => (
-                    ServerRequestAnswer::Error { code: FAILED_CODE, message: error.to_string(), data: None },
-                    CallOutcome::Failed,
-                    None,
-                ),
+                Err(error) => (ServerRequestAnswer::Error { code: FAILED_CODE, message: error.to_string(), data: None }, CallOutcome::Failed, None),
             },
             Err(message) => (ServerRequestAnswer::Error { code: FAILED_CODE, message, data: None }, CallOutcome::Failed, None),
         };
@@ -405,7 +399,8 @@ impl ModelProxyRelay {
             let mut state = self.state();
             let ended = state.runs.iter().position(|run| run.generation == generation).map(|at| state.runs.remove(at));
             if state.runs.is_empty()
-                && let Some(beat) = state.beat.take() {
+                && let Some(beat) = state.beat.take()
+            {
                 beat.abort();
             }
             ended

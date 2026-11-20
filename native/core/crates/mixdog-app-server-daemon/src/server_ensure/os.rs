@@ -29,10 +29,6 @@ use super::idle::IdleWatch;
 use super::idle::STOP_IDLE;
 use super::layout::RemotePaths;
 use super::report::result_line;
-use crate::discovery;
-use crate::lifecycle::DiscoveryPhase;
-use crate::lifecycle::StopMode;
-use crate::lifecycle::StopReason;
 use crate::control::api::ErrorReply;
 use crate::control::api::HOLD_PATH;
 use crate::control::api::HoldRequest;
@@ -41,6 +37,10 @@ use crate::control::api::STATUS_PATH;
 use crate::control::api::STOP_PATH;
 use crate::control::api::StatusReply;
 use crate::control::api::StopRequest;
+use crate::discovery;
+use crate::lifecycle::DiscoveryPhase;
+use crate::lifecycle::StopMode;
+use crate::lifecycle::StopReason;
 use crate::verdict::OsProcessTable;
 use crate::verdict::ProcessIdentity;
 use crate::verdict::ProcessTable;
@@ -59,9 +59,8 @@ pub struct OsHost {
 impl OsHost {
     /// The server's `$HOME`: the bootstrap shell and `~/.mixdog-remote` use the same one.
     pub fn from_env() -> Result<Self, EnsureError> {
-        let home = std::env::var_os("HOME")
-            .filter(|home| !home.is_empty())
-            .ok_or_else(|| EnsureError::InstallFailed("HOME is not set on the server.".to_owned()))?;
+        let home =
+            std::env::var_os("HOME").filter(|home| !home.is_empty()).ok_or_else(|| EnsureError::InstallFailed("HOME is not set on the server.".to_owned()))?;
         Ok(Self { home: PathBuf::from(home) })
     }
 }
@@ -132,9 +131,7 @@ impl EnsureHost for OsHost {
     }
 
     fn now_ms(&self) -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
     }
 
     fn pause(&self, duration: Duration) {
@@ -175,28 +172,20 @@ impl OsAccess {
     }
 
     fn send(core: &ServerCore, method: &str, path: &str, body: &[u8]) -> Result<TcpStream, EnsureError> {
-        let mut stream = TcpStream::connect(("127.0.0.1", core.control_port))
-            .map_err(|e| failed("connecting to the core's control listener", &e))?;
+        let mut stream = TcpStream::connect(("127.0.0.1", core.control_port)).map_err(|e| failed("connecting to the core's control listener", &e))?;
         let head = format!(
             "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1\r\nAuthorization: Bearer {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             core.token,
             body.len()
         );
-        stream
-            .write_all(head.as_bytes())
-            .and_then(|()| stream.write_all(body))
-            .map_err(|e| failed("sending the request", &e))?;
+        stream.write_all(head.as_bytes()).and_then(|()| stream.write_all(body)).map_err(|e| failed("sending the request", &e))?;
         Ok(stream)
     }
 
     fn reply(raw: &[u8]) -> Result<StatusReply, EnsureError> {
         let text = String::from_utf8_lossy(raw);
         let (head, reply) = text.split_once("\r\n\r\n").ok_or_else(|| failed("the reply", &"is not HTTP"))?;
-        let status: u16 = head
-            .split(' ')
-            .nth(1)
-            .and_then(|s| s.parse().ok())
-            .ok_or_else(|| failed("the reply", &"has no status"))?;
+        let status: u16 = head.split(' ').nth(1).and_then(|s| s.parse().ok()).ok_or_else(|| failed("the reply", &"has no status"))?;
         if (200..300).contains(&status) {
             return decode(reply);
         }
@@ -204,16 +193,20 @@ impl OsAccess {
         Err(EnsureError::Core(format!("{}: {}", refusal.code, refusal.message)))
     }
 
-    fn stop(&self, core: &ServerCore, mode: StopMode, reason: StopReason, token: Option<&str>, replacement: Option<&ReplacementBuild>) -> Result<Option<StatusReply>, EnsureError> {
+    fn stop(
+        &self,
+        core: &ServerCore,
+        mode: StopMode,
+        reason: StopReason,
+        token: Option<&str>,
+        replacement: Option<&ReplacementBuild>,
+    ) -> Result<Option<StatusReply>, EnsureError> {
         let request = StopRequest { mode, reason, confirm_token: token.map(str::to_owned), replacement: replacement.cloned() };
         self.call(core, STOP_PATH, &request, STOP_IDLE)
     }
 
     fn identity(core: &ServerCore) -> Result<ProcessIdentity, EnsureError> {
-        let start_ms = core
-            .process_start_time
-            .parse()
-            .map_err(|_| EnsureError::Core(format!("unreadable process start time {}", core.process_start_time)))?;
+        let start_ms = core.process_start_time.parse().map_err(|_| EnsureError::Core(format!("unreadable process start time {}", core.process_start_time)))?;
         Ok(ProcessIdentity { pid: core.pid, start_ms })
     }
 }
@@ -279,10 +272,7 @@ impl CoreAccess for OsAccess {
 
     fn stop_when_idle(&self, core: &ServerCore, reason: StopReason, replacement: Option<&ReplacementBuild>) -> Result<Option<DrainReport>, EnsureError> {
         let Some(status) = self.stop(core, StopMode::WhenIdle, reason, None, replacement)? else { return Ok(None) };
-        let drain = status
-            .status
-            .drain
-            .ok_or_else(|| EnsureError::Core("the core accepted the stop but reports no drain".to_owned()))?;
+        let drain = status.status.drain.ok_or_else(|| EnsureError::Core("the core accepted the stop but reports no drain".to_owned()))?;
         Ok(Some(DrainReport { drain_id: drain.drain_id, running: status.status.running, confirm_token: drain.confirm_token }))
     }
 
@@ -295,8 +285,7 @@ impl CoreAccess for OsAccess {
     }
 
     fn terminate(&self, core: &ServerCore) -> Result<(), EnsureError> {
-        let ended = crate::verdict::terminate(Self::identity(core)?, TERMINATE_GRACE)
-            .map_err(|e| EnsureError::Core(format!("ending the core: {e}")))?;
+        let ended = crate::verdict::terminate(Self::identity(core)?, TERMINATE_GRACE).map_err(|e| EnsureError::Core(format!("ending the core: {e}")))?;
         if ended { Ok(()) } else { Err(EnsureError::DaemonStop(core.pid)) }
     }
 
@@ -307,12 +296,7 @@ impl CoreAccess for OsAccess {
         for name in &launch.env_remove {
             command.env_remove(name);
         }
-        command
-            .args(&launch.args)
-            .envs(launch.env.iter().cloned())
-            .stdin(Stdio::null())
-            .stdout(log.try_clone().map_err(failed)?)
-            .stderr(log);
+        command.args(&launch.args).envs(launch.env.iter().cloned()).stdin(Stdio::null()).stdout(log.try_clone().map_err(failed)?).stderr(log);
         // The core leaves this ssh session's process group and survives it.
         #[cfg(unix)]
         std::os::unix::process::CommandExt::process_group(&mut command, 0);
@@ -441,9 +425,11 @@ impl BootWatch for OsBoot<'_> {
             let tail = super::flow::log_tail(&log, 0);
             return (log.display().to_string(), tail);
         }
-        self.access.launched.borrow().as_ref().map_or_else(Default::default, |launched| {
-            (launched.log.display().to_string(), super::flow::log_tail(&launched.log, launched.from))
-        })
+        self.access
+            .launched
+            .borrow()
+            .as_ref()
+            .map_or_else(Default::default, |launched| (launched.log.display().to_string(), super::flow::log_tail(&launched.log, launched.from)))
     }
 }
 

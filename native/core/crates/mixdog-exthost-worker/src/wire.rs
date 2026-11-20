@@ -127,8 +127,7 @@ pub enum Inbound {
 fn parse(kind: u8, id: u32, body: Bytes) -> Result<Inbound, ProtocolError> {
     match kind {
         kind::CALL => {
-            let call: CallBody = serde_json::from_slice(&body)
-                .map_err(|e| ProtocolError(format!("ext-host: malformed call body: {e}")))?;
+            let call: CallBody = serde_json::from_slice(&body).map_err(|e| ProtocolError(format!("ext-host: malformed call body: {e}")))?;
             Ok(Inbound::Call {
                 id,
                 request: CallRequest {
@@ -142,19 +141,12 @@ fn parse(kind: u8, id: u32, body: Bytes) -> Result<Inbound, ProtocolError> {
         }
         kind::CANCEL => Ok(Inbound::Cancel { id }),
         kind::CREDIT => match body.first_chunk::<4>() {
-            Some(bytes) => Ok(Inbound::Credit {
-                id,
-                bytes: u32::from_be_bytes(*bytes),
-            }),
-            None => Err(ProtocolError(
-                "ext-host: credit body shorter than 4 bytes".to_owned(),
-            )),
+            Some(bytes) => Ok(Inbound::Credit { id, bytes: u32::from_be_bytes(*bytes) }),
+            None => Err(ProtocolError("ext-host: credit body shorter than 4 bytes".to_owned())),
         },
         kind::BROWSER => Ok(Inbound::Browser { id, body }),
         kind::BYE => Ok(Inbound::Bye),
-        other => Err(ProtocolError(format!(
-            "ext-host: unknown frame kind {other}"
-        ))),
+        other => Err(ProtocolError(format!("ext-host: unknown frame kind {other}"))),
     }
 }
 
@@ -166,10 +158,7 @@ pub struct FrameReader<R> {
 
 impl<R: AsyncRead + Unpin> FrameReader<R> {
     pub fn new(io: R) -> Self {
-        Self {
-            io,
-            buf: BytesMut::new(),
-        }
+        Self { io, buf: BytesMut::new() }
     }
 
     fn take(&mut self) -> Result<Option<Inbound>, ProtocolError> {
@@ -178,9 +167,7 @@ impl<R: AsyncRead + Unpin> FrameReader<R> {
         }
         let len = u32::from_be_bytes([self.buf[0], self.buf[1], self.buf[2], self.buf[3]]) as usize;
         if !(5..=MAX_FRAME_BYTES).contains(&len) {
-            return Err(ProtocolError(format!(
-                "ext-host frame length {len} is invalid"
-            )));
+            return Err(ProtocolError(format!("ext-host frame length {len} is invalid")));
         }
         if self.buf.len() < 4 + len {
             return Ok(None);
@@ -227,12 +214,7 @@ mod tests {
 
     #[tokio::test]
     async fn decodes_every_inbound_kind() {
-        let mut wire = encode(
-            kind::CALL,
-            7,
-            br#"{"method":"m","params":{"a":1},"paths":["p"],"thread":"t","cwd":"c"}"#,
-        )
-        .to_vec();
+        let mut wire = encode(kind::CALL, 7, br#"{"method":"m","params":{"a":1},"paths":["p"],"thread":"t","cwd":"c"}"#).to_vec();
         wire.extend(encode(kind::CANCEL, 7, &[]));
         wire.extend(encode(kind::CREDIT, 7, &9u32.to_be_bytes()));
         wire.extend(encode(kind::BROWSER, 7, br#"{"ws":"w"}"#));
@@ -253,10 +235,7 @@ mod tests {
                 }),
                 Some(Inbound::Cancel { id: 7 }),
                 Some(Inbound::Credit { id: 7, bytes: 9 }),
-                Some(Inbound::Browser {
-                    id: 7,
-                    body: Bytes::from_static(br#"{"ws":"w"}"#)
-                }),
+                Some(Inbound::Browser { id: 7, body: Bytes::from_static(br#"{"ws":"w"}"#) }),
                 Some(Inbound::Bye),
                 None,
             ]
@@ -271,13 +250,7 @@ mod tests {
             got,
             Inbound::Call {
                 id: 1,
-                request: CallRequest {
-                    method: "m".into(),
-                    params: Value::Null,
-                    paths: Vec::new(),
-                    thread: String::new(),
-                    cwd: String::new(),
-                }
+                request: CallRequest { method: "m".into(), params: Value::Null, paths: Vec::new(), thread: String::new(), cwd: String::new() }
             }
         );
     }
@@ -299,10 +272,7 @@ mod tests {
     #[tokio::test]
     async fn a_frame_cut_short_ends_the_stream() {
         let cut = encode(kind::CALL, 1, br#"{"method":"m"}"#);
-        assert_eq!(
-            read_all(&cut[..cut.len() - 1]).await.remove(0).unwrap(),
-            None
-        );
+        assert_eq!(read_all(&cut[..cut.len() - 1]).await.remove(0).unwrap(), None);
     }
 
     #[tokio::test]
@@ -314,14 +284,10 @@ mod tests {
             tx.write_all(&wire).await.unwrap();
         });
         let mut reader = FrameReader::new(rx);
-        assert_eq!(
-            reader.next().await.unwrap(),
-            Some(Inbound::Credit { id: 3, bytes: 5 })
-        );
+        assert_eq!(reader.next().await.unwrap(), Some(Inbound::Credit { id: 3, bytes: 5 }));
         assert_eq!(reader.next().await.unwrap(), None);
         writer.await.unwrap();
     }
 }
-
 
 impl std::error::Error for ProtocolError {}

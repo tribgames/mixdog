@@ -7,6 +7,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_agent::one_shot::{CallShape, OneShot, OneShotCall, PromptCache};
 use mixdog_agent::tools::ToolEnv;
+use mixdog_ai::retry::StandardRetryDecider;
 use mixdog_app_protocol::v2::thread::ThreadItemsListResponse;
 use mixdog_core_api::call::{CallContext, CoreRequest};
 use mixdog_core_api::domain::tool::SurfaceKind;
@@ -18,12 +19,13 @@ use mixdog_protocol::{ThreadItem, TurnId};
 use mixdog_services::bots::beat::digest::{SessionReader, TranscriptItem, TranscriptPage};
 use mixdog_services::bots::beat::maintainer::{MaintainerModel, MaintainerRoute};
 use mixdog_services::bots::beat::tick::HeartbeatSettings;
-use mixdog_services::bots::beat::{FactSources, Heartbeat, HeartbeatParts, HeartbeatStore, HeldRequests, Maintainer, SessionCatalog, TaskWatches, UserActivity};
+use mixdog_services::bots::beat::{
+    FactSources, Heartbeat, HeartbeatParts, HeartbeatStore, HeldRequests, Maintainer, SessionCatalog, TaskWatches, UserActivity,
+};
 use mixdog_services::bots::delivery::home::AgentHomeDelivery;
 use mixdog_services::bots::live::{LiveSurface, WakeOptions, WakeTurn};
 use mixdog_services::bots::{HeartbeatSessions, MixyWake, RoutineRecords, RoutineRuntime, WakeHost};
 use mixdog_services::scheduler::Clock as SchedulerClock;
-use mixdog_ai::retry::StandardRetryDecider;
 use serde_json::{Value, json};
 use tokio_util::sync::CancellationToken;
 
@@ -48,9 +50,7 @@ fn transcript_item(item: &ThreadItem) -> TranscriptItem {
     let id = Some(item.id().as_str().to_owned());
     match item {
         ThreadItem::UserMessage { display_text, .. } => TranscriptItem { id, kind: "user".into(), text: display_text.clone() },
-        ThreadItem::AgentMessage { text: mixdog_protocol::MaybeBlob::Inline(text), .. } => {
-            TranscriptItem { id, kind: "assistant".into(), text: text.clone() }
-        }
+        ThreadItem::AgentMessage { text: mixdog_protocol::MaybeBlob::Inline(text), .. } => TranscriptItem { id, kind: "assistant".into(), text: text.clone() },
         _ => TranscriptItem { id, kind: "other".into(), text: String::new() },
     }
 }
@@ -212,9 +212,9 @@ impl TaskWatches for DeliveryTaskWatches {
 mod tests {
     use mixdog_core_api::mock::MockStatePublisher;
     use mixdog_core_config::config::{Config, ConfigLanes, NoEffects};
+    use mixdog_core_rooms::rooms::home::Presence;
     use mixdog_core_session::session::testing::Rig;
     use mixdog_services::bots::ExecutorFacts;
-    use mixdog_core_rooms::rooms::home::Presence;
 
     use super::*;
 
@@ -236,7 +236,6 @@ mod tests {
             Ok(ExecutorFacts::default())
         }
     }
-
 
     // Test files go through the durability lane and `mixdog_statefile`, as the tree's other tests do.
     fn write_file(path: &std::path::Path, body: &[u8]) {
@@ -272,7 +271,6 @@ mod tests {
         assert!(!off.mixy_exists().await.unwrap());
     }
 
-
     /// The reader answers the newest rows oldest first with the user's text; a missing session
     /// is an error. The live surface is busy only while a turn runs, shows a notice only in a
     /// loaded thread and wakes it with one hidden turn.
@@ -295,15 +293,10 @@ mod tests {
         assert_eq!(turn.settled.await.unwrap(), "done");
         let page = reader.read_tail(thread.as_str(), 8).await.unwrap();
         assert!(!page.has_older);
-        assert!(
-            page.items.iter().any(|item| item.kind == "user" && item.text == "A task reported back"),
-            "{:?}",
-            page.items
-        );
+        assert!(page.items.iter().any(|item| item.kind == "user" && item.text == "A task reported back"), "{:?}", page.items);
         assert_eq!(reader.read_tail(thread.as_str(), 1).await.unwrap().items.len(), 1);
     }
 }
-
 
 /// `getConfigSnapshot().heartbeat`, `heartbeatIntervalMinutes` and the representative bot's
 /// presence, read live at every tick.

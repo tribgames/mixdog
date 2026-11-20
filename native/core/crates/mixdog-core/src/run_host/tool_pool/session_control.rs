@@ -12,8 +12,6 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use mixdog_core_agents::agents::AgentPool;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
-use mixdog_services::task_reports::chain::has_pending_agent_work;
-use mixdog_services::task_reports::chain::sessions_with_pending_work;
 use mixdog_core_base::rooms::ids::agent_home_session_id;
 use mixdog_core_base::rooms::ids::room_member_of_session;
 use mixdog_core_config::workflow::ids::truthy;
@@ -24,6 +22,8 @@ use mixdog_js::slice_utf16;
 use mixdog_js::utf16_len;
 use mixdog_js::value_to_string;
 use mixdog_services::bots::beat::CatalogRow;
+use mixdog_services::task_reports::chain::has_pending_agent_work;
+use mixdog_services::task_reports::chain::sessions_with_pending_work;
 use mixdog_store::sqlite::SqliteStore;
 use mixdog_store::sqlite::lead::LeadFilter;
 use mixdog_store::sqlite::lead::LeadRow;
@@ -160,9 +160,8 @@ pub fn target_request(args: &Value, action: &str, caller: &str) -> Result<Target
         return Err(format!("session: {action} must target another session"));
     }
     let limit = or_default(args, "limit", 25.0).filter(|n| (1.0..=100.0).contains(n)).ok_or("session: limit must be an integer from 1 to 100")?;
-    let offset = or_default(args, "offset", 0.0)
-        .filter(|n| safe(*n) && *n >= 0.0 && safe(n + limit))
-        .ok_or("session: offset must be a nonnegative safe integer")?;
+    let offset =
+        or_default(args, "offset", 0.0).filter(|n| safe(*n) && *n >= 0.0 && safe(n + limit)).ok_or("session: offset must be a nonnegative safe integer")?;
     let text_offset = or_default(args, "text_offset", 0.0).filter(|n| safe(*n) && *n >= 0.0).ok_or("session: invalid text_offset")?;
     if args.get("text_offset").is_some() && (args.get("offset").is_none() || limit != 1.0 || !truthy(args.get("item_id"))) {
         return Err("session: text_offset requires offset, limit:1 and item_id from read".into());
@@ -307,7 +306,13 @@ pub(super) struct Scan {
 }
 
 /// `scanCatalog(service, keep, { cursor, want, maxRows })`.
-pub(super) async fn scan_catalog(listing: &dyn SessionListing, keep: impl Fn(&ListedRow) -> bool, cursor: Option<String>, want: usize, max_rows: usize) -> Result<Scan, String> {
+pub(super) async fn scan_catalog(
+    listing: &dyn SessionListing,
+    keep: impl Fn(&ListedRow) -> bool,
+    cursor: Option<String>,
+    want: usize,
+    max_rows: usize,
+) -> Result<Scan, String> {
     let mut rows = Vec::new();
     let mut scanned = 0;
     let mut next = cursor;
@@ -609,9 +614,7 @@ pub fn read(session_id: &str, source: &[Value], has_older: bool, target: &Target
         .collect::<Result<std::collections::VecDeque<Value>, String>>()?;
     loop {
         let next = (has_older || items.len() < source.len()).then(|| target.offset + items.len());
-        let page = |items: &std::collections::VecDeque<Value>| {
-            json!({ "sessionId": session_id, "offset": target.offset, "items": items, "nextOffset": next })
-        };
+        let page = |items: &std::collections::VecDeque<Value>| json!({ "sessionId": session_id, "offset": target.offset, "items": items, "nextOffset": next });
         let result = page(&items);
         if output_bytes(&result) <= byte_limit {
             return Ok(result);
@@ -699,7 +702,13 @@ pub struct StoreListing {
 }
 
 impl StoreListing {
-    pub fn new(store: Arc<SqliteStore>, overlay: Arc<dyn ListOverlay>, directory: Arc<SessionDirectory>, pool: Arc<AgentPool>, now_ms: Arc<dyn Fn() -> i64 + Send + Sync>) -> Self {
+    pub fn new(
+        store: Arc<SqliteStore>,
+        overlay: Arc<dyn ListOverlay>,
+        directory: Arc<SessionDirectory>,
+        pool: Arc<AgentPool>,
+        now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
+    ) -> Self {
         Self { store, overlay, directory, pool, now_ms }
     }
 

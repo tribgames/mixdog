@@ -64,12 +64,7 @@ impl Decimal {
         if magnitude >> 96 != 0 {
             return None;
         }
-        Some(Decimal {
-            negative,
-            scale: fraction.len() as u8,
-            hi32: (magnitude >> 64) as u32,
-            lo64: magnitude as u64,
-        })
+        Some(Decimal { negative, scale: fraction.len() as u8, hi32: (magnitude >> 64) as u32, lo64: magnitude as u64 })
     }
 
     /// The nearest `f64`.
@@ -86,11 +81,7 @@ impl fmt::Display for Decimal {
         let padded = if digits.len() <= scale { format!("{}{digits}", "0".repeat(scale + 1 - digits.len())) } else { digits };
         let split = padded.len() - scale;
         let sign = if self.negative { "-" } else { "" };
-        if scale == 0 {
-            write!(f, "{sign}{padded}")
-        } else {
-            write!(f, "{sign}{}.{}", &padded[..split], &padded[split..])
-        }
+        if scale == 0 { write!(f, "{sign}{padded}") } else { write!(f, "{sign}{}.{}", &padded[..split], &padded[split..]) }
     }
 }
 

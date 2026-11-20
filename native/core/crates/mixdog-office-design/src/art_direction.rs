@@ -207,8 +207,7 @@ struct Domain {
     hue: Option<f64>,
 }
 
-static FINANCIAL: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"(revenue|profit|investment|finance|growth|margin|매출|이익|투자|성장|재무)", "i"));
+static FINANCIAL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(revenue|profit|investment|finance|growth|margin|매출|이익|투자|성장|재무)", "i"));
 static HEALTHCARE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(health|patient|clinical|care|병원|환자|의료|건강)", "i"));
 static CLIMATE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(climate|energy|sustain|carbon|환경|에너지|탄소|기후)", "i"));
 static TECHNOLOGY: LazyLock<JsRegex> =
@@ -218,10 +217,11 @@ static EDITORIAL_TONE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(
 
 fn subject_domain(input: &Value) -> Domain {
     let content = object_or_empty(prop(input, "content"));
-    let mut parts: Vec<String> = [prop(input, "intent"), prop(input, "signature"), prop(input, "audience"), prop(input, "tone"), prop(content, "objective"), prop(content, "decision")]
-        .iter()
-        .map(|entry| text(*entry))
-        .collect();
+    let mut parts: Vec<String> =
+        [prop(input, "intent"), prop(input, "signature"), prop(input, "audience"), prop(input, "tone"), prop(content, "objective"), prop(content, "decision")]
+            .iter()
+            .map(|entry| text(*entry))
+            .collect();
     if let Some(claims) = array_of(prop(content, "claims")) {
         parts.extend(claims.iter().map(|claim| text(prop(claim, "text"))));
     }
@@ -312,10 +312,7 @@ pub fn resolve_office_art_direction(format: &str, input: &Value, profile: &str, 
         .map(|blueprint| {
             let palette = direction_palette(base_hue, blueprint);
             let motif = if raw_subject.is_empty() { blueprint.motif.to_owned() } else { format!("{} · {raw_subject}", blueprint.motif) };
-            let score = direction_score(
-                blueprint,
-                &ScoreContext { purpose, expression_mode, tone: &tone, requested_id: &requested_id, seed: &seed },
-            );
+            let score = direction_score(blueprint, &ScoreContext { purpose, expression_mode, tone: &tone, requested_id: &requested_id, seed: &seed });
             let mut style = Map::new();
             let style_blueprint = &blueprint.style;
             style.insert("id".into(), json!(style_blueprint.id));
@@ -346,9 +343,8 @@ pub fn resolve_office_art_direction(format: &str, input: &Value, profile: &str, 
             (candidate, score, blueprint.id.to_owned())
         })
         .collect();
-    candidates.sort_by(|left, right| {
-        right.1.partial_cmp(&left.1).filter(|order| *order != Ordering::Equal).unwrap_or_else(|| locale_compare_en(&left.2, &right.2))
-    });
+    candidates
+        .sort_by(|left, right| right.1.partial_cmp(&left.1).filter(|order| *order != Ordering::Equal).unwrap_or_else(|| locale_compare_en(&left.2, &right.2)));
     let mut selected = candidates[0].0.clone();
     let has_subject = !raw_subject.is_empty() || prop(&requested, "seed").is_some_and(truthy) || prop(&requested, "id").is_some_and(truthy);
     let disabled = prop(input, "artDirection") == Some(&Value::Bool(false)) || prop(&requested, "enabled") == Some(&Value::Bool(false));

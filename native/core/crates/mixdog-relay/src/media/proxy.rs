@@ -285,7 +285,6 @@ mod tests {
     }
 }
 
-
 impl MediaProxy {
     /// Builds the lane and takes the `media-` frames of every desktop leg. `unauthorized` is the process's limiter for callers
     /// without a credential.

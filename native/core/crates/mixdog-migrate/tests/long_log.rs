@@ -11,11 +11,7 @@
 //!
 //! The log is generated here, record by record, in that shape.
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "test fixtures build and inspect data dirs with blocking std::fs"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixtures build and inspect data dirs with blocking std::fs")]
 
 use std::alloc::GlobalAlloc;
 use std::alloc::Layout;

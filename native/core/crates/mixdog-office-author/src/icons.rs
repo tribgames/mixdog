@@ -175,7 +175,9 @@ mod tests {
     fn the_whole_svg_carries_the_colour_size_and_stroke() {
         let set = icons();
         let svg = set.svg("arrow-right", &SvgOptions { color: "#1F7A4D".into(), size: 48.0, stroke_width: 1.5 }).unwrap();
-        assert!(svg.starts_with("<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"48\" height=\"48\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#1F7A4D\" stroke-width=\"1.5\""));
+        assert!(svg.starts_with(
+            "<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"48\" height=\"48\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"#1F7A4D\" stroke-width=\"1.5\""
+        ));
         assert!(svg.ends_with("</svg>"));
         let default = set.svg("arrow-right", &SvgOptions::default()).unwrap();
         assert!(default.contains("width=\"96\"") && default.contains("stroke=\"#000000\"") && default.contains("stroke-width=\"2\""));

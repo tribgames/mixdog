@@ -62,18 +62,9 @@ fn detail_text(details: Option<&Value>, secrets: &[String]) -> String {
             let evidence = match entry.get("debug") {
                 Some(Value::String(s)) => s.clone(),
                 Some(other) => other.to_string(),
-                None => entry
-                    .get("value")
-                    .and_then(Value::as_str)
-                    .unwrap_or_default()
-                    .to_owned(),
+                None => entry.get("value").and_then(Value::as_str).unwrap_or_default().to_owned(),
             };
-            let part = [kind, evidence.as_str()]
-                .iter()
-                .filter(|s| !s.is_empty())
-                .copied()
-                .collect::<Vec<_>>()
-                .join(": ");
+            let part = [kind, evidence.as_str()].iter().filter(|s| !s.is_empty()).copied().collect::<Vec<_>>().join(": ");
             (!part.is_empty()).then_some(part)
         })
         .collect();
@@ -85,11 +76,7 @@ fn failure_message(operation: &str, code: &str, status: Option<u16>, detail: &st
     if let Some(status) = status.filter(|s| *s != 0) {
         head.push_str(&format!(" (HTTP {status})"));
     }
-    let mut text = if detail.is_empty() {
-        head
-    } else {
-        format!("{head}: {detail}")
-    };
+    let mut text = if detail.is_empty() { head } else { format!("{head}: {detail}") };
     if !details.is_empty() {
         text.push_str(&format!(" [details: {details}]"));
     }
@@ -122,18 +109,10 @@ pub fn trailer_error(payload: &[u8], operation: &str, secrets: &[String]) -> Opt
     let code = if code.is_empty() { "unknown" } else { code };
     let detail = sanitize(&redact(message, secrets));
     let details = detail_text(error.get("details"), secrets);
-    let retry_after = parsed
-        .get("metadata")
-        .and_then(|m| m.get("retry-after"))
-        .and_then(retry_after_value);
+    let retry_after = parsed.get("metadata").and_then(|m| m.get("retry-after")).and_then(retry_after_value);
     let lowered = code.to_ascii_lowercase();
     let mut out = provider_error(
-        ConnectFailure {
-            code: lowered.clone(),
-            message: failure_message(operation, &lowered, None, &detail, &details),
-            http_status: None,
-            retry_after,
-        },
+        ConnectFailure { code: lowered.clone(), message: failure_message(operation, &lowered, None, &detail, &details), http_status: None, retry_after },
         DeliveryState::Accepted,
     );
     mark_reauth(&mut out);
@@ -155,20 +134,12 @@ pub fn http_error(response: &ErrorResponse, operation: &str, secrets: &[String])
     let mut message = String::new();
     let mut details: Option<Value> = None;
     if let Ok(parsed) = serde_json::from_slice::<Value>(&response.body) {
-        code = parsed
-            .get("code")
-            .and_then(Value::as_str)
-            .unwrap_or_default()
-            .to_owned();
-        message = [
-            parsed.get("message"),
-            parsed.get("error"),
-            parsed.get("error").and_then(|e| e.get("message")),
-        ]
-        .into_iter()
-        .flatten()
-        .find_map(|v| v.as_str().map(str::to_owned))
-        .unwrap_or_default();
+        code = parsed.get("code").and_then(Value::as_str).unwrap_or_default().to_owned();
+        message = [parsed.get("message"), parsed.get("error"), parsed.get("error").and_then(|e| e.get("message"))]
+            .into_iter()
+            .flatten()
+            .find_map(|v| v.as_str().map(str::to_owned))
+            .unwrap_or_default();
         details = parsed.get("details").cloned();
     } else if let Ok(text) = std::str::from_utf8(&response.body) {
         message = text.trim().to_owned();
@@ -216,12 +187,7 @@ mod tests {
 
     #[test]
     fn trailer_error_is_typed_by_code() {
-        let e = trailer_error(
-            br#"{"error":{"code":"resource_exhausted","message":"fixture quota"}}"#,
-            "GetChatMessage",
-            &[],
-        )
-        .unwrap();
+        let e = trailer_error(br#"{"error":{"code":"resource_exhausted","message":"fixture quota"}}"#, "GetChatMessage", &[]).unwrap();
         assert_eq!(e.kind, ErrorKind::RateLimited);
         assert_eq!(e.status, Some(429));
         assert_eq!(e.message, "Devin GetChatMessage resource_exhausted: fixture quota");

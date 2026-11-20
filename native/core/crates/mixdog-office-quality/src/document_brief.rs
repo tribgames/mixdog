@@ -56,11 +56,9 @@ fn items<'a>(value: Option<&'a Value>) -> &'a [Value] {
 fn text_units(format: &str, document: &Value) -> Vec<Value> {
     if format == "docx" {
         let paragraphs = items(field(document, "paragraphs")).iter().map(|paragraph| shape(field(paragraph, "text")));
-        let cells = items(field(document, "tables")).iter().flat_map(|table| {
-            items(field(table, "rows"))
-                .iter()
-                .flat_map(|row| items(field(row, "cells")).iter().map(|cell| shape(field(cell, "text"))))
-        });
+        let cells = items(field(document, "tables"))
+            .iter()
+            .flat_map(|table| items(field(table, "rows")).iter().flat_map(|row| items(field(row, "cells")).iter().map(|cell| shape(field(cell, "text")))));
         let shapes: Vec<Value> = paragraphs.chain(cells).collect();
         return vec![json!({ "index": 1, "path": "/body", "shapes": shapes })];
     }
@@ -91,10 +89,8 @@ pub fn document_brief_issues(readings: &dyn BriefReadings, format: &str, documen
         return Vec::new();
     }
     let units = text_units(format, document);
-    let paths: Vec<(String, String)> = units
-        .iter()
-        .map(|unit| (format!("/slide[{}]", template_text(field(unit, "index"))), template_text(field(unit, "path"))))
-        .collect();
+    let paths: Vec<(String, String)> =
+        units.iter().map(|unit| (format!("/slide[{}]", template_text(field(unit, "index"))), template_text(field(unit, "path")))).collect();
     let mut issues: Vec<Value> = readings
         .review_fact_coverage(&json!({ "slides": units }), brief)
         .into_iter()

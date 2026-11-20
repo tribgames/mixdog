@@ -52,11 +52,7 @@ pub(crate) struct TaskRegistry {
 
 impl TaskRegistry {
     pub(crate) fn new() -> Self {
-        Self {
-            tasks: ArcSwap::from_pointee(HashMap::new()),
-            violations: Mutex::new(Vec::new()),
-            violation_total: AtomicU64::new(0),
-        }
+        Self { tasks: ArcSwap::from_pointee(HashMap::new()), violations: Mutex::new(Vec::new()), violation_total: AtomicU64::new(0) }
     }
 
     pub(crate) fn observe(&self, task: &'static str, class: TaskClass, elapsed: Duration) {
@@ -68,12 +64,7 @@ impl TaskRegistry {
                 drop(known);
                 self.tasks.rcu(|current| {
                     let mut next = HashMap::clone(current);
-                    next.entry(key).or_insert_with(|| {
-                        Arc::new(TaskStats {
-                            poll: Histogram::new(),
-                            over_bound: AtomicU64::new(0),
-                        })
-                    });
+                    next.entry(key).or_insert_with(|| Arc::new(TaskStats { poll: Histogram::new(), over_bound: AtomicU64::new(0) }));
                     next
                 });
                 if let Some(stats) = self.tasks.load().get(&key) {
@@ -83,27 +74,14 @@ impl TaskRegistry {
         }
     }
 
-    fn record(
-        stats: &TaskStats,
-        elapsed: Duration,
-        task: &'static str,
-        class: TaskClass,
-        registry: &TaskRegistry,
-    ) {
+    fn record(stats: &TaskStats, elapsed: Duration, task: &'static str, class: TaskClass, registry: &TaskRegistry) {
         stats.poll.record(elapsed);
         if elapsed > class.poll_bound() {
             stats.over_bound.fetch_add(1, Relaxed);
             registry.violation_total.fetch_add(1, Relaxed);
-            let mut log = registry
-                .violations
-                .lock()
-                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            let mut log = registry.violations.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
             if log.len() < VIOLATION_LOG_CAP {
-                log.push(PollViolation {
-                    task,
-                    class,
-                    elapsed,
-                });
+                log.push(PollViolation { task, class, elapsed });
             }
         }
     }
@@ -113,22 +91,14 @@ impl TaskRegistry {
             .tasks
             .load()
             .iter()
-            .map(|((task, class), stats)| TaskSnapshot {
-                task,
-                class: *class,
-                poll: stats.poll.summary(),
-                over_bound: stats.over_bound.load(Relaxed),
-            })
+            .map(|((task, class), stats)| TaskSnapshot { task, class: *class, poll: stats.poll.summary(), over_bound: stats.over_bound.load(Relaxed) })
             .collect();
         out.sort_by_key(|t| (t.task, t.class as u8));
         out
     }
 
     pub(crate) fn violations(&self) -> (Vec<PollViolation>, u64) {
-        let log = self
-            .violations
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner());
+        let log = self.violations.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
         (log.clone(), self.violation_total.load(Relaxed))
     }
 }

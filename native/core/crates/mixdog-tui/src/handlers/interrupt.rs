@@ -90,13 +90,7 @@ pub fn on_busy_changed(host: &mut dyn PromptHost) {
     }
 }
 
-fn apply_result(
-    host: &mut dyn PromptHost,
-    generation: u64,
-    outcome: Option<InterruptOutcome>,
-    draft_text: &str,
-    asynchronous: bool,
-) -> Option<String> {
+fn apply_result(host: &mut dyn PromptHost, generation: u64, outcome: Option<InterruptOutcome>, draft_text: &str, asynchronous: bool) -> Option<String> {
     if generation != host.prompt().interrupt.generation {
         return None;
     }

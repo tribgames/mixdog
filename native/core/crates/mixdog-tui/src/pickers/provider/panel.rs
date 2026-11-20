@@ -76,11 +76,7 @@ pub struct PanelRow {
 
 impl PanelRow {
     pub fn new(item: PickerItem, kind: RowKind) -> Self {
-        Self {
-            item,
-            kind,
-            provider: None,
-        }
+        Self { item, kind, provider: None }
     }
 
     pub fn value(&self) -> &str {
@@ -153,21 +149,13 @@ impl ProviderPanel {
         match &self.footer {
             PanelFooter::None => Vec::new(),
             PanelFooter::Lines(lines) => lines.clone(),
-            PanelFooter::HighlightedProvider => provider_status_footer(
-                self.items
-                    .get(selected)
-                    .and_then(|row| row.provider.as_ref())
-                    .map(|p| &p.row),
-            ),
+            PanelFooter::HighlightedProvider => provider_status_footer(self.items.get(selected).and_then(|row| row.provider.as_ref()).map(|p| &p.row)),
         }
     }
 
     /// The props the picker widget draws this panel from, with the footer of the row at `selected`.
     pub fn picker_props(&self, columns: usize, selected: usize) -> PickerProps {
-        let mut props = PickerProps::new(
-            self.items.iter().map(|row| row.item.clone()).collect(),
-            &self.title,
-        );
+        let mut props = PickerProps::new(self.items.iter().map(|row| row.item.clone()).collect(), &self.title);
         props.description.clone_from(&self.description);
         props.detail.clone_from(&self.detail);
         props.footer = Footer::Lines(self.footer_lines(selected));
@@ -180,11 +168,7 @@ impl ProviderPanel {
         }
         props.index_mode = self.index_mode;
         props.loading = self.loading;
-        props.confirm_buttons = self
-            .confirm_bar
-            .as_ref()
-            .map(|bar| bar.buttons.clone())
-            .unwrap_or_default();
+        props.confirm_buttons = self.confirm_bar.as_ref().map(|bar| bar.buttons.clone()).unwrap_or_default();
         props
     }
 }
@@ -205,15 +189,7 @@ mod tests {
             row: json!({"authenticated": true, "type": "api-key"}),
             authenticated: true,
         });
-        let mut panel = ProviderPanel::new(
-            PanelOwner::ProviderSetup,
-            "Providers",
-            "k",
-            vec![
-                row,
-                PanelRow::new(PickerItem::new("x", "X"), RowKind::Continue),
-            ],
-        );
+        let mut panel = ProviderPanel::new(PanelOwner::ProviderSetup, "Providers", "k", vec![row, PanelRow::new(PickerItem::new("x", "X"), RowKind::Continue)]);
         panel.footer = PanelFooter::HighlightedProvider;
         assert_eq!(panel.footer_lines(0).len(), 1);
         assert!(panel.footer_lines(1).is_empty());

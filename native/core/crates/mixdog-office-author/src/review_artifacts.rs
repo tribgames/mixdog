@@ -285,5 +285,3 @@ mod tests {
         assert_eq!(keys, ["output", "_images", "pageCount", "renderer", "contactSheet"]);
     }
 }
-
-

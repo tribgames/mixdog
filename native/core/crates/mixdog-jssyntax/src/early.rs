@@ -18,13 +18,45 @@ type Check = Result<(), Reason>;
 const MAX_DEPTH: usize = 200;
 
 const ALWAYS_RESERVED: &[&str] = &[
-    "break", "case", "catch", "class", "const", "continue", "debugger", "default", "delete", "do", "else", "enum",
-    "export", "extends", "false", "finally", "for", "function", "if", "import", "in", "instanceof", "new", "null",
-    "return", "super", "switch", "this", "throw", "true", "try", "typeof", "var", "void", "while", "with",
+    "break",
+    "case",
+    "catch",
+    "class",
+    "const",
+    "continue",
+    "debugger",
+    "default",
+    "delete",
+    "do",
+    "else",
+    "enum",
+    "export",
+    "extends",
+    "false",
+    "finally",
+    "for",
+    "function",
+    "if",
+    "import",
+    "in",
+    "instanceof",
+    "new",
+    "null",
+    "return",
+    "super",
+    "switch",
+    "this",
+    "throw",
+    "true",
+    "try",
+    "typeof",
+    "var",
+    "void",
+    "while",
+    "with",
 ];
 
-const STRICT_RESERVED: &[&str] =
-    &["implements", "interface", "let", "package", "private", "protected", "public", "static", "yield"];
+const STRICT_RESERVED: &[&str] = &["implements", "interface", "let", "package", "private", "protected", "public", "static", "yield"];
 
 /// What `await` or `yield` is at a point of the code.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -147,10 +179,7 @@ fn first_duplicate(names: &[String]) -> Option<&str> {
 
 /// ID_Start of ECMAScript: XID_Start and the characters Unicode adds to it as Other_ID_Start.
 fn id_start(c: char) -> bool {
-    c == '$'
-        || c == '_'
-        || unicode_ident::is_xid_start(c)
-        || matches!(c, '\u{1885}' | '\u{1886}' | '\u{2118}' | '\u{212E}' | '\u{309B}' | '\u{309C}')
+    c == '$' || c == '_' || unicode_ident::is_xid_start(c) || matches!(c, '\u{1885}' | '\u{1886}' | '\u{2118}' | '\u{212E}' | '\u{309B}' | '\u{309C}')
 }
 
 /// ID_Continue of ECMAScript: XID_Continue, the joiners and Other_ID_Continue.
@@ -254,13 +283,7 @@ fn method_facts(node: Node<'_>) -> Facts {
     facts
 }
 
-fn declare_private(
-    map: &mut HashMap<String, PrivEntry>,
-    name: &str,
-    getter: bool,
-    setter: bool,
-    is_static: bool,
-) -> Check {
+fn declare_private(map: &mut HashMap<String, PrivEntry>, name: &str, getter: bool, setter: bool, is_static: bool) -> Check {
     if name == "#constructor" {
         return Err(Reason::Msg(msg::FIELD_CONSTRUCTOR));
     }
@@ -270,8 +293,7 @@ fn declare_private(
             Ok(())
         }
         Some(entry) => {
-            let pair = !entry.other
-                && ((getter && !entry.getter && entry.setter) || (setter && !entry.setter && entry.getter));
+            let pair = !entry.other && ((getter && !entry.getter && entry.setter) || (setter && !entry.setter && entry.getter));
             if !pair || entry.is_static != is_static {
                 return Err(Reason::PrivateDuplicate(name.to_owned()));
             }
@@ -284,8 +306,7 @@ fn declare_private(
 
 /// Everything in `source` the grammar accepts but a classic script does not.
 pub fn check(root: Node<'_>, source: &str, blanked: &[usize]) -> Check {
-    let mut checker =
-        Checker { src: source, scopes: Scopes::new(), labels: Vec::new(), privates: Vec::new(), depth: 0, blanked };
+    let mut checker = Checker { src: source, scopes: Scopes::new(), labels: Vec::new(), privates: Vec::new(), depth: 0, blanked };
     checker.prescan(root)?;
     let top = named_kids(root);
     let cx = Cx::script(checker.directive_strict(&top));
@@ -365,17 +386,17 @@ impl<'s> Checker<'s> {
                     Err(Reason::Msg(msg::INVALID_TOKEN))
                 }
             }
-            "identifier" | "property_identifier" | "shorthand_property_identifier"
-            | "shorthand_property_identifier_pattern" | "statement_identifier" | "undefined" => {
+            "identifier"
+            | "property_identifier"
+            | "shorthand_property_identifier"
+            | "shorthand_property_identifier_pattern"
+            | "statement_identifier"
+            | "undefined" => {
                 let text = self.text(node);
                 let reserved_by_escape = node.kind() != "property_identifier"
                     && text.contains('\\')
                     && decoded_name(text).is_some_and(|name| ALWAYS_RESERVED.contains(&name.as_str()));
-                if ident_ok(text) && !reserved_by_escape {
-                    Ok(())
-                } else {
-                    Err(Reason::Msg(msg::INVALID_TOKEN))
-                }
+                if ident_ok(text) && !reserved_by_escape { Ok(()) } else { Err(Reason::Msg(msg::INVALID_TOKEN)) }
             }
             "private_property_identifier" => {
                 if ident_ok(self.text(node).trim_start_matches('#')) {
@@ -484,8 +505,9 @@ impl<'s> Checker<'s> {
             "switch_statement" => self.visit_switch(node, cx),
             "try_statement" => self.visit_try(node, cx),
             "throw_statement" => self.visit_throw(node, cx),
-            "identifier" | "undefined" | "shorthand_property_identifier" | "shorthand_property_identifier_pattern"
-            | "statement_identifier" => self.visit_ident(node, cx),
+            "identifier" | "undefined" | "shorthand_property_identifier" | "shorthand_property_identifier_pattern" | "statement_identifier" => {
+                self.visit_ident(node, cx)
+            }
             "private_property_identifier" => self.visit_private_ref(node),
             "await_expression" => self.visit_await(node, cx),
             "yield_expression" => self.visit_yield(node, cx),
@@ -541,11 +563,7 @@ impl<'s> Checker<'s> {
 
     fn visit_private_ref(&self, node: Node<'_>) -> Check {
         let name = self.text(node);
-        if self.privates.iter().any(|names| names.contains_key(name)) {
-            Ok(())
-        } else {
-            Err(Reason::PrivateUndeclared(name.to_owned()))
-        }
+        if self.privates.iter().any(|names| names.contains_key(name)) { Ok(()) } else { Err(Reason::PrivateUndeclared(name.to_owned())) }
     }
 
     fn visit_block(&mut self, node: Node<'_>, cx: Cx) -> Check {
@@ -592,13 +610,7 @@ impl<'s> Checker<'s> {
         let facts = if is_method {
             method_facts(node)
         } else {
-            Facts {
-                is_static: false,
-                is_async: has_child_kind(node, "async"),
-                is_gen: kind.starts_with("generator_function"),
-                getter: false,
-                setter: false,
-            }
+            Facts { is_static: false, is_async: has_child_kind(node, "async"), is_gen: kind.starts_with("generator_function"), getter: false, setter: false }
         };
         let params = node.child_by_field_name("parameters");
         let single = node.child_by_field_name("parameter");
@@ -768,13 +780,7 @@ impl<'s> Checker<'s> {
                 "method_definition" => (member.child_by_field_name("name"), method_facts(*member)),
                 "field_definition" => (
                     member.child_by_field_name("property"),
-                    Facts {
-                        is_static: has_child_kind(*member, "static"),
-                        is_async: false,
-                        is_gen: false,
-                        getter: false,
-                        setter: false,
-                    },
+                    Facts { is_static: has_child_kind(*member, "static"), is_async: false, is_gen: false, getter: false, setter: false },
                 ),
                 _ => continue,
             };
@@ -869,11 +875,7 @@ impl<'s> Checker<'s> {
             self.no_blanked(name)?;
             let is_pattern = !matches!(name.kind(), "identifier" | "undefined");
             if value.is_none() && (is_const || is_pattern) {
-                return Err(Reason::Msg(if is_const {
-                    msg::MISSING_CONST_INIT
-                } else {
-                    msg::MISSING_DESTRUCTURING_INIT
-                }));
+                return Err(Reason::Msg(if is_const { msg::MISSING_CONST_INIT } else { msg::MISSING_DESTRUCTURING_INIT }));
             }
             let mut names = Vec::new();
             self.bound_names(name, &mut names);
@@ -1000,8 +1002,7 @@ impl<'s> Checker<'s> {
                 None => break,
             }
         }
-        let is_loop =
-            matches!(target.kind(), "for_statement" | "for_in_statement" | "while_statement" | "do_statement");
+        let is_loop = matches!(target.kind(), "for_statement" | "for_in_statement" | "while_statement" | "do_statement");
         self.labels.push(Label { name: name.to_owned(), is_loop });
         let result = match Self::block_read_as_object(body) {
             Some(object) => self.visit_block_read_as_object(object, cx),
@@ -1040,11 +1041,7 @@ impl<'s> Checker<'s> {
                 }
                 self.visit_ident(key, cx)?;
                 self.labels.push(Label { name: name.to_owned(), is_loop: false });
-                let result = if value.kind() == "object" {
-                    self.visit_block_read_as_object(value, cx)
-                } else {
-                    self.visit(value, cx)
-                };
+                let result = if value.kind() == "object" { self.visit_block_read_as_object(value, cx) } else { self.visit(value, cx) };
                 self.labels.pop();
                 result
             }
@@ -1172,14 +1169,7 @@ impl<'s> Checker<'s> {
 
     /// `allow_call`: V8 reads `f() = 1`, `f()++` and `for (f() of x)` as code that throws when it runs, not as an
     /// early error (the logical assignments excepted).
-    fn check_target(
-        &self,
-        node: Node<'_>,
-        strict: bool,
-        allow_pattern: bool,
-        allow_call: bool,
-        reason: &'static str,
-    ) -> Check {
+    fn check_target(&self, node: Node<'_>, strict: bool, allow_pattern: bool, allow_call: bool, reason: &'static str) -> Check {
         let invalid = || Err(Reason::Msg(reason));
         match node.kind() {
             "call_expression" if allow_call && !chain_has_optional(node) => Ok(()),
@@ -1202,12 +1192,10 @@ impl<'s> Checker<'s> {
                 }
                 Ok(())
             }
-            "assignment_pattern" | "object_assignment_pattern" if allow_pattern => {
-                match node.child_by_field_name("left") {
-                    Some(left) => self.check_target(left, strict, true, false, reason),
-                    None => invalid(),
-                }
-            }
+            "assignment_pattern" | "object_assignment_pattern" if allow_pattern => match node.child_by_field_name("left") {
+                Some(left) => self.check_target(left, strict, true, false, reason),
+                None => invalid(),
+            },
             "pair_pattern" if allow_pattern => match node.child_by_field_name("value") {
                 Some(value) => self.check_target(value, strict, true, false, reason),
                 None => invalid(),
@@ -1267,9 +1255,7 @@ impl<'s> Checker<'s> {
                 match target.kind() {
                     "identifier" | "undefined" if cx.strict => return Err(Reason::Msg(msg::STRICT_DELETE)),
                     "member_expression" | "subscript_expression" => {
-                        let private = target
-                            .child_by_field_name("property")
-                            .is_some_and(|p| p.kind() == "private_property_identifier");
+                        let private = target.child_by_field_name("property").is_some_and(|p| p.kind() == "private_property_identifier");
                         if private {
                             return Err(Reason::Msg(msg::PRIVATE_DELETE));
                         }
@@ -1291,8 +1277,7 @@ impl<'s> Checker<'s> {
         let right = node.child_by_field_name("right");
         if operator == "**"
             && let Some(left) = left
-            && (left.kind() == "unary_expression"
-                || (left.kind() == "await_expression" && cx.await_kw == Kw::Operator))
+            && (left.kind() == "unary_expression" || (left.kind() == "await_expression" && cx.await_kw == Kw::Operator))
         {
             return Err(Reason::Msg(msg::EXPONENT_UNARY));
         }
@@ -1307,9 +1292,7 @@ impl<'s> Checker<'s> {
                 _ => {}
             }
         }
-        let mixes = |child: Option<Node<'_>>, wanted: &[&str]| {
-            child.is_some_and(|c| c.kind() == "binary_expression" && wanted.contains(&self.operator_of(c)))
-        };
+        let mixes = |child: Option<Node<'_>>, wanted: &[&str]| child.is_some_and(|c| c.kind() == "binary_expression" && wanted.contains(&self.operator_of(c)));
         let clash = match operator {
             "??" => mixes(left, &["||", "&&"]) || mixes(right, &["||", "&&"]),
             "||" | "&&" => mixes(left, &["??"]) || mixes(right, &["??"]),
@@ -1326,16 +1309,13 @@ impl<'s> Checker<'s> {
         let arguments = node.child_by_field_name("arguments");
         if function.is_some_and(|f| f.kind() == "import") {
             let ok = arguments.is_some_and(|a| {
-                a.kind() == "arguments" && matches!(named_kids(a).len(), 1 | 2)
-                    && named_kids(a).iter().all(|argument| argument.kind() != "spread_element")
+                a.kind() == "arguments" && matches!(named_kids(a).len(), 1 | 2) && named_kids(a).iter().all(|argument| argument.kind() != "spread_element")
             });
             if !ok {
                 return Err(Reason::Msg(msg::IMPORT_CALL));
             }
         }
-        if arguments.is_some_and(|a| a.kind() == "template_string")
-            && (has_child_kind(node, "optional_chain") || function.is_some_and(chain_has_optional))
-        {
+        if arguments.is_some_and(|a| a.kind() == "template_string") && (has_child_kind(node, "optional_chain") || function.is_some_and(chain_has_optional)) {
             return Err(Reason::Msg(msg::OPTIONAL_CHAIN_TEMPLATE));
         }
         self.visit_children(node, cx)
@@ -1361,12 +1341,8 @@ impl<'s> Checker<'s> {
         let is_field = |name: &str| parent.child_by_field_name(name).map(|n| n.id()) == Some(node.id());
         match parent.kind() {
             "call_expression" if is_field("function") && cx.super_call => Ok(()),
-            "member_expression" | "subscript_expression"
-                if is_field("object") && cx.super_prop && !has_child_kind(parent, "optional_chain") =>
-            {
-                let private = parent
-                    .child_by_field_name("property")
-                    .is_some_and(|p| p.kind() == "private_property_identifier");
+            "member_expression" | "subscript_expression" if is_field("object") && cx.super_prop && !has_child_kind(parent, "optional_chain") => {
+                let private = parent.child_by_field_name("property").is_some_and(|p| p.kind() == "private_property_identifier");
                 if private { Err(Reason::Msg(msg::SUPER_UNEXPECTED)) } else { Ok(()) }
             }
             _ => Err(Reason::Msg(msg::SUPER_UNEXPECTED)),
@@ -1464,9 +1440,7 @@ impl<'s> Checker<'s> {
     }
 
     fn visit_template(&mut self, node: Node<'_>, cx: Cx) -> Check {
-        let tagged = node.parent().is_some_and(|p| {
-            p.kind() == "call_expression" && p.child_by_field_name("arguments").map(|a| a.id()) == Some(node.id())
-        });
+        let tagged = node.parent().is_some_and(|p| p.kind() == "call_expression" && p.child_by_field_name("arguments").map(|a| a.id()) == Some(node.id()));
         for child in kids(node) {
             match child.kind() {
                 "escape_sequence" if !tagged => self.escape_error(child, true, true)?,
@@ -1566,8 +1540,7 @@ fn unicode_escape_ok(rest: &str) -> bool {
             return false;
         }
         let significant = digits.trim_start_matches('0');
-        return significant.is_empty()
-            || (significant.len() <= 6 && u32::from_str_radix(significant, 16).is_ok_and(|v| v <= 0x10_FFFF));
+        return significant.is_empty() || (significant.len() <= 6 && u32::from_str_radix(significant, 16).is_ok_and(|v| v <= 0x10_FFFF));
     }
     rest.len() == 4 && rest.bytes().all(|b| b.is_ascii_hexdigit())
 }

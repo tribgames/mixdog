@@ -87,7 +87,8 @@ fn api() -> AnthropicCodec {
 }
 
 fn one_tool_body(schema: Value) -> Value {
-    body(&api(), &request("claude-sonnet-4-6", vec![text(Role::User, "hi")], vec![tool("t", schema)], RequestOptions::default()))["tools"][0]["input_schema"].clone()
+    body(&api(), &request("claude-sonnet-4-6", vec![text(Role::User, "hi")], vec![tool("t", schema)], RequestOptions::default()))["tools"][0]["input_schema"]
+        .clone()
 }
 
 // ---------------------------------------------------------------------------
@@ -154,8 +155,7 @@ fn a_tool_whose_schema_stays_invalid_is_left_out_and_reported_while_the_others_g
     let reports = Arc::new(Mutex::new(Vec::new()));
     let sink = Arc::clone(&reports);
     let options = RequestOptions {
-        on_tool_excluded: Some(ToolExclusionSink(Arc::new(move |report| sink.lock().unwrap().push((report.name, report.index)))))
-        ,
+        on_tool_excluded: Some(ToolExclusionSink(Arc::new(move |report| sink.lock().unwrap().push((report.name, report.index))))),
         ..RequestOptions::default()
     };
     let sent = body(&api(), &request("claude-sonnet-4-6", vec![text(Role::User, "hi")], vec![broken.clone(), fine.clone()], options));
@@ -199,7 +199,8 @@ fn search(max_uses: Option<u32>, domains: &[&str], location: Option<UserLocation
 fn native_web_search_is_declared_ahead_of_the_function_tools() {
     let location = UserLocation { country: Some("KR".into()), city: Some("Seoul".into()), ..UserLocation::default() };
     let options = RequestOptions { hosted_tools: vec![search(Some(3), &["example.com", "docs.rs"], Some(location))], ..RequestOptions::default() };
-    let sent = body(&api(), &request("claude-sonnet-4-6", vec![text(Role::User, "hi")], vec![tool("lookup", json!({ "type": "object", "properties": {} }))], options));
+    let sent =
+        body(&api(), &request("claude-sonnet-4-6", vec![text(Role::User, "hi")], vec![tool("lookup", json!({ "type": "object", "properties": {} }))], options));
     let tools = sent["tools"].as_array().unwrap();
     assert_eq!(tools.len(), 2);
     assert_eq!(
@@ -364,7 +365,16 @@ fn a_thinking_block_is_never_the_one_that_carries_the_breakpoint() {
     assistant.tool_calls.push(ToolCall { id: "call_1".into(), name: "lookup".into(), arguments: json!({}), native_type: None });
     let mut result = text(Role::Tool, "42");
     result.tool_call_id = Some("call_1".into());
-    let messages = body(&api(), &request("claude-sonnet-4-6", vec![text(Role::User, "q"), assistant, result], vec![tool("lookup", json!({ "type": "object", "properties": {} }))], RequestOptions::default()))["messages"].clone();
+    let messages = body(
+        &api(),
+        &request(
+            "claude-sonnet-4-6",
+            vec![text(Role::User, "q"), assistant, result],
+            vec![tool("lookup", json!({ "type": "object", "properties": {} }))],
+            RequestOptions::default(),
+        ),
+    )["messages"]
+        .clone();
     // The tail is the tool result, a block that can carry the marker.
     assert_eq!(messages[2]["content"][0]["type"], "tool_result");
     assert!(messages[2]["content"][0].get("cache_control").is_some());
@@ -382,10 +392,7 @@ fn a_tail_reminder_is_a_block_after_the_breakpoint_on_a_model_without_turn_scope
     let sent = wire(&api(), &request("claude-sonnet-4-6", vec![text(Role::User, "q"), reminder("R")], Vec::new(), RequestOptions::default()));
     let messages = body_of(&sent)["messages"].clone();
     assert_eq!(messages.as_array().unwrap().len(), 1);
-    assert_eq!(
-        messages[0]["content"],
-        json!([{ "type": "text", "text": "q", "cache_control": { "type": "ephemeral" } }, { "type": "text", "text": "R" }])
-    );
+    assert_eq!(messages[0]["content"], json!([{ "type": "text", "text": "q", "cache_control": { "type": "ephemeral" } }, { "type": "text", "text": "R" }]));
     assert!(!beta(&sent).contains("clear-at"));
 }
 
@@ -401,7 +408,8 @@ fn a_tail_reminder_is_a_turn_scoped_system_message_that_later_requests_replay_be
     // before that turn and the new reminder ends the request.
     let mut answer = text(Role::Assistant, "a");
     answer.turn_reminder = Some("R".into());
-    let second = body(&api(), &request(model, vec![text(Role::User, "q"), answer, text(Role::User, "q2"), reminder("R2")], Vec::new(), RequestOptions::default()));
+    let second =
+        body(&api(), &request(model, vec![text(Role::User, "q"), answer, text(Role::User, "q2"), reminder("R2")], Vec::new(), RequestOptions::default()));
     let roles: Vec<&str> = second["messages"].as_array().unwrap().iter().map(|m| m["role"].as_str().unwrap()).collect();
     assert_eq!(roles, ["user", "system", "assistant", "user", "system"]);
     assert_eq!(second["messages"][1]["content"][0]["text"], "R");
@@ -421,7 +429,12 @@ fn an_image_frame_the_tool_already_sized_goes_out_with_its_bytes_and_media_type_
     let codec = AnthropicCodec::new(Flavor::ApiKey, config);
     let frame = Message::new(
         Role::User,
-        Content::Parts(vec![ContentPart::Image(ImageSource::Base64 { data: "/9j/AAAA".into(), mime_type: "image/jpeg".into(), width: Some(1280), height: Some(720) })]),
+        Content::Parts(vec![ContentPart::Image(ImageSource::Base64 {
+            data: "/9j/AAAA".into(),
+            mime_type: "image/jpeg".into(),
+            width: Some(1280),
+            height: Some(720),
+        })]),
     );
     let sent = body(&codec, &request("claude-sonnet-4-6", vec![frame], Vec::new(), RequestOptions::default()));
     assert_eq!(
@@ -512,7 +525,9 @@ fn a_forced_tool_is_dropped_while_thinking_is_on_and_sequential_calls_can_be_ask
 
 #[test]
 fn max_tokens_follows_the_override_then_the_catalog_then_the_family() {
-    let max = |model: &str, caps: Option<ModelCaps>, options: RequestOptions| body(&codec(Flavor::ApiKey, caps), &request(model, vec![text(Role::User, "hi")], Vec::new(), options))["max_tokens"].clone();
+    let max = |model: &str, caps: Option<ModelCaps>, options: RequestOptions| {
+        body(&codec(Flavor::ApiKey, caps), &request(model, vec![text(Role::User, "hi")], Vec::new(), options))["max_tokens"].clone()
+    };
     assert_eq!(max("claude-sonnet-4-6", Some(manual(20000)), RequestOptions { max_output_tokens_override: Some(500), ..RequestOptions::default() }), 500);
     assert_eq!(max("claude-sonnet-4-6", Some(manual(20000)), RequestOptions::default()), 20000);
     assert_eq!(max("claude-sonnet-4-6", Some(manual(900_000)), RequestOptions::default()), 65536, "the safety cap");

@@ -92,12 +92,7 @@ pub(crate) struct Running {
 pub(crate) fn spawn_host(program: &Path, args: &[OsString], rt: &Handle) -> std::io::Result<Running> {
     let _entered = rt.enter();
     let mut command = tokio::process::Command::new(program);
-    command
-        .args(args)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .kill_on_drop(false);
+    command.args(args).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped()).kill_on_drop(false);
     #[cfg(windows)]
     let mut child = {
         // CREATE_NO_WINDOW, and CREATE_BREAKAWAY_FROM_JOB: the ext-host worker's job kills what it holds when the worker
@@ -233,13 +228,7 @@ async fn read_stderr(client: Arc<HostClient>, mut stderr: ChildStderr) {
 }
 
 /// Owns the child from start to exit. A kill request ends it; otherwise it only waits.
-async fn watch_exit(
-    mut child: Child,
-    mut kill: oneshot::Receiver<()>,
-    readers: [JoinHandle<()>; 2],
-    state: watch::Sender<HostState>,
-    sweeper: Sweeper,
-) {
+async fn watch_exit(mut child: Child, mut kill: oneshot::Receiver<()>, readers: [JoinHandle<()>; 2], state: watch::Sender<HostState>, sweeper: Sweeper) {
     let status = tokio::select! {
         status = child.wait() => status,
         Ok(()) = &mut kill => {
@@ -325,7 +314,6 @@ mod host_args_tests {
         assert_eq!(host_args(true, dir), ["office-com-host", "--session", "--data-dir", "/data/dir"].map(OsString::from));
     }
 }
-
 
 impl HostClient {
     /// Takes over a started host: tasks feed its stdin, read its stdout and stderr and watch it exit.
@@ -472,9 +460,7 @@ impl HostClient {
         lock(&self.shared).closing = true;
         let client = self.clone();
         let error = error.to_owned();
-        mixdog_rt::spawn("office.host.drain", TaskClass::Work, async move {
-            client.cleanup.get_or_init(|| client.drain_once(&error)).await.clone()
-        })
+        mixdog_rt::spawn("office.host.drain", TaskClass::Work, async move { client.cleanup.get_or_init(|| client.drain_once(&error)).await.clone() })
     }
 
     pub(crate) async fn drain(self: &Arc<Self>, error: &str) -> Value {

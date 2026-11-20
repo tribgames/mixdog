@@ -1,9 +1,5 @@
 //! Golden tests: every `fixtures/tools/code_graph/*.json` case against a small project.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "the test builds a project on disk with blocking filesystem calls"
-)]
-
+#![allow(clippy::disallowed_methods, reason = "the test builds a project on disk with blocking filesystem calls")]
 
 use std::fs;
 use std::path::Path;
@@ -68,12 +64,8 @@ fn a_build_reuses_cached_files_only_while_their_signature_matches() {
     assert_eq!(symbol_of(&first), "a");
     cache.flush().unwrap();
     // Alter the cached copy in place: a build that answers with it has reused the entry.
-    let payload = fs::read_dir(cache_dir.path().join("cache"))
-        .unwrap()
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| p.file_name().unwrap() != "manifest.json")
-        .unwrap();
+    let payload =
+        fs::read_dir(cache_dir.path().join("cache")).unwrap().flatten().map(|e| e.path()).find(|p| p.file_name().unwrap() != "manifest.json").unwrap();
     let stored = fs::read_to_string(&payload).unwrap();
     assert!(stored.contains(r#""name":"a""#), "{stored}");
     assert!(!stored.contains("export const a"), "the payload holds no source text: {stored}");
@@ -552,9 +544,15 @@ fn imports_resolve_through_manifests_packages_and_namespaces_as_the_binary_does(
         ("gopkg/geo/geo.go", "package geo\n\nfunc Total(xs []float64) float64 {\n\treturn xs[0]\n}\n"),
         ("gopkg/cmd/main.go", "package main\n\nimport \"example.com/demo/gopkg/geo\"\n\nfunc main() {\n\t_ = geo.Total([]float64{1, 2})\n}\n"),
         ("java/com/acme/util/Calc.java", "package com.acme.util;\n\npublic class Calc {\n    public static int twice(int x) { return x * 2; }\n}\n"),
-        ("java/com/acme/app/Main.java", "package com.acme.app;\n\nimport com.acme.util.Calc;\n\npublic class Main {\n    public static void main(String[] a) { System.out.println(Calc.twice(2)); }\n}\n"),
+        (
+            "java/com/acme/app/Main.java",
+            "package com.acme.app;\n\nimport com.acme.util.Calc;\n\npublic class Main {\n    public static void main(String[] a) { System.out.println(Calc.twice(2)); }\n}\n",
+        ),
         ("cs/Util/Helper.cs", "namespace Acme.Util {\n    public static class Helper {\n        public static int Triple(int x) { return x * 3; }\n    }\n}\n"),
-        ("cs/App/Program.cs", "using Acme.Util;\n\nnamespace Acme.App {\n    class Program {\n        static void Main() { System.Console.WriteLine(Helper.Triple(2)); }\n    }\n}\n"),
+        (
+            "cs/App/Program.cs",
+            "using Acme.Util;\n\nnamespace Acme.App {\n    class Program {\n        static void Main() { System.Console.WriteLine(Helper.Triple(2)); }\n    }\n}\n",
+        ),
         ("pyproj/geo.py", "def area(r):\n    return r * r\n"),
         ("pyproj/use.py", "from geo import area\n\n\ndef run():\n    return area(2)\n"),
         ("src/pkg/__init__.py", ""),
@@ -609,7 +607,6 @@ fn a_fanned_out_call_with_one_missing_file_is_incomplete() {
     assert!(!symbols.complete, "{}", symbols.text);
 }
 
-
 #[test]
 fn dependency_roots_are_the_graph_root_and_each_anchor_as_node_records_them() {
     let (_tmp, root) = project_with_sentinel();
@@ -618,10 +615,7 @@ fn dependency_roots_are_the_graph_root_and_each_anchor_as_node_records_them() {
     // From a subfolder the root is the enclosing project, not the cwd.
     assert_eq!(roots_of(serde_json::json!({ "mode": "overview" }), &root.join("src")), Some(vec![root.clone()]));
     // A file anchor adds its absolute path next to the root.
-    assert_eq!(
-        roots_of(serde_json::json!({ "mode": "imports", "file": "src/b.mjs" }), &root),
-        Some(vec![root.clone(), root.join("src/b.mjs")])
-    );
+    assert_eq!(roots_of(serde_json::json!({ "mode": "imports", "file": "src/b.mjs" }), &root), Some(vec![root.clone(), root.join("src/b.mjs")]));
     // An aggregate inside a project records every anchor, deduplicated, and not the cwd.
     assert_eq!(
         roots_of(serde_json::json!({ "mode": "imports", "files": ["src/a.mjs", "src/b.mjs", "src/a.mjs"] }), &root),
@@ -645,10 +639,7 @@ fn an_aggregate_with_no_project_at_the_cwd_also_depends_on_the_cwd() {
 
 #[test]
 fn the_tool_output_carries_the_roots_in_meta() {
-    let output = super::ToolOutput {
-        meta: Some(serde_json::json!({ super::DEPENDENCY_ROOTS_META: ["/p", "/p/a.rs"] })),
-        ..super::ToolOutput::default()
-    };
+    let output = super::ToolOutput { meta: Some(serde_json::json!({ super::DEPENDENCY_ROOTS_META: ["/p", "/p/a.rs"] })), ..super::ToolOutput::default() };
     assert_eq!(super::dependency_roots(&output), Some(vec!["/p".to_owned(), "/p/a.rs".to_owned()]));
     assert_eq!(super::dependency_roots(&super::ToolOutput::default()), None);
 }
@@ -678,7 +669,6 @@ fn the_argument_guard_answers_with_the_texts_of_the_argument_guard() {
     assert_eq!(one, serde_json::json!({"mode": "symbols", "file": "a"}));
 }
 
-
 // ---------------------------------------------------------------------------------------------------------------------
 // File versions: what a record stands for is the digest of the bytes it was parsed from.
 
@@ -707,11 +697,7 @@ fn calls_project() -> (tempfile::TempDir, std::path::PathBuf) {
 /// What a node says of its file, three ways: the outline, the body and the call sites. They must always agree.
 fn view(graph: &super::graph::Graph) -> (Vec<String>, String, Vec<String>) {
     let node = graph.node("src/c.mjs").unwrap();
-    (
-        node.symbols.iter().map(|s| s.name.clone()).collect(),
-        node.read().text().to_owned(),
-        node.calls().unwrap().iter().map(|c| c.name.clone()).collect(),
-    )
+    (node.symbols.iter().map(|s| s.name.clone()).collect(), node.read().text().to_owned(), node.calls().unwrap().iter().map(|c| c.name.clone()).collect())
 }
 
 /// A hinted edit that leaves size and mtime as they were, with the source and call-site caches populated: symbols, bodies
@@ -772,7 +758,12 @@ fn a_disk_reload_admits_records_with_a_digest_and_parses_those_without() {
     let graph = reloaded.graph(&root, &[]).unwrap();
     assert_eq!(parsed(), before, "unchanged stamps are not read again");
     assert_eq!(view(&graph).1, "export function f() { return g(); }\n");
-    let payload = fs::read_dir(&cache_dir).unwrap().flatten().map(|e| e.path()).find(|p| p.extension().is_some_and(|e| e == "json") && p.file_name().unwrap() != "manifest.json").unwrap();
+    let payload = fs::read_dir(&cache_dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| p.extension().is_some_and(|e| e == "json") && p.file_name().unwrap() != "manifest.json")
+        .unwrap();
     let stripped = regex::Regex::new(r#""digest":"[0-9a-f]{64}""#).unwrap().replace_all(&fs::read_to_string(&payload).unwrap(), r#""digest":"""#).into_owned();
     fs::write(&payload, stripped).unwrap();
     let before = parsed();
@@ -1574,7 +1565,12 @@ fn callers_of_a_declaration_include_other_languages_and_never_call_a_passed_name
     let text = run_with(serde_json::json!({ "mode": "callers", "files": ["src/lib.mjs"], "symbol": "handler" }), &root).text;
     assert!(text.contains("src/user.ts"), "{text}");
     let text = run_with(serde_json::json!({ "mode": "callers", "files": ["src/lib.mjs"], "symbol": "passed" }), &root).text;
-    assert!(text.starts_with("(no caller name matches found)") && text.contains("does not establish that 'passed' is unused") && !text.contains("genuinely unreferenced"), "{text}");
+    assert!(
+        text.starts_with("(no caller name matches found)")
+            && text.contains("does not establish that 'passed' is unused")
+            && !text.contains("genuinely unreferenced"),
+        "{text}"
+    );
     let text = run_with(serde_json::json!({ "mode": "callers", "files": ["src/user.ts"], "symbol": "passed" }), &root).text;
     assert!(text.starts_with("(no declaration named 'passed' found in the requested files)"), "{text}");
 }
@@ -1602,7 +1598,9 @@ fn transitive_callers_are_paged_without_a_traversal_cutoff() {
         many.push_str(&format!("export function c{i}() {{ target(); }}\n"));
     }
     fs::write(root.join("src/many.mjs"), many).unwrap();
-    let page = |n: usize| run_with(serde_json::json!({ "mode": "callers", "files": ["src/lib.mjs"], "symbol": "target", "depth": 2, "limit": 500, "page": n }), &root).text;
+    let page = |n: usize| {
+        run_with(serde_json::json!({ "mode": "callers", "files": ["src/lib.mjs"], "symbol": "target", "depth": 2, "limit": 500, "page": n }), &root).text
+    };
     let (first, last) = (page(1), page(3));
     assert!(first.contains("nodes 1-500 of 1002") && first.contains("# NEXT"), "{first}");
     assert!(last.contains("nodes 1001-1002 of 1002") && last.contains("# END") && !last.contains("# NEXT"), "{last}");
@@ -1612,10 +1610,12 @@ fn transitive_callers_are_paged_without_a_traversal_cutoff() {
 fn a_flat_callers_answer_is_labelled_as_name_matches_with_its_limits() {
     let (_tmp, root) = reader_project();
     let text = run_with(serde_json::json!({ "mode": "callers", "files": ["src/lib.mjs"], "symbol": "target" }), &root).text;
-    assert!(text.starts_with("# caller-name matches (importer-restricted name matching; not binding-resolved)\n# May include unrelated same-named identifiers;"), "{text}");
+    assert!(
+        text.starts_with("# caller-name matches (importer-restricted name matching; not binding-resolved)\n# May include unrelated same-named identifiers;"),
+        "{text}"
+    );
     assert!(text.contains("src/user.mjs") && !text.contains("# call sites"), "{text}");
 }
-
 
 /// `prewarmCodeGraphIfProject`: a folder inside a project warms the project's graph into the cache; a
 /// folder that is no project (here a bare temp folder: the implicit walk stops at it) warms nothing.
@@ -1754,7 +1754,8 @@ fn measure_the_heap_of_this_repositorys_graph() {
         super::graph::call_site_cache_state()
     );
     cache.flush().unwrap();
-    let payload: u64 = fs::read_dir(_dir.path().join("cache")).unwrap().flatten().filter(|e| e.file_name() != "manifest.json").map(|e| e.metadata().unwrap().len()).sum();
+    let payload: u64 =
+        fs::read_dir(_dir.path().join("cache")).unwrap().flatten().filter(|e| e.file_name() != "manifest.json").map(|e| e.metadata().unwrap().len()).sum();
     println!(
         "files={} omitted={} source={:.1}MiB heap_now={:.1}MiB (tokens as per-node strings would be {:.1}MiB) payload={:.1}MiB built_in={built:?}",
         graph.nodes.len(),
@@ -1865,7 +1866,18 @@ fn a_refused_call_still_emits_its_row() {
     assert_eq!(calls[0]["outcome"], "refused");
     assert!(calls[0]["request"].parse::<u64>().unwrap() >= 1);
     let ms = |key: &str| calls[0][key].parse::<u64>().unwrap();
-    let staged = ms("lane_wait_ms") + ms("query_ms") + ms("root_wait_ms") + ms("inventory_ms") + ms("cache_load_ms") + ms("parse_ms") + ms("link_ms") + ms("assemble_ms") + ms("admission_ms") + ms("prune_ms") + ms("wrap_ms") + ms("other_ms");
+    let staged = ms("lane_wait_ms")
+        + ms("query_ms")
+        + ms("root_wait_ms")
+        + ms("inventory_ms")
+        + ms("cache_load_ms")
+        + ms("parse_ms")
+        + ms("link_ms")
+        + ms("assemble_ms")
+        + ms("admission_ms")
+        + ms("prune_ms")
+        + ms("wrap_ms")
+        + ms("other_ms");
     assert_eq!(staged, ms("total_ms"), "every millisecond is in a stage or labelled other: {:?}", calls[0]);
 }
 fn tool_context(root: &Path) -> mixdog_core_api::domain::tool::ToolContext {
@@ -1895,7 +1907,8 @@ async fn a_callers_page_can_be_continued_with_the_published_page_argument() {
     use mixdog_core_api::domain::tool::{Tool, ToolPart};
 
     let (_tmp, root) = reader_project();
-    fs::write(root.join("src/user.mjs"), "import { target } from './lib.mjs';\nexport function go() { target(); }\nexport function again() { target(); }\n").unwrap();
+    fs::write(root.join("src/user.mjs"), "import { target } from './lib.mjs';\nexport function go() { target(); }\nexport function again() { target(); }\n")
+        .unwrap();
     let (_cache_dir, cache) = no_cache();
     let tool = super::CodeGraphTool::new(std::sync::Arc::new(NoTrust), std::sync::Arc::new(cache));
     let schema = tool.definition();

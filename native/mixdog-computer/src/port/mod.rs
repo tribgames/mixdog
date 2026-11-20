@@ -37,7 +37,7 @@ pub(crate) mod macos;
 #[cfg(windows)]
 pub(crate) mod windows;
 
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, MutexGuard, OnceLock, Weak};
 
@@ -444,7 +444,9 @@ pub(crate) enum Settled<H> {
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum State {
     /// Its mutation was handed over and has not completed; `requested`: its release was asked for meanwhile.
-    Pending { requested: bool },
+    Pending {
+        requested: bool,
+    },
     Held,
     /// Its release (or the compensation of a pending one) is under way.
     Releasing,

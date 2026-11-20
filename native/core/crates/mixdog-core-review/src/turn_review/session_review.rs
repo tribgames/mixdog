@@ -188,7 +188,8 @@ impl Inner {
         let after: Option<Vec<u8>> = if present { self.current_bytes(current).await } else { Some(Vec::new()) };
         // `after` is None when the present file is too large to read; absent files are measured as
         // absent content below.
-        let after_content = |bytes: &Option<Vec<u8>>| if present { bytes.as_ref().map(|b| ReviewContent::bytes(b.clone())) } else { Some(ReviewContent::Absent) };
+        let after_content =
+            |bytes: &Option<Vec<u8>>| if present { bytes.as_ref().map(|b| ReviewContent::bytes(b.clone())) } else { Some(ReviewContent::Absent) };
         if entry.state == "absent" {
             if !present {
                 return None;
@@ -227,7 +228,14 @@ impl Inner {
     /// review's line-diff `budget`. A path holding a renamed file pairs with the path it came
     /// from when that one is gone. With `target` only the units it matches are measured, with
     /// their whole text; every other unit is returned `name_only`.
-    async fn baseline_changes(&self, loaded: &Loaded, covered: &(dyn Fn(&str) -> bool + Sync), unvouched: &mut IndexSet<String>, budget: &mut LineDiffBudget, target: Option<&(dyn Fn(&Entry) -> bool + Sync)>) -> Vec<Unit> {
+    async fn baseline_changes(
+        &self,
+        loaded: &Loaded,
+        covered: &(dyn Fn(&str) -> bool + Sync),
+        unvouched: &mut IndexSet<String>,
+        budget: &mut LineDiffBudget,
+        target: Option<&(dyn Fn(&Entry) -> bool + Sync)>,
+    ) -> Vec<Unit> {
         let mut entries: IndexMap<String, &Entry> = IndexMap::new();
         for entry in &loaded.files {
             if !covered(&entry.path) {
@@ -287,15 +295,17 @@ impl Inner {
             .join("|");
             let cached = loaded.cache_get(&unit_key);
             if let Some(target) = target
-                && !target(after) && !target(before) {
-                    // Not measured: it names a file unless the cache knows it is unchanged.
-                    let unchanged = cached.as_ref().is_some_and(|c| c.sig == sig && c.change.as_ref().is_none_or(|ch| ch.hidden));
-                    if !unchanged {
-                        unit.name_only = true;
-                        out.push(unit);
-                    }
-                    continue;
+                && !target(after)
+                && !target(before)
+            {
+                // Not measured: it names a file unless the cache knows it is unchanged.
+                let unchanged = cached.as_ref().is_some_and(|c| c.sig == sig && c.change.as_ref().is_none_or(|ch| ch.hidden));
+                if !unchanged {
+                    unit.name_only = true;
+                    out.push(unit);
                 }
+                continue;
+            }
             // A file's own patch read measures again what was cached without its text.
             let hit = cached.as_ref().filter(|c| c.sig == sig && !(target.is_some() && c.stripped));
             let change: Option<Change> = match hit {
@@ -332,7 +342,15 @@ impl Inner {
     /// Files of the retained turn records that no baseline lists — a session recorded before
     /// baselines existed. Never exact. Also returns the baseline keys such older records
     /// touched: those baselines were first seen after an unrecorded edit.
-    async fn legacy_changes(&self, records: &[SharedRecord], kinds: &[&str], listed: &IndexSet<String>, covered: &(dyn Fn(&str) -> bool + Sync), since: f64, budget: &mut LineDiffBudget) -> (Vec<Unit>, IndexSet<String>) {
+    async fn legacy_changes(
+        &self,
+        records: &[SharedRecord],
+        kinds: &[&str],
+        listed: &IndexSet<String>,
+        covered: &(dyn Fn(&str) -> bool + Sync),
+        since: f64,
+        budget: &mut LineDiffBudget,
+    ) -> (Vec<Unit>, IndexSet<String>) {
         struct Group {
             key: String,
             abs: String,
@@ -369,7 +387,8 @@ impl Inner {
                     }
                     continue;
                 }
-                let prior_key = if groups.contains_key(&key) { Some(key.clone()) } else { old_abs.as_ref().map(|o| change_path_key(o)).filter(|k| groups.contains_key(k)) };
+                let prior_key =
+                    if groups.contains_key(&key) { Some(key.clone()) } else { old_abs.as_ref().map(|o| change_path_key(o)).filter(|k| groups.contains_key(k)) };
                 let prior = prior_key.and_then(|k| groups.shift_remove(&k));
                 let (origin_abs, origin_root) = match (&prior, &old_abs) {
                     (Some(p), _) => (p.old_abs.clone(), p.old_root.clone()),
@@ -397,7 +416,15 @@ impl Inner {
             if group.turns > 1 && obj_str(first, "status") == "A" && obj_str(file, "status") == "D" {
                 continue;
             }
-            let mut unit = Unit { key: group.key.clone(), abs: group.abs.clone(), root: group.root.clone(), old_abs: group.old_abs.clone(), old_root: group.old_root.clone(), change: None, name_only: false };
+            let mut unit = Unit {
+                key: group.key.clone(),
+                abs: group.abs.clone(),
+                root: group.root.clone(),
+                old_abs: group.old_abs.clone(),
+                old_root: group.old_root.clone(),
+                change: None,
+                name_only: false,
+            };
             if group.turns > 1 {
                 let status = if obj_str(first, "status") == "A" { "A" } else { obj_str(file, "status") };
                 let mut change = partial_change(status, SEVERAL_TURNS_REASON, Some("missing"));
@@ -478,7 +505,9 @@ impl Inner {
         let target_key = if clean(target).is_empty() { String::new() } else { change_path_key(target) };
         let targeted = |entry: &Entry| {
             change_path_key(&entry.path) == target_key
-                || (!entry.root.is_empty() && inside_directory(&entry.root, &entry.path) && change_path_key(&nodepath::relative_host(&entry.root, &entry.path)) == target_key)
+                || (!entry.root.is_empty()
+                    && inside_directory(&entry.root, &entry.path)
+                    && change_path_key(&nodepath::relative_host(&entry.root, &entry.path)) == target_key)
         };
         let baseline_target: Option<&(dyn Fn(&Entry) -> bool + Sync)> = if target_key.is_empty() { None } else { Some(&targeted) };
         let baseline_units = match loaded {
@@ -504,20 +533,27 @@ impl Inner {
         let mut measured = measured;
         for unit in &mut measured {
             if late.contains(&unit.key)
-                && let Some(change) = &mut unit.change {
-                    change.partial = true;
-                    change.reason = Some(SEVERAL_TURNS_REASON.into());
-                }
+                && let Some(change) = &mut unit.change
+            {
+                change.partial = true;
+                change.reason = Some(SEVERAL_TURNS_REASON.into());
+            }
         }
         let missing_count = missing.len();
         let mut changes: Vec<Unit> = measured;
         changes.extend(legacy_changes);
         changes.extend(missing.into_iter().filter(|(u, _)| u.change.is_some()).map(|(u, _)| u));
-        let base_files: Vec<Obj> = if git_backed { base.get("files").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_object().cloned()).collect() } else { Vec::new() };
+        let base_files: Vec<Obj> = if git_backed {
+            base.get("files").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_object().cloned()).collect()
+        } else {
+            Vec::new()
+        };
         let base_patch = if git_backed { base.get("patch").and_then(Value::as_str).unwrap_or("").to_owned() } else { String::new() };
         // A relative name shared by different roots (or with a Git file) is shown absolute, so
         // each file stays distinct.
-        let name_of = |abs: &str, root: &str| if !root.is_empty() && inside_directory(root, abs) { slash_path(&nodepath::relative_host(root, abs)) } else { slash_path(abs) };
+        let name_of = |abs: &str, root: &str| {
+            if !root.is_empty() && inside_directory(root, abs) { slash_path(&nodepath::relative_host(root, abs)) } else { slash_path(abs) }
+        };
         let mut owners: IndexMap<String, IndexSet<String>> = IndexMap::new();
         let mut claim = |name: &str, abs: &str| {
             if is_outside_path(name) {
@@ -589,13 +625,15 @@ impl Inner {
             let key = change_path_key(target);
             let row = rows.iter().find(|(r, _)| change_path_key(obj_str(r, "id")) == key || change_path_key(obj_str(r, "path")) == key);
             if let Some((row, patch)) = row
-                && row.get("patchOmitted") == Some(&Value::Bool(true)) && patch.is_empty() {
-                    let mut reply = file_patch_reply(obj_str(row, "path"), "", REVIEW_FILE_PATCH_SHOW_MAX_BYTES);
-                    for (k, v) in patch_omitted_file(Obj::new()) {
-                        reply.insert(k, v);
-                    }
-                    return reply;
+                && row.get("patchOmitted") == Some(&Value::Bool(true))
+                && patch.is_empty()
+            {
+                let mut reply = file_patch_reply(obj_str(row, "path"), "", REVIEW_FILE_PATCH_SHOW_MAX_BYTES);
+                for (k, v) in patch_omitted_file(Obj::new()) {
+                    reply.insert(k, v);
                 }
+                return reply;
+            }
             return file_patch_reply(
                 &row.map_or_else(|| slash_path(target), |(r, _)| obj_str(r, "path").to_owned()),
                 row.map_or("", |(_, p)| p.as_str()),
@@ -619,7 +657,11 @@ impl Inner {
         // A baseline first seen after an older recorded edit was not the session's first state:
         // even with no row it cannot vouch for the set. Baselines the disk refused (`unsaved`)
         // are known only to this process.
-        let partial = loaded.is_some_and(|l| l.incomplete || l.unsaved) || !unvouched.is_empty() || !late.is_empty() || missing_count > 0 || changes.iter().any(|c| c.change.as_ref().is_some_and(|ch| ch.partial));
+        let partial = loaded.is_some_and(|l| l.incomplete || l.unsaved)
+            || !unvouched.is_empty()
+            || !late.is_empty()
+            || missing_count > 0
+            || changes.iter().any(|c| c.change.as_ref().is_some_and(|ch| ch.partial));
         let vouched = (git_backed || source == "empty" || loaded.is_some()) && !partial;
         let mut all: Vec<Obj> = base_files;
         all.extend(files);
@@ -722,14 +764,28 @@ impl Inner {
         let stored = scopes.iter().filter_map(Value::as_object).find(|s| scope_matches_worktree(s, worktree, tracker.as_ref())).cloned();
         let snapshot = tracker.as_ref().and_then(|t| t.snapshot());
         let stored_str = |k: &str| stored.as_ref().map(|s| obj_str(s, k).to_owned()).unwrap_or_default();
-        let root = [stored_str("root"), snapshot.as_ref().map(|s| s.root()).unwrap_or_default(), clean(worktree).to_owned()].into_iter().find(|r| !r.is_empty()).unwrap_or_default();
-        let tool_files: Vec<String> = stored.as_ref().and_then(|s| s.get("toolFiles")).and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect();
+        let root = [stored_str("root"), snapshot.as_ref().map(|s| s.root()).unwrap_or_default(), clean(worktree).to_owned()]
+            .into_iter()
+            .find(|r| !r.is_empty())
+            .unwrap_or_default();
+        let tool_files: Vec<String> = stored
+            .as_ref()
+            .and_then(|s| s.get("toolFiles"))
+            .and_then(Value::as_array)
+            .into_iter()
+            .flatten()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect();
         let mut owned_paths: IndexSet<String> = tool_files.iter().cloned().collect();
         if let Some(tracker) = &tracker {
             let owned = tracker.lock().owned_paths.clone();
             owned_paths.extend(owned_paths_under(&root, &owned));
         }
-        let baseline_tree = [stored_str("baselineTree"), snapshot.as_ref().map(|s| s.baseline_tree()).unwrap_or_default()].into_iter().find(|t| !t.is_empty()).unwrap_or_default();
+        let baseline_tree = [stored_str("baselineTree"), snapshot.as_ref().map(|s| s.baseline_tree()).unwrap_or_default()]
+            .into_iter()
+            .find(|t| !t.is_empty())
+            .unwrap_or_default();
         let mut baseline_files: IndexMap<String, Value> = IndexMap::new();
         for entry in stored.as_ref().and_then(|s| s.get("baselineFiles")).and_then(Value::as_array).into_iter().flatten() {
             baseline_files.insert(path_key(entry.get("path").and_then(Value::as_str).unwrap_or("")), entry.clone());
@@ -754,9 +810,10 @@ impl Inner {
         // the checkpoint diff once it is refreshed, exactly as the turn review bar does.
         if let Some(tracker) = &scope.tracker
             && let Some(snapshot) = tracker.snapshot()
-                && !tracker.sealed() {
-                    snapshot.refresh(false).await;
-                }
+            && !tracker.sealed()
+        {
+            snapshot.refresh(false).await;
+        }
         let mut reply = Obj::new();
         let owned: Vec<Value> = scope.owned_paths.iter().cloned().map(Value::from).collect();
         if scope.owned_paths.is_empty() {
@@ -773,19 +830,21 @@ impl Inner {
             reply.insert("source".into(), if known { "empty" } else { "absent" }.into());
             return reply;
         }
-        if !scope.root.is_empty() && !scope.baseline_tree.is_empty()
-            && let Some(snapshot) = self.worktrees.resume(&scope.root, &scope.baseline_tree, &Self::resume_scope(&scope)).await {
-                let review = snapshot.review();
-                reply.insert("supported".into(), Value::Bool(true));
-                reply.insert("root".into(), scope.root.into());
-                reply.insert("files".into(), Value::Array(review.files.into_iter().map(Value::Object).collect()));
-                reply.insert("patch".into(), review.patch.into());
-                reply.insert("patchTruncated".into(), Value::Bool(review.patch_truncated));
-                reply.insert("snapshotKind".into(), "session".into());
-                reply.insert("authoritative".into(), Value::Bool(true));
-                reply.insert("source".into(), "git".into());
-                return reply;
-            }
+        if !scope.root.is_empty()
+            && !scope.baseline_tree.is_empty()
+            && let Some(snapshot) = self.worktrees.resume(&scope.root, &scope.baseline_tree, &Self::resume_scope(&scope)).await
+        {
+            let review = snapshot.review();
+            reply.insert("supported".into(), Value::Bool(true));
+            reply.insert("root".into(), scope.root.into());
+            reply.insert("files".into(), Value::Array(review.files.into_iter().map(Value::Object).collect()));
+            reply.insert("patch".into(), review.patch.into());
+            reply.insert("patchTruncated".into(), Value::Bool(review.patch_truncated));
+            reply.insert("snapshotKind".into(), "session".into());
+            reply.insert("authoritative".into(), Value::Bool(true));
+            reply.insert("source".into(), "git".into());
+            return reply;
+        }
         // A non-Git first turn still has an exact apply_patch tracker. It cannot cross a runtime
         // restart, but remains preferable to widening into unrelated files.
         if scope.tracker.as_ref().is_some_and(|t| t.lock().valid) {
@@ -864,7 +923,11 @@ impl Inner {
             }
             let source = relative_inside(&scope.root, old_path).unwrap_or_default();
             let old_rel = if !source.is_empty() && owned.contains(&path_key(&source)) { source } else { String::new() };
-            if let Some(result) = self.worktrees.resume_file_patch(&scope.root, &scope.baseline_tree, &Self::resume_scope(&scope), rel, &old_rel, REVIEW_FILE_PATCH_SHOW_MAX_BYTES).await {
+            if let Some(result) = self
+                .worktrees
+                .resume_file_patch(&scope.root, &scope.baseline_tree, &Self::resume_scope(&scope), rel, &old_rel, REVIEW_FILE_PATCH_SHOW_MAX_BYTES)
+                .await
+            {
                 let mut o = Obj::new();
                 o.insert("supported".into(), Value::Bool(true));
                 o.insert("path".into(), path.clone().into());

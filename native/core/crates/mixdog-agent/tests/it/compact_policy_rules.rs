@@ -22,7 +22,10 @@ fn policy(settings: &CompactSettings) -> CompactPolicy {
 fn there_is_no_policy_when_automatic_compaction_is_off_or_no_boundary_is_known() {
     assert!(CompactPolicy::resolve(&CompactSettings { auto: false, ..agent(100_000) }).is_none());
     assert!(CompactPolicy::resolve(&CompactSettings { auto: true, ..CompactSettings::default() }).is_none());
-    assert!(CompactPolicy::resolve(&CompactSettings { context_window: Some(0), explicit_boundary: Some(0), auto_limit: Some(0), ..agent(0) }).is_none(), "zero is not a size");
+    assert!(
+        CompactPolicy::resolve(&CompactSettings { context_window: Some(0), explicit_boundary: Some(0), auto_limit: Some(0), ..agent(0) }).is_none(),
+        "zero is not a size"
+    );
 }
 
 #[test]

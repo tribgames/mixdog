@@ -79,8 +79,7 @@ fn task_origin(source_name: &str) -> Option<String> {
     let id = ["@home", "@room", "@run"].iter().find_map(|suffix| rest.strip_suffix(suffix)).unwrap_or(rest);
     let mut chars = id.chars();
     let first = chars.next()?;
-    let valid = (first.is_ascii_lowercase() || first.is_ascii_digit())
-        && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-');
+    let valid = (first.is_ascii_lowercase() || first.is_ascii_digit()) && chars.all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '.' || c == '-');
     valid.then(|| id.to_owned())
 }
 

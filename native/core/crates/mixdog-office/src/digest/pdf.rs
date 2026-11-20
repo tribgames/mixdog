@@ -85,9 +85,7 @@ pub fn pdf_document_digest(document: &Value) -> Value {
         }
     }
     if let Some(pagination) = digest.get("pagination") {
-        let holds_every_page = is_truthy(Some(pagination))
-            && !is_bool(pagination.get("hasMore"), true)
-            && !(to_number_of(pagination.get("offset")) > 0.0);
+        let holds_every_page = is_truthy(Some(pagination)) && !is_bool(pagination.get("hasMore"), true) && !(to_number_of(pagination.get("offset")) > 0.0);
         if holds_every_page {
             remove(&mut digest, "pagination");
         }

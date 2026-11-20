@@ -4,9 +4,7 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use mixdog_js::{is_js_space, js_trim};
-use mixdog_term::paste::{
-    PastedImage, build_prompt_content_with_images, image_reference_ids, pasted_text_reference_ids,
-};
+use mixdog_term::paste::{PastedImage, build_prompt_content_with_images, image_reference_ids, pasted_text_reference_ids};
 
 use super::submit_prompt;
 use crate::slash::dispatch::run_slash_command;
@@ -86,10 +84,8 @@ pub fn submit_chat(host: &mut dyn SlashHost, text: &str) -> bool {
         display_text: (has_images || has_texts).then(|| text.to_owned()),
         pasted_images: image_restore_meta(&image_snapshot),
         pasted_texts: text_snapshot.clone(),
-        on_committed: (has_images || has_texts).then(|| CommittedClear {
-            images: image_snapshot.keys().copied().collect(),
-            texts: text_snapshot.keys().copied().collect(),
-        }),
+        on_committed: (has_images || has_texts)
+            .then(|| CommittedClear { images: image_snapshot.keys().copied().collect(), texts: text_snapshot.keys().copied().collect() }),
     };
     let accepted = submit_prompt(host, &content, Some(&options));
     if accepted {

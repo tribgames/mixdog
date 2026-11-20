@@ -272,7 +272,10 @@ impl HeldHome for RecordingHome {
             self.waiting_release.fetch_add(1, Ordering::SeqCst);
             self.release.acquire().await.unwrap().forget();
         }
-        self.persisted.lock().unwrap().push(json!({ "agentId": agent_id, "id": held.id, "status": serde_json::to_value(held.status).map_err(|e| e.to_string())? }));
+        self.persisted
+            .lock()
+            .unwrap()
+            .push(json!({ "agentId": agent_id, "id": held.id, "status": serde_json::to_value(held.status).map_err(|e| e.to_string())? }));
         if released {
             self.completed.add_permits(1);
         }
@@ -376,7 +379,17 @@ impl Scene {
             })
         };
         let inner = ProcessHeldHome::new(runs.clone(), surfaces, tokens.interactive_io, dir.path().to_owned(), notifier, grants.clone());
-        let home = Arc::new(RecordingHome { inner, rows: Mutex::new(Vec::new()), ids: AtomicU64::new(0), stall: Mutex::default(), delivered: tokio::sync::Semaphore::new(0), persisted: Mutex::default(), waiting_release: Default::default(), release: tokio::sync::Semaphore::new(0), completed: tokio::sync::Semaphore::new(0) });
+        let home = Arc::new(RecordingHome {
+            inner,
+            rows: Mutex::new(Vec::new()),
+            ids: AtomicU64::new(0),
+            stall: Mutex::default(),
+            delivered: tokio::sync::Semaphore::new(0),
+            persisted: Mutex::default(),
+            waiting_release: Default::default(),
+            release: tokio::sync::Semaphore::new(0),
+            completed: tokio::sync::Semaphore::new(0),
+        });
         let held = HeldRequests::new(home.clone(), clock);
         let hook = Arc::new(Mutex::new(None));
         let policy = Arc::new(ToolPolicy::new(grants.clone(), Arc::new(Connectors)).with_hook(Arc::new(Hook(hook.clone()))));
@@ -451,7 +464,11 @@ impl Client {
     #[allow(dead_code, reason = "Shared wire fixture helper retained for approval scenarios; this test subset does not ask for that frame.")]
     async fn approval_request(&self) -> Value {
         // Picks the one wire frame the test waits for out of the connection's frames.
-        let find = |texts: &[String]| texts.iter().find_map(|text| text.find('{').and_then(|at| serde_json::from_str::<Value>(&text[at..]).ok()).filter(|frame| frame["method"] == "item/tool/requestApproval"));
+        let find = |texts: &[String]| {
+            texts.iter().find_map(|text| {
+                text.find('{').and_then(|at| serde_json::from_str::<Value>(&text[at..]).ok()).filter(|frame| frame["method"] == "item/tool/requestApproval")
+            })
+        };
         if let Some(frame) = find(&self.seen.lock().unwrap()) {
             return frame;
         }
@@ -464,7 +481,9 @@ impl Client {
     /// The approval request among the frames seen so far, if one has arrived.
     fn approval_request_seen(&self) -> Option<Value> {
         let seen = self.seen.lock().unwrap();
-        seen.iter().find_map(|text| text.find('{').and_then(|at| serde_json::from_str::<Value>(&text[at..]).ok()).filter(|frame| frame["method"] == "item/tool/requestApproval"))
+        seen.iter().find_map(|text| {
+            text.find('{').and_then(|at| serde_json::from_str::<Value>(&text[at..]).ok()).filter(|frame| frame["method"] == "item/tool/requestApproval")
+        })
     }
 
     fn request(&self, id: i64, method: &str, params: Value) {
@@ -483,10 +502,6 @@ impl Client {
         assert!(frame.get("result").is_some(), "request {id} failed: {frame}");
     }
 }
-
-
-
-
 
 /// The session the bot `ann` speaks from in room `abcdef`: a room member's run, the one kind of run whose asks are held for a person
 /// when no card is attached (a schedule or webhook run never asks, `pipeline.rs` `ask`).
@@ -509,7 +524,15 @@ async fn hold(scene: &mut Scene, session: &str) -> (tokio::task::JoinHandle<Valu
 }
 
 fn answer(approved: bool, reason: Option<&str>) -> HeldAnswer {
-    HeldAnswer { approved, reason: reason.map(str::to_owned), device: "Pixel".to_owned(), connection_kind: None, response: None, edited_args: None, remember: None }
+    HeldAnswer {
+        approved,
+        reason: reason.map(str::to_owned),
+        device: "Pixel".to_owned(),
+        connection_kind: None,
+        response: None,
+        edited_args: None,
+        remember: None,
+    }
 }
 
 #[tokio::test(start_paused = true)]
@@ -518,7 +541,10 @@ async fn a_room_members_run_nobody_can_show_a_card_for_is_held_however_long_it_w
     let facts = |scene: &Scene| {
         let held = scene.held.clone();
         async move {
-            FactSources { catalog: Arc::new(EmptyCatalog), watches: Arc::new(NoWatches), held, routines: Arc::new(NoRoutines) }.collect(0).await.expect("the facts")
+            FactSources { catalog: Arc::new(EmptyCatalog), watches: Arc::new(NoWatches), held, routines: Arc::new(NoRoutines) }
+                .collect(0)
+                .await
+                .expect("the facts")
         }
     };
     let before = json!(facts(&scene).await.approvals);
@@ -557,7 +583,16 @@ async fn a_run_with_an_attached_card_asks_the_card_and_is_not_held() {
     *scene.hook.lock().unwrap() = Some(HookDecision { action: HookAction::Ask, reason: Some("needs approval".into()), name: None, args: None });
     scene.ui_attached.store(true, Ordering::SeqCst);
     *scene.card.answer.lock().unwrap() = Some(ApprovalResolution::Decided {
-        decision: ToolApprovalDecision { approved: true, reason: None, answers: None, reply: None, response: Some(HumanGateResponse::Approve), edited_args: None, remember: None, scope: None },
+        decision: ToolApprovalDecision {
+            approved: true,
+            reason: None,
+            answers: None,
+            reply: None,
+            response: Some(HumanGateResponse::Approve),
+            edited_args: None,
+            remember: None,
+            scope: None,
+        },
         device: "Pixel".into(),
         connection_kind: ConnectionKind::Desktop,
         at: 0,
@@ -726,7 +761,11 @@ async fn connect(server: &mixdog_app_server::AppServer, id: u64, thread: &str) -
 
     let wire = Arc::new(MockConnection::new(mixdog_core_api::ids::ConnectionId(id), MockLimits::default()));
     let client = Client::new(server.open(mixdog_core_api::ids::ConnectionId(id), wire.clone()), wire);
-    client.request(0, "initialize", json!({ "clientInfo": { "name": "Pixel", "version": env!("CARGO_PKG_VERSION"), "kind": "desktop" }, "capabilities": { "approvalsInbox": false } }));
+    client.request(
+        0,
+        "initialize",
+        json!({ "clientInfo": { "name": "Pixel", "version": env!("CARGO_PKG_VERSION"), "kind": "desktop" }, "capabilities": { "approvalsInbox": false } }),
+    );
     client.response(0).await;
     client.request(1, "thread/resume", json!({ "threadId": thread, "window": { "lastItems": 10 } }));
     client.response(1).await;
@@ -754,7 +793,13 @@ async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
     let member = "sess_member".to_owned();
     let outgoing = mixdog_app_server::Outgoing::new();
     let rig = Rig::new();
-    let published = Arc::new(Published { outgoing: outgoing.clone(), arrived: tokio::sync::Semaphore::new(0), frames: Mutex::default(), resolved_frames: Mutex::default(), resolved_arrived: tokio::sync::Semaphore::new(0) });
+    let published = Arc::new(Published {
+        outgoing: outgoing.clone(),
+        arrived: tokio::sync::Semaphore::new(0),
+        frames: Mutex::default(),
+        resolved_frames: Mutex::default(),
+        resolved_arrived: tokio::sync::Semaphore::new(0),
+    });
     let mut parts = rig.deps_parts(rig.store.clone());
     parts.server_requests = published.clone();
     // Who answered is the composition's own device layer over the registry the transport fills, and the resolution's time is read
@@ -765,8 +810,13 @@ async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
     parts.clock = Arc::new(VirtualClock(virtual_now.clone()));
     let directory = Arc::new(SessionDirectory::new(Arc::new(parts)));
     let core = Arc::new(RealCore { mock: Arc::new(MockCore::new(&[], MockLimits::default())), directory: directory.clone() });
-    let server = mixdog_app_server::AppServer::new(core, outgoing.clone(), Arc::new(|_| Some(mixdog_protocol::Origin::Local)), crate::server::server_config(mixdog_app_protocol::limits::Limits::default(), Default::default()))
-        .expect("the default limits are valid");
+    let server = mixdog_app_server::AppServer::new(
+        core,
+        outgoing.clone(),
+        Arc::new(|_| Some(mixdog_protocol::Origin::Local)),
+        crate::server::server_config(mixdog_app_protocol::limits::Limits::default(), Default::default()),
+    )
+    .expect("the default limits are valid");
     let surfaces = Arc::new(ThreadApprovalSurfaces::new(directory.clone(), outgoing.clone()));
     let scene = Scene::over(now, Arc::new(AtomicBool::new(false)), surfaces);
     *scene.hook.lock().unwrap() = Some(HookDecision { action: HookAction::Ask, reason: Some("needs approval".into()), name: None, args: None });
@@ -798,7 +848,12 @@ async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
     let handle = directory.handle(&ThreadId::from(member.as_str())).expect("loaded");
     use mixdog_core_api::ThreadHandle;
     handle
-        .request(CoreRequest { method: Method("turn/start"), params: json!({ "threadId": member, "opId": "op-1", "input": { "prompt": "go" } }), op: Some(OpId::from("op-1")), ctx: CallContext::internal("test") })
+        .request(CoreRequest {
+            method: Method("turn/start"),
+            params: json!({ "threadId": member, "opId": "op-1", "input": { "prompt": "go" } }),
+            op: Some(OpId::from("op-1")),
+            ctx: CallContext::internal("test"),
+        })
         .await
         .expect("turn/start");
     started.recv().await.expect("the run started");
@@ -824,10 +879,16 @@ async fn a_card_pending_on_the_real_thread_gate_survives_its_clients() {
     client.response(2).await;
     let frame = client.approval_request_seen().expect("the returning client is sent the pending card");
     assert_eq!(frame, shown, "the redelivered request is the one published");
-    client.handle.on_message(serde_json::from_value(json!({ "id": frame["id"], "result": { "approved": true, "response": "approve", "reason": null } })).expect("a response"));
+    client.handle.on_message(
+        serde_json::from_value(json!({ "id": frame["id"], "result": { "approved": true, "response": "approve", "reason": null } })).expect("a response"),
+    );
     let outcome = results.recv().await.expect("the call settles");
     assert_eq!(outcome["allowed"], true, "{outcome}");
-    mixdog_rt::time::timeout(Duration::from_secs(1), published.resolved_arrived.acquire()).await.expect("the actor published the resolution").expect("the sink").forget();
+    mixdog_rt::time::timeout(Duration::from_secs(1), published.resolved_arrived.acquire())
+        .await
+        .expect("the actor published the resolution")
+        .expect("the sink")
+        .forget();
     let resolution = published.resolved_frames.lock().unwrap().last().cloned().expect("a resolved frame")["params"]["resolution"].clone();
     assert_eq!(resolution["kind"], "decided");
     assert_eq!(resolution["decision"]["approved"], true);
@@ -864,7 +925,13 @@ async fn real_turn_with_card(now: i64) -> RealTurn {
     let member = "sess_member".to_owned();
     let outgoing = mixdog_app_server::Outgoing::new();
     let rig = Rig::new();
-    let published = Arc::new(Published { outgoing: outgoing.clone(), arrived: tokio::sync::Semaphore::new(0), frames: Mutex::default(), resolved_frames: Mutex::default(), resolved_arrived: tokio::sync::Semaphore::new(0) });
+    let published = Arc::new(Published {
+        outgoing: outgoing.clone(),
+        arrived: tokio::sync::Semaphore::new(0),
+        frames: Mutex::default(),
+        resolved_frames: Mutex::default(),
+        resolved_arrived: tokio::sync::Semaphore::new(0),
+    });
     let mut parts = rig.deps_parts(rig.store.clone());
     parts.server_requests = published.clone();
     let registry = Arc::new(mixdog_remote::registry::DeviceRegistry::default());
@@ -875,8 +942,13 @@ async fn real_turn_with_card(now: i64) -> RealTurn {
     parts.clock = Arc::new(VirtualClock(virtual_now.clone()));
     let directory = Arc::new(SessionDirectory::new(Arc::new(parts)));
     let core = Arc::new(RealCore { mock: Arc::new(MockCore::new(&[], MockLimits::default())), directory: directory.clone() });
-    let server = mixdog_app_server::AppServer::new(core, outgoing.clone(), Arc::new(|_| Some(mixdog_protocol::Origin::Local)), crate::server::server_config(mixdog_app_protocol::limits::Limits::default(), Default::default()))
-        .expect("the default limits are valid");
+    let server = mixdog_app_server::AppServer::new(
+        core,
+        outgoing.clone(),
+        Arc::new(|_| Some(mixdog_protocol::Origin::Local)),
+        crate::server::server_config(mixdog_app_protocol::limits::Limits::default(), Default::default()),
+    )
+    .expect("the default limits are valid");
     let surfaces = Arc::new(ThreadApprovalSurfaces::new(directory.clone(), outgoing));
     let scene = Scene::over(now, Arc::new(AtomicBool::new(false)), surfaces);
     *scene.hook.lock().unwrap() = Some(HookDecision { action: HookAction::Ask, reason: Some("needs approval".into()), name: None, args: None });
@@ -903,7 +975,12 @@ async fn real_turn_with_card(now: i64) -> RealTurn {
     let client = connect(&server, 1, &member).await;
     let handle = directory.handle(&ThreadId::from(member.as_str())).expect("loaded");
     handle
-        .request(CoreRequest { method: Method("turn/start"), params: json!({ "threadId": member, "opId": "op-1", "input": { "prompt": "go" } }), op: Some(OpId::from("op-1")), ctx: CallContext::internal("test") })
+        .request(CoreRequest {
+            method: Method("turn/start"),
+            params: json!({ "threadId": member, "opId": "op-1", "input": { "prompt": "go" } }),
+            op: Some(OpId::from("op-1")),
+            ctx: CallContext::internal("test"),
+        })
         .await
         .expect("turn/start");
     started.recv().await.expect("the run started");
@@ -933,7 +1010,11 @@ async fn with_the_opt_in_limit_a_card_nobody_answers_expires_at_the_limit_and_th
     let now = 1_800_000_000_000_i64;
     let mut turn = real_turn_with_card(now).await;
     let params = &turn.shown["params"];
-    assert_eq!(params["expiresAt"].as_i64().unwrap() - params["requestedAt"].as_i64().unwrap(), 600_000, "the card names its deadline: the limit after it was asked");
+    assert_eq!(
+        params["expiresAt"].as_i64().unwrap() - params["requestedAt"].as_i64().unwrap(),
+        600_000,
+        "the card names its deadline: the limit after it was asked"
+    );
 
     drop(turn.client);
     turn.client = connect(&turn.server, 3, &turn.member).await;
@@ -945,7 +1026,11 @@ async fn with_the_opt_in_limit_a_card_nobody_answers_expires_at_the_limit_and_th
     let outcome = turn.results.recv().await.expect("the call settles at the limit");
     let told = outcome["denial"].as_str().unwrap_or_else(|| panic!("the call is denied: {outcome}"));
     assert!(told.contains("tool \"shell\" was not approved: approval timed out"), "{told}");
-    mixdog_rt::time::timeout(Duration::from_secs(1), turn.published.resolved_arrived.acquire()).await.expect("the actor published the resolution").expect("the sink").forget();
+    mixdog_rt::time::timeout(Duration::from_secs(1), turn.published.resolved_arrived.acquire())
+        .await
+        .expect("the actor published the resolution")
+        .expect("the sink")
+        .forget();
     let resolution = turn.published.resolved_frames.lock().unwrap().last().cloned().unwrap()["params"]["resolution"].clone();
     assert_eq!(resolution["kind"], "timedOut", "clients are told the card timed out, not that someone denied it");
     assert_eq!(resolution["at"].as_i64(), Some(now + 600_000), "at the moment of the limit");
@@ -957,10 +1042,16 @@ async fn with_the_opt_in_limit_an_answer_before_it_settles_the_call_and_the_limi
     let now = 1_800_000_000_000_i64;
     let mut turn = real_turn_with_card(now).await;
     turn.pass(599_999).await;
-    turn.client.handle.on_message(serde_json::from_value(json!({ "id": turn.shown["id"], "result": { "approved": true, "response": "approve", "reason": null } })).expect("a response"));
+    turn.client.handle.on_message(
+        serde_json::from_value(json!({ "id": turn.shown["id"], "result": { "approved": true, "response": "approve", "reason": null } })).expect("a response"),
+    );
     let outcome = turn.results.recv().await.expect("the call settles");
     assert_eq!(outcome["allowed"], true, "{outcome}");
-    mixdog_rt::time::timeout(Duration::from_secs(1), turn.published.resolved_arrived.acquire()).await.expect("the actor published the resolution").expect("the sink").forget();
+    mixdog_rt::time::timeout(Duration::from_secs(1), turn.published.resolved_arrived.acquire())
+        .await
+        .expect("the actor published the resolution")
+        .expect("the sink")
+        .forget();
     turn.pass(10).await;
     let frames = turn.published.resolved_frames.lock().unwrap().clone();
     assert_eq!(frames.len(), 1, "no second resolution at the limit: {frames:?}");

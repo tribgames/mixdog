@@ -52,7 +52,12 @@ pub enum Phase {
 pub enum ImageSource {
     /// `width` / `height`: the image's pixel size where the tool that produced it reports it (Node's `{ type: 'image', width, height, source }`
     /// block, which the context estimator prices by); `None` for an image whose size is not known.
-    Base64 { data: String, mime_type: String, width: Option<u32>, height: Option<u32> },
+    Base64 {
+        data: String,
+        mime_type: String,
+        width: Option<u32>,
+        height: Option<u32>,
+    },
     Url(String),
     FileId(String),
 }
@@ -65,14 +70,8 @@ pub enum BinarySource {
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum DocumentSource {
-    Base64 {
-        media_type: String,
-        data: String,
-    },
-    Text {
-        media_type: Option<String>,
-        data: String,
-    },
+    Base64 { media_type: String, data: String },
+    Text { media_type: Option<String>, data: String },
     Content(JsonValue),
 }
 
@@ -247,9 +246,17 @@ impl Boundary {
     }
 
     pub fn from_name(name: &str) -> Option<Self> {
-        [Self::AttemptStarted, Self::Connected, Self::HeadReceived, Self::FirstProtocolPayload, Self::FirstSemanticOutput, Self::AttemptFailed, Self::AttemptEnded]
-            .into_iter()
-            .find(|boundary| boundary.name() == name)
+        [
+            Self::AttemptStarted,
+            Self::Connected,
+            Self::HeadReceived,
+            Self::FirstProtocolPayload,
+            Self::FirstSemanticOutput,
+            Self::AttemptFailed,
+            Self::AttemptEnded,
+        ]
+        .into_iter()
+        .find(|boundary| boundary.name() == name)
     }
 }
 
@@ -264,11 +271,7 @@ pub fn next_submission_id() -> u64 {
 
 /// The boundary a `boundary` stage payload carries: (submission, attempt id, boundary).
 pub fn decode_boundary(payload: &serde_json::Value) -> Option<(u64, u64, Boundary)> {
-    Some((
-        payload.get("submission")?.as_u64()?,
-        payload.get("attempt")?.as_u64()?,
-        Boundary::from_name(payload.get("boundary")?.as_str()?)?,
-    ))
+    Some((payload.get("submission")?.as_u64()?, payload.get("attempt")?.as_u64()?, Boundary::from_name(payload.get("boundary")?.as_str()?)?))
 }
 
 /// A display stage an adapter raised, with the payload Node's `onStageChange(stage, payload)` carried.
@@ -685,7 +688,6 @@ mod reasoning_usage_tests {
     }
 }
 
-
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub struct ToolCall {
     pub id: String,
@@ -822,13 +824,8 @@ impl Message {
 
     /// The only read access to replay envelopes: a provider never replays
     /// another provider's envelope.
-    pub fn replay_for<'a>(
-        &'a self,
-        owner: &'a ProviderId,
-    ) -> impl Iterator<Item = &'a ProviderReplay> + 'a {
-        self.provider_replay
-            .iter()
-            .filter(move |r| &r.owner == owner)
+    pub fn replay_for<'a>(&'a self, owner: &'a ProviderId) -> impl Iterator<Item = &'a ProviderReplay> + 'a {
+        self.provider_replay.iter().filter(move |r| &r.owner == owner)
     }
 
     /// Every envelope, for code that keeps or moves messages whole (storage,
@@ -1055,7 +1052,6 @@ impl AttemptHandle {
         let ctx = self.identity.attempt_context();
         (ctx.id == self.id && ctx.phase != AttemptPhase::Retired).then_some(ctx)
     }
-
 }
 impl SendIdentity {
     /// The first-byte timeouts this send has met.
@@ -1206,7 +1202,8 @@ impl SendIdentity {
                         if from == AttemptPhase::Connect {
                             // The silence counts from the connection; a transport that never said when it had one is timed
                             // from the attempt's start, as connecting and the provider's silence cannot be told apart there.
-                            ctx.silence_from = if boundary == Boundary::Connected { Some(mixdog_rt::Deadline::after(std::time::Duration::ZERO)) } else { ctx.attempt_started };
+                            ctx.silence_from =
+                                if boundary == Boundary::Connected { Some(mixdog_rt::Deadline::after(std::time::Duration::ZERO)) } else { ctx.attempt_started };
                         }
                         ctx.enter(to);
                         // An implicit pass of the connection is not reported as one: no transport said when it happened.
@@ -1618,7 +1615,10 @@ pub enum StreamEvent {
     /// A display-only transcript notice the adapter raised while preparing the request (Node
     /// `opts.onStageChange('notice', { tone, message })`: Gemini's dated model redirect). `warn` is tone `warn`;
     /// otherwise `info`. Folds into nothing.
-    Notice { message: String, warn: bool },
+    Notice {
+        message: String,
+        warn: bool,
+    },
     /// The model that answered when the adapter served the request as another one than the request named (Node
     /// `send` result `model`: Gemini's dated redirect). The usage ledger books the send under it and the turn's
     /// response reports it.
@@ -1652,7 +1652,10 @@ pub enum StreamEvent {
     /// them for an empty final turn (`ask-turn-commit.mjs:65-66`); the message threads refuse to store a turn that
     /// fell back (`anthropic-message-threads.mjs:333`). Raised once, before the terminal event. Folds into the
     /// response's summary.
-    ContentSummary { has_thinking: bool, block_types: Vec<String> },
+    ContentSummary {
+        has_thinking: bool,
+        block_types: Vec<String>,
+    },
     /// The wire's terminal event. Exactly one per completed attempt, last.
     /// `stop` is `None` when the wire named no stop reason (Node
     /// `stopReason: null`: a plain Responses or Gemini completion); a decoder
@@ -1731,10 +1734,7 @@ pub enum ErrorKind {
 }
 impl ErrorKind {
     pub const fn is_quota(self) -> bool {
-        matches!(
-            self,
-            Self::QuotaExhausted | Self::Entitlement | Self::Billing
-        )
+        matches!(self, Self::QuotaExhausted | Self::Entitlement | Self::Billing)
     }
     pub const fn is_deterministic(self) -> bool {
         self.is_quota()
@@ -1830,7 +1830,42 @@ pub struct ProviderError(Box<ProviderErrorFields>);
 /// Prints as the record always did, `ProviderError { kind: .. }`, through the caller's formatter so its flags apply to every field.
 impl std::fmt::Debug for ProviderError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let ProviderErrorFields { kind, code, status, retry_after, reset_at, quota_scope, reauth_required, recovery_exhausted, recovery_terminal, should_retry, exposure, delivery, transport, connection, message, partial_usage, partial_model, partial_replay, partial_thinking_blocks, partial_tool_calls, verification_url, rejected_tool, account_blocked, notices, unsafe_to_retry, timed_out, quota_limit, finish_reason, timeout_phase, ws_phase, failing_image, tail_refusal, image_refusal, fallback_model } = &*self.0;
+        let ProviderErrorFields {
+            kind,
+            code,
+            status,
+            retry_after,
+            reset_at,
+            quota_scope,
+            reauth_required,
+            recovery_exhausted,
+            recovery_terminal,
+            should_retry,
+            exposure,
+            delivery,
+            transport,
+            connection,
+            message,
+            partial_usage,
+            partial_model,
+            partial_replay,
+            partial_thinking_blocks,
+            partial_tool_calls,
+            verification_url,
+            rejected_tool,
+            account_blocked,
+            notices,
+            unsafe_to_retry,
+            timed_out,
+            quota_limit,
+            finish_reason,
+            timeout_phase,
+            ws_phase,
+            failing_image,
+            tail_refusal,
+            image_refusal,
+            fallback_model,
+        } = &*self.0;
         f.debug_struct("ProviderError")
             .field("kind", kind)
             .field("code", code)
@@ -2161,10 +2196,7 @@ pub trait ProviderAdapter: Send + Sync {
     /// One provider send. A provider-owned recovery (such as Responses WS)
     /// marks a surfaced failure `should_retry: Some(false)` so callers never
     /// multiply its budget. Dropping the future aborts the send.
-    async fn attempt(
-        &self,
-        request: Arc<ModelRequest>,
-    ) -> Result<Box<dyn ModelStream>, ProviderError>;
+    async fn attempt(&self, request: Arc<ModelRequest>) -> Result<Box<dyn ModelStream>, ProviderError>;
     /// The provider's model listing. Every product adapter returns `Some`;
     /// the default `None` only keeps this addition non-breaking for adapters
     /// that have not implemented it yet.
@@ -2347,11 +2379,7 @@ impl Default for SendStages {
 #[async_trait]
 pub trait WireRouting: Send + Sync {
     /// `Ok(None)`: the gateway offers the model on no wire (not routable).
-    async fn resolve_wire_route(
-        &self,
-        model: &str,
-        context: &WireRouteContext,
-    ) -> Result<Option<WireRoute>, ProviderError>;
+    async fn resolve_wire_route(&self, model: &str, context: &WireRouteContext) -> Result<Option<WireRoute>, ProviderError>;
 }
 /// A selectable non-effort, non-fast model parameter (`modelParameterOptions`).
 #[derive(Clone, PartialEq, Eq, Debug, serde::Serialize, serde::Deserialize)]

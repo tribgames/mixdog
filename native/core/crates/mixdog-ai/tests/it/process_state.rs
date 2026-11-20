@@ -196,7 +196,6 @@ fn a_replay_reads_the_lane_queue_bound_from_the_environment_again() {
     unsafe { std::env::remove_var(NAME) };
 }
 
-
 const VALUES: &[(&str, &str, Verdict)] = &[
     ("providers/anthropic/adapter.rs", "GZIP_LATCHED", Reset("adapter::reset_gzip_latch()")),
     ("providers/anthropic/fast_mode.rs", "PROCESS", Reset("fast_mode::process().clear()")),
@@ -224,14 +223,22 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     (
         "oauth/lease.rs",
         "THIS",
-        Survives("this process's identity as a lease owner and the leases it holds, keyed by lock path; a lease leaves when its holder ends, and a replay's credential files are its own"),
+        Survives(
+            "this process's identity as a lease owner and the leases it holds, keyed by lock path; a lease leaves when its holder ends, and a replay's credential files are its own",
+        ),
     ),
     (
         "providers/grok/auth.rs",
         "THIS",
-        Survives("this process's running Grok refreshes keyed by credential file path; an entry leaves when its refresh ends, and a replay's credential files are its own"),
+        Survives(
+            "this process's running Grok refreshes keyed by credential file path; an entry leaves when its refresh ends, and a replay's credential files are its own",
+        ),
     ),
-    ("broker/send.rs", "NEXT", Survives("the counter that keeps the ids of the broker's send groups distinct; no recording names an id, and a replay's groups end with their sends")),
+    (
+        "broker/send.rs",
+        "NEXT",
+        Survives("the counter that keeps the ids of the broker's send groups distinct; no recording names an id, and a replay's groups end with their sends"),
+    ),
     ("catalog/overlay.rs", "EMPTY", NotState("the empty overlay document a cold layer reads")),
     ("catalog/lookup/registry.rs", "PRICING_OVERRIDES", NotState("a constant price table")),
     ("catalog/lookup/registry.rs", "CURSOR_PRICING", NotState("a constant price table")),
@@ -257,7 +264,11 @@ const VALUES: &[(&str, &str, Verdict)] = &[
         "GATEWAY_AUTH_RECOVERY",
         NotState("task-local: marks a send whose auth replay the OpenCode Go gateway owns, gone with the send"),
     ),
-    ("providers/compat/login/opencode_go.rs", "GATEWAY_CREDENTIAL", NotState("task-local: the credentials of one OpenCode Go gateway send, gone with the send")),
+    (
+        "providers/compat/login/opencode_go.rs",
+        "GATEWAY_CREDENTIAL",
+        NotState("task-local: the credentials of one OpenCode Go gateway send, gone with the send"),
+    ),
     ("work.rs", "CREDENTIAL_READS", NotState("a `count-work` measurement counter no send reads")),
     ("work.rs", "PROVIDERS_BUILT", NotState("a `count-work` measurement counter no send reads")),
     ("work.rs", "PROVIDER_LOADS", NotState("a `count-work` measurement counter no send reads")),
@@ -281,7 +292,9 @@ const VALUES: &[(&str, &str, Verdict)] = &[
     (
         "transport/replay_bytes.rs",
         "ANNOUNCER",
-        Survives("the socket to the listener `MIXDOG_REPLAY_BYTES` names and the bytes announced on it since the process began: a spawned core's one barrier, which its replay counts from the process's start"),
+        Survives(
+            "the socket to the listener `MIXDOG_REPLAY_BYTES` names and the bytes announced on it since the process began: a spawned core's one barrier, which its replay counts from the process's start",
+        ),
     ),
     ("transport/replay_bytes.rs", "RUN", NotState("task-local: the run a turn's task counts its waits on, gone with the task")),
     ("transport/replay_bytes.rs", "RUNS", Survives("the count of turns alive now; a turn leaves it when its task ends, and a replay's turns end with it")),

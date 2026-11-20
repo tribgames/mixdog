@@ -13,16 +13,14 @@ use crate::pptx_charts::{
     handle_set_chart_trendline_or_set_chart_error_bars,
 };
 use crate::pptx_deck::{
-    Handled, handle_add_comment_or_delete_comment, handle_add_provenance, handle_add_slide, handle_apply_theme, handle_delete_slide,
-    handle_duplicate_slide, handle_fill_template, handle_import_slides, handle_keep_slides, handle_move_slide, handle_replace_text,
-    handle_set_footer_or_set_slide_number, handle_set_layout, handle_set_notes, handle_set_slide_background,
-    handle_set_slide_visibility, handle_set_transition,
+    Handled, handle_add_comment_or_delete_comment, handle_add_provenance, handle_add_slide, handle_apply_theme, handle_delete_slide, handle_duplicate_slide,
+    handle_fill_template, handle_import_slides, handle_keep_slides, handle_move_slide, handle_replace_text, handle_set_footer_or_set_slide_number,
+    handle_set_layout, handle_set_notes, handle_set_slide_background, handle_set_slide_visibility, handle_set_transition,
 };
 use crate::pptx_package::{SlideRef, presentation_slides, renumber_presentation_slides};
 use crate::pptx_shapes::{
-    add_animation, add_image, add_media, add_table, add_textbox_or_shape, align_shapes_or_distribute_shapes, crop_image, delete_shape,
-    fit_text, group_shapes_or_ungroup_shape, set_hyperlink, set_shape, set_table_cell_style, set_table_data_or_replace_image, set_text,
-    z_order,
+    add_animation, add_image, add_media, add_table, add_textbox_or_shape, align_shapes_or_distribute_shapes, crop_image, delete_shape, fit_text,
+    group_shapes_or_ungroup_shape, set_hyperlink, set_shape, set_table_cell_style, set_table_data_or_replace_image, set_text, z_order,
 };
 use crate::pptx_targets::resolve_pptx_targets;
 use crate::text_metrics::TextMeasurer;
@@ -170,8 +168,7 @@ mod tests {
         let results = batch(&mut zip, vec![json!({ "op": "add_slide" }), json!({ "op": "add_textbox", "slide": 1, "text": "Hello" })]).unwrap();
         assert_eq!(results.len(), 2);
         assert_eq!(results[1]["op"], "add_textbox");
-        let error =
-            batch(&mut zip, vec![json!({ "op": "add_textbox", "slide": 1, "text": "kept" }), json!({ "op": "add_textbox", "slide": 9 })]).unwrap_err();
+        let error = batch(&mut zip, vec![json!({ "op": "add_textbox", "slide": 1, "text": "kept" }), json!({ "op": "add_textbox", "slide": 9 })]).unwrap_err();
         assert_eq!(error, "PPTX slide 9 not found");
         assert!(zip.text("ppt/slides/slide1.xml").contains("kept"), "what ran before the failure stays");
     }
@@ -221,9 +218,8 @@ mod tests {
         let chart = zip.text("ppt/charts/chart1.xml");
         let cited = group(r#"(<c:externalData\b[^>]*\br:id=")[^"]*""#, &chart);
         assert!(!cited.is_empty(), "the chart cites its workbook");
-        let chart = compiled(r#"(<c:externalData\b[^>]*\br:id=")[^"]*(")"#, "").replace_all_with(&chart, |caps| {
-            format!("{}rId3{}", caps.get(1).unwrap_or(""), caps.get(2).unwrap_or(""))
-        });
+        let chart = compiled(r#"(<c:externalData\b[^>]*\br:id=")[^"]*(")"#, "")
+            .replace_all_with(&chart, |caps| format!("{}rId3{}", caps.get(1).unwrap_or(""), caps.get(2).unwrap_or("")));
         let chart = compiled(r"<c:tx>\s*<c:strRef>[\s\S]*?</c:strRef>\s*</c:tx>", "").replace_all_with(&chart, |_| "<c:tx><c:v>Value</c:v></c:tx>".to_owned());
         assert!(chart.contains("<c:tx><c:v>Value</c:v></c:tx>"));
         zip.set("ppt/charts/chart1.xml", chart);
@@ -311,14 +307,15 @@ mod tests {
     #[test]
     fn a_bar_chart_authored_bottom_up_keeps_its_order_says_so_and_turns_over_on_category_order() {
         let months = json!(["6월", "7월", "8월", "9월"]);
-        let (mut zip, shape) =
-            deck_with_chart(json!({ "categories": months, "series": [{ "name": "오류 (건)", "values": [8200, 5900, 3100, 2700] }] }));
+        let (mut zip, shape) = deck_with_chart(json!({ "categories": months, "series": [{ "name": "오류 (건)", "values": [8200, 5900, 3100, 2700] }] }));
         let chart = zip.text("ppt/charts/chart1.xml");
         let category_axis = group(r"(<c:catAx>[\s\S]*?</c:catAx>)", &chart);
         let value_axis = group(r"(<c:valAx>[\s\S]*?</c:valAx>)", &chart);
-        let bottom_up = chart
-            .replacen(&category_axis, &category_axis.replace("maxMin", "minMax"), 1)
-            .replacen(&value_axis, &value_axis.replace("<c:crosses val=\"max\"/>", "<c:crosses val=\"autoZero\"/>"), 1);
+        let bottom_up = chart.replacen(&category_axis, &category_axis.replace("maxMin", "minMax"), 1).replacen(
+            &value_axis,
+            &value_axis.replace("<c:crosses val=\"max\"/>", "<c:crosses val=\"autoZero\"/>"),
+            1,
+        );
         zip.set("ppt/charts/chart1.xml", bottom_up);
         let axes = |zip: &Package| {
             let chart = zip.text("ppt/charts/chart1.xml");

@@ -82,7 +82,8 @@ pub fn session_final_answer(snapshot: &Value, started_at: &Value) -> Option<Sess
     if items[done_index + 1..].iter().any(|item| matches!(kind(item), Some("user" | "assistant"))) {
         return None;
     }
-    let answer = |text: String, reacted: bool, status: &str| SessionAnswer { id: done["id"].clone(), at: done["at"].clone(), status: status.to_owned(), text, reacted };
+    let answer =
+        |text: String, reacted: bool, status: &str| SessionAnswer { id: done["id"].clone(), at: done["at"].clone(), status: status.to_owned(), text, reacted };
     let status = done.get("status").and_then(Value::as_str);
     if let Some(status @ ("failed" | "cancelled")) = status {
         return Some(answer(String::new(), false, status));
@@ -132,7 +133,13 @@ pub fn empty_finished_turn(snapshot: &Value, started_at: &Value) -> Option<Sessi
             return None;
         }
     }
-    Some(SessionAnswer { id: done.get("id").cloned().unwrap_or(Value::Null), at: done["at"].clone(), status: "done".to_owned(), text: String::new(), reacted: false })
+    Some(SessionAnswer {
+        id: done.get("id").cloned().unwrap_or(Value::Null),
+        at: done["at"].clone(),
+        status: "done".to_owned(),
+        text: String::new(),
+        reacted: false,
+    })
 }
 
 /// `toolSummaries(snapshot, startedAt)`: a finished member turn's tool calls, one bounded line each.

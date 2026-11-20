@@ -142,7 +142,6 @@ mod tests {
     }
 }
 
-
 impl AuthorLanes {
     pub fn new(tokens: LaneTokens) -> Self {
         Self { tokens }
@@ -168,13 +167,15 @@ impl AuthorLanes {
         let prefix = prefix.to_string();
         self.tokens
             .durability_io
-            .submit_wait(&CancellationToken::new(), move |lane| loop {
-                let number = SCRATCH.fetch_add(1, Ordering::Relaxed);
-                let path = base.join(format!("{prefix}{:x}{number:x}", std::process::id()));
-                match mixdog_fsio::create_dir(lane, &path) {
-                    Ok(()) => return Ok(path),
-                    Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
-                    Err(error) => return Err(format!("{}: {error}", path.display())),
+            .submit_wait(&CancellationToken::new(), move |lane| {
+                loop {
+                    let number = SCRATCH.fetch_add(1, Ordering::Relaxed);
+                    let path = base.join(format!("{prefix}{:x}{number:x}", std::process::id()));
+                    match mixdog_fsio::create_dir(lane, &path) {
+                        Ok(()) => return Ok(path),
+                        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {}
+                        Err(error) => return Err(format!("{}: {error}", path.display())),
+                    }
                 }
             })
             .await
@@ -222,11 +223,7 @@ impl HtmlBrowser {
 
     /// Closes the run's context (and with it every page) and gives the lease back. Safe to call more than once.
     pub async fn close(&self) {
-        let _ = mixdog_rt::time::timeout(
-            TEARDOWN,
-            self.cdp.send("Target.disposeBrowserContext", json!({ "browserContextId": self.context_id }), None),
-        )
-        .await;
+        let _ = mixdog_rt::time::timeout(TEARDOWN, self.cdp.send("Target.disposeBrowserContext", json!({ "browserContextId": self.context_id }), None)).await;
         drop(self.hold.lock().unwrap_or_else(|p| p.into_inner()).take());
     }
 }

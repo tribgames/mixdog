@@ -14,13 +14,12 @@ use mixdog_agent::agent_tool::board::JobMeta;
 use mixdog_agent::agent_tool::dispatch::{CloseParts, cancel_agent_tree, close_resolved};
 use mixdog_agent::agent_tool::error_text::PlainErrorText;
 use mixdog_agent::agent_tool::error_text::PresentedErrorText;
-use mixdog_agent::agent_tool::{AgentParts, AgentRuntime, assemble};
+use mixdog_agent::agent_tool::flow::handoff::handoff_content;
 use mixdog_agent::agent_tool::flow::job_starter::JobStarter;
 use mixdog_agent::agent_tool::flow::job_starter::StartContext;
-use mixdog_agent::agent_tool::flow::send::SendFlowImpl;
 use mixdog_agent::agent_tool::flow::seams::*;
+use mixdog_agent::agent_tool::flow::send::SendFlowImpl;
 use mixdog_agent::agent_tool::flow::spawn::SpawnFlowImpl;
-use mixdog_agent::agent_tool::flow::handoff::handoff_content;
 use mixdog_agent::agent_tool::flow::worker_turns::Claim;
 use mixdog_agent::agent_tool::flow::worker_turns::TurnOwner;
 use mixdog_agent::agent_tool::flow::world::Created;
@@ -39,6 +38,7 @@ use mixdog_agent::agent_tool::scope::TagRecord;
 use mixdog_agent::agent_tool::views::WorkerFacts;
 use mixdog_agent::agent_tool::views::WorkerLive;
 use mixdog_agent::agent_tool::views::Workers;
+use mixdog_agent::agent_tool::{AgentParts, AgentRuntime, assemble};
 use mixdog_agent::env::Clock;
 use mixdog_agent::response::Termination;
 use mixdog_protocol::ThreadId;
@@ -143,12 +143,7 @@ impl TurnSessions for Sess {
         lock(&self.0.messages).len()
     }
     async fn assistant_texts(&self, _: &str, start: usize) -> Vec<AssistantText> {
-        lock(&self.0.messages)
-            .iter()
-            .skip(start)
-            .filter_map(|row| row.clone())
-            .map(|content| AssistantText { content, replay: String::new() })
-            .collect()
+        lock(&self.0.messages).iter().skip(start).filter_map(|row| row.clone()).map(|content| AssistantText { content, replay: String::new() }).collect()
     }
     fn take_stopped_shell_jobs(&self, _: &str) -> StoppedShellJobs {
         lock(&self.0.stopped).take().unwrap_or_default()
@@ -627,14 +622,23 @@ impl ModelCatalog for RecordedCatalog {
         Ok(self
             .0
             .iter()
-            .map(|r| ModelRow { provider: s(r, "provider"), id: s(r, "id"), display: s(r, "display"), catalog_complete: r["catalogComplete"] == true, row: r.clone() })
+            .map(|r| ModelRow {
+                provider: s(r, "provider"),
+                id: s(r, "id"),
+                display: s(r, "display"),
+                catalog_complete: r["catalogComplete"] == true,
+                row: r.clone(),
+            })
             .collect())
     }
 }
 
 fn stopped_shells(host: Option<&Value>) -> Option<StoppedShellJobs> {
     let names = |key: &str| -> Vec<String> {
-        host.and_then(|h| h.pointer(&format!("/stoppedShellJobs/{key}"))).and_then(Value::as_array).map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default()
+        host.and_then(|h| h.pointer(&format!("/stoppedShellJobs/{key}")))
+            .and_then(Value::as_array)
+            .map(|a| a.iter().filter_map(Value::as_str).map(str::to_owned).collect())
+            .unwrap_or_default()
     };
     host.and_then(|h| h.get("stoppedShellJobs")).map(|_| StoppedShellJobs { stopped: names("stopped"), stopping: names("stopping") })
 }
@@ -645,7 +649,8 @@ pub(crate) fn rig(scenario: &Value, host: Option<&Value>) -> Rig {
     // with a placeholder board, then the board over the state.
     let placeholder = JobBoard::new(clock.clone(), None, None);
     let config = scenario["config"].as_object().cloned().unwrap_or_default();
-    let tags: HashMap<String, String> = scenario["tags"].as_object().map(|t| t.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect()).unwrap_or_default();
+    let tags: HashMap<String, String> =
+        scenario["tags"].as_object().map(|t| t.iter().map(|(k, v)| (k.clone(), v.as_str().unwrap().to_owned())).collect()).unwrap_or_default();
     let session = if scenario.get("session").is_some() {
         scenario["session"].clone()
     } else {
@@ -755,8 +760,6 @@ impl TaskNotifier for DeliveredTo {
 
 // ---- comparing ----------------------------------------------------------------------------
 
-
-
 /// A job's meta as its card shows it, with the host process the job was started for.
 fn public_meta(meta: &JobMeta, pid: Option<u64>) -> Value {
     let mut out = Map::new();
@@ -805,8 +808,6 @@ fn final_state(rig: &Rig, id: &str, with_label: bool) -> Value {
     }
     out
 }
-
-
 
 /// The file and image parts the agent tool resolved from a call's `attachments`.
 pub(crate) fn resolved_parts() -> Vec<Value> {
@@ -915,10 +916,13 @@ async fn cancelling_an_agent_job_closes_its_worker_session_with_the_cancel_reaso
     backend();
     let rig = rig(&json!({}), None);
     let closes = Arc::new(RecordedCloses::default());
-    let starter = JobStarter::new(rig.shared.board.clone(), closes.clone(), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
+    let starter =
+        JobStarter::new(rig.shared.board.clone(), closes.clone(), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
     let meta = JobMeta { session_id: Some("sess_w1".into()), ..JobMeta::default() };
     starter
-        .start_job("agent", meta, Default::default(), |_, _| async { std::future::pending::<Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>>().await })
+        .start_job("agent", meta, Default::default(), |_, _| async {
+            std::future::pending::<Result<Option<mixdog_agent::agent_tool::flow::result::WorkerResult>, String>>().await
+        })
         .expect("started");
     let id = rig.shared.board.list_jobs(&Scope::default()).first().map(|j| j.task_id.clone()).expect("job");
     rig.shared.board.cancel(&id, "user cancelled", CancelNotice::Default);
@@ -935,7 +939,14 @@ async fn cancelling_an_agent_job_closes_its_worker_session_with_the_cancel_reaso
 async fn closing_an_agent_closes_the_agents_below_it_and_cancels_their_jobs() {
     backend();
     let rig = rig(&json!({ "tree": { "children": [{ "id": "sess_c1", "parent": "sess_w1" }] } }), None);
-    let starter = JobStarter::new(rig.shared.board.clone(), Arc::new(Closer(rig.shared.clone())), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
+    let starter = JobStarter::new(
+        rig.shared.board.clone(),
+        Arc::new(Closer(rig.shared.clone())),
+        Arc::new(Sess(rig.shared.clone())),
+        Arc::new(Open),
+        Arc::new(NoStarts),
+        Arc::new(|| {}),
+    );
     let meta = JobMeta { tag: Some("kid".into()), session_id: Some("sess_c1".into()), ..JobMeta::default() };
     let start = StartContext { caller_session_id: Some("sess_w1".into()), ..StartContext::default() };
     let handle = starter
@@ -957,7 +968,14 @@ async fn closing_an_agent_closes_the_agents_below_it_and_cancels_their_jobs() {
 async fn a_spawns_report_names_what_its_todo_list_leaves_undone() {
     backend();
     let rig = rig(&json!({}), None);
-    let starter = JobStarter::new(rig.shared.board.clone(), Arc::new(Closer(rig.shared.clone())), Arc::new(Todo(Sess(rig.shared.clone()))), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
+    let starter = JobStarter::new(
+        rig.shared.board.clone(),
+        Arc::new(Closer(rig.shared.clone())),
+        Arc::new(Todo(Sess(rig.shared.clone()))),
+        Arc::new(Open),
+        Arc::new(NoStarts),
+        Arc::new(|| {}),
+    );
     let meta = JobMeta { tag: Some("scout".into()), ..JobMeta::default() };
     let start = StartContext { caller_session_id: Some("lead".into()), ..StartContext::default() };
     let board = rig.shared.board.clone();
@@ -980,12 +998,17 @@ async fn a_job_started_at_a_hop_completes_at_that_hop() {
     let rig = rig(&json!({}), None);
     let seen = Arc::new(HopsSeen::default());
     let board = JobBoard::new(Arc::new(FixedClock), Some(seen.clone()), None);
-    let starter = JobStarter::new(board, Arc::new(Closer(rig.shared.clone())), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
+    let starter =
+        JobStarter::new(board, Arc::new(Closer(rig.shared.clone())), Arc::new(Sess(rig.shared.clone())), Arc::new(Open), Arc::new(NoStarts), Arc::new(|| {}));
     let done = |_: Arc<mixdog_agent::agent_tool::flow::reconcile::JobHandle>, _: mixdog_agent::agent_tool::flow::notify::NotifyContext| async {
         Ok::<_, String>(Some(mixdog_agent::agent_tool::flow::result::WorkerResult { value: json!({ "content": "done" }), error: None }))
     };
-    let hopped = starter.start_job("spawn", JobMeta::default(), StartContext { caller_session_id: Some("lead".into()), hop: Some(json!(3)), ..StartContext::default() }, done).expect("started");
-    let plain = starter.start_job("spawn", JobMeta::default(), StartContext { caller_session_id: Some("lead".into()), ..StartContext::default() }, done).expect("started");
+    let hopped = starter
+        .start_job("spawn", JobMeta::default(), StartContext { caller_session_id: Some("lead".into()), hop: Some(json!(3)), ..StartContext::default() }, done)
+        .expect("started");
+    let plain = starter
+        .start_job("spawn", JobMeta::default(), StartContext { caller_session_id: Some("lead".into()), ..StartContext::default() }, done)
+        .expect("started");
     settle().await;
     settle().await;
     let told = lock(&seen.0).clone();
@@ -993,12 +1016,7 @@ async fn a_job_started_at_a_hop_completes_at_that_hop() {
     assert!(told.contains(&(plain.task_id().to_owned(), 0)), "{told:?}");
 }
 
-
-
-
-
- // 2026-03-01T10:00:00.000Z
-
+// 2026-03-01T10:00:00.000Z
 
 // ---- the flows with their world written out -----------------------------------------------------------------------------------
 
@@ -1040,7 +1058,13 @@ fn send_world(op: &str, answer: &str) -> Value {
 }
 
 fn caller_context() -> SpawnContext {
-    SpawnContext { caller_session_id: Some("lead".into()), session_id: None, owner_session_id: Some("lead".into()), client_host_pid: Some(4242), ..SpawnContext::default() }
+    SpawnContext {
+        caller_session_id: Some("lead".into()),
+        session_id: None,
+        owner_session_id: Some("lead".into()),
+        client_host_pid: Some(4242),
+        ..SpawnContext::default()
+    }
 }
 
 #[tokio::test(start_paused = true)]
@@ -1059,7 +1083,10 @@ async fn a_spawn_runs_the_worker_on_its_agents_route_and_tells_the_caller_when_i
     assert_eq!((state["status"].as_str(), state["notified"].as_bool()), (Some("completed"), Some(true)));
     assert_eq!(state["result"]["content"], "done");
     let notices = lock(&rig.shared.notices).clone();
-    assert!(notices.iter().any(|n| n["session"] == "lead" && n["text"].as_str().is_some_and(|t| t.contains("<status>completed</status>") && t.contains("done"))), "{notices:?}");
+    assert!(
+        notices.iter().any(|n| n["session"] == "lead" && n["text"].as_str().is_some_and(|t| t.contains("<status>completed</status>") && t.contains("done"))),
+        "{notices:?}"
+    );
 }
 
 #[tokio::test(start_paused = true)]

@@ -12,15 +12,15 @@ use async_trait::async_trait;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio::sync::Notify;
 
-use crate::agent::{agent_status, parse_service_state, service_is_disabled, AgentState, ServiceState};
-use crate::command::{parse_ssh_target, FailureClass};
+use crate::agent::{AgentState, ServiceState, agent_status, parse_service_state, service_is_disabled};
+use crate::command::{FailureClass, parse_ssh_target};
 use crate::context::{
     AskpassEnv, AttemptContext, ChildExit, ConfigFile, ConfigFiles, HostSettings, Platform, PreparedSpawn, ReviewedConfig, SshChild, SshConfigFiles, SshEnv,
     SshSpawner, ToolOutput, ToolRunner,
 };
 use crate::diagnostics::{DiagnosticKind, Diagnostics};
 use crate::private_dir::{is_plain_path, resolve_plain_dir_with};
-use crate::spawn::{prepare_spawn, ssh_exec, ExecOptions, MAX_CAPTURE_BYTES};
+use crate::spawn::{ExecOptions, MAX_CAPTURE_BYTES, prepare_spawn, ssh_exec};
 
 const EXEC: [&str; 8] = ["-o", "BatchMode=yes", "-o", "ControlMaster=no", "-o", "ControlPath=none", "--", "root@h"];
 const TUNNEL: [&str; 9] = ["-o", "BatchMode=yes", "-N", "-o", "ControlMaster=no", "-o", "ControlPath=none", "--", "root@h"];
@@ -229,16 +229,26 @@ fn prepare_every_ssh_reads_mixdogs_own_config_unless_the_caller_passes_one() {
 
 #[test]
 fn prepare_a_targets_own_config_wins_over_the_generic_one() {
-    let env = env_with(Platform::Linux, &[], Configs { generic: Some("/data/ssh/config"), own: Some("/data/ssh/h.config") }, Scripted::new(Script::Hang), no_tools());
+    let env =
+        env_with(Platform::Linux, &[], Configs { generic: Some("/data/ssh/config"), own: Some("/data/ssh/h.config") }, Scripted::new(Script::Hang), no_tools());
     assert_eq!(prepare_spawn(&env, "ssh", &strings(&EXEC), None).args[..2], strings(&["-F", "/data/ssh/h.config"])[..]);
 }
 
 #[test]
 fn prepare_an_attempts_ssh_of_its_target_runs_with_the_config_it_reviewed_whatever_was_published_since() {
     // Another inspection of the target has published another file since.
-    let env = env_with(Platform::Linux, &[], Configs { generic: Some("/data/ssh/config"), own: Some("/data/ssh/newer.conf") }, Scripted::new(Script::Hang), no_tools());
+    let env = env_with(
+        Platform::Linux,
+        &[],
+        Configs { generic: Some("/data/ssh/config"), own: Some("/data/ssh/newer.conf") },
+        Scripted::new(Script::Hang),
+        no_tools(),
+    );
     let reviewed = |file: Option<&str>| AttemptContext {
-        reviewed: Some(ReviewedConfig { target_key: parse_ssh_target("root@h").expect("a target").key(), file: file.map(|file| Arc::new(ConfigFile::new(PathBuf::from(file)))) }),
+        reviewed: Some(ReviewedConfig {
+            target_key: parse_ssh_target("root@h").expect("a target").key(),
+            file: file.map(|file| Arc::new(ConfigFile::new(PathBuf::from(file)))),
+        }),
         ..Default::default()
     };
     let generated = prepare_spawn(&env, "ssh", &strings(&EXEC), Some(&reviewed(Some("/data/ssh/reviewed.conf"))));
@@ -247,7 +257,11 @@ fn prepare_an_attempts_ssh_of_its_target_runs_with_the_config_it_reviewed_whatev
     assert_eq!(none.args, strings(&EXEC), "reviewed where Mixdog has no ssh folder: the user's own files, as reviewed");
     let mut other = strings(&EXEC);
     *other.last_mut().expect("a destination") = "root@other".to_owned();
-    assert_eq!(prepare_spawn(&env, "ssh", &other, Some(&reviewed(None))).args[..2], strings(&["-F", "/data/ssh/newer.conf"])[..], "another destination is not the reviewed target");
+    assert_eq!(
+        prepare_spawn(&env, "ssh", &other, Some(&reviewed(None))).args[..2],
+        strings(&["-F", "/data/ssh/newer.conf"])[..],
+        "another destination is not the reviewed target"
+    );
 }
 
 #[test]
@@ -361,7 +375,8 @@ async fn exec_status_255_is_an_ssh_failure_classified_by_its_stderr() {
     let silent = Scripted::new(finish(&[], b"", Some(255)));
     let error = ssh_exec(&exec_env(silent), exec_options(Duration::from_secs(5))).await.unwrap_err();
     assert_eq!((error.kind, error.message.as_str()), (FailureClass::Transient, "ssh me@box failed:\nssh exited with status 255"));
-    let signalled = Scripted::new(Script::Finish { stdout: Vec::new(), stderr: Vec::new(), exit: ChildExit { code: None, signal: Some("SIGTERM".to_owned()) } });
+    let signalled =
+        Scripted::new(Script::Finish { stdout: Vec::new(), stderr: Vec::new(), exit: ChildExit { code: None, signal: Some("SIGTERM".to_owned()) } });
     let error = ssh_exec(&exec_env(signalled), exec_options(Duration::from_secs(5))).await.unwrap_err();
     assert_eq!(error.message, "ssh me@box failed:\nssh exited on SIGTERM");
 }
@@ -438,7 +453,10 @@ async fn private_dir_plain_path_rules() {
     assert_eq!(resolve_plain_dir_with(&broken, korean, "askpass", |_| {}).await, PathBuf::from("C:\\ProgramData\\mixdog-askpass-k"));
     // Other platforms use the path as it is.
     let linux = plain_env(Platform::Linux, &[], None);
-    assert_eq!(resolve_plain_dir_with(&linux, Path::new("/home/김철수/.config/Mixdog"), "askpass", |_| {}).await, PathBuf::from("/home/김철수/.config/Mixdog/askpass"));
+    assert_eq!(
+        resolve_plain_dir_with(&linux, Path::new("/home/김철수/.config/Mixdog"), "askpass", |_| {}).await,
+        PathBuf::from("/home/김철수/.config/Mixdog/askpass")
+    );
 }
 
 // ---- agent ----

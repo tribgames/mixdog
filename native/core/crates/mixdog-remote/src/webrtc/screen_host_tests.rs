@@ -272,7 +272,10 @@ async fn a_source_the_environment_does_not_stream_is_refused() {
 async fn a_screen_cancel_after_the_peer_is_gone_releases_only_its_own_start() {
     let (host, log) = host();
     let ready = |viewer_attempt| ClientSignal::Ready {
-        source: source(), receive_codecs: vec!["video/VP8".into()], video_limit: None, viewer_attempt: Some(viewer_attempt),
+        source: source(),
+        receive_codecs: vec!["video/VP8".into()],
+        video_limit: None,
+        viewer_attempt: Some(viewer_attempt),
     };
     let close = |viewer_attempt| ClientSignal::CancelScreen { source: source(), viewer_attempt, connection: None };
     host.signal(CLIENT, &ready(1), &[]).await.unwrap();
@@ -290,9 +293,7 @@ async fn a_screen_cancel_after_the_peer_is_gone_releases_only_its_own_start() {
 }
 
 fn screen_ready(attempt: u64) -> ClientSignal {
-    ClientSignal::Ready {
-        source: source(), receive_codecs: vec!["video/VP8".into()], video_limit: None, viewer_attempt: Some(attempt),
-    }
+    ClientSignal::Ready { source: source(), receive_codecs: vec!["video/VP8".into()], video_limit: None, viewer_attempt: Some(attempt) }
 }
 
 #[tokio::test]
@@ -348,7 +349,10 @@ async fn the_screens_channel_messages_reach_the_source() {
     let (host, log) = host();
     promoted(&host, &log).await;
     channel(&host, &json!({ "v": 1, "kind": "screen-frame-seen", "epoch": 7 }));
-    channel(&host, &json!({ "v": 1, "kind": "screen-helper-grant", "epoch": 7, "challenge": format!("{}==", "A".repeat(22)), "signature": format!("{}==", "A".repeat(86)) }));
+    channel(
+        &host,
+        &json!({ "v": 1, "kind": "screen-helper-grant", "epoch": 7, "challenge": format!("{}==", "A".repeat(22)), "signature": format!("{}==", "A".repeat(86)) }),
+    );
     channel(&host, &json!({ "v": 1, "kind": "screen-helper-install", "publicKey": controller_key() }));
     channel(&host, &json!({ "v": 1, "kind": "screen-helper-enroll", "publicKey": controller_key() }));
     channel(&host, &json!({ "v": 1, "kind": "screen-helper-install", "publicKey": controller_key(), "credential": { "user": "admin", "password": "secret" } }));
@@ -377,8 +381,14 @@ async fn screen_input_is_dispatched_in_order_and_acknowledged() {
         );
     }
     // A repeat is dropped; another epoch is refused, unapplied.
-    channel(&host, &json!({ "v": 1, "kind": "screen-input", "epoch": 2, "seq": 2, "geometryGeneration": 1, "sentAt": 5, "control": { "type": "screen-release" } }));
-    channel(&host, &json!({ "v": 1, "kind": "screen-input", "epoch": 1, "seq": 9, "geometryGeneration": 1, "sentAt": 5, "control": { "type": "screen-release" } }));
+    channel(
+        &host,
+        &json!({ "v": 1, "kind": "screen-input", "epoch": 2, "seq": 2, "geometryGeneration": 1, "sentAt": 5, "control": { "type": "screen-release" } }),
+    );
+    channel(
+        &host,
+        &json!({ "v": 1, "kind": "screen-input", "epoch": 1, "seq": 9, "geometryGeneration": 1, "sentAt": 5, "control": { "type": "screen-release" } }),
+    );
     settle().await;
     let seen = entries(&log);
     let dispatched: Vec<&String> = seen.iter().filter(|entry| entry.starts_with("dispatch ")).collect();
@@ -458,9 +468,15 @@ fn screen_inputs_are_read_and_normalized() {
             json!({ "type": "screen-pointer", "action": "down", "button": "right", "x": 1, "y": 2 }),
         ),
         (json!({ "type": "screen-wheel", "x": 1, "y": 2 }), json!({ "type": "screen-wheel", "x": 1, "y": 2, "deltaX": 0, "deltaY": 0 })),
-        (json!({ "type": "screen-wheel", "x": 1, "y": 2, "deltaX": null, "deltaY": -4800 }), json!({ "type": "screen-wheel", "x": 1, "y": 2, "deltaX": 0, "deltaY": -4800 })),
+        (
+            json!({ "type": "screen-wheel", "x": 1, "y": 2, "deltaX": null, "deltaY": -4800 }),
+            json!({ "type": "screen-wheel", "x": 1, "y": 2, "deltaX": 0, "deltaY": -4800 }),
+        ),
         (json!({ "type": "screen-key", "action": "up", "vk": 65 }), json!({ "type": "screen-key", "action": "up", "vk": 65, "scan": 0, "extended": false })),
-        (json!({ "type": "screen-key", "action": "down", "scan": 28, "extended": true }), json!({ "type": "screen-key", "action": "down", "vk": 0, "scan": 28, "extended": true })),
+        (
+            json!({ "type": "screen-key", "action": "down", "scan": 28, "extended": true }),
+            json!({ "type": "screen-key", "action": "down", "vk": 0, "scan": 28, "extended": true }),
+        ),
         (
             json!({ "type": "screen-keys", "keys": [{ "vk": 17 }, { "vk": 67 }] }),
             json!({ "type": "screen-keys", "keys": [{ "vk": 17, "scan": 0, "extended": false }, { "vk": 67, "scan": 0, "extended": false }] }),
@@ -508,7 +524,9 @@ fn the_helper_messages_are_read_as_node_read_them() {
         parsed(json!({ "v": 1, "kind": "screen-helper-grant", "epoch": 3, "challenge": nonce, "signature": signature })),
         Ok(ScreenMessage::HelperGrant { epoch: 3, challenge: nonce.clone(), signature: signature.clone() })
     );
-    for (epoch, challenge, signed) in [(0, &nonce, &signature), (3, &"A".repeat(24), &signature), (3, &format!("{}=B", "A".repeat(22)), &signature), (3, &nonce, &nonce)] {
+    for (epoch, challenge, signed) in
+        [(0, &nonce, &signature), (3, &"A".repeat(24), &signature), (3, &format!("{}=B", "A".repeat(22)), &signature), (3, &nonce, &nonce)]
+    {
         assert!(parsed(json!({ "v": 1, "kind": "screen-helper-grant", "epoch": epoch, "challenge": challenge, "signature": signed })).is_err());
     }
     assert_eq!(parsed(json!({ "v": 1, "kind": "screen-frame-seen", "epoch": 4 })), Ok(ScreenMessage::FrameSeen { epoch: 4 }));
@@ -526,7 +544,10 @@ fn an_install_carries_a_key_extra_keys_and_a_bounded_credential() {
         parsed(message)
     };
     assert_eq!(install(json!({})), Ok(ScreenMessage::HelperInstall { public_key: key.clone(), credential: None }));
-    assert_eq!(install(json!({ "keys": [key.clone(), key.clone()], "credential": null })), Ok(ScreenMessage::HelperInstall { public_key: key.clone(), credential: None }));
+    assert_eq!(
+        install(json!({ "keys": [key.clone(), key.clone()], "credential": null })),
+        Ok(ScreenMessage::HelperInstall { public_key: key.clone(), credential: None })
+    );
     assert_eq!(
         install(json!({ "credential": { "user": "", "password": "p" } })),
         Ok(ScreenMessage::HelperInstall { public_key: key.clone(), credential: Some(HelperCredential { user: None, password: "p".into() }) })
@@ -547,6 +568,9 @@ fn an_install_carries_a_key_extra_keys_and_a_bounded_credential() {
 
 #[test]
 fn a_page_input_and_a_revoke_are_not_a_screens_to_read() {
-    assert!(parsed(json!({ "v": 1, "kind": "input", "epoch": 1, "seq": 1, "geometryGeneration": 1, "sentAt": 0, "control": { "type": "key", "key": "a" } })).is_err());
+    assert!(
+        parsed(json!({ "v": 1, "kind": "input", "epoch": 1, "seq": 1, "geometryGeneration": 1, "sentAt": 0, "control": { "type": "key", "key": "a" } }))
+            .is_err()
+    );
     assert!(parsed(json!({ "v": 1, "kind": "screen-helper-revoke", "publicKey": controller_key() })).is_err());
 }

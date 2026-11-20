@@ -23,12 +23,17 @@ fn a_session_that_does_not_exist_or_is_closed_is_named() {
 fn calls_missing_what_they_need_say_what_to_pass() {
     let office = Harness::new();
     assert_eq!(refused(&office, json!({ "action": "create" })), "Error: create requires path or output");
-    assert_eq!(refused(&office, json!({ "action": "secure", "path": "a.csv", "output": "b.pdf", "security": "encrypt" })), "Error: secure supports PDF files only");
+    assert_eq!(
+        refused(&office, json!({ "action": "secure", "path": "a.csv", "output": "b.pdf", "security": "encrypt" })),
+        "Error: secure supports PDF files only"
+    );
     assert_eq!(
         refused(&office, json!({ "action": "attach", "path": "x.csv", "finalize": true })),
         "Error: attach does not support finalize:true; attach first, then use batch with finalize:true when closing the document is intended"
     );
-    assert!(refused(&office, json!({ "action": "recover" })).starts_with("Error: recover finishes an interrupted Office transaction and needs its transaction id."));
+    assert!(
+        refused(&office, json!({ "action": "recover" })).starts_with("Error: recover finishes an interrupted Office transaction and needs its transaction id.")
+    );
 }
 
 #[test]
@@ -61,14 +66,20 @@ fn no_transaction_is_pending_in_a_fresh_data_folder() {
 #[test]
 fn authoring_without_its_source_refuses_and_points_at_where_to_read_the_contract() {
     let office = Harness::new();
-    let tail = |skill: &str, contract: &str| format!(" Load the `{skill}` Skill first (Skill name:\"{skill}\"): it carries the {contract}, then call author again with path and script.");
+    let tail = |skill: &str, contract: &str| {
+        format!(" Load the `{skill}` Skill first (Skill name:\"{skill}\"): it carries the {contract}, then call author again with path and script.")
+    };
     let from_source = |noun: &str, path: &str| {
         let target = office.docs.join(path).display().to_string().replace('\\', "/");
         format!("Error: author requires script: an HTML document for {noun} (without one it re-authors from {target}.mixdog-source.html, and none is there).")
     };
     let cases = [
         ("doc.docx", from_source("a Word file", "doc.docx"), tail("docx", "HTML route (@page sheet, what becomes a paragraph, a table, a box)")),
-        ("book.xlsx", from_source("an Excel workbook", "book.xlsx"), tail("xlsx", "HTML route (one <section data-sheet> per worksheet, data-formula, data-chart)")),
+        (
+            "book.xlsx",
+            from_source("an Excel workbook", "book.xlsx"),
+            tail("xlsx", "HTML route (one <section data-sheet> per worksheet, data-formula, data-chart)"),
+        ),
     ];
     for (path, head, rest) in cases {
         let text = refused(&office, json!({ "action": "author", "path": path })).replace('\\', "/");

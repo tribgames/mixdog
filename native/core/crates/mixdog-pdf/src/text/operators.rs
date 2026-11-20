@@ -60,19 +60,11 @@ struct Spec {
 }
 
 const fn spec(op: TextOp, num_args: usize) -> Option<Spec> {
-    Some(Spec {
-        op,
-        num_args,
-        variable_args: false,
-    })
+    Some(Spec { op, num_args, variable_args: false })
 }
 
 const fn variable(num_args: usize) -> Option<Spec> {
-    Some(Spec {
-        op: TextOp::Other,
-        num_args,
-        variable_args: true,
-    })
+    Some(Spec { op: TextOp::Other, num_args, variable_args: true })
 }
 
 /// `EvaluatorPreprocessor.opMap`. An entry without a spec is pdf.js's `null` (it only keeps the lexer joining
@@ -173,18 +165,9 @@ fn known_commands() -> Arc<KnownCommands> {
             let mut map = KnownCommands::new();
             for &(name, entry) in OP_MAP {
                 let args = match entry {
-                    Some(spec) => CommandArgs {
-                        num_args: spec.num_args,
-                        variable_args: spec.variable_args,
-                    },
-                    None if name == "BI" || name == "ID" => CommandArgs {
-                        num_args: 0,
-                        variable_args: false,
-                    },
-                    None => CommandArgs {
-                        num_args: usize::MAX,
-                        variable_args: false,
-                    },
+                    Some(spec) => CommandArgs { num_args: spec.num_args, variable_args: spec.variable_args },
+                    None if name == "BI" || name == "ID" => CommandArgs { num_args: 0, variable_args: false },
+                    None => CommandArgs { num_args: usize::MAX, variable_args: false },
                 };
                 map.insert(name.to_owned(), args);
             }
@@ -194,10 +177,7 @@ fn known_commands() -> Arc<KnownCommands> {
 }
 
 fn spec_of(name: &str) -> Option<Spec> {
-    OP_MAP
-        .iter()
-        .find(|(n, _)| *n == name)
-        .and_then(|&(_, spec)| spec)
+    OP_MAP.iter().find(|(n, _)| *n == name).and_then(|&(_, spec)| spec)
 }
 
 /// A number operand as JavaScript reads it: anything else is NaN.
@@ -215,17 +195,8 @@ pub struct Preprocessor<'x> {
 
 impl<'x> Preprocessor<'x> {
     pub fn new(content: Vec<u8>, xref: &'x Xref) -> Result<Self> {
-        let lexer = Lexer::with_known_commands(
-            ByteStream::from_vec(content),
-            xref.guard().clone(),
-            Some(known_commands()),
-        );
-        Ok(Preprocessor {
-            parser: Parser::new(lexer, Some(xref), false, false)?,
-            non_processed: Vec::new(),
-            is_path_op: false,
-            num_invalid_path_ops: 0,
-        })
+        let lexer = Lexer::with_known_commands(ByteStream::from_vec(content), xref.guard().clone(), Some(known_commands()));
+        Ok(Preprocessor { parser: Parser::new(lexer, Some(xref), false, false)?, non_processed: Vec::new(), is_path_op: false, num_invalid_path_ops: 0 })
     }
 
     /// `read`: the next operator with exactly the operands it takes. Operands that do not fit are carried to the
@@ -261,9 +232,7 @@ impl<'x> Preprocessor<'x> {
                             }
                         }
                         if args_length < num_args {
-                            let partial = format!(
-                                "command {cmd}: expected {num_args} args, but received {args_length} args."
-                            );
+                            let partial = format!("command {cmd}: expected {num_args} args, but received {args_length} args.");
                             if self.is_path_op {
                                 self.num_invalid_path_ops += 1;
                                 if self.num_invalid_path_ops > MAX_INVALID_PATH_OPS {
@@ -275,9 +244,7 @@ impl<'x> Preprocessor<'x> {
                             continue;
                         }
                     } else if args_length > num_args {
-                        tracing::debug!(
-                            "Command {cmd}: expected [0, {num_args}] args, but received {args_length} args."
-                        );
+                        tracing::debug!("Command {cmd}: expected [0, {num_args}] args, but received {args_length} args.");
                     }
                     match spec.op {
                         TextOp::Save => manager.save(),
@@ -332,10 +299,7 @@ mod tests {
     fn surplus_operands_go_to_the_next_operator_and_a_short_one_is_skipped() {
         let (ops, _) = read_all("1 2 3 Td Tj 5 Td BT");
         let kinds: Vec<TextOp> = ops.iter().map(|(op, _)| *op).collect();
-        assert_eq!(
-            kinds,
-            vec![TextOp::MoveText, TextOp::ShowText, TextOp::BeginText]
-        );
+        assert_eq!(kinds, vec![TextOp::MoveText, TextOp::ShowText, TextOp::BeginText]);
         assert_eq!(number_at(&ops[0].1, 0), 2.0);
         assert_eq!(number_at(&ops[0].1, 1), 3.0);
         assert_eq!(number_at(&ops[1].1, 0), 1.0);
@@ -358,8 +322,7 @@ mod tests {
     fn a_run_of_invalid_path_operators_ends_the_stream() {
         let document = document();
         let mut manager = StateManager::new(TextState::new());
-        let mut pre = Preprocessor::new(b"l l l l l l l l l l l l BT".to_vec(), document.xref())
-            .expect("a reader");
+        let mut pre = Preprocessor::new(b"l l l l l l l l l l l l BT".to_vec(), document.xref()).expect("a reader");
         let mut outcome = Ok(None);
         for _ in 0..20 {
             outcome = pre.read(&mut manager);

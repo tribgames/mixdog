@@ -116,7 +116,11 @@ async fn a_configured_summary_model_runs_on_the_conversations_provider_with_that
     host.windows.insert(("openai".into(), "gpt-mini".into()), 400_000);
     let (routes, _) = host.routes();
     let route = resolved(&routes, RouteStep::Session).await.expect("a session route");
-    assert_eq!((route.provider_name.as_str(), route.model.as_str(), route.context_window), ("openai", "gpt-mini", 400_000), "the conversation's own window is for its own model only");
+    assert_eq!(
+        (route.provider_name.as_str(), route.model.as_str(), route.context_window),
+        ("openai", "gpt-mini", 400_000),
+        "the conversation's own window is for its own model only"
+    );
 }
 
 #[tokio::test]
@@ -147,7 +151,10 @@ async fn the_maintainer_step_exists_only_when_a_maintainer_model_is_set_and_it_i
     host.windows.insert(("anthropic".into(), "haiku".into()), 90_000);
     let (routes, host) = host.routes();
     let route = resolved(&routes, RouteStep::Maintainer).await.expect("a maintainer route");
-    assert_eq!((route.provider_name.as_str(), route.model.as_str(), route.context_window, route.fast, route.effort.as_deref()), ("anthropic", "haiku", 90_000, true, Some("low")));
+    assert_eq!(
+        (route.provider_name.as_str(), route.model.as_str(), route.context_window, route.fast, route.effort.as_deref()),
+        ("anthropic", "haiku", 90_000, true, Some("low"))
+    );
     assert_eq!(*host.asked.lock().unwrap(), [("anthropic".to_owned(), true)], "only the maintainer's step initializes its provider");
 }
 
@@ -170,7 +177,10 @@ async fn the_lighter_step_is_the_newest_lighter_model_of_a_subscription_provider
 
     assert!(resolved(&lighter("anthropic-oauth", "claude-haiku-4-5", Some(catalog.clone())), RouteStep::Lighter).await.is_none(), "already running on it");
     assert!(resolved(&lighter("anthropic-oauth", "claude-sonnet-5", None), RouteStep::Lighter).await.is_none(), "no saved catalog");
-    assert!(resolved(&lighter("anthropic", "claude-sonnet-5", Some(catalog)), RouteStep::Lighter).await.is_none(), "an API-key provider bills per token and has no lighter step");
+    assert!(
+        resolved(&lighter("anthropic", "claude-sonnet-5", Some(catalog)), RouteStep::Lighter).await.is_none(),
+        "an API-key provider bills per token and has no lighter step"
+    );
 }
 
 #[test]

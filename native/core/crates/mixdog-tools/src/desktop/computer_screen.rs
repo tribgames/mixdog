@@ -25,10 +25,10 @@ mod lease;
 mod monitors;
 #[cfg(any(windows, test))]
 mod router;
-#[cfg(any(windows, test))]
-mod session;
 #[cfg(windows)]
 mod service;
+#[cfg(any(windows, test))]
+mod session;
 #[cfg(windows)]
 #[path = "computer_screen_source.rs"]
 mod source;
@@ -56,8 +56,8 @@ pub mod screen_source {
     pub use super::source::AccountAdmin;
     pub use super::source::DisplayLister;
     pub use super::source::DisplayPixels;
-    pub use super::source::HostDisplays;
     pub use super::source::HelperPictureFrame;
+    pub use super::source::HostDisplays;
     pub use super::source::IndicatorState;
     pub use super::source::InputDesktop;
     pub use super::source::Monitor;
@@ -144,9 +144,7 @@ mod win {
     }
 
     fn key_code(value: u32, what: &str) -> Result<u16, ComputerError> {
-        u16::try_from(value).map_err(|_| ComputerError::InvalidInput {
-            reason: format!("{what} {value} is out of range"),
-        })
+        u16::try_from(value).map_err(|_| ComputerError::InvalidInput { reason: format!("{what} {value} is out of range") })
     }
 
     fn apply(injector: &mut Injector, input: ScreenInput) -> Result<InputOutcome, ComputerError> {
@@ -170,9 +168,7 @@ mod win {
                     injector.release_button(wire(button));
                 }
                 None => {
-                    return Err(ComputerError::InvalidInput {
-                        reason: "a button press needs a position".into(),
-                    });
+                    return Err(ComputerError::InvalidInput { reason: "a button press needs a position".into() });
                 }
             },
             ScreenInput::Wheel { x, y, dx, dy } => injector.pointer_wheel(x, y, dx, dy),
@@ -185,10 +181,7 @@ mod win {
             return Ok(InputOutcome::Rejected);
         }
         if injector.take_failure() {
-            return Err(ComputerError::Failed {
-                code: "input_blocked".into(),
-                message: "the system refused the input".into(),
-            });
+            return Err(ComputerError::Failed { code: "input_blocked".into(), message: "the system refused the input".into() });
         }
         Ok(InputOutcome::Applied)
     }
@@ -221,16 +214,10 @@ mod win {
                 let sender = slot.get_or_insert_with(input_thread);
                 if sender.send(make(reply)).is_err() {
                     *slot = None;
-                    return Err(ComputerError::Failed {
-                        code: "input_thread_exited".into(),
-                        message: "the input thread stopped".into(),
-                    });
+                    return Err(ComputerError::Failed { code: "input_thread_exited".into(), message: "the input thread stopped".into() });
                 }
             }
-            answer.recv().map_err(|_| ComputerError::Failed {
-                code: "input_thread_exited".into(),
-                message: "the input thread stopped".into(),
-            })
+            answer.recv().map_err(|_| ComputerError::Failed { code: "input_thread_exited".into(), message: "the input thread stopped".into() })
         }
 
         pub fn inject(&self, input: ScreenInput) -> Result<InputOutcome, ComputerError> {

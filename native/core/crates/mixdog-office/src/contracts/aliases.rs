@@ -14,8 +14,7 @@ use super::describe_hint;
 use crate::capabilities::{Signature, capabilities};
 
 /// One cell, optionally sheet-qualified and absolute: `Sheet1!$B$4`, `'운영 자료'!C12`, `D5`.
-static SINGLE_CELL_REFERENCE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^(?:(?:'[^']+'|[^'!]+)!)?\$?[A-Za-z]{1,3}\$?\d{1,7}$", ""));
+static SINGLE_CELL_REFERENCE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:(?:'[^']+'|[^'!]+)!)?\$?[A-Za-z]{1,3}\$?\d{1,7}$", ""));
 static FREEZE_CELL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\$?([A-Za-z]{1,3})\$?(\d{1,7})$", ""));
 static COLUMN_LETTERS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[A-Za-z]{1,3}$", ""));
 
@@ -33,7 +32,8 @@ pub(super) fn text_or_empty(value: Option<&Value>) -> String {
 pub(super) fn apply_field_aliases(format: &str, name: &str, operation: &mut Map<String, Value>) {
     let Some(aliases) = capabilities().field_aliases(format, name) else { return };
     for (alias, field) in aliases {
-        if operation.contains_key(alias) && !operation.contains_key(field)
+        if operation.contains_key(alias)
+            && !operation.contains_key(field)
             && let Some(value) = operation.shift_remove(alias)
         {
             operation.insert(field.clone(), value);
@@ -139,12 +139,7 @@ pub(super) fn single_cell_range_fault(
 pub(super) fn allowed_operation_fields(signature: &Signature, stable_targets: bool) -> Vec<String> {
     let mut allowed: Vec<String> = Vec::new();
     let named = ["op", "allowNoChange"].map(str::to_owned);
-    for field in named
-        .iter()
-        .chain(&signature.required)
-        .chain(&signature.optional)
-        .chain(signature.one_of.iter().flatten())
-    {
+    for field in named.iter().chain(&signature.required).chain(&signature.optional).chain(signature.one_of.iter().flatten()) {
         if !allowed.contains(field) {
             allowed.push(field.clone());
         }

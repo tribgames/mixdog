@@ -9,9 +9,9 @@
 use std::path::Path;
 
 use base64::Engine;
+use base64::alphabet;
 use base64::engine::GeneralPurposeConfig;
 use base64::engine::general_purpose::{GeneralPurpose, STANDARD};
-use base64::alphabet;
 use mixdog_fonts::registry::Registry;
 use mixdog_fsio::WriteProof;
 use mixdog_js::nodepath::{self, Style};
@@ -86,7 +86,10 @@ pub fn decode_base64(text: &str) -> Vec<u8> {
     if clean.len() % 4 == 1 {
         clean.pop();
     }
-    let engine = GeneralPurpose::new(&alphabet::STANDARD, GeneralPurposeConfig::new().with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent).with_decode_allow_trailing_bits(true));
+    let engine = GeneralPurpose::new(
+        &alphabet::STANDARD,
+        GeneralPurposeConfig::new().with_decode_padding_mode(base64::engine::DecodePaddingMode::Indifferent).with_decode_allow_trailing_bits(true),
+    );
     engine.decode(&clean).unwrap_or_default()
 }
 
@@ -160,7 +163,6 @@ mod tests {
         assert_eq!(js_round(2.4999), 2);
     }
 
-
     #[test]
     fn the_sheet_lies_beside_the_deck() {
         let sep = if cfg!(windows) { '\\' } else { '/' };
@@ -186,7 +188,6 @@ mod tests {
         assert!(failed.is_err());
     }
 }
-
 
 /// Writes the contact sheet of `images` beside `output` as `<stem>.mixdog-contact.png`, the file reported to `note`
 /// first. `Ok(None)` for fewer than two pages; an error when a page does not decode, the labels cannot be set or the

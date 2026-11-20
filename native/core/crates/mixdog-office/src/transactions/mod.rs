@@ -348,7 +348,11 @@ mod tests {
     #[test]
     fn operations_are_recorded_by_path_and_an_added_path_stays_added() {
         let mut held = transaction();
-        let operations = [json!({ "op": "add_table", "sheet": "S", "cell": "b1" }), json!({ "op": "set_cell", "sheet": "S", "cell": "b1" }), json!({ "op": "set_cell", "sheet": "S", "cell": "c1" })];
+        let operations = [
+            json!({ "op": "add_table", "sheet": "S", "cell": "b1" }),
+            json!({ "op": "set_cell", "sheet": "S", "cell": "b1" }),
+            json!({ "op": "set_cell", "sheet": "S", "cell": "c1" }),
+        ];
         let results = [json!({}), json!({}), json!({ "changed": false })];
         record_transaction_operations(&mut held, "xlsx", &operations, &results);
         assert_eq!(held.operation_changes, [json!({ "path": "/sheet[S]/cell[B1]", "kind": "added", "operation": "set_cell" })]);
@@ -357,11 +361,17 @@ mod tests {
     #[test]
     fn a_path_the_read_did_not_show_changed_is_added_from_what_the_operations_did() {
         let mut held = transaction();
-        held.operation_changes = vec![json!({ "path": "/sheet[S]/cell[B1]", "kind": "modified", "operation": "set_cell" }), json!({ "path": "/sheet[S]/cell[A1]", "kind": "modified", "operation": "set_cell" })];
+        held.operation_changes = vec![
+            json!({ "path": "/sheet[S]/cell[B1]", "kind": "modified", "operation": "set_cell" }),
+            json!({ "path": "/sheet[S]/cell[A1]", "kind": "modified", "operation": "set_cell" }),
+        ];
         let current = json!({ "path": "/", "rows": [{ "path": "/sheet[S]/cell[A1]", "value": "2" }] });
         let merged = transaction_document_diff(&held, &current);
         assert_eq!(merged["summary"], json!({ "added": 0, "removed": 0, "modified": 2, "total": 2 }));
-        assert_eq!(merged["changes"][1], json!({ "path": "/sheet[S]/cell[B1]", "kind": "modified", "before": { "state": "captured by transaction checkpoint" }, "after": { "operation": "set_cell" } }));
+        assert_eq!(
+            merged["changes"][1],
+            json!({ "path": "/sheet[S]/cell[B1]", "kind": "modified", "before": { "state": "captured by transaction checkpoint" }, "after": { "operation": "set_cell" } })
+        );
     }
 
     #[test]
@@ -399,7 +409,6 @@ mod tests {
     }
 }
 
-
 impl std::error::Error for TransactionError {}
 /// `transactionCheckpointPath(session)`: `<tmp>/mixdog-office-transaction-<session>-<uuid><ext>`.
 fn transaction_checkpoint_path(facts: &Facts) -> PathBuf {
@@ -407,7 +416,11 @@ fn transaction_checkpoint_path(facts: &Facts) -> PathBuf {
 }
 /// `captureSessionState(session, checkpoint)`: the document read and fingerprinted. With a `checkpoint` path the document is also
 /// copied (a portable one) or saved (an Office workbook or deck) there first, so the fingerprint is the checkpoint's.
-pub async fn capture_session_state<P: WriteProof, H: ComHost>(cx: &TransactionContext<'_, P, H>, handle: &SessionHandle, checkpoint: &str) -> Result<CapturedState, String> {
+pub async fn capture_session_state<P: WriteProof, H: ComHost>(
+    cx: &TransactionContext<'_, P, H>,
+    handle: &SessionHandle,
+    checkpoint: &str,
+) -> Result<CapturedState, String> {
     let facts = Facts::of(handle);
     let lane = cx.lane();
     if facts.microsoft_office {
@@ -440,7 +453,10 @@ pub async fn capture_session_state<P: WriteProof, H: ComHost>(cx: &TransactionCo
 }
 /// `assertTransactionUnchanged(session)`: the document is read again; it must be the one the last operation left. Answers the
 /// read, or `None` when no transaction is open.
-pub async fn assert_transaction_unchanged<P: WriteProof, H: ComHost>(cx: &TransactionContext<'_, P, H>, handle: &SessionHandle) -> Result<Option<CapturedState>, TransactionError> {
+pub async fn assert_transaction_unchanged<P: WriteProof, H: ComHost>(
+    cx: &TransactionContext<'_, P, H>,
+    handle: &SessionHandle,
+) -> Result<Option<CapturedState>, TransactionError> {
     let Some(transaction) = transaction_of(handle) else { return Ok(None) };
     let current = capture_session_state(cx, handle, "").await?;
     if json!(current.fingerprint) != transaction.expected_fingerprint {
@@ -560,7 +576,10 @@ pub async fn rollback_transaction<P: WriteProof, H: ComHost>(cx: &TransactionCon
     let remaining = diff(&transaction.before_document, &restored.document);
     let fingerprint_restored = json!(restored.fingerprint) == transaction.before_fingerprint;
     if remaining["summary"]["total"].as_u64().unwrap_or(0) > 0 {
-        return Err(TransactionError::Failed(format!("Office rollback verification failed: fingerprintRestored={fingerprint_restored}; diff={}", json_stringify(&remaining))));
+        return Err(TransactionError::Failed(format!(
+            "Office rollback verification failed: fingerprintRestored={fingerprint_restored}; diff={}",
+            json_stringify(&remaining)
+        )));
     }
     let data_dir = {
         let mut session = lock(handle);

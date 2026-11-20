@@ -214,19 +214,13 @@ fn window_value(window: Option<&Value>) -> (String, Key) {
         return (format!("{prefix}{}/{}", money(get("usedUsd")), money(get("limitUsd"))), colour(Key::Success));
     }
     if has_finite_number(get("remainingCredits")) && has_finite_number(get("limitCredits")) {
-        return (
-            format!("{prefix}{}/{}", compact_number(get("remainingCredits")), compact_number(get("limitCredits"))),
-            colour(credits_color(window)),
-        );
+        return (format!("{prefix}{}/{}", compact_number(get("remainingCredits")), compact_number(get("limitCredits"))), colour(credits_color(window)));
     }
     if has_finite_number(get("remainingCredits")) {
         return (format!("{prefix}{}", compact_number(get("remainingCredits"))), colour(credits_color(window)));
     }
     if has_finite_number(get("usedCredits")) && has_finite_number(get("limitCredits")) {
-        return (
-            format!("{prefix}{}/{}", compact_number(get("usedCredits")), compact_number(get("limitCredits"))),
-            colour(credits_color(window)),
-        );
+        return (format!("{prefix}{}/{}", compact_number(get("usedCredits")), compact_number(get("limitCredits"))), colour(credits_color(window)));
     }
     (String::new(), Key::Subtle)
 }
@@ -362,7 +356,8 @@ pub fn paint_usage_panel(painter: &mut Painter, x: i32, y: i32, props: &UsagePan
     let description = truncate_panel_text(&subtitle, columns.saturating_sub(4));
     let scroll = state.scroll_offset(props);
     let visible: &[Value] = if props.panel_rows > 0 { &rows[scroll.min(rows.len())..(scroll + props.max_provider_rows()).min(rows.len())] } else { rows };
-    let scroll_hint = if props.scrollable() || props.is_loading() || props.is_checking() { "\u{2191}/\u{2193} Scroll \u{b7} PgUp/PgDn Page \u{b7} " } else { "" };
+    let scroll_hint =
+        if props.scrollable() || props.is_loading() || props.is_checking() { "\u{2191}/\u{2193} Scroll \u{b7} PgUp/PgDn Page \u{b7} " } else { "" };
     let help = format!("{scroll_hint}Esc Back \u{b7} /usage refresh");
     let modes = (TextWrap::Wrap, TextWrap::Wrap);
     let header = split_row(&title, &help, inner, modes, Justify::Between);

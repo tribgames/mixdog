@@ -28,7 +28,6 @@ use mixdog_core_api::domain::provider::ToolDefinition;
 use mixdog_core_api::domain::tool::CallOptions;
 use mixdog_core_api::domain::tool::EditOccurrence;
 use mixdog_core_api::domain::tool::ImageData;
-use mixdog_core_api::domain::tool::ToolNotify;
 use mixdog_core_api::domain::tool::ProgressSink;
 use mixdog_core_api::domain::tool::SurfaceKind;
 use mixdog_core_api::domain::tool::Tool;
@@ -36,6 +35,7 @@ use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolErrorCode;
 use mixdog_core_api::domain::tool::ToolIo;
+use mixdog_core_api::domain::tool::ToolNotify;
 use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
@@ -51,9 +51,9 @@ use mixdog_rt::TaskClass;
 use sha2::{Digest, Sha256};
 use tokio_util::sync::CancellationToken;
 
+use crate::env::Clock;
 use crate::env::GateAsk;
 use crate::env::GateCall;
-use crate::env::Clock;
 use crate::env::GateDecision;
 use crate::env::RunEvent;
 use crate::env::Stage;
@@ -219,14 +219,11 @@ impl ToolSet {
     /// A typo alias or case variant of a surface tool name, as the canonical
     /// name; the name itself otherwise.
     pub fn canonical(&self, name: &str) -> String {
-        crate::text::canonical_name(name, self.builtin.iter().map(String::as_str))
-            .unwrap_or(name)
-            .to_owned()
+        crate::text::canonical_name(name, self.builtin.iter().map(String::as_str)).unwrap_or(name).to_owned()
     }
 
     pub(crate) fn read_only(&self, name: &str) -> bool {
-        self.resolve(name)
-            .is_some_and(|t| t.spec().annotations.read_only_hint == Some(true))
+        self.resolve(name).is_some_and(|t| t.spec().annotations.read_only_hint == Some(true))
     }
 
     /// The definition of `tool` on this set's surface: a delegated agent's own text and schema where
@@ -323,17 +320,7 @@ pub(crate) fn call_signature(name: &str, args: &JsonValue) -> String {
     format!("{name}:{body}")
 }
 
-const FAILURE_PATH_KEYS: [&str; 9] = [
-    "base_path",
-    "cwd",
-    "dir",
-    "dir_path",
-    "directory",
-    "file_path",
-    "files",
-    "path",
-    "paths",
-];
+const FAILURE_PATH_KEYS: [&str; 9] = ["base_path", "cwd", "dir", "dir_path", "directory", "file_path", "files", "path", "paths"];
 
 /// Node `path.resolve(cwd, value)`: the path against `cwd`, with `.` and `..` removed and no file system consulted.
 pub(crate) fn resolve_lexically(value: &str, cwd: &std::path::Path) -> String {
@@ -357,20 +344,11 @@ const MCP_TOOL_PREFIX: &str = "mcp__plugin_mixdog_mixdog__";
 pub(crate) fn arg_shape(value: &JsonValue) -> String {
     match value {
         JsonValue::Null => "null".into(),
-        JsonValue::Array(items) => format!(
-            "array[{}]",
-            items.iter().map(arg_shape).collect::<Vec<_>>().join(",")
-        ),
+        JsonValue::Array(items) => format!("array[{}]", items.iter().map(arg_shape).collect::<Vec<_>>().join(",")),
         JsonValue::Object(map) => {
             let mut keys: Vec<&String> = map.keys().collect();
             keys.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
-            format!(
-                "{{{}}}",
-                keys.into_iter()
-                    .map(|k| format!("{k}:{}", arg_shape(&map[k])))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            )
+            format!("{{{}}}", keys.into_iter().map(|k| format!("{k}:{}", arg_shape(&map[k]))).collect::<Vec<_>>().join(","))
         }
         JsonValue::Bool(_) => "boolean".into(),
         JsonValue::Number(_) => "number".into(),
@@ -394,8 +372,7 @@ fn pattern_would_continue(history: &[String], signature: &str, limit: u32) -> us
         }
         let start = n - required;
         let cycle = &history[start..start + cycle_len];
-        if (0..required).all(|i| history[start + i] == cycle[i % cycle_len]) && signature == cycle[0]
-        {
+        if (0..required).all(|i| history[start + i] == cycle[i % cycle_len]) && signature == cycle[0] {
             return cycle_len;
         }
     }
@@ -453,27 +430,17 @@ impl RepeatGuards {
     /// finish: a guard needs [`REPEAT_FAIL_LIMIT`] recorded failures.
     pub(crate) fn could_fire(&self, pending_earlier: usize) -> bool {
         let limit = REPEAT_FAIL_LIMIT as usize;
-        self.history.len() + pending_earlier >= limit
-            || self
-                .shape
-                .as_ref()
-                .is_some_and(|(_, count)| *count as usize + pending_earlier >= limit)
+        self.history.len() + pending_earlier >= limit || self.shape.as_ref().is_some_and(|(_, count)| *count as usize + pending_earlier >= limit)
     }
 
     pub(crate) fn skip(&self, name: &str, sig: &str, shape_sig: &str) -> Option<String> {
         let cycle = pattern_would_continue(&self.history, sig, REPEAT_FAIL_LIMIT);
-        let same = self
-            .last
-            .as_ref()
-            .filter(|(last, count)| last == sig && *count >= REPEAT_FAIL_LIMIT);
+        let same = self.last.as_ref().filter(|(last, count)| last == sig && *count >= REPEAT_FAIL_LIMIT);
         if same.is_some() || cycle > 0 {
             let detail = if cycle > 1 {
                 format!("A {cycle}-call normalized failure pattern repeated {REPEAT_FAIL_LIMIT} times")
             } else {
-                format!(
-                    "Identical normalized `{name}` call failed {} times",
-                    self.last.as_ref().map_or(REPEAT_FAIL_LIMIT, |(_, c)| *c)
-                )
+                format!("Identical normalized `{name}` call failed {} times", self.last.as_ref().map_or(REPEAT_FAIL_LIMIT, |(_, c)| *c))
             };
             return Some(format!(
                 "[repeat-failure-guard] {detail}; not re-executed. Retry only after its inputs or subject change; otherwise leave it unresolved."
@@ -589,12 +556,9 @@ fn render_output(parts: Vec<ToolPart>) -> Content {
             ToolPart::Image { mime, data, width, height } => {
                 text_only = false;
                 let source = match data {
-                    ImageData::Bytes(bytes) => ImageSource::Base64 {
-                        data: base64::engine::general_purpose::STANDARD.encode(bytes),
-                        mime_type: mime,
-                        width,
-                        height,
-                    },
+                    ImageData::Bytes(bytes) => {
+                        ImageSource::Base64 { data: base64::engine::general_purpose::STANDARD.encode(bytes), mime_type: mime, width, height }
+                    }
                     ImageData::Blob(digest) => ImageSource::FileId(digest.as_str().to_owned()),
                 };
                 rendered.push(ContentPart::Image(source));
@@ -638,15 +602,14 @@ fn render_output(parts: Vec<ToolPart>) -> Content {
 }
 
 fn result_text_failed(content: &Content, name: &str, explicit_success: bool) -> bool {
-    !explicit_success && matches!(content, Content::Text(body)
+    !explicit_success
+        && matches!(content, Content::Text(body)
         if crate::result_kind::classify_result_kind(body, name) == crate::result_kind::ResultKind::Error)
 }
 
 fn denial_for_unapproved(name: &str, detail: &str) -> String {
     let detail = detail.trim_end_matches(|c: char| c == '.' || mixdog_js::is_js_space(c));
-    format!(
-        "Error: tool \"{name}\" was not approved: {detail}. Do not retry it or reach the same result another way; report it."
-    )
+    format!("Error: tool \"{name}\" was not approved: {detail}. Do not retry it or reach the same result another way; report it.")
 }
 
 /// `isInvalidToolArgsMarker` (`providers/lib/openai-tool-args.mjs`).
@@ -658,7 +621,13 @@ pub(crate) fn is_invalid_args_marker(arguments: &JsonValue) -> bool {
 pub(crate) fn stamp_timing(mut executed: Executed, dispatch_started_at: i64, clock: &dyn Clock) -> Executed {
     if executed.message.tool_timing.is_none() {
         let now = clock.now_ms();
-        executed.message.tool_timing = Some(ToolTiming { dispatch_started_at, execution_started_at: now, execution_completed_at: now, postprocess_started_at: now, result_completed_at: now });
+        executed.message.tool_timing = Some(ToolTiming {
+            dispatch_started_at,
+            execution_started_at: now,
+            execution_completed_at: now,
+            postprocess_started_at: now,
+            result_completed_at: now,
+        });
     }
     executed
 }
@@ -696,10 +665,7 @@ fn io_timeout_from(raw: &str) -> Option<Duration> {
 fn read_only_io_timeout(name: &str, timeout: Option<Duration>) -> ToolError {
     ToolError::new(
         ToolErrorCode::DeadlineExceeded { partial: false },
-        format!(
-            "Error: read-only I/O tool \"{name}\" exceeded its {}ms deadline with no result returned.",
-            timeout.map_or(0, |t| t.as_millis())
-        ),
+        format!("Error: read-only I/O tool \"{name}\" exceeded its {}ms deadline with no result returned.", timeout.map_or(0, |t| t.as_millis())),
     )
 }
 
@@ -839,7 +805,9 @@ mod tests {
     #[test]
     fn an_image_keeps_the_size_its_tool_reported() {
         let image = |width, height| ToolPart::Image { mime: "image/jpeg".into(), data: ImageData::Bytes(vec![1, 2, 3]), width, height };
-        let Content::Parts(parts) = super::render_output(vec![ToolPart::Text("t".into()), image(Some(1280), Some(720)), image(None, None)]) else { panic!("parts") };
+        let Content::Parts(parts) = super::render_output(vec![ToolPart::Text("t".into()), image(Some(1280), Some(720)), image(None, None)]) else {
+            panic!("parts")
+        };
         let sizes: Vec<_> = parts
             .iter()
             .filter_map(|part| match part {
@@ -918,7 +886,8 @@ mod tests {
                 self.0.iter().find(|tool| tool.spec().name == name).cloned()
             }
         }
-        let run: Arc<dyn Tool> = Arc::new(Plain { spec: ToolSpec { aliases: vec!["terminal".into()], ..plain("run", "", false, None).spec().clone() }, agent: None });
+        let run: Arc<dyn Tool> =
+            Arc::new(Plain { spec: ToolSpec { aliases: vec!["terminal".into()], ..plain("run", "", false, None).spec().clone() }, agent: None });
         let terminal = plain("terminal", "side terminal", true, None);
         let surface = ToolSet::new(vec![run.clone()]).with_registry(Arc::new(Registry(vec![run.clone(), terminal])), None);
         assert_eq!(surface.resolve("terminal").unwrap().spec().name, "terminal");
@@ -931,7 +900,11 @@ mod tests {
     /// model is sent; a delegated agent is sent a tool's agent text.
     #[test]
     fn definitions_leave_out_unlisted_tools_and_follow_the_agent_text() {
-        let set = ToolSet::new(vec![plain("web_fetch", "fetch", true, None), plain("local_fetch", "loopback", false, None), plain("task", "lead text", true, Some("agent text"))]);
+        let set = ToolSet::new(vec![
+            plain("web_fetch", "fetch", true, None),
+            plain("local_fetch", "loopback", false, None),
+            plain("task", "lead text", true, Some("agent text")),
+        ]);
         let sent = |set: &ToolSet| set.definitions().into_iter().map(|d| (d.name, d.description)).collect::<Vec<_>>();
         assert!(set.get("local_fetch").is_some());
         assert_eq!(sent(&set), [("web_fetch".to_owned(), "fetch".to_owned()), ("task".to_owned(), "lead text".to_owned())]);
@@ -1030,7 +1003,16 @@ mod tests {
             use mixdog_core_api::domain::approval::ApprovalKind;
             GateDecision::Ask(Box::new(GateAsk {
                 reason: "needs a person".into(),
-                ask: ApprovalAsk { kind: ApprovalKind::Tool, call_id: None, tool: Some(call.name.clone()), action_kind: None, reason: Some("needs a person".into()), payload: call.args.clone(), remember: Vec::new(), expires_after: None },
+                ask: ApprovalAsk {
+                    kind: ApprovalKind::Tool,
+                    call_id: None,
+                    tool: Some(call.name.clone()),
+                    action_kind: None,
+                    reason: Some("needs a person".into()),
+                    payload: call.args.clone(),
+                    remember: Vec::new(),
+                    expires_after: None,
+                },
                 call: None,
             }))
         }
@@ -1043,7 +1025,16 @@ mod tests {
         async fn request(&self, _ask: ApprovalAsk) -> ApprovalResolution {
             self.0.cancel();
             ApprovalResolution::Decided {
-                decision: mixdog_protocol::ToolApprovalDecision { approved: true, reason: None, answers: None, reply: None, response: None, edited_args: None, remember: None, scope: None },
+                decision: mixdog_protocol::ToolApprovalDecision {
+                    approved: true,
+                    reason: None,
+                    answers: None,
+                    reply: None,
+                    response: None,
+                    edited_args: None,
+                    remember: None,
+                    scope: None,
+                },
                 device: "desk".into(),
                 connection_kind: mixdog_protocol::ConnectionKind::Desktop,
                 at: 0,
@@ -1175,11 +1166,7 @@ mod tests {
                 turn_id: TurnId::from("r"),
                 cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
                 surface: SurfaceKind::Lead,
-                io: ToolIo {
-                    interactive: tokens.interactive_io,
-                    durability: tokens.durability_io,
-                    maintenance: tokens.maintenance_io,
-                },
+                io: ToolIo { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io },
                 approvals: Arc::new(MockApprovalGate::default()),
                 files: Arc::new(MockFileService::default()),
                 processes: Arc::new(MockProcessManager::default()),
@@ -1214,7 +1201,22 @@ mod tests {
         let a = AbsPath::new(std::env::temp_dir().join("a")).unwrap();
         let live = Arc::new(std::sync::Mutex::new(a.clone()));
         let seen: Seen = Arc::default();
-        let witness = Arc::new(Witness { seen: seen.clone(), live: live.clone(), spec: ToolSpec { name: "probe".into(), title: None, trigger: None, public: true, aliases: Vec::new(), description: "probe".into(), input_schema: serde_json::json!({"type": "object"}), annotations: Default::default(), parallel_safe: true, exclusive_with: Vec::new() } });
+        let witness = Arc::new(Witness {
+            seen: seen.clone(),
+            live: live.clone(),
+            spec: ToolSpec {
+                name: "probe".into(),
+                title: None,
+                trigger: None,
+                public: true,
+                aliases: Vec::new(),
+                description: "probe".into(),
+                input_schema: serde_json::json!({"type": "object"}),
+                annotations: Default::default(),
+                parallel_safe: true,
+                exclusive_with: Vec::new(),
+            },
+        });
         let mut env = stuck_env(None, true, "probe").env;
         env.tools = ToolSet::new(vec![witness.clone()]);
         env.gate = witness.clone();
@@ -1233,8 +1235,21 @@ mod tests {
     #[tokio::test]
     async fn an_agent_calls_result_names_the_jobs_it_started() {
         crate::agent_tool::flow::seams::bind_call_starts(Arc::new(Starts));
-        let spec = |name: &str| ToolSpec { name: name.into(), title: None, trigger: None, public: true, aliases: Vec::new(), description: "probe".into(), input_schema: serde_json::json!({"type": "object"}), annotations: Default::default(), parallel_safe: true, exclusive_with: Vec::new() };
-        let witness = |name: &str| Arc::new(Witness { seen: Arc::default(), live: Arc::new(std::sync::Mutex::new(AbsPath::new(std::env::temp_dir()).unwrap())), spec: spec(name) });
+        let spec = |name: &str| ToolSpec {
+            name: name.into(),
+            title: None,
+            trigger: None,
+            public: true,
+            aliases: Vec::new(),
+            description: "probe".into(),
+            input_schema: serde_json::json!({"type": "object"}),
+            annotations: Default::default(),
+            parallel_safe: true,
+            exclusive_with: Vec::new(),
+        };
+        let witness = |name: &str| {
+            Arc::new(Witness { seen: Arc::default(), live: Arc::new(std::sync::Mutex::new(AbsPath::new(std::env::temp_dir()).unwrap())), spec: spec(name) })
+        };
         let mut env = stuck_env(None, true, "agent").env;
         env.tools = ToolSet::new(vec![witness("agent"), witness("probe")]);
         let env = Arc::new(env);
@@ -1311,10 +1326,7 @@ mod tests {
         let env = Arc::new(env);
         let executed = execute_call(stuck_call("stuck"), env).await;
         assert!(executed.failed);
-        assert_eq!(
-            executed.message.text(),
-            "Error: read-only I/O tool \"stuck\" exceeded its 0ms deadline with no result returned."
-        );
+        assert_eq!(executed.message.text(), "Error: read-only I/O tool \"stuck\" exceeded its 0ms deadline with no result returned.");
         // The task may not have started before the deadline fired; either way it ends.
         let _ = dropped.await;
     }
@@ -1358,21 +1370,15 @@ mod tests {
         assert_eq!(runs.len(), 2, "{runs:?}");
         assert!(runs[0].1 <= runs[1].0, "the failed run, then the retry: {runs:?}");
     }
-
-
 }
-
 
 /// Lexical `normalize`/`resolve` of a path value against `cwd`, lowercased on
 /// Windows and with `/` separators, so two spellings of one path agree.
 fn normalize_failure_path(value: &str, cwd: &std::path::Path) -> String {
-    let has_scheme = value
-        .split_once("://")
-        .is_some_and(|(scheme, _)| {
-            let mut chars = scheme.chars();
-            chars.next().is_some_and(|c| c.is_ascii_alphabetic())
-                && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
-        });
+    let has_scheme = value.split_once("://").is_some_and(|(scheme, _)| {
+        let mut chars = scheme.chars();
+        chars.next().is_some_and(|c| c.is_ascii_alphabetic()) && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '.' | '-'))
+    });
     if value.is_empty() || has_scheme {
         return value.to_owned();
     }
@@ -1496,7 +1502,9 @@ async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, edi
         let name = if call.name.is_empty() { "tool" } else { call.name.as_str() };
         return Executed::error(
             &call.id,
-            format!("The arguments provided to `{name}` are invalid JSON and could not be parsed: {detail}. Re-issue this tool call with valid JSON arguments."),
+            format!(
+                "The arguments provided to `{name}` are invalid JSON and could not be parsed: {detail}. Re-issue this tool call with valid JSON arguments."
+            ),
         );
     }
     let started = env.clock.now_ms();
@@ -1511,11 +1519,7 @@ async fn execute_call_inner(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, edi
     {
         hooked(
             &env.cancel,
-            hooks.after_failure(
-                &call.id,
-                &GateCall::new(call.name.clone(), call.arguments.clone()).at(cwd.as_path()),
-                &executed.message.text(),
-            ),
+            hooks.after_failure(&call.id, &GateCall::new(call.name.clone(), call.arguments.clone()).at(cwd.as_path()), &executed.message.text()),
         )
         .await;
     }
@@ -1540,11 +1544,7 @@ async fn authorize(
         GateDecision::Rewrite(rewritten) => target = rewritten,
         GateDecision::Deny(text) => return Err(text),
         GateDecision::Ask(ask) => {
-            let GateAsk {
-                reason,
-                ask,
-                call: rewritten,
-            } = *ask;
+            let GateAsk { reason, ask, call: rewritten } = *ask;
             if let Some(rewritten) = rewritten {
                 target = rewritten;
             }
@@ -1567,17 +1567,10 @@ async fn authorize(
                         ApprovalResolution::TimedOut { .. } => Some("approval timed out".to_owned()),
                         _ => None,
                     };
-                    let detail = given
-                        .map(|r| mixdog_js::js_trim(&r).to_owned())
-                        .filter(|r| !r.is_empty())
-                        .unwrap_or_else(|| {
-                            let reason = mixdog_js::js_trim(&reason);
-                            if reason.is_empty() {
-                                "not approved".to_owned()
-                            } else {
-                                reason.to_owned()
-                            }
-                        });
+                    let detail = given.map(|r| mixdog_js::js_trim(&r).to_owned()).filter(|r| !r.is_empty()).unwrap_or_else(|| {
+                        let reason = mixdog_js::js_trim(&reason);
+                        if reason.is_empty() { "not approved".to_owned() } else { reason.to_owned() }
+                    });
                     return Err(denial_for_unapproved(name, &detail));
                 }
             }
@@ -1661,14 +1654,16 @@ pub async fn run_nested(
     };
     let mut args = target.args.clone();
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
-    let hook_call = GateCall { name: target.name.clone(), args: args.clone(), schema_name: target.schema_name.clone(), cwd: target.cwd.clone(), connector_account: target.connector_account.clone() };
+    let hook_call = GateCall {
+        name: target.name.clone(),
+        args: args.clone(),
+        schema_name: target.schema_name.clone(),
+        cwd: target.cwd.clone(),
+        connector_account: target.connector_account.clone(),
+    };
     let timeout = ctx.deadline.map(|d| d.saturating_duration_since(Instant::now()));
     let mut running = Box::pin(mixdog_rt::in_tool_call(mixdog_rt::tool_label(&spec.name), tool.call(&nested, args)));
-    let waited = Scope::new()
-        .cancel(&ctx.cancel)
-        .deadline(nested.deadline)
-        .run_with_grace(&mut running, TOOL_GRACE, || nested.cancel.cancel())
-        .await;
+    let waited = Scope::new().cancel(&ctx.cancel).deadline(nested.deadline).run_with_grace(&mut running, TOOL_GRACE, || nested.cancel.cancel()).await;
     let outcome = match waited {
         Scoped::Done(outcome) => outcome,
         ended => Err(ended_error(&spec.name, &ended, timeout, "Error: tool call cancelled".to_owned())),
@@ -1762,7 +1757,22 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
         let text = env.tools.unknown_message(&target.name);
         // The executor returns this text, so PostToolUse sees it like any other result (`applyAfterToolHook`).
         let updated = match &env.hooks {
-            Some(hooks) => hooked(&env.cancel, hooks.after_tool(&call.id, &GateCall { name: target.name.clone(), args: target.args.clone(), schema_name: target.schema_name.clone(), cwd: target.cwd.clone(), connector_account: target.connector_account.clone() }, &text)).await.flatten(),
+            Some(hooks) => hooked(
+                &env.cancel,
+                hooks.after_tool(
+                    &call.id,
+                    &GateCall {
+                        name: target.name.clone(),
+                        args: target.args.clone(),
+                        schema_name: target.schema_name.clone(),
+                        cwd: target.cwd.clone(),
+                        connector_account: target.connector_account.clone(),
+                    },
+                    &text,
+                ),
+            )
+            .await
+            .flatten(),
             None => None,
         };
         return Executed::returned(&call.id, updated.unwrap_or(text));
@@ -1801,17 +1811,16 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
     };
     // Node: arguments are coerced to the declared schema before the tool sees
     // them (a model that hands an object argument as its JSON text).
-    let unchanged = name == target.name
-        && call.arguments == target.args
-        && target.schema_name.is_none()
-        && target.connector_account.is_none();
+    let unchanged = name == target.name && call.arguments == target.args && target.schema_name.is_none() && target.connector_account.is_none();
     let mut args = target.args;
     crate::coerce::coerce_args_to_schema(&mut args, &spec.input_schema);
     let target_args_for_hook = args.clone();
     let (tool_cancel, deadline) = (ctx.cancel.clone(), ctx.deadline);
     let read_only_io = READ_ONLY_IO_TOOL_NAMES.contains(&spec.name.as_str());
     // A rewritten invocation must not fill the original call's key.
-    let mut reuse_write = if let Some(reuse) = &env.reuse && unchanged {
+    let mut reuse_write = if let Some(reuse) = &env.reuse
+        && unchanged
+    {
         let invocation = ToolCall { arguments: args.clone(), ..call.clone() };
         if let Some(Some(hit)) = or_cancelled(&env.cancel, reuse.lookup(&invocation, ctx.cwd.as_path(), true)).await
             && (env.hooks.is_none() || !crate::offload::is_offloaded(&hit.content))
@@ -1840,21 +1849,16 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
             }
             // The wire owner decides whether this exact source is present and
             // suitable for a receipt. Always keep the recoverable full body.
-            if !failed && !rewritten && matches!(hit.kind, crate::env::ReuseKind::Scoped)
+            if !failed
+                && !rewritten
+                && matches!(hit.kind, crate::env::ReuseKind::Scoped)
                 && !hit.first_tool_use_id.is_empty()
                 && let Content::Text(body) = &message.message.content
             {
-                message.message.scoped_cache_source = Some(ScopedCacheSource {
-                    call_id: hit.first_tool_use_id.clone(),
-                    body_sha256: format!("{:x}", Sha256::digest(body.as_bytes())),
-                });
+                message.message.scoped_cache_source =
+                    Some(ScopedCacheSource { call_id: hit.first_tool_use_id.clone(), body_sha256: format!("{:x}", Sha256::digest(body.as_bytes())) });
             }
-            return Executed {
-                message,
-                failed,
-                cache_hit: Some((hit.first_tool_use_id, hit.kind)),
-                ..Executed::error(&call.id, String::new())
-            };
+            return Executed { message, failed, cache_hit: Some((hit.first_tool_use_id, hit.kind)), ..Executed::error(&call.id, String::new()) };
         }
         or_cancelled(&env.cancel, reuse.prepare(&invocation, ctx.cwd.as_path())).await.flatten()
     } else {
@@ -1871,9 +1875,7 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
     let execution_started_at = env.clock.now_ms();
     // The call's lane jobs name the tool when one waits past the lanes' slow-wait threshold.
     let label = mixdog_rt::tool_label(&execution_name);
-    let mut handle = mixdog_rt::spawn("agent.tool", TaskClass::Work, async move {
-        mixdog_rt::in_tool_call(label, tool.call(&ctx, args)).await
-    });
+    let mut handle = mixdog_rt::spawn("agent.tool", TaskClass::Work, async move { mixdog_rt::in_tool_call(label, tool.call(&ctx, args)).await });
     let _abort = AbortOnDrop(handle.abort_handle());
     // Node (`runReadOnlyIoWithDeadline`): a read-only I/O tool's wait ends the moment the run is aborted (its own signal fires with
     // it), and a deadline fires the tool's signal and leaves it `TOOL_GRACE` to hand back what it collected, which an abort then no
@@ -1907,21 +1909,18 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
         Scoped::Done(Ok(outcome)) if past_deadline => graced(outcome, &name, timeout),
         Scoped::Done(Ok(outcome)) => outcome,
         Scoped::Done(Err(_)) if past_deadline => Err(read_only_io_timeout(&name, timeout)),
-        Scoped::Done(Err(_)) => Err(ToolError::new(
-            ToolErrorCode::Internal {
-                incident_id: "tool-task".to_owned(),
-            },
-            "Error: tool task failed",
-        )),
+        Scoped::Done(Err(_)) => Err(ToolError::new(ToolErrorCode::Internal { incident_id: "tool-task".to_owned() }, "Error: tool task failed")),
         ended => Err(ended_error(&name, &ended, timeout, cancelled_text(&env.signal))),
     };
     // Invalidate where the write ran, even if the batch is no longer collecting it.
     if let Some(reuse) = mutation {
         let failed = match &outcome {
             Err(_) => true,
-            Ok(out) => !out.explicit_success
-                && matches!(render_output(out.parts.clone()), Content::Text(text)
-                    if crate::result_kind::classify_result_kind(&text, &execution_name) == crate::result_kind::ResultKind::Error),
+            Ok(out) => {
+                !out.explicit_success
+                    && matches!(render_output(out.parts.clone()), Content::Text(text)
+                    if crate::result_kind::classify_result_kind(&text, &execution_name) == crate::result_kind::ResultKind::Error)
+            }
         };
         reuse.after_call(&execution_name, &target_args_for_hook, execution_cwd.as_path(), failed).await;
     }
@@ -1988,7 +1987,9 @@ async fn execute_gated(call: &ToolCall, env: &Arc<CallEnv>, cwd: &AbsPath, edit_
             let mut executed = Executed::error(&call.id, crate::agent_tool::dispatch::error_line(&error.message_for_model));
             // Fetch transports already include the failure in their ordered partial output. Keep
             // its image/text parts without changing the result's error classification.
-            if matches!(execution_name.as_str(), "local_fetch" | "image_fetch") && let Some(output) = error.partial {
+            if matches!(execution_name.as_str(), "local_fetch" | "image_fetch")
+                && let Some(output) = error.partial
+            {
                 executed.message.message.content = render_output(output.parts);
             }
             executed.message.tool_timing = Some(timing(execution_completed_at));
@@ -2004,21 +2005,13 @@ impl Run {
         self.no_tool.note_tool_call_turn();
         // A capped turn: calls past its cap are answered unrun, and a batch
         // after it was told to reply ends it.
-        let allowed = limits::calls_allowed(
-            self.turn_limits(),
-            self.turn_limit_noticed,
-            self.tool_calls_total,
-            self.env.clock.now_ms(),
-        );
+        let allowed = limits::calls_allowed(self.turn_limits(), self.turn_limit_noticed, self.tool_calls_total, self.env.clock.now_ms());
         let overrun = self.turn_limit_noticed;
         self.tool_calls_total += calls.len() as u64;
         // Mid-turn assistant text (a preamble before a tool call) is surfaced
         // for providers that return it only in the final response.
         if !mixdog_js::js_trim(&response.content).is_empty() {
-            self.emit(RunEvent::AssistantText {
-                text: response.content.clone(),
-                committed: false,
-            });
+            self.emit(RunEvent::AssistantText { text: response.content.clone(), committed: false });
         }
         // The audit records what runs: a bridged `call_tool` as its target (the wire calls stay the transcript's).
         let (execution, _, _) = self.execution_view(&calls);
@@ -2034,10 +2027,7 @@ impl Run {
         }
         self.emit(RunEvent::ToolBatch(batch));
         self.emit(RunEvent::ExecutionCalls(execution));
-        self.emit(RunEvent::ToolCalls {
-            iteration: self.iterations,
-            calls: calls.clone(),
-        });
+        self.emit(RunEvent::ToolCalls { iteration: self.iterations, calls: calls.clone() });
         let mut assistant = tool_call_message(&response);
         assistant.message.tool_calls = crate::stored_args::compact_calls(&calls);
         assistant.turn_reminder = self.last_reminder.clone();
@@ -2058,9 +2048,7 @@ impl Run {
         let tools_ended_ms = self.env.clock.now_ms();
         let elapsed_ms = u64::try_from(tools_ended_ms - tools_started_ms).unwrap_or(0);
         self.last_tool_batch_ended_ms = Some(tools_ended_ms);
-        self.last_batch_later = calls
-            .iter()
-            .any(|call| is_sleep_like(&call.name));
+        self.last_batch_later = calls.iter().any(|call| is_sleep_like(&call.name));
         self.tool_batch_just_completed = true;
         self.note_tool_batch_completed(&calls, results_from).await?;
         self.mark_step_effort(&calls, results_from);
@@ -2074,5 +2062,4 @@ impl Run {
         self.emit(RunEvent::ToolPhase(crate::env::ToolPhase::Completed { iteration: self.iterations, calls: calls.len(), elapsed_ms }));
         Ok(())
     }
-
 }

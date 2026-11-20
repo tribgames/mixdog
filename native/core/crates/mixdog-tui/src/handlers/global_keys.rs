@@ -79,8 +79,7 @@ const RAW_SHIFT_ARROWS: [(SelectionMove, [&str; 5]); 4] = [
 /// asks for.
 pub fn decode_selection_move_chord(input: &str, key: &KeyFlags) -> (bool, Option<SelectionMove>) {
     let raw = RAW_SHIFT_ARROWS.iter().find(|(_, sequences)| sequences.contains(&input)).map(|(direction, _)| *direction);
-    let is_chord = raw.is_some()
-        || (key.shift && (key.left_arrow || key.right_arrow || key.up_arrow || key.down_arrow || key.home || key.end));
+    let is_chord = raw.is_some() || (key.shift && (key.left_arrow || key.right_arrow || key.up_arrow || key.down_arrow || key.home || key.end));
     let direction = if key.left_arrow || raw == Some(SelectionMove::Left) {
         Some(SelectionMove::Left)
     } else if key.right_arrow || raw == Some(SelectionMove::Right) {
@@ -113,12 +112,7 @@ pub enum CopyAction {
 
 /// `copyActiveSelection`'s choice of source. A prompt selection wins when the last drag was in the prompt or no grid
 /// selection exists; a degenerate grid rect selects nothing. Ctrl+C never cancels the turn: Esc interrupts.
-pub fn copy_action(
-    prompt_selection_text: Option<&str>,
-    last_region: Option<&str>,
-    ink_rect: Option<&SelectionRect>,
-    is_windows: bool,
-) -> CopyAction {
+pub fn copy_action(prompt_selection_text: Option<&str>, last_region: Option<&str>, ink_rect: Option<&SelectionRect>, is_windows: bool) -> CopyAction {
     let has_ink_selection = ink_rect.is_some_and(|rect| !selection_rect_is_degenerate(rect));
     if let Some(text) = prompt_selection_text.filter(|text| !text.is_empty())
         && (last_region == Some("prompt") || !has_ink_selection)

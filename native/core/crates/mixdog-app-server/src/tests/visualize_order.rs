@@ -292,8 +292,7 @@ async fn only_the_current_claimant_is_current_when_it_is_applied_through_claims_
     let seen: Vec<(String, bool)> = h.applied().await.into_iter().map(|applied| (applied.tag, applied.current)).collect();
     assert_eq!(
         seen,
-        [("A-while-b-holds", false), ("B1", true), ("B2", true), ("A-late", true), ("A-after-fallback", true)]
-            .map(|(tag, current)| (tag.to_owned(), current))
+        [("A-while-b-holds", false), ("B1", true), ("B2", true), ("A-late", true), ("A-after-fallback", true)].map(|(tag, current)| (tag.to_owned(), current))
     );
 }
 #[tokio::test(start_paused = true)]

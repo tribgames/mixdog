@@ -29,8 +29,8 @@ pub const NEED_PASSWORD: u8 = 1;
 pub const INCORRECT_PASSWORD: u8 = 2;
 
 const DEFAULT_PASSWORD_BYTES: [u8; 32] = [
-    0x28, 0xbf, 0x4e, 0x5e, 0x4e, 0x75, 0x8a, 0x41, 0x64, 0x00, 0x4e, 0x56, 0xff, 0xfa, 0x01, 0x08, 0x2e, 0x2e, 0x00,
-    0xb6, 0xd0, 0x68, 0x3e, 0x80, 0x2f, 0x0c, 0xa9, 0xfe, 0x64, 0x53, 0x69, 0x7a,
+    0x28, 0xbf, 0x4e, 0x5e, 0x4e, 0x75, 0x8a, 0x41, 0x64, 0x00, 0x4e, 0x56, 0xff, 0xfa, 0x01, 0x08, 0x2e, 0x2e, 0x00, 0xb6, 0xd0, 0x68, 0x3e, 0x80, 0x2f, 0x0c,
+    0xa9, 0xfe, 0x64, 0x53, 0x69, 0x7a,
 ];
 
 /// Why a document could not be opened or a string or stream could not be decrypted.
@@ -176,11 +176,7 @@ impl AesKey {
         let mut fitted = vec![0u8; size];
         let n = key.len().min(size);
         fitted[..n].copy_from_slice(&key[..n]);
-        if size == 16 {
-            AesKey::Aes128(Aes128::new(GenericArray::from_slice(&fitted)))
-        } else {
-            AesKey::Aes256(Aes256::new(GenericArray::from_slice(&fitted)))
-        }
+        if size == 16 { AesKey::Aes128(Aes128::new(GenericArray::from_slice(&fitted))) } else { AesKey::Aes256(Aes256::new(GenericArray::from_slice(&fitted))) }
     }
 
     fn decrypt(&self, block: &mut [u8; 16]) {
@@ -357,13 +353,7 @@ impl Pdf2 {
         data
     }
 
-    fn check_owner_password(
-        self,
-        password: &[u8],
-        validation_salt: &[u8],
-        user_bytes: &[u8],
-        owner_password: &[u8],
-    ) -> bool {
+    fn check_owner_password(self, password: &[u8], validation_salt: &[u8], user_bytes: &[u8], owner_password: &[u8]) -> bool {
         let data = Self::hash_input(password, 56, &[validation_salt, user_bytes]);
         self.hash(password, &data, user_bytes) == owner_password
     }
@@ -412,13 +402,11 @@ fn hash_pdf20(password: &[u8], input: &[u8], user_bytes: &[u8]) -> Vec<u8> {
 }
 
 fn sasl_prep(password: &str) -> String {
-    const NON_ASCII_SPACES: [u32; 17] = [
-        0x00a0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x200b,
-        0x202f, 0x205f, 0x3000,
-    ];
+    const NON_ASCII_SPACES: [u32; 17] =
+        [0x00a0, 0x1680, 0x2000, 0x2001, 0x2002, 0x2003, 0x2004, 0x2005, 0x2006, 0x2007, 0x2008, 0x2009, 0x200a, 0x200b, 0x202f, 0x205f, 0x3000];
     const COMMONLY_MAPPED_TO_NOTHING: [u32; 27] = [
-        0x00ad, 0x034f, 0x1806, 0x180b, 0x180c, 0x180d, 0x200b, 0x200c, 0x200d, 0x2060, 0xfe00, 0xfe01, 0xfe02, 0xfe03,
-        0xfe04, 0xfe05, 0xfe06, 0xfe07, 0xfe08, 0xfe09, 0xfe0a, 0xfe0b, 0xfe0c, 0xfe0d, 0xfe0e, 0xfe0f, 0xfeff,
+        0x00ad, 0x034f, 0x1806, 0x180b, 0x180c, 0x180d, 0x200b, 0x200c, 0x200d, 0x2060, 0xfe00, 0xfe01, 0xfe02, 0xfe03, 0xfe04, 0xfe05, 0xfe06, 0xfe07, 0xfe08,
+        0xfe09, 0xfe0a, 0xfe0b, 0xfe0c, 0xfe0d, 0xfe0e, 0xfe0f, 0xfeff,
     ];
     let mut mapped = String::new();
     for ch in password.chars() {
@@ -517,8 +505,7 @@ impl CipherTransformFactory {
         let revision = dict.r.unwrap_or(0);
         let encrypt_metadata = (algorithm == 4 || algorithm == 5) && dict.encrypt_metadata != Some(false);
 
-        let key_params =
-            KeyParams { file_id, owner_password, user_password, flags, revision, key_length, encrypt_metadata };
+        let key_params = KeyParams { file_id, owner_password, user_password, flags, revision, key_length, encrypt_metadata };
         let mut password_bytes: Option<Vec<u8>> = None;
         let mut raw_password_bytes: Option<Vec<u8>> = None;
         if let Some(password) = password {
@@ -560,10 +547,7 @@ impl CipherTransformFactory {
         if encryption_key.is_none() {
             let Some(password_bytes) = password_bytes.as_deref() else {
                 if algorithm >= 4 && stm_f.is_identity() && str_f.is_identity() {
-                    let auth_event = cf
-                        .as_deref()
-                        .and_then(|cf| eff.name().and_then(|name| lookup(cf, name)))
-                        .and_then(|f| f.auth_event.as_deref());
+                    let auth_event = cf.as_deref().and_then(|cf| eff.name().and_then(|name| lookup(cf, name))).and_then(|f| f.auth_event.as_deref());
                     if auth_event == Some("EFOpen") {
                         return Ok(CipherTransformFactory {
                             dict: dict.clone(),
@@ -654,9 +638,7 @@ fn create_encryption_key_20(fields: &Revision5Fields<'_>, password: Option<&[u8]
     let algorithm = if fields.revision == 6 { Pdf2::Pdf20 } else { Pdf2::Pdf17 };
     if algorithm.check_user_password(password, fields.user_validation_salt, fields.user_password) {
         Some(algorithm.user_key(password, fields.user_key_salt, fields.user_encryption))
-    } else if !password.is_empty()
-        && algorithm.check_owner_password(password, fields.owner_validation_salt, fields.u_bytes, fields.owner_password)
-    {
+    } else if !password.is_empty() && algorithm.check_owner_password(password, fields.owner_validation_salt, fields.u_bytes, fields.owner_password) {
         Some(algorithm.owner_key(password, fields.owner_key_salt, fields.u_bytes, fields.owner_encryption))
     } else {
         None
@@ -758,10 +740,7 @@ pub struct CipherTransform {
 impl fmt::Debug for CipherTransform {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         // The key stays out of any log line.
-        f.debug_struct("CipherTransform")
-            .field("num", &self.num)
-            .field("generation", &self.generation)
-            .finish_non_exhaustive()
+        f.debug_struct("CipherTransform").field("num", &self.num).field("generation", &self.generation).finish_non_exhaustive()
     }
 }
 
@@ -773,11 +752,7 @@ impl CipherTransform {
     /// the same constructor slot later used by a non-Name selector.
     pub fn has_cached_constructor(&self, string: bool, explicit: Option<&str>, embedded: bool) -> bool {
         let explicit = explicit.map(CryptFilterName::from);
-        let selected = if string {
-            &self.str_f
-        } else {
-            explicit.as_ref().unwrap_or(if embedded { &self.eff } else { &self.stm_f })
-        };
+        let selected = if string { &self.str_f } else { explicit.as_ref().unwrap_or(if embedded { &self.eff } else { &self.stm_f }) };
         self.constructors.lock().unwrap().contains_key(&self.cache_key(selected))
     }
     fn constructor(&self, name: &CryptFilterName) -> Result<CipherKind, SecurityError> {
@@ -816,8 +791,7 @@ impl CipherTransform {
             let key = self.encryption_key.as_deref().unwrap_or_default();
             return Ok(CipherKind::Rc4(build_object_key(self.num, self.generation, key, false)));
         }
-        let filter_name =
-            filter_name.name().ok_or_else(|| SecurityError::Format("Invalid crypt filter name.".into()))?;
+        let filter_name = filter_name.name().ok_or_else(|| SecurityError::Format("Invalid crypt filter name.".into()))?;
         let Some(cf) = &self.cf else {
             return Err(SecurityError::Format("Invalid crypt filter dictionary.".into()));
         };
@@ -855,13 +829,7 @@ impl CipherTransform {
     /// `createStream`: the bytes of a stream, decrypted in chunks of 512 bytes as `DecryptStream` does, with the
     /// crypt filter named by the stream (`Crypt` filter `Name`), else the embedded file filter when the stream is an
     /// `EmbeddedFile`, else the stream crypt filter. Output exceeding `limit` returns `ResourceLimit`.
-    pub fn decrypt_stream(
-        &self,
-        data: &[u8],
-        crypt_filter_name: Option<&str>,
-        embedded_file: bool,
-        limit: usize,
-    ) -> Result<Vec<u8>, SecurityError> {
+    pub fn decrypt_stream(&self, data: &[u8], crypt_filter_name: Option<&str>, embedded_file: bool, limit: usize) -> Result<Vec<u8>, SecurityError> {
         let default_name = if self.algorithm >= 4 && embedded_file { &self.eff } else { &self.stm_f };
         let explicit = crypt_filter_name.map(CryptFilterName::from);
         let mut cipher = self.constructor(explicit.as_ref().unwrap_or(default_name))?.instantiate();

@@ -4,9 +4,7 @@
 
 /// A line redrawn with `\r` shows only its last non-empty frame; `None` when nothing is folded.
 pub fn fold_carriage_return_frames(value: &str) -> Option<String> {
-    let has_bare_cr = value
-        .char_indices()
-        .any(|(i, c)| c == '\r' && !value[i + 1..].starts_with('\n'));
+    let has_bare_cr = value.char_indices().any(|(i, c)| c == '\r' && !value[i + 1..].starts_with('\n'));
     if !has_bare_cr {
         return None;
     }
@@ -20,28 +18,17 @@ pub fn fold_carriage_return_frames(value: &str) -> Option<String> {
                 return line.to_owned();
             }
             omitted += frames.len() - 1;
-            frames
-                .iter()
-                .rev()
-                .find(|f| !f.is_empty())
-                .copied()
-                .unwrap_or_default()
-                .to_owned()
+            frames.iter().rev().find(|f| !f.is_empty()).copied().unwrap_or_default().to_owned()
         })
         .collect();
-    (omitted > 0).then(|| {
-        format!("{}\n... [{omitted} overwritten progress frames omitted]", out.join("\n"))
-    })
+    (omitted > 0).then(|| format!("{}\n... [{omitted} overwritten progress frames omitted]", out.join("\n")))
 }
 
 /// Runs of three or more identical non-empty lines collapse to the line and a repeat count, for
 /// output of at least 20 lines; `None` when nothing is folded.
 pub fn fold_consecutive_duplicate_lines(value: &str) -> Option<String> {
     let trailing = value.ends_with('\n');
-    let mut lines: Vec<&str> = value
-        .split('\n')
-        .map(|l| l.strip_suffix('\r').unwrap_or(l))
-        .collect();
+    let mut lines: Vec<&str> = value.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l)).collect();
     if trailing {
         lines.pop();
     }
@@ -89,10 +76,7 @@ mod tests {
             text.push_str("tick\n");
         }
         text.push_str("end\n");
-        assert_eq!(
-            fold_consecutive_duplicate_lines(&text).as_deref(),
-            Some("tick\n... [previous line repeated 24 more times]\nend\n")
-        );
+        assert_eq!(fold_consecutive_duplicate_lines(&text).as_deref(), Some("tick\n... [previous line repeated 24 more times]\nend\n"));
         assert_eq!(fold_consecutive_duplicate_lines("a\na\na\n"), None);
     }
 }

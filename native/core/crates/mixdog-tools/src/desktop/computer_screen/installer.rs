@@ -60,8 +60,7 @@ pub(super) const DEFAULT_REPORT_AFTER_MS: u64 = 5 * 60_000;
 const IMAGE_REFUSED_DETAIL: &str = "the helper image was refused: not a signed, unrevoked Mixdog release build";
 const REVOCATION_UNKNOWN_DETAIL: &str = "could not check certificate revocation (offline?)";
 const ANOTHER_INSTALL_DETAIL: &str = "another install is already running";
-const AWAITING_PROMPT: &str =
-    "an administrator (UAC) prompt is already open on the PC: answer it there; no new prompt is shown until it is answered";
+const AWAITING_PROMPT: &str = "an administrator (UAC) prompt is already open on the PC: answer it there; no new prompt is shown until it is answered";
 const OTHER_PHONE_DETAIL: &str = "another phone\u{2019}s helper request is running on the PC";
 const INVALID_KEY_DETAIL: &str = "the phone's control key is invalid";
 const KEY_OP_IN_FLIGHT: &str = "another secure-desktop admin action is already running on the PC";
@@ -258,12 +257,9 @@ fn key_change_from_exit(verb: KeyVerb, exit_code: i32, before: InstallState, aft
             after,
         ),
         ELEVATION_DECLINED_EXIT => key_change(KeyChangeOutcome::Declined, after),
-        SECURE_DESKTOP_BUSY_EXIT => KeyChangeResult {
-            outcome: KeyChangeOutcome::InProgress,
-            state: after,
-            detail: Some(ANOTHER_INSTALL_DETAIL.to_string()),
-            exit_code: None,
-        },
+        SECURE_DESKTOP_BUSY_EXIT => {
+            KeyChangeResult { outcome: KeyChangeOutcome::InProgress, state: after, detail: Some(ANOTHER_INSTALL_DETAIL.to_string()), exit_code: None }
+        }
         SECURE_DESKTOP_OTHER_USER_EXIT => key_change(KeyChangeOutcome::OtherUser, after),
         SECURE_DESKTOP_UNTRUSTED_IMAGE_EXIT => failed(IMAGE_REFUSED_DETAIL.to_string()),
         SECURE_DESKTOP_REVOCATION_UNKNOWN_EXIT => failed(REVOCATION_UNKNOWN_DETAIL.to_string()),
@@ -432,7 +428,10 @@ pub(super) fn is_controller_key(value: &str) -> bool {
         return false;
     }
     // A decoder that, like the platform's, ignores the unused bits of the last symbol.
-    let engine = GeneralPurpose::new(&alphabet::URL_SAFE, GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true).with_decode_padding_mode(DecodePaddingMode::RequireNone));
+    let engine = GeneralPurpose::new(
+        &alphabet::URL_SAFE,
+        GeneralPurposeConfig::new().with_decode_allow_trailing_bits(true).with_decode_padding_mode(DecodePaddingMode::RequireNone),
+    );
     engine.decode(value).is_ok_and(|bytes| bytes.len() == 65 && bytes[0] == 4)
 }
 
@@ -528,9 +527,7 @@ impl Core {
         // reinstall — a reinstall rebuilds the state and would drop every other paired phone's key. The
         // image is already the bundled one, so there is nothing to verify.
         let enroll_only = before == InstallState::NotEnrolled;
-        if !enroll_only
-            && let ImageCheck::Refused { detail } = self.port.verify_image().await
-        {
+        if !enroll_only && let ImageCheck::Refused { detail } = self.port.verify_image().await {
             return InstallResult { outcome: InstallOutcome::Failed, state: before, detail: Some(detail) };
         }
 
@@ -549,9 +546,7 @@ impl Core {
             () = timer => None,
         };
         match settled {
-            Some(Err(message)) => {
-                InstallResult { outcome: InstallOutcome::Failed, state: self.port.check(Some(key)).await, detail: Some(message) }
-            }
+            Some(Err(message)) => InstallResult { outcome: InstallOutcome::Failed, state: self.port.check(Some(key)).await, detail: Some(message) },
             None => result_with(InstallOutcome::InProgress, self.port.check(Some(key)).await, AWAITING_PROMPT),
             Some(Ok(exit_code)) => self.classify_exit_code(exit_code, before, key).await,
         }
@@ -581,12 +576,9 @@ impl Core {
             let KeyChangeOptions { revoke, credential, delegated } = options;
             let op = KeyOp { verb, keys: keys.clone(), revoke, credential, delegated };
             match core.port.run_key_op(op).await {
-                Err(message) => KeyChangeResult {
-                    outcome: KeyChangeOutcome::Failed,
-                    state: core.port.check(None).await,
-                    detail: Some(message),
-                    exit_code: None,
-                },
+                Err(message) => {
+                    KeyChangeResult { outcome: KeyChangeOutcome::Failed, state: core.port.check(None).await, detail: Some(message), exit_code: None }
+                }
                 Ok(exit_code) => {
                     let after = core.port.check(keys.first().cloned()).await;
                     key_change_from_exit(verb, exit_code, before, after)
@@ -628,21 +620,13 @@ pub(super) struct SecureDesktopInstaller {
 
 impl SecureDesktopInstaller {
     pub(super) fn new(port: Arc<dyn InstallerPort>, timers: Arc<dyn Timers>, report_after_ms: Option<u64>) -> Self {
-        Self {
-            core: Arc::new(Core {
-                port,
-                timers,
-                report_after_ms: report_after_ms.unwrap_or(DEFAULT_REPORT_AFTER_MS),
-                state: Mutex::new(State::default()),
-            }),
-        }
+        Self { core: Arc::new(Core { port, timers, report_after_ms: report_after_ms.unwrap_or(DEFAULT_REPORT_AFTER_MS), state: Mutex::new(State::default()) }) }
     }
 
     /// Current install state, for that phone when its key is given; never prompts.
     pub(super) fn state(&self, controller_key: Option<String>) -> BoxFuture<InstallState> {
         self.core.port.check(controller_key)
     }
-
 
     /// PC access: installs (or updates) the helper enrolling `keys`, applying `options.revoke` in the same
     /// elevation.
@@ -669,24 +653,14 @@ impl SecureDesktopInstaller {
             drop(state);
             let checked = core.port.check(None);
             return Box::pin(async move {
-                KeyChangeResult {
-                    outcome: KeyChangeOutcome::InProgress,
-                    state: checked.await,
-                    detail: Some(KEY_OP_IN_FLIGHT.to_string()),
-                    exit_code: None,
-                }
+                KeyChangeResult { outcome: KeyChangeOutcome::InProgress, state: checked.await, detail: Some(KEY_OP_IN_FLIGHT.to_string()), exit_code: None }
             });
         }
         if !keys.iter().chain(&options.revoke).all(|key| is_controller_key(key)) {
             drop(state);
             let checked = core.port.check(None);
             return Box::pin(async move {
-                KeyChangeResult {
-                    outcome: KeyChangeOutcome::Failed,
-                    state: checked.await,
-                    detail: Some(INVALID_KEY_OP_DETAIL.to_string()),
-                    exit_code: None,
-                }
+                KeyChangeResult { outcome: KeyChangeOutcome::Failed, state: checked.await, detail: Some(INVALID_KEY_OP_DETAIL.to_string()), exit_code: None }
             });
         }
         state.key_ops += 1;
@@ -718,9 +692,9 @@ impl SecureDesktopInstaller {
         let core = self.core.clone();
         if !is_controller_key(controller_key) {
             let checked = core.port.check(None);
-            return Box::pin(async move {
-                InstallResult { outcome: InstallOutcome::Failed, state: checked.await, detail: Some(INVALID_KEY_DETAIL.to_string()) }
-            });
+            return Box::pin(
+                async move { InstallResult { outcome: InstallOutcome::Failed, state: checked.await, detail: Some(INVALID_KEY_DETAIL.to_string()) } },
+            );
         }
         let key = controller_key.to_string();
         let mut state = self.core.state();

@@ -20,8 +20,14 @@ async fn good_state_file(path: &Path, tokens: &LaneTokens) {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-#[allow(clippy::disallowed_methods, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
-#[allow(clippy::disallowed_types, reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case.")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case."
+)]
+#[allow(
+    clippy::disallowed_types,
+    reason = "Test-only fixture setup, source inspection or owned-file/process assertions; preserve the recorded filesystem case."
+)]
 async fn a_damaged_core_state_file_does_not_stop_the_daemon_from_composing() {
     let tokens = mixdog_rt::testing::tokens();
     for damage in ["garbage", "truncated", "another database"] {
@@ -51,22 +57,42 @@ async fn a_damaged_core_state_file_does_not_stop_the_daemon_from_composing() {
         log.enable_file_logging();
         let mut js = crate::js_runtime::fixture(dir.path());
         js.program = "node".into();
-        let core = mixdog_rt::time::timeout(Duration::from_secs(60), compose(&tokens, ComposeConfig { rebuild: Default::default(),
-            data_dir: data.clone(), user_data_dir: dir.path().join("userdata"), runtime_root: dir.path().join("runtime"),
-            js_runtime: js, ort_library: OrtRuntime::NoBinding,
-            outgoing: mixdog_app_server::Outgoing::new(),
-            ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
-            log: log.clone(),
-            stop, catalog_http: crate::compose_test_support::offline_http(),
-            pg_install: Some(Arc::new(|_| Box::pin(async {
-                Err(mixdog_services::memory::error::MemoryError::Runtime("the state test must not install PostgreSQL".into()))
-            }))),
-        })).await.expect("composition did not complete within 60 seconds").unwrap_or_else(|e| panic!("{damage}: the daemon must compose: {e}"));
+        let core = mixdog_rt::time::timeout(
+            Duration::from_secs(60),
+            compose(
+                &tokens,
+                ComposeConfig {
+                    rebuild: Default::default(),
+                    data_dir: data.clone(),
+                    user_data_dir: dir.path().join("userdata"),
+                    runtime_root: dir.path().join("runtime"),
+                    js_runtime: js,
+                    ort_library: OrtRuntime::NoBinding,
+                    outgoing: mixdog_app_server::Outgoing::new(),
+                    ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
+                    log: log.clone(),
+                    stop,
+                    catalog_http: crate::compose_test_support::offline_http(),
+                    pg_install: Some(Arc::new(|_| {
+                        Box::pin(async { Err(mixdog_services::memory::error::MemoryError::Runtime("the state test must not install PostgreSQL".into())) })
+                    })),
+                },
+            ),
+        )
+        .await
+        .expect("composition did not complete within 60 seconds")
+        .unwrap_or_else(|e| panic!("{damage}: the daemon must compose: {e}"));
         core.flush_log().await;
 
-        let kept: Vec<PathBuf> = std::fs::read_dir(&state_dir).unwrap().map(|e| e.unwrap().path())
-            .filter(|p| p.file_name().unwrap().to_string_lossy().starts_with("core.sqlite.corrupt-")
-                && !p.to_string_lossy().ends_with("-wal") && !p.to_string_lossy().ends_with("-shm")).collect();
+        let kept: Vec<PathBuf> = std::fs::read_dir(&state_dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .filter(|p| {
+                p.file_name().unwrap().to_string_lossy().starts_with("core.sqlite.corrupt-")
+                    && !p.to_string_lossy().ends_with("-wal")
+                    && !p.to_string_lossy().ends_with("-shm")
+            })
+            .collect();
         assert_eq!(kept.len(), 1, "{damage}: the damaged file is kept aside");
         assert_eq!(std::fs::read(&kept[0]).unwrap(), damaged, "{damage}: as it was");
         let text = std::fs::read_to_string(data.join("daemon.log")).unwrap();

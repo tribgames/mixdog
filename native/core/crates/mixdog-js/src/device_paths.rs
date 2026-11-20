@@ -168,7 +168,6 @@ mod tests {
         }
     }
 
-
     #[cfg(unix)]
     #[test]
     #[allow(clippy::disallowed_methods, reason = "test: stats real inodes on the test thread")]

@@ -14,7 +14,8 @@ use unicode_normalization::char::decompose_canonical;
 use super::common::fail;
 use super::hints::nearest_line;
 
-pub(super) const SAME_STRINGS: &str = "Error: old_string and new_string are exactly the same — no change needed; the file may already contain it, re-read before retrying";
+pub(super) const SAME_STRINGS: &str =
+    "Error: old_string and new_string are exactly the same — no change needed; the file may already contain it, re-read before retrying";
 
 fn conflict(matches: u32, text: String) -> ToolError {
     fail(ToolErrorCode::Conflict { matches }, text)
@@ -122,7 +123,8 @@ pub(super) fn dialect(content: &str, markdown: bool, mut old: String, mut new: S
         new = strip_trailing_blanks(&new);
     }
     if !content.contains(&old)
-        && let Some((span, styled)) = typographic_rematch(content, &old, &new, replace_all) {
+        && let Some((span, styled)) = typographic_rematch(content, &old, &new, replace_all)
+    {
         old = span;
         new = styled;
     }
@@ -323,9 +325,7 @@ fn apply_tiered(content: &str, old: &str, new: &str, replace_all: bool) -> Resul
             return Err(conflict(0, format!("Error: edit failed ({message}){}", failure_excerpt(content, old, &message))));
         }
         Err(Miss::Many(n)) => {
-            let message = format!(
-                "old_string found {n} times; add surrounding lines to make it unique, or set replace_all to true to change every occurrence"
-            );
+            let message = format!("old_string found {n} times; add surrounding lines to make it unique, or set replace_all to true to change every occurrence");
             let hinted = message.replacen(&format!("found {n} times"), &format!("found {n} times{}", match_line_hint(content, old)), 1);
             return Err(conflict(n as u32, format!("Error: edit failed ({hinted}){}", failure_excerpt(content, old, &message))));
         }
@@ -397,7 +397,8 @@ fn view(s: &str, tier: Tier) -> View {
             }),
             Tier::Crlf => {
                 if c == '\r'
-                    && let Some(&(j, '\n')) = it.peek() {
+                    && let Some(&(j, '\n')) = it.peek()
+                {
                     it.next();
                     chars.push('\n');
                     spans.push((i, j + 1));
@@ -472,11 +473,7 @@ fn locate(source: &str, old: &str, replace_all: bool) -> Result<Vec<(usize, usiz
 
 /// First file line holding the longest token of `old`'s first non-blank line.
 fn nearest_match_hint(source: &str, old: &str) -> String {
-    let keyword = old
-        .lines()
-        .find(|line| !line.trim().is_empty())
-        .and_then(|line| line.split_whitespace().max_by_key(|token| token.len()))
-        .unwrap_or("");
+    let keyword = old.lines().find(|line| !line.trim().is_empty()).and_then(|line| line.split_whitespace().max_by_key(|token| token.len())).unwrap_or("");
     if keyword.chars().count() < 4 {
         return String::new();
     }
@@ -551,7 +548,8 @@ fn excerpt_center(source: &str, lines: &[String], old: &str, error_text: &str) -
         return Some(n.saturating_sub(1));
     }
     if !old.is_empty()
-        && let Some(at) = source.find(old) {
+        && let Some(at) = source.find(old)
+    {
         return Some(source[..at].matches('\n').count());
     }
     let mut tokens: Vec<&str> = js_words(old).filter(|t| utf16_len(t) >= 4).collect();
@@ -569,10 +567,7 @@ fn failure_excerpt(content: &str, old: &str, error_text: &str) -> String {
     let source = content.replace("\r\n", "\n");
     let lines: Vec<String> = source.split('\n').map(str::to_owned).collect();
     let Some(center) = excerpt_center(&source, &lines, old, error_text) else {
-        return format!(
-            "\ncurrent file has {} line(s) and contains nothing resembling old_string — verify the path and re-read before retrying.",
-            lines.len()
-        );
+        return format!("\ncurrent file has {} line(s) and contains nothing resembling old_string — verify the path and re-read before retrying.", lines.len());
     };
     let start = center.saturating_sub(3);
     let end = lines.len().min(start.saturating_add(10));
@@ -590,10 +585,5 @@ fn failure_excerpt(content: &str, old: &str, error_text: &str) -> String {
     if rows.is_empty() {
         return String::new();
     }
-    format!(
-        "\ncurrent file excerpt lines {}-{} (use exact current text for retry):\n{}",
-        start + 1,
-        start + rows.len(),
-        rows.join("\n")
-    )
+    format!("\ncurrent file excerpt lines {}-{} (use exact current text for retry):\n{}", start + 1, start + rows.len(), rows.join("\n"))
 }

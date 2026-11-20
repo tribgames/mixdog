@@ -84,10 +84,7 @@ impl VisualGrounding {
             return Err(refused(format!("{label} requires finite screenshot x and y coordinates"), false));
         }
         if x < 0.0 || y < 0.0 || x >= self.image_width || y >= self.image_height {
-            return Err(refused(
-                format!("{label} coordinates must be inside the {}x{} screenshot", self.image_width, self.image_height),
-                false,
-            ));
+            return Err(refused(format!("{label} coordinates must be inside the {}x{} screenshot", self.image_width, self.image_height), false));
         }
         Ok((x, y))
     }
@@ -95,10 +92,7 @@ impl VisualGrounding {
     /// The page still has the URL and viewport of the screenshot.
     pub fn check_page(&self, url: &str, width: f64, height: f64, label: &str) -> Result<(), GroundingRefused> {
         if url != self.url || width != self.viewport_width || height != self.viewport_height {
-            return Err(refused(
-                format!("{label} visual grounding is stale because the page or viewport changed; call snapshot with mode=both again"),
-                true,
-            ));
+            return Err(refused(format!("{label} visual grounding is stale because the page or viewport changed; call snapshot with mode=both again"), true));
         }
         Ok(())
     }
@@ -152,6 +146,5 @@ mod tests {
         assert_eq!(held.css_point(320.0, 225.0), (640.0, 450.0));
     }
 }
-
 
 impl std::error::Error for GroundingRefused {}

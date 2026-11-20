@@ -5,5 +5,7 @@ pub mod legacy_revokes;
 pub mod runtime;
 pub mod settings;
 
-pub use runtime::{LegLink, LegSend, OnTick, PairCodeSink, PairEffectsFactory, PairWiring, RemoteError, RemoteEvents, RemoteRuntime, RuntimeConfig, RuntimeSink};
+pub use runtime::{
+    LegLink, LegSend, OnTick, PairCodeSink, PairEffectsFactory, PairWiring, RemoteError, RemoteEvents, RemoteRuntime, RuntimeConfig, RuntimeSink,
+};
 pub use settings::{AccessSettings, SettingsView};

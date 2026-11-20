@@ -83,11 +83,8 @@ pub async fn sync_in(tx: &Client) -> Result<Directory> {
         let key: String = row.get(0);
         let value: serde_json::Value = row.get(1);
         let scope = key[PREFIX.len()..].to_owned();
-        let ids: Vec<i64> = value
-            .get("recordIds")
-            .and_then(|ids| ids.as_array())
-            .map(|ids| ids.iter().filter_map(serde_json::Value::as_i64).collect())
-            .unwrap_or_default();
+        let ids: Vec<i64> =
+            value.get("recordIds").and_then(|ids| ids.as_array()).map(|ids| ids.iter().filter_map(serde_json::Value::as_i64).collect()).unwrap_or_default();
         let revision = value.get("revision").and_then(|r| r.as_str()).unwrap_or_default().to_owned();
         previous.insert(scope, IndexState { revision, record_ids: ids });
     }
@@ -112,10 +109,8 @@ pub async fn sync_in(tx: &Client) -> Result<Directory> {
         record_ids.extend(current.iter().copied().filter(|id| !known.contains(id)));
         let revision_missing = old.is_none_or(|state| state.revision.is_empty());
         let changed = revision_missing || old_ids != record_ids;
-        let state = IndexState {
-            revision: if changed { uuid::Uuid::new_v4().to_string() } else { old.map(|s| s.revision.clone()).unwrap_or_default() },
-            record_ids,
-        };
+        let state =
+            IndexState { revision: if changed { uuid::Uuid::new_v4().to_string() } else { old.map(|s| s.revision.clone()).unwrap_or_default() }, record_ids };
         if changed {
             let meta_key = format!("{PREFIX}{key}");
             #[cfg(test)]
@@ -179,7 +174,7 @@ fn display_number(value: &serde_json::Value) -> String {
 pub async fn public_identity(db: &Db, project_id: Option<&str>, agent_id: Option<&str>, id: i64) -> Result<String> {
     let directory = sync(db).await?;
     let pool = Pool { project_id, agent_id };
-    let (position, revision) = address(&directory, &pool, id)
-        .ok_or_else(|| MemoryError::rejected("memory changed before its index could be returned; list memories again"))?;
+    let (position, revision) =
+        address(&directory, &pool, id).ok_or_else(|| MemoryError::rejected("memory changed before its index could be returned; list memories again"))?;
     Ok(format!("{} id={position} index_revision={revision}", pool.label()))
 }

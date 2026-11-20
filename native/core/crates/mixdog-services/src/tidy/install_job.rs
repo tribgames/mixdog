@@ -64,11 +64,7 @@ pub struct InstallJob {
 
 impl Default for InstallJob {
     fn default() -> Self {
-        Self {
-            install: Semaphore::new(1),
-            job: Mutex::default(),
-            stamp: std::sync::atomic::AtomicU64::default(),
-        }
+        Self { install: Semaphore::new(1), job: Mutex::default(), stamp: std::sync::atomic::AtomicU64::default() }
     }
 }
 

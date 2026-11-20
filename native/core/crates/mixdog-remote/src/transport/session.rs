@@ -43,12 +43,11 @@ use super::coordinator::Sent;
 use super::coordinator::Settle;
 use super::coordinator::StreamChannel;
 use super::coordinator::WriteGate;
-use crate::clients::table::Revocation;
-use crate::media::Permit;
 use super::media::MediaLink;
 use super::media::TransportMedia;
 use super::signal::CloseReason;
 use super::split::AssemblyPool;
+use crate::clients::table::Revocation;
 use crate::e2ee::Channel;
 use crate::e2ee::ControlLane;
 use crate::e2ee::ControlOpen;
@@ -56,6 +55,7 @@ use crate::e2ee::E2eeError;
 use crate::e2ee::Sealed;
 use crate::e2ee::Wire;
 use crate::media::MediaSources;
+use crate::media::Permit;
 use crate::webrtc::carrier::CarrierChannel;
 use crate::webrtc::carrier::CarrierConnection;
 use crate::webrtc::carrier::CarrierEvent;
@@ -240,10 +240,7 @@ impl Host for SessionHost {
 
     fn peer_create(&mut self, init: &PeerInit) -> Result<(), ()> {
         let (connection, events) = CarrierConnection::spawn(PeerConfig::new(init.ice_servers.clone()));
-        self.peers.insert(
-            init.connection_id.clone(),
-            Peer { connection, declared: None, certified: false, queued: 0, buffered: [0, 0] },
-        );
+        self.peers.insert(init.connection_id.clone(), Peer { connection, declared: None, certified: false, queued: 0, buffered: [0, 0] });
         let (session, id) = (self.session.clone(), init.connection_id.clone());
         tokio::spawn(pump_events(session, id, events));
         Ok(())

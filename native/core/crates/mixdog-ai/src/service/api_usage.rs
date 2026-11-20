@@ -155,7 +155,21 @@ fn money_number(value: Option<&Value>) -> Option<f64> {
         object @ (Value::Object(_) | Value::Array(_)) => {
             let direct = first_present(
                 object,
-                &["usd", "dollars", "amountUsd", "amount_usd", "availableUsd", "available_usd", "balanceUsd", "balance_usd", "amount", "value", "balance", "available", "total"],
+                &[
+                    "usd",
+                    "dollars",
+                    "amountUsd",
+                    "amount_usd",
+                    "availableUsd",
+                    "available_usd",
+                    "balanceUsd",
+                    "balance_usd",
+                    "amount",
+                    "value",
+                    "balance",
+                    "available",
+                    "total",
+                ],
             );
             if let Some(parsed) = money_number(direct) {
                 return Some(parsed);
@@ -213,13 +227,22 @@ impl ApiUsageService {
 
     /// `getOpenAIUsageSessionKey`.
     async fn usage_session_key(&self) -> Option<String> {
-        for name in ["OPENAI_USAGE_SESSION_KEY", "OPENAI_DASHBOARD_SESSION_KEY", "OPENAI_SESSION_KEY", "MIXDOG_OPENAI_USAGE_SESSION_KEY", "MIXDOG_AGENT_OPENAI_USAGESESSIONKEY"] {
+        for name in [
+            "OPENAI_USAGE_SESSION_KEY",
+            "OPENAI_DASHBOARD_SESSION_KEY",
+            "OPENAI_SESSION_KEY",
+            "MIXDOG_OPENAI_USAGE_SESSION_KEY",
+            "MIXDOG_AGENT_OPENAI_USAGESESSIONKEY",
+        ] {
             if let Some(value) = self.env_text(name) {
                 return Some(value);
             }
         }
         let stored = self.vault.get(OPENAI_USAGE_SESSION_KEY_ACCOUNT).await.ok().flatten().filter(|v| !v.is_empty());
-        crate::oauth::carried::keep(&crate::registry::keys::keychain_source(&self.vault.identity(), OPENAI_USAGE_SESSION_KEY_ACCOUNT), &stored.as_deref().into_iter().collect::<Vec<_>>());
+        crate::oauth::carried::keep(
+            &crate::registry::keys::keychain_source(&self.vault.identity(), OPENAI_USAGE_SESSION_KEY_ACCOUNT),
+            &stored.as_deref().into_iter().collect::<Vec<_>>(),
+        );
         stored
     }
 
@@ -246,7 +269,8 @@ impl ApiUsageService {
             return None;
         }
         let truthy = |key: &str| snapshot.get(key).is_some_and(|v| !v.is_null() && *v != Value::Bool(false));
-        (truthy("balance") || snapshot.get("quotaWindows").is_some_and(Value::is_array) || truthy("tokenUsage") || truthy("unavailable")).then(|| snapshot.clone())
+        (truthy("balance") || snapshot.get("quotaWindows").is_some_and(Value::is_array) || truthy("tokenUsage") || truthy("unavailable"))
+            .then(|| snapshot.clone())
     }
 
     /// `readCachedApiUsageSnapshot`.
@@ -317,9 +341,10 @@ impl ApiUsageService {
     async fn deepseek(&self) -> Lookup {
         let Some(key) = self.agent_key("deepseek").await else { return Ok(None) };
         let data = self.fetch_json("https://api.deepseek.com/user/balance", auth_headers(&key, accept())).await?;
-        let usd = data.get("balance_infos").and_then(Value::as_array).and_then(|rows| {
-            rows.iter().find(|row| row.get("currency").map_or(String::new(), mixdog_js::value_to_string).to_uppercase() == "USD")
-        });
+        let usd = data
+            .get("balance_infos")
+            .and_then(Value::as_array)
+            .and_then(|rows| rows.iter().find(|row| row.get("currency").map_or(String::new(), mixdog_js::value_to_string).to_uppercase() == "USD"));
         let Some(remaining) = num(usd.and_then(|u| u.get("total_balance")), None) else { return Ok(None) };
         Ok(Some(object(vec![
             ("provider", "deepseek".into()),
@@ -352,7 +377,10 @@ impl ApiUsageService {
             ("cachedAt", self.now().into()),
         ];
         if used.is_some() || limit.is_some() {
-            out.push(("creditGrants", object(vec![("usedUsd", round_usd(used)), ("limitUsd", round_usd(limit)), ("nextExpiry", next_expiry.map_or(Value::Null, jn))])));
+            out.push((
+                "creditGrants",
+                object(vec![("usedUsd", round_usd(used)), ("limitUsd", round_usd(limit)), ("nextExpiry", next_expiry.map_or(Value::Null, jn))]),
+            ));
         }
         Some(object(out))
     }
@@ -378,7 +406,9 @@ impl ApiUsageService {
         let usage = self.fetch_json(&url, headers).await.ok();
         let used = num(usage.as_ref().and_then(|u| first_present(u, &["total_usage", "totalUsage"])), None).map(|cents| cents / 100.0);
         let limit = num(
-            subscription.as_ref().and_then(|s| first_present(s, &["hard_limit_usd", "hardLimitUsd", "system_hard_limit_usd", "systemHardLimitUsd", "soft_limit_usd", "softLimitUsd"])),
+            subscription.as_ref().and_then(|s| {
+                first_present(s, &["hard_limit_usd", "hardLimitUsd", "system_hard_limit_usd", "systemHardLimitUsd", "soft_limit_usd", "softLimitUsd"])
+            }),
             None,
         );
         if used.is_none() && limit.is_none() {
@@ -395,7 +425,12 @@ impl ApiUsageService {
         if let (Some(used), Some(limit)) = (used, limit) {
             balance.insert("remainingUsd".into(), jn(round((limit - used).max(0.0), 4)));
         }
-        Some(object(vec![("provider", "openai".into()), ("source", "openai-dashboard-billing".into()), ("balance", Value::Object(balance)), ("cachedAt", self.now().into())]))
+        Some(object(vec![
+            ("provider", "openai".into()),
+            ("source", "openai-dashboard-billing".into()),
+            ("balance", Value::Object(balance)),
+            ("cachedAt", self.now().into()),
+        ]))
     }
 
     async fn openai_costs(&self, api_key: Option<&str>) -> Lookup {
@@ -410,7 +445,11 @@ impl ApiUsageService {
             let mut bucket_seen = false;
             for item in bucket.get("results").and_then(Value::as_array).into_iter().flatten() {
                 let amount = item.get("amount");
-                let value = amount.and_then(|a| a.get("value")).filter(|v| !v.is_null()).or_else(|| amount.and_then(|a| a.get("usd")).filter(|v| !v.is_null())).or(amount);
+                let value = amount
+                    .and_then(|a| a.get("value"))
+                    .filter(|v| !v.is_null())
+                    .or_else(|| amount.and_then(|a| a.get("usd")).filter(|v| !v.is_null()))
+                    .or(amount);
                 if let Some(amount) = num(value, None) {
                     total += amount;
                     bucket_seen = true;
@@ -435,7 +474,10 @@ impl ApiUsageService {
     async fn openai_completion_usage(&self, api_key: Option<&str>) -> Lookup {
         let Some(key) = api_key else { return Ok(None) };
         let start = (self.now() - USAGE_LOOKBACK_MS).div_euclid(1000);
-        let url = url_with("https://api.openai.com/v1/organization/usage/completions", &[("start_time", start.to_string()), ("bucket_width", "1d".into()), ("limit", "31".into())]);
+        let url = url_with(
+            "https://api.openai.com/v1/organization/usage/completions",
+            &[("start_time", start.to_string()), ("bucket_width", "1d".into()), ("limit", "31".into())],
+        );
         let data = self.fetch_json(&url, auth_headers(key, accept())).await?;
         let buckets = data.get("data").and_then(Value::as_array);
         let (mut input, mut output, mut cached, mut requests) = (0.0, 0.0, 0.0, 0.0);
@@ -497,8 +539,12 @@ impl ApiUsageService {
         if keys.is_empty() {
             return Ok(Some(self.unavailable_message("anthropic", "Set ANTHROPIC_ADMIN_API_KEY for usage/cost report")));
         }
-        let start = DateTime::from_timestamp_millis(self.now() - USAGE_LOOKBACK_MS).map_or_else(String::new, |d| d.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
-        let url = url_with("https://api.anthropic.com/v1/organizations/cost_report", &[("starting_at", start), ("bucket_width", "1d".into()), ("limit", "31".into())]);
+        let start =
+            DateTime::from_timestamp_millis(self.now() - USAGE_LOOKBACK_MS).map_or_else(String::new, |d| d.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string());
+        let url = url_with(
+            "https://api.anthropic.com/v1/organizations/cost_report",
+            &[("starting_at", start), ("bucket_width", "1d".into()), ("limit", "31".into())],
+        );
         let mut first_auth_error: Option<ApiError> = None;
         for key in &keys {
             for bearer in [true, false] {
@@ -506,7 +552,10 @@ impl ApiUsageService {
                 headers.push(if bearer { ("Authorization".to_owned(), format!("Bearer {key}")) } else { ("x-api-key".to_owned(), key.clone()) });
                 match self.fetch_json(&url, headers).await {
                     Ok(data) => {
-                        return Ok(Some(self.parse_anthropic_cost_report(&data).unwrap_or_else(|| self.unavailable_message("anthropic", "Anthropic cost report returned no usage data"))));
+                        return Ok(Some(
+                            self.parse_anthropic_cost_report(&data)
+                                .unwrap_or_else(|| self.unavailable_message("anthropic", "Anthropic cost report returned no usage data")),
+                        ));
                     }
                     Err(error) if error.refused() => {
                         first_auth_error.get_or_insert(error);
@@ -554,11 +603,15 @@ impl ApiUsageService {
     // -- xAI -----------------------------------------------------------------------------
 
     fn parse_xai_prepaid_balance(&self, data: &Value) -> Option<Value> {
-        let remaining = money_number(first_present(data, &["total", "availableCredits", "available_credits", "creditBalance", "credit_balance", "balance", "credits"]))?;
+        let remaining =
+            money_number(first_present(data, &["total", "availableCredits", "available_credits", "creditBalance", "credit_balance", "balance", "credits"]))?;
         Some(object(vec![
             ("provider", "xai".into()),
             ("source", "xai-management-prepaid-balance".into()),
-            ("balance", object(vec![("remainingUsd", jn(round(remaining, 4))), ("currency", "USD".into()), ("source", "xai-management-prepaid-balance".into())])),
+            (
+                "balance",
+                object(vec![("remainingUsd", jn(round(remaining, 4))), ("currency", "USD".into()), ("source", "xai-management-prepaid-balance".into())]),
+            ),
             ("cachedAt", self.now().into()),
         ]))
     }

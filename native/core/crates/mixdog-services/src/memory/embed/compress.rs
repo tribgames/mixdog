@@ -40,10 +40,7 @@ pub async fn compress_model_cache(windows: bool, lane: CpuBulk, cache_dir: &Path
     let dir = model_cache_path(cache_dir, model_id)?;
     let probe = dir.clone();
     #[allow(clippy::disallowed_methods, reason = "a lane-job body")]
-    crate::lane::on_lane(lane, move || std::fs::metadata(&probe).map(|_| ()))
-        .await
-        .map_err(|e| e.to_string())?
-        .map_err(|e| e.to_string())?;
+    crate::lane::on_lane(lane, move || std::fs::metadata(&probe).map(|_| ())).await.map_err(|e| e.to_string())?.map_err(|e| e.to_string())?;
     let shown = dir.display().to_string();
     compact(vec!["/c".into(), format!("/s:{shown}"), "/i".into(), "/q".into(), "/exe:lzx".into(), format!("{shown}{}*", std::path::MAIN_SEPARATOR)]).await?;
     Ok(Some(dir))
@@ -124,14 +121,14 @@ mod tests {
     }
 }
 
-
 /// `compact.exe` under the shared process manager, with Node's two-minute limit.
 pub fn compact_with(processes: Processes) -> Compact {
     Arc::new(move |args| {
         let processes = processes.clone();
         Box::pin(async move {
             let cwd = std::env::temp_dir();
-            let result = processes.run("compact.exe", &args, RunOptions { timeout: COMPACT_TIMEOUT, max_capture: COMPACT_MAX_BUFFER, ..RunOptions::new(&cwd) }).await;
+            let result =
+                processes.run("compact.exe", &args, RunOptions { timeout: COMPACT_TIMEOUT, max_capture: COMPACT_MAX_BUFFER, ..RunOptions::new(&cwd) }).await;
             match (result.code, result.timed_out) {
                 (_, true) => Err("compact.exe timed out".to_owned()),
                 (0, _) => Ok(()),

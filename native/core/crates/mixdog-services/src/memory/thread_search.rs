@@ -4,6 +4,7 @@
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_app_protocol::v2::thread::ThreadSearchParams;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::DomainService;
@@ -14,7 +15,6 @@ use mixdog_core_api::service::Admit;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::failed;
 use mixdog_core_base::support::wrong_method;
-use mixdog_app_protocol::v2::thread::ThreadSearchParams;
 use serde_json::Value;
 use serde_json::json;
 
@@ -63,10 +63,7 @@ impl ThreadSearchService {
             // `ts_rank_cd` is a float4, which node-postgres parses from its shortest decimal
             // text; a JS number with no fraction prints without one. f32's own text always
             // parses as f64, so a failure is a defect surfaced as an error.
-            let shortest: f64 = (hit.rank as f32)
-                .to_string()
-                .parse()
-                .map_err(|e| failed(DOMAIN, format!("session search rank is not a number: {e}")))?;
+            let shortest: f64 = (hit.rank as f32).to_string().parse().map_err(|e| failed(DOMAIN, format!("session search rank is not a number: {e}")))?;
             let rank = if shortest.fract() == 0.0 { json!(shortest as i64) } else { json!(shortest) };
             out.push(json!({ "sessionId": hit.session_id, "snippet": hit.snippet, "rank": rank }));
         }
@@ -92,7 +89,6 @@ impl DomainService for ThreadSearchService {
         Admit::Accepted
     }
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -166,7 +162,8 @@ mod tests {
             assert!(service.run(bad).await.unwrap_err().to_string().contains("session search query is invalid."), "{}", bad.len());
         }
         assert!(service.run(&"q".repeat(1024)).await.is_ok(), "1024 units is the limit");
-        let request = CoreRequest { method: Method("thread/search"), params: json!({ "query": "staging" }), op: None, ctx: CallContext::internal("thread-search-test") };
+        let request =
+            CoreRequest { method: Method("thread/search"), params: json!({ "query": "staging" }), op: None, ctx: CallContext::internal("thread-search-test") };
         let Ok(Reply::Value(routed)) = service.call(request).await else { panic!("the route answers a value") };
         assert_eq!(routed, service.run("staging").await.unwrap());
         let wrong = CoreRequest { method: Method("thread/other"), params: json!({}), op: None, ctx: CallContext::internal("thread-search-test") };

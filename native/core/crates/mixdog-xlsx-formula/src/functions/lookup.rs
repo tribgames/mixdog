@@ -9,8 +9,8 @@ macro_rules! functions { ($($name:ident),*) => { $(fn $name(a:&[V])->Result<V,Fa
 mod exports {
     use super::*;
     functions!(
-        CHOOSE, CHOOSECOLS, CHOOSEROWS, COLUMN, COLUMNS, DROP, EXPAND, HLOOKUP, HSTACK, INDEX,
-        LOOKUP, MATCH, ROW, ROWS, SORT, TAKE, TRANSPOSE, UNIQUE, VLOOKUP, VSTACK
+        CHOOSE, CHOOSECOLS, CHOOSEROWS, COLUMN, COLUMNS, DROP, EXPAND, HLOOKUP, HSTACK, INDEX, LOOKUP, MATCH, ROW, ROWS, SORT, TAKE, TRANSPOSE, UNIQUE,
+        VLOOKUP, VSTACK
     );
 }
 pub use exports::FUNCTIONS;
@@ -23,11 +23,7 @@ fn cell(v: &V, i: f64) -> V {
     };
     match v {
         V::Array(v) => v.get(i).cloned().unwrap_or(V::Undefined),
-        v if v.is_text() => v
-            .text_units()
-            .unwrap()
-            .get(i)
-            .map_or(V::Undefined, |u| V::from_utf16(vec![*u])),
+        v if v.is_text() => v.text_units().unwrap().get(i).map_or(V::Undefined, |u| V::from_utf16(vec![*u])),
         _ => V::Undefined,
     }
 }
@@ -62,11 +58,7 @@ fn less_equal(a: &V, b: &V) -> bool {
     }
 }
 fn lower(v: V) -> V {
-    if let Some(units) = v.text_units() {
-        V::from_utf16(case_utf16(&units, false))
-    } else {
-        v
-    }
+    if let Some(units) = v.text_units() { V::from_utf16(case_utf16(&units, false)) } else { v }
 }
 fn locale_less(a: &V, b: &V) -> bool {
     let a = to_js_utf16(a);
@@ -75,16 +67,7 @@ fn locale_less(a: &V, b: &V) -> bool {
 }
 fn raw_match(pattern: &[u16], input: &[u16]) -> Result<bool, Failure> {
     let mut pattern = case_utf16(pattern, false);
-    for (unit, replacement) in [
-        (63, "."),
-        (42, ".*"),
-        (126, "\\"),
-        (43, "\\+"),
-        (40, "\\("),
-        (41, "\\)"),
-        (91, "\\["),
-        (93, "\\]"),
-    ] {
+    for (unit, replacement) in [(63, "."), (42, ".*"), (126, "\\"), (43, "\\+"), (40, "\\("), (41, "\\)"), (91, "\\["), (93, "\\]")] {
         let mut next = Vec::new();
         for u in pattern {
             if u == unit {
@@ -97,8 +80,7 @@ fn raw_match(pattern: &[u16], input: &[u16]) -> Result<bool, Failure> {
     }
     pattern.insert(0, 94);
     pattern.push(36);
-    mixdog_js::regex_is_match_utf16(&pattern, &case_utf16(input, false), "")
-        .map_err(Failure::thrown)
+    mixdog_js::regex_is_match_utf16(&pattern, &case_utf16(input, false), "").map_err(Failure::thrown)
 }
 
 fn array(v: &V) -> Result<&[V], Failure> {
@@ -121,18 +103,11 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return err(E::Na);
             }
             let n = to_js_number(&x);
-            let add = if matches!(x, V::Text(_)) {
-                to_js_number(&V::Text(to_js_string(&x) + "1"))
-            } else {
-                n + 1.0
-            };
+            let add = if matches!(x, V::Text(_)) { to_js_number(&V::Text(to_js_string(&x) + "1")) } else { n + 1.0 };
             if n < 1.0 || n > 254.0 || (a.len() as f64) < add {
                 return err(E::Value);
             }
-            Ok(index(n)
-                .and_then(|i| a.get(i))
-                .cloned()
-                .unwrap_or(V::Undefined))
+            Ok(index(n).and_then(|i| a.get(i)).cloned().unwrap_or(V::Undefined))
         }
         "UNIQUE" => {
             let mut out = Vec::new();
@@ -156,11 +131,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 rows.len()
             } else {
                 let n = len(&rows[0]);
-                if n.is_nan() || n == 0.0 {
-                    1
-                } else {
-                    n as usize
-                }
+                if n.is_nan() || n == 0.0 { 1 } else { n as usize }
             };
             Ok(V::Number(n as f64))
         }
@@ -178,14 +149,9 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return Ok(V::Undefined);
             }
             if name == "ROW" {
-                Ok(index(i)
-                    .and_then(|i| rows.get(i))
-                    .cloned()
-                    .unwrap_or(V::Undefined))
+                Ok(index(i).and_then(|i| rows.get(i)).cloned().unwrap_or(V::Undefined))
             } else {
-                Ok(V::Array(
-                    rows.iter().map(|r| V::Array(vec![cell(r, i)])).collect(),
-                ))
+                Ok(V::Array(rows.iter().map(|r| V::Array(vec![cell(r, i)])).collect()))
             }
         }
         "TRANSPOSE" => {
@@ -205,10 +171,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             let (r, c) = if one && !is_truthy(&z) {
                 (V::Number(1.0), y)
             } else {
-                (
-                    if is_truthy(&y) { y } else { V::Number(1.0) },
-                    if is_truthy(&z) { z } else { V::Number(1.0) },
-                )
+                (if is_truthy(&y) { y } else { V::Number(1.0) }, if is_truthy(&z) { z } else { V::Number(1.0) })
             };
             let (rn, cn) = (to_js_number(&r), to_js_number(&c));
             if rn < 0.0 || cn < 0.0 {
@@ -220,10 +183,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             if rn <= rows.len() as f64 {
                 let row = cell(&x, rn - 1.0);
                 if matches!(row, V::Undefined | V::Null) {
-                    return Err(Failure::thrown(format!(
-                        "Cannot read properties of {} (reading 'length')",
-                        to_js_string(&row)
-                    )));
+                    return Err(Failure::thrown(format!("Cannot read properties of {} (reading 'length')", to_js_string(&row))));
                 }
                 if cn <= len(&row) {
                     return Ok(cell(&row, cn - 1.0));
@@ -233,11 +193,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
         }
         "LOOKUP" => {
             let values = flatten(&[y]);
-            let targets = if is_truthy(&z) {
-                flatten(&[z])
-            } else {
-                values.clone()
-            };
+            let targets = if is_truthy(&z) { flatten(&[z]) } else { values.clone() };
             let mut result = V::Error(E::Na);
             let numeric = matches!(x, V::Number(_));
             for (i, v) in values.iter().enumerate() {
@@ -267,27 +223,16 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             while i < size {
                 let row = cell(&table, i);
                 if matches!(row, V::Null | V::Undefined) {
-                    return Err(Failure::thrown(format!(
-                        "Cannot read properties of {} (reading '0')",
-                        to_js_string(&row)
-                    )));
+                    return Err(Failure::thrown(format!("Cannot read properties of {} (reading '0')", to_js_string(&row))));
                 }
                 let row_key = lower(cell(&row, 0.0));
                 let value = || {
-                    if to_js_number(&z) < len(&row) + 1.0 {
-                        cell(&row, to_js_number(&z) - 1.0)
-                    } else {
-                        V::Error(E::Ref)
-                    }
+                    if to_js_number(&z) < len(&row) + 1.0 { cell(&row, to_js_number(&z) - 1.0) } else { V::Error(E::Ref) }
                 };
                 if js_strict_equals(&row_key, &key) {
                     result = value();
                     break;
-                } else if !exact
-                    && approx
-                    && ((numeric && less_equal(&row_key, &x))
-                        || (row_key.is_text() && locale_less(&row_key, &x)))
-                {
+                } else if !exact && approx && ((numeric && less_equal(&row_key, &x)) || (row_key.is_text() && locale_less(&row_key, &x))) {
                     result = value()
                 }
                 if numeric && less(&x, &row_key) {
@@ -313,9 +258,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             let mut found = None;
             for (i, v) in values.iter().enumerate() {
                 if k == 0.0 {
-                    if (x.is_text() && v.is_text())
-                        && (matches!(x, V::Utf16(_)) || matches!(v, V::Utf16(_)))
-                    {
+                    if (x.is_text() && v.is_text()) && (matches!(x, V::Utf16(_)) || matches!(v, V::Utf16(_))) {
                         if raw_match(&x.text_units().unwrap(), &v.text_units().unwrap())? {
                             return Ok(V::Number((i + 1) as f64));
                         }
@@ -330,8 +273,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                             .replace(')', "\\)")
                             .replace('[', "\\[")
                             .replace(']', "\\]");
-                        let re = mixdog_js::JsRegex::new(&format!("^{pattern}$"), "")
-                            .map_err(Failure::thrown)?;
+                        let re = mixdog_js::JsRegex::new(&format!("^{pattern}$"), "").map_err(Failure::thrown)?;
                         if re.is_match(&s.to_lowercase()) {
                             return Ok(V::Number((i + 1) as f64));
                         }
@@ -354,16 +296,8 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return err(E::Value);
             };
             let (_, columns) = get_matrix_size(rows);
-            let size = if name == "CHOOSEROWS" {
-                rows.len()
-            } else {
-                columns
-            };
-            let selections = flatten(if a.len() > 1 {
-                &a[1..]
-            } else {
-                &[V::Undefined]
-            });
+            let size = if name == "CHOOSEROWS" { rows.len() } else { columns };
+            let selections = flatten(if a.len() > 1 { &a[1..] } else { &[V::Undefined] });
             let mut indices = Vec::new();
             for s in selections {
                 let n = to_js_number(&s);
@@ -371,22 +305,14 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                     return err(E::Value);
                 }
                 let n = if n < 0.0 {
-                    if matches!(s, V::Text(_)) {
-                        to_js_number(&V::Text(format!("{}{}1", to_js_string(&s), size)))
-                    } else {
-                        n + size as f64 + 1.0
-                    }
+                    if matches!(s, V::Text(_)) { to_js_number(&V::Text(format!("{}{}1", to_js_string(&s), size))) } else { n + size as f64 + 1.0 }
                 } else {
                     n
                 };
                 indices.push(n - 1.0)
             }
             if name == "CHOOSECOLS" {
-                Ok(V::Array(
-                    rows.iter()
-                        .map(|r| V::Array(indices.iter().map(|i| null_zero(cell(r, *i))).collect()))
-                        .collect(),
-                ))
+                Ok(V::Array(rows.iter().map(|r| V::Array(indices.iter().map(|i| null_zero(cell(r, *i))).collect())).collect()))
             } else {
                 let mut out = Vec::new();
                 for i in indices {
@@ -401,9 +327,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                                 .collect(),
                         )),
                         _ => {
-                            return Err(Failure::thrown(
-                                "array[(--row_num_selection)] is not iterable",
-                            ));
+                            return Err(Failure::thrown("array[(--row_num_selection)] is not iterable"));
                         }
                     }
                 }
@@ -486,16 +410,8 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
         "EXPAND" => {
             let rows = array(&x)?;
             let (rs, cs) = get_matrix_size(rows);
-            let r = if is_defined(&y) {
-                y
-            } else {
-                V::Number(rs as f64)
-            };
-            let c = if is_defined(&z) {
-                z
-            } else {
-                V::Number(cs as f64)
-            };
+            let r = if is_defined(&y) { y } else { V::Number(rs as f64) };
+            let c = if is_defined(&z) { z } else { V::Number(cs as f64) };
             if to_js_number(&r) < rs as f64 || to_js_number(&c) < cs as f64 {
                 return err(E::Value);
             }
@@ -523,26 +439,14 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             Ok(V::Array(matrix))
         }
         "HSTACK" | "VSTACK" => {
-            let values = if a.is_empty() {
-                vec![V::Undefined]
-            } else {
-                a.to_vec()
-            };
+            let values = if a.is_empty() { vec![V::Undefined] } else { a.to_vec() };
             let mut dimensions = Vec::new();
             for v in &values {
                 dimensions.push(get_matrix_size(array(v)?))
             }
             let horizontal = name == "HSTACK";
-            let nr = if horizontal {
-                dimensions.iter().map(|d| d.0).max().unwrap_or(0)
-            } else {
-                dimensions.iter().map(|d| d.0).sum()
-            };
-            let nc = if horizontal {
-                dimensions.iter().map(|d| d.1).sum()
-            } else {
-                dimensions.iter().map(|d| d.1).max().unwrap_or(0)
-            };
+            let nr = if horizontal { dimensions.iter().map(|d| d.0).max().unwrap_or(0) } else { dimensions.iter().map(|d| d.0).sum() };
+            let nc = if horizontal { dimensions.iter().map(|d| d.1).sum() } else { dimensions.iter().map(|d| d.1).max().unwrap_or(0) };
             let mut out = vec![vec![V::Undefined; nc]; nr];
             let mut offset = 0;
             for (v, (rs, cs)) in values.iter().zip(dimensions) {
@@ -616,18 +520,10 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             js_sort_by(&mut rows, |a, b| {
                 let a = parse_string(&cell(a, i - 1.0));
                 let b = parse_string(&cell(b, i - 1.0));
-                let before = if order == 1.0 {
-                    less(&a, &b)
-                } else {
-                    less(&b, &a)
-                };
+                let before = if order == 1.0 { less(&a, &b) } else { less(&b, &a) };
                 if before { -1.0 } else { 1.0 }
             });
-            if col {
-                transpose(&V::Array(rows))
-            } else {
-                Ok(V::Array(rows))
-            }
+            if col { transpose(&V::Array(rows)) } else { Ok(V::Array(rows)) }
         }
         _ => unreachable!(),
     }

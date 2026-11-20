@@ -28,9 +28,9 @@ use crate::inspect::inspector::repo_ref;
 use crate::locks::RepoGuard;
 use crate::locks::RepoLocks;
 use crate::repo;
-use crate::stage_select::DiffSnapshots;
 use crate::repo::RepoIdentity;
 use crate::repo::on_lane;
+use crate::stage_select::DiffSnapshots;
 
 pub struct Scm {
     pub git: Git,
@@ -118,19 +118,10 @@ impl Scm {
     }
 
     /// The repository containing `cwd`; [`ScmFailure::NotARepository`] outside one.
-    pub async fn open(
-        self: &Arc<Self>,
-        cwd: &Path,
-        cancel: &CancellationToken,
-    ) -> Result<Repo, ScmFailure> {
+    pub async fn open(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken) -> Result<Repo, ScmFailure> {
         let start = cwd.to_path_buf();
         let identity = on_lane(self.lane, cancel, move || repo::discover(&start)).await??;
-        Ok(Repo {
-            scm: self.clone(),
-            cwd: cwd.to_path_buf(),
-            identity,
-            cancel: cancel.clone(),
-        })
+        Ok(Repo { scm: self.clone(), cwd: cwd.to_path_buf(), identity, cancel: cancel.clone() })
     }
 
     /// The repository containing `cwd`, or `cwd` itself outside one: Node runs the call's git command in the folder it was given and
@@ -153,13 +144,7 @@ impl Scm {
     /// What `gitResetToCommit` / `gitCherryPickCommit` answer in a folder that is no repository: Node checks the reset mode, then
     /// asks git to resolve the commit (`checkedCommit`, git-mutations.ts), so the caller is told which commit could not be found,
     /// not that there is no repository. `mode` is `None` for a call that has none.
-    pub async fn commit_lookup_outside_repository(
-        self: &Arc<Self>,
-        cwd: &Path,
-        cancel: &CancellationToken,
-        mode: Option<&str>,
-        value: &str,
-    ) -> ScmFailure {
+    pub async fn commit_lookup_outside_repository(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken, mode: Option<&str>, value: &str) -> ScmFailure {
         if mode.is_some_and(|mode| !matches!(mode, "soft" | "mixed" | "hard")) {
             return ScmFailure::invalid("mode", "`soft`, `mixed` or `hard`");
         }
@@ -223,11 +208,7 @@ pub(crate) fn sweep_dead_commit_scratch(root: &Path, now: SystemTime) -> usize {
             };
             let orphaned = match scratch_owner(after) {
                 Some(owner) => !scratch_owner_alive(owner),
-                None => info
-                    .modified()
-                    .ok()
-                    .and_then(|at| now.duration_since(at).ok())
-                    .is_some_and(|age| age > COMMIT_SCRATCH_GRACE),
+                None => info.modified().ok().and_then(|at| now.duration_since(at).ok()).is_some_and(|age| age > COMMIT_SCRATCH_GRACE),
             };
             if !orphaned {
                 return false;
@@ -252,10 +233,7 @@ pub struct Repo {
 impl Repo {
     /// The work tree root; a bare repository has none and cannot be mutated here.
     pub fn root(&self) -> Result<&Path, ScmFailure> {
-        self.identity
-            .work_tree
-            .as_deref()
-            .ok_or(ScmFailure::NotARepository)
+        self.identity.work_tree.as_deref().ok_or(ScmFailure::NotARepository)
     }
 
     pub fn repo_ref(&self) -> Result<RepoRef, ScmFailure> {
@@ -277,18 +255,12 @@ impl Repo {
     /// The write lock of this work tree.
     pub async fn lock_work_tree(&self) -> Result<RepoGuard, ScmFailure> {
         let root = self.root()?.to_path_buf();
-        self.scm
-            .locks
-            .acquire(&self.identity.common_dir, Some(&[root.as_path()]), &self.cancel)
-            .await
+        self.scm.locks.acquire(&self.identity.common_dir, Some(&[root.as_path()]), &self.cancel).await
     }
 
     /// The write lock of the whole repository (managed worktree mutations).
     pub async fn lock_repository(&self) -> Result<RepoGuard, ScmFailure> {
-        self.scm
-            .locks
-            .acquire(&self.identity.common_dir, None, &self.cancel)
-            .await
+        self.scm.locks.acquire(&self.identity.common_dir, None, &self.cancel).await
     }
 
     /// A write changed the repository: cached inspections are stale now, ahead of the watcher.

@@ -93,13 +93,7 @@ struct ScreenReplay {
 
 impl Default for ScreenReplay {
     fn default() -> Self {
-        Self {
-            starts: HashMap::new(),
-            retired: Vec::new(),
-            early_closes: Vec::new(),
-            needs_resync: false,
-            handoff: Arc::new(tokio::sync::Semaphore::new(1)),
-        }
+        Self { starts: HashMap::new(), retired: Vec::new(), early_closes: Vec::new(), needs_resync: false, handoff: Arc::new(tokio::sync::Semaphore::new(1)) }
     }
 }
 
@@ -231,9 +225,7 @@ impl<D: RelayDeps> Relay<D> {
         let mut state = self.state();
         let settled = match (state.ownership.get_mut(&owner_key), &signal) {
             (Some(entry), ClientSignal::PromoteAck { connection, input_epoch })
-                if entry.owner == Owner::Relay
-                    && entry.connection_id == connection.connection_id
-                    && entry.promote_epoch == Some(*input_epoch) =>
+                if entry.owner == Owner::Relay && entry.connection_id == connection.connection_id && entry.promote_epoch == Some(*input_epoch) =>
             {
                 entry.owner = Owner::Channel;
                 self.deps.set_images(client, session, false);
@@ -268,8 +260,7 @@ impl<D: RelayDeps> Relay<D> {
                 let key = key(client, &source_key);
                 {
                     let mut state = self.state();
-                    let matches =
-                        state.attempts.get(&key).is_some_and(|pending| pending.origin == origin && pending.viewer_attempt == Some(*viewer_attempt));
+                    let matches = state.attempts.get(&key).is_some_and(|pending| pending.origin == origin && pending.viewer_attempt == Some(*viewer_attempt));
                     // The connection may have left during authorization or while waiting for handoff.
                     let Some(replay) = state.existing_replay(client, origin).filter(|replay| Arc::ptr_eq(&replay.handoff, &handoff)) else {
                         return Ok(());

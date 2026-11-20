@@ -74,11 +74,7 @@ fn active_workflow_summary(store: &mut dyn WelcomeProbes, workflow: &Value) -> O
         Some(Err(_)) => return None,
     };
     let workflows = listed.as_array()?;
-    workflows
-        .iter()
-        .find(|item| truthy(item.get("active")))
-        .or_else(|| workflows.iter().find(|item| item.get("id") == workflow.get("id")))
-        .cloned()
+    workflows.iter().find(|item| truthy(item.get("active"))).or_else(|| workflows.iter().find(|item| item.get("id") == workflow.get("id"))).cloned()
 }
 
 #[cfg(test)]
@@ -188,7 +184,6 @@ mod tests {
     }
 }
 
-
 impl WelcomePromptHint {
     /// A hint that shows `tip` as the starter tip.
     pub fn with_tip(tip: &str) -> Self {
@@ -263,7 +258,8 @@ impl WelcomePromptHint {
                 Some(Ok(route)) if truthy(Some(&route)) => route,
                 _ => Value::Null,
             };
-            let default_route = js_to_lowercase(&field_text(route.get("provider"))) == "default" && js_to_lowercase(&field_text(route.get("model"))) == "default";
+            let default_route =
+                js_to_lowercase(&field_text(route.get("provider"))) == "default" && js_to_lowercase(&field_text(route.get("model"))) == "default";
             if default_route
                 && let Some(models) = list_quick_models(&mut *store)
                 && let Some(current) = models.as_array().and_then(|models| {

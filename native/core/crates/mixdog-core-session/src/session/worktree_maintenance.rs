@@ -26,7 +26,6 @@ use mixdog_scm::worktree::maintenance::SessionSource;
 use mixdog_scm::worktree::manager::Worktrees;
 use serde_json::Value;
 
-
 const CLEANUP_INTERVAL: Duration = Duration::from_secs(60 * 60);
 const CLEANUP_INITIAL_DELAY: Duration = Duration::from_secs(3 * 60);
 
@@ -87,12 +86,7 @@ pub fn cleanup_summary(report: &Value) -> Option<String> {
 }
 
 impl WorktreeMaintenance {
-    pub fn new(
-        worktrees: Arc<Worktrees>,
-        sessions: Arc<dyn SessionSource>,
-        live: LiveSessions,
-        cancel_snapshot_cleanups: CancelSnapshotCleanups,
-    ) -> Self {
+    pub fn new(worktrees: Arc<Worktrees>, sessions: Arc<dyn SessionSource>, live: LiveSessions, cancel_snapshot_cleanups: CancelSnapshotCleanups) -> Self {
         Self { worktrees, sessions, live, cancel_snapshot_cleanups }
     }
 

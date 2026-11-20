@@ -132,10 +132,7 @@ impl Tool for SkillTool {
         let already = self.skills.body_present(&ctx.thread_id, &body).await?;
         let head = stub(&name, &skill.source);
         let (text, follow_up) = if already {
-            (
-                format!("{head} (already active; instructions unchanged — follow them without calling Skill again)"),
-                Vec::new(),
-            )
+            (format!("{head} (already active; instructions unchanged — follow them without calling Skill again)"), Vec::new())
         } else {
             (head, vec![FollowUpMessage { text: body, meta: Some("skill".to_owned()) }])
         };
@@ -228,7 +225,6 @@ mod tests {
         assert_eq!(error.message_for_model, expected.message_for_model);
     }
 
-
     async fn result_of(notice: ArmNotice, already: bool) -> (Vec<ToolPart>, bool) {
         let tool = SkillTool::new(port(notice, Ok(already)));
         let output = tool.call(&crate::orch::tests::ctx(), serde_json::json!({"name": "deck-guide"})).await.expect("loaded");
@@ -239,7 +235,10 @@ mod tests {
     /// injects no body again.
     #[tokio::test]
     async fn the_result_is_the_stub_then_the_notice_lines() {
-        let lines = vec!["Required tools unavailable: nope (not available in this session)".to_owned(), "No tools were installed or enabled and no permissions were changed.".to_owned()];
+        let lines = vec![
+            "Required tools unavailable: nope (not available in this session)".to_owned(),
+            "No tools were installed or enabled and no permissions were changed.".to_owned(),
+        ];
         let (parts, no_body) = result_of(ArmNotice { lines, native: None }, false).await;
         assert_eq!(
             parts,
@@ -267,7 +266,9 @@ mod tests {
         let (parts, no_body) = result_of(ArmNotice { lines: vec![line.to_owned()], native: None }, true).await;
         assert_eq!(
             parts,
-            vec![ToolPart::Text(format!("Loaded skill: deck-guide (already active; instructions unchanged — follow them without calling Skill again)\n{line}"))]
+            vec![ToolPart::Text(format!(
+                "Loaded skill: deck-guide (already active; instructions unchanged — follow them without calling Skill again)\n{line}"
+            ))]
         );
         assert!(no_body);
     }

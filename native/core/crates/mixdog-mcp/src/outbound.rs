@@ -35,8 +35,7 @@ const LISTED: [(&str, ActionKind); 21] = [
 const PUBLISH: [&str; 5] = ["create_post", "publish_post", "create_tweet", "post_tweet", "send_tweet"];
 
 /// A name opening with a read verb (`list_payments`, `get_purchase`) only reads.
-const READ_VERBS: [&str; 10] =
-    ["get", "list", "search", "read", "fetch", "retrieve", "find", "view", "describe", "lookup"];
+const READ_VERBS: [&str; 10] = ["get", "list", "search", "read", "fetch", "retrieve", "find", "view", "describe", "lookup"];
 const MAIL_TOKENS: [&str; 5] = ["mail", "email", "gmail", "outlook", "smtp"];
 const SEND_TOKENS: [&str; 3] = ["send", "reply", "forward"];
 const PAYMENT_TOKENS: [&str; 6] = ["pay", "payment", "purchase", "buy", "checkout", "charge"];
@@ -49,19 +48,11 @@ fn bare_name(value: &str) -> String {
 }
 
 fn tokens_of(value: &str) -> Vec<String> {
-    bare_name(value)
-        .split(|c: char| !c.is_ascii_lowercase() && !c.is_ascii_digit())
-        .filter(|t| !t.is_empty())
-        .map(str::to_owned)
-        .collect()
+    bare_name(value).split(|c: char| !c.is_ascii_lowercase() && !c.is_ascii_digit()).filter(|t| !t.is_empty()).map(str::to_owned).collect()
 }
 
 fn listed(bare: &str) -> Option<ActionKind> {
-    LISTED
-        .iter()
-        .find(|(name, _)| *name == bare)
-        .map(|(_, kind)| *kind)
-        .or_else(|| PUBLISH.contains(&bare).then_some(ActionKind::Publish))
+    LISTED.iter().find(|(name, _)| *name == bare).map(|(_, kind)| *kind).or_else(|| PUBLISH.contains(&bare).then_some(ActionKind::Publish))
 }
 
 /// The category a bare MCP tool name (and its server) makes.
@@ -104,22 +95,13 @@ pub struct Hints {
 
 /// The outbound kind of tool `tool` of server `server` (the second segment of its qualified
 /// name) called with `args`. `declared` is the server's own per-tool declaration.
-pub fn outbound_kind(
-    declared: Option<ActionKind>,
-    server: &str,
-    tool: &str,
-    args: &Value,
-    hints: Hints,
-) -> Option<ActionKind> {
+pub fn outbound_kind(declared: Option<ActionKind>, server: &str, tool: &str, args: &Value, hints: Hints) -> Option<ActionKind> {
     if declared.is_some() {
         return declared;
     }
     let bare = bare_name(tool);
     let mut category = category_by_name(&bare, server);
-    if category.is_none()
-        && tokens_of(&bare).iter().any(|t| t == "delete")
-        && args.get("permanent") == Some(&Value::Bool(true))
-    {
+    if category.is_none() && tokens_of(&bare).iter().any(|t| t == "delete") && args.get("permanent") == Some(&Value::Bool(true)) {
         category = Some(ActionKind::Delete);
     }
     if category.is_none() && hints.read_only {
@@ -165,10 +147,7 @@ mod tests {
     #[test]
     fn delete_message_still_asks_as_a_delete() {
         assert_eq!(kind("slack", "delete_message", &json!({}), Hints::default()), Some(ActionKind::Delete));
-        assert_eq!(
-            kind("slack", "delete_message", &json!({}), Hints { read_only: true, outbound: false }),
-            Some(ActionKind::Delete)
-        );
+        assert_eq!(kind("slack", "delete_message", &json!({}), Hints { read_only: true, outbound: false }), Some(ActionKind::Delete));
         assert_eq!(kind("slack", "list_deleted_items", &json!({}), Hints::default()), None);
     }
 
@@ -225,7 +204,11 @@ mod tests {
         assert_eq!(plain("fs", "purge_cache"), Some(ActionKind::Delete));
         assert_eq!(plain("fs", "remove_member"), Some(ActionKind::Delete));
         assert_eq!(plain("fs", "delete_file"), Some(ActionKind::Delete));
-        assert_eq!(kind("gmail", "trash_emails", &json!({}), Hints { read_only: true, outbound: false }), Some(ActionKind::Trash), "a recoverable trash stays a trash");
+        assert_eq!(
+            kind("gmail", "trash_emails", &json!({}), Hints { read_only: true, outbound: false }),
+            Some(ActionKind::Trash),
+            "a recoverable trash stays a trash"
+        );
     }
 
     #[test]

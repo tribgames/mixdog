@@ -66,10 +66,7 @@ pub fn cleanup_error(message: &str, cleanup: Option<&Value>) -> String {
             .collect::<Vec<_>>()
             .join("; ")
     });
-    let why = error
-        .map(str::to_owned)
-        .or(joined.filter(|joined| !joined.is_empty()))
-        .unwrap_or_else(|| "Office host did not report a clean exit".to_owned());
+    let why = error.map(str::to_owned).or(joined.filter(|joined| !joined.is_empty())).unwrap_or_else(|| "Office host did not report a clean exit".to_owned());
     format!("{message}; cleanup unconfirmed: {why}")
 }
 
@@ -80,9 +77,7 @@ pub(crate) fn application_gone(result: &Value) -> bool {
         return true;
     }
     let error = result.get("error").and_then(Value::as_str).unwrap_or_default().to_lowercase();
-    ["rpc server is unavailable", "0x800706ba", "rpc_e_disconnected", "rpc_e_serverfault"]
-        .iter()
-        .any(|needle| error.contains(needle))
+    ["rpc server is unavailable", "0x800706ba", "rpc_e_disconnected", "rpc_e_serverfault"].iter().any(|needle| error.contains(needle))
 }
 
 #[cfg(test)]
@@ -97,42 +92,22 @@ mod tests {
 
     #[test]
     fn an_unconfirmed_cleanup_says_why() {
-        assert_eq!(
-            cleanup_error("failed", Some(&json!({"ok": false, "error": "pending"}))),
-            "failed; cleanup unconfirmed: pending"
-        );
-        assert_eq!(
-            cleanup_error("failed", Some(&json!({"ok": false, "errors": ["a", "b"]}))),
-            "failed; cleanup unconfirmed: a; b"
-        );
-        assert_eq!(
-            cleanup_error("failed", Some(&json!({"ok": false}))),
-            "failed; cleanup unconfirmed: Office host did not report a clean exit"
-        );
-        assert_eq!(
-            cleanup_error("failed", Some(&pending())),
-            format!("failed; cleanup unconfirmed: {PENDING_ERROR}")
-        );
+        assert_eq!(cleanup_error("failed", Some(&json!({"ok": false, "error": "pending"}))), "failed; cleanup unconfirmed: pending");
+        assert_eq!(cleanup_error("failed", Some(&json!({"ok": false, "errors": ["a", "b"]}))), "failed; cleanup unconfirmed: a; b");
+        assert_eq!(cleanup_error("failed", Some(&json!({"ok": false}))), "failed; cleanup unconfirmed: Office host did not report a clean exit");
+        assert_eq!(cleanup_error("failed", Some(&pending())), format!("failed; cleanup unconfirmed: {PENDING_ERROR}"));
     }
 
     #[test]
     fn lines_split_at_lf_or_crlf_only() {
         assert_eq!(lines("a\r\nb\nc\rd").collect::<Vec<_>>(), ["a", "b", "c\rd"]);
-        assert_eq!(
-            failure_lines("noise\r\nMIXDOG_OFFICE_CLEANUP {\"ok\":false}\nmore"),
-            ["MIXDOG_OFFICE_CLEANUP {\"ok\":false}"]
-        );
+        assert_eq!(failure_lines("noise\r\nMIXDOG_OFFICE_CLEANUP {\"ok\":false}\nmore"), ["MIXDOG_OFFICE_CLEANUP {\"ok\":false}"]);
     }
 
     #[test]
     fn an_application_that_is_gone_is_told_from_the_result() {
         assert!(application_gone(&json!({"ok": false, "cleanup": {"processExited": true}})));
-        for error in [
-            "The RPC server is unavailable",
-            "HRESULT 0x800706BA",
-            "rpc_e_disconnected",
-            "RPC_E_SERVERFAULT",
-        ] {
+        for error in ["The RPC server is unavailable", "HRESULT 0x800706BA", "rpc_e_disconnected", "RPC_E_SERVERFAULT"] {
             assert!(application_gone(&json!({"ok": false, "error": error})), "{error}");
         }
         assert!(!application_gone(&json!({"ok": false, "error": "document close failed"})));

@@ -16,6 +16,8 @@ use std::sync::Mutex;
 
 use async_trait::async_trait;
 use mixdog_core_api::domain::keepalive::KeepaliveSchedule;
+use mixdog_core_api::domain::provider::AttemptHandle;
+use mixdog_core_api::domain::provider::Boundary;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ErrorResponse;
@@ -24,14 +26,12 @@ use mixdog_core_api::domain::provider::ModelListing;
 use mixdog_core_api::domain::provider::ModelRecord;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
-use mixdog_core_api::domain::provider::AttemptHandle;
-use mixdog_core_api::domain::provider::Boundary;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
-use mixdog_core_api::domain::provider::Role;
-use mixdog_core_api::domain::provider::SendEnd;
 use mixdog_core_api::domain::provider::RetryLine;
 use mixdog_core_api::domain::provider::RetryLineStyle;
+use mixdog_core_api::domain::provider::Role;
+use mixdog_core_api::domain::provider::SendEnd;
 use mixdog_core_api::domain::provider::SendStages;
 use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::WireCodec;
@@ -44,29 +44,29 @@ use mixdog_core_api::domain::provider::GeminiCacheState;
 use mixdog_core_api::domain::provider::ProviderState;
 use serde_json::Value;
 
-use super::auth::Authorization;
 use super::auth::ApiKeyAuth;
+use super::auth::Authorization;
 use super::auth::RequestAuth;
-use crate::providers::key_source::ApiKeySource;
 use super::cache::layer::Ask;
 use super::cache::layer::ExplicitCache;
 use super::cache::policy::CacheRequest;
 use super::codec::Attach;
 use super::codec::GoogleCodec;
 use super::codec::Target;
-use super::serving::VertexAccount;
 use super::decode::GeminiDecoder;
 use super::maas::VertexModel;
 use super::models;
 use super::redirect;
+use super::serving::Tier;
+use super::serving::VertexAccount;
 use crate::catalog::ListingLookup;
-use crate::providers::first_byte::FirstByteSettings;
 use crate::providers::first_byte::FirstBytePolicy;
-use crate::providers::head_wait::FirstByteGate;
+use crate::providers::first_byte::FirstByteSettings;
 use crate::providers::first_byte::attempt_budget;
 use crate::providers::first_byte::vertex_budget;
 use crate::providers::first_byte::vertex_flex_budget;
-use super::serving::Tier;
+use crate::providers::head_wait::FirstByteGate;
+use crate::providers::key_source::ApiKeySource;
 use crate::transport::BodyStream;
 use crate::transport::HttpResponse;
 use crate::transport::HttpSend;
@@ -125,13 +125,7 @@ pub struct GoogleAdapter {
 const VERTEX_DISCOVERY_BUDGET: std::time::Duration = crate::catalog::LIST_DEADLINE.saturating_sub(std::time::Duration::from_secs(1));
 
 impl GoogleAdapter {
-    pub fn new(
-        codec: GoogleCodec,
-        policy: RetryPolicy,
-        http: Arc<dyn HttpSend>,
-        auth: Arc<dyn RequestAuth>,
-        identity: String,
-    ) -> Self {
+    pub fn new(codec: GoogleCodec, policy: RetryPolicy, http: Arc<dyn HttpSend>, auth: Arc<dyn RequestAuth>, identity: String) -> Self {
         #[cfg(feature = "count-work")]
         crate::work::provider_built();
         Self {
@@ -351,28 +345,18 @@ impl GoogleAdapter {
         let tools = inner["tools"].as_array().map(Vec::as_slice).unwrap_or_default();
         let contents = inner["contents"].as_array().map(Vec::as_slice).unwrap_or_default();
         Some(Ask {
-                model: &request.model,
-                request: CacheRequest {
-                    system_instruction: system,
-                    tools,
-                    tool_config: inner.get("toolConfig"),
-                    contents,
-                },
-                state: request.options.provider_state.as_ref(),
-                iteration: request.options.iteration,
-                fork: request.options.shared_cache_prefix_count.is_some_and(|n| n > 0),
+            model: &request.model,
+            request: CacheRequest { system_instruction: system, tools, tool_config: inner.get("toolConfig"), contents },
+            state: request.options.provider_state.as_ref(),
+            iteration: request.options.iteration,
+            fork: request.options.shared_cache_prefix_count.is_some_and(|n| n > 0),
         })
     }
 
     async fn cached_prefix(&self, cache: Option<&ExplicitCache>, request: &ModelRequest, inner: &Value) -> Option<Cached> {
         let answer = cache?.ensure(Self::cache_ask(request, inner)?).await;
         let name = answer.cache_name?;
-        let state = answer
-            .state
-            .as_ref()
-            .or(request.options.provider_state.as_ref())
-            .and_then(|s| s.gemini.clone())
-            .filter(|s| s.cache_name == name)?;
+        let state = answer.state.as_ref().or(request.options.provider_state.as_ref()).and_then(|s| s.gemini.clone()).filter(|s| s.cache_name == name)?;
         Some(Cached { name, state, changed: answer.state })
     }
 
@@ -385,7 +369,13 @@ impl GoogleAdapter {
 
     /// The Gemini API key is read once for both cache selection and model dispatch. Other routes keep their own auth.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn dispatch_with_key(&self, request: &ModelRequest, wire: &WireRequest, key: Option<&str>, recovery: bool) -> Result<(HttpResponse, AttemptHandle), ProviderError> {
+    async fn dispatch_with_key(
+        &self,
+        request: &ModelRequest,
+        wire: &WireRequest,
+        key: Option<&str>,
+        recovery: bool,
+    ) -> Result<(HttpResponse, AttemptHandle), ProviderError> {
         let Some(key) = key else {
             return self.dispatch_on(&self.driver, request, wire, recovery).await;
         };
@@ -396,15 +386,18 @@ impl GoogleAdapter {
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn dispatch_on(&self, driver: &ModelDriver, request: &ModelRequest, wire: &WireRequest, recovery: bool) -> Result<(HttpResponse, AttemptHandle), ProviderError> {
+    async fn dispatch_on(
+        &self,
+        driver: &ModelDriver,
+        request: &ModelRequest,
+        wire: &WireRequest,
+        recovery: bool,
+    ) -> Result<(HttpResponse, AttemptHandle), ProviderError> {
         let mut authorization = self.auth.authorize().await?;
         self.check_identity(&authorization)?;
         self.note_carried(&authorization);
         let mut sent = self.send_authorized(driver, request, wire, &authorization, recovery).await?;
-        if sent.0.status == 401
-            && !crate::providers::compat::login::opencode_go::gateway_owns_auth_recovery()
-            && self.auth.rejected(&authorization).await
-        {
+        if sent.0.status == 401 && !crate::providers::compat::login::opencode_go::gateway_owns_auth_recovery() && self.auth.rejected(&authorization).await {
             authorization = self.auth.authorize().await?;
             self.check_identity(&authorization)?;
             self.note_carried(&authorization);
@@ -415,7 +408,14 @@ impl GoogleAdapter {
 
     /// The request with `authorization` as one attempt of the driver.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn send_authorized(&self, driver: &ModelDriver, request: &ModelRequest, wire: &WireRequest, authorization: &Authorization, recovery: bool) -> Result<(HttpResponse, AttemptHandle), ProviderError> {
+    async fn send_authorized(
+        &self,
+        driver: &ModelDriver,
+        request: &ModelRequest,
+        wire: &WireRequest,
+        authorization: &Authorization,
+        recovery: bool,
+    ) -> Result<(HttpResponse, AttemptHandle), ProviderError> {
         // Authorized and about to be written: the Vertex request-type header of this very request is its tier. Only Priority
         // is a premium speed; Flex is discounted and groups as standard.
         let priority = wire.headers.iter().any(|(name, value)| name.eq_ignore_ascii_case("X-Vertex-AI-LLM-Shared-Request-Type") && value == "priority");
@@ -433,11 +433,7 @@ impl GoogleAdapter {
         let authorization = self.auth.authorize().await?;
         self.check_identity(&authorization)?;
         self.note_carried(&authorization);
-        let response = self
-            .driver
-            .aux()
-            .send(Self::authorized(wire, &authorization), GEMINI_MODELS)
-            .await?;
+        let response = self.driver.aux().send(Self::authorized(wire, &authorization), GEMINI_MODELS).await?;
         let succeeded = response.is_success();
         let read = response.read_all().await?;
         if !succeeded {
@@ -596,10 +592,7 @@ impl Redirect {
             return None;
         }
         announced.push(self.requested.clone());
-        let message = format!(
-            "{} is now served by Google as {} (redirect effective 2026-12-01; billed at {} rates)",
-            self.requested, self.target, self.target
-        );
+        let message = format!("{} is now served by Google as {} (redirect effective 2026-12-01; billed at {} rates)", self.requested, self.target, self.target);
         mixdog_rt::node_stderr!("[gemini] {message}");
         Some(StreamEvent::Notice { message, warn: true })
     }
@@ -636,10 +629,7 @@ fn end_on_long_advice(failure: &mut ProviderError) {
 /// `canFallbackNonStreaming` of the Gemini API: nothing of the failed stream reached the caller, no call was cut or
 /// dispatched, it is transient, stalled or a truncated stream, and no long advice ended the recovery.
 fn unary_recoverable(failure: &ProviderError) -> bool {
-    let exposed = failure.unsafe_to_retry
-        || failure.exposure.text_emitted
-        || failure.exposure.tool_dispatched
-        || failure.exposure.tool_input_cut;
+    let exposed = failure.unsafe_to_retry || failure.exposure.text_emitted || failure.exposure.tool_dispatched || failure.exposure.tool_input_cut;
     let transient = matches!(failure.kind, ErrorKind::Transient | ErrorKind::Overloaded)
         || failure.timed_out
         || failure.transport == Some(mixdog_core_api::domain::provider::TransportFault::TruncatedStream);
@@ -719,7 +709,14 @@ impl ProviderAdapter for GoogleAdapter {
             // The open models raise it themselves, once their credential is in hand ([`Self::exchange`]).
             let own = self.codec.maas_model(model).is_some();
             let each_attempt = model_thinking;
-            return SendStages { preparing: u32::from(!each_attempt && !own), each_attempt, ladder_by_connection: gemini_ladder, reconnecting: !gemini_ladder, model_thinking, ..SendStages::default() };
+            return SendStages {
+                preparing: u32::from(!each_attempt && !own),
+                each_attempt,
+                ladder_by_connection: gemini_ladder,
+                reconnecting: !gemini_ladder,
+                model_thinking,
+                ..SendStages::default()
+            };
         }
         SendStages { preparing: 2, each_attempt: true, before_recovery: true, reconnecting: true, ladder_by_connection: true, model_thinking: false }
     }
@@ -741,9 +738,7 @@ impl ProviderAdapter for GoogleAdapter {
     /// `canFallbackNonStreaming` (retry-classification.mjs:402) of a stream-phase failure: nothing reached the caller,
     /// no call was cut or dispatched, and it is transient, stalled or a truncated stream.
     fn recovers_spent(&self, model: &str, failure: &ProviderError) -> bool {
-        self.gemini_unary_supported(model)
-            && (self.direct_gemini(model) || failure.delivery == DeliveryState::Accepted)
-            && unary_recoverable(failure)
+        self.gemini_unary_supported(model) && (self.direct_gemini(model) || failure.delivery == DeliveryState::Accepted) && unary_recoverable(failure)
     }
 
     /// `[gemini] stream failed (<code, else message>); recovered via non-streaming generateContent` (gemini.mjs), as
@@ -762,8 +757,11 @@ impl ProviderAdapter for GoogleAdapter {
         let inner = self.codec.build_inner(&request)?;
         let global = self.uses_global(&request);
         let key = self.current_key().await.map_err(unary_failure)?;
-        let sent = request.options.send_group.as_ref().and_then(|group|
-            self.gemini_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(group).cloned());
+        let sent = request
+            .options
+            .send_group
+            .as_ref()
+            .and_then(|group| self.gemini_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner).get(group).cloned());
         if let (Some(sent), Some(key)) = (&sent, &key)
             && sent.credential != super::cache::policy::credential_fingerprint(key)
         {
@@ -804,11 +802,8 @@ impl ProviderAdapter for GoogleAdapter {
             _ => None,
         };
         // Decode the entire answer before returning any events: a refused unary answer must not dispatch tools.
-        let (events, token) = if continuation.is_some() {
-            decoder.unary_hop(payload).map_err(unary_failure)?
-        } else {
-            (decoder.unary(payload).map_err(unary_failure)?, None)
-        };
+        let (events, token) =
+            if continuation.is_some() { decoder.unary_hop(payload).map_err(unary_failure)? } else { (decoder.unary(payload).map_err(unary_failure)?, None) };
         let mut stream = GoogleStream::with_decoder(Box::new(EmptyBody), Decoder::Gemini(Box::new(decoder)));
         stream.gemini_ladder = self.gemini_ladder(&request.model);
         stream.require_answer(&request);
@@ -849,7 +844,10 @@ impl ProviderAdapter for GoogleAdapter {
                 } else if self.codec.claude_model(model).is_some() || self.codec.maas_model(model).is_some() {
                     None
                 } else {
-                    Some(vertex_budget(crate::providers::first_byte::VERTEX_HEAD_BOUND_MS, super::cache::policy::gemini_first_byte_ms(|name| (self.var)(name)) as i64))
+                    Some(vertex_budget(
+                        crate::providers::first_byte::VERTEX_HEAD_BOUND_MS,
+                        super::cache::policy::gemini_first_byte_ms(|name| (self.var)(name)) as i64,
+                    ))
                 }
             }
             Target::Antigravity { .. } => {
@@ -1092,9 +1090,7 @@ impl GoogleAdapter {
 
     /// A Gemini model on the Gemini API or Vertex AI: the sends `runGeminiStreamAttempts` runs.
     fn gemini_ladder(&self, model: &str) -> bool {
-        !matches!(self.codec.target(), Target::Antigravity { .. })
-            && self.codec.maas_model(model).is_none()
-            && self.codec.claude_model(model).is_none()
+        !matches!(self.codec.target(), Target::Antigravity { .. }) && self.codec.maas_model(model).is_none() && self.codec.claude_model(model).is_none()
     }
 
     /// A send to `model` on the Gemini API itself (`GeminiProvider`), not one of its other engines.
@@ -1103,15 +1099,18 @@ impl GoogleAdapter {
     }
 
     fn gemini_unary_supported(&self, model: &str) -> bool {
-        self.direct_gemini(model) || matches!(self.codec.target(), Target::Vertex { .. })
-            && super::maas::vertex_model(model).is_ok_and(|m| m.wire == super::serving::Wire::Gemini)
+        self.direct_gemini(model)
+            || matches!(self.codec.target(), Target::Vertex { .. }) && super::maas::vertex_model(model).is_ok_and(|m| m.wire == super::serving::Wire::Gemini)
     }
 
     fn uses_global(&self, request: &ModelRequest) -> bool {
         let tier = Tier::requested(request.options.model_parameters.as_ref());
         request.options.send_group.as_ref().is_some_and(|group| {
-            self.global_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-                .get(group).is_some_and(|(model, sent_tier)| model == &request.model && *sent_tier == tier)
+            self.global_sends
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .get(group)
+                .is_some_and(|(model, sent_tier)| model == &request.model && *sent_tier == tier)
         })
     }
 
@@ -1191,7 +1190,9 @@ impl GoogleAdapter {
         // here and in the session, and the request runs once without it: a 400/404
         // whose error names the cached content (`isGeminiCachedContentError`,
         // gemini.mjs:222-231). Any other refusal is the request's error.
-        if matches!(response.status, 400 | 404) && let Some(attached) = cached.take() {
+        if matches!(response.status, 400 | 404)
+            && let Some(attached) = cached.take()
+        {
             let refused = response.read_all().await?;
             if !names_cached_content(&refused.body, &attached.name) {
                 return Err(self.codec.classify_for(&refused, request, false));
@@ -1212,8 +1213,7 @@ impl GoogleAdapter {
             global = true;
             if let Some(group) = &request.options.send_group {
                 let tier = Tier::requested(request.options.model_parameters.as_ref());
-                self.global_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
-                    .insert(group.clone(), (request.model.clone(), tier));
+                self.global_sends.lock().unwrap_or_else(std::sync::PoisonError::into_inner).insert(group.clone(), (request.model.clone(), tier));
             }
             wire = self.codec.wire_at(request, &inner, None, true)?;
             (response, attempt) = self.dispatch(request, &wire).await?;
@@ -1237,11 +1237,7 @@ impl GoogleAdapter {
             }
             self.clear_recovery_cache(&request);
             if let Ok(new) = source.reload().await {
-                let held = request
-                    .options
-                    .provider_state
-                    .as_ref()
-                    .filter(|s| s.gemini.as_ref().is_some_and(|g| !g.cache_name.is_empty()));
+                let held = request.options.provider_state.as_ref().filter(|s| s.gemini.as_ref().is_some_and(|g| !g.cache_name.is_empty()));
                 let mut again = (*request).clone();
                 let mut dropped = None;
                 if let Some(state) = held {
@@ -1351,7 +1347,11 @@ impl GoogleAdapter {
             recovery: Some(millis(self.first_byte.generate_total_ms)),
         };
         let label = self.codec.stream_label();
-        let call = ModelCall::new(&request.options.send_identity, windows, Arc::new(move |expiry, delivery, exposure| super::watchdog::expired(label, gate.as_ref(), expiry, delivery, exposure)));
+        let call = ModelCall::new(
+            &request.options.send_identity,
+            windows,
+            Arc::new(move |expiry, delivery, exposure| super::watchdog::expired(label, gate.as_ref(), expiry, delivery, exposure)),
+        );
         if recovery { call.recovery() } else { call }
     }
 
@@ -1423,8 +1423,7 @@ impl GoogleStream {
 
     fn require_answer(&mut self, request: &ModelRequest) {
         self.answer_required = true;
-        self.after_tool_result =
-            request.messages.iter().rev().find(|m| m.role != Role::System).is_some_and(|m| m.role == Role::Tool);
+        self.after_tool_result = request.messages.iter().rev().find(|m| m.role != Role::System).is_some_and(|m| m.role == Role::Tool);
         // The turn-wide check above judges the first hop; each continued hop is judged on its own answer.
         if let Decoder::Gemini(decoder) = &mut self.decoder {
             decoder.judge_hops(self.after_tool_result);
@@ -1516,28 +1515,26 @@ impl GoogleStream {
                         Err(err) => HopStep::Failed(err, false),
                     }
                 }
-                HopStep::Failed(err, midstream) => {
-                    match self.continuation.as_mut().and_then(|c| c.retry(&err, midstream)) {
-                        Some(delay) => {
-                            if midstream {
-                                self.restart_hop();
-                            }
-                            retry_wait(delay).await;
-                            HopStep::Open
+                HopStep::Failed(err, midstream) => match self.continuation.as_mut().and_then(|c| c.retry(&err, midstream)) {
+                    Some(delay) => {
+                        if midstream {
+                            self.restart_hop();
                         }
-                        None => {
-                            let Some(token) = self.spent(err).await else { return };
-                            let start = self.hop_start();
-                            match self.continuation.as_mut().expect("a long decode").begin(token, start) {
-                                Ok(()) => HopStep::Open,
-                                Err(err) => {
-                                    self.fail_turn(err);
-                                    return;
-                                }
+                        retry_wait(delay).await;
+                        HopStep::Open
+                    }
+                    None => {
+                        let Some(token) = self.spent(err).await else { return };
+                        let start = self.hop_start();
+                        match self.continuation.as_mut().expect("a long decode").begin(token, start) {
+                            Ok(()) => HopStep::Open,
+                            Err(err) => {
+                                self.fail_turn(err);
+                                return;
                             }
                         }
                     }
-                }
+                },
             };
         }
     }
@@ -1634,9 +1631,7 @@ impl GoogleStream {
         for mut event in events {
             match &mut event {
                 StreamEvent::TextDelta(_) | StreamEvent::ToolCallDone(_) => self.produced_output = true,
-                StreamEvent::Completed { stop: None, .. }
-                    if self.answer_required && !self.produced_output && !self.after_tool_result =>
-                {
+                StreamEvent::Completed { stop: None, .. } if self.answer_required && !self.produced_output && !self.after_tool_result => {
                     let mut err = ProviderError::new(ErrorKind::Transient, DeliveryState::Accepted);
                     err.code = Some("no_response_text".into());
                     err.message = "the response finished without any answer".into();

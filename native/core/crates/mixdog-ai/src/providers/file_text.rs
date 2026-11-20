@@ -26,14 +26,8 @@ pub enum FileKind {
     Binary,
 }
 
-const TEXTUAL_MIME_TYPES: [&str; 6] = [
-    "application/json",
-    "application/xml",
-    "application/yaml",
-    "application/toml",
-    "application/x-ndjson",
-    "application/x-www-form-urlencoded",
-];
+const TEXTUAL_MIME_TYPES: [&str; 6] =
+    ["application/json", "application/xml", "application/yaml", "application/toml", "application/x-ndjson", "application/x-www-form-urlencoded"];
 const OFFICE_MIME_TYPES: [&str; 4] = [
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     "application/vnd.openxmlformats-officedocument.presentationml.presentation",
@@ -56,8 +50,7 @@ fn has_pdf_magic(base64_data: &str) -> bool {
     if head.chars().count() < 8 {
         return false;
     }
-    STANDARD.decode(head.trim_end_matches('=')).or_else(|_| STANDARD.decode(&head)).is_ok_and(|b| b.starts_with(b"%PDF-"))
-        || base64_data.starts_with("JVBERi0")
+    STANDARD.decode(head.trim_end_matches('=')).or_else(|_| STANDARD.decode(&head)).is_ok_and(|b| b.starts_with(b"%PDF-")) || base64_data.starts_with("JVBERi0")
 }
 
 fn office_extension(filename: &str) -> bool {
@@ -124,15 +117,9 @@ pub fn unavailable_file_text(filename: Option<&str>, mime_type: &str) -> String 
 /// stored file that is not there); `None` for any other part.
 pub fn file_part_text(part: &ContentPart) -> Option<String> {
     match part {
-        ContentPart::File { source: BinarySource::Base64(data), mime_type, filename, .. } => {
-            Some(file_fallback_text(filename.as_deref(), mime_type, data))
-        }
-        ContentPart::File { source: BinarySource::AttachmentRef(_), mime_type, filename, .. } => {
-            Some(unavailable_file_text(filename.as_deref(), mime_type))
-        }
-        ContentPart::Document { source: DocumentSource::Base64 { media_type, data }, title } => {
-            Some(file_fallback_text(title.as_deref(), media_type, data))
-        }
+        ContentPart::File { source: BinarySource::Base64(data), mime_type, filename, .. } => Some(file_fallback_text(filename.as_deref(), mime_type, data)),
+        ContentPart::File { source: BinarySource::AttachmentRef(_), mime_type, filename, .. } => Some(unavailable_file_text(filename.as_deref(), mime_type)),
+        ContentPart::Document { source: DocumentSource::Base64 { media_type, data }, title } => Some(file_fallback_text(title.as_deref(), media_type, data)),
         _ => None,
     }
 }

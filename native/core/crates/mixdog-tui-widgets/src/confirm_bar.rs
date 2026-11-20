@@ -50,11 +50,7 @@ pub fn paint_confirm_bar(painter: &mut Painter, x: i32, y: i32, buttons: &[Confi
         let text = button.text();
         let box_width = cells(&text) + 2;
         let is_focused = index as i64 == focused;
-        let style = if is_focused {
-            Style { bold: true, ..selected_style() }
-        } else {
-            themed(Key::Subtle)
-        };
+        let style = if is_focused { Style { bold: true, ..selected_style() } } else { themed(Key::Subtle) };
         if is_focused && at >= 0 && y >= 0 {
             painter.fill(Rect::new(at as u16, y as u16, box_width as u16, 1), Style { bg: style.bg, ..Style::default() });
         }

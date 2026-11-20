@@ -41,7 +41,9 @@ fn server_listing_matches_node() {
 fn refusals_carry_nodes_text() {
     let (dir, _) = fixture();
     let file = dir.path().join("f.txt").to_string_lossy().into_owned();
-    for (path, message) in [("rel/x", "path must be absolute."), (file.as_str(), "path is not a directory."), ("//?/C:/x", "path is invalid."), ("a\0b", "path is invalid.")] {
+    for (path, message) in
+        [("rel/x", "path must be absolute."), (file.as_str(), "path is not a directory."), ("//?/C:/x", "path is invalid."), ("a\0b", "path is invalid.")]
+    {
         let error = browse_dirs(path, Some(false)).expect_err(path);
         assert_eq!(error.message, message, "{path}");
     }

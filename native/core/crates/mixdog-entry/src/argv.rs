@@ -16,7 +16,8 @@ const VALUE_OPTIONS: [&str; 4] = ["--provider", "--model", "--effort", "--workfl
 /// `--worktree [name]` takes an optional value; `--worktree=<name>` is the unambiguous spelling.
 const WORKTREE_OPTION: &str = "--worktree";
 const NO_WORKTREE_OPTION: &str = "--no-worktree";
-const FLAG_OPTIONS: [&str; 12] = [NO_WORKTREE_OPTION, "--readonly", "--help", "-h", "--plain", "--react", "--remote", "--onboarding", "--fast", "--web-search", "--memory", "--json"];
+const FLAG_OPTIONS: [&str; 12] =
+    [NO_WORKTREE_OPTION, "--readonly", "--help", "-h", "--plain", "--react", "--remote", "--onboarding", "--fast", "--web-search", "--memory", "--json"];
 /// The interactive CLI's flags an exec refuses, in Node's order (`EXEC_UNSUPPORTED_FLAGS`).
 const EXEC_UNSUPPORTED_FLAGS: [&str; 5] = ["--readonly", "--remote", "--onboarding", "--memory", NO_WORKTREE_OPTION];
 const HEADLESS_WORKFLOW_ERROR: &str = "option --workflow is not supported for mixdog exec";
@@ -157,7 +158,11 @@ fn parse_tokens(argv: &[String], strict: bool) -> Result<Parsed<'_>, Refusal> {
                 None => {}
                 Some(value) => {
                     if allow_headless_intent && is_exec(value) {
-                        let error = if option == "--workflow" { HEADLESS_WORKFLOW_ERROR.to_owned() } else { format!("option {option} requires a route value before {}", quoted(value)) };
+                        let error = if option == "--workflow" {
+                            HEADLESS_WORKFLOW_ERROR.to_owned()
+                        } else {
+                            format!("option {option} requires a route value before {}", quoted(value))
+                        };
                         return Err(Refusal::new(error, true));
                     }
                     parsed.values.entry(option).or_insert_with(|| value.to_owned());
@@ -363,7 +368,9 @@ mod tests {
 
     #[test]
     fn each_flag_and_route_option_sets_its_own_option_wherever_it_stands_and_repeating_a_flag_changes_nothing() {
-        let options = line(&["--fast", "--effort", "high", "--web-search", "--provider", "anthropic", "--remote", "--onboarding", "--model", "m", "--fast"]).options.unwrap();
+        let options = line(&["--fast", "--effort", "high", "--web-search", "--provider", "anthropic", "--remote", "--onboarding", "--model", "m", "--fast"])
+            .options
+            .unwrap();
         assert_eq!(
             (options.fast, options.web_search, options.remote, options.force_onboarding, options.json, options.tool_mode),
             (true, true, true, true, false, ToolMode::Full)

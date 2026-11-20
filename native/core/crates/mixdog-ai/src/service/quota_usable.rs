@@ -18,9 +18,7 @@ pub fn reading_serves_model(reading: Option<&Value>, model: &str, use_credits: b
     let Some(reading) = reading.filter(|r| !r.is_null()) else { return false };
     if use_credits
         && let Some(balance) = reading.get("balance").filter(|b| !b.is_null())
-        && (balance.get("unlimited") == Some(&Value::Bool(true))
-            || positive(balance.get("remainingCredits"))
-            || positive(balance.get("remainingUsd")))
+        && (balance.get("unlimited") == Some(&Value::Bool(true)) || positive(balance.get("remainingCredits")) || positive(balance.get("remainingUsd")))
     {
         return true;
     }

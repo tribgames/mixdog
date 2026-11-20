@@ -302,11 +302,7 @@ fn check_cell_formula(check: Check<'_>, issues: &mut Vec<Value>) -> Result<bool,
         issues.push(issue(
             index,
             "assertion_formula_mismatch",
-            format!(
-                "Formula assertion failed for {sheet}!{}; actual formula is {}.",
-                js_text(assertion.get("cell")),
-                json_stringify(&json!(actual))
-            ),
+            format!("Formula assertion failed for {sheet}!{}; actual formula is {}.", js_text(assertion.get("cell")), json_stringify(&json!(actual))),
             Some(path_of(target).unwrap_or(&fallback_path)),
         ));
     }
@@ -329,13 +325,7 @@ fn check_tie_out(check: Check<'_>, issues: &mut Vec<Value>) -> bool {
     if !pending.is_empty() {
         let holds: Vec<String> = pending
             .iter()
-            .map(|(name, cell)| {
-                format!(
-                    "{} holds {} with no calculated result",
-                    stringified(*name),
-                    json_stringify(&json!(formula_text(Some(*cell))))
-                )
-            })
+            .map(|(name, cell)| format!("{} holds {} with no calculated result", stringified(*name), json_stringify(&json!(formula_text(Some(*cell))))))
             .collect();
         issues.push(issue(
             index,
@@ -368,10 +358,8 @@ fn check_tie_out(check: Check<'_>, issues: &mut Vec<Value>) -> bool {
 
 /// `checkNoErrors`.
 fn check_no_errors(check: Check<'_>, issues: &mut Vec<Value>) -> bool {
-    let failures: Vec<&Value> = cells_for_assertion(&check.book.cells, check.assertion)
-        .into_iter()
-        .filter(|cell| ERROR_VALUE.is_match(&text_or_empty(cell.get("value"))))
-        .collect();
+    let failures: Vec<&Value> =
+        cells_for_assertion(&check.book.cells, check.assertion).into_iter().filter(|cell| ERROR_VALUE.is_match(&text_or_empty(cell.get("value")))).collect();
     for cell in failures.iter().take(REPORTED_PER_ASSERTION) {
         issues.push(issue(
             check.index,
@@ -385,12 +373,9 @@ fn check_no_errors(check: Check<'_>, issues: &mut Vec<Value>) -> bool {
 
 /// `checkFormulaConsistency`.
 fn check_formula_consistency(check: Check<'_>, issues: &mut Vec<Value>) -> bool {
-    let formulas: Vec<&Value> =
-        cells_for_assertion(&check.book.cells, check.assertion).into_iter().filter(|cell| truthy(cell.get("formula"))).collect();
-    let signatures: Vec<String> = formulas
-        .iter()
-        .map(|cell| relative_formula_signature(&text_or_empty(cell.get("formula")), &text_or_empty(cell.get("ref"))))
-        .collect();
+    let formulas: Vec<&Value> = cells_for_assertion(&check.book.cells, check.assertion).into_iter().filter(|cell| truthy(cell.get("formula"))).collect();
+    let signatures: Vec<String> =
+        formulas.iter().map(|cell| relative_formula_signature(&text_or_empty(cell.get("formula")), &text_or_empty(cell.get("ref")))).collect();
     let mut order: Vec<&str> = Vec::new();
     let mut counts: HashMap<&str, usize> = HashMap::new();
     for pattern in &signatures {
@@ -409,8 +394,7 @@ fn check_formula_consistency(check: Check<'_>, issues: &mut Vec<Value>) -> bool 
             expected_count = counts[pattern];
         }
     }
-    let inconsistent: Vec<&Value> =
-        formulas.iter().zip(&signatures).filter(|(_, pattern)| pattern.as_str() != expected).map(|(cell, _)| *cell).collect();
+    let inconsistent: Vec<&Value> = formulas.iter().zip(&signatures).filter(|(_, pattern)| pattern.as_str() != expected).map(|(cell, _)| *cell).collect();
     if formulas.is_empty() {
         let named = if truthy(check.assertion.get("sheet")) { js_text(check.assertion.get("sheet")) } else { check.sheet.to_owned() };
         issues.push(issue(

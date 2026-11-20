@@ -53,19 +53,11 @@ const CHECK_ATTR_CHUNK: usize = 200;
 /// `CE_INTENT_TO_ADD` in an index entry's flags (`git add -N`).
 const INTENT_TO_ADD_FLAG: u64 = 0x2000_0000;
 /// Recovery commits are Mixdog's own, independent of the user's identity config.
-const COMMIT_ENV: [(&str, &str); 4] = [
-    ("GIT_AUTHOR_NAME", "Mixdog"),
-    ("GIT_AUTHOR_EMAIL", "mixdog@localhost"),
-    ("GIT_COMMITTER_NAME", "Mixdog"),
-    ("GIT_COMMITTER_EMAIL", "mixdog@localhost"),
-];
+const COMMIT_ENV: [(&str, &str); 4] =
+    [("GIT_AUTHOR_NAME", "Mixdog"), ("GIT_AUTHOR_EMAIL", "mixdog@localhost"), ("GIT_COMMITTER_NAME", "Mixdog"), ("GIT_COMMITTER_EMAIL", "mixdog@localhost")];
 
 pub(crate) fn identity_path(project_subdir: &str) -> String {
-    if project_subdir.is_empty() {
-        IDENTITY_PATH.to_owned()
-    } else {
-        format!("{project_subdir}/{IDENTITY_PATH}")
-    }
+    if project_subdir.is_empty() { IDENTITY_PATH.to_owned() } else { format!("{project_subdir}/{IDENTITY_PATH}") }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -187,11 +179,8 @@ mod tests {
     }
 }
 
-
 fn temp_suffix() -> String {
-    let nanos = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_nanos());
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_nanos());
     format!("mixdog-carry-{}-{nanos}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed))
 }
 impl Worktrees {
@@ -200,9 +189,7 @@ impl Worktrees {
     }
 
     async fn inspect_checkout(&self, top: &Path, subdir: &str, cancel: &CancellationToken) -> Result<Checkout, ScmFailure> {
-        let status = self
-            .gtext(top, &["status", "--porcelain=v2", "-z", "--untracked-files=all"], &RunOptions::read(), cancel)
-            .await?;
+        let status = self.gtext(top, &["status", "--porcelain=v2", "-z", "--untracked-files=all"], &RunOptions::read(), cancel).await?;
         let identity = identity_path(subdir);
         let all = parse_status_v2(&status);
         let rows: Vec<StatusRow> = all.iter().filter(|r| !(r.untracked && r.path == identity)).cloned().collect();
@@ -242,15 +229,9 @@ impl Worktrees {
     /// would silently drop or leave them), intent-to-add entries, and sparse checkout.
     async fn hidden_index_entries(&self, top: &Path, cancel: &CancellationToken) -> Result<Hidden, ScmFailure> {
         let read = RunOptions::read();
-        let (listed, debug) = tokio::try_join!(
-            self.gtext(top, &["ls-files", "-v", "-z"], &read, cancel),
-            self.gtext(top, &["ls-files", "--debug", "-z"], &read, cancel),
-        )?;
-        let sparse = self
-            .scm()
-            .git
-            .outcome(cancel, top, &["config", "--type=bool", "--get", "core.sparseCheckout"], &read)
-            .await?;
+        let (listed, debug) =
+            tokio::try_join!(self.gtext(top, &["ls-files", "-v", "-z"], &read, cancel), self.gtext(top, &["ls-files", "--debug", "-z"], &read, cancel),)?;
+        let sparse = self.scm().git.outcome(cancel, top, &["config", "--type=bool", "--get", "core.sparseCheckout"], &read).await?;
         let (mut skip_worktree, mut assume_unchanged) = (Vec::new(), Vec::new());
         for entry in nul_records(&listed) {
             let mut chars = entry.chars();
@@ -262,12 +243,7 @@ impl Worktrees {
                 assume_unchanged.push(path);
             }
         }
-        Ok(Hidden {
-            skip_worktree,
-            assume_unchanged,
-            intent_to_add: intent_to_add_paths(&debug),
-            sparse: sparse.stdout_text().trim() == "true",
-        })
+        Ok(Hidden { skip_worktree, assume_unchanged, intent_to_add: intent_to_add_paths(&debug), sparse: sparse.stdout_text().trim() == "true" })
     }
 
     /// `WORKTREE_DIRTY` (with a `reason`) when the checkout's changes cannot be carried
@@ -305,10 +281,7 @@ impl Worktrees {
             return Err(detail.failure());
         }
         if !hidden.intent_to_add.is_empty() {
-            let mut detail = refusal(
-                "intent-to-add",
-                "Files added with \"git add -N\" (intent to add) cannot be carried; stage or unstage them first.",
-            );
+            let mut detail = refusal("intent-to-add", "Files added with \"git add -N\" (intent to add) cannot be carried; stage or unstage them first.");
             detail.paths = preview(&hidden.intent_to_add);
             return Err(detail.failure());
         }
@@ -376,22 +349,18 @@ impl Worktrees {
     /// index: the live index is copied once, and two duplicates of that capture (one stays as
     /// staged, one takes `add --all`) are what git works on side by side.
     async fn checkout_snapshot(&self, cwd: &Path, identity: Option<&str>, cancel: &CancellationToken) -> Result<Snap, ScmFailure> {
-        let paths = self
-            .gtext(cwd, &["rev-parse", "--path-format=absolute", "HEAD^{commit}", "--git-path", "index"], &RunOptions::default(), cancel)
-            .await?;
+        let paths = self.gtext(cwd, &["rev-parse", "--path-format=absolute", "HEAD^{commit}", "--git-path", "index"], &RunOptions::default(), cancel).await?;
         let mut lines = paths.lines().map(str::trim);
         let head = lines.next().unwrap_or("").to_owned();
         let index_file = PathBuf::from(lines.next().unwrap_or(""));
         let base = format!("{}.{}", index_file.display(), temp_suffix());
-        let (captured, staged, tree_index) = (
-            PathBuf::from(format!("{base}-captured")),
-            PathBuf::from(format!("{base}-staged")),
-            PathBuf::from(format!("{base}-tree")),
-        );
+        let (captured, staged, tree_index) =
+            (PathBuf::from(format!("{base}-captured")), PathBuf::from(format!("{base}-staged")), PathBuf::from(format!("{base}-tree")));
         let built = async {
             // The live index is read once; both working copies come from that capture.
             let (live, to) = (index_file.clone(), captured.clone());
-            let copied = on_lane(self.scm().lane, cancel, move || if live.exists() { std::fs::copy(&live, &to).map(drop).map(|()| true) } else { Ok(false) }).await??;
+            let copied =
+                on_lane(self.scm().lane, cancel, move || if live.exists() { std::fs::copy(&live, &to).map(drop).map(|()| true) } else { Ok(false) }).await??;
             if !copied {
                 let options = RunOptions { index_file: Some(captured.clone()), ..RunOptions::default() };
                 self.gtext(cwd, &["read-tree", &head], &options, cancel).await?;
@@ -423,10 +392,7 @@ impl Worktrees {
     }
 
     async fn keep_recovery_ref(&self, cwd: &Path, snap: &Snap, label: &str, cancel: &CancellationToken) -> Result<String, ScmFailure> {
-        let options = RunOptions {
-            extra_env: COMMIT_ENV.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
-            ..RunOptions::default()
-        };
+        let options = RunOptions { extra_env: COMMIT_ENV.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(), ..RunOptions::default() };
         let commit = |tree: String, parents: Vec<String>, message: String| {
             let options = options.clone();
             async move {
@@ -586,7 +552,9 @@ impl Worktrees {
     /// ref stays.
     pub async fn restore_from_recovery_ref(&self, top: &Path, subdir: &str, reference: &str, cancel: &CancellationToken) -> Result<String, ScmFailure> {
         Self::assert_recovery_ref(reference)?;
-        let rev = |spec: String| async move { Ok::<_, ScmFailure>(self.gtext(top, &["rev-parse", "--verify", &spec], &RunOptions::default(), cancel).await?.trim().to_owned()) };
+        let rev = |spec: String| async move {
+            Ok::<_, ScmFailure>(self.gtext(top, &["rev-parse", "--verify", &spec], &RunOptions::default(), cancel).await?.trim().to_owned())
+        };
         let snap = Snap {
             head: rev(format!("{reference}^1")).await?,
             index: rev(format!("{reference}^2^{{tree}}")).await?,

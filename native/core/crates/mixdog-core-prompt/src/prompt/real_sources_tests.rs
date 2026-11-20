@@ -15,9 +15,9 @@ use serde_json::Value;
 use serde_json::json;
 use tokio_util::sync::CancellationToken;
 
+use super::probes::StartupObservations;
 use super::real_sources::HostFacts;
 use super::real_sources::RealSources;
-use super::probes::StartupObservations;
 use super::sources::PromptSources;
 use mixdog_core_base::support::on_lane;
 
@@ -44,12 +44,15 @@ fn write_world(root: &Path, files: &Value) {
 async fn the_startup_observations_land_in_the_git_and_listing_lines() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
-    write_world(&root, &json!([
-        {"path": "repo/.git/HEAD", "text": "ref: refs/heads/main\n"},
-        {"path": "repo/keep.txt", "text": ""},
-        {"path": "repo/skip.log", "text": ""},
-        {"path": "bin/git.exe", "text": ""},
-    ]));
+    write_world(
+        &root,
+        &json!([
+            {"path": "repo/.git/HEAD", "text": "ref: refs/heads/main\n"},
+            {"path": "repo/keep.txt", "text": ""},
+            {"path": "repo/skip.log", "text": ""},
+            {"path": "bin/git.exe", "text": ""},
+        ]),
+    );
     let tokens = mixdog_rt::testing::tokens();
     let line = on_lane(tokens.interactive_io, &CancellationToken::new(), move |lane| {
         let repo = root.join("repo").to_string_lossy().into_owned();
@@ -81,11 +84,14 @@ async fn the_startup_observations_land_in_the_git_and_listing_lines() {
 async fn a_second_session_reuses_the_first_ones_observations() {
     let dir = tempfile::tempdir().unwrap();
     let root = dir.path().to_path_buf();
-    write_world(&root, &json!([
-        {"path": "repo/.git/HEAD", "text": "ref: refs/heads/main\n"},
-        {"path": "bin/git.exe", "text": ""},
-        {"path": "bin/node.exe", "text": ""},
-    ]));
+    write_world(
+        &root,
+        &json!([
+            {"path": "repo/.git/HEAD", "text": "ref: refs/heads/main\n"},
+            {"path": "bin/git.exe", "text": ""},
+            {"path": "bin/node.exe", "text": ""},
+        ]),
+    );
     let tokens = mixdog_rt::testing::tokens();
     let lines = on_lane(tokens.interactive_io, &CancellationToken::new(), move |lane| {
         let repo = root.join("repo").to_string_lossy().into_owned();
@@ -166,5 +172,3 @@ async fn an_agents_profile_stamp_follows_its_files() {
     assert_eq!(stamps.5, "");
     assert_eq!(stamps.6.len(), 24);
 }
-
-

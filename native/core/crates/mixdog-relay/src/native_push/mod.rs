@@ -19,8 +19,8 @@ use std::time::Duration;
 
 pub use apns::ApnsSender;
 pub use bindings::{
-    MAX_MX_CHARS, MAX_NATIVE_BINDINGS_PER_DEVICE, NATIVE_PUSH_REASONS, NATIVE_SENDS_PER_MINUTE, NativePushService, PairedClients,
-    valid_collapse_key, valid_native_token,
+    MAX_MX_CHARS, MAX_NATIVE_BINDINGS_PER_DEVICE, NATIVE_PUSH_REASONS, NATIVE_SENDS_PER_MINUTE, NativePushService, PairedClients, valid_collapse_key,
+    valid_native_token,
 };
 pub use fcm::FcmSender;
 pub use jwt::{AccessTokenCache, ProviderTokenCache, apns_provider_token, fcm_assertion};
@@ -164,11 +164,7 @@ impl Default for ReqwestTransport {
 impl HttpTransport for ReqwestTransport {
     fn post(&self, request: HttpRequest) -> BoxFuture<'_, Result<HttpResponse, TransportError>> {
         Box::pin(async move {
-            let client = if request.http2_only {
-                self.http2.lock().unwrap_or_else(PoisonError::into_inner).clone()
-            } else {
-                self.general.clone()
-            };
+            let client = if request.http2_only { self.http2.lock().unwrap_or_else(PoisonError::into_inner).clone() } else { self.general.clone() };
             let mut builder = client.post(&request.url).timeout(Duration::from_millis(REQUEST_TIMEOUT_MS));
             for (name, value) in &request.headers {
                 builder = builder.header(name.as_str(), value.as_str());
@@ -219,10 +215,9 @@ impl NativePush {
     /// Reads the credentials from the environment. Credentials that do not parse disable that platform instead of
     /// stopping the relay: a push misconfiguration must never take pairing down with it.
     pub fn new(env: &BTreeMap<String, String>, transport: &Arc<dyn HttpTransport>, origins: &Origins, clock: &Clock) -> Self {
-        let apns = unless_unusable("APNs", read_apns_config(env))
-            .map(|config| ApnsSender::new(config, Arc::clone(transport), origins, Arc::clone(clock)));
-        let fcm = unless_unusable("FCM", read_fcm_config(env))
-            .map(|config| FcmSender::new(config, Arc::clone(transport), origins.fcm.clone(), Arc::clone(clock)));
+        let apns = unless_unusable("APNs", read_apns_config(env)).map(|config| ApnsSender::new(config, Arc::clone(transport), origins, Arc::clone(clock)));
+        let fcm =
+            unless_unusable("FCM", read_fcm_config(env)).map(|config| FcmSender::new(config, Arc::clone(transport), origins.fcm.clone(), Arc::clone(clock)));
         Self { apns, fcm }
     }
 

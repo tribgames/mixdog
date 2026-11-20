@@ -90,7 +90,8 @@ fn a_name_the_form_does_not_have_or_an_option_it_does_not_offer_is_refused_with_
 fn a_field_added_to_a_page_is_listed_and_fillable_and_a_taken_name_or_missing_page_is_refused() {
     let mut doc = load(form_bytes());
     let mut form = PdfForm::new();
-    add_form_field(&mut form, &mut doc, &json!({ "name": "extra", "type": "text", "page": 1, "x": 40, "y": 40, "width": 120, "height": 20 }), None).expect("added");
+    add_form_field(&mut form, &mut doc, &json!({ "name": "extra", "type": "text", "page": 1, "x": 40, "y": 40, "width": 120, "height": 20 }), None)
+        .expect("added");
     let names: Vec<String> = described(&mut doc).iter().map(|field| field["name"].as_str().expect("name").to_owned()).collect();
     assert_eq!(names, ["who", "when", "ok", "pick", "extra"]);
     fill_form_values(&mut form, &mut doc, &json!({ "extra": "typed in" })).expect("filled");

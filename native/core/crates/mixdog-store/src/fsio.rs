@@ -65,11 +65,7 @@ impl std::fmt::Display for IoOp {
 }
 
 pub(crate) fn err(op: IoOp, path: &Path) -> impl FnOnce(io::Error) -> IoError + '_ {
-    move |source| IoError {
-        op,
-        path: path.to_path_buf(),
-        source,
-    }
+    move |source| IoError { op, path: path.to_path_buf(), source }
 }
 
 /// The switch a test uses to skip the physical flushes of its process (`mixdog-fsio/src/elide.rs`).
@@ -135,9 +131,7 @@ fn rename_through(from: &Path, to: &Path) -> io::Result<()> {
     use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
     let (a, b) = (verbatim_wide(from)?, verbatim_wide(to)?);
     // SAFETY: both arguments are NUL-terminated UTF-16 strings that outlive the call.
-    let ok = unsafe {
-        MoveFileExW(a.as_ptr(), b.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)
-    };
+    let ok = unsafe { MoveFileExW(a.as_ptr(), b.as_ptr(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) };
     if ok == 0 { Err(io::Error::last_os_error()) } else { Ok(()) }
 }
 
@@ -333,10 +327,7 @@ fn sync_tree(dir: &Path) -> Result<(), IoError> {
             sync_tree(&path)?;
         } else {
             // FlushFileBuffers needs a handle with write access on Windows.
-            let file = OpenOptions::new()
-                .write(true)
-                .open(&path)
-                .map_err(err(IoOp::Open, &path))?;
+            let file = OpenOptions::new().write(true).open(&path).map_err(err(IoOp::Open, &path))?;
             sync_file(&file, &path)?;
         }
     }

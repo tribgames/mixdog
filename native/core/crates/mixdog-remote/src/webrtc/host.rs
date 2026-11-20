@@ -129,18 +129,43 @@ pub trait HostEnv: Send + Sync + 'static {
 /// What a peer connection tells the host.
 #[derive(Debug, Clone)]
 pub enum SenderEvent {
-    Offer { connection_id: String, sdp: String },
-    Candidate { connection_id: String, candidate: Option<Candidate> },
+    Offer {
+        connection_id: String,
+        sdp: String,
+    },
+    Candidate {
+        connection_id: String,
+        candidate: Option<Candidate>,
+    },
     /// DTLS is up; the certificate is `{fingerprintAlgorithm, fingerprint}`.
-    Connected { connection_id: String, certificate: Option<Value> },
-    Failed { connection_id: String, reason: CloseReason },
-    Channel { connection_id: String, text: String, received_at: f64 },
+    Connected {
+        connection_id: String,
+        certificate: Option<Value>,
+    },
+    Failed {
+        connection_id: String,
+        reason: CloseReason,
+    },
+    Channel {
+        connection_id: String,
+        text: String,
+        received_at: f64,
+    },
     /// The source's capture track is live and delivers frames of the current geometry by itself.
-    CaptureOk { source_key: String },
+    CaptureOk {
+        source_key: String,
+    },
     /// No track to send for the source: every connection of it falls back.
-    CaptureFailed { source_key: String, detail: String },
+    CaptureFailed {
+        source_key: String,
+        detail: String,
+    },
     /// The sender took the picture with this frame id, or could not.
-    FrameDone { source_key: String, frame_id: u64, ok: bool },
+    FrameDone {
+        source_key: String,
+        frame_id: u64,
+        ok: bool,
+    },
     /// The peers are gone (the sender crashed or closed).
     Gone,
 }
@@ -597,7 +622,10 @@ impl LiveHost {
                 state.outgoing.remove(&entry.client);
             }
             let owns_feed = state.feeds.get(&entry.source_key).is_some_and(|feed| feed.source.screen_session() == entry.screen_session);
-            let ended_screen = if entry.source_key.starts_with("screen:") && owns_feed && !state.viewers.values().any(|other| other.source_key == entry.source_key && other.screen_session == entry.screen_session) {
+            let ended_screen = if entry.source_key.starts_with("screen:")
+                && owns_feed
+                && !state.viewers.values().any(|other| other.source_key == entry.source_key && other.screen_session == entry.screen_session)
+            {
                 state.feeds.remove(&entry.source_key)
             } else {
                 None
@@ -631,12 +659,10 @@ impl LiveHost {
     fn retire_replaced_screen(&self, key: &str, session: u64) {
         let (feed, stale) = {
             let mut state = lock(&self.shared.state);
-            let feed = if state.feeds.get(key).is_some_and(|feed| feed.source.screen_session() != Some(session)) {
-                state.feeds.remove(key)
-            } else {
-                None
-            };
-            let stale = state.viewers.iter()
+            let feed = if state.feeds.get(key).is_some_and(|feed| feed.source.screen_session() != Some(session)) { state.feeds.remove(key) } else { None };
+            let stale = state
+                .viewers
+                .iter()
                 .filter(|(_, entry)| entry.source_key == key && entry.screen_session != Some(session))
                 .map(|(viewer_key, _)| viewer_key.clone())
                 .collect::<Vec<_>>();
@@ -836,7 +862,9 @@ impl LiveHost {
                 return;
             }
             SenderEvent::Failed { connection_id, reason } => routed(&connection_id).map(|e| (e.clone(), e.viewer.sender_failed(&connection_id, reason))),
-            SenderEvent::Channel { connection_id, text, received_at } => routed(&connection_id).map(|e| (e.clone(), e.viewer.channel(&connection_id, &text, received_at))),
+            SenderEvent::Channel { connection_id, text, received_at } => {
+                routed(&connection_id).map(|e| (e.clone(), e.viewer.channel(&connection_id, &text, received_at)))
+            }
         };
         if let Some((entry, result)) = outcome {
             if let Err(error) = result {

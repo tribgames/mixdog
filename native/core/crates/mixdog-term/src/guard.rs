@@ -481,11 +481,7 @@ impl Inner {
         }
         match done_rx.recv_timeout(self.config.timeout) {
             Ok(outcome) => outcome,
-            Err(_) => Err(format!(
-                "{} shutdown timed out after {}ms",
-                self.config.name,
-                self.config.timeout.as_millis().max(1)
-            )),
+            Err(_) => Err(format!("{} shutdown timed out after {}ms", self.config.name, self.config.timeout.as_millis().max(1))),
         }
     }
 
@@ -503,10 +499,7 @@ impl Inner {
         let thread_timer = Arc::clone(&timer);
         let spawned = thread::Builder::new().name("mixdog-term-forced-exit".into()).spawn(move || {
             let guard = thread_timer.cancelled.lock().unwrap_or_else(PoisonError::into_inner);
-            let (guard, waited) = thread_timer
-                .wake
-                .wait_timeout_while(guard, delay, |cancelled| !*cancelled)
-                .unwrap_or_else(PoisonError::into_inner);
+            let (guard, waited) = thread_timer.wake.wait_timeout_while(guard, delay, |cancelled| !*cancelled).unwrap_or_else(PoisonError::into_inner);
             let cancelled = *guard;
             drop(guard);
             if waited.timed_out() && !cancelled {
@@ -543,12 +536,7 @@ impl SignalCleanup {
     /// Windows. A signal runs the cleanup and, when `config.exit`, ends the process with 128 plus the signal number.
     /// Once the cleanup began (or after [`SignalCleanup::uninstall`]) a further signal takes its default action.
     pub fn install(config: CleanupConfig) -> SignalCleanup {
-        let inner = Arc::new(Inner {
-            config,
-            running: AtomicBool::new(false),
-            removed: AtomicBool::new(false),
-            timer: Mutex::new(None),
-        });
+        let inner = Arc::new(Inner { config, running: AtomicBool::new(false), removed: AtomicBool::new(false), timer: Mutex::new(None) });
         signals::install(&inner);
         SignalCleanup { inner }
     }
@@ -575,11 +563,7 @@ impl SignalCleanup {
         if let Some(error) = &options.error {
             inner.log(&format!("[{name}] {reason}: {error}"));
         }
-        let steps = [
-            inner.call(&inner.config.before_cleanup, reason),
-            inner.run_cleanup(reason),
-            inner.call(&inner.config.after_cleanup, reason),
-        ];
+        let steps = [inner.call(&inner.config.before_cleanup, reason), inner.run_cleanup(reason), inner.call(&inner.config.after_cleanup, reason)];
         for step in steps.into_iter().flat_map(Result::err) {
             inner.log(&format!("[{name}] cleanup failed: {step}"));
         }
@@ -658,11 +642,7 @@ mod signals {
                     let name = signal_name(signal);
                     // On a thread of its own so that a second signal during the cleanup is seen here.
                     let _ = thread::Builder::new().name("mixdog-term-signal-run".into()).spawn(move || {
-                        let options = RunOptions {
-                            code: signal_exit_code(name),
-                            should_exit: cleanup.inner.config.exit,
-                            error: None,
-                        };
+                        let options = RunOptions { code: signal_exit_code(name), should_exit: cleanup.inner.config.exit, error: None };
                         cleanup.run(name, options);
                     });
                 }
@@ -682,9 +662,7 @@ mod signals {
     use std::sync::{Arc, Mutex, PoisonError};
     use std::thread;
 
-    use windows_sys::Win32::System::Console::{
-        CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, SetConsoleCtrlHandler,
-    };
+    use windows_sys::Win32::System::Console::{CTRL_BREAK_EVENT, CTRL_C_EVENT, CTRL_CLOSE_EVENT, SetConsoleCtrlHandler};
 
     use super::{Inner, RunOptions, SignalCleanup, signal_exit_code};
 
@@ -727,11 +705,7 @@ mod signals {
         *CURRENT.lock().unwrap_or_else(PoisonError::into_inner) = Some(Arc::clone(inner));
         // SAFETY: registers a handler routine with the signature the system expects.
         if unsafe { SetConsoleCtrlHandler(Some(handler), 1) } == 0 {
-            inner.log(&format!(
-                "[{}] signal handlers were not installed: {}",
-                inner.config.name,
-                std::io::Error::last_os_error()
-            ));
+            inner.log(&format!("[{}] signal handlers were not installed: {}", inner.config.name, std::io::Error::last_os_error()));
         }
     }
 
@@ -784,11 +758,8 @@ mod tests {
         assert_eq!(defaults.hard_exit_delay, Duration::from_millis(500));
         assert!(defaults.hard_exit_enabled);
         assert_eq!(defaults.cleanup_timeout(), Duration::from_millis(3500));
-        let set = ExitSettings::from_vars(vars(&[
-            ("MIXDOG_TUI_EXIT_WAIT_MS", "100"),
-            ("MIXDOG_TUI_HARD_EXIT_DELAY_MS", "20"),
-            ("MIXDOG_TUI_HARD_EXIT", "Off"),
-        ]));
+        let set =
+            ExitSettings::from_vars(vars(&[("MIXDOG_TUI_EXIT_WAIT_MS", "100"), ("MIXDOG_TUI_HARD_EXIT_DELAY_MS", "20"), ("MIXDOG_TUI_HARD_EXIT", "Off")]));
         assert_eq!(set.wait_timeout, Duration::from_millis(100));
         assert_eq!(set.hard_exit_delay, Duration::from_millis(20));
         assert!(!set.hard_exit_enabled);
@@ -799,14 +770,8 @@ mod tests {
     fn the_stderr_log_path() {
         let temp = Path::new("/tmp");
         assert_eq!(stderr_log_path(&vars(&[]), temp), Path::new("/tmp").join("mixdog").join(STDERR_LOG_NAME));
-        assert_eq!(
-            stderr_log_path(&vars(&[("MIXDOG_RUNTIME_ROOT", "/run/mx")]), temp),
-            Path::new("/run/mx").join(STDERR_LOG_NAME)
-        );
-        assert_eq!(
-            stderr_log_path(&vars(&[("MIXDOG_RUNTIME_ROOT", "/run/mx"), ("MIXDOG_TUI_STDERR_LOG", "/x/e.log")]), temp),
-            Path::new("/x/e.log")
-        );
+        assert_eq!(stderr_log_path(&vars(&[("MIXDOG_RUNTIME_ROOT", "/run/mx")]), temp), Path::new("/run/mx").join(STDERR_LOG_NAME));
+        assert_eq!(stderr_log_path(&vars(&[("MIXDOG_RUNTIME_ROOT", "/run/mx"), ("MIXDOG_TUI_STDERR_LOG", "/x/e.log")]), temp), Path::new("/x/e.log"));
         assert_eq!(
             stderr_log_path(&vars(&[("MIXDOG_TUI_STDERR_LOG", ""), ("MIXDOG_RUNTIME_ROOT", "")]), temp),
             Path::new("/tmp").join("mixdog").join(STDERR_LOG_NAME)
@@ -864,14 +829,7 @@ mod tests {
     }
 
     fn cleanup_of(config: CleanupConfig) -> SignalCleanup {
-        SignalCleanup {
-            inner: Arc::new(Inner {
-                config,
-                running: AtomicBool::new(false),
-                removed: AtomicBool::new(false),
-                timer: Mutex::new(None),
-            }),
-        }
+        SignalCleanup { inner: Arc::new(Inner { config, running: AtomicBool::new(false), removed: AtomicBool::new(false), timer: Mutex::new(None) }) }
     }
 
     #[test]
@@ -879,10 +837,7 @@ mod tests {
         let probe = probe(Duration::ZERO, Duration::from_secs(5));
         let cleanup = cleanup_of(probe.config);
         assert!(cleanup.run("SIGTERM", RunOptions { code: 143, should_exit: true, error: None }));
-        assert_eq!(
-            *probe.log.lock().unwrap(),
-            ["before:SIGTERM", "cleanup:SIGTERM", "after:SIGTERM"].map(String::from)
-        );
+        assert_eq!(*probe.log.lock().unwrap(), ["before:SIGTERM", "cleanup:SIGTERM", "after:SIGTERM"].map(String::from));
         assert_eq!(*probe.exits.lock().unwrap(), [143]);
     }
 
@@ -978,7 +933,6 @@ mod tests {
         assert!(restorer.modes().is_restored());
     }
 }
-
 
 impl ExitSettings {
     pub fn from_vars(var: impl Fn(&str) -> Option<String>) -> ExitSettings {

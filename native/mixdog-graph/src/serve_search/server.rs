@@ -33,25 +33,15 @@ pub(super) static SERVE_SEARCH_STARTED: OnceLock<Instant> = OnceLock::new();
 pub(super) static SERVE_SEARCH_LAST_ACTIVITY_MS: AtomicU64 = AtomicU64::new(0);
 
 pub(super) fn serve_search_uptime_ms() -> u64 {
-    SERVE_SEARCH_STARTED
-        .get_or_init(Instant::now)
-        .elapsed()
-        .as_millis() as u64
+    SERVE_SEARCH_STARTED.get_or_init(Instant::now).elapsed().as_millis() as u64
 }
 
 pub(super) fn note_serve_search_activity() {
     SERVE_SEARCH_LAST_ACTIVITY_MS.store(serve_search_uptime_ms(), Ordering::Relaxed);
 }
 
-pub(super) fn start_serve_search_idle_watchdog(
-    file_lists: Arc<FileListStore>,
-    policy: IdlePolicy,
-    alive: Arc<AtomicBool>,
-) {
-    let idle_ms = std::env::var("MIXDOG_SEARCH_SERVER_IDLE_MS")
-        .ok()
-        .and_then(|value| value.trim().parse::<u64>().ok())
-        .unwrap_or(DEFAULT_SERVE_SEARCH_IDLE_MS);
+pub(super) fn start_serve_search_idle_watchdog(file_lists: Arc<FileListStore>, policy: IdlePolicy, alive: Arc<AtomicBool>) {
+    let idle_ms = std::env::var("MIXDOG_SEARCH_SERVER_IDLE_MS").ok().and_then(|value| value.trim().parse::<u64>().ok()).unwrap_or(DEFAULT_SERVE_SEARCH_IDLE_MS);
     if idle_ms == 0 {
         return;
     }
@@ -60,42 +50,40 @@ pub(super) fn start_serve_search_idle_watchdog(
     // on the way in and its response stamps it again on the way out, so
     // in-flight work can never age past the window.
     let step = Duration::from_millis(idle_ms.clamp(250, 5_000));
-    let _ = std::thread::Builder::new()
-        .name("mixdog-search-idle-watchdog".to_string())
-        .spawn(move || {
-            // Which activity stamp was already reclaimed. A released server
-            // stays idle indefinitely, and repeating the release every step
-            // would re-persist an empty snapshot on a loop.
-            let mut reclaimed: Option<u64> = None;
-            while alive.load(Ordering::Acquire) {
-                std::thread::sleep(step);
-                if !alive.load(Ordering::Acquire) {
-                    return;
+    let _ = std::thread::Builder::new().name("mixdog-search-idle-watchdog".to_string()).spawn(move || {
+        // Which activity stamp was already reclaimed. A released server
+        // stays idle indefinitely, and repeating the release every step
+        // would re-persist an empty snapshot on a loop.
+        let mut reclaimed: Option<u64> = None;
+        while alive.load(Ordering::Acquire) {
+            std::thread::sleep(step);
+            if !alive.load(Ordering::Acquire) {
+                return;
+            }
+            let last_activity = SERVE_SEARCH_LAST_ACTIVITY_MS.load(Ordering::Relaxed);
+            let idle_for = serve_search_uptime_ms().saturating_sub(last_activity);
+            if idle_for < idle_ms {
+                reclaimed = None;
+                continue;
+            }
+            match policy {
+                IdlePolicy::ExitProcess => {
+                    // Exit the same way the normal loop-exit path does, so
+                    // the next server starts warm instead of re-walking.
+                    persist_file_list_snapshot(&file_lists.ready);
+                    flush_responses();
+                    std::process::exit(0);
                 }
-                let last_activity = SERVE_SEARCH_LAST_ACTIVITY_MS.load(Ordering::Relaxed);
-                let idle_for = serve_search_uptime_ms().saturating_sub(last_activity);
-                if idle_for < idle_ms {
-                    reclaimed = None;
-                    continue;
-                }
-                match policy {
-                    IdlePolicy::ExitProcess => {
-                        // Exit the same way the normal loop-exit path does, so
-                        // the next server starts warm instead of re-walking.
-                        persist_file_list_snapshot(&file_lists.ready);
-                        flush_responses();
-                        std::process::exit(0);
+                IdlePolicy::ReleaseCaches => {
+                    if reclaimed == Some(last_activity) {
+                        continue;
                     }
-                    IdlePolicy::ReleaseCaches => {
-                        if reclaimed == Some(last_activity) {
-                            continue;
-                        }
-                        reclaimed = Some(last_activity);
-                        file_lists.release_caches();
-                    }
+                    reclaimed = Some(last_activity);
+                    file_lists.release_caches();
                 }
             }
-        });
+        }
+    });
 }
 
 #[cfg(target_os = "windows")]
@@ -136,13 +124,7 @@ pub(super) fn process_snapshot(id: u64) -> serde_json::Value {
         fn Process32FirstW(snapshot: Handle, entry: *mut ProcessEntry32W) -> i32;
         fn Process32NextW(snapshot: Handle, entry: *mut ProcessEntry32W) -> i32;
         fn OpenProcess(access: u32, inherit: i32, process_id: u32) -> Handle;
-        fn GetProcessTimes(
-            process: Handle,
-            creation: *mut FileTime,
-            exit: *mut FileTime,
-            kernel: *mut FileTime,
-            user: *mut FileTime,
-        ) -> i32;
+        fn GetProcessTimes(process: Handle, creation: *mut FileTime, exit: *mut FileTime, kernel: *mut FileTime, user: *mut FileTime) -> i32;
         fn CloseHandle(handle: Handle) -> i32;
     }
 
@@ -155,16 +137,11 @@ pub(super) fn process_snapshot(id: u64) -> serde_json::Value {
         let mut exit = FileTime::default();
         let mut kernel = FileTime::default();
         let mut user = FileTime::default();
-        let ok =
-            unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user) };
+        let ok = unsafe { GetProcessTimes(process, &mut creation, &mut exit, &mut kernel, &mut user) };
         unsafe {
             CloseHandle(process);
         }
-        if ok == 0 {
-            String::new()
-        } else {
-            ((u64::from(creation.high) << 32) | u64::from(creation.low)).to_string()
-        }
+        if ok == 0 { String::new() } else { ((u64::from(creation.high) << 32) | u64::from(creation.low)).to_string() }
     }
 
     let snapshot = unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) };
@@ -239,17 +216,11 @@ impl SearchServer {
         // the addon does not own. Installed before the engine starts, so no
         // event can escape down the wrong route.
         install_response_queue(Some(Arc::clone(&queue)));
-        let sink = ClientSink {
-            queue: Arc::clone(&queue),
-        };
+        let sink = ClientSink { queue: Arc::clone(&queue) };
         Self::start(sink, Some(queue), IdlePolicy::ReleaseCaches)
     }
 
-    pub(super) fn start(
-        sink: ClientSink,
-        owned_queue: Option<Arc<ResponseQueue>>,
-        policy: IdlePolicy,
-    ) -> Self {
+    pub(super) fn start(sink: ClientSink, owned_queue: Option<Arc<ResponseQueue>>, policy: IdlePolicy) -> Self {
         std::thread::spawn(ensure_content_signature_cache_loaded);
         // Readiness is announced before the engine touches the disk snapshot,
         // so a host never waits on inventory load to learn the server is up.
@@ -261,12 +232,7 @@ impl SearchServer {
             .name("mixdog-search-engine".to_string())
             .spawn(move || run_engine(sink, incoming, policy, engine_alive))
             .expect("mixdog search engine");
-        Self {
-            requests: Some(requests),
-            engine: Some(engine),
-            owned_queue,
-            alive,
-        }
+        Self { requests: Some(requests), engine: Some(engine), owned_queue, alive }
     }
 
     /// Queue one request line. Returns false once the engine is gone. Never
@@ -309,16 +275,10 @@ impl Drop for SearchServer {
     }
 }
 
-pub(super) fn run_engine(
-    sink: ClientSink,
-    incoming: Receiver<String>,
-    policy: IdlePolicy,
-    alive: Arc<AtomicBool>,
-) {
+pub(super) fn run_engine(sink: ClientSink, incoming: Receiver<String>, policy: IdlePolicy, alive: Arc<AtomicBool>) {
     let file_lists = Arc::new(FileListStore::new_persistent());
     file_lists.schedule_noise_prewarm();
-    let cancellations: Arc<Mutex<HashMap<RequestKey, Arc<AtomicBool>>>> =
-        Arc::new(Mutex::new(HashMap::new()));
+    let cancellations: Arc<Mutex<HashMap<RequestKey, Arc<AtomicBool>>>> = Arc::new(Mutex::new(HashMap::new()));
     let scheduler = SearchScheduler::new(Arc::clone(&file_lists), Arc::clone(&cancellations));
     start_serve_search_idle_watchdog(Arc::clone(&file_lists), policy, alive);
     // One server serves exactly one client, so it owns the reserved id 0 and a
@@ -330,20 +290,14 @@ pub(super) fn run_engine(
             continue;
         }
         match serde_json::from_str::<WireRequest>(&line) {
-            Ok(WireRequest::ListMetadata {
-                id,
-                cwd,
-                list_metadata,
-            }) => {
+            Ok(WireRequest::ListMetadata { id, cwd, list_metadata }) => {
                 let sink = sink.clone();
                 std::thread::spawn(move || {
                     sink.write_control(&list_metadata_response(id, &cwd, &list_metadata));
                 });
             }
             Ok(WireRequest::Cancel { cancel }) => {
-                let inflight = lock_recover(&cancellations)
-                    .get(&(client_id, cancel))
-                    .cloned();
+                let inflight = lock_recover(&cancellations).get(&(client_id, cancel)).cloned();
                 // Signalling the flag IS the cancellation of a running search;
                 // the queued copy is removed separately.
                 if let Some(flag) = &inflight {
@@ -356,24 +310,13 @@ pub(super) fn run_engine(
                     sink.write_cancelled(cancel);
                 }
             }
-            Ok(WireRequest::ProcessSnapshot {
-                id,
-                process_snapshot: true,
-            }) => sink.write_control(&process_snapshot(id)),
-            Ok(WireRequest::ProcessSnapshot { id, .. }) => sink.write_control(
-                &serde_json::json!({ "id": id, "error": "invalid process snapshot request" }),
-            ),
+            Ok(WireRequest::ProcessSnapshot { id, process_snapshot: true }) => sink.write_control(&process_snapshot(id)),
+            Ok(WireRequest::ProcessSnapshot { id, .. }) => sink.write_control(&serde_json::json!({ "id": id, "error": "invalid process snapshot request" })),
             Ok(WireRequest::Search(req)) => {
                 let id = req.id;
                 let cancelled = Arc::new(AtomicBool::new(false));
                 lock_recover(&cancellations).insert((client_id, id), Arc::clone(&cancelled));
-                let scheduled = ScheduledSearch {
-                    req,
-                    cancelled,
-                    queued_at: Instant::now(),
-                    client_id,
-                    sink: sink.clone(),
-                };
+                let scheduled = ScheduledSearch { req, cancelled, queued_at: Instant::now(), client_id, sink: sink.clone() };
                 if let Err(search) = scheduler.enqueue(scheduled) {
                     forget_cancellation(&cancellations, (client_id, id));
                     let telemetry = scheduler.telemetry();
@@ -385,8 +328,7 @@ pub(super) fn run_engine(
                     }));
                 }
             }
-            Err(error) => sink
-                .write(&serde_json::json!({ "id": 0, "error": format!("bad request: {error}") })),
+            Err(error) => sink.write(&serde_json::json!({ "id": 0, "error": format!("bad request: {error}") })),
         }
     }
     scheduler.shutdown();

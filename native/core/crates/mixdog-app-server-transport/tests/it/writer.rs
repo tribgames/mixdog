@@ -18,11 +18,11 @@ use mixdog_app_server_transport::ConnectionOrigin;
 use mixdog_core_api::feed::AttachMode;
 use mixdog_core_api::feed::Feed;
 use mixdog_core_api::feed::FeedFrame;
+use mixdog_core_api::feed::FeedPosition;
 use mixdog_core_api::feed::FeedSource;
 use mixdog_core_api::feed::FeedView;
 use mixdog_core_api::feed::ResumeFrom;
 use mixdog_core_api::feed::Window;
-use mixdog_core_api::feed::FeedPosition;
 use mixdog_core_api::feed::subscribe;
 use mixdog_core_api::ids::FeedId;
 use mixdog_core_api::ids::SubscriptionId;
@@ -40,12 +40,7 @@ fn view() -> Option<Arc<dyn FeedView>> {
 }
 
 fn new_feed(name: &str, limits: &mixdog_app_protocol::limits::Limits) -> Arc<MockFeed> {
-    Arc::new(MockFeed::new(
-        FeedId::from(name),
-        epoch(9),
-        Arc::new(EchoView),
-        mock_limits(limits),
-    ))
+    Arc::new(MockFeed::new(FeedId::from(name), epoch(9), Arc::new(EchoView), mock_limits(limits)))
 }
 
 fn publish(feed: &MockFeed, seqs: std::ops::RangeInclusive<u64>) {
@@ -57,17 +52,11 @@ fn publish(feed: &MockFeed, seqs: std::ops::RangeInclusive<u64>) {
 fn big_event(seq: u64) -> FeedFrame {
     let mut text = format!("evt@{seq}:");
     text.push_str(&"x".repeat(60_000));
-    FeedFrame {
-        seq,
-        bytes: Bytes::from(text),
-    }
+    FeedFrame { seq, bytes: Bytes::from(text) }
 }
 
 fn names(texts: Vec<String>) -> Vec<String> {
-    texts
-        .into_iter()
-        .map(|text| text.split(':').next().unwrap_or_default().to_owned())
-        .collect()
+    texts.into_iter().map(|text| text.split(':').next().unwrap_or_default().to_owned()).collect()
 }
 
 async fn settle() {
@@ -76,29 +65,13 @@ async fn settle() {
     }
 }
 
-fn subscribe_to(
-    feed: &Arc<MockFeed>,
-    peer: &Peer,
-    name: &str,
-    window: Window,
-    resume_from: Option<ResumeFrom>,
-) -> mixdog_core_api::feed::Attached {
+fn subscribe_to(feed: &Arc<MockFeed>, peer: &Peer, name: &str, window: Window, resume_from: Option<ResumeFrom>) -> mixdog_core_api::feed::Attached {
     let source: Arc<dyn FeedSource> = feed.clone();
-    subscribe(
-        &source,
-        SubscriptionId::from(name),
-        window,
-        resume_from,
-        &peer.connection.sink,
-    )
-    .expect("open connection")
+    subscribe(&source, SubscriptionId::from(name), window, resume_from, &peer.connection.sink).expect("open connection")
 }
 
 fn respond(peer: &Peer, attached: mixdog_core_api::feed::Attached, text: &str) {
-    peer.connection
-        .sink
-        .send_control_release(Bytes::from(text.to_owned()), attached.release)
-        .expect("connection open");
+    peer.connection.sink.send_control_release(Bytes::from(text.to_owned()), attached.release).expect("connection open");
 }
 
 #[tokio::test]
@@ -118,10 +91,7 @@ async fn lane_waits_for_its_response_then_snapshot_then_live() {
     respond(&peer, attached, "resp");
     publish(&feed, 6..=6);
 
-    assert_eq!(
-        peer.take_text(5).await,
-        ["resp", "snapshot@3", "evt@4", "evt@5", "evt@6"]
-    );
+    assert_eq!(peer.take_text(5).await, ["resp", "snapshot@3", "evt@4", "evt@5", "evt@6"]);
 }
 
 #[tokio::test]
@@ -132,13 +102,7 @@ async fn resume_in_the_ring_replays_behind_the_response() {
     let mut peer = connect(&hub, ConnectionOrigin::Loopback, true);
     let feed = new_feed("app", &limits);
     publish(&feed, 1..=4);
-    let resume = ResumeFrom {
-        position: FeedPosition {
-            epoch: epoch(9),
-            seq: 2,
-        },
-        window: Window::LastItems(50),
-    };
+    let resume = ResumeFrom { position: FeedPosition { epoch: epoch(9), seq: 2 }, window: Window::LastItems(50) };
 
     let attached = subscribe_to(&feed, &peer, "a", Window::LastItems(50), Some(resume));
     assert_eq!(attached.decision.mode, AttachMode::Replay);
@@ -191,10 +155,7 @@ async fn control_reserve_exhaustion_closes_with_slow_consumer() {
     peer.allow(usize::MAX >> 4);
     let wire = peer.until_closed().await;
     assert_eq!(wire.last(), Some(&Wire::Close(CloseCode::SlowConsumer)));
-    assert!(
-        wire.iter().filter(|w| matches!(w, Wire::Text(_))).count() <= 1,
-        "queued control frames are dropped, only the one in flight was written"
-    );
+    assert!(wire.iter().filter(|w| matches!(w, Wire::Text(_))).count() <= 1, "queued control frames are dropped, only the one in flight was written");
 }
 
 /// One answer larger than the whole control reserve, to a connection that holds nothing of it, is written and the
@@ -319,19 +280,13 @@ async fn slow_consumer_lags_only_its_own_lanes_and_recovers_one_snapshot_each() 
     assert_eq!(slow.connection.sink.event_budget_free(), event_budget);
     // The healthy connection saw every frame, in order.
     let texts = names(fast.take_text(102).await);
-    let expected: Vec<String> = ["fast-ra".to_owned(), "snapshot@0".to_owned()]
-        .into_iter()
-        .chain((1..=100).map(|seq| format!("evt@{seq}")))
-        .collect();
+    let expected: Vec<String> = ["fast-ra".to_owned(), "snapshot@0".to_owned()].into_iter().chain((1..=100).map(|seq| format!("evt@{seq}"))).collect();
     assert_eq!(texts, expected);
 
     // The stalled peer reads again: responses, then one snapshot per lagged lane, then live.
     slow.allow(usize::MAX >> 4);
     let texts = names(slow.take_text(4).await);
-    assert_eq!(
-        texts,
-        ["slow-ra", "slow-rb", "snapshot@100", "snapshot@100"]
-    );
+    assert_eq!(texts, ["slow-ra", "slow-rb", "snapshot@100", "snapshot@100"]);
     a.publish(&[event(101)], view()).unwrap();
     b.publish(&[event(101)], view()).unwrap();
     assert_eq!(slow.take_text(2).await, ["evt@101", "evt@101"]);
@@ -390,11 +345,7 @@ async fn drain(peer: &mut Peer) -> Vec<String> {
 }
 
 fn small_events<'a>(texts: &'a [String], marker: &str) -> Vec<&'a str> {
-    texts
-        .iter()
-        .map(String::as_str)
-        .filter(|t| t.len() < 12 && (t.starts_with("evt@") || *t == marker))
-        .collect()
+    texts.iter().map(String::as_str).filter(|t| t.len() < 12 && (t.starts_with("evt@") || *t == marker)).collect()
 }
 
 #[tokio::test]
@@ -425,18 +376,12 @@ async fn a_lane_opened_mid_burst_is_never_lagged_by_the_burst() {
 
     let texts = drain(&mut peer).await;
     // B: its snapshot, then every frame in order, and never a recovery snapshot.
-    assert_eq!(
-        small_events(&texts, "snapshot@0"),
-        ["snapshot@0", "evt@1", "evt@2", "evt@3", "evt@4", "evt@5"]
-    );
+    assert_eq!(small_events(&texts, "snapshot@0"), ["snapshot@0", "evt@1", "evt@2", "evt@3", "evt@4", "evt@5"]);
     assert_eq!(texts.iter().filter(|t| *t == "snapshot@5").count(), 0);
     // A: the lagged backlog was dropped and replaced by one snapshot.
     assert_eq!(texts.iter().filter(|t| *t == "snapshot@8").count(), 1);
     assert!(texts.iter().all(|t| t.len() < 1000), "no burst frame was written");
-    assert_eq!(
-        peer.connection.sink.event_budget_free(),
-        limits.event_budget_bytes as usize
-    );
+    assert_eq!(peer.connection.sink.event_budget_free(), limits.event_budget_bytes as usize);
 }
 
 #[tokio::test]
@@ -445,11 +390,7 @@ async fn closing_a_lane_mid_burst_widens_the_others_shares() {
     let limits = small_limits();
     let hub = ConnectionHub::new(limits.clone()).unwrap();
     let mut peer = connect(&hub, ConnectionOrigin::Loopback, false);
-    let (a, b, c) = (
-        new_feed("ta", &limits),
-        new_feed("tb", &limits),
-        new_feed("tc", &limits),
-    );
+    let (a, b, c) = (new_feed("ta", &limits), new_feed("tb", &limits), new_feed("tc", &limits));
     let attached_a = subscribe_to(&a, &peer, "a", Window::Fixed, None);
     let attached_b = subscribe_to(&b, &peer, "b", Window::Fixed, None);
     let _attached_c = subscribe_to(&c, &peer, "c", Window::Fixed, None);
@@ -473,23 +414,14 @@ async fn closing_a_lane_mid_burst_widens_the_others_shares() {
     peer.allow(usize::MAX >> 4);
 
     let texts = drain(&mut peer).await;
-    let frames: Vec<_> = names(texts.clone())
-        .into_iter()
-        .filter(|t| t.starts_with("evt@"))
-        .collect();
+    let frames: Vec<_> = names(texts.clone()).into_iter().filter(|t| t.starts_with("evt@")).collect();
     assert_eq!(frames.len(), 8);
     for lane in 0..2 {
         let seqs: Vec<_> = frames.iter().skip(lane).step_by(2).collect();
         assert_eq!(seqs, ["evt@1", "evt@2", "evt@3", "evt@4"]);
     }
-    assert!(
-        !texts.iter().any(|t| t == "snapshot@4"),
-        "neither lane needed a recovery snapshot"
-    );
-    assert_eq!(
-        peer.connection.sink.event_budget_free(),
-        limits.event_budget_bytes as usize
-    );
+    assert!(!texts.iter().any(|t| t == "snapshot@4"), "neither lane needed a recovery snapshot");
+    assert_eq!(peer.connection.sink.event_budget_free(), limits.event_budget_bytes as usize);
 }
 
 #[tokio::test]
@@ -524,16 +456,12 @@ async fn reservations_held_by_producers_cannot_outlive_a_revocation() {
     let sink = peer.connection.sink.clone();
 
     // A alone holds eight unqueued 60,000-byte reservations: nothing pushed, nothing written.
-    let (lane_a, _) = sink
-        .open_lane(SubscriptionId::from("a"), Arc::new(NoRecovery))
-        .unwrap();
+    let (lane_a, _) = sink.open_lane(SubscriptionId::from("a"), Arc::new(NoRecovery)).unwrap();
     let mut held: Vec<Reservation> = (0..8).map(|_| lane_a.try_reserve(60_000).unwrap()).collect();
     assert_eq!(sink.event_budget_free(), budget - 480_000);
 
     // B opens: A is above its new half, so it is revoked, reservations in hand included.
-    let (lane_b, _) = sink
-        .open_lane(SubscriptionId::from("b"), Arc::new(NoRecovery))
-        .unwrap();
+    let (lane_b, _) = sink.open_lane(SubscriptionId::from("b"), Arc::new(NoRecovery)).unwrap();
     assert!(lane_a.is_lagged());
     assert_eq!(sink.event_budget_free(), budget, "A's hold was not charged on");
 
@@ -563,12 +491,8 @@ async fn a_within_share_frame_is_never_lagged_while_another_frame_is_in_flight()
     let hub = ConnectionHub::new(limits).unwrap();
     let mut peer = connect(&hub, ConnectionOrigin::Loopback, false);
     let sink = peer.connection.sink.clone();
-    let (lane_a, release_a) = sink
-        .open_lane(SubscriptionId::from("a"), Arc::new(NoRecovery))
-        .unwrap();
-    let (lane_b, release_b) = sink
-        .open_lane(SubscriptionId::from("b"), Arc::new(NoRecovery))
-        .unwrap();
+    let (lane_a, release_a) = sink.open_lane(SubscriptionId::from("a"), Arc::new(NoRecovery)).unwrap();
+    let (lane_b, release_b) = sink.open_lane(SubscriptionId::from("b"), Arc::new(NoRecovery)).unwrap();
     sink.send_control_release(Bytes::from_static(b"ra"), release_a).unwrap();
     sink.send_control_release(Bytes::from_static(b"rb"), release_b).unwrap();
     peer.allow(2);
@@ -676,7 +600,8 @@ async fn bytes_queued_for_a_peer_that_reads_nothing_by_kind_of_event() {
         section_frame("agent/pool/updated", "agentPool", None, serde_json::json!(rows), seq)
     };
     let summary = |seq: u64| section_frame("thread/summary/updated", "threadSummary", Some("t1"), serde_json::json!({ "id": "t1", "pad": pad(900) }), seq);
-    let delta = |seq: u64| frame_of("item/agentMessage/delta", serde_json::json!({ "threadId": "t", "turnId": "u", "itemId": "answer", "delta": "word " }), seq);
+    let delta =
+        |seq: u64| frame_of("item/agentMessage/delta", serde_json::json!({ "threadId": "t", "turnId": "u", "itemId": "answer", "delta": "word " }), seq);
     // The recorded Rust-core turn (`packages/protocol-client/test/live-turn-items.json`): a context update is 812 bytes at most,
     // a token-usage update 23 KiB, its `usage.sendTools` the tool list the model call carried.
     let context = |seq: u64| frame_of("thread/context/updated", serde_json::json!({ "threadId": "t", "value": { "pad": pad(700) } }), seq);
@@ -717,7 +642,6 @@ async fn a_slow_consumer_close_writes_what_was_queued_to_the_daemon_log() {
     }
 }
 
-
 /// Two clients on one stream: the one that announced `feedRanges` gets the first append at once and the window's appends as one
 /// frame standing for their positions (`feed.from`); the other gets every frame as before.
 #[tokio::test(start_paused = true)]
@@ -744,7 +668,11 @@ async fn only_a_feed_ranges_client_gets_a_window_of_appends_as_one_ranged_frame(
     }
 
     let first = parsed(&phone.take_text(1).await[0]);
-    assert_eq!((first["feed"]["seq"].clone(), first["params"]["delta"].clone()), (serde_json::json!(1), serde_json::json!("응")), "the first append goes at once");
+    assert_eq!(
+        (first["feed"]["seq"].clone(), first["params"]["delta"].clone()),
+        (serde_json::json!(1), serde_json::json!("응")),
+        "the first append goes at once"
+    );
     let window = parsed(&phone.take_text(1).await[0]);
     assert_eq!(window["params"]["delta"], "답 하나", "the window's appends joined");
     assert_eq!((window["feed"]["from"].clone(), window["feed"]["seq"].clone()), (serde_json::json!(2), serde_json::json!(4)));

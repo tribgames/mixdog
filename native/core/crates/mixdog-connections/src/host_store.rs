@@ -125,9 +125,7 @@ pub fn parse_host_settings(raw: &Value) -> Result<SshHostSettings, StoreError> {
     if !matches!(grace, Value::Null) && grace != &Value::String(String::new()) {
         let minutes = js_number(grace);
         if minutes.fract() != 0.0 || !(MIN_GRACE_MINUTES..=MAX_GRACE_MINUTES).contains(&minutes) {
-            return Err(StoreError::new(
-                "The time to keep the server\u{2019}s work must be a whole number of minutes from 1 to 10080.",
-            ));
+            return Err(StoreError::new("The time to keep the server\u{2019}s work must be a whole number of minutes from 1 to 10080."));
         }
         settings.grace_minutes = Some(minutes as u32);
     }
@@ -211,13 +209,7 @@ fn stored_hosts(value: &Value) -> Vec<SshHostRecord> {
         }
         let settings = row.get("settings").and_then(|raw| parse_host_settings(raw).ok()).filter(|parsed| !parsed.is_empty());
         keys.push(target.key);
-        hosts.push(SshHostRecord {
-            id: id.to_string(),
-            name,
-            target: target.display,
-            last_connected_at: finite_number(row.get("lastConnectedAt")),
-            settings,
-        });
+        hosts.push(SshHostRecord { id: id.to_string(), name, target: target.display, last_connected_at: finite_number(row.get("lastConnectedAt")), settings });
     }
     hosts.truncate(MAX_SAVED_HOSTS);
     hosts
@@ -287,13 +279,23 @@ impl SshHostStore {
             }
         };
         let (state, _) = watch::channel(Arc::new(hosts));
-        Self { inner: Arc::new(Inner { io, file, state, gate: Semaphore::new(1), reservations: std::sync::Mutex::new(HashMap::new()), turns: TargetTurns::default() }) }
+        Self {
+            inner: Arc::new(Inner {
+                io,
+                file,
+                state,
+                gate: Semaphore::new(1),
+                reservations: std::sync::Mutex::new(HashMap::new()),
+                turns: TargetTurns::default(),
+            }),
+        }
     }
 
     /// Waits for the turn of the server whose target has `key` (`SshTarget::key`).
     pub(crate) async fn turn(&self, key: &str) -> TargetTurn<'_> {
         let turns = &self.inner.turns;
-        let gate = turns.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(key.to_owned()).or_insert_with(|| Arc::new(Semaphore::new(1))).clone();
+        let gate =
+            turns.held.lock().unwrap_or_else(std::sync::PoisonError::into_inner).entry(key.to_owned()).or_insert_with(|| Arc::new(Semaphore::new(1))).clone();
         let mut turn = TargetTurn { turns, key: key.to_owned(), gate: Some(gate), taken: false };
         if let Some(gate) = &turn.gate {
             gate.acquire().await.expect("a server's gate is never closed").forget();

@@ -25,7 +25,14 @@ impl HostCommands for NoHost {
         unreachable!("the contract test never calls a tool")
     }
 
-    async fn visualize(&self, _thread: &ThreadId, _cwd: &str, _action: &str, _input: JsonValue, _cancel: &CancellationToken) -> Result<JsonValue, HostCommandError> {
+    async fn visualize(
+        &self,
+        _thread: &ThreadId,
+        _cwd: &str,
+        _action: &str,
+        _input: JsonValue,
+        _cancel: &CancellationToken,
+    ) -> Result<JsonValue, HostCommandError> {
         unreachable!("the contract test never calls a tool")
     }
 }

@@ -36,8 +36,7 @@ fn is_kind(value: Option<&Value>) -> Option<&str> {
 fn web_origin(value: &Value) -> Option<&str> {
     let text = value.as_str().filter(|s| mixdog_js::utf16_len(s) <= 300)?;
     let url = Url::parse(text).ok()?;
-    (matches!(url.scheme(), "http" | "https") && url.origin().ascii_serialization() == text)
-        .then_some(text)
+    (matches!(url.scheme(), "http" | "https") && url.origin().ascii_serialization() == text).then_some(text)
 }
 
 /// A stored or received policy as a whole one: unknown kinds, settings and malformed sites are
@@ -48,9 +47,7 @@ pub fn normalize(value: Option<&Value>) -> (Vec<(&'static str, String)>, Vec<Val
     let defaults = KINDS
         .iter()
         .map(|(kind, built_in)| {
-            let setting = defaults_in
-                .and_then(|d| is_setting(d.get(*kind)))
-                .unwrap_or(built_in);
+            let setting = defaults_in.and_then(|d| is_setting(d.get(*kind))).unwrap_or(built_in);
             (*kind, setting.to_owned())
         })
         .collect();
@@ -67,17 +64,11 @@ pub fn normalize(value: Option<&Value>) -> (Vec<(&'static str, String)>, Vec<Val
                 None => continue,
             },
         };
-        let (Some(permission), Some(setting)) =
-            (is_kind(rule.get("permission")), is_setting(rule.get("setting")))
-        else {
+        let (Some(permission), Some(setting)) = (is_kind(rule.get("permission")), is_setting(rule.get("setting"))) else {
             continue;
         };
         let embedder = embedder.filter(|e| *e != origin);
-        let identity = (
-            origin.to_owned(),
-            embedder.unwrap_or(origin).to_owned(),
-            permission.to_owned(),
-        );
+        let identity = (origin.to_owned(), embedder.unwrap_or(origin).to_owned(), permission.to_owned());
         if seen.contains(&identity) {
             continue;
         }
@@ -97,10 +88,7 @@ pub fn normalize(value: Option<&Value>) -> (Vec<(&'static str, String)>, Vec<Val
 /// The policy as the settings view shows it: every default plus the exceptions.
 pub fn view(value: Option<&Value>) -> Value {
     let (defaults, sites) = normalize(value);
-    let defaults: Map<String, Value> = defaults
-        .into_iter()
-        .map(|(kind, setting)| (kind.to_owned(), Value::String(setting)))
-        .collect();
+    let defaults: Map<String, Value> = defaults.into_iter().map(|(kind, setting)| (kind.to_owned(), Value::String(setting))).collect();
     serde_json::json!({ "defaults": defaults, "sites": sites })
 }
 

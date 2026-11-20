@@ -81,13 +81,7 @@ mod tests {
     use super::*;
 
     fn legacy() -> Legacy {
-        Legacy {
-            pid: 42,
-            version: "1.4.6".into(),
-            instance_id: "inst-1".into(),
-            build: "dev".into(),
-            update_text: "Update Mixdog.".into(),
-        }
+        Legacy { pid: 42, version: "1.4.6".into(), instance_id: "inst-1".into(), build: "dev".into(), update_text: "Update Mixdog.".into() }
     }
 
     #[test]

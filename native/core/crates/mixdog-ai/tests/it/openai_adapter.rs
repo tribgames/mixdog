@@ -80,11 +80,7 @@ impl ScriptedHttp {
 
 #[async_trait]
 impl HttpSend for ScriptedHttp {
-    async fn send(
-        &self,
-        request: WireRequest,
-        exchange: mixdog_ai::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: WireRequest, exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
         // A HEAD is the provider's connection warm-up, not a turn: answered empty, recorded apart and never scripted.
         if request.method == "HEAD" {
             self.warmups.lock().unwrap().push((request, exchange));
@@ -149,11 +145,7 @@ struct ScriptedDial {
 
 impl ScriptedDial {
     fn with(script: Vec<Dialed>) -> Arc<Self> {
-        Arc::new(Self {
-            script: Mutex::new(script.into()),
-            sent: Arc::default(),
-            requests: Mutex::default(),
-        })
+        Arc::new(Self { script: Mutex::new(script.into()), sent: Arc::default(), requests: Mutex::default() })
     }
 }
 
@@ -163,27 +155,14 @@ impl WsDial for ScriptedDial {
         &self,
         request: tokio_tungstenite::tungstenite::handshake::client::Request,
     ) -> Result<(Box<dyn WsSocket>, Response<Option<Vec<u8>>>), ConnectError> {
-        self.requests.lock().unwrap().push(
-            request
-                .headers()
-                .iter()
-                .map(|(k, v)| (k.as_str().to_owned(), v.to_str().unwrap().to_owned()))
-                .collect(),
-        );
+        self.requests.lock().unwrap().push(request.headers().iter().map(|(k, v)| (k.as_str().to_owned(), v.to_str().unwrap().to_owned())).collect());
         match self.script.lock().unwrap().pop_front().expect("scripted dial") {
             Dialed::Socket(frames) => Ok((
-                Box::new(ScriptSocket {
-                    sent: self.sent.clone(),
-                    frames: frames.into_iter().map(Ok).collect(),
-                }),
+                Box::new(ScriptSocket { sent: self.sent.clone(), frames: frames.into_iter().map(Ok).collect() }),
                 Response::builder().status(101).body(None).unwrap(),
             )),
-            Dialed::Rejected(status) => Err(ConnectError::Rejected(
-                Response::builder().status(status).body(Some(b"{}".to_vec())).unwrap(),
-            )),
-            Dialed::Refused(status, body) => Err(ConnectError::Rejected(
-                Response::builder().status(status).body(Some(body.as_bytes().to_vec())).unwrap(),
-            )),
+            Dialed::Rejected(status) => Err(ConnectError::Rejected(Response::builder().status(status).body(Some(b"{}".to_vec())).unwrap())),
+            Dialed::Refused(status, body) => Err(ConnectError::Rejected(Response::builder().status(status).body(Some(body.as_bytes().to_vec())).unwrap())),
         }
     }
 }
@@ -197,11 +176,7 @@ struct Credentials {
 impl Credentials {
     fn new(current: &str, refreshed: Option<&str>) -> Arc<Self> {
         let credential = |b: &str| Credential { bearer: b.into(), account_id: Some("acct".into()) };
-        Arc::new(Self {
-            current: credential(current),
-            refreshed: Mutex::new(refreshed.map(credential)),
-            asked: Mutex::new(0),
-        })
+        Arc::new(Self { current: credential(current), refreshed: Mutex::new(refreshed.map(credential)), asked: Mutex::new(0) })
     }
 }
 
@@ -223,12 +198,7 @@ impl ModelFactsSource for Facts {
     }
 }
 
-fn adapter(
-    transport: TransportKind,
-    http: Arc<ScriptedHttp>,
-    dial: Arc<ScriptedDial>,
-    credentials: Arc<Credentials>,
-) -> OpenAiAdapter {
+fn adapter(transport: TransportKind, http: Arc<ScriptedHttp>, dial: Arc<ScriptedDial>, credentials: Arc<Credentials>) -> OpenAiAdapter {
     adapter_in(Arc::new(SessionContext::new()), transport, http, dial, credentials)
 }
 
@@ -239,12 +209,7 @@ fn adapter_in(
     dial: Arc<ScriptedDial>,
     credentials: Arc<dyn CredentialSource>,
 ) -> OpenAiAdapter {
-    let identity = CodexIdentity {
-        installation_id: "i".into(),
-        user_agent: "ua".into(),
-        version: "1".into(),
-        beta_features: "b".into(),
-    };
+    let identity = CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "1".into(), beta_features: "b".into() };
     let config = OpenAiConfig::codex(false, identity, Arc::new(Facts), context.clone());
     OpenAiAdapter::new(
         ProviderId::from("openai-oauth"),
@@ -260,12 +225,7 @@ fn request(turn: Option<&str>) -> Arc<ModelRequest> {
         tools: vec![],
         options: RequestOptions {
             transport_scope: Some("scope".into()),
-            thread: turn.map(|t| RequestThread {
-                id: "thread-1".into(),
-                window: 2,
-                turn: Some(t.into()),
-                turn_started_at_ms: None,
-            }),
+            thread: turn.map(|t| RequestThread { id: "thread-1".into(), window: 2, turn: Some(t.into()), turn_started_at_ms: None }),
             ..Default::default()
         },
     })
@@ -330,10 +290,7 @@ async fn http_attempt_sends_credentials_and_streams_the_answer() {
 
 #[tokio::test]
 async fn a_401_reloads_the_credential_once_and_replays() {
-    let http = ScriptedHttp::with(vec![
-        (401, vec![], vec![Bytes::from_static(br#"{"error":{"code":"invalid_api_key"}}"#)]),
-        (200, vec![], sse("text")),
-    ]);
+    let http = ScriptedHttp::with(vec![(401, vec![], vec![Bytes::from_static(br#"{"error":{"code":"invalid_api_key"}}"#)]), (200, vec![], sse("text"))]);
     let credentials = Credentials::new("old", Some("new"));
     let adapter = adapter(TransportKind::Http1, http.clone(), ScriptedDial::with(vec![]), credentials.clone());
     collect(&adapter, request(None)).await.unwrap();
@@ -381,7 +338,14 @@ async fn an_unknown_model_refusal_refreshes_the_roster_and_resends_the_same_id_o
         let adapter = OpenAiAdapter::new(
             ProviderId::from("openai-oauth"),
             OpenAiCodec::new(config, TransportKind::Http1),
-            AdapterLinks { http, dial: ScriptedDial::with(vec![]), compress_lane: mixdog_rt::testing::tokens().cpu_bulk, credentials: Credentials::new("t", None), context, listing: ListingLookup::new() },
+            AdapterLinks {
+                http,
+                dial: ScriptedDial::with(vec![]),
+                compress_lane: mixdog_rt::testing::tokens().cpu_bulk,
+                credentials: Credentials::new("t", None),
+                context,
+                listing: ListingLookup::new(),
+            },
         );
         (adapter, reads)
     };
@@ -404,11 +368,7 @@ async fn an_unknown_model_refusal_refreshes_the_roster_and_resends_the_same_id_o
 #[tokio::test]
 async fn the_turn_state_token_replays_within_its_turn_only() {
     let issued = vec![("x-codex-turn-state".to_owned(), "tok-1".to_owned())];
-    let http = ScriptedHttp::with(vec![
-        (200, issued, sse("text")),
-        (200, vec![], sse("text")),
-        (200, vec![], sse("text")),
-    ]);
+    let http = ScriptedHttp::with(vec![(200, issued, sse("text")), (200, vec![], sse("text")), (200, vec![], sse("text"))]);
     let adapter = adapter(TransportKind::Http1, http.clone(), ScriptedDial::with(vec![]), Credentials::new("t", None));
     collect(&adapter, request(Some("turn-1"))).await.unwrap();
     collect(&adapter, request(Some("turn-1"))).await.unwrap();
@@ -436,18 +396,28 @@ async fn an_http_attempt_raises_requesting_and_names_its_attempt() {
 /// runs the whole send again, `effort-configuration.mjs:112`): the resend raises `requesting` as a first attempt.
 #[tokio::test]
 async fn an_http_resend_without_the_effort_update_raises_requesting_as_a_first_attempt() {
-    let messages = ["a", "b", "c"].iter().zip([Role::User, Role::Assistant, Role::User]).map(|(text, role)| ChatMessage::new(role, Content::Text((*text).into()))).collect();
+    let messages = ["a", "b", "c"]
+        .iter()
+        .zip([Role::User, Role::Assistant, Role::User])
+        .map(|(text, role)| ChatMessage::new(role, Content::Text((*text).into())))
+        .collect();
     let sent = Arc::new(ModelRequest {
         model: "gpt-fixture".into(),
         messages,
         tools: vec![],
         options: RequestOptions {
             transport_scope: Some("scope".into()),
-            effort_projection: Some(mixdog_core_api::domain::provider::EffortProjection { initial_effort: "low".into(), updates: std::collections::BTreeMap::from([(2, "high".into())]) }),
+            effort_projection: Some(mixdog_core_api::domain::provider::EffortProjection {
+                initial_effort: "low".into(),
+                updates: std::collections::BTreeMap::from([(2, "high".into())]),
+            }),
             ..Default::default()
         },
     });
-    let http = ScriptedHttp::with(vec![(400, vec![], vec![Bytes::from_static(br#"{"error":{"code":"invalid_value","param":"input[2].reasoning"}}"#)]), (200, vec![], sse("text"))]);
+    let http = ScriptedHttp::with(vec![
+        (400, vec![], vec![Bytes::from_static(br#"{"error":{"code":"invalid_value","param":"input[2].reasoning"}}"#)]),
+        (200, vec![], sse("text")),
+    ]);
     let adapter = adapter(TransportKind::Http1, http.clone(), ScriptedDial::with(vec![]), Credentials::new("tok", None));
     collect(&adapter, sent.clone()).await.unwrap();
     let bodies: Vec<serde_json::Value> = http.seen.lock().unwrap().iter().map(|r| serde_json::from_slice(&r.body).unwrap()).collect();
@@ -469,7 +439,9 @@ async fn ws_attempt_sends_one_create_frame_and_streams_frames() {
         frame(r#"{"type":"response.created","response":{"id":"resp_1","model":"m"}}"#),
         frame(r#"{"type":"response.output_item.added","output_index":0,"item":{"type":"message","id":"msg_1","role":"assistant","content":[]}}"#),
         frame(r#"{"type":"response.output_text.delta","output_index":0,"item_id":"msg_1","delta":"hello"}"#),
-        frame(r#"{"type":"response.completed","response":{"id":"resp_1","model":"m","status":"completed","usage":{"input_tokens":1,"output_tokens":1},"output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"hello"}]}]}}"#),
+        frame(
+            r#"{"type":"response.completed","response":{"id":"resp_1","model":"m","status":"completed","usage":{"input_tokens":1,"output_tokens":1},"output":[{"type":"message","id":"msg_1","role":"assistant","content":[{"type":"output_text","text":"hello"}]}]}}"#,
+        ),
     ])]);
     let adapter = adapter(TransportKind::WebSocket, ScriptedHttp::with(vec![]), dial.clone(), Credentials::new("tok", None));
     let events = collect(&adapter, request(None)).await.unwrap();
@@ -522,9 +494,8 @@ async fn a_rejected_upgrade_reloads_the_credential_like_a_401_response() {
 
 #[tokio::test]
 async fn an_error_frame_that_is_not_an_effort_rejection_reaches_the_decoder() {
-    let dial = ScriptedDial::with(vec![Dialed::Socket(vec![frame(
-        r#"{"type":"error","status":400,"error":{"code":"context_length_exceeded","param":"input[0]"}}"#,
-    )])]);
+    let dial =
+        ScriptedDial::with(vec![Dialed::Socket(vec![frame(r#"{"type":"error","status":400,"error":{"code":"context_length_exceeded","param":"input[0]"}}"#)])]);
     let adapter = adapter(TransportKind::WebSocket, ScriptedHttp::with(vec![]), dial.clone(), Credentials::new("t", None));
     let result = collect(&adapter, request(None)).await;
     assert!(result.is_err(), "the failure is the stream's, not swallowed");
@@ -535,7 +506,13 @@ fn key_adapter(transport: TransportKind, http: Arc<ScriptedHttp>, dial: Arc<Scri
     key_adapter_in(Arc::new(SessionContext::new()), transport, http, dial, credentials)
 }
 
-fn key_adapter_in(context: Arc<SessionContext>, transport: TransportKind, http: Arc<dyn HttpSend>, dial: Arc<ScriptedDial>, credentials: Arc<dyn CredentialSource>) -> OpenAiAdapter {
+fn key_adapter_in(
+    context: Arc<SessionContext>,
+    transport: TransportKind,
+    http: Arc<dyn HttpSend>,
+    dial: Arc<ScriptedDial>,
+    credentials: Arc<dyn CredentialSource>,
+) -> OpenAiAdapter {
     let config = OpenAiConfig::api_key(true, Arc::new(Facts), context.clone());
     OpenAiAdapter::new(
         ProviderId::from("openai"),
@@ -543,9 +520,6 @@ fn key_adapter_in(context: Arc<SessionContext>, transport: TransportKind, http: 
         AdapterLinks { http, dial, compress_lane: mixdog_rt::testing::tokens().cpu_bulk, credentials, context, listing: ListingLookup::new() },
     )
 }
-
-
-
 
 // ---- the initial-response window (stall-policy.mjs:98, provider-http-response-timeout) ------------------------------
 
@@ -667,7 +641,6 @@ async fn the_warm_up_goes_through_the_proxy_the_network_setting_names() {
     let line = mixdog_rt::time::timeout(std::time::Duration::from_secs(20), line).await.expect("the warm-up reached the proxy").unwrap();
     assert_eq!(line, "CONNECT chatgpt.com:443 HTTP/1.1");
 }
-
 
 // ---- the error cases of a turn, on both routes and both transports -----------------------------------------------------
 
@@ -793,5 +766,3 @@ async fn the_initial_response_window_follows_the_setting_on_both_routes() {
 }
 
 // ---- the recorded error cases, replayed whole (providers-intercepted) -----------------------------------------------
-
-

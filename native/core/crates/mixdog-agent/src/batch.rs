@@ -21,6 +21,7 @@ use mixdog_rt::TaskClass;
 
 use mixdog_core_api::domain::tool::ToolOutput;
 
+use crate::barriers::{invalidates_reuse, is_mutation, uses_result_cache};
 use crate::env::GateCall;
 use crate::env::ReuseKind;
 use crate::env::ReuseWrite;
@@ -29,21 +30,20 @@ use crate::env::or_cancelled;
 use crate::limits;
 use crate::message::AgentMessage;
 use crate::message::Source;
-use crate::native_search::{NativeDefinitions, parse_native_tool_search};
 use crate::message::ToolKind;
+use crate::native_search::{NativeDefinitions, parse_native_tool_search};
 use crate::run::AgentError;
 use crate::run::Run;
-use mixdog_core_api::domain::common::AbsPath;
 use crate::tools::CallEnv;
 use crate::tools::CallFuture;
-use crate::tools::ToolSet;
 use crate::tools::Executed;
 use crate::tools::Projection;
-use crate::barriers::{invalidates_reuse, is_mutation, uses_result_cache};
+use crate::tools::ToolSet;
 use crate::tools::arg_shape;
 use crate::tools::call_signature;
 use crate::tools::failure_signature;
 use crate::tools::intra_turn_duplicates;
+use mixdog_core_api::domain::common::AbsPath;
 
 /// A call started while the response streams.
 pub(crate) struct EagerStarted {
@@ -56,12 +56,7 @@ pub(crate) struct EagerStarted {
 /// section failed or a cap cut the scan) must never be reused; a tool that says
 /// nothing is whole.
 fn output_is_complete(output: &ToolOutput) -> bool {
-    output
-        .meta
-        .as_ref()
-        .and_then(|meta| meta.get("complete"))
-        .and_then(|complete| complete.as_bool())
-        .unwrap_or(true)
+    output.meta.as_ref().and_then(|meta| meta.get("complete")).and_then(|complete| complete.as_bool()).unwrap_or(true)
 }
 
 /// The `meta` object a tool left for the call's trace row under `key` (Node's `resultTelemetry` / `localSearchTelemetry`).
@@ -153,10 +148,7 @@ pub(crate) fn edit_groups(calls: &[ToolCall]) -> HashMap<String, EditGroup> {
         let Some(a) = call.arguments.as_object() else {
             continue;
         };
-        let (Some(file), Some(old)) = (
-            a.get("file_path").and_then(|v| v.as_str()),
-            a.get("old_string").and_then(|v| v.as_str()),
-        ) else {
+        let (Some(file), Some(old)) = (a.get("file_path").and_then(|v| v.as_str()), a.get("old_string").and_then(|v| v.as_str())) else {
             continue;
         };
         let replace_all = match a.get("replace_all") {
@@ -182,11 +174,7 @@ fn edit_key(call: &ToolCall) -> Option<String> {
         return None;
     }
     let a = call.arguments.as_object()?;
-    Some(format!(
-        "{}\u{0}{}",
-        a.get("file_path")?.as_str()?,
-        a.get("old_string")?.as_str()?
-    ))
+    Some(format!("{}\u{0}{}", a.get("file_path")?.as_str()?, a.get("old_string")?.as_str()?))
 }
 
 async fn run_one(call: ToolCall, env: Arc<CallEnv>, cwd: AbsPath, group: Option<EditGroup>) -> Executed {
@@ -388,13 +376,7 @@ impl Run {
         let (finished, done) = tokio::sync::watch::channel(false);
         let key = crate::barriers::is_edit(&name).then(|| crate::barriers::edit_path_key(&exec.arguments, &cwd)).flatten();
         let locks = self.barriers.locks.clone();
-        let slot: SettleSlot = Arc::new(Mutex::new(Settle {
-            key: key.clone(),
-            locks: locks.clone(),
-            retry_due: false,
-            ambiguous: false,
-            turn: None,
-        }));
+        let slot: SettleSlot = Arc::new(Mutex::new(Settle { key: key.clone(), locks: locks.clone(), retry_due: false, ambiguous: false, turn: None }));
         self.eager_settles.insert(id.clone(), Arc::clone(&slot));
         let failed = Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.barriers.register(&id, &name, &exec.arguments, &cwd, done, failed.clone());
@@ -549,9 +531,7 @@ impl Run {
     /// Returns whether the body is a cache candidate (stored after the batch's
     /// budgets, so cache and transcript receive the same body).
     fn record_executed(&mut self, executed: &Executed, sigs: (String, String), later_mutation: bool) -> bool {
-        self.carry
-            .repeat
-            .record(executed.failed, sigs.0, sigs.1, executed.arg_failure);
+        self.carry.repeat.record(executed.failed, sigs.0, sigs.1, executed.arg_failure);
         // A body that predates a later mutation of the batch is not cached.
         executed.reuse_write.is_some()
             && !executed.failed
@@ -674,9 +654,8 @@ impl Run {
             // 2. Record finished outcomes in call order.
             while recorded < n && finished[recorded] {
                 if let Some(mut result) = executed[recorded].take() {
-                    let later_mutation = (recorded + 1..n).any(|k| {
-                        !self.tools.read_only(&calls[k].name) || invalidates_reuse(&calls[k].name, &calls[k].arguments)
-                    });
+                    let later_mutation =
+                        (recorded + 1..n).any(|k| !self.tools.read_only(&calls[k].name) || invalidates_reuse(&calls[k].name, &calls[k].arguments));
                     let sig_pair = std::mem::take(&mut sigs[recorded]);
                     if self.record_executed(&result, sig_pair, later_mutation) {
                         writes[recorded] = result.reuse_write.take();
@@ -756,9 +735,7 @@ impl Run {
                     let slot = self.eager_settles.get(&id).cloned();
                     let mut reach = reach_rx.clone();
                     running.push(Box::pin(async move {
-                        let result = handle.await.unwrap_or_else(|_| {
-                            Executed::error(&id, "Error: tool task failed".to_owned())
-                        });
+                        let result = handle.await.unwrap_or_else(|_| Executed::error(&id, "Error: tool task failed".to_owned()));
                         // A group member is collected, and retried at its place at the file lock, once the batch is at it
                         // (`plan.mjs:61-64`, `executeBatchCall`).
                         let mut turn = None;
@@ -821,7 +798,10 @@ impl Run {
                     // refusal) never reaches this arm.
                     // (Node answers an unparsed call in its turn, instantly: `markInstant`, no early notice.)
                     if !streamed.contains(&idx) && !crate::tools::is_invalid_args_marker(&calls[idx].arguments) {
-                        self.trace("tool-finished", format_args!("call={} tool={} failed={} tool_ms={}", calls[idx].id, calls[idx].name, result.failed, result.tool_ms));
+                        self.trace(
+                            "tool-finished",
+                            format_args!("call={} tool={} failed={} tool_ms={}", calls[idx].id, calls[idx].name, result.failed, result.tool_ms),
+                        );
                         self.emit(RunEvent::EarlyResult(early_result(&calls[idx].id, &result)));
                     }
                     executed[idx] = Some(result);
@@ -867,11 +847,7 @@ impl Run {
         {
             let reason = mixdog_js::js_trim(&reason);
             if !reason.is_empty() {
-                self.push(AgentMessage::sourced(
-                    Source::Hook,
-                    format!("<system-reminder>\n{reason}\n</system-reminder>"),
-                ))
-                .await?;
+                self.push(AgentMessage::sourced(Source::Hook, format!("<system-reminder>\n{reason}\n</system-reminder>"))).await?;
             }
         }
         Ok(())
@@ -891,9 +867,7 @@ impl Run {
         cache: CacheRefs<'_>,
     ) {
         let (writes, outputs, hits) = cache;
-        let indices: Vec<usize> = (0..calls.len())
-            .filter(|i| executed[*i] && staged[*i].is_some())
-            .collect();
+        let indices: Vec<usize> = (0..calls.len()).filter(|i| executed[*i] && staged[*i].is_some()).collect();
         // `classifyExecuted` (`execute-call.mjs:17-20,187-194`): a call that returned text reading as an error (the
         // delegated-agent, skill and MCP tools answer `Error: …` instead of failing) is an error call, decided on the tool's
         // own return before anything below rewrites it; that kind stays the result's through the offload, the failure log,
@@ -940,14 +914,12 @@ impl Run {
             let mut slots = Vec::new();
             let mut entries = Vec::new();
             for &i in &indices {
-                if hits[i].is_none() && let Some(m) = staged[i].as_mut() {
+                if hits[i].is_none()
+                    && let Some(m) = staged[i].as_mut()
+                {
                     slots.push(i);
                     entries.push(crate::offload::BatchEntry {
-                        tool: calls[i]
-                            .name
-                            .strip_prefix("mcp__plugin_mixdog_mixdog__")
-                            .unwrap_or(&calls[i].name)
-                            .to_owned(),
+                        tool: calls[i].name.strip_prefix("mcp__plugin_mixdog_mixdog__").unwrap_or(&calls[i].name).to_owned(),
                         content: std::mem::replace(&mut m.message.content, Content::Text(String::new())),
                     });
                 }
@@ -1008,7 +980,8 @@ impl Run {
                 write.store(text, output).await;
             }
         }
-    }}
+    }
+}
 
 /// `toolTraceText(result)` (agent-trace-format.mjs:360-370), the text a failure row is cut from: a text as it is, a structured
 /// result's text parts joined by newlines, its images and other parts left out.

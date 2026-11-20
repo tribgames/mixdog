@@ -30,11 +30,7 @@ fn scan(glyph: char) -> Option<i16> {
 /// The modifiers in a VkKeyScanExW shift state: Shift 1, Ctrl 2, Alt 4. AltGr
 /// is Ctrl+Alt.
 fn modifiers(mapping: i16) -> Vec<Mod> {
-    [(0x100, Mod::Shift), (0x200, Mod::Ctrl), (0x400, Mod::Alt)]
-        .into_iter()
-        .filter(|(bit, _)| mapping & bit != 0)
-        .map(|(_, modifier)| modifier)
-        .collect()
+    [(0x100, Mod::Shift), (0x200, Mod::Ctrl), (0x400, Mod::Alt)].into_iter().filter(|(bit, _)| mapping & bit != 0).map(|(_, modifier)| modifier).collect()
 }
 
 /// The virtual key and modifiers that type `glyph`; None when the layout has

@@ -56,36 +56,17 @@ fn scale_image(image: Bitmap, inverse: &Matrix) -> Result<Scaled> {
             height_scale /= f64::from(painted_height) / f64::from(next_height);
         }
         let mut step = Canvas::new(next_width, next_height).map_err(raster)?;
-        step.draw_image_region(
-            &source,
-            0.0,
-            0.0,
-            painted_width as f32,
-            painted_height as f32,
-            0.0,
-            0.0,
-            next_width as f32,
-            next_height as f32,
-        );
+        step.draw_image_region(&source, 0.0, 0.0, painted_width as f32, painted_height as f32, 0.0, 0.0, next_width as f32, next_height as f32);
         source = Bitmap::from_canvas(&step);
         painted_width = next_width;
         painted_height = next_height;
     }
-    Ok(Scaled {
-        bitmap: source,
-        width: painted_width,
-        height: painted_height,
-    })
+    Ok(Scaled { bitmap: source, width: painted_width, height: painted_height })
 }
 
 /// `drawImageAtIntegerCoords`: `(sx, sy, sw, sh)` of `source` into `(dx, dy, dw, dh)` of the current user space; an
 /// image under a matrix without rotation (or with a quarter turn) goes to whole device pixels.
-fn draw_at_integer_coords(
-    canvas: &mut Canvas,
-    source: &Bitmap,
-    (sx, sy, sw, sh): (f32, f32, f32, f32),
-    (dx, dy, dw, dh): (f64, f64, f64, f64),
-) {
+fn draw_at_integer_coords(canvas: &mut Canvas, source: &Bitmap, (sx, sy, sw, sh): (f32, f32, f32, f32), (dx, dy, dw, dh): (f64, f64, f64, f64)) {
     let [a, b, c, d, tx, ty] = widen(canvas.get_transform());
     let restore = |canvas: &mut Canvas| {
         canvas.set_transform(a as f32, b as f32, c as f32, d as f32, tx as f32, ty as f32);
@@ -170,12 +151,7 @@ mod tests {
         let mut canvas = Canvas::new(20, 20).expect("canvas");
         canvas.set_image_smoothing_enabled(false);
         canvas.transform(1.0, 0.0, 0.0, 1.0, 2.4, 3.4);
-        draw_at_integer_coords(
-            &mut canvas,
-            &opaque(2, 2, [200, 0, 0, 255]),
-            (0.0, 0.0, 2.0, 2.0),
-            (0.0, 0.0, 4.4, 4.4),
-        );
+        draw_at_integer_coords(&mut canvas, &opaque(2, 2, [200, 0, 0, 255]), (0.0, 0.0, 2.0, 2.0), (0.0, 0.0, 4.4, 4.4));
         // The corner (2.4, 3.4) rounds to (2, 3) and the far corner (6.8, 7.8) to (7, 8): 5 by 5 whole pixels.
         assert_eq!(red(&canvas, 2, 3), 200);
         assert_eq!(red(&canvas, 6, 7), 200);
@@ -186,18 +162,12 @@ mod tests {
 
     #[test]
     fn a_clear_bit_of_a_mask_paints() {
-        let mask = ImageMask {
-            width: 3,
-            height: 1,
-            interpolate: None,
-            data: vec![0b0100_0000],
-        };
+        let mask = ImageMask { width: 3, height: 1, interpolate: None, data: vec![0b0100_0000] };
         let rgba = mask_pixels(&mask);
         let alphas: Vec<u8> = rgba.chunks(4).map(|pixel| pixel[3]).collect();
         assert_eq!(alphas, vec![255, 0, 255]);
     }
 }
-
 
 /// An image stream with no `Subtype` is the body of an inline image (`BI ... EI`): its keys may be the abbreviations.
 fn is_inline(source: &crate::stream::PdfStream) -> bool {
@@ -209,12 +179,7 @@ impl Painter<'_> {
         self.document.guard().check_now()?;
         let resources = self.resources.clone();
         let inline = is_inline(&image.source);
-        let decoded = image::decode_image(
-            self.document.xref(),
-            inline.then_some(&*resources),
-            &image.source,
-            inline,
-        );
+        let decoded = image::decode_image(self.document.xref(), inline.then_some(&*resources), &image.source, inline);
         self.paint_decoded(decoded)
     }
 
@@ -222,11 +187,7 @@ impl Painter<'_> {
     pub(super) fn paint_small_inline_image(&mut self, image: &InlineImage) -> Result<()> {
         self.document.guard().check_now()?;
         let resources = self.resources.clone();
-        let decoded = image::decode_small_inline_image(
-            self.document.xref(),
-            Some(&*resources),
-            &image.source,
-        );
+        let decoded = image::decode_small_inline_image(self.document.xref(), Some(&*resources), &image.source);
         self.paint_decoded(decoded)
     }
 
@@ -271,14 +232,8 @@ impl Painter<'_> {
             return Ok(());
         };
         let scaled = scale_image(bitmap, &inverse)?;
-        self.canvas
-            .set_image_smoothing_enabled(smoothing_enabled(&transform, interpolate));
-        draw_at_integer_coords(
-            &mut self.canvas,
-            &scaled.bitmap,
-            (0.0, 0.0, scaled.width as f32, scaled.height as f32),
-            (0.0, -height, width, height),
-        );
+        self.canvas.set_image_smoothing_enabled(smoothing_enabled(&transform, interpolate));
+        draw_at_integer_coords(&mut self.canvas, &scaled.bitmap, (0.0, 0.0, scaled.width as f32, scaled.height as f32), (0.0, -height, width, height));
         Ok(())
     }
 
@@ -322,26 +277,14 @@ impl Painter<'_> {
             return Ok(());
         };
         fill.translate(-bounds[0] as f32, -bounds[1] as f32);
-        fill.transform(
-            to_canvas[0] as f32,
-            to_canvas[1] as f32,
-            to_canvas[2] as f32,
-            to_canvas[3] as f32,
-            to_canvas[4] as f32,
-            to_canvas[5] as f32,
-        );
+        fill.transform(to_canvas[0] as f32, to_canvas[1] as f32, to_canvas[2] as f32, to_canvas[3] as f32, to_canvas[4] as f32, to_canvas[5] as f32);
         let fill_transform = widen(fill.get_transform());
         let Some(inverse) = invert(&fill_transform) else {
             return Ok(());
         };
         let scaled = scale_image(stencil, &inverse)?;
         fill.set_image_smoothing_enabled(smoothing_enabled(&fill_transform, mask.interpolate));
-        draw_at_integer_coords(
-            &mut fill,
-            &scaled.bitmap,
-            (0.0, 0.0, scaled.width as f32, scaled.height as f32),
-            (0.0, 0.0, width, height),
-        );
+        draw_at_integer_coords(&mut fill, &scaled.bitmap, (0.0, 0.0, scaled.width as f32, scaled.height as f32), (0.0, 0.0, width, height));
         fill.set_global_composite_operation("source-in");
         // A pattern fill is made for the matrix from the mask's own canvas to the pattern's space.
         let pattern_style = if self.current.pattern_fill {
@@ -355,8 +298,7 @@ impl Painter<'_> {
         let placed = Bitmap::from_canvas(&fill);
         self.canvas.save();
         self.canvas.set_transform(1.0, 0.0, 0.0, 1.0, 0.0, 0.0);
-        self.canvas
-            .draw_image(&placed, js_round(bounds[0]) as f32, js_round(bounds[1]) as f32);
+        self.canvas.draw_image(&placed, js_round(bounds[0]) as f32, js_round(bounds[1]) as f32);
         self.canvas.restore();
         Ok(())
     }

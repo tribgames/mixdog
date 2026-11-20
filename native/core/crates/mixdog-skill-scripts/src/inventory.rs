@@ -124,10 +124,7 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
     js_skip_reason: re(r##"\bskip\s*(?::|\()\s*(?:[^\n]*?&&\s*)?(['"`])((?:(?!\1).)*)\1"##, "g"),
     js_skip_bare: re(r"\b(?:(?:it|test|describe)\.skip|x(?:it|test|describe))\b|\.skip\s*\(\s*\)|\bskip\s*:\s*true\b", ""),
     js_skip_if: re(r"\.skipIf\s*\(", ""),
-    py_skip: re(
-        r"\b(?:pytest\.mark\.(skipif|skip|xfail)|unittest\.(skipIf|skipUnless|skip|expectedFailure)|pytest\.(importorskip|skip))\b",
-        "",
-    ),
+    py_skip: re(r"\b(?:pytest\.mark\.(skipif|skip|xfail)|unittest\.(skipIf|skipUnless|skip|expectedFailure)|pytest\.(importorskip|skip))\b", ""),
     go_skip: re(r"\.Skip(?:f|Now)?\s*\(", ""),
     rust_ignore: re(r##"#\[\s*ignore\s*(?:=\s*(['"])((?:(?!\1).)*)\1)?\s*(?:\(.*?\))?\s*\]"##, ""),
     rust_cfg_ignore: re(r"#\[\s*cfg_attr\([^\]]*\bignore\b", ""),
@@ -164,13 +161,7 @@ static PATTERNS: LazyLock<Patterns> = LazyLock::new(|| Patterns {
             fake: re(r"freezegun|freeze_time|time_machine|time-machine|monkeypatch\.setattr\([^)]*time|mock\.patch\([^)]*time", ""),
             markers: vec![
                 ("timer", re(r"\b(?:time|asyncio)\.sleep\(|\bsleep\(", "")),
-                (
-                    "spawn",
-                    re(
-                        r"\bsubprocess\.(?:run|Popen|call|check_output|check_call)\(|\bos\.(?:system|popen)\(|\bmultiprocessing\.Process\(",
-                        "",
-                    ),
-                ),
+                ("spawn", re(r"\bsubprocess\.(?:run|Popen|call|check_output|check_call)\(|\bos\.(?:system|popen)\(|\bmultiprocessing\.Process\(", "")),
                 ("port", re(r"\.bind\(\s*\([^)]*,\s*[1-9]\d{2,4}\s*\)|\bport\s*=\s*[1-9]\d{3,4}\b", "")),
                 ("clock", re(r"\bdatetime\.(?:now|utcnow)\(|\bdate\.today\(|\btime\.time\(\)", "")),
                 ("source-text", re(r##"inspect\.getsource\(|(?:open|Path)\(\s*['"][^'"]*\.(?:py|js|ts)['"]"##, "")),
@@ -305,8 +296,7 @@ fn skip_sites(lines: &[&str], lang: Lang) -> Vec<SkipSite> {
                 let conditional = matches!(name, "skipif" | "skipIf" | "skipUnless" | "importorskip");
                 let call = call_text(lines, index, found.range().start);
                 let keyword = p.py_keyword.captures(&call);
-                let positional =
-                    if conditional { p.py_positional_conditional.captures(&call) } else { p.py_positional.captures(&call) };
+                let positional = if conditional { p.py_positional_conditional.captures(&call) } else { p.py_positional.captures(&call) };
                 let reason = keyword.or(positional).map(|caps| group_text(&caps, 2).to_owned()).unwrap_or_default();
                 add(&reason, conditional);
             }
@@ -377,18 +367,11 @@ pub fn scan_text(text: &str, today: &str, lang: Lang) -> Scan {
     let skips = skip_sites(&lines, lang)
         .into_iter()
         .map(|SkipSite { index, reason, conditional }| {
-            let before = if index > 0 && js_trim(lines[index - 1]).starts_with(spec.comment) {
-                comment_of(lines[index - 1], spec.comment)
-            } else {
-                String::new()
-            };
+            let before =
+                if index > 0 && js_trim(lines[index - 1]).starts_with(spec.comment) { comment_of(lines[index - 1], spec.comment) } else { String::new() };
             let note = [comment_of(lines[index], spec.comment), before].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ");
             let full = [reason.clone(), note.clone()].into_iter().filter(|part| !part.is_empty()).collect::<Vec<_>>().join(" ");
-            Skip {
-                line: index + 1,
-                reason: if reason.is_empty() { note } else { reason },
-                kind: classify(&full, today, conditional),
-            }
+            Skip { line: index + 1, reason: if reason.is_empty() { note } else { reason }, kind: classify(&full, today, conditional) }
         })
         .collect();
     Scan { markers, skips }
@@ -597,10 +580,8 @@ pub fn inventory<P: ReadProof>(proof: &P, root: &str, today: &str) -> Result<Rep
             })
         })
         .collect();
-    let fast_risk: Vec<&FileEntry> = files
-        .iter()
-        .filter(|entry| entry.lane == "fast" && entry.scan.markers.contains(&"timer") && entry.scan.markers.contains(&"spawn"))
-        .collect();
+    let fast_risk: Vec<&FileEntry> =
+        files.iter().filter(|entry| entry.lane == "fast" && entry.scan.markers.contains(&"timer") && entry.scan.markers.contains(&"spawn")).collect();
     Ok(Report {
         root: root.to_owned(),
         today: today.to_owned(),
@@ -655,11 +636,7 @@ impl Report {
     /// The Markdown report (without the final line end `console.log` adds).
     pub fn to_markdown(&self) -> String {
         let cell = |counts: &[(String, u64)]| {
-            if counts.is_empty() {
-                "-".to_owned()
-            } else {
-                counts.iter().map(|(key, count)| format!("{key} {count}")).collect::<Vec<_>>().join(", ")
-            }
+            if counts.is_empty() { "-".to_owned() } else { counts.iter().map(|(key, count)| format!("{key} {count}")).collect::<Vec<_>>().join(", ") }
         };
         let more = |total: usize, shown: usize| (total > shown).then(|| format!("- \u{2026} {} more (use --json)", total - shown));
         let mut out = vec![
@@ -828,21 +805,14 @@ mod tests {
             "    # @pytest.mark.skip commented out",
         ]
         .join("\n");
-        assert_eq!(
-            kinds(&text, Lang::Python),
-            [(1, "tracked"), (2, "capability"), (3, "untracked"), (4, "untracked"), (5, "capability"), (6, "expired")]
-        );
+        assert_eq!(kinds(&text, Lang::Python), [(1, "tracked"), (2, "capability"), (3, "untracked"), (4, "untracked"), (5, "capability"), (6, "expired")]);
     }
 
     #[test]
     fn go_and_rust_skips_are_classified() {
-        let go = [
-            "if runtime.GOOS == \"windows\" { t.Skip(\"windows only\") }",
-            "t.Skipf(\"#3 until 2027-05-05: %s\", why)",
-            "t.Skip(\"flaky\")",
-            "t.SkipNow()",
-        ]
-        .join("\n");
+        let go =
+            ["if runtime.GOOS == \"windows\" { t.Skip(\"windows only\") }", "t.Skipf(\"#3 until 2027-05-05: %s\", why)", "t.Skip(\"flaky\")", "t.SkipNow()"]
+                .join("\n");
         assert_eq!(kinds(&go, Lang::Go), [(1, "capability"), (2, "tracked"), (3, "untracked"), (4, "untracked")]);
         let rust = ["#[ignore = \"requires docker\"]", "#[ignore = \"#4 until 2020-01-01: race\"]", "#[ignore]", "#[cfg_attr(windows, ignore)]"].join("\n");
         assert_eq!(kinds(&rust, Lang::Rust), [(1, "capability"), (2, "expired"), (3, "untracked"), (4, "capability")]);
@@ -890,12 +860,8 @@ mod tests {
         assert_eq!(report.files, 7);
         let mut attention: Vec<(String, &str)> = report.attention.iter().map(|item| (item.file.clone(), item.kind)).collect();
         attention.sort();
-        let want = [
-            ("py/tests/test_a.py", "untracked"),
-            ("rs/tests/it.rs", "untracked"),
-            ("web/src/a.test.ts", "tracked"),
-            ("web/src/b.slow.spec.js", "untracked"),
-        ];
+        let want =
+            [("py/tests/test_a.py", "untracked"), ("rs/tests/it.rs", "untracked"), ("web/src/a.test.ts", "tracked"), ("web/src/b.slow.spec.js", "untracked")];
         assert_eq!(attention, want.iter().map(|(file, kind)| ((*file).to_owned(), *kind)).collect::<Vec<_>>());
         assert_eq!(report.fast_risk, ["web/src/a.test.ts"]);
         let web = report.areas.iter().find(|row| row.area == "web/src").expect("web area");
@@ -938,10 +904,7 @@ mod tests {
         let deep = vec!["d"; MAX_DEPTH + 1].join("/");
         let root = tree(&[(&format!("{deep}/x.test.js"), "")]);
         let dir = root.path().display().to_string();
-        assert_eq!(
-            inventory(&Unlaned, &dir, TODAY).expect_err("too deep"),
-            format!("directories nested deeper than {MAX_DEPTH} under {dir}; narrow the root")
-        );
+        assert_eq!(inventory(&Unlaned, &dir, TODAY).expect_err("too deep"), format!("directories nested deeper than {MAX_DEPTH} under {dir}; narrow the root"));
     }
 
     #[test]

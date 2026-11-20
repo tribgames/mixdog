@@ -116,9 +116,8 @@ pub fn resolve_agent_spawn_preset(config: &Obj, args: &Value, candidates: &[Valu
         }
         execution_fallbacks(&for_chain)
     };
-    let fallbacks_of = |fallbacks: &[Value]| -> Vec<Value> {
-        fallbacks.iter().map(|f| normalize_agent_route(Some(f)).map_or(Value::Null, Value::Object)).collect()
-    };
+    let fallbacks_of =
+        |fallbacks: &[Value]| -> Vec<Value> { fallbacks.iter().map(|f| normalize_agent_route(Some(f)).map_or(Value::Null, Value::Object)).collect() };
     // The agent's stored fallbacks, as they run behind the agent's own model.
     let agent_chain = match (&agent_route, stored) {
         (Some(route), Some(candidate)) => Some(stored_chain(&Value::Object(route.clone()), candidate)?),

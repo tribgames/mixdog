@@ -22,14 +22,13 @@ use serde_json::{Value, json};
 use super::dispatch::{CapabilityOffer, HandlerFuture, Later, LegCall};
 use super::envelope;
 use super::hub::{
-    Conn, Entry, Hub, HubState, IngressInstall, Liveness, OFFLINE_GRACE, SocketRef, SweepLeg, announce_phone, deliver_to_phone,
-    send_json, signal_desktop_gone,
+    Conn, Entry, Hub, HubState, IngressInstall, Liveness, OFFLINE_GRACE, SocketRef, SweepLeg, announce_phone, deliver_to_phone, send_json, signal_desktop_gone,
 };
 use super::ingress::{IngressLeg, LegKind};
 use super::policy::{self, LegCharge, Outbound, Oversize, Pressure, UplinkLeg, check_oversize, send_to_phone};
 use crate::close_codes::{
-    DESKTOP_REJECTED_CLIENT, DESKTOP_REJECTED_CLIENT_REASON, DESKTOP_REJECTED_CLIENT_REASON_MAX, DEVICE_REVOKED_REASON, PAIRING_REVOKED_REASON,
-    REVOKED, SUPERSEDED, SUPERSEDED_REASON,
+    DESKTOP_REJECTED_CLIENT, DESKTOP_REJECTED_CLIENT_REASON, DESKTOP_REJECTED_CLIENT_REASON_MAX, DEVICE_REVOKED_REASON, PAIRING_REVOKED_REASON, REVOKED,
+    SUPERSEDED, SUPERSEDED_REASON,
 };
 use crate::pairing::codes::clean_name;
 use crate::ws::{FlushCallback, WebSocket, WsEvent, WsEvents};
@@ -356,11 +355,7 @@ impl DesktopHandle {
 
     fn phone_sockets(&self) -> Vec<SocketRef> {
         let guard = self.hub.lock();
-        guard
-            .desktops
-            .get(&self.device_id)
-            .map(|entry| entry.clients.iter().map(|phone| Arc::clone(&phone.shared.socket)).collect())
-            .unwrap_or_default()
+        guard.desktops.get(&self.device_id).map(|entry| entry.clients.iter().map(|phone| Arc::clone(&phone.shared.socket)).collect()).unwrap_or_default()
     }
 
     async fn set_client_token(&self, message: &Value) {
@@ -400,9 +395,7 @@ impl DesktopHandle {
     /// `revokeClient`. Only a credential that is actually gone closes its browser: a failed persist leaves the pairing valid, and
     /// closing it as revoked would tell the user something the store did not do.
     async fn revoke_client(&self, message: &Value) {
-        let (Some(request_id), Some(client_id)) =
-            (message.get("requestId").and_then(Value::as_str), message.get("clientId").and_then(Value::as_str))
-        else {
+        let (Some(request_id), Some(client_id)) = (message.get("requestId").and_then(Value::as_str), message.get("clientId").and_then(Value::as_str)) else {
             return;
         };
         let removed = self.hub.store().revoke_client(&self.device_id, client_id).await;

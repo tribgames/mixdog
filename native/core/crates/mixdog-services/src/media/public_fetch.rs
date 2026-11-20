@@ -107,7 +107,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn a_failed_name_lookup_reads_as_nodes_media_path() {
         // The guard's own words when the name has no addresses are passed through unchanged.

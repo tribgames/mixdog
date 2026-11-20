@@ -5,9 +5,7 @@ use std::rc::Rc;
 
 use serde_json::{Value, json};
 
-use crate::pickers::common::{
-    Own, PanelItem, PickerFn, PickerHandler, PickerHost, PickerPanel, check_row, picker_help, reset_surfaces, run_deferred,
-};
+use crate::pickers::common::{Own, PanelItem, PickerFn, PickerHandler, PickerHost, PickerPanel, check_row, picker_help, reset_surfaces, run_deferred};
 use crate::slash::host::Tone;
 use crate::slash::notices::{truthy, workflow_switch_notice};
 use crate::surface::SurfaceKind;

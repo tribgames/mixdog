@@ -5,12 +5,11 @@
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
-
 use super::SessionDirectory;
 use super::seams::RunOutcome;
 use super::testing::Rig;
-use crate::eventually_on;
 use super::tests::start_thread;
+use crate::eventually_on;
 
 #[tokio::test(start_paused = true)]
 async fn the_same_channel_text_twice_is_two_entries() {
@@ -49,5 +48,3 @@ async fn a_channel_notification_starts_a_turn_while_wakes_are_off_and_the_warmer
     assert_eq!(begun[0].1, serde_json::json!({ "promptSource": "task-notification", "promptOrigin": "channel" }));
     assert_eq!(begun[0].2, None, "a turn that is no retry reads no messages");
 }
-
-

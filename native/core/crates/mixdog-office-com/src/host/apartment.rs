@@ -141,8 +141,7 @@ impl Inbox {
                     Err(mpsc::TryRecvError::Empty) => {}
                 }
                 // SAFETY: the event is open while `self` holds it.
-                let waited =
-                    unsafe { CoWaitForMultipleHandles(COWAIT_DISPATCH_WINDOW_MESSAGES.0 as u32, INFINITE, &[self.wake.0]) };
+                let waited = unsafe { CoWaitForMultipleHandles(COWAIT_DISPATCH_WINDOW_MESSAGES.0 as u32, INFINITE, &[self.wake.0]) };
                 if waited.is_err() {
                     // The wait itself failed: block on the channel instead of spinning.
                     return self.rx.recv().ok();

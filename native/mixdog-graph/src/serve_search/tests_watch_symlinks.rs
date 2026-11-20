@@ -13,13 +13,8 @@ struct Scratch(PathBuf);
 impl Scratch {
     fn new(label: &str) -> Self {
         static NEXT: AtomicUsize = AtomicUsize::new(0);
-        let dir = std::fs::canonicalize(std::env::temp_dir())
-            .unwrap()
-            .join(format!(
-                "mg-{label}-{}-{}",
-                std::process::id(),
-                NEXT.fetch_add(1, Ordering::Relaxed)
-            ));
+        let dir =
+            std::fs::canonicalize(std::env::temp_dir()).unwrap().join(format!("mg-{label}-{}-{}", std::process::id(), NEXT.fetch_add(1, Ordering::Relaxed)));
         std::fs::create_dir(&dir).unwrap();
         Self(dir)
     }
@@ -49,25 +44,13 @@ fn symlink_signatures_are_not_cached_under_the_link_path() {
     remember_content_signature(&link, &signature, None);
     remember_content_signature(&plain, &signature, None);
 
-    let trust = TrustSnapshot {
-        usn_volumes: Arc::new(HashSet::new()),
-        watch_roots: Arc::new(vec![root]),
-    };
-    let required = vec![b"alpha"
-        .windows(3)
-        .map(|window| trigram_bits(window[0], window[1], window[2]))
-        .collect::<Vec<_>>()];
+    let trust = TrustSnapshot { usn_volumes: Arc::new(HashSet::new()), watch_roots: Arc::new(vec![root]) };
+    let required = vec![b"alpha".windows(3).map(|window| trigram_bits(window[0], window[1], window[2])).collect::<Vec<_>>()];
     // Control: a regular file under the watched root is still cached.
-    assert_eq!(
-        cached_signature_state(&plain, &required, false, &trust),
-        CachedSignatureState::Reusable
-    );
+    assert_eq!(cached_signature_state(&plain, &required, false, &trust), CachedSignatureState::Reusable);
     // The target can change with no event under the watched root, so the
     // trusted cache must hold nothing for the link.
-    assert_eq!(
-        cached_signature_state(&link, &required, false, &trust),
-        CachedSignatureState::Missing
-    );
+    assert_eq!(cached_signature_state(&link, &required, false, &trust), CachedSignatureState::Missing);
 }
 
 #[test]
@@ -91,19 +74,10 @@ fn signatures_below_a_symlinked_directory_are_not_cached() {
     // The target changes outside the watched root; the watcher reports nothing.
     std::fs::write(&target, "alpha gamma, changed\n").unwrap();
 
-    let trust = TrustSnapshot {
-        usn_volumes: Arc::new(HashSet::new()),
-        watch_roots: Arc::new(vec![root]),
-    };
-    let required = vec![b"gamma"
-        .windows(3)
-        .map(|window| trigram_bits(window[0], window[1], window[2]))
-        .collect::<Vec<_>>()];
+    let trust = TrustSnapshot { usn_volumes: Arc::new(HashSet::new()), watch_roots: Arc::new(vec![root]) };
+    let required = vec![b"gamma".windows(3).map(|window| trigram_bits(window[0], window[1], window[2])).collect::<Vec<_>>()];
     // Reusing the old signature would exclude "gamma" and hide the new match.
-    assert_eq!(
-        cached_signature_state(&through_link, &required, false, &trust),
-        CachedSignatureState::Missing
-    );
+    assert_eq!(cached_signature_state(&through_link, &required, false, &trust), CachedSignatureState::Missing);
 }
 
 #[cfg(target_os = "linux")]
@@ -137,10 +111,7 @@ fn watcher_does_not_report_events_through_symlinked_directories() {
 
     let mut seen = Vec::new();
     loop {
-        let event = rx
-            .recv_timeout(Duration::from_secs(10))
-            .expect("sentinel event")
-            .unwrap();
+        let event = rx.recv_timeout(Duration::from_secs(10)).expect("sentinel event").unwrap();
         let done = event.paths.contains(&sentinel);
         seen.extend(event.paths);
         if done {
@@ -148,14 +119,10 @@ fn watcher_does_not_report_events_through_symlinked_directories() {
         }
     }
     // The real directory's own event must arrive under its walked spelling.
-    assert!(
-        seen.contains(&root.join("real").join("real.txt")),
-        "no event for real/real.txt in {seen:?}"
-    );
+    assert!(seen.contains(&root.join("real").join("real.txt")), "no event for real/real.txt in {seen:?}");
     for path in &seen {
         assert!(
-            !path.starts_with(root.join("inner-link"))
-                && !path.starts_with(root.join("outer-link")),
+            !path.starts_with(root.join("inner-link")) && !path.starts_with(root.join("outer-link")),
             "event reported through a symlinked directory: {}",
             path.display()
         );

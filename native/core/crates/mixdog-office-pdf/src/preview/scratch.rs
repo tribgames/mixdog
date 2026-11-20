@@ -85,11 +85,7 @@ pub(super) fn in_scratch(path: &Path) -> bool {
     let target = mixdog_js::nodepath::resolve_host(&[&path.to_string_lossy()]);
     lock(&TRACKED).iter().any(|directory| {
         let inside = mixdog_js::nodepath::relative_host(&directory.to_string_lossy(), &target);
-        !inside.is_empty()
-            && inside != ".."
-            && !inside.starts_with("../")
-            && !inside.starts_with("..\\")
-            && !mixdog_js::nodepath::is_absolute_host(&inside)
+        !inside.is_empty() && inside != ".." && !inside.starts_with("../") && !inside.starts_with("..\\") && !mixdog_js::nodepath::is_absolute_host(&inside)
     })
 }
 

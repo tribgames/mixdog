@@ -7,10 +7,10 @@ use std::net::Ipv4Addr;
 use std::net::Ipv6Addr;
 
 use flate2::read::GzDecoder;
+use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::WireRequest;
-use mixdog_core_api::domain::keepalive::TransportKind;
 use url::Host;
 use url::Url;
 
@@ -54,11 +54,7 @@ pub enum Client {
 
 /// The session token as the wire carries it: the scheme prefix is required.
 pub fn normalize_session_token(token: &str) -> String {
-    if token.is_empty() || token.starts_with(SESSION_TOKEN_PREFIX) {
-        token.to_owned()
-    } else {
-        format!("{SESSION_TOKEN_PREFIX}{token}")
-    }
+    if token.is_empty() || token.starts_with(SESSION_TOKEN_PREFIX) { token.to_owned() } else { format!("{SESSION_TOKEN_PREFIX}{token}") }
 }
 
 /// `Metadata` for every Devin call. `api_key` is sent exactly as given.
@@ -73,13 +69,7 @@ pub fn request_metadata(api_key: &str, user_jwt: &str, client: Client) -> Metada
             extension_version: s("0.0.0-dev"),
             locale: s("en"),
             os: s(OS),
-            supported_model_displays: vec![
-                display::MODEL_ROUTER,
-                display::QUICK_REVIEW,
-                display::INTERNAL_DEFAULT,
-                display::UNCLASSIFIED,
-                display::NORMAL,
-            ],
+            supported_model_displays: vec![display::MODEL_ROUTER, display::QUICK_REVIEW, display::INTERNAL_DEFAULT, display::UNCLASSIFIED, display::NORMAL],
             ..Metadata::default()
         },
         Client::Legacy => Metadata {
@@ -107,14 +97,10 @@ pub fn request_metadata(api_key: &str, user_jwt: &str, client: Client) -> Metada
 }
 
 pub fn unary_headers() -> Vec<(String, String)> {
-    [
-        ("content-type", "application/proto"),
-        ("connect-protocol-version", "1"),
-        ("accept", "*/*"),
-    ]
-    .into_iter()
-    .map(|(k, v)| (k.to_owned(), v.to_owned()))
-    .collect()
+    [("content-type", "application/proto"), ("connect-protocol-version", "1"), ("accept", "*/*")]
+        .into_iter()
+        .map(|(k, v)| (k.to_owned(), v.to_owned()))
+        .collect()
 }
 
 pub fn stream_headers() -> Vec<(String, String)> {
@@ -137,23 +123,11 @@ pub fn join_url(base: &str, path: &str) -> String {
 
 /// One unary RPC: the response message bytes. `secrets` are redacted from
 /// any error text.
-pub async fn unary(
-    http: &dyn HttpSend,
-    base_url: &str,
-    path: &str,
-    body: Vec<u8>,
-    secrets: &[String],
-) -> Result<Vec<u8>, ProviderError> {
+pub async fn unary(http: &dyn HttpSend, base_url: &str, path: &str, body: Vec<u8>, secrets: &[String]) -> Result<Vec<u8>, ProviderError> {
     let operation = path.rsplit('/').next().unwrap_or("request");
     let head = http
         .send(
-            WireRequest {
-                transport: TransportKind::Http1,
-                method: "POST".to_owned(),
-                url: join_url(base_url, path),
-                headers: unary_headers(),
-                body,
-            },
+            WireRequest { transport: TransportKind::Http1, method: "POST".to_owned(), url: join_url(base_url, path), headers: unary_headers(), body },
             DEVIN_EXCHANGE,
         )
         .await
@@ -174,10 +148,7 @@ pub async fn unary(
     // unambiguous.
     if bytes.starts_with(&[0x1f, 0x8b]) {
         let mut out = Vec::new();
-        GzDecoder::new(bytes.as_slice())
-            .take(MAX_DECOMPRESSED_BYTES + 1)
-            .read_to_end(&mut out)
-            .map_err(|_| protocol_error("invalid gzip payload"))?;
+        GzDecoder::new(bytes.as_slice()).take(MAX_DECOMPRESSED_BYTES + 1).read_to_end(&mut out).map_err(|_| protocol_error("invalid gzip payload"))?;
         if out.len() as u64 > MAX_DECOMPRESSED_BYTES {
             return Err(protocol_error("decompressed payload exceeds cap"));
         }
@@ -219,11 +190,7 @@ fn private_v6(a: Ipv6Addr) -> bool {
         return private_v4(v4);
     }
     let first = a.segments()[0];
-    a.is_unspecified()
-        || a.is_loopback()
-        || (first & 0xfe00) == 0xfc00
-        || (first & 0xffc0) == 0xfe80
-        || (first & 0xff00) == 0xff00
+    a.is_unspecified() || a.is_loopback() || (first & 0xfe00) == 0xfc00 || (first & 0xffc0) == 0xfe80 || (first & 0xff00) == 0xff00
 }
 
 /// Validates a server-supplied API host before any credential is sent to
@@ -249,10 +216,7 @@ pub fn validate_api_host(value: &str) -> Result<String, ProviderError> {
                 return Err(rejected_host("single-label host"));
             }
             const LOCAL: [&str; 6] = ["localhost", "local", "internal", "localdomain", "home.arpa", "localhost."];
-            if LOCAL
-                .iter()
-                .any(|l| name == *l || name.ends_with(&format!(".{l}")))
-            {
+            if LOCAL.iter().any(|l| name == *l || name.ends_with(&format!(".{l}"))) {
                 return Err(rejected_host("local host name"));
             }
         }
@@ -262,23 +226,13 @@ pub fn validate_api_host(value: &str) -> Result<String, ProviderError> {
     Ok(format!("{origin}{}", url.path().trim_end_matches('/')))
 }
 
-async fn request_user_jwt(
-    http: &dyn HttpSend,
-    base_url: &str,
-    api_key: &str,
-    secrets: &[String],
-) -> Result<Vec<u8>, ProviderError> {
+async fn request_user_jwt(http: &dyn HttpSend, base_url: &str, api_key: &str, secrets: &[String]) -> Result<Vec<u8>, ProviderError> {
     let body = encode_metadata_request(&request_metadata(api_key, "", Client::Cli));
     unary(http, base_url, GET_USER_JWT_PATH, body, secrets).await
 }
 
 /// Exchanges a Devin session token for the user JWT chat calls carry.
-pub async fn exchange_user_jwt(
-    http: &dyn HttpSend,
-    base_url: &str,
-    account: &str,
-    session_token: &str,
-) -> Result<UserSession, ProviderError> {
+pub async fn exchange_user_jwt(http: &dyn HttpSend, base_url: &str, account: &str, session_token: &str) -> Result<UserSession, ProviderError> {
     if session_token.is_empty() {
         let mut error = ProviderError::new(ErrorKind::Auth, mixdog_core_api::domain::provider::DeliveryState::NotSent);
         error.reauth_required = true;
@@ -293,9 +247,7 @@ pub async fn exchange_user_jwt(
         // Raw API keys are rejected (HTTP 401) with the session prefix; retry them as-is.
         Err(error) if error.status == Some(401) && session_token != api_key => {
             api_key = session_token.to_owned();
-            request_user_jwt(http, base_url, &api_key, &secrets(&api_key))
-                .await
-                .map_err(|e| if e.status.is_some() { e } else { error })?
+            request_user_jwt(http, base_url, &api_key, &secrets(&api_key)).await.map_err(|e| if e.status.is_some() { e } else { error })?
         }
         Err(error) => return Err(error),
     };
@@ -306,11 +258,7 @@ pub async fn exchange_user_jwt(
     // The user JWT every chat call carries is a credential before any does; the account's next one replaces it.
     crate::oauth::carried::keep(&crate::oauth::carried::derived_source("devin user jwt", account), &[&decoded.user_jwt]);
     let custom = decoded.custom_api_server_url.trim();
-    Ok(UserSession {
-        jwt: decoded.user_jwt,
-        api_key,
-        api_host: if custom.is_empty() { None } else { Some(validate_api_host(custom)?) },
-    })
+    Ok(UserSession { jwt: decoded.user_jwt, api_key, api_host: if custom.is_empty() { None } else { Some(validate_api_host(custom)?) } })
 }
 
 #[cfg(test)]
@@ -353,7 +301,6 @@ mod tests {
         }
     }
 
-
     /// A unary call arms no timer (`devinUnary`, `devin-wire-transport.mjs:469`): it ends at the dispatcher's, and reads as
     /// the real Node function did (`sites.devinUnary`).
     #[tokio::test(start_paused = true)]
@@ -361,9 +308,7 @@ mod tests {
         use crate::transport::site_probe::{TimingOut, assert_dispatcher, assert_thrown};
 
         let transport = TimingOut::new();
-        let error = unary(transport.as_ref(), "http://x.test", "/exa.auth_pb.AuthService/GetUserJwt", Vec::new(), &[])
-            .await
-            .expect_err("never answers");
+        let error = unary(transport.as_ref(), "http://x.test", "/exa.auth_pb.AuthService/GetUserJwt", Vec::new(), &[]).await.expect_err("never answers");
         assert_dispatcher("devinUnary", &transport);
         assert_thrown("devinUnary", &error.message);
     }

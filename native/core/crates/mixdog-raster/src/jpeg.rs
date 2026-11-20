@@ -11,8 +11,8 @@ use mixdog_imaging::Raster;
 
 /// The natural-order position of each zigzag index.
 const ZIGZAG: [usize; 64] = [
-    0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30,
-    37, 44, 51, 58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
+    0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48, 41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35, 42, 49, 56, 57, 50, 43, 36, 29,
+    22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45, 38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63,
 ];
 
 struct Component {
@@ -236,13 +236,31 @@ fn idct_line(i: [i64; 8]) -> [i64; 8] {
 fn idct_block(block: &[i64; 64], out: &mut [u8], stride: usize) {
     let mut work = [0i64; 64];
     for column in 0..8 {
-        let line = idct_line([block[column], block[8 + column], block[16 + column], block[24 + column], block[32 + column], block[40 + column], block[48 + column], block[56 + column]]);
+        let line = idct_line([
+            block[column],
+            block[8 + column],
+            block[16 + column],
+            block[24 + column],
+            block[32 + column],
+            block[40 + column],
+            block[48 + column],
+            block[56 + column],
+        ]);
         for (row, value) in line.iter().enumerate() {
             work[row * 8 + column] = descale(*value, 11);
         }
     }
     for row in 0..8 {
-        let line = idct_line([work[row * 8], work[row * 8 + 1], work[row * 8 + 2], work[row * 8 + 3], work[row * 8 + 4], work[row * 8 + 5], work[row * 8 + 6], work[row * 8 + 7]]);
+        let line = idct_line([
+            work[row * 8],
+            work[row * 8 + 1],
+            work[row * 8 + 2],
+            work[row * 8 + 3],
+            work[row * 8 + 4],
+            work[row * 8 + 5],
+            work[row * 8 + 6],
+            work[row * 8 + 7],
+        ]);
         for (column, value) in line.iter().enumerate() {
             out[row * stride + column] = (descale(*value, 18) + 128).clamp(0, 255) as u8;
         }
@@ -406,7 +424,11 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
                         return None;
                     }
                     let table = Huffman::build(&counts, symbols)?;
-                    if class == 0 { dc_tables[id] = Some(table) } else { ac_tables[id] = Some(table) }
+                    if class == 0 {
+                        dc_tables[id] = Some(table)
+                    } else {
+                        ac_tables[id] = Some(table)
+                    }
                     rest = &rest[17 + total..];
                 }
             }
@@ -427,7 +449,18 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
                     if !(1..=2).contains(&h) || !(1..=2).contains(&v) || spec[2] > 3 {
                         return None;
                     }
-                    components.push(Component { id: spec[0], h, v, quant: usize::from(spec[2]), dc: 0, ac: 0, width: 0, height: 0, stride: 0, samples: Vec::new() });
+                    components.push(Component {
+                        id: spec[0],
+                        h,
+                        v,
+                        quant: usize::from(spec[2]),
+                        dc: 0,
+                        ac: 0,
+                        width: 0,
+                        height: 0,
+                        stride: 0,
+                        samples: Vec::new(),
+                    });
                 }
             }
             // Progressive, lossless, arithmetic coded, hierarchical: not here.
@@ -572,7 +605,11 @@ pub fn decode(bytes: &[u8], pixel_limit: u64) -> Option<Jpeg> {
     }
     profile_chunks.sort_by_key(|(sequence, _)| *sequence);
     let profile: Vec<u8> = profile_chunks.into_iter().flat_map(|(_, chunk)| chunk).collect();
-    Some(Jpeg { raster: Raster { width: width as u32, height: height as u32, has_alpha: false, data }, profile: (!profile.is_empty()).then_some(profile), grey: single })
+    Some(Jpeg {
+        raster: Raster { width: width as u32, height: height as u32, has_alpha: false, data },
+        profile: (!profile.is_empty()).then_some(profile),
+        grey: single,
+    })
 }
 
 /// What [`decode`] answers: the samples, the embedded colour profile (the caller applies it to colour pictures) and

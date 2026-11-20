@@ -7,9 +7,9 @@ use std::sync::Arc;
 use mixdog_core_api::domain::cache_tail::{
     Admission, Claim, Cold, ColdRequest, Counters, Digest, Permit, Purpose, Resolution, TailRefusal, TailRoute, Unreduced, Verdict, WireManifest,
 };
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 
-use super::evidence::{interpret, Evidence, Extent};
+use super::evidence::{Evidence, Extent, interpret};
 
 /// The snapshot format; a snapshot of another version is ignored (the history is then judged unproven once). Version 3
 /// (earlier 1.5.0 builds) kept a failed rewrite as a disposition and a compacted base as an unbound flag.
@@ -41,7 +41,9 @@ mod first_permit_tests {
             let mut book = Book::default();
             let mut admit = |now| match book.admit(
                 Admission { purpose: Purpose::Turn, route: &route, manifest: &manifest, generation: None, unreduced: None },
-                now, true, 1,
+                now,
+                true,
+                1,
             ) {
                 Verdict::Send(permit) => permit,
                 Verdict::Refuse(refusal) => panic!("unexpected refusal: {refusal:?}"),
@@ -75,7 +77,9 @@ mod first_permit_tests {
             let mut book = Book::default();
             let mut admit = |now| match book.admit(
                 Admission { purpose: Purpose::Turn, route: &route, manifest: &manifest, generation: None, unreduced: None },
-                now, true, 1,
+                now,
+                true,
+                1,
             ) {
                 Verdict::Send(permit) => permit,
                 Verdict::Refuse(refusal) => panic!("unexpected refusal: {refusal:?}"),
@@ -153,7 +157,9 @@ pub enum Judgment {
     /// Genuinely new history: no attempt of this session was dispatched before.
     FirstWrite,
     /// A proven entry on this route is reachable and inside its lifetime, for `holds_ms` more (the longest such entry's).
-    Live { holds_ms: u64 },
+    Live {
+        holds_ms: u64,
+    },
     Cold(Cold),
 }
 
@@ -277,7 +283,11 @@ impl Book {
     /// `holds_ms`: how long the judgement that admits it holds ([`Permit::holds_ms`]).
     fn permit(&mut self, admission: &Admission<'_>, now: i64, holds_ms: Option<u64>) -> Verdict {
         let id = self.next_id();
-        if matches!(admission.purpose, Purpose::Turn | Purpose::SideQuestion | Purpose::SideAfterCompaction) && admission.manifest.tail.is_some() && !self.sent && self.first.is_none() {
+        if matches!(admission.purpose, Purpose::Turn | Purpose::SideQuestion | Purpose::SideAfterCompaction)
+            && admission.manifest.tail.is_some()
+            && !self.sent
+            && self.first.is_none()
+        {
             self.first = Some(id);
             self.dirty = true;
         }
@@ -458,7 +468,9 @@ impl Book {
                 self.proven_on(permit);
             }
             Evidence::Refreshed { block, digest } => {
-                if let Some(receipt) = self.receipts.iter_mut().find(|r| r.route == permit.route && r.block == block && r.digest == digest && r.touched_at < permit.dispatched_at) {
+                if let Some(receipt) =
+                    self.receipts.iter_mut().find(|r| r.route == permit.route && r.block == block && r.digest == digest && r.touched_at < permit.dispatched_at)
+                {
                     receipt.touched_at = permit.dispatched_at;
                     self.proven_on(permit);
                 }
@@ -478,7 +490,8 @@ impl Book {
             Resolution::Irreducible => Decided::Irreducible,
             Resolution::NoSizing => Decided::NoSizing,
         };
-        self.disposition = Some(Disposition { block: pending.block, digest: pending.digest, resolution: decided, sizing: pending.sizing, retired: BTreeSet::new() });
+        self.disposition =
+            Some(Disposition { block: pending.block, digest: pending.digest, resolution: decided, sizing: pending.sizing, retired: BTreeSet::new() });
         self.dirty = true;
         None
     }

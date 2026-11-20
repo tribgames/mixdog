@@ -110,10 +110,8 @@ pub(super) fn list_text(text: &str, visible: &HashSet<String>) -> String {
         return text.to_string();
     }
     let newline = if text.contains("\r\n") { "\r\n" } else { "\n" };
-    let kept: Vec<&str> = lines
-        .map(|line| line.trim_end_matches('\r'))
-        .filter(|line| line.find(" |").is_some_and(|at| visible.contains(&normalized(&line[..at]))))
-        .collect();
+    let kept: Vec<&str> =
+        lines.map(|line| line.trim_end_matches('\r')).filter(|line| line.find(" |").is_some_and(|at| visible.contains(&normalized(&line[..at])))).collect();
     if kept.is_empty() { "No windows found.".to_string() } else { format!("Windows:{newline}{}", kept.join(newline)) }
 }
 

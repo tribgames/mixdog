@@ -5,8 +5,8 @@
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
 use mixdog_app_server_client::{
-    CallOptions, ClientError, ClientEvent, ConnectOptions, ConnectionStatus, Json, ProtocolClient, ReplyAddress, ServerRequestAnswer,
-    Target, connect, mock::MockConn, mock::MockNetwork,
+    CallOptions, ClientError, ClientEvent, ConnectOptions, ConnectionStatus, Json, ProtocolClient, ReplyAddress, ServerRequestAnswer, Target, connect,
+    mock::MockConn, mock::MockNetwork,
 };
 use serde_json::json;
 

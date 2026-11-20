@@ -48,12 +48,7 @@ pub enum Delivery {
 /// The transcript's item for `completion`: a new card `id`, or the `previous` (last) item
 /// extended. `None` when the text is no card at all (Node then shows it as a user or
 /// synthetic row, `pushUserOrSyntheticItem`); `now` is the arrival time in milliseconds.
-pub fn agent_response(
-    completion: &Completion<'_>,
-    id: &str,
-    previous: Option<&ThreadItem>,
-    now: i64,
-) -> Option<Delivery> {
+pub fn agent_response(completion: &Completion<'_>, id: &str, previous: Option<&ThreadItem>, now: i64) -> Option<Delivery> {
     let text = js_trim(completion.content);
     let meta = completion.meta;
     let text_field = |key: &str| js_trim(&or_str(meta.get(key), "")).to_owned();
@@ -175,11 +170,7 @@ fn response_row(text: &str, id: &str, response_key: &str, surface: &str, status:
 
 /// `responseEntry(response)` of a response or a stored entry.
 fn response_entry(response: &Value, key: &Value, raw: &[&str]) -> Value {
-    let raw = raw
-        .iter()
-        .find_map(|name| response.get(*name).filter(|v| !v.is_null()))
-        .map(|v| js_trim(&value_to_string(v)).to_owned())
-        .unwrap_or_default();
+    let raw = raw.iter().find_map(|name| response.get(*name).filter(|v| !v.is_null())).map(|v| js_trim(&value_to_string(v)).to_owned()).unwrap_or_default();
     let mut entry = serde_json::Map::new();
     entry.insert("key".into(), json!(or_str(Some(key), "")));
     entry.insert("raw".into(), json!(raw));
@@ -195,9 +186,7 @@ fn response_entry(response: &Value, key: &Value, raw: &[&str]) -> Value {
 /// row) to `previous`, `None` when `previous` is no inbound agent card or the presentation
 /// phase differs (a bodyless failure stays a separate row from a later full body).
 fn append_to_tail(previous: &Row, response: &Row, now: i64) -> Option<Row> {
-    if previous.get("kind").and_then(Value::as_str) != Some("tool")
-        || previous.get("agentDirection").and_then(Value::as_str) != Some("inbound")
-    {
+    if previous.get("kind").and_then(Value::as_str) != Some("tool") || previous.get("agentDirection").and_then(Value::as_str) != Some("inbound") {
         return None;
     }
     let fields = |name: &str| response.get(name).cloned().unwrap_or(Value::Null);
@@ -256,10 +245,7 @@ fn append_to_tail(previous: &Row, response: &Row, now: i64) -> Option<Row> {
     patch.insert("count".into(), json!(entries.len()));
     patch.insert("completedCount".into(), json!(entries.len()));
     patch.insert("completedAt".into(), num_value(now as f64));
-    patch.insert(
-        "agentResponseKeys".into(),
-        json!(entries.iter().filter_map(|e| e["key"].as_str().filter(|k| !k.is_empty())).collect::<Vec<_>>()),
-    );
+    patch.insert("agentResponseKeys".into(), json!(entries.iter().filter_map(|e| e["key"].as_str().filter(|k| !k.is_empty())).collect::<Vec<_>>()));
     patch.insert("agentResponseHasBody".into(), json!(entries.iter().all(|e| flag(e, "hasBody"))));
     patch.insert("agentResponseAggregate".into(), json!(entries.len() > 1));
     patch.insert("agentResponseEntries".into(), Value::Array(entries));
@@ -315,8 +301,4 @@ fn tool_row(item: &ThreadItem) -> Option<Row> {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::disallowed_methods, reason = "test setup: reads the recorded fixture")]
-
-
 }
-
-

@@ -10,9 +10,7 @@ use super::*;
 
 fn block_on<T>(future: impl std::future::Future<Output = T>) -> T {
     static RUNTIME: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
-    RUNTIME
-        .get_or_init(|| tokio::runtime::Runtime::new().unwrap())
-        .block_on(future)
+    RUNTIME.get_or_init(|| tokio::runtime::Runtime::new().unwrap()).block_on(future)
 }
 
 /// A synchronous view of `Config` for the tests; reads pass through to the handle.
@@ -45,11 +43,7 @@ fn on_disk(dir: &tempfile::TempDir) -> Value {
 }
 
 fn published(publisher: &MockStatePublisher) -> Vec<String> {
-    publisher
-        .published()
-        .into_iter()
-        .map(|(_, key, _)| key.unwrap())
-        .collect()
+    publisher.published().into_iter().map(|(_, key, _)| key.unwrap()).collect()
 }
 
 #[test]
@@ -132,7 +126,10 @@ fn a_device_patch_merges_onto_its_stored_or_default_record() {
     // A stored record keeps what it has: a second patch touches only its own keys.
     config.write("notifications.devices.cred1", json!({ "quietHours": { "enabled": true } }), ConfigWriteMode::MergePatch).unwrap();
     let merged = on_disk(&dir)["notifications"]["devices"]["cred1"].clone();
-    assert_eq!((merged["scope"].clone(), merged["events"]["error"].clone(), merged["quietHours"]["enabled"].clone()), (json!("bots"), json!(false), json!(true)));
+    assert_eq!(
+        (merged["scope"].clone(), merged["events"]["error"].clone(), merged["quietHours"]["enabled"].clone()),
+        (json!("bots"), json!(false), json!(true))
+    );
     // An invalid patch is refused and nothing changes.
     assert!(config.write("notifications.devices.cred1", json!({ "scope": "nobody" }), ConfigWriteMode::MergePatch).is_err());
     assert_eq!(on_disk(&dir)["notifications"]["devices"]["cred1"], merged);
@@ -237,10 +234,7 @@ fn invalid_stored_retention_pauses_retention_with_one_warning() {
     let applied = config.write("desktop.keepAwake", json!(false), replace()).unwrap();
     assert!(applied.warnings.is_empty());
     config.write("desktop.sessionAutoDeleteDays", json!(30), replace()).unwrap();
-    assert_eq!(
-        config.session_retention(),
-        Some(SessionRetention { auto_archive_days: 7, auto_delete_days: 30 })
-    );
+    assert_eq!(config.session_retention(), Some(SessionRetention { auto_archive_days: 7, auto_delete_days: 30 }));
 }
 
 #[test]
@@ -255,11 +249,7 @@ fn external_edit_publishes_each_changed_subtree_once() {
     assert_eq!(publisher.published().len(), before + 1);
 
     let path = dir.path().join("mixdog-config.json");
-    fs::write(
-        &path,
-        r#"{"desktop":{"keepAwake":false},"notifications":{"x":1},"agent":{"y":2},"providers":{"k":"v"}}"#,
-    )
-    .unwrap();
+    fs::write(&path, r#"{"desktop":{"keepAwake":false},"notifications":{"x":1},"agent":{"y":2},"providers":{"k":"v"}}"#).unwrap();
     let applied = config.reload().unwrap();
     assert_eq!(applied.changed, vec!["agent", "notifications"]);
     assert_eq!(publisher.published().len(), before + 3);
@@ -273,8 +263,7 @@ fn external_edit_publishes_each_changed_subtree_once() {
 fn a_write_keeps_an_external_edit_not_yet_reloaded() {
     let dir = tempfile::tempdir().unwrap();
     let (config, _) = open(&dir, Some(json!({ "desktop": {}, "agent": { "profile": { "title": "Start" } } })));
-    fs::write(dir.path().join("mixdog-config.json"), r#"{"desktop":{},"agent":{"profile":{"title":"Hand"},"heartbeatIntervalMinutes":240}}"#)
-        .unwrap();
+    fs::write(dir.path().join("mixdog-config.json"), r#"{"desktop":{},"agent":{"profile":{"title":"Hand"},"heartbeatIntervalMinutes":240}}"#).unwrap();
     let applied = config.write("desktop.keepAwake", json!(false), replace()).unwrap();
     assert_eq!(applied.changed, vec!["desktop", "agent"]);
     let saved = on_disk(&dir);
@@ -317,13 +306,7 @@ fn initialize_if_missing_has_one_winner() {
             let (config, barrier) = (config.clone(), barrier.clone());
             std::thread::spawn(move || {
                 barrier.wait();
-                config
-                    .write(
-                        "desktop.activityRailPins",
-                        json!(pins),
-                        ConfigWriteMode::InitializeIfMissing,
-                    )
-                    .unwrap()
+                config.write("desktop.activityRailPins", json!(pins), ConfigWriteMode::InitializeIfMissing).unwrap()
             })
         })
         .collect();
@@ -336,9 +319,7 @@ fn initialize_if_missing_has_one_winner() {
     config.write("desktop.activityRailPins", json!(default), replace()).unwrap();
     assert_eq!(config.get("desktop.activityRailPins"), Some(json!({ "revision": 2 })));
     assert_eq!(config.activity_rail_pins().unwrap().pins, default);
-    assert!(config
-        .write("desktop.activityRailPins", json!(["nope"]), replace())
-        .is_err());
+    assert!(config.write("desktop.activityRailPins", json!(["nope"]), replace()).is_err());
 }
 
 /// The browser-permission rules: origins must be exactly as the URL parser serializes them,
@@ -381,10 +362,12 @@ fn browser_permissions_follow_the_node_rules() {
     assert!(config.write("desktop.browserPermissions", many(301), replace()).is_err());
     // A hand-edited list past the limit may shrink but not grow.
     let past_limit = many(305);
-    config.update(move |doc| {
-        doc.insert("desktop".into(), json!({ "browserPermissions": past_limit }));
-        Ok(())
-    }).unwrap();
+    config
+        .update(move |doc| {
+            doc.insert("desktop".into(), json!({ "browserPermissions": past_limit }));
+            Ok(())
+        })
+        .unwrap();
     assert!(config.write("desktop.browserPermissions", many(306), replace()).is_err());
     config.write("desktop.browserPermissions", many(304), replace()).unwrap();
     config.write("desktop.browserPermissions", json!({}), replace()).unwrap();
@@ -459,9 +442,7 @@ fn cookie_auto_import_write_validation_matches_node() {
         assert!(config.write(path, bad.clone(), replace()).is_err(), "{bad}");
     }
     // An explicit off is stored; extra fields are not.
-    config
-        .write(path, json!({ "enabled": false, "profileId": "", "extra": 1 }), replace())
-        .unwrap();
+    config.write(path, json!({ "enabled": false, "profileId": "", "extra": 1 }), replace()).unwrap();
     assert_eq!(config.get(path), Some(json!({ "enabled": false, "profileId": "" })));
     assert_eq!(browser_cookie_auto_import(&config.full()), (false, String::new()));
 }
@@ -520,9 +501,7 @@ fn notifications_have_one_typed_shape() {
     // Node keeps `devices[""]`, so an empty device id is accepted, whole or inside the document.
     config.write("notifications.devices", json!({ "": { "scope": "bots" } }), replace()).unwrap();
     assert_eq!(config.get("notifications.devices").unwrap()[""]["scope"], "bots");
-    config
-        .write("notifications", json!({ "migratedAt": 1, "devices": { "": {} } }), replace())
-        .unwrap();
+    config.write("notifications", json!({ "migratedAt": 1, "devices": { "": {} } }), replace()).unwrap();
     assert_eq!(config.get("notifications").unwrap()["devices"][""]["scope"], "all");
 }
 
@@ -540,14 +519,12 @@ fn the_agent_section_never_shows_a_retired_key() {
     let dir = tempfile::tempdir().unwrap();
     let (config, _) = open(
         &dir,
-        Some(json!({ "agent": { "outputStyle": "terse", "search": {}, "capabilities": {}, "recap": { "enabled": false }, "modules": { "memory": {}, "git": {} } } })),
+        Some(
+            json!({ "agent": { "outputStyle": "terse", "search": {}, "capabilities": {}, "recap": { "enabled": false }, "modules": { "memory": {}, "git": {} } } }),
+        ),
     );
     assert_eq!(Value::Object(config.agent()), json!({ "recap": { "enabled": false }, "modules": { "git": {} } }));
-    std::fs::write(
-        dir.path().join("mixdog-config.json"),
-        br#"{"agent":{"search":{"timeout":1},"recap":{"enabled":true}}}"#,
-    )
-    .unwrap();
+    std::fs::write(dir.path().join("mixdog-config.json"), br#"{"agent":{"search":{"timeout":1},"recap":{"enabled":true}}}"#).unwrap();
     config.reload().unwrap();
     assert_eq!(Value::Object(config.agent()), json!({ "recap": { "enabled": true } }));
 }
@@ -565,16 +542,10 @@ fn reads_do_not_wait_for_a_writer() {
 /// The inline test executors run lane jobs on the submitting thread.
 fn lanes() -> ConfigLanes {
     let tokens = mixdog_rt::testing::tokens();
-    ConfigLanes {
-        read: tokens.interactive_io,
-        write: tokens.durability_io,
-    }
+    ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io }
 }
 impl Blocking {
-    fn open(
-        path: impl Into<PathBuf>,
-        publisher: Arc<dyn StatePublisher>,
-    ) -> Result<(Self, Vec<ConfigWarning>), ConfigError> {
+    fn open(path: impl Into<PathBuf>, publisher: Arc<dyn StatePublisher>) -> Result<(Self, Vec<ConfigWarning>), ConfigError> {
         block_on(Config::open(path, publisher, lanes())).map(|(config, warnings)| (Self(config), warnings))
     }
 
@@ -586,10 +557,7 @@ impl Blocking {
         block_on(self.0.batch_write(edits))
     }
 
-    fn update(
-        &self,
-        change: impl FnOnce(&mut Doc) -> Result<(), ConfigError> + Send + 'static,
-    ) -> Result<Applied, ConfigError> {
+    fn update(&self, change: impl FnOnce(&mut Doc) -> Result<(), ConfigError> + Send + 'static) -> Result<Applied, ConfigError> {
         block_on(self.0.update(change))
     }
 
@@ -646,6 +614,3 @@ fn a_config_folder_the_write_creates_has_no_owner_only_acl_of_its_own() {
     assert!(!owner_only(&folder));
     assert!(!owner_only(folder.parent().unwrap()));
 }
-
-
-

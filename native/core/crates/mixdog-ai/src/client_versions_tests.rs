@@ -46,11 +46,7 @@ pub(crate) struct Net {
 
 #[async_trait]
 impl HttpSend for Net {
-    async fn send(
-        &self,
-        request: WireRequest,
-        _exchange: crate::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
         assert_eq!(request.method, "GET");
         let headers = request.headers.iter().map(|(k, v)| (k.to_lowercase(), v.clone())).collect();
         self.log.lock().unwrap().push((request.url, headers));
@@ -65,8 +61,6 @@ impl HttpSend for Net {
         }
     }
 }
-
-
 
 /// A manifest answering a version below the pinned floor is not believed; the floor itself and anything newer is.
 #[test]
@@ -140,10 +134,10 @@ async fn a_lookup_that_outlives_its_timer_ends_at_its_window() {
     for (dialect, seconds) in [(Dialect::Codex, 4), (Dialect::Antigravity, 5)] {
         let dir = tempfile::tempdir().unwrap();
         let transport = TimingOut::new();
-        let versions = ClientVersions::with_clock(transport.clone(), dir.path().to_owned(), io.clone(), Arc::new(TestEnv(HashMap::new())), Arc::new(|| 1_000_000_000_000));
+        let versions =
+            ClientVersions::with_clock(transport.clone(), dir.path().to_owned(), io.clone(), Arc::new(TestEnv(HashMap::new())), Arc::new(|| 1_000_000_000_000));
         versions.warm(dialect).await;
         let seen = transport.seen();
         assert_eq!((seen[0].after, seen[0].text.as_str()), (std::time::Duration::from_secs(seconds), "The operation was aborted due to timeout"));
     }
 }
-

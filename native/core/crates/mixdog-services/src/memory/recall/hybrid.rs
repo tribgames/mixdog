@@ -3,20 +3,15 @@
 //! matched member turns to their root episodes, optional latest-by-concept
 //! widening, duplicate collapse and member attachment.
 
-use mixdog_js::{js_trim, js_words, JsRegex, slice_utf16, utf16_len};
+use mixdog_js::{JsRegex, js_trim, js_words, slice_utf16, utf16_len};
 use std::collections::{HashMap, HashSet};
 use std::sync::LazyLock;
-
 
 use crate::memory::error::Result;
 use crate::memory::pg::db::Db;
 use crate::memory::query_terms::{build_fts_prefix_query, build_fts_query, tokenize_recall_query};
-use crate::memory::recall::filters::{
-    ScopeOptions, project_scope_predicate, scope_filter, valid_categories,
-};
-use crate::memory::recall::ranking::{
-    collapse_history_duplicates, evidence_kind, is_semantic_only, lane_ranks, rank_candidates, rrf_score,
-};
+use crate::memory::recall::filters::{ScopeOptions, project_scope_predicate, scope_filter, valid_categories};
+use crate::memory::recall::ranking::{collapse_history_duplicates, evidence_kind, is_semantic_only, lane_ranks, rank_candidates, rrf_score};
 use crate::memory::recall::row::{P, Row};
 use crate::memory::recall::store::read_query;
 
@@ -77,12 +72,7 @@ impl Plan {
             query_vector: options.query_vector.clone().filter(|v| !v.is_empty()),
             ts_from: options.ts_from,
             ts_to: options.ts_to,
-            exclude_statuses: options
-                .exclude_statuses
-                .iter()
-                .filter(|s| !js_trim(s).is_empty())
-                .map(|s| js_trim(s).to_lowercase())
-                .collect(),
+            exclude_statuses: options.exclude_statuses.iter().filter(|s| !js_trim(s).is_empty()).map(|s| js_trim(s).to_lowercase()).collect(),
             project_scope: options.project_scope.clone(),
             categories: valid_categories(&options.category),
         }
@@ -107,8 +97,7 @@ pub fn embedding_to_sql(vector: &[f32]) -> String {
     format!("[{}]", vector.iter().map(|n| format!("{:.6}", f64::from(*n))).collect::<Vec<_>>().join(","))
 }
 
-static EDGE_JUNK: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^[^\p{L}\p{N}_./:-]+|[^\p{L}\p{N}_./:-]+$", "u"));
+static EDGE_JUNK: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[^\p{L}\p{N}_./:-]+|[^\p{L}\p{N}_./:-]+$", "u"));
 static IDENTIFIER_SHAPE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[_./:-]", ""));
 
 /// Lower-cased literal terms for the exact lane: the whole query when short,
@@ -245,10 +234,7 @@ async fn fetch_final_rows(db: &Db, resolution: &RootResolution, plan: &Plan) -> 
     let non_exempt: Vec<i64> = top_ids.iter().copied().filter(|id| !resolution.member_hit_roots.contains(id)).collect();
     let exempt: Vec<i64> = resolution.member_hit_roots.iter().copied().collect();
     let (exempt_clause, exempt_params) = plan.filter(2, true, "");
-    let (windowed, exempt) = tokio::try_join!(
-        fetch(db, non_exempt, window_clause, window_params),
-        fetch(db, exempt, exempt_clause, exempt_params)
-    )?;
+    let (windowed, exempt) = tokio::try_join!(fetch(db, non_exempt, window_clause, window_params), fetch(db, exempt, exempt_clause, exempt_params))?;
     Ok(windowed.into_iter().chain(exempt).collect())
 }
 
@@ -303,8 +289,7 @@ pub fn prefer_latest_concept_rows(rows: &[Row], latest: &[Row]) -> Vec<Row> {
     }
     rows.iter()
         .map(|row| {
-            let concept_ids: Vec<i64> =
-                if row.concept_ids.is_empty() { vec![row.concept_id.unwrap_or(row.id)] } else { row.concept_ids.clone() };
+            let concept_ids: Vec<i64> = if row.concept_ids.is_empty() { vec![row.concept_id.unwrap_or(row.id)] } else { row.concept_ids.clone() };
             let mut best = row;
             for concept in concept_ids {
                 let Some(candidate) = by_concept.get(&concept) else { continue };
@@ -362,14 +347,15 @@ mod lex_scan_tests {
     /// `MIXDOG_RECALL_LEXSCAN_ROWS` as Node's `envNonNegativeInt` reads it: unset, junk and negative values keep 200 000, a number is floored, 0 is no bound.
     #[test]
     fn the_scan_bound_follows_the_environment_as_node_reads_it() {
-        for (env, rows) in [(None, 200_000), (Some("abc"), 200_000), (Some("-5"), 200_000), (Some("20000"), 20_000), (Some("1500.9"), 1500), (Some(""), 0), (Some("0"), 0)] {
+        for (env, rows) in
+            [(None, 200_000), (Some("abc"), 200_000), (Some("-5"), 200_000), (Some("20000"), 20_000), (Some("1500.9"), 1500), (Some(""), 0), (Some("0"), 0)]
+        {
             assert_eq!(lex_scan_rows(env), rows, "{env:?}");
         }
         assert_eq!(lex_scan_bound_over(20_000, "ee"), "AND ee.id >= (SELECT GREATEST(COALESCE(MAX(id), 0) - 20000, 0) FROM entries)");
         assert_eq!(lex_scan_bound_over(0, "ee"), "");
     }
 }
-
 
 async fn resolve_roots(
     db: &Db,
@@ -399,12 +385,9 @@ async fn resolve_roots(
         let scope_clause = if scope.is_empty() { String::new() } else { format!("AND {scope}") };
         let mut params = vec![P::IA(member_root_ids)];
         params.extend(scope_params);
-        let rows = read_query(
-            db,
-            &format!("SELECT {ENTRY_ROW_COLUMNS}\n       FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1 {scope_clause}"),
-            &params,
-        )
-        .await?;
+        let rows =
+            read_query(db, &format!("SELECT {ENTRY_ROW_COLUMNS}\n       FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 1 {scope_clause}"), &params)
+                .await?;
         for row in rows {
             root_by_id.insert(row.id, row);
         }
@@ -416,14 +399,15 @@ async fn resolve_roots(
         let Some(row) = by_id.get(&candidate.id).map(|i| &raw[*i]) else { continue };
         let mut target = row.clone();
         if row.is_root != 1
-            && let Some(chunk_root) = row.chunk_root.filter(|root| *root != row.id) {
-                let Some(root) = root_by_id.get(&chunk_root) else { continue };
-                if !member_ts_in_window(row, plan.ts_from, plan.ts_to) {
-                    continue;
-                }
-                member_hit_roots.insert(root.id);
-                target = root.clone();
+            && let Some(chunk_root) = row.chunk_root.filter(|root| *root != row.id)
+        {
+            let Some(root) = root_by_id.get(&chunk_root) else { continue };
+            if !member_ts_in_window(row, plan.ts_from, plan.ts_to) {
+                continue;
             }
+            member_hit_roots.insert(root.id);
+            target = root.clone();
+        }
         if !seen.insert(target.id) {
             continue;
         }
@@ -601,19 +585,13 @@ LEFT JOIN exact  x ON x.id = c.id",
         trgm_cte(&filters),
         exact_cte(exact_param, &filters),
     );
-    let mut params = vec![
-        vector_sql.map_or(P::Null, P::Lit),
-        fts.map_or(P::T(String::new()), P::T),
-        P::T(plan.clean.clone()),
-        P::I(plan.candidate_window),
-    ];
+    let mut params = vec![vector_sql.map_or(P::Null, P::Lit), fts.map_or(P::T(String::new()), P::T), P::T(plan.clean.clone()), P::I(plan.candidate_window)];
     params.extend(filter_params);
     if exact_param != 0 {
         params.push(P::TA(exact_terms));
     }
     (sql, params)
 }
-
 
 /// Widens the candidates with the newest root of every matched concept.
 async fn expand_latest_by_concept(db: &Db, raw: Vec<Row>, plan: &Plan) -> Result<(Vec<Row>, HashSet<i64>)> {

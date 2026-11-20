@@ -54,8 +54,7 @@ const MANAGE_MAX: usize = 50;
 const LABEL_MAX: usize = 225;
 const SEARCH_ITEMS: &str = "(UID ENVELOPE INTERNALDATE BODYSTRUCTURE X-GM-THRID X-GM-MSGID)";
 
-static HOST: LazyLock<String> =
-    LazyLock::new(|| Url::parse(GMAIL_APP_PASSWORD_URL).ok().and_then(|url| url.host_str().map(str::to_owned)).unwrap_or_default());
+static HOST: LazyLock<String> = LazyLock::new(|| Url::parse(GMAIL_APP_PASSWORD_URL).ok().and_then(|url| url.host_str().map(str::to_owned)).unwrap_or_default());
 static MESSAGE_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^<[^<>\s]+>$").expect("a fixed pattern"));
 static NUMERIC_ID: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"^[0-9]{1,20}$").expect("a fixed pattern"));
 
@@ -496,7 +495,14 @@ const MANAGE_TOOLS: [Manage; 8] = [
         destructive: false,
     },
     Manage { name: "mark_emails_read", description: "Mark emails as read.", verb: "Marked read:", action: Action::MarkRead, label: false, destructive: false },
-    Manage { name: "mark_emails_unread", description: "Mark emails as unread.", verb: "Marked unread:", action: Action::MarkUnread, label: false, destructive: false },
+    Manage {
+        name: "mark_emails_unread",
+        description: "Mark emails as unread.",
+        verb: "Marked unread:",
+        action: Action::MarkUnread,
+        label: false,
+        destructive: false,
+    },
     Manage { name: "star_emails", description: "Star emails.", verb: "Starred", action: Action::Star, label: false, destructive: false },
     Manage { name: "unstar_emails", description: "Remove the star from emails.", verb: "Unstarred", action: Action::Unstar, label: false, destructive: false },
 ];
@@ -636,7 +642,6 @@ pub struct GmailMcp {
     store: Arc<dyn SecretStore>,
 }
 
-
 async fn send_email(ctx: &Ctx<'_>, args: &Value) -> Result<String, Fail> {
     let to = require_text(args, "to")?;
     let cc = text_arg(args.get("cc"));
@@ -766,7 +771,8 @@ impl GmailMcp {
                 if request.password().await?.is_empty() {
                     return Ok(error(-32001, missing()));
                 }
-                let version = Some(text_arg(params.and_then(|p| p.get("protocolVersion")))).filter(|v| !v.is_empty()).unwrap_or_else(|| PROTOCOL_VERSION.to_owned());
+                let version =
+                    Some(text_arg(params.and_then(|p| p.get("protocolVersion")))).filter(|v| !v.is_empty()).unwrap_or_else(|| PROTOCOL_VERSION.to_owned());
                 reply(json!({
                     "protocolVersion": version,
                     "capabilities": { "tools": { "listChanged": false } },

@@ -74,13 +74,42 @@ mod tests {
     fn host_role_refused() {
         for method in table_methods() {
             assert!(allows(method).is_err(), "{method} is host-role");
-            assert!(method.starts_with("host/") || ["modelProxy/run", "process/kill", "process/resizePty", "process/spawn", "process/writeStdin",
-                "connections/endpoint", "projectFs/localPage/revokeOwner", "test/browserEngine/run", "migrate/profile/adopt", "dev/computer/run",
-                "connections/ssh/openEphemeral", "computer/userControl", "desktop/workflowConfig/read", "migrate/profile/status",
-                "projectFs/localPage/virtual", "computer/bridge/run", "computer/bridge/abort", "desktop/launchVersion/record",
-                "desktop/modelBootstrap/read", "desktop/nativeToolCache/gc",
-                "browser/bridge/run", "browser/bridge/turn", "browser/bridge/abort", "remoteHosts/touch", "transfer/serverDownload/begin", "transfer/serverDownload/step",
-                "transfer/serverDownload/finish", "transfer/serverDownload/abort", "transfer/serverDownload/check"].contains(&method), "{method} is not a host-role method");
+            assert!(
+                method.starts_with("host/")
+                    || [
+                        "modelProxy/run",
+                        "process/kill",
+                        "process/resizePty",
+                        "process/spawn",
+                        "process/writeStdin",
+                        "connections/endpoint",
+                        "projectFs/localPage/revokeOwner",
+                        "test/browserEngine/run",
+                        "migrate/profile/adopt",
+                        "dev/computer/run",
+                        "connections/ssh/openEphemeral",
+                        "computer/userControl",
+                        "desktop/workflowConfig/read",
+                        "migrate/profile/status",
+                        "projectFs/localPage/virtual",
+                        "computer/bridge/run",
+                        "computer/bridge/abort",
+                        "desktop/launchVersion/record",
+                        "desktop/modelBootstrap/read",
+                        "desktop/nativeToolCache/gc",
+                        "browser/bridge/run",
+                        "browser/bridge/turn",
+                        "browser/bridge/abort",
+                        "remoteHosts/touch",
+                        "transfer/serverDownload/begin",
+                        "transfer/serverDownload/step",
+                        "transfer/serverDownload/finish",
+                        "transfer/serverDownload/abort",
+                        "transfer/serverDownload/check"
+                    ]
+                    .contains(&method),
+                "{method} is not a host-role method"
+            );
         }
         assert!(allows_initialize(&params(r#"{"clientInfo":{"name":"w","version":"1","kind":"desktop"},"capabilities":{"host":{}}}"#)).is_err());
         assert!(allows_initialize(&params(r#"{"clientInfo":{"name":"w","version":"1","kind":"desktop"},"capabilities":{"modelProxy":true}}"#)).is_err());
@@ -97,17 +126,46 @@ mod tests {
                 assert!(allows(spec.method).is_ok(), "{} is not host-role", spec.method);
             }
         }
-        for method in ["projectFs/listDir", "projectFs/readText", "projectFs/writeText", "projectFs/localPageUrl", "projectFs/localPage/origin",
-            "projectFs/localPage/assetType", "connections/ssh/connect", "connections/subscribe", "initialize", "app/subscribe", "blob/read",
+        for method in [
+            "projectFs/listDir",
+            "projectFs/readText",
+            "projectFs/writeText",
+            "projectFs/localPageUrl",
+            "projectFs/localPage/origin",
+            "projectFs/localPage/assetType",
+            "connections/ssh/connect",
+            "connections/subscribe",
+            "initialize",
+            "app/subscribe",
+            "blob/read",
             // The renderer reaches these through main today (Connection settings, the PC access row, the remote host list,
             // the takeover card and the link, attachment and font lanes): a window keeps them.
-            "connections/ssh/open", "connections/link/get", "connections/ports/forward", "remoteHosts/list", "remoteHosts/redeemCode",
-            "remoteHosts/rename", "remoteHosts/forget", "remoteHosts/presence", "pcAccess/readiness", "pcAccess/approve", "takeover/ready", "takeover/state",
-            "desktop/link/resolve", "desktop/attachment/resolve", "desktop/attachment/stage", "desktop/fonts/list", "projectFs/grant/describe",
+            "connections/ssh/open",
+            "connections/link/get",
+            "connections/ports/forward",
+            "remoteHosts/list",
+            "remoteHosts/redeemCode",
+            "remoteHosts/rename",
+            "remoteHosts/forget",
+            "remoteHosts/presence",
+            "pcAccess/readiness",
+            "pcAccess/approve",
+            "takeover/ready",
+            "takeover/state",
+            "desktop/link/resolve",
+            "desktop/attachment/resolve",
+            "desktop/attachment/stage",
+            "desktop/fonts/list",
+            "projectFs/grant/describe",
             "projectFs/grant/redeem",
             // x-residual-moves-b: the link, thumbnail, attachment, save-as, what's-new and Linux input-access lanes reach these through main.
-            "desktop/localLink/open", "desktop/attachment/thumbnail", "desktop/attachment/write", "desktop/userFile/write",
-            "desktop/launchVersion/acknowledge", "desktop/computer/inputAccess/request"] {
+            "desktop/localLink/open",
+            "desktop/attachment/thumbnail",
+            "desktop/attachment/write",
+            "desktop/userFile/write",
+            "desktop/launchVersion/acknowledge",
+            "desktop/computer/inputAccess/request",
+        ] {
             assert!(allows(method).is_ok(), "{method}");
         }
     }

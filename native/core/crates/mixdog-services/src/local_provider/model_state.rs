@@ -52,7 +52,10 @@ impl ModelState {
     pub fn record_load(&self, id: &str, props: &Value, load_time_ms: Option<f64>) {
         let caps = props.get("chat_template_caps").cloned().unwrap_or_else(|| json!({}));
         self.with(id, |s| {
-            s.insert("capabilities".into(), json!({"tools": tool_capability(&caps), "images": false, "audio": false, "video": false, "reasoningSettings": false}));
+            s.insert(
+                "capabilities".into(),
+                json!({"tools": tool_capability(&caps), "images": false, "audio": false, "video": false, "reasoningSettings": false}),
+            );
             s.insert("loadTimeMs".into(), load_time_ms.filter(|v| v.is_finite()).map_or(Value::Null, |v| json!(v.round() as i64)));
         });
     }
@@ -152,7 +155,6 @@ mod tests {
         state.forget("m");
         assert_eq!(state.get("m"), json!({}));
     }
-
 
     #[test]
     fn inference_reports_running_then_a_finished_summary() {

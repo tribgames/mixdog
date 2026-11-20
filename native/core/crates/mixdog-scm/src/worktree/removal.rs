@@ -338,7 +338,13 @@ impl Worktrees {
                 Ok(done) => done,
             };
             if !ok || path.exists() {
-                let reason = if !stderr.trim().is_empty() { first_line(&stderr).to_owned() } else if ok { "folder left behind".to_owned() } else { "exit non-zero".to_owned() };
+                let reason = if !stderr.trim().is_empty() {
+                    first_line(&stderr).to_owned()
+                } else if ok {
+                    "folder left behind".to_owned()
+                } else {
+                    "exit non-zero".to_owned()
+                };
                 let mut out = vec![remnant("git-remove", Some(&record.path), Some(&reason))];
                 out.extend(self.undo_automatic_attempt(record, &undo, cancel).await);
                 return Ok(out);
@@ -395,8 +401,10 @@ impl Worktrees {
         .await;
         if let Err(error) = attempt {
             let mut failures: Vec<String> = restore(links).await.into_iter().map(|(path, error)| format!("{path} ({error})")).collect();
-            if unlocked && self.registration_for(record, cancel).await?.is_some()
-                && let Err(lock_error) = self.scm().git.run(cancel, &cwd, &["worktree", "lock", "--reason", &owned_lock, &record.path]).await {
+            if unlocked
+                && self.registration_for(record, cancel).await?.is_some()
+                && let Err(lock_error) = self.scm().git.run(cancel, &cwd, &["worktree", "lock", "--reason", &owned_lock, &record.path]).await
+            {
                 failures.push(format!("worktree lock ({})", first_line(&lock_error.to_string())));
             }
             return Err(if failures.is_empty() || matches!(error, ScmFailure::Cancelled) {
@@ -441,7 +449,13 @@ impl Worktrees {
 
     /// An automatic removal that did not finish is not a decided deletion: the record goes back
     /// to `ready` with `removalIncomplete`, so only a later pass that verifies it afresh tries again.
-    pub(crate) async fn keep_incomplete_removal(&self, record: &mut WorktreeRecord, remaining: Vec<RemovalRemnant>, reason: &str, cancel: &CancellationToken) -> Result<Deletion, ScmFailure> {
+    pub(crate) async fn keep_incomplete_removal(
+        &self,
+        record: &mut WorktreeRecord,
+        remaining: Vec<RemovalRemnant>,
+        reason: &str,
+        cancel: &CancellationToken,
+    ) -> Result<Deletion, ScmFailure> {
         record.state = "ready".into();
         record.extra.insert("deleting".into(), Value::Null);
         record.extra.insert("removalIncomplete".into(), json!({ "at": now_ms(), "reason": reason, "remaining": remaining }));
@@ -502,13 +516,7 @@ impl Worktrees {
         }
         self.delete_record(record, cancel).await?;
         self.prune_empty_repo_root(&record.repo_common_dir, cancel).await?;
-        Ok(Deletion {
-            removed: true,
-            branch_deleted: branch.deleted,
-            preserved_branch: branch.preserved,
-            recovery_refs,
-            ..Deletion::default()
-        })
+        Ok(Deletion { removed: true, branch_deleted: branch.deleted, preserved_branch: branch.preserved, recovery_refs, ..Deletion::default() })
     }
 
     /// A branch a removal leaves, reported `preserved` unless it is gone or checked out.
@@ -588,7 +596,12 @@ impl Worktrees {
 
     /// Undoes an incomplete creation using only the ledger's proof. The record moves to
     /// `recovery` first, so an interruption stays attributable. `(complete, remaining)`.
-    pub(crate) async fn rollback_record(&self, record: &mut WorktreeRecord, cause: Option<&str>, cancel: &CancellationToken) -> Result<(bool, Vec<RemovalRemnant>), ScmFailure> {
+    pub(crate) async fn rollback_record(
+        &self,
+        record: &mut WorktreeRecord,
+        cause: Option<&str>,
+        cancel: &CancellationToken,
+    ) -> Result<(bool, Vec<RemovalRemnant>), ScmFailure> {
         record.state = "recovery".into();
         let tx = record.extra.get("txId").cloned().unwrap_or(Value::Null);
         record.extra.insert("recovery".into(), json!({ "txId": tx, "reason": cause.unwrap_or("interrupted creation"), "at": now_ms() }));
@@ -611,8 +624,11 @@ impl Worktrees {
                 let left = self.remove_checkout(record, cancel).await?;
                 let empty = left.is_empty();
                 remaining.extend(left);
-                let exact_not_created = record.extra.get("exactBranch").and_then(Value::as_bool) == Some(true) && resources.get("worktree").and_then(Value::as_str) != Some("created");
-                if let (true, Some(branch), false, false) = (empty, record.branch.clone(), record.extra.get("existingBranch").and_then(Value::as_bool) == Some(true), exact_not_created) {
+                let exact_not_created = record.extra.get("exactBranch").and_then(Value::as_bool) == Some(true)
+                    && resources.get("worktree").and_then(Value::as_str) != Some("created");
+                if let (true, Some(branch), false, false) =
+                    (empty, record.branch.clone(), record.extra.get("existingBranch").and_then(Value::as_bool) == Some(true), exact_not_created)
+                {
                     // The slug was free when this transaction reserved it, so a branch still at
                     // the base commit is the one `worktree add -b` made; one that moved holds
                     // someone's commits and is kept.
@@ -684,7 +700,9 @@ impl Worktrees {
         let folder = path.clone();
         let stamps = on_lane(self.scm().lane, cancel, move || {
             let stamp = |p: &Path| match std::fs::metadata(p) {
-                Ok(meta) => format!("{}:{}", meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos()), meta.len()),
+                Ok(meta) => {
+                    format!("{}:{}", meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_nanos()), meta.len())
+                }
                 Err(_) => "none".to_owned(),
             };
             (index_path.as_deref().map_or_else(|| "none".to_owned(), stamp), stamp(&folder))
@@ -701,7 +719,13 @@ impl Worktrees {
     /// Of the ignored status entries, the ones no install or rebuild restores: user data only
     /// this checkout holds. Reproducible and so left out: the identity file, recorded include
     /// items, whole dependency artefacts, `__pycache__` and `CACHEDIR.TAG`-marked folders.
-    pub(crate) async fn unreproducible_ignored(&self, record: &WorktreeRecord, entries: Vec<String>, artefacts: Vec<String>, cancel: &CancellationToken) -> Result<Vec<String>, ScmFailure> {
+    pub(crate) async fn unreproducible_ignored(
+        &self,
+        record: &WorktreeRecord,
+        entries: Vec<String>,
+        artefacts: Vec<String>,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<String>, ScmFailure> {
         let roots = self.include_roots(record);
         let identity = Self::identity_path(record);
         let base = PathBuf::from(&record.path);
@@ -725,7 +749,8 @@ impl Worktrees {
                 }
                 if path == identity_dir {
                     let folder = path.split('/').fold(base.clone(), |p, s| p.join(s));
-                    let names: Option<Vec<String>> = std::fs::read_dir(folder).ok().map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect());
+                    let names: Option<Vec<String>> =
+                        std::fs::read_dir(folder).ok().map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.file_name().to_string_lossy().into_owned()).collect());
                     if names.is_some_and(|n| n.len() == 1 && n[0] == "project.id") {
                         continue;
                     }
@@ -747,7 +772,11 @@ impl Worktrees {
 
     /// What keeps `record` from an automatic removal: dirty paths and unreproducible ignored
     /// ones, with the dependency artefacts that decided it.
-    pub(crate) async fn automatic_keep_paths(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<(Vec<String>, Vec<String>, Vec<String>), ScmFailure> {
+    pub(crate) async fn automatic_keep_paths(
+        &self,
+        record: &WorktreeRecord,
+        cancel: &CancellationToken,
+    ) -> Result<(Vec<String>, Vec<String>, Vec<String>), ScmFailure> {
         let path = PathBuf::from(&record.path);
         if !path.exists() {
             return Ok((Vec::new(), Vec::new(), Vec::new()));
@@ -772,7 +801,13 @@ impl Worktrees {
     /// The cleanup's last word before a removal, under the folder hold: the full status and
     /// the include-copy check again, bounded by `timeout`. `None`: clean. A check that cannot
     /// finish in time is `busy`, never read as clean.
-    pub(crate) async fn final_dirty_check(&self, record: &WorktreeRecord, timeout: Duration, artefacts: Vec<String>, cancel: &CancellationToken) -> Result<Option<Value>, ScmFailure> {
+    pub(crate) async fn final_dirty_check(
+        &self,
+        record: &WorktreeRecord,
+        timeout: Duration,
+        artefacts: Vec<String>,
+        cancel: &CancellationToken,
+    ) -> Result<Option<Value>, ScmFailure> {
         let path = PathBuf::from(&record.path);
         if !path.exists() {
             return Ok(None);
@@ -833,7 +868,8 @@ impl Worktrees {
         }
         // As assert_removable: an operation in progress keeps the checkout.
         if let Ok(opened) = self.scm().open(Path::new(&record.path), cancel).await
-            && operation_in_progress(&opened.identity.git_dir).is_some() {
+            && operation_in_progress(&opened.identity.git_dir).is_some()
+        {
             return Ok((Some(kept("dirty")), artefacts));
         }
         if !ignored.is_empty() {
@@ -890,7 +926,14 @@ impl Worktrees {
         outcome
     }
 
-    async fn remove_under_hold(&self, record: &mut WorktreeRecord, options: &AutoOptions, token: &str, artefacts: Vec<String>, cancel: &CancellationToken) -> Result<Auto, ScmFailure> {
+    async fn remove_under_hold(
+        &self,
+        record: &mut WorktreeRecord,
+        options: &AutoOptions,
+        token: &str,
+        artefacts: Vec<String>,
+        cancel: &CancellationToken,
+    ) -> Result<Auto, ScmFailure> {
         if options.in_use.in_use(record).await {
             return Ok(Auto::Kept(kept("in-use")));
         }
@@ -923,7 +966,8 @@ impl Worktrees {
         match reason {
             "dirty" => errors::dirty(Some(record.id.clone()), None, None, None),
             "ignored" => {
-                let files: Vec<String> = verdict.get("files").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect();
+                let files: Vec<String> =
+                    verdict.get("files").and_then(Value::as_array).into_iter().flatten().filter_map(|v| v.as_str().map(str::to_owned)).collect();
                 let mut failure = errors::dirty_files(record.id.clone(), files);
                 if let ScmFailure::Coded { message, .. } = &mut failure {
                     *message = Some("The worktree holds ignored files no install restores.".into());
@@ -975,15 +1019,20 @@ impl Worktrees {
     /// again under the lock, so an owner that came back or a session the store still keeps it
     /// for refuses. `allow_retained` (the user deleting it from the list): a retained session
     /// no longer protects it; a live owner or another session's shared reference still does.
-    pub async fn remove_orphaned(&self, entry_id: &str, force: bool, live: &HashSet<String>, retained: &HashSet<String>, allow_retained: bool, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+    pub async fn remove_orphaned(
+        &self,
+        entry_id: &str,
+        force: bool,
+        live: &HashSet<String>,
+        retained: &HashSet<String>,
+        allow_retained: bool,
+        cancel: &CancellationToken,
+    ) -> Result<Value, ScmFailure> {
         let record = self.record(cancel, entry_id).await?.ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
         let opened = self.scm().open(&repo_cwd(&record), cancel).await?;
         let _lock = opened.lock_repository().await?;
-        let mut current = self
-            .record(cancel, entry_id)
-            .await?
-            .filter(|r| !is_snapshot(r))
-            .ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
+        let mut current =
+            self.record(cancel, entry_id).await?.filter(|r| !is_snapshot(r)).ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
         let (owner_live, _, removable) = self.retention_of(&current, live, retained, cancel).await?;
         if owner_live {
             return Err(errors::busy_with(errors::RefusalReason::WorkspaceLease.wire(), None, Some(entry_id.to_owned()), None));
@@ -1064,7 +1113,12 @@ impl Worktrees {
 
     /// Marks (or unmarks) every ready managed worktree the sessions own disposable: an archived
     /// session's, so a pass deletes it once clean and merged. Snapshots are left alone.
-    pub async fn set_session_worktrees_disposable(&self, session_ids: &HashSet<String>, disposable: bool, cancel: &CancellationToken) -> Result<Vec<String>, ScmFailure> {
+    pub async fn set_session_worktrees_disposable(
+        &self,
+        session_ids: &HashSet<String>,
+        disposable: bool,
+        cancel: &CancellationToken,
+    ) -> Result<Vec<String>, ScmFailure> {
         let mut changed = Vec::new();
         if session_ids.is_empty() {
             return Ok(changed);

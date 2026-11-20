@@ -142,14 +142,8 @@ fn argument_forms_write_through_the_store_and_report_the_outcome() {
             "goalControl"
         ]
     );
-    assert_eq!(
-        fake.calls().iter().find(|call| call[1] == "setAutoClear").map(|call| call[2].clone()),
-        Some(json!([{"duration": "10m"}]))
-    );
-    assert_eq!(
-        fake.calls().iter().find(|call| call[1] == "memoryControl").map(|call| call[2].clone()),
-        Some(json!([{"action": "search"}]))
-    );
+    assert_eq!(fake.calls().iter().find(|call| call[1] == "setAutoClear").map(|call| call[2].clone()), Some(json!([{"duration": "10m"}])));
+    assert_eq!(fake.calls().iter().find(|call| call[1] == "memoryControl").map(|call| call[2].clone()), Some(json!([{"action": "search"}])));
     assert!(fake.log.contains(&json!(["enterProject", "C:/other"])));
     let messages = fake.messages();
     for expected in [
@@ -176,11 +170,7 @@ fn fast_ultra_selects_ultrafast_and_reports_a_model_that_lacks_it() {
     let mut fake = harness();
     run_slash_command(&mut fake, "fast", "ultra");
     assert_eq!(fake.calls().last().map(|call| call[2].clone()), Some(json!(["ultrafast"])));
-    assert!(
-        fake.notices()
-            .iter()
-            .any(|(message, _)| message == "Fast mode off for openai/gpt-5" || message == "Ultrafast for openai/gpt-5")
-    );
+    assert!(fake.notices().iter().any(|(message, _)| message == "Fast mode off for openai/gpt-5" || message == "Ultrafast for openai/gpt-5"));
     let mut failing = harness();
     failing.script("setFast", Err("ultrafast is not available for openai/gpt-5".to_owned()));
     run_slash_command(&mut failing, "fast", "ultra");
@@ -225,35 +215,19 @@ fn session_commands_report_their_outcomes() {
         fake.script("compact", Ok(reply));
         let before = fake.log.len();
         run_slash_command(&mut fake, "compact", "");
-        let reported: Vec<String> = fake.log[before..]
-            .iter()
-            .filter(|entry| entry[0] == "notice")
-            .map(|entry| entry[1].as_str().unwrap_or_default().to_owned())
-            .collect();
+        let reported: Vec<String> =
+            fake.log[before..].iter().filter(|entry| entry[0] == "notice").map(|entry| entry[1].as_str().unwrap_or_default().to_owned()).collect();
         assert_eq!(reported, [expected], "{expected}");
     }
     let mut fake = harness();
-    for (command, arg) in [
-        ("new", ""),
-        ("clear", ""),
-        ("resume", "abc"),
-        ("fork", ""),
-        ("inherit", ""),
-        ("schedules", ""),
-        ("doctor", ""),
-        ("quit", ""),
-        ("bogus", ""),
-    ] {
+    for (command, arg) in
+        [("new", ""), ("clear", ""), ("resume", "abc"), ("fork", ""), ("inherit", ""), ("schedules", ""), ("doctor", ""), ("quit", ""), ("bogus", "")]
+    {
         run_slash_command(&mut fake, command, arg);
     }
     assert_eq!(names(&fake), ["newSession", "clear", "resume", "inheritSession", "inheritSession"]);
     let messages = fake.messages();
-    for expected in [
-        "Resumed abc",
-        "forked 4 messages into s9",
-        "Schedules and webhooks are managed in the Mixdog desktop app",
-        "unknown command: /bogus",
-    ] {
+    for expected in ["Resumed abc", "forked 4 messages into s9", "Schedules and webhooks are managed in the Mixdog desktop app", "unknown command: /bogus"] {
         assert!(messages.iter().any(|message| message == expected), "{expected}");
     }
     assert!(fake.log.contains(&json!(["doctor"])));
@@ -264,13 +238,9 @@ fn session_commands_report_their_outcomes() {
 #[test]
 fn command_aliases_reach_the_same_panels_and_exit_action() {
     let mut fake = harness();
-    for (command, opener) in [
-        ("projects", "project"),
-        ("style", "outputstyle"),
-        ("output-style", "outputstyle"),
-        ("setting", "settings"),
-        ("config", "settings"),
-    ] {
+    for (command, opener) in
+        [("projects", "project"), ("style", "outputstyle"), ("output-style", "outputstyle"), ("setting", "settings"), ("config", "settings")]
+    {
         assert!(run_slash_command(&mut fake, command, ""));
         assert_eq!(fake.opened().last().map(|(name, _)| name.as_str()), Some(opener));
     }
@@ -315,10 +285,7 @@ fn shells_lists_held_shells_and_releases_one_only_with_confirm() {
     assert!(fake.notices()[1].0.ends_with("/shells release job_b --confirm"));
     assert!(!names(&fake).contains(&"releaseShellJob".to_owned()), "nothing is released without --confirm");
     run_slash_command(&mut fake, "shells", "release job_b --confirm");
-    assert_eq!(
-        fake.calls().last().map(|call| (call[1].clone(), call[2].clone())),
-        Some((json!("releaseShellJob"), json!(["job_b"])))
-    );
+    assert_eq!(fake.calls().last().map(|call| (call[1].clone(), call[2].clone())), Some((json!("releaseShellJob"), json!(["job_b"]))));
     assert_eq!(fake.notices()[2], ("Released job_b.".to_owned(), "info".to_owned()));
 }
 
@@ -373,10 +340,7 @@ fn stop_reports_shells_that_are_still_stopping() {
     let mut fake = stop_fake(json!({"stopped": 1, "stopping": 1}), two_jobs());
     run_slash_command(&mut fake, "stop", "");
     fake.select("stop");
-    assert_eq!(
-        fake.notices(),
-        [("Stopped background shells: 1 \u{b7} still stopping: 1".to_owned(), "warn".to_owned())]
-    );
+    assert_eq!(fake.notices(), [("Stopped background shells: 1 \u{b7} still stopping: 1".to_owned(), "warn".to_owned())]);
 }
 
 #[test]
@@ -456,14 +420,10 @@ fn empty_submits_reach_the_daemon_as_the_documented_reset_and_clear_actions() {
     assert_eq!(shell.calls().last().map(|call| call[2].clone()), Some(json!([""])));
     assert_eq!(shell.closed_prompts("settings"), 1);
 
-    let mut auto_clear =
-        settings_fake(json!({"kind": "autoclear-provider", "label": "Auto-clear", "provider": "openai"}));
+    let mut auto_clear = settings_fake(json!({"kind": "autoclear-provider", "label": "Auto-clear", "provider": "openai"}));
     auto_clear.script("setAutoClear", ok(json!({"enabled": true})));
     assert!(on_submit(&mut auto_clear, ""));
-    assert_eq!(
-        auto_clear.calls().last().map(|call| call[2].clone()),
-        Some(json!([{"provider": "openai", "resetProvider": true}]))
-    );
+    assert_eq!(auto_clear.calls().last().map(|call| call[2].clone()), Some(json!([{"provider": "openai", "resetProvider": true}])));
     assert!(auto_clear.messages().iter().any(|message| message.contains("default reset")));
 
     let mut profile = settings_fake(json!({"kind": "profile-title", "label": "Profile"}));
@@ -475,8 +435,7 @@ fn empty_submits_reach_the_daemon_as_the_documented_reset_and_clear_actions() {
 
 #[test]
 fn the_prompt_log_shape_hides_the_callback_flags() {
-    let prompt =
-        prompt_from(&json!({"kind": "oauth-code", "providerName": "Grok", "_login": "ok", "_afterSave": true}));
+    let prompt = prompt_from(&json!({"kind": "oauth-code", "providerName": "Grok", "_login": "ok", "_afterSave": true}));
     assert_eq!(prompt_json(&prompt), json!({"kind": "oauth-code", "providerName": "Grok"}));
 }
 
@@ -488,16 +447,11 @@ fn oauth_fake(prompt: Value) -> Fake {
 
 #[test]
 fn an_accepted_oauth_code_clears_the_in_flight_guard_and_returns_to_the_caller() {
-    let mut fake =
-        oauth_fake(json!({"kind": "oauth-code", "providerName": "Grok", "_login": "ok", "_successReturn": true}));
+    let mut fake = oauth_fake(json!({"kind": "oauth-code", "providerName": "Grok", "_login": "ok", "_successReturn": true}));
     assert!(on_submit(&mut fake, "abc#state"));
     assert!(!fake.oauth_submitting());
-    let tail: Vec<Value> = fake
-        .log
-        .iter()
-        .filter(|entry| !matches!(entry[0].as_str(), Some("setPrompt" | "markSubmitting" | "oauth" | "notice")))
-        .cloned()
-        .collect();
+    let tail: Vec<Value> =
+        fake.log.iter().filter(|entry| !matches!(entry[0].as_str(), Some("setPrompt" | "markSubmitting" | "oauth" | "notice"))).cloned().collect();
     assert_eq!(tail, [json!(["completeCode", "abc#state"]), json!(["clearCaches", "all"]), json!(["successReturn"])]);
     assert!(fake.messages().contains(&"Grok login complete".to_owned()));
 }
@@ -529,16 +483,10 @@ fn express_mode_vertex_key_saves_with_auth_mode_api_key_and_other_saves_send_no_
         fake.calls().into_iter().map(|call| call[2].clone()).collect::<Vec<_>>()
     };
     assert_eq!(
-        save(
-            json!({"kind": "api-key", "providerId": "vertex-ai", "authMode": "api-key", "_afterSave": true}),
-            "AQ.key"
-        ),
+        save(json!({"kind": "api-key", "providerId": "vertex-ai", "authMode": "api-key", "_afterSave": true}), "AQ.key"),
         [json!(["vertex-ai", "AQ.key", {"authMode": "api-key"}])]
     );
-    assert_eq!(
-        save(json!({"kind": "api-key", "providerId": "vertex-ai", "_afterSave": true}), "{}"),
-        [json!(["vertex-ai", "{}"])]
-    );
+    assert_eq!(save(json!({"kind": "api-key", "providerId": "vertex-ai", "_afterSave": true}), "{}"), [json!(["vertex-ai", "{}"])]);
 }
 
 #[test]
@@ -556,10 +504,7 @@ fn a_provider_write_is_refused_while_another_is_in_flight() {
 fn a_missing_service_method_is_reported_as_a_failed_write() {
     let mut fake = oauth_fake(json!({"kind": "api-key", "providerId": "openai"}));
     assert!(on_submit(&mut fake, "k"));
-    assert!(
-        fake.messages()
-            .contains(&"api key save failed: project service method saveProviderApiKey is unavailable".to_owned())
-    );
+    assert!(fake.messages().contains(&"api key save failed: project service method saveProviderApiKey is unavailable".to_owned()));
 }
 
 #[test]
@@ -584,10 +529,7 @@ fn a_slash_line_runs_the_command_and_a_busy_session_refuses_it() {
 fn cycle_fake() -> Fake {
     let mut fake = harness();
     fake.clock = 10_000;
-    fake.script(
-        "listWorkflows",
-        ok(json!([{"id": "wf0", "name": "Default WF", "active": true}, {"id": "wf1"}, {"id": "wf2"}])),
-    );
+    fake.script("listWorkflows", ok(json!([{"id": "wf0", "name": "Default WF", "active": true}, {"id": "wf1"}, {"id": "wf2"}])));
     fake.script("setWorkflow", ok(json!({"id": "wf1"})));
     fake
 }

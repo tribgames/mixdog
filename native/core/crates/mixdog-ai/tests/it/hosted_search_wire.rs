@@ -34,7 +34,14 @@ fn options_of(tool: HostedTool) -> RequestOptions {
 }
 
 fn search(tool_type: &str) -> HostedWebSearch {
-    HostedWebSearch { tool_type: tool_type.into(), allowed_domains: Vec::new(), user_location: None, max_uses: None, context_size: None, include_sources: false }
+    HostedWebSearch {
+        tool_type: tool_type.into(),
+        allowed_domains: Vec::new(),
+        user_location: None,
+        max_uses: None,
+        context_size: None,
+        include_sources: false,
+    }
 }
 
 #[test]
@@ -49,14 +56,21 @@ fn a_tool_object_is_read_into_the_hosted_search_the_codecs_render() {
     assert_eq!(read.context_size.as_deref(), Some("medium"));
     assert!(read.include_sources);
     let at = read.user_location.expect("a location");
-    assert_eq!((at.country.as_deref(), at.city.as_deref(), at.region, at.timezone), (Some("KR"), Some("Seoul"), None, None), "a field that is not text is dropped");
+    assert_eq!(
+        (at.country.as_deref(), at.city.as_deref(), at.region, at.timezone),
+        (Some("KR"), Some("Seoul"), None, None),
+        "a field that is not text is dropped"
+    );
 }
 
 #[test]
 fn the_anthropic_family_reads_its_uses_and_domains_and_a_fixed_tool_type() {
     let tool = json!({"type": "web_search_20250305", "name": "web_search", "max_uses": 4, "allowed_domains": ["a.com"]});
     let HostedTool::WebSearch(read) = web_search_from_node(&tool, true, &[]);
-    assert_eq!((read.tool_type.as_str(), read.max_uses, read.allowed_domains.as_slice(), read.include_sources), ("web_search", Some(4), ["a.com".to_owned()].as_slice(), false));
+    assert_eq!(
+        (read.tool_type.as_str(), read.max_uses, read.allowed_domains.as_slice(), read.include_sources),
+        ("web_search", Some(4), ["a.com".to_owned()].as_slice(), false)
+    );
     let HostedTool::WebSearch(bare) = web_search_from_node(&json!({}), false, &["other".to_owned()]);
     assert_eq!(bare.tool_type, "web_search", "no type: the plain search");
     assert!(!bare.include_sources && bare.max_uses.is_none() && bare.user_location.is_none());
@@ -122,7 +136,8 @@ impl ModelFactsSource for Facts {
 }
 
 fn codec(native_tool_search: bool) -> OpenAiCodec {
-    let identity = CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "0.166.0".into(), beta_features: "remote_compaction_v2".into() };
+    let identity =
+        CodexIdentity { installation_id: "i".into(), user_agent: "ua".into(), version: "0.166.0".into(), beta_features: "remote_compaction_v2".into() };
     OpenAiCodec::new(OpenAiConfig::codex(false, identity, Arc::new(Facts(Some(native_tool_search))), Arc::new(Ctx)), TransportKind::Http1)
 }
 
@@ -199,7 +214,10 @@ fn tools_a_skill_result_loaded_are_registered_by_a_client_tool_search_pair_after
     assert_eq!(items[at + 2]["execution"], "client");
     assert_eq!(items[at + 2]["arguments"], json!({"names": ["mcp__weather__forecast"]}));
     let output = &items[at + 3];
-    assert_eq!((output["call_id"].as_str().unwrap(), output["status"].as_str().unwrap(), output["execution"].as_str().unwrap()), (format!("{call_id}_load").as_str(), "completed", "client"));
+    assert_eq!(
+        (output["call_id"].as_str().unwrap(), output["status"].as_str().unwrap(), output["execution"].as_str().unwrap()),
+        (format!("{call_id}_load").as_str(), "completed", "client")
+    );
     assert_eq!(output["tools"][0]["strict"], false, "a loaded function is declared non-strict");
     assert_eq!(output["tools"][0]["name"], "mcp__weather__forecast");
 }
@@ -219,7 +237,12 @@ fn a_payload_another_provider_made_cannot_register_tools_and_the_result_says_how
 #[test]
 fn a_native_search_call_is_answered_by_a_search_output_and_a_named_skill_keeps_its_status_text_visible() {
     let mut assistant = text(Role::Assistant, "");
-    assistant.tool_calls.push(ToolCall { id: "ts1".into(), name: "tool_search".into(), arguments: json!({"name": "weather"}), native_type: Some("tool_search_call".into()) });
+    assistant.tool_calls.push(ToolCall {
+        id: "ts1".into(),
+        name: "tool_search".into(),
+        arguments: json!({"name": "weather"}),
+        native_type: Some("tool_search_call".into()),
+    });
     let mut result = text(Role::Tool, "weather loaded");
     result.tool_call_id = Some("ts1".into());
     result.native_tool_search = Some(json!({"provider": "openai", "openaiTools": [mcp_tool()]}));
@@ -238,7 +261,12 @@ fn a_native_search_call_is_answered_by_a_search_output_and_a_named_skill_keeps_i
 #[test]
 fn a_native_search_answered_by_another_providers_payload_is_an_empty_search_output() {
     let mut assistant = text(Role::Assistant, "");
-    assistant.tool_calls.push(ToolCall { id: "ts1".into(), name: "tool_search".into(), arguments: json!({"query": "x"}), native_type: Some("tool_search_call".into()) });
+    assistant.tool_calls.push(ToolCall {
+        id: "ts1".into(),
+        name: "tool_search".into(),
+        arguments: json!({"query": "x"}),
+        native_type: Some("tool_search_call".into()),
+    });
     let mut result = text(Role::Tool, "nothing found");
     result.tool_call_id = Some("ts1".into());
     result.native_tool_search = Some(json!({"provider": "anthropic", "openaiTools": [mcp_tool()]}));
@@ -266,7 +294,8 @@ fn on_the_public_api_only_a_model_that_declares_native_tool_search_gets_it() {
 #[test]
 fn on_the_codex_route_native_tool_search_is_always_on_whatever_the_model_facts_say() {
     for declared in [true, false] {
-        let sent = body(declared, skill_exchange(json!({"provider": "openai-oauth", "openaiTools": [mcp_tool()]})), vec![eager("Skill")], RequestOptions::default());
+        let sent =
+            body(declared, skill_exchange(json!({"provider": "openai-oauth", "openaiTools": [mcp_tool()]})), vec![eager("Skill")], RequestOptions::default());
         assert!(types(&sent["input"]).contains(&"tool_search_output"), "declared {declared}");
     }
 }
@@ -277,12 +306,35 @@ fn on_the_codex_route_native_tool_search_is_always_on_whatever_the_model_facts_s
 fn the_version_rule_for_public_native_tool_search_by_model_id() {
     let native = |id: &str| mixdog_ai::service::routes::gpt_version(id).is_some_and(|(major, minor)| major > 5 || (major == 5 && minor >= 4));
     for id in [
-        "gpt-5.4", "gpt-5.4-mini", "gpt-5.4-2026-03-05", "gpt-5.5", "gpt-5.5-pro", "gpt-5.6-sol", "gpt-5.10", "gpt-6-astra", "gpt-6.1-sol", "gpt-7", "gpt-5.99-unlisted",
+        "gpt-5.4",
+        "gpt-5.4-mini",
+        "gpt-5.4-2026-03-05",
+        "gpt-5.5",
+        "gpt-5.5-pro",
+        "gpt-5.6-sol",
+        "gpt-5.10",
+        "gpt-6-astra",
+        "gpt-6.1-sol",
+        "gpt-7",
+        "gpt-5.99-unlisted",
     ] {
         assert!(native(id), "{id}");
     }
     for id in [
-        "gpt-5", "gpt-5-2025-08-07", "gpt-5-chat-latest", "gpt-5.1", "gpt-5.2", "gpt-5.3-codex", "gpt-4.1", "gpt-4o", "o3", "o4-mini", "gpt-60", "gpt-5.4x", "text-embedding-3-large", "",
+        "gpt-5",
+        "gpt-5-2025-08-07",
+        "gpt-5-chat-latest",
+        "gpt-5.1",
+        "gpt-5.2",
+        "gpt-5.3-codex",
+        "gpt-4.1",
+        "gpt-4o",
+        "o3",
+        "o4-mini",
+        "gpt-60",
+        "gpt-5.4x",
+        "text-embedding-3-large",
+        "",
     ] {
         assert!(!native(id), "{id}");
     }

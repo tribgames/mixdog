@@ -97,9 +97,7 @@ fn updated_text(value: &JsonValue) -> Option<String> {
         JsonValue::Null => Some(String::new()),
         JsonValue::Object(map) => {
             let parts = map.get("content")?.as_array()?;
-            let non_text = |c: &JsonValue| {
-                c.is_object() && c.get("type").is_some_and(|t| !t.is_null() && t.as_str() != Some("") && t.as_str() != Some("text"))
-            };
+            let non_text = |c: &JsonValue| c.is_object() && c.get("type").is_some_and(|t| !t.is_null() && t.as_str() != Some("") && t.as_str() != Some("text"));
             if parts.iter().any(non_text) {
                 return None;
             }
@@ -148,12 +146,7 @@ impl ToolHooks for SessionToolHooks {
             return None;
         }
         let decision = self.dispatch.post_batch(&self.session_id, &self.cwd, tool_count).await?;
-        decision.blocked.then(|| {
-            decision
-                .reason
-                .filter(|r| !r.is_empty())
-                .unwrap_or_else(|| "PostToolBatch hook blocked continuation".to_owned())
-        })
+        decision.blocked.then(|| decision.reason.filter(|r| !r.is_empty()).unwrap_or_else(|| "PostToolBatch hook blocked continuation".to_owned()))
     }
 
     /// A block with a reason continues an attended turn; a block without one, or in an unattended

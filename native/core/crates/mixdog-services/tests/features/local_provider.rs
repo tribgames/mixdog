@@ -77,7 +77,12 @@ fn a_gguf_without_the_attention_metadata_cannot_be_planned() {
     assert!(invalid(&no_architecture).starts_with("This GGUF lacks the attention metadata"));
     // A text where the layer count belongs is no number.
     let mut entries = vec![text("general.architecture", "llama"), text("llama.block_count", "many")];
-    entries.extend([number("llama.context_length", 8192), number("llama.embedding_length", 64), number("llama.attention.head_count", 2), number("llama.attention.head_count_kv", 1)]);
+    entries.extend([
+        number("llama.context_length", 8192),
+        number("llama.embedding_length", 64),
+        number("llama.attention.head_count", 2),
+        number("llama.attention.head_count_kv", 1),
+    ]);
     assert!(invalid(&file(3, 5, &entries)).starts_with("This GGUF lacks the attention metadata"));
 }
 
@@ -114,7 +119,9 @@ fn the_memory_plan_sizes_the_cache_from_the_head_geometry() {
     assert_eq!(default_heads["estimatedVramBytes"], 1_000_000_000 + kv + GIB);
     assert_eq!(default_heads["minimumVramBytes"], default_heads["estimatedVramBytes"]);
 
-    let stated = gguf_memory_plan(&header(131_072, &[number("llama.attention.key_length", 64), number("llama.attention.value_length", 192)]), 1_000_000_000, 32_768).unwrap();
+    let stated =
+        gguf_memory_plan(&header(131_072, &[number("llama.attention.key_length", 64), number("llama.attention.value_length", 192)]), 1_000_000_000, 32_768)
+            .unwrap();
     assert_eq!(stated["memoryEstimate"]["kvBytes"], 32_768i64 * 32 * 8 * (64 + 192) * 34 / 32);
 }
 

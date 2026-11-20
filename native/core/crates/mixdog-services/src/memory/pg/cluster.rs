@@ -333,7 +333,13 @@ async fn await_recovery(pid: u32, port: u16, start: &Start, cancel: &Cancellatio
 /// What Node does with a `postmaster.pid` it finds while the cluster does not answer (`supervisor.mjs:571-613`): a postmaster that is alive owns the data
 /// directory, so it is waited for up to `wait` and attached to when it comes up (recovery after a kill), and a start beside it is refused; the file of a
 /// dead one is removed so the new postmaster does not start over it. `Some(port)` is an attached postmaster; `None` means the directory is free to start.
-async fn settle_leftover_postmaster(lane: DurabilityIo, processes: &Processes, data_dir: &Path, start: &Start, cancel: &CancellationToken) -> Result<Option<u16>> {
+async fn settle_leftover_postmaster(
+    lane: DurabilityIo,
+    processes: &Processes,
+    data_dir: &Path,
+    start: &Start,
+    cancel: &CancellationToken,
+) -> Result<Option<u16>> {
     // `readPostmasterInfo` (`supervisor.mjs:288-300`): line one is the pid, line four the port.
     let Some(pid) = read_postmaster_pid(lane, data_dir).await else { return Ok(None) };
     // `pm.pid && pm.port && await isPostmasterAlive(pm.pid)`: a live pid (`isPidAlive`, EPERM counts as alive) whose process is a postgres.
@@ -348,7 +354,9 @@ async fn settle_leftover_postmaster(lane: DurabilityIo, processes: &Processes, d
                 return Ok(Some(port));
             }
             Recovery::AliveNotReady => {
-                return Err(MemoryError::Runtime(format!("[supervisor-pg] existing postmaster PID {pid} remains alive but unhealthy; refusing concurrent start")));
+                return Err(MemoryError::Runtime(format!(
+                    "[supervisor-pg] existing postmaster PID {pid} remains alive but unhealthy; refusing concurrent start"
+                )));
             }
             Recovery::Cancelled => return Err(MemoryError::Runtime(CANCELLED_START.to_owned())),
             Recovery::Gone => {}
@@ -417,8 +425,7 @@ impl ShareDir {
         if !cfg!(windows) || share.to_string_lossy().is_ascii() {
             return Ok(Self { link: None });
         }
-        let root = PathBuf::from(std::env::var_os("ProgramData").unwrap_or_default())
-            .join(format!("mixdog-initdb-{}", uuid::Uuid::new_v4().simple()));
+        let root = PathBuf::from(std::env::var_os("ProgramData").unwrap_or_default()).join(format!("mixdog-initdb-{}", uuid::Uuid::new_v4().simple()));
         fsio::create_dir_all(lane, &root).await?;
         let link = root.join("share");
         // Node makes the junction synchronously (`symlinkSync`); a child here gets `status`'s
@@ -504,11 +511,15 @@ async fn quarantine_without_cluster(lane: DurabilityIo, data_dir: &Path) -> Resu
             let mut name = data_dir.file_name().unwrap_or_default().to_owned();
             name.push(format!(".broken-{seconds}"));
             let aside = data_dir.with_file_name(name);
-            fsio::rename(lane, data_dir, &aside).await.map_err(|error| {
-                MemoryError::Runtime(format!("{} holds no cluster (no PG_VERSION) and cannot be moved aside: {error}", data_dir.display()))
-            })?;
+            fsio::rename(lane, data_dir, &aside)
+                .await
+                .map_err(|error| MemoryError::Runtime(format!("{} holds no cluster (no PG_VERSION) and cannot be moved aside: {error}", data_dir.display())))?;
             // The daemon log (the daemon's node_log sink), not `tracing`, which the default subscriber hides.
-            mixdog_rt::node_console_warn!("[pg-process] the memory database folder {} has no PG_VERSION; it was kept as {} and a new database is made", data_dir.display(), aside.display());
+            mixdog_rt::node_console_warn!(
+                "[pg-process] the memory database folder {} has no PG_VERSION; it was kept as {} and a new database is made",
+                data_dir.display(),
+                aside.display()
+            );
             Ok(())
         }
     }
@@ -595,7 +606,10 @@ fn spawn_start(runtime: &PgRuntime, args: &[String]) -> Result<(StartRun, StartO
             keep_tail(&mut into.lock().expect("output"), &chunk[..read]);
         }
     };
-    let (stdout, stderr) = (stdout.map(|pipe| Box::new(pipe) as Box<dyn tokio::io::AsyncRead + Unpin + Send>), stderr.map(|pipe| Box::new(pipe) as Box<dyn tokio::io::AsyncRead + Unpin + Send>));
+    let (stdout, stderr) = (
+        stdout.map(|pipe| Box::new(pipe) as Box<dyn tokio::io::AsyncRead + Unpin + Send>),
+        stderr.map(|pipe| Box::new(pipe) as Box<dyn tokio::io::AsyncRead + Unpin + Send>),
+    );
     let captured = output.clone();
     let run = mixdog_rt::spawn("services.memory.pg-start", TaskClass::Work, async move {
         let (status, (), ()) = tokio::join!(child.wait(), drain(stdout, captured.stdout.clone()), drain(stderr, captured.stderr.clone()));
@@ -744,90 +758,95 @@ impl PgCluster {
         // cluster starting on this machine): the start then fails with a bind error in the log and goes on from the next port.
         let mut from = preferred_port;
         'attempt: loop {
-        let assigned = assigned_port();
-        let port = match assigned {
-            Some(port) => port,
-            None => free_port(from).await?,
-        };
-        let logged_before = fsio::read_to_string(lane, &log).await.map_or(0, |text| text.len());
-        #[cfg(test)]
-        if let Some(gate) = &start.before_spawn {
-            gate(port).await;
-        }
-        // The last check before the postmaster starts, in the same poll as the spawn (no await between them): `admit` refuses once the owner's stop
-        // began, and records an admitted start as handed to the OS before it is spawned.
-        if cancel.is_cancelled() || !launch.admit() {
-            return Err(MemoryError::Runtime(CANCELLED_START.to_owned()));
-        }
-        let args: Vec<String> = [
-            "start".to_owned(),
-            "-D".to_owned(),
-            data_dir.to_string_lossy().into_owned(),
-            "-l".to_owned(),
-            log.to_string_lossy().into_owned(),
-            "-o".to_owned(),
-            format!("-p {port} -h 127.0.0.1"),
-        ]
-        .into();
-        // Not waited for, as in Node: `pg_ctl start` is spawned and readiness is polled; the
-        // postmaster outlives it. An exit before readiness is a start failure.
-        let (run, output) = spawn_start(&runtime, &args).map_err(|error| MemoryError::Runtime(format!("pg_ctl start failed: {}", error.message())))?;
-        #[cfg(test)]
-        crate::memory::lifecycle::fences::pass("pg-launched").await;
-        let mut started: Option<StartRun> = Some(run);
-        let deadline = tokio::time::Instant::now() + START_DEADLINE;
-        let mut early: Option<MemoryError> = None;
-        loop {
-            if start.healthy(port).await && read_postmaster_port(lane, &data_dir).await == Some(port) {
-                return Ok(launch.established(Self { runtime, data_dir, port, lane, processes }));
+            let assigned = assigned_port();
+            let port = match assigned {
+                Some(port) => port,
+                None => free_port(from).await?,
+            };
+            let logged_before = fsio::read_to_string(lane, &log).await.map_or(0, |text| text.len());
+            #[cfg(test)]
+            if let Some(gate) = &start.before_spawn {
+                gate(port).await;
             }
-            if started.as_ref().is_some_and(tokio::task::JoinHandle::is_finished)
-                && let Some(done) = started.take()
-            {
-                match done.await {
-                    Ok(Err(error)) => early = Some(error),
-                    Ok(Ok(_)) => {}
-                    Err(error) => early = Some(MemoryError::Runtime(format!("pg_ctl start: {error}"))),
-                }
+            // The last check before the postmaster starts, in the same poll as the spawn (no await between them): `admit` refuses once the owner's stop
+            // began, and records an admitted start as handed to the OS before it is spawned.
+            if cancel.is_cancelled() || !launch.admit() {
+                return Err(MemoryError::Runtime(CANCELLED_START.to_owned()));
             }
-            if let Some(error) = &early {
-                // A start that lost a race to another postmaster on this data dir attaches to it.
-                if error.message().contains("another server might be running")
-                    && let Some(winner) = Self::await_race_winner(&runtime, &processes, lane, &data_dir).await
-                {
-                    return Ok(launch.established(Self { runtime, data_dir, port: winner, lane, processes }));
+            let args: Vec<String> = [
+                "start".to_owned(),
+                "-D".to_owned(),
+                data_dir.to_string_lossy().into_owned(),
+                "-l".to_owned(),
+                log.to_string_lossy().into_owned(),
+                "-o".to_owned(),
+                format!("-p {port} -h 127.0.0.1"),
+            ]
+            .into();
+            // Not waited for, as in Node: `pg_ctl start` is spawned and readiness is polled; the
+            // postmaster outlives it. An exit before readiness is a start failure.
+            let (run, output) = spawn_start(&runtime, &args).map_err(|error| MemoryError::Runtime(format!("pg_ctl start failed: {}", error.message())))?;
+            #[cfg(test)]
+            crate::memory::lifecycle::fences::pass("pg-launched").await;
+            let mut started: Option<StartRun> = Some(run);
+            let deadline = tokio::time::Instant::now() + START_DEADLINE;
+            let mut early: Option<MemoryError> = None;
+            loop {
+                if start.healthy(port).await && read_postmaster_port(lane, &data_dir).await == Some(port) {
+                    return Ok(launch.established(Self { runtime, data_dir, port, lane, processes }));
                 }
-                let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
-                // A port the replay assigned is the only one it may take: its bind failure is the start's.
-                if assigned.is_none()
-                    && log_text.get(logged_before..).is_some_and(|new| new.contains("could not create any TCP/IP sockets"))
-                    && port < preferred_port.saturating_add(PORT_SPAN)
+                if started.as_ref().is_some_and(tokio::task::JoinHandle::is_finished)
+                    && let Some(done) = started.take()
                 {
-                    from = port + 1;
-                    continue 'attempt;
+                    match done.await {
+                        Ok(Err(error)) => early = Some(error),
+                        Ok(Ok(_)) => {}
+                        Err(error) => early = Some(MemoryError::Runtime(format!("pg_ctl start: {error}"))),
+                    }
                 }
-                let detail = [error.message(), if log_text.trim().is_empty() { String::new() } else { format!("postgres log:\n{}", log_text.trim()) }]
+                if let Some(error) = &early {
+                    // A start that lost a race to another postmaster on this data dir attaches to it.
+                    if error.message().contains("another server might be running")
+                        && let Some(winner) = Self::await_race_winner(&runtime, &processes, lane, &data_dir).await
+                    {
+                        return Ok(launch.established(Self { runtime, data_dir, port: winner, lane, processes }));
+                    }
+                    let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
+                    // A port the replay assigned is the only one it may take: its bind failure is the start's.
+                    if assigned.is_none()
+                        && log_text.get(logged_before..).is_some_and(|new| new.contains("could not create any TCP/IP sockets"))
+                        && port < preferred_port.saturating_add(PORT_SPAN)
+                    {
+                        from = port + 1;
+                        continue 'attempt;
+                    }
+                    let detail = [error.message(), if log_text.trim().is_empty() { String::new() } else { format!("postgres log:\n{}", log_text.trim()) }]
+                        .into_iter()
+                        .filter(|part| !part.is_empty())
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    return Err(MemoryError::Runtime(format!("pg_ctl start failed: {detail}")));
+                }
+                if tokio::time::Instant::now() >= deadline {
+                    // Node's `startFailure` of a timed-out start (`process.mjs:459-467`): the output drained so far, then the server log.
+                    let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
+                    let detail = [
+                        output.text().unwrap_or_default(),
+                        if log_text.trim().is_empty() { String::new() } else { format!("postgres log:\n{}", log_text.trim()) },
+                    ]
                     .into_iter()
                     .filter(|part| !part.is_empty())
                     .collect::<Vec<_>>()
                     .join("\n");
-                return Err(MemoryError::Runtime(format!("pg_ctl start failed: {detail}")));
+                    let detail = if detail.is_empty() { "(readiness probe timed out after 30s; no pg_ctl or postgres log output)".to_owned() } else { detail };
+                    return Err(Self { runtime, data_dir, port, lane, processes }
+                        .abandon(MemoryError::Runtime(format!("pg_ctl start failed: {detail}")))
+                        .await);
+                }
+                // A stop does not end this wait (Node's `startAndWaitReady` takes none): a postmaster that is coming up has not written its pid file yet, so a
+                // stop now would miss it. It is waited for (30 s at most) and the caller, which sees the stop, stops it.
+                mixdog_rt::time::sleep(READY_POLL).await;
             }
-            if tokio::time::Instant::now() >= deadline {
-                // Node's `startFailure` of a timed-out start (`process.mjs:459-467`): the output drained so far, then the server log.
-                let log_text = fsio::read_to_string(lane, &log).await.unwrap_or_default();
-                let detail = [output.text().unwrap_or_default(), if log_text.trim().is_empty() { String::new() } else { format!("postgres log:\n{}", log_text.trim()) }]
-                    .into_iter()
-                    .filter(|part| !part.is_empty())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let detail = if detail.is_empty() { "(readiness probe timed out after 30s; no pg_ctl or postgres log output)".to_owned() } else { detail };
-                return Err(Self { runtime, data_dir, port, lane, processes }.abandon(MemoryError::Runtime(format!("pg_ctl start failed: {detail}"))).await);
-            }
-            // A stop does not end this wait (Node's `startAndWaitReady` takes none): a postmaster that is coming up has not written its pid file yet, so a
-            // stop now would miss it. It is waited for (30 s at most) and the caller, which sees the stop, stops it.
-            mixdog_rt::time::sleep(READY_POLL).await;
-        }
         }
     }
 
@@ -1007,7 +1026,14 @@ pub(crate) async fn dispatch_fast_stop(
 }
 
 #[cfg_attr(unix, allow(unused_variables, reason = "the runtime delivers the signal on Windows only"))]
-async fn deliver_fast_stop(runtime: &PgRuntime, processes: &Processes, lane: DurabilityIo, data_dir: &Path, known: Option<u32>, missing: StopDispatch) -> StopDispatch {
+async fn deliver_fast_stop(
+    runtime: &PgRuntime,
+    processes: &Processes,
+    lane: DurabilityIo,
+    data_dir: &Path,
+    known: Option<u32>,
+    missing: StopDispatch,
+) -> StopDispatch {
     let pid = match known {
         Some(pid) => pid,
         None => match read_pid_checked(lane, data_dir).await {
@@ -1052,7 +1078,10 @@ pub(crate) enum StopTarget {
     #[default]
     None,
     Handed(PgRuntime),
-    Cluster { runtime: PgRuntime, pid: Option<u32> },
+    Cluster {
+        runtime: PgRuntime,
+        pid: Option<u32>,
+    },
 }
 
 #[derive(Default)]
@@ -1069,7 +1098,10 @@ struct RecordState {
 enum Initiated {
     Done(StopDispatch),
     #[cfg(windows)]
-    Running { pid: u32, child: Box<std::process::Child> },
+    Running {
+        pid: u32,
+        child: Box<std::process::Child>,
+    },
 }
 
 /// Starts the fast-stop delivery to the postmaster of `data_dir` synchronously, for a transition that finds the stop already decided: nothing here

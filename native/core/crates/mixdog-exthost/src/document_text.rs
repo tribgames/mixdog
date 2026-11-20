@@ -4,11 +4,11 @@
 
 use std::sync::Arc;
 
+use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_core_api::domain::ext::ExtCall;
 use mixdog_core_api::domain::ext::ExtError;
 use mixdog_core_api::domain::ext::ExtFrame;
 use mixdog_core_api::domain::ext::ExtPool;
-use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_core_api::domain::ext::LegacyPackage;
 use mixdog_core_api::domain::ext::PdfCounts;
 use mixdog_core_api::domain::ext::PdfIntake;
@@ -32,12 +32,7 @@ impl ExtDocumentText {
     }
 
     async fn ask(&self, thread: &ThreadId, method: &str, params: JsonValue) -> Result<JsonValue, ExtError> {
-        let mut stream = self.pool.call(ExtCall {
-            thread: thread.clone(),
-            method: method.to_owned(),
-            params,
-            paths: Vec::new(),
-        })?;
+        let mut stream = self.pool.call(ExtCall { thread: thread.clone(), method: method.to_owned(), params, paths: Vec::new() })?;
         loop {
             match stream.next().await {
                 Some(ExtFrame::Chunk(_)) => {}
@@ -49,10 +44,7 @@ impl ExtDocumentText {
 }
 
 fn malformed(method: &str) -> ExtError {
-    ExtError::Failed {
-        code: "bad_answer".to_owned(),
-        message: format!("{method} answered without text"),
-    }
+    ExtError::Failed { code: "bad_answer".to_owned(), message: format!("{method} answered without text") }
 }
 
 #[cfg(test)]
@@ -131,10 +123,7 @@ mod tests {
     async fn pdf_counts_carry_the_parsers_message_and_a_failure_or_a_partial_answer_is_an_error() {
         let thread = ThreadId::from("t");
         let (ok, pool) = media(Ok(json!({ "counts": { "pageCount": 4, "textPages": 3, "textChars": 120 } })));
-        assert_eq!(
-            ok.pdf_counts(&thread, "UERG").await.unwrap(),
-            PdfIntake::Counts(PdfCounts { page_count: 4, text_pages: 3, text_chars: 120 })
-        );
+        assert_eq!(ok.pdf_counts(&thread, "UERG").await.unwrap(), PdfIntake::Counts(PdfCounts { page_count: 4, text_pages: 3, text_chars: 120 }));
         {
             let seen = pool.seen.lock().unwrap();
             assert_eq!(seen[0].method, "media.pdfCounts");
@@ -178,7 +167,6 @@ mod tests {
         }
     }
 
-
     /// A parser that never answers fails the intake at Node's deadline with Node's error (`timeoutError`,
     /// `pdf-extract.mjs:91`), not a moment before; the clock is the test's.
     #[tokio::test(start_paused = true)]
@@ -188,20 +176,14 @@ mod tests {
         let started = tokio::time::Instant::now();
         let failed = media.pdf_counts(&thread, "UERG").await;
         assert_eq!(started.elapsed(), std::time::Duration::from_millis(60_000));
-        assert_eq!(
-            failed,
-            Err(ExtError::Failed { code: "PDF_INSPECTION_TIMEOUT".into(), message: "PDF inspection timed out after 60000 ms".into() })
-        );
+        assert_eq!(failed, Err(ExtError::Failed { code: "PDF_INSPECTION_TIMEOUT".into(), message: "PDF inspection timed out after 60000 ms".into() }));
     }
 }
-
 
 #[async_trait::async_trait]
 impl DocumentText for ExtDocumentText {
     async fn office_text(&self, thread: &ThreadId, filename: &str, data_base64: &str) -> Result<Option<String>, ExtError> {
-        let answer = self
-            .ask(thread, "media.officeText", json!({ "data": data_base64, "filename": filename }))
-            .await?;
+        let answer = self.ask(thread, "media.officeText", json!({ "data": data_base64, "filename": filename })).await?;
         match answer.get("text") {
             Some(JsonValue::Null) => Ok(None),
             Some(JsonValue::String(text)) => Ok(Some(text.clone())),
@@ -248,9 +230,7 @@ impl DocumentText for ExtDocumentText {
         };
         let field = |name: &str| counts.get(name).and_then(JsonValue::as_u64);
         match (field("pageCount"), field("textPages"), field("textChars")) {
-            (Some(page_count), Some(text_pages), Some(text_chars)) => {
-                Ok(PdfIntake::Counts(PdfCounts { page_count, text_pages, text_chars }))
-            }
+            (Some(page_count), Some(text_pages), Some(text_chars)) => Ok(PdfIntake::Counts(PdfCounts { page_count, text_pages, text_chars })),
             _ => Err(malformed("media.pdfCounts")),
         }
     }

@@ -17,17 +17,17 @@ use mixdog_services::effort_judge::ladder::{clamp_base, ladder_of, resolve_auto_
 use mixdog_store::schema::record::Header;
 use serde_json::{Map, Value, json};
 
-use mixdog_core_config::config::Config;
 use crate::run_host::run_seams::EnvReader;
+use crate::run_host::settings::AutoEffortSource;
+use crate::run_host::step_judge::{LadderSources, ladder_facts};
+use mixdog_core_config::config::Config;
+use mixdog_core_config::tool_modules::value::auto_effort_base;
 use mixdog_core_run::run_host::route_wiring::CodexDeclared;
 use mixdog_core_run::run_host::route_wiring::ProviderFacts;
 use mixdog_core_run::run_host::route_wiring::TurnRoute;
 use mixdog_core_run::run_host::route_wiring::WiringSource;
 use mixdog_core_run::run_host::route_wiring::turn_effort_configuration_mode;
-use crate::run_host::settings::AutoEffortSource;
-use crate::run_host::step_judge::{LadderSources, ladder_facts};
 use mixdog_core_session::session::auto_effort_mode::auto_effort_mode;
-use mixdog_core_config::tool_modules::value::auto_effort_base;
 
 /// The auto-effort settings over the saved agent config and the process environment.
 pub struct ConfigAutoEffort {
@@ -104,7 +104,12 @@ pub struct RegistryConfiguration {
 }
 
 impl RegistryConfiguration {
-    pub fn new(registry: Arc<ProviderRegistry>, wiring: Arc<dyn WiringSource>, unsupported: Arc<UnsupportedEfforts>, codex_declared: Arc<CodexDeclared>) -> Self {
+    pub fn new(
+        registry: Arc<ProviderRegistry>,
+        wiring: Arc<dyn WiringSource>,
+        unsupported: Arc<UnsupportedEfforts>,
+        codex_declared: Arc<CodexDeclared>,
+    ) -> Self {
         Self { registry, wiring, unsupported, codex_declared }
     }
 }
@@ -347,9 +352,7 @@ impl TurnAutoEffort {
         injected: bool,
         cancel: &CancellationToken,
     ) -> Option<&'static str> {
-        let content_text = |content: &Value| {
-            mixdog_core_session::session::idle_auto_clear::prompt_content_text(content, &|_| None)
-        };
+        let content_text = |content: &Value| mixdog_core_session::session::idle_auto_clear::prompt_content_text(content, &|_| None);
         let input = TurnAutoEffortInput { session_id, header, messages, prompt, injected, content_text: &content_text };
         tokio::select! {
             biased;
@@ -449,4 +452,3 @@ impl TurnAutoEffort {
 }
 
 mod decision_log;
-

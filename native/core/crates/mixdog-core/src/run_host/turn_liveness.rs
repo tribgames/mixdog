@@ -29,7 +29,10 @@ pub struct TurnLiveness {
     _stop: DropGuard,
     /// The follower task, for the tests to await.
     #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
     watcher: Mutex<Option<tokio::task::JoinHandle<()>>>,
 }
 
@@ -78,7 +81,6 @@ mod tests {
         assert!(liveness.in_flight_session_activity().agent_working.is_empty());
     }
 
-
     /// The progress sender a run watches is the thread's (the actor's `ControlCell` holds it for the thread's life), so it
     /// outlives every run: each run's follower ends with its guard and leaves no task, no copy of the session and no hold of
     /// the map behind (Node's `whileTurnDispatched` keeps nothing of a settled turn).
@@ -107,7 +109,13 @@ mod tests {
 impl TurnLiveness {
     /// Counts `thread` as dispatched and publishes its entry; the entry's session record is
     /// [`RuntimeEntry::session_of`] `header`, `cancel` the run's controller.
-    pub fn begin(liveness: &Arc<RuntimeLiveness>, thread: &ThreadId, header: &serde_json::Map<String, Value>, mut progress: watch::Receiver<RunProgress>, cancel: CancellationToken) -> Self {
+    pub fn begin(
+        liveness: &Arc<RuntimeLiveness>,
+        thread: &ThreadId,
+        header: &serde_json::Map<String, Value>,
+        mut progress: watch::Receiver<RunProgress>,
+        cancel: CancellationToken,
+    ) -> Self {
         let id = thread.as_str().to_owned();
         let closed = Arc::new(Mutex::new(false));
         let session = RuntimeEntry::session_of(header);
@@ -153,7 +161,10 @@ impl TurnLiveness {
     /// Returns once the follower has published every progress change and ended. It ends when its guard
     /// drops or the run's progress sender is gone; the guard lives while this is awaited, so here it is the sender.
     #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
     async fn watcher_ended(&self) {
         let watcher = self.watcher.lock().unwrap_or_else(PoisonError::into_inner).take().expect("awaited once");
         mixdog_core_session::session::testing::awaiting(|| "the follower to publish the last progress and end".to_owned(), watcher).await.unwrap();

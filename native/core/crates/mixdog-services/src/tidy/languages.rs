@@ -66,7 +66,12 @@ pub fn language_for_path(file_path: &str) -> String {
         return String::new();
     }
     // First declaration wins: `tsx` is typescript, as lang.rs has it.
-    CODE_LANGUAGE_EXTENSIONS.iter().chain(AUX_LANGUAGE_EXTENSIONS).find(|(_, exts)| exts.contains(&ext.as_str())).map(|(l, _)| (*l).to_owned()).unwrap_or_default()
+    CODE_LANGUAGE_EXTENSIONS
+        .iter()
+        .chain(AUX_LANGUAGE_EXTENSIONS)
+        .find(|(_, exts)| exts.contains(&ext.as_str()))
+        .map(|(l, _)| (*l).to_owned())
+        .unwrap_or_default()
 }
 
 /// Whether `id` names a language tidy knows: the static registry, or one the graph binary reports.
@@ -193,7 +198,8 @@ mod tests {
 
     #[test]
     fn the_graph_table_wins_and_first_declaration_keeps_an_extension() {
-        let json = r#"{"languages":[{"id":"typescript","extensions":["ts",".tsx"],"scan":true},{"id":"tsx","extensions":["tsx"],"scan":false},{"id":"nolist"}]}"#;
+        let json =
+            r#"{"languages":[{"id":"typescript","extensions":["ts",".tsx"],"scan":true},{"id":"tsx","extensions":["tsx"],"scan":false},{"id":"nolist"}]}"#;
         let g = parse_graph_langs(json).unwrap();
         assert_eq!(g.extensions["tsx"], "typescript");
         assert_eq!((g.ids, g.scannable), (vec!["typescript".to_owned(), "tsx".to_owned()], vec!["typescript".to_owned()]));
@@ -206,7 +212,6 @@ mod tests {
         assert_eq!(files_for_languages(&["a.foo".into(), "b.rs".into()], &["custom".into()], Some(&table)), ["a.foo"]);
         assert!(files_for_languages(&["a.rs".into()], &[], None).is_empty());
     }
-
 
     #[tokio::test]
     async fn detection_counts_git_files_by_language() {
@@ -264,7 +269,11 @@ mod tests {
         git(&["add", "a.rs", "gone.rs"], dir.path());
         std::fs::remove_file(dir.path().join("gone.rs")).unwrap();
         let listing = list_scoped_files(&Processes::for_tests(), dir.path(), &[], None).await.unwrap();
-        assert_eq!((listing.files.clone(), listing.directories.clone()), (vec!["a.rs".to_owned(), "docs/notes.txt".to_owned()], vec!["nested".to_owned()]), "{listing:?}");
+        assert_eq!(
+            (listing.files.clone(), listing.directories.clone()),
+            (vec!["a.rs".to_owned(), "docs/notes.txt".to_owned()], vec!["nested".to_owned()]),
+            "{listing:?}"
+        );
         let paths: Vec<String> = ["a.rs", "docs", "nested", "nested/b.rs"].iter().map(|s| (*s).to_owned()).collect();
         let d = detect_languages(&Processes::for_tests(), dir.path(), &paths, &[], None, None).await.unwrap();
         assert_eq!(d.files, ["a.rs", "docs/notes.txt"]);
@@ -318,7 +327,6 @@ mod tests {
     }
 }
 
-
 /// What `git ls-files` listed under the requested paths, checked against the working tree.
 #[derive(Debug, Default, PartialEq)]
 pub struct Listing {
@@ -335,7 +343,13 @@ fn listing_failure(cwd: &Path, result: &super::process::ProcessResult) -> String
     if stderr.contains("not a git repository") {
         return format!("{} is not a git repository: tidy takes its files from git ls-files", cwd.display());
     }
-    let why = if !result.error.is_empty() { result.error.clone() } else if !stderr.is_empty() { mixdog_js::slice_utf16(stderr, 400) } else { format!("it exited {}", result.code) };
+    let why = if !result.error.is_empty() {
+        result.error.clone()
+    } else if !stderr.is_empty() {
+        mixdog_js::slice_utf16(stderr, 400)
+    } else {
+        format!("it exited {}", result.code)
+    };
     format!("git ls-files failed, so there is no file list: {why}")
 }
 
@@ -389,7 +403,8 @@ fn classify_entries(cwd: &Path, entries: Vec<String>) -> Result<Listing, String>
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job")]
 fn disk_case(cwd: &Path, paths: Vec<String>) -> Vec<String> {
     let spelled = |dir: &Path, name: &str| {
-        let names: Vec<String> = std::fs::read_dir(dir).map(|entries| entries.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
+        let names: Vec<String> =
+            std::fs::read_dir(dir).map(|entries| entries.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
         if names.iter().any(|n| n == name) {
             return name.to_owned();
         }
@@ -412,14 +427,19 @@ pub async fn requested_paths_on_disk(processes: &Processes, cwd: &Path, paths: &
         return Ok(paths.to_vec());
     }
     let (root, owned) = (cwd.to_owned(), paths.to_vec());
-    on_lane(processes.durability(), move || disk_case(&root, owned)).await.map_err(|_| "the requested paths could not be checked on disk: their lane did not run the check".to_owned())
+    on_lane(processes.durability(), move || disk_case(&root, owned))
+        .await
+        .map_err(|_| "the requested paths could not be checked on disk: their lane did not run the check".to_owned())
 }
 
 /// git-tracked (and untracked, non-ignored) files under `cwd`, filtered to the scope paths. The
 /// listing is the only source of files, so a git that cannot answer is an error, never an empty set.
 pub async fn list_scoped_files(processes: &Processes, cwd: &Path, paths: &[String], cancel: Option<&CancellationToken>) -> Result<Listing, String> {
     let Some(git) = processes.which("git", None).await else { return Err("git is not installed: tidy takes its files from git ls-files".into()) };
-    let mut args: Vec<String> = ["-c", "core.quotepath=false", "--literal-pathspecs", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--"].iter().map(|s| (*s).to_owned()).collect();
+    let mut args: Vec<String> = ["-c", "core.quotepath=false", "--literal-pathspecs", "ls-files", "--cached", "--others", "--exclude-standard", "-z", "--"]
+        .iter()
+        .map(|s| (*s).to_owned())
+        .collect();
     args.extend(paths.iter().cloned());
     let mut options = RunOptions::new(cwd);
     options.cancel = cancel;
@@ -435,7 +455,9 @@ pub async fn list_scoped_files(processes: &Processes, cwd: &Path, paths: &[Strin
     entries.sort();
     entries.dedup();
     let root = cwd.to_owned();
-    on_lane(processes.durability(), move || classify_entries(&root, entries)).await.map_err(|_| "the listed files could not be checked on disk: their lane did not run the check".to_owned())?
+    on_lane(processes.durability(), move || classify_entries(&root, entries))
+        .await
+        .map_err(|_| "the listed files could not be checked on disk: their lane did not run the check".to_owned())?
 }
 
 /// `path` relative to `root` with forward slashes; components compare case-insensitively on
@@ -480,12 +502,20 @@ fn empty_path_reason(cwd: &Path, path: &str, listing: &Listing, listed: usize, f
 /// Detects the languages present in `cwd`. Files come from git (they scope every engine run) and
 /// map to languages by extension: the graph binary's table wins when available, with the static
 /// registry covering formatter-only extensions the binary does not parse.
-pub async fn detect_languages(processes: &Processes, cwd: &Path, paths: &[String], language_filter: &[String], graph_langs: Option<&GraphLangs>, cancel: Option<&CancellationToken>) -> Result<Detected, String> {
+pub async fn detect_languages(
+    processes: &Processes,
+    cwd: &Path,
+    paths: &[String],
+    language_filter: &[String],
+    graph_langs: Option<&GraphLangs>,
+    cancel: Option<&CancellationToken>,
+) -> Result<Detected, String> {
     let listing = list_scoped_files(processes, cwd, paths, cancel).await?;
     let extensions = graph_langs.map(|g| &g.extensions);
     let language_of = |rel: &str| language_with(rel, extensions);
     let files = listing.files.clone();
-    let filtered: Vec<String> = if language_filter.is_empty() { files } else { files.into_iter().filter(|f| language_filter.contains(&language_of(f))).collect() };
+    let filtered: Vec<String> =
+        if language_filter.is_empty() { files } else { files.into_iter().filter(|f| language_filter.contains(&language_of(f))).collect() };
     let mut counts: Vec<(String, usize)> = Vec::new();
     for rel in &filtered {
         let language = language_of(rel);
@@ -509,8 +539,23 @@ pub async fn detect_languages(processes: &Processes, cwd: &Path, paths: &[String
         Vec::new()
     } else {
         let (root, filter) = (cwd.to_owned(), !language_filter.is_empty());
-        let reasons = on_lane(processes.durability(), move || empty.into_iter().map(|(p, n)| { let why = empty_path_reason(&root, &p, &listing, n, filter); (p, why) }).collect());
+        let reasons = on_lane(processes.durability(), move || {
+            empty
+                .into_iter()
+                .map(|(p, n)| {
+                    let why = empty_path_reason(&root, &p, &listing, n, filter);
+                    (p, why)
+                })
+                .collect()
+        });
         reasons.await.map_err(|_| "the requested paths that yield no file could not be examined: their lane did not run the check".to_owned())?
     };
-    Ok(Detected { languages: counts, files: filtered, links, empty_paths, source: if extensions.is_some() { "graph-binary" } else { "git" }, extensions: extensions.cloned() })
+    Ok(Detected {
+        languages: counts,
+        files: filtered,
+        links,
+        empty_paths,
+        source: if extensions.is_some() { "graph-binary" } else { "git" },
+        extensions: extensions.cloned(),
+    })
 }

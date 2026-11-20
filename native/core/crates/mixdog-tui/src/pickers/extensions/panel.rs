@@ -50,8 +50,14 @@ impl CoreEntry {
 pub enum Action {
     /// A row with nothing behind it (`_action: 'noop'`, or no action).
     Noop,
-    Server { name: String, enabled: bool },
-    Skill { skill: Value, enabled: bool },
+    Server {
+        name: String,
+        enabled: bool,
+    },
+    Skill {
+        skill: Value,
+        enabled: bool,
+    },
     /// A project-skills row: Enter opens the skill's detail.
     View(Value),
     Plugin(Value),
@@ -117,7 +123,10 @@ impl ExtItem {
 pub enum Handler {
     McpServers,
     /// The Skills list: the skills it was built from and the disabled set its rows show.
-    Skills { skills: Vec<Value>, disabled: super::disabled_skills::SkillSet },
+    Skills {
+        skills: Vec<Value>,
+        disabled: super::disabled_skills::SkillSet,
+    },
     ProjectSkills,
     SkillDetail(Value),
     Plugins,
@@ -128,7 +137,10 @@ pub enum Handler {
     /// The stored-memory list, also its loading frame.
     MemoryList,
     MemoryEntry(Box<CoreEntry>),
-    Project { initial_entry: bool, current_path: String },
+    Project {
+        initial_entry: bool,
+        current_path: String,
+    },
     /// The inert project panel shown while the folder dialog is open.
     ProjectOpening,
     Resume(Vec<Value>),

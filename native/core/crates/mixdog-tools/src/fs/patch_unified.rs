@@ -106,7 +106,8 @@ fn parse_quoted(s: &str) -> Option<(String, usize)> {
 
 fn unquote_if_quoted(s: &str) -> String {
     if s.starts_with('"')
-        && let Some((name, _)) = parse_quoted(s) {
+        && let Some((name, _)) = parse_quoted(s)
+    {
         return name;
     }
     s.to_owned()
@@ -176,13 +177,7 @@ impl Parser<'_> {
             Some((os, ol, ns, nl)) => (os, ol, ns, nl),
             None => (0, None, 0, None),
         };
-        let mut hunk = RawHunk {
-            old_start,
-            old_lines: old_given.unwrap_or(1),
-            new_start,
-            new_lines: new_given.unwrap_or(1),
-            lines: Vec::new(),
-        };
+        let mut hunk = RawHunk { old_start, old_lines: old_given.unwrap_or(1), new_start, new_lines: new_given.unwrap_or(1), lines: Vec::new() };
         // The unified format's quirk: with a zero count the first number is one lower than expected.
         if hunk.old_lines == 0 && numbers.is_some() {
             hunk.old_start += 1;
@@ -254,7 +249,9 @@ impl Parser<'_> {
                     if is_file_header(ext) || is_hunk_header(ext) || is_diff_header(ext) {
                         break;
                     }
-                    for (prefix, side, mark) in [("rename from ", true, "a/"), ("rename to ", false, "b/"), ("copy from ", true, "a/"), ("copy to ", false, "b/")] {
+                    for (prefix, side, mark) in
+                        [("rename from ", true, "a/"), ("rename to ", false, "b/"), ("copy from ", true, "a/"), ("copy to ", false, "b/")]
+                    {
                         if let Some(name) = ext.strip_prefix(prefix) {
                             let named = format!("{mark}{}", unquote_if_quoted(name));
                             if side {

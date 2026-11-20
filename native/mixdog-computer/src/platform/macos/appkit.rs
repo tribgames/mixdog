@@ -81,8 +81,7 @@ pub fn activate_through_launch_services(pid: i32) -> bool {
         return false;
     }
     // `open` hands the request to Launch Services: handed over by the executor's port.
-    crate::port::macos::open(&["-a".to_string(), path])
-        .is_ok_and(|output| output.is_ok_and(|output| output.status.success()))
+    crate::port::macos::open(&["-a".to_string(), path]).is_ok_and(|output| output.is_ok_and(|output| output.status.success()))
 }
 
 /// The pid of a running application whose bundle lives at `path`.
@@ -126,13 +125,7 @@ pub fn screens() -> Vec<(CGRect, CGRect)> {
             if index == 0 {
                 primary_height = frame.size.height;
             }
-            let flip = |rect: CGRect| CGRect {
-                origin: CGPoint {
-                    x: rect.origin.x,
-                    y: primary_height - rect.origin.y - rect.size.height,
-                },
-                size: rect.size,
-            };
+            let flip = |rect: CGRect| CGRect { origin: CGPoint { x: rect.origin.x, y: primary_height - rect.origin.y - rect.size.height }, size: rect.size };
             out.push((flip(frame), flip(visible)));
         }
     }

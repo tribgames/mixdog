@@ -17,15 +17,15 @@ use tokio_util::sync::CancellationToken;
 
 use super::nodepath;
 use super::patch::change_path_key;
-use super::ports::CurrentText;
 use super::ports::Appended;
 use super::ports::BlockingFs;
 use super::ports::BlockingJob;
 use super::ports::CurrentFile;
+use super::ports::CurrentText;
 use super::ports::FileStamp;
+use super::ports::LinkStat;
 use super::ports::ReadFs;
 use super::ports::ReadJob;
-use super::ports::LinkStat;
 use super::ports::ReviewDisk;
 
 /// Largest recorded file the legacy measure reads (`NET_TEXT_MAX_BYTES`).
@@ -82,10 +82,7 @@ impl LaneDisk {
 }
 
 fn mtime_ms(meta: &std::fs::Metadata) -> f64 {
-    meta.modified()
-        .ok()
-        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
-        .map_or(0.0, |d| d.as_secs_f64() * 1000.0)
+    meta.modified().ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0.0, |d| d.as_secs_f64() * 1000.0)
 }
 
 /// ctimeMs: the inode change time where the platform has one, else the last write.
@@ -126,8 +123,7 @@ fn inside_directory(parent: &str, child: &str) -> bool {
 
 pub(super) fn is_outside_path(path: &str) -> bool {
     let mut chars = path.chars();
-    nodepath::is_absolute_host(path)
-        || matches!((chars.next(), chars.next(), chars.next()), (Some(d), Some(':'), Some('\\' | '/')) if d.is_ascii_alphabetic())
+    nodepath::is_absolute_host(path) || matches!((chars.next(), chars.next(), chars.next()), (Some(d), Some(':'), Some('\\' | '/')) if d.is_ascii_alphabetic())
 }
 
 /// `safeCurrentFile`: the recorded file's absolute path when it may be read; `Ok(None)` when

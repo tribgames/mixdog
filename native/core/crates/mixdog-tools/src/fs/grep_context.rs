@@ -159,7 +159,15 @@ pub(super) async fn expand(
             continue;
         }
         let order = anchors.len();
-        anchors.push(Anchor { path: m.label.to_owned(), abs: m.path.clone(), line: m.line, content: m.text, order, priority: NO_PRIORITY, compact: std::sync::OnceLock::new() });
+        anchors.push(Anchor {
+            path: m.label.to_owned(),
+            abs: m.path.clone(),
+            line: m.line,
+            content: m.text,
+            order,
+            priority: NO_PRIORITY,
+            compact: std::sync::OnceLock::new(),
+        });
     }
     rank_anchors(&mut anchors, pattern, case_insensitive);
     let total = anchors.len();
@@ -364,9 +372,13 @@ impl SourceCache {
             merge_windows(&mut windows);
             let entry = self.0.entry(path.clone()).or_insert_with(|| Some(Source::default()));
             if let Some(source) = entry
-                && !source.fill(&windows, line_cap, |offset, max_len| Box::pin(async move {
-                    Ok(guarded(ctx, "grep", ctx.files.read_versioned(ctx.io.interactive, path.clone(), offset, max_len)).await?.ok())
-                })).await?
+                && !source
+                    .fill(&windows, line_cap, |offset, max_len| {
+                        Box::pin(
+                            async move { Ok(guarded(ctx, "grep", ctx.files.read_versioned(ctx.io.interactive, path.clone(), offset, max_len)).await?.ok()) },
+                        )
+                    })
+                    .await?
             {
                 *entry = None;
             }
@@ -383,7 +395,9 @@ impl Source {
             let last = self.eof.map_or(last, |eof| last.min(eof));
             while first <= last {
                 match covered.peek().copied() {
-                    Some((_, end)) if end < first => { covered.next(); }
+                    Some((_, end)) if end < first => {
+                        covered.next();
+                    }
                     Some((start, end)) if start <= first => {
                         if end >= last {
                             break;
@@ -413,7 +427,8 @@ impl Source {
         let mut partial = false;
         let mut ranges = missing.iter().copied().peekable();
         while let Some(&(first, _)) = ranges.peek() {
-            if !partial && line <= first
+            if !partial
+                && line <= first
                 && let Some((&next_line, &next_offset)) = self.offsets.range(line..=first).next_back()
             {
                 (line, offset) = (next_line, next_offset);
@@ -439,7 +454,8 @@ impl Source {
             let mut rest = bytes.bytes.as_slice();
             let mut last_start = None;
             while let Some(&(first, last)) = ranges.peek() {
-                if !partial && line < first
+                if !partial
+                    && line < first
                     && let Some((&next_line, &next_offset)) = self.offsets.range((line + 1)..=first).next_back()
                 {
                     (line, offset) = (next_line, next_offset);
@@ -538,13 +554,9 @@ mod tests {
     #[tokio::test]
     async fn context_rejects_a_replaced_file_when_expanding_cached_rows() {
         let mut source = Source::default();
-        for (inode, body, windows, accepted) in [
-            (1, b"a\nb\n".as_slice(), [(1, 1)], true),
-            (2, b"x\ny\n".as_slice(), [(1, 2)], false),
-        ] {
-            let read = |offset, max_len| -> SourceRead<'_> {
-                Box::pin(std::future::ready(Ok(Some(chunk(body, offset, max_len, version(body.len() as u64, inode))))))
-            };
+        for (inode, body, windows, accepted) in [(1, b"a\nb\n".as_slice(), [(1, 1)], true), (2, b"x\ny\n".as_slice(), [(1, 2)], false)] {
+            let read =
+                |offset, max_len| -> SourceRead<'_> { Box::pin(std::future::ready(Ok(Some(chunk(body, offset, max_len, version(body.len() as u64, inode)))))) };
             assert_eq!(source.fill(&windows, 24, read).await.unwrap(), accepted);
         }
         assert_eq!(source.lines.get(&2), None, "the replacement never supplies a row to the original window");
@@ -554,9 +566,7 @@ mod tests {
     async fn context_of_a_size_zero_source_continues_to_the_requested_line() {
         let mut bytes = vec![b'x'; SOURCE_CHUNK as usize + 1];
         bytes.extend_from_slice(b"\nmatch");
-        let read = |offset, max_len| -> SourceRead<'_> {
-            Box::pin(std::future::ready(Ok(Some(chunk(&bytes, offset, max_len, version(0, 1))))))
-        };
+        let read = |offset, max_len| -> SourceRead<'_> { Box::pin(std::future::ready(Ok(Some(chunk(&bytes, offset, max_len, version(0, 1)))))) };
         let mut source = Source::default();
         assert!(source.fill(&[(2, 2)], 24, read).await.unwrap());
         assert_eq!(source.lines[&2], "match");
@@ -734,7 +744,17 @@ fn focused_length(selected: &[Anchor], sources: &SourceCache, span: Span, budget
 
 /// `fitContextToBudget`.
 #[allow(clippy::too_many_arguments)]
-fn fit(mut selected: Vec<Anchor>, sources: &SourceCache, span: Span, budget: usize, mut notice: String, total: usize, known: bool, offset: usize, prefix: bool) -> String {
+fn fit(
+    mut selected: Vec<Anchor>,
+    sources: &SourceCache,
+    span: Span,
+    budget: usize,
+    mut notice: String,
+    total: usize,
+    known: bool,
+    offset: usize,
+    prefix: bool,
+) -> String {
     let blocks = blocks_for(selected.iter(), sources, span);
     if blocks.len() <= 2 {
         let mut length = Utf16Length(utf16_len(&notice));

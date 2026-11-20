@@ -20,7 +20,6 @@ use crate::held_requests::{HeldHome, HeldPush, RunInfo};
 // flip-home-1: the one trait, in mixdog-core-api (Node: the run has a `toolApprovalHook`).
 use mixdog_core_api::ApprovalSurfaces;
 
-
 /// The sanitized phone push (`notifyHeldRequest`: ids and the agent's name only).
 pub type HeldNotifier = Arc<dyn Fn(&HeldPush) + Send + Sync>;
 
@@ -99,9 +98,11 @@ impl HeldHome for ProcessHeldHome {
             return Ok(agent_id.to_owned());
         }
         let dir = self.data_dir.clone();
-        mixdog_core_base::support::on_lane(self.interactive, &mixdog_rt::CancellationToken::new(), move |lane| mixdog_core_config::config::mixy_display_name(lane, &dir))
-            .await
-            .map_err(|error| error.to_string())
+        mixdog_core_base::support::on_lane(self.interactive, &mixdog_rt::CancellationToken::new(), move |lane| {
+            mixdog_core_config::config::mixy_display_name(lane, &dir)
+        })
+        .await
+        .map_err(|error| error.to_string())
     }
     /// `randomUUID()`; the id is `held_` + this.
     fn new_id(&self) -> String {

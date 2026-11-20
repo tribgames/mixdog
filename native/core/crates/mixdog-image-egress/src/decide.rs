@@ -132,13 +132,7 @@ pub enum Pointer {
 
 /// Decide for a link or provider file id. `trusted` is evidence of immutable content with accepted MIME and size (links) or a
 /// live matching issuer/account/endpoint receipt (file ids); `local` is the owned original, when one is associated.
-pub fn decide_pointer(
-    origin: &Origin,
-    form: SourceForm,
-    policy: &InputImagePolicy,
-    trusted: bool,
-    local: Option<&ImageFacts>,
-) -> Result<Pointer, Refusal> {
+pub fn decide_pointer(origin: &Origin, form: SourceForm, policy: &InputImagePolicy, trusted: bool, local: Option<&ImageFacts>) -> Result<Pointer, Refusal> {
     if !policy.vision {
         return Err(refuse(origin, Reason::NoVision));
     }
@@ -156,5 +150,14 @@ pub fn decide_pointer(
     if local.is_some() {
         return Ok(Pointer::UseLocal);
     }
-    Err(refuse(origin, if carried { reason } else if form == SourceForm::Link { Reason::SourceFormNotCarried } else { reason }))
+    Err(refuse(
+        origin,
+        if carried {
+            reason
+        } else if form == SourceForm::Link {
+            Reason::SourceFormNotCarried
+        } else {
+            reason
+        },
+    ))
 }

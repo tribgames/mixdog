@@ -50,8 +50,7 @@ fn line(glyph: &str, color: ThemeColor, text: String) -> FooterInput {
 /// `modelFooter(selection, model)`: the lines under the highlighted row (`None` when the list is empty).
 pub fn model_footer(selection: &mut RouteSelection, model: Option<&Value>) -> Vec<FooterInput> {
     let items = model.map_or_else(|| selection.provider_effort_items(), effort_items_for);
-    let values: Vec<String> =
-        items.iter().filter_map(|effort| effort.get("value").filter(|value| truthy(value)).map(mixdog_js::value_to_string)).collect();
+    let values: Vec<String> = items.iter().filter_map(|effort| effort.get("value").filter(|value| truthy(value)).map(mixdog_js::value_to_string)).collect();
     let context_line = model.and_then(|model| selection.context_selection_for(model)).map(|context| {
         let is_default = context.percent == context.default_percent;
         line(

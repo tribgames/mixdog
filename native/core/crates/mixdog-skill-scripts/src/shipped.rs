@@ -57,11 +57,7 @@ pub const SHIPPED: &[Shipped] = &[
         sha256: "bf5469676e88730562bee6630a1c618bd0aecd5564218faf693318fe8994c24e",
         native: Some(Native::SourceExtract),
     },
-    Shipped {
-        path: "pptx/scripts/qc-pages.mjs",
-        sha256: "da3b2c76ffffd6ca26583a47e45ceb7394e42b1c3015249d32baaa60861eea66",
-        native: Some(Native::QcPages),
-    },
+    Shipped { path: "pptx/scripts/qc-pages.mjs", sha256: "da3b2c76ffffd6ca26583a47e45ceb7394e42b1c3015249d32baaa60861eea66", native: Some(Native::QcPages) },
     Shipped {
         path: "pptx/scripts/review-deck.mjs",
         sha256: "2d492cd6dd09593c40c732cf2a37725e668465a0d0be81278280c2fbb259bf11",
@@ -156,7 +152,6 @@ mod tests {
         assert_eq!(script_digest(b""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855");
     }
 
-
     #[test]
     fn a_script_is_known_by_its_location_under_the_skills_root() {
         let root = skills_root();
@@ -185,7 +180,6 @@ mod tests {
     }
 }
 
-
 /// A path made comparable: canonical when it exists, otherwise resolved against the working directory.
 fn canonical<P: ReadProof>(proof: &P, path: &Path) -> PathBuf {
     mixdog_fsio::canonicalize(proof, path).unwrap_or_else(|_| PathBuf::from(nodepath::resolve_host(&[&path.to_string_lossy()])))
@@ -194,9 +188,7 @@ fn canonical<P: ReadProof>(proof: &P, path: &Path) -> PathBuf {
 pub fn shipped_script<P: ReadProof>(proof: &P, path: &Path, skills_root: &Path) -> Option<Shipped> {
     let location = canonical(proof, path);
     if let Some(rel) = below(&location, &canonical(proof, skills_root)) {
-        let found = SHIPPED.iter().find(|shipped| {
-            if cfg!(windows) { shipped.path.eq_ignore_ascii_case(&rel) } else { shipped.path == rel }
-        });
+        let found = SHIPPED.iter().find(|shipped| if cfg!(windows) { shipped.path.eq_ignore_ascii_case(&rel) } else { shipped.path == rel });
         if let Some(shipped) = found {
             return Some(*shipped);
         }

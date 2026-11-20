@@ -142,7 +142,11 @@ fn a_required_name_that_is_not_a_declared_property_does_not_reach_gemini() {
     // Nothing a tool requires is silently dropped (that would widen what it accepts): the name stays required, and in the
     // legacy `parameters` form it is declared as an explicit conflict property so the declaration is valid.
     let declaration = &declarations[0];
-    let (key, schema) = if declaration.get("parameters").is_some() { ("parameters", &declaration["parameters"]) } else { ("parametersJsonSchema", &declaration["parametersJsonSchema"]) };
+    let (key, schema) = if declaration.get("parameters").is_some() {
+        ("parameters", &declaration["parameters"])
+    } else {
+        ("parametersJsonSchema", &declaration["parametersJsonSchema"])
+    };
     let required = schema["required"].as_array().cloned().unwrap_or_default();
     assert_eq!(required, [json!("a"), json!("b")], "{declaration}");
     if key == "parameters" {

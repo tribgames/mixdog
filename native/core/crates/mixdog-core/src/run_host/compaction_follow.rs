@@ -133,7 +133,11 @@ mod tests {
 
     #[async_trait::async_trait]
     impl HeaderUpdates for Store {
-        async fn update_header(&self, thread: &ThreadId, update: mixdog_core_ports::ports::threads::HeaderUpdate) -> Result<(), mixdog_tools::orch::util::PortError> {
+        async fn update_header(
+            &self,
+            thread: &ThreadId,
+            update: mixdog_core_ports::ports::threads::HeaderUpdate,
+        ) -> Result<(), mixdog_tools::orch::util::PortError> {
             let mut headers = self.headers.lock().expect("store");
             let header = headers.entry(thread.clone()).or_default();
             let change = update(header);
@@ -174,7 +178,9 @@ mod tests {
 
     fn lead_header(opts: Value, overridden: bool) -> Header {
         let mut header = Header::default();
-        for (key, value) in [("id", json!("sess_1")), ("provider", json!("anthropic-oauth")), ("providerCacheOpts", opts), ("providerCacheOptsOverride", json!(overridden))] {
+        for (key, value) in
+            [("id", json!("sess_1")), ("provider", json!("anthropic-oauth")), ("providerCacheOpts", opts), ("providerCacheOptsOverride", json!(overridden))]
+        {
             header.insert(key.into(), value);
         }
         header
@@ -188,7 +194,8 @@ mod tests {
         let dir = tempfile::tempdir().expect("dir");
         let tokens = mixdog_rt::testing::tokens();
         let lanes = mixdog_core_config::config::ConfigLanes { read: tokens.interactive_io, write: tokens.durability_io };
-        let (config, _) = Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
+        let (config, _) =
+            Config::open(dir.path().join("mixdog-config.json"), Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), lanes).await.expect("config");
         (dir, config)
     }
     /// A saved change of the compaction settings reaches a loaded thread's header: the config-owned fields follow, the
@@ -224,7 +231,10 @@ mod tests {
         let (lead, other) = (ThreadId::from("lead"), ThreadId::from("pinned"));
         store.headers.lock().expect("store").insert(lead.clone(), lead_header(held.clone(), false));
         store.headers.lock().expect("store").insert(other.clone(), lead_header(held, true));
-        let loaded: Arc<dyn Fn() -> Vec<ThreadId> + Send + Sync> = { let ids = vec![lead.clone(), other.clone()]; Arc::new(move || ids.clone()) };
+        let loaded: Arc<dyn Fn() -> Vec<ThreadId> + Send + Sync> = {
+            let ids = vec![lead.clone(), other.clone()];
+            Arc::new(move || ids.clone())
+        };
         let mut follower = std::pin::pin!(follow(config.clone(), false, store.clone(), loaded));
         assert!(futures::poll!(follower.as_mut()).is_pending());
         for (section, want) in [
@@ -253,6 +263,4 @@ mod tests {
         save_compaction(&config, json!({ "auto": false })).await;
         assert_eq!(compaction_of(&store, &thread), Some(json!({ "auto": true })));
     }
-
-
 }

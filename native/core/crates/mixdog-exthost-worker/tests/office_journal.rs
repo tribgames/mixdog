@@ -35,12 +35,7 @@ fn pool() -> ExtHostPool {
 
 async fn sweep(pool: &ExtHostPool, params: Value) -> Result<Value, ExtError> {
     let mut stream = pool
-        .call(ExtCall {
-            thread: ThreadId::from("office-sweep"),
-            method: "office.sweepJournals".to_owned(),
-            params,
-            paths: Vec::new(),
-        })
+        .call(ExtCall { thread: ThreadId::from("office-sweep"), method: "office.sweepJournals".to_owned(), params, paths: Vec::new() })
         .expect("the call is accepted");
     loop {
         if let ExtFrame::Done(outcome) = stream.next().await.expect("the stream ends with Done") {
@@ -55,11 +50,10 @@ fn put(path: &Path, text: &str) {
 }
 
 fn names(folder: &Path) -> Vec<String> {
-    let mut names: Vec<String> =
-        mixdog_fsio::read_dir(&Unlaned, folder)
-            .expect("the folder exists")
-            .map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned())
-            .collect();
+    let mut names: Vec<String> = mixdog_fsio::read_dir(&Unlaned, folder)
+        .expect("the folder exists")
+        .map(|entry| entry.expect("entry").file_name().to_string_lossy().into_owned())
+        .collect();
     names.sort();
     names
 }

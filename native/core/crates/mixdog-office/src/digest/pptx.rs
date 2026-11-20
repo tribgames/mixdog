@@ -6,8 +6,8 @@ use mixdog_office_base::values::truthy;
 use serde_json::Value;
 
 use super::common::{
-    MSO_UNDEFINED, Object, digest_object_with, entries, filtered, is_bool, is_number, is_str, is_truthy, number_truthy, remove,
-    round2, round_all, strict_equals,
+    MSO_UNDEFINED, Object, digest_object_with, entries, filtered, is_bool, is_number, is_str, is_truthy, number_truthy, remove, round_all, round2,
+    strict_equals,
 };
 
 /// A shape's run summary lists every size, face and colour its runs use; when the runs agree it holds one value, the
@@ -91,9 +91,7 @@ fn com_shape_digest(shape: &Object) -> Object {
     if digest.get("text").is_none_or(|text| is_str(Some(text), "")) {
         remove(&mut digest, "textFrame");
         remove(&mut digest, "textBounds");
-        let blank_font = digest
-            .get("font")
-            .is_some_and(|font| truthy(font) && !is_truthy(font.get("name")) && !number_truthy(font.get("size")));
+        let blank_font = digest.get("font").is_some_and(|font| truthy(font) && !is_truthy(font.get("name")) && !number_truthy(font.get("size")));
         if blank_font {
             remove(&mut digest, "font");
         }
@@ -150,9 +148,8 @@ fn com_shape_digest(shape: &Object) -> Object {
         }
     }
     if let Some(Value::Object(font)) = digest.get("font") {
-        let font = filtered(font, |key, value| {
-            !(matches!(key, "bold" | "italic" | "underline") && (is_number(Some(value), 0.0) || is_bool(Some(value), false)))
-        });
+        let font =
+            filtered(font, |key, value| !(matches!(key, "bold" | "italic" | "underline") && (is_number(Some(value), 0.0) || is_bool(Some(value), false))));
         digest.insert("font".to_owned(), Value::Object(font));
     }
     if let Some(Value::Object(runs)) = digest.get("runs") {
@@ -190,9 +187,9 @@ fn com_slide_digest(slide: &Object) -> Object {
         }
         digest.insert(key.clone(), value.clone());
     }
-    let untimed = digest.get("transition").is_some_and(|transition| {
-        truthy(transition) && !is_truthy(transition.get("effect")) && !is_truthy(transition.get("advanceOnTime"))
-    });
+    let untimed = digest
+        .get("transition")
+        .is_some_and(|transition| truthy(transition) && !is_truthy(transition.get("effect")) && !is_truthy(transition.get("advanceOnTime")));
     if untimed {
         remove(&mut digest, "transition");
     }

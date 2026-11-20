@@ -23,8 +23,8 @@ use regex::Regex;
 use rustls::{ClientConfig, RootCertStore};
 
 use crate::mcp_secrets::GmailVerifier;
-pub use wire::{Target, Timeouts};
 pub(crate) use wire::Failure;
+pub use wire::{Target, Timeouts};
 
 /// One server to speak to.
 pub(crate) struct Leg<'a> {
@@ -72,9 +72,8 @@ static UNAVAILABLE: LazyLock<Regex> = LazyLock::new(|| {
     )
     .expect("a fixed pattern")
 });
-static REJECTED: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?i)AUTHENTICATIONFAILED|Invalid credentials|Username and Password not accepted|5\.7\.8").expect("a fixed pattern")
-});
+static REJECTED: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"(?i)AUTHENTICATIONFAILED|Invalid credentials|Username and Password not accepted|5\.7\.8").expect("a fixed pattern"));
 
 const DETAIL_CHARS: usize = 200;
 
@@ -125,11 +124,7 @@ fn collapse(text: &str) -> String {
 
 /// `clip(value, 200)`: the first 200 UTF-16 units and an ellipsis.
 fn clip(text: &str) -> String {
-    if mixdog_js::utf16_len(text) > DETAIL_CHARS {
-        format!("{}…", mixdog_js::slice_utf16(text, DETAIL_CHARS))
-    } else {
-        text.to_owned()
-    }
+    if mixdog_js::utf16_len(text) > DETAIL_CHARS { format!("{}…", mixdog_js::slice_utf16(text, DETAIL_CHARS)) } else { text.to_owned() }
 }
 
 /// The Gmail app-password check.

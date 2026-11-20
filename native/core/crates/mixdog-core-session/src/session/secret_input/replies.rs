@@ -87,13 +87,26 @@ impl HostCommands for RedactingHostCommands {
         Ok(reply)
     }
 
-    async fn browser_for_tool(&self, thread: &ThreadId, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<BrowserToolReply, HostCommandError> {
+    async fn browser_for_tool(
+        &self,
+        thread: &ThreadId,
+        action: &str,
+        input: JsonValue,
+        cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<BrowserToolReply, HostCommandError> {
         let mut reply = self.inner.browser_for_tool(thread, action, input, cancel).await.map_err(|error| self.redact_error(thread, error))?;
         self.redact_reply(thread, &mut reply.value);
         Ok(reply)
     }
 
-    async fn visualize(&self, thread: &ThreadId, cwd: &str, action: &str, input: JsonValue, cancel: &mixdog_rt::CancellationToken) -> Result<JsonValue, HostCommandError> {
+    async fn visualize(
+        &self,
+        thread: &ThreadId,
+        cwd: &str,
+        action: &str,
+        input: JsonValue,
+        cancel: &mixdog_rt::CancellationToken,
+    ) -> Result<JsonValue, HostCommandError> {
         self.inner.visualize(thread, cwd, action, input, cancel).await
     }
 }
@@ -266,7 +279,10 @@ mod tests {
         let got = backend.run(click(), CancellationToken::new()).await.unwrap();
         assert_eq!(got, vec![ToolPart::Text("typed [redacted]".into()), image, parts[2].clone()]);
         for (failure, want) in [
-            (ComputerError::Failed { code: "c".into(), message: format!("no {VALUE}") }, ComputerError::Failed { code: "c".into(), message: "no [redacted]".into() }),
+            (
+                ComputerError::Failed { code: "c".into(), message: format!("no {VALUE}") },
+                ComputerError::Failed { code: "c".into(), message: "no [redacted]".into() },
+            ),
             (ComputerError::Unavailable { reason: format!("no {VALUE}") }, ComputerError::Unavailable { reason: "no [redacted]".into() }),
             (ComputerError::InvalidInput { reason: format!("no {VALUE}") }, ComputerError::InvalidInput { reason: "no [redacted]".into() }),
             (ComputerError::Denied, ComputerError::Denied),
@@ -313,10 +329,21 @@ mod tests {
 
     #[async_trait]
     impl mixdog_core_api::ClaimedHostChannel for NoDesktop {
-        async fn request_claimed(&self, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<(mixdog_core_api::HostClaim, Value), mixdog_core_api::HostError> {
+        async fn request_claimed(
+            &self,
+            _: mixdog_core_api::HostCapability,
+            _: mixdog_core_api::ids::Method,
+            _: Value,
+        ) -> Result<(mixdog_core_api::HostClaim, Value), mixdog_core_api::HostError> {
             unreachable!("a computer fill sends nothing to the desktop")
         }
-        async fn request_to(&self, _: &mixdog_core_api::HostClaim, _: mixdog_core_api::HostCapability, _: mixdog_core_api::ids::Method, _: Value) -> Result<Value, mixdog_core_api::HostError> {
+        async fn request_to(
+            &self,
+            _: &mixdog_core_api::HostClaim,
+            _: mixdog_core_api::HostCapability,
+            _: mixdog_core_api::ids::Method,
+            _: Value,
+        ) -> Result<Value, mixdog_core_api::HostError> {
             unreachable!("a computer fill sends nothing to the desktop")
         }
     }
@@ -336,13 +363,13 @@ mod tests {
         assert_eq!(value(&provide, request("approval/provideSecret", params, Some(1))).await.unwrap(), json!({}));
         assert_eq!(fill.computer_input(&thread, ID, "w1", "e1").await, "entered");
 
-        let page = RedactingHostCommands::new(
-            Arc::new(Page { reply: json!({ "text": format!("the page now reads {VALUE}") }), failure: None }),
-            fill.clone(),
-        );
+        let page = RedactingHostCommands::new(Arc::new(Page { reply: json!({ "text": format!("the page now reads {VALUE}") }), failure: None }), fill.clone());
         let broken = RedactingHostCommands::new(Arc::new(Page { reply: json!({}), failure: Some(format!("{VALUE} rejected")) }), fill.clone());
         let screen = RedactingComputerBackend::new(
-            Arc::new(Screen { parts: vec![ToolPart::Text(format!("screen shows {VALUE}"))], failure: Some(ComputerError::Failed { code: "c".into(), message: format!("{VALUE} gone") }) }),
+            Arc::new(Screen {
+                parts: vec![ToolPart::Text(format!("screen shows {VALUE}"))],
+                failure: Some(ComputerError::Failed { code: "c".into(), message: format!("{VALUE} gone") }),
+            }),
             thread.clone(),
             fill.clone(),
         );

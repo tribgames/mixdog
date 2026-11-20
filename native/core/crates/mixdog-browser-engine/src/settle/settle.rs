@@ -395,9 +395,8 @@ async fn step_settle(page: &Page<'_>, cancel: &CancelView) -> Result<Step, Settl
                 let state = page.probe.state();
                 if state.dialog.is_none() {
                     let message = error.to_string();
-                    let replaced = !state.destroyed
-                        && matches!(error, HostCallError::Failed { .. })
-                        && DOCUMENT_REPLACED.iter().any(|marker| message.contains(marker));
+                    let replaced =
+                        !state.destroyed && matches!(error, HostCallError::Failed { .. }) && DOCUMENT_REPLACED.iter().any(|marker| message.contains(marker));
                     if replaced {
                         return Ok(Step { result: StepResult::completed(), unconfirmed: false });
                     }
@@ -604,7 +603,9 @@ pub(super) mod support {
                     match self.checkpoint.lock().unwrap_or_else(|poisoned| poisoned.into_inner()).clone() {
                         Ok(reached) => Ok(json!({"reached": reached, "facts": facts})),
                         Err(message) if message == DIALOG_BLOCKING => Err(HostCallError::DialogBlocking {
-                            dialog: Box::new(serde_json::from_value(json!({"type": "alert", "message": "hi", "openedAt": 1, "bridge": false})).expect("dialog")),
+                            dialog: Box::new(
+                                serde_json::from_value(json!({"type": "alert", "message": "hi", "openedAt": 1, "bridge": false})).expect("dialog"),
+                            ),
                         }),
                         Err(message) if message == CONNECTION_LOST => Err(HostCallError::ConnectionLost),
                         Err(message) => Err(HostCallError::Failed { message }),
@@ -633,10 +634,14 @@ pub(super) mod support {
                     let max = options["maxChars"].as_u64().unwrap_or(units.len() as u64) as usize;
                     let part = String::from_utf16_lossy(&units[offset.min(units.len())..(offset + max).min(units.len())]);
                     if *self.read_endless.lock().unwrap_or_else(|poisoned| poisoned.into_inner()) {
-                        return Ok(json!({"payload": {"url": "u", "title": "", "text": "y", "total": units.len() + 1_000_000}, "truncated": true, "facts": facts}));
+                        return Ok(
+                            json!({"payload": {"url": "u", "title": "", "text": "y", "total": units.len() + 1_000_000}, "truncated": true, "facts": facts}),
+                        );
                     }
                     let truncated = units.len() > part.encode_utf16().count();
-                    Ok(json!({"payload": {"url": "u", "title": "", "text": part, "total": units.len(), "offset": offset}, "truncated": truncated, "facts": facts}))
+                    Ok(
+                        json!({"payload": {"url": "u", "title": "", "text": part, "total": units.len(), "offset": offset}, "truncated": truncated, "facts": facts}),
+                    )
                 }
                 other => Err(HostCallError::Failed { message: format!("unscripted {other}") }),
             }

@@ -75,10 +75,7 @@ impl RosterCache {
         let record = json!({ "version": VERSION, "fetchedAt": (self.now_ms)(), "models": rows });
         let path = self.path();
         let opts = mixdog_statefile::Opts { lock: true, fsync_dir: true, ..mixdog_statefile::Opts::default() };
-        let written = self
-            .io
-            .write_job(move |lane| mixdog_statefile::write_json(lane, &path, &record, &opts).map(drop).map_err(std::io::Error::other))
-            .await;
+        let written = self.io.write_job(move |lane| mixdog_statefile::write_json(lane, &path, &record, &opts).map(drop).map_err(std::io::Error::other)).await;
         if let Err(error) = written {
             tracing::warn!(%error, "[antigravity-oauth] the model cache could not be written");
         }
@@ -104,9 +101,7 @@ fn record_of_row(row: &Value) -> Option<ModelRecord> {
         .unwrap_or_default();
     record.wire = match row.get("wire") {
         Some(Value::String(wire)) => Some(WireIds::One(wire.clone())),
-        Some(Value::Object(tiers)) => {
-            Some(WireIds::Tiers(tiers.iter().filter_map(|(level, wire)| Some((level.clone(), wire.as_str()?.to_owned()))).collect()))
-        }
+        Some(Value::Object(tiers)) => Some(WireIds::Tiers(tiers.iter().filter_map(|(level, wire)| Some((level.clone(), wire.as_str()?.to_owned()))).collect())),
         _ => None,
     };
     record.raw = Some(row.clone());

@@ -97,7 +97,12 @@ async fn open_store(dir: &Path) -> Arc<QuotaResumeStore> {
     Arc::new(QuotaResumeStore::open(dir, mixdog_rt::testing::tokens().durability_io, CancellationToken::new()).await.unwrap())
 }
 
-fn scheduler_over(store: &Arc<QuotaResumeStore>, host: Arc<dyn ResumeHost>, clock: &Arc<ManualClock>, log: &Arc<Mutex<Vec<String>>>) -> Arc<QuotaResumeScheduler> {
+fn scheduler_over(
+    store: &Arc<QuotaResumeStore>,
+    host: Arc<dyn ResumeHost>,
+    clock: &Arc<ManualClock>,
+    log: &Arc<Mutex<Vec<String>>>,
+) -> Arc<QuotaResumeScheduler> {
     let sink = log.clone();
     let changed = clock.changed.clone();
     let line_log: ResumeLog = Arc::new(move |line: &str| {
@@ -168,7 +173,8 @@ impl ResumeHost for Host {
     }
 
     async fn route(&self, session_id: &str) -> SessionRoute {
-        let routes = self.spec.get("routes").and_then(Value::as_array).cloned().unwrap_or_else(|| vec![json!({ "provider": "openai-oauth", "model": "gpt-x" })]);
+        let routes =
+            self.spec.get("routes").and_then(Value::as_array).cloned().unwrap_or_else(|| vec![json!({ "provider": "openai-oauth", "model": "gpt-x" })]);
         let mut calls = self.calls.lock().unwrap();
         let read = calls.reads.entry(session_id.to_owned()).or_default();
         *read += 1;
@@ -213,7 +219,6 @@ fn queue(store: &QuotaResumeStore, now: f64, base: u64) -> Value {
             .collect(),
     )
 }
-
 
 #[tokio::test(start_paused = true)]
 async fn overlapping_ticks_fire_once() {
@@ -438,7 +443,13 @@ const CASES: &[Case] = &[
             Step { advance: 5000.0, log: &[FIRED], queue: &[], armed: None },
         ],
     },
-    Case { name: "a timer is capped at the largest delay a timer takes", spec: "{}", entries: &[("s1", 3_000_000_000.0)], armed: Some(2_147_483_647), steps: &[] },
+    Case {
+        name: "a timer is capped at the largest delay a timer takes",
+        spec: "{}",
+        entries: &[("s1", 3_000_000_000.0)],
+        armed: Some(2_147_483_647),
+        steps: &[],
+    },
     Case {
         name: "an overdue entry fires at once",
         spec: "{}",

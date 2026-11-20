@@ -52,14 +52,7 @@ impl Scm {
         to_value(history::branches(&self.git, cancel, cwd).await?)
     }
 
-    pub async fn git_log(
-        self: &Arc<Self>,
-        cwd: &Path,
-        cancel: &CancellationToken,
-        query: &str,
-        skip: u32,
-        limit: u32,
-    ) -> Result<Value, ScmFailure> {
+    pub async fn git_log(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken, query: &str, skip: u32, limit: u32) -> Result<Value, ScmFailure> {
         // git-history.ts gitLog: [] reads as an empty history for any failure but a deadline, a git that cannot start too.
         match history::log(&self.git, cancel, cwd, query, skip, limit).await {
             Err(ScmFailure::Unavailable { .. }) => to_value(Vec::<crate::inspect::history::GitLogEntry>::new()),
@@ -71,23 +64,11 @@ impl Scm {
         to_value(history::show(&self.git, cancel, cwd, hash).await?)
     }
 
-    pub async fn git_show_diff(
-        self: &Arc<Self>,
-        cwd: &Path,
-        cancel: &CancellationToken,
-        hash: &str,
-        path: &str,
-    ) -> Result<Value, ScmFailure> {
+    pub async fn git_show_diff(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken, hash: &str, path: &str) -> Result<Value, ScmFailure> {
         to_value(history::show_diff(&self.git, cancel, cwd, hash, path).await?)
     }
 
-    pub async fn git_show_file(
-        self: &Arc<Self>,
-        cwd: &Path,
-        cancel: &CancellationToken,
-        rev: &str,
-        path: &str,
-    ) -> Result<Value, ScmFailure> {
+    pub async fn git_show_file(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken, rev: &str, path: &str) -> Result<Value, ScmFailure> {
         to_value(history::show_file(&self.git, cancel, cwd, rev, path).await?)
     }
 
@@ -111,13 +92,7 @@ impl Scm {
 
     /// The read-only snapshot the "PR / commit" request sends to the model. Each read that
     /// fails is empty: the context is raw material, not a verdict.
-    pub async fn git_request_context(
-        self: &Arc<Self>,
-        cwd: &Path,
-        cancel: &CancellationToken,
-        paths: &[String],
-        base: &str,
-    ) -> Result<Value, ScmFailure> {
+    pub async fn git_request_context(self: &Arc<Self>, cwd: &Path, cancel: &CancellationToken, paths: &[String], base: &str) -> Result<Value, ScmFailure> {
         let git = &self.git;
         let attempt = |args: Vec<String>| async move {
             let refs: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -133,33 +108,18 @@ impl Scm {
         let status_short = attempt(vec!["status".into(), "--short".into(), "--branch".into()]);
         let diff_stat = attempt(vec!["diff".into(), "HEAD".into(), "--stat".into()]);
         let subjects = attempt(vec!["log".into(), format!("-{RECENT_SUBJECTS}"), "--format=%s".into()]);
-        let branch_commits = async {
-            if base.is_empty() {
-                String::new()
-            } else {
-                attempt(vec!["log".into(), "--oneline".into(), format!("{base}..HEAD")]).await
-            }
-        };
-        let branch_diff_stat = async {
-            if base.is_empty() {
-                String::new()
-            } else {
-                attempt(vec!["diff".into(), format!("{base}...HEAD"), "--stat".into()]).await
-            }
-        };
+        let branch_commits =
+            async { if base.is_empty() { String::new() } else { attempt(vec!["log".into(), "--oneline".into(), format!("{base}..HEAD")]).await } };
+        let branch_diff_stat =
+            async { if base.is_empty() { String::new() } else { attempt(vec!["diff".into(), format!("{base}...HEAD"), "--stat".into()]).await } };
         let untracked = &untracked;
         let file_patches = futures::future::join_all(paths.iter().map(|path| async move {
             let patch = if untracked.contains(&path.replace('\\', "/")) {
                 // `diff --no-index` exits 1 when the files differ: its stdout is the answer.
-                git.outcome(
-                    cancel,
-                    cwd,
-                    &["diff", "--no-index", "--", "/dev/null", path],
-                    &RunOptions::default(),
-                )
-                .await
-                .map(|out| out.stdout_text())
-                .unwrap_or_default()
+                git.outcome(cancel, cwd, &["diff", "--no-index", "--", "/dev/null", path], &RunOptions::default())
+                    .await
+                    .map(|out| out.stdout_text())
+                    .unwrap_or_default()
             } else {
                 attempt(vec!["diff".into(), "HEAD".into(), "--".into(), path.clone()]).await
             };
@@ -170,15 +130,8 @@ impl Scm {
                 "truncated": truncated,
             })
         }));
-        let (status_short, diff_stat, files, subjects, branch_commits, branch_diff_stat, pr) = tokio::join!(
-            status_short,
-            diff_stat,
-            file_patches,
-            subjects,
-            branch_commits,
-            branch_diff_stat,
-            self.current_pull_request(cwd, cancel),
-        );
+        let (status_short, diff_stat, files, subjects, branch_commits, branch_diff_stat, pr) =
+            tokio::join!(status_short, diff_stat, file_patches, subjects, branch_commits, branch_diff_stat, self.current_pull_request(cwd, cancel),);
         Ok(json!({
             "statusShort": clip(status_short, TEXT_LIMIT),
             "diffStat": clip(diff_stat, TEXT_LIMIT),
@@ -203,7 +156,8 @@ impl Scm {
         let version = match known {
             Some(version) => version,
             None => {
-                let found = match self.git.text(cancel, &home, &["--version"], &RunOptions { bare_env: true, read_limit: true, ..RunOptions::default() }).await {
+                let found = match self.git.text(cancel, &home, &["--version"], &RunOptions { bare_env: true, read_limit: true, ..RunOptions::default() }).await
+                {
                     Ok(out) => Some(out.trim().strip_prefix("git version ").unwrap_or("").split_whitespace().next().unwrap_or("").to_owned()),
                     Err(ScmFailure::Unavailable { .. }) => None,
                     Err(other) => return Err(other),
@@ -237,17 +191,11 @@ impl Scm {
                     .unwrap_or_default()
             }
         };
-        let (name, email, default_branch) =
-            tokio::join!(read("user.name"), read("user.email"), read("init.defaultBranch"));
+        let (name, email, default_branch) = tokio::join!(read("user.name"), read("user.email"), read("init.defaultBranch"));
         Ok(json!({ "name": name, "email": email, "defaultBranch": default_branch }))
     }
 
-    pub async fn git_global_config_write(
-        self: &Arc<Self>,
-        cancel: &CancellationToken,
-        key: &str,
-        value: &str,
-    ) -> Result<Value, ScmFailure> {
+    pub async fn git_global_config_write(self: &Arc<Self>, cancel: &CancellationToken, key: &str, value: &str) -> Result<Value, ScmFailure> {
         // The key is one of the three (`input.rs`, Node's `requiredGitGlobalConfigKey`) before this runs.
         let home = process_dir();
         let trimmed = mixdog_js::js_trim(value);
@@ -288,8 +236,5 @@ pub fn process_dir() -> std::path::PathBuf {
 
 /// The user's home folder, where the sign-in terminal starts.
 pub fn home_dir() -> std::path::PathBuf {
-    std::env::var_os("USERPROFILE")
-        .or_else(|| std::env::var_os("HOME"))
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir)
+    std::env::var_os("USERPROFILE").or_else(|| std::env::var_os("HOME")).map(std::path::PathBuf::from).unwrap_or_else(std::env::temp_dir)
 }

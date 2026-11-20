@@ -210,7 +210,10 @@ pub fn gemini_media_download_url(input: &Value) -> Result<String, LaneError> {
     let Ok(mut url) = reqwest::Url::parse(&text) else {
         return Err(media_error("Veo returned an invalid video URI".to_owned(), "MEDIA_UPSTREAM_FAILED", 502));
     };
-    let trusted = url.scheme() == "https" && url.host_str().is_some_and(|host| host.eq_ignore_ascii_case("generativelanguage.googleapis.com")) && url.username().is_empty() && url.password().is_none();
+    let trusted = url.scheme() == "https"
+        && url.host_str().is_some_and(|host| host.eq_ignore_ascii_case("generativelanguage.googleapis.com"))
+        && url.username().is_empty()
+        && url.password().is_none();
     if !trusted {
         return Err(media_error("Veo returned an untrusted video URI".to_owned(), "MEDIA_UPSTREAM_FAILED", 502));
     }

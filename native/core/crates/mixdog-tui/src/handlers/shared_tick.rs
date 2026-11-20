@@ -49,11 +49,7 @@ impl SharedTick {
 
     /// The delay until the soonest subscriber is due (at least 1 ms), `None` when nothing is subscribed.
     pub fn next_delay_ms(&self, now: u64) -> Option<u64> {
-        self.subscribers
-            .iter()
-            .map(|subscriber| (subscriber.last_fire + subscriber.interval_ms) as i128 - now as i128)
-            .min()
-            .map(|due| due.max(1) as u64)
+        self.subscribers.iter().map(|subscriber| (subscriber.last_fire + subscriber.interval_ms) as i128 - now as i128).min().map(|due| due.max(1) as u64)
     }
 
     /// The timer fired at `now`: the subscribers whose interval has elapsed (within [`TICK_SLOP_MS`]), each marked fired.

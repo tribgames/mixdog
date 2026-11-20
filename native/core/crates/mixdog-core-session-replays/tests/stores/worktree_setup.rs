@@ -22,16 +22,16 @@ use mixdog_spawn::LocalProcessManager;
 use mixdog_spawn::ProcessConfig;
 use serde_json::Value;
 
-use mixdog_core_session::session::worktree::worktree_maintenance::LiveSessions;
-use mixdog_core_session::session::worktree::worktree_maintenance::WorktreeMaintenance;
-use mixdog_core_session::session::worktree::worktree_maintenance::cleanup_summary;
-use mixdog_core_session::session::worktree::worktree_maintenance::startup_summary;
-use mixdog_core_session::session::worktree::worktree_setup::WorktreeSetup;
 use mixdog_core_session::session::worktree::RunOptions;
 use mixdog_core_session::session::worktree::SetupEvent;
 use mixdog_core_session::session::worktree::SetupReport;
 use mixdog_core_session::session::worktree::SetupRunner;
 use mixdog_core_session::session::worktree::SetupStatus;
+use mixdog_core_session::session::worktree::worktree_maintenance::LiveSessions;
+use mixdog_core_session::session::worktree::worktree_maintenance::WorktreeMaintenance;
+use mixdog_core_session::session::worktree::worktree_maintenance::cleanup_summary;
+use mixdog_core_session::session::worktree::worktree_maintenance::startup_summary;
+use mixdog_core_session::session::worktree::worktree_setup::WorktreeSetup;
 use mixdog_core_session::session::worktree::worktree_tests::enter;
 use mixdog_core_session::session::worktree::worktree_tests::rig;
 use mixdog_core_session::session::worktree::worktree_tests::run;
@@ -41,11 +41,6 @@ use mixdog_scm::error::ScmFailure;
 use mixdog_scm::worktree::registry::WorktreeRecord;
 use mixdog_tools::git::SessionOp;
 use serde_json::json;
-
-
-
-
-
 
 fn command(file: &str, args: &[&str], cwd: &Path) -> SetupCommand {
     let shown = format!("{file} {}", args.join(" "));
@@ -115,7 +110,12 @@ impl SessionSource for Sessions {
     }
 }
 
-fn maintenance(rig: &mixdog_core_session::session::worktree::worktree_tests::Rig, sessions: Arc<Sessions>, live: &[&str], cancelled: Arc<Mutex<Vec<Option<String>>>>) -> WorktreeMaintenance {
+fn maintenance(
+    rig: &mixdog_core_session::session::worktree::worktree_tests::Rig,
+    sessions: Arc<Sessions>,
+    live: &[&str],
+    cancelled: Arc<Mutex<Vec<Option<String>>>>,
+) -> WorktreeMaintenance {
     let live_ids: HashSet<String> = live.iter().map(|s| (*s).to_owned()).collect();
     let live: LiveSessions = Arc::new(move || live_ids.clone());
     WorktreeMaintenance::new(rig.worktrees.clone(), sessions, live, Arc::new(move |id| cancelled.lock().unwrap().push(id.map(str::to_owned))))
@@ -209,10 +209,7 @@ fn the_daemon_log_lines_equal_nodes() {
         "kept": [{"id": "x", "reason": "incomplete"}, {"id": "y", "reason": "incomplete"}, {"id": "z", "reason": "dirty"}],
         "errors": [{"id": "e", "error": "boom"}],
     });
-    assert_eq!(
-        startup_summary(&busy).unwrap(),
-        r#"worktree reconcile: removed 1, recovered 2, pruned 0, incomplete 2, errors 1 [{"id":"e","error":"boom"}]"#
-    );
+    assert_eq!(startup_summary(&busy).unwrap(), r#"worktree reconcile: removed 1, recovered 2, pruned 0, incomplete 2, errors 1 [{"id":"e","error":"boom"}]"#);
     assert_eq!(cleanup_summary(&busy).unwrap(), "worktree cleanup: removed 1, incomplete 2 (x, y), errors 1");
     let none = json!({"removed": [], "kept": [{"id": "x", "reason": "incomplete"}], "errors": []});
     assert_eq!(cleanup_summary(&none).unwrap(), "worktree cleanup: removed 0, incomplete 1 (x), errors 0");
@@ -230,11 +227,8 @@ async fn run_all(commands: Vec<SetupCommand>, cancel: &CancellationToken, option
 #[tokio::test]
 async fn commands_run_in_order_and_the_first_that_fails_ends_the_run() {
     let dir = tempfile::tempdir().unwrap();
-    let commands = vec![
-        command("git", &["--version"], dir.path()),
-        command("git", &["no-such-subcommand"], dir.path()),
-        command("git", &["--version"], dir.path()),
-    ];
+    let commands =
+        vec![command("git", &["--version"], dir.path()), command("git", &["no-such-subcommand"], dir.path()), command("git", &["--version"], dir.path())];
     let (report, events) = run_all(commands, &CancellationToken::new(), RunOptions::default()).await;
     assert_eq!(report.status, SetupStatus::Failed);
     assert_eq!(report.total, 3);
@@ -247,7 +241,8 @@ async fn commands_run_in_order_and_the_first_that_fails_ends_the_run() {
     assert!(report.steps[1].output.contains("no-such-subcommand"), "{}", report.steps[1].output);
     assert_eq!(report.pending.len(), 1);
     // A start per command that ran, then the report.
-    let starts: Vec<usize> = events.iter().filter_map(|e| if let SetupEvent::Running { index, output, .. } = e { output.is_empty().then_some(*index) } else { None }).collect();
+    let starts: Vec<usize> =
+        events.iter().filter_map(|e| if let SetupEvent::Running { index, output, .. } = e { output.is_empty().then_some(*index) } else { None }).collect();
     assert_eq!(starts, [0, 1]);
     let Some(SetupEvent::Final(last)) = events.last() else { panic!("no final event") };
     assert_eq!(last, &report);
@@ -471,8 +466,6 @@ async fn a_delete_reaches_the_board_the_routes_the_app_feed_and_the_worktrees() 
     deletion.forget_session_search("sess_gone");
 }
 
-
-
 /// The daemon's jobs: the startup reconcile runs at once and logs what it did; the cleanup task
 /// is due 3 minutes after the start and every hour after that (never earlier).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -489,10 +482,15 @@ async fn the_daemon_jobs_reconcile_at_start_and_clean_up_on_the_hour() {
     let announce = logged.clone();
     let schedule = MaintenanceSchedule::new();
     let clock: mixdog_core_base::maintenance::Clock = Arc::new(|| 1_000);
-    maintenance.start(&schedule, &clock, Arc::new(move |line| {
-        sink.lock().unwrap().push(line.to_owned());
-        announce.notify_one();
-    }), CancellationToken::new());
+    maintenance.start(
+        &schedule,
+        &clock,
+        Arc::new(move |line| {
+            sink.lock().unwrap().push(line.to_owned());
+            announce.notify_one();
+        }),
+        CancellationToken::new(),
+    );
     // The sink's notification keeps its permit, so a line logged before this wait still wakes it.
     mixdog_core_session::session::testing::awaiting(|| "the startup reconcile to log what it did".to_owned(), logged.notified()).await;
     assert_eq!(*lines.lock().unwrap(), ["worktree reconcile: removed 1, recovered 0, pruned 0, incomplete 0, errors 0"]);

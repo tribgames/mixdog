@@ -98,13 +98,11 @@ static TARGET_ATTRIBUTE: LazyLock<JsRegex> = regex!(r#"\bTarget="([^"]+)""#, "")
 static EXTERNAL_MODE: LazyLock<JsRegex> = regex!(r#"\bTargetMode="External""#, "");
 static OVERRIDE_TARGET: LazyLock<JsRegex> = regex!(r"^(.*?)\d*(\.\w+)$", "");
 static CALC_CHAIN_OVERRIDE: LazyLock<JsRegex> = regex!(r#"<Override\b[^>]*\bPartName="\/xl\/calcChain\.xml"[^>]*\/>"#, "");
-static CALC_CHAIN_RELATIONSHIP: LazyLock<JsRegex> =
-    regex!(r#"<Relationship\b[^>]*\bType="[^"]*\/calcChain"[^>]*\/>"#, "g");
+static CALC_CHAIN_RELATIONSHIP: LazyLock<JsRegex> = regex!(r#"<Relationship\b[^>]*\bType="[^"]*\/calcChain"[^>]*\/>"#, "g");
 static TABLE_RELATIONSHIP: LazyLock<JsRegex> = regex!(r"\/table$", "");
 /// The relationships a sheet owns outright, which a copy needs its own of: two sheets drawing through one drawing part is
 /// a package Excel will not open. Pictures, printer settings and pivot caches stay shared.
-static OWNED_RELATIONSHIP: LazyLock<JsRegex> =
-    regex!(r"\/(?:drawing|chart|chartUserShapes|comments|vmlDrawing|chartStyle|chartColorStyle|pivotTable)$", "");
+static OWNED_RELATIONSHIP: LazyLock<JsRegex> = regex!(r"\/(?:drawing|chart|chartUserShapes|comments|vmlDrawing|chartStyle|chartColorStyle|pivotTable)$", "");
 
 /// `String.prototype.replace` with a global pattern and a replacer that keeps state.
 fn replace_each(pattern: &JsRegex, text: &str, mut with: impl FnMut(&Caps) -> String) -> String {
@@ -198,11 +196,7 @@ fn reference_span<'a>(body: &'a str, mv: &Move) -> Option<Span<'a>> {
         if letters.is_none() && digits.is_none() {
             return None;
         }
-        let index = if mv.rows {
-            digits.map(string_to_number).filter(|number| !number.is_nan())? as i64
-        } else {
-            column_number(letters?) as i64
-        };
+        let index = if mv.rows { digits.map(string_to_number).filter(|number| !number.is_nan())? as i64 } else { column_number(letters?) as i64 };
         if index == 0 {
             return None;
         }
@@ -479,8 +473,7 @@ fn moved_cell_formulas(xml: &str, home: &str, own: bool, mv: &Move, rw: &mut Rew
         }
         let origin = parse_cell_ref(master)?;
         let mut texts: Vec<(String, String)> = Vec::new();
-        let mut changed = own
-            && shared.block.as_deref().is_some_and(|block| !block.is_empty() && moved_reference(block, mv).as_deref() != Some(block));
+        let mut changed = own && shared.block.as_deref().is_some_and(|block| !block.is_empty() && moved_reference(block, mv).as_deref() != Some(block));
         for reference in &shared.cells {
             let at = parse_cell_ref(reference)?;
             let row_delta = at.row as i64 - origin.row as i64;
@@ -577,11 +570,7 @@ fn recounted(xml: &str, container: &str, child: &str) -> String {
         if count == 0 {
             return String::new();
         }
-        let attributes = if has_count_attribute(attributes) {
-            set_xml_attribute(attributes, "count", &count.to_string())
-        } else {
-            attributes.to_owned()
-        };
+        let attributes = if has_count_attribute(attributes) { set_xml_attribute(attributes, "count", &count.to_string()) } else { attributes.to_owned() };
         format!("<{container}{attributes}>{body}</{container}>")
     })
 }
@@ -640,20 +629,12 @@ fn moved_sheet_ranges(xml: &str, mv: &Move, refused: &mut Vec<String>) -> String
         format!("<xm:sqref>{moved}</xm:sqref>")
     });
     // A merge left over one cell is no merge, and Excel drops it.
-    next = MERGE_CELL.replace_all_with(&next, |caps| {
-        referenced("mergeCell", true, mv, group(caps, 1), group(caps, 2), caps.get(0).unwrap_or(""))
-    });
+    next = MERGE_CELL.replace_all_with(&next, |caps| referenced("mergeCell", true, mv, group(caps, 1), group(caps, 2), caps.get(0).unwrap_or("")));
     next = recounted(&next, "mergeCells", "mergeCell");
-    next = HYPERLINK.replace_all_with(&next, |caps| {
-        referenced("hyperlink", false, mv, group(caps, 1), group(caps, 2), caps.get(0).unwrap_or(""))
-    });
+    next = HYPERLINK.replace_all_with(&next, |caps| referenced("hyperlink", false, mv, group(caps, 1), group(caps, 2), caps.get(0).unwrap_or("")));
     next = replace_first(&EMPTY_HYPERLINKS, &next, |_| String::new());
-    next = SORT_CONDITION.replace_all_with(&next, |caps| {
-        referenced("sortCondition", false, mv, group(caps, 1), group(caps, 2), caps.get(0).unwrap_or(""))
-    });
-    next = SORT_STATE.replace_all_with(&next, |caps| {
-        referenced("sortState", false, mv, group(caps, 1), group(caps, 2), caps.get(0).unwrap_or(""))
-    });
+    next = SORT_CONDITION.replace_all_with(&next, |caps| referenced("sortCondition", false, mv, group(caps, 1), group(caps, 2), caps.get(0).unwrap_or("")));
+    next = SORT_STATE.replace_all_with(&next, |caps| referenced("sortState", false, mv, group(caps, 1), group(caps, 2), caps.get(0).unwrap_or("")));
     next = replace_first(&AUTO_FILTER, &next, |caps| {
         let (attributes, rest) = (group(caps, 1), group(caps, 2));
         let whole = caps.get(0).unwrap_or("");
@@ -730,22 +711,14 @@ fn moved_anchors(drawing: &str, mv: &Move) -> String {
     ANCHOR.replace_all_with(drawing, |caps| {
         let (kind, attributes, body) = (group(caps, 1), group(caps, 2), group(caps, 3));
         let whole = caps.get(0).unwrap_or("");
-        let edit_as = if kind == "oneCellAnchor" {
-            "oneCell".to_owned()
-        } else {
-            first_group(&EDIT_AS, attributes).unwrap_or_else(|| "twoCell".to_owned())
-        };
+        let edit_as = if kind == "oneCellAnchor" { "oneCell".to_owned() } else { first_group(&EDIT_AS, attributes).unwrap_or_else(|| "twoCell".to_owned()) };
         let Some(from) = ANCHOR_FROM.captures(body) else { return whole.to_owned() };
         if edit_as == "absolute" {
             return whole.to_owned();
         }
         let from_block = group(&from, 1);
         let start = place(from_block);
-        let mut next = body.replacen(
-            &body[from.range()],
-            &format!("<xdr:from>{}</xdr:from>", written(from_block, &start.next.to_string(), start.reset)),
-            1,
-        );
+        let mut next = body.replacen(&body[from.range()], &format!("<xdr:from>{}</xdr:from>", written(from_block, &start.next.to_string(), start.reset)), 1);
         let to = if kind == "twoCellAnchor" { ANCHOR_TO.captures(body) } else { None };
         if let Some(to) = to {
             let to_block = group(&to, 1);
@@ -758,11 +731,7 @@ fn moved_anchors(drawing: &str, mv: &Move) -> String {
             } else {
                 end.next.to_string()
             };
-            next = next.replacen(
-                &body[to.range()],
-                &format!("<xdr:to>{}</xdr:to>", written(to_block, &index, edit_as != "oneCell" && end.reset)),
-                1,
-            );
+            next = next.replacen(&body[to.range()], &format!("<xdr:to>{}</xdr:to>", written(to_block, &index, edit_as != "oneCell" && end.reset)), 1);
         }
         if next == body { whole.to_owned() } else { format!("<xdr:{kind}{attributes}>{next}</xdr:{kind}>") }
     })
@@ -824,8 +793,7 @@ pub fn inherited_rows(xml: &str, from: i64, amount: i64) -> Result<String, Strin
     let rows: String = (0..amount)
         .map(|offset| {
             let index = from + offset;
-            let cells: String =
-                styled.iter().map(|(column, style)| format!("<c r=\"{column}{index}\" s=\"{style}\"/>")).collect();
+            let cells: String = styled.iter().map(|(column, style)| format!("<c r=\"{column}{index}\" s=\"{style}\"/>")).collect();
             let attributes = set_xml_attribute(&attributes, "r", &index.to_string());
             if cells.is_empty() { format!("<row{attributes}/>") } else { format!("<row{attributes}>{cells}</row>") }
         })
@@ -845,9 +813,7 @@ fn inherited_columns(xml: &str, from: i64, amount: i64) -> String {
         let row = group(caps, 2);
         match first_group(&STYLE_ATTRIBUTE, group(caps, 1)) {
             Some(style) if style != "0" => {
-                let added: String = (0..amount)
-                    .map(|offset| format!("<c r=\"{}{row}\" s=\"{style}\"/>", column_label((from + offset) as f64)))
-                    .collect();
+                let added: String = (0..amount).map(|offset| format!("<c r=\"{}{row}\" s=\"{style}\"/>", column_label((from + offset) as f64))).collect();
                 format!("{whole}{added}")
             }
             _ => whole.to_owned(),
@@ -984,13 +950,7 @@ fn refusal(head: &str, refused: &[String], tail: &str) -> String {
 /// them: `SUM(Data!B2:B4)` becomes `SUM('자료 2026'!B2:B4)`, or `SUM(#REF!)` once Data is gone. Formulas on every sheet,
 /// rules, validations, names, chart series and (on a rename) pivot sources follow. Returns how many formulas, names and
 /// chart series were rewritten; fails, with nothing changed, when a formula naming the sheet cannot be read.
-pub fn rename_sheet_references(
-    zip: &mut Package,
-    sheets: &[Sheet],
-    sheet: &Sheet,
-    to: Option<&str>,
-    op: &str,
-) -> Result<usize, String> {
+pub fn rename_sheet_references(zip: &mut Package, sheets: &[Sheet], sheet: &Sheet, to: Option<&str>, op: &str) -> Result<usize, String> {
     let replacement = to.map(|name| format!("{}!", quote_sheet_name(name)));
     let transform = |text: &str, _home: Option<&str>| renamed_formula(text, &sheet.name, replacement.as_deref());
     let mut rw = Rewriter::new(&transform);
@@ -1119,11 +1079,8 @@ fn duplicate_owned_relationships(
 pub fn copy_sheet_parts(zip: &mut Package, sheets: &[Sheet], source: &Sheet, copy: &Sheet) -> Result<(), String> {
     let replacement = format!("{}!", quote_sheet_name(&copy.name));
     let repoint = |text: &str| renamed_formula(text, &source.name, Some(&replacement)).unwrap_or_else(|_| text.to_owned());
-    let rewrite_chart = |xml: &str| {
-        replace_each(&CHART_SERIES, xml, |caps| {
-            format!("<{0}:f>{1}</{0}:f>", group(caps, 1), xml_encode(&repoint(&xml_decode(group(caps, 2)))))
-        })
-    };
+    let rewrite_chart =
+        |xml: &str| replace_each(&CHART_SERIES, xml, |caps| format!("<{0}:f>{1}</{0}:f>", group(caps, 1), xml_encode(&repoint(&xml_decode(group(caps, 2))))));
     duplicate_owned_relationships(zip, &source.path, &copy.path, &rewrite_chart, Some(&*TABLE_RELATIONSHIP))?;
     let workbook_path = "xl/workbook.xml";
     let workbook = zip.text(workbook_path);
@@ -1275,22 +1232,9 @@ pub struct ShiftRequest<'a> {
 /// Inserts or deletes rows (columns) of one worksheet and moves everything in the workbook that names them. `xml` is the
 /// worksheet's text. Returns how many formulas, names and chart series were rewritten; fails, with nothing changed,
 /// when something naming the moved cells cannot be rewritten.
-pub fn shift_worksheet_cells(
-    zip: &mut Package,
-    sheets: &[Sheet],
-    sheet: &Sheet,
-    xml: &str,
-    request: ShiftRequest<'_>,
-) -> Result<usize, String> {
+pub fn shift_worksheet_cells(zip: &mut Package, sheets: &[Sheet], sheet: &Sheet, xml: &str, request: ShiftRequest<'_>) -> Result<usize, String> {
     let ShiftRequest { rows, from, amount, insert, op } = request;
-    let mv = Move {
-        sheet: sheet.name.clone(),
-        rows,
-        from,
-        amount,
-        insert,
-        limit: if rows { LIMIT_ROWS } else { LIMIT_COLUMNS },
-    };
+    let mv = Move { sheet: sheet.name.clone(), rows, from, amount, insert, limit: if rows { LIMIT_ROWS } else { LIMIT_COLUMNS } };
     let transform = |text: &str, home: Option<&str>| moved_formula(text, home, &mv);
     let mut rw = Rewriter::new(&transform);
     let mut writes = Writes::default();
@@ -1327,11 +1271,7 @@ pub fn shift_worksheet_cells(
     if !rw.refused.is_empty() {
         let place = if rows { format!("row {from}") } else { format!("column {}", column_label(from as f64)) };
         return Err(refusal(
-            &format!(
-                "Portable {op} at {} {place} cannot rewrite {} thing(s) that name the cells it moves: ",
-                sheet.name,
-                rw.refused.len()
-            ),
+            &format!("Portable {op} at {} {place} cannot rewrite {} thing(s) that name the cells it moves: ", sheet.name, rw.refused.len()),
             &rw.refused,
             "Run the edit on the Office backend (mode:'background'), where Excel rewrites them itself, or change those first.",
         ));
@@ -1353,7 +1293,6 @@ pub fn shift_worksheet_cells(
     drop_calculation_chain(zip);
     Ok(rewritten)
 }
-
 
 #[cfg(test)]
 mod tests {
@@ -1508,7 +1447,9 @@ mod tests {
         let xml = "<sheetData><row r=\"5\" ht=\"30\" hidden=\"1\"><c r=\"B5\" s=\"3\"><v>1</v></c><c r=\"C5\" s=\"0\"/></row><row r=\"6\"/></sheetData>";
         assert_eq!(
             inherited_rows(xml, 6, 2).as_deref(),
-            Ok("<sheetData><row r=\"5\" ht=\"30\" hidden=\"1\"><c r=\"B5\" s=\"3\"><v>1</v></c><c r=\"C5\" s=\"0\"/></row><row r=\"6\" ht=\"30\"><c r=\"B6\" s=\"3\"/></row><row r=\"7\" ht=\"30\"><c r=\"B7\" s=\"3\"/></row><row r=\"6\"/></sheetData>")
+            Ok(
+                "<sheetData><row r=\"5\" ht=\"30\" hidden=\"1\"><c r=\"B5\" s=\"3\"><v>1</v></c><c r=\"C5\" s=\"0\"/></row><row r=\"6\" ht=\"30\"><c r=\"B6\" s=\"3\"/></row><row r=\"7\" ht=\"30\"><c r=\"B7\" s=\"3\"/></row><row r=\"6\"/></sheetData>"
+            )
         );
         assert_eq!(inherited_rows(xml, 1, 2).as_deref(), Ok(xml));
         let bare = "<sheetData><row r=\"2\"><c r=\"A2\"/></row></sheetData>";

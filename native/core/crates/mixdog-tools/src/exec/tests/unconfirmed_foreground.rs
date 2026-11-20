@@ -24,10 +24,8 @@ async fn an_unconfirmed_foreground_kill_keeps_the_owner_busy_until_the_command_e
         tokio::time::timeout(DEADLINE, rig.processes.spawned.notified()).await.expect("waited 30 s for the command's process to spawn");
         cancel.cancel();
     };
-    let (answered, ()) = tokio::join!(
-        tokio::time::timeout(DEADLINE, rig.shell.call(&call, serde_json::json!({ "command": "node long-task.js" }))),
-        cancel_once_running
-    );
+    let (answered, ()) =
+        tokio::join!(tokio::time::timeout(DEADLINE, rig.shell.call(&call, serde_json::json!({ "command": "node long-task.js" }))), cancel_once_running);
     let error = answered.expect("waited 30 s for the cancelled call to return after the kill check").unwrap_err();
     assert!(matches!(error.code, ToolErrorCode::Cancelled));
     assert!(error.outcome_unknown);
@@ -51,7 +49,6 @@ async fn an_unconfirmed_foreground_kill_keeps_the_owner_busy_until_the_command_e
     }
     assert!(rig.runtime.config.tasks.thread_state(owner.as_str()).jobs.is_empty(), "the owner is idle again");
 }
-
 
 /// The daemon shutting down during the wait closes the owner and shuts its shell jobs down, which leaves the folder
 /// reserved; the reservation then ends with the command's confirmed exit, or another session's release (the process stays).
@@ -84,10 +81,8 @@ async fn the_shutdown_during_the_unconfirmed_wait_leaves_the_folder_reserved() {
             tokio::time::timeout(DEADLINE, rig.processes.spawned.notified()).await.expect("waited 30 s for the command's process to spawn");
             cancel.cancel();
         };
-        let (answered, ()) = tokio::join!(
-            tokio::time::timeout(DEADLINE, rig.shell.call(&call, serde_json::json!({ "command": "node long-task.js" }))),
-            cancel_once_running
-        );
+        let (answered, ()) =
+            tokio::join!(tokio::time::timeout(DEADLINE, rig.shell.call(&call, serde_json::json!({ "command": "node long-task.js" }))), cancel_once_running);
         let _ = answered.expect("waited 30 s for the cancelled call to return after the kill check");
         let tasks = rig.runtime.config.tasks.clone();
         let busy = || tasks.list().iter().any(|row| row.reserves_folder());
@@ -112,7 +107,10 @@ async fn the_shutdown_during_the_unconfirmed_wait_leaves_the_folder_reserved() {
                             send(tx, seq, |seq| ProcessEvent::Exited { seq, exit: ProcessExit { status: ExitStatus::Code(1), killed: None } });
                         }
                         while busy() {
-                            tokio::time::timeout(DEADLINE, strips.changed()).await.unwrap_or_else(|_| panic!("{name}: waited 30 s for the command's exit to end the reservation")).unwrap();
+                            tokio::time::timeout(DEADLINE, strips.changed())
+                                .await
+                                .unwrap_or_else(|_| panic!("{name}: waited 30 s for the command's exit to end the reservation"))
+                                .unwrap();
                         }
                     }
                     code(busy())

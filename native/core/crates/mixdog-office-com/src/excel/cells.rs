@@ -73,7 +73,6 @@ pub(super) fn int_of(value: &Com) -> Result<i32> {
     convert::to_int(&ps_of(value)).map_err(Error::host)
 }
 
-
 /// `[double]$value`.
 pub(super) fn double_of(value: &Com) -> Result<f64> {
     convert::to_double(&ps_of(value)).map_err(Error::host)

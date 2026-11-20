@@ -2,15 +2,15 @@
 //! (Find-ReboundElement): one enabled element of the same window with the
 //! same role, name or automation id, and bounds the caller saw.
 
-use super::element::{top_window, UiaElement};
-use super::{control_type_id, property_condition, text, Uia};
+use super::element::{UiaElement, top_window};
+use super::{Uia, control_type_id, property_condition, text};
 use crate::a11y::Element;
-use crate::platform::{window_id, Wid};
+use crate::platform::{Wid, window_id};
 use crate::session::RefRecord;
 use std::rc::Rc;
-use windows::core::BSTR;
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::*;
+use windows::core::BSTR;
 
 /// How far each bounds value may drift and still be the same control.
 const BOUNDS_SLACK: f64 = 2.0;
@@ -59,24 +59,15 @@ impl Uia {
                     text(candidate.CurrentAutomationId()) == record.automation_id
                         && candidate.CurrentIsEnabled().is_ok_and(|flag| flag.as_bool())
                         && rect.is_some_and(|rect| {
-                            near(
-                                seen,
-                                (rect.left as f64, rect.top as f64, (rect.right - rect.left) as f64, (rect.bottom - rect.top) as f64),
-                            )
+                            near(seen, (rect.left as f64, rect.top as f64, (rect.right - rect.left) as f64, (rect.bottom - rect.top) as f64))
                         })
                 })
                 .collect::<Vec<_>>()
         };
         let element = exactly_one(matched)?;
         let top = top_window(&self.automation, &element);
-        (window_id(top) == record.window_id).then(|| {
-            Rc::new(UiaElement {
-                automation: self.automation.clone(),
-                element,
-                window: top,
-                port: self.port.clone(),
-            }) as Rc<dyn Element>
-        })
+        (window_id(top) == record.window_id)
+            .then(|| Rc::new(UiaElement { automation: self.automation.clone(), element, window: top, port: self.port.clone() }) as Rc<dyn Element>)
     }
 }
 

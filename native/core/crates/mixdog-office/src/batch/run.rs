@@ -15,8 +15,8 @@ use mixdog_office_design::templates::inspect::create_pptx_slide_selection;
 use mixdog_office_pdf::batch::apply_batch as apply_pdf_batch;
 use mixdog_office_quality::trust::assert_office_mutation_allowed;
 use mixdog_ooxml::opc::provenance_citation;
-use mixdog_ooxml::pptx_package::clear_portable_presentation_slides;
 use mixdog_ooxml::portable::apply_portable_ooxml_batch;
+use mixdog_ooxml::pptx_package::clear_portable_presentation_slides;
 use serde_json::{Map, Value, json};
 
 use super::prepare::{Prepared, prepare_batch_operations, with_shared_chart_defaults};
@@ -92,7 +92,13 @@ impl Facts {
 }
 
 /// `microsoftOfficeCall(session, target, request, timeoutMs)`: `{ session, format, mode, path }` and the request's own fields.
-async fn microsoft_call<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, target: &str, request: Vec<(&str, Value)>, timeout: Duration) -> Value {
+async fn microsoft_call<P: WriteProof, H: ComHost, B>(
+    cx: &BatchContext<'_, P, H, B>,
+    facts: &Facts,
+    target: &str,
+    request: Vec<(&str, Value)>,
+    timeout: Duration,
+) -> Value {
     let mut payload = Map::new();
     payload.insert("session".to_owned(), json!(facts.id));
     payload.insert("format".to_owned(), json!(facts.format));
@@ -158,7 +164,13 @@ fn unique_dashed() -> String {
 }
 
 /// Stages what the batch falls back to.
-async fn stage_batch_backup<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, target: &str, operations: &[Value], plan: &SafetyPlan) -> Result<(), String> {
+async fn stage_batch_backup<P: WriteProof, H: ComHost, B>(
+    cx: &BatchContext<'_, P, H, B>,
+    facts: &Facts,
+    target: &str,
+    operations: &[Value],
+    plan: &SafetyPlan,
+) -> Result<(), String> {
     if !plan.replacement_source.is_empty() {
         let first = &operations[0];
         create_pptx_slide_selection(cx.lane(), &text_of(first.get("path")), first.get("slides").unwrap_or(&Value::Null), &plan.replacement_source)?;
@@ -192,7 +204,13 @@ async fn restore_batch_target<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_
 }
 
 /// `microsoftBatch(session, args, target, operations)`: the batch on the Office host.
-async fn microsoft_batch<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, args: &Value, target: &str, operations: &[Value]) -> Result<Value, String> {
+async fn microsoft_batch<P: WriteProof, H: ComHost, B>(
+    cx: &BatchContext<'_, P, H, B>,
+    facts: &Facts,
+    args: &Value,
+    target: &str,
+    operations: &[Value],
+) -> Result<Value, String> {
     let shaped = with_provenance_citations(with_shared_chart_defaults(&facts.format, operations))?;
     let request = vec![
         ("action", json!("batch")),
@@ -219,14 +237,26 @@ fn results_list(value: Option<&Value>) -> Vec<Value> {
 
 /// `runMicrosoftBatch`: the batch on the Office host. An empty new deck first takes the imported presentation as its source, then the
 /// remaining operations.
-async fn run_microsoft_batch<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, args: &Value, target: &str, operations: &[Value], plan: &SafetyPlan) -> Result<Outcome, String> {
+async fn run_microsoft_batch<P: WriteProof, H: ComHost, B>(
+    cx: &BatchContext<'_, P, H, B>,
+    facts: &Facts,
+    args: &Value,
+    target: &str,
+    operations: &[Value],
+    plan: &SafetyPlan,
+) -> Result<Outcome, String> {
     let isolation = facts.background_isolation.clone();
     if !plan.empty_deck_replacement {
         let result = microsoft_batch(cx, facts, args, target, operations).await?;
         if !answered(&result) {
             return Err(failure(&result, "Microsoft Office batch failed"));
         }
-        return Ok(Outcome { results: result.get("results").cloned().unwrap_or(Value::Null), saved: result.get("saved").cloned(), undo_units: number_or_zero(result.get("undoUnits")), background_isolation: isolation_of(&result, isolation) });
+        return Ok(Outcome {
+            results: result.get("results").cloned().unwrap_or(Value::Null),
+            saved: result.get("saved").cloned(),
+            undo_units: number_or_zero(result.get("undoUnits")),
+            background_isolation: isolation_of(&result, isolation),
+        });
     }
     let operation = &operations[0];
     let source = if plan.replacement_source.is_empty() { text_of(operation.get("path")) } else { plan.replacement_source.clone() };
@@ -243,14 +273,24 @@ async fn run_microsoft_batch<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_,
     let mut results = results_list(replaced.get("results"));
     let remaining = &operations[1..];
     if remaining.is_empty() {
-        return Ok(Outcome { results: Value::Array(results), saved: Some(json!(replaced.get("saved") == Some(&Value::Bool(true)))), undo_units: 0, background_isolation: isolation });
+        return Ok(Outcome {
+            results: Value::Array(results),
+            saved: Some(json!(replaced.get("saved") == Some(&Value::Bool(true)))),
+            undo_units: 0,
+            background_isolation: isolation,
+        });
     }
     let result = microsoft_batch(cx, facts, args, target, remaining).await?;
     if !answered(&result) {
         return Err(failure(&result, "Microsoft Office batch failed after native template import"));
     }
     results.extend(results_list(result.get("results")));
-    Ok(Outcome { results: Value::Array(results), saved: result.get("saved").cloned(), undo_units: number_or_zero(result.get("undoUnits")), background_isolation: isolation_of(&result, isolation) })
+    Ok(Outcome {
+        results: Value::Array(results),
+        saved: result.get("saved").cloned(),
+        undo_units: number_or_zero(result.get("undoUnits")),
+        background_isolation: isolation_of(&result, isolation),
+    })
 }
 
 /// `normalizeBatchResults`: the objects among the results.
@@ -269,18 +309,25 @@ fn unchanged_results(operations: &[Value], results: &[Value]) -> Vec<Value> {
         .map(|(index, entry)| {
             let operation = aligned.then(|| &operations[index]);
             let reasoned = entry.get("unchangedReason").is_some_and(truthy);
-            let Some(operation) = operation.filter(|operation| entry.get("changed") == Some(&Value::Bool(false)) && !reasoned && operation.get("op").and_then(Value::as_str) == Some("replace_text")) else {
+            let Some(operation) = operation.filter(|operation| {
+                entry.get("changed") == Some(&Value::Bool(false)) && !reasoned && operation.get("op").and_then(Value::as_str) == Some("replace_text")
+            }) else {
                 return entry.clone();
             };
             let find = operation.get("find").filter(|find| !find.is_null()).map(value_to_string).unwrap_or_default();
             let shown = if utf16_len(&find) > 40 { format!("{}…", slice_utf16(&find, 40)) } else { find };
             let slide = operation.get("slide").filter(|slide| truthy(slide)).map(|slide| format!(" on slide {}", value_to_string(slide))).unwrap_or_default();
             let mut fields = entry.as_object().cloned().unwrap_or_default();
-            fields.insert("unchangedReason".to_owned(), json!(format!("\"{shown}\" appears nowhere{slide}; read the wording as written with action:query and a word from it")));
+            fields.insert(
+                "unchangedReason".to_owned(),
+                json!(format!("\"{shown}\" appears nowhere{slide}; read the wording as written with action:query and a word from it")),
+            );
             Value::Object(fields)
         })
         .enumerate()
-        .filter(|(index, entry)| entry.get("changed") == Some(&Value::Bool(false)) && !(aligned && operations[*index].get("allowNoChange") == Some(&Value::Bool(true))))
+        .filter(|(index, entry)| {
+            entry.get("changed") == Some(&Value::Bool(false)) && !(aligned && operations[*index].get("allowNoChange") == Some(&Value::Bool(true)))
+        })
         .map(|(_, entry)| entry)
         .collect()
 }
@@ -312,7 +359,14 @@ fn assert_batch_changed(facts: &Facts, args: &Value, no_change: &[Value]) -> Res
 }
 
 /// Records the applied batch on the open transaction; a journal that could not be written is reported, not fatal.
-async fn record_applied_transaction<P: WriteProof, H: ComHost, B>(cx: &BatchContext<'_, P, H, B>, handle: &SessionHandle, format: &str, operations: &[Value], results: &[Value], undo_units: u64) -> Result<Value, String> {
+async fn record_applied_transaction<P: WriteProof, H: ComHost, B>(
+    cx: &BatchContext<'_, P, H, B>,
+    handle: &SessionHandle,
+    format: &str,
+    operations: &[Value],
+    results: &[Value],
+    undo_units: u64,
+) -> Result<Value, String> {
     let transactions = cx.transactions();
     let current = capture_session_state(&transactions, handle, "").await?;
     update_transaction(handle, |transaction| {
@@ -337,7 +391,10 @@ async fn record_applied_transaction<P: WriteProof, H: ComHost, B>(cx: &BatchCont
 fn record_design_state(handle: &SessionHandle, format: &str, prepared: &Prepared) {
     let mut session = lock(handle);
     session.design_state.semantic_count += prepared.semantic.len() as u64;
-    session.design_state.compositions.extend(prepared.semantic.iter().filter_map(|entry| entry.get("composition")).filter(|composition| truthy(composition)).cloned());
+    session
+        .design_state
+        .compositions
+        .extend(prepared.semantic.iter().filter_map(|entry| entry.get("composition")).filter(|composition| truthy(composition)).cloned());
     let required = session.design.as_ref().and_then(|design| design.get("review")).and_then(|review| review.get("required")).is_some_and(truthy);
     if format != "pptx" || !required {
         return;
@@ -439,12 +496,19 @@ struct Applied<'a> {
 }
 
 /// `commitBatch`: records the applied batch on the session and builds the batch result.
-async fn commit_batch<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, handle: &SessionHandle, facts: &Facts, args: &Value, applied: Applied<'_>) -> Result<Value, String> {
+async fn commit_batch<P: WriteProof, H: ComHost, B: BatchHost>(
+    cx: &BatchContext<'_, P, H, B>,
+    handle: &SessionHandle,
+    facts: &Facts,
+    args: &Value,
+    applied: Applied<'_>,
+) -> Result<Value, String> {
     let Applied { trust, prepared, operations, has_transaction, target, outcome } = applied;
     let results = normalize_batch_results(&outcome.results);
     let no_change = unchanged_results(operations, &results);
     assert_batch_changed(facts, args, &no_change)?;
-    let transaction = if has_transaction { Some(record_applied_transaction(cx, handle, &facts.format, operations, &results, outcome.undo_units).await?) } else { None };
+    let transaction =
+        if has_transaction { Some(record_applied_transaction(cx, handle, &facts.format, operations, &results, outcome.undo_units).await?) } else { None };
     record_design_state(handle, &facts.format, prepared);
     if facts.format == "xlsx" {
         remember_autofit_ranges(handle, operations);
@@ -515,11 +579,22 @@ mod tests {
 
     #[test]
     fn a_phrase_that_matched_nothing_says_so_and_allow_no_change_is_honoured() {
-        let operations = [json!({ "op": "replace_text", "find": "x".repeat(50), "slide": 3 }), json!({ "op": "normalize_runs", "allowNoChange": true }), json!({ "op": "set_text" })];
-        let results = [json!({ "op": "replace_text", "changed": false }), json!({ "op": "normalize_runs", "changed": false }), json!({ "op": "set_text", "changed": true })];
+        let operations = [
+            json!({ "op": "replace_text", "find": "x".repeat(50), "slide": 3 }),
+            json!({ "op": "normalize_runs", "allowNoChange": true }),
+            json!({ "op": "set_text" }),
+        ];
+        let results = [
+            json!({ "op": "replace_text", "changed": false }),
+            json!({ "op": "normalize_runs", "changed": false }),
+            json!({ "op": "set_text", "changed": true }),
+        ];
         let unchanged = unchanged_results(&operations, &results);
         assert_eq!(unchanged.len(), 1);
-        assert_eq!(unchanged[0]["unchangedReason"], json!(format!("\"{}…\" appears nowhere on slide 3; read the wording as written with action:query and a word from it", "x".repeat(40))));
+        assert_eq!(
+            unchanged[0]["unchangedReason"],
+            json!(format!("\"{}…\" appears nowhere on slide 3; read the wording as written with action:query and a word from it", "x".repeat(40)))
+        );
         let misaligned = unchanged_results(&operations, &results[..2]);
         assert_eq!(misaligned.len(), 2);
         assert!(misaligned[0].get("unchangedReason").is_none());
@@ -577,15 +652,25 @@ mod tests {
         remember_autofit_ranges(&session, &operations[..2]);
         remember_autofit_ranges(&session, &operations[2..]);
         let kept = lock(&session).authored.autofit_ranges.clone();
-        assert_eq!(kept, [json!({ "op": "set_column_width", "sheet": "S", "column": "D", "width": 12 }), json!({ "op": "autofit_range", "sheet": "S", "range": "A:C", "minWidth": 10, "rows": false })]);
+        assert_eq!(
+            kept,
+            [
+                json!({ "op": "set_column_width", "sheet": "S", "column": "D", "width": 12 }),
+                json!({ "op": "autofit_range", "sheet": "S", "range": "A:C", "minWidth": 10, "rows": false })
+            ]
+        );
     }
 
     #[test]
     fn a_provenance_citation_is_composed_once_and_needs_a_source() {
-        let cited = with_provenance_citations(vec![json!({ "op": "add_provenance", "source": { "document": "Report" } }), json!({ "op": "set_cell" })]).expect("cited");
+        let cited =
+            with_provenance_citations(vec![json!({ "op": "add_provenance", "source": { "document": "Report" } }), json!({ "op": "set_cell" })]).expect("cited");
         assert_eq!(cited[1], json!({ "op": "set_cell" }));
         assert!(cited[0]["citation"].as_str().is_some_and(|citation| !citation.is_empty()));
-        assert_eq!(with_provenance_citations(vec![json!({ "op": "add_provenance" })]).expect_err("refused"), "add_provenance requires source with a document or label");
+        assert_eq!(
+            with_provenance_citations(vec![json!({ "op": "add_provenance" })]).expect_err("refused"),
+            "add_provenance requires source with a document or label"
+        );
     }
 
     #[test]
@@ -621,16 +706,19 @@ mod tests {
         assert_eq!(held.design_state.semantic_count, 3);
         assert!(held.design_state.requires_visual_review);
         assert_eq!(held.design_state.compositions, [json!({ "name": "a" })]);
-        assert_eq!(held.design_state.slide_plans, Some(vec![json!({ "slide": 1, "kind": "body", "slideRole": "content" }), json!({ "slide": 2, "kind": "cover" })]));
+        assert_eq!(
+            held.design_state.slide_plans,
+            Some(vec![json!({ "slide": 1, "kind": "body", "slideRole": "content" }), json!({ "slide": 2, "kind": "cover" })])
+        );
     }
-
 
     #[test]
     fn a_portable_batch_keeps_a_backup_beside_the_target_and_office_keeps_none() {
         let portable = batch_safety_plan(&facts(Backend::MixdogOoxml, "docx", Mode::Portable, false, 0), "C:/w/a.docx", &[json!({ "op": "append_text" })]);
         assert!(portable.backup.starts_with("C:/w/a.docx.mixdog-backup-"));
         assert!(!portable.empty_deck_replacement && !portable.needs_com_checkpoint && portable.replacement_source.is_empty());
-        let office = batch_safety_plan(&facts(Backend::MicrosoftOfficeCom, "docx", Mode::Background, false, 0), "C:/w/a.docx", &[json!({ "op": "append_text" })]);
+        let office =
+            batch_safety_plan(&facts(Backend::MicrosoftOfficeCom, "docx", Mode::Background, false, 0), "C:/w/a.docx", &[json!({ "op": "append_text" })]);
         assert!(office.backup.is_empty());
     }
     #[test]
@@ -656,7 +744,6 @@ mod tests {
         assert!(unnamed.portable_template_seed.is_empty());
     }
 }
-
 
 fn batch_safety_plan(facts: &Facts, target: &str, operations: &[Value]) -> SafetyPlan {
     let first = &operations[0];
@@ -688,7 +775,14 @@ fn batch_safety_plan(facts: &Facts, target: &str, operations: &[Value]) -> Safet
 }
 /// Runs the operations on the session's backend and returns the raw results with what the Office host reports about the save and its
 /// undo units.
-async fn run_batch_backend<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, facts: &Facts, args: &Value, target: &str, operations: &[Value], plan: &SafetyPlan) -> Result<Outcome, String> {
+async fn run_batch_backend<P: WriteProof, H: ComHost, B: BatchHost>(
+    cx: &BatchContext<'_, P, H, B>,
+    facts: &Facts,
+    args: &Value,
+    target: &str,
+    operations: &[Value],
+    plan: &SafetyPlan,
+) -> Result<Outcome, String> {
     if facts.microsoft_office() {
         return run_microsoft_batch(cx, facts, args, target, operations, plan).await;
     }
@@ -710,7 +804,11 @@ async fn run_batch_backend<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchCo
     Ok(Outcome { results: Value::Array(results), saved: Some(json!(true)), undo_units: 0, background_isolation: facts.background_isolation.clone() })
 }
 /// `applyBatch(session, args)`: the batch of `args.operations` applied to the session's document, all together or not at all.
-pub async fn apply_batch<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchContext<'_, P, H, B>, handle: &SessionHandle, args: &Value) -> Result<Value, TransactionError> {
+pub async fn apply_batch<P: WriteProof, H: ComHost, B: BatchHost>(
+    cx: &BatchContext<'_, P, H, B>,
+    handle: &SessionHandle,
+    args: &Value,
+) -> Result<Value, TransactionError> {
     let trust = trust_for_mutation(&cx.inspect.snapshot, handle).await?;
     assert_office_mutation_allowed(Some(&trust), args.get("acknowledgeUntrustedContent") == Some(&Value::Bool(true)))?;
     let prepared = prepare_batch_operations(cx, handle, args).await?;
@@ -727,7 +825,14 @@ pub async fn apply_batch<P: WriteProof, H: ComHost, B: BatchHost>(cx: &BatchCont
     }
     let attempt = async {
         let outcome = run_batch_backend(cx, &facts, args, &target, &operations, &plan).await?;
-        commit_batch(cx, handle, &facts, args, Applied { trust: &trust, prepared: &prepared, operations: &operations, has_transaction, target: &target, outcome }).await
+        commit_batch(
+            cx,
+            handle,
+            &facts,
+            args,
+            Applied { trust: &trust, prepared: &prepared, operations: &operations, has_transaction, target: &target, outcome },
+        )
+        .await
     }
     .await;
     if attempt.is_err() {

@@ -44,7 +44,6 @@ fn named(pid: u32, instance: &str, mut core: ServerCore) -> ServerCore {
     core
 }
 
-
 fn served_as(state: DiscoveryPhase, model_proxy: bool) -> ServerCore {
     ServerCore {
         pid: 900,
@@ -102,7 +101,16 @@ struct Access {
 
 impl Access {
     fn launching(script: Scripted) -> Self {
-        Self { found: RefCell::default(), launch_script: RefCell::new(Some(script)), adopt_scripts: RefCell::default(), after_exit: RefCell::default(), clock: std::cell::Cell::new(0), calls: RefCell::default(), awaited: RefCell::default(), running: Vec::new() }
+        Self {
+            found: RefCell::default(),
+            launch_script: RefCell::new(Some(script)),
+            adopt_scripts: RefCell::default(),
+            after_exit: RefCell::default(),
+            clock: std::cell::Cell::new(0),
+            calls: RefCell::default(),
+            awaited: RefCell::default(),
+            running: Vec::new(),
+        }
     }
     /// A core of an earlier run that discovery shows, and what the wait for it observes.
     fn meeting(found: ServerCore, script: Scripted) -> Self {
@@ -204,7 +212,11 @@ fn ensure_with(access: &Access, model_login: Option<crate::server_ensure::args::
     ensure_confirmed(access, model_login, None)
 }
 
-fn ensure_confirmed(access: &Access, model_login: Option<crate::server_ensure::args::ModelLogin>, confirm_token: Option<String>) -> (Result<super::super::report::Report, EnsureError>, bool) {
+fn ensure_confirmed(
+    access: &Access,
+    model_login: Option<crate::server_ensure::args::ModelLogin>,
+    confirm_token: Option<String>,
+) -> (Result<super::super::report::Report, EnsureError>, bool) {
     let home = tempfile::tempdir().unwrap();
     let exe = home.path().join("staged");
     std::fs::write(&exe, b"mixdogd").unwrap();

@@ -59,13 +59,7 @@ pub struct NotifyService {
 }
 
 impl NotifyService {
-    pub fn new(
-        engine: Arc<NotificationEngine>,
-        audience: Arc<dyn AudienceSource>,
-        host: Arc<dyn HostChannel>,
-        push: Arc<dyn PushSink>,
-        ops: OpScopes,
-    ) -> Self {
+    pub fn new(engine: Arc<NotificationEngine>, audience: Arc<dyn AudienceSource>, host: Arc<dyn HostChannel>, push: Arc<dyn PushSink>, ops: OpScopes) -> Self {
         Self { engine, audience, host, push, ops }
     }
 
@@ -167,10 +161,10 @@ impl DomainService for NotifyService {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::sync::Mutex;
-    use mixdog_core_api::host::HostError;
     use crate::notify::decision::{DevicePreferences, PreferencesView};
     use crate::notify::engine::{HostConnection, PairedDevice, ToastStyle};
+    use mixdog_core_api::host::HostError;
+    use std::sync::Mutex;
 
     struct Listeners;
     #[async_trait]
@@ -178,13 +172,15 @@ mod tests {
         async fn audience(&self, _: &str) -> Audience {
             let view = || PreferencesView { preferences: DevicePreferences::default(), overrides: vec![] };
             Audience {
-                pc: view(), hosts: vec![HostConnection { connection_id: "desktop".into(), foreground_thread: None }],
-                devices: ["phone", "browser"].into_iter().map(|id| PairedDevice {
-                    device_id: id.into(), view: view(), foreground_thread: None,
-                }).collect(), desktop_active: false,
+                pc: view(),
+                hosts: vec![HostConnection { connection_id: "desktop".into(), foreground_thread: None }],
+                devices: ["phone", "browser"].into_iter().map(|id| PairedDevice { device_id: id.into(), view: view(), foreground_thread: None }).collect(),
+                desktop_active: false,
             }
         }
-        async fn settings(&self) -> Value { panic!("test must not mutate notification preference defaults") }
+        async fn settings(&self) -> Value {
+            panic!("test must not mutate notification preference defaults")
+        }
     }
     struct Host {
         status: Option<Value>,
@@ -203,7 +199,9 @@ mod tests {
         fn notify(&self, capability: HostCapability, method: Method, params: Value) -> Result<(), CoreError> {
             assert_eq!(capability, HostCapability::Notifications);
             assert_eq!(method.as_str(), SHOW.as_str());
-            if self.fail_send { return Err(CoreError::ConnectionClosed); }
+            if self.fail_send {
+                return Err(CoreError::ConnectionClosed);
+            }
             self.sent.lock().unwrap().push(params);
             Ok(())
         }
@@ -213,9 +211,12 @@ mod tests {
     #[async_trait]
     impl PushSink for Push {
         async fn push(&self, request: &PushRequest) -> Result<(), String> {
-            self.0.lock().unwrap().push(request.device_id.clone()); Ok(())
+            self.0.lock().unwrap().push(request.device_id.clone());
+            Ok(())
         }
-        fn connected(&self) -> bool { true }
+        fn connected(&self) -> bool {
+            true
+        }
     }
 
     #[tokio::test]
@@ -231,13 +232,21 @@ mod tests {
             let dir = tempfile::tempdir().unwrap();
             let host = Arc::new(Host { status, requests: Mutex::new(0), sent: Mutex::new(vec![]), fail_send });
             let push = Arc::new(Push::default());
-            let service = NotifyService::new(Arc::new(NotificationEngine::new(Arc::new(|| ToastStyle::for_volume(75)))),
-                Arc::new(Listeners), host.clone(), push.clone(), mixdog_core_base::support::testing::scopes(dir.path(), "notify").await);
+            let service = NotifyService::new(
+                Arc::new(NotificationEngine::new(Arc::new(|| ToastStyle::for_volume(75)))),
+                Arc::new(Listeners),
+                host.clone(),
+                push.clone(),
+                mixdog_core_base::support::testing::scopes(dir.path(), "notify").await,
+            );
             let result = service.test(Some("pc")).await;
-            assert_eq!(result, match message {
-                Some(message) => json!({"ok": false, "message": message}),
-                None => json!({"ok": true}),
-            });
+            assert_eq!(
+                result,
+                match message {
+                    Some(message) => json!({"ok": false, "message": message}),
+                    None => json!({"ok": true}),
+                }
+            );
             assert_eq!(*host.requests.lock().unwrap(), 1);
             assert_eq!(host.sent.lock().unwrap().len(), usize::from(message.is_none()));
             assert!(push.0.lock().unwrap().is_empty());
@@ -251,15 +260,17 @@ mod tests {
 
     #[tokio::test]
     async fn paired_and_all_tests_do_not_gain_a_desktop_support_gate() {
-        for (target, toasts, devices) in [
-            ("phone", 0, vec!["phone"]), ("browser", 0, vec!["browser"]),
-            ("all", 1, vec!["phone", "browser"]),
-        ] {
+        for (target, toasts, devices) in [("phone", 0, vec!["phone"]), ("browser", 0, vec!["browser"]), ("all", 1, vec!["phone", "browser"])] {
             let dir = tempfile::tempdir().unwrap();
             let host = Arc::new(Host { status: None, requests: Mutex::new(0), sent: Mutex::new(vec![]), fail_send: false });
             let push = Arc::new(Push::default());
-            let service = NotifyService::new(Arc::new(NotificationEngine::new(Arc::new(|| ToastStyle::for_volume(75)))),
-                Arc::new(Listeners), host.clone(), push.clone(), mixdog_core_base::support::testing::scopes(dir.path(), "notify").await);
+            let service = NotifyService::new(
+                Arc::new(NotificationEngine::new(Arc::new(|| ToastStyle::for_volume(75)))),
+                Arc::new(Listeners),
+                host.clone(),
+                push.clone(),
+                mixdog_core_base::support::testing::scopes(dir.path(), "notify").await,
+            );
             assert_eq!(service.test(Some(target)).await, json!({"ok": true}));
             assert_eq!(*host.requests.lock().unwrap(), 0);
             assert_eq!(host.sent.lock().unwrap().len(), toasts);

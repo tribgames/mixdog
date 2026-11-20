@@ -16,7 +16,10 @@ pub enum ReviewContent {
     Bytes(Bytes),
     /// The bytes were not captured (binary or oversized): the review lists the path as changed and
     /// offers no diff or undo for it. `reason` is the capture's own word (`oversized`, …).
-    Omitted { size: u64, reason: Option<String> },
+    Omitted {
+        size: u64,
+        reason: Option<String>,
+    },
 }
 
 impl ReviewContent {

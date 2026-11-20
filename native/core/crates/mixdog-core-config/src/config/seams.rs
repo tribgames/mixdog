@@ -20,8 +20,8 @@ use tokio::sync::Semaphore;
 
 use super::Config;
 use super::ConfigError;
-use crate::tool_modules::builtin_feature_active;
 use crate::tool_modules::adopted_stored_agent;
+use crate::tool_modules::builtin_feature_active;
 
 /// The id of the local provider in `providers`.
 const LOCAL_PROVIDER_ID: &str = "mixdog-local";
@@ -102,11 +102,7 @@ impl ConfigVoiceEnabled {
 
 #[async_trait]
 impl VoiceEnabledStore for ConfigVoiceEnabled {
-    async fn write_enabled(
-        &self,
-        enabled: bool,
-        proceed: &(dyn Fn() -> bool + Send + Sync),
-    ) -> Result<bool, String> {
+    async fn write_enabled(&self, enabled: bool, proceed: &(dyn Fn() -> bool + Send + Sync)) -> Result<bool, String> {
         let _turn = self.gate.acquire().await.map_err(|error| error.to_string())?;
         if !proceed() {
             return Ok(false);

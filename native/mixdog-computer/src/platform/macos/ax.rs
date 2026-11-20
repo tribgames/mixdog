@@ -3,7 +3,7 @@
 
 use super::ffi::*;
 use super::windows;
-use crate::a11y::{normalize_menu_label, Accessibility, Element, MenuOutcome, Node, NodeExtra};
+use crate::a11y::{Accessibility, Element, MenuOutcome, Node, NodeExtra, normalize_menu_label};
 use crate::obj;
 use crate::platform::{Wid, WindowInfo};
 use crate::protocol::Obj;
@@ -38,10 +38,7 @@ pub fn role_of(role: &str, subrole: &str) -> &'static str {
         (_, "AXSecureTextField") => "Edit",
         (_, "AXTabButton") => "TabItem",
         (_, "AXSwitch") | (_, "AXToggle") => "CheckBox",
-        ("AXButton", _)
-        | ("AXDisclosureTriangle", _)
-        | ("AXMenuButton", _)
-        | ("AXColorWell", _) => "Button",
+        ("AXButton", _) | ("AXDisclosureTriangle", _) | ("AXMenuButton", _) | ("AXColorWell", _) => "Button",
         ("AXPopUpButton", _) | ("AXComboBox", _) => "ComboBox",
         ("AXTextField", _) | ("AXTextArea", _) | ("AXSearchField", _) => "Edit",
         ("AXCheckBox", _) => "CheckBox",
@@ -69,15 +66,7 @@ pub fn role_of(role: &str, subrole: &str) -> &'static str {
 }
 
 fn text_value(value: &CFType) -> Option<String> {
-    as_string(value).or_else(|| {
-        as_f64(value).map(|number| {
-            if number.fract() == 0.0 {
-                format!("{}", number as i64)
-            } else {
-                format!("{number}")
-            }
-        })
-    })
+    as_string(value).or_else(|| as_f64(value).map(|number| if number.fract() == 0.0 { format!("{}", number as i64) } else { format!("{number}") }))
 }
 
 fn toggle_label(value: f64) -> String {
@@ -109,21 +98,13 @@ impl AxElement {
     }
     fn press_actions(&self) -> Vec<String> {
         let actions = ax_actions(self.raw());
-        ["AXPress", "AXConfirm", "AXPick", "AXOpen"]
-            .iter()
-            .filter(|name| actions.iter().any(|action| action == *name))
-            .map(|name| name.to_string())
-            .collect()
+        ["AXPress", "AXConfirm", "AXPick", "AXOpen"].iter().filter(|name| actions.iter().any(|action| action == *name)).map(|name| name.to_string()).collect()
     }
     /// The bar that scrolls this element: its own, or that of the nearest
     /// enclosing scroll area — a text area or table names none itself; the
     /// AXScrollArea around it holds the bars.
     fn scroll_bar(&self, horizontal: bool) -> Option<CFType> {
-        let name = if horizontal {
-            "AXHorizontalScrollBar"
-        } else {
-            "AXVerticalScrollBar"
-        };
+        let name = if horizontal { "AXHorizontalScrollBar" } else { "AXVerticalScrollBar" };
         if let Some(bar) = self.attribute(name) {
             return Some(bar);
         }
@@ -133,10 +114,7 @@ impl AxElement {
             if let Ok(bar) = ax_copy(parent.as_CFTypeRef(), name) {
                 return Some(bar);
             }
-            let role = ax_copy(parent.as_CFTypeRef(), "AXRole")
-                .ok()
-                .and_then(|value| as_string(&value))
-                .unwrap_or_default();
+            let role = ax_copy(parent.as_CFTypeRef(), "AXRole").ok().and_then(|value| as_string(&value)).unwrap_or_default();
             if role == "AXWindow" || role == "AXApplication" {
                 return None;
             }
@@ -156,16 +134,12 @@ impl Element for AxElement {
         self.window
     }
     fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
-        let origin = self
-            .attribute("AXPosition")
-            .and_then(|value| as_point(&value))?;
+        let origin = self.attribute("AXPosition").and_then(|value| as_point(&value))?;
         let size = self.attribute("AXSize").and_then(|value| as_size(&value))?;
         Some((origin.x, origin.y, size.width, size.height))
     }
     fn enabled(&self) -> bool {
-        self.attribute("AXEnabled")
-            .and_then(|value| as_bool(&value))
-            .unwrap_or(true)
+        self.attribute("AXEnabled").and_then(|value| as_bool(&value)).unwrap_or(true)
     }
     fn alive(&self) -> bool {
         match ax_copy(self.raw(), "AXRole") {
@@ -181,9 +155,7 @@ impl Element for AxElement {
                 return Ok(());
             }
         }
-        Err(format!(
-            "a11y_action_failed: element exposes no press action (AX error {last})"
-        ))
+        Err(format!("a11y_action_failed: element exposes no press action (AX error {last})"))
     }
     fn can_press(&self) -> bool {
         !self.press_actions().is_empty()
@@ -192,16 +164,13 @@ impl Element for AxElement {
         if !is_toggle(&self.ax_role, &self.ax_subrole) {
             return None;
         }
-        self.attribute("AXValue")
-            .and_then(|value| as_f64(&value))
-            .map(toggle_label)
+        self.attribute("AXValue").and_then(|value| as_f64(&value)).map(toggle_label)
     }
     fn expand_state(&self) -> Option<String> {
         let expanded = if self.ax_role == "AXDisclosureTriangle" {
             self.attribute("AXValue").and_then(|value| as_bool(&value))
         } else {
-            self.attribute("AXExpanded")
-                .and_then(|value| as_bool(&value))
+            self.attribute("AXExpanded").and_then(|value| as_bool(&value))
         }?;
         Some(if expanded { "Expanded" } else { "Collapsed" }.into())
     }
@@ -215,23 +184,15 @@ impl Element for AxElement {
         self.press()
     }
     fn value(&self) -> Option<String> {
-        self.attribute("AXValue")
-            .and_then(|value| text_value(&value))
+        self.attribute("AXValue").and_then(|value| text_value(&value))
     }
     fn settable(&self) -> bool {
-        !is_toggle(&self.ax_role, &self.ax_subrole)
-            && self.ax_role != "AXRadioButton"
-            && ax_settable(self.raw(), "AXValue")
+        !is_toggle(&self.ax_role, &self.ax_subrole) && self.ax_role != "AXRadioButton" && ax_settable(self.raw(), "AXValue")
     }
     fn set_value(&self, text: &str) -> Result<(), String> {
-        let numeric = matches!(
-            self.ax_role.as_str(),
-            "AXSlider" | "AXIncrementor" | "AXStepper"
-        );
+        let numeric = matches!(self.ax_role.as_str(), "AXSlider" | "AXIncrementor" | "AXStepper");
         let value = if numeric {
-            let number: f64 = text.trim().parse().map_err(|_| {
-                format!("a11y_value_failed: '{text}' is not a number for this control")
-            })?;
+            let number: f64 = text.trim().parse().map_err(|_| format!("a11y_value_failed: '{text}' is not a number for this control"))?;
             CFNumber::from(number).as_CFType()
         } else {
             CFString::new(text).as_CFType()
@@ -247,33 +208,19 @@ impl Element for AxElement {
     fn select(&self) -> Result<(), String> {
         match ax_set(self.raw(), "AXSelected", &cf_bool(true)) {
             kAXErrorSuccess => Ok(()),
-            status => Err(format!(
-                "a11y_action_failed: selection rejected (AX error {status})"
-            )),
+            status => Err(format!("a11y_action_failed: selection rejected (AX error {status})")),
         }
     }
-    fn scroll(
-        &self,
-        horizontal: bool,
-        increments: i32,
-    ) -> Result<Option<(String, String)>, String> {
+    fn scroll(&self, horizontal: bool, increments: i32) -> Result<Option<(String, String)>, String> {
         let Some(bar) = self.scroll_bar(horizontal) else {
             return Ok(None);
         };
-        let read = || {
-            ax_copy(bar.as_CFTypeRef(), "AXValue")
-                .ok()
-                .and_then(|value| as_f64(&value))
-        };
+        let read = || ax_copy(bar.as_CFTypeRef(), "AXValue").ok().and_then(|value| as_f64(&value));
         let Some(before) = read() else {
             return Ok(None);
         };
         let target = (before + increments as f64 * 0.05).clamp(0.0, 1.0);
-        let status = ax_set(
-            bar.as_CFTypeRef(),
-            "AXValue",
-            &CFNumber::from(target).as_CFType(),
-        );
+        let status = ax_set(bar.as_CFTypeRef(), "AXValue", &CFNumber::from(target).as_CFType());
         if status != kAXErrorSuccess {
             return Ok(None);
         }
@@ -287,25 +234,14 @@ impl Element for AxElement {
         let mut current = self.attribute("AXParent");
         for depth in 0..80 {
             let Some(parent) = current else { break };
-            let role = ax_copy(parent.as_CFTypeRef(), "AXRole")
-                .ok()
-                .and_then(|value| as_string(&value))
-                .unwrap_or_default();
+            let role = ax_copy(parent.as_CFTypeRef(), "AXRole").ok().and_then(|value| as_string(&value)).unwrap_or_default();
             if role == "AXApplication" {
                 break;
             }
-            let subrole = ax_copy(parent.as_CFTypeRef(), "AXSubrole")
-                .ok()
-                .and_then(|value| as_string(&value))
-                .unwrap_or_default();
-            let name = ax_copy(parent.as_CFTypeRef(), "AXTitle")
-                .ok()
-                .and_then(|value| as_string(&value))
-                .unwrap_or_default();
+            let subrole = ax_copy(parent.as_CFTypeRef(), "AXSubrole").ok().and_then(|value| as_string(&value)).unwrap_or_default();
+            let name = ax_copy(parent.as_CFTypeRef(), "AXTitle").ok().and_then(|value| as_string(&value)).unwrap_or_default();
             // SAFETY: CFHash reads the element's hash.
-            let id = format!("{}:{:x}:{role}", self.pid, unsafe {
-                CFHash(parent.as_CFTypeRef())
-            });
+            let id = format!("{}:{:x}:{role}", self.pid, unsafe { CFHash(parent.as_CFTypeRef()) });
             if depth == 0 {
                 parent_id = id.clone();
             }
@@ -325,12 +261,7 @@ impl Element for AxElement {
         }
     }
     fn range_value(&self) -> Option<String> {
-        matches!(
-            self.ax_role.as_str(),
-            "AXSlider" | "AXIncrementor" | "AXProgressIndicator" | "AXScrollBar"
-        )
-        .then(|| self.value())
-        .flatten()
+        matches!(self.ax_role.as_str(), "AXSlider" | "AXIncrementor" | "AXProgressIndicator" | "AXScrollBar").then(|| self.value()).flatten()
     }
 }
 
@@ -348,50 +279,23 @@ impl MacAccessibility {
     /// instead of asking once per process.
     fn enable_app(&self, pid: i32) {
         let app = application(pid);
-        let enabled = ax_copy(app.as_CFTypeRef() as _, "AXManualAccessibility")
-            .ok()
-            .and_then(|value| as_bool(&value))
-            .unwrap_or(false);
+        let enabled = ax_copy(app.as_CFTypeRef() as _, "AXManualAccessibility").ok().and_then(|value| as_bool(&value)).unwrap_or(false);
         if !enabled {
             ax_set(app.as_CFTypeRef(), "AXManualAccessibility", &cf_bool(true));
         }
     }
 
     fn node(&self, element: CFType, values: &[Option<CFType>], pid: i32, window: Wid) -> Node {
-        let text = |index: usize| {
-            values
-                .get(index)
-                .and_then(|value| value.as_ref())
-                .and_then(as_string)
-                .unwrap_or_default()
-        };
+        let text = |index: usize| values.get(index).and_then(|value| value.as_ref()).and_then(as_string).unwrap_or_default();
         let ax_role = text(0);
         let ax_subrole = text(1);
         let role = role_of(&ax_role, &ax_subrole);
         let raw_value = values.get(4).and_then(|value| value.clone());
-        let enabled = values
-            .get(5)
-            .and_then(|value| value.as_ref())
-            .and_then(as_bool)
-            .unwrap_or(true);
-        let origin = values
-            .get(6)
-            .and_then(|value| value.as_ref())
-            .and_then(as_point)
-            .unwrap_or_default();
-        let size = values
-            .get(7)
-            .and_then(|value| value.as_ref())
-            .and_then(as_size)
-            .unwrap_or_default();
-        let selected_flag = values
-            .get(10)
-            .and_then(|value| value.as_ref())
-            .and_then(as_bool);
-        let expanded_flag = values
-            .get(11)
-            .and_then(|value| value.as_ref())
-            .and_then(as_bool);
+        let enabled = values.get(5).and_then(|value| value.as_ref()).and_then(as_bool).unwrap_or(true);
+        let origin = values.get(6).and_then(|value| value.as_ref()).and_then(as_point).unwrap_or_default();
+        let size = values.get(7).and_then(|value| value.as_ref()).and_then(as_size).unwrap_or_default();
+        let selected_flag = values.get(10).and_then(|value| value.as_ref()).and_then(as_bool);
+        let expanded_flag = values.get(11).and_then(|value| value.as_ref()).and_then(as_bool);
         let mut name = text(2);
         if name.is_empty() {
             name = text(3);
@@ -400,64 +304,22 @@ impl MacAccessibility {
         if name.is_empty() && role == "Text" {
             name = value_text.clone();
         }
-        let toggle = if is_toggle(&ax_role, &ax_subrole) {
-            raw_value
-                .as_ref()
-                .and_then(as_f64)
-                .map(toggle_label)
-                .unwrap_or_default()
-        } else {
-            String::new()
-        };
+        let toggle = if is_toggle(&ax_role, &ax_subrole) { raw_value.as_ref().and_then(as_f64).map(toggle_label).unwrap_or_default() } else { String::new() };
         let selected = if ax_role == "AXRadioButton" {
-            raw_value
-                .as_ref()
-                .and_then(as_bool)
-                .map(|flag| if flag { "True" } else { "False" }.to_string())
-                .unwrap_or_default()
+            raw_value.as_ref().and_then(as_bool).map(|flag| if flag { "True" } else { "False" }.to_string()).unwrap_or_default()
         } else {
-            selected_flag
-                .map(|flag| if flag { "True" } else { "False" }.to_string())
-                .unwrap_or_default()
+            selected_flag.map(|flag| if flag { "True" } else { "False" }.to_string()).unwrap_or_default()
         };
-        let expanded = if ax_role == "AXDisclosureTriangle" {
-            raw_value.as_ref().and_then(as_bool)
-        } else {
-            expanded_flag
-        }
-        .map(|flag| if flag { "Expanded" } else { "Collapsed" }.to_string())
-        .unwrap_or_default();
-        let range = if matches!(role, "Slider" | "Spinner" | "ProgressBar") {
-            value_text.clone()
-        } else {
-            String::new()
-        };
-        let value = if matches!(role, "Edit" | "ComboBox" | "Document" | "Hyperlink") {
-            value_text
-        } else {
-            String::new()
-        };
-        let can_set_value = matches!(role, "Edit" | "ComboBox" | "Slider" | "Spinner")
-            && ax_settable(element.as_CFTypeRef(), "AXValue");
-        let can_invoke = matches!(
-            role,
-            "Button"
-                | "CheckBox"
-                | "RadioButton"
-                | "MenuItem"
-                | "Hyperlink"
-                | "TabItem"
-                | "ComboBox"
-                | "SplitButton"
-        ) || (matches!(role, "ListItem" | "TreeItem") && selected_flag.is_some());
+        let expanded = if ax_role == "AXDisclosureTriangle" { raw_value.as_ref().and_then(as_bool) } else { expanded_flag }
+            .map(|flag| if flag { "Expanded" } else { "Collapsed" }.to_string())
+            .unwrap_or_default();
+        let range = if matches!(role, "Slider" | "Spinner" | "ProgressBar") { value_text.clone() } else { String::new() };
+        let value = if matches!(role, "Edit" | "ComboBox" | "Document" | "Hyperlink") { value_text } else { String::new() };
+        let can_set_value = matches!(role, "Edit" | "ComboBox" | "Slider" | "Spinner") && ax_settable(element.as_CFTypeRef(), "AXValue");
+        let can_invoke = matches!(role, "Button" | "CheckBox" | "RadioButton" | "MenuItem" | "Hyperlink" | "TabItem" | "ComboBox" | "SplitButton")
+            || (matches!(role, "ListItem" | "TreeItem") && selected_flag.is_some());
         Node {
-            element: Rc::new(AxElement {
-                element,
-                pid,
-                window,
-                ax_role: ax_role.clone(),
-                ax_subrole,
-            }),
+            element: Rc::new(AxElement { element, pid, window, ax_role: ax_role.clone(), ax_subrole }),
             role: role.to_string(),
             name,
             automation_id: text(8),
@@ -483,42 +345,26 @@ impl MacAccessibility {
 }
 
 fn children_of(values: &[Option<CFType>]) -> Vec<CFType> {
-    values
-        .get(9)
-        .and_then(|value| value.as_ref())
-        .map(ax_elements)
-        .unwrap_or_default()
+    values.get(9).and_then(|value| value.as_ref()).map(ax_elements).unwrap_or_default()
 }
 
 fn menu_children(element: &CFType) -> Vec<CFType> {
-    ax_copy(element.as_CFTypeRef(), "AXChildren")
-        .map(|value| ax_elements(&value))
-        .unwrap_or_default()
+    ax_copy(element.as_CFTypeRef(), "AXChildren").map(|value| ax_elements(&value)).unwrap_or_default()
 }
 
 fn title_of(element: &CFType) -> String {
-    ax_copy(element.as_CFTypeRef(), "AXTitle")
-        .ok()
-        .and_then(|value| as_string(&value))
-        .unwrap_or_default()
+    ax_copy(element.as_CFTypeRef(), "AXTitle").ok().and_then(|value| as_string(&value)).unwrap_or_default()
 }
 
 fn enabled_of(element: &CFType) -> bool {
-    ax_copy(element.as_CFTypeRef(), "AXEnabled")
-        .ok()
-        .and_then(|value| as_bool(&value))
-        .unwrap_or(true)
+    ax_copy(element.as_CFTypeRef(), "AXEnabled").ok().and_then(|value| as_bool(&value)).unwrap_or(true)
 }
 
 /// The AXMenu under a menu item, if it opens one.
 fn submenu_of(element: &CFType) -> Option<CFType> {
-    menu_children(element).into_iter().find(|child| {
-        ax_copy(child.as_CFTypeRef(), "AXRole")
-            .ok()
-            .and_then(|value| as_string(&value))
-            .as_deref()
-            == Some("AXMenu")
-    })
+    menu_children(element)
+        .into_iter()
+        .find(|child| ax_copy(child.as_CFTypeRef(), "AXRole").ok().and_then(|value| as_string(&value)).as_deref() == Some("AXMenu"))
 }
 
 impl Accessibility for MacAccessibility {
@@ -530,33 +376,13 @@ impl Accessibility for MacAccessibility {
         Err("accessibility_permission_required: allow Mixdog under System Settings > Privacy & Security > Accessibility, then retry".into())
     }
 
-    fn snapshot(
-        &self,
-        window: &WindowInfo,
-        _include_noninteractive: bool,
-        limit: usize,
-    ) -> Result<Vec<Node>, String> {
+    fn snapshot(&self, window: &WindowInfo, _include_noninteractive: bool, limit: usize) -> Result<Vec<Node>, String> {
         let pid = window.pid as i32;
         self.enable_app(pid);
-        let root = windows::ax_window(pid, window.handle).ok_or_else(|| {
-            format!(
-                "window has no accessibility root: {} {}",
-                window.id(),
-                window.title
-            )
-        })?;
-        let attributes: CFArray<CFString> = CFArray::from_CFTypes(
-            &ATTRIBUTES
-                .iter()
-                .map(|name| CFString::new(name))
-                .collect::<Vec<_>>(),
-        );
+        let root = windows::ax_window(pid, window.handle).ok_or_else(|| format!("window has no accessibility root: {} {}", window.id(), window.title))?;
+        let attributes: CFArray<CFString> = CFArray::from_CFTypes(&ATTRIBUTES.iter().map(|name| CFString::new(name)).collect::<Vec<_>>());
         let mut nodes = Vec::new();
-        let mut stack: Vec<(CFType, u32)> = menu_children(&root.element)
-            .into_iter()
-            .rev()
-            .map(|child| (child, 1))
-            .collect();
+        let mut stack: Vec<(CFType, u32)> = menu_children(&root.element).into_iter().rev().map(|child| (child, 1)).collect();
         while let Some((element, depth)) = stack.pop() {
             if nodes.len() >= limit {
                 break;
@@ -585,55 +411,27 @@ impl Accessibility for MacAccessibility {
         let Ok(focused) = ax_copy(system.as_CFTypeRef(), "AXFocusedUIElement") else {
             return true;
         };
-        let role = ax_copy(focused.as_CFTypeRef(), "AXRole")
-            .ok()
-            .and_then(|value| as_string(&value))
-            .unwrap_or_default();
-        let subrole = ax_copy(focused.as_CFTypeRef(), "AXSubrole")
-            .ok()
-            .and_then(|value| as_string(&value))
-            .unwrap_or_default();
+        let role = ax_copy(focused.as_CFTypeRef(), "AXRole").ok().and_then(|value| as_string(&value)).unwrap_or_default();
+        let subrole = ax_copy(focused.as_CFTypeRef(), "AXSubrole").ok().and_then(|value| as_string(&value)).unwrap_or_default();
         role.contains("Secure") || subrole.contains("Secure")
     }
 
     /// Menus belong to the application's menu bar; each level is matched by
     /// its label and the final item is pressed without opening any menu.
-    fn invoke_menu(
-        &self,
-        window: &WindowInfo,
-        path: &[String],
-        authorize: crate::platform::Authorize<'_>,
-    ) -> Result<MenuOutcome, String> {
+    fn invoke_menu(&self, window: &WindowInfo, path: &[String], authorize: crate::platform::Authorize<'_>) -> Result<MenuOutcome, String> {
         let app = application(window.pid as i32);
-        let bar = ax_copy(app.as_CFTypeRef(), "AXMenuBar")
-            .map_err(|_| "menu_path_not_found: this application exposes no menu bar".to_string())?;
+        let bar = ax_copy(app.as_CFTypeRef(), "AXMenuBar").map_err(|_| "menu_path_not_found: this application exposes no menu bar".to_string())?;
         let mut items = menu_children(&bar);
         let mut walked: Vec<String> = Vec::new();
         for (index, segment) in path.iter().enumerate() {
             let wanted = normalize_menu_label(segment);
-            let matches: Vec<CFType> = items
-                .iter()
-                .filter(|item| normalize_menu_label(&title_of(item)) == wanted)
-                .cloned()
-                .collect();
+            let matches: Vec<CFType> = items.iter().filter(|item| normalize_menu_label(&title_of(item)) == wanted).cloned().collect();
             if matches.is_empty() {
-                let available: Vec<String> = items
-                    .iter()
-                    .map(title_of)
-                    .filter(|title| !title.trim().is_empty())
-                    .take(20)
-                    .collect();
-                return Err(format!(
-                    "menu_path_not_found: no menu entry named '{segment}' after {}; entries: {}",
-                    walked.join(" > "),
-                    available.join(", ")
-                ));
+                let available: Vec<String> = items.iter().map(title_of).filter(|title| !title.trim().is_empty()).take(20).collect();
+                return Err(format!("menu_path_not_found: no menu entry named '{segment}' after {}; entries: {}", walked.join(" > "), available.join(", ")));
             }
             if matches.len() > 1 {
-                return Err(format!(
-                    "menu_path_ambiguous: '{segment}' matched {} entries; use a more exact path",
-                    matches.len()
-                ));
+                return Err(format!("menu_path_ambiguous: '{segment}' matched {} entries; use a more exact path", matches.len()));
             }
             let item = &matches[0];
             if !enabled_of(item) {
@@ -643,33 +441,20 @@ impl Accessibility for MacAccessibility {
             let submenu = submenu_of(item);
             if index + 1 < path.len() {
                 let Some(submenu) = submenu else {
-                    return Err(format!(
-                        "menu_path_not_found: '{segment}' opens no submenu for '{}'",
-                        path[index + 1]
-                    ));
+                    return Err(format!("menu_path_not_found: '{segment}' opens no submenu for '{}'", path[index + 1]));
                 };
                 items = menu_children(&submenu);
                 continue;
             }
             if submenu.is_some() {
-                return Err(format!(
-                    "menu_item_not_invokable: '{segment}' opens a submenu; name one of its entries"
-                ));
+                return Err(format!("menu_item_not_invokable: '{segment}' opens a submenu; name one of its entries"));
             }
             authorize()?;
-            let pressed = ["AXPress", "AXPick"]
-                .iter()
-                .any(|action| ax_perform(item.as_CFTypeRef(), action) == kAXErrorSuccess);
+            let pressed = ["AXPress", "AXPick"].iter().any(|action| ax_perform(item.as_CFTypeRef(), action) == kAXErrorSuccess);
             if !pressed {
-                return Err(format!(
-                    "menu_item_not_invokable: '{segment}' exposes no menu action"
-                ));
+                return Err(format!("menu_item_not_invokable: '{segment}' exposes no menu action"));
             }
-            return Ok(MenuOutcome {
-                path: "a11y_menu",
-                verified: false,
-                message: format!("invoked menu path: {}", walked.join(" > ")),
-            });
+            return Ok(MenuOutcome { path: "a11y_menu", verified: false, message: format!("invoked menu path: {}", walked.join(" > ")) });
         }
         Err("menu path must have 1..8 segments".into())
     }

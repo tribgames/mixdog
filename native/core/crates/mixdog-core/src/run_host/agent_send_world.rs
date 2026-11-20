@@ -28,19 +28,19 @@ use mixdog_core_ports::ports::route::ChatRouteSetter;
 use mixdog_core_ports::ports::route::FollowOptions;
 use mixdog_core_run::run_host::route_chain::BotRoutes;
 use mixdog_core_run::run_host::route_chain::route_candidates;
-use mixdog_rt::CancellationToken;
-use mixdog_rt::InteractiveIo;
-use mixdog_store::blobs::BlobStore;
-use mixdog_store::schema::bounded::Digest;
+use mixdog_core_session::session::Clock;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::agent_registry::AgentRegistry;
 use mixdog_core_session::session::agent_registry::LiveSessions;
 use mixdog_core_session::session::agent_registry::Row;
 use mixdog_core_session::session::delegation::rebind_patch;
 use mixdog_core_session::session::delete::is_session_id;
-use mixdog_core_session::session::Clock;
-use mixdog_core_session::session::runtime_facts::RuntimeFacts;
 use mixdog_core_session::session::run_stamps::Records;
+use mixdog_core_session::session::runtime_facts::RuntimeFacts;
+use mixdog_rt::CancellationToken;
+use mixdog_rt::InteractiveIo;
+use mixdog_store::blobs::BlobStore;
+use mixdog_store::schema::bounded::Digest;
 use mixdog_tools::orch::util::PortError;
 use serde_json::Map;
 use serde_json::Value;
@@ -71,7 +71,10 @@ fn port_message(error: PortError) -> SendWorldError {
     SendWorldError::Port(match error {
         PortError::Invalid { reason, .. } => reason,
         PortError::Denied(message) => message,
-        PortError::Refused { message, .. } | PortError::Unavailable { message, .. } | PortError::NotFound { message, .. } | PortError::Failed { message, .. } => message,
+        PortError::Refused { message, .. }
+        | PortError::Unavailable { message, .. }
+        | PortError::NotFound { message, .. }
+        | PortError::Failed { message, .. } => message,
         PortError::Cancelled => "cancelled".to_owned(),
     })
 }
@@ -119,11 +122,7 @@ pub struct ThreadHeaders(pub Arc<mixdog_core_session::session::thread_state::Ses
 #[async_trait]
 impl HeaderWrites for ThreadHeaders {
     async fn patch(&self, session: &str, set: Map<String, Value>, expected_generation: Option<f64>) -> Result<(), SendWorldError> {
-        self.0
-            .patch_header_fenced(&ThreadId::from(session), expected_generation, set, Vec::new())
-            .await
-            .map(|_| ())
-            .map_err(port_message)
+        self.0.patch_header_fenced(&ThreadId::from(session), expected_generation, set, Vec::new()).await.map(|_| ()).map_err(port_message)
     }
 }
 
@@ -134,7 +133,14 @@ pub trait TurnQueue: Send + Sync {
     /// Whether the runtime took the prompt (`content` is the text, or the text with the forwarded
     /// attachment parts; `context` the follow-up's own; `sizes` the stored files' sizes by
     /// `attachmentRef`, for the message's attachment records).
-    async fn submit_next(&self, session: &str, content: Value, submission: &str, context: Option<String>, sizes: BTreeMap<String, u32>) -> Result<bool, SendWorldError>;
+    async fn submit_next(
+        &self,
+        session: &str,
+        content: Value,
+        submission: &str,
+        context: Option<String>,
+        sizes: BTreeMap<String, u32>,
+    ) -> Result<bool, SendWorldError>;
 }
 
 /// `runtime.getState()` of a session this process hosts, as the agent tree reads it.
@@ -182,7 +188,14 @@ pub struct DirectoryQueue {
 
 #[async_trait]
 impl TurnQueue for DirectoryQueue {
-    async fn submit_next(&self, session: &str, content: Value, submission: &str, context: Option<String>, sizes: BTreeMap<String, u32>) -> Result<bool, SendWorldError> {
+    async fn submit_next(
+        &self,
+        session: &str,
+        content: Value,
+        submission: &str,
+        context: Option<String>,
+        sizes: BTreeMap<String, u32>,
+    ) -> Result<bool, SendWorldError> {
         let thread = ThreadId::from(session);
         let Some(handle) = self.directory.handle(&thread) else {
             return Err(SendWorldError::Submit(format!("agent session {session} is not loaded")));
@@ -288,11 +301,7 @@ impl SendWorld for AgentSendWorld {
         row.insert("status".into(), Value::String(status.clone()));
         row.insert("stage".into(), Value::String(status));
         let items = facts.map_or(0, |facts| facts.items);
-        let count = if items > 0 {
-            items as f64
-        } else {
-            number(row.get("messageCount")).max(0.0)
-        };
+        let count = if items > 0 { items as f64 } else { number(row.get("messageCount")).max(0.0) };
         row.insert("messageCount".into(), json!(count as u64));
         if !truthy(row.get("updatedAt")) {
             row.insert("updatedAt".into(), json!(self.clock.now_ms()));
@@ -525,7 +534,14 @@ mod tests {
     }
     #[async_trait]
     impl TurnQueue for Queue {
-        async fn submit_next(&self, session: &str, content: Value, submission: &str, context: Option<String>, sizes: BTreeMap<String, u32>) -> Result<bool, SendWorldError> {
+        async fn submit_next(
+            &self,
+            session: &str,
+            content: Value,
+            submission: &str,
+            context: Option<String>,
+            sizes: BTreeMap<String, u32>,
+        ) -> Result<bool, SendWorldError> {
             self.sizes.lock().unwrap().push(sizes);
             assert!(submission.starts_with("agent-message-"));
             self.submitted.lock().unwrap().push((session.to_owned(), content, context));
@@ -738,6 +754,4 @@ mod tests {
         assert_eq!(written[0].1.get("run"), Some(&Value::Null));
         assert_eq!(written[0].2, Some(3.0), "the save is issued for the generation of the record it was computed from (`delegation.mjs:227`)");
     }
-
-
 }

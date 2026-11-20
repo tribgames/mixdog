@@ -19,10 +19,6 @@ use mixdog_agent::RunCarry;
 use mixdog_agent::RunConfig;
 use mixdog_agent::cancel::Abort;
 use mixdog_agent::cancel::Cancel;
-use mixdog_agent::interrupt::AbortReason;
-use mixdog_agent::interrupt::Interrupted;
-use mixdog_agent::interrupt::Phase;
-use mixdog_agent::interrupt::finalize_interrupted_turn;
 use mixdog_agent::env::BoundAccount;
 use mixdog_agent::env::Clock;
 use mixdog_agent::env::CommitError;
@@ -40,16 +36,20 @@ use mixdog_agent::env::RunEnv;
 use mixdog_agent::env::RunEvent;
 use mixdog_agent::env::RunObserver;
 use mixdog_agent::env::Stage;
-use mixdog_agent::env::ToolBatch;
-use mixdog_agent::env::ToolPhase;
-use mixdog_agent::message::Source;
 use mixdog_agent::env::SteerEntry;
 use mixdog_agent::env::SteerSource;
 use mixdog_agent::env::TextRetraction;
 use mixdog_agent::env::Ticket;
+use mixdog_agent::env::ToolBatch;
 use mixdog_agent::env::ToolHooks;
+use mixdog_agent::env::ToolPhase;
 use mixdog_agent::env::TranscriptSink;
+use mixdog_agent::interrupt::AbortReason;
+use mixdog_agent::interrupt::Interrupted;
+use mixdog_agent::interrupt::Phase;
+use mixdog_agent::interrupt::finalize_interrupted_turn;
 use mixdog_agent::message::AgentMessage;
+use mixdog_agent::message::Source;
 use mixdog_agent::message::ToolKind;
 use mixdog_agent::tools::ToolEnv;
 use mixdog_agent::tools::ToolSet;
@@ -63,14 +63,14 @@ use mixdog_core_api::domain::mock::MockFileService;
 use mixdog_core_api::domain::mock::MockProcessManager;
 use mixdog_core_api::domain::mock::MockProgress;
 use mixdog_core_api::domain::mock::MockRetryDecider;
+use mixdog_core_api::domain::provider::CacheTier;
 use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::DeliveryState;
+use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::ModelStream;
 use mixdog_core_api::domain::provider::ProviderAdapter;
 use mixdog_core_api::domain::provider::ProviderError;
-use mixdog_core_api::domain::provider::CacheTier;
-use mixdog_core_api::domain::provider::Message;
 use mixdog_core_api::domain::provider::Role;
 use mixdog_core_api::domain::provider::StopReason;
 use mixdog_core_api::domain::provider::StreamEvent;
@@ -311,11 +311,8 @@ struct Probe {
 impl Probe {
     fn new(name: &str, executed: &Arc<Mutex<Vec<Value>>>, timeline: &Timeline, stages: &Arc<Stages>) -> Arc<dyn Tool> {
         let read_only = matches!(name, "probe_read" | "read" | "find" | "glob" | "list" | "grep" | "code_graph");
-        let annotations = ToolAnnotations {
-            read_only_hint: Some(read_only),
-            idempotent_hint: (name == "probe_read").then_some(true),
-            ..ToolAnnotations::default()
-        };
+        let annotations =
+            ToolAnnotations { read_only_hint: Some(read_only), idempotent_hint: (name == "probe_read").then_some(true), ..ToolAnnotations::default() };
         // `mcp__<server>__<tool>` answers with the server's own name of the tool.
         let leaf = name.strip_prefix("mcp__").map_or(name, |rest| rest.split_once("__").map_or(rest, |(_, tool)| tool));
         let annotations = if name.starts_with("mcp__") { ToolAnnotations { read_only_hint: Some(false), ..ToolAnnotations::default() } } else { annotations };
@@ -355,7 +352,13 @@ impl Tool for Probe {
         self.timeline.note(json!({ "ev": "ran", "name": self.spec.name, "args": args }));
         self.stages.step("tool", &self.spec.name, &args).await;
         if PRODUCT_TOOLS.contains(&self.spec.name.as_str()) {
-            let (name, answer) = self.stages.product_answers.lock().expect("answers").pop_front().unwrap_or_else(|| panic!("{} ran more often than Node ran it", self.spec.name));
+            let (name, answer) = self
+                .stages
+                .product_answers
+                .lock()
+                .expect("answers")
+                .pop_front()
+                .unwrap_or_else(|| panic!("{} ran more often than Node ran it", self.spec.name));
             assert_eq!(name, self.spec.name, "the product tools ran in Node's order");
             return Ok(ToolOutput { parts: vec![ToolPart::Text(answer)], ..ToolOutput::default() });
         }
@@ -398,8 +401,18 @@ impl CatalogView for Catalog {
             .iter()
             .chain(&self.deferred)
             .map(|name| match self.defined.iter().find(|def| def["name"] == name.as_str()) {
-                Some(def) => ToolDoc { name: name.clone(), description: def["description"].as_str().unwrap_or_default().to_owned(), input_schema: def["inputSchema"].clone(), annotations: def["annotations"].clone() },
-                None => ToolDoc { name: name.clone(), description: format!("{name} probe"), input_schema: json!({ "type": "object", "properties": {} }), annotations: json!({}) },
+                Some(def) => ToolDoc {
+                    name: name.clone(),
+                    description: def["description"].as_str().unwrap_or_default().to_owned(),
+                    input_schema: def["inputSchema"].clone(),
+                    annotations: def["annotations"].clone(),
+                },
+                None => ToolDoc {
+                    name: name.clone(),
+                    description: format!("{name} probe"),
+                    input_schema: json!({ "type": "object", "properties": {} }),
+                    annotations: json!({}),
+                },
             })
             .collect()
     }
@@ -639,7 +652,15 @@ impl ProviderAdapter for Replies {
         };
         self.timeline.note(json!({ "ev": "sent", "n": number }));
         let Reply { events, settles, cut } = self.script.lock().expect("script").pop_front().expect("the script ran out of replies");
-        Ok(Box::new(Steps { stages: self.stages.clone(), events: events.into(), streamed: self.streamed, settles, cut, timeline: self.timeline.clone(), request: number }))
+        Ok(Box::new(Steps {
+            stages: self.stages.clone(),
+            events: events.into(),
+            streamed: self.streamed,
+            settles,
+            cut,
+            timeline: self.timeline.clone(),
+            request: number,
+        }))
     }
 }
 
@@ -665,7 +686,12 @@ fn replies(script: &Value, streamed: bool) -> Vec<Reply> {
             Some(calls) => {
                 let calls: Vec<ToolCall> = calls
                     .iter()
-                    .map(|call| ToolCall { id: call["id"].as_str().expect("id").into(), name: call["name"].as_str().expect("name").into(), arguments: call["arguments"].clone(), native_type: None })
+                    .map(|call| ToolCall {
+                        id: call["id"].as_str().expect("id").into(),
+                        name: call["name"].as_str().expect("name").into(),
+                        arguments: call["arguments"].clone(),
+                        native_type: None,
+                    })
                     .collect();
                 let done = StreamEvent::Completed { stop: Some(StopReason::ToolUse), pricing_model: None, request_ms: None };
                 let cut = step["cut"] == true;
@@ -677,7 +703,15 @@ fn replies(script: &Value, streamed: bool) -> Vec<Reply> {
                     Reply { events: vec![StreamEvent::ReturnedCalls(calls), answered(), done], settles: Vec::new(), cut }
                 }
             }
-            None => Reply { events: vec![StreamEvent::TextDelta(step["text"].as_str().expect("text").into()), answered(), StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None }], settles: Vec::new(), cut: false },
+            None => Reply {
+                events: vec![
+                    StreamEvent::TextDelta(step["text"].as_str().expect("text").into()),
+                    answered(),
+                    StreamEvent::Completed { stop: Some(StopReason::EndTurn), pricing_model: None, request_ms: None },
+                ],
+                settles: Vec::new(),
+                cut: false,
+            },
         })
         .collect()
 }
@@ -781,9 +815,6 @@ fn role_name(role: Role) -> &'static str {
     }
 }
 
-
-
-
 /// A message the run is given, as the recording shows it.
 fn input_message(message: &Value) -> AgentMessage {
     let text = message["content"].as_str().expect("input text").to_owned();
@@ -838,7 +869,8 @@ fn stored_view(message: &AgentMessage) -> Value {
         shown["toolKind"] = json!(kind_of(kind));
     }
     if message.tool_timing.is_some() {
-        shown["toolTiming"] = json!({ "dispatchStartedAt": 0, "executionStartedAt": 0, "executionCompletedAt": 0, "postprocessStartedAt": 0, "resultCompletedAt": 0 });
+        shown["toolTiming"] =
+            json!({ "dispatchStartedAt": 0, "executionStartedAt": 0, "executionCompletedAt": 0, "postprocessStartedAt": 0, "resultCompletedAt": 0 });
     }
     shown
 }
@@ -964,12 +996,6 @@ fn batch_view(batch: &ToolBatch) -> Value {
 
 // ---- the comparison: by subtraction ----------------------------------------------------------------------------------------------------
 
-
-
-
-
-
-
 enum Step<'a> {
     Key(&'a str),
     Every,
@@ -1035,7 +1061,6 @@ fn an_emptied_parent_goes_and_an_empty_object_stays() {
     assert_eq!(empty, json!({ "rows": [{ "meta": { "stamp": {} } }, { "meta": {} }] }));
 }
 
-
 impl RunObserver for Events {
     fn event(&self, event: RunEvent) {
         if let Some(callback) = callback_of(&event, self.5.as_str()) {
@@ -1075,7 +1100,8 @@ async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
     let disallowed = strings(&session["disallowedTools"]);
     let allowed = session.get("schemaAllowedTools").map(strings);
     let permitted = |name: &String| {
-        !disallowed.iter().any(|denied| denied.eq_ignore_ascii_case(name)) && allowed.as_ref().is_none_or(|allowed| allowed.iter().any(|ok| ok.eq_ignore_ascii_case(name)))
+        !disallowed.iter().any(|denied| denied.eq_ignore_ascii_case(name))
+            && allowed.as_ref().is_none_or(|allowed| allowed.iter().any(|ok| ok.eq_ignore_ascii_case(name)))
     };
     let deferred: Vec<String> = strings(&surface["catalog"]).into_iter().filter(|name| !eager.contains(name) && permitted(name)).collect();
     let live_mcp = if scenario["mcp"].as_bool() == Some(true) { vec!["mcp__mail__send".to_owned()] } else { Vec::new() };
@@ -1091,10 +1117,16 @@ async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
     let stages = Stages::new(&scenario["gates"], &timeline, product_answers);
 
     // The registry holds every tool; the surface offers the eager ones (and the bridge's two).
-    let everything: Vec<String> = eager.iter().chain(&deferred).chain(&strings(&surface["catalog"])).cloned().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
-    let mut registry: Vec<Arc<dyn Tool>> = everything.iter().filter(|name| !matches!(name.as_str(), "load_tool" | "call_tool")).map(|name| Probe::new(name, &executed, &timeline, &stages)).collect();
+    let everything: Vec<String> =
+        eager.iter().chain(&deferred).chain(&strings(&surface["catalog"])).cloned().collect::<std::collections::BTreeSet<_>>().into_iter().collect();
+    let mut registry: Vec<Arc<dyn Tool>> = everything
+        .iter()
+        .filter(|name| !matches!(name.as_str(), "load_tool" | "call_tool"))
+        .map(|name| Probe::new(name, &executed, &timeline, &stages))
+        .collect();
     // The recorder registers these as internal tools, which answer before a built-in one of the name.
-    registry.extend(strings(&scenario["internal"]).iter().filter(|name| !everything.contains(name)).map(|name| Probe::new(name, &executed, &timeline, &stages)));
+    registry
+        .extend(strings(&scenario["internal"]).iter().filter(|name| !everything.contains(name)).map(|name| Probe::new(name, &executed, &timeline, &stages)));
     if scenario["mcp"].as_bool() == Some(true) {
         registry.push(Probe::new("mcp__mail__send", &executed, &timeline, &stages));
     }
@@ -1102,7 +1134,8 @@ async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
     // The session's persisted deferred surface (`deferredSurfaceMode`), set apart from its tool mode.
     let deferred_readonly = surface["deferredSurfaceMode"] == "readonly";
     let mcp_names = (scenario["mcp"].as_bool() == Some(true)).then(|| live_mcp.clone());
-    let catalog = Arc::new(Catalog { eager: eager.clone(), deferred: deferred.clone(), live_mcp, defined: defined.to_vec(), readonly: readonly || deferred_readonly });
+    let catalog =
+        Arc::new(Catalog { eager: eager.clone(), deferred: deferred.clone(), live_mcp, defined: defined.to_vec(), readonly: readonly || deferred_readonly });
     let mut offered: Vec<Arc<dyn Tool>> = Vec::new();
     for name in &eager {
         match name.as_str() {
@@ -1133,7 +1166,14 @@ async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
     let token = CancellationToken::new();
     let signal = Cancel::from_token(&token);
     let callbacks_log: Callbacks = Arc::default();
-    let observer = Arc::new(Events(Mutex::default(), timeline.clone(), token.clone(), Mutex::default(), callbacks_log.clone(), ThreadId::from(scenario["sessionId"].as_str().expect("sessionId"))));
+    let observer = Arc::new(Events(
+        Mutex::default(),
+        timeline.clone(),
+        token.clone(),
+        Mutex::default(),
+        callbacks_log.clone(),
+        ThreadId::from(scenario["sessionId"].as_str().expect("sessionId")),
+    ));
     let approvals = Arc::new(Cards { answers: MockApprovalGate::default(), timeline: timeline.clone(), stages: stages.clone() });
     for answer in scenario["answers"].as_array().expect("answers") {
         approvals.answers.script.lock().expect("script").push_back(ApprovalResolution::Decided {
@@ -1248,7 +1288,8 @@ async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
     // The client's interrupt (`abortSessionTurn(<session>, <reason>)`) the moment every entry of `abortWhen` has happened.
     let abort_reason = scenario["abortReason"].as_str().map(str::to_owned);
     let canceller = scenario["abortWhen"].as_array().map(|wanted| {
-        let (wanted, timeline, signal, thread, reason) = (wanted.clone(), timeline.clone(), signal.clone(), thread.clone(), abort_reason.clone().expect("abortReason"));
+        let (wanted, timeline, signal, thread, reason) =
+            (wanted.clone(), timeline.clone(), signal.clone(), thread.clone(), abort_reason.clone().expect("abortReason"));
         tokio::spawn(async move {
             for entry in &wanted {
                 timeline.until(entry, "the moment to cancel").await;
@@ -1266,13 +1307,8 @@ async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
         timeline.note(json!({ "ev": "turnEnded" }));
     }
 
-    let requests: Vec<Value> = provider
-        .requests
-        .lock()
-        .expect("requests")
-        .iter()
-        .map(|request| json!(request.messages.iter().map(wire_view).collect::<Vec<_>>()))
-        .collect();
+    let requests: Vec<Value> =
+        provider.requests.lock().expect("requests").iter().map(|request| json!(request.messages.iter().map(wire_view).collect::<Vec<_>>())).collect();
     let (answer, turn_error, transcript) = match (ran, &canceller) {
         (Ok(output), None) => {
             // The answer is the transcript's last message, which the run returns apart from it, with the run's own counters.
@@ -1293,7 +1329,14 @@ async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
             // against `fixtures/interrupt/golden.json` by `interrupt::tests`) over the loop's transcript at the stop, with what the host
             // had seen of the run by then, as `run_host/factory.rs` `close_cancelled` builds it: the calls the loop announced and the
             // results the calls told as they settled (`EarlyResult`), the tool phase if calls were announced.
-            let calls: Vec<ToolCall> = seen_at_end.iter().filter_map(|event| match event { RunEvent::ToolCalls { calls, .. } => Some(calls.clone()), _ => None }).flatten().collect();
+            let calls: Vec<ToolCall> = seen_at_end
+                .iter()
+                .filter_map(|event| match event {
+                    RunEvent::ToolCalls { calls, .. } => Some(calls.clone()),
+                    _ => None,
+                })
+                .flatten()
+                .collect();
             let results: Vec<AgentMessage> = observer.3.lock().expect("observed").clone();
             let finalized = finalize_interrupted_turn(Interrupted {
                 transcript: failure.transcript,
@@ -1327,7 +1370,11 @@ async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
             RunEvent::EarlyResult(message) => tool_events.push(json!({ "ev": "toolResult", "message": early_view(message) })),
             // The committed result is the call's stored row.
             RunEvent::ToolResult { call_id, kind } => {
-                let row = transcript.iter().find(|row| row["role"] == "tool" && row["toolCallId"] == call_id.as_str()).cloned().unwrap_or_else(|| json!({ "missing row of": call_id }));
+                let row = transcript
+                    .iter()
+                    .find(|row| row["role"] == "tool" && row["toolCallId"] == call_id.as_str())
+                    .cloned()
+                    .unwrap_or_else(|| json!({ "missing row of": call_id }));
                 assert_eq!(row["toolKind"], kind_of(*kind), "{}: the result event's kind is its row's", scenario["name"]);
                 tool_events.push(json!({ "ev": "toolResult", "message": row }));
             }
@@ -1345,14 +1392,7 @@ async fn replay_scenario(scenario: &Value, defined: &[Value]) -> Value {
             other => panic!("{}: the loop raised an event the recording has no counterpart of: {other:?}", scenario["name"]),
         }
     }
-    let cards: Vec<Value> = approvals
-        .answers
-        .asks
-        .lock()
-        .expect("asks")
-        .iter()
-        .map(|ask| card_view(ask, thread.as_str()))
-        .collect();
+    let cards: Vec<Value> = approvals.answers.asks.lock().expect("asks").iter().map(|ask| card_view(ask, thread.as_str())).collect();
     let audit: Vec<Value> = grant_store
         .audit()
         .iter()
@@ -1392,8 +1432,6 @@ fn sandboxed(value: &mut Value) {
     }
 }
 
-
-
 // ---- what a bridge session's `call_tool` does, with the scenario written out ------------------------------------------------------
 
 /// A bridge session whose eager tools are `read`, `load_tool` and `call_tool` and whose deferred ones are `probe_read` and
@@ -1432,7 +1470,14 @@ fn ran(seen: &Value) -> Vec<String> {
 }
 
 fn answer_to(seen: &Value, id: &str) -> String {
-    seen["stored"].as_array().expect("stored").iter().find(|row| row["role"] == "tool" && row["toolCallId"] == id).and_then(|row| row["content"].as_str()).unwrap_or_default().to_owned()
+    seen["stored"]
+        .as_array()
+        .expect("stored")
+        .iter()
+        .find(|row| row["role"] == "tool" && row["toolCallId"] == id)
+        .and_then(|row| row["content"].as_str())
+        .unwrap_or_default()
+        .to_owned()
 }
 
 #[tokio::test]
@@ -1478,7 +1523,8 @@ async fn a_target_that_needs_approval_runs_when_approved_and_is_answered_without
     assert_eq!(ran(&approved), ["probe_write"]);
     assert_eq!(approved["cards"].as_array().expect("cards").len(), 1, "one card, for the target");
 
-    let denied = observed(&bridge(json!({}), through_call_tool(&[("c1", "probe_write")]), &ask, &[], json!([{ "approved": false, "reason": "Not now." }])), &[]).await;
+    let denied =
+        observed(&bridge(json!({}), through_call_tool(&[("c1", "probe_write")]), &ask, &[], json!([{ "approved": false, "reason": "Not now." }])), &[]).await;
     assert!(ran(&denied).is_empty());
     assert_eq!(denied["cards"].as_array().expect("cards").len(), 1);
     let said = answer_to(&denied, "c1");

@@ -180,10 +180,7 @@ pub const BUILT_IN_CMAPS: &[(&str, &[u8])] = &[
 
 /// The packed bytes of the predefined CMap `name` (`fetchBuiltInCMap`).
 pub fn built_in_cmap_data(name: &str) -> Option<&'static [u8]> {
-    BUILT_IN_CMAPS
-        .iter()
-        .find(|(candidate, _)| *candidate == name)
-        .map(|(_, data)| *data)
+    BUILT_IN_CMAPS.iter().find(|(candidate, _)| *candidate == name).map(|(_, data)| *data)
 }
 
 /// `MAX_NUM_SIZE`: the widest code (in bytes) a record carries.
@@ -270,11 +267,7 @@ impl BinaryCMapStream<'_> {
     fn read_signed(&mut self) -> Result<i64> {
         let n = self.read_number()?;
         let half = (n as u32) >> 1;
-        Ok(if n & 1 != 0 {
-            i64::from(!(half as i32))
-        } else {
-            i64::from(half)
-        })
+        Ok(if n & 1 != 0 { i64::from(!(half as i32)) } else { i64::from(half) })
     }
 
     /// `readHex(num, size)`: `num.set(getBytes(size + 1))`; a short read leaves the rest of `num` as it was.
@@ -307,11 +300,7 @@ impl BinaryCMapStream<'_> {
         for i in (0..=size).rev() {
             while buffer_size < 8 {
                 sp -= 1;
-                let value = usize::try_from(sp)
-                    .ok()
-                    .and_then(|index| stack.get(index))
-                    .copied()
-                    .unwrap_or(0);
+                let value = usize::try_from(sp).ok().and_then(|index| stack.get(index)).copied().unwrap_or(0);
                 buffer |= i32::from(value) << buffer_size;
                 buffer_size += 7;
             }
@@ -385,22 +374,14 @@ where
                 stream.read_hex(&mut start, data_size);
                 stream.read_hex_number(&mut end, data_size)?;
                 add_hex(&mut end, &start, data_size);
-                cmap.add_codespace_range(
-                    data_size + 1,
-                    hex_to_int(&start, data_size),
-                    hex_to_int(&end, data_size),
-                )?;
+                cmap.add_codespace_range(data_size + 1, hex_to_int(&start, data_size), hex_to_int(&end, data_size))?;
                 for _ in 1..subitems_count {
                     inc_hex(&mut end, data_size);
                     stream.read_hex_number(&mut start, data_size)?;
                     add_hex(&mut start, &end, data_size);
                     stream.read_hex_number(&mut end, data_size)?;
                     add_hex(&mut end, &start, data_size);
-                    cmap.add_codespace_range(
-                        data_size + 1,
-                        hex_to_int(&start, data_size),
-                        hex_to_int(&end, data_size),
-                    )?;
+                    cmap.add_codespace_range(data_size + 1, hex_to_int(&start, data_size), hex_to_int(&end, data_size))?;
                 }
             }
             1 => {
@@ -436,11 +417,7 @@ where
                 stream.read_hex_number(&mut end, data_size)?;
                 add_hex(&mut end, &start, data_size);
                 let mut code = i64::from(stream.read_number()?);
-                cmap.map_cid_range(
-                    hex_to_int(&start, data_size),
-                    hex_to_int(&end, data_size),
-                    code,
-                )?;
+                cmap.map_cid_range(hex_to_int(&start, data_size), hex_to_int(&end, data_size), code)?;
                 for _ in 1..subitems_count {
                     inc_hex(&mut end, data_size);
                     if sequence {
@@ -452,20 +429,13 @@ where
                     stream.read_hex_number(&mut end, data_size)?;
                     add_hex(&mut end, &start, data_size);
                     code = i64::from(stream.read_number()?);
-                    cmap.map_cid_range(
-                        hex_to_int(&start, data_size),
-                        hex_to_int(&end, data_size),
-                        code,
-                    )?;
+                    cmap.map_cid_range(hex_to_int(&start, data_size), hex_to_int(&end, data_size), code)?;
                 }
             }
             4 => {
                 stream.read_hex(&mut char_buf, ucs2_data_size);
                 stream.read_hex(&mut char_code, data_size);
-                cmap.map_one(
-                    hex_to_int(&char_buf, ucs2_data_size),
-                    CMapValue::Str(hex_to_str(&char_code, data_size)),
-                );
+                cmap.map_one(hex_to_int(&char_buf, ucs2_data_size), CMapValue::Str(hex_to_str(&char_code, data_size)));
                 for _ in 1..subitems_count {
                     inc_hex(&mut char_buf, ucs2_data_size);
                     if !sequence {
@@ -475,10 +445,7 @@ where
                     inc_hex(&mut char_code, data_size);
                     stream.read_hex_signed(&mut tmp, data_size)?;
                     add_hex(&mut char_code, &tmp, data_size);
-                    cmap.map_one(
-                        hex_to_int(&char_buf, ucs2_data_size),
-                        CMapValue::Str(hex_to_str(&char_code, data_size)),
-                    );
+                    cmap.map_one(hex_to_int(&char_buf, ucs2_data_size), CMapValue::Str(hex_to_str(&char_code, data_size)));
                 }
             }
             5 => {
@@ -486,11 +453,7 @@ where
                 stream.read_hex_number(&mut end, ucs2_data_size)?;
                 add_hex(&mut end, &start, ucs2_data_size);
                 stream.read_hex(&mut char_code, data_size);
-                cmap.map_bf_range(
-                    hex_to_int(&start, ucs2_data_size),
-                    hex_to_int(&end, ucs2_data_size),
-                    hex_to_str(&char_code, data_size),
-                )?;
+                cmap.map_bf_range(hex_to_int(&start, ucs2_data_size), hex_to_int(&end, ucs2_data_size), hex_to_str(&char_code, data_size))?;
                 for _ in 1..subitems_count {
                     inc_hex(&mut end, ucs2_data_size);
                     if sequence {
@@ -502,17 +465,11 @@ where
                     stream.read_hex_number(&mut end, ucs2_data_size)?;
                     add_hex(&mut end, &start, ucs2_data_size);
                     stream.read_hex(&mut char_code, data_size);
-                    cmap.map_bf_range(
-                        hex_to_int(&start, ucs2_data_size),
-                        hex_to_int(&end, ucs2_data_size),
-                        hex_to_str(&char_code, data_size),
-                    )?;
+                    cmap.map_bf_range(hex_to_int(&start, ucs2_data_size), hex_to_int(&end, ucs2_data_size), hex_to_str(&char_code, data_size))?;
                 }
             }
             _ => {
-                return Err(PdfError::Unknown(format!(
-                    "BinaryCMapReader.process - unknown type: {kind}"
-                )));
+                return Err(PdfError::Unknown(format!("BinaryCMapReader.process - unknown type: {kind}")));
             }
         }
     }

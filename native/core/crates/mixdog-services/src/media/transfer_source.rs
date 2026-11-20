@@ -145,7 +145,15 @@ mod tests {
         assert_eq!((no_id.reason, no_id.message.as_str()), (Reason::InvalidParams, "asset id must be a string."));
 
         // The bytes are gone: the asset is not available any more.
-        let path = store.run({ let id = id.clone(); move |s| s.asset_path(&id) }).await.unwrap().unwrap().unwrap();
+        let path = store
+            .run({
+                let id = id.clone();
+                move |s| s.asset_path(&id)
+            })
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
         std::fs::remove_file(path).unwrap();
         let gone = source.open(&serde_json::json!({"assetId": id}), &cancel).await.err().unwrap();
         assert_eq!((gone.reason, gone.message.as_str()), (Reason::NotFound, "This media file is not available."));
@@ -156,10 +164,7 @@ mod tests {
         let err = source.open(&serde_json::json!({"assetId": id}), &cancelled).await.err().unwrap();
         assert_eq!(err.reason, Reason::Cancelled);
     }
-
-
 }
-
 
 pub struct MediaAssetSource {
     store: Arc<MediaStore>,

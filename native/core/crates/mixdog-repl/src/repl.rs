@@ -218,7 +218,16 @@ mod tests {
 
     impl Played {
         fn new(first: Value, later: Vec<Value>) -> Self {
-            Self { feed: broadcast::channel(4).0, after_last: None, states: Mutex::new(later.into_iter().rev().collect()), current: Mutex::new(first), submitted: Mutex::new(Vec::new()), disposed: Mutex::new(Vec::new()), calls: Mutex::new(Vec::new()), failure: None }
+            Self {
+                feed: broadcast::channel(4).0,
+                after_last: None,
+                states: Mutex::new(later.into_iter().rev().collect()),
+                current: Mutex::new(first),
+                submitted: Mutex::new(Vec::new()),
+                disposed: Mutex::new(Vec::new()),
+                calls: Mutex::new(Vec::new()),
+                failure: None,
+            }
         }
     }
 
@@ -392,7 +401,6 @@ mod tests {
     }
 }
 
-
 /// A wait until `due`, endless when there is none.
 async fn until(due: Option<Instant>) {
     match due {
@@ -484,7 +492,13 @@ impl Input<'_> {
     }
 }
 impl<'a> Repl<'a> {
-    pub fn new(session: &'a dyn Session, footer: &'a dyn Footer, config: &'a ReplConfig, out: &'a mut dyn Out, rx: &'a mut UnboundedReceiver<InputMsg>) -> Self {
+    pub fn new(
+        session: &'a dyn Session,
+        footer: &'a dyn Footer,
+        config: &'a ReplConfig,
+        out: &'a mut dyn Out,
+        rx: &'a mut UnboundedReceiver<InputMsg>,
+    ) -> Self {
         let input = Input { rx, interactive: config.interactive, decoder: Decoder::new(), editor: LineEditor::new(), queued: VecDeque::new(), ended: false };
         Self { session, footer, config, out, input }
     }

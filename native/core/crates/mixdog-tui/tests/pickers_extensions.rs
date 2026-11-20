@@ -169,7 +169,6 @@ impl Fake {
     fn live(&self) -> Option<ExtPanel> {
         self.surface.live_picker().cloned()
     }
-
 }
 
 impl AppCtx for Fake {
@@ -361,8 +360,6 @@ impl ExtensionsHost for Fake {
         self.push("hints", json!(["texts", texts]));
     }
 }
-
-
 
 fn fake(store: Value) -> Fake {
     Fake::new(&json!({"store": store}))
@@ -606,7 +603,8 @@ fn the_first_screen_project_list_waits_for_its_opener() {
 
 #[test]
 fn the_serves_list_names_the_openers_the_module_opens() {
-    for opener in [Opener::Mcp, Opener::McpServers, Opener::Skills, Opener::ProjectSkills, Opener::Plugins, Opener::MemoryCore, Opener::Project, Opener::Resume] {
+    for opener in [Opener::Mcp, Opener::McpServers, Opener::Skills, Opener::ProjectSkills, Opener::Plugins, Opener::MemoryCore, Opener::Project, Opener::Resume]
+    {
         assert!(Extensions::serves(opener));
     }
     for opener in [Opener::Model, Opener::Settings, Opener::Usage] {
@@ -651,12 +649,8 @@ fn session_formatters_follow_app_format() {
     assert_eq!(format_session_updated_at(Some(&json!(-5)), 1.0e12), "--:--");
     let now = 1_794_735_000_000.0;
     let shown = mixdog_js::time::with_local_zone(mixdog_js::time::Tz::UTC, || {
-        (
-            format_session_updated_at(Some(&json!(1_794_735_000_000_i64)), now),
-            format_session_updated_at(Some(&json!(1_700_000_000_000_i64)), now),
-        )
+        (format_session_updated_at(Some(&json!(1_794_735_000_000_i64)), now), format_session_updated_at(Some(&json!(1_700_000_000_000_i64)), now))
     });
     assert_eq!(shown.0, "11-15 09:30");
     assert_eq!(shown.1, "2023-11-14 22:13");
 }
-

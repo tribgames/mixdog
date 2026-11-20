@@ -50,8 +50,7 @@ fn is_pdf(mime: &str, base64_data: &str) -> bool {
         return true;
     }
     let head: String = base64_data.chars().take(8).collect();
-    head.chars().count() == 8
-        && STANDARD.decode(head.trim_end_matches('=')).or_else(|_| STANDARD.decode(&head)).is_ok_and(|b| b.starts_with(b"%PDF-"))
+    head.chars().count() == 8 && STANDARD.decode(head.trim_end_matches('=')).or_else(|_| STANDARD.decode(&head)).is_ok_and(|b| b.starts_with(b"%PDF-"))
         || base64_data.starts_with("JVBERi0")
 }
 
@@ -131,19 +130,13 @@ fn normalize_arg_value(value: &JsonValue, key: &str, depth: usize) -> JsonValue 
         return JsonValue::String("[redacted]".to_owned());
     }
     match value {
-        JsonValue::String(s) => {
-            JsonValue::String(truncate_middle(&redact_raw_secret_string(s), TOOL_ARG_STRING_MAX_CHARS))
-        }
+        JsonValue::String(s) => JsonValue::String(truncate_middle(&redact_raw_secret_string(s), TOOL_ARG_STRING_MAX_CHARS)),
         JsonValue::Array(items) => {
             if depth >= TOOL_ARG_MAX_DEPTH {
                 return JsonValue::String(format!("[array:{}]", items.len()));
             }
-            let mut out: Vec<JsonValue> = items
-                .iter()
-                .take(TOOL_ARG_ARRAY_MAX_ITEMS)
-                .enumerate()
-                .map(|(i, item)| normalize_arg_value(item, &i.to_string(), depth + 1))
-                .collect();
+            let mut out: Vec<JsonValue> =
+                items.iter().take(TOOL_ARG_ARRAY_MAX_ITEMS).enumerate().map(|(i, item)| normalize_arg_value(item, &i.to_string(), depth + 1)).collect();
             if items.len() > TOOL_ARG_ARRAY_MAX_ITEMS {
                 out.push(JsonValue::String(format!("+{} more", items.len() - TOOL_ARG_ARRAY_MAX_ITEMS)));
             }
@@ -205,11 +198,8 @@ pub fn tool_call_summary(message: &AgentMessage, max_arg_chars: usize) -> String
     if calls.is_empty() {
         return String::new();
     }
-    let mut lines: Vec<String> = calls
-        .iter()
-        .take(TOOL_CALLS_MAX)
-        .map(|c| summarize_tool_call(if c.name.is_empty() { &c.id } else { &c.name }, &c.arguments, max_arg_chars))
-        .collect();
+    let mut lines: Vec<String> =
+        calls.iter().take(TOOL_CALLS_MAX).map(|c| summarize_tool_call(if c.name.is_empty() { &c.id } else { &c.name }, &c.arguments, max_arg_chars)).collect();
     if calls.len() > TOOL_CALLS_MAX {
         lines.push(format!("+{} more", calls.len() - TOOL_CALLS_MAX));
     }
@@ -257,13 +247,14 @@ mod tests {
             ContentPart::Image(ImageSource::Base64 { data: "AAAA".into(), mime_type: "image/png".into(), width: None, height: None }),
             file(BinarySource::AttachmentRef("b".repeat(64)), "application/pdf", "spec.pdf"),
             file(BinarySource::AttachmentRef("c".repeat(64)), "application/zip", "bundle.zip"),
-            ContentPart::Document { source: DocumentSource::Base64 { media_type: "application/pdf".into(), data: "AAAA".into() }, title: Some("read.pdf".into()) },
+            ContentPart::Document {
+                source: DocumentSource::Base64 { media_type: "application/pdf".into(), data: "AAAA".into() },
+                title: Some("read.pdf".into()),
+            },
         ]));
         assert_eq!(text, "compare these\n[image]\n[PDF: spec.pdf]\n[file: bundle.zip]\n[PDF: read.pdf]");
     }
 }
-
-
 
 /// `referencedText` over the summarizer's input: each stored text attachment becomes its text,
 /// bounded, and a gone blob `[attachment unavailable]`. A transient read error fails the

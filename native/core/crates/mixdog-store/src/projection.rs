@@ -6,27 +6,29 @@
 use serde_json::Value;
 
 use crate::compaction_view::DropMode;
-use crate::message_facets::Facets;
-use crate::schema::record::CompactedDropped;
 use crate::fold::ResolveBody;
 use crate::fold::resolve_slot;
+use crate::message_facets::Facets;
 use crate::message_state::MessageRow;
 use crate::schema::blob::Slot;
-use crate::summary::CatalogHead;
 use crate::schema::checkpoint::FramePos;
+use crate::schema::record::Anchor;
 use crate::schema::record::ApprovalPhase;
 use crate::schema::record::Base;
-use crate::schema::record::Anchor;
+use crate::schema::record::CompactedDropped;
 use crate::schema::record::Form;
 use crate::schema::record::ModelSwitchEntry;
 use crate::schema::record::OpRef;
 use crate::schema::record::OpState;
 use crate::schema::record::Record;
 use crate::schema::record::RunPhase;
+use crate::summary::CatalogHead;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum FrameKind {
-    Session { base: Option<Base> },
+    Session {
+        base: Option<Base>,
+    },
     Item {
         iid: String,
         turn: Option<String>,
@@ -44,8 +46,14 @@ pub enum FrameKind {
         aliases: Vec<String>,
     },
     /// `aliases`: the ids the amended body names, added to the row it amends (the original's stay: a superset).
-    Amend { iid: String, msg: Option<MessageRow>, aliases: Vec<String> },
-    Rewind { to_ordinal: u64 },
+    Amend {
+        iid: String,
+        msg: Option<MessageRow>,
+        aliases: Vec<String>,
+    },
+    Rewind {
+        to_ordinal: u64,
+    },
     /// `rows`: the entry iid and catalog contribution of each replacement message, in order.
     Compacted {
         cid: String,
@@ -57,9 +65,19 @@ pub enum FrameKind {
         /// No divider is listed for it (the record's `silent`).
         silent: bool,
     },
-    Run { rid: String, phase: RunPhase },
-    Approval { aid: String, rid: String, phase: ApprovalPhase },
-    ModelSwitch { anchor: Anchor, entry: ModelSwitchEntry },
+    Run {
+        rid: String,
+        phase: RunPhase,
+    },
+    Approval {
+        aid: String,
+        rid: String,
+        phase: ApprovalPhase,
+    },
+    ModelSwitch {
+        anchor: Anchor,
+        entry: ModelSwitchEntry,
+    },
     /// `meta`, `queue`, `op`, `checkpoint`, and a record whose body is lost (FORMAT.md §4.5): nothing beyond the op lookup.
     Other,
 }
@@ -99,13 +117,9 @@ impl ProjectedFrame {
     /// Rows this frame writes to the index, not counting rewind marks.
     pub fn rows(&self) -> usize {
         let own = match &self.kind {
-            FrameKind::Item { prompt, msg, aliases, .. } => {
-                2 + 2 * usize::from(prompt.is_some()) + usize::from(msg.is_some()) + aliases.len()
-            }
+            FrameKind::Item { prompt, msg, aliases, .. } => 2 + 2 * usize::from(prompt.is_some()) + usize::from(msg.is_some()) + aliases.len(),
             FrameKind::Amend { aliases, .. } => 2 + aliases.len(),
-            FrameKind::Compacted { rows, dropped, .. } => {
-                1 + rows.len() + dropped.as_ref().map_or(0, |d| d.message_ids.len() + d.call_ids.len())
-            }
+            FrameKind::Compacted { rows, dropped, .. } => 1 + rows.len() + dropped.as_ref().map_or(0, |d| d.message_ids.len() + d.call_ids.len()),
             FrameKind::Other => 0,
             _ => 1,
         };
@@ -227,11 +241,7 @@ pub fn project(record: &Record, resolve: &mut ResolveBody<'_>) -> Result<(FrameK
         }
         Record::Amend(r) => {
             let body = message_body(&r.body, resolve)?;
-            FrameKind::Amend {
-                iid: r.iid.as_str().to_owned(),
-                msg: Some(MessageRow::of(&body)),
-                aliases: aliases_of(r.iid.as_str(), &body, false),
-            }
+            FrameKind::Amend { iid: r.iid.as_str().to_owned(), msg: Some(MessageRow::of(&body)), aliases: aliases_of(r.iid.as_str(), &body, false) }
         }
         Record::Rewind(r) => FrameKind::Rewind { to_ordinal: r.to_ordinal },
         Record::Compacted(r) => FrameKind::Compacted {

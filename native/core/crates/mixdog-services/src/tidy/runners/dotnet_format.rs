@@ -41,11 +41,22 @@ pub fn parse_dotnet_format_report(json_text: &str, cwd: &Path) -> RunnerResult {
         files.push(file.clone());
         let changes = first(&row, &["FileChanges", "fileChanges", "Changes", "changes"]).and_then(Value::as_array).cloned().unwrap_or_default();
         if changes.is_empty() {
-            diagnostics.push(diagnostic(DiagnosticInit { file: &file, code: ID, message: "dotnet-format would reformat this file", severity: "warning", fixable: true, ..Default::default() }));
+            diagnostics.push(diagnostic(DiagnosticInit {
+                file: &file,
+                code: ID,
+                message: "dotnet-format would reformat this file",
+                severity: "warning",
+                fixable: true,
+                ..Default::default()
+            }));
             continue;
         }
         for change in changes {
-            let message = first(&change, &["FormatDescription", "formatDescription", "Message", "message"]).and_then(Value::as_str).map(mixdog_js::js_trim).filter(|m| !m.is_empty()).unwrap_or("dotnet-format would reformat this file");
+            let message = first(&change, &["FormatDescription", "formatDescription", "Message", "message"])
+                .and_then(Value::as_str)
+                .map(mixdog_js::js_trim)
+                .filter(|m| !m.is_empty())
+                .unwrap_or("dotnet-format would reformat this file");
             diagnostics.push(diagnostic(DiagnosticInit {
                 file: &file,
                 line: number(first(&change, &["LineNumber", "lineNumber", "Line", "line"])),
@@ -63,7 +74,14 @@ pub fn parse_dotnet_format_report(json_text: &str, cwd: &Path) -> RunnerResult {
 /// True when `dotnet` is missing or too old for `format whitespace --folder`.
 pub fn is_unsupported(stderr: &str, stdout: &str) -> bool {
     let text = format!("{stderr}\n{stdout}").to_lowercase();
-    ["could not execute because the specified command or file was not found", "no executable found matching command", "dotnet-format does not exist", "unrecognized command or argument"].iter().any(|p| text.contains(p))
+    [
+        "could not execute because the specified command or file was not found",
+        "no executable found matching command",
+        "dotnet-format does not exist",
+        "unrecognized command or argument",
+    ]
+    .iter()
+    .any(|p| text.contains(p))
 }
 
 /// The failure of an SDK that has no `format whitespace --folder`, with what provides one.
@@ -175,7 +193,8 @@ mod tests {
         assert!(is_unsupported("Could not execute because the specified command or file was not found.", ""));
         assert!(is_unsupported("", "Unrecognized command or argument 'whitespace'"));
         assert!(!is_unsupported("fine", "fine"));
-        let old = unsupported(&crate::tidy::process::ProcessResult { code: 1, stderr: "Unrecognized command or argument 'whitespace'".into(), ..Default::default() });
+        let old =
+            unsupported(&crate::tidy::process::ProcessResult { code: 1, stderr: "Unrecognized command or argument 'whitespace'".into(), ..Default::default() });
         assert!(old.error.is_some_and(|e| e.contains("Unrecognized command") && e.ends_with(INSTALL_HINT)));
     }
 }
@@ -194,10 +213,7 @@ mod cleanup_tests {
         assert_eq!((replaced.error.as_deref(), replaced.thrown), (Some("ENOTEMPTY: directory not empty, rmdir 'x'"), true));
         assert!(replaced.changed_files.is_empty() && replaced.diagnostics.is_empty() && replaced.stderr_tail.is_empty());
     }
-
-
 }
-
 
 async fn invoke(req: &RunRequest, verify: bool) -> RunnerResult {
     let spawns = plan_spawns(&req.files, &req.cwd, req.files_per_spawn);
@@ -250,7 +266,12 @@ async fn invoke(req: &RunRequest, verify: bool) -> RunnerResult {
         }
         let unique = unique_paths(changed);
         let t = if unique.is_empty() { tail600(&stderr) } else { String::new() };
-        RunnerResult { diagnostics: if verify { diagnostics } else { Vec::new() }, changed_files: if verify { unique } else { Vec::new() }, stderr_tail: t, ..Default::default() }
+        RunnerResult {
+            diagnostics: if verify { diagnostics } else { Vec::new() },
+            changed_files: if verify { unique } else { Vec::new() },
+            stderr_tail: t,
+            ..Default::default()
+        }
     }
     .await;
     let removed = match on_lane(lane, move || mixdog_core_base::support::remove_dir_all_forced(&root)).await {

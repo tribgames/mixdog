@@ -28,29 +28,12 @@ pub struct FrameSink {
 impl FrameSink {
     /// Publishes a picture, replacing the one not yet taken. `Err` for geometry that cannot
     /// describe `data`.
-    pub fn push(
-        &mut self,
-        format: PixelFormat,
-        width: u32,
-        height: u32,
-        stride: u32,
-        data: Bytes,
-    ) -> Result<(), MediaError> {
-        let frame = VideoFrame {
-            width,
-            height,
-            stride,
-            format,
-            data,
-            seq: self.seq,
-            captured_at: self.origin.elapsed(),
-        };
+    pub fn push(&mut self, format: PixelFormat, width: u32, height: u32, stride: u32, data: Bytes) -> Result<(), MediaError> {
+        let frame = VideoFrame { width, height, stride, format, data, seq: self.seq, captured_at: self.origin.elapsed() };
         if let Some(required) = frame.required_len()
             && frame.data.len() < required
         {
-            return Err(MediaError::InvalidFrame {
-                reason: "frame data shorter than its geometry".into(),
-            });
+            return Err(MediaError::InvalidFrame { reason: "frame data shorter than its geometry".into() });
         }
         self.seq += 1;
         self.tx.send_replace(Some(frame));
@@ -72,14 +55,7 @@ pub struct FeedSource {
 /// A source fed by [`FrameSink`]; `kind` names what it carries.
 pub fn frame_feed(kind: FrameSourceKind) -> (FrameSink, FeedSource) {
     let (tx, rx) = watch::channel(None);
-    (
-        FrameSink {
-            tx,
-            origin: Instant::now(),
-            seq: 0,
-        },
-        FeedSource { kind, rx },
-    )
+    (FrameSink { tx, origin: Instant::now(), seq: 0 }, FeedSource { kind, rx })
 }
 
 #[async_trait]

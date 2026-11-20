@@ -49,7 +49,11 @@ fn gap(ms: f64, censored: bool) -> Gap {
 fn the_return_chance_counts_the_longer_gaps_and_those_of_them_that_ended_in_a_return_within_the_window() {
     let gaps = [gap(100.0, false), gap(150.0, false), gap(200.0, false), gap(300.0, true), gap(400.0, false), gap(f64::NAN, false)];
     let chance = session_return_chance(&gaps, 150.0, 100.0);
-    assert_eq!((chance.idle, chance.returns), (3.0, 1.0), "only gaps longer than the elapsed idle count; a censored gap never returned; the window is closed at its end");
+    assert_eq!(
+        (chance.idle, chance.returns),
+        (3.0, 1.0),
+        "only gaps longer than the elapsed idle count; a censored gap never returned; the window is closed at its end"
+    );
     assert_eq!(chance.p, wilson_lower_bound(1.0, 3.0));
     let none = session_return_chance(&gaps, 1000.0, 100.0);
     assert_eq!((none.idle, none.returns, none.p), (0.0, 0.0, 0.0));
@@ -95,8 +99,16 @@ fn a_strategy_is_read_only_from_an_object() {
 fn what_a_warm_costs_and_what_a_miss_would_cost_need_every_price_and_a_prompt_size() {
     let prices = Prices { read: Some(1.0), write: Some(3.0), output: Some(5.0) };
     let e = warm_economics(100.0, &prices).unwrap();
-    assert_eq!((e.warm_cost, e.miss_cost), (105.0, 200.0), "a warm reads the prompt and writes an output; a miss rewrites it at the write price over the read price");
-    assert_eq!(warm_economics(100.0, &Prices { read: Some(3.0), write: Some(1.0), output: Some(0.0) }).unwrap().miss_cost, 0.0, "a write cheaper than a read never costs more");
+    assert_eq!(
+        (e.warm_cost, e.miss_cost),
+        (105.0, 200.0),
+        "a warm reads the prompt and writes an output; a miss rewrites it at the write price over the read price"
+    );
+    assert_eq!(
+        warm_economics(100.0, &Prices { read: Some(3.0), write: Some(1.0), output: Some(0.0) }).unwrap().miss_cost,
+        0.0,
+        "a write cheaper than a read never costs more"
+    );
     for bad in [
         Prices { read: None, ..prices },
         Prices { write: None, ..prices },
@@ -137,7 +149,11 @@ fn a_warm_goes_ahead_when_the_chance_of_a_return_times_the_miss_outweighs_the_wa
 #[test]
 fn a_return_that_is_only_likely_after_a_longer_wait_needs_that_many_warms() {
     let gaps = vec![gap(600_000.0, false); 30];
-    assert_eq!(plan_of(&gaps, |_| {}), Plan::Warm { warms: 2.0, p: wilson_lower_bound(30.0, 30.0) }, "the return lies beyond the first warm's reach, within the second's");
+    assert_eq!(
+        plan_of(&gaps, |_| {}),
+        Plan::Warm { warms: 2.0, p: wilson_lower_bound(30.0, 30.0) },
+        "the return lies beyond the first warm's reach, within the second's"
+    );
 }
 
 #[test]
@@ -168,7 +184,11 @@ fn a_users_routines_webhooks_and_channels_returns_to_the_session_but_the_runtime
     assert_eq!(kind(json!({"promptSource": "goal-closeout"})), TurnKind::System);
     assert_eq!(kind(json!({"promptSource": {"source": "task-notification"}})), TurnKind::System);
     assert_eq!(kind(json!({"promptOrigin": "agent-report"})), TurnKind::System);
-    assert_eq!(kind(json!({"promptOrigin": "channel", "promptSource": "goal-continuation"})), TurnKind::Return, "a channel message is a return whatever its source");
+    assert_eq!(
+        kind(json!({"promptOrigin": "channel", "promptSource": "goal-continuation"})),
+        TurnKind::Return,
+        "a channel message is a return whatever its source"
+    );
 }
 
 fn failed_user_turn(provenance: serde_json::Value) -> serde_json::Value {
@@ -256,7 +276,8 @@ fn content() -> String {
 #[tokio::test]
 async fn a_warm_stream_is_read_until_the_first_content_block_once_the_prefix_usage_is_known() {
     let usage = json!({"input_tokens": 10, "cache_read_input_tokens": 5000, "cache_creation_input_tokens": 200, "output_tokens": 1});
-    let (result, heard) = read(body(vec![start(usage), content(), frame(json!({"type": "error", "error": {"type": "overloaded_error", "message": "never read"}}))])).await;
+    let (result, heard) =
+        read(body(vec![start(usage), content(), frame(json!({"type": "error", "error": {"type": "overloaded_error", "message": "never read"}}))])).await;
     let usage = result.expect("the warm succeeded");
     assert_eq!((usage.input, usage.cached, usage.cache_write, usage.output), (10.0, 5000.0, 200.0, 1.0));
     assert_eq!(usage.prompt_tokens, Some(5210.0), "input plus reads plus writes");

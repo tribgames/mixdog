@@ -40,20 +40,15 @@ pub(super) fn canonical_text(value: &Value) -> String {
 /// The bytes of a converted source, still hashing to the manifest's value.
 pub(super) fn read_source(cx: &ItemContext<'_>, file: &SourceFile) -> Step<Vec<u8>> {
     if file.size > MAX_CONVERTED_BYTES {
-        return Err(ApplyError::quarantine(
-            QuarantineCode::ItemTooLarge,
-            format!("{} is {} bytes", file.path, file.size),
-        ));
+        return Err(ApplyError::quarantine(QuarantineCode::ItemTooLarge, format!("{} is {} bytes", file.path, file.size)));
     }
     Ok(cx.read_source(file)?)
 }
 
 pub(super) fn parse_json(bytes: &[u8]) -> Step<Parsed> {
-    std::str::from_utf8(bytes)
-        .map_err(|_| ApplyError::quarantine(QuarantineCode::ParseError, "not UTF-8"))?;
+    std::str::from_utf8(bytes).map_err(|_| ApplyError::quarantine(QuarantineCode::ParseError, "not UTF-8"))?;
     let bytes = bytes.strip_prefix(b"\xef\xbb\xbf").unwrap_or(bytes);
-    json::parse_source(bytes)
-        .map_err(|error| ApplyError::quarantine(QuarantineCode::ParseError, format!("not JSON: {error}")))
+    json::parse_source(bytes).map_err(|error| ApplyError::quarantine(QuarantineCode::ParseError, format!("not JSON: {error}")))
 }
 
 #[cfg(test)]

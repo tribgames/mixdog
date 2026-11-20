@@ -82,17 +82,26 @@ async fn forgetting_an_oauth_provider_with_one_account_needs_no_account_id() {
 #[tokio::test]
 async fn with_several_accounts_the_account_id_must_be_passed() {
     let (actions, ops) = actions(oauth_ops(&["a", "b", "c"]));
-    assert_eq!(run(&actions, json!({ "action": "forget_provider_auth", "name": "openai-oauth" })).await.unwrap_err(), "openai-oauth has 3 accounts; pass accountId from status providers");
+    assert_eq!(
+        run(&actions, json!({ "action": "forget_provider_auth", "name": "openai-oauth" })).await.unwrap_err(),
+        "openai-oauth has 3 accounts; pass accountId from status providers"
+    );
     let receipt = run(&actions, json!({ "action": "forget_provider_auth", "name": "openai-oauth", "accountId": " b " })).await.unwrap();
     assert_eq!(receipt["accountId"], "b", "the id is trimmed");
     assert_eq!(*ops.calls.lock().unwrap().last().unwrap(), "forget openai-oauth b");
-    assert_eq!(run(&actions, json!({ "action": "forget_provider_auth", "name": "openai-oauth", "accountId": "  " })).await.unwrap_err(), "accountId is required");
+    assert_eq!(
+        run(&actions, json!({ "action": "forget_provider_auth", "name": "openai-oauth", "accountId": "  " })).await.unwrap_err(),
+        "accountId is required"
+    );
 }
 
 #[tokio::test]
 async fn an_oauth_provider_without_an_account_has_nothing_to_forget() {
     let (actions, ops) = actions(oauth_ops(&[]));
-    assert_eq!(run(&actions, json!({ "action": "forget_provider_auth", "name": "anthropic-oauth" })).await.unwrap_err(), "anthropic-oauth has no connected account");
+    assert_eq!(
+        run(&actions, json!({ "action": "forget_provider_auth", "name": "anthropic-oauth" })).await.unwrap_err(),
+        "anthropic-oauth has no connected account"
+    );
     assert!(!ops.calls.lock().unwrap().iter().any(|call| call.starts_with("forget")));
 }
 
@@ -102,7 +111,10 @@ async fn a_provider_without_accounts_is_forgotten_whole_and_refuses_an_account_i
     let receipt = run(&actions, json!({ "action": "forget_provider_auth", "name": "openai" })).await.unwrap();
     assert_eq!(receipt, json!({ "provider": "openai", "type": "api-key", "forgotten": true }));
     assert_eq!(*ops.calls.lock().unwrap(), ["forget openai -"]);
-    assert_eq!(run(&actions, json!({ "action": "forget_provider_auth", "name": "openai", "accountId": "a" })).await.unwrap_err(), "accountId applies only to OAuth providers");
+    assert_eq!(
+        run(&actions, json!({ "action": "forget_provider_auth", "name": "openai", "accountId": "a" })).await.unwrap_err(),
+        "accountId applies only to OAuth providers"
+    );
 }
 
 #[tokio::test]
@@ -120,7 +132,10 @@ async fn the_desktop_managed_accounts_are_not_changed_from_here() {
     let (actions, ops) = actions(Ops { managed: true, ..Ops::default() });
     let managed = "Manage provider accounts in the local desktop window.";
     assert_eq!(run(&actions, json!({ "action": "forget_provider_auth", "name": "openai-oauth" })).await.unwrap_err(), managed);
-    assert_eq!(run(&actions, json!({ "action": "set_provider_account", "name": "openai-oauth", "providerAccount": { "auto": true } })).await.unwrap_err(), managed);
+    assert_eq!(
+        run(&actions, json!({ "action": "set_provider_account", "name": "openai-oauth", "providerAccount": { "auto": true } })).await.unwrap_err(),
+        managed
+    );
     assert!(ops.calls.lock().unwrap().is_empty());
 }
 
@@ -139,5 +154,9 @@ async fn a_roster_change_answers_the_roster_without_its_usage_and_identities() {
 fn the_public_roster_leaves_out_what_the_pool_does_not_hold() {
     assert_eq!(public_accounts(&json!({ "accounts": [] })), json!({ "useCredits": false, "accounts": [] }));
     let pool = json!({ "accounts": [{ "id": "a", "reauthRequired": true }], "selectedId": "a", "auto": false, "policy": "", "useCredits": true });
-    assert_eq!(public_accounts(&pool), json!({ "selectedId": "a", "auto": false, "useCredits": true, "accounts": [{ "id": "a", "reauthRequired": true }] }), "an empty policy is not shown");
+    assert_eq!(
+        public_accounts(&pool),
+        json!({ "selectedId": "a", "auto": false, "useCredits": true, "accounts": [{ "id": "a", "reauthRequired": true }] }),
+        "an empty policy is not shown"
+    );
 }

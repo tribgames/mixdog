@@ -1,7 +1,6 @@
 //! The whole application screen: the banner, the transcript, the prompt, the queue, a floating panel and the statusline,
 //! painted into a grid and read back as rows; and where the hardware cursor is parked.
 
-
 use std::sync::Mutex;
 
 use mixdog_term::frame::{CursorPos, Grid};
@@ -14,7 +13,7 @@ use mixdog_tui::transcript::window::heights::ItemHeights;
 use mixdog_tui::transcript::window::render_window::RenderWindow;
 use mixdog_tui::transcript::window::row_index::Items;
 use mixdog_tui::transcript::window::visible_items::{overlay_hint_placement, visible_transcript_items};
-use mixdog_tui::view::panel::{PanelSlots, PaletteSlot, PickerSlot, TextEntrySlot, ToolApprovalSlot, fit_picker};
+use mixdog_tui::view::panel::{PaletteSlot, PanelSlots, PickerSlot, TextEntrySlot, ToolApprovalSlot, fit_picker};
 use mixdog_tui::view::rows::{MountInput, mount_rows};
 use mixdog_tui::view::spinner::{LiveSpinner, SpinnerContext, spinner_props};
 use mixdog_tui::view::{AppViewProps, render_app};
@@ -110,7 +109,9 @@ impl Scene {
         });
         let commands = panel
             .filter(|_| kind == "palette")
-            .map(|panel| panel["commands"].as_array().unwrap().iter().map(|command| SlashCommand::new(&text(command, "name"), &text(command, "description"))).collect())
+            .map(|panel| {
+                panel["commands"].as_array().unwrap().iter().map(|command| SlashCommand::new(&text(command, "name"), &text(command, "description"))).collect()
+            })
             .unwrap_or_default();
         let spinner = present(state, "spinner").map(|spinner| LiveSpinner {
             verb: spinner.get("verb").and_then(Value::as_str).map(str::to_owned),
@@ -154,7 +155,8 @@ impl Scene {
         let prompt = |wanted: &Option<(Value, TextEntryDraft)>| {
             wanted.as_ref().map(|(prompt, _)| TextEntryPrompt { kind: text(prompt, "kind"), detail: text(prompt, "detail") })
         };
-        let latest_item = self.items.last().map(|item| TranscriptTail { id: item.get("id").and_then(Value::as_str).map(str::to_owned), kind: text(item, "kind") });
+        let latest_item =
+            self.items.last().map(|item| TranscriptTail { id: item.get("id").and_then(Value::as_str).map(str::to_owned), kind: text(item, "kind") });
         ShellLayoutInput {
             provider_prompt: prompt(&self.provider_prompt),
             settings_prompt: prompt(&self.settings_prompt),
@@ -198,7 +200,14 @@ fn render_screen(case: &Value) -> (Grid, Option<CursorPos>) {
 
     let streaming_id = scene.streaming_tail.as_ref().and_then(|tail| tail.get("id")).and_then(Value::as_str).map(str::to_owned);
     let items = Items::new(&scene.items, None);
-    let window = RenderWindow { start_index: 0, end_index: scene.items.len(), bottom_spacer_rows: 0, total_rows: 0, max_scroll_rows: 0, effective_scroll_offset: scene.scroll_offset };
+    let window = RenderWindow {
+        start_index: 0,
+        end_index: scene.items.len(),
+        bottom_spacer_rows: 0,
+        total_rows: 0,
+        max_scroll_rows: 0,
+        effective_scroll_offset: scene.scroll_offset,
+    };
     let mounted_items = visible_transcript_items(&items, &window);
     let overlay = overlay_hint_placement(&mounted_items, &window, layout.overlay_hint_requested, layout.floating_panel_rows, layout.transcript_guard_rows);
     let mounted = mount_rows(
@@ -216,7 +225,16 @@ fn render_screen(case: &Value) -> (Grid, Option<CursorPos>) {
     );
 
     let spinner_lines: Vec<Line> = scene.spinner.as_ref().map_or_else(Vec::new, |live| {
-        let props = spinner_props(&SpinnerContext { live, thinking: false, effort: "high", web_search_active: false, approval_pending: scene.request.is_some(), busy: true, spinner_active: true, columns: layout.prompt_spinner_columns });
+        let props = spinner_props(&SpinnerContext {
+            live,
+            thinking: false,
+            effort: "high",
+            web_search_active: false,
+            approval_pending: scene.request.is_some(),
+            busy: true,
+            spinner_active: true,
+            columns: layout.prompt_spinner_columns,
+        });
         render_spinner(&mut SpinnerProgress::new(NOW, live.started_at), &props, NOW, false)
     });
     let stats = json!({});
@@ -278,7 +296,6 @@ fn render_screen(case: &Value) -> (Grid, Option<CursorPos>) {
     let frame = render_app(&props, &mut Painter::new(&mut grid));
     (grid, frame.cursor)
 }
-
 
 fn rows(case_scene: Value, columns: usize, height: usize) -> (Vec<String>, Option<CursorPos>) {
     let _theme = THEME.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
@@ -436,7 +453,11 @@ fn a_question_panel_shows_the_question_and_its_options() {
 #[test]
 fn no_screen_row_is_wider_than_the_terminal_at_any_size() {
     for (columns, height) in [(60_usize, 20_usize), (80, 24), (120, 40)] {
-        let (rows, _) = rows(json!({ "state": { "items": conversation() }, "promptDraft": "a draft that is long enough to need the whole width of a small terminal window" }), columns, height);
+        let (rows, _) = rows(
+            json!({ "state": { "items": conversation() }, "promptDraft": "a draft that is long enough to need the whole width of a small terminal window" }),
+            columns,
+            height,
+        );
         assert_eq!(rows.len(), height);
         for row in &rows {
             assert!(mixdog_termtext::display_width(row) < columns, "{} cells at {columns}: {row:?}", mixdog_termtext::display_width(row));

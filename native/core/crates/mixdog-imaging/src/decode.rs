@@ -33,9 +33,9 @@ use crate::color::CmykConverter;
 use crate::error::EMPTY_BUFFER;
 use crate::error::ImagingError;
 use crate::error::PIXEL_LIMIT;
+use crate::error::PNG_READ;
 use crate::error::UNSUPPORTED_FORMAT;
 use crate::error::corrupt_header;
-use crate::error::PNG_READ;
 
 /// `limitInputPixels` of `decodedImageMeta`: 64 Mi pixels.
 pub const DECODE_PIXEL_LIMIT: u64 = 64 * 1024 * 1024;
@@ -251,9 +251,7 @@ fn image_error(format: Format, stage: Stage, error: &ImageError) -> ImagingError
 fn jpeg_error(error: &DecodeErrors, stage: Stage) -> ImagingError {
     match (error, stage) {
         (DecodeErrors::LargeDimensions(_), _) => ImagingError::invalid(PIXEL_LIMIT),
-        (DecodeErrors::HuffmanDecode(_) | DecodeErrors::DqtError(_), _) => {
-            ImagingError::invalid(corrupt_header("VipsJpeg: Bogus Huffman table definition"))
-        }
+        (DecodeErrors::HuffmanDecode(_) | DecodeErrors::DqtError(_), _) => ImagingError::invalid(corrupt_header("VipsJpeg: Bogus Huffman table definition")),
         _ => corrupt(Format::Jpeg, stage),
     }
 }
@@ -304,31 +302,29 @@ fn within(peak: u64, budget: u64) -> Result<(), ImagingError> {
 /// document declares. The raster retains straight alpha like the other decoders; tiny-skia renders premultiplied
 /// sRGB. Metadata uses sharp's default density (72 DPI).
 pub fn rasterize_svg(bytes: &[u8], pixel_limit: u64, fit: Option<(u32, u32)>) -> Result<Decoded, ImagingError> {
-    use std::sync::{Arc, OnceLock};
     use resvg::{tiny_skia, usvg};
+    use std::sync::{Arc, OnceLock};
     static FONTS: OnceLock<Arc<usvg::fontdb::Database>> = OnceLock::new();
-    let fonts = FONTS.get_or_init(|| {
-        let mut fonts = usvg::fontdb::Database::new();
-        fonts.load_system_fonts();
-        Arc::new(fonts)
-    }).clone();
+    let fonts = FONTS
+        .get_or_init(|| {
+            let mut fonts = usvg::fontdb::Database::new();
+            fonts.load_system_fonts();
+            Arc::new(fonts)
+        })
+        .clone();
     let options = usvg::Options {
         dpi: 72.0,
         fontdb: fonts,
         // A buffer has no base URL. Embedded data images are handled by usvg;
         // do not resolve relative paths against the worker's current directory.
-        image_href_resolver: usvg::ImageHrefResolver {
-            resolve_string: Box::new(|_, _| None),
-            ..usvg::ImageHrefResolver::default()
-        },
+        image_href_resolver: usvg::ImageHrefResolver { resolve_string: Box::new(|_, _| None), ..usvg::ImageHrefResolver::default() },
         ..usvg::Options::default()
     };
     // The document is read under the bounds every SVG reader of the workspace shares (gzip inflated to a limit, the
     // node count and the nesting bounded), not by `Tree::from_data`, which inflates and parses without any.
     let text = crate::svg_limits::document_text(bytes)?;
     let document = crate::svg_limits::parse(&text)?;
-    let tree = usvg::Tree::from_xmltree(&document, &options)
-        .map_err(|_| corrupt(Format::Svg, Stage::Header))?;
+    let tree = usvg::Tree::from_xmltree(&document, &options).map_err(|_| corrupt(Format::Svg, Stage::Header))?;
     let size = tree.size().to_int_size();
     let (declared_width, declared_height) = (size.width(), size.height());
     let (width, height) = match fit {
@@ -338,17 +334,20 @@ pub fn rasterize_svg(bytes: &[u8], pixel_limit: u64, fit: Option<(u32, u32)>) ->
             (declared_width, declared_height)
         }
     };
-    let mut pixmap = tiny_skia::Pixmap::new(width, height)
-        .ok_or_else(|| ImagingError::environment("cannot allocate SVG raster"))?;
+    let mut pixmap = tiny_skia::Pixmap::new(width, height).ok_or_else(|| ImagingError::environment("cannot allocate SVG raster"))?;
     let transform = tiny_skia::Transform::from_scale(width as f32 / declared_width as f32, height as f32 / declared_height as f32);
     resvg::render(&tree, transform, &mut pixmap.as_mut());
     // The straight colour is the premultiplied byte over the alpha, truncated: what libvips writes when it takes
     // the rasterizer's premultiplied pixels back to straight alpha (tiny-skia's own demultiply rounds).
-    let data = pixmap.pixels().iter().flat_map(|pixel| {
-        let alpha = u32::from(pixel.alpha());
-        let straight = |channel: u8| (u32::from(channel) * 255).checked_div(alpha).map_or(0, |straight| straight.min(255) as u8);
-        [straight(pixel.red()), straight(pixel.green()), straight(pixel.blue()), pixel.alpha()]
-    }).collect();
+    let data = pixmap
+        .pixels()
+        .iter()
+        .flat_map(|pixel| {
+            let alpha = u32::from(pixel.alpha());
+            let straight = |channel: u8| (u32::from(channel) * 255).checked_div(alpha).map_or(0, |straight| straight.min(255) as u8);
+            [straight(pixel.red()), straight(pixel.green()), straight(pixel.blue()), pixel.alpha()]
+        })
+        .collect();
     let raster = Raster { width, height, has_alpha: true, data };
     Ok(Decoded { format: Format::Svg, width, height, orientation: 1, raster })
 }
@@ -362,11 +361,11 @@ pub fn decoded_dimensions(bytes: &[u8]) -> Result<(u32, u32), ImagingError> {
 /// strips come out as YCbCr samples, which libjpeg (what libvips asks for RGB) turns into RGB with its fixed-point
 /// tables, reproduced below. Every other TIFF goes through the `image` decoder.
 fn decode_tiff(bytes: &[u8], pixel_limit: u64, budget: u64) -> Result<Decoded, ImagingError> {
+    use tiff::ColorType as TiffColor;
     use tiff::decoder::Decoder;
     use tiff::decoder::DecodingResult;
     use tiff::decoder::Limits as TiffLimits;
     use tiff::tags::Tag;
-    use tiff::ColorType as TiffColor;
 
     let mut reader = match Decoder::new(Cursor::new(bytes)) {
         Ok(reader) => reader.with_limits(TiffLimits::unlimited()),
@@ -415,7 +414,8 @@ fn jpeg_tables_cut_off(bytes: &[u8]) -> bool {
         Some(b"MM") => false,
         _ => return false,
     };
-    let read16 = |at: usize| bytes.get(at..at + 2).map(|pair| if little { u16::from_le_bytes([pair[0], pair[1]]) } else { u16::from_be_bytes([pair[0], pair[1]]) });
+    let read16 =
+        |at: usize| bytes.get(at..at + 2).map(|pair| if little { u16::from_le_bytes([pair[0], pair[1]]) } else { u16::from_be_bytes([pair[0], pair[1]]) });
     let read32 = |at: usize| {
         bytes.get(at..at + 4).map(|quad| {
             let quad = [quad[0], quad[1], quad[2], quad[3]];
@@ -467,11 +467,8 @@ fn decode_with<D: ImageDecoder>(opened: Result<D, ImageError>, format: Format, p
     let orientation = decoder.orientation().map(Orientation::to_exif).unwrap_or(1);
     let total = usize::try_from(decoder.total_bytes()).map_err(|_| ImagingError::invalid(PIXEL_LIMIT))?;
     // The decoder's buffer, and beside it the 8-bit RGB(A) copy made of it unless it already is that.
-    let copy = if matches!(color, ColorType::Rgb8 | ColorType::Rgba8) {
-        0
-    } else {
-        u64::from(width) * u64::from(height) * if color.has_alpha() { 4 } else { 3 }
-    };
+    let copy =
+        if matches!(color, ColorType::Rgb8 | ColorType::Rgba8) { 0 } else { u64::from(width) * u64::from(height) * if color.has_alpha() { 4 } else { 3 } };
     within((total as u64).saturating_add(copy), budget)?;
     let mut buffer = vec![0u8; total];
     decoder.read_image(&mut buffer).map_err(|error| image_error(format, Stage::Data, &error))?;
@@ -651,9 +648,7 @@ fn decode_jpeg(bytes: &[u8], pixel_limit: u64, budget: u64) -> Result<Decoded, I
     }
     let expected = width as usize * height as usize;
     let raster = match (output, &cmyk) {
-        (ColorSpace::Luma, _) if pixels.len() == expected => {
-            Raster { width, height, has_alpha: false, data: pixels.iter().flat_map(|&v| [v, v, v]).collect() }
-        }
+        (ColorSpace::Luma, _) if pixels.len() == expected => Raster { width, height, has_alpha: false, data: pixels.iter().flat_map(|&v| [v, v, v]).collect() },
         (ColorSpace::CMYK, Some(converter)) if pixels.len() == expected * 4 => {
             let data = converter.convert(&pixels, has_adobe_marker(bytes)).ok_or_else(|| corrupt(Format::Jpeg, Stage::Data))?;
             Raster { width, height, has_alpha: false, data }

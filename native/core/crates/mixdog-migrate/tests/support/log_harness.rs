@@ -1,15 +1,8 @@
 //! The harness of the session-log tests: the record encodings of a 1.4.5 session log and the migrator over one log.
 //! Included by the tests that migrate a log.
 
-#![allow(
-    dead_code,
-    reason = "each test binary that includes this harness uses part of it"
-)]
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "test fixtures build and inspect data dirs with blocking std::fs"
-)]
+#![allow(dead_code, reason = "each test binary that includes this harness uses part of it")]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixtures build and inspect data dirs with blocking std::fs")]
 
 use std::path::Path;
 use std::sync::Arc;

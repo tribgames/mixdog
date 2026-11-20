@@ -298,7 +298,9 @@ pub fn template_page_fill(page: &Value, content: &Value) -> Result<TemplateFill,
         let shape = slots.get(field).or_else(|| partner.filter(|partner| text(prop(content, partner)).is_empty()).and_then(|partner| slots.get(partner)));
         let given = text(prop(content, field));
         if !given.is_empty() && shape.is_none() {
-            return Err(format!("Slide {index} of the template has no {field} box, so its {field} text has nowhere to go: leave it out, or use a page that carries one"));
+            return Err(format!(
+                "Slide {index} of the template has no {field} box, so its {field} text has nowhere to go: leave it out, or use a page that carries one"
+            ));
         }
         if let (Some(shape), false) = (shape, given.is_empty()) {
             extra.push((shape, given));
@@ -307,7 +309,12 @@ pub fn template_page_fill(page: &Value, content: &Value) -> Result<TemplateFill,
     }
     let carried = compiled(r"^(eyebrow|subtitle|body(-\d+)?|meta|source|aside-\d+)$", "");
     let group_role = compiled(GROUP_ROLE, "");
-    let mut unclaimed: Vec<f64> = slots.0.iter().filter(|(role, shape)| !claimed.contains(shape) && (carried.is_match(role) || group_role.is_match(role))).map(|(_, shape)| *shape).collect();
+    let mut unclaimed: Vec<f64> = slots
+        .0
+        .iter()
+        .filter(|(role, shape)| !claimed.contains(shape) && (carried.is_match(role) || group_role.is_match(role)))
+        .map(|(_, shape)| *shape)
+        .collect();
     // Decorative type stays only as a sign ("VS", "→"). A word or a figure set large in a template's accent block
     // ("MIXDOG", "TIME TO DECISION", "18") is the template's content: kept, it read as the deck's on every page built from
     // the bundled template, the closing page signed with the template's own name.

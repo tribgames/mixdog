@@ -98,7 +98,15 @@ fn size_params(options: &Value, body: &mut Map<String, Value>) {
 /// `generateImage({ lane, model, prompt, options, references, signal })`.
 #[allow(clippy::too_many_arguments, reason = "the adapter's own parameters, one per field of Node's call")]
 #[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
-pub async fn generate_image(http: &dyn JsonPost, auth: &Auth, model: &str, prompt: &str, options: &Value, references: &References, cancel: &CancellationToken) -> Result<GeneratedImage, AdapterError> {
+pub async fn generate_image(
+    http: &dyn JsonPost,
+    auth: &Auth,
+    model: &str,
+    prompt: &str,
+    options: &Value,
+    references: &References,
+    cancel: &CancellationToken,
+) -> Result<GeneratedImage, AdapterError> {
     let route = if references.is_empty() { "images/generations" } else { "images/edits" };
     let url = format!("{}/{route}", auth.base_url);
     let account = account_of(auth);
@@ -147,7 +155,11 @@ pub async fn generate_video(
     // The count is refused before any picture is read: which pictures are valid does not change that some must go.
     if references.len() > MAX_VIDEO_REFERENCES {
         return Err(LaneError {
-            message: format!("xAI video takes at most {MAX_VIDEO_REFERENCES} reference images; {} were given. Remove {} and try again.", references.len(), references.len() - MAX_VIDEO_REFERENCES),
+            message: format!(
+                "xAI video takes at most {MAX_VIDEO_REFERENCES} reference images; {} were given. Remove {} and try again.",
+                references.len(),
+                references.len() - MAX_VIDEO_REFERENCES
+            ),
             code: "MEDIA_TOO_MANY_REFERENCES",
             status: 400,
         }
@@ -230,7 +242,9 @@ pub async fn generate_video(
                 if !truthy(video.get("url")) {
                     return Err(with_usage(media("xAI video finished without a URL".to_owned(), "MEDIA_EMPTY_RESULT", 502)));
                 }
-                let bytes = download_public_media(public, &value_to_string(&video["url"]), &Limits { label: "xAI video", ..Limits::default() }, cancel).await.map_err(with_usage)?;
+                let bytes = download_public_media(public, &value_to_string(&video["url"]), &Limits { label: "xAI video", ..Limits::default() }, cancel)
+                    .await
+                    .map_err(with_usage)?;
                 return Ok(GeneratedVideo { bytes, mime: "video/mp4", duration_seconds: json_number(seconds), usage });
             }
             Some(status @ ("failed" | "expired")) => {

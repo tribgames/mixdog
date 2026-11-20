@@ -87,7 +87,8 @@ pub fn encode_record(mut record: Record) -> Result<Encoded, EncodeError> {
             }
         }
         Record::Compacted(r) => {
-            drop(reslot(&mut r.replacement, &mut blobs)?);        }
+            drop(reslot(&mut r.replacement, &mut blobs)?);
+        }
         Record::Run(r) => reslot_opt(&mut r.detail, &mut blobs)?,
         Record::Approval(r) => reslot_opt(&mut r.body, &mut blobs)?,
         Record::Queue(r) => reslot_opt(&mut r.entry, &mut blobs)?,
@@ -107,11 +108,7 @@ fn reslot<T: Serialize>(slot: &mut Slot<T>, blobs: &mut Vec<PendingBlob>) -> Res
 
 /// `slot_within` over an inline slot, in place: a value that fits stays where it is, and one that does not is replaced by
 /// its blob slot, whose bytes go to `blobs` and whose digest is returned. A slot already out of line takes no inline bytes.
-fn reslot_within<T: Serialize>(
-    slot: &mut Slot<T>,
-    budget: usize,
-    blobs: &mut Vec<PendingBlob>,
-) -> Result<(Option<Digest>, usize), EncodeError> {
+fn reslot_within<T: Serialize>(slot: &mut Slot<T>, budget: usize, blobs: &mut Vec<PendingBlob>) -> Result<(Option<Digest>, usize), EncodeError> {
     let Slot::Inline(value) = slot else {
         return Ok((None, 0));
     };
@@ -135,10 +132,7 @@ fn reslot_opt<T: Serialize>(slot: &mut Option<Slot<T>>, blobs: &mut Vec<PendingB
 
 /// Sorted, unique `refs`: the attachment digests of a body plus the record's own slot
 /// blobs (an item's body and prompt).
-pub fn refs(
-    attachments: impl IntoIterator<Item = Digest>,
-    own: impl IntoIterator<Item = Digest>,
-) -> Result<Refs, EncodeError> {
+pub fn refs(attachments: impl IntoIterator<Item = Digest>, own: impl IntoIterator<Item = Digest>) -> Result<Refs, EncodeError> {
     let mut all: Vec<Digest> = attachments.into_iter().collect();
     all.extend(own);
     all.sort();

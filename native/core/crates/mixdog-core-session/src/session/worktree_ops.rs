@@ -67,11 +67,7 @@ impl Ops {
     }
 
     /// Blocking disk work as a maintenance-lane job.
-    pub async fn on_disk<R: Send + 'static>(
-        &self,
-        cancel: &CancellationToken,
-        job: impl FnOnce() -> R + Send + 'static,
-    ) -> Result<R, ScmFailure> {
+    pub async fn on_disk<R: Send + 'static>(&self, cancel: &CancellationToken, job: impl FnOnce() -> R + Send + 'static) -> Result<R, ScmFailure> {
         on_lane(self.wt.scm().lane, cancel, job).await
     }
 
@@ -110,8 +106,7 @@ impl Ops {
         if session.is_empty() {
             return Ok(None);
         }
-        let owned: Vec<WorktreeRecord> =
-            self.records(cancel).await?.into_iter().filter(|r| r.owner_session_id.as_deref() == Some(session)).collect();
+        let owned: Vec<WorktreeRecord> = self.records(cancel).await?.into_iter().filter(|r| r.owner_session_id.as_deref() == Some(session)).collect();
         let found = owned.iter().find(|r| r.state == "ready").or(owned.first()).cloned();
         match found {
             Some(record) => Ok(Some(self.with_branch(record, cancel).await?)),
@@ -196,11 +191,7 @@ impl Ops {
         if let Some(record) = retried {
             return Ok(Created { record, changes: None });
         }
-        let subdir = project
-            .project_path
-            .strip_prefix(&project.top_level)
-            .map(|rel| rel.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_default();
+        let subdir = project.project_path.strip_prefix(&project.top_level).map(|rel| rel.to_string_lossy().replace('\\', "/")).unwrap_or_default();
         let mut pending = Vec::new();
         match carry {
             None => {}
@@ -213,28 +204,18 @@ impl Ops {
         if carry == Some("ask") && !pending.is_empty() {
             return Err(ScmFailure::coded(
                 "WORKTREE_DIRTY_CHOICE",
-                DomainErrorDetail::WorktreeDirtyChoice {
-                    count: pending.len() as u64,
-                    paths: pending.iter().take(DIRTY_CHOICE_PREVIEW).cloned().collect(),
-                },
+                DomainErrorDetail::WorktreeDirtyChoice { count: pending.len() as u64, paths: pending.iter().take(DIRTY_CHOICE_PREVIEW).cloned().collect() },
             ));
         }
         let settings = self.settings.worktree_settings().await;
         let base_commit = match &project.current_branch {
-            Some(branch) => first_line(
-                &self
-                    .wt
-                    .scm()
-                    .git
-                    .read(cancel, &project.top_level, &["rev-parse", "--verify", &format!("refs/heads/{branch}^{{commit}}")])
-                    .await?,
-            ),
+            Some(branch) => {
+                first_line(&self.wt.scm().git.read(cancel, &project.top_level, &["rev-parse", "--verify", &format!("refs/heads/{branch}^{{commit}}")]).await?)
+            }
             None => project.head.clone(),
         };
         let root = names::managed_root(self.wt.data_dir(), &project.common_dir);
-        self.wt
-            .assert_checkout_fits(&project.top_level, &base_commit, 0, &root, settings.size_warn_bytes, confirm_large, cancel)
-            .await?;
+        self.wt.assert_checkout_fits(&project.top_level, &base_commit, 0, &root, settings.size_warn_bytes, confirm_large, cancel).await?;
         let created = self
             .wt
             .create_full(
@@ -327,12 +308,7 @@ impl Ops {
         if !create && !exists {
             return Err(errors::coded_text(errors::WORKTREE_MISSING, "Branch does not exist."));
         }
-        let holder = self
-            .wt
-            .list_git_worktrees(&repo.project_path, cancel)
-            .await?
-            .into_iter()
-            .find(|w| w.branch.as_deref() == Some(branch) && !w.prunable);
+        let holder = self.wt.list_git_worktrees(&repo.project_path, cancel).await?.into_iter().find(|w| w.branch.as_deref() == Some(branch) && !w.prunable);
         if let Some(holder) = holder {
             if !self.exists(&holder.path, cancel).await? {
                 return Err(errors::missing(None, None, Some(holder.path)));
@@ -346,10 +322,7 @@ impl Ops {
             return Ok(Resolved { path: holder.path, entry, reference_added, repo_common_dir: common });
         }
         if !create && self.remote_defaults(&repo.project_path, cancel).await?.iter().any(|d| d == branch) {
-            return Err(ScmFailure::coded(
-                "WORKTREE_DEFAULT_BRANCH",
-                DomainErrorDetail::WorktreeDefaultBranch { branch: branch.to_owned() },
-            ));
+            return Err(ScmFailure::coded("WORKTREE_DEFAULT_BRANCH", DomainErrorDetail::WorktreeDefaultBranch { branch: branch.to_owned() }));
         }
         let settings = self.settings.worktree_settings().await;
         let base_commit = first_line(
@@ -357,13 +330,19 @@ impl Ops {
                 .wt
                 .scm()
                 .git
-                .read(cancel, &repo.top_level, &["rev-parse", "--verify", &format!("refs/heads/{}^{{commit}}", if create { repo.current_branch.as_deref().unwrap_or(branch) } else { branch })])
+                .read(
+                    cancel,
+                    &repo.top_level,
+                    &[
+                        "rev-parse",
+                        "--verify",
+                        &format!("refs/heads/{}^{{commit}}", if create { repo.current_branch.as_deref().unwrap_or(branch) } else { branch }),
+                    ],
+                )
                 .await?,
         );
         let root = names::managed_root(self.wt.data_dir(), &repo.common_dir);
-        self.wt
-            .assert_checkout_fits(&repo.top_level, &base_commit, 0, &root, settings.size_warn_bytes, confirm_large, cancel)
-            .await?;
+        self.wt.assert_checkout_fits(&repo.top_level, &base_commit, 0, &root, settings.size_warn_bytes, confirm_large, cancel).await?;
         let record = self
             .wt
             .create(

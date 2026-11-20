@@ -27,8 +27,7 @@ use crate::domains::ai_admin::provider_sync::LoadedConfig;
 use crate::domains::ai_admin::provider_sync::reload;
 
 /// `effectRetryDelaysMs`: the last delay repeats.
-pub const RETRY_DELAYS: [Duration; 4] =
-    [Duration::from_secs(1), Duration::from_secs(4), Duration::from_secs(15), Duration::from_secs(60)];
+pub const RETRY_DELAYS: [Duration; 4] = [Duration::from_secs(1), Duration::from_secs(4), Duration::from_secs(15), Duration::from_secs(60)];
 
 /// `PROVIDER_SECRET_ACCOUNT`: `agent.<id>.apiKey`, a custom provider's `agent.<id>.apiKey.<keyId>`,
 /// and `#deleted` (a deletion may remove a secret the marker never listed).
@@ -120,12 +119,7 @@ impl ProviderChangeEffects for LiveProviderEffects {
 #[cfg(test)]
 mod tests {
 
-
     use super::*;
-
-
-
-
 
     /// `failed()`: the same failure again is not warned about until the effect recovers.
     #[test]
@@ -138,11 +132,7 @@ mod tests {
         warned = None;
         assert!(failure_notice(&mut warned, "another").is_some(), "after a recovery the same message is warned about again");
     }
-
-
-
 }
-
 
 /// Starts the subscriber. The signature at the start is the baseline (Node's boot snapshot), so
 /// nothing runs until something differs. Dropping the handle does not stop it; aborting does.

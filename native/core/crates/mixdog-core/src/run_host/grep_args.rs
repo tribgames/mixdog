@@ -23,50 +23,18 @@ const GREP_CTX_HEAD_LIMIT_MAX: f64 = 40.0;
 const OUTPUT_MODES: [&str; 4] = ["files_with_matches", "content", "content_with_context", "count"];
 
 const CONTEXT_KEY_GROUPS: [(&str, &[&str]); 3] = [
-    (
-        "-A",
-        &["-A", "A", "after", "after_context", "afterContext", "--after-context", "after-context", "afterLines", "after_lines"],
-    ),
-    (
-        "-B",
-        &[
-            "-B",
-            "B",
-            "before",
-            "before_context",
-            "beforeContext",
-            "--before-context",
-            "before-context",
-            "beforeLines",
-            "before_lines",
-        ],
-    ),
+    ("-A", &["-A", "A", "after", "after_context", "afterContext", "--after-context", "after-context", "afterLines", "after_lines"]),
+    ("-B", &["-B", "B", "before", "before_context", "beforeContext", "--before-context", "before-context", "beforeLines", "before_lines"]),
     ("context", &["context", "-C", "C", "context_lines", "contextLines", "--context", "contextN", "around", "surrounding"]),
 ];
 
-const STRING_LIST_ARG_KEYS: [&str; 15] = [
-    "path",
-    "paths",
-    "root",
-    "file",
-    "files",
-    "pattern",
-    "patterns",
-    "query",
-    "regex",
-    "needle",
-    "glob",
-    "file_pattern",
-    "include",
-    "type",
-    "symbols",
-];
+const STRING_LIST_ARG_KEYS: [&str; 15] =
+    ["path", "paths", "root", "file", "files", "pattern", "patterns", "query", "regex", "needle", "glob", "file_pattern", "include", "type", "symbols"];
 
 static RANGE_SHAPED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\d+\s*[,\-:]\s*\d+$", ""));
 static DRIVE_ROOT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[A-Za-z]:[\\/]", ""));
 static DRIVE_HEAD: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[A-Za-z]:[\\/]", ""));
-static LIST_SPLIT: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r#"[\s,;]+(?=["']?[A-Za-z]:[\\/])"#, ""));
+static LIST_SPLIT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"[\s,;]+(?=["']?[A-Za-z]:[\\/])"#, ""));
 static QUOTED: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"^(["'])(.*)\1$"#, ""));
 
 use mixdog_js::json_number as num;
@@ -122,9 +90,7 @@ fn check_int_in_range(a: &mut Args, field: &str, min: f64, max: f64, clamp: bool
     if let JsonValue::String(text) = &value
         && RANGE_SHAPED.is_match(js_trim(text))
     {
-        return Some(format!(
-            "Error: \"{field}\" takes one integer, not a range \"{text}\" — use offset+limit (e.g. offset:0, limit:40)"
-        ));
+        return Some(format!("Error: \"{field}\" takes one integer, not a range \"{text}\" — use offset+limit (e.g. offset:0, limit:40)"));
     }
     if clamp
         && let Some(n) = value.as_f64()
@@ -135,10 +101,7 @@ fn check_int_in_range(a: &mut Args, field: &str, min: f64, max: f64, clamp: bool
         a.insert(field.to_owned(), value.clone());
     }
     if !is_finite_int(&value) {
-        return Some(format!(
-            "Error: \"{field}\" must be an integer (got {}) — e.g. {field}:40",
-            describe_type(&value)
-        ));
+        return Some(format!("Error: \"{field}\" must be an integer (got {}) — e.g. {field}:40", describe_type(&value)));
     }
     let n = value.as_f64().unwrap_or(f64::NAN);
     if clamp {
@@ -146,11 +109,7 @@ fn check_int_in_range(a: &mut Args, field: &str, min: f64, max: f64, clamp: bool
         return None;
     }
     if n < min {
-        return Some(format!(
-            "Error: builtin arg \"{field}\" must be >= {} (got {})",
-            number_to_string(min),
-            number_to_string(n)
-        ));
+        return Some(format!("Error: builtin arg \"{field}\" must be >= {} (got {})", number_to_string(min), number_to_string(n)));
     }
     a.insert(field.to_owned(), num(n.min(max)));
     None
@@ -193,14 +152,8 @@ fn split_listed_absolute_windows_paths(value: &str) -> Option<Vec<String>> {
         from = m.end;
     }
     pieces.push(&body[from..]);
-    let pieces: Vec<String> = pieces
-        .into_iter()
-        .map(|piece| QUOTED.captures(piece).and_then(|c| c.get(2)).unwrap_or(piece).to_owned())
-        .collect();
-    pieces
-        .iter()
-        .all(|p| DRIVE_HEAD.is_match(p) && !DRIVE_ROOT.is_match(&p[3..]))
-        .then_some(pieces)
+    let pieces: Vec<String> = pieces.into_iter().map(|piece| QUOTED.captures(piece).and_then(|c| c.get(2)).unwrap_or(piece).to_owned()).collect();
+    pieces.iter().all(|p| DRIVE_HEAD.is_match(p) && !DRIVE_ROOT.is_match(&p[3..])).then_some(pieces)
 }
 
 fn first_present<'a>(a: &'a Args, names: &[&str]) -> Option<&'a JsonValue> {
@@ -244,9 +197,7 @@ fn clamp_context_head_limit(a: &mut Args) {
     let truthy = |k: &str| a.get(k).is_some_and(|v| v.as_str().is_none_or(|s| !s.is_empty()));
     let mode = if truthy("output_mode") { a.get("output_mode") } else { a.get("mode") }.and_then(|v| v.as_str());
     let has_explicit_ctx = ["-A", "-B", "-C", "context"].iter().any(|k| is_non_empty_present(a, k));
-    if matches!(mode, Some("files_with_matches" | "count"))
-        || (mode.is_some_and(|m| m != "content_with_context") && !has_explicit_ctx)
-    {
+    if matches!(mode, Some("files_with_matches" | "count")) || (mode.is_some_and(|m| m != "content_with_context") && !has_explicit_ctx) {
         return;
     }
     if is_non_empty_present(a, "head_limit") {
@@ -304,10 +255,7 @@ fn guard_grep(a: &mut Args) -> Option<String> {
             a.insert(k.to_owned(), JsonValue::Array(listed.into_iter().map(JsonValue::String).collect()));
         }
         if let JsonValue::Array(items) = &a[k] {
-            if items.is_empty()
-                || items.len() > PATH_BATCH_LIMIT
-                || !items.iter().all(|i| i.as_str().is_some_and(|s| !s.is_empty()))
-            {
+            if items.is_empty() || items.len() > PATH_BATCH_LIMIT || !items.iter().all(|i| i.as_str().is_some_and(|s| !s.is_empty())) {
                 return Some(format!(
                     "Error: grep arg \"{k}\" must contain 1-{PATH_BATCH_LIMIT} non-empty path strings ({} given, max {PATH_BATCH_LIMIT})",
                     items.len()
@@ -348,10 +296,7 @@ fn apply_context_policy(a: &mut Args) {
             let n = to_number(v);
             n.is_finite() && n == 0.0
         };
-        let found = keys
-            .iter()
-            .find(|k| is_non_empty_present(a, k) && !zero(&a[**k]))
-            .or_else(|| keys.iter().find(|k| is_non_empty_present(a, k)));
+        let found = keys.iter().find(|k| is_non_empty_present(a, k) && !zero(&a[**k])).or_else(|| keys.iter().find(|k| is_non_empty_present(a, k)));
         let Some(key) = found else { continue };
         let value = a[*key].clone();
         let n = to_number(&value);
@@ -497,10 +442,7 @@ mod tests {
             ok(json!({"query": "foo", "limit": "5", "mode": "content"})),
             json!({"query": "foo", "head_limit": 5, "output_mode": "content_with_context", "pattern": "foo"})
         );
-        assert_eq!(
-            ok(json!({"pattern": "a", "-C": 3, "after": "300", "B": "2.0"})),
-            json!({"pattern": "a", "-A": 200, "-B": 2, "context": 3})
-        );
+        assert_eq!(ok(json!({"pattern": "a", "-C": 3, "after": "300", "B": "2.0"})), json!({"pattern": "a", "-A": 200, "-B": 2, "context": 3}));
         assert_eq!(ok(json!({"pattern": ["a", ["b", ""], null, "  "]})), json!({"pattern": ["a", "b"]}));
         assert_eq!(
             ok(json!({"file_pattern": "*.ts", "regex": "q", "dir": "src", "includes": "*.mjs"})),
@@ -530,10 +472,7 @@ mod tests {
     #[test]
     fn windows_path_lists_split_at_drive_roots() {
         assert_eq!(ok(json!({"pattern": "x", "path": "C:\\a C:\\b"})), json!({"pattern": "x", "path": ["C:\\a", "C:\\b"]}));
-        assert_eq!(
-            ok(json!({"pattern": "x", "path": "C:\\a x C:\\b"})),
-            json!({"pattern": "x", "path": ["C:\\a x", "C:\\b"]})
-        );
+        assert_eq!(ok(json!({"pattern": "x", "path": "C:\\a x C:\\b"})), json!({"pattern": "x", "path": ["C:\\a x", "C:\\b"]}));
     }
 
     #[test]
@@ -551,9 +490,6 @@ mod tests {
             "Error: grep arg \"mode\" must be one of content_with_context|content|files_with_matches|count (got \"bogus\")"
         );
         assert_eq!(err(json!({"pattern": "x", "include_noise": "yes"})), "Error: grep arg \"include_noise\" must be a boolean");
-        assert_eq!(
-            err(json!({"pattern": "x", "path": []})),
-            "Error: grep arg \"path\" must contain 1-10 non-empty path strings (0 given, max 10)"
-        );
+        assert_eq!(err(json!({"pattern": "x", "path": []})), "Error: grep arg \"path\" must contain 1-10 non-empty path strings (0 given, max 10)");
     }
 }

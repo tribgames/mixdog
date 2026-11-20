@@ -42,7 +42,14 @@ pub struct SessionFiles {
 }
 
 impl SessionFiles {
-    pub fn new(directory: Arc<SessionDirectory>, lane: DurabilityIo, data_dir: PathBuf, scopes: Vec<Vec<String>>, docs: Arc<dyn DocumentText>, log: LogLine) -> Self {
+    pub fn new(
+        directory: Arc<SessionDirectory>,
+        lane: DurabilityIo,
+        data_dir: PathBuf,
+        scopes: Vec<Vec<String>>,
+        docs: Arc<dyn DocumentText>,
+        log: LogLine,
+    ) -> Self {
         Self { directory, lane, data_dir, scopes, docs, log }
     }
 
@@ -74,7 +81,14 @@ async fn session_turns(directory: &SessionDirectory, session_id: &str) -> Result
 
 /// `turnArtifacts(sessionId, runId)` (`agent-task-sessions.mjs`): the files the turn that took
 /// submission `run_id` produced, as `collectTurnArtifacts` answers them (`{ files, omitted? }`).
-pub async fn turn_files(directory: &SessionDirectory, lane: DurabilityIo, data_dir: &Path, scopes: &[Vec<String>], session_id: &str, run_id: &str) -> Result<Value, String> {
+pub async fn turn_files(
+    directory: &SessionDirectory,
+    lane: DurabilityIo,
+    data_dir: &Path,
+    scopes: &[Vec<String>],
+    session_id: &str,
+    run_id: &str,
+) -> Result<Value, String> {
     let (folders, messages) = session_turns(directory, session_id).await?;
     collect_from(lane, data_dir, scopes, &folders, &messages, run_id, 0.0).await
 }
@@ -88,7 +102,15 @@ struct Folders {
 /// `turnSlice(messages, { runId, since })` + `collectTurnArtifacts(.., { cwd, roots: sessionRoots(..) })`
 /// on the durability lane: the files the turn wrote, stored (a file that fits a prompt) or
 /// path-only (`{ files, omitted? }`).
-async fn collect_from(lane: DurabilityIo, data_dir: &Path, scopes: &[Vec<String>], folders: &Folders, messages: &Value, run_id: &str, since: f64) -> Result<Value, String> {
+async fn collect_from(
+    lane: DurabilityIo,
+    data_dir: &Path,
+    scopes: &[Vec<String>],
+    folders: &Folders,
+    messages: &Value,
+    run_id: &str,
+    since: f64,
+) -> Result<Value, String> {
     let slice = Value::Array(turn_slice(messages, run_id, since));
     let (data_dir, scopes) = (data_dir.to_path_buf(), scopes.to_vec());
     let (cwd, candidates) = (folders.cwd.clone(), folders.candidates.clone());
@@ -117,7 +139,14 @@ pub fn stored_file_fields(files: &[Value]) -> Map<String, Value> {
         .map(|file| {
             let kind = file.get("kind").and_then(Value::as_str);
             let mut part = Map::new();
-            part.insert("type".into(), json!(match kind { Some("image") => "image", Some("text") => "text", _ => "file" }));
+            part.insert(
+                "type".into(),
+                json!(match kind {
+                    Some("image") => "image",
+                    Some("text") => "text",
+                    _ => "file",
+                }),
+            );
             part.insert("attachmentRef".into(), file["id"].clone());
             if kind == Some("text") {
                 part.insert("textKind".into(), json!("file"));
@@ -333,7 +362,9 @@ impl SessionFiles {
         let thread = ThreadId::from(format!("sess_room_{room_id}"));
         for part in intake.prompt.iter_mut() {
             let mime = first_text(&[part.get("mimeType"), part.get("mediaType")], "", usize::MAX).to_lowercase();
-            let Some(reference) = reference_of(part).map(str::to_owned).filter(|_| part.get("type").and_then(Value::as_str) == Some("file") && mime == "application/pdf") else {
+            let Some(reference) =
+                reference_of(part).map(str::to_owned).filter(|_| part.get("type").and_then(Value::as_str) == Some("file") && mime == "application/pdf")
+            else {
                 continue;
             };
             let (bytes, size) = match staged.iter().find(|(staged, _)| *staged == reference) {
@@ -368,7 +399,9 @@ impl SessionFiles {
         self.lane
             .submit(&CancellationToken::new(), move |lane| {
                 let blobs = BlobStore::new(&data_dir);
-                staged.iter().try_for_each(|(_, bytes)| blobs.put_with(lane, bytes, mixdog_store::fsio::Access::Inherit).map(|_| ()).map_err(|error| error.to_string()))
+                staged
+                    .iter()
+                    .try_for_each(|(_, bytes)| blobs.put_with(lane, bytes, mixdog_store::fsio::Access::Inherit).map(|_| ()).map_err(|error| error.to_string()))
             })
             .map_err(|error| format!("{error:?}"))?
             .await
@@ -424,7 +457,8 @@ pub(crate) mod tests {
     // Node's attachment records are unique by ref, so the three files of the test have three.
     const REF_TEXT: &str = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
     const REF_FILE: &str = "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc";
-    const PNG: &str = "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da636460f85f0f0002870180eb47ba920000000049454e44ae426082";
+    const PNG: &str =
+        "89504e470d0a1a0a0000000d49484452000000010000000108060000001f15c4890000000d4944415478da636460f85f0f0002870180eb47ba920000000049454e44ae426082";
 
     fn bytes(hex: &str) -> Vec<u8> {
         (0..hex.len()).step_by(2).map(|at| u8::from_str_radix(&hex[at..at + 2], 16).unwrap()).collect()
@@ -460,7 +494,10 @@ pub(crate) mod tests {
         ]);
         let parts = fields["parts"].as_array().unwrap();
         assert_eq!(parts[0], json!({ "type": "image", "attachmentRef": REF, "mimeType": "image/png", "filename": "a.png", "sizeBytes": 3 }));
-        assert_eq!(parts[1], json!({ "type": "text", "attachmentRef": REF_TEXT, "textKind": "file", "mimeType": "text/plain", "filename": "n.txt", "sizeBytes": 1 }));
+        assert_eq!(
+            parts[1],
+            json!({ "type": "text", "attachmentRef": REF_TEXT, "textKind": "file", "mimeType": "text/plain", "filename": "n.txt", "sizeBytes": 1 })
+        );
         assert_eq!(parts[2]["type"], "file");
         assert_eq!(fields["attachments"].as_array().unwrap().len(), 3);
     }
@@ -510,7 +547,6 @@ pub(crate) mod tests {
         json!({ "id": "u1", "kind": "user", "text": text, "upload": upload })
     }
 
-
     const GOLDEN: mixdog_testkit::Fixture = mixdog_testkit::fixture_const!("src/run_host/room_files/golden.json");
     /// Node's `speechWithArtifacts` on the same files: the parts and attachment records a member's
     /// turn returns, the order of its reply's links, only its own turn, only inside the session's
@@ -519,7 +555,8 @@ pub(crate) mod tests {
     async fn a_members_turn_files_become_the_rows_parts_and_attachments_as_node_stores_them() {
         let golden: Value = serde_json::from_str(&GOLDEN).unwrap();
         let (dir, root, other) = tree().await;
-        let swap = |text: &str| text.replace("<root>", &root.to_string_lossy().replace('\\', "/")).replace("<other>", &other.to_string_lossy().replace('\\', "/"));
+        let swap =
+            |text: &str| text.replace("<root>", &root.to_string_lossy().replace('\\', "/")).replace("<other>", &other.to_string_lossy().replace('\\', "/"));
         let folders = Folders { cwd: root.to_string_lossy().into_owned(), candidates: vec![root.to_string_lossy().into_owned()] };
         let data = dir.path().join("data");
         for name in ["chart", "several", "nothing"] {
@@ -549,7 +586,9 @@ pub(crate) mod tests {
         let data = dir.path().to_path_buf();
         mixdog_rt::testing::tokens()
             .durability_io
-            .submit(&CancellationToken::new(), move |lane| mixdog_core_session::session::prompt_submission::import_through_vault(&BlobStore::new(&data), lane, &image, None).map(|_| ()))
+            .submit(&CancellationToken::new(), move |lane| {
+                mixdog_core_session::session::prompt_submission::import_through_vault(&BlobStore::new(&data), lane, &image, None).map(|_| ())
+            })
             .unwrap()
             .await
             .unwrap()
@@ -584,11 +623,21 @@ pub(crate) mod tests {
             let dir = tempfile::tempdir().unwrap();
             let rig = Rig::new();
             let lane = mixdog_rt::testing::tokens().durability_io;
-            let files = SessionFiles::new(Arc::new(SessionDirectory::new(rig.deps())), lane, dir.path().to_path_buf(), Vec::new(), Arc::new(BadPdf), Arc::new(|_: &str| {}));
+            let files = SessionFiles::new(
+                Arc::new(SessionDirectory::new(rig.deps())),
+                lane,
+                dir.path().to_path_buf(),
+                Vec::new(),
+                Arc::new(BadPdf),
+                Arc::new(|_: &str| {}),
+            );
             assert_eq!(files.take_in("room01", row).await, Err(message.to_owned()), "{what}");
             let held: Vec<String> = mixdog_testkit::tree(dir.path()).into_iter().map(|(path, _)| path).collect();
             // A refusal found before the image is reached stores nothing at all, as Node's.
-            assert!(held.is_empty() || held == vault_import_of(bytes(PNG)).await, "{what}: the store holds nothing of the refused message but its image's import: {held:?}");
+            assert!(
+                held.is_empty() || held == vault_import_of(bytes(PNG)).await,
+                "{what}: the store holds nothing of the refused message but its image's import: {held:?}"
+            );
         }
     }
     /// A 65th file is no refusal: Node lists the first 64 attachments of a message (`store.mjs:638,664`) and keeps every
@@ -598,7 +647,14 @@ pub(crate) mod tests {
         let dir = tempfile::tempdir().unwrap();
         let rig = Rig::new();
         let lane = mixdog_rt::testing::tokens().durability_io;
-        let files = SessionFiles::new(Arc::new(SessionDirectory::new(rig.deps())), lane, dir.path().to_path_buf(), Vec::new(), Arc::new(NoDocuments), Arc::new(|_: &str| {}));
+        let files = SessionFiles::new(
+            Arc::new(SessionDirectory::new(rig.deps())),
+            lane,
+            dir.path().to_path_buf(),
+            Vec::new(),
+            Arc::new(NoDocuments),
+            Arc::new(|_: &str| {}),
+        );
         let more: Vec<Value> = (0..64u32).map(|n| json!({ "type": "file", "data": b64(&n.to_be_bytes()), "filename": format!("f{n}.bin") })).collect();
         let row = files.take_in("room01", upload_row("t".into(), more, None)).await.unwrap();
         assert_eq!(row["parts"].as_array().unwrap().len(), 65);

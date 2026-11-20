@@ -118,11 +118,11 @@ fn fixture(with_history: bool) -> Fixture {
     ];
     let ids: HashMap<&'static str, String> = blobs.iter().map(|(name, bytes)| (*name, sha(bytes))).collect();
     let store = Mutex::new(blobs.iter().map(|(_, bytes)| (sha(bytes), bytes.clone())).collect());
-    let record = |name: &str, kind: &str, file: &str, mime: &str, size: usize| {
-        json!({ "id": ids[name], "attachmentRef": ids[name], "kind": kind, "name": file, "mimeType": mime, "size": size })
-    };
+    let record = |name: &str, kind: &str, file: &str, mime: &str, size: usize| json!({ "id": ids[name], "attachmentRef": ids[name], "kind": kind, "name": file, "mimeType": mime, "size": size });
     let transcripts = HashMap::from([
-        ("s1", json!({ "items": [
+        (
+            "s1",
+            json!({ "items": [
             { "id": "u1", "kind": "user", "text": "hello", "attachments": [
                 record("pdf", "file", "spec.pdf", "application/pdf", 18),
                 record("note", "text", "notes.md", "text/markdown", 1200),
@@ -131,10 +131,14 @@ fn fixture(with_history: bool) -> Fixture {
             { "id": "u0", "kind": "user", "text": "old", "images": [{ "id": 1, "name": "old.png", "mimeType": "image/png", "attachmentRef": ids["old"] }] },
             { "id": "a1", "kind": "assistant", "text": ids["secret"], "attachments": [record("secret", "file", "x.bin", "x/y", 1)] },
             { "id": "t1", "kind": "tool", "name": "shell", "result": ids["secret"] },
-        ] })),
-        ("s2", json!({ "items": [
+        ] }),
+        ),
+        (
+            "s2",
+            json!({ "items": [
             { "id": "u2", "kind": "user", "text": "other", "attachments": [record("secret", "file", "secret.bin", "application/octet-stream", 1)] },
-        ] })),
+        ] }),
+        ),
     ]);
     let histories = HashMap::from([(
         "s1",
@@ -222,7 +226,13 @@ async fn a_named_attachment_the_store_no_longer_holds_or_holds_corrupted_is_not_
 
 #[test]
 fn an_attachment_stages_under_the_temp_directory_with_a_previewable_name() {
-    let meta = |name: &str, mime: &str| SessionAttachment { id: "0123456789abcdef".repeat(4), name: name.into(), mime_type: mime.into(), kind: json!("file"), size: 1.0 };
+    let meta = |name: &str, mime: &str| SessionAttachment {
+        id: "0123456789abcdef".repeat(4),
+        name: name.into(),
+        mime_type: mime.into(),
+        kind: json!("file"),
+        size: 1.0,
+    };
     assert_eq!(attachment_view_name(&meta("spec.pdf", "application/pdf")), "spec.pdf");
     assert_eq!(attachment_view_name(&meta("shot", "IMAGE/PNG")), "shot.png");
     assert_eq!(attachment_view_name(&meta("notes", "application/zip")), "notes");
@@ -307,7 +317,6 @@ fn a_session_id_is_trimmed_and_holds_only_id_characters() {
     }
     assert!(required_session_id(&"x".repeat(256)).is_some());
 }
-
 
 // ---- the service -----------------------------------------------------------------------------------------------------
 

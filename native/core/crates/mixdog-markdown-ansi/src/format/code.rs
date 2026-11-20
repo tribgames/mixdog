@@ -33,8 +33,7 @@ static DIFF_INSERTIONS: LazyLock<Re> = LazyLock::new(|| Re::new(r"(\d+)(\s+inser
 static DIFF_DELETIONS: LazyLock<Re> = LazyLock::new(|| Re::new(r"(\d+)(\s+deletions?\(-\))", ""));
 
 /// The highlighted output by `lang|themeVersion|source`.
-static HIGHLIGHT_CACHE: LazyLock<Mutex<Lru<String, String>>> =
-    LazyLock::new(|| Mutex::new(Lru::new(HIGHLIGHT_CACHE_MAX)));
+static HIGHLIGHT_CACHE: LazyLock<Mutex<Lru<String, String>>> = LazyLock::new(|| Mutex::new(Lru::new(HIGHLIGHT_CACHE_MAX)));
 
 /// `LANG_FAMILY[name]`: the internal family of a fenced-code language name or alias.
 pub fn lang_family(name: &str) -> Option<&'static str> {
@@ -181,9 +180,7 @@ fn flat_line(line: &str, c: &ExtraColorizers) -> String {
 
 /// `highlightCodeLine(line, family, c)`: one line (tool expanded output) with the same theme map.
 pub fn highlight_code_line(line: &str, family: Option<&str>, c: &ExtraColorizers) -> String {
-    hljs_language_from_family(family)
-        .and_then(|lang| highlight_code_text(line, &lang))
-        .unwrap_or_else(|| flat_line(line, c))
+    hljs_language_from_family(family).and_then(|lang| highlight_code_text(line, &lang)).unwrap_or_else(|| flat_line(line, c))
 }
 
 /// `highlightCodeBlockToLines(text, family, c)`: a multi-line block in one highlight call, one ANSI string per line; on
@@ -232,10 +229,7 @@ fn normalize_code_text(text: &str, wide: bool) -> String {
 /// are cosmetic and return when the block settles and renders in full).
 fn normalize_code_plain(text: &str) -> String {
     let unified = text.replace("\r\n", "\n").replace('\r', "\n").replace('\t', "  ");
-    unified
-        .chars()
-        .map(|ch| if matches!(ch, '\u{0}'..='\u{9}' | '\u{b}'..='\u{1f}' | '\u{7f}') { ' ' } else { ch })
-        .collect()
+    unified.chars().map(|ch| if matches!(ch, '\u{0}'..='\u{9}' | '\u{b}'..='\u{1f}' | '\u{7f}') { ' ' } else { ch }).collect()
 }
 
 /// `wrapCodeLine(ansiContent, maxLineWidth)`.
@@ -257,10 +251,7 @@ pub fn looks_like_unified_diff(text: &str) -> bool {
     let mut has_stat = false;
     for line in text.split('\n') {
         has_hunk |= line.starts_with("@@ ");
-        has_file_header |= line.starts_with("+++ ")
-            || line.starts_with("--- ")
-            || line.starts_with("diff --git ")
-            || is_index_header(line);
+        has_file_header |= line.starts_with("+++ ") || line.starts_with("--- ") || line.starts_with("diff --git ") || is_index_header(line);
         let mut chars = line.chars();
         has_sign |= matches!(chars.next(), Some('+' | '-')) && !matches!(chars.next(), Some('+' | '-'));
         has_stat |= DIFF_STAT_FILE.test(line) || DIFF_STAT_SUMMARY.test(line);
@@ -273,8 +264,7 @@ fn colorize_diff_stat_line(line: &str, c: &ExtraColorizers) -> String {
     let Some(row) = DIFF_STAT_FILE.exec(line) else {
         return c.diff_context.apply(line);
     };
-    let (indent, path, separator, tail) =
-        (row.get(1).unwrap_or(""), row.get(2).unwrap_or(""), row.get(3).unwrap_or(""), row.get(4).unwrap_or(""));
+    let (indent, path, separator, tail) = (row.get(1).unwrap_or(""), row.get(2).unwrap_or(""), row.get(3).unwrap_or(""), row.get(4).unwrap_or(""));
     // The tail is either `Bin ...` or `<count> <graph>` where the graph is `+` and `-`.
     let colored_tail = match DIFF_STAT_COUNT.exec(tail) {
         Some(count) => {
@@ -290,12 +280,9 @@ fn colorize_diff_stat_line(line: &str, c: &ExtraColorizers) -> String {
 
 /// `colorizeDiffStatTrailer(line, c)`: the `N files changed, M insertions(+), K deletions(-)` trailer.
 fn colorize_diff_stat_trailer(line: &str, c: &ExtraColorizers) -> String {
-    let added = DIFF_INSERTIONS.replace_all(line, |caps| {
-        format!("{}{}", c.diff_added.apply(caps.get(1).unwrap_or("")), c.diff_context.apply(caps.get(2).unwrap_or("")))
-    });
-    DIFF_DELETIONS.replace_all(&added, |caps| {
-        format!("{}{}", c.diff_removed.apply(caps.get(1).unwrap_or("")), c.diff_context.apply(caps.get(2).unwrap_or("")))
-    })
+    let added = DIFF_INSERTIONS
+        .replace_all(line, |caps| format!("{}{}", c.diff_added.apply(caps.get(1).unwrap_or("")), c.diff_context.apply(caps.get(2).unwrap_or(""))));
+    DIFF_DELETIONS.replace_all(&added, |caps| format!("{}{}", c.diff_removed.apply(caps.get(1).unwrap_or("")), c.diff_context.apply(caps.get(2).unwrap_or(""))))
 }
 
 /// `colorizeDiffLine(line, c)`: classifies and colours one unified-diff line.
@@ -308,9 +295,7 @@ pub fn colorize_diff_line(line: &str, c: &ExtraColorizers) -> String {
             return c.diff_header.apply(line);
         }
     }
-    let header = ["diff --git ", "new file", "deleted file", "rename ", "similarity ", "old mode", "new mode"]
-        .iter()
-        .any(|prefix| line.starts_with(prefix))
+    let header = ["diff --git ", "new file", "deleted file", "rename ", "similarity ", "old mode", "new mode"].iter().any(|prefix| line.starts_with(prefix))
         || is_index_header(line);
     if header {
         return c.diff_header.apply(line);
@@ -362,15 +347,8 @@ fn collect_plain_body_lines(text: &str, code_block: &SgrStyle, band_width: usize
     lines
 }
 
-fn collect_highlighted_body_lines(
-    text: &str,
-    hljs_lang: &str,
-    code_block: &SgrStyle,
-    band_width: usize,
-    wide: bool,
-) -> Vec<String> {
-    let source = highlight_code_text(text, hljs_lang)
-        .unwrap_or_else(|| text.split('\n').map(|line| code_block.apply(line)).collect::<Vec<_>>().join("\n"));
+fn collect_highlighted_body_lines(text: &str, hljs_lang: &str, code_block: &SgrStyle, band_width: usize, wide: bool) -> Vec<String> {
+    let source = highlight_code_text(text, hljs_lang).unwrap_or_else(|| text.split('\n').map(|line| code_block.apply(line)).collect::<Vec<_>>().join("\n"));
     source.split('\n').flat_map(|line| wrap_code_line(line, band_width, wide)).collect()
 }
 
@@ -396,9 +374,7 @@ pub(super) fn render_code_block(token: &Token, width: usize, wide: bool) -> Stri
             collect_diff_body_lines(&text, c, content_width, wide)
         } else {
             match resolve_hljs_language(&lang) {
-                Some(hljs_lang) if lang_family(&lang) != Some("md") => {
-                    collect_highlighted_body_lines(&text, &hljs_lang, code_block, content_width, wide)
-                }
+                Some(hljs_lang) if lang_family(&lang) != Some("md") => collect_highlighted_body_lines(&text, &hljs_lang, code_block, content_width, wide),
                 _ => collect_flat_body_lines(&text, code_block, content_width, wide),
             }
         }

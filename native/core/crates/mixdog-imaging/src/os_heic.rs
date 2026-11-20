@@ -130,9 +130,7 @@ pub(crate) mod wic {
                 return Err(HeicFailure::TooLarge);
             }
             let converter = factory.CreateFormatConverter().map_err(fail)?;
-            converter
-                .Initialize(&frame, &GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, None, 0.0, WICBitmapPaletteTypeCustom)
-                .map_err(fail)?;
+            converter.Initialize(&frame, &GUID_WICPixelFormat32bppRGBA, WICBitmapDitherTypeNone, None, 0.0, WICBitmapPaletteTypeCustom).map_err(fail)?;
             let stride = width.checked_mul(4).ok_or(HeicFailure::TooLarge)?;
             // Read before the pixels, so a profile or orientation that cannot be honoured refuses the file before the raster
             // is allocated.

@@ -8,9 +8,7 @@ use super::error::GoalResult;
 use super::js::{Goal, clean, count, number, put, put_num, string, truthy};
 use super::mutations::goal_finished;
 use super::runtime::{Admission, GoalRuntime, Tx};
-use super::state::{
-    assert_session_id, checkpoint_active_clock, clear_turn_failures, resume_goal_state, start_active_clock, stop_active_clock,
-};
+use super::state::{assert_session_id, checkpoint_active_clock, clear_turn_failures, resume_goal_state, start_active_clock, stop_active_clock};
 use super::text::continuation_prompt;
 
 /// The no-progress wait is spent per Goal and turn.
@@ -167,7 +165,8 @@ impl Tx<'_> {
         };
         self.slot.mem().unsaved_stop = None;
         if automatic_without_activity(detail, published.as_ref())
-            && let Some(published) = &published {
+            && let Some(published) = &published
+        {
             self.slot.mem().idle_review = Some(idle_review_key(published));
         }
         Ok(published)
@@ -190,7 +189,8 @@ impl GoalRuntime {
         self.inner
             .with_mutation(session_id, move |tx| {
                 if let Some(is_current) = &admission.is_current
-                    && !is_current()? {
+                    && !is_current()?
+                {
                     return Ok(None);
                 }
                 let Some(mut goal) = tx.read_record()? else { return Ok(None) };

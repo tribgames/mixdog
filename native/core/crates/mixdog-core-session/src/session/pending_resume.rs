@@ -68,7 +68,9 @@ pub fn short_text_fingerprint(text: &str) -> String {
 /// fingerprint of the body; empty when it has neither.
 pub fn execution_resume_key(body: &str, completion_key: &Value) -> String {
     let named = match completion_key {
-        Value::Object(object) => ["executionId", "key"].iter().find_map(|key| object.get(*key).filter(|value| is_truthy(value))).cloned().unwrap_or(Value::Null),
+        Value::Object(object) => {
+            ["executionId", "key"].iter().find_map(|key| object.get(*key).filter(|value| is_truthy(value))).cloned().unwrap_or(Value::Null)
+        }
         other => other.clone(),
     };
     let explicit = if is_truthy(&named) { js_trim(&value_to_string(&named)).to_owned() } else { String::new() };
@@ -243,7 +245,13 @@ mod tests {
     }
 
     fn thread() -> Rc<Thread> {
-        Rc::new(Thread { busy: Cell::new(false), admission: Cell::new(Admission::Open), queued_resume: Cell::new(false), now: Cell::new(1000), queued: RefCell::new(Vec::new()) })
+        Rc::new(Thread {
+            busy: Cell::new(false),
+            admission: Cell::new(Admission::Open),
+            queued_resume: Cell::new(false),
+            now: Cell::new(1000),
+            queued: RefCell::new(Vec::new()),
+        })
     }
 
     #[test]
@@ -275,7 +283,10 @@ mod tests {
         let queued = host.queued.borrow().clone();
         assert_eq!(queued.len(), 1);
         assert_eq!(queued[0].body, "first result\n\nsecond result\n\nthird result");
-        assert_eq!(queued[0].completion_keys, vec!["execution:a".to_owned(), "execution:b".to_owned(), format!("body:{}", short_text_fingerprint("third result"))]);
+        assert_eq!(
+            queued[0].completion_keys,
+            vec!["execution:a".to_owned(), "execution:b".to_owned(), format!("body:{}", short_text_fingerprint("third result"))]
+        );
         // Nothing is left to flush.
         feed.flush_deferred();
         assert_eq!(host.queued.borrow().len(), 1);

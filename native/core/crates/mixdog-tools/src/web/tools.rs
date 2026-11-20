@@ -6,6 +6,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use futures::future::join_all;
+use mixdog_ai::service::error_text::ErrorView;
+use mixdog_ai::service::error_text::PresentOptions;
+use mixdog_ai::service::error_text::present_error_text;
 use mixdog_core_api::domain::tool::ImageData;
 use mixdog_core_api::domain::tool::Tool;
 use mixdog_core_api::domain::tool::ToolAnnotations;
@@ -16,9 +19,6 @@ use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolOutput;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::domain::tool::ToolSpec;
-use mixdog_ai::service::error_text::ErrorView;
-use mixdog_ai::service::error_text::PresentOptions;
-use mixdog_ai::service::error_text::present_error_text;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::JsonValue;
 use serde_json::json;
@@ -27,7 +27,6 @@ use tokio_util::sync::CancellationToken;
 use url::Url;
 
 use super::args::FetchArgs;
-use super::lanes::WebLanes;
 use super::args::fetch_args;
 use super::args::search_args;
 use super::cache::CacheFile;
@@ -40,6 +39,7 @@ use super::format::continuation;
 use super::format::format_fetch;
 use super::format::paginate;
 use super::http::Fetcher;
+use super::lanes::WebLanes;
 use super::pipeline::Page;
 use super::pipeline::PageRenderer;
 use super::pipeline::Pipeline;
@@ -116,13 +116,7 @@ pub struct WebService {
 }
 
 fn unavailable(capability: &str, message: String) -> ToolError {
-    ToolError::new(
-        ToolErrorCode::Unavailable {
-            capability: capability.to_string(),
-            reason: message.clone(),
-        },
-        message,
-    )
+    ToolError::new(ToolErrorCode::Unavailable { capability: capability.to_string(), reason: message.clone() }, message)
 }
 
 /// Node's `toolFailure` text (`index.mjs:120-125`): the message as `presentErrorText(normalizeErrorMessage(message), { surface })`
@@ -137,10 +131,7 @@ fn failed(message: String) -> ToolError {
 }
 
 fn text_output(text: String) -> ToolOutput {
-    ToolOutput {
-        parts: vec![ToolPart::Text(text)],
-        ..ToolOutput::default()
-    }
+    ToolOutput { parts: vec![ToolPart::Text(text)], ..ToolOutput::default() }
 }
 
 impl WebService {
@@ -195,14 +186,7 @@ impl WebService {
         target.set_fragment(None);
         match self.pipeline.run(&target, self.timeout, &cancel.clone().into()).await {
             Ok(page) => {
-                self.cache
-                    .put(
-                        cache_key,
-                        page_payload(&page, target.as_str()),
-                        PAGE_CACHE_TTL,
-                        excerpt_size_gap(&page),
-                    )
-                    .await;
+                self.cache.put(cache_key, page_payload(&page, target.as_str()), PAGE_CACHE_TTL, excerpt_size_gap(&page)).await;
                 success_item(&page, args)
             }
             Err(failure) => error_item(&failure.error, failure.code, failure.failures, failure.attempts),
@@ -216,12 +200,15 @@ impl WebService {
         // Preserve the request's positions (including repetitions) but only scrape each exact URL once.
         let mut unique = Vec::new();
         let mut indices = HashMap::new();
-        let positions: Vec<_> = urls.iter().map(|url| {
-            *indices.entry(url.as_str()).or_insert_with(|| {
-                unique.push(url.as_str());
-                unique.len() - 1
+        let positions: Vec<_> = urls
+            .iter()
+            .map(|url| {
+                *indices.entry(url.as_str()).or_insert_with(|| {
+                    unique.push(url.as_str());
+                    unique.len() - 1
+                })
             })
-        }).collect();
+            .collect();
         let gate = Semaphore::new(fetch_concurrency());
         let (gate, args) = (&gate, &args);
         let fetched = join_all(unique.into_iter().map(|url| async move {
@@ -286,19 +273,23 @@ impl WebService {
         .await;
         let mut failures = 0;
         let mut unavailable_queries = 0;
-        let sections: Vec<String> = queries.iter().zip(results).map(|(query, result)| {
-            let text = match result {
-                Ok(payload) => format_results(&payload),
-                Err(error) => {
-                    failures += 1;
-                    if matches!(error, NativeSearchError::Unavailable(_)) {
-                        unavailable_queries += 1;
+        let sections: Vec<String> = queries
+            .iter()
+            .zip(results)
+            .map(|(query, result)| {
+                let text = match result {
+                    Ok(payload) => format_results(&payload),
+                    Err(error) => {
+                        failures += 1;
+                        if matches!(error, NativeSearchError::Unavailable(_)) {
+                            unavailable_queries += 1;
+                        }
+                        format!("Web search failed: {}", failure_text(error.message(), "web_search"))
                     }
-                    format!("Web search failed: {}", failure_text(error.message(), "web_search"))
-                }
-            };
-            format!("### Query: {query}\n\n{text}")
-        }).collect();
+                };
+                format!("### Query: {query}\n\n{text}")
+            })
+            .collect();
         let joined = sections.join("\n\n---\n\n");
         if failures == 0 {
             return Ok(text_output(joined));
@@ -332,12 +323,7 @@ impl WebService {
             let (mime, bytes) = self.public.fetch_image(&parsed).await?;
             Ok(vec![
                 ToolPart::Text(format!("Downloaded image: {url} ({mime}, {} bytes)", bytes.len())),
-                ToolPart::Image {
-                    mime,
-                    data: ImageData::Bytes(bytes),
-                    width: None,
-                    height: None,
-                },
+                ToolPart::Image { mime, data: ImageData::Bytes(bytes), width: None, height: None },
             ])
         })
         .await
@@ -396,9 +382,7 @@ impl WebService {
                 parts.insert(0, ToolPart::Text(summary.clone()));
                 failed(format!("{summary}\n\n{}", errors.join("\n")))
             }
-            Err(error) if error.kind == FetchKind::Cancelled => {
-                ToolError::new(ToolErrorCode::Cancelled, "Fetch cancelled")
-            }
+            Err(error) if error.kind == FetchKind::Cancelled => ToolError::new(ToolErrorCode::Cancelled, "Fetch cancelled"),
             Err(error) => failed(format!("Fetch failed: {}", failure_text(&error.message, surface))),
         };
         if successes > 0 {
@@ -529,10 +513,7 @@ macro_rules! web_tool {
 
         impl $tool {
             pub fn new(service: Arc<WebService>) -> Self {
-                Self {
-                    service,
-                    spec: spec($name, $title, $trigger, $description, $schema, $open_world, $hidden),
-                }
+                Self { service, spec: spec($name, $title, $trigger, $description, $schema, $open_world, $hidden) }
             }
         }
 

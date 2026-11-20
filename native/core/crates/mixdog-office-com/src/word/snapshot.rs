@@ -373,13 +373,7 @@ fn read_cell(document: &Obj, table: &Com, row: i32, column: i32, context: &Readi
     let accepted = accepted_text(document, &cell_range, context)?;
     let (mut size, mut bold) = (0.0, false);
     let _ = read_cell_type(&cell_range, &mut size, &mut bold);
-    Ok(CellRecord {
-        text: trim_end_cr_bel(&accepted.text),
-        deleted: trim_end_cr_bel(&accepted.deleted),
-        tracked: accepted.tracked,
-        size,
-        bold,
-    })
+    Ok(CellRecord { text: trim_end_cr_bel(&accepted.text), deleted: trim_end_cr_bel(&accepted.deleted), tracked: accepted.tracked, size, bold })
 }
 
 fn read_cell_type(cell_range: &Com, size: &mut f64, bold: &mut bool) -> Result<()> {
@@ -449,10 +443,7 @@ fn read_tables(document: &Obj, context: &ReadingContext) -> Result<(Vec<Object>,
                 cell.set("text", record.as_ref().map_or(Value::Null, |record| Value::String(record.text.clone())));
                 if let Some(record) = record {
                     if record.size > 0.0 || record.bold {
-                        cell.set(
-                            "font",
-                            Value::object(ObjectKind::Ordered, vec![("size", Value::Double(record.size)), ("bold", Value::Bool(record.bold))]),
-                        );
+                        cell.set("font", Value::object(ObjectKind::Ordered, vec![("size", Value::Double(record.size)), ("bold", Value::Bool(record.bold))]));
                     }
                     if record.tracked {
                         cell.set("tracked", Value::Bool(true));
@@ -476,11 +467,7 @@ fn read_tables(document: &Obj, context: &ReadingContext) -> Result<(Vec<Object>,
         entry.set("path", Value::String(format!("/body/tbl[{index}]")));
         entry.set("index", Value::Int(index));
         entry.set("style", Value::String(canonical_style_name(document, &table_style_name(&table))));
-        let alignment = table
-            .member("Rows")
-            .and_then(|rows| rows.member("Alignment"))
-            .and_then(|alignment| super::int(&alignment))
-            .unwrap_or(0);
+        let alignment = table.member("Rows").and_then(|rows| rows.member("Alignment")).and_then(|alignment| super::int(&alignment)).unwrap_or(0);
         entry.set("alignment", Value::Int(alignment));
         entry.set("columnWidths", Value::Array(widths));
         entry.set("rows", Value::Array(table_rows));
@@ -719,7 +706,14 @@ struct RevisionReading {
 /// at a paragraph start would not count the paragraph), or the cell of the table it sits in, as the portable reader names it:
 /// Word counts a cell's paragraphs among the body's, so /body/p[11] pointed at no paragraph the other backend could address.
 /// What was assigned before a failure stays.
-fn locate_revision(document: &Obj, revision: &Com, document_end: i32, entry: &mut Object, by_paragraph: &mut Vec<(i32, Vec<i32>)>, revision_index: i32) -> Result<()> {
+fn locate_revision(
+    document: &Obj,
+    revision: &Com,
+    document_end: i32,
+    entry: &mut Object,
+    by_paragraph: &mut Vec<(i32, Vec<i32>)>,
+    revision_index: i32,
+) -> Result<()> {
     let head = document_end.min(super::int(&revision.member("Range")?.member("Start")?)?.max(0) + 1);
     let paragraph = super::paragraph_ordinal(document, head)?;
     entry.set("at", Value::String(format!("/body/p[{paragraph}]")));

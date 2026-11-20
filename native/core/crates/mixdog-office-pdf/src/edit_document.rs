@@ -17,7 +17,8 @@ use serde_json::{Value, json};
 use crate::document::AnalysisError;
 
 /// What a caller is told about an encrypted file: the way to a copy this crate can open.
-pub const PDF_ENCRYPTED_HINT: &str = "PDF is encrypted: write an unencrypted copy first with action:'secure' security:'decrypt' path password output:<copy.pdf>, then open that copy";
+pub const PDF_ENCRYPTED_HINT: &str =
+    "PDF is encrypted: write an unencrypted copy first with action:'secure' security:'decrypt' path password output:<copy.pdf>, then open that copy";
 
 /// A failure of the writing half as the error of a call: the reader's exceptions keep their names.
 pub fn edit_error(error: WriteError) -> AnalysisError {
@@ -28,11 +29,7 @@ pub fn edit_error(error: WriteError) -> AnalysisError {
 }
 
 fn load_options(ignore_encryption: bool) -> LoadOptions {
-    LoadOptions {
-        ignore_encryption,
-        filters: Arc::new(CodecFilters),
-        guard: Guard::unbounded(),
-    }
+    LoadOptions { ignore_encryption, filters: Arc::new(CodecFilters), guard: Guard::unbounded() }
 }
 
 /// pdf-lib's refusal of a file with no `%PDF-` anywhere (`MissingPDFHeaderError`): the parser tries the keyword at every offset
@@ -77,9 +74,7 @@ pub fn load_pdf(bytes: &[u8], allow_encrypted: bool) -> Result<PdfDocument, Anal
     }
     match PdfDocument::load(bytes.to_vec(), &load_options(false)) {
         Ok(document) => Ok(document),
-        Err(WriteError::Encrypted) if allow_encrypted => {
-            PdfDocument::load(bytes.to_vec(), &load_options(true)).map_err(edit_error)
-        }
+        Err(WriteError::Encrypted) if allow_encrypted => PdfDocument::load(bytes.to_vec(), &load_options(true)).map_err(edit_error),
         Err(WriteError::Encrypted) => Err(AnalysisError::plain(PDF_ENCRYPTED_HINT)),
         Err(error) => Err(edit_error(error)),
     }
@@ -175,9 +170,7 @@ mod tests {
     #[test]
     fn pages_come_from_pages_then_page_then_every_page() {
         let document = two_pages();
-        let indexes = |operation: Value| -> Vec<usize> {
-            selected_edit_pages(&document, &operation).expect("pages").iter().map(|page| page.index).collect()
-        };
+        let indexes = |operation: Value| -> Vec<usize> { selected_edit_pages(&document, &operation).expect("pages").iter().map(|page| page.index).collect() };
         assert_eq!(indexes(json!({})), [0, 1]);
         assert_eq!(indexes(json!({ "page": 2 })), [1]);
         assert_eq!(indexes(json!({ "pages": [2, 1, 2], "page": 1 })), [1, 0, 1]);
@@ -188,12 +181,9 @@ mod tests {
     #[test]
     fn a_page_outside_the_document_or_not_whole_is_named_in_the_error() {
         let document = two_pages();
-        for (operation, named) in [
-            (json!({ "page": 3 }), "3"),
-            (json!({ "pages": [1, 0] }), "0"),
-            (json!({ "pages": [1.5] }), "1.5"),
-            (json!({ "pages": ["x"] }), "x"),
-        ] {
+        for (operation, named) in
+            [(json!({ "page": 3 }), "3"), (json!({ "pages": [1, 0] }), "0"), (json!({ "pages": [1.5] }), "1.5"), (json!({ "pages": ["x"] }), "x")]
+        {
             let error = selected_edit_pages(&document, &operation).expect_err("out of range");
             assert_eq!(error.message, format!("PDF page out of range: {named}"));
         }
@@ -216,23 +206,15 @@ mod tests {
         assert!(load_pdf(b"not a pdf", false).is_err());
     }
 
-
     #[test]
     fn a_target_is_resolved_beside_the_document_and_never_is_the_document() {
         let resolved = resolve_beside(Path::new("work/a.pdf"), "out/b.pdf");
         assert!(resolved.ends_with(Path::new("work").join("out").join("b.pdf")));
-        let error = write_sibling(
-            &mixdog_fsio::Unlaned,
-            &mixdog_office_base::write_note::NoWriteNote,
-            Path::new("work/a.pdf"),
-            "A.PDF",
-            b"x",
-        )
-        .expect_err("same file");
+        let error =
+            write_sibling(&mixdog_fsio::Unlaned, &mixdog_office_base::write_note::NoWriteNote, Path::new("work/a.pdf"), "A.PDF", b"x").expect_err("same file");
         assert_eq!(error.message, "output must differ from the document being edited");
     }
 }
-
 
 /// `resolve(dirname(path), target)`.
 pub(crate) fn resolve_beside(path: &Path, target: &str) -> PathBuf {
@@ -243,13 +225,7 @@ pub(crate) fn resolve_beside(path: &Path, target: &str) -> PathBuf {
 /// `writeSibling(path, target, bytes)`: the file `target` names (beside the document when it is relative), which must
 /// not be the document itself. Its folder is made, the write is reported to the call's note before it happens, and the
 /// absolute path comes back.
-pub fn write_sibling<P: WriteProof>(
-    proof: &P,
-    note: &dyn WriteNote,
-    path: &Path,
-    target: &str,
-    bytes: &[u8],
-) -> Result<PathBuf, AnalysisError> {
+pub fn write_sibling<P: WriteProof>(proof: &P, note: &dyn WriteNote, path: &Path, target: &str, bytes: &[u8]) -> Result<PathBuf, AnalysisError> {
     let output = resolve_beside(path, target);
     let document = nodepath::resolve_host(&[&path.to_string_lossy()]);
     if js_to_lowercase(&output.to_string_lossy()) == js_to_lowercase(&document) {

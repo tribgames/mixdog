@@ -34,9 +34,8 @@ pub fn normalize_updated_tool_output(value: Value) -> Value {
         return Value::String(String::new());
     }
     let Some(items) = value.get("content").and_then(Value::as_array) else { return value };
-    let non_text = items.iter().any(|c| {
-        c.as_object().is_some_and(|o| o.get("type").is_some_and(truthy) && o.get("type").and_then(Value::as_str) != Some("text"))
-    });
+    let non_text =
+        items.iter().any(|c| c.as_object().is_some_and(|o| o.get("type").is_some_and(truthy) && o.get("type").and_then(Value::as_str) != Some("text")));
     if non_text {
         return value;
     }
@@ -96,7 +95,6 @@ mod tests {
         assert_eq!(batch_reminder(None).as_deref(), Some("<system-reminder>\nPostToolBatch hook blocked continuation\n</system-reminder>"));
     }
 
-
     #[test]
     fn only_a_shell_call_changes_the_hook_directory() {
         let session = std::env::temp_dir();
@@ -108,7 +106,6 @@ mod tests {
         assert_eq!(effective_tool_cwd("shell", &json!({"cwd": absolute.to_string_lossy()}), &session), absolute);
     }
 }
-
 
 fn home_dir() -> Option<PathBuf> {
     std::env::var_os(if cfg!(windows) { "USERPROFILE" } else { "HOME" }).map(PathBuf::from)

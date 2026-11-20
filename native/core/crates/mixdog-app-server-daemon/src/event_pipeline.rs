@@ -121,12 +121,7 @@ fn parse_sentry(body: &Value) -> Data {
 
 fn parse_generic(body: &Value) -> Data {
     body.as_object()
-        .map(|map| {
-            map.iter()
-                .take(5)
-                .map(|(k, v)| (k.clone(), Value::String(v.as_str().map_or_else(|| v.to_string(), str::to_owned))))
-                .collect()
-        })
+        .map(|map| map.iter().take(5).map(|(k, v)| (k.clone(), Value::String(v.as_str().map_or_else(|| v.to_string(), str::to_owned)))).collect())
         .unwrap_or_default()
 }
 
@@ -233,7 +228,13 @@ fn webhook_rules(config: &Value) -> Vec<Rule> {
                     fields.insert(key.to_owned(), v.clone());
                 }
             }
-            Rule { name: text("name").unwrap_or_default(), parser: text("parser").unwrap_or_default(), filter: text("filter"), execute: text("execute").unwrap_or_default(), fields }
+            Rule {
+                name: text("name").unwrap_or_default(),
+                parser: text("parser").unwrap_or_default(),
+                filter: text("filter"),
+                execute: text("execute").unwrap_or_default(),
+                fields,
+            }
         })
         .collect()
 }
@@ -279,7 +280,13 @@ type Item = Map<String, Value>;
 
 impl EventPipeline {
     /// `config` is `config.events` (`{rules, queue}`).
-    pub fn new(files: QueueFiles, sink: Arc<dyn EventSink>, deliveries: Arc<StateWebhookStore>, config: &Value, now_ms: Arc<dyn Fn() -> i64 + Send + Sync>) -> Arc<Self> {
+    pub fn new(
+        files: QueueFiles,
+        sink: Arc<dyn EventSink>,
+        deliveries: Arc<StateWebhookStore>,
+        config: &Value,
+        now_ms: Arc<dyn Fn() -> i64 + Send + Sync>,
+    ) -> Arc<Self> {
         Arc::new_cyclic(|me| Self {
             me: me.clone(),
             files,
@@ -338,11 +345,8 @@ impl EventPipeline {
     /// The `*.json` names of a directory, sorted (enqueue order); empty when unreadable.
     async fn names(&self, dir: &str) -> Vec<String> {
         let Ok(entries) = self.files.fs.list_dir(self.files.read, self.dir(dir)).await else { return Vec::new() };
-        let mut names: Vec<String> = entries
-            .iter()
-            .filter_map(|e| e.path.as_path().file_name().and_then(|n| n.to_str()).map(str::to_owned))
-            .filter(|n| n.ends_with(".json"))
-            .collect();
+        let mut names: Vec<String> =
+            entries.iter().filter_map(|e| e.path.as_path().file_name().and_then(|n| n.to_str()).map(str::to_owned)).filter(|n| n.ends_with(".json")).collect();
         names.sort();
         names
     }
@@ -538,7 +542,9 @@ impl EventPipeline {
             return false;
         }
         if let Some(file) = file {
-            if let std::collections::hash_map::Entry::Occupied(counted) = self.fail_counts.lock().unwrap_or_else(PoisonError::into_inner).entry(original_name(file).to_owned()) {
+            if let std::collections::hash_map::Entry::Occupied(counted) =
+                self.fail_counts.lock().unwrap_or_else(PoisonError::into_inner).entry(original_name(file).to_owned())
+            {
                 counted.remove();
             }
             self.move_to_processed(file, "injected").await;
@@ -671,8 +677,8 @@ impl WebhookEvents for EventPipeline {
 
 #[cfg(test)]
 mod tests {
-    use mixdog_workspace::localfs::LocalFileService;
     use mixdog_services::webhooks::{Claim, WebhookStore};
+    use mixdog_workspace::localfs::LocalFileService;
 
     use super::*;
 
@@ -688,7 +694,6 @@ mod tests {
         let claim = Claim { status: "received", event: None, headers_summary: serde_json::json!({}), payload_preview: "{}".into() };
         assert!(store.claim_delivery(name, id, claim).await.unwrap());
     }
-
 
     #[derive(Default)]
     struct Sink {
@@ -744,14 +749,4 @@ mod tests {
         assert_eq!(*sink.got.lock().unwrap(), [("event:hook".to_owned(), "original prompt".to_owned())]);
         assert_eq!(store.delivery_rows().await[0]["status"], "done");
     }
-
-
-
-
-
-
-
-
-
-
 }

@@ -11,8 +11,8 @@ use serde_json::json;
 
 use super::AnthropicAdapter;
 use super::AnthropicModel;
-use super::Flavor;
 use super::CapsLookup;
+use super::Flavor;
 use super::models::parse_listing;
 use super::tests::FixedKey;
 use super::tests::Scripted;
@@ -25,20 +25,14 @@ use mixdog_core_api::domain::provider::ModelRequest;
 use mixdog_core_api::domain::provider::RequestOptions;
 use mixdog_core_api::domain::provider::Role;
 
-
-
 /// No catalog metadata: the state Node's recorder ran in.
 fn empty_catalog() -> CapsLookup {
     Arc::new(|_: &str| None)
 }
 
-
 #[tokio::test]
 async fn a_listing_is_one_request_and_its_failure_is_the_typed_error() {
-    let http = ScriptedHttp::new([Scripted::body(
-        401,
-        r#"{"type":"error","error":{"type":"authentication_error","message":"bad key"}}"#,
-    )]);
+    let http = ScriptedHttp::new([Scripted::body(401, r#"{"type":"error","error":{"type":"authentication_error","message":"bad key"}}"#)]);
     let adapter = AnthropicAdapter::api_key(config("https://api.anthropic.com"), http.clone(), Arc::new(FixedKey), cpu_bulk());
     let err = adapter.list_models().await.expect_err("401 surfaces");
     assert_eq!(err.kind, ErrorKind::Auth);
@@ -51,11 +45,9 @@ fn the_subscription_route_sends_no_extra_headers() {
     let mut cfg = config("https://api.anthropic.com");
     cfg.extra_headers = vec![("x-gateway-tenant".to_owned(), "t".to_owned())];
     let codec = super::AnthropicCodec::new(Flavor::OAuth, cfg);
-    let wire = mixdog_core_api::domain::provider::WireCodec::encode(&codec, &hi_request())
-        .expect("encode");
+    let wire = mixdog_core_api::domain::provider::WireCodec::encode(&codec, &hi_request()).expect("encode");
     assert!(!wire.headers.iter().any(|(n, _)| n == "x-gateway-tenant"));
 }
-
 
 fn hi_request() -> ModelRequest {
     request(vec![text_message(Role::User, "hi")], RequestOptions::default())
@@ -76,8 +68,6 @@ fn a_retired_id_resolves_to_its_family_s_newest_listed_id() {
     assert_eq!(resolve_after_404(&rows, "claude-haiku-4-5"), None, "no listed model of its family");
     assert_eq!(resolve_after_404(&rows, "claude-opus-4-1").as_deref(), Some("claude-opus-4-7"));
 }
-
-
 
 // ---------------------------------------------------------------------------
 // Row normalization
@@ -134,7 +124,8 @@ fn the_api_key_route_also_reads_the_alias_fields_a_gateway_uses_and_the_subscrip
 
 #[test]
 fn the_context_window_is_what_the_row_states_then_the_catalog_then_the_generations_default() {
-    let catalog: CapsLookup = Arc::new(|id: &str| (id == "claude-opus-4-1").then(|| super::ModelCaps { context_window: Some(123_456), ..super::ModelCaps::default() }));
+    let catalog: CapsLookup =
+        Arc::new(|id: &str| (id == "claude-opus-4-1").then(|| super::ModelCaps { context_window: Some(123_456), ..super::ModelCaps::default() }));
     let rows = json!([
         { "id": "claude-opus-4-1" }, { "id": "claude-opus-4-1-20250805", "max_input_tokens": 321 }, { "id": "claude-sonnet-4-5" },
         { "id": "claude-sonnet-4-6" }, { "id": "claude-opus-4-8" }, { "id": "claude-opus-5" }, { "id": "claude-haiku-4-5" }
@@ -158,7 +149,10 @@ fn effort_levels_come_from_the_rows_map_or_from_the_generation_when_the_row_says
         (model.effort_levels.clone(), model.supports_reasoning)
     };
     // An enumerated map is the truth: listed levels only, in display order, flags are not levels.
-    assert_eq!(levels("claude-x", json!({ "supported": true, "high": { "supported": true }, "low": true, "max": { "supported": false }, "default": "high" })).0, ["low", "high"]);
+    assert_eq!(
+        levels("claude-x", json!({ "supported": true, "high": { "supported": true }, "low": true, "max": { "supported": false }, "default": "high" })).0,
+        ["low", "high"]
+    );
     let (listed, reasoning) = levels("claude-x", json!({ "none": { "supported": true }, "xhigh": { "supported": true }, "low": { "supported": true } }));
     assert_eq!(listed, ["none", "low", "xhigh"]);
     assert!(reasoning);

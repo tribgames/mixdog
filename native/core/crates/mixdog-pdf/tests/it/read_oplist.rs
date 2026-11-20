@@ -51,15 +51,8 @@ const IDENTITY: [f64; 6] = [1.0, 0.0, 0.0, 1.0, 0.0, 0.0];
 
 #[test]
 fn paths_colours_and_line_state_come_out_in_content_order_with_the_transform_in_force() {
-    let list = ops_of(
-        "q 2 0 0 2 10 20 cm 1 0 0 rg 10 20 30 40 re f Q 3 w [4 2] 1 d 0 0 1 RG 0 0 m 50 50 l S",
-        "<< >>",
-        &[],
-    );
-    assert_eq!(
-        names(&list),
-        ["save", "cm", "fill #ff0000", "path Fill", "restore", "w", "d", "stroke #0000ff", "path Stroke"]
-    );
+    let list = ops_of("q 2 0 0 2 10 20 cm 1 0 0 rg 10 20 30 40 re f Q 3 w [4 2] 1 d 0 0 1 RG 0 0 m 50 50 l S", "<< >>", &[]);
+    assert_eq!(names(&list), ["save", "cm", "fill #ff0000", "path Fill", "restore", "w", "d", "stroke #0000ff", "path Stroke"]);
     assert_eq!(list[3].1, [2.0, 0.0, 0.0, 2.0, 10.0, 20.0], "painted under the cm");
     assert_eq!(list[8].1, IDENTITY, "the restore dropped it");
 }
@@ -138,10 +131,7 @@ fn marked_content_keeps_its_tag_and_its_identifier() {
 
 #[test]
 fn an_image_xobject_and_an_inline_image_are_painted_under_their_matrix() {
-    let image = stream(
-        "/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8",
-        &[0, 255],
-    );
+    let image = stream("/Type /XObject /Subtype /Image /Width 2 /Height 1 /ColorSpace /DeviceGray /BitsPerComponent 8", &[0, 255]);
     let list = ops_of(
         "q 20 0 0 10 5 5 cm /Im0 Do Q q 4 0 0 4 0 0 cm BI /W 2 /H 2 /CS /G /BPC 8 ID \u{1}\u{2}\u{3}\u{4} EI Q",
         "<< /XObject << /Im0 6 0 R >> >>",
@@ -164,10 +154,7 @@ fn an_image_xobject_and_an_inline_image_are_painted_under_their_matrix() {
 
 #[test]
 fn a_form_is_bracketed_and_its_matrix_applies_inside_it() {
-    let form = stream(
-        "/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Matrix [1 0 0 1 5 0]",
-        b"0 0 4 4 re f",
-    );
+    let form = stream("/Type /XObject /Subtype /Form /BBox [0 0 10 10] /Matrix [1 0 0 1 5 0]", b"0 0 4 4 re f");
     let list = ops_of("2 0 0 2 0 0 cm /Fm0 Do 0 0 1 1 re f", "<< /XObject << /Fm0 6 0 R >> >>", &[(6, form)]);
     assert_eq!(names(&list), ["cm", "form begin", "path Fill", "form end", "path Fill"]);
     assert_eq!(list[2].1, [2.0, 0.0, 0.0, 2.0, 10.0, 0.0]);
@@ -186,11 +173,7 @@ fn a_graphics_state_dictionary_becomes_its_entries() {
 
 fn linked_document() -> mixdog_pdf::document::Document {
     let objects: Vec<(u32, Vec<u8>)> = vec![
-        (
-            1,
-            b"<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R /Names << /Dests << /Names [(sec) [3 0 R /XYZ 0 0 null]] >> >> >>"
-                .to_vec(),
-        ),
+        (1, b"<< /Type /Catalog /Pages 2 0 R /Outlines 6 0 R /Names << /Dests << /Names [(sec) [3 0 R /XYZ 0 0 null]] >> >> >>".to_vec()),
         (2, b"<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 >>".to_vec()),
         (
             3,
@@ -206,17 +189,10 @@ fn linked_document() -> mixdog_pdf::document::Document {
         ),
         (4, b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] >>".to_vec()),
         (6, b"<< /Type /Outlines /First 7 0 R /Last 10 0 R /Count 3 >>".to_vec()),
-        (
-            7,
-            b"<< /Title (Chapter 1) /Parent 6 0 R /Next 8 0 R /First 9 0 R /Last 9 0 R /Count 1 /Dest [3 0 R /Fit] /F 3 /C [1 0 0] >>"
-                .to_vec(),
-        ),
+        (7, b"<< /Title (Chapter 1) /Parent 6 0 R /Next 8 0 R /First 9 0 R /Last 9 0 R /Count 1 /Dest [3 0 R /Fit] /F 3 /C [1 0 0] >>".to_vec()),
         (8, b"<< /Title (Chapter 2) /Parent 6 0 R /Prev 7 0 R /Next 10 0 R /Dest [4 0 R /Fit] >>".to_vec()),
         (9, b"<< /Title (Section 1.1) /Parent 7 0 R /Dest (sec) >>".to_vec()),
-        (
-            10,
-            b"<< /Title (Web) /Parent 6 0 R /Prev 8 0 R /A << /S /URI /URI (https://example.org/x) >> >>".to_vec(),
-        ),
+        (10, b"<< /Title (Web) /Parent 6 0 R /Prev 8 0 R /A << /S /URI /URI (https://example.org/x) >> >>".to_vec()),
     ];
     open(build(&objects))
 }
@@ -247,10 +223,7 @@ fn a_hidden_annotation_is_not_drawn_but_a_print_only_one_is() {
     let objects: Vec<(u32, Vec<u8>)> = vec![
         (1, b"<< /Type /Catalog /Pages 2 0 R >>".to_vec()),
         (2, b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>".to_vec()),
-        (
-            3,
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [6 0 R 7 0 R 8 0 R] >>".to_vec(),
-        ),
+        (3, b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 200 200] /Annots [6 0 R 7 0 R 8 0 R] >>".to_vec()),
         (6, b"<< /Type /Annot /Subtype /Square /Rect [0 0 10 10] /F 2 /AP << /N 9 0 R >> >>".to_vec()),
         (7, b"<< /Type /Annot /Subtype /Square /Rect [20 0 30 10] /F 4 /AP << /N 10 0 R >> >>".to_vec()),
         (8, b"<< /Type /Annot /Subtype /Square /Rect [40 0 50 10] /F 32 /AP << /N 11 0 R >> >>".to_vec()),

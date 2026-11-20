@@ -53,8 +53,6 @@ mod tests {
     }
 }
 
-
-
 /// The host with the registered operations. `args` are the arguments after `office-com-host`. Answers the exit code.
 pub fn run(args: &[OsString]) -> i32 {
     run_with(args, handlers::registered())
@@ -80,9 +78,7 @@ pub fn run_with(args: &[OsString], parts: Handlers) -> i32 {
             return 1;
         }
     };
-    let reader = std::thread::Builder::new()
-        .name("office-com-host-stdin".to_owned())
-        .spawn(move || apartment::pump(session, std::io::stdin(), &sender));
+    let reader = std::thread::Builder::new().name("office-com-host-stdin".to_owned()).spawn(move || apartment::pump(session, std::io::stdin(), &sender));
     if let Err(error) = reader {
         eprintln!("mixdogd office-com-host: starting the stdin reader: {error}");
         return 1;

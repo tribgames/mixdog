@@ -13,22 +13,21 @@
 
 use super::generic::{Hold, Port, Slot};
 use super::{Boundary, Outcome, Scope};
-use crate::platform::linux::uinput::{event_bytes, EV_KEY, EV_SYN, SYN_REPORT};
+use crate::platform::linux::uinput::{EV_KEY, EV_SYN, SYN_REPORT, event_bytes};
 use std::fs::File;
 use std::io::Write;
 use std::os::unix::process::CommandExt;
 use std::process::{Command, Stdio};
 use std::sync::{Arc, Mutex, OnceLock};
+use x11rb::CURRENT_TIME;
 use x11rb::connection::Connection;
 use x11rb::protocol::xinput::ConnectionExt as _;
 use x11rb::protocol::xproto::{
-    self, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _, EventMask, InputFocus, PropMode,
-    SelectionNotifyEvent, StackMode, Window,
+    self, AtomEnum, ClientMessageEvent, ConfigureWindowAux, ConnectionExt as _, EventMask, InputFocus, PropMode, SelectionNotifyEvent, StackMode, Window,
 };
 use x11rb::protocol::xtest::ConnectionExt as _;
 use x11rb::rust_connection::RustConnection;
 use x11rb::wrapper::ConnectionExt as _;
-use x11rb::CURRENT_TIME;
 
 /// Whether a hold is a key or a button: the port derives every event kind from it, never from a caller.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -175,9 +174,7 @@ pub(crate) fn core_event(kind: u8, detail: u8, x_at: i32, y_at: i32) -> Result<(
             let pressed = what(kind == xproto::KEY_PRESS_EVENT).core().0;
             press(hold, Boundary::HandOver, || fake(pressed, detail, x_at, y_at, 0))
         }
-        xproto::KEY_RELEASE_EVENT | xproto::BUTTON_RELEASE_EVENT => {
-            port()?.release(&LinuxHold::Core { what: what(kind == xproto::KEY_RELEASE_EVENT), detail })
-        }
+        xproto::KEY_RELEASE_EVENT | xproto::BUTTON_RELEASE_EVENT => port()?.release(&LinuxHold::Core { what: what(kind == xproto::KEY_RELEASE_EVENT), detail }),
         _ => {
             let _admitted = port()?.admit(Boundary::HandOver)?;
             delivered(fake(xproto::MOTION_NOTIFY_EVENT, 0, x_at, y_at, 0))
@@ -209,18 +206,41 @@ pub(crate) fn device_event(offset: u8, detail: u8, device: u16) -> Result<(), St
 /// The X requests this executor makes on its own connection, other than input: each one request.
 pub(crate) enum XRequest {
     /// A window-manager request (EWMH client message to the root).
-    ClientMessage { window: Window, kind: xproto::Atom, data: [u32; 5] },
+    ClientMessage {
+        window: Window,
+        kind: xproto::Atom,
+        data: [u32; 5],
+    },
     /// A direct raise, for a window manager that ignores the request.
-    Raise { window: Window },
+    Raise {
+        window: Window,
+    },
     /// A direct input focus, after the raise.
-    Focus { window: Window },
-    Configure { window: Window, x: i32, y: i32, width: i32, height: i32 },
+    Focus {
+        window: Window,
+    },
+    Configure {
+        window: Window,
+        x: i32,
+        y: i32,
+        width: i32,
+        height: i32,
+    },
     /// Gives up the clipboard selection.
-    ClearSelection { selection: xproto::Atom },
+    ClearSelection {
+        selection: xproto::Atom,
+    },
     /// Puts a private master's pointer at a point.
-    Warp { x: i32, y: i32, pointer: u16 },
+    Warp {
+        x: i32,
+        y: i32,
+        pointer: u16,
+    },
     /// A private master's keyboard focus.
-    DeviceFocus { window: Window, keyboard: u16 },
+    DeviceFocus {
+        window: Window,
+        keyboard: u16,
+    },
 }
 
 /// One X request, admitted and awaited; its answer is data.
@@ -290,10 +310,22 @@ pub(crate) fn return_keycode(borrowed: Borrowed) {
 /// One request of the clipboard owner (a thread of this executor's, on its own connection): admitted when it acts.
 pub(crate) enum Selection<'a> {
     /// Takes the selection for the owner's window.
-    Own { window: Window, selection: xproto::Atom },
+    Own {
+        window: Window,
+        selection: xproto::Atom,
+    },
     /// Writes a requestor's property: 32-bit atoms, or 8-bit text.
-    Atoms { requestor: Window, property: xproto::Atom, atoms: &'a [u32] },
-    Text { requestor: Window, property: xproto::Atom, target: xproto::Atom, bytes: &'a [u8] },
+    Atoms {
+        requestor: Window,
+        property: xproto::Atom,
+        atoms: &'a [u32],
+    },
+    Text {
+        requestor: Window,
+        property: xproto::Atom,
+        target: xproto::Atom,
+        bytes: &'a [u8],
+    },
     /// Tells the requestor the conversion is done.
     Notify(SelectionNotifyEvent),
 }
@@ -344,11 +376,7 @@ pub(crate) fn uinput_frame(motion: Frame) -> Result<(), String> {
 /// A key or button on the uinput device: a press owned from its write, a release the hold's own frame.
 pub(crate) fn uinput_key(code: u16, down: bool) -> Result<(), String> {
     let hold = LinuxHold::Uinput { code };
-    if down {
-        press(hold, Boundary::Local, || frame(&[(EV_KEY, code, 1)]))
-    } else {
-        port()?.release(&hold)
-    }
+    if down { press(hold, Boundary::Local, || frame(&[(EV_KEY, code, 1)])) } else { port()?.release(&hold) }
 }
 
 // --- providers ----------------------------------------------------------------------------------------------------------
@@ -389,11 +417,7 @@ pub(crate) fn compositor_command(program: Program, args: &[&str]) -> Result<(), 
         let _admitted = port()?.admit(Boundary::HandOver)?;
         Command::new(name).args(args).output().map_err(|error| format!("{name}: {error}"))?
     };
-    if output.status.success() {
-        Ok(())
-    } else {
-        Err(format!("{name}: {}", String::from_utf8_lossy(&output.stderr).trim()))
-    }
+    if output.status.success() { Ok(()) } else { Err(format!("{name}: {}", String::from_utf8_lossy(&output.stderr).trim())) }
 }
 
 /// One window request to GNOME Shell's Mixdog extension, handed over.

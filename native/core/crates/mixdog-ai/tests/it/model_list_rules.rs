@@ -77,31 +77,22 @@ fn sorted(mut rows: Vec<Value>, primary: &str) -> Vec<String> {
 
 #[test]
 fn the_primary_provider_comes_first_and_the_others_follow_by_name() {
-    let rows = vec![
-        json!({"provider": "zeta", "id": "z1"}),
-        json!({"provider": "alpha", "id": "a1"}),
-        json!({"provider": "mid", "id": "m1"}),
-    ];
+    let rows = vec![json!({"provider": "zeta", "id": "z1"}), json!({"provider": "alpha", "id": "a1"}), json!({"provider": "mid", "id": "m1"})];
     assert_eq!(sorted(rows.clone(), "mid"), ["mid/m1", "alpha/a1", "zeta/z1"]);
     assert_eq!(sorted(rows, "nobody"), ["alpha/a1", "mid/m1", "zeta/z1"]);
 }
 
 #[test]
 fn within_a_provider_the_newer_release_comes_first_even_when_its_version_number_is_lower() {
-    let rows = vec![
-        json!({"provider": "p", "id": "model-9", "releaseDate": "2023-01-01"}),
-        json!({"provider": "p", "id": "model-2", "releaseDate": "2025-06-01"}),
-    ];
+    let rows =
+        vec![json!({"provider": "p", "id": "model-9", "releaseDate": "2023-01-01"}), json!({"provider": "p", "id": "model-2", "releaseDate": "2025-06-01"})];
     assert_eq!(sorted(rows, "p"), ["p/model-2", "p/model-9"]);
 }
 
 #[test]
 fn without_release_dates_the_higher_version_comes_first() {
-    let rows = vec![
-        json!({"provider": "openai", "id": "gpt-4o"}),
-        json!({"provider": "openai", "id": "gpt-5"}),
-        json!({"provider": "openai", "id": "gpt-4.1"}),
-    ];
+    let rows =
+        vec![json!({"provider": "openai", "id": "gpt-4o"}), json!({"provider": "openai", "id": "gpt-5"}), json!({"provider": "openai", "id": "gpt-4.1"})];
     assert_eq!(sorted(rows, "openai"), ["openai/gpt-5", "openai/gpt-4.1", "openai/gpt-4o"]);
 }
 
@@ -186,7 +177,17 @@ fn a_sparse_model_becomes_a_fully_defaulted_row() {
     for null in ["created", "releaseDate", "outputTokens", "family", "tier", "defaultServiceTier", "defaultEffort", "mode", "reasoningContentField"] {
         assert_eq!(row[null], Value::Null, "{null}");
     }
-    for flag in ["latest", "supportsVision", "supportsFunctionCalling", "supportsWebSearch", "supportsPromptCaching", "supportsReasoning", "fastCapable", "defaultFast", "supportsMaxMode"] {
+    for flag in [
+        "latest",
+        "supportsVision",
+        "supportsFunctionCalling",
+        "supportsWebSearch",
+        "supportsPromptCaching",
+        "supportsReasoning",
+        "fastCapable",
+        "defaultFast",
+        "supportsMaxMode",
+    ] {
         assert_eq!(row[flag], false, "{flag}");
     }
     for list in ["reasoningOptions", "serviceTiers", "additionalSpeedTiers", "modelParameterOptions", "parameterVariants"] {
@@ -210,11 +211,20 @@ fn the_row_keeps_what_the_model_states_and_the_search_flag_is_the_callers() {
     let row = Value::Object(provider_model_cache_row("openai", &model, false));
     assert_eq!(row["display"], "Model M", "the name stands in for a missing display name");
     assert_eq!((row["created"].clone(), row["releaseDate"].clone(), row["outputTokens"].clone()), (json!(1_700_000_000), json!("2024-01-01"), json!(4096)));
-    assert_eq!((row["latest"].clone(), row["supportsVision"].clone(), row["supportsReasoning"].clone(), row["fastCapable"].clone()), (json!(true), json!(true), json!(true), json!(true)));
+    assert_eq!(
+        (row["latest"].clone(), row["supportsVision"].clone(), row["supportsReasoning"].clone(), row["fastCapable"].clone()),
+        (json!(true), json!(true), json!(true), json!(true))
+    );
     assert_eq!(row["supportsWebSearch"], false, "the model's own claim is not trusted: the capability check decides");
     assert_eq!(Value::Object(provider_model_cache_row("openai", &model, true))["supportsWebSearch"], true);
-    assert_eq!((row["reasoningLevels"].clone(), row["reasoningOptions"].clone(), row["serviceTiers"].clone()), (json!(["low"]), json!([{"value": "low"}]), json!(["priority"])));
-    assert_eq!((row["hidden"].clone(), row["defaultEffort"].clone(), row["mode"].clone(), row["defaultModelParameters"].clone()), (json!(true), json!("low"), json!("chat"), json!({"context": "1m"})));
+    assert_eq!(
+        (row["reasoningLevels"].clone(), row["reasoningOptions"].clone(), row["serviceTiers"].clone()),
+        (json!(["low"]), json!([{"value": "low"}]), json!(["priority"]))
+    );
+    assert_eq!(
+        (row["hidden"].clone(), row["defaultEffort"].clone(), row["mode"].clone(), row["defaultModelParameters"].clone()),
+        (json!(true), json!("low"), json!("chat"), json!({"context": "1m"}))
+    );
 }
 
 #[test]
@@ -249,11 +259,8 @@ fn a_custom_providers_row_keeps_its_own_names_flags_and_reasoning_but_a_first_pa
 
 #[test]
 fn a_provider_scope_picks_the_rows_of_that_provider() {
-    let rows = vec![
-        json!({"id": "1", "provider": "openai"}),
-        json!({"id": "2", "provider": "openai-oauth"}),
-        json!({"id": "3", "provider": "Anthropic OAuth"}),
-    ];
+    let rows =
+        vec![json!({"id": "1", "provider": "openai"}), json!({"id": "2", "provider": "openai-oauth"}), json!({"id": "3", "provider": "Anthropic OAuth"})];
     let pick = |scope: &str| provider_rows(&rows, scope).iter().map(|r| r["id"].as_str().unwrap().to_owned()).collect::<Vec<_>>();
     assert_eq!(pick(""), ["1", "2", "3"], "no scope lists everything");
     assert_eq!(pick("OpenAI"), ["1"], "an exact match, ignoring case and punctuation, wins over a partial one");
@@ -385,7 +392,10 @@ fn rows_of_a_partial_answer_say_what_is_missing_and_when_to_retry() {
     let missing = vec!["gemini".to_owned(), "xai".to_owned()];
     let out = with_catalog_state(rows, Some((&missing, 1_700_000_000_000.0)));
     for row in &out {
-        assert_eq!((row["catalogPartial"].clone(), row["catalogMissing"].clone(), row["catalogRetryAt"].clone()), (json!(true), json!(["gemini", "xai"]), json!(1_700_000_000_000_u64)));
+        assert_eq!(
+            (row["catalogPartial"].clone(), row["catalogMissing"].clone(), row["catalogRetryAt"].clone()),
+            (json!(true), json!(["gemini", "xai"]), json!(1_700_000_000_000_u64))
+        );
     }
     assert_eq!(out[1]["id"], "b");
 }

@@ -14,9 +14,7 @@ use mixdog_term::paste::PastedImage;
 use crate::editor::draft::Draft;
 use crate::editor::helpers::HintTone;
 use crate::editor::prompt::DraftOverride;
-use crate::editor::restore::{
-    merge_queued_restore_draft, queued_restore_prefix, queued_restore_projection, replace_queued_restore_prefix,
-};
+use crate::editor::restore::{merge_queued_restore_draft, queued_restore_prefix, queued_restore_projection, replace_queued_restore_prefix};
 
 use super::host::{PromptHost, Reply};
 
@@ -69,10 +67,7 @@ fn publish_draft(host: &mut dyn PromptHost, flow: &mut RestoreFlow, next: Draft)
     host.prompt().value.clone_from(&next.value);
     host.sync_prompt_layout_rows(&next.value);
     let id = host.now_ms();
-    host.prompt().publish_override(
-        id,
-        DraftOverride { value: next.value.clone(), cursor: Some(next.cursor), selection_anchor: next.selection_anchor },
-    );
+    host.prompt().publish_override(id, DraftOverride { value: next.value.clone(), cursor: Some(next.cursor), selection_anchor: next.selection_anchor });
     flow.last_published = next;
 }
 
@@ -107,10 +102,7 @@ fn reconcile(host: &mut dyn PromptHost, flow: &mut RestoreFlow, authoritative_te
     }
     let current_now = current_draft(host, flow);
     let shown = host.prompt().value.clone();
-    if next.draft.value != shown
-        || next.draft.cursor != current_now.cursor
-        || next.draft.selection_anchor != current_now.selection_anchor
-    {
+    if next.draft.value != shown || next.draft.cursor != current_now.cursor || next.draft.selection_anchor != current_now.selection_anchor {
         publish_draft(host, flow, next.draft);
     }
     true

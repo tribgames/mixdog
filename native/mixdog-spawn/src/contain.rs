@@ -115,9 +115,7 @@ mod imp {
                         let mut message = 0u32;
                         let mut key = 0usize;
                         let mut overlapped: *mut OVERLAPPED = std::ptr::null_mut();
-                        let ok = unsafe {
-                            GetQueuedCompletionStatus(port.handle, &mut message, &mut key, &mut overlapped, INFINITE)
-                        };
+                        let ok = unsafe { GetQueuedCompletionStatus(port.handle, &mut message, &mut key, &mut overlapped, INFINITE) };
                         if ok == 0 && overlapped.is_null() {
                             return;
                         }
@@ -130,11 +128,7 @@ mod imp {
                     }
                 })
                 .ok()?;
-            Some(Port {
-                handle,
-                watchers: Mutex::new(HashMap::new()),
-                next_key: AtomicUsize::new(1),
-            })
+            Some(Port { handle, watchers: Mutex::new(HashMap::new()), next_key: AtomicUsize::new(1) })
         })
         .as_ref()
     }
@@ -143,11 +137,7 @@ mod imp {
     /// allows breakaway lets a member start a child with CREATE_BREAKAWAY_FROM_JOB (the computer helper's
     /// cursor watchdog, which must outlive the helper), and only that child leaves the job.
     pub(crate) fn job_limit_flags(breakaway_ok: bool) -> u32 {
-        if breakaway_ok {
-            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK
-        } else {
-            JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
-        }
+        if breakaway_ok { JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK } else { JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE }
     }
 
     #[cfg(test)]
@@ -157,10 +147,7 @@ mod imp {
         #[test]
         fn a_job_allows_breakaway_only_when_asked() {
             assert_eq!(job_limit_flags(false), JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE);
-            assert_eq!(
-                job_limit_flags(true),
-                JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK
-            );
+            assert_eq!(job_limit_flags(true), JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | JOB_OBJECT_LIMIT_BREAKAWAY_OK);
             assert_ne!(job_limit_flags(true) & JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE, 0);
         }
     }
@@ -199,11 +186,7 @@ mod imp {
                 unsafe { CloseHandle(job) };
                 return Err(error);
             }
-            Ok(Self {
-                job: RwLock::new(job),
-                breakaway_ok,
-                watch: OnceLock::new(),
-            })
+            Ok(Self { job: RwLock::new(job), breakaway_ok, watch: OnceLock::new() })
         }
 
         fn handle(&self) -> RwLockReadGuard<'_, HANDLE> {
@@ -292,14 +275,8 @@ mod imp {
             let port = port()?;
             let key = port.next_key.fetch_add(1, Ordering::Relaxed);
             let notify = Arc::new(Notify::new());
-            port.watchers
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .insert(key, Arc::downgrade(&notify));
-            let association = JOBOBJECT_ASSOCIATE_COMPLETION_PORT {
-                CompletionKey: key as *mut std::ffi::c_void,
-                CompletionPort: port.handle,
-            };
+            port.watchers.lock().unwrap_or_else(|e| e.into_inner()).insert(key, Arc::downgrade(&notify));
+            let association = JOBOBJECT_ASSOCIATE_COMPLETION_PORT { CompletionKey: key as *mut std::ffi::c_void, CompletionPort: port.handle };
             let set = unsafe {
                 SetInformationJobObject(
                     *job,
@@ -600,11 +577,7 @@ mod tests {
     /// The gentle stop is SIGTERM and a child that ignores it lives; the forced one is SIGKILL.
     #[test]
     fn terminate_is_sigterm_and_kill_is_sigkill() {
-        let mut child = std::process::Command::new("sh")
-            .args(["-c", "trap '' TERM; while :; do sleep 1; done"])
-            .process_group(0)
-            .spawn()
-            .unwrap();
+        let mut child = std::process::Command::new("sh").args(["-c", "trap '' TERM; while :; do sleep 1; done"]).process_group(0).spawn().unwrap();
         let containment = Containment::create(false).unwrap();
         containment.adopt(child.id());
         std::thread::sleep(Duration::from_millis(300));

@@ -94,9 +94,7 @@ mod tests {
         let root = Path::new("plugin");
         let mut edited = false;
         let mut read = |path: &Path| match path.file_name().and_then(|name| name.to_str()) {
-            Some("plugin.json") if path.parent() == Some(root) => {
-                DeclarationFile::Bytes(br#"{"mcpServers":"servers.json"}"#.to_vec())
-            }
+            Some("plugin.json") if path.parent() == Some(root) => DeclarationFile::Bytes(br#"{"mcpServers":"servers.json"}"#.to_vec()),
             Some("servers.json") if !edited => {
                 edited = true;
                 DeclarationFile::Bytes(br#"{"before":{"command":"old"}}"#.to_vec())

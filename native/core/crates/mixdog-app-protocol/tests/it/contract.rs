@@ -37,9 +37,7 @@ fn crate_dir() -> PathBuf {
 fn golden_path(kind: FileKind, name: &str) -> PathBuf {
     match kind {
         FileKind::Schema => crate_dir().join("schema").join(name),
-        FileKind::TypeScript => crate_dir()
-            .join("../../../../packages/protocol/src")
-            .join(name),
+        FileKind::TypeScript => crate_dir().join("../../../../packages/protocol/src").join(name),
     }
 }
 
@@ -58,46 +56,23 @@ fn resolve<'a>(schema: &'a Value, definitions: &'a Value) -> &'a Value {
 /// non-mutation rows do not carry it.
 #[test]
 fn every_method_row_is_complete() {
-    let file = mixdog_app_protocol::export::generate()
-        .into_iter()
-        .find(|f| f.name == "client_methods.json")
-        .unwrap();
+    let file = mixdog_app_protocol::export::generate().into_iter().find(|f| f.name == "client_methods.json").unwrap();
     let schema: Value = serde_json::from_str(&file.content).unwrap();
     let definitions = &schema["definitions"];
     for spec in CLIENT_METHODS {
         let row = &schema["methods"][spec.method];
-        assert!(
-            row.get("params").is_some() && row.get("result").is_some(),
-            "{} lacks types",
-            spec.method
-        );
+        assert!(row.get("params").is_some() && row.get("result").is_some(), "{} lacks types", spec.method);
         assert!(!spec.origins.is_empty(), "{} has no origins", spec.method);
         let params = resolve(&row["params"], definitions);
-        let required: HashSet<&str> = params
-            .get("required")
-            .and_then(Value::as_array)
-            .map(|r| r.iter().filter_map(Value::as_str).collect())
-            .unwrap_or_default();
+        let required: HashSet<&str> =
+            params.get("required").and_then(Value::as_array).map(|r| r.iter().filter_map(Value::as_str).collect()).unwrap_or_default();
         match spec.mutation {
             Mutation::Op(_) => {
-                assert!(
-                    required.contains("opId"),
-                    "mutation {} must require opId",
-                    spec.method
-                );
-                assert_ne!(
-                    spec.op_scope,
-                    OpScopeRule::None,
-                    "mutation {} needs an op scope",
-                    spec.method
-                );
+                assert!(required.contains("opId"), "mutation {} must require opId", spec.method);
+                assert_ne!(spec.op_scope, OpScopeRule::None, "mutation {} needs an op scope", spec.method);
             }
             Mutation::None => {
-                assert!(
-                    !required.contains("opId"),
-                    "non-mutation {} must not require opId",
-                    spec.method
-                );
+                assert!(!required.contains("opId"), "non-mutation {} must not require opId", spec.method);
                 assert_eq!(spec.op_scope, OpScopeRule::None, "{}", spec.method);
             }
         }
@@ -120,72 +95,29 @@ fn ds_dup_1_no_duplicate_rows() {
     }
     unique("client methods", CLIENT_METHODS.iter().map(|s| s.method));
     unique("server requests", SERVER_REQUESTS.iter().map(|s| s.method));
-    unique(
-        "server notifications",
-        SERVER_NOTIFICATIONS.iter().map(|s| s.method),
-    );
-    unique(
-        "client notifications",
-        CLIENT_NOTIFICATIONS.iter().map(|s| s.method),
-    );
-    for (list, name) in [
-        (InventoryList::Services, "deleteSession"),
-        (InventoryList::Remote, "deleteSession"),
-        (InventoryList::Actions, "deleteSession"),
-    ] {
-        assert_eq!(
-            target_of(list, name),
-            Some(&Target::Method("thread/delete")),
-            "{name}"
-        );
+    unique("server notifications", SERVER_NOTIFICATIONS.iter().map(|s| s.method));
+    unique("client notifications", CLIENT_NOTIFICATIONS.iter().map(|s| s.method));
+    for (list, name) in [(InventoryList::Services, "deleteSession"), (InventoryList::Remote, "deleteSession"), (InventoryList::Actions, "deleteSession")] {
+        assert_eq!(target_of(list, name), Some(&Target::Method("thread/delete")), "{name}");
     }
     let quota = [
         ("getQuotaAutoResume", Target::Section("config")),
         ("setQuotaAutoResume", Target::Method("config/value/write")),
-        (
-            "scheduleQuotaResume",
-            Target::Method("thread/quotaResume/schedule"),
-        ),
-        (
-            "cancelQuotaResume",
-            Target::Method("thread/quotaResume/cancel"),
-        ),
+        ("scheduleQuotaResume", Target::Method("thread/quotaResume/schedule")),
+        ("cancelQuotaResume", Target::Method("thread/quotaResume/cancel")),
     ];
     for (name, survivor) in &quota {
-        for list in [
-            InventoryList::Services,
-            InventoryList::Remote,
-            InventoryList::Actions,
-        ] {
+        for list in [InventoryList::Services, InventoryList::Remote, InventoryList::Actions] {
             assert_eq!(target_of(list, name), Some(survivor), "{list:?} {name}");
         }
     }
-    let survivors: BTreeMap<&str, Vec<&Target>> = [
-        "listProviderModels",
-        "continueSessionInModel",
-        "setFast",
-        "stopShellJob",
-        "releaseShellJob",
-    ]
-    .into_iter()
-    .map(|name| {
-        (
-            name,
-            INVENTORY
-                .iter()
-                .filter(|(_, n, _)| *n == name)
-                .map(|(_, _, t)| t)
-                .collect(),
-        )
-    })
-    .collect();
+    let survivors: BTreeMap<&str, Vec<&Target>> = ["listProviderModels", "continueSessionInModel", "setFast", "stopShellJob", "releaseShellJob"]
+        .into_iter()
+        .map(|name| (name, INVENTORY.iter().filter(|(_, n, _)| *n == name).map(|(_, _, t)| t).collect()))
+        .collect();
     for (name, targets) in survivors {
         let distinct: HashSet<String> = targets.iter().map(|t| format!("{t:?}")).collect();
-        assert_eq!(
-            distinct.len(),
-            1,
-            "{name} maps to several targets: {distinct:?}"
-        );
+        assert_eq!(distinct.len(), 1, "{name} maps to several targets: {distinct:?}");
     }
 }
 
@@ -196,14 +128,12 @@ fn ds_dup_1_no_duplicate_rows() {
 fn terminal_ensure_is_keyed_by_its_tab_only_when_it_names_one() {
     use mixdog_app_protocol::common::SerializationScope;
     let scope = |params: Value| {
-        let request = JsonRpcRequest { id: RequestId::Integer(1), method: "terminal/ensure".into(), params: Some(params), trace: None, lone_surrogates: Vec::new() };
+        let request =
+            JsonRpcRequest { id: RequestId::Integer(1), method: "terminal/ensure".into(), params: Some(params), trace: None, lone_surrogates: Vec::new() };
         ClientRequest::from_jsonrpc(request).unwrap().serialization_scope()
     };
     assert_eq!(scope(json!({ "opId": "o1", "options": {} })), None);
-    assert_eq!(
-        scope(json!({ "opId": "o2", "tabId": "tab1", "options": {} })),
-        Some(SerializationScope::Terminal { tab_id: "tab1".into() })
-    );
+    assert_eq!(scope(json!({ "opId": "o2", "tabId": "tab1", "options": {} })), Some(SerializationScope::Terminal { tab_id: "tab1".into() }));
 }
 #[test]
 fn method_table_fields_are_wire_paths() {
@@ -211,35 +141,14 @@ fn method_table_fields_are_wire_paths() {
     for row in table.as_array().unwrap() {
         for column in ["scope", "opScope"] {
             if let Some(field) = row[column]["field"].as_str() {
-                assert!(
-                    !field.contains('_'),
-                    "{} {column}.field {field}",
-                    row["method"]
-                );
+                assert!(!field.contains('_'), "{} {column}.field {field}", row["method"]);
             }
         }
     }
-    let reset = CLIENT_METHODS
-        .iter()
-        .find(|s| s.method == "agent/home/reset")
-        .unwrap();
-    assert!(matches!(
-        reset.scope,
-        mixdog_app_protocol::ScopeRule::Keyed {
-            field: "agentId",
-            ..
-        }
-    ));
-    let home = table
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|r| r["method"] == "agent/home/reset")
-        .unwrap();
-    assert_eq!(
-        home["scope"],
-        serde_json::json!({"kind": "keyed", "namespace": "agentHome", "field": "agentId"})
-    );
+    let reset = CLIENT_METHODS.iter().find(|s| s.method == "agent/home/reset").unwrap();
+    assert!(matches!(reset.scope, mixdog_app_protocol::ScopeRule::Keyed { field: "agentId", .. }));
+    let home = table.as_array().unwrap().iter().find(|r| r["method"] == "agent/home/reset").unwrap();
+    assert_eq!(home["scope"], serde_json::json!({"kind": "keyed", "namespace": "agentHome", "field": "agentId"}));
 }
 
 /// Domain error details decode today's producer payloads without loss.
@@ -251,17 +160,13 @@ fn domain_error_details_match_producers() {
         serde_json::json!({"type": "worktreeBranchOccupied", "branch": "main"}),
         serde_json::json!({"type": "worktreeBranchOccupied", "branch": "main", "path": "/w", "kind": "session", "sessionId": "s1"}),
     ] {
-        let detail: mixdog_protocol::DomainErrorDetail =
-            serde_json::from_value(payload.clone()).unwrap();
+        let detail: mixdog_protocol::DomainErrorDetail = serde_json::from_value(payload.clone()).unwrap();
         assert_eq!(serde_json::to_value(&detail).unwrap(), payload);
     }
 }
 
 fn target_of(list: InventoryList, name: &str) -> Option<&'static Target> {
-    INVENTORY
-        .iter()
-        .find(|(l, n, _)| *l == list && *n == name)
-        .map(|(_, _, t)| t)
+    INVENTORY.iter().find(|(l, n, _)| *l == list && *n == name).map(|(_, _, t)| t)
 }
 
 /// DS-ALL-1: each of the 174 operations, 61 service methods, 190 phone
@@ -269,10 +174,7 @@ fn target_of(list: InventoryList, name: &str) -> Option<&'static Target> {
 /// exists in the generated tables.
 #[test]
 fn ds_all_1_every_inventory_name_is_mapped_once() {
-    let fixture: Value = serde_json::from_str(
-        &std::fs::read_to_string(crate_dir().join("tests/fixtures/parity-inventory.json")).unwrap(),
-    )
-    .unwrap();
+    let fixture: Value = serde_json::from_str(&std::fs::read_to_string(crate_dir().join("tests/fixtures/parity-inventory.json")).unwrap()).unwrap();
     let lists = [
         (InventoryList::Operations, "operations", 174),
         (InventoryList::Services, "services", 61),
@@ -281,36 +183,20 @@ fn ds_all_1_every_inventory_name_is_mapped_once() {
     ];
     let methods: HashSet<&str> = CLIENT_METHODS.iter().map(|s| s.method).collect();
     let notifications: HashSet<&str> = SERVER_NOTIFICATIONS.iter().map(|s| s.method).collect();
-    let client_notifications: HashSet<&str> =
-        CLIENT_NOTIFICATIONS.iter().map(|s| s.method).collect();
+    let client_notifications: HashSet<&str> = CLIENT_NOTIFICATIONS.iter().map(|s| s.method).collect();
     let server_requests: HashSet<&str> = SERVER_REQUESTS.iter().map(|s| s.method).collect();
-    let sections: HashSet<&str> = mixdog_protocol::SectionName::ALL
-        .iter()
-        .map(|s| s.wire())
-        .collect();
+    let sections: HashSet<&str> = mixdog_protocol::SectionName::ALL.iter().map(|s| s.wire()).collect();
     for (list, key, count) in lists {
-        let expected: Vec<&str> = fixture[key]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|v| v.as_str().unwrap())
-            .collect();
+        let expected: Vec<&str> = fixture[key].as_array().unwrap().iter().map(|v| v.as_str().unwrap()).collect();
         assert_eq!(expected.len(), count, "fixture {key}");
-        let mapped: Vec<&str> = INVENTORY
-            .iter()
-            .filter(|(l, _, _)| *l == list)
-            .map(|(_, n, _)| *n)
-            .collect();
+        let mapped: Vec<&str> = INVENTORY.iter().filter(|(l, _, _)| *l == list).map(|(_, n, _)| *n).collect();
         let mut seen = HashSet::new();
         for name in &mapped {
             assert!(seen.insert(*name), "{key}: {name} mapped twice");
         }
         let expected_set: HashSet<&str> = expected.iter().copied().collect();
         let unmapped: Vec<_> = expected.iter().filter(|n| !seen.contains(*n)).collect();
-        let unknown: Vec<_> = mapped
-            .iter()
-            .filter(|n| !expected_set.contains(*n))
-            .collect();
+        let unknown: Vec<_> = mapped.iter().filter(|n| !expected_set.contains(*n)).collect();
         assert!(unmapped.is_empty(), "{key}: unmapped {unmapped:?}");
         assert!(unknown.is_empty(), "{key}: not in inventory {unknown:?}");
     }
@@ -321,14 +207,8 @@ fn ds_all_1_every_inventory_name_is_mapped_once() {
             Target::Section(s) => sections.contains(s),
             Target::Notification(n) => notifications.contains(n),
             Target::ClientNotification(n) => client_notifications.contains(n),
-            Target::ServerRequestResponse(r) | Target::HostRequest(r) => {
-                server_requests.contains(r)
-            }
-            Target::MediaFrame(p)
-            | Target::InitializeField(p)
-            | Target::ByDesign(p)
-            | Target::Internal(p)
-            | Target::Deleted(p) => !p.is_empty(),
+            Target::ServerRequestResponse(r) | Target::HostRequest(r) => server_requests.contains(r),
+            Target::MediaFrame(p) | Target::InitializeField(p) | Target::ByDesign(p) | Target::Internal(p) | Target::Deleted(p) => !p.is_empty(),
         };
         assert!(ok, "{list:?} {name}: target {target:?} does not exist");
     }
@@ -396,33 +276,19 @@ fn envelope_round_trips_codex_vectors() {
         let message: JsonRpcMessage = serde_json::from_value(vector.clone()).unwrap();
         assert_eq!(serde_json::to_value(&message).unwrap(), vector);
     }
-    assert!(
-        serde_json::from_value::<JsonRpcMessage>(json!({"id": 1, "result": 1, "jsonrpc": "2.0"}))
-            .is_ok()
-    );
+    assert!(serde_json::from_value::<JsonRpcMessage>(json!({"id": 1, "result": 1, "jsonrpc": "2.0"})).is_ok());
 }
 
 /// §14.2: unknown method → -32601; oversized frame → 1009; bad JSON → 1007.
 #[test]
 fn envelope_failure_codes() {
-    let request = JsonRpcRequest {
-        id: RequestId::Integer(1),
-        method: "no/such".into(),
-        params: None,
-        trace: None,
-        lone_surrogates: Vec::new(),
-    };
-    let error = ClientRequest::from_jsonrpc(request)
-        .unwrap_err()
-        .into_error_data();
+    let request = JsonRpcRequest { id: RequestId::Integer(1), method: "no/such".into(), params: None, trace: None, lone_surrogates: Vec::new() };
+    let error = ClientRequest::from_jsonrpc(request).unwrap_err().into_error_data();
     assert_eq!(error.code(), METHOD_NOT_FOUND);
     assert!(matches!(error, ErrorData::MethodNotFound { .. }));
 
     let big = format!("{{\"method\":\"x\",\"params\":\"{}\"}}", "a".repeat(64));
-    assert_eq!(
-        decode_inbound_text(&big, 16).close_code(),
-        Some(CloseCode::FrameTooBig)
-    );
+    assert_eq!(decode_inbound_text(&big, 16).close_code(), Some(CloseCode::FrameTooBig));
     assert_eq!(CloseCode::FrameTooBig.code(), 1009);
     let bad = decode_inbound_text("{not json", 1 << 20);
     assert_eq!(bad, InboundText::Invalid);
@@ -438,10 +304,7 @@ fn unpaired_surrogate_escapes_are_read_as_replacement_characters() {
     let frame = r#"{"id":1,"method":"x\ud83d","params":{"a":"\ud800 \udc00 \ude00\ud83d \ud83d\ude00","\udbff":{"n":["\ude00"]}}}"#;
     let InboundText::Message(JsonRpcMessage::Request(request)) = decode_inbound_text(frame, 1 << 20) else { panic!("not a request") };
     assert_eq!(request.method, "x\u{fffd}");
-    assert_eq!(
-        request.params,
-        Some(json!({"a": "\u{fffd} \u{fffd} \u{fffd}\u{fffd} \u{1f600}", "\u{fffd}": {"n": ["\u{fffd}"]}}))
-    );
+    assert_eq!(request.params, Some(json!({"a": "\u{fffd} \u{fffd} \u{fffd}\u{fffd} \u{1f600}", "\u{fffd}": {"n": ["\u{fffd}"]}})));
     // Where it happened, for the server's refusal of every place that is no free-text field: the strings that held one,
     // not the ones that hold a real U+FFFD; a place outside the params (the method name) behind `#`.
     // A string is named once, then each lone unit it held with its UTF-16 index ([`LoneAt::Unit`]); the order is the parsed
@@ -449,7 +312,8 @@ fn unpaired_surrogate_escapes_are_read_as_replacement_characters() {
     let places = |lone: &[LoneAt]| lone.iter().filter(|at| !matches!(at, LoneAt::Unit { .. })).cloned().collect::<Vec<_>>();
     let mut named = places(&request.lone_surrogates);
     named.sort();
-    let mut expected = vec![LoneAt::Value("#/method".into()), LoneAt::Value("/a".into()), LoneAt::Key("/\u{fffd}".into()), LoneAt::Value("/\u{fffd}/n/0".into())];
+    let mut expected =
+        vec![LoneAt::Value("#/method".into()), LoneAt::Value("/a".into()), LoneAt::Key("/\u{fffd}".into()), LoneAt::Value("/\u{fffd}/n/0".into())];
     expected.sort();
     assert_eq!(named, expected);
     assert_eq!(LoneAt::units_at(&request.lone_surrogates, "/a"), [(0, 0xd800), (2, 0xdc00), (4, 0xde00), (5, 0xd83d)]);
@@ -535,10 +399,7 @@ fn every_string_field_is_classed_once_and_free_text_is_listed_free() {
             Value::Array(ts) => ts.iter().filter_map(Value::as_str).collect(),
             _ => Vec::new(),
         };
-        if types.contains(&"string")
-            || schema["enum"].as_array().is_some_and(|values| values.iter().any(Value::is_string))
-            || schema["const"].is_string()
-        {
+        if types.contains(&"string") || schema["enum"].as_array().is_some_and(|values| values.iter().any(Value::is_string)) || schema["const"].is_string() {
             out.insert(path.to_owned());
         }
         for (key, property) in schema["properties"].as_object().into_iter().flatten() {
@@ -674,35 +535,14 @@ fn every_string_field_is_classed_once_and_free_text_is_listed_free() {
 fn handshake_refusals_on_the_wire() {
     let outdated = |reason: &str| json!({"reason": reason, "serverVersion": "2.0.0", "clientVersion": "1.4.6"});
     for (data, wire) in [
-        (
-            ErrorData::NotInitialized,
-            json!({"reason": "notInitialized"}),
-        ),
-        (
-            ErrorData::AlreadyInitialized,
-            json!({"reason": "alreadyInitialized"}),
-        ),
-        (
-            ErrorData::ClientOutdated {
-                server_version: "2.0.0".into(),
-                client_version: "1.4.6".into(),
-            },
-            outdated("clientOutdated"),
-        ),
-        (
-            ErrorData::ServerOutdated {
-                server_version: "2.0.0".into(),
-                client_version: "1.4.6".into(),
-            },
-            outdated("serverOutdated"),
-        ),
+        (ErrorData::NotInitialized, json!({"reason": "notInitialized"})),
+        (ErrorData::AlreadyInitialized, json!({"reason": "alreadyInitialized"})),
+        (ErrorData::ClientOutdated { server_version: "2.0.0".into(), client_version: "1.4.6".into() }, outdated("clientOutdated")),
+        (ErrorData::ServerOutdated { server_version: "2.0.0".into(), client_version: "1.4.6".into() }, outdated("serverOutdated")),
     ] {
         assert_eq!(data.code(), -32600);
         assert_eq!(serde_json::to_value(&data).unwrap(), wire);
-        assert_eq!(
-            serde_json::from_value::<ErrorData>(wire.clone()).unwrap(),
-            data
-        );
+        assert_eq!(serde_json::from_value::<ErrorData>(wire.clone()).unwrap(), data);
         assert_eq!(data.into_body("m").data, Some(wire));
     }
     assert_eq!(CloseCode::VersionRefused.code(), 4002);
@@ -715,24 +555,13 @@ fn product_state_shapes_on_the_wire() {
     use mixdog_app_protocol::ServerNotification;
     let decode = |value: Value| serde_json::from_value::<ServerNotification>(value);
     // The provider account clears with null.
-    assert!(
-        decode(json!({"method": "thread/providerAccount/changed", "params": {"threadId": "t", "value": null}})).is_ok()
-    );
+    assert!(decode(json!({"method": "thread/providerAccount/changed", "params": {"threadId": "t", "value": null}})).is_ok());
     // hasOlder rides the history reset.
-    assert!(
-        decode(json!({"method": "thread/historyReset", "params": {"threadId": "t", "reason": "clear", "hasOlder": false}})).is_ok()
-    );
-    assert!(
-        decode(json!({"method": "thread/historyReset", "params": {"threadId": "t", "reason": "clear"}})).is_err()
-    );
+    assert!(decode(json!({"method": "thread/historyReset", "params": {"threadId": "t", "reason": "clear", "hasOlder": false}})).is_ok());
+    assert!(decode(json!({"method": "thread/historyReset", "params": {"threadId": "t", "reason": "clear"}})).is_err());
     // Prompt history: both increment kinds.
-    for value in [
-        json!({"kind": "added", "prompt": "p"}),
-        json!({"kind": "replaced", "prompts": ["b", "a"]}),
-    ] {
-        assert!(
-            decode(json!({"method": "thread/promptHistory/updated", "params": {"threadId": "t", "value": value}})).is_ok()
-        );
+    for value in [json!({"kind": "added", "prompt": "p"}), json!({"kind": "replaced", "prompts": ["b", "a"]})] {
+        assert!(decode(json!({"method": "thread/promptHistory/updated", "params": {"threadId": "t", "value": value}})).is_ok());
     }
     // The notifications config value is today's file without its version.
     let prefs: mixdog_protocol::NotificationPreferences = serde_json::from_value(json!({
@@ -768,10 +597,7 @@ fn host_state_set_visualize_on_the_wire() {
     });
     let state = json!({"sessionId": "s", "tabs": [tab], "active": null,
                        "history": [{"id": "h", "label": "l", "kind": "split", "versions": 1, "at": 5, "open": true}]});
-    for value in [
-        json!([state.clone()]),
-        json!({"sessionId": "s", "state": state, "reveal": true, "tab": "t1", "heldSince": 9}),
-    ] {
+    for value in [json!([state.clone()]), json!({"sessionId": "s", "state": state, "reveal": true, "tab": "t1", "heldSince": 9})] {
         let wire = json!({"key": "visualize", "value": value});
         let params: HostStateSetParams = serde_json::from_value(wire.clone()).unwrap();
         assert_eq!(serde_json::to_value(&params).unwrap(), wire);
@@ -880,34 +706,19 @@ fn a_route_section_carries_the_efforts_and_the_selected_route() {
 /// CCR settlements visible on the wire.
 #[test]
 fn ccr_shapes() {
-    let unavailable = ErrorData::CapabilityUnavailable {
-        capability: "host.browser".into(),
-        detail: "absent".into(),
-    };
+    let unavailable = ErrorData::CapabilityUnavailable { capability: "host.browser".into(), detail: "absent".into() };
     let value = serde_json::to_value(&unavailable).unwrap();
-    assert_eq!(
-        value,
-        json!({"reason": "capabilityUnavailable", "capability": "host.browser", "detail": "absent"})
-    );
-    assert_eq!(
-        serde_json::from_value::<ErrorData>(value).unwrap(),
-        unavailable
-    );
-    let initialized = mixdog_app_protocol::ClientNotification::from_jsonrpc(
-        mixdog_app_protocol::JsonRpcNotification {
-            method: "initialized".into(),
-            params: None,
-            emitted_at_ms: None,
-            feed: None,
-            lone_surrogates: Vec::new(),
-        },
-    );
-    assert_eq!(
-        initialized.unwrap(),
-        mixdog_app_protocol::ClientNotification::Initialized
-    );
+    assert_eq!(value, json!({"reason": "capabilityUnavailable", "capability": "host.browser", "detail": "absent"}));
+    assert_eq!(serde_json::from_value::<ErrorData>(value).unwrap(), unavailable);
+    let initialized = mixdog_app_protocol::ClientNotification::from_jsonrpc(mixdog_app_protocol::JsonRpcNotification {
+        method: "initialized".into(),
+        params: None,
+        emitted_at_ms: None,
+        feed: None,
+        lone_surrogates: Vec::new(),
+    });
+    assert_eq!(initialized.unwrap(), mixdog_app_protocol::ClientNotification::Initialized);
 }
-
 
 /// The upload window is part of every core's `initialize` limits: a reply without it is not a valid one (the gate admits
 /// only an equal version and build, which always states it).
@@ -932,15 +743,10 @@ fn schema_and_typescript_goldens_match() {
             std::fs::write(&path, &file.content).unwrap();
             continue;
         }
-        let current = std::fs::read_to_string(&path)
-            .unwrap_or_default()
-            .replace("\r\n", "\n");
+        let current = std::fs::read_to_string(&path).unwrap_or_default().replace("\r\n", "\n");
         if current != file.content {
             stale.push(path.display().to_string());
         }
     }
-    assert!(
-        stale.is_empty(),
-        "stale golden files (rerun with MIXDOG_UPDATE_PROTOCOL_GOLDEN=1): {stale:?}"
-    );
+    assert!(stale.is_empty(), "stale golden files (rerun with MIXDOG_UPDATE_PROTOCOL_GOLDEN=1): {stale:?}");
 }

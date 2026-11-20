@@ -165,18 +165,10 @@ impl Policy {
     /// The entries for `tool` under connector `group` or any of its accounts, topmost first:
     /// the connector's own, then the lowest-numbered account.
     pub fn entries(&self, group: &str, tool: &str) -> Vec<Permission> {
-        let account_number = |id: &str| -> u64 {
-            id.rsplit_once('-')
-                .filter(|(_, n)| n.bytes().all(|b| b.is_ascii_digit()))
-                .and_then(|(_, n)| n.parse().ok())
-                .unwrap_or(0)
-        };
-        let mut found: Vec<(u64, Permission)> = self
-            .tools
-            .iter()
-            .filter(|(id, _)| connectors::group_id(id) == group)
-            .filter_map(|(id, own)| Some((account_number(id), *own.get(tool)?)))
-            .collect();
+        let account_number =
+            |id: &str| -> u64 { id.rsplit_once('-').filter(|(_, n)| n.bytes().all(|b| b.is_ascii_digit())).and_then(|(_, n)| n.parse().ok()).unwrap_or(0) };
+        let mut found: Vec<(u64, Permission)> =
+            self.tools.iter().filter(|(id, _)| connectors::group_id(id) == group).filter_map(|(id, own)| Some((account_number(id), *own.get(tool)?))).collect();
         found.sort_by_key(|(n, _)| *n);
         found.into_iter().map(|(_, p)| p).collect()
     }
@@ -206,11 +198,7 @@ pub fn permission(loaded: &Loaded, server: &str, tool: &str, connector_of_server
     if let Some(own) = policy.and_then(|p| p.entries(&connectors::group_id(server), tool).first().copied()) {
         return own;
     }
-    if connectors::tool_default_asks(connector_of_server, tool) {
-        Permission::NeedsApproval
-    } else {
-        Permission::Auto
-    }
+    if connectors::tool_default_asks(connector_of_server, tool) { Permission::NeedsApproval } else { Permission::Auto }
 }
 
 /// One project's switched-off connectors in `project-connectors.json`.
@@ -282,13 +270,7 @@ fn is_present<L: WriteLane>(_lane: &InLane<L>, path: &Path) -> bool {
 /// that cannot be read is `deny`; a damaged one (empty, NUL-filled, torn, or a shape `parse`
 /// refuses) falls back to its last good copy `<file>.bak` and, without one, is `deny` — it never
 /// fails open.
-fn read_policy_file<L: WriteLane, T>(
-    lane: &InLane<L>,
-    path: &Path,
-    parse: impl Fn(&Value) -> Result<T, String>,
-    absent: T,
-    deny: T,
-) -> T {
+fn read_policy_file<L: WriteLane, T>(lane: &InLane<L>, path: &Path, parse: impl Fn(&Value) -> Result<T, String>, absent: T, deny: T) -> T {
     // With a good copy the damaged file is kept aside (`<file>.corrupt-<ms>`) and the copy
     // restored in its place, so the user's deny list survives. Without one the file stays
     // where it is (`keep_without_backup`): moving it would read as "no policy" (all on).
@@ -366,10 +348,7 @@ fn agent_dir(data_dir: &Path, id: &str, store: &BotStore) -> PathBuf {
     if id == MIXY_AGENT_ID {
         return if store.active { data_dir.join("bots").join(MIXY_BOT_ID) } else { data_dir.join("agents").join("lead") };
     }
-    let is_store_bot = store.active
-        && id != MIXY_BOT_ID
-        && !id.starts_with('.')
-        && (data_dir.join("bots").join(id).exists() || store.bots.contains(id));
+    let is_store_bot = store.active && id != MIXY_BOT_ID && !id.starts_with('.') && (data_dir.join("bots").join(id).exists() || store.bots.contains(id));
     if is_store_bot { data_dir.join("bots").join(id) } else { data_dir.join("agents").join(id) }
 }
 
@@ -389,16 +368,12 @@ fn bot_store(data_dir: &Path) -> BotStore {
         .ok()
         .and_then(|text| serde_json::from_str::<Value>(&text).ok())
         .filter(|m| m.get("version") == Some(&Value::from(1)));
-    BotStore {
-        active: manifest.is_some(),
-        bots: unique_ids(manifest.as_ref().and_then(|m| m.get("bots"))),
-    }
+    BotStore { active: manifest.is_some(), bots: unique_ids(manifest.as_ref().and_then(|m| m.get("bots"))) }
 }
 
 fn valid_agent_id(id: &str) -> bool {
     let mut chars = id.chars();
-    chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
-        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
+    chars.next().is_some_and(|c| c.is_ascii_alphanumeric()) && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
@@ -583,8 +558,7 @@ impl ConnectorPolicy {
 
     /// The model-visible refusal when `agent` may not use the tool, or `None`.
     pub fn agent_refusal(&self, agent: &str, name: &str) -> Option<String> {
-        (self.permission(agent, name) == Permission::Disabled)
-            .then(|| format!("Error: tool \"{name}\" is not available to this agent."))
+        (self.permission(agent, name) == Permission::Disabled).then(|| format!("Error: tool \"{name}\" is not available to this agent."))
     }
 
     /// Whether the project the session runs in (any of `paths`) switched the tool's connector
@@ -598,9 +572,9 @@ impl ConnectorPolicy {
         match snapshot.projects.as_ref().map(|read| &read.value) {
             None | Some(Projects::Absent) => false,
             Some(Projects::DenyAll) => true,
-            Some(Projects::Roots(list)) => list
-                .iter()
-                .any(|p| p.off.contains(&server) && paths.iter().any(|path| within_projects(path, std::slice::from_ref(&p.root)))),
+            Some(Projects::Roots(list)) => {
+                list.iter().any(|p| p.off.contains(&server) && paths.iter().any(|path| within_projects(path, std::slice::from_ref(&p.root))))
+            }
         }
     }
 
@@ -618,9 +592,9 @@ impl ConnectorPolicy {
             return false;
         }
         let (data_dir, group, agent_id) = (self.data_dir.clone(), connectors::group_id(&server), agent.to_owned());
-        let Ok(job) = self.io.durability.submit(&CancellationToken::new(), move |lane| {
-            write_agent_permission(lane, &data_dir, &agent_id, &group, &tool, permission)
-        }) else {
+        let Ok(job) =
+            self.io.durability.submit(&CancellationToken::new(), move |lane| write_agent_permission(lane, &data_dir, &agent_id, &group, &tool, permission))
+        else {
             return false;
         };
         let saved = job.await.is_ok_and(|saved| saved);
@@ -632,14 +606,7 @@ impl ConnectorPolicy {
 }
 
 #[allow(clippy::disallowed_methods, reason = "runs as a durability-lane job (InLane proof)")]
-fn write_agent_permission(
-    lane: &InLane<DurabilityIo>,
-    data_dir: &Path,
-    agent: &str,
-    group: &str,
-    tool: &str,
-    permission: Permission,
-) -> bool {
+fn write_agent_permission(lane: &InLane<DurabilityIo>, data_dir: &Path, agent: &str, group: &str, tool: &str, permission: Permission) -> bool {
     let store = bot_store(data_dir);
     let path = agent_policy_path(data_dir, agent, &store);
     let mut manifest: Map<String, Value> = match std::fs::read_to_string(&path) {

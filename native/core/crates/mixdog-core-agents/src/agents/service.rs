@@ -28,8 +28,8 @@ use super::AgentDefinitions;
 use super::AgentGreetings;
 use super::AgentHomeSessions;
 use super::AgentsError;
-use super::edit;
 use super::SaveOptions;
+use super::edit;
 use super::permissions::AgentPermissions;
 
 const DOMAIN: &str = "agent";
@@ -225,9 +225,7 @@ impl AgentService {
             "agent/getAgentAlwaysAllowedTools" => self.connectors.always_allowed(text(params, "agentId")?).await.map_err(failed),
             "agent/getAgentConnectorTools" => self.connectors.tools(text(params, "agentId")?).await.map_err(failed),
             "agent/getAgentPermissions" => self.permissions.table(arg("agentId")).await.map_err(failed),
-            "agent/setAgentConnectors" => {
-                self.connectors.set(text(params, "agentId")?, arg("connectors"), no_widen(params)).await.map_err(failed)
-            }
+            "agent/setAgentConnectors" => self.connectors.set(text(params, "agentId")?, arg("connectors"), no_widen(params)).await.map_err(failed),
             "agent/setAgentConnectorEnabled" => {
                 self.connectors.set_enabled(text(params, "agentId")?, arg("connectorId"), arg("enabled"), no_widen(params)).await.map_err(failed)
             }
@@ -249,9 +247,7 @@ impl AgentService {
                 let strict = relay || params.get("options").and_then(|options| options.get("noWiden")) == Some(&Value::Bool(true));
                 self.permissions.set(arg("agentId"), arg("action"), arg("mode"), strict).await.map_err(failed)
             }
-            "agent/recordAgentApprovalAudit" => {
-                self.permissions.record_audit(arg("agentId"), arg("action"), arg("decision")).await.map_err(failed)
-            }
+            "agent/recordAgentApprovalAudit" => self.permissions.record_audit(arg("agentId"), arg("action"), arg("decision")).await.map_err(failed),
             other => Err(mixdog_core_base::support::wrong_method(DOMAIN, other)),
         }
     }
@@ -325,5 +321,3 @@ mod tests {
         }
     }
 }
-
-

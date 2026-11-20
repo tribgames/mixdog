@@ -18,13 +18,11 @@ use serde_json::Value;
 
 static REPLAY_MODIFIED: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"(?i)blocks in the latest assistant message cannot be modified").expect("a valid pattern"));
-static REPLAY_BOUND: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(?i)bound to a different conversation").expect("a valid pattern"));
+static REPLAY_BOUND: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)bound to a different conversation").expect("a valid pattern"));
 static REPLAY_EMPTY_TEXT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(?i)text content blocks must be non-empty").expect("a valid pattern"));
 
 static ANTHROPIC_SCHEMA: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\btools\.(\d+)\.(?:custom\.)?input_schema").expect("a valid pattern"));
-static OPENAI_PARAMETERS: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"\btools(?:\[(\d+)\]|\.(\d+))\.(?:function\.)?parameters").expect("a valid pattern"));
+static OPENAI_PARAMETERS: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"\btools(?:\[(\d+)\]|\.(\d+))\.(?:function\.)?parameters").expect("a valid pattern"));
 static GEMINI_DECLARATION: LazyLock<Regex> =
     LazyLock::new(|| Regex::new(r"\b(?:function_declarations|functionDeclarations)(?:\[(\d+)\]|\.(\d+))").expect("a valid pattern"));
 static OPENAI_FUNCTION: LazyLock<Regex> = LazyLock::new(|| Regex::new(r#"Invalid schema for function ['"`]([^'"`]+)['"`]"#).expect("a valid pattern"));
@@ -78,19 +76,11 @@ fn evidence(body: &[u8], message: &str) -> Vec<String> {
     let text = String::from_utf8_lossy(body);
     let parsed: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
     let string = |value: Option<&Value>| value.and_then(Value::as_str).filter(|s| !s.is_empty()).map(str::to_owned);
-    let mut entries: Vec<Option<String>> = vec![
-        string(parsed.get("param")),
-        string(parsed.pointer("/error/param")),
-        string(parsed.pointer("/error/message")),
-        string(parsed.get("message")),
-    ];
+    let mut entries: Vec<Option<String>> =
+        vec![string(parsed.get("param")), string(parsed.pointer("/error/param")), string(parsed.pointer("/error/message")), string(parsed.get("message"))];
     for details in [parsed.get("details"), parsed.pointer("/error/details")] {
-        for violation in details
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(|detail| detail.get("fieldViolations").and_then(Value::as_array))
-            .flatten()
+        for violation in
+            details.and_then(Value::as_array).into_iter().flatten().filter_map(|detail| detail.get("fieldViolations").and_then(Value::as_array)).flatten()
         {
             entries.push(string(violation.get("field")));
             entries.push(string(violation.get("description")));
@@ -109,12 +99,9 @@ fn evidence(body: &[u8], message: &str) -> Vec<String> {
 /// Node offsets by (`shifted`) are already in their place.
 pub(crate) fn wire_tool_names(body: &[u8]) -> Vec<Option<String>> {
     let parsed: Value = serde_json::from_slice(body).unwrap_or(Value::Null);
-    let name = |tool: &Value| {
-        tool.get("name").or_else(|| tool.pointer("/function/name")).and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_owned)
-    };
+    let name = |tool: &Value| tool.get("name").or_else(|| tool.pointer("/function/name")).and_then(Value::as_str).filter(|n| !n.is_empty()).map(str::to_owned);
     let tools = parsed.get("tools").and_then(Value::as_array).cloned().unwrap_or_default();
-    let declared =
-        |tool: &Value| tool.get("functionDeclarations").or_else(|| tool.get("function_declarations")).and_then(Value::as_array).cloned();
+    let declared = |tool: &Value| tool.get("functionDeclarations").or_else(|| tool.get("function_declarations")).and_then(Value::as_array).cloned();
     if tools.iter().any(|tool| declared(tool).is_some()) {
         return tools.iter().filter_map(declared).flatten().map(|declaration| name(&declaration)).collect();
     }
@@ -223,7 +210,9 @@ mod tests {
     #[test]
     fn other_refusals_stay_as_they_were() {
         let tools = vec![None, Some("echo".to_owned())];
-        for (status, text) in [(500, "tools.1.custom.input_schema"), (400, "tools.7.custom.input_schema"), (400, "tools.0.custom.input_schema"), (400, "bad request")] {
+        for (status, text) in
+            [(500, "tools.1.custom.input_schema"), (400, "tools.7.custom.input_schema"), (400, "tools.0.custom.input_schema"), (400, "bad request")]
+        {
             let mut err = refused(status, text);
             mark_tool_schema(&mut err, b"", &tools);
             assert_eq!((err.kind, err.rejected_tool.as_deref()), (ErrorKind::InvalidRequest, None), "{status} {text}");

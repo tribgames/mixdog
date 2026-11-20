@@ -245,11 +245,7 @@ pub fn drift_target(item: &Value) -> Option<Value> {
         // A box's outline is its most distinct colour (a white disc ringed in navy on white paper); else its fill.
         let fill = &item["fill"];
         let solid_fill = (fill.is_object() && number(fill, "a") > 0.9).then(|| fill["hex"].clone());
-        let ink = if kind == "rect" {
-            item["stroke"].get("hex").filter(|hex| truthy(hex)).cloned().or(solid_fill).unwrap_or(Value::Null)
-        } else {
-            Value::Null
-        };
+        let ink = if kind == "rect" { item["stroke"].get("hex").filter(|hex| truthy(hex)).cloned().or(solid_fill).unwrap_or(Value::Null) } else { Value::Null };
         return Some(target_json(shortened(&name), "box", [number(b, "x"), number(b, "y"), w, h], 3.0, Some(ink)));
     }
     // The glyph boxes of tight display type reach past the element into its neighbours; the element's own content box
@@ -613,7 +609,8 @@ const GAP: u32 = 16;
 fn comparison_image(html: &[u8], render: &[u8]) -> Result<Vec<u8>, String> {
     let half = |bytes: &[u8]| -> Result<Image, String> {
         let image = Image::decode(bytes).map_err(|error| error.to_string())?;
-        ops::resize(&image, &ResizeOptions { width: Some(HALF_WIDTH), height: Some(HALF_HEIGHT), fit: Fit::Fill, ..ResizeOptions::default() }).map_err(|error| error.to_string())
+        ops::resize(&image, &ResizeOptions { width: Some(HALF_WIDTH), height: Some(HALF_HEIGHT), fit: Fit::Fill, ..ResizeOptions::default() })
+            .map_err(|error| error.to_string())
     };
     let (left, right) = (half(html)?, half(render)?);
     let sheet = Image::create(HALF_WIDTH * 2 + GAP, HALF_HEIGHT, 3, [0x80, 0x80, 0x80, 255]).map_err(|error| error.to_string())?;
@@ -626,7 +623,13 @@ fn comparison_image(html: &[u8], render: &[u8]) -> Result<Vec<u8>, String> {
 
 /// One image per page: the HTML the author wrote on the left, the PPTX PowerPoint drew on the right. Answers
 /// `[{ page, path }]` for each single-page render image whose HTML shot exists.
-pub async fn write_html_comparisons(tokens: LaneTokens, note: &dyn WriteNote, target: &Path, html_shots: &Value, rendered_images: &[Value]) -> Result<Vec<Value>, String> {
+pub async fn write_html_comparisons(
+    tokens: LaneTokens,
+    note: &dyn WriteNote,
+    target: &Path,
+    html_shots: &Value,
+    rendered_images: &[Value],
+) -> Result<Vec<Value>, String> {
     let lanes = AuthorLanes::new(tokens);
     let artifacts = html_artifacts(target);
     let mut pairs = Vec::new();
@@ -692,7 +695,8 @@ mod tests {
         let brief = crate::brief::parse_authoring_brief(&crate::brief::html_brief_script(html));
         assert_eq!(brief["present"], json!(true));
         assert_eq!(brief["factsMode"], json!("sample"));
-        let plan: Vec<(Value, Value)> = brief["plan"].as_array().expect("a plan").iter().map(|entry| (entry["slide"].clone(), entry["carriers"].clone())).collect();
+        let plan: Vec<(Value, Value)> =
+            brief["plan"].as_array().expect("a plan").iter().map(|entry| (entry["slide"].clone(), entry["carriers"].clone())).collect();
         assert_eq!(plan, vec![(json!(1), json!(["statement"])), (json!(2), json!(["chart"]))]);
         assert_eq!(crate::brief::html_brief_script("<section class=\"slide\"></section>"), "");
     }
@@ -727,7 +731,8 @@ mod tests {
         assert_eq!(drift_target(&json!({ "kind": "rect", "box": { "x": 0, "y": 0, "w": 1920, "h": 1080 }, "fill": navy })), None);
         let svg = drift_target(&json!({ "kind": "svg", "alt": "coins", "box": { "x": 1, "y": 2, "w": 64, "h": 64 } })).expect("a target");
         assert_eq!((svg["text"].clone(), svg["ink"].clone()), (json!("svg coins"), Value::Null));
-        let capture = drift_target(&json!({ "kind": "capture", "box": { "x": 0, "y": 0, "w": 1, "h": 1 }, "draw": { "x": 5, "y": 6, "w": 50, "h": 40 } })).expect("a target");
+        let capture = drift_target(&json!({ "kind": "capture", "box": { "x": 0, "y": 0, "w": 1, "h": 1 }, "draw": { "x": 5, "y": 6, "w": 50, "h": 40 } }))
+            .expect("a target");
         assert_eq!((capture["text"].clone(), capture["x"].clone()), (json!("decoration"), json!(5)));
         assert_eq!(drift_target(&json!({ "kind": "line", "seg": [0, 0, 1, 1] })), None);
         assert_eq!(drift_target(&json!({ "kind": "table", "box": { "x": 0, "y": 0, "w": 100, "h": 100 } })), None);
@@ -794,13 +799,15 @@ mod tests {
         assert_eq!(at(1000, 10), vec![0, 0, 255]);
     }
 
-
     #[test]
     fn an_image_that_covers_more_than_a_page_is_unread_and_one_page_with_no_drift_leaves_the_pages_empty() {
         let tokens = mixdog_rt::testing::tokens();
         let images = [json!({ "page": 1, "pages": [1, 2], "path": "a.png" }), json!({ "page": 3, "path": "none.png" })];
         let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().expect("a runtime");
         let report = runtime.block_on(measure_html_drift(tokens, &json!([]), &json!([]), &images, 3.0)).expect("a report");
-        assert_eq!(report, json!({ "code": "html_render_drift", "threshold": 3, "unit": "px on the 1920 × 1080 HTML canvas", "pages": [], "unreadPages": [1, 2] }));
+        assert_eq!(
+            report,
+            json!({ "code": "html_render_drift", "threshold": 3, "unit": "px on the 1920 × 1080 HTML canvas", "pages": [], "unreadPages": [1, 2] })
+        );
     }
 }

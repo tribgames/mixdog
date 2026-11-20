@@ -146,10 +146,8 @@ impl World {
     async fn patch(&self, id: &str, set: Value) {
         let handle = self.directory.handle(&ThreadId::from(id)).expect("loaded");
         let params = json!({ "threadId": id, "set": set, "unset": [] });
-        let _reply = handle
-            .request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") })
-            .await
-            .expect("patched");
+        let _reply =
+            handle.request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") }).await.expect("patched");
     }
 }
 
@@ -350,7 +348,8 @@ async fn a_1_4_5_reader_sees_the_committed_archive_and_restore() {
     let world = world().await;
     let profile = tempfile::tempdir().unwrap();
     let file = profile.path().join(mixdog_store::archive_state::DESKTOP_METADATA_FILE);
-    std::fs::write(&file, serde_json::to_vec(&json!({ "version": 2, "titles": { (ROOT): "Kept title" }, "names": {}, "favorites": { (C2): 5 } })).unwrap()).unwrap();
+    std::fs::write(&file, serde_json::to_vec(&json!({ "version": 2, "titles": { (ROOT): "Kept title" }, "names": {}, "favorites": { (C2): 5 } })).unwrap())
+        .unwrap();
     world.rig.archive.bind_desktop_mirror(profile.path(), mixdog_rt::testing::tokens().durability_io).expect("bound");
     world.rig.archive.mirror_settled().await;
     assert!(world.trees.set_manual(&ThreadId::from(ROOT), true).await.unwrap());
@@ -401,9 +400,18 @@ async fn a_held_mirror_write_delays_neither_the_start_nor_the_commit_and_writes_
     let (arrived, go) = world.rig.archive.hold_mirror();
     world.rig.archive.bind_desktop_mirror(profile.path(), mixdog_rt::testing::tokens().durability_io).expect("bound without waiting");
     arrived.await.expect("the start's mirror write is held");
-    tokio::time::timeout(std::time::Duration::from_secs(30), world.trees.set_manual(&ThreadId::from(ROOT), true)).await.expect("the archive answered while the mirror write is held").unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(30), world.trees.set_manual(&ThreadId::from(ROOT), false)).await.expect("the restore answered while the mirror write is held").unwrap();
-    tokio::time::timeout(std::time::Duration::from_secs(30), world.trees.set_manual(&ThreadId::from("sess_other"), true)).await.expect("the archive answered while the mirror write is held").unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(30), world.trees.set_manual(&ThreadId::from(ROOT), true))
+        .await
+        .expect("the archive answered while the mirror write is held")
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(30), world.trees.set_manual(&ThreadId::from(ROOT), false))
+        .await
+        .expect("the restore answered while the mirror write is held")
+        .unwrap();
+    tokio::time::timeout(std::time::Duration::from_secs(30), world.trees.set_manual(&ThreadId::from("sess_other"), true))
+        .await
+        .expect("the archive answered while the mirror write is held")
+        .unwrap();
     assert!(!profile.path().join(mixdog_store::archive_state::DESKTOP_METADATA_FILE).exists(), "nothing written while held");
     assert!(world.rig.archive.mirror_owed());
     go.send(()).unwrap();

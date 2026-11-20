@@ -11,13 +11,11 @@ pub mod store;
 pub mod zone;
 
 #[cfg(test)]
-mod zone_tests;
-#[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod zone_tests;
 
 pub use durable::StateScheduleStore;
 pub use engine::{ScheduleStatusRow, Scheduler};
 pub use model::{Schedule, ScheduleError, ScheduleStatus};
-pub use store::{
-    Clock, MemoryScheduleStore, RunOutcome, ScheduleRecords, ScheduleRunner, ScheduleStore, SkipReason, SystemClock,
-};
+pub use store::{Clock, MemoryScheduleStore, RunOutcome, ScheduleRecords, ScheduleRunner, ScheduleStore, SkipReason, SystemClock};

@@ -174,12 +174,7 @@ pub struct HookHub {
 impl HookHub {
     /// `pool` is the process's ingress pool, the one every leg is metered against.
     pub fn new(pool: IngressPool, options: HookOptions) -> Arc<Self> {
-        Arc::new(Self {
-            legs: Mutex::new(HashMap::new()),
-            limiter: Mutex::new(RateLimiter::new(HOOK_RATE_LIMIT, HOOK_RATE_WINDOW_MS)),
-            pool,
-            options,
-        })
+        Arc::new(Self { legs: Mutex::new(HashMap::new()), limiter: Mutex::new(RateLimiter::new(HOOK_RATE_LIMIT, HOOK_RATE_WINDOW_MS)), pool, options })
     }
 
     /// The live legs, for the sweep.

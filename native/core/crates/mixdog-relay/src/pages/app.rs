@@ -32,9 +32,8 @@ static ANDROID_APK_RE: LazyLock<Regex> = LazyLock::new(|| {
 });
 
 /// The first `/mobile-vN.N.N/` of a URL: the version `/app/latest.json` reports.
-static VERSION_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"/mobile-v([0-9]+\.[0-9]+\.[0-9]+)/").unwrap_or_else(|error| unreachable!("the version pattern is a literal: {error}"))
-});
+static VERSION_RE: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"/mobile-v([0-9]+\.[0-9]+\.[0-9]+)/").unwrap_or_else(|error| unreachable!("the version pattern is a literal: {error}")));
 
 /// `isAndroidApkUrl`.
 pub fn is_android_apk_url(value: &str) -> bool {

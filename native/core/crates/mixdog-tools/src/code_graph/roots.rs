@@ -1,28 +1,14 @@
 //! Which project root a call indexes: from its file anchors, its single `file` anchor or the
 //! working directory itself — refusing unbounded or ambiguous trees.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)"
-)]
+#![allow(clippy::disallowed_methods, reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)")]
 
 use std::path::{Component, Path, PathBuf};
 
 use super::args::Args;
 
 /// A directory holding any of these is a project.
-pub(super) const SENTINELS: [&str; 11] = [
-    "package.json",
-    ".git",
-    "Cargo.toml",
-    "go.mod",
-    "pyproject.toml",
-    "setup.py",
-    "pom.xml",
-    "build.gradle",
-    "build.gradle.kts",
-    "build.sbt",
-    "Package.swift",
-];
+pub(super) const SENTINELS: [&str; 11] =
+    ["package.json", ".git", "Cargo.toml", "go.mod", "pyproject.toml", "setup.py", "pom.xml", "build.gradle", "build.gradle.kts", "build.sbt", "Package.swift"];
 
 fn federation_cap_of(raw: Option<&str>) -> usize {
     let text = raw.unwrap_or("").trim_start();
@@ -33,11 +19,7 @@ fn federation_cap_of(raw: Option<&str>) -> usize {
 
 /// `input` against `base`, with `.`/`..` folded lexically.
 pub(super) fn abs_from(base: &Path, input: &str) -> PathBuf {
-    let joined = if Path::new(input).is_absolute() {
-        PathBuf::from(input)
-    } else {
-        base.join(input)
-    };
+    let joined = if Path::new(input).is_absolute() { PathBuf::from(input) } else { base.join(input) };
     let mut out = PathBuf::new();
     for component in joined.components() {
         match component {
@@ -94,11 +76,7 @@ pub(super) fn child_project_roots(dir: &Path, cap: usize) -> Vec<PathBuf> {
         .map(|e| e.path())
         .collect();
     children.sort();
-    children
-        .into_iter()
-        .filter(|c| has_sentinel(c))
-        .take(cap)
-        .collect()
+    children.into_iter().filter(|c| has_sentinel(c)).take(cap).collect()
 }
 
 fn within(root: &Path, candidate: &Path) -> bool {
@@ -110,8 +88,7 @@ fn is_wildcard(file: &str) -> bool {
 }
 
 fn basename(path: &Path) -> String {
-    path.file_name()
-        .map_or_else(String::new, |n| n.to_string_lossy().into_owned())
+    path.file_name().map_or_else(String::new, |n| n.to_string_lossy().into_owned())
 }
 
 /// A sentinel-free cwd that holds no project and contains every anchor is its own root.
@@ -177,21 +154,14 @@ fn relocate_under_child_project(args: &Args, base: &Path) -> Option<(PathBuf, Ar
             return None;
         }
     }
-    let holders: Vec<PathBuf> = child_project_roots(base, 8)
-        .into_iter()
-        .filter(|root| root != base)
-        .filter(|root| args.files.iter().all(|f| abs_from(root, f).is_file()))
-        .collect();
+    let holders: Vec<PathBuf> =
+        child_project_roots(base, 8).into_iter().filter(|root| root != base).filter(|root| args.files.iter().all(|f| abs_from(root, f).is_file())).collect();
     if holders.len() != 1 {
         return None;
     }
     let root = holders.into_iter().next()?;
     let mut next = args.clone();
-    next.files = args
-        .files
-        .iter()
-        .map(|f| abs_from(&root, f).to_string_lossy().into_owned())
-        .collect();
+    next.files = args.files.iter().map(|f| abs_from(&root, f).to_string_lossy().into_owned()).collect();
     Some((root, next))
 }
 
@@ -215,7 +185,6 @@ mod federation_cap_tests {
         assert_eq!([cap("12"), cap("  5x"), cap("+4")], [12, 5, 4]);
     }
 }
-
 
 /// `CODE_GRAPH_DISCOVERED_FEDERATION_CAP` (`aggregate-roots.mjs`): the discovered child projects a sentinel-free parent fans out
 /// over, 8 unless `MIXDOG_CODE_GRAPH_FEDERATION_CAP` names a positive integer (`parseInt`: its leading digits), read once.
@@ -271,11 +240,7 @@ fn user_boundaries() -> Vec<String> {
     if let Some(boundaries) = LAYOUT.with(|l| l.borrow().as_ref().and_then(|l| l.boundaries.clone())) {
         return boundaries.iter().map(|p| canonical_key(p)).collect();
     }
-    [dirs::home_dir(), Some(std::env::temp_dir())]
-        .into_iter()
-        .flatten()
-        .map(|p| canonical_key(&p))
-        .collect()
+    [dirs::home_dir(), Some(std::env::temp_dir())].into_iter().flatten().map(|p| canonical_key(&p)).collect()
 }
 /// The directory itself or its nearest ancestor holding a sentinel. `stop_at_user_boundary`
 /// marks a guessed root: it yields nothing at home/temp instead of adopting a stray sentinel.
@@ -312,11 +277,7 @@ fn aggregate_project_root(args: &Args, base: &Path, stop: bool) -> Option<PathBu
         }
         let abs = abs_from(base, file);
         let meta = std::fs::metadata(&abs).ok()?;
-        let root = if meta.is_dir() {
-            find_dir_project_root(&abs, stop)
-        } else {
-            file_project_root(&abs, stop)
-        }?;
+        let root = if meta.is_dir() { find_dir_project_root(&abs, stop) } else { file_project_root(&abs, stop) }?;
         if !roots.contains(&root) {
             roots.push(root);
         }
@@ -324,20 +285,12 @@ fn aggregate_project_root(args: &Args, base: &Path, stop: bool) -> Option<PathBu
     match roots.len() {
         0 => None,
         1 => roots.pop(),
-        _ => roots
-            .iter()
-            .find(|c| roots.iter().all(|r| within(c, r)))
-            .cloned(),
+        _ => roots.iter().find(|c| roots.iter().all(|r| within(c, r))).cloned(),
     }
 }
 /// Aggregate anchors outside any project: the root they share, a bounded sentinel-free tree,
 /// or the child project they relocate into.
-pub(super) fn resolve_aggregate_anchor_root(
-    name: &str,
-    args: &Args,
-    base: &Path,
-    explicit: bool,
-) -> Result<(PathBuf, Args), String> {
+pub(super) fn resolve_aggregate_anchor_root(name: &str, args: &Args, base: &Path, explicit: bool) -> Result<(PathBuf, Args), String> {
     let root = aggregate_project_root(args, base, !explicit)
         .or_else(|| bounded_sentinel_free_root(args, base))
         .or_else(|| bounded_exact_file_aggregate_root(args, base));
@@ -346,11 +299,7 @@ pub(super) fn resolve_aggregate_anchor_root(
         None => match relocate_under_child_project(args, base) {
             Some(relocated) => relocated,
             None => {
-                let candidates: Vec<String> = child_project_roots(base, 5)
-                    .into_iter()
-                    .filter(|r| r != base)
-                    .map(|r| format!("\"{}\"", basename(&r)))
-                    .collect();
+                let candidates: Vec<String> = child_project_roots(base, 5).into_iter().filter(|r| r != base).map(|r| format!("\"{}\"", basename(&r))).collect();
                 return Err(format!(
                     "{name}: cwd '{}' is not inside a project and aggregate file anchors do not all exist under exactly one detectable project root. Refusing to index an arbitrary tree.{}",
                     base.display(),
@@ -364,34 +313,19 @@ pub(super) fn resolve_aggregate_anchor_root(
         },
     };
     // Relative anchors keep meaning the caller's cwd after the re-root.
-    next.files = next
-        .files
-        .iter()
-        .map(|f| abs_from(base, f).to_string_lossy().into_owned())
-        .collect();
+    next.files = next.files.iter().map(|f| abs_from(base, f).to_string_lossy().into_owned()).collect();
     Ok((effective, next))
 }
 /// One `file` anchor: an error text when it does not exist, else the root it re-homes to.
-pub(super) fn resolve_file_anchor_root(
-    name: &str,
-    file_arg: &str,
-    base: &Path,
-    explicit: bool,
-) -> Result<FileAnchor, String> {
+pub(super) fn resolve_file_anchor_root(name: &str, file_arg: &str, base: &Path, explicit: bool) -> Result<FileAnchor, String> {
     let abs = abs_from(base, file_arg);
     if !abs.exists() {
-        return Ok(FileAnchor::Error(format!(
-            "Error: {name}: file not found: {file_arg}"
-        )));
+        return Ok(FileAnchor::Error(format!("Error: {name}: file not found: {file_arg}")));
     }
     if within(base, &abs) || explicit {
         return Ok(FileAnchor::Root(None));
     }
-    let root = if abs.is_dir() {
-        find_dir_project_root(&abs, true)
-    } else {
-        file_project_root(&abs, true).or_else(|| bounded_exact_file_root(&abs))
-    };
+    let root = if abs.is_dir() { find_dir_project_root(&abs, true) } else { file_project_root(&abs, true).or_else(|| bounded_exact_file_root(&abs)) };
     match root {
         Some(root) => Ok(FileAnchor::Root(Some(root))),
         None => Err(format!(
@@ -408,31 +342,16 @@ pub(super) fn resolve_directory_root(name: &str, cwd: &Path) -> Result<PathBuf, 
     }
     let children = child_project_roots(cwd, 32);
     let boundary_root = find_dir_project_root(cwd, false);
-    let unbounded = is_filesystem_root(cwd)
-        || dirs::home_dir().is_some_and(|h| abs_from(Path::new(""), &h.to_string_lossy()) == *cwd);
+    let unbounded = is_filesystem_root(cwd) || dirs::home_dir().is_some_and(|h| abs_from(Path::new(""), &h.to_string_lossy()) == *cwd);
     if !unbounded && children.len() <= 1 {
         return Ok(cwd.to_path_buf());
     }
-    let listed = children
-        .iter()
-        .take(5)
-        .map(|r| format!("\"{}\"", basename(r)))
-        .collect::<Vec<_>>()
-        .join(", ");
+    let listed = children.iter().take(5).map(|r| format!("\"{}\"", basename(r))).collect::<Vec<_>>().join(", ");
     Err(format!(
         "{name}: cwd '{}' is not inside a project (no {} at it or any ancestor){}. {}Refusing to index an arbitrary tree. Switch Project with the session tool (set-project), or pass an explicit 'cwd' (repo root) or a 'file' anchor.",
         cwd.display(),
         SENTINELS.join("/"),
-        if children.len() > 1 {
-            format!(" and holds {} separate project roots ({listed})", children.len())
-        } else {
-            String::new()
-        },
-        boundary_root
-            .map(|b| format!(
-                "The nearest sentinel is at '{}' (home/temp), which is never auto-adopted. ",
-                b.display()
-            ))
-            .unwrap_or_default()
+        if children.len() > 1 { format!(" and holds {} separate project roots ({listed})", children.len()) } else { String::new() },
+        boundary_root.map(|b| format!("The nearest sentinel is at '{}' (home/temp), which is never auto-adopted. ", b.display())).unwrap_or_default()
     ))
 }

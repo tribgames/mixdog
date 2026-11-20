@@ -160,8 +160,7 @@ pub(in crate::session) fn normalize_reactions(value: Option<&Value>) -> Vec<Valu
     for raw in list {
         let agent = text_field(raw, "agentId");
         let emoji = text_field(raw, "emoji");
-        let agent_ok = (1..=80).contains(&agent.len())
-            && agent.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
+        let agent_ok = (1..=80).contains(&agent.len()) && agent.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'));
         if !agent_ok || emoji.is_empty() || utf16_len(emoji) > 16 {
             continue;
         }
@@ -216,8 +215,7 @@ fn failure_fields(value: &Value) -> Row {
 }
 
 fn held_request(message: &Value) -> bool {
-    text_field_at(message, "source") == "held-request"
-        && truthy_opt(message.pointer("/meta/heldRequest/id"))
+    text_field_at(message, "source") == "held-request" && truthy_opt(message.pointer("/meta/heldRequest/id"))
 }
 
 fn text_field_at<'a>(message: &'a Value, key: &str) -> &'a str {
@@ -290,7 +288,7 @@ pub fn metadata(message: &Value) -> Metadata {
     if let Some(lost) = value.get("originalImagesMissing").and_then(Value::as_u64).filter(|lost| *lost > 0) {
         fields.insert("originalImagesMissing".into(), json!(lost));
     }
-    let reactions =normalize_reactions(value.get("reactions"));
+    let reactions = normalize_reactions(value.get("reactions"));
     if !reactions.is_empty() {
         fields.insert("reactions".into(), Value::Array(reactions));
     }
@@ -300,8 +298,7 @@ pub fn metadata(message: &Value) -> Metadata {
     if let Some(Value::Array(skills)) = value.get("appliedSkills")
         && !skills.is_empty()
     {
-        let names: Vec<&Value> =
-            skills.iter().filter(|s| s.as_str().is_some_and(|s| !s.is_empty())).collect();
+        let names: Vec<&Value> = skills.iter().filter(|s| s.as_str().is_some_and(|s| !s.is_empty())).collect();
         fields.insert("appliedSkills".into(), json!(names));
     }
     if let Some(done) = &completion {
@@ -397,10 +394,7 @@ fn message_calls(message: &Value) -> &[Value] {
 
 /// The `args` of a stored call: `function.arguments ?? arguments`, parsed when it is JSON text.
 fn call_args(call: &Value) -> Option<Value> {
-    let args = call
-        .pointer("/function/arguments")
-        .filter(|v| !v.is_null())
-        .or_else(|| call.get("arguments"))?;
+    let args = call.pointer("/function/arguments").filter(|v| !v.is_null()).or_else(|| call.get("arguments"))?;
     match args {
         Value::String(text) => Some(serde_json::from_str(text).unwrap_or_else(|_| args.clone())),
         other => Some(other.clone()),
@@ -454,10 +448,7 @@ fn restored_calls(calls: &[Value], meta: &Row, ids: &mut Ids<'_>, out: &mut Vec<
 
 /// `toolMetaFromMessage`.
 fn tool_meta(message: &Value) -> Option<Value> {
-    let meta = message
-        .get("toolMeta")
-        .filter(|m| truthy(m))
-        .or_else(|| message.pointer("/content/toolMeta"))?;
+    let meta = message.get("toolMeta").filter(|m| truthy(m)).or_else(|| message.pointer("/content/toolMeta"))?;
     let code = meta.get("code").and_then(Value::as_str).filter(|c| !c.is_empty())?;
     let missing: Vec<&Value> = match meta.get("missing") {
         Some(Value::Array(list)) => list.iter().filter(|n| n.as_str().is_some_and(|n| !n.is_empty())).collect(),
@@ -472,8 +463,7 @@ fn tool_meta(message: &Value) -> Option<Value> {
 
 /// `visualizeOwnerMetaSessionId`.
 fn owner_session_id(id: &str) -> bool {
-    (1..=128).contains(&id.len())
-        && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
+    (1..=128).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'_' | b'.' | b':' | b'-'))
 }
 
 fn result_fact(message: &Value) -> Option<ResultFact> {
@@ -492,10 +482,7 @@ fn result_fact(message: &Value) -> Option<ResultFact> {
             Some("error") => Some(true),
             _ => message.get("isError").and_then(Value::as_bool),
         },
-        ui_diff: message
-            .as_object()
-            .and_then(|m| m.get("uiDiff"))
-            .map(|d| d.as_str().unwrap_or_default().to_owned()),
+        ui_diff: message.as_object().and_then(|m| m.get("uiDiff")).map(|d| d.as_str().unwrap_or_default().to_owned()),
         tool_meta: tool_meta(message),
     })
 }
@@ -602,17 +589,13 @@ fn imported_tool_runs(message: &Value) -> Option<Value> {
     let mut cursor = 0u64;
     let length = utf16_len(text_field(message, "content")) as u64;
     for run in runs {
-        let (Some(start), Some(end)) = (run.get("start").and_then(Value::as_u64), run.get("end").and_then(Value::as_u64))
-        else {
+        let (Some(start), Some(end)) = (run.get("start").and_then(Value::as_u64), run.get("end").and_then(Value::as_u64)) else {
             continue;
         };
         let tools = run.get("tools").and_then(Value::as_array);
         let well_formed = tools.is_some_and(|tools| {
             !tools.is_empty()
-                && tools.iter().all(|t| {
-                    t.get("name").is_some_and(Value::is_string)
-                        && t.get("count").and_then(Value::as_u64).is_some_and(|c| c > 0)
-                })
+                && tools.iter().all(|t| t.get("name").is_some_and(Value::is_string) && t.get("count").and_then(Value::as_u64).is_some_and(|c| c > 0))
         });
         if start >= cursor && end > start && end <= length && well_formed {
             cursor = end;
@@ -686,14 +669,9 @@ fn copy_present(row: &mut Row, boundary: &Value, keys: &[&str]) {
 /// The in-place switches a message records (`sessionInheritances`, `modelSwitches`,
 /// `workflowSwitches`, `orchestrationModeSwitches`).
 fn boundary_rows(message: &Value, ids: &mut Ids<'_>, out: &mut Vec<Restored>) {
-    let list = |key: &str| -> Vec<Value> {
-        message.pointer(&format!("/meta/{key}")).and_then(Value::as_array).cloned().unwrap_or_default()
-    };
+    let list = |key: &str| -> Vec<Value> { message.pointer(&format!("/meta/{key}")).and_then(Value::as_array).cloned().unwrap_or_default() };
     for boundary in list("sessionInheritances") {
-        if !(truthy_opt(boundary.get("sessionId"))
-            && truthy_opt(boundary.get("provider"))
-            && truthy_opt(boundary.get("modelId")))
-        {
+        if !(truthy_opt(boundary.get("sessionId")) && truthy_opt(boundary.get("provider")) && truthy_opt(boundary.get("modelId"))) {
             continue;
         }
         let mut row = status_done(ids.next(), "inherited", "Session inherited");
@@ -766,9 +744,8 @@ fn image_refs(content: &Value) -> Vec<Value> {
     let mut pending = String::new();
     for part in parts {
         let attachment = part.is_object() && is_hex64(text_field(part, "attachmentRef"));
-        let media_reference = text_field(part, "type") == "text"
-            && truthy_opt(part.get("attachmentReference"))
-            && part.get("text").is_some_and(Value::is_string);
+        let media_reference =
+            text_field(part, "type") == "text" && truthy_opt(part.get("attachmentReference")) && part.get("text").is_some_and(Value::is_string);
         if media_reference {
             continue;
         }
@@ -784,11 +761,7 @@ fn image_refs(content: &Value) -> Vec<Value> {
                 pending.clone()
             };
             pending.clear();
-            slots.push(if attachment {
-                json!({ "line": line, "ref": text_field(part, "attachmentRef") })
-            } else {
-                json!({ "line": line })
-            });
+            slots.push(if attachment { json!({ "line": line, "ref": text_field(part, "attachmentRef") }) } else { json!({ "line": line }) });
             continue;
         }
         let text = if attachment { String::new() } else { tool_result_text(&json!([part])) };
@@ -802,9 +775,8 @@ fn image_refs(content: &Value) -> Vec<Value> {
 fn last_image_metadata_line(text: &str) -> String {
     let last = js_trim(text).rsplit('\n').next().unwrap_or_default();
     let last = js_trim(last.strip_suffix('\r').unwrap_or(last));
-    let is_line = (last.starts_with("[Image:") || last.starts_with("[Image source:"))
-        && last.ends_with(']')
-        && !last[..last.len() - 1].contains([']', '\r', '\n']);
+    let is_line =
+        (last.starts_with("[Image:") || last.starts_with("[Image source:")) && last.ends_with(']') && !last[..last.len() - 1].contains([']', '\r', '\n']);
     if is_line { last.to_owned() } else { String::new() }
 }
 
@@ -830,17 +802,12 @@ fn user_rows(record: &ItemRecord, message: &Value, ids: &mut Ids<'_>, out: &mut 
         let warn = if held {
             message.pointer("/meta/heldRequest/status").and_then(Value::as_str) == Some("pending")
         } else {
-            routine_field("relayFailed")
-                || (!routine_field("omitted")
-                    && (routine.is_some_and(|r| text_field(r, "status") == "failed")))
+            routine_field("relayFailed") || (!routine_field("omitted") && (routine.is_some_and(|r| text_field(r, "status") == "failed")))
         };
         let mut row = Row::new();
         row.insert("kind".into(), json!("notice"));
         row.insert("id".into(), json!(ids.next()));
-        row.insert(
-            "text".into(),
-            json!(if held { held_request_text(message) } else { routine_result_notice_text(message) }),
-        );
+        row.insert("text".into(), json!(if held { held_request_text(message) } else { routine_result_notice_text(message) }));
         row.insert("tone".into(), json!(if warn { "warn" } else { "info" }));
         if !held {
             row.extend(routine_notice_fields(message));
@@ -1028,10 +995,7 @@ pub fn restore(record: &ItemRecord, message: &Value) -> Vec<Restored> {
     let event_start = out.len();
     failed_turn_rows(message, &mut ids, &mut out);
     boundary_rows(message, &mut ids, &mut out);
-    let has_previous = message
-        .pointer("/meta/transcript/previousCompletions")
-        .and_then(Value::as_array)
-        .is_some_and(|list| !list.is_empty());
+    let has_previous = message.pointer("/meta/transcript/previousCompletions").and_then(Value::as_array).is_some_and(|list| !list.is_empty());
     if has_previous {
         let at = |restored: &Restored| match restored {
             Restored::Row { row, .. } => row.get("at").and_then(Value::as_f64).filter(|a| a.is_finite()),
@@ -1039,8 +1003,7 @@ pub fn restore(record: &ItemRecord, message: &Value) -> Vec<Restored> {
         };
         let times: Vec<Option<f64>> = out[event_start..].iter().map(at).collect();
         if times.iter().all(Option::is_some) {
-            let mut events: Vec<(f64, Restored)> =
-                times.into_iter().flatten().zip(out.drain(event_start..)).collect();
+            let mut events: Vec<(f64, Restored)> = times.into_iter().flatten().zip(out.drain(event_start..)).collect();
             events.sort_by(|a, b| a.0.total_cmp(&b.0));
             out.extend(events.into_iter().map(|(_, restored)| restored));
         }

@@ -44,10 +44,7 @@ pub struct SessionRoutes {
 
 impl SessionRoutes {
     pub fn new(resolve: impl RouteResolve + 'static) -> Self {
-        Self {
-            resolve: Box::new(resolve),
-            cells: Mutex::new(HashMap::new()),
-        }
+        Self { resolve: Box::new(resolve), cells: Mutex::new(HashMap::new()) }
     }
 
     fn with<R>(&self, thread: &ThreadId, f: impl FnOnce(&mut Cell) -> R) -> R {

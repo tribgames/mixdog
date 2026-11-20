@@ -296,7 +296,9 @@ async fn a_failed_save_does_not_leave_a_secret_that_was_never_there() {
 #[tokio::test]
 async fn a_failed_release_is_reported_at_once_and_the_others_still_run() {
     let account = |name: &str, key: &str| json!({"name": name, "url": "https://mcp.notion.com/mcp", "oauthKey": key});
-    let f = fixture(json!({"hub": {"type": "http", "url": "https://mcp.notion.com/accounts", "connector": "notion", "accounts": [account("notion", "k1"), account("notion-2", "k2"), account("notion-3", "k3")]}}));
+    let f = fixture(
+        json!({"hub": {"type": "http", "url": "https://mcp.notion.com/accounts", "connector": "notion", "accounts": [account("notion", "k1"), account("notion-2", "k2"), account("notion-3", "k3")]}}),
+    );
     f.ops.failing_release.lock().unwrap().push("notion".to_owned());
     // The second account's release hangs until the gate opens.
     f.ops.stalled_release.lock().unwrap().push("notion-2".to_owned());
@@ -355,10 +357,7 @@ async fn a_management_request_runs_under_the_scope_its_thread_resolves_to() {
     call(&f, "mcp/reconnectMcp", json!({"threadId": "t2"})).await.unwrap();
     call(&f, "mcp/reconnectMcp", json!({})).await.unwrap();
     let seen = f.host.seen.lock().unwrap().clone();
-    assert_eq!(
-        seen,
-        vec![("current_cwd", Some("scope-of-t1".to_owned())), ("reconnect_all", Some("scope-of-t2".to_owned())), ("reconnect_all", None)]
-    );
+    assert_eq!(seen, vec![("current_cwd", Some("scope-of-t1".to_owned())), ("reconnect_all", Some("scope-of-t2".to_owned())), ("reconnect_all", None)]);
 }
 
 #[async_trait]

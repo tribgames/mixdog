@@ -53,15 +53,9 @@ fn document_of(value: Com) -> Result<Obj> {
 /// `Open-ValidationDocument`: the document opened read-only in the second application.
 pub fn open_validation_document(app: &Obj, format: &str, path: &str) -> Result<Obj> {
     let opened = match format {
-        "docx" => app.get("Documents")?.call_member(
-            "Open",
-            &[Com::from(path), Com::Bool(false), Com::Bool(true), Com::Bool(false)],
-        )?,
+        "docx" => app.get("Documents")?.call_member("Open", &[Com::from(path), Com::Bool(false), Com::Bool(true), Com::Bool(false)])?,
         "xlsx" => app.get("Workbooks")?.call_member("Open", &[Com::from(path), Com::I4(0), Com::Bool(true)])?,
-        "pptx" => app.get("Presentations")?.call_member(
-            "Open",
-            &[Com::from(path), Com::Bool(true), Com::Bool(true), Com::Bool(false)],
-        )?,
+        "pptx" => app.get("Presentations")?.call_member("Open", &[Com::from(path), Com::Bool(true), Com::Bool(true), Com::Bool(false)])?,
         _ => Com::Null,
     };
     document_of(opened)
@@ -111,14 +105,9 @@ pub fn open_preview_document(app: &Obj, format: &str, path: &str, password: &str
         // No WriteResPassword: Excel rejects one for a workbook without write reservation (0x800A03EC), and a read-only
         // open never asks for it.
         "xlsx" => app.get("Workbooks").and_then(|books| {
-            books.call_member(
-                "Open",
-                &[Com::from(path), Com::I4(0), Com::Bool(true), Com::Missing, Com::from(open_password), Com::Missing, Com::Bool(true)],
-            )
+            books.call_member("Open", &[Com::from(path), Com::I4(0), Com::Bool(true), Com::Missing, Com::from(open_password), Com::Missing, Com::Bool(true)])
         }),
-        "pptx" => app.get("Presentations").and_then(|decks| {
-            decks.call_member("Open", &[Com::from(path), Com::Bool(true), Com::Bool(true), Com::Bool(false)])
-        }),
+        "pptx" => app.get("Presentations").and_then(|decks| decks.call_member("Open", &[Com::from(path), Com::Bool(true), Com::Bool(true), Com::Bool(false)])),
         _ => Ok(Com::Null),
     };
     match opened {
@@ -165,10 +154,7 @@ pub fn validate_native_document<P: WriteProof>(actions: &Actions<'_, P>, out: &m
     let mut held = Held::default();
     let answer = match validate(actions, &mut held, path, format) {
         Ok(value) => value,
-        Err(message) => Value::object(
-            ObjectKind::Ordered,
-            vec![("ok", Value::Bool(false)), ("opened", Value::Bool(false)), ("error", Value::String(message))],
-        ),
+        Err(message) => Value::object(ObjectKind::Ordered, vec![("ok", Value::Bool(false)), ("opened", Value::Bool(false)), ("error", Value::String(message))]),
     };
     if let Some(document) = held.document.take() {
         if let Err(error) = close_office_document(&document, format) {

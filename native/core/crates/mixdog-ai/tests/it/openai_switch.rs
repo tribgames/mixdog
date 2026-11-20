@@ -104,11 +104,7 @@ fn each_route_decides_every_failure_by_its_own_rule() {
 
 #[test]
 fn the_transport_modes_pin_the_socket_and_only_auto_may_fall_back() {
-    let modes = [
-        (TransportMode::Auto, true, true),
-        (TransportMode::WsDelta, true, false),
-        (TransportMode::WsFull, false, false),
-    ];
+    let modes = [(TransportMode::Auto, true, true), (TransportMode::WsDelta, true, false), (TransportMode::WsFull, false, false)];
     for (mode, delta, fallback) in modes {
         assert_eq!((mode.delta(), mode.http_fallback()), (delta, fallback), "{mode:?}");
     }

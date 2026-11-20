@@ -25,10 +25,7 @@ impl Pkce {
 
     pub fn from_verifier(verifier: String) -> Self {
         let challenge = URL_SAFE_NO_PAD.encode(Sha256::digest(verifier.as_bytes()));
-        Self {
-            verifier,
-            challenge,
-        }
+        Self { verifier, challenge }
     }
 }
 

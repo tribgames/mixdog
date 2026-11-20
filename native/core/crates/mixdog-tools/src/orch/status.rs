@@ -8,34 +8,20 @@ use std::collections::BTreeSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use mixdog_core_api::ids::ConnectionId;
-use mixdog_core_api::ids::Method;
-use mixdog_core_api::service::Admit;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
 use mixdog_core_api::DomainService;
 use mixdog_core_api::Reply;
+use mixdog_core_api::ids::ConnectionId;
+use mixdog_core_api::ids::Method;
+use mixdog_core_api::service::Admit;
 use mixdog_protocol::ThreadId;
-use serde_json::json;
 use serde_json::Map;
 use serde_json::Value;
+use serde_json::json;
 
 /// Canonical route order: the single surface order wherever tools serialize.
-const ROUTE_TOOL_ORDER: [&str; 13] = [
-    "explore",
-    "find",
-    "glob",
-    "list",
-    "grep",
-    "code_graph",
-    "read",
-    "edit",
-    "apply_patch",
-    "git",
-    "github",
-    "shell",
-    "task",
-];
+const ROUTE_TOOL_ORDER: [&str; 13] = ["explore", "find", "glob", "list", "grep", "code_graph", "read", "edit", "apply_patch", "git", "github", "shell", "task"];
 
 /// Measured call counts (`MEASURED_TOOL_USAGE`); orders the unrouted tail.
 const MEASURED_TOOL_USAGE: [(&str, u64); 15] = [
@@ -203,11 +189,7 @@ fn route_rank(name: &str) -> usize {
 /// `compactToolSearchDescription`: whitespace runs folded, cut to 220 UTF-16 units with `…`.
 fn compact_description(value: &str) -> String {
     let text = mixdog_js::js_words(value).collect::<Vec<_>>().join(" ");
-    if mixdog_js::utf16_len(&text) > DESCRIPTION_MAX {
-        format!("{}…", mixdog_js::slice_utf16(&text, DESCRIPTION_MAX - 1))
-    } else {
-        text
-    }
+    if mixdog_js::utf16_len(&text) > DESCRIPTION_MAX { format!("{}…", mixdog_js::slice_utf16(&text, DESCRIPTION_MAX - 1)) } else { text }
 }
 
 use mixdog_js::locale_compare;
@@ -215,12 +197,7 @@ use mixdog_js::locale_compare;
 /// `sortedNamesByMeasuredUsage`.
 fn sorted_names<'a>(names: impl IntoIterator<Item = &'a String>) -> Vec<String> {
     let mut sorted: Vec<&String> = names.into_iter().collect();
-    sorted.sort_by(|a, b| {
-        route_rank(a)
-            .cmp(&route_rank(b))
-            .then_with(|| measured_usage(b).cmp(&measured_usage(a)))
-            .then_with(|| locale_compare(a, b))
-    });
+    sorted.sort_by(|a, b| route_rank(a).cmp(&route_rank(b)).then_with(|| measured_usage(b).cmp(&measured_usage(a))).then_with(|| locale_compare(a, b)));
     sorted.into_iter().cloned().collect()
 }
 
@@ -255,11 +232,8 @@ pub fn tools_status(surface: &StatusSurface, query: &str) -> Value {
     let mcp_count = mcp.clone().count();
     let active_mcp = mcp.filter(|(r, _)| r["active"] == Value::Bool(true)).count();
     let needle = clean(query).to_lowercase();
-    let tools: Vec<Value> = rows
-        .into_iter()
-        .filter(|(_, haystack)| needle.is_empty() || haystack.contains(&needle))
-        .map(|(row, _)| Value::Object(row))
-        .collect();
+    let tools: Vec<Value> =
+        rows.into_iter().filter(|(_, haystack)| needle.is_empty() || haystack.contains(&needle)).map(|(row, _)| Value::Object(row)).collect();
     json!({
         "mode": surface.mode,
         "count": count,
@@ -285,13 +259,16 @@ mod tests {
         }
     }
 
-
-
-
     #[tokio::test]
     async fn the_method_replies_with_the_readout_and_refuses_other_methods() {
         use mixdog_core_api::call::CallContext;
-        let surface = StatusSurface { mode: "lead".into(), catalog: vec![StatusTool { name: "read".into(), description: "Read".into(), ..StatusTool::default() }], active: vec!["read".into()], discovered: vec![], listed: vec![] };
+        let surface = StatusSurface {
+            mode: "lead".into(),
+            catalog: vec![StatusTool { name: "read".into(), description: "Read".into(), ..StatusTool::default() }],
+            active: vec!["read".into()],
+            discovered: vec![],
+            listed: vec![],
+        };
         let service = ToolsService::new(Arc::new(Fixed(surface.clone())));
         let request = |method: &'static str, params: Value| CoreRequest { method: Method(method), params, op: None, ctx: CallContext::internal("test") };
         let Ok(Reply::Value(value)) = service.call(request("tools/toolsStatus", json!({"threadId": "t1", "query": "REA"}))).await else { panic!("reply") };
@@ -334,21 +311,34 @@ mod tests {
     async fn a_snapshot_reads_the_surface_without_the_reconcile() {
         use mixdog_core_api::call::CallContext;
         let service = ToolsService::new(Arc::new(Reconciles));
-        let request = CoreRequest { method: Method("tools/toolsStatus"), params: json!({"threadId": "t1", "snapshot": true}), op: None, ctx: CallContext::internal("test") };
+        let request = CoreRequest {
+            method: Method("tools/toolsStatus"),
+            params: json!({"threadId": "t1", "snapshot": true}),
+            op: None,
+            ctx: CallContext::internal("test"),
+        };
         assert!(service.call(request).await.is_ok());
     }
 
     #[tokio::test]
     async fn a_snapshot_call_adds_the_threads_provider_request_to_the_readout() {
         use mixdog_core_api::call::CallContext;
-        let surface = StatusSurface { mode: "lead".into(), catalog: vec![StatusTool { name: "read".into(), description: "Read".into(), ..StatusTool::default() }], active: vec!["read".into()], discovered: vec![], listed: vec![] };
+        let surface = StatusSurface {
+            mode: "lead".into(),
+            catalog: vec![StatusTool { name: "read".into(), description: "Read".into(), ..StatusTool::default() }],
+            active: vec!["read".into()],
+            discovered: vec![],
+            listed: vec![],
+        };
         let request = |params: Value| CoreRequest { method: Method("tools/toolsStatus"), params, op: None, ctx: CallContext::internal("test") };
         let service = ToolsService::new(Arc::new(Requests(surface.clone())));
         let Ok(Reply::Value(value)) = service.call(request(json!({"threadId": "t1", "snapshot": true}))).await else { panic!("reply") };
         let mut want = tools_status(&surface, "");
         want["requestSnapshot"] = json!({ "thread": "t1", "userMessage": null });
         assert_eq!(value, want);
-        let Ok(Reply::Value(said)) = service.call(request(json!({"threadId": "t1", "snapshot": true, "snapshotUserMessage": "hi"}))).await else { panic!("reply") };
+        let Ok(Reply::Value(said)) = service.call(request(json!({"threadId": "t1", "snapshot": true, "snapshotUserMessage": "hi"}))).await else {
+            panic!("reply")
+        };
         assert_eq!(said["requestSnapshot"], json!({ "thread": "t1", "userMessage": "hi" }));
         assert_eq!(value["requestSnapshot"]["userMessage"], Value::Null, "no message is no message");
         let Ok(Reply::Value(plain)) = service.call(request(json!({"threadId": "t1", "snapshot": false}))).await else { panic!("reply") };
@@ -393,14 +383,18 @@ mod tests {
         }
     }
 
-
     #[test]
     fn the_readout_counts_regular_and_mcp_tools_separately_and_filters_by_query() {
         let tool = |name: &str, description: &str| StatusTool { name: name.into(), description: description.into(), ..StatusTool::default() };
         let long = "y".repeat(300);
         let surface = StatusSurface {
             mode: "full".into(),
-            catalog: vec![tool("read", "Read files.\n  Lines   and  ranges."), tool(" shell ", "Run commands"), tool("mcp__srv__ping", &long), tool("zeta", "Z tool")],
+            catalog: vec![
+                tool("read", "Read files.\n  Lines   and  ranges."),
+                tool(" shell ", "Run commands"),
+                tool("mcp__srv__ping", &long),
+                tool("zeta", "Z tool"),
+            ],
             active: vec!["shell".into(), "read".into(), "mcp__srv__ping".into(), String::new()],
             discovered: vec!["zeta".into()],
             listed: Vec::new(),
@@ -414,7 +408,11 @@ mod tests {
         let rows = all["tools"].as_array().unwrap();
         assert_eq!(rows[0]["description"], "Read files. Lines and ranges.", "white space is folded");
         assert_eq!((rows[1]["name"].as_str(), rows[1]["kind"].as_str(), rows[1]["active"].as_bool()), (Some("shell"), Some("mutation"), Some(true)));
-        assert_eq!((rows[2]["kind"].as_str(), rows[2]["description"].as_str().unwrap().chars().count()), (Some("mcp"), 220), "a long description is cut to 220 with an ellipsis");
+        assert_eq!(
+            (rows[2]["kind"].as_str(), rows[2]["description"].as_str().unwrap().chars().count()),
+            (Some("mcp"), 220),
+            "a long description is cut to 220 with an ellipsis"
+        );
         assert!(rows[2]["description"].as_str().unwrap().ends_with('…'));
         // The query matches the name or the description, ignoring case.
         let found = tools_status(&surface, "  RANGES ");
@@ -422,5 +420,4 @@ mod tests {
         assert_eq!(found["tools"][0]["name"], "read");
         assert_eq!(found["count"], 3, "the counts are of the whole catalog, not of the filter");
     }
-
 }

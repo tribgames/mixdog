@@ -5,9 +5,9 @@ pub mod api;
 mod http;
 pub mod legacy;
 mod server;
-pub mod wait_exit;
 #[cfg(test)]
 mod tests;
+pub mod wait_exit;
 
 pub use legacy::Legacy;
 pub use legacy::UPDATE_TEXT;

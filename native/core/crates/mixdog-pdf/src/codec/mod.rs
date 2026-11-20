@@ -71,5 +71,4 @@ mod tests {
     }
 }
 
-
 impl std::error::Error for CodecError {}

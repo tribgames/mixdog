@@ -4,8 +4,8 @@
 //! LOCKED` in batches, so concurrent flushes embed disjoint rows, and a vector
 //! cache keyed by (model, text hash) spares repeated texts.
 
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use mixdog_js::{JsRegex, js_trim, slice_utf16, string_to_number, utf16_len};
@@ -33,26 +33,17 @@ const PRUNE_BATCH: i64 = 5000;
 
 const EXCLUDE_ROLES: [&str; 8] = ["tool", "tool_result", "tool-result", "function", "system", "log", "offload", "debug"];
 const CONVERSATION_ROLES: [&str; 2] = ["user", "assistant"];
-const SQL_ALWAYS_EXCLUDE: &str =
-    r"^\s*(\[tool_call(?:\s|\]|$)|\[tool_result(?:\s|\]|$)|\[mixdog-runtime\]|Async .+ finished\.|background task(\s|$))";
+const SQL_ALWAYS_EXCLUDE: &str = r"^\s*(\[tool_call(?:\s|\]|$)|\[tool_result(?:\s|\]|$)|\[mixdog-runtime\]|Async .+ finished\.|background task(\s|$))";
 const SQL_NON_CONVERSATION_EXCLUDE: &str = r"^\s*\[(system|log|offload|debug|trace|info|warn|warning|error|fatal)\]";
 
 static EXCLUDE_CONTENT: LazyLock<Vec<JsRegex>> = LazyLock::new(|| {
-    [
-        r"^\s*\[tool_call\b",
-        r"^\s*\[tool_result\b",
-        r"^\s*\[mixdog-runtime\]",
-        r"^\s*Async .+ finished\.",
-        r"^\s*background task\b",
-        r"^\s*<task-notification>",
-    ]
-    .into_iter()
-    .map(|pattern| JsRegex::new_static(pattern, "i"))
-    .collect()
+    [r"^\s*\[tool_call\b", r"^\s*\[tool_result\b", r"^\s*\[mixdog-runtime\]", r"^\s*Async .+ finished\.", r"^\s*background task\b", r"^\s*<task-notification>"]
+        .into_iter()
+        .map(|pattern| JsRegex::new_static(pattern, "i"))
+        .collect()
 });
-static NON_CONVERSATION_CONTENT: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^\s*\[(?:system|log|offload|debug|trace|info|warn|warning|error|fatal)\]", "i")
-});
+static NON_CONVERSATION_CONTENT: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^\s*\[(?:system|log|offload|debug|trace|info|warn|warning|error|fatal)\]", "i"));
 
 /// Whether a raw row is useful conversational text for the dense leg: tool
 /// traces and runtime/log notices carry no recall value as vectors.
@@ -204,7 +195,6 @@ impl RawEmbedFlush {
     }
 }
 
-
 /// The text is bounded before it is hashed or embedded: a huge row would
 /// otherwise build a giant tensor, and identical truncations share a cache row.
 fn truncate_for_embed(text: &str) -> String {
@@ -330,12 +320,7 @@ impl RawEmbedFlush {
     }
 
     async fn sync_batch(&self, client: &deadpool_postgres::Object, ids: &[i64], pruned: &mut Option<Result<PruneOutcome>>) -> Result<usize> {
-        let rows = client
-            .query(
-                "SELECT id, role, content FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 0 AND chunk_root IS NULL",
-                &[&ids],
-            )
-            .await?;
+        let rows = client.query("SELECT id, role, content FROM entries WHERE id = ANY($1::bigint[]) AND is_root = 0 AND chunk_root IS NULL", &[&ids]).await?;
         if rows.is_empty() {
             return Ok(0);
         }
@@ -430,10 +415,7 @@ impl RawEmbedFlush {
             .collect();
         let hashes: Vec<Vec<u8>> = entries.iter().map(|(_, hash)| hash.clone()).collect();
         let mut found: std::collections::HashMap<Vec<u8>, Vec<f32>> = client
-            .query(
-                "SELECT text_hash, vector::text FROM memory.embedding_cache WHERE model_id = $1 AND text_hash = ANY($2::bytea[])",
-                &[&model, &hashes],
-            )
+            .query("SELECT text_hash, vector::text FROM memory.embedding_cache WHERE model_id = $1 AND text_hash = ANY($2::bytea[])", &[&model, &hashes])
             .await?
             .iter()
             .map(|row| (row.get::<_, Vec<u8>>(0), parse_vector(&row.get::<_, String>(1))))

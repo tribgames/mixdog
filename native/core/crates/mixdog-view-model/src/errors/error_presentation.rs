@@ -7,9 +7,9 @@ use std::sync::LazyLock;
 use mixdog_js::JsRegex;
 use mixdog_js::js_trim;
 use mixdog_js::js_trim_end;
-use mixdog_js::json_stringify as stringify;
 use mixdog_js::json_number;
 use mixdog_js::json_parse;
+use mixdog_js::json_stringify as stringify;
 use mixdog_js::slice_utf16;
 use mixdog_js::time::local_fields;
 use mixdog_js::utf16_len;
@@ -169,10 +169,8 @@ fn unwrap(value: Js) -> Unwrapped {
         None => value,
     };
     let nested = get(envelope, "error");
-    let message = str_of(nested)
-        .or_else(|| str_of(get(nested, "message")))
-        .or_else(|| str_of(get(envelope, "message")))
-        .map_or_else(|| raw.clone(), str::to_owned);
+    let message =
+        str_of(nested).or_else(|| str_of(get(nested, "message"))).or_else(|| str_of(get(envelope, "message"))).map_or_else(|| raw.clone(), str::to_owned);
     let from_text = API_STATUS.captures(&raw).and_then(|found| found.get(1)).map(|status| Value::String(status.to_owned()));
     let status = [get(value, "httpStatus"), get(value, "status"), path(value, &["response", "status"]), get(envelope, "status"), from_text.as_ref()]
         .into_iter()
@@ -213,11 +211,8 @@ fn summary_kind(summary: &str) -> Option<&'static str> {
     KIND_COPY.iter().find(|(_, _, copy, _)| *copy == summary).map(|(kind, ..)| *kind)
 }
 
-const MODEL_UNAVAILABLE_COPY: (&str, &str, &str) = (
-    "model-unavailable",
-    "This model isn't available for this account.",
-    "Choose another model, or check the model and endpoint in Providers.",
-);
+const MODEL_UNAVAILABLE_COPY: (&str, &str, &str) =
+    ("model-unavailable", "This model isn't available for this account.", "Choose another model, or check the model and endpoint in Providers.");
 const NOT_FOUND_SUMMARY: &str = "The provider couldn't find the requested model or endpoint.";
 // A tool definition the provider's schema validator refused (an MCP or custom tool schema), named by the field path or
 // wording each API uses.
@@ -415,9 +410,7 @@ pub fn describe_error(value: Js, now_ms: Option<f64>) -> Presentation {
     // A persisted descriptor keeps the status and errno code, not the cause chain: rebuild the transport evidence from them.
     // Wording only reads for untyped failures and transient ones (a bare "fetch failed" is that evidence).
     let transport = transport_error_text(value)
-        .or_else(|| {
-            if typed { transport_error_text(Some(&json!({ "code": code.to_uppercase(), "status": json_number(status) }))) } else { None }
-        })
+        .or_else(|| if typed { transport_error_text(Some(&json!({ "code": code.to_uppercase(), "status": json_number(status) }))) } else { None })
         .or_else(|| if !typed || descriptor.kind == "transient" { transport_error_text(Some(&json!(raw))) } else { None });
     let mut set = |copy: (&str, &str, &str)| {
         kind = copy.0.to_owned();
@@ -431,11 +424,7 @@ pub fn describe_error(value: Js, now_ms: Option<f64>) -> Presentation {
     } else if rejected_429 {
         set(("request", REQUEST_REJECTED_SUMMARY, "Review the request details before trying again."));
     } else if matches!(descriptor.kind, "invalid_request" | "unknown" | "request_too_large") && IMAGE_SIZE.is_match(&clean) {
-        set((
-            "image-size",
-            "An attached image exceeds the provider limit.",
-            "Reduce the image dimensions or number of images, then try again.",
-        ));
+        set(("image-size", "An attached image exceeds the provider limit.", "Reduce the image dimensions or number of images, then try again."));
     } else if clean == MODEL_UNAVAILABLE_COPY.1
         || (MODEL_REFUSAL_KINDS.contains(&descriptor.kind) && (MODEL_UNAVAILABLE_CODES.contains(&code.as_str()) || MODEL_UNAVAILABLE.is_match(&clean)))
     {
@@ -504,7 +493,6 @@ mod tests {
         assert_eq!(safe_error_details("see /x?token=abc&ok=1"), "see /x?token=[redacted]&ok=1");
         assert!(utf16_len(&safe_error_details(&"x".repeat(13_000))) <= DETAILS_LIMIT + 2);
     }
-
 
     fn describe(value: Value) -> Presentation {
         mixdog_js::time::with_local_zone(mixdog_js::time::Tz::UTC, || describe_error(Some(&value), Some(NOW)))

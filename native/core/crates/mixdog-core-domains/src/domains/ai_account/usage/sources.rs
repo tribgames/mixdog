@@ -3,18 +3,18 @@
 
 use std::sync::Arc;
 
+use crate::domains::ai_admin::statusline_warmup::StatuslineSink;
 use async_trait::async_trait;
 use mixdog_ai::accounts::ACCOUNT_PROVIDERS;
 use mixdog_ai::accounts::AccountStore;
 use mixdog_ai::registry::providers::ProviderRegistry;
 use mixdog_ai::service::admin_route::clean;
+use mixdog_ai::service::api_usage::ApiUsageService;
 use mixdog_ai::service::oauth_usage::OAuthUsage;
+use mixdog_ai::service::oauth_usage::RouteInfo;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_ports::ports::route::Route;
 use mixdog_core_ports::ports::route_write::StatuslineUsage;
-use crate::domains::ai_admin::statusline_warmup::StatuslineSink;
-use mixdog_ai::service::api_usage::ApiUsageService;
-use mixdog_ai::service::oauth_usage::RouteInfo;
 use serde_json::Value;
 
 use super::dashboard::UsageSources;
@@ -47,12 +47,7 @@ pub struct ProviderUsageSources {
 }
 
 impl ProviderUsageSources {
-    pub fn new(
-        oauth: Arc<OAuthUsage>,
-        registry: Arc<ProviderRegistry>,
-        accounts: AccountStore,
-        api: Arc<dyn ApiUsage>,
-    ) -> Arc<Self> {
+    pub fn new(oauth: Arc<OAuthUsage>, registry: Arc<ProviderRegistry>, accounts: AccountStore, api: Arc<dyn ApiUsage>) -> Arc<Self> {
         Arc::new(Self { oauth, registry, accounts, api })
     }
 
@@ -130,4 +125,3 @@ impl UsageSources for ProviderUsageSources {
         self.api.fetch(provider, force).await
     }
 }
-

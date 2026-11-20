@@ -115,7 +115,6 @@ mod tests {
         host.finish().expect("no call was made");
     }
 
-
     #[tokio::test]
     async fn a_cancelled_wait_ends_as_a_cancel() {
         let token = CancellationToken::new();
@@ -127,7 +126,6 @@ mod tests {
         assert_eq!(error, RefError::Host(crate::error::HostCallError::Cancelled));
     }
 }
-
 
 fn cancelled() -> RefError {
     crate::error::HostCallError::Cancelled.into()

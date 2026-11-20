@@ -65,11 +65,7 @@ fn parse_hex(color: &str) -> Option<[u8; 3]> {
 
 /// The straight value of a premultiplied channel.
 fn straight(channel: u8, alpha: u8) -> f64 {
-    if alpha == 0 {
-        0.0
-    } else {
-        (f64::from(channel) * 255.0 / f64::from(alpha)).round().min(255.0)
-    }
+    if alpha == 0 { 0.0 } else { (f64::from(channel) * 255.0 / f64::from(alpha)).round().min(255.0) }
 }
 
 /// `0.3 * r + 0.59 * g + 0.11 * b`.
@@ -116,15 +112,7 @@ impl ActiveSMask {
         } else {
             map(0)
         };
-        Self {
-            x: meta.offset_x,
-            y: meta.offset_y,
-            width: canvas.width(),
-            height: canvas.height(),
-            alpha,
-            outside,
-            blend,
-        }
+        Self { x: meta.offset_x, y: meta.offset_y, width: canvas.width(), height: canvas.height(), alpha, outside, blend }
     }
 
     fn alpha_at(&self, x: i32, y: i32) -> u8 {
@@ -165,12 +153,9 @@ fn group_clip(bbox: &[f32; 4], matrix: Option<&[f64; 6]>) -> Path2D {
 
 /// `#convertGroupToGray`: the colours of the group as the grey of their luminance, the alpha kept.
 fn convert_to_gray(canvas: &mut Canvas) -> Result<()> {
-    let mut data = canvas
-        .get_image_data(0, 0, canvas.width(), canvas.height())
-        .map_err(raster)?;
+    let mut data = canvas.get_image_data(0, 0, canvas.width(), canvas.height()).map_err(raster)?;
     for pixel in data.data_mut().chunks_exact_mut(4) {
-        let gray = (f64::from(pixel[0]) * 0.2126 + f64::from(pixel[1]) * 0.7152 + f64::from(pixel[2]) * 0.0722 + 0.5)
-            as i32 as u8;
+        let gray = (f64::from(pixel[0]) * 0.2126 + f64::from(pixel[1]) * 0.7152 + f64::from(pixel[2]) * 0.0722 + 0.5) as i32 as u8;
         pixel[0] = gray;
         pixel[1] = gray;
         pixel[2] = gray;
@@ -217,8 +202,7 @@ impl Painter<'_> {
         }
         let current_transform = self.canvas.get_transform();
         if let Some(m) = &group.matrix {
-            self.canvas
-                .transform(m[0] as f32, m[1] as f32, m[2] as f32, m[3] as f32, m[4] as f32, m[5] as f32);
+            self.canvas.transform(m[0] as f32, m[1] as f32, m[2] as f32, m[3] as f32, m[4] as f32, m[5] as f32);
         }
         let canvas_bounds = [0.0, 0.0, f64::from(self.canvas.width()), f64::from(self.canvas.height())];
         let bounds = match &group.bbox {
@@ -305,14 +289,7 @@ impl Painter<'_> {
         let bitmap = Bitmap::from_canvas(&group_canvas);
         self.in_smask_layer(move |painter| {
             painter.canvas.save();
-            painter.canvas.set_transform(
-                placement[0],
-                placement[1],
-                placement[2],
-                placement[3],
-                placement[4],
-                placement[5],
-            );
+            painter.canvas.set_transform(placement[0], placement[1], placement[2], placement[3], placement[4], placement[5]);
             painter.canvas.draw_image(&bitmap, 0.0, 0.0);
             painter.canvas.restore();
             Ok(())
@@ -359,14 +336,8 @@ impl Painter<'_> {
         mask.apply(&mut layer);
         let clip = self.canvas.clip_mask().cloned();
         let blend = CompositeOperation::parse(mask.blend).map_or(BlendMode::SourceOver, CompositeOperation::blend_mode);
-        let composite = PixmapPaint {
-            opacity: 1.0,
-            blend_mode: blend,
-            quality: FilterQuality::Nearest,
-        };
-        self.canvas
-            .pixmap_mut()
-            .draw_pixmap(0, 0, layer.as_ref(), &composite, Transform::identity(), clip.as_ref());
+        let composite = PixmapPaint { opacity: 1.0, blend_mode: blend, quality: FilterQuality::Nearest };
+        self.canvas.pixmap_mut().draw_pixmap(0, 0, layer.as_ref(), &composite, Transform::identity(), clip.as_ref());
         result
     }
 
@@ -393,16 +364,7 @@ mod tests {
     }
 
     fn source(canvas: Canvas, subtype: &str, backdrop: Option<&str>, transfer_map: Option<Vec<u8>>) -> SmaskSource {
-        SmaskSource {
-            canvas,
-            meta: SmaskMeta {
-                offset_x: 10,
-                offset_y: 20,
-                subtype: subtype.to_owned(),
-                backdrop: backdrop.map(str::to_owned),
-                transfer_map,
-            },
-        }
+        SmaskSource { canvas, meta: SmaskMeta { offset_x: 10, offset_y: 20, subtype: subtype.to_owned(), backdrop: backdrop.map(str::to_owned), transfer_map } }
     }
 
     #[test]

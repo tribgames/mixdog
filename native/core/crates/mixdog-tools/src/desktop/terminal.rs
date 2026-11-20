@@ -11,9 +11,9 @@ use mixdog_core_api::domain::tool::ToolContext;
 use mixdog_core_api::domain::tool::ToolError;
 use mixdog_core_api::domain::tool::ToolOutcome;
 use mixdog_core_api::domain::tool::ToolSpec;
+use mixdog_js::JsRegex;
 use mixdog_protocol::JsonValue;
 use mixdog_protocol::ThreadId;
-use mixdog_js::JsRegex;
 use serde_json::Value;
 
 use crate::exec::fold_carriage_return_frames;
@@ -170,11 +170,7 @@ impl Escapes {
         }
         let value = strip(&self.control, &value);
         let value = mixdog_js::js_trim_end(&value);
-        if mixdog_js::utf16_len(value) > MAX_LINE_CHARS {
-            format!("{}…", mixdog_js::slice_utf16(value, MAX_LINE_CHARS))
-        } else {
-            value.to_owned()
-        }
+        if mixdog_js::utf16_len(value) > MAX_LINE_CHARS { format!("{}…", mixdog_js::slice_utf16(value, MAX_LINE_CHARS)) } else { value.to_owned() }
     }
 }
 
@@ -336,10 +332,7 @@ pub struct TabsTerminalPort {
 }
 
 impl TabsTerminalPort {
-    pub fn new(
-        tabs: Arc<mixdog_spawn::terminal::TerminalTabs>,
-        host: Arc<dyn mixdog_spawn::terminal::TerminalBridgeHost>,
-    ) -> Self {
+    pub fn new(tabs: Arc<mixdog_spawn::terminal::TerminalTabs>, host: Arc<dyn mixdog_spawn::terminal::TerminalBridgeHost>) -> Self {
         Self { tabs, host }
     }
 }
@@ -347,27 +340,14 @@ impl TabsTerminalPort {
 fn session_id(thread: &ThreadId) -> Result<&str, PortError> {
     let id = thread.as_str();
     let valid = (1..=256).contains(&id.len()) && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-');
-    if valid {
-        Ok(id)
-    } else {
-        Err(PortError::Failed { capability: "terminal".to_owned(), message: "session_id is invalid".to_owned() })
-    }
+    if valid { Ok(id) } else { Err(PortError::Failed { capability: "terminal".to_owned(), message: "session_id is invalid".to_owned() }) }
 }
 
 fn info_of(tab: &mixdog_spawn::terminal::SessionTab) -> TabInfo {
-    TabInfo {
-        tab: u64::from(tab.tab),
-        id: Some(tab.id.clone()),
-        shell: Some(tab.shell.clone()),
-        running: tab.running,
-        cwd: tab.cwd.clone(),
-    }
+    TabInfo { tab: u64::from(tab.tab), id: Some(tab.id.clone()), shell: Some(tab.shell.clone()), running: tab.running, cwd: tab.cwd.clone() }
 }
 
-fn target_of(
-    tabs: &[mixdog_spawn::terminal::SessionTab],
-    requested: Option<u64>,
-) -> Result<&mixdog_spawn::terminal::SessionTab, PortError> {
+fn target_of(tabs: &[mixdog_spawn::terminal::SessionTab], requested: Option<u64>) -> Result<&mixdog_spawn::terminal::SessionTab, PortError> {
     match requested {
         None => Ok(&tabs[0]),
         Some(n) => tabs.iter().find(|t| u64::from(t.tab) == n).ok_or_else(|| {
@@ -391,10 +371,7 @@ impl TerminalPort for TabsTerminalPort {
         let session = session_id(thread)?;
         let open = self.tabs.session_tabs(session);
         if open.is_empty() {
-            return Err(PortError::NotFound {
-                target: "terminal".to_owned(),
-                message: "no terminal tabs are open for this session".to_owned(),
-            });
+            return Err(PortError::NotFound { target: "terminal".to_owned(), message: "no terminal tabs are open for this session".to_owned() });
         }
         let target = target_of(&open, tab)?;
         let snapshot = self.tabs.snapshot(&target.id, since).ok_or_else(|| gone(target.tab))?;
@@ -406,10 +383,7 @@ impl TerminalPort for TabsTerminalPort {
         let mut open = self.tabs.session_tabs(session);
         if open.is_empty() {
             if let Some(n) = tab {
-                return Err(PortError::NotFound {
-                    target: format!("terminal tab {n}"),
-                    message: format!("no terminal tab {n}; no terminal tabs are open"),
-                });
+                return Err(PortError::NotFound { target: format!("terminal tab {n}"), message: format!("no terminal tab {n}; no terminal tabs are open") });
             }
             // The process starts here, whatever the screen shows: a pane that appears later
             // attaches to it.
@@ -418,16 +392,10 @@ impl TerminalPort for TabsTerminalPort {
             self.tabs
                 .ensure(Some(&id), mixdog_spawn::terminal::EnsureRequest { cwd, ..Default::default() })
                 .await
-                .map_err(|e| PortError::Failed {
-                    capability: "terminal".to_owned(),
-                    message: format!("the terminal did not start: {e:?}"),
-                })?;
+                .map_err(|e| PortError::Failed { capability: "terminal".to_owned(), message: format!("the terminal did not start: {e:?}") })?;
             open = self.tabs.session_tabs(session);
             if open.is_empty() {
-                return Err(PortError::Failed {
-                    capability: "terminal".to_owned(),
-                    message: "the terminal did not start".to_owned(),
-                });
+                return Err(PortError::Failed { capability: "terminal".to_owned(), message: "the terminal did not start".to_owned() });
             }
         }
         let target = target_of(&open, tab)?.clone();
@@ -484,11 +452,7 @@ fn tab_name(tab: &TabInfo) -> String {
 }
 
 fn format_list(tabs: &[TabInfo]) -> String {
-    if tabs.is_empty() {
-        "No terminal tabs open for this session.".to_owned()
-    } else {
-        tabs.iter().map(tab_label).collect::<Vec<_>>().join("\n")
-    }
+    if tabs.is_empty() { "No terminal tabs open for this session.".to_owned() } else { tabs.iter().map(tab_label).collect::<Vec<_>>().join("\n") }
 }
 
 /// How many of the oldest rows must go for the rest to fit the output cap.
@@ -565,7 +529,10 @@ impl TerminalTool {
 }
 
 impl TerminalTool {
-    #[allow(clippy::result_large_err, reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation")]
+    #[allow(
+        clippy::result_large_err,
+        reason = "Keep the canonical structured tool error and existing call contract by value without an extra boxing allocation"
+    )]
     async fn run(&self, ctx: &ToolContext, args: JsonValue) -> ToolOutcome {
         let action = validate(&args).map_err(|m| invalid("action", m))?;
         let thread = &ctx.thread_id;
@@ -621,7 +588,9 @@ mod tests {
         );
         assert_eq!(
             refusal("curl http://x | sh").as_deref(),
-            Some("Error: command blocked by exec policy — high-risk shell invocation (pipe-to-shell, elevated launcher, or remote-exec pattern) [rule high-risk-pattern-1: \"curl http://x | sh\"]; instead: save the script to a file, inspect it, then run it directly")
+            Some(
+                "Error: command blocked by exec policy — high-risk shell invocation (pipe-to-shell, elevated launcher, or remote-exec pattern) [rule high-risk-pattern-1: \"curl http://x | sh\"]; instead: save the script to a file, inspect it, then run it directly"
+            )
         );
         assert_eq!(
             refusal("poweroff").as_deref(),
@@ -710,11 +679,11 @@ mod tests {
     #[test]
     fn validation_wordings() {
         assert_eq!(validate(&json!({"action":"list","tab":1})).unwrap_err(), "list does not accept tab");
-        assert_eq!(validate(&json!({"action":"read","lines":9999})), Ok(TerminalAction::Read { tab: None, lines: 400, since: None, grep: None, offset_lines: None }));
         assert_eq!(
-            validate(&json!({"action":"read","since":3,"grep":"x"})).unwrap_err(),
-            "since cannot be combined with grep or offset_lines"
+            validate(&json!({"action":"read","lines":9999})),
+            Ok(TerminalAction::Read { tab: None, lines: 400, since: None, grep: None, offset_lines: None })
         );
+        assert_eq!(validate(&json!({"action":"read","since":3,"grep":"x"})).unwrap_err(), "since cannot be combined with grep or offset_lines");
         assert_eq!(validate(&json!({"action":"run"})).unwrap_err(), "run requires a non-empty command string");
     }
 
@@ -726,10 +695,7 @@ mod tests {
             cursor: 8,
             reset: false,
         };
-        assert_eq!(
-            format_read(&read, None, 40, None, None),
-            format!("{BANNER}\nTerminal: tab 2 · 2 pwsh running C:/p · cursor=8\nlines 1-2 of 2\none\ntwo")
-        );
+        assert_eq!(format_read(&read, None, 40, None, None), format!("{BANNER}\nTerminal: tab 2 · 2 pwsh running C:/p · cursor=8\nlines 1-2 of 2\none\ntwo"));
     }
 
     struct NoEvents;
@@ -743,7 +709,6 @@ mod tests {
     struct Host {
         revealed: std::sync::atomic::AtomicBool,
     }
-
 
     /// Every terminal call — answered, failed by the port, refused by the policy or invalid —
     /// tells the turn review the session's folder.
@@ -776,10 +741,7 @@ mod tests {
     /// output.
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
     async fn tabs_port_lists_runs_and_reads_a_real_terminal() {
-        let manager = mixdog_spawn::LocalProcessManager::new(
-            mixdog_rt::testing::tokens().spawn_io,
-            mixdog_spawn::ProcessConfig::default(),
-        );
+        let manager = mixdog_spawn::LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, mixdog_spawn::ProcessConfig::default());
         let config = mixdog_spawn::terminal::TerminalConfig::new(Arc::new(NoEvents));
         let tabs = Arc::new(mixdog_spawn::terminal::TerminalTabs::new(manager, config));
         let host = Arc::new(Host { revealed: Default::default() });
@@ -809,10 +771,7 @@ mod tests {
         }
         tabs.dispose_all();
     }
-
-
 }
-
 
 impl ExecPolicyGate {
     pub fn new(policy: Arc<dyn crate::policy::CommandPolicy>) -> Self {

@@ -156,10 +156,13 @@ impl GrantDisk {
     async fn persist(&self, grants: &Grants) -> WsResult<()> {
         #[cfg(test)]
         if let Some(probe) = self.publish_probe.get()
-            && probe.remaining.try_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
+            && probe.remaining.try_update(std::sync::atomic::Ordering::SeqCst, std::sync::atomic::Ordering::SeqCst, |n| n.checked_sub(1)).is_ok()
+        {
             probe.entered.notify_one();
             probe.release.notified().await;
-            if probe.fail { return Err(WsError::plain("fixture publication failure")); }
+            if probe.fail {
+                return Err(WsError::plain("fixture publication failure"));
+            }
         }
         let path = self.path.clone();
         let data = serialize_grants(grants);
@@ -264,10 +267,7 @@ fn parse_grants(text: &str) -> (Grants, bool) {
 /// `serializeSelectedFileGrants`: `[{tokenHash, file}]`, the newest [`MAX_DESKTOP_GRANTS`].
 fn serialize_grants(grants: &Grants) -> Vec<u8> {
     let skip = grants.len().saturating_sub(MAX_DESKTOP_GRANTS);
-    let rows: Vec<Value> = grants[skip..]
-        .iter()
-        .map(|(hash, file)| serde_json::json!({ "tokenHash": hash, "file": file.to_string_lossy() }))
-        .collect();
+    let rows: Vec<Value> = grants[skip..].iter().map(|(hash, file)| serde_json::json!({ "tokenHash": hash, "file": file.to_string_lossy() })).collect();
     serde_json::to_vec(&rows).unwrap_or_else(|_| b"[]".to_vec())
 }
 
@@ -510,7 +510,6 @@ mod tests {
         assert_eq!(store.redeem(&"t".repeat(129), "/", "a").await.unwrap_err().reason.code(), "invalidParams");
     }
 
-
     impl Fixture {
         fn new() -> Self {
             let dir = tempfile::tempdir().unwrap();
@@ -520,12 +519,8 @@ mod tests {
                 std::fs::write(file, "fixture").unwrap();
             }
             let tokens = mixdog_rt::testing::tokens();
-            let lanes = Lanes {
-                interactive: tokens.interactive_io,
-                durability: tokens.durability_io,
-                maintenance: tokens.maintenance_io,
-                cpu_bulk: tokens.cpu_bulk,
-            };
+            let lanes =
+                Lanes { interactive: tokens.interactive_io, durability: tokens.durability_io, maintenance: tokens.maintenance_io, cpu_bulk: tokens.cpu_bulk };
             let store_path = root.join("grants.json");
             Self { _dir: dir, root, files, store_path, lanes }
         }
@@ -556,7 +551,8 @@ mod tests {
     #[test]
     fn the_file_keeps_the_newest_hundred_rows_and_a_repeated_key_keeps_its_place() {
         let dir = std::env::temp_dir();
-        let rows: Vec<Value> = (0..120).map(|index| serde_json::json!({ "tokenHash": token_hash(&index.to_string()), "file": text(&dir.join(format!("f{index}"))) })).collect();
+        let rows: Vec<Value> =
+            (0..120).map(|index| serde_json::json!({ "tokenHash": token_hash(&index.to_string()), "file": text(&dir.join(format!("f{index}"))) })).collect();
         let (grants, migrated) = parse_grants(&Value::Array(rows).to_string());
         assert!(!migrated);
         assert_eq!(grants.len(), 100);
@@ -579,10 +575,12 @@ struct PublishProbe {
 #[path = "desktop_grants_tests.rs"]
 mod actor_tests;
 
-
 impl DesktopGrantStore {
     pub fn new(path: PathBuf, lanes: Lanes) -> Arc<Self> {
-        Arc::new(Self { path, lanes, queue: OnceLock::new(),
+        Arc::new(Self {
+            path,
+            lanes,
+            queue: OnceLock::new(),
             #[cfg(test)]
             publish_probe: Arc::new(OnceLock::new()),
         })
@@ -669,7 +667,9 @@ impl DesktopGrantStore {
     fn queue(&self) -> &mpsc::UnboundedSender<Command> {
         self.queue.get_or_init(|| {
             let (send, mut receive) = mpsc::unbounded_channel();
-            let disk = GrantDisk { path: self.path.clone(), lanes: self.lanes,
+            let disk = GrantDisk {
+                path: self.path.clone(),
+                lanes: self.lanes,
                 #[cfg(test)]
                 publish_probe: self.publish_probe.clone(),
             };
@@ -678,13 +678,17 @@ impl DesktopGrantStore {
                 while let Some(command) = receive.recv().await {
                     match command {
                         Command::Mint { rows, minted, reply } => {
-                            if reply.is_closed() { continue; }
+                            if reply.is_closed() {
+                                continue;
+                            }
                             // Once begun, finish disk+memory publication even if its caller drops.
                             let result = mint(&disk, &mut state, rows, minted).await;
                             let _ = reply.send(result);
                         }
                         Command::Lookup { token, reply } => {
-                            if reply.is_closed() { continue; }
+                            if reply.is_closed() {
+                                continue;
+                            }
                             let result = disk.load(&mut state).await.map(|()| {
                                 let key = token_hash(&token);
                                 state.grants.iter().find(|(hash, _)| *hash == key).map(|(_, file)| file.clone())

@@ -12,13 +12,13 @@ use ast_grep_core::tree_sitter::StrDoc;
 use ast_grep_core::{AstGrep, Node};
 use serde::Serialize;
 
-use super::extractors::{extractors_for, FileMeta, Walked, WalkedItem};
+use super::extractors::{FileMeta, Walked, WalkedItem, extractors_for};
 use super::imports::import_specs;
 use super::kind_map::unified_kind;
 use super::kinds::symbol_kind;
 use super::rules::DeclaredKind;
 use super::signature::{declaration_head, name_line};
-use super::visibility::{is_exported, FileVisibility};
+use super::visibility::{FileVisibility, is_exported};
 use crate::scan_lang::ScanLang;
 use crate::tokens::KindRole;
 
@@ -131,11 +131,7 @@ impl Candidate {
 /// Graph kind of one outline entry, or `None` when it is not a graph symbol.
 /// The rule's own `# mixdog-kind:` wins; otherwise the built-in table maps the
 /// ast-grep default rules and our parity rules.
-fn entry_kind(
-    graph_lang: &str,
-    declared: Option<DeclaredKind>,
-    entry: &ast_grep_outline::model::OutlineEntry<'_>,
-) -> Option<&'static str> {
+fn entry_kind(graph_lang: &str, declared: Option<DeclaredKind>, entry: &ast_grep_outline::model::OutlineEntry<'_>) -> Option<&'static str> {
     if entry.name.is_empty() {
         return None;
     }
@@ -164,10 +160,7 @@ pub fn extract(text: &str, graph_lang: &str, lang: ScanLang) -> Extraction {
     // An empty source of an extraction language IS parsed, and its answer is
     // "no call sites" — a known empty list, not an unknown one.
     if text.is_empty() {
-        return Extraction {
-            calls: Some(Vec::new()),
-            ..Extraction::default()
-        };
+        return Extraction { calls: Some(Vec::new()), ..Extraction::default() };
     }
     let Ok(ast) = AstGrep::<StrDoc<ScanLang>>::try_new(text, lang) else {
         return Extraction::default();
@@ -192,8 +185,7 @@ pub fn identifier_hits(text: &str, lang: ScanLang, symbol: &str) -> Vec<(u32, u3
     let mut hits = Vec::new();
     let mut stack = vec![ast.root()];
     while let Some(node) = stack.pop() {
-        if self_is_symbol(&node, text, symbol) && kinds.role(node.kind_id()) == KindRole::Identifier
-        {
+        if self_is_symbol(&node, text, symbol) && kinds.role(node.kind_id()) == KindRole::Identifier {
             let start = node.start_pos();
             hits.push((start.line() as u32 + 1, start.column(&node) as u32 + 1));
         }
@@ -209,12 +201,7 @@ fn self_is_symbol(node: &Node<'_, StrDoc<ScanLang>>, text: &str, symbol: &str) -
 }
 
 pub(super) fn map_items(walked: Walked<'_>, text: &str, graph_lang: &str) -> Extraction {
-    let Walked {
-        items,
-        calls,
-        tokens,
-        meta: file_meta,
-    } = walked;
+    let Walked { items, calls, tokens, meta: file_meta } = walked;
     // Sorted unique: the consumer answers `tokens.includes(name)`, so order is
     // free, and sorting makes the emitted line stable and compressible.
     let mut tokens: Vec<&str> = tokens.into_iter().collect();
@@ -243,11 +230,7 @@ pub(super) fn map_items(walked: Walked<'_>, text: &str, graph_lang: &str) -> Ext
 /// Both lists leave in a fixed order — imports by their byte offset in the
 /// source, candidates by `(start line, start col, name line, name)` — so the
 /// record does not depend on the traversal's own visit order.
-fn collect_declarations(
-    items: &[WalkedItem<'_>],
-    text: &str,
-    graph_lang: &str,
-) -> (Vec<String>, Vec<Candidate>) {
+fn collect_declarations(items: &[WalkedItem<'_>], text: &str, graph_lang: &str) -> (Vec<String>, Vec<Candidate>) {
     // (byte offset, spec) so the emitted list stays in source order even
     // though the traversal visits siblings back to front.
     let mut imports: Vec<(usize, String)> = Vec::new();
@@ -259,9 +242,7 @@ fn collect_declarations(
         let item = &walked.item;
         let entry = &item.entry;
         if item.is_import {
-            let slice = text
-                .get(entry.range.byte_offset.clone())
-                .unwrap_or_default();
+            let slice = text.get(entry.range.byte_offset.clone()).unwrap_or_default();
             for spec in import_specs(graph_lang, &entry.ast_kind, &entry.name, slice) {
                 if !spec.is_empty() && seen_imports.insert(spec.clone()) {
                     imports.push((entry.range.byte_offset.start, spec));
@@ -269,62 +250,26 @@ fn collect_declarations(
             }
         }
         if let Some(kind) = entry_kind(graph_lang, walked.declared, entry) {
-            push_candidate(
-                candidate_for(
-                    text,
-                    &entry.name,
-                    kind,
-                    &entry.range,
-                    item.is_exported,
-                    false,
-                ),
-                &mut candidates,
-                &mut by_key,
-            );
+            push_candidate(candidate_for(text, &entry.name, kind, &entry.range, item.is_exported, false), &mut candidates, &mut by_key);
         }
         for (index, member) in item.members.iter().enumerate() {
             let entry = &member.entry;
             let declared = walked.member_declared.get(index).copied().flatten();
             if let Some(kind) = entry_kind(graph_lang, declared, entry) {
-                push_candidate(
-                    candidate_for(
-                        text,
-                        &entry.name,
-                        kind,
-                        &entry.range,
-                        member.is_public,
-                        true,
-                    ),
-                    &mut candidates,
-                    &mut by_key,
-                );
+                push_candidate(candidate_for(text, &entry.name, kind, &entry.range, member.is_public, true), &mut candidates, &mut by_key);
             }
         }
     }
 
     imports.sort_by_key(|(offset, _)| *offset);
-    candidates.sort_by(|a, b| {
-        (a.start_line, a.start_col, a.line, &a.name).cmp(&(
-            b.start_line,
-            b.start_col,
-            b.line,
-            &b.name,
-        ))
-    });
-    (
-        imports.into_iter().map(|(_, spec)| spec).collect(),
-        candidates,
-    )
+    candidates.sort_by(|a, b| (a.start_line, a.start_col, a.line, &a.name).cmp(&(b.start_line, b.start_col, b.line, &b.name)));
+    (imports.into_iter().map(|(_, spec)| spec).collect(), candidates)
 }
 
 /// Keep ONE candidate per `(name, name line)`: two rules matching nested
 /// nodes of one declaration are one symbol, and `keeps_existing` decides
 /// which of the two spans the record reports.
-fn push_candidate(
-    candidate: Candidate,
-    candidates: &mut Vec<Candidate>,
-    by_key: &mut HashMap<(String, u32), usize>,
-) {
+fn push_candidate(candidate: Candidate, candidates: &mut Vec<Candidate>, by_key: &mut HashMap<(String, u32), usize>) {
     let key = (candidate.name.clone(), candidate.line);
     match by_key.get(&key) {
         Some(&index) if keeps_existing(&candidates[index], &candidate) => {}
@@ -342,29 +287,17 @@ fn push_candidate(
 ///
 /// The parent comes back as an INDEX into `candidates`, not only as a name:
 /// the visibility rules need the enclosing declaration's KIND too.
-fn resolve_containment(
-    candidates: &[Candidate],
-    calls: Vec<crate::calls::RawCall>,
-) -> (Vec<Option<usize>>, Vec<crate::calls::CallInfo>) {
+fn resolve_containment(candidates: &[Candidate], calls: Vec<crate::calls::RawCall>) -> (Vec<Option<usize>>, Vec<crate::calls::CallInfo>) {
     // Containment order: nesting is a byte-span relation, not a line one, so
     // the sweep runs over the candidates sorted by (start ASC, end DESC).
     let mut order: Vec<usize> = (0..candidates.len()).collect();
-    order.sort_by_key(|&index| {
-        (
-            candidates[index].start_byte,
-            std::cmp::Reverse(candidates[index].end_byte()),
-        )
-    });
+    order.sort_by_key(|&index| (candidates[index].start_byte, std::cmp::Reverse(candidates[index].end_byte())));
     let mut parent_of: Vec<Option<usize>> = vec![None; candidates.len()];
     let spans: Vec<crate::spans::SymbolSpan<'_>> = order
         .iter()
         .map(|&index| {
             let candidate = &candidates[index];
-            (
-                candidate.start_byte,
-                candidate.end_byte(),
-                candidate.name.as_str(),
-            )
+            (candidate.start_byte, candidate.end_byte(), candidate.name.as_str())
         })
         .collect();
     let mut sweep = crate::spans::ContainmentSweep::new(&spans);
@@ -381,23 +314,14 @@ fn resolve_containment(
 /// the file in ANY language, whatever its modifiers or the export clause
 /// say (`fun localHelper` inside a method, a C# local function, a `pub fn`
 /// inside a `fn`).
-fn parent_meta(
-    candidates: &[Candidate],
-    parent_of: &[Option<usize>],
-    graph_lang: &str,
-) -> Vec<(String, bool)> {
+fn parent_meta(candidates: &[Candidate], parent_of: &[Option<usize>], graph_lang: &str) -> Vec<(String, bool)> {
     (0..candidates.len())
         .map(|index| {
-            let parent = parent_of[index]
-                .map(|at| candidates[at].name.clone())
-                .unwrap_or_default();
+            let parent = parent_of[index].map(|at| candidates[at].name.clone()).unwrap_or_default();
             let mut at = parent_of[index];
             let mut local = false;
             while let Some(enclosing) = at {
-                if matches!(
-                    unified_kind(graph_lang, candidates[enclosing].kind),
-                    "function" | "method" | "constructor"
-                ) {
+                if matches!(unified_kind(graph_lang, candidates[enclosing].kind), "function" | "method" | "constructor") {
                     local = true;
                     break;
                 }
@@ -410,41 +334,19 @@ fn parent_meta(
 
 /// Render the ordered candidates into SYMBOL RECORD v2: the unified kind, the
 /// language's own visibility answer, and the one-line declaration head.
-fn symbol_records(
-    candidates: Vec<Candidate>,
-    meta: Vec<(String, bool)>,
-    text: &str,
-    graph_lang: &str,
-) -> Vec<SymbolInfo> {
+fn symbol_records(candidates: Vec<Candidate>, meta: Vec<(String, bool)>, text: &str, graph_lang: &str) -> Vec<SymbolInfo> {
     let visibility = FileVisibility::of(graph_lang, text);
     candidates
         .into_iter()
         .zip(meta)
         .map(|(candidate, (parent, local))| {
-            let head = declaration_head(
-                text,
-                candidate.start_byte,
-                candidate.end_byte(),
-                &candidate.name,
-            );
+            let head = declaration_head(text, candidate.start_byte, candidate.end_byte(), &candidate.name);
             SymbolInfo {
                 kind: unified_kind(graph_lang, candidate.kind),
-                exported: is_exported(
-                    graph_lang,
-                    &candidate,
-                    &head,
-                    parent.is_empty(),
-                    local,
-                    text,
-                    &visibility,
-                ),
+                exported: is_exported(graph_lang, &candidate, &head, parent.is_empty(), local, text, &visibility),
                 // A head that is just the name again (a bare enum member, a
                 // binding with neither type nor initializer) is no signature.
-                sig: if head == candidate.name {
-                    String::new()
-                } else {
-                    head
-                },
+                sig: if head == candidate.name { String::new() } else { head },
                 parent,
                 name: candidate.name,
                 end_line: candidate.end_line,
@@ -469,34 +371,18 @@ fn keeps_existing(existing: &Candidate, candidate: &Candidate) -> bool {
     }
 }
 
-fn candidate_for(
-    text: &str,
-    name: &str,
-    kind: &'static str,
-    range: &ast_grep_outline::model::SourceRange,
-    rule_exported: bool,
-    member: bool,
-) -> Candidate {
+fn candidate_for(text: &str, name: &str, kind: &'static str, range: &ast_grep_outline::model::SourceRange, rule_exported: bool, member: bool) -> Candidate {
     let start_line = range.start.line as u32 + 1;
     Candidate {
         name: name.to_string(),
         kind,
-        line: name_line(
-            text,
-            range.byte_offset.start,
-            range.byte_offset.end,
-            start_line,
-            name,
-        ),
+        line: name_line(text, range.byte_offset.start, range.byte_offset.end, start_line, name),
         start_line,
         start_col: range.start.column as u32 + 1,
         end_line: range.end.line as u32 + 1,
         end_col: range.end.column as u32,
         start_byte: range.byte_offset.start,
-        span: range
-            .byte_offset
-            .end
-            .saturating_sub(range.byte_offset.start),
+        span: range.byte_offset.end.saturating_sub(range.byte_offset.start),
         rule_exported,
         member,
     }
@@ -510,24 +396,13 @@ mod tests {
 
     #[test]
     fn symbol_spans_are_the_declaration_node() {
-        let symbols = symbols(
-            "typescript",
-            "ts",
-            "export function run() {\n  return 1;\n}\n",
-        );
+        let symbols = symbols("typescript", "ts", "export function run() {\n  return 1;\n}\n");
         assert_eq!(symbols.len(), 1);
         let lang = scan_lang_for_ext("ts").unwrap();
-        let extracted = extract(
-            "export function run() {\n  return 1;\n}\n",
-            "typescript",
-            lang,
-        );
+        let extracted = extract("export function run() {\n  return 1;\n}\n", "typescript", lang);
         let symbol = &extracted.symbols[0];
         // `function`, not `export`, and the span covers the body.
-        assert_eq!(
-            (symbol.start_line, symbol.start_col, symbol.end_line),
-            (1, 8, 3)
-        );
+        assert_eq!((symbol.start_line, symbol.start_col, symbol.end_line), (1, 8, 3));
     }
 
     #[test]
@@ -539,14 +414,7 @@ mod tests {
 
     #[test]
     fn private_class_members_are_not_symbols() {
-        assert_eq!(
-            kinds(
-                "typescript",
-                "ts",
-                "class C {\n  #secret() {}\n  visible() {}\n}\n"
-            ),
-            named(&[("class", "C"), ("method", "visible")])
-        );
+        assert_eq!(kinds("typescript", "ts", "class C {\n  #secret() {}\n  visible() {}\n}\n"), named(&[("class", "C"), ("method", "visible")]));
     }
 
     #[test]
@@ -587,30 +455,17 @@ import \"./LibMath.sol\";\n\n\
 library LibMath {\n    function add(uint256 a, uint256 b) internal pure returns (uint256) { return a + b; }\n}\n\n\
 contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n    function deposit(uint256 amount) public {}\n}\n";
         let found = records("solidity", "sol", source);
-        assert_eq!(
-            found.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(),
-            vec!["LibMath", "add", "Vault", "Deposited", "deposit"]
-        );
+        assert_eq!(found.iter().map(|s| s.name.as_str()).collect::<Vec<_>>(), vec!["LibMath", "add", "Vault", "Deposited", "deposit"]);
         for symbol in &found {
-            assert!(
-                !symbol.name.chars().any(char::is_whitespace),
-                "solidity symbol name `{}` contains whitespace",
-                symbol.name
-            );
+            assert!(!symbol.name.chars().any(char::is_whitespace), "solidity symbol name `{}` contains whitespace", symbol.name);
         }
         // The directive contributes no symbol; what the grammar does spell as
         // identifiers inside one (`pragma experimental ABIEncoderV2`) is still
         // an ordinary token, while the version pragma's `solidity` is an
         // anonymous keyword of the grammar and is not.
         let tokens = tokens("solidity", "sol", source);
-        assert!(
-            tokens.iter().any(|token| token == "experimental"),
-            "{tokens:?}"
-        );
-        assert!(
-            !tokens.iter().any(|token| token == "solidity"),
-            "{tokens:?}"
-        );
+        assert!(tokens.iter().any(|token| token == "experimental"), "{tokens:?}");
+        assert!(!tokens.iter().any(|token| token == "solidity"), "{tokens:?}");
     }
 
     /// No language may report a symbol name with whitespace in it: the name is
@@ -618,27 +473,15 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
     #[test]
     fn no_fixture_symbol_name_carries_whitespace() {
         let cases: &[(&str, &str, &str)] = &[
-            (
-                "solidity",
-                "sol",
-                "pragma solidity ^0.8.19;\ncontract A { function b() public {} }\n",
-            ),
+            ("solidity", "sol", "pragma solidity ^0.8.19;\ncontract A { function b() public {} }\n"),
             ("typescript", "ts", "export class A { run(): void {} }\n"),
             ("rust", "rs", "pub fn run() {}\npub struct A;\n"),
             ("haskell", "hs", "module M where\nrun :: Int\nrun = 1\n"),
-            (
-                "hcl",
-                "tf",
-                "resource \"aws_instance\" \"web\" {\n  ami = \"x\"\n}\n",
-            ),
+            ("hcl", "tf", "resource \"aws_instance\" \"web\" {\n  ami = \"x\"\n}\n"),
         ];
         for (lang, ext, source) in cases {
             for symbol in records(lang, ext, source) {
-                assert!(
-                    !symbol.name.chars().any(char::is_whitespace),
-                    "{lang}: symbol name `{}` contains whitespace",
-                    symbol.name
-                );
+                assert!(!symbol.name.chars().any(char::is_whitespace), "{lang}: symbol name `{}` contains whitespace", symbol.name);
             }
         }
     }
@@ -659,29 +502,19 @@ contract Vault {\n    event Deposited(address indexed who, uint256 amount);\n   
         assert_eq!(parent_of("top"), "");
 
         // Two single-line siblings do not adopt each other.
-        let siblings = records(
-            "typescript",
-            "ts",
-            "function a() { function x() {} } function b() { function y() {} }\n",
-        );
+        let siblings = records("typescript", "ts", "function a() { function x() {} } function b() { function y() {} }\n");
         assert_eq!(record(&siblings, "x").parent, "a");
         assert_eq!(record(&siblings, "y").parent, "b");
 
         // `parent` and the calls' `inSymbol` come from the same sweep, so a
         // call inside a declaration names the declaration that declares it.
         let lang = scan_lang_for_ext("py").unwrap();
-        let extracted = extract(
-            "class Service:\n    def run(self):\n        def helper():\n            return load()\n        return helper()\n",
-            "python",
-            lang,
-        );
+        let extracted =
+            extract("class Service:\n    def run(self):\n        def helper():\n            return load()\n        return helper()\n", "python", lang);
         assert_eq!(record(&extracted.symbols, "helper").parent, "run");
         assert_eq!(record(&extracted.symbols, "run").parent, "Service");
         let calls = extracted.calls.expect("python is an extraction language");
-        let load = calls
-            .iter()
-            .find(|call| call.name == "load")
-            .expect("load()");
+        let load = calls.iter().find(|call| call.name == "load").expect("load()");
         assert_eq!(load.in_symbol, "helper");
     }
 
@@ -714,10 +547,7 @@ export function createHost() {
 }
 "#;
         let ts = records("typescript", "ts", source);
-        let listed: Vec<(&str, &str)> = ts
-            .iter()
-            .map(|symbol| (symbol.kind, symbol.name.as_str()))
-            .collect();
+        let listed: Vec<(&str, &str)> = ts.iter().map(|symbol| (symbol.kind, symbol.name.as_str())).collect();
         assert_eq!(
             listed,
             vec![
@@ -737,20 +567,8 @@ export function createHost() {
         // A call is only a factory when a NAMED function takes a
         // configuration object; `new Date().toISOString()`,
         // `resolve(dir, 'x')` and `Math.round(n)` compute VALUES.
-        for data in [
-            "label",
-            "count",
-            "items",
-            "made",
-            "alias",
-            "generatedAt",
-            "index",
-            "atMs",
-        ] {
-            assert!(
-                !ts.iter().any(|symbol| symbol.name == data),
-                "`{data}` is a data property: {ts:?}"
-            );
+        for data in ["label", "count", "items", "made", "alias", "generatedAt", "index", "atMs"] {
+            assert!(!ts.iter().any(|symbol| symbol.name == data), "`{data}` is a data property: {ts:?}");
         }
 
         let preflight = record(&ts, "preflightSteps");
@@ -758,10 +576,7 @@ export function createHost() {
         // enclosing SYMBOL — the object literal itself declares nothing.
         assert!(!preflight.exported);
         assert_eq!(preflight.parent, "createHost");
-        assert_eq!(
-            preflight.sig,
-            "preflightSteps: createInputPreflight({ retries: 2 })"
-        );
+        assert_eq!(preflight.sig, "preflightSteps: createInputPreflight({ retries: 2 })");
         assert_eq!(record(&ts, "fill").sig, "fill: async (ctx: string)");
 
         // The same shapes in JavaScript, where `pair` is the only form.
@@ -771,32 +586,15 @@ export function createHost() {
             "const actions = {\n  submit: async (form) => form,\n  reset() { return 1; },\n  build: makeBuilder({ a: 1 }),\n  label: 'x',\n};\n",
         );
         assert_eq!(
-            js.iter()
-                .map(|symbol| (symbol.kind, symbol.name.as_str()))
-                .collect::<Vec<_>>(),
-            vec![
-                ("variable", "actions"),
-                ("method", "submit"),
-                ("method", "reset"),
-                ("method", "build"),
-            ]
+            js.iter().map(|symbol| (symbol.kind, symbol.name.as_str())).collect::<Vec<_>>(),
+            vec![("variable", "actions"), ("method", "submit"), ("method", "reset"), ("method", "build"),]
         );
         assert_eq!(record(&js, "submit").parent, "actions");
 
         // An `export { name }` clause names the module-level declaration, not
         // a method that happens to share the word.
-        let clash = records(
-            "typescript",
-            "ts",
-            "function run(): void {}\nconst api = { run: () => {} };\nexport { run };\n",
-        );
+        let clash = records("typescript", "ts", "function run(): void {}\nconst api = { run: () => {} };\nexport { run };\n");
         assert!(record(&clash, "run").exported, "the function is exported");
-        assert!(
-            clash
-                .iter()
-                .filter(|symbol| symbol.kind == "method")
-                .all(|symbol| !symbol.exported),
-            "{clash:?}"
-        );
+        assert!(clash.iter().filter(|symbol| symbol.kind == "method").all(|symbol| !symbol.exported), "{clash:?}");
     }
 }

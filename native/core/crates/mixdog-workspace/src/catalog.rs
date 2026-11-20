@@ -8,12 +8,12 @@
 use std::path::Path;
 use std::path::PathBuf;
 
+use mixdog_core_base::ops::{OpState, PayloadDigest, set_op_row_outcome};
 use mixdog_store::registry::ProjectEntry;
 use mixdog_store::registry::Registry;
 use mixdog_store::registry::ensure_project_id_marker;
 use mixdog_store::state::CoreState;
 use mixdog_store::state::OpRow;
-use mixdog_core_base::ops::{OpState, PayloadDigest, set_op_row_outcome};
 use mixdog_store::state::ProjectRow;
 use serde_json::Value;
 use serde_json::json;
@@ -25,9 +25,9 @@ use crate::error::WsResult;
 use crate::lanes::Lanes;
 use crate::lanes::run_fallible;
 use crate::lanes::run_in;
-use crate::pathguard::project_path;
 use crate::pathguard::canonical;
 use crate::pathguard::comparable;
+use crate::pathguard::project_path;
 
 /// The op record that commits with a registry change.
 #[derive(Clone)]
@@ -50,9 +50,8 @@ fn store(error: mixdog_store::sqlite::DbError) -> WsError {
 /// Node's `canonicalDirectory`: the real path of `requested`, which must be a folder. `given` is the path as the caller
 /// wrote it, which is what Node's `ENOENT: ... realpath '<path>'` names.
 pub fn canonical_directory(requested: &Path, given: &str) -> WsResult<PathBuf> {
-    let real = canonical(requested).map_err(|error| {
-        if error.kind() == std::io::ErrorKind::NotFound { WsError::new(Reason::PathMissing, given) } else { error.into() }
-    })?;
+    let real = canonical(requested)
+        .map_err(|error| if error.kind() == std::io::ErrorKind::NotFound { WsError::new(Reason::PathMissing, given) } else { error.into() })?;
     if real.is_dir() { Ok(real) } else { Err(WsError::new(Reason::NotADirectory, "Session workspace is not a directory.")) }
 }
 
@@ -124,7 +123,14 @@ fn joined(rows: Vec<ProjectRow>, entries: &[ProjectEntry]) -> (Vec<ProjectRow>, 
                 let alias = old.alias.as_deref().map(mixdog_js::js_trim).filter(|alias| !alias.is_empty()).map(str::to_owned);
                 ProjectRow { path: entry.path.clone(), alias, hidden: false, hidden_rank: None, last_used_at, name }
             }
-            None => ProjectRow { path: entry.path.clone(), alias: None, hidden: false, hidden_rank: None, last_used_at: recency(entry), name: Some(entry.name.clone()) },
+            None => ProjectRow {
+                path: entry.path.clone(),
+                alias: None,
+                hidden: false,
+                hidden_rank: None,
+                last_used_at: recency(entry),
+                name: Some(entry.name.clone()),
+            },
         };
         puts.push(row);
     }
@@ -183,7 +189,11 @@ impl Catalog {
         // Node's `compareProjects`: most recently selected first (a project never selected counts by when it was added, which is when
         // its row was made: `add` stamps it), then by name, then by path.
         rows.sort_by(|a, b| {
-            b.last_used_at.unwrap_or(0).cmp(&a.last_used_at.unwrap_or(0)).then_with(|| mixdog_js::locale_compare(&display_name(a), &display_name(b))).then_with(|| mixdog_js::locale_compare(&a.path, &b.path))
+            b.last_used_at
+                .unwrap_or(0)
+                .cmp(&a.last_used_at.unwrap_or(0))
+                .then_with(|| mixdog_js::locale_compare(&display_name(a), &display_name(b)))
+                .then_with(|| mixdog_js::locale_compare(&a.path, &b.path))
         });
         Ok(rows)
     }
@@ -288,7 +298,11 @@ impl Catalog {
             Some(path) => {
                 let path = path.to_string_lossy().into_owned();
                 let front = self.state.projects().await.map_err(store)?.iter().filter(|p| p.hidden).filter_map(|p| p.hidden_rank).min();
-                self.state.project(&path).await.map_err(store)?.map(|row| ProjectRow { hidden: true, hidden_rank: Some(front.map_or(0, |rank| rank - 1)), ..row })
+                self.state.project(&path).await.map_err(store)?.map(|row| ProjectRow {
+                    hidden: true,
+                    hidden_rank: Some(front.map_or(0, |rank| rank - 1)),
+                    ..row
+                })
             }
             None => None,
         };

@@ -54,10 +54,7 @@ pub(super) struct EnvInputs {
 pub(super) fn helper_env(inputs: &EnvInputs) -> Vec<(String, String)> {
     let mut set = vec![
         ("MIXDOG_COMPUTER_READ_ACTIONS".to_owned(), READ_ACTIONS.join(",")),
-        (
-            "MIXDOG_COMPUTER_RETAIN_REF_ACTIONS".to_owned(),
-            READ_ACTIONS.iter().chain(RETAIN_REF_ACTIONS.iter()).copied().collect::<Vec<_>>().join(","),
-        ),
+        ("MIXDOG_COMPUTER_RETAIN_REF_ACTIONS".to_owned(), READ_ACTIONS.iter().chain(RETAIN_REF_ACTIONS.iter()).copied().collect::<Vec<_>>().join(",")),
         ("MIXDOG_COMPUTER_SEQUENCE_SETTLE_MS".to_owned(), inputs.sequence_settle_ms.to_string()),
         ("MIXDOG_COMPUTER_MAX_FOREGROUND_TEXT".to_owned(), inputs.max_foreground_text.to_string()),
         ("MIXDOG_COMPUTER_INPUT_MARKER".to_owned(), inputs.marker.to_string()),
@@ -114,7 +111,10 @@ pub(super) fn ledger_path(data_dir: &Path, session: &str, marker: u32) -> PathBu
 }
 
 /// The ledgers in `folder`, with the input marker their name carries (`<session>-<marker>.ledger`), in name order.
-#[allow(clippy::disallowed_methods, reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job")]
+#[allow(
+    clippy::disallowed_methods,
+    reason = "Production callers run this synchronous filesystem operation in an awaited ProcessComputerBackend InteractiveIo job"
+)]
 pub(super) fn leftover_ledgers(folder: &Path) -> Vec<(PathBuf, Option<u32>)> {
     let Ok(entries) = std::fs::read_dir(folder) else { return Vec::new() };
     let mut found: Vec<(PathBuf, Option<u32>)> = entries

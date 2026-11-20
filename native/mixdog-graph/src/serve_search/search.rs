@@ -6,8 +6,7 @@ pub(super) fn contain_search_panic<T, F>(label: &str, run: F) -> Result<T, Strin
 where
     F: FnOnce() -> Result<T, String>,
 {
-    catch_unwind(AssertUnwindSafe(run))
-        .unwrap_or_else(|_| Err(format!("{label} panicked; request isolated")))
+    catch_unwind(AssertUnwindSafe(run)).unwrap_or_else(|_| Err(format!("{label} panicked; request isolated")))
 }
 
 pub(super) fn complete_operand_files(
@@ -30,28 +29,14 @@ pub(super) fn complete_operand_files(
         if let Some(hit) = store.take_ready(&key) {
             return Ok((hit, true, 0, Vec::new(), watched));
         }
-        let (live, _waiter) =
-            store.join_live_walk(key, operand_path, parsed, keep_warm, 0, watched);
+        let (live, _waiter) = store.join_live_walk(key, operand_path, parsed, keep_warm, 0, watched);
         // What the walk published so far, served as an incomplete and
         // uncacheable answer.
-        let partial_snapshot = || {
-            (
-                Arc::new(lock_recover(&live.files).clone()),
-                false,
-                live.walk_errors.load(Ordering::Acquire),
-                live_walk_error_details(&live),
-                false,
-            )
-        };
+        let partial_snapshot =
+            || (Arc::new(lock_recover(&live.files).clone()), false, live.walk_errors.load(Ordering::Acquire), live_walk_error_details(&live), false);
         match wait_live_complete(&live, cancelled, deadline_at) {
             Ok(Some(files)) => {
-                return Ok((
-                    files,
-                    true,
-                    live.walk_errors.load(Ordering::Acquire),
-                    live_walk_error_details(&live),
-                    live.cacheable.load(Ordering::Acquire),
-                ))
+                return Ok((files, true, live.walk_errors.load(Ordering::Acquire), live_walk_error_details(&live), live.cacheable.load(Ordering::Acquire)));
             }
             Ok(None) => {
                 restarts += 1;
@@ -77,12 +62,7 @@ pub(super) enum LiveBatch {
 /// Everything the walker published past `cursor`, waiting in short slices
 /// while the walk runs. Cancellation and a failed walk are errors; a finished
 /// walk and an expired deadline are outcomes each caller reports its own way.
-pub(super) fn next_live_batch(
-    live: &LiveWalk,
-    cursor: &mut usize,
-    cancelled: &AtomicBool,
-    deadline_at: Option<Instant>,
-) -> Result<LiveBatch, String> {
+pub(super) fn next_live_batch(live: &LiveWalk, cursor: &mut usize, cancelled: &AtomicBool, deadline_at: Option<Instant>) -> Result<LiveBatch, String> {
     let mut files = lock_recover(&live.files);
     while *cursor >= files.len() {
         let state = lock_recover(&live.state);
@@ -93,11 +73,7 @@ pub(super) fn next_live_batch(
             LiveState::Running => {}
         }
         drop(state);
-        files = live
-            .files_cond
-            .wait_timeout(files, Duration::from_millis(10))
-            .unwrap_or_else(|e| e.into_inner())
-            .0;
+        files = live.files_cond.wait_timeout(files, Duration::from_millis(10)).unwrap_or_else(|e| e.into_inner()).0;
         if cancelled.load(Ordering::Relaxed) {
             return Err(CANCELLED.to_string());
         }
@@ -143,11 +119,7 @@ pub(super) fn next_stream_batch<T>(
             LiveState::Running => {}
         }
         drop(state);
-        files = live
-            .files_cond
-            .wait_timeout(files, Duration::from_millis(10))
-            .unwrap_or_else(|e| e.into_inner())
-            .0;
+        files = live.files_cond.wait_timeout(files, Duration::from_millis(10)).unwrap_or_else(|e| e.into_inner()).0;
         if cancelled.load(Ordering::Relaxed) {
             return Err(CANCELLED.to_string());
         }
@@ -187,15 +159,7 @@ pub(super) fn scan_operand(
     }
     let key = walk_key(operand_path, parsed);
     if let Some(files) = store.take_ready(&key) {
-        let reached_limit = append_scanned_matches_ordered(
-            &files,
-            &HashMap::new(),
-            scope,
-            use_prefix,
-            &trust,
-            ctx,
-            out,
-        );
+        let reached_limit = append_scanned_matches_ordered(&files, &HashMap::new(), scope, use_prefix, &trust, ctx, out);
         let timed_out = deadline_expired(deadline_at);
         return Ok((reached_limit, timed_out, watched, Vec::new()));
     }
@@ -217,9 +181,7 @@ pub(super) fn scan_operand(
                 if found_lines >= wanted {
                     continue;
                 }
-                for (file, block) in
-                    scan_matches_keyed(&batch, scope, use_prefix, match_limit, &trust, ctx)
-                {
+                for (file, block) in scan_matches_keyed(&batch, scope, use_prefix, match_limit, &trust, ctx) {
                     found_lines += block.as_ref().map_or(0, Vec::len);
                     scanned.insert(file, block);
                 }
@@ -236,24 +198,14 @@ pub(super) fn scan_operand(
         ctx.scan_errors.fetch_add(count, Ordering::Relaxed);
     }
     let reached_limit = match &inventory {
-        Some(files) => {
-            append_scanned_matches_ordered(files, &scanned, scope, use_prefix, &trust, ctx, out)
-        }
+        Some(files) => append_scanned_matches_ordered(files, &scanned, scope, use_prefix, &trust, ctx, out),
         None => {
-            let mut found: Vec<(PathBuf, Vec<String>)> = scanned
-                .into_iter()
-                .filter_map(|(file, block)| block.map(|block| (file, block)))
-                .collect();
+            let mut found: Vec<(PathBuf, Vec<String>)> = scanned.into_iter().filter_map(|(file, block)| block.map(|block| (file, block))).collect();
             found.par_sort_unstable_by(|a, b| a.0.cmp(&b.0));
             append_blocks(found.into_iter().map(|(_, block)| block), parsed, out)
         }
     };
-    Ok((
-        reached_limit,
-        inventory.is_none() || deadline_expired(deadline_at),
-        live.cacheable.load(Ordering::Acquire),
-        live_walk_error_details(&live),
-    ))
+    Ok((reached_limit, inventory.is_none() || deadline_expired(deadline_at), live.cacheable.load(Ordering::Acquire), live_walk_error_details(&live)))
 }
 
 pub(super) fn handle(
@@ -273,11 +225,7 @@ pub(super) fn handle(
     if parsed.files_list && req.mtime_top_k && req.limit > 0 {
         return handle_mtime_inventory(req, &parsed, cancelled, store, deadline_at);
     }
-    let collect_until = if req.limit > 0 {
-        req.offset.saturating_add(req.limit).saturating_add(1)
-    } else {
-        usize::MAX
-    };
+    let collect_until = if req.limit > 0 { req.offset.saturating_add(req.limit).saturating_add(1) } else { usize::MAX };
     if parsed.files_list {
         return handle_inventory(req, &parsed, cancelled, store, deadline_at, collect_until);
     }
@@ -318,21 +266,8 @@ fn handle_inventory(
     collect_until: usize,
 ) -> Result<serde_json::Value, String> {
     let cwd = Path::new(&req.cwd);
-    let ctx = InventoryCtx {
-        store,
-        parsed,
-        cancelled,
-        deadline_at,
-        keep_warm: req.keep_warm,
-        collect_until,
-    };
-    let mut out = InventoryAccum {
-        lines: Vec::new(),
-        timed_out: false,
-        scan_errors: 0,
-        walk_error_details: Vec::new(),
-        cache_safe: true,
-    };
+    let ctx = InventoryCtx { store, parsed, cancelled, deadline_at, keep_warm: req.keep_warm, collect_until };
+    let mut out = InventoryAccum { lines: Vec::new(), timed_out: false, scan_errors: 0, walk_error_details: Vec::new(), cache_safe: true };
     for operand in &parsed.targets {
         if cancelled.load(Ordering::Relaxed) {
             return Err(CANCELLED.to_string());
@@ -346,11 +281,7 @@ fn handle_inventory(
         let watched = store.watch_root(&operand_path);
         out.cache_safe &= watched;
         let filter = PathFilter::new(&operand_path, parsed)?;
-        let scope = OperandScope {
-            operand,
-            operand_path: &operand_path,
-            filter: &filter,
-        };
+        let scope = OperandScope { operand, operand_path: &operand_path, filter: &filter };
         if collect_until == usize::MAX {
             collect_whole_inventory(&ctx, &scope, &mut out)?;
         } else {
@@ -381,25 +312,14 @@ fn handle_inventory(
 
 /// Append one operand's whole inventory. An unlimited request has no window
 /// to fill early, so it waits for the walk instead of streaming it.
-fn collect_whole_inventory(
-    ctx: &InventoryCtx<'_>,
-    scope: &OperandScope<'_>,
-    out: &mut InventoryAccum,
-) -> Result<(), String> {
-    let (files, complete, walk_errors, details, operand_cache_safe) = complete_operand_files(
-        ctx.store,
-        scope.operand_path,
-        ctx.parsed,
-        ctx.cancelled,
-        ctx.deadline_at,
-        ctx.keep_warm,
-    )?;
+fn collect_whole_inventory(ctx: &InventoryCtx<'_>, scope: &OperandScope<'_>, out: &mut InventoryAccum) -> Result<(), String> {
+    let (files, complete, walk_errors, details, operand_cache_safe) =
+        complete_operand_files(ctx.store, scope.operand_path, ctx.parsed, ctx.cancelled, ctx.deadline_at, ctx.keep_warm)?;
     out.cache_safe &= operand_cache_safe;
     out.scan_errors = out.scan_errors.saturating_add(walk_errors);
     append_walk_error_details(&mut out.walk_error_details, details);
     for file in files.iter().filter(|file| scope.filter.allows(file)) {
-        out.lines
-            .push(display_path(scope.operand, scope.operand_path, file));
+        out.lines.push(display_path(scope.operand, scope.operand_path, file));
     }
     if !complete {
         out.timed_out = true;
@@ -410,31 +330,18 @@ fn collect_whole_inventory(
 /// Append one operand's paths up to the window's hard stop: from a finished
 /// inventory when the store has one, otherwise from a live walk's batches as
 /// they are published. The walk itself runs on past the stop, for the cache.
-fn collect_bounded_inventory(
-    ctx: &InventoryCtx<'_>,
-    scope: &OperandScope<'_>,
-    watched: bool,
-    out: &mut InventoryAccum,
-) -> Result<(), String> {
+fn collect_bounded_inventory(ctx: &InventoryCtx<'_>, scope: &OperandScope<'_>, watched: bool, out: &mut InventoryAccum) -> Result<(), String> {
     let key = walk_key(scope.operand_path, ctx.parsed);
     if let Some(files) = ctx.store.take_ready(&key) {
         for file in files.iter().filter(|file| scope.filter.allows(file)) {
-            out.lines
-                .push(display_path(scope.operand, scope.operand_path, file));
+            out.lines.push(display_path(scope.operand, scope.operand_path, file));
             if out.lines.len() >= ctx.collect_until {
                 break;
             }
         }
         return Ok(());
     }
-    let (live, _waiter) = ctx.store.join_live_walk(
-        key,
-        scope.operand_path,
-        ctx.parsed,
-        ctx.keep_warm,
-        0,
-        watched,
-    );
+    let (live, _waiter) = ctx.store.join_live_walk(key, scope.operand_path, ctx.parsed, ctx.keep_warm, 0, watched);
     let mut cursor = 0usize;
     'inventory: loop {
         let batch = match next_live_batch(&live, &mut cursor, ctx.cancelled, ctx.deadline_at)? {
@@ -446,8 +353,7 @@ fn collect_bounded_inventory(
             }
         };
         for file in batch.iter().filter(|file| scope.filter.allows(file)) {
-            out.lines
-                .push(display_path(scope.operand, scope.operand_path, file));
+            out.lines.push(display_path(scope.operand, scope.operand_path, file));
             if out.lines.len() >= ctx.collect_until {
                 break 'inventory;
             }
@@ -457,9 +363,7 @@ fn collect_bounded_inventory(
             break 'inventory;
         }
     }
-    out.scan_errors = out
-        .scan_errors
-        .saturating_add(live.walk_errors.load(Ordering::Acquire));
+    out.scan_errors = out.scan_errors.saturating_add(live.walk_errors.load(Ordering::Acquire));
     out.cache_safe &= live.cacheable.load(Ordering::Acquire);
     append_walk_error_details(&mut out.walk_error_details, live_walk_error_details(&live));
     Ok(())
@@ -475,25 +379,12 @@ struct ResponseWindow<'a> {
 /// `complete` is the whole-answer claim the caller may cache on: the run
 /// finished inside its budget, read every file it meant to, stopped short of
 /// the collection cap, and fits the requested window.
-fn response_window<'a>(
-    all_lines: &'a [String],
-    req: &ServeRequest,
-    collect_until: usize,
-    timed_out: bool,
-    scan_error_count: usize,
-) -> ResponseWindow<'a> {
+fn response_window<'a>(all_lines: &'a [String], req: &ServeRequest, collect_until: usize, timed_out: bool, scan_error_count: usize) -> ResponseWindow<'a> {
     let total_after_offset = all_lines.len().saturating_sub(req.offset);
     ResponseWindow {
-        lines: all_lines
-            .iter()
-            .skip(req.offset)
-            .take(if req.limit > 0 { req.limit } else { usize::MAX })
-            .collect(),
+        lines: all_lines.iter().skip(req.offset).take(if req.limit > 0 { req.limit } else { usize::MAX }).collect(),
         total_after_offset,
-        complete: !timed_out
-            && scan_error_count == 0
-            && all_lines.len() < collect_until
-            && (req.limit == 0 || total_after_offset <= req.limit),
+        complete: !timed_out && scan_error_count == 0 && all_lines.len() < collect_until && (req.limit == 0 || total_after_offset <= req.limit),
     }
 }
 
@@ -521,14 +412,7 @@ fn handle_content_search(
     let files_scanned = AtomicUsize::new(0);
     let mut walk_error_details = Vec::new();
     let mut cache_safe = true;
-    let ctx = ScanCtx {
-        parsed,
-        matcher: &matcher,
-        cancelled,
-        deadline_at,
-        scan_errors: &scan_errors,
-        files_scanned: &files_scanned,
-    };
+    let ctx = ScanCtx { parsed, matcher: &matcher, cancelled, deadline_at, scan_errors: &scan_errors, files_scanned: &files_scanned };
     for operand in &parsed.targets {
         if cancelled.load(Ordering::Relaxed) {
             return Err(CANCELLED.to_string());
@@ -539,22 +423,11 @@ fn handle_content_search(
         }
         // Path::join replaces the base when the operand is absolute.
         let operand_path = cwd.join(operand);
-        let use_prefix = parsed.with_filename
-            || parsed.files_with_matches
-            || multi_target
-            || operand_path.is_dir();
+        let use_prefix = parsed.with_filename || parsed.files_with_matches || multi_target || operand_path.is_dir();
         let filter = PathFilter::new(&operand_path, parsed)?;
-        let scope = OperandScope {
-            operand,
-            operand_path: &operand_path,
-            filter: &filter,
-        };
+        let scope = OperandScope { operand, operand_path: &operand_path, filter: &filter };
         let (reached_limit, operand_timed_out, operand_cache_safe, details) = {
-            let mut out = ScanOutput {
-                all_lines: &mut all_lines,
-                emitted_blocks: &mut emitted_blocks,
-                collect_until,
-            };
+            let mut out = ScanOutput { all_lines: &mut all_lines, emitted_blocks: &mut emitted_blocks, collect_until };
             scan_operand(store, &scope, use_prefix, req.keep_warm, &ctx, &mut out)?
         };
         cache_safe &= operand_cache_safe;

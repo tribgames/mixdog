@@ -1,8 +1,8 @@
 //! `code_graph` (T §3.7): code structure and relations answered from `mixdog-graph`'s parse.
 
 mod args;
-mod dispatch;
 mod cache;
+mod dispatch;
 mod exports;
 mod federation;
 #[cfg(test)]
@@ -33,21 +33,12 @@ use mixdog_protocol::JsonValue;
 const SPEC: &str = include_str!("specs/code_graph.json");
 
 pub(crate) fn text_output(text: impl Into<String>) -> ToolOutput {
-    ToolOutput {
-        parts: vec![ToolPart::Text(text.into())],
-        ..ToolOutput::default()
-    }
+    ToolOutput { parts: vec![ToolPart::Text(text.into())], ..ToolOutput::default() }
 }
 
 pub(crate) fn invalid_args(field: &str, message: impl Into<String>) -> ToolError {
     let message = message.into();
-    ToolError::new(
-        ToolErrorCode::InvalidArgs {
-            field: field.to_owned(),
-            reason: message.clone(),
-        },
-        message,
-    )
+    ToolError::new(ToolErrorCode::InvalidArgs { field: field.to_owned(), reason: message.clone() }, message)
 }
 
 /// The `ToolOutput::meta` key holding a result's dependency roots.
@@ -73,10 +64,8 @@ pub use workspace::WorkspaceCodeGraph;
 
 /// The modes the schema offers (`CODE_GRAPH_MODES`) and the file modes among them (`CODE_GRAPH_FILE_MODES`); `prewarm` is the
 /// hidden one a call may also name.
-const SCHEMA_MODES: [&str; 12] = [
-    "overview", "imports", "dependents", "related", "impact", "symbols", "find_symbol", "symbol_search", "search", "references",
-    "callers", "callees",
-];
+const SCHEMA_MODES: [&str; 12] =
+    ["overview", "imports", "dependents", "related", "impact", "symbols", "find_symbol", "symbol_search", "search", "references", "callers", "callees"];
 const FILE_MODES: [&str; 5] = ["overview", "imports", "dependents", "related", "impact"];
 
 pub struct CodeGraphTool {
@@ -185,7 +174,6 @@ async fn warm_project(cache: std::sync::Arc<GraphCache>, cwd: std::path::PathBuf
     cache.schedule_flush(io);
     matches!(built, Ok(Some(_)))
 }
-
 
 /// Why a call produced no answer.
 enum Failure {
@@ -314,12 +302,21 @@ impl CodeGraphTool {
                     answer
                 });
                 let wrap_ms = cache::elapsed_ms(wrapping);
-                CallRow { request, mode: &mode, outcome: if outcome.is_ok() { "ok" } else { "refused" }, stages, wrap_ms, total_ms: cache::elapsed_ms(started) }.emit();
+                CallRow {
+                    request,
+                    mode: &mode,
+                    outcome: if outcome.is_ok() { "ok" } else { "refused" },
+                    stages,
+                    wrap_ms,
+                    total_ms: cache::elapsed_ms(started),
+                }
+                .emit();
                 outcome.map_err(Failure::Refused)
             }
             Err(failure) => {
                 // The lane never ran the call: the row says so, with the whole time as what could not be attributed.
-                CallRow { request, mode: &mode, outcome: "lane_failed", stages: CallStages::default(), wrap_ms: 0, total_ms: cache::elapsed_ms(started) }.emit();
+                CallRow { request, mode: &mode, outcome: "lane_failed", stages: CallStages::default(), wrap_ms: 0, total_ms: cache::elapsed_ms(started) }
+                    .emit();
                 Err(Failure::Lane(failure))
             }
         }
@@ -364,15 +361,8 @@ impl Tool for CodeGraphTool {
                 Ok(output)
             }
             Err(Failure::Refused(message)) => Err(invalid_args("code_graph", message)),
-            Err(Failure::Lane(mixdog_scm::error::ScmFailure::Cancelled)) => {
-                Err(ToolError::new(ToolErrorCode::Cancelled, "Error: tool call cancelled"))
-            }
-            Err(Failure::Lane(e)) => Err(ToolError::new(
-                ToolErrorCode::Internal {
-                    incident_id: String::new(),
-                },
-                format!("Error: code_graph failed: {e}"),
-            )),
+            Err(Failure::Lane(mixdog_scm::error::ScmFailure::Cancelled)) => Err(ToolError::new(ToolErrorCode::Cancelled, "Error: tool call cancelled")),
+            Err(Failure::Lane(e)) => Err(ToolError::new(ToolErrorCode::Internal { incident_id: String::new() }, format!("Error: code_graph failed: {e}"))),
         }
     }
 }

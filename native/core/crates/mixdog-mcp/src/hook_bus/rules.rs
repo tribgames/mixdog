@@ -34,11 +34,7 @@ fn primary_arg(tool_name: &str, input: &Value) -> String {
     if matches!(tool_name, "Bash" | "bash" | "shell") {
         return text("command").unwrap_or_default();
     }
-    text("file_path")
-        .or_else(|| text("path"))
-        .or_else(|| text("command"))
-        .or_else(|| text("file"))
-        .unwrap_or_default()
+    text("file_path").or_else(|| text("path")).or_else(|| text("command")).or_else(|| text("file")).unwrap_or_default()
 }
 
 fn js_string(value: &Value) -> String {
@@ -190,11 +186,7 @@ fn reason_of(rule: &Value) -> Option<String> {
 }
 
 pub fn decision_from_rule(rule: &Value, subject: &Subject<'_>) -> RuleDecision {
-    let action = ["action", "decision"]
-        .iter()
-        .find_map(|k| rule.get(*k).and_then(Value::as_str).filter(|s| !s.is_empty()))
-        .unwrap_or("allow")
-        .to_lowercase();
+    let action = ["action", "decision"].iter().find_map(|k| rule.get(*k).and_then(Value::as_str).filter(|s| !s.is_empty())).unwrap_or("allow").to_lowercase();
     match action.as_str() {
         "deny" | "block" => RuleDecision {
             action: "deny",

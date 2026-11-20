@@ -28,7 +28,6 @@ async fn open(dir: &std::path::Path, channels: Option<&Value>) -> Config {
     config
 }
 
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_receivers_opt_in_and_listener_settings_come_from_webhook_config() {
     let dir = tempfile::tempdir().unwrap();
@@ -88,12 +87,7 @@ async fn existing_file_webhook_routes_signed_deliveries_without_displacing_datab
     );
     store.upsert(&EndpointRecord { name: "db".into(), secret: Some("db-key".into()), ..Default::default() }).await.unwrap();
     let schedules = Arc::new(StateScheduleStore::new(state, clock.clone()));
-    let routines = RoutineRuntime::new(
-        Arc::new(HomeTurns::default()),
-        Arc::new(StoreRoutineRecords::new(schedules, store.clone())),
-        clock,
-        chrono_tz::UTC,
-    );
+    let routines = RoutineRuntime::new(Arc::new(HomeTurns::default()), Arc::new(StoreRoutineRecords::new(schedules, store.clone())), clock, chrono_tz::UTC);
     let work = RunningWork::default();
     let service = WebhookService::new(
         store.clone(),
@@ -171,25 +165,6 @@ impl mixdog_services::bots::RoutineHost for HomeTurns {
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn the_public_base_exists_once_a_tunnel_persisted_an_identity() {
     let dir = tempfile::tempdir().unwrap();
@@ -198,18 +173,14 @@ async fn the_public_base_exists_once_a_tunnel_persisted_an_identity() {
     let base = HookIdentityBase::new(tokens.durability_io, dir.path().to_path_buf(), relay.clone());
     assert_eq!(base.hook_public_base().await, Ok(None), "no identity is created by a read");
     let files = DeviceFiles::at(dir.path().to_path_buf(), "relay-hook-device.json");
-    let identity = mixdog_core_base::support::on_lane(tokens.durability_io, &CancellationToken::new(), move |lane| files.load_or_create(lane))
-        .await
-        .unwrap()
-        .unwrap();
+    let identity =
+        mixdog_core_base::support::on_lane(tokens.durability_io, &CancellationToken::new(), move |lane| files.load_or_create(lane)).await.unwrap().unwrap();
     assert_eq!(base.hook_public_base().await, Ok(Some(format!("https://relay.example/hook/{}", identity.device_id))));
     let off = HookIdentityBase::new(tokens.durability_io, dir.path().to_path_buf(), Some("off".to_owned()));
     assert_eq!(off.hook_public_base().await, Ok(None), "a switched-off relay has no public base");
     let bad = HookIdentityBase::new(tokens.durability_io, dir.path().to_path_buf(), Some("ftp://relay.example".to_owned()));
     assert!(bad.hook_public_base().await.is_err(), "an invalid relay URL is Node's thrown TypeError");
 }
-
-
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_reload_hands_the_running_pipeline_the_new_event_rules() {
@@ -233,7 +204,12 @@ async fn a_reload_hands_the_running_pipeline_the_new_event_rules() {
     let tokens = mixdog_rt::testing::tokens();
     let (state, _) = mixdog_store::state::CoreState::open(tokens.sqlite_writer_thread, tokens.interactive_io, &dir.path().join("core.sqlite")).unwrap();
     let pipeline = settings.event_pipeline(
-        QueueFiles { fs: Arc::new(LocalFileService::new()), read: tokens.interactive_io, write: tokens.durability_io, root: AbsPath::new(dir.path().join("events")).unwrap() },
+        QueueFiles {
+            fs: Arc::new(LocalFileService::new()),
+            read: tokens.interactive_io,
+            write: tokens.durability_io,
+            root: AbsPath::new(dir.path().join("events")).unwrap(),
+        },
         Arc::new(NoInjections),
         Arc::new(StateWebhookStore::new(state, Arc::new(SystemClock))),
         Arc::new(|| 0),

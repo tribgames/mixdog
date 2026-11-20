@@ -97,14 +97,7 @@ const OPERATIONS: &[&str] = &[
 ];
 
 impl FormatEditor for Editor {
-    fn apply_operation(
-        &self,
-        context: &mut EditContext<'_>,
-        document: &Obj,
-        op: &Value,
-        _live: bool,
-        _allow_ui_activation: bool,
-    ) -> Result<Option<Value>> {
+    fn apply_operation(&self, context: &mut EditContext<'_>, document: &Obj, op: &Value, _live: bool, _allow_ui_activation: bool) -> Result<Option<Value>> {
         apply_excel_operation(&context.env, &Com::Dispatch(document.clone()), op).map(Some)
     }
 

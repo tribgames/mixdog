@@ -20,6 +20,7 @@ use mixdog_app_protocol::v2::domain::ReviewScope as WireReviewScope;
 use mixdog_app_protocol::v2::params as p;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
+use mixdog_core_api::DomainService;
 use mixdog_core_api::Reply;
 use mixdog_core_api::StatePublisher;
 use mixdog_core_api::Subscribe;
@@ -44,7 +45,6 @@ use mixdog_core_api::turn_review::ReviewError;
 use mixdog_core_api::turn_review::ReviewRead;
 use mixdog_core_api::turn_review::ReviewUnsubscribe;
 use mixdog_core_api::turn_review::TurnReviewApi;
-use mixdog_core_api::DomainService;
 use mixdog_protocol::FeedId;
 use mixdog_protocol::LoginFlowId;
 use mixdog_protocol::SectionName;
@@ -77,12 +77,7 @@ pub trait FeatureGate: Send + Sync {
 /// the scope. Owned by the thread layer (change records and checkpoints).
 #[async_trait]
 pub trait ReviewBases: Send + Sync {
-    async fn base(
-        &self,
-        thread: &ThreadId,
-        scope: WireReviewScope,
-        checkpoint: Option<&str>,
-    ) -> Option<(PathBuf, ObjectId)>;
+    async fn base(&self, thread: &ThreadId, scope: WireReviewScope, checkpoint: Option<&str>) -> Option<(PathBuf, ObjectId)>;
 }
 
 /// The working directory of a thread (the `cwd` of its header): what Node's session review reads
@@ -178,7 +173,9 @@ struct Opening {
 impl Drop for Opening {
     fn drop(&mut self) {
         self.service.opening.lock().expect("opening").remove(&self.folder);
-        if !self.keep && let Err(error) = self.service.end_follow(self.folder.clone()) {
+        if !self.keep
+            && let Err(error) = self.service.end_follow(self.folder.clone())
+        {
             tracing::warn!(folder = %self.folder, "the git watch's folder watch is not ended: {error:?}");
         }
     }
@@ -201,13 +198,7 @@ impl ChangeSink for GitWatchSink {
         };
         // A batch of a folder watch still being ended is not the current watch's; one of a watch still being made (its snapshot
         // is not read yet) is kept, for the watch to read again once it is made.
-        let current = service
-            .watches
-            .lock()
-            .expect("watches")
-            .get(key)
-            .filter(|watch| watch.folder == watch_id)
-            .map(|watch| watch.repo.clone());
+        let current = service.watches.lock().expect("watches").get(key).filter(|watch| watch.folder == watch_id).map(|watch| watch.repo.clone());
         let repo = current.or_else(|| {
             service.opening.lock().expect("opening").get_mut(watch_id).map(|(repo, seen)| {
                 *seen = true;
@@ -271,10 +262,7 @@ impl Drop for ScmService {
 }
 
 fn invalid(error: serde_json::Error) -> CoreError {
-    CoreError::InvalidParams {
-        path: "params".into(),
-        expected: error.to_string().into(),
-    }
+    CoreError::InvalidParams { path: "params".into(), expected: error.to_string().into() }
 }
 
 /// A turn-review failure, with the message Node's error carried.
@@ -315,12 +303,7 @@ pub(crate) fn kind_letter(kind: ChangeKind) -> &'static str {
 }
 
 pub fn key_text(key: &InspectorKey) -> String {
-    format!(
-        "{}:{}:{}",
-        key.head.as_ref().map_or("", |h| h.0.as_str()),
-        key.index_checksum.as_deref().unwrap_or(""),
-        key.worktree_token
-    )
+    format!("{}:{}:{}", key.head.as_ref().map_or("", |h| h.0.as_str()), key.index_checksum.as_deref().unwrap_or(""), key.worktree_token)
 }
 
 /// The wire shape of a `GitHub` sign-in flow.
@@ -492,7 +475,6 @@ mod watch_tests {
     }
 }
 
-
 impl ScmService {
     pub fn new(
         scm: Arc<Scm>,
@@ -567,12 +549,7 @@ impl ScmService {
         let Some(tree) = repo.work_tree.as_ref() else {
             return;
         };
-        let watch = self
-            .watches
-            .lock()
-            .expect("watches")
-            .get(&crate::locks::path_key(tree.as_path()))
-            .cloned();
+        let watch = self.watches.lock().expect("watches").get(&crate::locks::path_key(tree.as_path())).cloned();
         if let Some(watch) = watch {
             self.refresh_watch(watch, repo.clone());
         }
@@ -673,12 +650,7 @@ impl ScmService {
                 watch
             }
         };
-        Ok(Reply::Subscribe(Subscribe {
-            result: json!({}),
-            feed: watch.feed.source(),
-            window: Window::Fixed,
-            resume_from: None,
-        }))
+        Ok(Reply::Subscribe(Subscribe { result: json!({}), feed: watch.feed.source(), window: Window::Fixed, resume_from: None }))
     }
 
     /// Ends one `git/watch` of the work tree holding `cwd` (`createFolderWatchRegistry`'s `unwatch`): the last one ends the
@@ -738,12 +710,7 @@ impl ScmService {
     }
 
     fn flow(&self, id: &LoginFlowId) -> Result<Arc<Flow>, ScmFailure> {
-        self.flows
-            .lock()
-            .expect("flows")
-            .get(id)
-            .cloned()
-            .ok_or_else(|| ScmFailure::refused("UNKNOWN_FLOW", "Unknown GitHub login flow."))
+        self.flows.lock().expect("flows").get(id).cloned().ok_or_else(|| ScmFailure::refused("UNKNOWN_FLOW", "Unknown GitHub login flow."))
     }
 
     async fn login_start(self: &Arc<Self>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
@@ -758,11 +725,7 @@ impl ScmService {
             }
             Err(error) => return Err(ScmFailure::Command { domain: GITHUB_DOMAIN, text: format!("{error:?}") }),
         };
-        let id = LoginFlowId(format!(
-            "ghlogin_{}_{}",
-            std::process::id(),
-            self.flow_seq.fetch_add(1, Ordering::Relaxed) + 1
-        ));
+        let id = LoginFlowId(format!("ghlogin_{}_{}", std::process::id(), self.flow_seq.fetch_add(1, Ordering::Relaxed) + 1));
         let initial = flow_json(&id, &session.state(), None);
         let flow = Arc::new(Flow {
             feed: FeedPublisher::create(self.feeds.as_ref(), FeedId(format!("login:{id}")), initial.clone()),
@@ -783,9 +746,7 @@ impl ScmService {
         mixdog_rt::spawn("scm-login-feed", TaskClass::Work, async move {
             while let Some(state) = watcher.session.next().await {
                 let value = watcher.json(&flow_id, &state);
-                watcher
-                    .feed
-                    .publish("login/updated", json!({ "flowId": flow_id, "state": value }), value.clone());
+                watcher.feed.publish("login/updated", json!({ "flowId": flow_id, "state": value }), value.clone());
             }
         });
         Ok(initial)
@@ -883,7 +844,8 @@ impl ScmService {
         let value: Value = match method {
             "git/status" => {
                 let options = &a!().args[1];
-                scm.git_status_counting(&a!().dir(), cancel, options["skipLineStats"] != Value::Bool(true), options["reuseLineStats"] == Value::Bool(true)).await?
+                scm.git_status_counting(&a!().dir(), cancel, options["skipLineStats"] != Value::Bool(true), options["reuseLineStats"] == Value::Bool(true))
+                    .await?
             }
             "git/branches" => scm.git_branches(&a!().dir(), cancel).await?,
             "git/log" => scm.git_log(&a!().dir(), cancel, a!().text(1), a!().number(2), a!().number(3)).await?,
@@ -899,14 +861,23 @@ impl ScmService {
             }
             "git/cliStatus" => scm.git_cli_status(cancel, false).await?,
             "git/globalConfig/read" => scm.git_global_config(cancel).await?,
-            "git/watch" => { let p: p::GitWatchParams = decode(req)?; return Ok(self.git_watch(cwd(&p.cwd)?, holder_of(req), cancel).await?); }
+            "git/watch" => {
+                let p: p::GitWatchParams = decode(req)?;
+                return Ok(self.git_watch(cwd(&p.cwd)?, holder_of(req), cancel).await?);
+            }
             "git/unwatch" => {
                 let p: p::GitUnwatchParams = decode(req)?;
                 self.git_unwatch(cwd(&p.cwd)?, holder_of(req), cancel).await?;
                 json!({})
             }
-            "git/stage" => { at!().stage(&a!().texts(1)).await?; unit() }
-            "git/unstage" => { at!().unstage(&a!().texts(1)).await?; unit() }
+            "git/stage" => {
+                at!().stage(&a!().texts(1)).await?;
+                unit()
+            }
+            "git/unstage" => {
+                at!().unstage(&a!().texts(1)).await?;
+                unit()
+            }
             "git/commit" => json!(at!().commit(a!().text(1)).await?),
             "git/commitPaths" => json!(at!().commit_paths(a!().text(1), &a!().texts(2)).await?),
             "git/amend" => json!(at!().amend(a!().text(1)).await?),
@@ -931,7 +902,10 @@ impl ScmService {
                 }
             }
             "git/revertCommit" => json!(at!().revert_commit(a!().text(1)).await?),
-            "git/revertFile" => { at!().revert_file(a!().text(1), a!().flag(2), a!().text(3)).await?; unit() }
+            "git/revertFile" => {
+                at!().revert_file(a!().text(1), a!().flag(2), a!().text(3)).await?;
+                unit()
+            }
             "git/cherryPickCommit" => {
                 let (place, hash) = (a!().dir(), a!().text(1));
                 match scm.open(&place, cancel).await {
@@ -939,8 +913,14 @@ impl ScmService {
                     repo => json!(repo?.cherry_pick_commit(hash).await?),
                 }
             }
-            "git/applyPatch" => { at!().apply_patch(a!().text(1), a!().text(2), a!().flag(3)).await?; unit() }
-            "git/ignore" => { at!().ignore(a!().text(1), a!().text(2)).await?; unit() }
+            "git/applyPatch" => {
+                at!().apply_patch(a!().text(1), a!().text(2), a!().flag(3)).await?;
+                unit()
+            }
+            "git/ignore" => {
+                at!().ignore(a!().text(1), a!().text(2)).await?;
+                unit()
+            }
             "git/continue" => json!(at!().continue_operation().await?),
             "git/abortOperation" => json!(at!().abort_operation().await?),
             "git/globalConfig/write" => {
@@ -955,7 +935,9 @@ impl ScmService {
             }
             "git/cli/install" => scm.git_cli_install(cancel).await?,
             // Node's phone call took no arguments (remote-methods.ts:562): a refresh is the desktop's.
-            "github/status" => scm.gh_status(cancel, req.ctx.origin != mixdog_protocol::Origin::Relay && req.params.get("refresh") == Some(&Value::Bool(true))).await?,
+            "github/status" => {
+                scm.gh_status(cancel, req.ctx.origin != mixdog_protocol::Origin::Relay && req.params.get("refresh") == Some(&Value::Bool(true))).await?
+            }
             "github/account" => scm.gh_account(cancel).await?,
             "github/login/start" => self.login_start(cancel).await?,
             "github/login/status" => {
@@ -964,7 +946,10 @@ impl ScmService {
                 flow.json(&id, &flow.session.state())
             }
             // gh never opens a browser itself (no-op launcher): the client opens the device page.
-            "github/login/openBrowser" => { self.flow(&LoginFlowId(a!().text(0).to_owned()))?; json!(false) }
+            "github/login/openBrowser" => {
+                self.flow(&LoginFlowId(a!().text(0).to_owned()))?;
+                json!(false)
+            }
             "github/login/cancel" => {
                 if let Some(flow) = self.flows.lock().expect("flows").remove(&LoginFlowId(a!().text(0).to_owned())) {
                     flow.session.cancel();
@@ -988,7 +973,9 @@ impl ScmService {
                 Some(checked) => self.review_get(checked, cancel).await?,
                 None => self.thread_review(decode(req)?).await?,
             },
-            other => return Err(CoreError::InvalidParams { path: "method".into(), expected: format!("a method of git, github or review, not {other}").into() }),
+            other => {
+                return Err(CoreError::InvalidParams { path: "method".into(), expected: format!("a method of git, github or review, not {other}").into() });
+            }
         };
         Ok(Reply::Value(value))
     }

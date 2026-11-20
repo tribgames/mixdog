@@ -17,9 +17,7 @@ use mixdog_js::{is_js_space, js_trim, string_to_number};
 use crate::analysis::{js_max, js_min};
 
 /// The engine's own column order.
-const COLUMNS: [&str; 12] = [
-    "level", "page_num", "block_num", "par_num", "line_num", "word_num", "left", "top", "width", "height", "conf", "text",
-];
+const COLUMNS: [&str; 12] = ["level", "page_num", "block_num", "par_num", "line_num", "word_num", "left", "top", "width", "height", "conf", "text"];
 
 /// One recognised word and the box it sits in, in the pixels of the image that was read.
 #[derive(Debug, Clone, PartialEq)]
@@ -185,16 +183,7 @@ fn line_of(mut words: Vec<OcrWord>, reader: &mut SpokenReader<'_>) -> OcrLine {
     // The widest space between two boxes on this row. A column gap means the row is really two, and one stretched run
     // would put every character in it at the wrong place.
     let column_gap = words.windows(2).fold(0.0, |widest, pair| js_max(widest, pair[1].left - (pair[0].left + pair[0].width)));
-    OcrLine {
-        text: engine.map_or(joined, str::to_owned),
-        from_engine: engine.is_some(),
-        words,
-        left,
-        top,
-        width,
-        height,
-        column_gap,
-    }
+    OcrLine { text: engine.map_or(joined, str::to_owned), from_engine: engine.is_some(), words, left, top, width, height, column_gap }
 }
 
 /// `ocrTextLines(value, plainText)`: one text line per recognised row, with the words that belong to it.

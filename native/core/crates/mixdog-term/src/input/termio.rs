@@ -130,11 +130,7 @@ fn scan_escape(data: &[u16], start: usize, x10_mouse: bool) -> Scan {
         if head + 1 >= data.len() {
             return Scan::Pending;
         }
-        return if is_control_final(data[head + 1]) {
-            Scan::Complete(head + 2)
-        } else {
-            Scan::Literal(head + 1)
-        };
+        return if is_control_final(data[head + 1]) { Scan::Complete(head + 2) } else { Scan::Literal(head + 1) };
     }
     if is_intermediate(code) {
         return scan_intermediate_escape(data, head + 1);
@@ -287,10 +283,7 @@ mod tests {
     fn x10_mouse_consumes_three_payload_units() {
         let mut t = Tokenizer::new(true);
         let out = t.feed(&units("\x1b[M`!!x"));
-        assert_eq!(
-            texts(&out),
-            vec![(TokenKind::Sequence, "\x1b[M`!!".to_string()), (TokenKind::Text, "x".to_string())]
-        );
+        assert_eq!(texts(&out), vec![(TokenKind::Sequence, "\x1b[M`!!".to_string()), (TokenKind::Text, "x".to_string())]);
         // A control byte in a payload slot makes it CSI DL.
         let mut t = Tokenizer::new(true);
         let out = t.feed(&units("\x1b[M\x01"));
@@ -312,10 +305,7 @@ mod tests {
     fn esc_esc_emits_the_first_alone() {
         let mut t = Tokenizer::new(true);
         let out = t.feed(&units("\x1b\x1b[A"));
-        assert_eq!(
-            texts(&out),
-            vec![(TokenKind::Sequence, "\x1b".to_string()), (TokenKind::Sequence, "\x1b[A".to_string())]
-        );
+        assert_eq!(texts(&out), vec![(TokenKind::Sequence, "\x1b".to_string()), (TokenKind::Sequence, "\x1b[A".to_string())]);
     }
 
     #[test]

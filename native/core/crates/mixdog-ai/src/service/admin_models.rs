@@ -4,9 +4,7 @@
 
 use std::cmp::Ordering;
 
-use super::admin_route::{
-    Obj, clean, context_window_range, fast_preference_for, jnum, model_settings_for, truthy,
-};
+use super::admin_route::{Obj, clean, context_window_range, fast_preference_for, jnum, model_settings_for, truthy};
 use mixdog_js::time::date_parse;
 use mixdog_js::{is_js_space, js_trim, locale_compare, to_number, value_to_string};
 use serde_json::{Value, json};
@@ -270,10 +268,8 @@ pub fn is_selectable_llm_model(model: &Value) -> bool {
     }
     let all = format!("{id} {display}");
     let segments: Vec<&str> = all.split(|c: char| c == '-' || c == '_' || is_js_space(c)).collect();
-    const BLOCKED: [&str; 14] = [
-        "image", "images", "video", "videos", "audio", "tts", "stt", "speech", "embed", "embedding", "embeddings", "rerank",
-        "reranker", "realtime",
-    ];
+    const BLOCKED: [&str; 14] =
+        ["image", "images", "video", "videos", "audio", "tts", "stt", "speech", "embed", "embedding", "embeddings", "rerank", "reranker", "realtime"];
     if segments.iter().any(|s| BLOCKED.contains(s) || *s == "moderation" || *s == "imagine") {
         return false;
     }
@@ -315,10 +311,13 @@ pub fn provider_model_cache_row(name: &str, m: &Value, web_search_capable: bool)
         let pick = first_truthy(m, &["display", "name", "id"]);
         pick.cloned().unwrap_or_else(|| m.get("id").cloned().unwrap_or(Value::Null))
     });
-    put("created", match m.get("created") {
-        Some(c @ Value::Number(_)) => c.clone(),
-        _ => Value::Null,
-    });
+    put(
+        "created",
+        match m.get("created") {
+            Some(c @ Value::Number(_)) => c.clone(),
+            _ => Value::Null,
+        },
+    );
     put("releaseDate", or_null(m.get("releaseDate")));
     let mut contexts: Vec<(&str, Option<Value>)> = Vec::new();
     contexts.push(("contextWindow", if default_window != 0.0 { Some(jnum(default_window)) } else { m.get("contextWindow").cloned() }));
@@ -365,10 +364,13 @@ pub fn provider_model_cache_row(name: &str, m: &Value, web_search_capable: bool)
     }
     put("modelParameterOptions", array_or(m.get("modelParameterOptions"), json!([])));
     put("parameterVariants", array_or(m.get("parameterVariants"), json!([])));
-    put("defaultModelParameters", match m.get("defaultModelParameters") {
-        Some(o @ Value::Object(_)) | Some(o @ Value::Array(_)) => o.clone(),
-        _ => json!({}),
-    });
+    put(
+        "defaultModelParameters",
+        match m.get("defaultModelParameters") {
+            Some(o @ Value::Object(_)) | Some(o @ Value::Array(_)) => o.clone(),
+            _ => json!({}),
+        },
+    );
     put("defaultEffort", or_null(m.get("defaultEffort")));
     put("defaultFast", flag(m, "defaultFast"));
     put("supportsMaxMode", flag(m, "supportsMaxMode"));
@@ -516,10 +518,7 @@ pub fn hydrate_provider_model_row(cfg: &Obj, row: &Value, facts: &dyn HydrationF
     let parameter_options: Option<Value> = if added.is_empty() {
         row.get("modelParameterOptions").cloned()
     } else {
-        let mut all: Vec<Value> = existing
-            .into_iter()
-            .filter(|o| !added.iter().any(|a| a.get("id") == o.get("id") && o.get("id").is_some()))
-            .collect();
+        let mut all: Vec<Value> = existing.into_iter().filter(|o| !added.iter().any(|a| a.get("id") == o.get("id") && o.get("id").is_some())).collect();
         all.extend(added);
         Some(Value::Array(all))
     };
@@ -557,10 +556,7 @@ pub fn hydrate_provider_model_row(cfg: &Obj, row: &Value, facts: &dyn HydrationF
         }),
     );
     let mut opts = facts.provider_config(&provider_raw);
-    opts.insert(
-        "modelParameters".into(),
-        if truthy(saved.get("modelParameters")) { saved["modelParameters"].clone() } else { json!({}) },
-    );
+    opts.insert("modelParameters".into(), if truthy(saved.get("modelParameters")) { saved["modelParameters"].clone() } else { json!({}) });
     // Auto applies where the route takes a judged effort AND the row gives it a ladder to move along (the judge skips
     // an empty one). A custom route snaps onto its row's own levels instead. The id alone never makes a route capable:
     // a row without effort data (a saved route's placeholder) is not Auto-capable, so the UI shows the saved level.
@@ -579,10 +575,7 @@ pub fn hydrate_provider_model_row(cfg: &Obj, row: &Value, facts: &dyn HydrationF
     if saved.contains_key("autoEffort") {
         out.insert("savedAutoEffort".into(), Value::Bool(crate::effort::route_auto_effort_on(saved.get("autoEffort"))));
     }
-    out.insert(
-        "savedModelParameters".into(),
-        if truthy(saved.get("modelParameters")) { saved["modelParameters"].clone() } else { json!({}) },
-    );
+    out.insert("savedModelParameters".into(), if truthy(saved.get("modelParameters")) { saved["modelParameters"].clone() } else { json!({}) });
     for (key, source) in [("savedContextPercent", "contextPercent"), ("savedContextTokens", "contextTokens")] {
         let n = saved.get(source).map_or(f64::NAN, to_number);
         if n.is_finite() && n != 0.0 {
@@ -612,4 +605,3 @@ pub fn with_catalog_state(models: Vec<Value>, partial: Option<(&[String], f64)>)
         })
         .collect()
 }
-

@@ -129,7 +129,6 @@ impl Environment for Vars {
     }
 }
 
-
 #[tokio::test]
 async fn a_refusal_of_the_transport_reads_as_nodes_fetch_failed_or_timeout() {
     /// Refuses with the message the link gives for the exchange's surface, or with none of the link's (a route the
@@ -174,13 +173,18 @@ async fn anthropic_usage_refresh_uses_the_daemons_claude_client_identity() {
     let tokens = mixdog_rt::testing::tokens();
     let io = CredentialIo { read: tokens.interactive_io, write: tokens.durability_io };
     let store = AccountStore::new(dir.path().to_path_buf(), io);
-    store.credential_file("anthropic-oauth", "default").unwrap().save(&json!({
-        "claudeAiOauth": {
-            "accessToken": "fixture-before-refresh",
-            "refreshToken": "fixture-refresh",
-            "scopes": ["user:inference"]
-        }
-    })).await.unwrap();
+    store
+        .credential_file("anthropic-oauth", "default")
+        .unwrap()
+        .save(&json!({
+            "claudeAiOauth": {
+                "accessToken": "fixture-before-refresh",
+                "refreshToken": "fixture-refresh",
+                "scopes": ["user:inference"]
+            }
+        }))
+        .await
+        .unwrap();
     let net = Net::from(&json!([{
         "url": "https://platform.claude.com/v1/oauth/token",
         "body": {"access_token": "fixture-after-refresh", "expires_in": 3600}
@@ -193,9 +197,7 @@ async fn anthropic_usage_refresh_uses_the_daemons_claude_client_identity() {
     let seen = net.seen.lock().unwrap();
     assert_eq!(seen.len(), 1);
     assert_eq!(seen[0].method, "POST");
-    assert!(seen[0].headers.iter().any(|(name, value)|
-        name.eq_ignore_ascii_case("user-agent") && value == "claude-cli/2.9.120 (external, sdk-cli)"
-    ));
+    assert!(seen[0].headers.iter().any(|(name, value)| name.eq_ignore_ascii_case("user-agent") && value == "claude-cli/2.9.120 (external, sdk-cli)"));
 }
 
 #[tokio::test]
@@ -212,9 +214,8 @@ async fn cursor_api_plan_read_exchanges_the_configured_key_without_a_registered_
         {"url": format!("{API_URL}{}", usage_cursor::PLAN_PATH), "body": ""}
     ]));
     let keys = ApiKeyStore::new(Arc::new(MemoryVault::default()), Arc::new(Vars(HashMap::new())), false);
-    let source = ProviderUsageSource::new(store, net.clone()).with_cursor_api(keys, Arc::new(|| KeyConfig {
-        api_key: Some("fixture-cursor-key".into()), api_key_env: None,
-    }));
+    let source = ProviderUsageSource::new(store, net.clone())
+        .with_cursor_api(keys, Arc::new(|| KeyConfig { api_key: Some("fixture-cursor-key".into()), api_key_env: None }));
     let reading = source.provider_snapshot("cursor-api", "default").await.unwrap().unwrap();
     assert_eq!(reading["provider"], "cursor-api");
     let seen = net.seen.lock().unwrap();
@@ -266,4 +267,3 @@ async fn the_opencode_go_status_read_ends_after_six_and_a_half_seconds_when_neve
     assert_eq!(seen[0].after, std::time::Duration::from_millis(6500));
     assert_eq!((seen[0].text.as_str(), error.message.as_str()), ("This operation was aborted", "This operation was aborted"));
 }
-

@@ -34,10 +34,41 @@ static CODING_UNFIT_ID: LazyLock<Regex> = LazyLock::new(|| rx(r"-search(-preview
 
 static NON_CHAT: LazyLock<Regex> = LazyLock::new(|| {
     let words = [
-        "embed", "embedding", "embeddings", "tts", "stt", "whisper", "audio", "speech", "voice", "image", "images", "video",
-        "videos", "moderation", "moderations", "rerank", "reranker", "similarity", r"dall[-_]?e", "sora", "imagen", "imagine",
-        "veo", "kling", "runway", "realtime", "live", "transcribe", "transcription", "diarize", "guard", "safety", "classifier",
-        "robotics", r"computer[-_]?use",
+        "embed",
+        "embedding",
+        "embeddings",
+        "tts",
+        "stt",
+        "whisper",
+        "audio",
+        "speech",
+        "voice",
+        "image",
+        "images",
+        "video",
+        "videos",
+        "moderation",
+        "moderations",
+        "rerank",
+        "reranker",
+        "similarity",
+        r"dall[-_]?e",
+        "sora",
+        "imagen",
+        "imagine",
+        "veo",
+        "kling",
+        "runway",
+        "realtime",
+        "live",
+        "transcribe",
+        "transcription",
+        "diarize",
+        "guard",
+        "safety",
+        "classifier",
+        "robotics",
+        r"computer[-_]?use",
     ]
     .join("|");
     rx(&format!(r"(^|[-_/{WS}])({words})([-_/{WS}]|$)"))
@@ -93,9 +124,7 @@ static COMPACT_DATE: LazyLock<Regex> = LazyLock::new(|| rx(r"-20[0-9]{6}$"));
 static MMDD: LazyLock<Regex> = LazyLock::new(|| rx(r"^([^\n\r\x{2028}\x{2029}]*)-0[0-9]{3}$"));
 static RELEASE: LazyLock<Regex> = LazyLock::new(|| rx(r"^([0-9]{4})-([0-9]{2})(?:-([0-9]{2}))?$"));
 static CLAUDE_FAMILY: LazyLock<Regex> = LazyLock::new(|| rx(r"(?:^|/)claude-([a-z]+)(?:-|$)"));
-static PREVIEW: LazyLock<Regex> = LazyLock::new(|| {
-    rx(&format!(r"(^|[-_.:/{WS}])(preview|exp|experimental)([-_.:/{WS}]|$)"))
-});
+static PREVIEW: LazyLock<Regex> = LazyLock::new(|| rx(&format!(r"(^|[-_.:/{WS}])(preview|exp|experimental)([-_.:/{WS}]|$)")));
 
 /// A Gemini id names its tier after the version (`gemini-<version>-<tier>`). The tier is the staleness family: the
 /// catalog files every tier under one family, where the newest tier's model would supersede the others'.
@@ -104,8 +133,22 @@ static GEMINI_TIER: LazyLock<Regex> = LazyLock::new(|| rx(r"(?:^|/)gemini-[0-9]+
 static GEMINI_TIER_SUFFIX: LazyLock<Regex> = LazyLock::new(|| rx(r"-(?:preview|exp|experimental)(?:-.*)?$|(?:-[0-9]+)+$"));
 
 const HOSTED: [&str; 16] = [
-    "openai", "openai-oauth", "openai-ws", "anthropic", "anthropic-oauth", "gemini", "google", "vertex-ai", "xai", "grok-oauth",
-    "deepseek", "groq", "mistral", "opencode-go", "openrouter", "azure",
+    "openai",
+    "openai-oauth",
+    "openai-ws",
+    "anthropic",
+    "anthropic-oauth",
+    "gemini",
+    "google",
+    "vertex-ai",
+    "xai",
+    "grok-oauth",
+    "deepseek",
+    "groq",
+    "mistral",
+    "opencode-go",
+    "openrouter",
+    "azure",
 ];
 
 fn lower(text: &str) -> String {
@@ -243,7 +286,6 @@ mod tests {
 
     use super::*;
 
-
     #[test]
     fn a_newer_gemini_tier_does_not_supersede_the_others_on_vertex() {
         // Tiers no list in the code names, filed by the catalog under one family: each is its own, read from its id.
@@ -273,10 +315,7 @@ mod tests {
         assert_eq!(release_epoch(&json!({"release_date": "2026-3"})), None);
         assert_eq!((stale_months(None), stale_months(Some("")), stale_months(Some("x")), stale_months(Some("12"))), (9.0, 9.0, 9.0, 12.0));
     }
-
-
 }
-
 
 /// `_applyAutoStaleness`: family supersession and the absolute age cut, by
 /// models.dev release dates. `kept` holds indexes into `rows`.
@@ -295,12 +334,7 @@ fn apply_auto_staleness(rows: &[ModelRecord], kept: Vec<usize>, provider: &str, 
         .map(|&index| {
             // `catModels[row.id] || null`: a row that is not an object is absent.
             let cat = catalog.get(&rows[index].id).filter(|v| crate::service::admin_route::truthy(Some(v)));
-            Meta {
-                index,
-                cat,
-                family: cat.and_then(|cr| staleness_family(cr, &rows[index].id)),
-                epoch: cat.and_then(release_epoch),
-            }
+            Meta { index, cat, family: cat.and_then(|cr| staleness_family(cr, &rows[index].id)), epoch: cat.and_then(release_epoch) }
         })
         .collect();
 
@@ -398,10 +432,8 @@ fn apply_coding_unfit(rows: &[ModelRecord], kept: Vec<usize>, provider: &str, ct
                     if cr.get("tool_call") == Some(&Value::Bool(false)) {
                         return false;
                     }
-                    let text_free = cr
-                        .pointer("/modalities/output")
-                        .and_then(Value::as_array)
-                        .is_some_and(|out| !out.iter().any(|m| m.as_str() == Some("text")));
+                    let text_free =
+                        cr.pointer("/modalities/output").and_then(Value::as_array).is_some_and(|out| !out.iter().any(|m| m.as_str() == Some("text")));
                     !text_free
                 }
                 None => !CODING_UNFIT_ID.is_match(&lower(id)),

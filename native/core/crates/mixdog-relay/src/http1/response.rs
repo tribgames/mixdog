@@ -129,8 +129,7 @@ struct OutHeader {
 }
 
 fn is_token(name: &str) -> bool {
-    !name.is_empty()
-        && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
+    !name.is_empty() && name.bytes().all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b))
 }
 
 /// `checkInvalidHeaderChar`: only tab, the printable ASCII and latin1 characters pass.
@@ -529,16 +528,7 @@ fn http_date(secs: i64) -> String {
     let rest = secs.rem_euclid(86_400);
     let (year, month, day) = civil_from_days(days);
     let weekday = (days + 4).rem_euclid(7) as usize;
-    format!(
-        "{}, {:02} {} {:04} {:02}:{:02}:{:02} GMT",
-        DAYS[weekday],
-        day,
-        MONTHS[month as usize - 1],
-        year,
-        rest / 3600,
-        rest % 3600 / 60,
-        rest % 60
-    )
+    format!("{}, {:02} {} {:04} {:02}:{:02}:{:02} GMT", DAYS[weekday], day, MONTHS[month as usize - 1], year, rest / 3600, rest % 3600 / 60, rest % 60)
 }
 
 /// The proleptic Gregorian date of a day count from 1970-01-01.
@@ -587,6 +577,5 @@ mod tests {
         assert!(valid_value("caf\u{e9}\t") && !valid_value("a\nb") && !valid_value("\u{100}"));
     }
 }
-
 
 impl std::error::Error for HeaderError {}

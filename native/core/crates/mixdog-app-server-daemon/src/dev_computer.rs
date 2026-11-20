@@ -22,6 +22,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
+use mixdog_core::run_host::native_tools::ComputerSessionPool;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::DomainService;
 use mixdog_core_api::Reply;
@@ -30,31 +31,30 @@ use mixdog_core_api::domain::computer::ComputerAction;
 use mixdog_core_api::domain::computer::ComputerError;
 use mixdog_core_api::domain::computer::ComputerRequest;
 use mixdog_core_api::domain::computer::ComputerSessions;
-use tokio_util::sync::CancellationToken;
 use mixdog_core_api::domain::tool::ImageData;
 use mixdog_core_api::domain::tool::ToolPart;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
-use mixdog_core::run_host::native_tools::ComputerSessionPool;
-use mixdog_core_session::session::secret_input::ComputerSecretHosts as _;
 use mixdog_core_api::service::Admit;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::invalid;
 use mixdog_core_base::support::on_lane;
+use mixdog_core_session::session::secret_input::ComputerSecretHosts as _;
 use mixdog_protocol::Origin;
 use mixdog_protocol::ThreadId;
-use mixdog_tools::desktop::computer_launch_policy::AuthorizationStatus;
-use mixdog_tools::desktop::computer_launch_policy::WindowIdentity;
-use mixdog_tools::desktop::computer_policy::authorization;
-use mixdog_tools::desktop::computer_policy::now_ms;
 use mixdog_rt::DurabilityIo;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneTokens;
 use mixdog_store::blobs::BlobStore;
+use mixdog_tools::desktop::computer_launch_policy::AuthorizationStatus;
+use mixdog_tools::desktop::computer_launch_policy::WindowIdentity;
+use mixdog_tools::desktop::computer_policy::authorization;
+use mixdog_tools::desktop::computer_policy::now_ms;
 use serde::Deserialize;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
+use tokio_util::sync::CancellationToken;
 
 /// The method this service answers.
 pub(crate) const DEV_COMPUTER_RUN: &str = "dev/computer/run";
@@ -183,13 +183,16 @@ impl DevComputerRun {
         let cancel = req.ctx.cancel.child_token();
         let helper_command = command.is_helper();
         let tool_command = matches!(command, Command::Tool(_));
-        let outcome = match mixdog_rt::time::timeout(Duration::from_millis(u64::from(timeout_ms)), self.dispatch(&params.session_thread_id, command, cancel.clone())).await {
-            Ok(outcome) => outcome,
-            Err(_) => {
-                cancel.cancel();
-                Err(ComputerError::Failed { code: "timeout".into(), message: format!("the command did not finish within {timeout_ms} ms") })
-            }
-        };
+        let outcome =
+            match mixdog_rt::time::timeout(Duration::from_millis(u64::from(timeout_ms)), self.dispatch(&params.session_thread_id, command, cancel.clone()))
+                .await
+            {
+                Ok(outcome) => outcome,
+                Err(_) => {
+                    cancel.cancel();
+                    Err(ComputerError::Failed { code: "timeout".into(), message: format!("the command did not finish within {timeout_ms} ms") })
+                }
+            };
         // The bridge aborted the session of a helper command whose caller went away (`abortComputerSession`); a tool action ends itself.
         let ended_early = matches!(&outcome, Err(ComputerError::Cancelled)) || matches!(&outcome, Err(ComputerError::Failed { code, .. }) if code == "timeout");
         if helper_command && ended_early {
@@ -229,15 +232,22 @@ impl DevComputerRun {
             "read_authorization" => Ok(status_json(&authorization().read())),
             "authorization_windows" => Ok(json!({ "windows": host.authorization_windows(session).await? })),
             "update_authorization" => {
-                let value = command.get("authorization").ok_or_else(|| ComputerError::InvalidInput { reason: "update_authorization names its `authorization`".into() })?;
+                let value = command
+                    .get("authorization")
+                    .ok_or_else(|| ComputerError::InvalidInput { reason: "update_authorization names its `authorization`".into() })?;
                 let status = authorization()
-                    .update(value, now_ms, || host.stop_all(), || async {
-                        let rows = host.authorization_windows(session).await?;
-                        Ok(rows
-                            .iter()
-                            .filter_map(|row| Some(WindowIdentity { id: row.get("id")?.as_str()?.to_owned(), pid: row.get("pid")?.as_u64()? }))
-                            .collect())
-                    })
+                    .update(
+                        value,
+                        now_ms,
+                        || host.stop_all(),
+                        || async {
+                            let rows = host.authorization_windows(session).await?;
+                            Ok(rows
+                                .iter()
+                                .filter_map(|row| Some(WindowIdentity { id: row.get("id")?.as_str()?.to_owned(), pid: row.get("pid")?.as_u64()? }))
+                                .collect())
+                        },
+                    )
                     .await?;
                 Ok(status_json(&status))
             }
@@ -285,7 +295,8 @@ impl DevComputerRun {
                     .await?
                 }
             };
-            let (digest, byte_length) = stored.map_err(|error| CoreError::CapabilityUnavailable { capability: DEV_COMPUTER_RUN.into(), detail: error.to_string().into() })?;
+            let (digest, byte_length) =
+                stored.map_err(|error| CoreError::CapabilityUnavailable { capability: DEV_COMPUTER_RUN.into(), detail: error.to_string().into() })?;
             answer["imageBlob"] = json!({ "digest": digest, "byteLength": byte_length, "mimeType": mime });
         }
         Ok(answer)
@@ -337,7 +348,9 @@ impl Command {
         };
         let input = match command.get("input") {
             Some(Value::Object(input)) => Value::Object(input.clone()),
-            Some(Value::Null) | None => Value::Object(command.iter().filter(|(key, _)| !matches!(key.as_str(), "action" | "session_id")).map(|(key, value)| (key.clone(), value.clone())).collect()),
+            Some(Value::Null) | None => Value::Object(
+                command.iter().filter(|(key, _)| !matches!(key.as_str(), "action" | "session_id")).map(|(key, value)| (key.clone(), value.clone())).collect(),
+            ),
             Some(_) => return Err(format!("computer action \"{name}\" input must be an object")),
         };
         Ok(Command::Tool(ComputerRequest { action, input }))
@@ -396,7 +409,10 @@ mod tests {
             if self.fail {
                 return Err(ComputerError::Failed { code: "stale_frame".into(), message: "stale_frame: unknown frame_id".into() });
             }
-            Ok(vec![ToolPart::Text("{\"ok\":true}".into()), ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(vec![1, 2]), width: None, height: None }])
+            Ok(vec![
+                ToolPart::Text("{\"ok\":true}".into()),
+                ToolPart::Image { mime: "image/png".into(), data: ImageData::Bytes(vec![1, 2]), width: None, height: None },
+            ])
         }
         fn inject(&self, _: ScreenInput) -> Result<InputOutcome, ComputerError> {
             Ok(InputOutcome::Applied)
@@ -510,7 +526,11 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let (service, log) = service(true, false, false, dir.path());
         let service = service.expect("registered with the env");
-        let answer = value(service.call(call(Origin::Local, json!({ "sessionThreadId": "s1", "command": { "action": "capture", "app": "Notepad", "session_id": "x" } }))).await);
+        let answer = value(
+            service
+                .call(call(Origin::Local, json!({ "sessionThreadId": "s1", "command": { "action": "capture", "app": "Notepad", "session_id": "x" } })))
+                .await,
+        );
         assert_eq!(answer["ok"], json!(true));
         assert_eq!(answer["text"], json!("{\"ok\":true}"));
         assert_eq!(answer["helperPid"], json!(4242));
@@ -567,7 +587,10 @@ mod tests {
         assert!(log.lock().unwrap().is_empty(), "the tool's backend was not used");
 
         let refused = value(service.call(run(json!({ "action": "close_window", "window_id": "hwnd:0x9" }))).await);
-        assert_eq!(refused, json!({ "ok": false, "error": { "code": "computer_policy_denied", "message": "computer_policy_denied: not authorized" }, "helperPid": 4242 }));
+        assert_eq!(
+            refused,
+            json!({ "ok": false, "error": { "code": "computer_policy_denied", "message": "computer_policy_denied: not authorized" }, "helperPid": 4242 })
+        );
 
         for (action, field, expected) in [("execution_end", "ended", true), ("session_release", "released", true), ("session_abort", "confirmed", false)] {
             let answer = value(service.call(run(json!({ "action": action }))).await);
@@ -576,7 +599,10 @@ mod tests {
         assert_eq!(*host.ended.lock().unwrap(), vec!["end:s1", "release:s1", "abort:s1"]);
 
         let listed = value(service.call(run(json!({ "action": "authorization_windows" }))).await);
-        assert_eq!(serde_json::from_str::<Value>(listed["text"].as_str().unwrap()).unwrap(), json!({ "windows": [{ "id": "hwnd:0x1", "pid": 5, "title": "t" }] }));
+        assert_eq!(
+            serde_json::from_str::<Value>(listed["text"].as_str().unwrap()).unwrap(),
+            json!({ "windows": [{ "id": "hwnd:0x1", "pid": 5, "title": "t" }] })
+        );
     }
 
     /// A helper command that outlives its wait ends its session, as the bridge aborted the session of a caller that went away.
@@ -641,7 +667,8 @@ mod tests {
     async fn a_command_past_its_wait_answers_a_timeout() {
         let dir = tempfile::tempdir().unwrap();
         let service = service(true, false, true, dir.path()).0.unwrap();
-        let answer = value(service.call(call(Origin::Local, json!({ "sessionThreadId": "s1", "command": { "action": "wait_for_user" }, "timeoutMs": 50 }))).await);
+        let answer =
+            value(service.call(call(Origin::Local, json!({ "sessionThreadId": "s1", "command": { "action": "wait_for_user" }, "timeoutMs": 50 }))).await);
         assert_eq!(answer["ok"], json!(false));
         assert_eq!(answer["error"]["code"], json!("timeout"));
     }

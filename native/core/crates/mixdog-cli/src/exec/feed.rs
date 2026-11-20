@@ -37,10 +37,23 @@ pub enum Obs {
     ToolObserved(ToolCall),
     ToolResult(ToolResult),
     BatchStarted,
-    BatchCompleted { iteration: f64, calls: f64, elapsed_ms: Option<f64> },
-    Stage { stage: String, detail: Option<Value> },
-    Notification { content: String, meta: Value },
-    TurnEnd { status: TurnStatus, result: ResultInfo },
+    BatchCompleted {
+        iteration: f64,
+        calls: f64,
+        elapsed_ms: Option<f64>,
+    },
+    Stage {
+        stage: String,
+        detail: Option<Value>,
+    },
+    Notification {
+        content: String,
+        meta: Value,
+    },
+    TurnEnd {
+        status: TurnStatus,
+        result: ResultInfo,
+    },
     /// A notification of a known method that does not fit its contract.
     Malformed(String),
 }
@@ -154,9 +167,7 @@ fn turn_end(params: &Value) -> Result<Obs, String> {
     let status = match turn.get("status").and_then(Value::as_str) {
         Some("completed") => TurnStatus::Completed,
         Some("interrupted") => TurnStatus::Interrupted,
-        Some("failed") => TurnStatus::Failed(
-            turn.pointer("/error/message").and_then(Value::as_str).unwrap_or("execution failed").to_owned(),
-        ),
+        Some("failed") => TurnStatus::Failed(turn.pointer("/error/message").and_then(Value::as_str).unwrap_or("execution failed").to_owned()),
         other => return Err(format!("turn/completed with status {other:?}")),
     };
     let reason = |key: &str| turn.get(key).and_then(Value::as_str).map(str::to_owned);
@@ -199,7 +210,13 @@ pub fn observe(notification: &RpcNotification) -> Vec<Obs> {
             Some("completed") => params.get("toolCalls").and_then(Value::as_array).map_or_else(Vec::new, |calls| {
                 calls
                     .iter()
-                    .map(|call| Obs::ToolObserved(ToolCall { id: text_of(call.get("id")), name: text_of(call.get("name")), arguments: call.get("arguments").cloned().unwrap_or(Value::Null) }))
+                    .map(|call| {
+                        Obs::ToolObserved(ToolCall {
+                            id: text_of(call.get("id")),
+                            name: text_of(call.get("name")),
+                            arguments: call.get("arguments").cloned().unwrap_or(Value::Null),
+                        })
+                    })
                     .collect()
             }),
             _ => Vec::new(),
@@ -213,10 +230,9 @@ pub fn observe(notification: &RpcNotification) -> Vec<Obs> {
             }],
             other => fail(format!("phase {other:?}")),
         },
-        "thread/stage/updated" => vec![Obs::Stage {
-            stage: text_of(params.get("stage")),
-            detail: params.get("detail").cloned().filter(|detail| !detail.is_null()),
-        }],
+        "thread/stage/updated" => {
+            vec![Obs::Stage { stage: text_of(params.get("stage")), detail: params.get("detail").cloned().filter(|detail| !detail.is_null()) }]
+        }
         "thread/notification" => vec![Obs::Notification { content: text_of(params.get("content")), meta: params.get("meta").cloned().unwrap_or(Value::Null) }],
         _ => Vec::new(),
     }

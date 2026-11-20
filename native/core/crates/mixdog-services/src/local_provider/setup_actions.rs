@@ -168,10 +168,7 @@ impl LocalModelSetupActions {
                 service.settings.catalog_changed().await;
                 Ok(with_status(result, service.settings_view().await.map_err(provider_error)?))
             }
-            other => Err(PortError::Unavailable {
-                capability: format!("setup.{other}"),
-                message: format!("setup {other} is not a local-model action"),
-            }),
+            other => Err(PortError::Unavailable { capability: format!("setup.{other}"), message: format!("setup {other} is not a local-model action") }),
         }
     }
 }
@@ -206,10 +203,6 @@ mod tests {
             other => panic!("expected an invalid-argument error, got {other:?}"),
         }
     }
-
-
-
-
 
     #[tokio::test]
     async fn arguments_are_checked_with_the_executors_wording() {
@@ -257,6 +250,4 @@ mod tests {
         assert_eq!(out["background"], true);
         assert!(out["installations"].as_array().is_some_and(|rows| rows.iter().any(|r| r["phase"] == "runtime")));
     }
-
-
 }

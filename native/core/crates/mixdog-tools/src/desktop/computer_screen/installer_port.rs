@@ -65,7 +65,11 @@ impl ProcessRunner for ChildProcesses {
     }
 }
 
-#[allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "Called only by ChildProcesses::run on its dedicated std thread, which owns and waits for the installer child even if the async receiver is dropped")]
+#[allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "Called only by ChildProcesses::run on its dedicated std thread, which owns and waits for the installer child even if the async receiver is dropped"
+)]
 fn run_child(program: &std::path::Path, args: &[String], stdin: Option<String>) -> Result<Exit, String> {
     let mut command = std::process::Command::new(program);
     command.args(args).stdin(if stdin.is_some() { Stdio::piped() } else { Stdio::null() }).stdout(Stdio::piped()).stderr(Stdio::null());
@@ -252,7 +256,14 @@ impl InstallerPort for BridgePort {
             let script = elevation_script(&self.exe.to_string_lossy(), &args);
             self.runner.run(
                 PathBuf::from("powershell"),
-                vec!["-NoProfile".to_string(), "-NonInteractive".to_string(), "-ExecutionPolicy".to_string(), "Bypass".to_string(), "-Command".to_string(), script],
+                vec![
+                    "-NoProfile".to_string(),
+                    "-NonInteractive".to_string(),
+                    "-ExecutionPolicy".to_string(),
+                    "Bypass".to_string(),
+                    "-Command".to_string(),
+                    script,
+                ],
                 None,
             )
         };

@@ -2,41 +2,35 @@
 //! address bar, and its one ValuePattern write (runtime-saved-login.ps1,
 //! MixWin32Process.cs:164-310). What the reads mean is the host's to decide.
 
-use super::native::{self, hwnd, Process};
+use super::native::{self, Process, hwnd};
 use super::uia::element::{native_handle, runtime_key};
 use crate::platform::{
-    saved_login_changed, saved_login_refused, SavedLoginField, SavedLoginFocus, SavedLoginImage,
-    SavedLoginReads, Wid, SAVED_LOGIN_NO_FOCUS,
+    SAVED_LOGIN_NO_FOCUS, SavedLoginField, SavedLoginFocus, SavedLoginImage, SavedLoginReads, Wid, saved_login_changed, saved_login_refused,
 };
-use crate::port::windows::{WinPort, A11y};
+use crate::port::windows::{A11y, WinPort};
 use std::ffi::c_void;
-use std::sync::Arc;
 use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
+use std::sync::Arc;
 use std::time::Duration;
-use windows::core::{BSTR, PCWSTR};
 use windows::Win32::Foundation::{FILETIME, HANDLE, HWND};
 use windows::Win32::Security::Cryptography::{
-    CertCloseStore, CertFindCertificateInStore, CertFreeCertificateContext, CertGetNameStringW,
-    CryptMsgClose, CryptMsgGetParam, CryptQueryObject, CERT_FIND_SUBJECT_CERT, CERT_INFO,
-    CERT_NAME_ATTR_TYPE, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED,
-    CERT_QUERY_ENCODING_TYPE, CERT_QUERY_FORMAT_FLAG_BINARY, CERT_QUERY_OBJECT_FILE,
-    CMSG_SIGNER_INFO, CMSG_SIGNER_INFO_PARAM, HCERTSTORE, PKCS_7_ASN_ENCODING,
-    X509_ASN_ENCODING, szOID_ORGANIZATION_NAME,
+    CERT_FIND_SUBJECT_CERT, CERT_INFO, CERT_NAME_ATTR_TYPE, CERT_QUERY_CONTENT_FLAG_PKCS7_SIGNED_EMBED, CERT_QUERY_ENCODING_TYPE,
+    CERT_QUERY_FORMAT_FLAG_BINARY, CERT_QUERY_OBJECT_FILE, CMSG_SIGNER_INFO, CMSG_SIGNER_INFO_PARAM, CertCloseStore, CertFindCertificateInStore,
+    CertFreeCertificateContext, CertGetNameStringW, CryptMsgClose, CryptMsgGetParam, CryptQueryObject, HCERTSTORE, PKCS_7_ASN_ENCODING, X509_ASN_ENCODING,
+    szOID_ORGANIZATION_NAME,
 };
 use windows::Win32::Security::WinTrust::{
-    WinVerifyTrust, WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_0,
-    WINTRUST_DATA_PROVIDER_FLAGS, WINTRUST_FILE_INFO, WTD_CACHE_ONLY_URL_RETRIEVAL,
-    WTD_CHOICE_FILE, WTD_REVOCATION_CHECK_NONE, WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE,
-    WTD_STATEACTION_VERIFY, WTD_UI_NONE,
+    WINTRUST_ACTION_GENERIC_VERIFY_V2, WINTRUST_DATA, WINTRUST_DATA_0, WINTRUST_DATA_PROVIDER_FLAGS, WINTRUST_FILE_INFO, WTD_CACHE_ONLY_URL_RETRIEVAL,
+    WTD_CHOICE_FILE, WTD_REVOCATION_CHECK_NONE, WTD_REVOKE_NONE, WTD_STATEACTION_CLOSE, WTD_STATEACTION_VERIFY, WTD_UI_NONE, WinVerifyTrust,
 };
 use windows::Win32::Storage::FileSystem::FILE_SHARE_READ;
-use windows::Win32::System::Com::{CoCreateInstance, CLSCTX_INPROC_SERVER};
+use windows::Win32::System::Com::{CLSCTX_INPROC_SERVER, CoCreateInstance};
 use windows::Win32::System::Threading::{
-    GetExitCodeProcess, GetProcessTimes, QueryFullProcessImageNameW, PROCESS_NAME_WIN32,
-    PROCESS_QUERY_LIMITED_INFORMATION,
+    GetExitCodeProcess, GetProcessTimes, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::Accessibility::*;
+use windows::core::{BSTR, PCWSTR};
 
 /// The window class Chromium hosts web content in; page elements never have one.
 const CONTENT_CLASS: &str = "Chrome_RenderWidgetHostHWND";
@@ -114,12 +108,7 @@ fn focused_of(automation: &IUIAutomation, pid: u32) -> Option<IUIAutomationEleme
 /// end at this browser window. A field in an embedded frame or a nested
 /// document, or in the browser's own UI such as the address bar, is refused
 /// (Get-SavedLoginDocument).
-fn document_of(
-    walker: &IUIAutomationTreeWalker,
-    element: &IUIAutomationElement,
-    window: Wid,
-    pid: u32,
-) -> Result<IUIAutomationElement, String> {
+fn document_of(walker: &IUIAutomationTreeWalker, element: &IUIAutomationElement, window: Wid, pid: u32) -> Result<IUIAutomationElement, String> {
     let mut document: Option<IUIAutomationElement> = None;
     let mut current = element.clone();
     for _ in 0..MAX_ANCESTORS {
@@ -140,14 +129,9 @@ fn document_of(
         // SAFETY: as above.
         let container = unsafe { walker.GetParentElement(&current) }.ok();
         let handle = container.as_ref().map_or(0, native_handle);
-        let hosted = handle != 0
-            && native::is_window(handle)
-            && native::class_name(handle) == CONTENT_CLASS
-            && native::pid_of(handle) == pid;
+        let hosted = handle != 0 && native::is_window(handle) && native::class_name(handle) == CONTENT_CLASS && native::pid_of(handle) == pid;
         let Some(container) = container.filter(|_| hosted) else {
-            return Err(saved_login_refused(
-                "the focused field is inside an embedded frame or nested document, not the page itself",
-            ));
+            return Err(saved_login_refused("the focused field is inside an embedded frame or nested document, not the page itself"));
         };
         document = Some(current);
         current = container;
@@ -164,16 +148,10 @@ fn field_of(element: &IUIAutomationElement) -> Result<SavedLoginField, String> {
         Ok(SavedLoginField {
             edit: control_of(element)? == UIA_EditControlTypeId,
             focused: read(element.CurrentHasKeyboardFocus())?.as_bool(),
-            enabled: read(element.CurrentIsEnabled())?.as_bool()
-                && read(element.CurrentIsKeyboardFocusable())?.as_bool(),
-            read_only: pattern
-                .as_ref()
-                .and_then(|pattern| pattern.CurrentIsReadOnly().ok())
-                .is_none_or(|flag| flag.as_bool()),
+            enabled: read(element.CurrentIsEnabled())?.as_bool() && read(element.CurrentIsKeyboardFocusable())?.as_bool(),
+            read_only: pattern.as_ref().and_then(|pattern| pattern.CurrentIsReadOnly().ok()).is_none_or(|flag| flag.as_bool()),
             password: read(element.CurrentIsPassword())?.as_bool(),
-            value_length: pattern
-                .and_then(|pattern| pattern.CurrentValue().ok())
-                .map_or(-1, |value| value.len() as i64),
+            value_length: pattern.and_then(|pattern| pattern.CurrentValue().ok()).map_or(-1, |value| value.len() as i64),
         })
     }
 }
@@ -194,8 +172,7 @@ fn created(process: HANDLE) -> i64 {
     let mut time = FILETIME::default();
     let (mut exited, mut kernel, mut user) = (FILETIME::default(), FILETIME::default(), FILETIME::default());
     // SAFETY: every pointer is a valid out FILETIME.
-    unsafe { GetProcessTimes(process, &mut time, &mut exited, &mut kernel, &mut user) }
-        .map_or(0, |_| filetime(time))
+    unsafe { GetProcessTimes(process, &mut time, &mut exited, &mut kernel, &mut user) }.map_or(0, |_| filetime(time))
 }
 
 fn running(process: HANDLE) -> bool {
@@ -222,9 +199,7 @@ fn authenticode_valid(path: &[u16], file: HANDLE) -> bool {
         dwUnionChoice: WTD_CHOICE_FILE,
         Anonymous: WINTRUST_DATA_0 { pFile: &mut info },
         dwStateAction: WTD_STATEACTION_VERIFY,
-        dwProvFlags: WINTRUST_DATA_PROVIDER_FLAGS(
-            WTD_REVOCATION_CHECK_NONE.0 | WTD_CACHE_ONLY_URL_RETRIEVAL.0,
-        ),
+        dwProvFlags: WINTRUST_DATA_PROVIDER_FLAGS(WTD_REVOCATION_CHECK_NONE.0 | WTD_CACHE_ONLY_URL_RETRIEVAL.0),
         ..Default::default()
     };
     let mut action = WINTRUST_ACTION_GENERIC_VERIFY_V2;
@@ -274,20 +249,9 @@ unsafe fn signer_name(store: HCERTSTORE, message: *mut c_void) -> Option<String>
     CryptMsgGetParam(message, CMSG_SIGNER_INFO_PARAM, 0, None, &mut size).ok()?;
     // The signer info holds pointers into its own buffer: keep it aligned.
     let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
-    CryptMsgGetParam(
-        message,
-        CMSG_SIGNER_INFO_PARAM,
-        0,
-        Some(buffer.as_mut_ptr() as *mut c_void),
-        &mut size,
-    )
-    .ok()?;
+    CryptMsgGetParam(message, CMSG_SIGNER_INFO_PARAM, 0, Some(buffer.as_mut_ptr() as *mut c_void), &mut size).ok()?;
     let signer = &*(buffer.as_ptr() as *const CMSG_SIGNER_INFO);
-    let find = CERT_INFO {
-        Issuer: signer.Issuer,
-        SerialNumber: signer.SerialNumber,
-        ..Default::default()
-    };
+    let find = CERT_INFO { Issuer: signer.Issuer, SerialNumber: signer.SerialNumber, ..Default::default() };
     let certificate = CertFindCertificateInStore(
         store,
         CERT_QUERY_ENCODING_TYPE(X509_ASN_ENCODING.0 | PKCS_7_ASN_ENCODING.0),
@@ -300,13 +264,7 @@ unsafe fn signer_name(store: HCERTSTORE, message: *mut c_void) -> Option<String>
         return None;
     }
     let mut name = [0u16; 256];
-    let length = CertGetNameStringW(
-        certificate,
-        CERT_NAME_ATTR_TYPE,
-        0,
-        Some(szOID_ORGANIZATION_NAME.as_ptr() as *const c_void),
-        Some(&mut name),
-    ) as usize;
+    let length = CertGetNameStringW(certificate, CERT_NAME_ATTR_TYPE, 0, Some(szOID_ORGANIZATION_NAME.as_ptr() as *const c_void), Some(&mut name)) as usize;
     let _ = CertFreeCertificateContext(Some(certificate));
     // The count includes the terminating NUL.
     (length > 1).then(|| String::from_utf16_lossy(&name[..length - 1]))
@@ -326,22 +284,10 @@ fn image_of(pid: u32) -> Option<SavedLoginImage> {
     let mut buffer = [0u16; 1024];
     let mut size = buffer.len() as u32;
     // SAFETY: buffer and size describe the same allocation.
-    unsafe {
-        QueryFullProcessImageNameW(
-            process.0,
-            PROCESS_NAME_WIN32,
-            windows::core::PWSTR(buffer.as_mut_ptr()),
-            &mut size,
-        )
-    }
-    .ok()?;
+    unsafe { QueryFullProcessImageNameW(process.0, PROCESS_NAME_WIN32, windows::core::PWSTR(buffer.as_mut_ptr()), &mut size) }.ok()?;
     let path = String::from_utf16_lossy(&buffer[..size as usize]);
     let wide: Vec<u16> = path.encode_utf16().chain(Some(0)).collect();
-    let file = std::fs::OpenOptions::new()
-        .read(true)
-        .share_mode(FILE_SHARE_READ.0)
-        .open(&path)
-        .ok()?;
+    let file = std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ.0).open(&path).ok()?;
     if !authenticode_valid(&wide, HANDLE(file.as_raw_handle())) {
         return None;
     }
@@ -361,9 +307,7 @@ impl SavedLoginReads for Reads {
     /// The creation time of the live process, or 0: the same id with another
     /// creation time is another process (ProcessStartTime).
     fn start_time(&self, pid: u32) -> i64 {
-        Process::open(pid, PROCESS_QUERY_LIMITED_INFORMATION.0)
-            .filter(|process| running(process.0))
-            .map_or(0, |process| created(process.0))
+        Process::open(pid, PROCESS_QUERY_LIMITED_INFORMATION.0).filter(|process| running(process.0)).map_or(0, |process| created(process.0))
     }
 
     fn focus(&self, window: Wid, pid: u32) -> Result<SavedLoginFocus, String> {
@@ -399,8 +343,7 @@ impl SavedLoginReads for Reads {
             while let Some(node) = child {
                 let control = control_of(&node)?;
                 let class = class_of(&node)?;
-                let content = control == UIA_DocumentControlTypeId
-                    || (native_handle(&node) != 0 && class == CONTENT_CLASS);
+                let content = control == UIA_DocumentControlTypeId || (native_handle(&node) != 0 && class == CONTENT_CLASS);
                 if !content {
                     if control == UIA_EditControlTypeId && class == OMNIBOX_CLASS {
                         bars.push(value_of(&node).map(|text| text.to_string()).unwrap_or_default());
@@ -416,21 +359,13 @@ impl SavedLoginReads for Reads {
 
     /// Exactly one SetValue, never a keystroke (Do-SavedLoginType). A SetValue
     /// that fails, or a length the field does not confirm, is not retried.
-    fn set_value(
-        &self,
-        pid: u32,
-        runtime_id: &str,
-        value: &str,
-        authorize: crate::platform::Authorize<'_>,
-    ) -> Result<bool, String> {
+    fn set_value(&self, pid: u32, runtime_id: &str, value: &str, authorize: crate::platform::Authorize<'_>) -> Result<bool, String> {
         let automation = automation()?;
         let focused = focused_of(&automation, pid)
             .filter(|focused| runtime_key(focused) == runtime_id)
             .ok_or_else(|| saved_login_changed("focus moved to another element"))?;
         let Some(pattern) = value_pattern(&focused) else {
-            return Err(saved_login_refused(
-                "the field takes no direct value write, and saved logins are never typed as keystrokes",
-            ));
+            return Err(saved_login_refused("the field takes no direct value write, and saved logins are never typed as keystrokes"));
         };
         // SAFETY: a plain property read.
         if read(unsafe { pattern.CurrentIsReadOnly() })?.as_bool() {

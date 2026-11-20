@@ -30,22 +30,18 @@ static SCREEN_ONLY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^
 static NOT_PRINT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\s*not\s+print\b", "i"));
 static LEADING_AT_STATEMENTS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:\s*@[^{;]*;)+", ""));
 static MEDIA_RULE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^@media\b", "i"));
-static BREAK_DECLARATION: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^\s*(?:page-)?break-before\s*:\s*(.*?)\s*$", "i"));
+static BREAK_DECLARATION: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\s*(?:page-)?break-before\s*:\s*(.*?)\s*$", "i"));
 static IMPORTANT_END: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\s*!\s*important\s*$", "i"));
 static FORCED_VALUE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:page|always)$", "i"));
 static STYLE_ELEMENT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<style\b[^>]*>([\s\S]*?)</style>", "i"));
 static CSS_COMMENT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"/\*[\s\S]*?\*/", ""));
-static SIMPLE_SELECTOR: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^\s*([a-z][\w-]*)?(?:#([\w-]+))?((?:\.[\w-]+)*)\s*$", "i"));
+static SIMPLE_SELECTOR: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\s*([a-z][\w-]*)?(?:#([\w-]+))?((?:\.[\w-]+)*)\s*$", "i"));
 static OPEN_TAG: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<([a-z][\w-]*)\b([^>]*)>", "i"));
-static STYLE_ATTRIBUTE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r#"\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')"#, "i"));
+static STYLE_ATTRIBUTE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"\bstyle\s*=\s*(?:"([^"]*)"|'([^']*)')"#, "i"));
 static ID_ATTRIBUTE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"\bid\s*=\s*["']([^"']*)["']"#, "i"));
 static CLASS_ATTRIBUTE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"\bclass\s*=\s*["']([^"']*)["']"#, "i"));
 static DOCX_PARAGRAPH: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<w:p\b[^>]*>[\s\S]*?</w:p>", ""));
-static DOCX_PAGE_BREAK_BEFORE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r#"<w:pageBreakBefore\b(?![^>]*w:val="(?:0|false)")[^>]*/>"#, ""));
+static DOCX_PAGE_BREAK_BEFORE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"<w:pageBreakBefore\b(?![^>]*w:val="(?:0|false)")[^>]*/>"#, ""));
 static DOCX_PAGE_RUN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"<w:br\b[^>]*w:type="page"[^>]*/>"#, ""));
 static DOCX_TEXT: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"<w:t\b[^>]*>([^<]*)</w:t>", ""));
 
@@ -156,10 +152,7 @@ fn break_declaration(body: &str, rank: [i64; 3]) -> Option<Declaration> {
         declarations.push((cleaned, important));
     }
     let winner = declarations.iter().rev().find(|(_, important)| *important).or_else(|| declarations.last())?;
-    Some(Declaration {
-        forced: FORCED_VALUE.is_match(&winner.0),
-        rank: [i64::from(winner.1), rank[0], rank[1], rank[2]],
-    })
+    Some(Declaration { forced: FORCED_VALUE.is_match(&winner.0), rank: [i64::from(winner.1), rank[0], rank[1], rank[2]] })
 }
 
 /// `beats`: whether `a` wins over `b` in the cascade (a tie goes to `a`, the later one).
@@ -220,11 +213,7 @@ pub fn html_break_openings(html: &str) -> Vec<String> {
         let attributes = found.get(2).unwrap_or_default();
         let style = STYLE_ATTRIBUTE.captures(attributes);
         let id = ID_ATTRIBUTE.captures(attributes).and_then(|caps| caps.get(1)).unwrap_or_default();
-        let classes: Vec<&str> = CLASS_ATTRIBUTE
-            .captures(attributes)
-            .and_then(|caps| caps.get(1))
-            .map(|text| js_words(text).collect())
-            .unwrap_or_default();
+        let classes: Vec<&str> = CLASS_ATTRIBUTE.captures(attributes).and_then(|caps| caps.get(1)).map(|text| js_words(text).collect()).unwrap_or_default();
         let mut declarations: Vec<Declaration> = selectors
             .iter()
             .filter(|rule| {
@@ -245,9 +234,7 @@ pub fn html_break_openings(html: &str) -> Vec<String> {
         }
         let rest = &html[found.range().end..];
         // The element's own text (up to its closing tag), whatever tags nest inside it.
-        let closer = closers
-            .entry(tag.clone())
-            .or_insert_with(|| JsRegex::new_static(&format!(r"</{tag}\s*>"), "i"));
+        let closer = closers.entry(tag.clone()).or_insert_with(|| JsRegex::new_static(&format!(r"</{tag}\s*>"), "i"));
         let own = match closer.find(rest) {
             Some(range) => visible_text(&rest[..range.start]),
             None => visible_text(&slice_utf16(rest, UNCLOSED_TEXT_UNITS)),
@@ -317,8 +304,7 @@ impl From<&PageLayout> for TextPage {
 
 /// A running head or folio repeats at the same position on several pages; a folio differs only by its number.
 fn running_key(item: &TextItem) -> String {
-    let numbering = !item.text.is_empty()
-        && item.text.chars().all(|c| is_js_space(c) || c.is_ascii_digit() || "-\u{2013}/.()".contains(c));
+    let numbering = !item.text.is_empty() && item.text.chars().all(|c| is_js_space(c) || c.is_ascii_digit() || "-\u{2013}/.()".contains(c));
     let text = if numbering { "#" } else { js_trim(&item.text) };
     format!("{text}@{}", (item.top + 0.5).floor() as i64)
 }
@@ -387,11 +373,7 @@ pub struct BreakPreview<'a> {
 
 /// `forcedBreakPages(session, preview)`: the forced-break page numbers of a docx or pdf session's preview, or `None` when
 /// the render has no authored source to read the breaks from (`page_bottom_empty` then reports at its full severity).
-pub fn forced_break_pages<P: ReadProof>(
-    proof: &P,
-    session: &BreakSession<'_>,
-    preview: &BreakPreview<'_>,
-) -> Result<Option<Vec<usize>>, String> {
+pub fn forced_break_pages<P: ReadProof>(proof: &P, session: &BreakSession<'_>, preview: &BreakPreview<'_>) -> Result<Option<Vec<usize>>, String> {
     if !matches!(session.format, "docx" | "pdf") || !preview.has_images {
         return Ok(None);
     }
@@ -456,10 +438,7 @@ mod tests {
     <p style="page-break-before: avoid">Not a break</p>
   </body></html>"#;
         let openings = html_break_openings(html);
-        assert_eq!(
-            openings,
-            strings(&["Chapter One & its aim", "Part Two begins here", "Appendix A: the tables", "Inline break opening"])
-        );
+        assert_eq!(openings, strings(&["Chapter One & its aim", "Part Two begins here", "Appendix A: the tables", "Inline break opening"]));
         let pages = [
             page(1, &["Cover words and the summary."]),
             page(2, &["Chapter One & its aim", "Body.", "Filler paragraph."]),
@@ -517,10 +496,7 @@ mod tests {
   <h1 class="screened">Screen only rule</h1>
   <p class="over">Higher specificity override</p>
   <h1 class="chapter" style="break-before: page">Inline wins</h1>"#;
-        assert_eq!(
-            html_break_openings(html),
-            strings(&["Effective part", "Print-effective both", "Printed only rule", "Inline wins"])
-        );
+        assert_eq!(html_break_openings(html), strings(&["Effective part", "Print-effective both", "Printed only rule", "Inline wins"]));
     }
 
     #[test]

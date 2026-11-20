@@ -35,8 +35,7 @@ pub static GRAPHIC_FRAME_OPEN_RE: LazyLock<JsRegex> = LazyLock::new(|| pattern(&
 static VANISH_RE: LazyLock<JsRegex> = LazyLock::new(|| pattern(r"<w:vanish\b"));
 static TEXT_TAG_RE: LazyLock<JsRegex> = LazyLock::new(|| pattern(r"<w:t[\s>]"));
 static SHAPE_OPEN_RE: LazyLock<JsRegex> = LazyLock::new(|| pattern(&format!(r"<p:(sp|pic|graphicFrame)\b{A}>")));
-static DRAWING_DESCRIPTION_RE: LazyLock<JsRegex> =
-    LazyLock::new(|| pattern(&format!(r#"<(?:wp|pic|p|xdr):(?:docPr|cNvPr)\b{A}\bdescr="([^"]+)""#)));
+static DRAWING_DESCRIPTION_RE: LazyLock<JsRegex> = LazyLock::new(|| pattern(&format!(r#"<(?:wp|pic|p|xdr):(?:docPr|cNvPr)\b{A}\bdescr="([^"]+)""#)));
 static CHART_KIND_RE: LazyLock<JsRegex> = LazyLock::new(|| pattern(r#"<c:chart\b|\bchart"|<cx:chart\b"#));
 static DIAGRAM_KIND_RE: LazyLock<JsRegex> = LazyLock::new(|| pattern(r"<dgm:relIds\b|diagramData"));
 static RELATIONSHIP_RE: LazyLock<JsRegex> = LazyLock::new(|| pattern(&format!(r"<Relationship\b({A}?)/?>")));
@@ -52,11 +51,7 @@ pub fn first_group<'t>(re: &JsRegex, text: &'t str) -> Option<&'t str> {
 fn open_tag(name: &str) -> Arc<JsRegex> {
     static CACHE: LazyLock<Mutex<HashMap<String, Arc<JsRegex>>>> = LazyLock::new(|| Mutex::new(HashMap::new()));
     let mut cache = CACHE.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-    Arc::clone(
-        cache
-            .entry(name.to_owned())
-            .or_insert_with(|| Arc::new(pattern(&format!(r"<{name}\b({A}?)(/?)>")))),
-    )
+    Arc::clone(cache.entry(name.to_owned()).or_insert_with(|| Arc::new(pattern(&format!(r"<{name}\b({A}?)(/?)>")))))
 }
 
 /// One element found by [`scan_elements`]. `inner` is `None` for a self-closing tag.
@@ -167,12 +162,7 @@ pub fn decode_xml_entities(text: &str) -> Result<String, Failure> {
         return Ok(text.to_owned());
     }
     let decoded = replace_numeric_references(&replace_numeric_references(text, true)?, false)?;
-    Ok(decoded
-        .replace("&lt;", "<")
-        .replace("&gt;", ">")
-        .replace("&quot;", "\"")
-        .replace("&apos;", "'")
-        .replace("&amp;", "&"))
+    Ok(decoded.replace("&lt;", "<").replace("&gt;", ">").replace("&quot;", "\"").replace("&apos;", "'").replace("&amp;", "&"))
 }
 
 /// Collapses line breaks (and their surrounding blanks) into single spaces: every run of whitespace that contains a line
@@ -399,9 +389,12 @@ mod tests {
 
     #[test]
     fn hidden_word_runs_are_marked_until_the_paragraph_ends() {
-        let xml = "<w:p><w:r><w:t>a</w:t></w:r><w:r><w:rPr><w:vanish/></w:rPr><w:t>b</w:t></w:r><w:r><w:rPr><w:vanish w:val=\"0\"/></w:rPr><w:t>c</w:t></w:r></w:p>";
+        let xml =
+            "<w:p><w:r><w:t>a</w:t></w:r><w:r><w:rPr><w:vanish/></w:rPr><w:t>b</w:t></w:r><w:r><w:rPr><w:vanish w:val=\"0\"/></w:rPr><w:t>c</w:t></w:r></w:p>";
         let marked = mark_hidden_word_runs(xml);
-        assert!(marked.contains("<w:r><w:t>[hidden: </w:t></w:r><w:r><w:rPr><w:vanish/></w:rPr><w:t>b</w:t></w:r><w:r><w:t>]</w:t></w:r><w:r><w:rPr><w:vanish w:val=\"0\"/>"));
+        assert!(marked.contains(
+            "<w:r><w:t>[hidden: </w:t></w:r><w:r><w:rPr><w:vanish/></w:rPr><w:t>b</w:t></w:r><w:r><w:t>]</w:t></w:r><w:r><w:rPr><w:vanish w:val=\"0\"/>"
+        ));
         assert_eq!(mark_hidden_word_runs("<w:p/>"), "<w:p/>");
     }
 
@@ -418,10 +411,7 @@ mod tests {
     #[test]
     fn relationships_list_id_and_target_in_any_attribute_order() {
         let rels = r#"<Relationships><Relationship Target="a.xml" Id="rId1"/><Relationship Id="rId2" Target="b.xml"></Relationship><Relationship Id="rId3"/></Relationships>"#;
-        assert_eq!(
-            relationship_list(rels),
-            vec![(Some("rId1".to_owned()), "a.xml".to_owned()), (Some("rId2".to_owned()), "b.xml".to_owned())]
-        );
+        assert_eq!(relationship_list(rels), vec![(Some("rId1".to_owned()), "a.xml".to_owned()), (Some("rId2".to_owned()), "b.xml".to_owned())]);
     }
 
     #[test]

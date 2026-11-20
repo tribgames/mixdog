@@ -76,13 +76,7 @@ async fn a_spent_budget_surfaces_the_cut_after_every_send_ran_its_stream_row() {
     assert_eq!(provider.requests().len(), 7, "four attempts, then three replays of one");
     assert_eq!(loop_waits(&h), [Duration::from_secs(5), Duration::from_secs(15), Duration::from_secs(30)]);
     assert_eq!(waits(&h).len(), 6);
-    let attempts: Vec<String> = lines
-        .lock()
-        .unwrap()
-        .iter()
-        .map(|(_, _, line)| line.clone())
-        .filter(|line| line.starts_with("[attempt-error] "))
-        .collect();
+    let attempts: Vec<String> = lines.lock().unwrap().iter().map(|(_, _, line)| line.clone()).filter(|line| line.starts_with("[attempt-error] ")).collect();
     assert_eq!(attempts.len(), 7, "one line per failed attempt");
     for line in &attempts {
         assert!(line.contains(" phase=stream ") && line.contains(" delivery=Accepted "), "{line}");

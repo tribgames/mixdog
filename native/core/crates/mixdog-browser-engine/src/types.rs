@@ -96,9 +96,13 @@ pub enum Remember {
 /// The person's (or a standing rule's) answer to a [`BrowserApprovalPrompt`].
 #[derive(Debug, Clone, PartialEq)]
 pub enum ApprovalAnswer {
-    Allow { remember: Remember },
+    Allow {
+        remember: Remember,
+    },
     /// `reason` is the person's note, empty when none.
-    Deny { reason: String },
+    Deny {
+        reason: String,
+    },
 }
 
 /// The person has taken the page over (a phone's or the desktop's takeover): held until dropped. The engine's work for that

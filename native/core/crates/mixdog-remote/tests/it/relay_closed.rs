@@ -50,7 +50,10 @@ async fn the_relay_handle_closes_when_switched_off_rotated_or_stopped_and_not_on
     let count = || closes.0.load(Ordering::SeqCst);
     let mut up = runtime.watch_connected();
     let mut dialed = async |what: &str| {
-        mixdog_rt::time::timeout(WAIT, relay.legs.recv()).await.unwrap_or_else(|_| panic!("the core never dialed the relay ({what})")).expect("the relay ended");
+        mixdog_rt::time::timeout(WAIT, relay.legs.recv())
+            .await
+            .unwrap_or_else(|_| panic!("the core never dialed the relay ({what})"))
+            .expect("the relay ended");
     };
 
     runtime.start(true).await.unwrap();
@@ -81,9 +84,14 @@ async fn rotating_while_disabled_publishes_an_empty_roster_without_reopening_the
         "id": "0123456789abcdef0123456789abcdef", "name": "Phone", "platform": "Android",
         "browser": "Mixdog App", "createdAt": 5, "lastSeenAt": 6
     });
-    std::fs::write(dir.path().join("clients.json"), json!({
-        "clients": [paired], "pendingRevokes": [], "controllerKeys": {}, "repairRequired": false
-    }).to_string()).unwrap();
+    std::fs::write(
+        dir.path().join("clients.json"),
+        json!({
+            "clients": [paired], "pendingRevokes": [], "controllerKeys": {}, "repairRequired": false
+        })
+        .to_string(),
+    )
+    .unwrap();
     let cfg = RuntimeConfig {
         dir: dir.path().to_path_buf(),
         relay_url: None,

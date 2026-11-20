@@ -90,7 +90,9 @@ async fn a_profile_needs_a_field_and_only_ids_the_pickers_offer() {
 
     let language = mixdog_core_config::config::PROFILE_LANGUAGES[0].0;
     let level = mixdog_core_config::config::PROFILE_EXPERIENCE_LEVELS[0].0;
-    let saved = settings_call(&service, &json!({ "action": "set_profile", "profile": { "title": "Dr", "language": language, "experienceLevel": level } })).await.unwrap();
+    let saved = settings_call(&service, &json!({ "action": "set_profile", "profile": { "title": "Dr", "language": language, "experienceLevel": level } }))
+        .await
+        .unwrap();
     assert_eq!((saved["title"].clone(), saved["language"].clone(), saved["experienceLevel"].clone()), (json!("Dr"), json!(language), json!(level)));
 }
 
@@ -105,10 +107,7 @@ async fn an_agent_cannot_turn_on_allow_all_actions_and_a_warned_option_needs_the
         }
         args
     };
-    assert_eq!(
-        settings_call(&service, &option("nope", true, None)).await.unwrap_err(),
-        "Unknown developer option \"nope\"; read status developer"
-    );
+    assert_eq!(settings_call(&service, &option("nope", true, None)).await.unwrap_err(), "Unknown developer option \"nope\"; read status developer");
     assert_eq!(
         settings_call(&service, &option("allowAllActions", true, Some(true))).await.unwrap_err(),
         "\"Allow all actions\" cannot be turned on by an agent; only the person can turn it on in Settings → Developer options.",
@@ -156,7 +155,9 @@ async fn the_bot_order_keeps_trimmed_distinct_ids_in_order_and_refuses_anything_
     assert_eq!(config.agent()["botOrder"], json!(["beta", "alpha", "gamma"]));
 
     let too_many: Vec<String> = (0..501).map(|n| format!("b{n}")).collect();
-    for junk in [json!("beta"), json!(null), json!([1]), json!([{ "id": "a" }]), json!(["a", ""]), json!(["a", "  "]), json!(["x".repeat(129)]), json!(too_many)] {
+    for junk in
+        [json!("beta"), json!(null), json!([1]), json!([{ "id": "a" }]), json!(["a", ""]), json!(["a", "  "]), json!(["x".repeat(129)]), json!(too_many)]
+    {
         let error = settings_call(&service, &order(junk.clone())).await.unwrap_err();
         assert!(error.contains("an array of agent ids"), "{junk}: {error}");
     }

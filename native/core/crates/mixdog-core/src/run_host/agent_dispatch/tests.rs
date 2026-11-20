@@ -13,4 +13,3 @@ fn the_dispatch_permission_is_the_options_else_the_hidden_roles() {
     // internal agent's own declaration (none for `my-agent`) is left.
     assert_eq!(super::session_permission("my-agent", Some(&hidden), Some("")), None);
 }
-

@@ -40,8 +40,7 @@ pub const TOP_LEVEL_DECISION_EVENTS: [&str; 10] = [
 pub const PLAIN_STDOUT_CONTEXT_EVENTS: [&str; 3] = ["SessionStart", "UserPromptSubmit", "UserPromptExpansion"];
 
 /// Events whose handlers may carry an `if` tool condition.
-pub const TOOL_IF_EVENTS: [&str; 5] =
-    ["PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "PermissionDenied"];
+pub const TOOL_IF_EVENTS: [&str; 5] = ["PreToolUse", "PostToolUse", "PostToolUseFailure", "PermissionRequest", "PermissionDenied"];
 
 /// Cap on the bytes kept of a handler's output, per stream.
 pub const MAX_BUFFER_BYTES: usize = 10 * 1024 * 1024;
@@ -77,9 +76,7 @@ pub fn limit_text(text: String) -> String {
     if total <= MAX_OUTPUT_CHARS {
         return text;
     }
-    let kept: String = char::decode_utf16(text.encode_utf16().take(MAX_OUTPUT_CHARS))
-        .map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER))
-        .collect();
+    let kept: String = char::decode_utf16(text.encode_utf16().take(MAX_OUTPUT_CHARS)).map(|c| c.unwrap_or(char::REPLACEMENT_CHARACTER)).collect();
     format!("{kept}\n... [hook output truncated; original {total} chars]")
 }
 
@@ -171,9 +168,7 @@ pub fn parse_handler_output(run: &HandlerRun, event: &str) -> Parsed {
     if json.get("continue") == Some(&Value::Bool(false)) {
         out.block = true;
         out.prevent_continuation = true;
-        let text = non_empty(json.get("stopReason"))
-            .or_else(|| non_empty(json.get("reason")))
-            .unwrap_or_else(|| format!("stopped by {event} hook"));
+        let text = non_empty(json.get("stopReason")).or_else(|| non_empty(json.get("reason"))).unwrap_or_else(|| format!("stopped by {event} hook"));
         out.reason = Some(limit_text(text));
     }
     // A PreToolUse `permissionDecision` in `hookSpecificOutput` takes precedence over the top-level

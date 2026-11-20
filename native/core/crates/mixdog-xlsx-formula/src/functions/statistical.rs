@@ -3,8 +3,8 @@
 //! reductions below are copied in their original order; no distribution/special
 //! function implementation or dependency is shared with the distribution task.
 use crate::coerce::{
-    any_error, apply_criteria, array_values_to_numbers, clean_float, flatten, is_defined,
-    is_truthy, meets_criteria, numbers, parse_number, parse_number_array, to_js_number,
+    any_error, apply_criteria, array_values_to_numbers, clean_float, flatten, is_defined, is_truthy, meets_criteria, numbers, parse_number, parse_number_array,
+    to_js_number,
 };
 use crate::registry::Table;
 use crate::value::{ErrorValue, Failure, Value};
@@ -37,11 +37,7 @@ fn at(array: &[f64], index: usize) -> f64 {
 }
 fn property(array: &[f64], index: f64) -> Value {
     if index.is_finite() && index >= 0.0 && index.fract() == 0.0 {
-        array
-            .get(index as usize)
-            .copied()
-            .map(Value::Number)
-            .unwrap_or(Value::Undefined)
+        array.get(index as usize).copied().map(Value::Number).unwrap_or(Value::Undefined)
     } else {
         Value::Undefined
     }
@@ -53,11 +49,7 @@ fn wildcard(value: &Value) -> bool {
     matches!(value, Value::Undefined) || matches!(value, Value::Text(s) if s == "*")
 }
 fn number_or_num(value: f64) -> Value {
-    if value.is_nan() {
-        Value::Error(ErrorValue::Num)
-    } else {
-        Value::Number(value)
-    }
+    if value.is_nan() { Value::Error(ErrorValue::Num) } else { Value::Number(value) }
 }
 // jStat.sum/mean/sumsqerr run from the end, unlike formulajs' forward loops.
 pub(super) fn jsum(array: &[f64]) -> f64 {
@@ -140,11 +132,7 @@ fn average(args: &[Value], logical: bool) -> Value {
     number_or_num(sum / count)
 }
 fn variance(args: &[Value], logical: bool, population: bool) -> Value {
-    let flat = if logical {
-        flatten(args)
-    } else {
-        numbers(args).into_iter().map(Value::Number).collect()
-    };
+    let flat = if logical { flatten(args) } else { numbers(args).into_iter().map(Value::Number).collect() };
     let average = to_js_number(&average(&[Value::Array(flat.clone())], logical));
     let mut sigma = 0.0;
     let mut count = 0.0;
@@ -160,11 +148,7 @@ fn variance(args: &[Value], logical: bool, population: bool) -> Value {
         }
     }
     let result = sigma / (count - if population { 0.0 } else { 1.0 });
-    if population {
-        number_or_num(result)
-    } else {
-        Value::Number(result)
-    }
+    if population { number_or_num(result) } else { Value::Number(result) }
 }
 fn percentile(mut array: Vec<f64>, k: f64, exclusive: bool) -> Value {
     sort(&mut array, true);
@@ -172,18 +156,12 @@ fn percentile(mut array: Vec<f64>, k: f64, exclusive: bool) -> Value {
     if exclusive && (k < 1.0 / (n + 1.0) || k > 1.0 - 1.0 / (n + 1.0)) {
         return Value::Error(ErrorValue::Num);
     }
-    let l = if exclusive {
-        k * (n + 1.0) - 1.0
-    } else {
-        k * (n - 1.0)
-    };
+    let l = if exclusive { k * (n + 1.0) - 1.0 } else { k * (n - 1.0) };
     let fl = l.floor();
     let answer = if l == fl {
         to_js_number(&property(&array, l))
     } else {
-        to_js_number(&property(&array, fl))
-            + (l - fl)
-                * (to_js_number(&property(&array, fl + 1.0)) - to_js_number(&property(&array, fl)))
+        to_js_number(&property(&array, fl)) + (l - fl) * (to_js_number(&property(&array, fl + 1.0)) - to_js_number(&property(&array, fl)))
     };
     Value::Number(clean_float(answer))
 }
@@ -239,9 +217,7 @@ fn direct_array(value: &Value) -> Result<Value, Failure> {
             }
             // Explicit final exception text boundary; the input Value remains intact.
             let text = String::from_utf16_lossy(units);
-            Err(Failure::thrown(format!(
-                "Cannot assign to read only property '{index}' of string '{text}'"
-            )))
+            Err(Failure::thrown(format!("Cannot assign to read only property '{index}' of string '{text}'")))
         }
         Value::Text(text) if !text.is_empty() => {
             let chars: Vec<_> = text.encode_utf16().collect();
@@ -250,9 +226,7 @@ fn direct_array(value: &Value) -> Result<Value, Failure> {
             if let Value::Error(e) = parse_number(&last) {
                 return Ok(Value::Error(e));
             }
-            Err(Failure::thrown(format!(
-                "Cannot assign to read only property '{index}' of string '{text}'"
-            )))
+            Err(Failure::thrown(format!("Cannot assign to read only property '{index}' of string '{text}'")))
         }
         other if !is_truthy(other) => Ok(Value::Error(ErrorValue::Value)),
         other => Ok(other.clone()),
@@ -276,9 +250,7 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
             }
             let a = original!(parsed(&flat));
             let m = mean(&a);
-            Value::Number(
-                jsum(&a.iter().map(|x| (x - m).abs()).collect::<Vec<_>>()) / a.len() as f64,
-            )
+            Value::Number(jsum(&a.iter().map(|x| (x - m).abs()).collect::<Vec<_>>()) / a.len() as f64)
         }
         "AVERAGE" => average(args, false),
         "AVERAGEA" => average(args, true),
@@ -286,15 +258,8 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
             if args.len() <= 1 {
                 return Ok(Value::Error(ErrorValue::Na));
             }
-            let raw = if is_truthy(arg(args, 2)) {
-                arg(args, 2)
-            } else {
-                arg(args, 0)
-            };
-            let defined: Vec<_> = flatten(std::slice::from_ref(raw))
-                .into_iter()
-                .filter(is_defined)
-                .collect();
+            let raw = if is_truthy(arg(args, 2)) { arg(args, 2) } else { arg(args, 0) };
+            let defined: Vec<_> = flatten(std::slice::from_ref(raw)).into_iter().filter(is_defined).collect();
             let averages = original!(parsed(&defined));
             let range = flatten(&[arg(args, 0).clone()]);
             let criteria = arg(args, 1);
@@ -318,11 +283,7 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
                 // An Error's length is undefined; Math.max/min.apply reads it as
                 // an empty array-like object, giving -/+Infinity.
                 Err(_) => {
-                    return Ok(Value::Number(if name == "MAXIFS" {
-                        f64::NEG_INFINITY
-                    } else {
-                        f64::INFINITY
-                    }));
+                    return Ok(Value::Number(if name == "MAXIFS" { f64::NEG_INFINITY } else { f64::INFINITY }));
                 }
             };
             if name == "AVERAGEIFS" {
@@ -330,37 +291,19 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
                 let avg = sum / selected.len() as f64;
                 Value::Number(if avg.is_nan() { 0.0 } else { avg })
             } else {
-                extreme(
-                    selected.iter().map(to_js_number),
-                    name == "MAXIFS",
-                    selected.is_empty(),
-                )
+                extreme(selected.iter().map(to_js_number), name == "MAXIFS", selected.is_empty())
             }
         }
         "COUNT" => Value::Number(numbers(args).len() as f64),
         "COUNTA" | "COUNTBLANK" => {
             let a = flatten(args);
-            let count = a
-                .iter()
-                .filter(|v| {
-                    matches!(v, Value::Undefined | Value::Null)
-                        || matches!(v, Value::Text(s) if s.is_empty())
-                })
-                .count();
-            Value::Number(if name == "COUNTBLANK" {
-                count
-            } else {
-                a.len() - count
-            } as f64)
+            let count = a.iter().filter(|v| matches!(v, Value::Undefined | Value::Null) || matches!(v, Value::Text(s) if s.is_empty())).count();
+            Value::Number(if name == "COUNTBLANK" { count } else { a.len() - count } as f64)
         }
         "COUNTIF" => {
             let a = flatten(&[arg(args, 0).clone()]);
             let c = arg(args, 1);
-            Value::Number(
-                a.iter()
-                    .filter(|v| wildcard(c) || meets_criteria(v, c))
-                    .count() as f64,
-            )
+            Value::Number(a.iter().filter(|v| wildcard(c) || meets_criteria(v, c)).count() as f64)
         }
         "COUNTIFS" => {
             let mut result = vec![true; flatten(&[arg(args, 0).clone()]).len()];
@@ -408,9 +351,7 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
             let n = a.len() as f64;
             let m = mean(&a);
             if name == "GEOMEAN" {
-                Value::Number(math::exp(mean(
-                    &a.iter().map(|x| math::ln(*x)).collect::<Vec<_>>(),
-                )))
+                Value::Number(math::exp(mean(&a.iter().map(|x| math::ln(*x)).collect::<Vec<_>>())))
             } else if name == "HARMEAN" {
                 let mut den = 0.0;
                 for x in a {
@@ -435,8 +376,7 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
                     "DEVSQ" => sigma,
                     "KURT" => {
                         sigma /= math::pow(jstdev(&a), 4.0);
-                        (n * (n + 1.0) / ((n - 1.0) * (n - 2.0) * (n - 3.0))) * sigma
-                            - (3.0 * (n - 1.0) * (n - 1.0)) / ((n - 2.0) * (n - 3.0))
+                        (n * (n + 1.0) / ((n - 1.0) * (n - 2.0) * (n - 3.0))) * sigma - (3.0 * (n - 1.0) * (n - 1.0)) / ((n - 2.0) * (n - 3.0))
                     }
                     "SKEW" => n * sigma / ((n - 1.0) * (n - 2.0) * math::pow(jstdev(&a), 3.0)),
                     _ => (sigma / n) / math::pow(m2 / n, 3.0 / 2.0),
@@ -452,9 +392,7 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
                 (e - 1.0) / (e + 1.0)
             })
         }
-        "FORECAST" | "LINEST" | "SLOPE" | "STEYX" | "TREND" | "LOGEST" | "INTERCEPT" => {
-            regression_call(name, args)?
-        }
+        "FORECAST" | "LINEST" | "SLOPE" | "STEYX" | "TREND" | "LOGEST" | "INTERCEPT" => regression_call(name, args)?,
         "FREQUENCY" => {
             let data = value_error!(array(arg(args, 0)));
             let bins = value_error!(array(arg(args, 1)));
@@ -481,16 +419,7 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
             let max = name.starts_with("MAX");
             if logical {
                 array_values_to_numbers(&mut a);
-                let n: Vec<_> = a
-                    .iter()
-                    .map(|v| {
-                        if matches!(v, Value::Undefined | Value::Null) {
-                            0.0
-                        } else {
-                            to_js_number(v)
-                        }
-                    })
-                    .collect();
+                let n: Vec<_> = a.iter().map(|v| if matches!(v, Value::Undefined | Value::Null) { 0.0 } else { to_js_number(v) }).collect();
                 extreme(n.iter().copied(), max, n.is_empty())
             } else {
                 let n = numbers(&a);
@@ -517,19 +446,13 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
                 let right = get(len / 2);
                 // Date's default primitive is text; `date + date` concatenates,
                 // and the following division produces NaN, not a time average.
-                Value::Number(
-                    if matches!(left, Value::Date(_)) || matches!(right, Value::Date(_)) {
-                        f64::NAN
-                    } else {
-                        (to_js_number(&left) + to_js_number(&right)) / 2.0
-                    },
-                )
+                Value::Number(if matches!(left, Value::Date(_)) || matches!(right, Value::Date(_)) {
+                    f64::NAN
+                } else {
+                    (to_js_number(&left) + to_js_number(&right)) / 2.0
+                })
             };
-            if to_js_number(&middle).is_nan() {
-                Value::Error(ErrorValue::Num)
-            } else {
-                middle
-            }
+            if to_js_number(&middle).is_nan() { Value::Error(ErrorValue::Num) } else { middle }
         }
         "MODE.MULT" | "MODE.SNGL" => {
             let a = original!(all(args));
@@ -556,9 +479,7 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
                 }
                 Value::Undefined | Value::Null | Value::Date(_) | Value::Error(_) => {}
                 _ => {
-                    return Err(Failure::thrown(
-                        "CreateListFromArrayLike called on non-object",
-                    ));
+                    return Err(Failure::thrown("CreateListFromArrayLike called on non-object"));
                 }
             }
             if let Value::Error(e) = arg(args, 1) {
@@ -592,18 +513,9 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
         }
         "PERCENTRANK.EXC" | "PERCENTRANK.INC" => percentrank(name.ends_with("EXC"), args)?,
         "QUARTILE.EXC" | "QUARTILE.INC" => {
-            let a = value_error!(parsed(
-                &numbers(&[arg(args, 0).clone()])
-                    .into_iter()
-                    .map(Value::Number)
-                    .collect::<Vec<_>>()
-            ));
+            let a = value_error!(parsed(&numbers(&[arg(args, 0).clone()]).into_iter().map(Value::Number).collect::<Vec<_>>()));
             let q = value_error!(numeric(arg(args, 1)));
-            if q == 1.0 || q == 2.0 || q == 3.0 {
-                percentile(a, q / 4.0, name.ends_with("EXC"))
-            } else {
-                Value::Error(ErrorValue::Num)
-            }
+            if q == 1.0 || q == 2.0 || q == 3.0 { percentile(a, q / 4.0, name.ends_with("EXC")) } else { Value::Error(ErrorValue::Num) }
         }
         "RANK.AVG" | "RANK.EQ" => {
             let n = value_error!(numeric(arg(args, 0)));
@@ -611,20 +523,12 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
             sort(&mut a, is_truthy(arg(args, 2)));
             let index = a.iter().position(|x| *x == n).map_or(-1.0, |i| i as f64);
             let count = a.iter().filter(|x| **x == n).count() as f64;
-            Value::Number(if name == "RANK.AVG" && count > 1.0 {
-                (2.0 * index + count + 1.0) / 2.0
-            } else {
-                index + 1.0
-            })
+            Value::Number(if name == "RANK.AVG" && count > 1.0 { (2.0 * index + count + 1.0) / 2.0 } else { index + 1.0 })
         }
         "PERMUT" | "PERMUTATIONA" => {
             let n = value_error!(numeric(arg(args, 0)));
             let k = value_error!(numeric(arg(args, 1)));
-            Value::Number(if name == "PERMUT" {
-                factorial(n)? / factorial(n - k)?
-            } else {
-                math::pow(n, k)
-            })
+            Value::Number(if name == "PERMUT" { factorial(n)? / factorial(n - k)? } else { math::pow(n, k) })
         }
         "STANDARDIZE" => {
             let x = value_error!(numeric(arg(args, 0)));
@@ -632,20 +536,12 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
             let deviation = value_error!(numeric(arg(args, 2)));
             Value::Number((x - mean) / deviation)
         }
-        "VAR.P" | "VAR.S" | "VARA" | "VARPA" => variance(
-            args,
-            name == "VARA" || name == "VARPA",
-            name == "VAR.P" || name == "VARPA",
-        ),
+        "VAR.P" | "VAR.S" | "VARA" | "VARPA" => variance(args, name == "VARA" || name == "VARPA", name == "VAR.P" || name == "VARPA"),
         "STDEV.P" | "STDEV.S" | "STDEVA" | "STDEVPA" => {
             let population = name == "STDEV.P" || name == "STDEVPA";
             let v = variance(args, name == "STDEVA" || name == "STDEVPA", population);
             let result = to_js_number(&v).sqrt();
-            if population {
-                number_or_num(result)
-            } else {
-                Value::Number(result)
-            }
+            if population { number_or_num(result) } else { Value::Number(result) }
         }
         "TRIMMEAN" => {
             let mut a = value_error!(array(arg(args, 0)));
@@ -654,11 +550,7 @@ fn run(name: &str, args: &[Value]) -> Result<Value, Failure> {
             // FLOOR(n*p,2)/2, followed by rest/initial, whose `idx || 1`
             // makes a zero trim remove one item from EACH end in this library.
             let trim = ((a.len() as f64 * p / 2.0).floor() * 2.0) / 2.0;
-            let trim = if trim == 0.0 || trim.is_nan() {
-                1.0
-            } else {
-                trim
-            };
+            let trim = if trim == 0.0 || trim.is_nan() { 1.0 } else { trim };
             let start = slice_index(trim, a.len());
             let rest = &a[start..];
             let end = slice_index(rest.len() as f64 - trim, rest.len());
@@ -672,36 +564,15 @@ fn extreme(iter: impl Iterator<Item = f64>, maximum: bool, empty: bool) -> Value
     if empty {
         return Value::Number(0.0);
     }
-    Value::Number(iter.fold(
-        if maximum {
-            f64::NEG_INFINITY
-        } else {
-            f64::INFINITY
-        },
-        |a, b| {
-            if maximum {
-                math::max(a, b)
-            } else {
-                math::min(a, b)
-            }
-        },
-    ))
+    Value::Number(iter.fold(if maximum { f64::NEG_INFINITY } else { f64::INFINITY }, |a, b| if maximum { math::max(a, b) } else { math::min(a, b) }))
 }
 fn slice_index(index: f64, length: usize) -> usize {
     let n = length as f64;
-    if index < 0.0 {
-        (n + index.trunc()).max(0.0) as usize
-    } else {
-        index.trunc().min(n).max(0.0) as usize
-    }
+    if index < 0.0 { (n + index.trunc()).max(0.0) as usize } else { index.trunc().min(n).max(0.0) as usize }
 }
 fn regression_call(name: &str, args: &[Value]) -> Result<Value, Failure> {
     let offset = usize::from(name == "FORECAST");
-    let forecast_x = if offset == 1 {
-        value_error!(numeric(arg(args, 0)))
-    } else {
-        0.0
-    };
+    let forecast_x = if offset == 1 { value_error!(numeric(arg(args, 0))) } else { 0.0 };
     let (y, x) = if name == "INTERCEPT" {
         let y = direct_array(arg(args, 0))?;
         let x = direct_array(arg(args, 1))?;
@@ -713,24 +584,13 @@ fn regression_call(name: &str, args: &[Value]) -> Result<Value, Failure> {
         }
         (value_error!(array(&y)), value_error!(array(&x)))
     } else {
-        (
-            value_error!(array(arg(args, offset))),
-            value_error!(array(arg(args, offset + 1))),
-        )
+        (value_error!(array(arg(args, offset))), value_error!(array(arg(args, offset + 1))))
     };
-    let new_x = if name == "TREND" {
-        Some(value_error!(array(arg(args, 2))))
-    } else {
-        None
-    };
+    let new_x = if name == "TREND" { Some(value_error!(array(arg(args, 2)))) } else { None };
     if name == "LOGEST" && y.len() != x.len() {
         return Ok(Value::Error(ErrorValue::Value));
     }
-    let y = if name == "LOGEST" {
-        y.into_iter().map(math::ln).collect::<Vec<_>>()
-    } else {
-        y
-    };
+    let y = if name == "LOGEST" { y.into_iter().map(math::ln).collect::<Vec<_>>() } else { y };
     // LOGEST calls LINEST, which reparses both arrays: negative y or an x
     // whose first conversion produced NaN becomes #VALUE! on the second pass.
     if name == "LOGEST" && y.iter().chain(x.iter()).any(|n| n.is_nan()) {
@@ -741,35 +601,16 @@ fn regression_call(name: &str, args: &[Value]) -> Result<Value, Failure> {
         "SLOPE" => Value::Number(slope),
         "FORECAST" | "INTERCEPT" => Value::Number(intercept + slope * forecast_x),
         "LINEST" => values(vec![slope, intercept]),
-        "LOGEST" => values(vec![
-            math::round(math::exp(slope) * 1_000_000.0) / 1_000_000.0,
-            math::round(math::exp(intercept) * 1_000_000.0) / 1_000_000.0,
-        ]),
-        "TREND" => values(
-            new_x
-                .unwrap()
-                .into_iter()
-                .map(|x| slope * x + intercept)
-                .collect(),
-        ),
-        "STEYX" => Value::Number(
-            ((left - (numerator * numerator) / denominator) / (x.len() as f64 - 2.0)).sqrt(),
-        ),
+        "LOGEST" => values(vec![math::round(math::exp(slope) * 1_000_000.0) / 1_000_000.0, math::round(math::exp(intercept) * 1_000_000.0) / 1_000_000.0]),
+        "TREND" => values(new_x.unwrap().into_iter().map(|x| slope * x + intercept).collect()),
+        "STEYX" => Value::Number(((left - (numerator * numerator) / denominator) / (x.len() as f64 - 2.0)).sqrt()),
         _ => unreachable!(),
     })
 }
 fn growth(args: &[Value]) -> Result<Value, Failure> {
     let y = original!(array(arg(args, 0)));
-    let x_raw = if matches!(arg(args, 1), Value::Undefined) {
-        values((1..=y.len()).map(|n| n as f64).collect())
-    } else {
-        arg(args, 1).clone()
-    };
-    let new_raw = if matches!(arg(args, 2), Value::Undefined) {
-        &x_raw
-    } else {
-        arg(args, 2)
-    };
+    let x_raw = if matches!(arg(args, 1), Value::Undefined) { values((1..=y.len()).map(|n| n as f64).collect()) } else { arg(args, 1).clone() };
+    let new_raw = if matches!(arg(args, 2), Value::Undefined) { &x_raw } else { arg(args, 2) };
     let x = value_error!(array(&x_raw));
     let new_x = value_error!(array(new_raw));
     let constant = matches!(arg(args, 3), Value::Undefined) || is_truthy(arg(args, 3));
@@ -787,27 +628,14 @@ fn growth(args: &[Value]) -> Result<Value, Failure> {
     ay /= n;
     axy /= n;
     axx /= n;
-    let beta = if constant {
-        (axy - ax * ay) / (axx - ax * ax)
-    } else {
-        axy / axx
-    };
+    let beta = if constant { (axy - ax * ay) / (axx - ax * ax) } else { axy / axx };
     let alpha = if constant { ay - beta * ax } else { 0.0 };
-    Ok(values(
-        new_x
-            .into_iter()
-            .map(|x| math::exp(alpha + beta * x))
-            .collect(),
-    ))
+    Ok(values(new_x.into_iter().map(|x| math::exp(alpha + beta * x)).collect()))
 }
 fn percentrank(exclusive: bool, args: &[Value]) -> Result<Value, Failure> {
     let mut a = value_error!(array(arg(args, 0)));
     let x = value_error!(numeric(arg(args, 1)));
-    let significance = if matches!(arg(args, 2), Value::Undefined) {
-        3.0
-    } else {
-        value_error!(numeric(arg(args, 2)))
-    };
+    let significance = if matches!(arg(args, 2), Value::Undefined) { 3.0 } else { value_error!(numeric(arg(args, 2))) };
     sort(&mut a, true);
     let mut unique = Vec::new();
     for &n in &a {
@@ -818,8 +646,7 @@ fn percentrank(exclusive: bool, args: &[Value]) -> Result<Value, Failure> {
     let mut result = 0.0;
     let denominator = a.len() as f64 + if exclusive { 1.0 } else { -1.0 };
     for (i, &n) in unique.iter().enumerate() {
-        let position = a.iter().position(|v| *v == n).map_or(-1.0, |i| i as f64)
-            + if exclusive { 1.0 } else { 0.0 };
+        let position = a.iter().position(|v| *v == n).map_or(-1.0, |i| i as f64) + if exclusive { 1.0 } else { 0.0 };
         if x == n {
             result = position / denominator;
             break;

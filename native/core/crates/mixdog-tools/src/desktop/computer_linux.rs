@@ -44,7 +44,8 @@ const CLIPBOARD_HINT: &str = "clipboard_unavailable: install wl-clipboard (`wl-c
 const DISPLAY_HINT: &str = "display_unavailable: no graphical session to drive; run inside a desktop session with DISPLAY (X11) or WAYLAND_DISPLAY set";
 /// Stable code of the whole refusal; the per-capability codes are the native ones.
 pub const CAPABILITY_UNAVAILABLE_CODE: &str = "computer_capability_unavailable";
-pub const CAPTURE_FALLBACK_NOTE: &str = "Note: window control is not available on this Linux session, so this is a full-screen capture of screen 0 instead of the foreground window.";
+pub const CAPTURE_FALLBACK_NOTE: &str =
+    "Note: window control is not available on this Linux session, so this is a full-screen capture of screen 0 instead of the foreground window.";
 /// A probe is asked again once it is older than this, so a fix is noticed on the next call.
 const CACHE_LIFE: Duration = Duration::from_millis(3000);
 
@@ -263,11 +264,7 @@ pub async fn check_readiness(env: &Env, probes: &dyn Probes) -> Readiness {
         capabilities: Capabilities {
             // GNOME Wayland pixels come from our shell extension (no portal, never a prompt), so they are ready exactly when the
             // helper is. Other Wayland desktops use the desktop portal, which only prompts when used and so cannot be probed.
-            capture: if wayland {
-                if desktop == "gnome" { windows.clone() } else { Cap::of(State::Unknown) }
-            } else {
-                Cap::of(State::Ready)
-            },
+            capture: if wayland { if desktop == "gnome" { windows.clone() } else { Cap::of(State::Unknown) } } else { Cap::of(State::Ready) },
             // AT-SPI actions act on an accessible found through a window handle.
             semantic_actions: if windows.state == State::Ready { accessibility.clone() } else { windows.clone() },
             windows,
@@ -753,6 +750,3 @@ impl Probes for SystemProbes {
 
 #[cfg(test)]
 mod rules_tests;
-
-
-

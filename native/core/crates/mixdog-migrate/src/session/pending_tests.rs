@@ -16,11 +16,7 @@ use crate::run::tests::write;
 #[test]
 fn pending_input_resumes_once_after_publish_is_interrupted() {
     let dir = tempfile::tempdir().unwrap();
-    let roots = MigrationRoots {
-        data: dir.path().join("data"),
-        home: dir.path().join("home"),
-        profile: None,
-    };
+    let roots = MigrationRoots { data: dir.path().join("data"), home: dir.path().join("home"), profile: None };
     durable::create_dir_all(&roots.home).unwrap();
     let seed = |path: &str, value: Value| {
         write(&roots.data, path, &serde_json::to_vec(&value).unwrap());
@@ -138,16 +134,23 @@ fn pending_input_resumes_once_after_publish_is_interrupted() {
     let queue = &sessions["lead"].queue;
     assert_eq!(
         queue.iter().map(|(_, entry)| &entry["message"]).collect::<Vec<_>>(),
-        [&json!("legacy before shard"), &json!("legacy before shard"), &json!("anonymous live"), &json!("run first"),
-         &json!("legacy steering at the same time"), &json!("repeat this"), &json!("repeat this"), &parts, &parts],
+        [
+            &json!("legacy before shard"),
+            &json!("legacy before shard"),
+            &json!("anonymous live"),
+            &json!("run first"),
+            &json!("legacy steering at the same time"),
+            &json!("repeat this"),
+            &json!("repeat this"),
+            &parts,
+            &parts
+        ],
     );
     assert_eq!(queue.iter().map(|(id, _)| id).collect::<BTreeSet<_>>().len(), queue.len());
     assert_eq!(queue[5].0, "same-id");
     let retry = &queue[7].1;
     assert_eq!(retry["transcriptMeta"]["device"], "terminal");
-    let options = |index: usize| {
-        serde_json::from_value::<SubmitOptions>(queue[index].1["options"].clone()).unwrap()
-    };
+    let options = |index: usize| serde_json::from_value::<SubmitOptions>(queue[index].1["options"].clone()).unwrap();
     let restored = options(7);
     assert_eq!(restored.client_submission_id.as_deref(), Some("retry-submission"));
     assert_eq!(restored.submitted_at, Some(fresh + 21));
@@ -186,44 +189,59 @@ fn reused_local_ids_do_not_merge_distinct_submissions_in_either_bucket() {
     };
     // Keep this about identity, not the wall clock used by the TUI's expiry.
     let at = 4_102_444_800_000_i64;
-    seed("sessions/lead.json", json!({
-        "id":"lead", "deliveredPendingMessageIds":["local"],
-        "messages":[{"role":"user", "content":"already delivered", "meta":{"submissionIds":["sent"]}}]
-    }));
-    seed(source::LEGACY_SPOOL, json!({"sessions":{
-        "lead":[
-            {"id":"local", "content":"old manager", "options":{"id":"manager-old"}, "enqueuedAt":at},
-            {"id":"stale-manager-copy", "content":"discard manager copy", "options":{"id":"manager-new"}, "enqueuedAt":at}
-        ],
-        "tui_lead":[
-            {"id":"local", "text":"old steering", "submissionId":"tui-old", "at":at},
-            {"id":"stale-steering-copy", "text":"discard steering copy", "submissionId":"tui-new", "at":at}
-        ]
-    }}));
-    seed("session-pending/lead.json", json!({"sessions":{"lead":[
-        {"id":"local", "content":"manager copy without submission ID", "enqueuedAt":at},
-        {"id":"local", "content":"already delivered", "options":{"id":"sent"}, "enqueuedAt":at},
-        {"id":"local", "content":"keep manager", "options":{"id":"manager-new"}, "enqueuedAt":at},
-        {"id":"local", "content":"keep another manager", "options":{"id":"manager-other"}, "enqueuedAt":at},
-        {"id":"manager-copy", "content":"discard in-bucket manager copy", "submissionId":"manager-new", "enqueuedAt":at}
-    ]}}));
-    seed("session-pending/tui_lead.json", json!({"sessions":{"tui_lead":[
-        {"id":"local", "text":"steering copy without submission ID", "at":at},
-        {"id":"local", "text":"keep steering", "submissionId":"tui-new", "at":at},
-        {"id":"local", "text":"keep another steering", "submissionId":"tui-other", "at":at},
-        {"id":"steering-copy", "text":"discard in-bucket steering copy", "submissionId":"tui-new", "at":at},
-        {"id":"manager-mirror", "text":"discard cross-bucket copy", "submissionId":"manager-new", "at":at}
-    ]}}));
+    seed(
+        "sessions/lead.json",
+        json!({
+            "id":"lead", "deliveredPendingMessageIds":["local"],
+            "messages":[{"role":"user", "content":"already delivered", "meta":{"submissionIds":["sent"]}}]
+        }),
+    );
+    seed(
+        source::LEGACY_SPOOL,
+        json!({"sessions":{
+            "lead":[
+                {"id":"local", "content":"old manager", "options":{"id":"manager-old"}, "enqueuedAt":at},
+                {"id":"stale-manager-copy", "content":"discard manager copy", "options":{"id":"manager-new"}, "enqueuedAt":at}
+            ],
+            "tui_lead":[
+                {"id":"local", "text":"old steering", "submissionId":"tui-old", "at":at},
+                {"id":"stale-steering-copy", "text":"discard steering copy", "submissionId":"tui-new", "at":at}
+            ]
+        }}),
+    );
+    seed(
+        "session-pending/lead.json",
+        json!({"sessions":{"lead":[
+            {"id":"local", "content":"manager copy without submission ID", "enqueuedAt":at},
+            {"id":"local", "content":"already delivered", "options":{"id":"sent"}, "enqueuedAt":at},
+            {"id":"local", "content":"keep manager", "options":{"id":"manager-new"}, "enqueuedAt":at},
+            {"id":"local", "content":"keep another manager", "options":{"id":"manager-other"}, "enqueuedAt":at},
+            {"id":"manager-copy", "content":"discard in-bucket manager copy", "submissionId":"manager-new", "enqueuedAt":at}
+        ]}}),
+    );
+    seed(
+        "session-pending/tui_lead.json",
+        json!({"sessions":{"tui_lead":[
+            {"id":"local", "text":"steering copy without submission ID", "at":at},
+            {"id":"local", "text":"keep steering", "submissionId":"tui-new", "at":at},
+            {"id":"local", "text":"keep another steering", "submissionId":"tui-other", "at":at},
+            {"id":"steering-copy", "text":"discard in-bucket steering copy", "submissionId":"tui-new", "at":at},
+            {"id":"manager-mirror", "text":"discard cross-bucket copy", "submissionId":"manager-new", "at":at}
+        ]}}),
+    );
     let complete = migrator(&roots, None).run().unwrap();
     let sessions = read_sessions(&roots, &complete.manifest_sha256).unwrap();
     let queue = &sessions["lead"].queue;
-    assert_eq!(queue.iter().map(|(_, entry)| (
-        entry["options"]["clientSubmissionId"].as_str().unwrap(),
-        entry["message"].as_str().unwrap(),
-    )).collect::<Vec<_>>(), [
-        ("manager-old", "old manager"), ("tui-old", "old steering"),
-        ("manager-new", "keep manager"), ("manager-other", "keep another manager"),
-        ("tui-new", "keep steering"), ("tui-other", "keep another steering"),
-    ]);
+    assert_eq!(
+        queue.iter().map(|(_, entry)| (entry["options"]["clientSubmissionId"].as_str().unwrap(), entry["message"].as_str().unwrap(),)).collect::<Vec<_>>(),
+        [
+            ("manager-old", "old manager"),
+            ("tui-old", "old steering"),
+            ("manager-new", "keep manager"),
+            ("manager-other", "keep another manager"),
+            ("tui-new", "keep steering"),
+            ("tui-other", "keep another steering"),
+        ]
+    );
     assert_eq!(queue.iter().map(|(id, _)| id).collect::<BTreeSet<_>>().len(), queue.len());
 }

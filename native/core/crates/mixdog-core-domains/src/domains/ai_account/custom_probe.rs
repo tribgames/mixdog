@@ -91,11 +91,7 @@ enum Stopped {
 /// run and wins a tie: a run that bounds itself by the same `ms` (the discovery's own `timeoutMs`) expires with it, and
 /// Node's `setTimeout` armed first fires first.
 #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
-async fn bounded<T>(
-    run: impl std::future::Future<Output = Result<T, ProviderError>>,
-    limit: Duration,
-    label: &str,
-) -> Result<T, Stopped> {
+async fn bounded<T>(run: impl std::future::Future<Output = Result<T, ProviderError>>, limit: Duration, label: &str) -> Result<T, Stopped> {
     tokio::select! {
         biased;
         () = mixdog_rt::time::sleep(limit) => {
@@ -116,8 +112,7 @@ impl Stopped {
 
 static BEARER: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"Bearer\s+[A-Za-z0-9._~+/=-]+", "gi"));
 static TOKEN: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"\b(?:sk|key|tok)[-_][A-Za-z0-9_-]{8,}", "gi"));
-static FIELD: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r#"(api[-_]?key|authorization|token)(["']?\s*[:=]\s*["']?)[^\s"',}]+"#, "gi"));
+static FIELD: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"(api[-_]?key|authorization|token)(["']?\s*[:=]\s*["']?)[^\s"',}]+"#, "gi"));
 static NEWLINES: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"[\r\n]+", "g"));
 
 /// `sanitizeCustomError(error, secrets).message`: the secrets and credential-looking text
@@ -232,9 +227,7 @@ impl CustomProbes {
             (Some(id), true) => self.host.key_ids(id).await.map_err(|failure| thrown(failure.message()))?,
             _ => Vec::new(),
         };
-        let served = bounded(provider.send_test(&model, &key_ids), TEST_TIMEOUT, "connection test")
-            .await
-            .map_err(|stopped| thrown(stopped.message()))?;
+        let served = bounded(provider.send_test(&model, &key_ids), TEST_TIMEOUT, "connection test").await.map_err(|stopped| thrown(stopped.message()))?;
         // Key numbers count the primary key as 1.
         let index = served.as_ref().and_then(|served| key_ids.iter().position(|key| key == served));
         Ok(match (index, served) {

@@ -9,9 +9,7 @@ use std::collections::HashSet;
 
 use crate::tokens;
 
-use super::paths::{
-    dirname_str, file_stem_rel, is_same_or_under, normalize_import_spec, path_join_norm, rel_dir,
-};
+use super::paths::{dirname_str, file_stem_rel, is_same_or_under, normalize_import_spec, path_join_norm, rel_dir};
 
 // Strip a trailing js-like extension (.js/.jsx/.mjs/.cjs), mirroring the
 // JS `base.replace(/\.(js|jsx|mjs|cjs)$/, '')`.
@@ -78,11 +76,7 @@ fn resolve_py(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<Strin
         for _ in 1..levels {
             base = dirname_str(&base);
         }
-        if module_tail.is_empty() {
-            base
-        } else {
-            path_join_norm(&base, &module_tail)
-        }
+        if module_tail.is_empty() { base } else { path_join_norm(&base, &module_tail) }
     } else {
         path_join_norm("", &spec.replace('.', "/"))
     };
@@ -92,17 +86,8 @@ fn resolve_py(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<Strin
         prefixes.push("lib".to_string());
     }
     for prefix in prefixes {
-        let path = if prefix.is_empty() {
-            target.clone()
-        } else {
-            path_join_norm(&prefix, &target)
-        };
-        for cand in [
-            format!("{path}.py"),
-            format!("{path}.pyi"),
-            path_join_norm(&path, "__init__.py"),
-            path_join_norm(&path, "__init__.pyi"),
-        ] {
+        let path = if prefix.is_empty() { target.clone() } else { path_join_norm(&prefix, &target) };
+        for cand in [format!("{path}.py"), format!("{path}.pyi"), path_join_norm(&path, "__init__.py"), path_join_norm(&path, "__init__.pyi")] {
             if file_set.contains(&cand) {
                 return Some(cand);
             }
@@ -123,10 +108,7 @@ fn resolve_include(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<
         return Some(root_candidate);
     }
     let suffix = format!("/{norm}");
-    let mut hits: Vec<&String> = file_set
-        .iter()
-        .filter(|path| path.ends_with(&suffix) || *path == &norm)
-        .collect();
+    let mut hits: Vec<&String> = file_set.iter().filter(|path| path.ends_with(&suffix) || *path == &norm).collect();
     hits.sort();
     hits.into_iter().next().cloned()
 }
@@ -136,12 +118,7 @@ fn resolve_ruby(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<Str
     let norm = normalize_import_spec(spec);
     let rel_base = path_join_norm(rel_dir(rel), &norm);
     let root_base = path_join_norm("", &norm);
-    let candidates = [
-        format!("{}.rb", rel_base),
-        path_join_norm(&rel_base, "index.rb"),
-        format!("{}.rb", root_base),
-        path_join_norm(&root_base, "index.rb"),
-    ];
+    let candidates = [format!("{}.rb", rel_base), path_join_norm(&rel_base, "index.rb"), format!("{}.rb", root_base), path_join_norm(&root_base, "index.rb")];
     candidates.into_iter().find(|p| file_set.contains(p))
 }
 
@@ -150,11 +127,7 @@ fn resolve_ruby(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<Str
 // An empty spec names nothing, and an absolute `/foo` is a filesystem location
 // this repository cannot name, so joining it importer-relative would forge a
 // bogus repo path.
-fn resolve_relative_to_importer(
-    rel: &str,
-    spec: &str,
-    file_set: &HashSet<String>,
-) -> Option<String> {
+fn resolve_relative_to_importer(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<String> {
     let norm = normalize_import_spec(spec);
     if norm.is_empty() || norm.starts_with('/') {
         return None;
@@ -276,11 +249,7 @@ fn resolve_haskell_import(rel: &str, spec: &str, file_set: &HashSet<String>) -> 
     let mut dir = rel_dir(rel).to_string();
     loop {
         for source_dir in HASKELL_SOURCE_DIRS {
-            let base = if source_dir.is_empty() {
-                dir.clone()
-            } else {
-                path_join_norm(&dir, source_dir)
-            };
+            let base = if source_dir.is_empty() { dir.clone() } else { path_join_norm(&dir, source_dir) };
             for ext in ["hs", "lhs"] {
                 let candidate = path_join_norm(&base, &format!("{tail}.{ext}"));
                 if file_set.contains(&candidate) {
@@ -300,22 +269,14 @@ fn resolve_haskell_import(rel: &str, spec: &str, file_set: &HashSet<String>) -> 
 // repo-relative directory `dir`, sorted. No recursion: a nested directory is a
 // separate terraform module and a separate Go package, never part of this one.
 fn files_directly_in(dir: &str, ext: &str, file_set: &HashSet<String>) -> Vec<String> {
-    let prefix = if dir.is_empty() {
-        String::new()
-    } else {
-        format!("{dir}/")
-    };
+    let prefix = if dir.is_empty() { String::new() } else { format!("{dir}/") };
     let mut hits: Vec<String> = file_set
         .iter()
         .filter(|path| {
             if !path.ends_with(ext) {
                 return false;
             }
-            if dir.is_empty() {
-                !path.contains('/')
-            } else {
-                path.starts_with(&prefix) && !path[prefix.len()..].contains('/')
-            }
+            if dir.is_empty() { !path.contains('/') } else { path.starts_with(&prefix) && !path[prefix.len()..].contains('/') }
         })
         .cloned()
         .collect();
@@ -340,11 +301,7 @@ pub(crate) fn resolve_hcl_module(rel: &str, spec: &str, file_set: &HashSet<Strin
     files_directly_in(&path_join_norm(rel_dir(rel), &norm), ".tf", file_set)
 }
 
-pub(crate) fn resolve_go_relative(
-    rel: &str,
-    spec: &str,
-    file_set: &HashSet<String>,
-) -> Vec<String> {
+pub(crate) fn resolve_go_relative(rel: &str, spec: &str, file_set: &HashSet<String>) -> Vec<String> {
     if !spec.starts_with('.') {
         return Vec::new();
     }
@@ -361,14 +318,7 @@ fn resolve_php_require(rel: &str, spec: &str, file_set: &HashSet<String>) -> Opt
     }
     let rel_base = path_join_norm(rel_dir(rel), &norm);
     let root_base = path_join_norm("", &norm);
-    [
-        rel_base.clone(),
-        format!("{rel_base}.php"),
-        root_base.clone(),
-        format!("{root_base}.php"),
-    ]
-    .into_iter()
-    .find(|p| file_set.contains(p))
+    [rel_base.clone(), format!("{rel_base}.php"), root_base.clone(), format!("{root_base}.php")].into_iter().find(|p| file_set.contains(p))
 }
 
 fn resolve_zig(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<String> {
@@ -376,11 +326,7 @@ fn resolve_zig(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<Stri
     if norm.is_empty() || matches!(norm.as_str(), "std" | "builtin" | "root" | "c") {
         return None;
     }
-    let with_ext = if norm.ends_with(".zig") {
-        norm.clone()
-    } else {
-        format!("{norm}.zig")
-    };
+    let with_ext = if norm.ends_with(".zig") { norm.clone() } else { format!("{norm}.zig") };
     let rel_c = path_join_norm(rel_dir(rel), &with_ext);
     if file_set.contains(&rel_c) {
         return Some(rel_c);
@@ -389,11 +335,7 @@ fn resolve_zig(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<Stri
     file_set.contains(&root_c).then_some(root_c)
 }
 
-pub(crate) fn resolve_rust_mod(
-    rel: &str,
-    spec: &str,
-    file_set: &HashSet<String>,
-) -> Option<String> {
+pub(crate) fn resolve_rust_mod(rel: &str, spec: &str, file_set: &HashSet<String>) -> Option<String> {
     let name = spec.strip_prefix("mod::")?;
     if name.is_empty() {
         return None;
@@ -407,12 +349,7 @@ pub(crate) fn resolve_rust_mod(
     } else {
         format!("{dir}/{stem}")
     };
-    [
-        path_join_norm(&parent, &format!("{name}.rs")),
-        path_join_norm(&parent, &format!("{name}/mod.rs")),
-    ]
-    .into_iter()
-    .find(|path| file_set.contains(path))
+    [path_join_norm(&parent, &format!("{name}.rs")), path_join_norm(&parent, &format!("{name}/mod.rs"))].into_iter().find(|path| file_set.contains(path))
 }
 
 pub(crate) fn rust_crate_src_for(rel: &str, crate_srcs: &[String]) -> String {
@@ -421,8 +358,7 @@ pub(crate) fn rust_crate_src_for(rel: &str, crate_srcs: &[String]) -> String {
     let mut best_len = 0usize;
     for src in crate_srcs {
         let crate_root = dirname_str(src);
-        let matches = is_same_or_under(dir, src)
-            || (!crate_root.is_empty() && is_same_or_under(dir, &crate_root));
+        let matches = is_same_or_under(dir, src) || (!crate_root.is_empty() && is_same_or_under(dir, &crate_root));
         if matches && src.len() >= best_len {
             best_len = src.len();
             best = src.clone();
@@ -433,11 +369,7 @@ pub(crate) fn rust_crate_src_for(rel: &str, crate_srcs: &[String]) -> String {
 
 pub(crate) fn expand_rust_use_spec(spec: &str) -> Vec<String> {
     let spec = spec.trim();
-    let spec = if !spec.contains('{') {
-        spec.split(" as ").next().unwrap_or(spec).trim()
-    } else {
-        spec
-    };
+    let spec = if !spec.contains('{') { spec.split(" as ").next().unwrap_or(spec).trim() } else { spec };
     let Some(open) = spec.find('{') else {
         return vec![spec.to_string()];
     };
@@ -466,31 +398,14 @@ pub(crate) fn expand_rust_use_spec(spec: &str) -> Vec<String> {
 
 fn rust_mod_candidates(base: &str, parts: &[&str]) -> Vec<String> {
     if parts.is_empty() {
-        return vec![
-            path_join_norm(base, "lib.rs"),
-            path_join_norm(base, "mod.rs"),
-            format!("{base}.rs"),
-        ];
+        return vec![path_join_norm(base, "lib.rs"), path_join_norm(base, "mod.rs"), format!("{base}.rs")];
     }
     let sub = parts.join("/");
-    vec![
-        path_join_norm(base, &format!("{sub}.rs")),
-        path_join_norm(base, &format!("{sub}/mod.rs")),
-        path_join_norm(base, &format!("{sub}/lib.rs")),
-    ]
+    vec![path_join_norm(base, &format!("{sub}.rs")), path_join_norm(base, &format!("{sub}/mod.rs")), path_join_norm(base, &format!("{sub}/lib.rs"))]
 }
 
-pub(crate) fn resolve_rust_use_path(
-    rel: &str,
-    spec: &str,
-    file_set: &HashSet<String>,
-    crate_src: &str,
-) -> Option<String> {
-    let segs: Vec<&str> = spec
-        .split("::")
-        .map(str::trim)
-        .filter(|seg| !seg.is_empty() && *seg != "*")
-        .collect();
+pub(crate) fn resolve_rust_use_path(rel: &str, spec: &str, file_set: &HashSet<String>, crate_src: &str) -> Option<String> {
+    let segs: Vec<&str> = spec.split("::").map(str::trim).filter(|seg| !seg.is_empty() && *seg != "*").collect();
     if segs.is_empty() {
         return None;
     }
@@ -520,26 +435,16 @@ pub(crate) fn resolve_rust_use_path(
     } else {
         (crate_src.to_string(), segs.as_slice())
     };
-    rust_mod_candidates(&base, rest)
-        .into_iter()
-        .find(|path| file_set.contains(path))
-        .or_else(|| {
-            if rest.is_empty() {
-                return None;
-            }
-            rust_mod_candidates(&base, &rest[..rest.len() - 1])
-                .into_iter()
-                .find(|path| file_set.contains(path))
-        })
+    rust_mod_candidates(&base, rest).into_iter().find(|path| file_set.contains(path)).or_else(|| {
+        if rest.is_empty() {
+            return None;
+        }
+        rust_mod_candidates(&base, &rest[..rest.len() - 1]).into_iter().find(|path| file_set.contains(path))
+    })
 }
 
 // JS `_resolveGraphImport` dispatch (the direct, fileSet-backed leg).
-pub(crate) fn resolve_graph_import(
-    rel: &str,
-    spec: &str,
-    lang: &str,
-    file_set: &HashSet<String>,
-) -> Option<String> {
+pub(crate) fn resolve_graph_import(rel: &str, spec: &str, lang: &str, file_set: &HashSet<String>) -> Option<String> {
     match lang {
         "typescript" | "javascript" => resolve_js_like(rel, spec, file_set),
         "python" => resolve_py(rel, spec, file_set),

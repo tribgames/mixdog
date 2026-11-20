@@ -150,12 +150,7 @@ mod tests {
             let publisher = Arc::new(MockStatePublisher::default());
             let (config, _) = Config::open(path, publisher.clone(), lanes).await.unwrap();
             assert_eq!(config.quota_auto_resume_enabled(), enabled, "{file}");
-            let published = publisher
-                .published()
-                .into_iter()
-                .filter(|(_, key, _)| key.as_deref() == Some(KEY))
-                .map(|(_, _, change)| change)
-                .last();
+            let published = publisher.published().into_iter().filter(|(_, key, _)| key.as_deref() == Some(KEY)).map(|(_, _, change)| change).last();
             let published_off = matches!(&published, Some(SectionChange::Set(bytes)) if bytes.as_ref() == b"false");
             assert_eq!(published_off, !enabled, "{file}: published quotaAutoResume");
             assert_eq!(off(config.get(KEY).as_ref()), !enabled, "{file}: held quotaAutoResume");
@@ -195,10 +190,13 @@ mod tests {
         assert_eq!(file["quotaAutoResume"], json!(false));
         // A typed update (any other writer) too.
         let (config, _dir, path) = open_over(&json!({ "quotaAutoResume": false })).await;
-        config.update_agent(|agent| {
-            agent.insert("instructionFiles".into(), json!("claude"));
-            Ok(())
-        }).await.unwrap();
+        config
+            .update_agent(|agent| {
+                agent.insert("instructionFiles".into(), json!("claude"));
+                Ok(())
+            })
+            .await
+            .unwrap();
         assert!(!read_as_1_4_5(&path));
         assert!(!config.quota_auto_resume_enabled());
     }

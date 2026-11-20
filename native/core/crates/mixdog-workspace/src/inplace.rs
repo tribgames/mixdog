@@ -1,4 +1,8 @@
-#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread")]
+#![allow(
+    clippy::disallowed_methods,
+    clippy::disallowed_types,
+    reason = "blocking file bodies run only as lane jobs (lanes::run_fallible); the service never calls them on an async thread"
+)]
 //! In-place rewrite of an open file. The file is opened once, compared,
 //! rewritten and flushed through that one handle, so it keeps its identity
 //! (file id, hard links, ACLs, attributes) and a symlink is written through to
@@ -115,10 +119,7 @@ pub fn rewrite_or_restore(file: &mut File, bytes: &[u8], original: &[u8]) -> WsR
         Ok(()) => Ok(()),
         Err(error) => match rewrite(file, original) {
             Ok(()) => Err(error.into()),
-            Err(_) => Err(WsError::new(
-                Reason::Io,
-                format!("Save failed: {error}. The original could not be restored."),
-            )),
+            Err(_) => Err(WsError::new(Reason::Io, format!("Save failed: {error}. The original could not be restored."))),
         },
     }
 }

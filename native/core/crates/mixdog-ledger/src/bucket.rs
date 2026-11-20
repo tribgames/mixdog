@@ -65,25 +65,12 @@ impl Bucket {
     /// Adds `amount` (`sign` -1 takes it back out: a model's Fast calls leave its normal route).
     pub fn add(&mut self, amount: &Amount<'_>, sign: f64) {
         let cost = amount.cost_usd.unwrap_or(0.0);
-        let (mut input, mut cache_read, mut cache_write) =
-            (amount.input, amount.cache_read, amount.cache_write);
+        let (mut input, mut cache_read, mut cache_write) = (amount.input, amount.cache_read, amount.cache_write);
         let (mut cost_usd, mut known, mut billed, mut estimated) = (
             cost,
-            if amount.cost_source != "unpriced" {
-                amount.turns
-            } else {
-                0.0
-            },
-            if amount.cost_source == "provider" {
-                cost
-            } else {
-                0.0
-            },
-            if amount.cost_source == "provider" {
-                0.0
-            } else {
-                cost
-            },
+            if amount.cost_source != "unpriced" { amount.turns } else { 0.0 },
+            if amount.cost_source == "provider" { cost } else { 0.0 },
+            if amount.cost_source == "provider" { 0.0 } else { cost },
         );
         let mut unmeasured = 0.0;
         if is_unmeasuring_provider(amount.provider) {
@@ -135,19 +122,8 @@ impl Bucket {
     /// The bucket as a rollup JSON object.
     pub fn to_object(&self) -> Map<String, Value> {
         let mut out = self.measurements();
-        out.insert(
-            "sessions".to_string(),
-            Value::Object(
-                self.sessions
-                    .iter()
-                    .map(|(id, tokens)| (id.clone(), js_number(*tokens)))
-                    .collect(),
-            ),
-        );
-        out.insert(
-            "sessionsComplete".to_string(),
-            Value::Bool(self.sessions_complete),
-        );
+        out.insert("sessions".to_string(), Value::Object(self.sessions.iter().map(|(id, tokens)| (id.clone(), js_number(*tokens))).collect()));
+        out.insert("sessionsComplete".to_string(), Value::Bool(self.sessions_complete));
         out
     }
 }

@@ -34,8 +34,8 @@ use sha2::Sha256;
 use super::probes::StartupObservations;
 use super::sources::PromptSources;
 use mixdog_core_config::config::bot_migration;
-use mixdog_core_config::config::is_store_bot;
 use mixdog_core_config::config::hidden_agents::hidden_agent_traits;
+use mixdog_core_config::config::is_store_bot;
 use mixdog_core_config::config::mixy_display_name;
 use mixdog_core_config::config::mixy_identity_dir;
 use mixdog_core_config::workflow::pack::read_document;
@@ -202,9 +202,7 @@ fn one_line(value: Option<&Value>) -> String {
 /// `PERSONA_AGENT_ID.test(agent) && !agent.includes('..')`.
 fn valid_agent_id(agent: &str) -> bool {
     let mut chars = agent.chars();
-    chars.next().is_some_and(|c| c.is_ascii_alphanumeric())
-        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-'))
-        && !agent.contains("..")
+    chars.next().is_some_and(|c| c.is_ascii_alphanumeric()) && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')) && !agent.contains("..")
 }
 
 fn role_section(name: &str, body: &str) -> String {
@@ -433,7 +431,8 @@ fn read_instruction_file(path: &Path, root: Option<&Path>) -> String {
             skipped(path, &error);
             return String::new();
         }
-    }    let mut head = Vec::new();
+    }
+    let mut head = Vec::new();
     if let Err(error) = file.take((INSTRUCTION_FILE_MAX_BYTES + 3 + 1) as u64).read_to_end(&mut head) {
         skipped(path, &error);
         return String::new();
@@ -495,9 +494,8 @@ impl PromptSources for RealSources<'_> {
         let sections: Vec<String> = names.into_iter().map(|name| by_name[name].clone()).collect();
 
         let rules_dir = self.host.plugin_root.join("rules").join("agent");
-        let mut files: Vec<String> = fs::read_dir(&rules_dir)
-            .map(|entries| entries.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect())
-            .unwrap_or_default();
+        let mut files: Vec<String> =
+            fs::read_dir(&rules_dir).map(|entries| entries.flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect()).unwrap_or_default();
         files.retain(|file| file.ends_with(".md") && file != "AGENT.md");
         files.sort_by(|a, b| a.encode_utf16().cmp(b.encode_utf16()));
         let mut hidden: Vec<(String, String)> = Vec::new();
@@ -589,11 +587,8 @@ impl PromptSources for RealSources<'_> {
             if !cfg!(windows) {
                 return None;
             }
-            let found: HashSet<&str> = SHELL_TOOL_STARTUP_NAMES
-                .iter()
-                .copied()
-                .filter(|name| self.path_executable(name).is_some_and(|hit| !store_stub(&hit)))
-                .collect();
+            let found: HashSet<&str> =
+                SHELL_TOOL_STARTUP_NAMES.iter().copied().filter(|name| self.path_executable(name).is_some_and(|hit| !store_stub(&hit))).collect();
             let list = |present: bool| {
                 let names: Vec<&str> = SHELL_TOOL_STARTUP_NAMES.iter().copied().filter(|n| found.contains(n) == present).collect();
                 if names.is_empty() { "(none)".to_owned() } else { names.join(" ") }
@@ -607,7 +602,9 @@ impl PromptSources for RealSources<'_> {
         }
         let shown = cwd.map_or_else(|| std::env::current_dir().map(|d| d.to_string_lossy().into_owned()).unwrap_or_default(), str::to_owned);
         let Some((root, git_dir)) = self.repository_root(&shown) else {
-            return format!("- Git startup state: {shown} was not inside a git repository at startup; git commands that require one fail until a repository exists.");
+            return format!(
+                "- Git startup state: {shown} was not inside a git repository at startup; git commands that require one fail until a repository exists."
+            );
         };
         let branch = git_dir.as_deref().and_then(head_branch);
         let root_text = root.to_string_lossy().into_owned();
@@ -619,10 +616,8 @@ impl PromptSources for RealSources<'_> {
     fn cwd_entries(&self, cwd: &str) -> String {
         let Ok(directory) = std::path::absolute(if cwd.is_empty() { "." } else { cwd }) else { return String::new() };
         let Ok(read) = fs::read_dir(&directory) else { return String::new() };
-        let entries: Vec<(String, bool)> = read
-            .flatten()
-            .map(|e| (e.file_name().to_string_lossy().into_owned(), e.file_type().is_ok_and(|t| t.is_dir())))
-            .collect();
+        let entries: Vec<(String, bool)> =
+            read.flatten().map(|e| (e.file_name().to_string_lossy().into_owned(), e.file_type().is_ok_and(|t| t.is_dir()))).collect();
         if entries.is_empty() {
             return "- Cwd entries at startup: none (empty directory).".to_owned();
         }

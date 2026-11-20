@@ -42,7 +42,8 @@ const ENTRY: &str = "src/runtime/office/authoring/pptx-script-entry.mjs";
 /// The limit of a script is 90 s (`PPTX_SCRIPT_CONTRACT.timeoutMs`) and is enforced inside the interpreter; a script that
 /// never yields to it (a loop with no `await`) is ended here.
 const HARD_LIMIT: Duration = Duration::from_secs(150);
-const NO_RUNTIME: &str = "A pptxgenjs script cannot run: this install has no script interpreter. Author the deck as HTML slides (a source that opens with <) instead.";
+const NO_RUNTIME: &str =
+    "A pptxgenjs script cannot run: this install has no script interpreter. Author the deck as HTML slides (a source that opens with <) instead.";
 
 /// `runPptxAuthoringScript(script, output, { cwd })` on the installed interpreter: `Ok` is the answer of the function, `Err` what
 /// it threw or why the interpreter could not answer.
@@ -130,7 +131,9 @@ fn run_blocking(runtime: &ScriptRuntime, request: &str, limit: Duration) -> Resu
     let err = String::from_utf8_lossy(&err.join().unwrap_or_default()).into_owned();
     let Some(status) = status else {
         // What the function answers for a script that outlives its limit.
-        return Ok(json!({ "ok": false, "error": { "message": "Authoring script exceeded 90000 ms", "line": null, "excerpt": "" }, "logs": [], "elapsedMs": 90_000 }));
+        return Ok(
+            json!({ "ok": false, "error": { "message": "Authoring script exceeded 90000 ms", "line": null, "excerpt": "" }, "logs": [], "elapsedMs": 90_000 }),
+        );
     };
     let answer = out.rfind(ANSWER_MARKER).map(|at| out[at + ANSWER_MARKER.len()..].lines().next().unwrap_or_default());
     let Some(answer) = answer.and_then(|line| serde_json::from_str::<Value>(line).ok()) else {

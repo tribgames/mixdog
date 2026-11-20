@@ -166,7 +166,6 @@ mod tests {
     }
 }
 
-
 /// Cancels one registered deadline. Dropping it does **not** cancel: the callback still fires.
 #[must_use = "dropping the handle keeps the deadline armed; call cancel() to disarm it"]
 pub struct TimerHandle {
@@ -191,21 +190,14 @@ impl Ticker {
     /// Starts a ticker task on RT-C. Most code uses the process-wide [`ticker`]. Requires an
     /// installed backend.
     pub fn start() -> Self {
-        let shared = Arc::new(Shared {
-            state: Mutex::new(State::default()),
-            changed: Notify::new(),
-        });
+        let shared = Arc::new(Shared { state: Mutex::new(State::default()), changed: Notify::new() });
         // A replay's clock fires each deadline itself, in its own order (`register`).
         #[cfg(feature = "virtual-clock")]
         if crate::virtual_clock::active() {
             return Self { shared };
         }
         // Detached: the task lives as long as the runtime.
-        drop(crate::spawn(
-            "core-ticker",
-            TaskClass::Control,
-            run(shared.clone()),
-        ));
+        drop(crate::spawn("core-ticker", TaskClass::Control, run(shared.clone())));
         Self { shared }
     }
 

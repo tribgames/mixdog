@@ -23,7 +23,6 @@ use mixdog_app_server_client::api::ThreadReducer;
 use mixdog_app_server_daemon::compose::ComposeConfig;
 use mixdog_app_server_daemon::compose::ComposedCore;
 use mixdog_app_server_daemon::compose::JsRuntime;
-use mixdog_services::effort_judge::model::OrtRuntime;
 use mixdog_app_server_daemon::server::Shutdown;
 use mixdog_core_api::domain::ownership::FenceReason;
 use mixdog_core_api::domain::ownership::Ownership;
@@ -31,6 +30,7 @@ use mixdog_rt::Backend;
 use mixdog_rt::LaneTokens;
 use mixdog_rt::TaskClass;
 use mixdog_rt::exec::Executors;
+use mixdog_services::effort_judge::model::OrtRuntime;
 use serde_json::Value;
 
 use super::boundary::Boundary;
@@ -123,9 +123,11 @@ impl CoreLauncher for InProcessLauncher {
             let _ = mixdog_ai::registry::keys::replace_provider_api_key_bindings(HashMap::from([(provider.clone(), key.to_owned())]));
         }
         if let Some(binding) = &boundary.credential {
-            let _ = mixdog_ai::accounts::replace_provider_auth_bindings(HashMap::from([(binding.provider.clone(), binding.path.to_string_lossy().into_owned())]));
+            let _ =
+                mixdog_ai::accounts::replace_provider_auth_bindings(HashMap::from([(binding.provider.clone(), binding.path.to_string_lossy().into_owned())]));
         }
-        let (js_runtime, ort_library) = self.install.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take().ok_or("the exec's core was already launched")?;
+        let (js_runtime, ort_library) =
+            self.install.lock().unwrap_or_else(std::sync::PoisonError::into_inner).take().ok_or("the exec's core was already launched")?;
         let data_dir = boundary.data_dir.clone();
         let stop = mixdog_rt::CancellationToken::new();
         // The exec's stderr is program output: the core's log lines (connection open/close among them) go to its own log file, as the
@@ -133,7 +135,8 @@ impl CoreLauncher for InProcessLauncher {
         let log = mixdog_app_server_daemon::daemon_log::DaemonLog::new(data_dir.join("daemon.log"), self.tokens.maintenance_io, stop.clone());
         log.enable_file_logging();
         let outgoing = mixdog_app_server::Outgoing::new();
-        let config = ComposeConfig { rebuild: Default::default(),
+        let config = ComposeConfig {
+            rebuild: Default::default(),
             user_data_dir: data_dir.join("userdata"),
             // The exec's private runtime root (boundary.rs): no remote intent of the user's own core is read or written.
             runtime_root: boundary.runtime_root.clone(),
@@ -158,7 +161,8 @@ impl CoreLauncher for InProcessLauncher {
         core.late_lifecycle().bind_in_process().map_err(|cell| format!("the {cell} was already bound"))?;
         let core = Arc::new(core);
         let (connector, shutdown) = mixdog_app_server_daemon::server::serve_in_process(core.clone(), outgoing).map_err(|error| format!("{error:?}"))?;
-        let info: ClientInfo = serde_json::from_value(serde_json::json!({ "name": "mixdog-exec", "version": env!("CARGO_PKG_VERSION"), "kind": "cli" })).map_err(|error| error.to_string())?;
+        let info: ClientInfo = serde_json::from_value(serde_json::json!({ "name": "mixdog-exec", "version": env!("CARGO_PKG_VERSION"), "kind": "cli" }))
+            .map_err(|error| error.to_string())?;
         let options = ConnectOptions { thread_reducer: Some(feed), ..ConnectOptions::new(Target { id: "in-process".into() }, connector, info) };
         let client = mixdog_app_server_client::connect(options).await.map_err(|error| error.to_string())?;
         Ok(Arc::new(InProcessSession { client, core, shutdown, tokens: self.tokens.clone() }))
@@ -191,10 +195,7 @@ impl CoreSession for InProcessSession {
         let result = self.client.call_raw(method, params, CallOptions::default()).await.map_err(|error| rendered(&error))?;
         if method == "thread/start" {
             let thread_id = result["thread"]["id"].as_str().ok_or("thread/start answered without a thread id")?;
-            self.client
-                .resume_thread(&ThreadId::from(thread_id), ResumeWindow::None { none: true })
-                .await
-                .map_err(|error| rendered(&error))?;
+            self.client.resume_thread(&ThreadId::from(thread_id), ResumeWindow::None { none: true }).await.map_err(|error| rendered(&error))?;
         }
         Ok(result)
     }

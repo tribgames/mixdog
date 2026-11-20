@@ -1,0 +1,8 @@
+# One layout for the Rust under native/: the core workspace (native/core) and the standalone tools, some of whose
+# sources the core builds by path. Lines run long and keep a call, a literal or a chain on one line while it fits.
+# The style is named apart from the edition: the tools are edition 2021 crates, and Cargo passes each crate's own
+# edition to rustfmt, so without it the same configuration would lay their files out differently.
+edition = "2024"
+style_edition = "2024"
+max_width = 160
+use_small_heuristics = "Max"

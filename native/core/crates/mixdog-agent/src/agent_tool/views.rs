@@ -133,11 +133,9 @@ fn lowered(value: &str) -> String {
 }
 
 // Asked of every worker row on every status pass: compiled once.
-static CANCELLED_STATE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^(?:cancelled|canceled|killed|cancel[-_\s]?(?:unconfirmed|pending))$", ""));
-static TERMINAL_WORKER_STATUS: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^(idle|closed|complete|completed|done|success|fail|failed|error|cancelled|canceled|killed|timeout)$", "i")
-});
+static CANCELLED_STATE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:cancelled|canceled|killed|cancel[-_\s]?(?:unconfirmed|pending))$", ""));
+static TERMINAL_WORKER_STATUS: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^(idle|closed|complete|completed|done|success|fail|failed|error|cancelled|canceled|killed|timeout)$", "i"));
 
 fn is_cancelled_state(value: &str) -> bool {
     CANCELLED_STATE.is_match(value)
@@ -286,7 +284,8 @@ impl JobViews {
             apply(&mut view, frozen);
         } else if let Some(session_id) = meta.session_id.as_deref().filter(|s| !s.is_empty()) {
             if let Some(facts) = self.workers.session(session_id).await {
-                view.worker_status = Some(if facts.closed { "closed".to_owned() } else { facts.status.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "idle".to_owned()) });
+                view.worker_status =
+                    Some(if facts.closed { "closed".to_owned() } else { facts.status.clone().filter(|s| !s.is_empty()).unwrap_or_else(|| "idle".to_owned()) });
                 view.stage = Some(self.progress_of(session_id, None).await.worker_stage);
             }
             let live = self.progress_of(session_id, Some(&job.status)).await;

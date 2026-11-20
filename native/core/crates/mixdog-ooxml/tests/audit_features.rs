@@ -2,8 +2,7 @@
 //! number-format drift, unmarked inputs, the checks sheet and merging into a host result) and the workbook conventions.
 
 use mixdog_ooxml::xlsx_formula_audit::{
-    AuditOptions, audit_xlsx_formulas, inline_constants, merge_xlsx_formula_audit, relative_formula_signature, single_cell_references,
-    unguarded_division,
+    AuditOptions, audit_xlsx_formulas, inline_constants, merge_xlsx_formula_audit, relative_formula_signature, single_cell_references, unguarded_division,
 };
 use serde_json::{Map, Value, json};
 
@@ -372,8 +371,7 @@ fn layout_hygiene_reports_an_unfrozen_header_on_a_long_sheet_and_unformatted_num
 
 #[test]
 fn financial_model_audit_flags_a_single_reference_past_the_populated_extent_never_a_range_or_another_sheet() {
-    let found: Vec<String> =
-        single_cell_references("=SUM(B2:B9)/B10+'Other Sheet'!Z99+Other!C40+$D$3").into_iter().map(|entry| entry.reference).collect();
+    let found: Vec<String> = single_cell_references("=SUM(B2:B9)/B10+'Other Sheet'!Z99+Other!C40+$D$3").into_iter().map(|entry| entry.reference).collect();
     assert_eq!(found, ["B10", "D3"]);
     let model = sheet(
         "Model",
@@ -528,9 +526,8 @@ fn unmarked_inputs_are_judged_by_visible_formatting_not_by_a_style_record_recalc
         ("D3", json!({ "formula": "B3*C3", "value": 12_000_000 })),
         ("D4", json!({ "formula": "B4*C4", "value": 9_000_000 })),
     ];
-    let unmarked = |entries: &[(&str, Value)]| -> Vec<String> {
-        codes_at(&audit(&[sheet("Plan", entries)], "financial-model", &[], &[]), "input_cells_unmarked")
-    };
+    let unmarked =
+        |entries: &[(&str, Value)]| -> Vec<String> { codes_at(&audit(&[sheet("Plan", entries)], "financial-model", &[], &[]), "input_cells_unmarked") };
     assert!(unmarked(&cells).is_empty(), "a plain sheet is left alone");
     // What a recalculation engine leaves behind: a style record on every cell, carrying nothing a reader can see.
     let recalculated: Vec<(&str, Value)> = cells
@@ -593,5 +590,3 @@ fn portable_formulas_quote_multi_word_sheet_names_and_prefix_post_2007_functions
     assert_eq!(quote_unquoted_sheet_references("=SUM(A1:C3 Sheet2!B2:D4)&\"My Sheet!A1\""), "=SUM(A1:C3 Sheet2!B2:D4)&\"My Sheet!A1\"");
     assert_eq!(quote_unquoted_sheet_references("=IF(A1=\"x\", Sheet2!B1, 'Input Sheet'!B1)"), "=IF(A1=\"x\", Sheet2!B1, 'Input Sheet'!B1)");
 }
-
-

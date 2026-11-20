@@ -105,7 +105,9 @@ fn assert_headers(headers: &Value) -> Result<(), PageActionError> {
         return Err(PageActionError::invalid("headers must be an object"));
     };
     let valid = entries.len() <= 20
-        && entries.iter().all(|(name, value)| is_header_name(name) && value.as_str().is_some_and(|value| utf16_len(value) <= 8_192 && !value.contains(['\r', '\n'])));
+        && entries
+            .iter()
+            .all(|(name, value)| is_header_name(name) && value.as_str().is_some_and(|value| utf16_len(value) <= 8_192 && !value.contains(['\r', '\n'])));
     if !valid {
         return Err(PageActionError::invalid("headers require at most 20 valid names and bounded single-line values"));
     }
@@ -160,19 +162,9 @@ pub fn plan(input: &Map<String, Value>) -> Result<EmulationPlan, PageActionError
         return Err(PageActionError::invalid("networkProfile must be none, offline, slow3g, or fast3g"));
     }
     let reset_is_true = input.get("reset") == Some(&Value::Bool(true));
-    let names_a_switch = [
-        "touch",
-        "userAgent",
-        "locale",
-        "timezone",
-        "colorScheme",
-        "reducedMotion",
-        "cpuThrottlingRate",
-        "networkProfile",
-        "headers",
-    ]
-    .iter()
-    .any(|key| field(input, key).is_some());
+    let names_a_switch = ["touch", "userAgent", "locale", "timezone", "colorScheme", "reducedMotion", "cpuThrottlingRate", "networkProfile", "headers"]
+        .iter()
+        .any(|key| field(input, key).is_some());
     if !(reset_is_true || has_viewport || has_geolocation || names_a_switch) {
         return Err(PageActionError::invalid(NO_ACTION));
     }
@@ -258,7 +250,11 @@ pub fn plan(input: &Map<String, Value>) -> Result<EmulationPlan, PageActionError
     }
     if let Some(Value::Object(headers)) = field(input, "headers") {
         let names: Vec<&String> = mixdog_js::js_object_keys(headers);
-        applied.push(if names.is_empty() { "headers cleared".to_owned() } else { format!("headers={}", names.iter().map(|name| name.as_str()).collect::<Vec<_>>().join(",")) });
+        applied.push(if names.is_empty() {
+            "headers cleared".to_owned()
+        } else {
+            format!("headers={}", names.iter().map(|name| name.as_str()).collect::<Vec<_>>().join(","))
+        });
         spec.headers = Some(headers.iter().filter_map(|(name, value)| Some((name.clone(), value.as_str()?.to_owned()))).collect::<BTreeMap<_, _>>());
     }
     if applied.is_empty() {
@@ -315,7 +311,9 @@ mod tests {
     #[test]
     fn compound_input_is_validated_before_anything_is_applied() {
         assert!(refused(json!({"reset": true, "width": 390})).contains("requires width and height together"));
-        assert!(refused(json!({"width": 390, "height": 844, "networkProfile": "satellite"})).contains("networkProfile must be none, offline, slow3g, or fast3g"));
+        assert!(
+            refused(json!({"width": 390, "height": 844, "networkProfile": "satellite"})).contains("networkProfile must be none, offline, slow3g, or fast3g")
+        );
         assert!(refused(json!({"latitude": 37.5})).contains("latitude and longitude together"));
         assert!(refused(json!({"reset": true, "timezone": "Not/A_Real_Zone"})).contains("timezone must be a valid IANA timezone"));
         assert_eq!(refused(json!({"mobile": true})), "deviceScaleFactor, mobile, and orientation require width and height");
@@ -407,8 +405,10 @@ mod tests {
     #[tokio::test]
     async fn a_reset_clears_the_overrides_before_the_new_ones_are_laid_over() {
         let host = FakeHost::scripted(vec![
-            Expect::ok("host/browser/emulation", json!({"applied": null, "facts": page_facts("p1", 2)})).with_params(json!({"pageId": "p1", "overrides": null})),
-            Expect::ok("host/browser/emulation", json!({"applied": {"locale": "ko-KR"}, "facts": page_facts("p1", 3)})).with_params(json!({"overrides": {"locale": "ko-KR"}})),
+            Expect::ok("host/browser/emulation", json!({"applied": null, "facts": page_facts("p1", 2)}))
+                .with_params(json!({"pageId": "p1", "overrides": null})),
+            Expect::ok("host/browser/emulation", json!({"applied": {"locale": "ko-KR"}, "facts": page_facts("p1", 3)}))
+                .with_params(json!({"overrides": {"locale": "ko-KR"}})),
         ]);
         let cancel = CancellationToken::new();
         let call = PageCall { host: &host, page_id: "p1", cancel: &cancel };
@@ -424,9 +424,10 @@ mod tests {
 
     #[tokio::test]
     async fn the_reply_names_the_siblings_the_host_kept_of_a_group() {
-        let host = FakeHost::scripted(vec![
-            Expect::ok("host/browser/emulation", json!({"applied": {"userAgent": "UA"}, "labels": ["userAgent", "locale=ko-KR"], "facts": page_facts("p1", 3)})),
-        ]);
+        let host = FakeHost::scripted(vec![Expect::ok(
+            "host/browser/emulation",
+            json!({"applied": {"userAgent": "UA"}, "labels": ["userAgent", "locale=ko-KR"], "facts": page_facts("p1", 3)}),
+        )]);
         let cancel = CancellationToken::new();
         let call = PageCall { host: &host, page_id: "p1", cancel: &cancel };
         let applied = emulate(&call, &input(json!({"userAgent": "UA"}))).await.expect("emulated");

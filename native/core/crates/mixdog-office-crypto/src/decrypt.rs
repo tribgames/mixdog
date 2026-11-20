@@ -132,11 +132,7 @@ pub fn package_intact(descriptor: &Descriptor, key: &[u8], encrypted_package: &[
     match &agile.integrity {
         None => Ok(true),
         Some(Integrity::Malformed) => Ok(false),
-        Some(Integrity::Present {
-            hmac_key,
-            hmac_value,
-            salt_length,
-        }) => {
+        Some(Integrity::Present { hmac_key, hmac_value, salt_length }) => {
             let data = &agile.data;
             let open = |block: &[u8], value: &[u8]| -> Result<Vec<u8>, CryptoError> {
                 let iv = fitted(&hash(data.algorithm, &[&data.salt, block])?, data.block_size);

@@ -92,11 +92,7 @@ fn string_to_utf8_string(text: &str) -> String {
 }
 
 /// `createValidAbsoluteUrl`: the URL `url` names (against `base`), when its protocol is one pdf.js opens.
-pub(crate) fn create_valid_absolute_url(
-    url: &str,
-    base: Option<&str>,
-    add_default_protocol: bool,
-) -> Option<String> {
+pub(crate) fn create_valid_absolute_url(url: &str, base: Option<&str>, add_default_protocol: bool) -> Option<String> {
     if url.is_empty() {
         return None;
     }
@@ -154,8 +150,7 @@ fn is_valid_explicit_dest(dest: &Obj) -> bool {
         }
         _ => return false,
     }
-    args.iter()
-        .all(|arg| matches!(arg, Obj::Num(_)) || (allow_null && matches!(arg, Obj::Null)))
+    args.iter().all(|arg| matches!(arg, Obj::Num(_)) || (allow_null && matches!(arg, Obj::Null)))
 }
 
 /// `JSON.stringify` of an explicit destination as pdf.js's objects stringify (a name is `{"name":...}`, a reference
@@ -196,10 +191,7 @@ fn file_spec_filename(xref: &Xref, spec: &Dict) -> Result<String> {
     for key in ["UF", "F", "Unix", "Mac", "DOS"] {
         if spec.has(key) {
             if let Obj::Str(bytes) = xref.get(spec, key)? {
-                return Ok(string_to_pdf_string(&bytes, true)
-                    .replace("\\\\", "\\")
-                    .replace("\\/", "/")
-                    .replace('\\', "/"));
+                return Ok(string_to_pdf_string(&bytes, true).replace("\\\\", "\\").replace("\\/", "/").replace('\\', "/"));
             }
             return Ok(String::new());
         }
@@ -211,9 +203,7 @@ fn file_spec_filename(xref: &Xref, spec: &Dict) -> Result<String> {
 fn recover_js_url(text: &str) -> Option<(String, bool)> {
     let trimmed = text.trim_start_matches(|c: char| c.is_whitespace());
     let lower = trimmed.to_ascii_lowercase();
-    let method = ["app.launchurl", "window.open", "xfa.host.gotourl"]
-        .into_iter()
-        .find(|m| lower.starts_with(m))?;
+    let method = ["app.launchurl", "window.open", "xfa.host.gotourl"].into_iter().find(|m| lower.starts_with(m))?;
     let matched_method = &trimmed[..method.len()];
     let rest = &trimmed[method.len()..];
     let rest = rest.strip_prefix('(')?;
@@ -228,9 +218,7 @@ fn recover_js_url(text: &str) -> Option<(String, bool)> {
     } else {
         let rest = rest.strip_prefix(',')?;
         let rest = rest.trim_start_matches(|c: char| c.is_whitespace());
-        let word_len = rest
-            .find(|c: char| !(c.is_ascii_alphanumeric() || c == '_'))
-            .unwrap_or(rest.len());
+        let word_len = rest.find(|c: char| !(c.is_ascii_alphanumeric() || c == '_')).unwrap_or(rest.len());
         if word_len == 0 || !rest[word_len..].starts_with(')') {
             return None;
         }
@@ -246,11 +234,7 @@ fn recover_js_url(text: &str) -> Option<(String, bool)> {
 /// `Catalog.parseDestDictionary`: the action (or the destination) of an outline item or a link annotation. The
 /// actions of an embedded-file go-to (`GoToE`) and the structure-element fallback of a destination-less item are not
 /// read.
-pub fn parse_dest_dictionary(
-    xref: &Xref,
-    dest_dict: &Dict,
-    doc_base_url: Option<&str>,
-) -> Result<ActionData> {
+pub fn parse_dest_dictionary(xref: &Xref, dest_dict: &Dict, doc_base_url: Option<&str>) -> Result<ActionData> {
     let mut result = ActionData::default();
     let mut action = xref.get(dest_dict, "A")?;
     if !matches!(action, Obj::Dict(_)) {
@@ -289,11 +273,7 @@ pub fn parse_dest_dictionary(
                         }
                     }
                 }
-                result.reset_form = Some(ResetForm {
-                    fields,
-                    refs,
-                    include,
-                });
+                result.reset_form = Some(ResetForm { fields, refs, include });
             }
             "URI" => match xref.get(action, "URI")? {
                 Obj::Name(name) => url = Some(format!("/{name}")),
@@ -342,10 +322,7 @@ pub fn parse_dest_dictionary(
                         }
                     }
                     if entries.len() == state.len() {
-                        result.set_ocg_state = Some(SetOcgState {
-                            state: entries,
-                            preserve_rb: !matches!(preserve_rb, Obj::Bool(false)),
-                        });
+                        result.set_ocg_state = Some(SetOcgState { state: entries, preserve_rb: !matches!(preserve_rb, Obj::Bool(false)) });
                     }
                 }
             }
@@ -381,10 +358,7 @@ pub fn parse_dest_dictionary(
     if crate::oplist::truthy(&dest) {
         match dest {
             Obj::Name(name) => {
-                result.dest = Some(Dest::Named(string_to_pdf_string(
-                    &latin1_bytes(&name),
-                    true,
-                )));
+                result.dest = Some(Dest::Named(string_to_pdf_string(&latin1_bytes(&name), true)));
             }
             Obj::Str(bytes) => {
                 result.dest = Some(Dest::Named(string_to_pdf_string(&bytes, true)));
@@ -454,9 +428,7 @@ fn read_document_outline(document: &Document) -> Result<Option<Vec<OutlineItem>>
             Obj::Null => continue,
             Obj::Dict(d) => d,
             _ => {
-                return Err(format_error(
-                    "Cannot read properties of a non-dictionary outline item",
-                ));
+                return Err(format_error("Cannot read properties of a non-dictionary outline item"));
             }
         };
         if !outline_dict.has("Title") {
@@ -473,9 +445,7 @@ fn read_document_outline(document: &Document) -> Result<Option<Vec<OutlineItem>>
             Obj::Array(values) if values.len() == 3 => {
                 let numbers: Option<Vec<f64>> = values.iter().map(Obj::as_num).collect();
                 match numbers {
-                    Some(c) if c[0] != 0.0 || c[1] != 0.0 || c[2] != 0.0 => {
-                        ColorSpace::rgb().get_rgb(&c, 0)?
-                    }
+                    Some(c) if c[0] != 0.0 || c[1] != 0.0 || c[2] != 0.0 => ColorSpace::rgb().get_rgb(&c, 0)?,
                     _ => [0, 0, 0],
                 }
             }
@@ -519,21 +489,13 @@ fn read_document_outline(document: &Document) -> Result<Option<Vec<OutlineItem>>
         return Ok(None);
     }
     fn build(nodes: &mut Vec<Option<Node>>, index: usize) -> OutlineItem {
-        let node = nodes[index]
-            .take()
-            .expect("an outline node is attached once");
+        let node = nodes[index].take().expect("an outline node is attached once");
         let mut item = node.item;
-        item.items = node
-            .children
-            .into_iter()
-            .map(|child| build(nodes, child))
-            .collect();
+        item.items = node.children.into_iter().map(|child| build(nodes, child)).collect();
         item
     }
     let mut slots: Vec<Option<Node>> = nodes.into_iter().map(Some).collect();
-    Ok(Some(
-        roots.into_iter().map(|r| build(&mut slots, r)).collect(),
-    ))
+    Ok(Some(roots.into_iter().map(|r| build(&mut slots, r)).collect()))
 }
 
 // ---- named destinations ----------------------------------------------------------------------------------------------
@@ -545,9 +507,7 @@ fn fetch_dest(xref: &Xref, value: Obj) -> Result<Option<Vec<Obj>>> {
         other => other,
     };
     Ok(match value {
-        Obj::Array(items) if is_valid_explicit_dest(&Obj::Array(items.clone())) => {
-            Some(items.to_vec())
-        }
+        Obj::Array(items) if is_valid_explicit_dest(&Obj::Array(items.clone())) => Some(items.to_vec()),
         _ => None,
     })
 }
@@ -594,14 +554,8 @@ fn name_tree_get(xref: &Xref, root: &Obj, key: &[u16]) -> Result<Option<Obj>> {
             let Obj::Array(limits) = xref.get(kid_dict, "Limits")? else {
                 return Ok(None);
             };
-            let low = limits
-                .first()
-                .map(|o| xref.fetch_if_ref(o, false))
-                .transpose()?;
-            let high = limits
-                .get(1)
-                .map(|o| xref.fetch_if_ref(o, false))
-                .transpose()?;
+            let low = limits.first().map(|o| xref.fetch_if_ref(o, false)).transpose()?;
+            let high = limits.get(1).map(|o| xref.fetch_if_ref(o, false)).transpose()?;
             let low = low.as_ref().and_then(units_of_string).unwrap_or_default();
             let high = high.as_ref().and_then(units_of_string).unwrap_or_default();
             if key < low.as_slice() {
@@ -701,9 +655,7 @@ fn dest_sources(xref: &Xref) -> Result<Vec<DestSource>> {
     if let Obj::Dict(names) = xref.get(&catalog, "Names")?
         && names.has("Dests")
     {
-        out.push(DestSource::Tree(
-            names.get_raw("Dests").cloned().unwrap_or(Obj::Null),
-        ));
+        out.push(DestSource::Tree(names.get_raw("Dests").cloned().unwrap_or(Obj::Null)));
     }
     if catalog.has("Dests")
         && let Obj::Dict(dests) = xref.get(&catalog, "Dests")?
@@ -745,8 +697,7 @@ pub fn get_destination(document: &Document, id: &str) -> Result<Option<Vec<Obj>>
                 for key in dict.keys().map(str::to_owned).collect::<Vec<_>>() {
                     let value = xref.get(dict, &key)?;
                     if let Some(dest) = fetch_dest(xref, value)? {
-                        all.entry(string_to_pdf_string(&latin1_bytes(&key), true))
-                            .or_insert(dest);
+                        all.entry(string_to_pdf_string(&latin1_bytes(&key), true)).or_insert(dest);
                     }
                 }
             }
@@ -770,16 +721,11 @@ pub fn get_page_index(document: &Document, page_ref: Ref) -> Result<usize> {
         let node = xref.fetch(reference, false)?;
         if reference == page_ref {
             let is_page = match &node {
-                Obj::Dict(d) => {
-                    matches!(xref.get(d, "Type")?, Obj::Name(ref t) if &**t == "Page")
-                        || (!d.has("Type") && d.has("Contents"))
-                }
+                Obj::Dict(d) => matches!(xref.get(d, "Type")?, Obj::Name(ref t) if &**t == "Page") || (!d.has("Type") && d.has("Contents")),
                 _ => false,
             };
             if !is_page {
-                return Err(format_error(
-                    "The reference does not point to a /Page dictionary.",
-                ));
+                return Err(format_error("The reference does not point to a /Page dictionary."));
             }
         }
         if matches!(node, Obj::Null) {
@@ -852,47 +798,22 @@ mod tests {
     fn explicit_destinations_follow_the_argument_counts() {
         let name = |s: &str| Obj::name(s);
         let n = Obj::Num;
-        let valid = Obj::Array(Arc::new(vec![
-            n(0.0),
-            name("XYZ"),
-            n(1.0),
-            n(2.0),
-            Obj::Null,
-        ]));
+        let valid = Obj::Array(Arc::new(vec![n(0.0), name("XYZ"), n(1.0), n(2.0), Obj::Null]));
         assert!(is_valid_explicit_dest(&valid));
         let fit = Obj::Array(Arc::new(vec![Obj::Ref(Ref::new(4, 0)), name("Fit")]));
         assert!(is_valid_explicit_dest(&fit));
         let bad = Obj::Array(Arc::new(vec![n(0.0), name("Fit"), n(1.0)]));
         assert!(!is_valid_explicit_dest(&bad));
-        let rect_with_null = Obj::Array(Arc::new(vec![
-            n(0.0),
-            name("FitR"),
-            n(1.0),
-            Obj::Null,
-            n(3.0),
-            n(4.0),
-        ]));
+        let rect_with_null = Obj::Array(Arc::new(vec![n(0.0), name("FitR"), n(1.0), Obj::Null, n(3.0), n(4.0)]));
         assert!(!is_valid_explicit_dest(&rect_with_null));
     }
 
     #[test]
     fn urls_get_pdfjs_normalisation() {
-        assert_eq!(
-            create_valid_absolute_url("http://example.com", None, true).as_deref(),
-            Some("http://example.com/")
-        );
-        assert_eq!(
-            create_valid_absolute_url("www.example.com", None, true).as_deref(),
-            Some("http://www.example.com/")
-        );
-        assert_eq!(
-            create_valid_absolute_url("javascript:alert(1)", None, true),
-            None
-        );
-        assert_eq!(
-            create_valid_absolute_url("page.html", Some("http://a.test/dir/"), false).as_deref(),
-            Some("http://a.test/dir/page.html")
-        );
+        assert_eq!(create_valid_absolute_url("http://example.com", None, true).as_deref(), Some("http://example.com/"));
+        assert_eq!(create_valid_absolute_url("www.example.com", None, true).as_deref(), Some("http://www.example.com/"));
+        assert_eq!(create_valid_absolute_url("javascript:alert(1)", None, true), None);
+        assert_eq!(create_valid_absolute_url("page.html", Some("http://a.test/dir/"), false).as_deref(), Some("http://a.test/dir/page.html"));
         assert_eq!(create_valid_absolute_url("", None, true), None);
     }
 
@@ -900,22 +821,13 @@ mod tests {
     fn utf8_urls_are_read_from_their_bytes() {
         let bytes = "http://a.test/é".as_bytes();
         let text = latin1(bytes);
-        assert_eq!(
-            create_valid_absolute_url(&text, None, false).as_deref(),
-            Some("http://a.test/%C3%A9")
-        );
+        assert_eq!(create_valid_absolute_url(&text, None, false).as_deref(), Some("http://a.test/%C3%A9"));
     }
 
     #[test]
     fn javascript_urls_are_recovered() {
-        assert_eq!(
-            recover_js_url("app.launchURL('http://x.test', true)"),
-            Some(("http://x.test".to_owned(), true))
-        );
-        assert_eq!(
-            recover_js_url("  window.open(\"http://y.test\")"),
-            Some(("http://y.test".to_owned(), false))
-        );
+        assert_eq!(recover_js_url("app.launchURL('http://x.test', true)"), Some(("http://x.test".to_owned(), true)));
+        assert_eq!(recover_js_url("  window.open(\"http://y.test\")"), Some(("http://y.test".to_owned(), false)));
         assert_eq!(recover_js_url("this.print()"), None);
     }
 

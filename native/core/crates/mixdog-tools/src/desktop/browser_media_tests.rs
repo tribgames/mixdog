@@ -61,7 +61,10 @@ fn a_binary_stays_on_disk_and_the_reply_no_longer_says_it_was_attached() {
         assert!(text.starts_with("Downloads this session (newest first):\n- d1 "), "the list stays: {text}");
         assert_eq!(
             parts[1..],
-            [ToolPart::Text(format!("Download {name} ({mime}, {} bytes) is binary and stays on disk; open it from the path listed above with read.", bytes.len()))]
+            [ToolPart::Text(format!(
+                "Download {name} ({mime}, {} bytes) is binary and stays on disk; open it from the path listed above with read.",
+                bytes.len()
+            ))]
         );
     }
 }

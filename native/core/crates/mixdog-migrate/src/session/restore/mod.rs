@@ -19,12 +19,12 @@ pub mod reasoning;
 #[cfg(test)]
 mod tests;
 
-use mixdog_protocol::message_class::js::str_of;
 pub use mixdog_protocol::message_class::Shown;
 pub use mixdog_protocol::message_class::TASK_CARD;
 pub use mixdog_protocol::message_class::TURN_END;
 pub use mixdog_protocol::message_class::envelope;
 pub use mixdog_protocol::message_class::is_room_row;
+use mixdog_protocol::message_class::js::str_of;
 pub use mixdog_protocol::message_class::room_prompt;
 pub use mixdog_protocol::message_class::row_facts;
 pub use mixdog_protocol::message_class::user_row;
@@ -58,9 +58,7 @@ pub struct StoreBlobs<'a, 'b>(pub &'a ItemContext<'b>);
 impl Blobs for StoreBlobs<'_, '_> {
     fn text_within(&self, hex: &str, max_bytes: u64) -> Result<Option<String>, ReadError> {
         match crate::durable::read_within(&self.0.blob_path(hex), max_bytes) {
-            Ok(Some(bytes)) if crate::durable::sha256_hex(&bytes) == hex => {
-                Ok(Some(String::from_utf8_lossy(&bytes).into_owned()))
-            }
+            Ok(Some(bytes)) if crate::durable::sha256_hex(&bytes) == hex => Ok(Some(String::from_utf8_lossy(&bytes).into_owned())),
             Ok(Some(_)) => Err(ReadError::Other),
             Ok(None) => Ok(None),
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(ReadError::Missing),

@@ -151,7 +151,9 @@ fn without_container_fill(line: &str) -> String {
     let split = |piece: &str| -> (usize, bool) {
         // `\e[...m` then the text: a fill is blank text under a background and no foreground.
         match piece.strip_prefix('\u{1b}').and_then(|rest| rest.find('m').map(|end| (end + 1, &rest[..=end]))) {
-            Some((sgr_len, sgr)) => (sgr_len + 1, !piece[sgr_len + 1..].is_empty() && piece[sgr_len + 1..].chars().all(|c| c == ' ') && sgr.contains("48;") && !sgr.contains("38;")),
+            Some((sgr_len, sgr)) => {
+                (sgr_len + 1, !piece[sgr_len + 1..].is_empty() && piece[sgr_len + 1..].chars().all(|c| c == ' ') && sgr.contains("48;") && !sgr.contains("38;"))
+            }
             None => (0, false),
         }
     };

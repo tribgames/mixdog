@@ -5,7 +5,6 @@
 use mixdog_js::{JsRegex, js_trim};
 use std::sync::LazyLock;
 
-
 /// (pattern, flags, replacement), applied in order. The rules are a stable
 /// best-effort sanitisation: extend only with a stored-data reason, since a
 /// change alters what already-indexed text matches.
@@ -51,9 +50,8 @@ const RULES: &[(&str, &str, &str)] = &[
     (r"^\s+|\s+$", "m", ""),
 ];
 
-static COMPILED: LazyLock<Vec<(JsRegex, &'static str)>> = LazyLock::new(|| {
-    RULES.iter().map(|(pattern, flags, replacement)| (JsRegex::new_static(pattern, &format!("g{flags}")), *replacement)).collect()
-});
+static COMPILED: LazyLock<Vec<(JsRegex, &'static str)>> =
+    LazyLock::new(|| RULES.iter().map(|(pattern, flags, replacement)| (JsRegex::new_static(pattern, &format!("g{flags}")), *replacement)).collect());
 
 pub fn clean_memory_text(text: &str) -> String {
     let mut out = text.to_owned();

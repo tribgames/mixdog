@@ -70,29 +70,14 @@ fn capability(value: Option<&JsonValue>) -> Capability {
 }
 
 fn strings(value: Option<&JsonValue>) -> Vec<String> {
-    value
-        .and_then(JsonValue::as_array)
-        .map(|list| {
-            list.iter()
-                .filter_map(|v| v.as_str().map(str::to_owned))
-                .collect()
-        })
-        .unwrap_or_default()
+    value.and_then(JsonValue::as_array).map(|list| list.iter().filter_map(|v| v.as_str().map(str::to_owned)).collect()).unwrap_or_default()
 }
 
 fn record(provider_npm: Option<&str>, row: &JsonValue) -> MetadataRecord {
     // A model's own package wins over its provider's.
-    let npm = row
-        .pointer("/provider/npm")
-        .and_then(JsonValue::as_str)
-        .or(provider_npm)
-        .map(str::to_owned);
+    let npm = row.pointer("/provider/npm").and_then(JsonValue::as_str).or(provider_npm).map(str::to_owned);
     let vision = if row.pointer("/modalities/input").is_some() {
-        if strings(row.pointer("/modalities/input")).iter().any(|m| m == "image") {
-            Capability::Yes
-        } else {
-            Capability::No
-        }
+        if strings(row.pointer("/modalities/input")).iter().any(|m| m == "image") { Capability::Yes } else { Capability::No }
     } else {
         Capability::Unknown
     };
@@ -317,7 +302,6 @@ mod stream {
     #[derive(Default)]
     pub(super) struct LitellmDocument(pub(super) Placed<Box<str>>);
 
-
     impl Member for Models {
         fn read<'de, A: MapAccess<'de>>(&mut self, id: String, map: &mut A) -> Result<(), A::Error> {
             let row: JsonValue = map.next_value()?;
@@ -329,7 +313,8 @@ mod stream {
     impl Member for LitellmDocument {
         fn read<'de, A: MapAccess<'de>>(&mut self, key: String, map: &mut A) -> Result<(), A::Error> {
             let row: JsonValue = map.next_value()?;
-            let kept = crate::catalog::lookup::litellm_row(&row).filter(crate::catalog::overlay::holds).map(|projected| crate::catalog::overlay::text(&projected));
+            let kept =
+                crate::catalog::lookup::litellm_row(&row).filter(crate::catalog::overlay::holds).map(|projected| crate::catalog::overlay::text(&projected));
             self.0.insert(key, kept);
             Ok(())
         }
@@ -373,11 +358,7 @@ mod tests {
         assert_eq!(gpt.context_window, Some(400000));
         assert_eq!(gpt.rates.cache_read, Some(0.125));
         assert_eq!(gpt.source, MetadataSource::ModelsDev);
-        assert_eq!(
-            layer.find(&"anthropic".into(), "odd").unwrap().npm.as_deref(),
-            Some("@ai-sdk/google"),
-            "the model's own package wins"
-        );
+        assert_eq!(layer.find(&"anthropic".into(), "odd").unwrap().npm.as_deref(), Some("@ai-sdk/google"), "the model's own package wins");
         assert!(layer.models_of(&"broken".into()).is_empty());
         assert!(ModelsDev::parse(b"[]").is_none());
     }
@@ -390,15 +371,14 @@ mod tests {
                 "first": {}
             }},
             "a": { "npm": "provider-a", "models": { "same": { "name": "A" } } }
-        })).unwrap();
+        }))
+        .unwrap();
         let own = layer.find(&"z".into(), "same").unwrap();
         assert_eq!((own.provider.as_str(), own.display_name.as_deref(), own.npm.as_deref()), ("z", Some(""), Some("")));
         let other = layer.find(&"missing".into(), "same").unwrap();
         assert_eq!((other.provider.as_str(), other.display_name.as_deref(), other.npm.as_deref()), ("a", Some("A"), Some("provider-a")));
         assert_eq!(layer.models_of(&"z".into()).into_iter().map(|row| row.id).collect::<Vec<_>>(), ["first", "same"]);
     }
-
-
 
     #[test]
     fn compat_model_table_receives_the_modalities() {
@@ -450,7 +430,6 @@ impl ModelsDev {
         Some(layer)
     }
 
-
     /// The digest of the document this layer was parsed from: equal for two fetches of the same document.
     pub fn digest(&self) -> u64 {
         self.digest
@@ -475,10 +454,6 @@ impl ModelsDev {
 
     /// Feeds a compat model table the output modalities this layer states.
     pub fn fill_table(&self, provider: &ProviderId, table: &ModelTable) {
-        table.fill_output_modalities(|id| {
-            self.find(provider, id)
-                .map(|r| r.output_modalities)
-                .filter(|m| !m.is_empty())
-        });
+        table.fill_output_modalities(|id| self.find(provider, id).map(|r| r.output_modalities).filter(|m| !m.is_empty()));
     }
 }

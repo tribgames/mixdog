@@ -6,9 +6,7 @@
 
 use std::sync::Arc;
 
-
 use super::CoreMemoryContext;
-
 
 #[tokio::test(flavor = "multi_thread")]
 async fn a_snapshot_rewritten_after_the_first_load_is_read_again() {
@@ -28,5 +26,3 @@ async fn a_snapshot_rewritten_after_the_first_load_is_read_again() {
     std::fs::write(root.path().join("core-memory.json"), entry("second")).expect("snapshot");
     assert_eq!(context.load(cwd, "").await, "- second");
 }
-
-

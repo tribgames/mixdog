@@ -45,17 +45,12 @@ fn existing_file(candidate: &Path) -> Option<PathBuf> {
     if candidate.as_os_str().is_empty() {
         return None;
     }
-    std::fs::metadata(candidate)
-        .ok()
-        .filter(|meta| meta.is_file())
-        .map(|_| candidate.to_path_buf())
+    std::fs::metadata(candidate).ok().filter(|meta| meta.is_file()).map(|_| candidate.to_path_buf())
 }
 
 fn find_on_path(binary: &str) -> Option<PathBuf> {
     let path = std::env::var_os("PATH")?;
-    std::env::split_paths(&path)
-        .filter(|dir| !dir.as_os_str().is_empty())
-        .find_map(|dir| existing_file(&dir.join(binary)))
+    std::env::split_paths(&path).filter(|dir| !dir.as_os_str().is_empty()).find_map(|dir| existing_file(&dir.join(binary)))
 }
 
 fn env_var(name: &str) -> Option<String> {
@@ -69,9 +64,7 @@ fn text(path: &Path) -> String {
 /// Utility-VM distributions are not user shells.
 fn hidden_wsl_distribution(name: &str) -> bool {
     let name = mixdog_js::js_trim(name).to_lowercase();
-    ["docker-desktop", "docker-desktop-data", "rancher-desktop", "rancher-desktop-data"]
-        .contains(&name.as_str())
-        || name.starts_with("podman-machine")
+    ["docker-desktop", "docker-desktop-data", "rancher-desktop", "rancher-desktop-data"].contains(&name.as_str()) || name.starts_with("podman-machine")
 }
 
 /// `wsl.exe -l -q`: one distribution per line, emitted as UTF-16LE.
@@ -82,15 +75,9 @@ async fn wsl_distributions(manager: &LocalProcessManager, wsl: &Path, cwd: &Path
     let handle = ProcessHandle::from(format!("profiles-wsl-{}", std::process::id()));
     let request = SpawnRequest {
         handle: handle.clone(),
-        command: CommandSpec::Argv {
-            program: text(wsl),
-            args: vec!["-l".into(), "-q".into()],
-        },
+        command: CommandSpec::Argv { program: text(wsl), args: vec!["-l".into(), "-q".into()] },
         cwd,
-        env: EnvSpec {
-            inherit: true,
-            ..EnvSpec::default()
-        },
+        env: EnvSpec { inherit: true, ..EnvSpec::default() },
         pty: None,
         stdin_piped: false,
         output: OutputMode::Merged,
@@ -115,10 +102,7 @@ async fn wsl_distributions(manager: &LocalProcessManager, wsl: &Path, cwd: &Path
             }
         }
     }
-    let units: Vec<u16> = bytes
-        .chunks_exact(2)
-        .map(|pair| u16::from_le_bytes([pair[0], pair[1]]))
-        .collect();
+    let units: Vec<u16> = bytes.chunks_exact(2).map(|pair| u16::from_le_bytes([pair[0], pair[1]])).collect();
     String::from_utf16_lossy(&units)
         .split(['\r', '\n'])
         .map(|line| mixdog_js::js_trim(&line.replace('\0', "")).to_owned())
@@ -138,14 +122,10 @@ fn profile(id: &str, label: &str, path: &Path, args: &[&str], env: &[(&str, &str
 
 async fn detect_windows(manager: &LocalProcessManager) -> Vec<ShellProfile> {
     let mut profiles = Vec::new();
-    let windir = env_var("windir")
-        .or_else(|| env_var("SystemRoot"))
-        .unwrap_or_else(|| "C:\\Windows".to_owned());
+    let windir = env_var("windir").or_else(|| env_var("SystemRoot")).unwrap_or_else(|| "C:\\Windows".to_owned());
     let system32 = Path::new(&windir).join("System32");
     let program_files = env_var("ProgramFiles").unwrap_or_else(|| "C:\\Program Files".to_owned());
-    let pwsh = find_on_path("pwsh.exe").or_else(|| {
-        existing_file(&Path::new(&program_files).join("PowerShell").join("7").join("pwsh.exe"))
-    });
+    let pwsh = find_on_path("pwsh.exe").or_else(|| existing_file(&Path::new(&program_files).join("PowerShell").join("7").join("pwsh.exe")));
     // Label PS7 and PS5.1 unmistakably apart.
     if let Some(pwsh) = pwsh {
         profiles.push(profile("pwsh", "PowerShell (pwsh)", &pwsh, &[], &[]));
@@ -169,10 +149,7 @@ async fn detect_windows(manager: &LocalProcessManager) -> Vec<ShellProfile> {
             add(root.to_path_buf());
         }
     }
-    for root in [env_var("ProgramW6432"), env_var("ProgramFiles"), env_var("ProgramFiles(x86)")]
-        .into_iter()
-        .flatten()
-    {
+    for root in [env_var("ProgramW6432"), env_var("ProgramFiles"), env_var("ProgramFiles(x86)")].into_iter().flatten() {
         add(PathBuf::from(root));
     }
     if let Some(local) = env_var("LocalAppData") {
@@ -228,13 +205,7 @@ fn detect_unix() -> Vec<ShellProfile> {
         // Two installs of the same shell (/bin/zsh + /usr/local/bin/zsh) keep distinct ids by
         // falling back to the full path.
         let id = if profiles.iter().any(|p| p.id == name) { resolved.clone() } else { name.clone() };
-        profiles.push(ShellProfile {
-            id,
-            label: name,
-            path: resolved,
-            args: Vec::new(),
-            env: Vec::new(),
-        });
+        profiles.push(ShellProfile { id, label: name, path: resolved, args: Vec::new(), env: Vec::new() });
     };
     push(&env_var("SHELL").unwrap_or_default());
     if let Ok(shells) = std::fs::read_to_string("/etc/shells") {
@@ -252,11 +223,7 @@ fn detect_unix() -> Vec<ShellProfile> {
 }
 
 pub(crate) async fn detect(manager: &LocalProcessManager) -> Vec<ShellProfile> {
-    if cfg!(windows) {
-        detect_windows(manager).await
-    } else {
-        detect_unix()
-    }
+    if cfg!(windows) { detect_windows(manager).await } else { detect_unix() }
 }
 
 /// The OS-default profile id: Windows prefers PowerShell 7 over Windows PowerShell over cmd;
@@ -273,25 +240,12 @@ pub fn default_profile_id(profiles: &[ShellProfile], windows: bool, env_shell: &
         }
         return profiles[0].id.clone();
     }
-    profiles
-        .iter()
-        .find(|p| p.path == env_shell)
-        .unwrap_or(&profiles[0])
-        .id
-        .clone()
+    profiles.iter().find(|p| p.path == env_shell).unwrap_or(&profiles[0]).id.clone()
 }
 
 pub fn list(profiles: &[ShellProfile]) -> Vec<ShellProfileInfo> {
     let default = default_profile_id(profiles, cfg!(windows), &env_var("SHELL").unwrap_or_default());
-    profiles
-        .iter()
-        .map(|p| ShellProfileInfo {
-            id: p.id.clone(),
-            label: p.label.clone(),
-            path: p.path.clone(),
-            default: p.id == default,
-        })
-        .collect()
+    profiles.iter().map(|p| ShellProfileInfo { id: p.id.clone(), label: p.label.clone(), path: p.path.clone(), default: p.id == default }).collect()
 }
 
 /// Resolves a client-chosen profile id to its spawn spec. An empty or unknown id resolves to the
@@ -299,15 +253,8 @@ pub fn list(profiles: &[ShellProfile]) -> Vec<ShellProfileInfo> {
 pub fn resolve(profiles: &[ShellProfile], id: &str) -> Option<SpawnProfile> {
     let wanted = mixdog_js::js_trim(id);
     let default = default_profile_id(profiles, cfg!(windows), &env_var("SHELL").unwrap_or_default());
-    let found = (!wanted.is_empty())
-        .then(|| profiles.iter().find(|p| p.id == wanted))
-        .flatten()
-        .or_else(|| profiles.iter().find(|p| p.id == default))?;
-    Some(SpawnProfile {
-        path: found.path.clone(),
-        args: found.args.clone(),
-        env: found.env.clone(),
-    })
+    let found = (!wanted.is_empty()).then(|| profiles.iter().find(|p| p.id == wanted)).flatten().or_else(|| profiles.iter().find(|p| p.id == default))?;
+    Some(SpawnProfile { path: found.path.clone(), args: found.args.clone(), env: found.env.clone() })
 }
 
 #[cfg(test)]

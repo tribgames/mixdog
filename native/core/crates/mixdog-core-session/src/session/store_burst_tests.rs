@@ -128,7 +128,9 @@ async fn a_burst_behind_a_slow_store_waits_for_it_and_lands_in_order() {
     let patch = {
         let handle = handle.clone();
         let params = json!({ "threadId": handle.id, "set": { "title": "held" }, "unset": [] });
-        tokio::spawn(async move { handle.request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") }).await })
+        tokio::spawn(async move {
+            handle.request(CoreRequest { method: Method("thread/header/patch"), params, op: None, ctx: CallContext::internal("test") }).await
+        })
     };
     arriving.await;
     let mut burst = {
@@ -186,15 +188,16 @@ async fn an_indeterminate_room_commit_warns_after_its_rows_leave_the_outbox() {
     let failed = handle.request(inherited_append(vec![json!({ "role": "user", "content": "uncertain" })])).await;
     assert!(matches!(failed, Err(CoreError::StorageIndeterminate { .. })), "{failed:?}");
     eventually_on!(&[&rig.notices.1, &handle.cell.stepped], || {
-        (handle.recovered()
-            && lock(&rig.notices.2).last().map(|(event, id)| (*event, id.as_str())) == Some(("save-failed", handle.id.as_str()))).then_some(())
-    }).await;
+        (handle.recovered() && lock(&rig.notices.2).last().map(|(event, id)| (*event, id.as_str())) == Some(("save-failed", handle.id.as_str()))).then_some(())
+    })
+    .await;
     assert!(handle.cell.view.load_full().items.is_empty(), "the refused rows were not shown");
 
     handle.retry_storage().expect("request reconciliation");
     eventually_on!(&[&rig.notices.1], || {
         (lock(&rig.notices.2).last().map(|(event, id)| (*event, id.as_str())) == Some(("save-resolved", handle.id.as_str()))).then_some(())
-    }).await;
+    })
+    .await;
     assert!(stored(&rig, &handle.id).is_empty(), "reconciliation did not replay the refused rows");
 }
 

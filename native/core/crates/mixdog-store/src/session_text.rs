@@ -12,9 +12,8 @@ use serde_json::Value;
 use crate::summary::truthy;
 use crate::title::clean_session_preview;
 
-pub static CONTROL_MARKER_RE: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(r"^\[(?:truncated|request interrupted(?: by user(?: for tool use)?| by process restart)?)\]$", "i")
-});
+pub static CONTROL_MARKER_RE: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(r"^\[(?:truncated|request interrupted(?: by user(?: for tool use)?| by process restart)?)\]$", "i"));
 
 static SYNTHETIC: LazyLock<Vec<JsRegex>> = LazyLock::new(|| {
     [

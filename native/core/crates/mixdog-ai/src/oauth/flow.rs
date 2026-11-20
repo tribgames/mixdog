@@ -58,19 +58,9 @@ pub trait PkceProvider: Send + Sync {
     /// Exchanges the code and stores the credential; returns the account
     /// label if the provider states one. A failure also carries the part of
     /// its text the browser's failure page shows.
-    async fn exchange_checked(
-        &self,
-        code: &str,
-        verifier: &str,
-        redirect_uri: &str,
-    ) -> Result<Option<String>, Refusal>;
+    async fn exchange_checked(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, Refusal>;
     /// [`exchange_checked`](Self::exchange_checked) as the login's failure.
-    async fn exchange(
-        &self,
-        code: &str,
-        verifier: &str,
-        redirect_uri: &str,
-    ) -> Result<Option<String>, LoginFailure> {
+    async fn exchange(&self, code: &str, verifier: &str, redirect_uri: &str) -> Result<Option<String>, LoginFailure> {
         self.exchange_checked(code, verifier, redirect_uri).await.map_err(|refusal| refusal.failure)
     }
 }
@@ -83,21 +73,16 @@ pub struct PkceLoginFlow {
 
 impl PkceLoginFlow {
     pub fn new(target: LoginTarget, provider: Arc<dyn PkceProvider>) -> Self {
-        Self {
-            target,
-            provider,
-            running: Arc::new(AtomicBool::new(false)),
-        }
+        Self { target, provider, running: Arc::new(AtomicBool::new(false)) }
     }
 }
 
 fn failure_of(error: CallbackError) -> LoginFailure {
     match error {
         CallbackError::Denied => LoginFailure::Denied,
-        CallbackError::StateMismatch | CallbackError::Malformed => LoginFailure::Failed {
-            code: "invalid_callback".into(),
-            message: "the sign-in callback was not valid".into(),
-        },
+        CallbackError::StateMismatch | CallbackError::Malformed => {
+            LoginFailure::Failed { code: "invalid_callback".into(), message: "the sign-in callback was not valid".into() }
+        }
     }
 }
 
@@ -137,24 +122,14 @@ impl LoginFlow for PkceLoginFlow {
                 let uri = redirect.uri(redirect.port);
                 let request = AuthorizeRequest { redirect_uri: &uri, code_challenge: &pkce.challenge, state: &state };
                 let Some(manual) = self.provider.manual_authorize_url(&request) else {
-                    return Err(LoginError::Failed(LoginFailure::Failed {
-                        code: "listen_failed".into(),
-                        message: err.kind().to_string(),
-                    }));
+                    return Err(LoginError::Failed(LoginFailure::Failed { code: "listen_failed".into(), message: err.kind().to_string() }));
                 };
                 let first = LoginState::Authorize { url: manual.clone(), manual_url: Some(manual) };
                 return Ok(self.paste_only(guard, first, pkce.verifier.clone(), uri, state));
             }
         };
-        let request = AuthorizeRequest {
-            redirect_uri: &redirect_uri,
-            code_challenge: &pkce.challenge,
-            state: &state,
-        };
-        let first = LoginState::Authorize {
-            url: self.provider.authorize_url(&request),
-            manual_url: self.provider.manual_authorize_url(&request),
-        };
+        let request = AuthorizeRequest { redirect_uri: &redirect_uri, code_challenge: &pkce.challenge, state: &state };
+        let first = LoginState::Authorize { url: self.provider.authorize_url(&request), manual_url: self.provider.manual_authorize_url(&request) };
         let provider = self.provider.clone();
         Ok(start_session(guard, first, true, move |mut ctx, _cancel| async move {
             ctx.set(LoginState::Waiting);
@@ -204,11 +179,7 @@ mod tests {
             super::super::callback::pages::OPENAI
         }
         async fn exchange_checked(&self, code: &str, _: &str, _: &str) -> Result<Option<String>, Refusal> {
-            if code == "good" {
-                Ok(Some("me".into()))
-            } else {
-                Err(LoginFailure::Denied.into())
-            }
+            if code == "good" { Ok(Some("me".into())) } else { Err(LoginFailure::Denied.into()) }
         }
     }
 
@@ -222,18 +193,12 @@ mod tests {
         let flow = flow();
         let session = flow.start().await.unwrap();
         assert!(matches!(flow.start().await, Err(LoginError::Busy)));
-        let LoginState::Authorize { url, .. } = session.next().await.unwrap() else {
-            panic!("authorize first")
-        };
+        let LoginState::Authorize { url, .. } = session.next().await.unwrap() else { panic!("authorize first") };
         let parsed = url::Url::parse(&url).unwrap();
         let q: std::collections::HashMap<_, _> = parsed.query_pairs().into_owned().collect();
         let redirect = url::Url::parse(&q["redirect_uri"]).unwrap();
         let mut browser = TcpStream::connect(("127.0.0.1", redirect.port().unwrap())).await.unwrap();
-        let req = format!(
-            "GET /cb?code=good&state={} HTTP/1.1\r\nHost: localhost:{}\r\n\r\n",
-            q["state"],
-            redirect.port().unwrap()
-        );
+        let req = format!("GET /cb?code=good&state={} HTTP/1.1\r\nHost: localhost:{}\r\n\r\n", q["state"], redirect.port().unwrap());
         browser.write_all(req.as_bytes()).await.unwrap();
         let mut sink = String::new();
         browser.read_to_string(&mut sink).await.unwrap();

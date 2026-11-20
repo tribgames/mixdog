@@ -107,7 +107,11 @@ fn a_background_document_is_edited_through_the_registered_editor() {
     assert_eq!(results[0]["count"], 1, "{edited}");
     assert_eq!(results[1]["table"], 1, "{edited}");
 
-    let refused = attempt(&env, &mut state, &json!({"action": "batch", "session": id, "operations": [{"op": "set_table_cell", "table": 9, "row": 1, "col": 1, "text": "x"}]}));
+    let refused = attempt(
+        &env,
+        &mut state,
+        &json!({"action": "batch", "session": id, "operations": [{"op": "set_table_cell", "table": 9, "row": 1, "col": 1, "text": "x"}]}),
+    );
     let message = refused.expect_err("a table that is not there is refused");
     assert!(message.contains("DOCX table 9 not found: the document holds 1 table(s)"), "{message}");
 

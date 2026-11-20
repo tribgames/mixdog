@@ -5,8 +5,8 @@ use std::collections::HashSet;
 use std::sync::LazyLock;
 
 use super::scan::JsRegex;
-use super::scan::cs;
 use super::scan::ci;
+use super::scan::cs;
 use super::scan::extract_heredoc_bodies;
 use super::scan::extract_powershell_command_inner;
 use super::scan::extract_shell_c_inner;
@@ -72,10 +72,8 @@ fn classify_remove_item(args: &[String]) -> Option<&'static str> {
 }
 
 fn classify_git(args: &[String]) -> Option<&'static str> {
-    static OWN_VALUE: LazyLock<JsRegex> =
-        LazyLock::new(|| cs(r"^--(?:git-dir|work-tree|namespace)(?:=|$)"));
-    static PATHSPECS: LazyLock<JsRegex> =
-        LazyLock::new(|| cs(r"^--(?:literal|glob|noglob|icase)-pathspecs$"));
+    static OWN_VALUE: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^--(?:git-dir|work-tree|namespace)(?:=|$)"));
+    static PATHSPECS: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^--(?:literal|glob|noglob|icase)-pathspecs$"));
     static EXEC_PATH: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^(?:--exec-path=|--list-cmds=)"));
     static PLUS_REF: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^\+[\w/.-]+"));
     static HAS_N: LazyLock<JsRegex> = LazyLock::new(|| cs(r"^-[a-zA-Z]*n[a-zA-Z]*$"));
@@ -87,10 +85,7 @@ fn classify_git(args: &[String]) -> Option<&'static str> {
             i += 2;
         } else if OWN_VALUE.is_match(t) {
             i += if t.contains('=') { 1 } else { 2 };
-        } else if matches!(t, "--no-pager" | "--paginate" | "--bare" | "--exec-path")
-            || PATHSPECS.is_match(t)
-            || EXEC_PATH.is_match(t)
-        {
+        } else if matches!(t, "--no-pager" | "--paginate" | "--bare" | "--exec-path") || PATHSPECS.is_match(t) || EXEC_PATH.is_match(t) {
             i += 1;
         } else {
             break;
@@ -102,23 +97,15 @@ fn classify_git(args: &[String]) -> Option<&'static str> {
     match sub {
         "reset" if has("--hard") => return Some("may discard uncommitted changes"),
         "push"
-            if rest.iter().any(|t| {
-                t == "--force"
-                    || t == "-f"
-                    || t == "--force-with-lease"
-                    || t.starts_with("--force-with-lease=")
-                    || PLUS_REF.is_match(t)
-            }) =>
+            if rest
+                .iter()
+                .any(|t| t == "--force" || t == "-f" || t == "--force-with-lease" || t.starts_with("--force-with-lease=") || PLUS_REF.is_match(t)) =>
         {
             return Some("may overwrite remote history");
         }
         "clean" => {
-            let dry = rest
-                .iter()
-                .any(|t| t == "-n" || t == "--dry-run" || HAS_N.is_match(t));
-            let force = rest
-                .iter()
-                .any(|t| t == "-f" || t == "--force" || HAS_F.is_match(t));
+            let dry = rest.iter().any(|t| t == "-n" || t == "--dry-run" || HAS_N.is_match(t));
+            let force = rest.iter().any(|t| t == "-f" || t == "--force" || HAS_F.is_match(t));
             if !dry && force {
                 return Some("may permanently delete untracked files");
             }
@@ -142,9 +129,25 @@ fn classify_git(args: &[String]) -> Option<&'static str> {
 }
 
 const KUBECTL_VALUE_FLAGS: [&str; 19] = [
-    "--context", "--cluster", "--namespace", "-n", "--user", "--kubeconfig", "--token", "--server",
-    "--as", "--as-group", "--certificate-authority", "--client-certificate", "--client-key",
-    "--request-timeout", "--cache-dir", "--v", "-v", "--profile", "--profile-output",
+    "--context",
+    "--cluster",
+    "--namespace",
+    "-n",
+    "--user",
+    "--kubeconfig",
+    "--token",
+    "--server",
+    "--as",
+    "--as-group",
+    "--certificate-authority",
+    "--client-certificate",
+    "--client-key",
+    "--request-timeout",
+    "--cache-dir",
+    "--v",
+    "-v",
+    "--profile",
+    "--profile-output",
 ];
 
 fn classify_kubectl(args: &[String]) -> Option<&'static str> {
@@ -189,14 +192,8 @@ fn classify_dd(args: &[String]) -> Option<&'static str> {
 
 static DB_PATTERNS: LazyLock<[(JsRegex, &'static str); 2]> = LazyLock::new(|| {
     [
-        (
-            ci(r"\b(?:DROP|TRUNCATE)\s+(?:TABLE|DATABASE|SCHEMA)\b"),
-            "may drop or truncate database objects",
-        ),
-        (
-            ci(r#"\bDELETE\s+FROM\s+\w+[ \t]*(?:;|"|'|\n|$)"#),
-            "may delete all rows from a database table",
-        ),
+        (ci(r"\b(?:DROP|TRUNCATE)\s+(?:TABLE|DATABASE|SCHEMA)\b"), "may drop or truncate database objects"),
+        (ci(r#"\bDELETE\s+FROM\s+\w+[ \t]*(?:;|"|'|\n|$)"#), "may delete all rows from a database table"),
     ]
 });
 
@@ -207,7 +204,9 @@ fn classify_segment(tokens: &[String]) -> Option<&'static str> {
     if cmd == "rm" {
         return classify_rm(rest);
     }
-    if PS_REMOVE_COMMANDS.contains(&low.as_str()) && let Some(warning) = classify_remove_item(rest) {
+    if PS_REMOVE_COMMANDS.contains(&low.as_str())
+        && let Some(warning) = classify_remove_item(rest)
+    {
         return Some(warning);
     }
     match cmd.as_str() {
@@ -258,10 +257,7 @@ pub fn destructive_command_warning(command: &str) -> Option<&'static str> {
             return Some(w);
         }
     }
-    for inner in extract_shell_c_inner(command)
-        .into_iter()
-        .chain(extract_powershell_command_inner(command))
-    {
+    for inner in extract_shell_c_inner(command).into_iter().chain(extract_powershell_command_inner(command)) {
         if let Some(w) = destructive_command_warning(&inner) {
             return Some(w);
         }
@@ -272,28 +268,16 @@ pub fn destructive_command_warning(command: &str) -> Option<&'static str> {
 /// Every distinct warning over the command's scan targets (`getDedupedDestructiveWarnings`).
 pub fn deduped_warnings(command: &str) -> Vec<&'static str> {
     let mut seen = HashSet::new();
-    scan_targets(command)
-        .iter()
-        .filter_map(|target| destructive_command_warning(target))
-        .filter(|warning| seen.insert(*warning))
-        .collect()
+    scan_targets(command).iter().filter_map(|target| destructive_command_warning(target)).filter(|warning| seen.insert(*warning)).collect()
 }
 
 fn warning_block(command: &str) -> String {
-    deduped_warnings(command)
-        .iter()
-        .map(|w| format!("⚠️ {w}"))
-        .collect::<Vec<_>>()
-        .join("\n")
+    deduped_warnings(command).iter().map(|w| format!("⚠️ {w}")).collect::<Vec<_>>().join("\n")
 }
 
 pub fn prepend_warning(command: &str, text: String) -> String {
     let block = warning_block(command);
-    if block.is_empty() {
-        text
-    } else {
-        format!("{block}\n{text}")
-    }
+    if block.is_empty() { text } else { format!("{block}\n{text}") }
 }
 
 /// The warnings go on the line after the status line.
@@ -318,54 +302,30 @@ mod tests {
         for command in ["a#b; rm -rf /", "echo http://x/#y && rm -rf ~", "echo $#; rm -rf /", "echo ${#v}; rm -rf /"] {
             assert_eq!(destructive_command_warning(command), Some("may recursively force-remove files"), "{command}");
         }
-        assert_eq!(
-            destructive_command_warning("a#b; DROP TABLE t"),
-            Some("may drop or truncate database objects")
-        );
+        assert_eq!(destructive_command_warning("a#b; DROP TABLE t"), Some("may drop or truncate database objects"));
     }
 
     #[test]
     fn a_real_comment_hides_its_text() {
-        for command in [
-            "echo hi # rm -rf /",
-            "echo hi # a; rm -rf /",
-            "echo hi;# rm -rf /",
-            "echo it's # rm -rf /",
-            "echo hi <# rm -rf / #>",
-            "echo hi # DROP TABLE t",
-        ] {
+        for command in
+            ["echo hi # rm -rf /", "echo hi # a; rm -rf /", "echo hi;# rm -rf /", "echo it's # rm -rf /", "echo hi <# rm -rf / #>", "echo hi # DROP TABLE t"]
+        {
             assert_eq!(destructive_command_warning(command), None, "{command}");
         }
-        assert_eq!(
-            destructive_command_warning("echo x # c\nrm -rf /"),
-            Some("may recursively force-remove files")
-        );
-        assert_eq!(
-            destructive_command_warning("echo hi <# c #>; rm -rf ~"),
-            Some("may recursively force-remove files")
-        );
+        assert_eq!(destructive_command_warning("echo x # c\nrm -rf /"), Some("may recursively force-remove files"));
+        assert_eq!(destructive_command_warning("echo hi <# c #>; rm -rf ~"), Some("may recursively force-remove files"));
     }
 
     #[test]
     fn text_after_a_heredoc_opener_and_stray_quotes_stay_visible() {
-        assert_eq!(
-            destructive_command_warning("cat <<EOF | rm -rf /\nx\nEOF"),
-            Some("may recursively force-remove files")
-        );
-        assert_eq!(
-            destructive_command_warning("echo it's; rm -rf /"),
-            Some("may recursively force-remove files")
-        );
+        assert_eq!(destructive_command_warning("cat <<EOF | rm -rf /\nx\nEOF"), Some("may recursively force-remove files"));
+        assert_eq!(destructive_command_warning("echo it's; rm -rf /"), Some("may recursively force-remove files"));
     }
 
     #[test]
     fn git_pathspec_options_are_skipped_only_as_whole_tokens() {
         for option in ["--literal-pathspecs", "--glob-pathspecs", "--noglob-pathspecs", "--icase-pathspecs"] {
-            assert_eq!(
-                destructive_command_warning(&format!("git {option} reset --hard")),
-                Some("may discard uncommitted changes"),
-                "{option}"
-            );
+            assert_eq!(destructive_command_warning(&format!("git {option} reset --hard")), Some("may discard uncommitted changes"), "{option}");
         }
         for token in ["--literal-pathspecs-x", "x--glob-pathspecs", "x--noglob-pathspecs-y", "x--icase-pathspecs"] {
             assert_eq!(destructive_command_warning(&format!("git {token} reset --hard")), None, "{token}");
@@ -374,22 +334,13 @@ mod tests {
 
     #[test]
     fn the_warning_goes_after_the_status_line_or_in_front() {
-        assert_eq!(
-            deduped_warnings("echo $(sudo env rm -rf build)"),
-            vec!["may recursively force-remove files"]
-        );
-        assert_eq!(
-            destructive_command_warning("kubectl --context x delete pod a"),
-            Some("may delete Kubernetes resources")
-        );
+        assert_eq!(deduped_warnings("echo $(sudo env rm -rf build)"), vec!["may recursively force-remove files"]);
+        assert_eq!(destructive_command_warning("kubectl --context x delete pod a"), Some("may delete Kubernetes resources"));
         assert_eq!(
             place_warnings_after_status("git reset --hard", "[exit code: 0]\n\nok\n".into()),
             "[exit code: 0]\n⚠️ may discard uncommitted changes\n\nok\n"
         );
-        assert_eq!(
-            prepend_warning("terraform destroy", "out".into()),
-            "⚠️ may destroy Terraform infrastructure\nout"
-        );
+        assert_eq!(prepend_warning("terraform destroy", "out".into()), "⚠️ may destroy Terraform infrastructure\nout");
         assert_eq!(prepend_warning("echo hi", "out".into()), "out");
     }
 }

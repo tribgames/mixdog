@@ -6,7 +6,7 @@
 
 use mixdog_core_api::domain::provider::{Content, ContentPart, ModelRequest, ProviderAdapter, Role, ToolDefinition};
 use mixdog_store::schema::record::Header;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 fn tool_json(tool: &ToolDefinition) -> Value {
     let mut out = Map::new();
@@ -84,7 +84,13 @@ mod tests {
                 "tools": request.tools.iter().map(|t| json!({"type": "function", "name": t.name, "parameters": t.input_schema})).collect::<Vec<_>>(),
                 "input": request.messages.iter().filter(|m| m.role != Role::System).map(|m| text_of(&m.content)).collect::<Vec<_>>(),
             });
-            Ok(WireRequest { transport: TransportKind::Http1, method: "POST".into(), url: "https://example.invalid/v1/responses".into(), headers: vec![("authorization".into(), "never shown".into())], body: serde_json::to_vec(&body).unwrap() })
+            Ok(WireRequest {
+                transport: TransportKind::Http1,
+                method: "POST".into(),
+                url: "https://example.invalid/v1/responses".into(),
+                headers: vec![("authorization".into(), "never shown".into())],
+                body: serde_json::to_vec(&body).unwrap(),
+            })
         }
         fn decoder(&self, _: &ModelRequest) -> Box<dyn WireDecoder> {
             unreachable!("a snapshot decodes nothing")
@@ -134,11 +140,16 @@ mod tests {
         .unwrap()
         .clone();
         let schema = json!({ "type": "object", "properties": { "path": { "type": "string" } } });
-        let mut read = ToolDefinition { name: "read".into(), description: "Read a file".into(), input_schema: schema.clone(), defer_loading: false, freeform: None };
+        let mut read =
+            ToolDefinition { name: "read".into(), description: "Read a file".into(), input_schema: schema.clone(), defer_loading: false, freeform: None };
         read.defer_loading = true;
         let request = ModelRequest {
             model: "gpt-5.6-sol".into(),
-            messages: vec![Message::new(Role::System, Content::Text("rules".into())), Message::new(Role::System, Content::Text("env".into())), Message::new(Role::User, Content::Text("hi".into()))],
+            messages: vec![
+                Message::new(Role::System, Content::Text("rules".into())),
+                Message::new(Role::System, Content::Text("env".into())),
+                Message::new(Role::User, Content::Text("hi".into())),
+            ],
             tools: vec![read],
             options: RequestOptions::default(),
         };

@@ -60,7 +60,13 @@ impl ThreadState for GatedHeaders {
         }
         Ok(())
     }
-    async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+    async fn patch_header_if(
+        &self,
+        _: &ThreadId,
+        _: Map<String, Value>,
+        _: Map<String, Value>,
+        _: Vec<String>,
+    ) -> Result<Option<Map<String, Value>>, PortError> {
         Ok(None)
     }
     async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
@@ -116,7 +122,13 @@ fn service(directory: Arc<SessionDirectory>, data: &std::path::Path, workers: St
         Arc::new(NeverFires),
     );
     let push = mixdog_core::run_host::usage_stats_feed::UsagePush::new(Arc::new(mixdog_core_api::mock::MockStatePublisher::default()), Arc::new(|| 0));
-    let ledgers = mixdog_core::run_host::ledger_source::LedgerSource::new(Arc::new(mixdog_ai::registry::keys::ProcessEnv), data.join("ledger"), tokens, Arc::new(NoPrices), push);
+    let ledgers = mixdog_core::run_host::ledger_source::LedgerSource::new(
+        Arc::new(mixdog_ai::registry::keys::ProcessEnv),
+        data.join("ledger"),
+        tokens,
+        Arc::new(NoPrices),
+        push,
+    );
     let writers = WriteBehind { workers: Arc::new(workers), read_state: Arc::new(mixdog_tools::fs::ReadState::new(None)) };
     StoresSettled::new(directory, writers, gateway, ledgers)
 }
@@ -138,7 +150,8 @@ async fn a_record_an_awaiting_header_update_appends_after_the_call_arrived_is_no
     directory.open_handle(&id, &CallContext::internal("test")).await.expect("the thread loads");
 
     let (reading, resume) = (Arc::new(tokio::sync::Notify::new()), Arc::new(tokio::sync::Notify::new()));
-    type Awaiting = Box<dyn FnOnce(mixdog_store::schema::record::Header) -> futures::future::BoxFuture<'static, mixdog_store::schema::record::HeaderChange> + Send>;
+    type Awaiting =
+        Box<dyn FnOnce(mixdog_store::schema::record::Header) -> futures::future::BoxFuture<'static, mixdog_store::schema::record::HeaderChange> + Send>;
     let update: Awaiting = {
         let (reading, resume) = (reading.clone(), resume.clone());
         Box::new(move |_header| {
@@ -227,7 +240,6 @@ async fn a_record_accepted_while_the_call_waits_on_the_agent_index_is_not_waited
     after_go.send(()).expect("the commit waits");
     tokio::time::timeout(DEADLINE, after).await.expect("the later rename did not answer within 10 s").expect("committed");
 }
-
 
 impl mixdog_ai::registry::accounting::UsagePricing for Unpriced {
     fn price_usage(&self, _: &mixdog_ai::catalog::UsageArgs) -> mixdog_ai::catalog::PricedUsage {

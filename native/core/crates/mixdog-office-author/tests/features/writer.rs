@@ -74,7 +74,8 @@ fn a_chart_added_to_a_deck_brings_its_part_its_workbook_and_its_series() {
     deck.add_chart(0, ChartKind::Bar, vec![months("North", [1.0, 2.0, 3.0]), months("South", [4.0, 5.0, 6.0])], ChartOptions::default()).expect("a chart");
     let package = deck.package().expect("package");
     let names = package.names();
-    let chart = names.iter().find(|name| name.starts_with("ppt/charts/chart") && name.ends_with(".xml")).unwrap_or_else(|| panic!("no chart part in {names:?}"));
+    let chart =
+        names.iter().find(|name| name.starts_with("ppt/charts/chart") && name.ends_with(".xml")).unwrap_or_else(|| panic!("no chart part in {names:?}"));
     let xml = package.text(chart);
     assert!(xml.contains("North") && xml.contains("South"), "both series are named in the chart");
     assert!(xml.contains("Jan") && xml.contains("Mar"));

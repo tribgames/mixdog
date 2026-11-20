@@ -45,15 +45,8 @@ impl ReviewEntry {
     pub fn page(&self, path: Option<&str>, cursor: Option<&str>) -> ReviewPage {
         let key = self.summary.key.clone();
         if let Some(path) = path {
-            let patch = self
-                .index(path)
-                .map(|at| self.patches[at].clone())
-                .unwrap_or_default();
-            return ReviewPage {
-                key,
-                patch,
-                next_cursor: None,
-            };
+            let patch = self.index(path).map(|at| self.patches[at].clone()).unwrap_or_default();
+            return ReviewPage { key, patch, next_cursor: None };
         }
         let start = cursor.and_then(|value| value.parse::<usize>().ok()).unwrap_or(0);
         let mut patch = String::new();
@@ -65,11 +58,7 @@ impl ReviewEntry {
             patch.push_str(&self.patches[at]);
             at += 1;
         }
-        ReviewPage {
-            key,
-            patch,
-            next_cursor: (at < self.patches.len()).then(|| at.to_string()),
-        }
+        ReviewPage { key, patch, next_cursor: (at < self.patches.len()).then(|| at.to_string()) }
     }
 }
 
@@ -92,14 +81,8 @@ pub(crate) fn parse_raw_numstat(raw: &str) -> BTreeMap<String, (ChangeKind, u64,
             let Some(path) = fields.next().filter(|path| !path.is_empty()) else {
                 continue;
             };
-            let letter = meta
-                .rsplit(' ')
-                .next()
-                .and_then(|status| status.chars().next())
-                .unwrap_or('M');
-            rows.entry(path.to_owned())
-                .and_modify(|row| row.0 = change_kind(letter))
-                .or_insert((change_kind(letter), 0, 0));
+            let letter = meta.rsplit(' ').next().and_then(|status| status.chars().next()).unwrap_or('M');
+            rows.entry(path.to_owned()).and_modify(|row| row.0 = change_kind(letter)).or_insert((change_kind(letter), 0, 0));
         }
     }
     for (path, (adds, dels)) in parse_numstat(raw) {
@@ -114,10 +97,7 @@ pub(crate) fn parse_raw_numstat(raw: &str) -> BTreeMap<String, (ChangeKind, u64,
 /// Splits a unified diff at its `diff --git` headers into path → patch. A path git would
 /// quote in a header cannot be matched back and is absent from the result.
 fn split_patches(diff: &str, paths: &[&str]) -> HashMap<String, String> {
-    let wanted: HashMap<String, &str> = paths
-        .iter()
-        .map(|path| (format!("diff --git a/{path} b/{path}"), *path))
-        .collect();
+    let wanted: HashMap<String, &str> = paths.iter().map(|path| (format!("diff --git a/{path} b/{path}"), *path)).collect();
     let mut out = HashMap::new();
     let mut offset = 0usize;
     let mut starts: Vec<(usize, Option<&str>)> = Vec::new();
@@ -141,38 +121,22 @@ fn split_patches(diff: &str, paths: &[&str]) -> HashMap<String, String> {
 /// the default branch for the branch view (origin's HEAD, else `origin/main`, `origin/master`,
 /// `main`, `master`; HEAD when none exists). An unborn HEAD is diffed against the empty tree.
 /// The name is the review's `base` as the pane shows it: the default branch, else `HEAD`.
-pub async fn repo_base(
-    git: &Git,
-    cancel: &CancellationToken,
-    root: &std::path::Path,
-    source: &str,
-) -> Result<(String, ObjectId), ScmFailure> {
+pub async fn repo_base(git: &Git, cancel: &CancellationToken, root: &std::path::Path, source: &str) -> Result<(String, ObjectId), ScmFailure> {
     use crate::inspect::history::empty_tree;
     use crate::inspect::history::has_head;
     if !has_head(git, cancel, root).await? {
         return Ok(("HEAD".to_owned(), ObjectId(empty_tree(git, cancel, root).await?)));
     }
     let resolve = |rev: String| async move {
-        let output = git
-            .outcome(cancel, root, &["--no-optional-locks", "rev-parse", "--verify", "--quiet", &rev], &RunOptions::read())
-            .await?;
+        let output = git.outcome(cancel, root, &["--no-optional-locks", "rev-parse", "--verify", "--quiet", &rev], &RunOptions::read()).await?;
         Ok::<_, ScmFailure>(output.success().then(|| output.stdout_text().trim().to_owned()))
     };
     if source == "uncommitted" {
         return Ok(("HEAD".to_owned(), ObjectId(resolve("HEAD^{commit}".into()).await?.unwrap_or_default())));
     }
-    let origin_head = git
-        .outcome(
-            cancel,
-            root,
-            &["--no-optional-locks", "symbolic-ref", "refs/remotes/origin/HEAD"],
-            &RunOptions::read(),
-        )
-        .await?;
-    let mut base = origin_head
-        .success()
-        .then(|| origin_head.stdout_text().trim().trim_start_matches("refs/remotes/").to_owned())
-        .filter(|name| !name.is_empty());
+    let origin_head = git.outcome(cancel, root, &["--no-optional-locks", "symbolic-ref", "refs/remotes/origin/HEAD"], &RunOptions::read()).await?;
+    let mut base =
+        origin_head.success().then(|| origin_head.stdout_text().trim().trim_start_matches("refs/remotes/").to_owned()).filter(|name| !name.is_empty());
     if base.is_none() {
         for (name, full) in [
             ("origin/main", "refs/remotes/origin/main"),
@@ -190,9 +154,7 @@ pub async fn repo_base(
     let Some(base) = base else {
         return Ok(("HEAD".to_owned(), ObjectId(head)));
     };
-    let merged = git
-        .outcome(cancel, root, &["--no-optional-locks", "merge-base", &base, "HEAD"], &RunOptions::read())
-        .await?;
+    let merged = git.outcome(cancel, root, &["--no-optional-locks", "merge-base", &base, "HEAD"], &RunOptions::read()).await?;
     let found = merged.stdout_text().trim().to_owned();
     let point = if merged.success() && !found.is_empty() { found } else { head };
     Ok((base, ObjectId(point)))
@@ -214,19 +176,10 @@ pub async fn work_tree_tree(
         move || std::fs::create_dir_all(dir)
     })
     .await??;
-    let index = dir.join(format!(
-        "{}-{}.index",
-        std::process::id(),
-        NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-    ));
-    let options = RunOptions {
-        index_file: Some(index.clone()),
-        ..RunOptions::default()
-    };
+    let index = dir.join(format!("{}-{}.index", std::process::id(), NEXT.fetch_add(1, std::sync::atomic::Ordering::Relaxed)));
+    let options = RunOptions { index_file: Some(index.clone()), ..RunOptions::default() };
     let built = async {
-        let head = git
-            .outcome(cancel, root, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default())
-            .await?;
+        let head = git.outcome(cancel, root, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default()).await?;
         if head.success() {
             git.text(cancel, root, &["read-tree", head.stdout_text().trim()], &options).await?;
         } else {
@@ -234,14 +187,10 @@ pub async fn work_tree_tree(
         }
         // `git add -A` refuses the whole add over a nested repository with no commit ("does not have a commit checked out"), while Node's
         // review (a status scan) lists it as an untracked folder; such a folder is left out of the tree, and the caller adds its row.
-        let others = git
-            .text(cancel, root, &["--no-optional-locks", "ls-files", "--others", "--exclude-standard", "-z"], &RunOptions::read())
-            .await?;
+        let others = git.text(cancel, root, &["--no-optional-locks", "ls-files", "--others", "--exclude-standard", "-z"], &RunOptions::read()).await?;
         let mut pathspec: Vec<String> = Vec::new();
         for folder in others.split('\0').filter_map(|record| record.strip_suffix('/')) {
-            let head = git
-                .outcome(cancel, &root.join(folder), &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default())
-                .await?;
+            let head = git.outcome(cancel, &root.join(folder), &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default()).await?;
             if !head.success() {
                 pathspec.push(format!(":(exclude,literal){folder}"));
             }
@@ -265,14 +214,8 @@ pub async fn compute(
     base: &ObjectId,
     scratch: &std::path::Path,
 ) -> Result<ReviewEntry, ScmFailure> {
-    let root = identity
-        .work_tree
-        .clone()
-        .ok_or(ScmFailure::NotARepository)?;
-    let options = RunOptions {
-        max_output: Some(STATUS_MAX_BYTES),
-        ..RunOptions::read()
-    };
+    let root = identity.work_tree.clone().ok_or(ScmFailure::NotARepository)?;
+    let options = RunOptions { max_output: Some(STATUS_MAX_BYTES), ..RunOptions::read() };
     // Both sides are trees: the captured base and the work tree as it is now (untracked files
     // included, ignored ones left out), built in a scratch index. A file the base already held
     // is no change, however git's own index sees it.
@@ -307,13 +250,7 @@ pub async fn compute(
     let mut spent = 0usize;
     let mut rows: Vec<(String, ChangeKind, u64, u64, String)> = Vec::new();
     for (path, (status, adds, dels)) in &tracked {
-        rows.push((
-            path.clone(),
-            *status,
-            *adds,
-            *dels,
-            patches.remove(path).unwrap_or_default(),
-        ));
+        rows.push((path.clone(), *status, *adds, *dels, patches.remove(path).unwrap_or_default()));
     }
     rows.sort_by(|left, right| left.0.cmp(&right.0));
     for (path, status, adds, dels, patch) in rows {
@@ -323,18 +260,10 @@ pub async fn compute(
         } else {
             String::new()
         };
-        files.push(ReviewFile {
-            path,
-            status,
-            adds,
-            dels,
-        });
+        files.push(ReviewFile { path, status, adds, dels });
         bodies.push(kept);
     }
-    Ok(ReviewEntry {
-        summary: ReviewSummary { key, files, omitted },
-        patches: bodies,
-    })
+    Ok(ReviewEntry { summary: ReviewSummary { key, files, omitted }, patches: bodies })
 }
 
 #[cfg(test)]
@@ -343,9 +272,7 @@ mod tests {
 
     #[test]
     fn raw_and_numstat_rows_join_by_path() {
-        let rows = parse_raw_numstat(
-            ":100644 100644 aaa bbb M\0a.txt\0:000000 100644 000 ccc A\0b.txt\02\t1\ta.txt\05\t0\tb.txt\0",
-        );
+        let rows = parse_raw_numstat(":100644 100644 aaa bbb M\0a.txt\0:000000 100644 000 ccc A\0b.txt\02\t1\ta.txt\05\t0\tb.txt\0");
         assert_eq!(rows["a.txt"], (ChangeKind::Modified, 2, 1));
         assert_eq!(rows["b.txt"], (ChangeKind::Added, 5, 0));
     }

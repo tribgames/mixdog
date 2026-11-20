@@ -98,20 +98,9 @@ impl ReasoningRow {
     /// stays empty (no reasoning). This is the ladder the step-effort judge
     /// builds from.
     pub fn effort_levels(&self) -> Option<Vec<String>> {
-        let raw = self
-            .reasoning_options
-            .iter()
-            .find(|o| o.kind.trim().eq_ignore_ascii_case("effort"))
-            .map(|o| &o.values)
-            .or(self.reasoning_levels.as_ref())?;
+        let raw = self.reasoning_options.iter().find(|o| o.kind.trim().eq_ignore_ascii_case("effort")).map(|o| &o.values).or(self.reasoning_levels.as_ref())?;
         let known: Vec<&str> = raw.iter().filter_map(|v| normalize_effort(v)).collect();
-        Some(
-            EFFORT_LEVELS
-                .iter()
-                .filter(|l| known.contains(l))
-                .map(|l| (*l).to_owned())
-                .collect(),
-        )
+        Some(EFFORT_LEVELS.iter().filter(|l| known.contains(l)).map(|l| (*l).to_owned()).collect())
     }
 }
 
@@ -131,10 +120,7 @@ pub fn snap_effort(levels: Option<&[String]>, effort: &str) -> Option<&'static s
         return None;
     }
     let ceiling = rank(requested)?;
-    supported
-        .into_iter()
-        .filter(|l| *l != "none" && rank(l).is_some_and(|r| r <= ceiling))
-        .max_by_key(|l| rank(l))
+    supported.into_iter().filter(|l| *l != "none" && rank(l).is_some_and(|r| r <= ceiling)).max_by_key(|l| rank(l))
 }
 
 fn is_together(base_url: &str) -> bool {
@@ -172,12 +158,7 @@ pub struct Resolved {
 }
 
 pub fn resolve(protocol: &Protocol, row: &ReasoningRow, effort: Option<&str>, base_url: &str) -> Resolved {
-    let empty = Resolved {
-        level: None,
-        fields: Map::new(),
-        thinking: None,
-        replay: false,
-    };
+    let empty = Resolved { level: None, fields: Map::new(), thinking: None, replay: false };
     let chat = *protocol == Protocol::OpenaiChat;
     if row.custom.wire_format.is_some_and(WireFormat::chat_only) && !chat {
         return empty;
@@ -186,15 +167,7 @@ pub fn resolve(protocol: &Protocol, row: &ReasoningRow, effort: Option<&str>, ba
     let levels = row.effort_levels();
     let level = effort.and_then(|e| snap_effort(levels.as_deref(), e));
     let thinking = level.map(|l| if l == "none" { Thinking::Off } else { Thinking::On });
-    let value: Option<String> = level.map(|l| {
-        row.custom
-            .wire_values
-            .get(l)
-            .map(|v| v.trim())
-            .filter(|v| !v.is_empty())
-            .unwrap_or(l)
-            .to_owned()
-    });
+    let value: Option<String> = level.map(|l| row.custom.wire_values.get(l).map(|v| v.trim()).filter(|v| !v.is_empty()).unwrap_or(l).to_owned());
     let mut fields = Map::new();
     if let (Some(level), Some(value)) = (level, value) {
         match protocol {
@@ -245,12 +218,7 @@ pub fn resolve(protocol: &Protocol, row: &ReasoningRow, effort: Option<&str>, ba
     }
     // An explicit replay flag wins over the catalog's reasoning field.
     let flag = row.custom.replay.unwrap_or(row.reasoning_content_field);
-    Resolved {
-        level,
-        fields,
-        thinking,
-        replay: chat && flag && thinking != Some(Thinking::Off),
-    }
+    Resolved { level, fields, thinking, replay: chat && flag && thinking != Some(Thinking::Off) }
 }
 
 // ---------------------------------------------------------------------------
@@ -268,10 +236,7 @@ fn normalize_levels(raw: &Value, label: &str) -> Result<Vec<&'static str>, Provi
     };
     let mut seen: Vec<&'static str> = Vec::new();
     for entry in items {
-        let level = entry
-            .as_str()
-            .and_then(canonical_level)
-            .ok_or_else(|| invalid(format!("{label} has unknown level: {entry}")))?;
+        let level = entry.as_str().and_then(canonical_level).ok_or_else(|| invalid(format!("{label} has unknown level: {entry}")))?;
         if seen.contains(&level) {
             return Err(invalid(format!("{label} has duplicate level: {level}")));
         }
@@ -282,11 +247,7 @@ fn normalize_levels(raw: &Value, label: &str) -> Result<Vec<&'static str>, Provi
 }
 
 /// `levels` (canonical) ties every key to a declared level; `None` skips the tie.
-fn normalize_wire_values(
-    raw: &Value,
-    label: &str,
-    levels: Option<&[&str]>,
-) -> Result<BTreeMap<String, String>, ProviderError> {
+fn normalize_wire_values(raw: &Value, label: &str, levels: Option<&[&str]>) -> Result<BTreeMap<String, String>, ProviderError> {
     let Some(object) = raw.as_object() else {
         return Err(invalid(format!("{label}.wireValues must be an object")));
     };
@@ -312,26 +273,18 @@ fn normalize_wire_values(
 
 /// The stored reasoning config of a provider or model: `levels`,
 /// `wireFormat`, `wireValues`, `replay`; anything else is refused.
-pub fn normalize_config(
-    raw: &Value,
-    label: &str,
-    protocol: &Protocol,
-) -> Result<(Option<Vec<&'static str>>, CustomReasoning), ProviderError> {
+pub fn normalize_config(raw: &Value, label: &str, protocol: &Protocol) -> Result<(Option<Vec<&'static str>>, CustomReasoning), ProviderError> {
     let Some(object) = raw.as_object() else {
         return Err(invalid(format!("{label} must be an object")));
     };
     if let Some(key) = object.keys().find(|k| !["levels", "wireFormat", "wireValues", "replay"].contains(&k.as_str())) {
         return Err(invalid(format!("{label} has unknown field: {key}")));
     }
-    let levels = object
-        .get("levels")
-        .map(|v| normalize_levels(v, &format!("{label}.levels")))
-        .transpose()?;
+    let levels = object.get("levels").map(|v| normalize_levels(v, &format!("{label}.levels"))).transpose()?;
     let mut config = CustomReasoning::default();
     if let Some(value) = object.get("wireFormat") {
         let text = value.as_str().map(str::trim).unwrap_or_default();
-        let format = WireFormat::parse(text)
-            .ok_or_else(|| invalid(format!("{label}.wireFormat is invalid: {value}")))?;
+        let format = WireFormat::parse(text).ok_or_else(|| invalid(format!("{label}.wireFormat is invalid: {value}")))?;
         if format == WireFormat::Deepseek && *protocol != Protocol::OpenaiChat {
             return Err(invalid(format!("{label}.wireFormat 'deepseek' requires protocol 'openai-chat'")));
         }
@@ -382,10 +335,7 @@ mod tests {
     use super::*;
 
     fn row(levels: &[&str]) -> ReasoningRow {
-        ReasoningRow {
-            reasoning_levels: Some(levels.iter().map(|l| (*l).to_owned()).collect()),
-            ..ReasoningRow::default()
-        }
+        ReasoningRow { reasoning_levels: Some(levels.iter().map(|l| (*l).to_owned()).collect()), ..ReasoningRow::default() }
     }
 
     #[test]
@@ -430,12 +380,7 @@ mod tests {
         let chat = resolve(&Protocol::OpenaiChat, &r, Some("none"), "");
         assert_eq!(chat.fields["chat_template_kwargs"], json!({"enable_thinking": false}));
         assert!(!chat.fields.contains_key("reasoning_effort"));
-        assert_eq!(resolve(&Protocol::OpenaiResponses, &r, Some("high"), ""), Resolved {
-            level: None,
-            fields: Map::new(),
-            thinking: None,
-            replay: false,
-        });
+        assert_eq!(resolve(&Protocol::OpenaiResponses, &r, Some("high"), ""), Resolved { level: None, fields: Map::new(), thinking: None, replay: false });
         let together = resolve(&Protocol::OpenaiChat, &row(&["none", "high"]), Some("high"), "https://api.together.ai/v1");
         assert_eq!(together.fields["reasoning"], json!({"enabled": true}));
     }

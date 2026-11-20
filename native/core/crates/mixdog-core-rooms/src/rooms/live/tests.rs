@@ -129,7 +129,18 @@ impl RoomLabels for Labels {
         }
         Ok(members
             .iter()
-            .map(|id| (id.clone(), MemberLabel { id: id.clone(), name: id.to_uppercase(), route: json!({ "provider": "p", "model": "m" }), description: String::new(), disabled: id == "off" }))
+            .map(|id| {
+                (
+                    id.clone(),
+                    MemberLabel {
+                        id: id.clone(),
+                        name: id.to_uppercase(),
+                        route: json!({ "provider": "p", "model": "m" }),
+                        description: String::new(),
+                        disabled: id == "off",
+                    },
+                )
+            })
             .collect())
     }
 }
@@ -295,7 +306,8 @@ async fn rig(members: &[&str]) -> Rig {
     let input = RoomConfigInput { name: "Plan".into(), members: members.iter().map(|m| (*m).into()).collect(), ..Default::default() };
     rooms.create(&input, "room01", 1).await.unwrap();
     let log = Arc::new(Log::default());
-    let (daemon, sessions, approvals) = (Arc::new(Daemon { log: log.clone(), ..Daemon::default() }), Arc::new(Sessions::default()), Arc::new(Approvals { log, ..Approvals::default() }));
+    let (daemon, sessions, approvals) =
+        (Arc::new(Daemon { log: log.clone(), ..Daemon::default() }), Arc::new(Sessions::default()), Arc::new(Approvals { log, ..Approvals::default() }));
     let live = LiveRooms::new(
         rooms.clone(),
         RoomPorts {
@@ -330,7 +342,13 @@ async fn the_room_answers_only_the_approval_its_speaking_member_shows() {
     state.set_member_session("sess_rmem_room01_a");
     state.set_approval(Some(json!({ "id": "ap1", "name": "shell" })));
     host.republish();
-    let shown = ExchangeView { speaking: "a".into(), speaking_name: "A".into(), typing_id: "typing_1".into(), approval: Some(json!({ "id": "ap1", "name": "shell" })), deciding: false };
+    let shown = ExchangeView {
+        speaking: "a".into(),
+        speaking_name: "A".into(),
+        typing_id: "typing_1".into(),
+        approval: Some(json!({ "id": "ap1", "name": "shell" })),
+        deciding: false,
+    };
     assert_eq!(rig.approvals.published.lock().unwrap().last().cloned(), Some(("sess_room_room01".to_owned(), Some(shown), Vec::new())));
 
     assert!(!rig.live.approve("sess_room_room01", decision("other")).await.unwrap(), "another id is refused");
@@ -490,10 +508,7 @@ async fn a_reset_room_carries_nothing_of_the_old_conversation_into_its_next_save
     rig.rooms.reset("room01", 777).await.unwrap();
     host.persist().await.unwrap();
     let saved = rig.rooms.get("room01").await.unwrap();
-    assert_eq!(
-        (saved.cursors.len(), saved.seen.len(), saved.owed, saved.last_speaker, saved.last_preview, saved.last_at),
-        (0, 0, None, None, None, Some(777))
-    );
+    assert_eq!((saved.cursors.len(), saved.seen.len(), saved.owed, saved.last_speaker, saved.last_preview, saved.last_at), (0, 0, None, None, None, Some(777)));
     assert!(host.rows().await.unwrap().is_empty(), "the posted rows are forgotten with the log");
 }
 /// `append` of `agent-room-delivery.mjs`: a post takes its place before its files are taken in, so a later post cannot overtake it.
@@ -507,7 +522,8 @@ async fn a_slow_speech_is_not_overtaken_by_a_later_speech() {
     let (first, second) = tokio::join!(host.post(vec![slow]), host.post(vec![fast]));
     first.unwrap();
     second.unwrap();
-    let order: Vec<String> = rig.daemon.appended.lock().unwrap().iter().map(|message| message["meta"]["transcript"]["messageId"].as_str().unwrap().to_owned()).collect();
+    let order: Vec<String> =
+        rig.daemon.appended.lock().unwrap().iter().map(|message| message["meta"]["transcript"]["messageId"].as_str().unwrap().to_owned()).collect();
     assert_eq!(order, ["row_slow", "row_fast"]);
 }
 /// Once a post has reserved its place no later post of any kind overtakes it, whatever its own rows take to prepare: a user's
@@ -522,7 +538,8 @@ async fn a_post_that_reserved_is_never_overtaken_by_a_later_post_of_any_kind() {
     let (one, two) = tokio::join!(host.post(vec![user("u1", true)]), host.post(vec![speech("s1", false)]));
     let (three, four) = tokio::join!(host.post(vec![speech("s2", true)]), host.post(vec![user("u2", false)]));
     [one, two, three, four].into_iter().for_each(|posted| posted.unwrap());
-    let order: Vec<String> = rig.daemon.appended.lock().unwrap().iter().map(|message| message["meta"]["transcript"]["messageId"].as_str().unwrap().to_owned()).collect();
+    let order: Vec<String> =
+        rig.daemon.appended.lock().unwrap().iter().map(|message| message["meta"]["transcript"]["messageId"].as_str().unwrap().to_owned()).collect();
     assert_eq!(order, ["u1", "s1", "s2", "u2"]);
 }
 /// A send held before its post enters the log's delivery (Node's recorder holds `log.post`) does not block another send: the
@@ -534,7 +551,13 @@ async fn a_send_held_before_delivery_does_not_block_another_sends_answer() {
     let rig = rig(&["a", "held"]).await;
     rig.live.bind_relays(Arc::new(|_: &str, _: &str| {}));
     let calls = RoomCalls::new(Arc::new(Fake::default()), Arc::new(|_: &str| {}));
-    let message = |text: &str| UserMessage { session_id: "sess_room_room01".into(), prompt: json!(text), submission_id: String::new(), pasted_images: None, pasted_texts: None };
+    let message = |text: &str| UserMessage {
+        session_id: "sess_room_room01".into(),
+        prompt: json!(text),
+        submission_id: String::new(),
+        pasted_images: None,
+        pasted_texts: None,
+    };
     let second = async {
         LABELS_IN.notified().await;
         let two = message("two");
@@ -558,7 +581,8 @@ async fn a_stop_while_a_message_is_taken_in_cancels_its_route() {
     rig.live.bind_relays(Arc::new(|_: &str, _: &str| {}));
     let runner = Arc::new(Fake::default());
     let calls = RoomCalls::new(runner.clone(), Arc::new(|_: &str| {}));
-    let message = UserMessage { session_id: "sess_room_room01".into(), prompt: json!("gate"), submission_id: String::new(), pasted_images: None, pasted_texts: None };
+    let message =
+        UserMessage { session_id: "sess_room_room01".into(), prompt: json!("gate"), submission_id: String::new(), pasted_images: None, pasted_texts: None };
     let stopper = async {
         TAKING_IN.notified().await;
         assert!(rig.daemon.appended.lock().unwrap().is_empty(), "nothing is posted yet");
@@ -724,7 +748,6 @@ async fn a_queued_send_keeps_the_band_across_the_hand_off() {
 
     assert_eq!(rig.approvals.log.seen(), ["| b", "u2 | b", "u2 | …", "u2 | a"]);
 }
-
 
 #[path = "send_rules.rs"]
 mod send_rules;

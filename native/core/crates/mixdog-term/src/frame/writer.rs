@@ -71,15 +71,7 @@ impl<W: Write> FrameWriter<W> {
     /// A writer at a colour level (0 none, 1 sixteen colours, 2 256 colours, 3 truecolor). Frames are wrapped in a
     /// synchronized update.
     pub fn new(out: W, color_level: i32) -> Self {
-        Self {
-            out,
-            level: color_level,
-            synchronized: true,
-            previous: None,
-            previous_cursor: None,
-            cursor_visible: None,
-            clear_next: false,
-        }
+        Self { out, level: color_level, synchronized: true, previous: None, previous_cursor: None, cursor_visible: None, clear_next: false }
     }
 
     /// Whether frames are wrapped in a synchronized update (off for a stream that is not a terminal).
@@ -141,10 +133,7 @@ impl<W: Write> FrameWriter<W> {
 
     /// The bytes of one frame, and the screen state after them.
     fn encode(&mut self, grid: &Grid, cursor: Option<CursorPos>) -> Vec<u8> {
-        let cursor = cursor.map(|pos| CursorPos {
-            col: pos.col.min(grid.width.saturating_sub(1)),
-            row: pos.row.min(grid.height.saturating_sub(1)),
-        });
+        let cursor = cursor.map(|pos| CursorPos { col: pos.col.min(grid.width.saturating_sub(1)), row: pos.row.min(grid.height.saturating_sub(1)) });
         let previous = self.previous.take();
         let width_changed = previous.as_ref().is_some_and(|prev| prev.width != grid.width);
         let clear = self.clear_next || width_changed;
@@ -403,10 +392,7 @@ impl<'a> Encoder<'a> {
 /// Whether a cell of the last frame shows what a cell of the new one does. Link ids are per grid (each frame interns its
 /// own table), so the urls are compared, not the ids.
 fn same_cell(old: &Cell, previous: &Grid, new: &Cell, grid: &Grid) -> bool {
-    old.symbol == new.symbol
-        && old.width == new.width
-        && old.style == new.style
-        && previous.link_url(old.link) == grid.link_url(new.link)
+    old.symbol == new.symbol && old.width == new.width && old.style == new.style && previous.link_url(old.link) == grid.link_url(new.link)
 }
 
 /// What a style comes to at a colour level: at level 0 chalk writes no styling at all (the selection highlight, which

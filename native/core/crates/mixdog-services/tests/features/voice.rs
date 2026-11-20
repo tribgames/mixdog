@@ -4,7 +4,18 @@ use mixdog_services::voice::language::{detect_device_language, normalize_whisper
 
 #[test]
 fn a_locale_names_its_language_when_it_is_one_of_the_known_ten() {
-    for (locale, language) in [("ko_KR.UTF-8", "ko"), ("ja-JP", "ja"), ("EN-us", "en"), ("zh_CN", "zh"), ("de", "de"), ("fr_CA", "fr"), ("es-MX", "es"), ("it", "it"), ("pt_BR", "pt"), ("ru-RU", "ru")] {
+    for (locale, language) in [
+        ("ko_KR.UTF-8", "ko"),
+        ("ja-JP", "ja"),
+        ("EN-us", "en"),
+        ("zh_CN", "zh"),
+        ("de", "de"),
+        ("fr_CA", "fr"),
+        ("es-MX", "es"),
+        ("it", "it"),
+        ("pt_BR", "pt"),
+        ("ru-RU", "ru"),
+    ] {
         assert_eq!(normalize_whisper_language(Some(locale)).as_deref(), Some(language), "{locale}");
     }
 }

@@ -17,6 +17,7 @@ use mixdog_core_api::FeedSource;
 use mixdog_core_api::Reply;
 use mixdog_core_api::RunControl;
 use mixdog_core_api::ThreadHandle;
+use mixdog_core_api::call::CallContext;
 use mixdog_core_api::call::Caller;
 use mixdog_core_api::call::CoreRequest;
 use mixdog_core_api::call::Subscribe;
@@ -27,13 +28,12 @@ use mixdog_core_api::feed::FeedPosition;
 use mixdog_core_api::feed::ResumeFrom;
 use mixdog_core_api::feed::Window;
 use mixdog_core_api::ids::FeedId;
+use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::QueuedId;
 use mixdog_core_api::ids::SubscriptionId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::ids::TurnId;
-use mixdog_core_api::call::CallContext;
-use mixdog_core_api::ids::Method;
 use mixdog_core_api::thread::Decision;
 use mixdog_core_api::thread::Stop;
 use mixdog_core_api::thread::stop_reply;
@@ -65,10 +65,10 @@ use super::prompt_submission::touches_store;
 use super::run::ProducerMsg;
 use super::state::Queued;
 use super::stop;
-use mixdog_core_ports::ports::threads::Section;
 use super::view::SnapshotParams;
 use mixdog_core_base::approvals::Lineage;
 use mixdog_core_ports::ports::gate::LiveHeader;
+use mixdog_core_ports::ports::threads::Section;
 
 pub struct SessionHandle {
     pub(crate) id: ThreadId,
@@ -147,9 +147,7 @@ impl SessionHandle {
     }
 
     fn closing(&self) -> CoreError {
-        CoreError::ThreadClosing {
-            thread_id: self.id.clone(),
-        }
+        CoreError::ThreadClosing { thread_id: self.id.clone() }
     }
 
     /// Where this thread's server requests are shown (P §8.3).
@@ -160,17 +158,12 @@ impl SessionHandle {
     /// Publishes a section of the thread projection from its owning domain (P §5.1). Waits
     /// for producer-lane capacity, which the actor grants while its outbox has room.
     pub async fn set_section(&self, section: Section) -> Result<(), CoreError> {
-        self.producers
-            .send(ProducerMsg::Section(section))
-            .await
-            .map_err(|_| self.closing())
+        self.producers.send(ProducerMsg::Section(section)).await.map_err(|_| self.closing())
     }
 
     /// The user's "Retry storage" for a thread in `storage: indeterminate` (SM §8).
     pub fn retry_storage(&self) -> Result<(), CoreError> {
-        self.cell.ctl_tx.try_send(Ctl::RetryStorage).map_err(|_| CoreError::QueueFull {
-            queue: "control".into(),
-        })
+        self.cell.ctl_tx.try_send(Ctl::RetryStorage).map_err(|_| CoreError::QueueFull { queue: "control".into() })
     }
 
     /// Today's `explicitSessionCwd()` inside this session's scope: its cwd, else
@@ -226,17 +219,13 @@ impl SessionHandle {
 
     /// A tool-policy input outside the thread changed: the actor re-derives the surface.
     pub fn refresh_surface(&self) -> Result<(), CoreError> {
-        self.cell.ctl_tx.try_send(Ctl::RefreshSurface).map_err(|_| CoreError::QueueFull {
-            queue: "control".into(),
-        })
+        self.cell.ctl_tx.try_send(Ctl::RefreshSurface).map_err(|_| CoreError::QueueFull { queue: "control".into() })
     }
 
     /// The session's cwd was applied (`applyResolvedCwd`), the same folder again or a new one
     /// (`changed`): the actor schedules the code-graph warm.
     pub fn cwd_applied(&self, changed: bool) -> Result<(), CoreError> {
-        self.cell.ctl_tx.try_send(Ctl::CwdApplied { changed }).map_err(|_| CoreError::QueueFull {
-            queue: "control".into(),
-        })
+        self.cell.ctl_tx.try_send(Ctl::CwdApplied { changed }).map_err(|_| CoreError::QueueFull { queue: "control".into() })
     }
 
     /// Puts the request in the actor's inbox; the receiver answers once the actor has.
@@ -246,9 +235,7 @@ impl SessionHandle {
         let msg = Inbox::Request { req, tx };
         if connection {
             self.inbox.try_send(msg).map_err(|error| match error {
-                mpsc::error::TrySendError::Full(_) => CoreError::QueueFull {
-                    queue: "inbox".into(),
-                },
+                mpsc::error::TrySendError::Full(_) => CoreError::QueueFull { queue: "inbox".into() },
                 mpsc::error::TrySendError::Closed(_) => self.closing(),
             })?;
         } else {
@@ -366,9 +353,11 @@ impl SessionHandle {
             let originals = self.deps.staged_originals.clone();
             // Only an original whose bytes are not in the store leaves the message; a look that cannot run keeps them all
             // (nothing deletes a staged original, so the message keeps what it was sent with).
-            missing = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &req.ctx.cancel, move |lane| named.into_iter().filter(|r| !originals.stored(lane, r)).collect())
-                .await
-                .unwrap_or_default();
+            missing = mixdog_core_base::support::on_lane_wait(self.deps.lanes.io, &req.ctx.cancel, move |lane| {
+                named.into_iter().filter(|r| !originals.stored(lane, r)).collect()
+            })
+            .await
+            .unwrap_or_default();
         }
         // The fact is the core's own, made at this acceptance (a replay of an accepted send joins that first record, so it is
         // told once); what a caller put on the params under that name is replaced.
@@ -376,7 +365,14 @@ impl SessionHandle {
         // A full inbox must not hold the gate past the caller's cancel.
         // A session whose thread has ended takes nothing (drain-enqueue.mjs:27, admission 	erminal): Node answers a refused submit alse.
         let closed = || mixdog_core_base::support::coded("session", super::actor::SUBMIT_REFUSED, "The session is closed.");
-        let answer = Scope::new().cancel(&cancel).run(self.enqueue(req)).await.done().ok_or(mixdog_rt::GateCancelled).map_err(caller_cancelled)?.map_err(|error| if matches!(error, CoreError::ThreadClosing { .. }) { closed() } else { error })?;
+        let answer = Scope::new()
+            .cancel(&cancel)
+            .run(self.enqueue(req))
+            .await
+            .done()
+            .ok_or(mixdog_rt::GateCancelled)
+            .map_err(caller_cancelled)?
+            .map_err(|error| if matches!(error, CoreError::ThreadClosing { .. }) { closed() } else { error })?;
         drop(in_order);
         let reply = answer.await.map_err(|_| {
             tracing::warn!(thread = %self.id, method = "turn/start", "the session actor dropped the request's reply without answering it");
@@ -386,30 +382,17 @@ impl SessionHandle {
     }
 
     fn resume(&self, req: &CoreRequest) -> Result<Reply, CoreError> {
-        let params: ThreadResumeParams =
-            serde_json::from_value(req.params.clone()).map_err(|_| CoreError::InvalidParams {
-                path: "params".into(),
-                expected: "ThreadResumeParams".into(),
-            })?;
+        let params: ThreadResumeParams = serde_json::from_value(req.params.clone())
+            .map_err(|_| CoreError::InvalidParams { path: "params".into(), expected: "ThreadResumeParams".into() })?;
         let window = window_of(&params.window);
-        let resume_from = params.resume_from.map(|from| ResumeFrom {
-            position: FeedPosition {
-                epoch: from.epoch,
-                seq: from.seq,
-            },
-            window: window_of(&from.window),
-        });
+        let resume_from =
+            params.resume_from.map(|from| ResumeFrom { position: FeedPosition { epoch: from.epoch, seq: from.seq }, window: window_of(&from.window) });
         let view = self.cell.view.load_full();
         let feed: Arc<dyn FeedSource> = self.subscriptions.clone();
         // The resume's release drains what an earlier process left queued (`resume.mjs:72`) and restarts the idle clock, a full
         // control lane or not.
         self.cell.deliver(super::control::Ctl::Resumed);
-        Ok(Reply::Subscribe(Subscribe {
-            result: json!({ "thread": view.summary }),
-            feed,
-            window,
-            resume_from,
-        }))
+        Ok(Reply::Subscribe(Subscribe { result: json!({ "thread": view.summary }), feed, window, resume_from }))
     }
 
     /// The model conversation (`session.messages`), for the core's own ports: what is stored, then what is held in memory
@@ -419,7 +402,10 @@ impl SessionHandle {
     /// of the messages, amended as above, satisfies it, or the whole conversation is read. Whether any message satisfies
     /// `wanted` is then the answer the whole conversation gives: a match is a message the whole read holds too, and no match
     /// is only answered once every row is read.
-    #[allow(clippy::disallowed_methods, reason = "on a replay's virtual clock mixdog_rt::time stops the replay at the count wait and starts the full-history read there; tokio's timer does not")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "on a replay's virtual clock mixdog_rt::time stops the replay at the count wait and starts the full-history read there; tokio's timer does not"
+    )]
     pub async fn model_messages(&self, wanted: Option<&(dyn Fn(&serde_json::Value) -> bool + Sync)>) -> Result<Vec<serde_json::Value>, CoreError> {
         let (tx, rx) = oneshot::channel();
         self.inbox.send(Inbox::UnsavedRows { tx }).await.map_err(|_| self.closing())?;
@@ -443,7 +429,8 @@ impl SessionHandle {
         let mut take = 16usize;
         loop {
             let skip = len.saturating_sub(take);
-            let mut rows: Vec<(String, serde_json::Value)> = context.read_from(skip).await?.into_iter().map(|(iid, message)| (iid.as_str().to_owned(), message)).collect();
+            let mut rows: Vec<(String, serde_json::Value)> =
+                context.read_from(skip).await?.into_iter().map(|(iid, message)| (iid.as_str().to_owned(), message)).collect();
             for (iid, body, amend) in &unsaved {
                 match rows.iter_mut().find(|(row, _)| row == iid) {
                     Some(row) => row.1 = body.clone(),
@@ -474,13 +461,8 @@ impl SessionHandle {
                 }
                 None => (view.items.iter().map(|item| item.as_ref()).collect(), view.has_older),
             };
-            let mut read = serde_json::to_value(SnapshotParams {
-                thread: &view.summary,
-                state: &view.state,
-                items,
-                has_older,
-            })
-            .expect("protocol types serialize");
+            let mut read =
+                serde_json::to_value(SnapshotParams { thread: &view.summary, state: &view.state, items, has_older }).expect("protocol types serialize");
             // A retrying spinner shows the wait left at this read, from the deadline the view holds.
             if let Some(spinner) = read.pointer_mut("/state/runtime/spinner") {
                 super::spinner::project_retry(spinner, super::spinner::core_now_ms());
@@ -519,13 +501,7 @@ impl SessionHandle {
             input: mixdog_core_api::ids::ItemId::from(String::new()),
         };
         let (ids, messages): (Vec<_>, Vec<_>) = context.read().await?.into_iter().unzip();
-        let change = super::message_reactions::Change {
-            agent_id,
-            emoji,
-            messages_back,
-            others_keep,
-            at: self.deps.clock.now_ms(),
-        };
+        let change = super::message_reactions::Change { agent_id, emoji, messages_back, others_keep, at: self.deps.clock.now_ms() };
         let done = super::message_reactions::react_to_message(&messages, &change).map_err(|message| mixdog_core_base::support::failed("session", message))?;
         let mut reply = json!({ "changed": done.changed, "messageId": done.message_id, "reactions": done.reactions });
         let Some(message) = done.message else {
@@ -541,7 +517,8 @@ impl SessionHandle {
     async fn applied_skills_set(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let invalid = |path: &str, expected: &str| CoreError::InvalidParams { path: path.into(), expected: expected.into() };
         let iid = req.params.get("iid").and_then(Value::as_str).filter(|iid| !iid.is_empty()).ok_or_else(|| invalid("iid", "the prompt's row"))?;
-        let names: Vec<String> = serde_json::from_value(req.params.get("names").cloned().unwrap_or(Value::Null)).map_err(|_| invalid("names", "skill names"))?;
+        let names: Vec<String> =
+            serde_json::from_value(req.params.get("names").cloned().unwrap_or(Value::Null)).map_err(|_| invalid("names", "skill names"))?;
         if names.is_empty() {
             return Ok(Reply::Value(json!({ "changed": false })));
         }
@@ -581,10 +558,7 @@ impl SessionHandle {
             let iid = iid.clone();
             move |lane| store.history_row(lane, &thread, &iid)
         });
-        let (_, mut row) = found.await??.ok_or_else(|| CoreError::ItemNotFound {
-            thread_id: self.id.clone(),
-            item_id: item.clone(),
-        })?;
+        let (_, mut row) = found.await??.ok_or_else(|| CoreError::ItemNotFound { thread_id: self.id.clone(), item_id: item.clone() })?;
         row.body = mixdog_store::schema::blob::Slot::Inline(message.clone());
         let transcript = self.deps.transcript.clone();
         let shown = mixdog_core_base::support::on_lane_wait(self.deps.lanes.cpu, &ctx.cancel, {
@@ -596,9 +570,7 @@ impl SessionHandle {
             .await?
             .into_iter()
             .filter_map(|shown| match shown {
-                super::seams::Shown::Item(
-                    item @ (mixdog_protocol::ThreadItem::UserMessage { .. } | mixdog_protocol::ThreadItem::RoomRow { .. }),
-                ) => Some(item),
+                super::seams::Shown::Item(item @ (mixdog_protocol::ThreadItem::UserMessage { .. } | mixdog_protocol::ThreadItem::RoomRow { .. })) => Some(item),
                 _ => None,
             })
             .collect();
@@ -618,10 +590,12 @@ impl SessionHandle {
     /// message of the post carries, is skipped; the rest are stored as rows of no turn, each
     /// shown live as it lands. Answers `{added}`. Internal callers only.
     async fn room_rows_append(&self, req: CoreRequest, dedupe: bool) -> Result<Reply, CoreError> {
-        let messages = req.params.get("messages").and_then(Value::as_array).cloned().ok_or_else(|| CoreError::InvalidParams {
-            path: "messages".into(),
-            expected: "the room row messages".into(),
-        })?;
+        let messages = req
+            .params
+            .get("messages")
+            .and_then(Value::as_array)
+            .cloned()
+            .ok_or_else(|| CoreError::InvalidParams { path: "messages".into(), expected: "the room row messages".into() })?;
         let _one_at_a_time = self.reactions.enter(&req.ctx.cancel).await.map_err(caller_cancelled)?;
         let context = super::run::ModelContext {
             store: self.deps.store.clone(),
@@ -654,12 +628,7 @@ impl SessionHandle {
         if let Some(view) = req.params.get("roomView") {
             params["roomView"] = view.clone();
         }
-        let append = CoreRequest {
-            method: mixdog_core_api::ids::Method("thread/roomRows/commit"),
-            params,
-            op: None,
-            ctx: req.ctx,
-        };
+        let append = CoreRequest { method: mixdog_core_api::ids::Method("thread/roomRows/commit"), params, op: None, ctx: req.ctx };
         self.to_actor_cancellable(append).await
     }
 
@@ -738,10 +707,7 @@ impl SessionHandle {
     /// `thread/fork`: a new thread whose conversation continues the source's completed history.
     async fn fork(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let params: ThreadForkParams =
-            serde_json::from_value(req.params.clone()).map_err(|_| CoreError::InvalidParams {
-                path: "params".into(),
-                expected: "ThreadForkParams".into(),
-            })?;
+            serde_json::from_value(req.params.clone()).map_err(|_| CoreError::InvalidParams { path: "params".into(), expected: "ThreadForkParams".into() })?;
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
         let heirs = super::SessionDirectory::over(directory.clone());
         // The fork copies durable history: what the session holds unwritten (a turn's rows in flight, or what a failed save
@@ -770,17 +736,26 @@ impl SessionHandle {
         }
         if let Some(route) = &params.route {
             let pick = super::new_route::draft_pick(route);
-            let effective = self.deps.new_route.adopt(&heir, Some(&pick)).await
-                .map_err(|message| mixdog_core_base::support::failed("route", message))?;
+            let effective = self.deps.new_route.adopt(&heir, Some(&pick)).await.map_err(|message| mixdog_core_base::support::failed("route", message))?;
             heir_route(&mut header, pick, &effective)?;
         }
         let header = self.fresh_copy_header(header);
-        let created = match directory.create(CreateSpec {
-            id: Some(heir.clone()), header, base: None,
-            // Creation alone is not a completed fork.
-            op: None, op_audience: None, method: Method("thread/fork/create"), params: Value::Null,
-            seed: None, settings: None, starting: None,
-        }).await {
+        let created = match directory
+            .create(CreateSpec {
+                id: Some(heir.clone()),
+                header,
+                base: None,
+                // Creation alone is not a completed fork.
+                op: None,
+                op_audience: None,
+                method: Method("thread/fork/create"),
+                params: Value::Null,
+                seed: None,
+                settings: None,
+                starting: None,
+            })
+            .await
+        {
             Ok(created) => created,
             Err(error) => {
                 if visible_heir {
@@ -792,15 +767,14 @@ impl SessionHandle {
         };
         let result = async {
             if params.route.is_some() {
-                directory.deps.new_route.seat(&created.id).await
-                    .map_err(|message| mixdog_core_base::support::failed("route", message))?;
+                directory.deps.new_route.seat(&created.id).await.map_err(|message| mixdog_core_base::support::failed("route", message))?;
             } else {
                 directory.deps.new_route.boot(&created.id, &created.cell.header.load_full());
             }
-            directory.deps.empty_surface.refresh_empty(&created.id).await
-                .map_err(|message| mixdog_core_base::support::failed("session", message))?;
+            directory.deps.empty_surface.refresh_empty(&created.id).await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
             heirs.carry_into(self, &created.id, &source, super::inheritance::CarryMode::New { compact }).await
-        }.await;
+        }
+        .await;
         if result.is_err() {
             heirs.discard(&created.id).await;
         }
@@ -835,13 +809,23 @@ impl SessionHandle {
         }
         header.shift_remove("workspace"); // The source still owns its worktree.
         let saved = async {
-            directory.create(CreateSpec {
-                id: Some(copy.clone()), header, base: None, op: None, op_audience: None,
-                method: Method("thread/clear/copy"), params: Value::Null,
-                seed: None, settings: None, starting: None,
-            }).await?;
+            directory
+                .create(CreateSpec {
+                    id: Some(copy.clone()),
+                    header,
+                    base: None,
+                    op: None,
+                    op_audience: None,
+                    method: Method("thread/clear/copy"),
+                    params: Value::Null,
+                    seed: None,
+                    settings: None,
+                    starting: None,
+                })
+                .await?;
             heirs.carry_into(self, &copy, source, super::inheritance::CarryMode::Recovery { rows }).await
-        }.await;
+        }
+        .await;
         if let Err(error) = saved {
             heirs.discard(&copy).await;
             return Err(error);
@@ -854,10 +838,7 @@ impl SessionHandle {
     /// is `{ promptRebuilt }`, whether that was applied.
     async fn clear(&self, req: CoreRequest) -> Result<Reply, CoreError> {
         let params: ThreadClearParams =
-            serde_json::from_value(req.params.clone()).map_err(|_| CoreError::InvalidParams {
-                path: "params".into(),
-                expected: "ThreadClearParams".into(),
-            })?;
+            serde_json::from_value(req.params.clone()).map_err(|_| CoreError::InvalidParams { path: "params".into(), expected: "ThreadClearParams".into() })?;
         let rebuild = params.rebuild_prompt == Some(true);
         if rebuild && self.cell.run.load().is_some() {
             return Err(mixdog_core_base::support::failed("session", "The session is running a turn; wait for it to finish."));
@@ -882,9 +863,14 @@ impl SessionHandle {
             let source = self.fork_source(true).await?;
             let copy = self.keep_cleared_copy(&source).await?;
             let result = self.commit_history(req, source.revision).await;
-            if matches!(result, Err(CoreError::PreconditionFailed { .. } | CoreError::BarrierFailed { .. }
-                | CoreError::WindowFull { .. } | CoreError::OpIdConflict { .. } | CoreError::OpFenced { .. })) &&
-                let (Some(copy), Some(directory)) = (copy, self.directory.upgrade())
+            if matches!(
+                result,
+                Err(CoreError::PreconditionFailed { .. }
+                    | CoreError::BarrierFailed { .. }
+                    | CoreError::WindowFull { .. }
+                    | CoreError::OpIdConflict { .. }
+                    | CoreError::OpFenced { .. })
+            ) && let (Some(copy), Some(directory)) = (copy, self.directory.upgrade())
             {
                 super::SessionDirectory::over(directory).discard(&copy).await;
             }
@@ -896,12 +882,7 @@ impl SessionHandle {
             return Ok(reply);
         }
         let directory = self.directory.upgrade().ok_or_else(|| self.closing())?;
-        let rebuilt = directory
-            .deps
-            .empty_surface
-            .refresh_empty(&self.id)
-            .await
-            .map_err(|message| mixdog_core_base::support::failed("session", message))?;
+        let rebuilt = directory.deps.empty_surface.refresh_empty(&self.id).await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
         Ok(Reply::Value(json!({ "promptRebuilt": rebuilt })))
     }
 }
@@ -914,16 +895,57 @@ impl SessionHandle {
 /// holds none of what the source measured or ran. Its usage totals start at zero, its context readings, step list, close
 /// provenance, transcript identity and the source's own name and title are not carried (the carry gives the heir the source's title), and its compaction is the configuration alone, without the source's checks.
 fn fresh_heir_state(header: &mut mixdog_store::schema::record::Header) {
-    const COMPACTION_CONFIG: [&str; 9] = ["auto", "model", "summaryModel", "timeoutMs", "memoryTimeoutMs", "bufferTokens", "mainBufferTokens", "reservedTokens", "boundaryTokens"];
+    const COMPACTION_CONFIG: [&str; 9] =
+        ["auto", "model", "summaryModel", "timeoutMs", "memoryTimeoutMs", "bufferTokens", "mainBufferTokens", "reservedTokens", "boundaryTokens"];
     const NOT_CARRIED: [&str; 48] = [
-        "offloadInheriting", "offloadInheritingBoot",
-        "bp3Cursor", "closeProvenance", "lastCacheWriteTokens", "lastCachedReadTokens", "lastContextTokens", "lastContextTokensStaleAfterCompact",
-        "lastContextTokensUpdatedAt", "lastInputTokens", "lastIterationIndex", "lastOutputTokens", "lastProviderSendAt", "lastTurnCompletedAt",
-        "lastPromptTokens", "lastProviderCachedPrefixTokens", "lastProviderCacheObservation", "providerPrefixBaseline",
-        "lastUncachedInputTokens", "reasoningUsage", "titleUpdatedAt", "todo", "todoCheck", "totalCacheWriteTokens", "totalCachedReadTokens",
-        "totalUncachedInputTokens", "transcriptEpoch", "turnBotChain", "turnCoverage", "pendingGoalReminder",
-        "goalReminderRevision", "goalStalledNotice", "contextUsageSnapshot", "turnHop", "usageMetricsTurnId", "usageReadout",
-        "archivedAt", "favoriteAt", "name", "title", "titleLocked", "titleSource", "importOrigin", "codexWireSessionId", "detachedReason", "sessionVisibility", "task_id", "taskId",
+        "offloadInheriting",
+        "offloadInheritingBoot",
+        "bp3Cursor",
+        "closeProvenance",
+        "lastCacheWriteTokens",
+        "lastCachedReadTokens",
+        "lastContextTokens",
+        "lastContextTokensStaleAfterCompact",
+        "lastContextTokensUpdatedAt",
+        "lastInputTokens",
+        "lastIterationIndex",
+        "lastOutputTokens",
+        "lastProviderSendAt",
+        "lastTurnCompletedAt",
+        "lastPromptTokens",
+        "lastProviderCachedPrefixTokens",
+        "lastProviderCacheObservation",
+        "providerPrefixBaseline",
+        "lastUncachedInputTokens",
+        "reasoningUsage",
+        "titleUpdatedAt",
+        "todo",
+        "todoCheck",
+        "totalCacheWriteTokens",
+        "totalCachedReadTokens",
+        "totalUncachedInputTokens",
+        "transcriptEpoch",
+        "turnBotChain",
+        "turnCoverage",
+        "pendingGoalReminder",
+        "goalReminderRevision",
+        "goalStalledNotice",
+        "contextUsageSnapshot",
+        "turnHop",
+        "usageMetricsTurnId",
+        "usageReadout",
+        "archivedAt",
+        "favoriteAt",
+        "name",
+        "title",
+        "titleLocked",
+        "titleSource",
+        "importOrigin",
+        "codexWireSessionId",
+        "detachedReason",
+        "sessionVisibility",
+        "task_id",
+        "taskId",
     ];
     for key in NOT_CARRIED {
         header.shift_remove(key);
@@ -957,8 +979,11 @@ fn root_heir_identity(header: &mut mixdog_store::schema::record::Header) {
         header.shift_remove(key);
     }
     header.extend([
-        ("owner".into(), json!("cli")), ("agent".into(), json!("lead")), ("lane".into(), json!("cli")),
-        ("sourceType".into(), json!("lead")), ("sourceName".into(), json!("main")),
+        ("owner".into(), json!("cli")),
+        ("agent".into(), json!("lead")),
+        ("lane".into(), json!("cli")),
+        ("sourceType".into(), json!("lead")),
+        ("sourceName".into(), json!("main")),
     ]);
 }
 
@@ -969,13 +994,29 @@ fn heir_route(
 ) -> Result<(), CoreError> {
     route.extend(effective.clone());
     const FIELDS: &[&str] = &[
-        "provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent",
-        "contextTokens", "selectedContextWindow", "routeFallbacks", "routeFallbackSource",
+        "provider",
+        "model",
+        "effort",
+        "fast",
+        "autoEffort",
+        "modelParameters",
+        "contextPercent",
+        "contextTokens",
+        "selectedContextWindow",
+        "routeFallbacks",
+        "routeFallbackSource",
     ];
     for key in FIELDS.iter().copied().chain([
-        "presetName", "routeFallbackIndex", "routeFallbackPrimary", "routeFallbackFailures",
-        "contextWindow", "rawContextWindow", "displayContextWindow", "effectiveContextWindowPercent",
-        "compactBoundaryTokens", "autoCompactTokenLimit",
+        "presetName",
+        "routeFallbackIndex",
+        "routeFallbackPrimary",
+        "routeFallbackFailures",
+        "contextWindow",
+        "rawContextWindow",
+        "displayContextWindow",
+        "effectiveContextWindowPercent",
+        "compactBoundaryTokens",
+        "autoCompactTokenLimit",
     ]) {
         header.shift_remove(key);
     }
@@ -1005,7 +1046,8 @@ async fn heir_place(deps: &SessionDeps, header: &mut mixdog_store::schema::recor
     }
     let registered = deps.new_place.projects().await.map_err(|message| mixdog_core_base::support::failed("session", message))?;
     let keys: Vec<String> = registered.iter().map(|path| project_identity(Some(path))).collect();
-    let stored = (source.pointer("/desktopSession/classification") == Some(&json!("project"))).then(|| source.pointer("/desktopSession/projectPath").cloned()).flatten();
+    let stored =
+        (source.pointer("/desktopSession/classification") == Some(&json!("project"))).then(|| source.pointer("/desktopSession/projectPath").cloned()).flatten();
     let key = session_project_key(&json!({ "projectPath": stored, "cwd": source.get("cwd"), "workspace": source.get("workspace") }), &keys);
     let project = registered.iter().find(|path| !key.is_empty() && project_identity(Some(path)) == key);
     match project {
@@ -1178,10 +1220,7 @@ impl RunControl for SessionHandle {
         let queued = input
             .get("queuedId")
             .and_then(Value::as_str)
-            .ok_or_else(|| CoreError::InvalidParams {
-                path: "queuedId".into(),
-                expected: "a queued entry id".into(),
-            })?;
+            .ok_or_else(|| CoreError::InvalidParams { path: "queuedId".into(), expected: "a queued entry id".into() })?;
         self.cell.steer(expected_turn, QueuedId::from(queued))
     }
 
@@ -1212,9 +1251,8 @@ impl SessionHandle {
     /// changes, so a refusal (`restoreFiles: false` over a file part) or an attachment read error leaves the
     /// conversation untouched; the actor then rewinds, and the payload rides its reply.
     async fn rewind(&self, req: CoreRequest) -> Result<Reply, CoreError> {
-        let params: ThreadRewindParams = serde_json::from_value(req.params.clone()).map_err(|_| CoreError::InvalidParams {
-            path: "params".into(), expected: "ThreadRewindParams".into(),
-        })?;
+        let params: ThreadRewindParams = serde_json::from_value(req.params.clone())
+            .map_err(|_| CoreError::InvalidParams { path: "params".into(), expected: "ThreadRewindParams".into() })?;
         let (tx, rx) = oneshot::channel();
         self.inbox.send(Inbox::RewindPreview { item: params.item_id, tx }).await.map_err(|_| self.closing())?;
         let preview = rx.await.map_err(|_| self.closing())??;
@@ -1294,7 +1332,8 @@ impl SessionHandle {
         reply["pastedImages"] = restored["pastedImages"].clone();
         reply["pastedTexts"] = restored["pastedTexts"].clone();
         // The submissions the window named (`submittedIds`), not the queue's own entry ids.
-        reply["restoredSubmissionIds"] = json!(queued.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()).into_iter().collect::<Vec<_>>());
+        reply["restoredSubmissionIds"] =
+            json!(queued.entry.pointer("/options/clientSubmissionId").and_then(Value::as_str).filter(|id| !id.is_empty()).into_iter().collect::<Vec<_>>());
         for key in ["content", "notice"] {
             if let Some(value) = restored.get(key) {
                 reply[key] = value.clone();
@@ -1503,7 +1542,9 @@ impl SessionHandle {
         if let Some(message) = unreadable {
             reply["notice"] = json!(format!("Could not restore the attachments ({message}); the prompt was kept."));
         }
-        for (key, pointer, discard) in [("discardPastedImages", "/options/pastedImages", decision.discard_images), ("discardPastedTexts", "/options/pastedTexts", decision.discard_texts)] {
+        for (key, pointer, discard) in
+            [("discardPastedImages", "/options/pastedImages", decision.discard_images), ("discardPastedTexts", "/options/pastedTexts", decision.discard_texts)]
+        {
             if discard {
                 reply[key] = facts.entry.pointer(pointer).cloned().unwrap_or(Value::Null);
             }
@@ -1532,9 +1573,7 @@ impl SessionHandle {
             "thread/roomRows/append" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.room_rows_append(req, true).await,
             "thread/inheritedRows/append" if !matches!(req.ctx.caller, Caller::Connection(_)) => self.room_rows_append(req, false).await,
             // The acked header, for the core's own ports; never a connection's read.
-            "thread/header/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => {
-                Ok(Reply::Value(json!({ "header": *self.cell.header.load_full() })))
-            }
+            "thread/header/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => Ok(Reply::Value(json!({ "header": *self.cell.header.load_full() }))),
             // The model conversation (`session.messages`), for the core's own ports: what is stored, then what is held in
             // memory unsaved (asked first, so a record stored in between is read from the store; an amend replaces its row).
             "thread/messages/read" if !matches!(req.ctx.caller, Caller::Connection(_)) => {
@@ -1570,18 +1609,24 @@ mod recovery_history_tests {
     use std::sync::atomic::Ordering::SeqCst;
 
     async fn append(handle: &SessionHandle, messages: Value) {
-        handle.request(CoreRequest {
-            method: Method("thread/inheritedRows/append"),
-            params: json!({ "messages": messages }),
-            op: None,
-            ctx: CallContext::internal("test"),
-        }).await.expect("append");
+        handle
+            .request(CoreRequest {
+                method: Method("thread/inheritedRows/append"),
+                params: json!({ "messages": messages }),
+                op: None,
+                ctx: CallContext::internal("test"),
+            })
+            .await
+            .expect("append");
     }
 
     fn fail_copy(rig: &Rig) {
-        *lock(&rig.store.fail_when) = Some((Box::new(|record| {
-            matches!(record, Record::Meta(meta) if matches!(&meta.change, Slot::Inline(change) if change.set.contains_key("inheritedFromSessionId")))
-        }), false));
+        *lock(&rig.store.fail_when) = Some((
+            Box::new(
+                |record| matches!(record, Record::Meta(meta) if matches!(&meta.change, Slot::Inline(change) if change.set.contains_key("inheritedFromSessionId"))),
+            ),
+            false,
+        ));
     }
 
     #[tokio::test(start_paused = true)]
@@ -1732,8 +1777,14 @@ mod recovery_history_tests {
         let directory = SessionDirectory::new(rig.deps());
         let source = start_thread(&directory).await;
         let snapshot = json!({ "version": 1, "provider": "openai", "model": "gpt-6", "mode": "responses", "initialEffort": "low", "effort": "high" });
-        append(&source, json!([{ "role": "user", "content": "q", "meta": { "effortConfiguration": snapshot, "source": "x" } }, { "role": "assistant", "content": "a" }])).await;
-        let Reply::Value(fork) = source.request(request("thread/fork", json!({ "threadId": source.id, "opId": "fork" }), "fork")).await.expect("fork") else { panic!("fork reply") };
+        append(
+            &source,
+            json!([{ "role": "user", "content": "q", "meta": { "effortConfiguration": snapshot, "source": "x" } }, { "role": "assistant", "content": "a" }]),
+        )
+        .await;
+        let Reply::Value(fork) = source.request(request("thread/fork", json!({ "threadId": source.id, "opId": "fork" }), "fork")).await.expect("fork") else {
+            panic!("fork reply")
+        };
         let heir = ThreadId::from(fork["thread"]["id"].as_str().expect("heir id"));
         let rows = directory.model_context(&heir).read().await.expect("heir context");
         assert_eq!(rows[0].1["content"], "q");
@@ -1746,17 +1797,34 @@ mod recovery_history_tests {
         let rig = Rig::new();
         let directory = SessionDirectory::new(rig.deps());
         let source_id = ThreadId::from("sess_worker_source");
-        directory.create_with_id(source_id.clone(), json!({
-            "cwd": "/ws", "provider": "source-provider", "model": "source-model", "contextTokens": 64000,
-            "owner": "agent", "agent": "builder", "visibility": "agent-only", "ownerSessionId": "sess_parent",
-        }).as_object().unwrap().clone(), json!({})).await.expect("source");
+        directory
+            .create_with_id(
+                source_id.clone(),
+                json!({
+                    "cwd": "/ws", "provider": "source-provider", "model": "source-model", "contextTokens": 64000,
+                    "owner": "agent", "agent": "builder", "visibility": "agent-only", "ownerSessionId": "sess_parent",
+                })
+                .as_object()
+                .unwrap()
+                .clone(),
+                json!({}),
+            )
+            .await
+            .expect("source");
         let source = directory.open_handle(&source_id, &CallContext::internal("test")).await.expect("open source");
         append(&source, json!([{ "role": "user", "content": "carry me" }])).await;
-        let fork = source.request(request("thread/fork", json!({
-            "threadId": source.id, "opId": "fork",
-            "route": { "provider": "openai", "model": "destination", "effort": "high", "fast": true,
-                "autoEffort": false, "modelParameters": { "context": "wide" }, "contextTokens": 12000 },
-        }), "fork")).await.expect("fork");
+        let fork = source
+            .request(request(
+                "thread/fork",
+                json!({
+                    "threadId": source.id, "opId": "fork",
+                    "route": { "provider": "openai", "model": "destination", "effort": "high", "fast": true,
+                        "autoEffort": false, "modelParameters": { "context": "wide" }, "contextTokens": 12000 },
+                }),
+                "fork",
+            ))
+            .await
+            .expect("fork");
         let Reply::Value(fork) = fork else { panic!("fork must return a value") };
         let heir = ThreadId::from(fork["thread"]["id"].as_str().expect("heir id"));
         let header = rig.store.stored_header(&heir).expect("durable heir");
@@ -1779,12 +1847,16 @@ mod recovery_history_tests {
         let deps = Arc::new(deps);
         let directory = SessionDirectory::new(deps.clone());
         let source = start_thread(&directory).await;
-        append(&source, json!([
-            // A row shows the submission id its record keeps as `clientSubmissionId` (transcript_rows.rs `metadata`); a bare
-            // `submissionIds` is the turn's, and a restored row of only that shows its item id, as Node's restore numbered it.
-            { "role": "user", "content": "first", "meta": { "transcript": { "clientSubmissionId": "shown-first" } } },
-            { "role": "user", "content": "second", "meta": { "transcript": { "clientSubmissionId": "shown-second" } } },
-        ])).await;
+        append(
+            &source,
+            json!([
+                // A row shows the submission id its record keeps as `clientSubmissionId` (transcript_rows.rs `metadata`); a bare
+                // `submissionIds` is the turn's, and a restored row of only that shows its item id, as Node's restore numbered it.
+                { "role": "user", "content": "first", "meta": { "transcript": { "clientSubmissionId": "shown-first" } } },
+                { "role": "user", "content": "second", "meta": { "transcript": { "clientSubmissionId": "shown-second" } } },
+            ]),
+        )
+        .await;
         let first = source.view_items()[0].id().clone();
         assert_ne!(first.as_str(), "shown-first");
         assert_ne!(source.view_items()[1].id().as_str(), "shown-second");

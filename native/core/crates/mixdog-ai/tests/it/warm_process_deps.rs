@@ -240,7 +240,12 @@ async fn a_timer_runs_after_its_delay_and_a_cancelled_one_never_does() {
     let (fired, mut ran) = tokio::sync::mpsc::unbounded_channel::<&'static str>();
     for (name, delay, cancel) in [("late", 150.0, false), ("cancelled", 150.0, true), ("negative", -5.0, false)] {
         let fired = fired.clone();
-        let handle = TokioTimers.schedule(delay, Box::pin(async move { let _ = fired.send(name); }));
+        let handle = TokioTimers.schedule(
+            delay,
+            Box::pin(async move {
+                let _ = fired.send(name);
+            }),
+        );
         if cancel {
             handle.cancel();
         }

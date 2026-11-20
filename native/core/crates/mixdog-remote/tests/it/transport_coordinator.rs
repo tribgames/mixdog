@@ -93,17 +93,12 @@ fn lane_key(lane: &ControlLane) -> String {
 }
 
 fn bytes_record(bytes: &[u8]) -> Value {
-    if bytes.len() > 256 {
-        json!({ "len": bytes.len(), "sha256": hex(&Sha256::digest(bytes)) })
-    } else {
-        json!({ "hex": hex(bytes) })
-    }
+    if bytes.len() > 256 { json!({ "len": bytes.len(), "sha256": hex(&Sha256::digest(bytes)) }) } else { json!({ "hex": hex(bytes) }) }
 }
 
 fn hex(bytes: &[u8]) -> String {
     bytes.iter().map(|b| format!("{b:02x}")).collect()
 }
-
 
 fn with(mut entry: Value, extra: Value) -> Value {
     if let (Some(entry), Value::Object(extra)) = (entry.as_object_mut(), extra) {
@@ -380,12 +375,6 @@ fn settled_entry(tag: &Value, result: SendResult) -> Value {
     }
 }
 
-
-
-
-
-
-
 /// A live-view write is asked about once, at its write, and enters the stream whole in that step: an unpair that lands while a later
 /// fragment of a large frame is sealed waits for the write, and the next write after it is refused whole with no hole in the stream
 /// (the `mayWrite` question, asked after its last fragment is sealed).
@@ -659,7 +648,9 @@ impl RelayPhone {
         self.taken += written.len();
         let mut through = None;
         for message in &written {
-            if let mixdog_remote::transport::frame::Message::Record(record) = mixdog_remote::transport::frame::decode_message(message).expect("a conforming message") {
+            if let mixdog_remote::transport::frame::Message::Record(record) =
+                mixdog_remote::transport::frame::decode_message(message).expect("a conforming message")
+            {
                 self.receiver.accept(&record, 0);
             }
         }
@@ -679,5 +670,3 @@ impl RelayPhone {
         true
     }
 }
-
-

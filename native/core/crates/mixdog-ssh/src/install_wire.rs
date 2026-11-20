@@ -290,13 +290,7 @@ impl RemoteBootstrapError {
 /// An error from reading this PC's own files (the staged server runtimes). A failed ssh spawn is
 /// not one: the caller reads this only from the file it opened.
 pub fn is_local_filesystem_error(error: &io::Error) -> bool {
-    matches!(
-        error.kind(),
-        io::ErrorKind::NotFound
-            | io::ErrorKind::PermissionDenied
-            | io::ErrorKind::IsADirectory
-            | io::ErrorKind::NotADirectory
-    )
+    matches!(error.kind(), io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied | io::ErrorKind::IsADirectory | io::ErrorKind::NotADirectory)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -358,9 +352,7 @@ printf 'MIXDOG_PLATFORM %s|%s\n' "$(uname -sm 2>/dev/null)" "$MIXDOG_LIBC"
 pub fn is_windows_shell_failure(stderr: &str) -> bool {
     let lower = stderr.to_lowercase();
     lower.contains("is not recognized as an internal or external command")
-        || ["'sh'", "sh", "'sh", "sh'"]
-            .iter()
-            .any(|sh| lower.contains(&format!("the term {sh} is not recognized")))
+        || ["'sh'", "sh", "'sh", "sh'"].iter().any(|sh| lower.contains(&format!("the term {sh} is not recognized")))
         || lower.contains("commandnotfoundexception")
 }
 
@@ -385,7 +377,8 @@ pub fn classify_platform(uname: &str, libc: &str) -> Result<ServerPlatform, Remo
     let mut words = uname.split_whitespace();
     let system = words.next().unwrap_or("");
     let machine = words.next().unwrap_or("");
-    let unsupported = |found: String| RemoteBootstrapError::said(BootstrapCode::UnsupportedPlatform, crate::said::SERVER_SYSTEM_UNSUPPORTED.said([("found", found)]));
+    let unsupported =
+        |found: String| RemoteBootstrapError::said(BootstrapCode::UnsupportedPlatform, crate::said::SERVER_SYSTEM_UNSUPPORTED.said([("found", found)]));
     let lower_system = system.to_lowercase();
     if ["mingw", "msys", "cygwin", "windows"].iter().any(|prefix| lower_system.starts_with(prefix)) {
         return Err(unsupported(format!("Windows ({uname})")));
@@ -394,11 +387,7 @@ pub fn classify_platform(uname: &str, libc: &str) -> Result<ServerPlatform, Remo
         "Linux" => ServerOs::Linux,
         "Darwin" => ServerOs::Darwin,
         _ => {
-            return Err(unsupported(if uname.is_empty() {
-                "an unknown system (uname printed nothing)".to_owned()
-            } else {
-                uname.to_owned()
-            }));
+            return Err(unsupported(if uname.is_empty() { "an unknown system (uname printed nothing)".to_owned() } else { uname.to_owned() }));
         }
     };
     let arch = if machine.eq_ignore_ascii_case("x86_64") || machine.eq_ignore_ascii_case("amd64") {
@@ -463,8 +452,7 @@ pub fn sh_quote(value: &str) -> String {
 /// `^[0-9A-Za-z][0-9A-Za-z.+_-]*$`: a path segment that cannot leave its directory.
 pub fn is_safe_segment(value: &str) -> bool {
     let mut chars = value.chars();
-    chars.next().is_some_and(|first| first.is_ascii_alphanumeric())
-        && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '_' | '-'))
+    chars.next().is_some_and(|first| first.is_ascii_alphanumeric()) && chars.all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '+' | '_' | '-'))
 }
 
 fn is_sha256_hex(value: Option<&str>) -> bool {
@@ -497,10 +485,7 @@ pub fn remote_program_script(args: &ProgramArgs) -> Result<String, RemoteBootstr
         lines.push(format!(r#"if [ -x "$INSTALLED" ]; then {installed}; fi"#));
         lines.push(PROBE_NOT_INSTALLED_SHELL.to_owned());
     } else {
-        lines.push(
-            r#"[ -x "$INSTALLED" ] || fail install-missing "The app is not installed on the server and must be uploaded." install-missing"#
-                .to_owned(),
-        );
+        lines.push(r#"[ -x "$INSTALLED" ] || fail install-missing "The app is not installed on the server and must be uploaded." install-missing"#.to_owned());
         lines.push(installed.to_owned());
         lines.push(String::new());
     }
@@ -568,17 +553,13 @@ impl ServerManifest {
     /// Parses and checks a manifest: a malformed one, or one whose `build` is not the digest of
     /// its binaries, is `local-payload`.
     pub fn parse(text: &str) -> Result<Self, RemoteBootstrapError> {
-        let malformed =
-            || RemoteBootstrapError::new(BootstrapCode::LocalPayload, "The server runtime manifest is malformed.");
+        let malformed = || RemoteBootstrapError::new(BootstrapCode::LocalPayload, "The server runtime manifest is malformed.");
         let manifest: Self = serde_json::from_str(text).map_err(|_| malformed())?;
         if !is_safe_segment(&manifest.version) || !is_safe_segment(&manifest.build) {
             return Err(malformed());
         }
         if manifest_build(&manifest.binaries) != manifest.build {
-            return Err(RemoteBootstrapError::new(
-                BootstrapCode::LocalPayload,
-                "The server runtime manifest does not match its binaries.",
-            ));
+            return Err(RemoteBootstrapError::new(BootstrapCode::LocalPayload, "The server runtime manifest does not match its binaries."));
         }
         Ok(manifest)
     }
@@ -586,9 +567,8 @@ impl ServerManifest {
     /// The manifest of the release staged in `dir`.
     pub fn load<P: mixdog_fsio::ReadProof>(proof: &P, dir: &std::path::Path) -> Result<Self, RemoteBootstrapError> {
         let file = dir.join(SERVER_MANIFEST_FILE);
-        let text = mixdog_fsio::read_to_string(proof, &file).map_err(|e| {
-            RemoteBootstrapError::new(BootstrapCode::LocalPayload, format!("{} could not be read: {e}", file.display()))
-        })?;
+        let text = mixdog_fsio::read_to_string(proof, &file)
+            .map_err(|e| RemoteBootstrapError::new(BootstrapCode::LocalPayload, format!("{} could not be read: {e}", file.display())))?;
         Self::parse(&text)
     }
 

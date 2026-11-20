@@ -1,8 +1,4 @@
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "test setup; the real holder process is the point"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test setup; the real holder process is the point")]
 
 use std::collections::HashMap;
 use std::collections::HashSet;
@@ -82,11 +78,7 @@ pub(crate) struct FakeTable {
 }
 
 pub(crate) fn info(pid: u32, start_ms: u64) -> ProcessInfo {
-    ProcessInfo {
-        identity: ProcessIdentity { pid, start_ms },
-        image: None,
-        command_line: None,
-    }
+    ProcessInfo { identity: ProcessIdentity { pid, start_ms }, image: None, command_line: None }
 }
 
 impl FakeTable {
@@ -112,10 +104,7 @@ impl ProcessTable for FakeTable {
 }
 
 pub(crate) fn record() -> BarrierRecord {
-    BarrierRecord {
-        version: "1.4.6".into(),
-        update_text: "Update Mixdog to continue".into(),
-    }
+    BarrierRecord { version: "1.4.6".into(), update_text: "Update Mixdog to continue".into() }
 }
 
 pub(crate) struct TempData {
@@ -124,9 +113,7 @@ pub(crate) struct TempData {
 
 impl TempData {
     pub(crate) fn new() -> Self {
-        Self {
-            root: tempfile::tempdir().expect("tempdir"),
-        }
+        Self { root: tempfile::tempdir().expect("tempdir") }
     }
 
     pub(crate) fn data(&self) -> std::path::PathBuf {
@@ -139,13 +126,7 @@ impl TempData {
 
     pub(crate) fn gate(&self, procs: Box<dyn ProcessTable>) -> (Arc<CoreOwnership>, LaneGate) {
         let own = Arc::new(ownership::acquire(&self.data()).expect("acquire"));
-        let gate = Gate::with_table(
-            own.clone(),
-            crate::discovery::path(&self.runtime()),
-            record(),
-            procs,
-        )
-        .expect("gate");
+        let gate = Gate::with_table(own.clone(), crate::discovery::path(&self.runtime()), record(), procs).expect("gate");
         (own, gate.into())
     }
 
@@ -188,13 +169,7 @@ impl Drop for SelfChild {
 // ---------------------------------------------------------------------------
 
 fn owner(record: Option<&str>, discovery: Option<&str>, table: &FakeTable) -> Option<Verdict> {
-    judge_owner(
-        record.map(str::as_bytes),
-        discovery.and_then(|text| legacy_discovery(text.as_bytes())),
-        table,
-        &[],
-    )
-    .unwrap()
+    judge_owner(record.map(str::as_bytes), discovery.and_then(|text| legacy_discovery(text.as_bytes())), table, &[]).unwrap()
 }
 
 fn claim(lock: ClaimLock, table: &FakeTable) -> ClaimJudgement {
@@ -209,18 +184,12 @@ fn held(text: &str) -> ClaimLock {
 
 #[test]
 fn barrier_present_is_clear() {
-    assert_eq!(
-        claim(ClaimLock::Barrier, &FakeTable::default()),
-        ClaimJudgement::Barrier
-    );
+    assert_eq!(claim(ClaimLock::Barrier, &FakeTable::default()), ClaimJudgement::Barrier);
 }
 
 #[test]
 fn absent_claim_lock_is_taken_before_the_owner_is_judged() {
-    assert_eq!(
-        claim(ClaimLock::Absent, &FakeTable::default()),
-        ClaimJudgement::Free(Take::Absent)
-    );
+    assert_eq!(claim(ClaimLock::Absent, &FakeTable::default()), ClaimJudgement::Free(Take::Absent));
 }
 
 #[test]
@@ -233,13 +202,7 @@ fn record_names_dead_pid_is_clear() {
 fn record_owner_listening_on_its_liveness_port_must_exit() {
     let table = FakeTable::default().run(P, 1).listen(P, 9000);
     let record = format!(r#"{{"pid":{P},"livenessPort":9000}}"#);
-    assert_eq!(
-        owner(Some(&record), None, &table),
-        Some(Verdict::WaitExit {
-            process: info(P, 1),
-            proven: true
-        })
-    );
+    assert_eq!(owner(Some(&record), None, &table), Some(Verdict::WaitExit { process: info(P, 1), proven: true }));
 }
 
 #[test]
@@ -253,26 +216,14 @@ fn reused_pid_without_the_liveness_socket_is_clear() {
 fn record_without_liveness_port_naming_a_live_pid_is_undecidable() {
     let table = FakeTable::default().run(P, 1);
     let record = format!(r#"{{"pid":{P},"heartbeatAt":"x"}}"#);
-    assert_eq!(
-        owner(Some(&record), None, &table),
-        Some(Verdict::Undecidable(info(P, 1)))
-    );
+    assert_eq!(owner(Some(&record), None, &table), Some(Verdict::Undecidable(info(P, 1))));
 }
 
 #[test]
 fn released_identity_is_not_an_owner() {
     let table = FakeTable::default().run(P, 1);
     let record = format!(r#"{{"pid":{P}}}"#);
-    let verdict = judge_owner(
-        Some(record.as_bytes()),
-        None,
-        &table,
-        &[ProcessIdentity {
-            pid: P,
-            start_ms: 1,
-        }],
-    )
-    .unwrap();
+    let verdict = judge_owner(Some(record.as_bytes()), None, &table, &[ProcessIdentity { pid: P, start_ms: 1 }]).unwrap();
     assert_eq!(verdict, None);
 }
 
@@ -304,43 +255,25 @@ fn own_pid_is_never_a_prior_owner() {
     let record = format!(r#"{{"pid":{own},"livenessPort":9000}}"#);
     assert_eq!(owner(Some(&record), None, &table), None);
     let lock = held(&format!("{own} 0 mixdog-core:x"));
-    assert!(matches!(
-        claim(lock, &table),
-        ClaimJudgement::Free(Take::DeadHolder(_))
-    ));
+    assert!(matches!(claim(lock, &table), ClaimJudgement::Free(Take::DeadHolder(_))));
 }
 
 #[test]
 fn barrier_record_text_pid_defers_to_discovery() {
     let barrier_record = r#"{"kind":"mixdog-daemon","pid":"Update Mixdog to continue","protocol":2,"version":"1.4.6"}"#;
-    let discovery =
-        format!(r#"{{"pid":{P},"endpoints":{{"session":{{"port":9100,"token":"t"}}}}}}"#);
+    let discovery = format!(r#"{{"pid":{P},"endpoints":{{"session":{{"port":9100,"token":"t"}}}}}}"#);
     let table = FakeTable::default().run(P, 1).listen(P, 9100);
-    assert_eq!(
-        owner(Some(barrier_record), Some(&discovery), &table),
-        Some(Verdict::WaitExit {
-            process: info(P, 1),
-            proven: true
-        })
-    );
+    assert_eq!(owner(Some(barrier_record), Some(&discovery), &table), Some(Verdict::WaitExit { process: info(P, 1), proven: true }));
 
     let not_listening = FakeTable::default().run(P, 1);
-    assert_eq!(
-        owner(None, Some(&discovery), &not_listening),
-        Some(Verdict::WaitExit {
-            process: info(P, 1),
-            proven: false
-        })
-    );
+    assert_eq!(owner(None, Some(&discovery), &not_listening), Some(Verdict::WaitExit { process: info(P, 1), proven: false }));
 
     assert_eq!(owner(None, Some(&discovery), &FakeTable::default()), None);
 }
 
 #[test]
 fn a_core_discovery_is_never_a_prior_owner() {
-    let discovery = format!(
-        r#"{{"pid":{P},"endpoints":{{"session":{{"port":9100,"token":"t"}}}},"core":{{}}}}"#
-    );
+    let discovery = format!(r#"{{"pid":{P},"endpoints":{{"session":{{"port":9100,"token":"t"}}}},"core":{{}}}}"#);
     let table = FakeTable::default().run(P, 1).listen(P, 9100);
     assert_eq!(owner(None, Some(&discovery), &table), None);
 }
@@ -348,41 +281,26 @@ fn a_core_discovery_is_never_a_prior_owner() {
 #[test]
 fn claim_lock_held_by_its_live_writer_waits_for_a_change() {
     let table = FakeTable::default().run(P, 1_000);
-    assert_eq!(
-        claim(held(&format!("{P} 2000 abcdef")), &table),
-        ClaimJudgement::Blocked(Verdict::WaitClaim(info(P, 1_000)))
-    );
+    assert_eq!(claim(held(&format!("{P} 2000 abcdef")), &table), ClaimJudgement::Blocked(Verdict::WaitClaim(info(P, 1_000))));
 }
 
 #[test]
 fn claim_lock_naming_a_process_started_after_it_is_undecidable() {
     let table = FakeTable::default().run(P, 3_000);
-    assert_eq!(
-        claim(held(&format!("{P} 2000 abcdef")), &table),
-        ClaimJudgement::Blocked(Verdict::Undecidable(info(P, 3_000)))
-    );
+    assert_eq!(claim(held(&format!("{P} 2000 abcdef")), &table), ClaimJudgement::Blocked(Verdict::Undecidable(info(P, 3_000))));
 }
 
 #[test]
 fn claim_lock_of_a_dead_holder_is_taken_by_reclaim() {
     let text = format!("{P} 2000 abcdef\n");
-    assert_eq!(
-        claim(held(&text), &FakeTable::default()),
-        ClaimJudgement::Free(Take::DeadHolder(text.into_bytes()))
-    );
+    assert_eq!(claim(held(&text), &FakeTable::default()), ClaimJudgement::Free(Take::DeadHolder(text.into_bytes())));
 }
 
 #[test]
 fn legacy_lock_directories() {
     let table = FakeTable::default();
-    assert_eq!(
-        claim(ClaimLock::Dir { empty: true }, &table),
-        ClaimJudgement::Free(Take::EmptyDir)
-    );
-    assert_eq!(
-        claim(ClaimLock::Dir { empty: false }, &table),
-        ClaimJudgement::Blocked(Verdict::Unusable)
-    );
+    assert_eq!(claim(ClaimLock::Dir { empty: true }, &table), ClaimJudgement::Free(Take::EmptyDir));
+    assert_eq!(claim(ClaimLock::Dir { empty: false }, &table), ClaimJudgement::Blocked(Verdict::Unusable));
 }
 
 // ---------------------------------------------------------------------------
@@ -391,10 +309,7 @@ fn legacy_lock_directories() {
 
 #[test]
 fn os_table_reports_this_process_and_its_listen_socket() {
-    let me = OsProcessTable
-        .query(u64::from(std::process::id()))
-        .unwrap()
-        .expect("own process");
+    let me = OsProcessTable.query(u64::from(std::process::id())).unwrap().expect("own process");
     assert!(me.identity.start_ms > 0);
     assert!(me.image.is_some());
     assert_eq!(current_identity().unwrap(), me.identity);
@@ -404,11 +319,7 @@ fn os_table_reports_this_process_and_its_listen_socket() {
     assert!(OsProcessTable.listens(std::process::id(), port).unwrap());
     drop(listener);
     assert!(!OsProcessTable.listens(std::process::id(), port).unwrap());
-    assert_eq!(
-        OsProcessTable.query(4_294_967_296).unwrap(),
-        None,
-        "the barrier pid names no process"
-    );
+    assert_eq!(OsProcessTable.query(4_294_967_296).unwrap(), None, "the barrier pid names no process");
 }
 
 #[test]
@@ -417,29 +328,16 @@ fn dir_watch_wakes_on_an_entry_change() {
     let own = ownership::acquire(&temp.data()).unwrap();
     let watch = DirWatch::arm(own.data_dir()).unwrap();
     temp.write("daemon-owner.json.claim.lock", b"1 2 3\n");
-    assert_eq!(
-        wait::wait(&Interrupt::new().unwrap(), Some(&watch), None).unwrap(),
-        Wake::Changed
-    );
+    assert_eq!(wait::wait(&Interrupt::new().unwrap(), Some(&watch), None).unwrap(), Wake::Changed);
 }
 
-
 /// Runs `job` as a durability-lane job (the inline test backend runs it on this thread).
-pub(crate) fn on_lane<R: Send + 'static>(
-    job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static,
-) -> R {
+pub(crate) fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<DurabilityIo>) -> R + Send + 'static) -> R {
     let lanes = mixdog_rt::testing::tokens();
     tokio::runtime::Builder::new_current_thread()
         .build()
         .expect("runtime")
-        .block_on(async {
-            lanes
-                .durability_io
-                .submit(&CancellationToken::new(), job)
-                .expect("lane")
-                .await
-                .expect("job")
-        })
+        .block_on(async { lanes.durability_io.submit(&CancellationToken::new(), job).expect("lane").await.expect("job") })
 }
 impl LaneGate {
     pub(crate) fn step(&mut self) -> Result<GateStep, GateError> {
@@ -455,17 +353,7 @@ impl LaneGate {
 impl SelfChild {
     pub(crate) fn spawn(test: &str, env: &[(&str, String)]) -> Self {
         let mut command = Command::new(std::env::current_exe().expect("test exe"));
-        command
-            .args([
-                "--exact",
-                test,
-                "--ignored",
-                "--nocapture",
-                "--test-threads=1",
-            ])
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+        command.args(["--exact", test, "--ignored", "--nocapture", "--test-threads=1"]).stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
         for (key, value) in env {
             command.env(key, value);
         }
@@ -490,19 +378,11 @@ impl SelfChild {
         let sink = output.clone();
         std::thread::spawn(move || {
             for line in BufReader::new(stderr).lines().map_while(Result::ok) {
-                sink.lock()
-                    .expect("output")
-                    .push_str(&format!("[stderr] {line}\n"));
+                sink.lock().expect("output").push_str(&format!("[stderr] {line}\n"));
             }
             let _ = closed.send(());
         });
-        Self {
-            child,
-            stdin,
-            markers,
-            output,
-            stderr_closed,
-        }
+        Self { child, stdin, markers, output, stderr_closed }
     }
 
     /// What the child wrote, once its stderr closed.
@@ -521,17 +401,9 @@ impl SelfChild {
     }
 
     pub(crate) fn expect(&self, prefix: &str) -> String {
-        let marker = self
-            .next()
-            .unwrap_or_else(|| panic!("child exited before {prefix}:\n{}", self.output()));
-        marker
-            .strip_prefix(prefix)
-            .unwrap_or_else(|| panic!("expected {prefix}, got {marker}"))
-            .trim()
-            .to_string()
+        let marker = self.next().unwrap_or_else(|| panic!("child exited before {prefix}:\n{}", self.output()));
+        marker.strip_prefix(prefix).unwrap_or_else(|| panic!("expected {prefix}, got {marker}")).trim().to_string()
     }
-
-
 
     pub(crate) fn close_stdin(&mut self) {
         self.stdin = None;
@@ -549,13 +421,9 @@ fn idle_child() {
     if std::env::var_os("MIXDOG_OWN_IDLE_CHILD").is_none() {
         return;
     }
-    let listener = std::env::var_os("MIXDOG_OWN_IDLE_LISTEN")
-        .map(|_| TcpListener::bind("127.0.0.1:0").expect("bind"));
+    let listener = std::env::var_os("MIXDOG_OWN_IDLE_LISTEN").map(|_| TcpListener::bind("127.0.0.1:0").expect("bind"));
     if let Some(listener) = &listener {
-        marker(&format!(
-            "PORT {}",
-            listener.local_addr().expect("addr").port()
-        ));
+        marker(&format!("PORT {}", listener.local_addr().expect("addr").port()));
     }
     marker("READY");
     let mut sink = Vec::new();
@@ -574,39 +442,17 @@ pub(crate) fn idle_child_process(listen: bool) -> (SelfChild, Option<u16>) {
 #[test]
 fn exit_watch_confirms_exit_and_interrupt_wakes() {
     let (mut child, _) = idle_child_process(false);
-    let process = OsProcessTable
-        .query(u64::from(child.pid()))
-        .unwrap()
-        .expect("child runs");
-    let exit = ExitWatch::open(process.identity)
-        .unwrap()
-        .expect("watchable");
+    let process = OsProcessTable.query(u64::from(child.pid())).unwrap().expect("child runs");
+    let exit = ExitWatch::open(process.identity).unwrap().expect("watchable");
     let interrupt = Interrupt::new().unwrap();
     interrupt.signal().unwrap();
-    assert_eq!(
-        wait::wait(&interrupt, None, Some(&exit)).unwrap(),
-        Wake::Interrupted
-    );
+    assert_eq!(wait::wait(&interrupt, None, Some(&exit)).unwrap(), Wake::Interrupted);
     child.close_stdin();
-    assert_eq!(
-        wait::wait(&interrupt, None, Some(&exit)).unwrap(),
-        Wake::Exited
-    );
+    assert_eq!(wait::wait(&interrupt, None, Some(&exit)).unwrap(), Wake::Exited);
     child.wait();
-    assert_eq!(
-        OsProcessTable
-            .query(u64::from(process.identity.pid))
-            .unwrap(),
-        None
-    );
-    let stale = ProcessIdentity {
-        pid: process.identity.pid,
-        start_ms: process.identity.start_ms,
-    };
-    assert!(
-        ExitWatch::open(stale).unwrap().is_none(),
-        "an exited identity is never watched"
-    );
+    assert_eq!(OsProcessTable.query(u64::from(process.identity.pid)).unwrap(), None);
+    let stale = ProcessIdentity { pid: process.identity.pid, start_ms: process.identity.start_ms };
+    assert!(ExitWatch::open(stale).unwrap().is_none(), "an exited identity is never watched");
 }
 // ---------------------------------------------------------------------------
 // LR §11.6 pid reuse, on real processes
@@ -618,55 +464,27 @@ fn gate_6_record_naming_a_live_unrelated_process_and_a_port_it_does_not_own_is_c
     let foreign = TcpListener::bind("127.0.0.1:0").unwrap();
     let temp = TempData::new();
     let port = foreign.local_addr().unwrap().port();
-    let record = format!(
-        r#"{{"kind":"mixdog-daemon","pid":{},"livenessPort":{port}}}"#,
-        child.pid()
-    );
+    let record = format!(r#"{{"kind":"mixdog-daemon","pid":{},"livenessPort":{port}}}"#, child.pid());
     temp.write("daemon-owner.json", record.as_bytes());
     let (own, mut gate) = temp.gate(Box::new(OsProcessTable));
     assert!(matches!(gate.step().unwrap(), GateStep::Clear));
-    assert_eq!(
-        temp.file("daemon-owner.json.claim.lock").unwrap(),
-        crate::barrier::barrier_bytes(own.instance_id())
-    );
+    assert_eq!(temp.file("daemon-owner.json.claim.lock").unwrap(), crate::barrier::barrier_bytes(own.instance_id()));
 }
 #[test]
 fn gate_6_record_without_liveness_port_is_undecidable_and_release_is_journaled() {
     let (child, _) = idle_child_process(false);
     let temp = TempData::new();
     let prior = format!(r#"{{"kind":"mixdog-daemon","pid":{}}}"#, child.pid());
-    temp.write(
-        "daemon-owner.json",
-        prior.as_bytes(),
-    );
+    temp.write("daemon-owner.json", prior.as_bytes());
     let (own, mut gate) = temp.gate(Box::new(OsProcessTable));
-    let GateStep::Blocked(blocked) = gate.step().unwrap() else {
-        panic!("expected blocked")
-    };
-    assert_eq!(
-        (
-            blocked.kind,
-            blocked.process.identity.pid,
-            blocked.releasable
-        ),
-        (BlockedKind::Undecidable, child.pid(), true)
-    );
-    assert!(
-        blocked
-            .process
-            .command_line
-            .as_deref()
-            .is_some_and(|line| line.contains("idle_child"))
-    );
+    let GateStep::Blocked(blocked) = gate.step().unwrap() else { panic!("expected blocked") };
+    assert_eq!((blocked.kind, blocked.process.identity.pid, blocked.releasable), (BlockedKind::Undecidable, child.pid(), true));
+    assert!(blocked.process.command_line.as_deref().is_some_and(|line| line.contains("idle_child")));
     assert_eq!(blocked.describe()["kind"], "undecidable");
-    assert!(matches!(
-        gate.release(child.pid() + 1),
-        Err(ReleaseError::NotBlockedOn(_))
-    ));
+    assert!(matches!(gate.release(child.pid() + 1), Err(ReleaseError::NotBlockedOn(_))));
 
     gate.release(child.pid()).unwrap();
-    let journal =
-        std::fs::read_to_string(temp.data().join(JOURNAL_DIR).join(JOURNAL_FILE)).unwrap();
+    let journal = std::fs::read_to_string(temp.data().join(JOURNAL_DIR).join(JOURNAL_FILE)).unwrap();
     let entry: serde_json::Value = serde_json::from_str(journal.trim()).unwrap();
     assert_eq!(entry["decision"], "release");
     assert_eq!(entry["pid"], child.pid());
@@ -691,30 +509,15 @@ fn gate_6_record_without_liveness_port_is_undecidable_and_release_is_journaled()
 fn proven_owner_waits_for_its_os_exit_and_cannot_be_released() {
     let (mut child, port) = idle_child_process(true);
     let temp = TempData::new();
-    let record = format!(
-        r#"{{"kind":"mixdog-daemon","pid":{},"livenessPort":{}}}"#,
-        child.pid(),
-        port.unwrap()
-    );
+    let record = format!(r#"{{"kind":"mixdog-daemon","pid":{},"livenessPort":{}}}"#, child.pid(), port.unwrap());
     temp.write("daemon-owner.json", record.as_bytes());
     let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
-    let GateStep::Blocked(blocked) = gate.step().unwrap() else {
-        panic!("expected blocked")
-    };
-    assert_eq!(
-        (blocked.kind, blocked.releasable),
-        (BlockedKind::WaitExit, false)
-    );
-    assert!(matches!(
-        gate.release(child.pid()),
-        Err(ReleaseError::NotReleasable(_))
-    ));
+    let GateStep::Blocked(blocked) = gate.step().unwrap() else { panic!("expected blocked") };
+    assert_eq!((blocked.kind, blocked.releasable), (BlockedKind::WaitExit, false));
+    assert!(matches!(gate.release(child.pid()), Err(ReleaseError::NotReleasable(_))));
 
     child.close_stdin();
-    assert_eq!(
-        blocked.wait(&Interrupt::new().unwrap()).unwrap(),
-        Wake::Exited
-    );
+    assert_eq!(blocked.wait(&Interrupt::new().unwrap()).unwrap(), Wake::Exited);
     child.wait();
     assert!(matches!(gate.step().unwrap(), GateStep::Clear));
 }
@@ -724,58 +527,26 @@ fn a_denied_exit_watch_is_a_typed_failure_never_an_unwakeable_wait() {
     let (child, port) = idle_child_process(true);
     let temp = TempData::new();
     let pid = child.pid();
-    let record = format!(
-        r#"{{"kind":"mixdog-daemon","pid":{pid},"livenessPort":{}}}"#,
-        port.unwrap()
-    );
+    let record = format!(r#"{{"kind":"mixdog-daemon","pid":{pid},"livenessPort":{}}}"#, port.unwrap());
     temp.write("daemon-owner.json", record.as_bytes());
     let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
     let result = step_with_exit_watch_denied(&mut gate);
-    let Err(GateError::ExitUnwatchable {
-        kind,
-        process,
-        releasable,
-    }) = result
-    else {
-        panic!("expected ExitUnwatchable, got {result:?}")
-    };
-    assert_eq!(
-        (kind, process.identity.pid, releasable),
-        (BlockedKind::WaitExit, pid, false)
-    );
+    let Err(GateError::ExitUnwatchable { kind, process, releasable }) = result else { panic!("expected ExitUnwatchable, got {result:?}") };
+    assert_eq!((kind, process.identity.pid, releasable), (BlockedKind::WaitExit, pid, false));
     // Like a 1.4.5 contender facing a live peer: nothing claimed, nothing written.
     assert_eq!(temp.file("daemon-owner.json.claim.lock"), None);
     assert_eq!(temp.file("daemon-owner.json").unwrap(), record.as_bytes());
-    assert!(matches!(
-        gate.release(pid),
-        Err(ReleaseError::NotReleasable(_))
-    ));
+    assert!(matches!(gate.release(pid), Err(ReleaseError::NotReleasable(_))));
 }
 #[test]
 fn a_denied_exit_watch_on_a_releasable_block_still_takes_the_users_release() {
     let (child, _) = idle_child_process(false);
     let temp = TempData::new();
     let pid = child.pid();
-    temp.write(
-        "daemon-owner.json",
-        format!(r#"{{"kind":"mixdog-daemon","pid":{pid}}}"#).as_bytes(),
-    );
+    temp.write("daemon-owner.json", format!(r#"{{"kind":"mixdog-daemon","pid":{pid}}}"#).as_bytes());
     let (_own, mut gate) = temp.gate(Box::new(OsProcessTable));
     let result = step_with_exit_watch_denied(&mut gate);
-    assert!(
-        matches!(
-            result,
-            Err(GateError::ExitUnwatchable {
-                kind: BlockedKind::Undecidable,
-                releasable: true,
-                ..
-            })
-        ),
-        "{result:?}"
-    );
+    assert!(matches!(result, Err(GateError::ExitUnwatchable { kind: BlockedKind::Undecidable, releasable: true, .. })), "{result:?}");
     gate.release(pid).unwrap();
-    assert!(matches!(
-        step_with_exit_watch_denied(&mut gate).unwrap(),
-        GateStep::Clear
-    ));
+    assert!(matches!(step_with_exit_watch_denied(&mut gate).unwrap(), GateStep::Clear));
 }

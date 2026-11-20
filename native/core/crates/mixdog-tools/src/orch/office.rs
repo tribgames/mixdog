@@ -27,17 +27,38 @@ use mixdog_protocol::ToolCallId;
 use serde_json::Value;
 use serde_json::json;
 
-use super::util::cancelled;
 use super::util::action_failed;
+use super::util::cancelled;
 use super::util::denied;
 use super::util::invalid;
 use super::util::spec_from_def;
 use super::util::unavailable;
 
 pub const ACTIONS: [&str; 24] = [
-    "detect", "transactions", "recover", "describe", "author", "create", "attach", "open", "secure", "begin",
-    "snapshot", "get", "query", "batch", "diff", "commit", "rollback", "issues", "qa", "validate", "render",
-    "save", "finalize", "close",
+    "detect",
+    "transactions",
+    "recover",
+    "describe",
+    "author",
+    "create",
+    "attach",
+    "open",
+    "secure",
+    "begin",
+    "snapshot",
+    "get",
+    "query",
+    "batch",
+    "diff",
+    "commit",
+    "rollback",
+    "issues",
+    "qa",
+    "validate",
+    "render",
+    "save",
+    "finalize",
+    "close",
 ];
 /// Actions that only look at the document.
 const READ_ONLY_ACTIONS: [&str; 8] = ["snapshot", "get", "query", "issues", "validate", "describe", "render", "qa"];
@@ -54,7 +75,10 @@ pub enum WriteSide {
     /// The content, captured byte for byte.
     Bytes(Vec<u8>),
     /// The file changed but its bytes were not captured: no undo. size and reason are the worker's omitted marker (Node's { omitted, size, reason }).
-    Uncaptured { size: u64, reason: Option<String> },
+    Uncaptured {
+        size: u64,
+        reason: Option<String>,
+    },
 }
 
 /// A file an office call wrote, for the thread's turn review and undo.
@@ -146,7 +170,10 @@ fn side(spec: &Value, stream: &mut &[u8]) -> WriteSide {
     if spec.is_null() {
         WriteSide::Absent
     } else if spec.get("uncaptured") == Some(&Value::Bool(true)) {
-        WriteSide::Uncaptured { size: spec.get("size").and_then(Value::as_u64).unwrap_or(0), reason: spec.get("reason").and_then(Value::as_str).map(str::to_owned) }
+        WriteSide::Uncaptured {
+            size: spec.get("size").and_then(Value::as_u64).unwrap_or(0),
+            reason: spec.get("reason").and_then(Value::as_str).map(str::to_owned),
+        }
     } else {
         let wanted = spec.get("bytes").and_then(Value::as_u64).and_then(|count| usize::try_from(count).ok()).unwrap_or(0);
         let (taken, rest) = stream.split_at(wanted.min(stream.len()));
@@ -261,7 +288,14 @@ mod tests {
         ]);
         let got = receipts(&writes, vec![b"hi".to_vec(), b"old".to_vec(), b"x".to_vec()]);
         assert_eq!(got[0], WriteReceipt { path: "/a".into(), before: WriteSide::Absent, after: WriteSide::Bytes(b"hi".to_vec()) });
-        assert_eq!(got[1], WriteReceipt { path: "/b".into(), before: WriteSide::Bytes(b"old".to_vec()), after: WriteSide::Uncaptured { size: 9, reason: Some("binary".into()) } });
+        assert_eq!(
+            got[1],
+            WriteReceipt {
+                path: "/b".into(),
+                before: WriteSide::Bytes(b"old".to_vec()),
+                after: WriteSide::Uncaptured { size: 9, reason: Some("binary".into()) }
+            }
+        );
         assert_eq!(got[2].after, WriteSide::Bytes(b"x".to_vec()));
     }
 

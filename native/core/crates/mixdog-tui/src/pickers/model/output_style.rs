@@ -8,8 +8,8 @@ use serde_json::{Value, json};
 
 use super::options::text_of;
 use crate::pickers::common::{
-    CallerConfirm, ConfirmSpec, Onboarding, Own, PanelItem, PickerFn, PickerHandler, PickerHost, PickerPanel, check_row,
-    picker_help, reset_surfaces, run_deferred,
+    CallerConfirm, ConfirmSpec, Onboarding, Own, PanelItem, PickerFn, PickerHandler, PickerHost, PickerPanel, check_row, picker_help, reset_surfaces,
+    run_deferred,
 };
 use crate::slash::host::Tone;
 use crate::slash::notices::{output_style_notice, truthy};
@@ -73,11 +73,8 @@ pub fn open_output_style_picker(host: &mut dyn PickerHost, options: OutputStyleO
     panel.help = picker_help(onboarding, options.return_to.is_some(), "\u{2191}/\u{2193} Select \u{b7} Enter Choose");
     panel.label_width = Some(18);
     panel.items = items;
-    panel.confirm = if onboarding {
-        Some(ConfirmSpec::back_next())
-    } else {
-        options.confirm_bar.as_ref().map(|confirm| ConfirmSpec { buttons: confirm.buttons.clone() })
-    };
+    panel.confirm =
+        if onboarding { Some(ConfirmSpec::back_next()) } else { options.confirm_bar.as_ref().map(|confirm| ConfirmSpec { buttons: confirm.buttons.clone() }) };
     panel.handler = Some(Rc::new(OutputStyleHandler { own: Rc::clone(&own), options, highlighted: RefCell::new(current_id) }));
     own.paint(host, Some(panel));
 }

@@ -8,8 +8,8 @@ pub mod codec;
 pub mod config;
 pub mod continuation;
 pub mod decoder;
-pub mod device_login;
 pub mod delta;
+pub mod device_login;
 pub mod effort;
 pub mod effort_retry;
 pub mod error;
@@ -24,7 +24,5 @@ pub mod profile;
 #[cfg(any(test, feature = "test-support"))]
 pub mod scripted;
 pub mod switch;
-pub mod transport_policy;
 mod tool_flight;
-
-
+pub mod transport_policy;

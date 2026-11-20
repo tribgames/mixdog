@@ -116,17 +116,35 @@ pub enum SealFault {
 pub trait StreamChannel {
     fn encrypt_binary(&mut self, plaintext: &str) -> Result<Vec<u8>, SealFault>;
     /// The plaintext of one application box (a JSON document).
-    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
+    #[allow(
+        clippy::result_unit_err,
+        reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type"
+    )]
     fn decrypt_json(&mut self, box_bytes: &[u8]) -> Result<Vec<u8>, ()>;
-    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
+    #[allow(
+        clippy::result_unit_err,
+        reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type"
+    )]
     fn seal_control(&mut self, message: &Value, lane: &ControlLane) -> Result<Vec<u8>, ()>;
-    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
+    #[allow(
+        clippy::result_unit_err,
+        reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type"
+    )]
     fn open_control(&mut self, raw: &[u8], lane: &ControlLane) -> Result<ControlOpen, ()>;
-    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
+    #[allow(
+        clippy::result_unit_err,
+        reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type"
+    )]
     fn register_control_lane(&mut self, lane: &ControlLane) -> Result<(), ()>;
-    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
+    #[allow(
+        clippy::result_unit_err,
+        reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type"
+    )]
     fn activate_control_lane(&mut self, lane: &ControlLane) -> Result<(), ()>;
-    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
+    #[allow(
+        clippy::result_unit_err,
+        reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type"
+    )]
     fn retire_control_lane(&mut self, lane: &ControlLane) -> Result<(), ()>;
 }
 
@@ -155,7 +173,10 @@ pub trait Host {
     /// Whether a peer host is attached; absent, the session stays on the relay.
     fn peer_host_attached(&mut self) -> bool;
     /// Creates the offering peer of one session. `Err`: the host cannot run one now.
-    #[allow(clippy::result_unit_err, reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type")]
+    #[allow(
+        clippy::result_unit_err,
+        reason = "This existing boundary intentionally returns an opaque refusal; the coordinator supplies the stable end reason without exposing a new public error type"
+    )]
     fn peer_create(&mut self, init: &PeerInit) -> Result<(), ()>;
     fn peer_offer(&mut self, connection_id: &str) -> Settle<Result<LocalOffer, ()>>;
     fn peer_answer(&mut self, connection_id: &str, sdp: &str, fingerprints: &[Fingerprint]) -> Settle<Result<(), ()>>;
@@ -404,17 +425,39 @@ struct Held {
 
 enum Job {
     Wake,
-    RelayDone { bytes: usize, ok: bool, meter: Option<u64> },
-    ControlSealed { carrier: Carrier, result: Result<Vec<u8>, ()> },
-    ControlOpened { key: String, result: Result<ControlOpen, ()> },
+    RelayDone {
+        bytes: usize,
+        ok: bool,
+        meter: Option<u64>,
+    },
+    ControlSealed {
+        carrier: Carrier,
+        result: Result<Vec<u8>, ()>,
+    },
+    ControlOpened {
+        key: String,
+        result: Result<ControlOpen, ()>,
+    },
     Encrypted(Result<Vec<u8>, SealFault>),
-    Decrypted { sequence: u64, bytes: usize, result: Result<Vec<u8>, ()> },
+    Decrypted {
+        sequence: u64,
+        bytes: usize,
+        result: Result<Vec<u8>, ()>,
+    },
     /// `await deps.deliver(..)` returned; the awaited `assemble` resolves one tick later.
     Delivered,
     Assembled(bool),
-    IceResolved { connection_id: String, result: Result<Value, ()> },
-    OfferReady { connection_id: String, result: Result<LocalOffer, ()> },
-    AnswerFailed { connection_id: String },
+    IceResolved {
+        connection_id: String,
+        result: Result<Value, ()>,
+    },
+    OfferReady {
+        connection_id: String,
+        result: Result<LocalOffer, ()>,
+    },
+    AnswerFailed {
+        connection_id: String,
+    },
 }
 
 enum DrainInput {
@@ -484,11 +527,7 @@ fn call_id_of(payload: &str) -> Option<u64> {
 
 /// Wire bytes of one sealed box once framed (`encodeRemoteTransportRecord`).
 fn record_wire_bytes(box_bytes: usize) -> usize {
-    if box_bytes <= CHUNK_BYTES {
-        PREFIX_BYTES + box_bytes
-    } else {
-        box_bytes + box_bytes.div_ceil(CHUNK_BYTES) * CHUNK_HEADER_BYTES
-    }
+    if box_bytes <= CHUNK_BYTES { PREFIX_BYTES + box_bytes } else { box_bytes + box_bytes.div_ceil(CHUNK_BYTES) * CHUNK_HEADER_BYTES }
 }
 
 /// Serialized bytes a fragment carries (base64url without padding).
@@ -1162,10 +1201,7 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
             return;
         }
         let at_ref = signal.at().clone();
-        let matches = self
-            .direct
-            .as_ref()
-            .is_some_and(|direct| direct.connection_id == at_ref.connection_id && direct.generation == at_ref.generation);
+        let matches = self.direct.as_ref().is_some_and(|direct| direct.connection_id == at_ref.connection_id && direct.generation == at_ref.generation);
         match signal {
             Signal::Answer { sdp, fingerprints, .. } => {
                 if matches && self.direct.as_ref().is_some_and(|direct| direct.peer) {
@@ -1330,11 +1366,8 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
     fn open_control(&mut self, key: &str, box_bytes: &[u8]) {
         // An honest client has far fewer control boxes in flight than records; a flood beyond the
         // reorder span is dropped (acks are cumulative, pings repeat, repairs are re-requested).
-        let lane = if key == RELAY_ID {
-            Some(ControlLane::Relay)
-        } else {
-            self.direct.as_ref().filter(|direct| direct.id() == key).map(|direct| direct.lane.clone())
-        };
+        let lane =
+            if key == RELAY_ID { Some(ControlLane::Relay) } else { self.direct.as_ref().filter(|direct| direct.id() == key).map(|direct| direct.lane.clone()) };
         let Some(lane) = lane.filter(|_| self.pending_opens < MAX_RECORDS_IN_FLIGHT) else {
             self.forged += 1;
             return;
@@ -1851,7 +1884,13 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         let idle = self.current_monitor().idle_timeout_ms();
         self.receiver.sweep(at, idle);
         let repairs = {
-            let monitor: &dyn RttEstimate = if self.current_direct && let Some(direct) = self.direct.as_ref() { &direct.monitor } else { &self.relay_monitor };
+            let monitor: &dyn RttEstimate = if self.current_direct
+                && let Some(direct) = self.direct.as_ref()
+            {
+                &direct.monitor
+            } else {
+                &self.relay_monitor
+            };
             self.receiver.repair_due(at, monitor)
         };
         if !repairs.is_empty() {
@@ -1944,7 +1983,13 @@ impl<C: StreamChannel, H: Host> Coordinator<C, H> {
         let stats = self.sender.stats();
         let receiver = self.receiver.stats();
         let path = match (&self.direct, self.current_direct) {
-            (Some(direct), true) => if direct.relayed { "turn" } else { "direct" },
+            (Some(direct), true) => {
+                if direct.relayed {
+                    "turn"
+                } else {
+                    "direct"
+                }
+            }
             _ => "relay",
         };
         Diagnostics {
@@ -1992,5 +2037,3 @@ fn stall_name(stall: super::path::Stall) -> &'static str {
 fn parse_text(text: &str) -> Value {
     serde_json::from_str(text).unwrap_or(Value::Null)
 }
-
-

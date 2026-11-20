@@ -10,8 +10,7 @@ use serde_json::Value;
 /// The denial the orchestrator writes at the START of a result: `Error: tool "<name>" denied by hook[: ...]`, or
 /// `Error: tool "<name>" was not approved: <reason>` when a person said no. Matching the phrase anywhere would hide
 /// ordinary results that merely contain it.
-static HOOK_DENIAL: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r#"^Error:\s*tool\s*"[^"]*"\s*(?:denied by hook|was not approved)\b"#, "im"));
+static HOOK_DENIAL: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r#"^Error:\s*tool\s*"[^"]*"\s*(?:denied by hook|was not approved)\b"#, "im"));
 /// The not-approved denial's instruction to the model, not shown to the user.
 static NOT_APPROVED_INSTRUCTION: LazyLock<JsRegex> =
     LazyLock::new(|| JsRegex::new_static(r"\s*Do not retry it or reach the same result another way; report it\.\s*$", ""));
@@ -146,7 +145,9 @@ mod tests {
     fn a_denial_is_an_error_result_that_starts_with_the_envelope() {
         let denied = tool(json!({ "isError": true, "result": "Error: tool \"read\" denied by hook: nope" }));
         assert!(is_hook_approval_denial_tool_item(&denied));
-        let refused = tool(json!({ "isError": true, "result": "Error: tool \"x\" was not approved: no. Do not retry it or reach the same result another way; report it." }));
+        let refused = tool(
+            json!({ "isError": true, "result": "Error: tool \"x\" was not approved: no. Do not retry it or reach the same result another way; report it." }),
+        );
         assert!(is_hook_approval_denial_tool_item(&refused));
         let later_line = tool(json!({ "isError": true, "result": "output\nERROR: tool \"x\" DENIED BY HOOK" }));
         assert!(is_hook_approval_denial_tool_item(&later_line));

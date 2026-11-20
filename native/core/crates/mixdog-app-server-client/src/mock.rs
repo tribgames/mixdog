@@ -18,12 +18,7 @@ impl<T> Inbox<T> {
         Self(Mutex::new(Some(rx)))
     }
     async fn recv(&self) -> Option<T> {
-        let mut rx = self
-            .0
-            .lock()
-            .unwrap()
-            .take()
-            .expect("one waiter at a time");
+        let mut rx = self.0.lock().unwrap().take().expect("one waiter at a time");
         let item = rx.recv().await;
         *self.0.lock().unwrap() = Some(rx);
         item
@@ -42,11 +37,7 @@ pub struct MockConn {
 impl MockConn {
     /// Next frame the client wrote.
     pub async fn next_sent(&self) -> String {
-        let t = self
-            .from_client
-            .recv()
-            .await
-            .expect("client dropped the mock connection");
+        let t = self.from_client.recv().await.expect("client dropped the mock connection");
         self.queued.fetch_sub(1, Ordering::SeqCst);
         t
     }
@@ -54,9 +45,7 @@ impl MockConn {
         self.queued.load(Ordering::SeqCst)
     }
     pub fn server_send(&self, frame: &Json) {
-        let _ = self
-            .to_client
-            .send(TransportEvent::Frame(frame.to_string()));
+        let _ = self.to_client.send(TransportEvent::Frame(frame.to_string()));
     }
     /// A frame as raw text, for payloads that are not valid JSON.
     pub fn server_send_raw(&self, text: &str) {
@@ -64,10 +53,7 @@ impl MockConn {
     }
     pub fn server_close(&self, code: u16, reason: &str) {
         if !self.closed.swap(true, Ordering::SeqCst) {
-            let _ = self.to_client.send(TransportEvent::Closed {
-                code,
-                reason: reason.to_string(),
-            });
+            let _ = self.to_client.send(TransportEvent::Closed { code, reason: reason.to_string() });
         }
     }
     /// Close code the client sent, if it closed the socket.
@@ -104,10 +90,7 @@ impl TransportWriter for Writer {
 #[async_trait]
 impl TransportReader for Reader {
     async fn recv(&mut self) -> TransportEvent {
-        self.0.recv().await.unwrap_or(TransportEvent::Closed {
-            code: 1006,
-            reason: "mock dropped".into(),
-        })
+        self.0.recv().await.unwrap_or(TransportEvent::Closed { code: 1006, reason: "mock dropped".into() })
     }
 }
 
@@ -121,12 +104,7 @@ pub struct MockNetwork {
 impl Default for MockNetwork {
     fn default() -> Self {
         let (opened_tx, opened_rx) = mpsc::unbounded_channel();
-        Self {
-            fail_next: AtomicUsize::new(0),
-            opens: AtomicUsize::new(0),
-            opened_tx,
-            opened_rx: Inbox::new(opened_rx),
-        }
+        Self { fail_next: AtomicUsize::new(0), opens: AtomicUsize::new(0), opened_tx, opened_rx: Inbox::new(opened_rx) }
     }
 }
 
@@ -141,10 +119,7 @@ impl MockNetwork {
     }
     /// The next connection the client opened (in order).
     pub async fn accept(&self) -> MockConn {
-        self.opened_rx
-            .recv()
-            .await
-            .expect("network dropped")
+        self.opened_rx.recv().await.expect("network dropped")
     }
 }
 
@@ -169,15 +144,6 @@ impl Connector for MockNetwork {
             queued: queued.clone(),
         };
         let _ = self.opened_tx.send(conn);
-        Ok(TransportHalves {
-            writer: Box::new(Writer {
-                to_server,
-                to_client,
-                closed,
-                client_close,
-                queued,
-            }),
-            reader: Box::new(Reader(events)),
-        })
+        Ok(TransportHalves { writer: Box::new(Writer { to_server, to_client, closed, client_close, queued }), reader: Box::new(Reader(events)) })
     }
 }

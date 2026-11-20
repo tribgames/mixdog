@@ -51,9 +51,7 @@ fn is_decimal_literal(text: &str) -> bool {
     let digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
     let mantissa_ok = match mantissa.split_once('.') {
         Some((whole, fraction)) => {
-            (whole.is_empty() || digits(whole))
-                && (fraction.is_empty() || digits(fraction))
-                && !(whole.is_empty() && fraction.is_empty())
+            (whole.is_empty() || digits(whole)) && (fraction.is_empty() || digits(fraction)) && !(whole.is_empty() && fraction.is_empty())
         }
         None => digits(mantissa),
     };
@@ -137,11 +135,7 @@ pub fn value_to_string(value: &Value) -> String {
         Value::Bool(flag) => flag.to_string(),
         Value::Number(number) => number_to_string(number.as_f64().unwrap_or(f64::NAN)),
         Value::String(text) => text.clone(),
-        Value::Array(items) => items
-            .iter()
-            .map(|item| if item.is_null() { String::new() } else { value_to_string(item) })
-            .collect::<Vec<_>>()
-            .join(","),
+        Value::Array(items) => items.iter().map(|item| if item.is_null() { String::new() } else { value_to_string(item) }).collect::<Vec<_>>().join(","),
         Value::Object(_) => "[object Object]".into(),
     }
 }
@@ -204,7 +198,6 @@ mod tests {
         }
     }
 
-
     #[test]
     fn a_string_converts_by_the_string_numeric_literal_grammar() {
         for (input, want) in [
@@ -239,8 +232,29 @@ mod tests {
     #[test]
     fn a_string_outside_the_grammar_converts_to_nan() {
         for input in [
-            "abc", "12px", "1 2", ".", "e5", "1e", "1e+", "0x", "0xg", "-0x10", "+0x10", "0b2", "0o8", "1_000", "infinity", "INFINITY", "Inf", "NaN",
-            "--1", "1..2", "0x1.8", "\u{200b}1", "\u{85}1",
+            "abc",
+            "12px",
+            "1 2",
+            ".",
+            "e5",
+            "1e",
+            "1e+",
+            "0x",
+            "0xg",
+            "-0x10",
+            "+0x10",
+            "0b2",
+            "0o8",
+            "1_000",
+            "infinity",
+            "INFINITY",
+            "Inf",
+            "NaN",
+            "--1",
+            "1..2",
+            "0x1.8",
+            "\u{200b}1",
+            "\u{85}1",
         ] {
             assert!(string_to_number(input).is_nan(), "Number({input:?})");
         }
@@ -299,4 +313,3 @@ mod tests {
         assert!(json_number(1.0).is_i64());
     }
 }
-

@@ -27,11 +27,7 @@ pub trait ToolMediaMeter: Send + Sync {
 }
 
 /// Whether tool-result media alone would make the next request too large.
-pub fn should_compact_for_request_media(
-    messages: &[AgentMessage],
-    native_pdf: bool,
-    media: &dyn ToolMediaMeter,
-) -> bool {
+pub fn should_compact_for_request_media(messages: &[AgentMessage], native_pdf: bool, media: &dyn ToolMediaMeter) -> bool {
     let mut bytes = 0;
     let mut count = 0;
     for message in messages.iter().filter(|m| m.role() == Role::Tool) {

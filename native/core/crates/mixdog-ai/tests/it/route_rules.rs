@@ -1,8 +1,8 @@
 //! Route resolution and the saved per-model settings: how a request becomes a route over the user's presets and saved
 //! choices, what a selection is allowed to say, how a route's context window is sized, and what the Lead preset keeps.
 
-use mixdog_ai::service::admin_route::Obj;
 use mixdog_ai::service::admin_route::ContextState;
+use mixdog_ai::service::admin_route::Obj;
 use mixdog_ai::service::admin_route::finish_chain_entry;
 use mixdog_ai::service::admin_route::is_likely_raw_model_id;
 use mixdog_ai::service::admin_route::normalize_workflow_route;
@@ -77,7 +77,11 @@ fn a_model_that_names_a_preset_by_id_or_name_selects_that_preset_in_any_letter_c
     let config = obj(json!({"presets": [{"id": "work", "name": "Work Horse", "provider": "anthropic-oauth", "model": "claude-opus-4-5", "fast": true}]}));
     for name in ["work", "WORK", " Work Horse "] {
         let route = resolve_route(&config, &obj(json!({"model": name})), &known(&[])).unwrap();
-        assert_eq!((route["provider"].clone(), route["model"].clone(), route["fast"].clone()), (json!("anthropic-oauth"), json!("claude-opus-4-5"), json!(true)), "{name}");
+        assert_eq!(
+            (route["provider"].clone(), route["model"].clone(), route["fast"].clone()),
+            (json!("anthropic-oauth"), json!("claude-opus-4-5"), json!(true)),
+            "{name}"
+        );
     }
 }
 
@@ -148,7 +152,9 @@ fn route_of(value: Value) -> Obj {
 #[test]
 fn saving_a_route_keeps_its_choices_under_provider_slash_model() {
     let mut config = Obj::new();
-    let route = route_of(json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "autoEffort": false, "modelParameters": {"context": "1m", " ": "x"}}));
+    let route = route_of(
+        json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "autoEffort": false, "modelParameters": {"context": "1m", " ": "x"}}),
+    );
     save_model_settings(&mut config, &route, true);
     assert_eq!(
         config["modelSettings"]["openai-oauth/gpt-5"],
@@ -158,7 +164,8 @@ fn saving_a_route_keeps_its_choices_under_provider_slash_model() {
 
 #[test]
 fn fast_is_saved_only_for_a_model_that_can_run_it_and_default_choices_are_not_saved() {
-    let mut config = obj(json!({"modelSettings": {"p/m": {"effort": "low", "autoEffort": false, "modelParameters": {"a": "b"}, "contextPercent": 40, "contextTokens": 9}}}));
+    let mut config =
+        obj(json!({"modelSettings": {"p/m": {"effort": "low", "autoEffort": false, "modelParameters": {"a": "b"}, "contextPercent": 40, "contextTokens": 9}}}));
     let route = route_of(json!({"provider": "p", "model": "m", "fast": true, "autoEffort": true, "contextPercent": 50, "contextDefaultPercent": 50}));
     save_model_settings(&mut config, &route, false);
     let saved = &config["modelSettings"]["p/m"];
@@ -202,7 +209,10 @@ fn a_route_without_a_known_window_has_no_context_state() {
 fn the_default_window_is_chosen_unless_a_percent_or_a_token_count_says_otherwise() {
     let meta = json!({"contextWindow": 200_000, "maxContextWindow": 1_000_000});
     let default = state(json!({"provider": "openai"}), meta.clone());
-    assert_eq!((default.context_percent, default.context_default_percent, default.selected_context_window, default.context_tokens), (Some(20.0), Some(20.0), Some(200_000.0), None));
+    assert_eq!(
+        (default.context_percent, default.context_default_percent, default.selected_context_window, default.context_tokens),
+        (Some(20.0), Some(20.0), Some(200_000.0), None)
+    );
     let half = state(json!({"provider": "openai", "contextPercent": 50}), meta.clone());
     assert_eq!((half.context_percent, half.selected_context_window, half.context_tokens), (Some(50.0), Some(500_000.0), None));
     let tokens = state(json!({"provider": "openai", "contextTokens": 300_000}), meta.clone());
@@ -225,7 +235,10 @@ fn a_token_count_never_selects_less_than_a_tenth_of_the_largest_window() {
 fn a_valid_selection_comes_back_trimmed_with_only_what_it_stated() {
     let selection = json!({"model": " gpt-5 ", "provider": " openai-oauth ", "effort": " high ", "fast": true, "contextPercent": 50, "onlyIfEmpty": true});
     let checked = required_model_selection(&selection).unwrap();
-    assert_eq!(Value::Object(checked), json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "contextPercent": 50, "onlyIfEmpty": true}));
+    assert_eq!(
+        Value::Object(checked),
+        json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "contextPercent": 50, "onlyIfEmpty": true})
+    );
     let plain = required_model_selection(&json!({"provider": "p", "model": "m", "onlyIfEmpty": false})).unwrap();
     assert!(!plain.contains_key("onlyIfEmpty"), "only a true flag is kept");
 }
@@ -248,7 +261,10 @@ fn a_selection_that_is_malformed_is_refused_with_the_field_named() {
         assert_eq!(refuse(json!({"provider": "p", "model": "m", "contextTokens": tokens})), "selection.contextTokens must be a positive integer.");
     }
     for percent in [json!(5), json!(55), json!(110)] {
-        assert_eq!(refuse(json!({"provider": "p", "model": "m", "contextPercent": percent})), "selection.contextPercent must be a 10-point percentage from 10 to 100.");
+        assert_eq!(
+            refuse(json!({"provider": "p", "model": "m", "contextPercent": percent})),
+            "selection.contextPercent must be a 10-point percentage from 10 to 100."
+        );
     }
 }
 
@@ -294,7 +310,10 @@ fn a_free_form_sentence_is_not_a_model_selector_but_an_id_or_a_preset_is() {
 fn a_workflow_route_is_normalized_to_the_choices_it_states() {
     let route = json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "HIGH", "fast": true, "autoEffort": false, "contextPercent": 55, "modelParameters": {"a": "b"}});
     let got = normalize_workflow_route(&route, &json!({}), false).unwrap().unwrap();
-    assert_eq!(got, json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "autoEffort": false, "modelParameters": {"a": "b"}, "contextPercent": 60}));
+    assert_eq!(
+        got,
+        json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "autoEffort": false, "modelParameters": {"a": "b"}, "contextPercent": 60})
+    );
 }
 
 #[test]
@@ -380,15 +399,22 @@ fn an_adopted_model_becomes_the_lead_unless_the_selection_keeps_the_main_model()
 #[test]
 fn a_chain_entry_inherits_the_stored_choices_of_the_same_model_only() {
     let is_known = known(&[]);
-    let stored = obj(json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "autoEffort": false, "modelParameters": {"a": "b"}, "contextPercent": 40}));
+    let stored = obj(
+        json!({"provider": "openai-oauth", "model": "gpt-5", "effort": "high", "fast": true, "autoEffort": false, "modelParameters": {"a": "b"}, "contextPercent": 40}),
+    );
     let same = start_chain_entry(&Obj::new(), &obj(json!({"provider": "openai-oauth", "model": "gpt-5"})), &stored, &is_known).unwrap();
     assert_eq!((same["effort"].clone(), same["fast"].clone(), same["autoEffort"].clone()), (json!("high"), json!(true), json!(false)));
     assert_eq!((same["modelParameters"].clone(), same["contextPercent"].clone()), (json!({"a": "b"}), json!(40)));
     let other = start_chain_entry(&Obj::new(), &obj(json!({"provider": "openai-oauth", "model": "gpt-4.1"})), &stored, &is_known).unwrap();
-    assert_eq!((other["effort"].clone(), other["fast"].clone(), other["autoEffort"].clone(), other["modelParameters"].clone()), (Value::Null, json!(false), json!(true), json!({})));
+    assert_eq!(
+        (other["effort"].clone(), other["fast"].clone(), other["autoEffort"].clone(), other["modelParameters"].clone()),
+        (Value::Null, json!(false), json!(true), json!({}))
+    );
     assert!(other.get("contextPercent").is_none());
     // A stated choice beats the stored one.
-    let stated = start_chain_entry(&Obj::new(), &obj(json!({"provider": "openai-oauth", "model": "gpt-5", "fast": false, "contextTokens": 90000})), &stored, &is_known).unwrap();
+    let stated =
+        start_chain_entry(&Obj::new(), &obj(json!({"provider": "openai-oauth", "model": "gpt-5", "fast": false, "contextTokens": 90000})), &stored, &is_known)
+            .unwrap();
     assert_eq!((stated["fast"].clone(), stated["contextTokens"].clone()), (json!(false), json!(90000)));
     assert!(stated.get("contextPercent").is_none());
 }
@@ -437,9 +463,13 @@ fn refreshing_a_route_against_its_model_row_clamps_fast_and_sizes_the_context() 
     let route = refresh_route_fields(&Obj::new(), &target, Some(&meta), "openai-oauth", &fast_no, &|_, _| None);
     assert_eq!((route["fast"].clone(), route["fastCapable"].clone()), (json!(false), json!(false)));
     assert_eq!(route["modelDisplay"], "GPT-5");
-    assert_eq!((route["contextDefaultPercent"].clone(), route["contextPercent"].clone(), route["selectedContextWindow"].clone()), (json!(100), json!(50), json!(200_000)));
+    assert_eq!(
+        (route["contextDefaultPercent"].clone(), route["contextPercent"].clone(), route["selectedContextWindow"].clone()),
+        (json!(100), json!(50), json!(200_000))
+    );
 
     // A row that is not resolved yet keeps the request as stated.
-    let unresolved = refresh_route_fields(&Obj::new(), &obj(json!({"provider": "p", "model": "m", "fast": true, "effort": "high"})), None, "p", &fast_no, &|_, _| None);
+    let unresolved =
+        refresh_route_fields(&Obj::new(), &obj(json!({"provider": "p", "model": "m", "fast": true, "effort": "high"})), None, "p", &fast_no, &|_, _| None);
     assert_eq!((unresolved["fast"].clone(), unresolved["effectiveEffort"].clone()), (json!(true), json!("high")));
 }

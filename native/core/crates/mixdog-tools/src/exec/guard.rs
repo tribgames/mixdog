@@ -35,11 +35,7 @@ const LEADING_SLEEP_MIN_SECONDS: f64 = 2.0;
 /// Whole seconds of the sleep the command starts with.
 fn leading_sleep_seconds(command: &str, powershell: bool) -> Option<f64> {
     let m = if powershell {
-        lazy_re!(
-            r"^\s*(?:start-sleep|sleep)[ \t]+(?:-s(?:e(?:c(?:o(?:n(?:d(?:s)?)?)?)?)?)?[ \t:]+)?(\d+)(?=\s*(?:$|;|&&|\r?\n))",
-            "i"
-        )
-        .captures(command)
+        lazy_re!(r"^\s*(?:start-sleep|sleep)[ \t]+(?:-s(?:e(?:c(?:o(?:n(?:d(?:s)?)?)?)?)?)?[ \t:]+)?(\d+)(?=\s*(?:$|;|&&|\r?\n))", "i").captures(command)
     } else {
         lazy_re!(r"^\s*sleep[ \t]+(\d+)(?=\s*(?:$|;|&&|\r?\n))", "").captures(command)
     }?;
@@ -60,11 +56,8 @@ fn leading_sleep_failure(command: &str, powershell: bool) -> Option<String> {
 
 /// `(dir, rest)` for a command that starts with a plain `cd <dir>` and more.
 fn split_leading_cd(command: &str, powershell: bool) -> Option<(String, String)> {
-    let m = lazy_re!(
-        r#"^\s*(?:cd|set-location)\s+(?:-path\s+)?(?:"([^"$`]+)"|'([^'$`]+)'|([^\s;&|<>"'`$(){}*?[,@%#!]+))\s*(?:;|&&)\s*(\S[\s\S]*)$"#,
-        "i"
-    )
-    .captures(command)?;
+    let m = lazy_re!(r#"^\s*(?:cd|set-location)\s+(?:-path\s+)?(?:"([^"$`]+)"|'([^'$`]+)'|([^\s;&|<>"'`$(){}*?[,@%#!]+))\s*(?:;|&&)\s*(\S[\s\S]*)$"#, "i")
+        .captures(command)?;
     let dir = m.get(1).or(m.get(2)).or(m.get(3))?;
     let rest = m.get(4)?;
     if lazy_re!(r"^(?:cd|set-location|pushd|popd)(?:\s|;|&|$)", "i").is_match(rest) {
@@ -91,13 +84,11 @@ fn split_leading_cd(command: &str, powershell: bool) -> Option<(String, String)>
 
 fn normalize_worktree(text: &str, joiner: &str) -> String {
     let continued = lazy_re!(r"[\\`]\r?\n", "g").replace_all_with(text, |_| joiner.to_owned());
-    let hex = lazy_re!(r"\\x([0-9a-fA-F]{2})", "g").replace_all_with(&continued, |m| {
-        u8::from_str_radix(m.get(1).unwrap_or("0"), 16).map_or(String::new(), |b| char::from(b).to_string())
-    });
+    let hex = lazy_re!(r"\\x([0-9a-fA-F]{2})", "g")
+        .replace_all_with(&continued, |m| u8::from_str_radix(m.get(1).unwrap_or("0"), 16).map_or(String::new(), |b| char::from(b).to_string()));
     let dollar = lazy_re!(r#"\$(?=['"])"#, "g").replace_all_with(&hex, |_| String::new());
     let escapes = lazy_re!(r"[`^]", "g").replace_all_with(&dollar, |_| String::new());
-    let quotes = lazy_re!("['\"\u{2018}\u{2019}\u{201a}\u{201b}\u{201c}\u{201d}\u{201e}]", "g")
-        .replace_all_with(&escapes, |_| String::new());
+    let quotes = lazy_re!("['\"\u{2018}\u{2019}\u{201a}\u{201b}\u{201c}\u{201d}\u{201e}]", "g").replace_all_with(&escapes, |_| String::new());
     lazy_re!(r"\s+", "g").replace_all_with(&quotes, |_| " ".to_owned())
 }
 
@@ -150,9 +141,7 @@ fn git_then_worktree_add(text: &str) -> bool {
 /// `addsUnmanagedWorktree`: the command would (or might) run `git … worktree add`.
 pub fn adds_unmanaged_worktree(command: &str) -> bool {
     let mut texts = vec![command.to_owned()];
-    for m in lazy_re!(r#"(?:^|[\s'"])[-/]e(?:c|n[a-z]*)?\s+['"]?([A-Za-z0-9+/]{4,}={0,2})"#, "gi")
-        .captures_iter(command)
-    {
+    for m in lazy_re!(r#"(?:^|[\s'"])[-/]e(?:c|n[a-z]*)?\s+['"]?([A-Za-z0-9+/]{4,}={0,2})"#, "gi").captures_iter(command) {
         let bytes = decode_base64_lenient(m.get(1).unwrap_or("").as_bytes());
         let units: Vec<u16> = bytes.as_chunks::<2>().0.iter().map(|p| u16::from_le_bytes([p[0], p[1]])).collect();
         texts.push(String::from_utf16_lossy(&units));
@@ -182,7 +171,9 @@ pub enum Guarded {
 /// Applies the guards to a shell call.
 pub fn guard_shell_call(command: &str, cwd: Option<&str>, background: bool, powershell: bool) -> Guarded {
     let (mut command, mut cwd) = (command.to_owned(), cwd.map(str::to_owned));
-    if cwd.is_none() && let Some((dir, rest)) = split_leading_cd(&command, powershell) {
+    if cwd.is_none()
+        && let Some((dir, rest)) = split_leading_cd(&command, powershell)
+    {
         command = rest;
         cwd = Some(dir);
     }
@@ -209,8 +200,6 @@ pub(crate) async fn guard_call(ctx: &ToolContext, command: &str, cwd: Option<&st
         _ => guarded,
     }
 }
-
-
 
 #[cfg(test)]
 mod tests {
@@ -293,9 +282,9 @@ mod tests {
             match schema["type"].as_str() {
                 Some("string") => value.is_string(),
                 Some("boolean") => value.is_boolean(),
-                Some("integer") => value.as_i64().is_some_and(|n| {
-                    schema["minimum"].as_i64().is_none_or(|min| n >= min) && schema["maximum"].as_i64().is_none_or(|max| n <= max)
-                }),
+                Some("integer") => value
+                    .as_i64()
+                    .is_some_and(|n| schema["minimum"].as_i64().is_none_or(|min| n >= min) && schema["maximum"].as_i64().is_none_or(|max| n <= max)),
                 _ => true,
             }
         }
@@ -430,7 +419,6 @@ mod tests {
         assert_eq!(guard_call(&ctx, "cat small.txt", Some("d"), false, false).await, run("cat small.txt", Some("d")));
     }
 
-
     fn guarded(command: &str, cwd: Option<&str>, background: bool, powershell: bool) -> Guarded {
         guard_shell_call(command, cwd, background, powershell)
     }
@@ -445,23 +433,32 @@ mod tests {
     #[test]
     fn a_leading_sleep_of_two_seconds_or_more_is_refused_in_a_foreground_command() {
         for (command, seconds) in [("sleep 5", "5"), ("sleep 2; echo done", "2"), ("sleep 3 && ls", "3"), ("  sleep 3\nls", "3")] {
-            let want = format!("Error: [shell-tool-failed] Blocked: the leading sleep of {seconds} s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed.");
+            let want = format!(
+                "Error: [shell-tool-failed] Blocked: the leading sleep of {seconds} s was not run. For a long-running command use background:true; its completion arrives automatically. To wait for a specific task when the result is needed now, use task wait — do not poll in a sleep loop. A deliberate delay under 2 seconds is allowed."
+            );
             assert_eq!(refusal_text(guarded(command, None, false, false)), want, "{command:?}");
         }
     }
 
     #[test]
     fn a_short_or_background_or_later_sleep_is_not_refused() {
-        for (command, background) in [("sleep 1", false), ("sleep 2.5", false), ("sleep 10", true), ("sleep 3 | cat", false), ("echo a; sleep 9", false), ("Start-Sleep 5", false)] {
+        for (command, background) in
+            [("sleep 1", false), ("sleep 2.5", false), ("sleep 10", true), ("sleep 3 | cat", false), ("echo a; sleep 9", false), ("Start-Sleep 5", false)]
+        {
             assert!(matches!(guarded(command, None, background, false), Guarded::Run { .. }), "{command:?}");
         }
     }
 
     #[test]
     fn a_managed_worktree_creation_is_refused_in_any_spelling_and_other_worktree_commands_run() {
-        for command in ["git worktree add ../x", "git -C d worktree add -b b p", "echo \"git worktree add\"", "g\\\nit worktree add p", "echo $'\\x67it' worktree add"] {
+        for command in
+            ["git worktree add ../x", "git -C d worktree add -b b p", "echo \"git worktree add\"", "g\\\nit worktree add p", "echo $'\\x67it' worktree add"]
+        {
             let text = refusal_text(guarded(command, None, false, false));
-            assert!(text.starts_with("Error: [shell-tool-failed] Blocked: this shell command mentions `git … worktree add`, which does not run from the shell;"), "{command:?}: {text}");
+            assert!(
+                text.starts_with("Error: [shell-tool-failed] Blocked: this shell command mentions `git … worktree add`, which does not run from the shell;"),
+                "{command:?}: {text}"
+            );
             assert!(text.contains("The check is textual: to search for that text use the grep tool"), "{text}");
         }
         for command in ["git status", "git worktree list"] {
@@ -471,7 +468,19 @@ mod tests {
 
     #[test]
     fn a_file_reading_command_runs_unchanged_and_without_a_note() {
-        for command in ["cat file.txt", "cat a b | head -5", "head -n 5 file", "tail -n +5 file", "grep foo file", "grep -e foo file", "ls src", "ls src | wc -l", "find . -name \"*.rs\"", "rg foo src", "cat a > /dev/null"] {
+        for command in [
+            "cat file.txt",
+            "cat a b | head -5",
+            "head -n 5 file",
+            "tail -n +5 file",
+            "grep foo file",
+            "grep -e foo file",
+            "ls src",
+            "ls src | wc -l",
+            "find . -name \"*.rs\"",
+            "rg foo src",
+            "cat a > /dev/null",
+        ] {
             let Guarded::Run { command: run, notes, .. } = guarded(command, None, false, false) else { panic!("{command:?} was refused") };
             assert_eq!((run.as_str(), notes), (command, Vec::new()), "{command:?}");
         }
@@ -484,7 +493,13 @@ mod tests {
     #[test]
     fn a_leading_cd_moves_into_the_working_folder_only_when_it_is_one_plain_literal_directory() {
         for powershell in [false, true] {
-            for (command, want_command, cwd) in [("cd /tmp && ls", "ls", "/tmp"), ("cd /tmp; ls", "ls", "/tmp"), ("cd \"/my dir\" && ls", "ls", "/my dir"), ("cd ~ && ls", "ls", "~"), ("cd 'a\\b' && ls", "ls", "a\\b")] {
+            for (command, want_command, cwd) in [
+                ("cd /tmp && ls", "ls", "/tmp"),
+                ("cd /tmp; ls", "ls", "/tmp"),
+                ("cd \"/my dir\" && ls", "ls", "/my dir"),
+                ("cd ~ && ls", "ls", "~"),
+                ("cd 'a\\b' && ls", "ls", "a\\b"),
+            ] {
                 let Guarded::Run { command: run, cwd: got, .. } = guarded(command, None, false, powershell) else { panic!("{command:?} was refused") };
                 assert_eq!((run.as_str(), got.as_deref()), (want_command, Some(cwd)), "{command:?}");
             }
@@ -502,5 +517,4 @@ mod tests {
             assert_eq!((run.as_str(), got.as_deref()), ("cd /tmp && ls", Some("/x")), "an explicit working folder keeps the cd as the command's own");
         }
     }
-
 }

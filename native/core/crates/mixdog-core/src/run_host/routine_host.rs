@@ -24,9 +24,7 @@ use super::unattended::{RunMark, UnattendedRunRegistry};
 use mixdog_core_agents::agents::{AgentDefinitions, ContactIds};
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
 use mixdog_core_rooms::rooms::home::Presence;
-use mixdog_services::bots::{
-    AnnouncedRun, DeliveryItem, ExecutorFacts, ExecutorRun, HeartbeatSessions, OwnerProblem, RoutineHost, RoutineTurn, TurnSettle,
-};
+use mixdog_services::bots::{AnnouncedRun, DeliveryItem, ExecutorFacts, ExecutorRun, HeartbeatSessions, OwnerProblem, RoutineHost, RoutineTurn, TurnSettle};
 use tokio_util::sync::CancellationToken;
 
 /// The agent-definition reads the routine rules ask.
@@ -206,7 +204,8 @@ fn human_needed_text(outcome: &str, site: &str) -> String {
 /// already a reference, which Node drops the same way).
 async fn reference_part(part: &Value, files: &dyn AttachmentFiles) -> Option<Value> {
     let object = part.as_object()?;
-    if object.get("attachmentRef").and_then(Value::as_str).is_some_and(|r| r.len() == 64 && r.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))) {
+    if object.get("attachmentRef").and_then(Value::as_str).is_some_and(|r| r.len() == 64 && r.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b)))
+    {
         return None;
     }
     let text = |value: Option<&Value>| value.and_then(Value::as_str).map(str::to_owned);
@@ -530,7 +529,6 @@ mod tests {
         }
     }
 
-
     #[async_trait]
     impl AttachmentFiles for Files {
         async fn store_inline(&self, base64: &str, mime: &str, filename: &str) -> Option<super::super::attachment_reference::StoredFile> {
@@ -563,20 +561,27 @@ mod tests {
         let png = STANDARD.encode([1u8, 2, 3, 4]);
         let pdf = STANDARD.encode(b"%PDF-1.4 hello");
         let cases = [
-            (json!({ "type": "image", "alt": "a", "data": png, "mimeType": "image/png", "z": 1 }),
-             r#"{"type":"image","alt":"a","mimeType":"image/png","z":1,"attachmentRef":"ref","sizeBytes":4}"#),
-            (json!({ "type": "image", "alt": "a", "source": { "type": "base64", "data": png, "media_type": "image/jpeg" }, "mimeType": "x", "mediaType": "y", "z": 1 }),
-             r#"{"type":"image","alt":"a","z":1,"mimeType":"image/jpeg","attachmentRef":"ref","sizeBytes":4}"#),
-            (json!({ "type": "document", "title": "T", "source": { "type": "base64", "data": pdf, "media_type": "text/plain" }, "extra": 1 }),
-             r#"{"title":"T","extra":1,"type":"file","mimeType":"application/pdf","filename":"T","attachmentRef":"ref","sizeBytes":4}"#),
-            (json!({ "type": "file", "name": "n", "data": png, "mimeType": "application/octet-stream", "extra": 1 }),
-             r#"{"type":"file","name":"n","mimeType":"application/octet-stream","extra":1,"attachmentRef":"ref","sizeBytes":4}"#),
+            (
+                json!({ "type": "image", "alt": "a", "data": png, "mimeType": "image/png", "z": 1 }),
+                r#"{"type":"image","alt":"a","mimeType":"image/png","z":1,"attachmentRef":"ref","sizeBytes":4}"#,
+            ),
+            (
+                json!({ "type": "image", "alt": "a", "source": { "type": "base64", "data": png, "media_type": "image/jpeg" }, "mimeType": "x", "mediaType": "y", "z": 1 }),
+                r#"{"type":"image","alt":"a","z":1,"mimeType":"image/jpeg","attachmentRef":"ref","sizeBytes":4}"#,
+            ),
+            (
+                json!({ "type": "document", "title": "T", "source": { "type": "base64", "data": pdf, "media_type": "text/plain" }, "extra": 1 }),
+                r#"{"title":"T","extra":1,"type":"file","mimeType":"application/pdf","filename":"T","attachmentRef":"ref","sizeBytes":4}"#,
+            ),
+            (
+                json!({ "type": "file", "name": "n", "data": png, "mimeType": "application/octet-stream", "extra": 1 }),
+                r#"{"type":"file","name":"n","mimeType":"application/octet-stream","extra":1,"attachmentRef":"ref","sizeBytes":4}"#,
+            ),
         ];
         for (part, want) in cases {
             assert_eq!(reference_part(&part, &Ref).await.expect("stored").to_string(), want);
         }
     }
-
 
     struct Setup {
         sessions: Arc<CoreRoutineSessions>,
@@ -607,7 +612,10 @@ mod tests {
                 run.port.input_durable().await.expect("input durable");
                 let marked = registry.run_of(&run.thread).await.map(|r| (r.kind, r.agent_id));
                 record.lock().unwrap().push(marked);
-                mixdog_core_session::session::RunOutcome::Completed(Box::new(mixdog_agent::agent_tool::flow::seams::TurnResult { content: "ok".into(), ..Default::default() }))
+                mixdog_core_session::session::RunOutcome::Completed(Box::new(mixdog_agent::agent_tool::flow::seams::TurnResult {
+                    content: "ok".into(),
+                    ..Default::default()
+                }))
             })
         }));
         let thread = ThreadId::from("sess_home_lead");
@@ -660,7 +668,10 @@ mod tests {
         assert_eq!(args["prompt"], "Do it");
         assert_eq!(args["skillSelection"], "skills");
         assert_eq!(args["cwd"], "/work");
-        assert_eq!(args["attachmentParts"], json!([{ "type": "image", "mimeType": "image/png", "filename": "a.png", "attachmentRef": "4:image/png:a.png", "sizeBytes": 3 }]));
+        assert_eq!(
+            args["attachmentParts"],
+            json!([{ "type": "image", "mimeType": "image/png", "filename": "a.png", "attachmentRef": "4:image/png:a.png", "sizeBytes": 3 }])
+        );
         assert_eq!(*s.agent.marked_during.lock().unwrap(), [true]);
         assert!(s.registry.run_of(&ThreadId::from(caller.as_str())).await.is_none(), "unmarked when it ends");
 
@@ -677,7 +688,15 @@ mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn results_and_run_rows_go_to_the_home_delivery() {
         let s = setup();
-        let item = DeliveryItem { run_id: "run_1".into(), kind: RoutineKind::Schedule, ok: true, text: "done".into(), run_session_id: None, reason: None, paused: None };
+        let item = DeliveryItem {
+            run_id: "run_1".into(),
+            kind: RoutineKind::Schedule,
+            ok: true,
+            text: "done".into(),
+            run_session_id: None,
+            reason: None,
+            paused: None,
+        };
         s.sessions.deliver_result("lead", "daily", &item).await.unwrap();
         s.sessions.announce_run("lead", "daily", &AnnouncedRun { item, state: "undelivered" }).await.unwrap();
         assert_eq!(*s.delivery.0.lock().unwrap(), ["enqueue lead daily run_1", "announce lead daily undelivered"]);

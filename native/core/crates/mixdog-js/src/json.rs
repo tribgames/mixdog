@@ -219,14 +219,8 @@ mod tests {
         // Node: _stableStringify (openai-ws-delta.mjs) and stableTraceStringify (trace-utils.mjs)
         // on {b:[{z:1,a:2}],a:{y:[{q:1,b:2}],x:1},'10':1,'2':2}.
         let value: Value = serde_json::from_str(r#"{"b":[{"z":1,"a":2}],"a":{"y":[{"q":1,"b":2}],"x":1},"10":1,"2":2}"#).unwrap();
-        assert_eq!(
-            stringify_sorted_outside_arrays(&value),
-            r#"{"10":1,"2":2,"a":{"x":1,"y":[{"q":1,"b":2}]},"b":[{"z":1,"a":2}]}"#
-        );
-        assert_eq!(
-            stringify_sorted(&value),
-            r#"{"10":1,"2":2,"a":{"x":1,"y":[{"b":2,"q":1}]},"b":[{"a":2,"z":1}]}"#
-        );
+        assert_eq!(stringify_sorted_outside_arrays(&value), r#"{"10":1,"2":2,"a":{"x":1,"y":[{"q":1,"b":2}]},"b":[{"z":1,"a":2}]}"#);
+        assert_eq!(stringify_sorted(&value), r#"{"10":1,"2":2,"a":{"x":1,"y":[{"b":2,"q":1}]},"b":[{"a":2,"z":1}]}"#);
     }
 
     #[test]
@@ -241,7 +235,6 @@ mod tests {
         let value: Value = serde_json::from_str(r#"{"b":1,"10":2,"a":3,"2":4,"01":5,"4294967295":6,"4294967294":7}"#).expect("json");
         assert_eq!(stringify(&value), r#"{"2":4,"10":2,"4294967294":7,"b":1,"a":3,"01":5,"4294967295":6}"#);
     }
-
 
     fn both(input: &str) -> (String, String) {
         let value: Value = serde_json::from_str(input).expect("input");
@@ -281,4 +274,3 @@ mod tests {
         assert_eq!(both("true").1, "true");
     }
 }
-

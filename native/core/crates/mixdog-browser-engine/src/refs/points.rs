@@ -102,7 +102,9 @@ mod tests {
 
     #[tokio::test]
     async fn a_point_is_probed_on_the_ref_through_one_call() {
-        let host = FakeHost::scripted(vec![call(json!({"x": 40, "y": 22.5, "via": "control"})).with_params(json!({"pageId": "p1", "snapshotId": "p1-s2", "ref": "p1-s2-e1"}))]);
+        let host = FakeHost::scripted(vec![
+            call(json!({"x": 40, "y": 22.5, "via": "control"})).with_params(json!({"pageId": "p1", "snapshotId": "p1-s2", "ref": "p1-s2-e1"})),
+        ]);
         assert_eq!(ref_point(&host, &target(), &CancellationToken::new()).await, Ok(Point { x: 40.0, y: 22.5 }));
         let calls = host.calls();
         let declaration = calls[0].params["functionDeclaration"].as_str().expect("a declaration");
@@ -112,8 +114,10 @@ mod tests {
 
     #[tokio::test]
     async fn a_ref_inside_a_cross_origin_frame_is_placed_in_the_top_viewport() {
-        let framed = |value: Value| Expect::ok("host/browser/ref/call", json!({"value": value, "frameOffset": {"x": 300, "y": 200.5}, "facts": page_facts("p1", 4)}));
-        let host = FakeHost::scripted(vec![framed(json!({"x": 40, "y": 22.5, "via": "control"})), framed(json!({"x": 10, "y": 20, "width": 80, "height": 24}))]);
+        let framed =
+            |value: Value| Expect::ok("host/browser/ref/call", json!({"value": value, "frameOffset": {"x": 300, "y": 200.5}, "facts": page_facts("p1", 4)}));
+        let host =
+            FakeHost::scripted(vec![framed(json!({"x": 40, "y": 22.5, "via": "control"})), framed(json!({"x": 10, "y": 20, "width": 80, "height": 24}))]);
         let cancel = CancellationToken::new();
         assert_eq!(ref_point(&host, &target(), &cancel).await, Ok(Point { x: 340.0, y: 223.0 }));
         assert_eq!(ref_rect(&host, &target(), &cancel).await, Ok(Rect { x: 310.0, y: 220.5, width: 80.0, height: 24.0 }));

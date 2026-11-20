@@ -139,12 +139,7 @@ fn request(json: &str) -> Value {
 fn a_selection_names_the_sheet_the_range_and_the_active_cell() {
     let owner = obj(vec![("FullName", text("C:\\work\\book.xlsx"))]);
     let sheet = obj(vec![("Name", text("Data")), ("Parent", konst(owner))]);
-    let selection = obj(vec![
-        ("Parent", konst(sheet)),
-        ("Address", text("B2:C3")),
-        ("Rows", count(2)),
-        ("Columns", count(2)),
-    ]);
+    let selection = obj(vec![("Parent", konst(sheet)), ("Address", text("B2:C3")), ("Rows", count(2)), ("Columns", count(2))]);
     let application = obj(vec![("Selection", konst(selection)), ("ActiveCell", konst(obj(vec![("Address", text("B2"))])))]);
     let book = make(vec![("FullName", text("C:\\work\\book.xlsx")), ("Application", konst(application))], Vec::new());
     let world = World::new();
@@ -206,7 +201,11 @@ fn range_of(grid: &Grid, row0: i32, col0: i32, rows: i32, cols: i32, number_form
     };
     let values = matrix((0..rows).map(|r| (0..cols).map(|c| value(r, c)).collect()).collect());
     let formulas = matrix((0..rows).map(|r| (0..cols).map(|c| formula(r, c)).collect()).collect());
-    let address = if rows == 1 && cols == 1 { format!("{}{row0}", letters(col0)) } else { format!("{}{row0}:{}{}", letters(col0), letters(col0 + cols - 1), row0 + rows - 1) };
+    let address = if rows == 1 && cols == 1 {
+        format!("{}{row0}", letters(col0))
+    } else {
+        format!("{}{row0}:{}{}", letters(col0), letters(col0 + cols - 1), row0 + rows - 1)
+    };
     let (cells_grid, resize_grid) = (grid.clone(), grid.clone());
     let has_formula = grid.get(&(row0, col0)).is_some_and(|(_, formula)| formula.starts_with('='));
     obj(vec![
@@ -220,7 +219,16 @@ fn range_of(grid: &Grid, row0: i32, col0: i32, rows: i32, cols: i32, number_form
         ("HasFormula", konst(Com::Bool(has_formula))),
         ("MergeCells", konst(Com::Bool(false))),
         ("NumberFormat", text(number_format)),
-        ("Font", konst(obj(vec![("Name", text("Calibri")), ("Size", konst(Com::R8(11.0))), ("Bold", konst(Com::Bool(false))), ("Italic", konst(Com::Bool(false))), ("Color", konst(Com::R8(0.0)))]))),
+        (
+            "Font",
+            konst(obj(vec![
+                ("Name", text("Calibri")),
+                ("Size", konst(Com::R8(11.0))),
+                ("Bold", konst(Com::Bool(false))),
+                ("Italic", konst(Com::Bool(false))),
+                ("Color", konst(Com::R8(0.0))),
+            ])),
+        ),
         ("Interior", konst(obj(vec![("Color", konst(Com::R8(16_777_215.0)))]))),
         ("HorizontalAlignment", konst(Com::I4(1))),
         ("Application", konst(obj(vec![("LanguageSettings", konst(obj(vec![("LanguageID", konst(Com::I4(language)))])))]))),
@@ -326,7 +334,9 @@ fn page_cells(answer: &Value) -> Vec<String> {
         .flat_map(|sheet| {
             let name = convert_text(&field(sheet, &["name"]));
             match field(sheet, &["cells"]) {
-                Value::Array(cells) => cells.iter().map(|cell| format!("{name}!{}={}", convert_text(&field(cell, &["ref"])), convert_text(&field(cell, &["value"])))).collect(),
+                Value::Array(cells) => {
+                    cells.iter().map(|cell| format!("{name}!{}={}", convert_text(&field(cell, &["ref"])), convert_text(&field(cell, &["value"])))).collect()
+                }
                 _ => Vec::new(),
             }
         })
@@ -414,10 +424,10 @@ fn every_page_says_a_true_total_and_continues_from_where_it_ended() {
     assert_eq!(
         shape,
         [
-            (0, 3, 4, Some(3), None),    // first page of Notes: more cells in this sheet
-            (3, 1, 4, None, Some(1)),    // last page of Notes: the walk goes on into the next sheet
-            (0, 0, 0, None, Some(2)),    // the empty sheet is a page, and the walk continues
-            (0, 3, 3, None, None),       // the last cells of the last sheet end the walk
+            (0, 3, 4, Some(3), None), // first page of Notes: more cells in this sheet
+            (3, 1, 4, None, Some(1)), // last page of Notes: the walk goes on into the next sheet
+            (0, 0, 0, None, Some(2)), // the empty sheet is a page, and the walk continues
+            (0, 3, 3, None, None),    // the last cells of the last sheet end the walk
         ]
     );
 }
@@ -479,11 +489,8 @@ fn the_excel_walk_departure_names_a_recorded_scenario_and_says_why() {
 /// A workbook of one sheet named `Checks` whose only cell is FALSE.
 fn checks_book() -> Obj {
     let cell = obj(vec![("Text", text("FALSE")), ("Font", konst(obj(vec![("Name", text("Calibri"))])))]);
-    let chunk = obj(vec![
-        ("Value2", konst(Com::Bool(false))),
-        ("FormulaR1C1", konst(Com::Str(String::new()))),
-        ("Cells", konst(obj(vec![("Item", konst(cell))]))),
-    ]);
+    let chunk =
+        obj(vec![("Value2", konst(Com::Bool(false))), ("FormulaR1C1", konst(Com::Str(String::new()))), ("Cells", konst(obj(vec![("Item", konst(cell))])))]);
     let used = obj(vec![
         ("Rows", count(1)),
         ("Columns", count(1)),

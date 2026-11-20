@@ -3,7 +3,7 @@
 use super::fake::FakeWin;
 use super::*;
 use crate::port::fake::Pause;
-use crate::port::{Cleanup, Scope, REVOKED};
+use crate::port::{Cleanup, REVOKED, Scope};
 use std::sync::{Arc, Mutex};
 
 const A_DOWN: Event = Event::Key { vk: 0x41, scan: 0, flags: 0 };
@@ -84,14 +84,7 @@ fn after_off_only_owned_releases_go_out_and_each_once() {
     assert_eq!(port.input(&[B_UP]), Ok(()));
     assert_eq!(
         fake.log(),
-        [
-            "input key 0x41 down",
-            "input mouse 0x2 0 0 0",
-            "input key 0x42 down",
-            "input mouse 0x4 0 0 0",
-            "input key 0x41 up",
-            "input key 0x42 up",
-        ]
+        ["input key 0x41 down", "input mouse 0x2 0 0 0", "input key 0x42 down", "input mouse 0x4 0 0 0", "input key 0x41 up", "input key 0x42 up",]
     );
     assert!(port.holds().is_empty());
 }
@@ -110,10 +103,7 @@ fn a_combined_release_is_split_and_a_double_release_in_one_batch_consumes_once()
     assert_eq!(port.input(&[up_and_move]), Err(REVOKED.to_string()), "its motion is refused");
     assert_eq!(port.input(&[up_and_wheel, RIGHT_UP]), Err(REVOKED.to_string()), "its wheel and the second up are refused");
     assert!(scope.release_held());
-    assert_eq!(
-        fake.log(),
-        ["input mouse 0x2 0 0 0", "input mouse 0x8 0 0 0", "input mouse 0x4 0 0 0", "input mouse 0x10 0 0 0"]
-    );
+    assert_eq!(fake.log(), ["input mouse 0x2 0 0 0", "input mouse 0x8 0 0 0", "input mouse 0x4 0 0 0", "input mouse 0x10 0 0 0"]);
     assert!(port.holds().is_empty());
 }
 
@@ -148,12 +138,7 @@ fn a_send_waiting_for_the_receipt_lock_does_not_hold_off() {
 }
 
 /// Holds the named primitive inside its call, revokes, and lets it go: answers the operation's outcome and the closure count.
-fn revoke_inside<T: Send>(
-    scope: &Scope,
-    fake: &FakeWin,
-    primitive: &'static str,
-    operation: impl FnOnce() -> T + Send,
-) -> (T, usize) {
+fn revoke_inside<T: Send>(scope: &Scope, fake: &FakeWin, primitive: &'static str, operation: impl FnOnce() -> T + Send) -> (T, usize) {
     let pause = fake.pause_inside(primitive);
     std::thread::scope(|threads| {
         let running = threads.spawn(operation);
@@ -170,8 +155,7 @@ fn revoke_inside<T: Send>(
 fn a_clipboard_clear_held_across_off_is_not_followed_by_its_write() {
     let scope = Scope::open(1);
     let (port, fake) = FakeWin::port(&scope);
-    let ((written, next), unfinished) =
-        revoke_inside(&scope, &fake, "clipboard_empty", || (port.clipboard_write("x"), port.input(&[A_DOWN])));
+    let ((written, next), unfinished) = revoke_inside(&scope, &fake, "clipboard_empty", || (port.clipboard_write("x"), port.input(&[A_DOWN])));
     assert_eq!(unfinished, 1, "the held call is counted, not waited for");
     assert_eq!((written, next), (Err(REVOKED.to_string()), Err(REVOKED.to_string())));
     assert_eq!(fake.log(), ["clipboard_empty"]);
@@ -307,10 +291,7 @@ fn a_revocation_between_a_queued_press_and_its_character_lets_out_only_the_owned
     let again = port.message(1, 2, Message::KeyUp { vk: 0x1B, lparam: 0 }).unwrap();
     assert_eq!((released.get(), again.get()), (Some(1), Some(1)));
     assert!(scope.release_held());
-    assert_eq!(
-        fake.log(),
-        ["queue 2 KeyDown { vk: 27, lparam: 1 }", "queue 2 KeyUp { vk: 27, lparam: -1073741823 }"]
-    );
+    assert_eq!(fake.log(), ["queue 2 KeyDown { vk: 27, lparam: 1 }", "queue 2 KeyUp { vk: 27, lparam: -1073741823 }"]);
 }
 
 /// A button press whose reply was lost is still owned: the cleanup lets go of it at the point of the last accepted motion,

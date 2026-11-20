@@ -15,6 +15,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use mixdog_core_api::CoreError;
+use mixdog_core_api::ids::ItemId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_protocol::MAX_BLOB_BYTES;
 use mixdog_rt::CpuInteractive;
@@ -22,7 +23,6 @@ use mixdog_rt::DurabilityIo;
 use mixdog_rt::InLane;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::MaintenanceIo;
-use mixdog_core_api::ids::ItemId;
 use mixdog_store::blobs::BlobStore;
 use mixdog_store::context::ContextBlobs;
 use mixdog_store::context::ContextCursor;
@@ -32,12 +32,11 @@ use mixdog_store::context::DecodedContext;
 use mixdog_store::context::decode_context;
 use mixdog_store::context::finish_context;
 use mixdog_store::context::read_context_blobs;
-use mixdog_store::sqlite::DbError;
 use mixdog_store::encode::EncodeError;
 use mixdog_store::encode::Encoded;
 use mixdog_store::encode::encode_record;
-use mixdog_store::fsio::IoLane;
 use mixdog_store::fold::Fold;
+use mixdog_store::fsio::IoLane;
 use mixdog_store::log;
 use mixdog_store::log::AppendError;
 use mixdog_store::log::LogWriter;
@@ -52,6 +51,7 @@ use mixdog_store::schema::checkpoint::FramePos;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::ItemRecord;
 use mixdog_store::schema::record::Record;
+use mixdog_store::sqlite::DbError;
 use mixdog_store::sqlite::DirtyMark;
 use mixdog_store::sqlite::HistoryRow;
 use mixdog_store::sqlite::LineageLevel;
@@ -88,26 +88,16 @@ const MAX_LINEAGE: usize = 64;
 pub struct StoreCodec;
 
 impl RecordCodec for StoreCodec {
-    fn encode(
-        &self,
-        _lane: &InLane<CpuInteractive>,
-        record: &Record,
-    ) -> Result<EncodedRecord, CoreError> {
-        encode_record(record.clone())
-            .map(EncodedRecord)
-            .map_err(|error| match error {
-                EncodeError::ItemTooLarge { .. } => CoreError::ItemTooLarge {
-                    limit: MAX_BLOB_BYTES,
-                },
-                other => internal("encode", &other),
-            })
+    fn encode(&self, _lane: &InLane<CpuInteractive>, record: &Record) -> Result<EncodedRecord, CoreError> {
+        encode_record(record.clone()).map(EncodedRecord).map_err(|error| match error {
+            EncodeError::ItemTooLarge { .. } => CoreError::ItemTooLarge { limit: MAX_BLOB_BYTES },
+            other => internal("encode", &other),
+        })
     }
 }
 
 fn internal(step: &str, error: &dyn std::fmt::Display) -> CoreError {
-    CoreError::Internal {
-        incident_id: format!("session-store-{step}: {error}").into(),
-    }
+    CoreError::Internal { incident_id: format!("session-store-{step}: {error}").into() }
 }
 
 enum Projecting {
@@ -116,7 +106,10 @@ enum Projecting {
     Flush(tokio::sync::oneshot::Sender<()>),
     /// Answers `reached` once every projection sent before it is committed, then takes nothing more until `release`
     /// resolves (dropped included): a log rewrite changes the files and the rows meanwhile.
-    Hold { reached: tokio::sync::oneshot::Sender<()>, release: tokio::sync::oneshot::Receiver<()> },
+    Hold {
+        reached: tokio::sync::oneshot::Sender<()>,
+        release: tokio::sync::oneshot::Receiver<()>,
+    },
 }
 
 /// What the forwarding task answers, in the order it was sent.
@@ -135,7 +128,9 @@ impl Drop for StopMark {
     fn drop(&mut self) {
         self.0.store(true, std::sync::atomic::Ordering::SeqCst);
         if std::thread::panicking() {
-            tracing::error!("the index projector stopped: lists answer what the index holds from now on, and the sessions written since are re-projected at the next start");
+            tracing::error!(
+                "the index projector stopped: lists answer what the index holds from now on, and the sessions written since are re-projected at the next start"
+            );
         }
     }
 }
@@ -383,9 +378,7 @@ impl MarkRewrites {
         // answers its old copy, whenever the process ends.
         {
             let (journal, id) = (journal.clone(), session.to_owned());
-            wait(threads.maintenance, &never, move |_lane| journal.owe_search(&id))
-                .await?
-                .map_err(|error| internal("sensitive-marks-journal", &error))?;
+            wait(threads.maintenance, &never, move |_lane| journal.owe_search(&id)).await?.map_err(|error| internal("sensitive-marks-journal", &error))?;
         }
         let id = ThreadId::from(session);
         let mut settles = Some(settles);
@@ -455,7 +448,8 @@ pub mod rewrite_holds {
     }
 
     pub(super) fn at(point: &str) {
-        let holds: Vec<Hold> = HOLDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().filter(|(p, _)| *p == point).map(|(_, h)| h.clone()).collect();
+        let holds: Vec<Hold> =
+            HOLDS.lock().unwrap_or_else(std::sync::PoisonError::into_inner).iter().filter(|(p, _)| *p == point).map(|(_, h)| h.clone()).collect();
         for hold in holds {
             hold();
         }
@@ -483,14 +477,12 @@ pub(super) struct LogShape {
 impl LogShape {
     /// Nothing was written to the logs since the shape was taken.
     pub(super) fn is_current(&self) -> bool {
-        self.logs.len() == self.versions.len()
-            && self.logs.iter().zip(&self.versions).all(|(log, v)| mixdog_store::log_epoch::settled(log) == Some(*v))
+        self.logs.len() == self.versions.len() && self.logs.iter().zip(&self.versions).all(|(log, v)| mixdog_store::log_epoch::settled(log) == Some(*v))
     }
 
     /// Whatever was written to the logs since they were read left this shape as it is.
     pub(super) fn stands(&self) -> bool {
-        self.logs.len() == self.shapes.len()
-            && self.logs.iter().zip(&self.shapes).all(|(log, v)| mixdog_store::log_epoch::shape_settled(log) == Some(*v))
+        self.logs.len() == self.shapes.len() && self.logs.iter().zip(&self.shapes).all(|(log, v)| mixdog_store::log_epoch::shape_settled(log) == Some(*v))
     }
 
     /// Both shapes are of one read of the logs.
@@ -595,10 +587,7 @@ impl CoreThreadFeeds {
     /// their snapshot encodes.
     pub fn new(limits: &mixdog_app_protocol::limits::Limits, cpu: CpuInteractive) -> Self {
         let bytes = |n: u64| usize::try_from(n).unwrap_or(usize::MAX);
-        Self {
-            limits: mixdog_core_base::feed::FeedLimits { ring_bytes: bytes(limits.ring_bytes), max_snapshot_bytes: bytes(limits.max_snapshot_bytes) },
-            cpu,
-        }
+        Self { limits: mixdog_core_base::feed::FeedLimits { ring_bytes: bytes(limits.ring_bytes), max_snapshot_bytes: bytes(limits.max_snapshot_bytes) }, cpu }
     }
 }
 
@@ -716,7 +705,9 @@ mod projector_tests {
         projector.send(empty_projection("sess_bad"));
         projector.send(empty_projection("sess_ok"));
         let failed = |result: Result<(), CoreError>| match result {
-            Err(CoreError::Internal { incident_id }) => assert!(incident_id.contains("index-write-failed") && incident_id.contains("sess_bad"), "{incident_id}"),
+            Err(CoreError::Internal { incident_id }) => {
+                assert!(incident_id.contains("index-write-failed") && incident_id.contains("sess_bad"), "{incident_id}")
+            }
             Ok(()) => panic!("a write the index did not take was answered as indexed"),
             Err(other) => panic!("{other:?}"),
         };
@@ -742,7 +733,6 @@ mod projector_tests {
         projector.send(empty_projection("sess_bad"));
         projector.indexed("sess_bad").await.expect("the index holds the session again");
     }
-
 
     /// What a list asks of the projector: pending from the moment a projection is queued until the index holds it, and nothing
     /// to wait for (no future at all) when idle.
@@ -882,7 +872,6 @@ mod projector_tests {
     }
 }
 
-
 #[cfg(test)]
 mod anchor_tests {
     use super::anchor_iids;
@@ -902,7 +891,6 @@ mod anchor_tests {
         assert!(anchor_iids("itm_0000000000000000000000000000000a:model:12").contains(&"itm_0000000000000000000000000000000a".to_owned()));
     }
 }
-
 
 /// [`super::seams::TurnIngest`] over the session-search writer; `None` when the process has no memory runtime.
 pub struct SessionSearchTurns(pub Option<Arc<mixdog_services::memory::session_search::ingest::SessionSearchIngest>>);
@@ -1018,7 +1006,9 @@ impl Projector {
         #[cfg(feature = "replay-settled")]
         {
             let pending = pending.clone();
-            super::replay_settled::watch(move || (pending.load(std::sync::atomic::Ordering::SeqCst) != 0).then_some("the index projector has a projection in flight"));
+            super::replay_settled::watch(move || {
+                (pending.load(std::sync::atomic::Ordering::SeqCst) != 0).then_some("the index projector has a projection in flight")
+            });
         }
         tokio::spawn(async move {
             use futures::StreamExt;
@@ -1086,7 +1076,19 @@ impl Projector {
                 }
             }
         });
-        Self { queue, pending, stopped, bound: super::thread_list::FENCE_BOUND, sent: Arc::default(), lost, rows_lost, marking, marks_lost, marks_epoch, refuse_next: Arc::default() }
+        Self {
+            queue,
+            pending,
+            stopped,
+            bound: super::thread_list::FENCE_BOUND,
+            sent: Arc::default(),
+            lost,
+            rows_lost,
+            marking,
+            marks_lost,
+            marks_epoch,
+            refuse_next: Arc::default(),
+        }
     }
 
     /// Holds the index writes behind every projection sent so far: `reached` resolves once those are committed (an error
@@ -1304,7 +1306,9 @@ impl StoreLog {
                         redaction.seen = version;
                     }
                 }
-                Err(error) => tracing::warn!(thread = %session, "the sensitive rewrite of the log could not be planned; it is tried again at the next barrier: {error}"),
+                Err(error) => {
+                    tracing::warn!(thread = %session, "the sensitive rewrite of the log could not be planned; it is tried again at the next barrier: {error}")
+                }
             }
         }
         if redaction.seen == version
@@ -1333,11 +1337,7 @@ impl StoreLog {
     }
 }
 impl SessionLog for StoreLog {
-    fn commit(
-        &mut self,
-        lane: &InLane<DurabilityIo>,
-        batch: &[CommitRecord],
-    ) -> Result<Vec<u64>, BarrierError> {
+    fn commit(&mut self, lane: &InLane<DurabilityIo>, batch: &[CommitRecord]) -> Result<Vec<u64>, BarrierError> {
         // Entered before the log is touched: a rewind is in the log, and in what a read takes from it, before its
         // projection is on its way to the index.
         let entered = self.context_lens.batch(&self.thread);
@@ -1437,7 +1437,10 @@ impl StoreThreads {
 
     /// Holds the index projections (as a rewrite does), for a test of what waits on them.
     #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
     pub(super) fn hold_index(&self) -> (tokio::sync::oneshot::Receiver<()>, tokio::sync::oneshot::Sender<()>) {
         self.projector.hold()
     }
@@ -1474,14 +1477,11 @@ impl StoreThreads {
         Ok(rows)
     }
 
-
-
     /// The next projection is refused by the index, as a full disk would.
     #[cfg(test)]
     pub(super) fn refuse_next_projection(&self) {
         self.projector.refuse_next.store(true, std::sync::atomic::Ordering::SeqCst);
     }
-
 
     /// The read gate, shared for one lane job of a read of `id` (see [`ReadGate`]). Taken after any wait on the projector: a
     /// rewrite holds the projector while it waits for the gate. Every read of a thread's log or rows takes it first, so a
@@ -1615,7 +1615,11 @@ impl StoreThreads {
     /// At start, before any thread is served: the marks this data dir saved are known again, and every session that owes a
     /// rewrite for one is withheld (no read of its log or rows answers until its rewrite is done); then the rewrites, all of
     /// them. The composition does the two apart ([`Self::owe_marks`], then [`MarkRewrites::run`] behind the serving core).
-    pub async fn settle_marks(self: &Arc<Self>, durability: DurabilityIo, progress: Option<&Arc<mixdog_store::sqlite::RebuildProgress>>) -> Result<(), CoreError> {
+    pub async fn settle_marks(
+        self: &Arc<Self>,
+        durability: DurabilityIo,
+        progress: Option<&Arc<mixdog_store::sqlite::RebuildProgress>>,
+    ) -> Result<(), CoreError> {
         self.owe_marks(durability, progress).await?.run(&mixdog_rt::CancellationToken::new()).await
     }
 
@@ -1623,8 +1627,13 @@ impl StoreThreads {
     /// read (the index's content of it included) until [`MarkRewrites::run`] has rewritten it. A session a run before already
     /// rewrote for a mark (the journal names it settled) owes that mark nothing. The rewrites owed are added to `progress`,
     /// which they advance as they run.
-    pub async fn owe_marks(self: &Arc<Self>, durability: DurabilityIo, progress: Option<&Arc<mixdog_store::sqlite::RebuildProgress>>) -> Result<MarkRewrites, CoreError> {
-        let mut owed = MarkRewrites { threads: self.clone(), durability, progress: progress.cloned(), owed: std::collections::BTreeMap::new(), recovered: Vec::new() };
+    pub async fn owe_marks(
+        self: &Arc<Self>,
+        durability: DurabilityIo,
+        progress: Option<&Arc<mixdog_store::sqlite::RebuildProgress>>,
+    ) -> Result<MarkRewrites, CoreError> {
+        let mut owed =
+            MarkRewrites { threads: self.clone(), durability, progress: progress.cloned(), owed: std::collections::BTreeMap::new(), recovered: Vec::new() };
         let (Some(marks), Some(journal)) = (self.sensitive.get(), self.journal.get()) else {
             // No marks bound, so none is owed and the log reads refuse nothing: the catalog agrees.
             self.index.withhold(Vec::new()).await.map_err(|e| internal("sensitive-marks-withhold", &e))?;
@@ -1661,7 +1670,13 @@ impl StoreThreads {
     /// One owed session's log rewritten for every value its marks hold, and its rows rebuilt from the rewritten log; again
     /// while a mark arrived meanwhile. The version of the marks it was rewritten for.
     #[allow(clippy::disallowed_methods, reason = "the session folder is looked up inside the durability lane job")]
-    async fn rewrite_owed(&self, durability: DurabilityIo, stop: &mixdog_rt::CancellationToken, marks: &Arc<dyn super::seams::SensitiveMarks>, session: &str) -> Result<u64, CoreError> {
+    async fn rewrite_owed(
+        &self,
+        durability: DurabilityIo,
+        stop: &mixdog_rt::CancellationToken,
+        marks: &Arc<dyn super::seams::SensitiveMarks>,
+        session: &str,
+    ) -> Result<u64, CoreError> {
         // The job waits out a full lane: a mark owed is settled, not skipped for a busy one; a quit ends the wait.
         use mixdog_core_base::support::on_lane_wait as wait;
         let id = ThreadId::from(session);
@@ -1677,10 +1692,8 @@ impl StoreThreads {
                     let result = if tokio::runtime::Handle::try_current().is_ok() { tokio::task::block_in_place(block) } else { block() };
                     result.map_err(|e| e.to_string())
                 };
-                let mut settle = || {
-                    mixdog_store::log_rewrite::settle(lane, &data, &session, &*deps.io, &deps.blobs, &mut index_step)
-                        .map_err(|e| e.to_string())
-                };
+                let mut settle =
+                    || mixdog_store::log_rewrite::settle(lane, &data, &session, &*deps.io, &deps.blobs, &mut index_step).map_err(|e| e.to_string());
                 // A retry on this store may find the directory moved away or already redacted,
                 // with the index and old log still owed. Finish that intent before inspecting the log.
                 settle()?;
@@ -1771,20 +1784,13 @@ impl StoreThreads {
         maintenance: MaintenanceIo,
     ) -> Result<Self, CoreError> {
         let sessions = data.join("sessions");
-        mixdog_rt::LaneToken::submit(maintenance, &mixdog_rt::CancellationToken::new(), move |_lane| {
-            mixdog_store::fsio::create_dir_durable(&sessions)
-        })
-        .map_err(|_| internal("sessions-dir", &"maintenance lane refused"))?
-        .await
-        .map_err(|_| internal("sessions-dir", &"maintenance job dropped"))?
-        .map_err(|e| internal("sessions-dir", &e))?;
+        mixdog_rt::LaneToken::submit(maintenance, &mixdog_rt::CancellationToken::new(), move |_lane| mixdog_store::fsio::create_dir_durable(&sessions))
+            .map_err(|_| internal("sessions-dir", &"maintenance lane refused"))?
+            .await
+            .map_err(|_| internal("sessions-dir", &"maintenance job dropped"))?
+            .map_err(|e| internal("sessions-dir", &e))?;
         let blobs = BlobStore::new(data);
-        let writer = WriterDeps {
-            io: Arc::new(mixdog_store::log::OsIo),
-            blobs: blobs.clone(),
-            ownership,
-            index: Arc::new(index.clone()),
-        };
+        let writer = WriterDeps { io: Arc::new(mixdog_store::log::OsIo), blobs: blobs.clone(), ownership, index: Arc::new(index.clone()) };
         Ok(Self::new(data, blobs, index, writer, maintenance))
     }
 
@@ -1827,23 +1833,22 @@ impl StoreThreads {
 
     /// Returns once the index holds every write acked so far (the projection runs behind the ack).
     #[cfg(any(test, feature = "test-support"))]
-    #[cfg_attr(not(test), allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build"))]
+    #[cfg_attr(
+        not(test),
+        allow(dead_code, reason = "used by this crate's unit tests; compiled for test-support so the hooks around it behave as in a test build")
+    )]
     pub(crate) async fn projected(&self) {
         self.projector.drained().await;
     }
 
     fn not_found(id: &ThreadId) -> CoreError {
-        CoreError::ThreadNotFound {
-            thread_id: id.clone(),
-        }
+        CoreError::ThreadNotFound { thread_id: id.clone() }
     }
 
     fn open_error(id: &ThreadId, error: OpenError) -> CoreError {
         match error {
             OpenError::Missing(_) => Self::not_found(id),
-            OpenError::Io(e) if e.source.kind() == std::io::ErrorKind::NotFound => {
-                Self::not_found(id)
-            }
+            OpenError::Io(e) if e.source.kind() == std::io::ErrorKind::NotFound => Self::not_found(id),
             other => internal("open", &other),
         }
     }
@@ -1852,8 +1857,7 @@ impl StoreThreads {
     /// (its header's delete mark). A fork still reads a deleted base's logs: `lineage` opens
     /// them directly.
     fn open(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<log::OpenedLog, CoreError> {
-        let opened = log::open_log(lane, &self.dir(id.as_str()), &self.blobs, &self.index)
-            .map_err(|e| Self::open_error(id, e))?;
+        let opened = log::open_log(lane, &self.dir(id.as_str()), &self.blobs, &self.index).map_err(|e| Self::open_error(id, e))?;
         if mixdog_store::summary::is_deleted(&opened.fold.header) {
             return Err(Self::not_found(id));
         }
@@ -1969,45 +1973,25 @@ impl StoreThreads {
 
     fn read_error(id: &ThreadId, error: ReadError) -> CoreError {
         match error {
-            ReadError::Damaged(d) => CoreError::StoreDamaged {
-                thread_id: id.clone(),
-                file_no: u64::from(d.file_no),
-                offset: d.offset,
-            },
+            ReadError::Damaged(d) => CoreError::StoreDamaged { thread_id: id.clone(), file_no: u64::from(d.file_no), offset: d.offset },
             ReadError::Io(e) => internal("read", &e),
         }
     }
 
     /// An out-of-line slot read back from the blob store.
-    fn resolve<T: DeserializeOwned + Clone, L: IoLane>(
-        &self,
-        lane: &InLane<L>,
-        slot: &Slot<T>,
-    ) -> Result<Slot<T>, CoreError> {
+    fn resolve<T: DeserializeOwned + Clone, L: IoLane>(&self, lane: &InLane<L>, slot: &Slot<T>) -> Result<Slot<T>, CoreError> {
         match slot {
             Slot::Inline(_) => Ok(slot.clone()),
             Slot::Blob(blob) => {
-                let bytes = self
-                    .blobs
-                    .read(lane, &blob.descriptor().digest)
-                    .map_err(|e| internal("blob", &e))?;
-                serde_json::from_slice(&bytes)
-                    .map(Slot::Inline)
-                    .map_err(|e| internal("blob", &e))
+                let bytes = self.blobs.read(lane, &blob.descriptor().digest).map_err(|e| internal("blob", &e))?;
+                serde_json::from_slice(&bytes).map(Slot::Inline).map_err(|e| internal("blob", &e))
             }
         }
     }
 
     /// `[session, base, base's base, …]` with each base's fork point (FORMAT.md §5.3).
-    fn lineage(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        fold: &Fold,
-    ) -> Result<Vec<LineageLevel>, CoreError> {
-        let mut levels = vec![LineageLevel {
-            session: fold.session.clone(),
-            end: None,
-        }];
+    fn lineage(&self, lane: &InLane<InteractiveIo>, fold: &Fold) -> Result<Vec<LineageLevel>, CoreError> {
+        let mut levels = vec![LineageLevel { session: fold.session.clone(), end: None }];
         let mut base = fold.base.clone();
         while let Some(level) = base {
             if levels.len() >= MAX_LINEAGE {
@@ -2017,13 +2001,9 @@ impl StoreThreads {
             self.owes_nothing(level.session.as_str())?;
             let dir = self.dir(level.session.as_str());
             let head = log::read_head(lane, &dir).map_err(|e| internal("lineage", &e))?;
-            let tail = log::read_tail(lane, head, &self.blobs, &self.index)
-                .map_err(|e| internal("lineage", &e))?;
+            let tail = log::read_tail(lane, head, &self.blobs, &self.index).map_err(|e| internal("lineage", &e))?;
             base = tail.anchor_fold().base.clone();
-            levels.push(LineageLevel {
-                session: level.session.as_str().to_owned(),
-                end: Some(level.end_ordinal_exclusive),
-            });
+            levels.push(LineageLevel { session: level.session.as_str().to_owned(), end: Some(level.end_ordinal_exclusive) });
         }
         Ok(levels)
     }
@@ -2064,13 +2044,7 @@ impl StoreThreads {
         Ok(draft)
     }
 
-    fn frame_at(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        dir: &Path,
-        pos: FramePos,
-    ) -> Result<Record, CoreError> {
+    fn frame_at(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, dir: &Path, pos: FramePos) -> Result<Record, CoreError> {
         log::read_frame_at(lane, dir, pos).map_err(|e| Self::read_error(id, e))
     }
 
@@ -2103,7 +2077,9 @@ impl StoreThreads {
         let mut rows = Vec::new();
         let mut marks = Vec::new();
         loop {
-            if let Some(cancel) = cancel { check_turn_read_cancel(cancel)?; }
+            if let Some(cancel) = cancel {
+                check_turn_read_cancel(cancel)?;
+            }
             // One row more than wanted says whether more are left: never an index row past what the page needs.
             let room = want - rows.len();
             let (page, next) = match self.index.history_page_on_lane(lane, lineage, cut, cursor, WINDOW_ROWS.min(room.saturating_add(1))) {
@@ -2113,7 +2089,9 @@ impl StoreThreads {
             };
             // Only the rows still wanted are read from the log.
             for row in page.iter().take(room) {
-                if let Some(cancel) = cancel { check_turn_read_cancel(cancel)?; }
+                if let Some(cancel) = cancel {
+                    check_turn_read_cancel(cancel)?;
+                }
                 rows.push(self.history_item(lane, id, row)?);
             }
             let more = page.len() > room;
@@ -2145,12 +2123,16 @@ impl StoreThreads {
         }
         let _gate = self.read_gate(id)?;
         loop {
-            if let Some(cancel) = cancel { check_turn_read_cancel(cancel)?; }
+            if let Some(cancel) = cancel {
+                check_turn_read_cancel(cancel)?;
+            }
             let shape = self.shape(lane, id)?;
             let Some((mut rows, marks, complete)) = self.read_rows_marked(lane, id, &shape.lineage, shape.base_cut, None, want, cancel)? else {
                 continue;
             };
-            if let Some(cancel) = cancel { check_turn_read_cancel(cancel)?; }
+            if let Some(cancel) = cancel {
+                check_turn_read_cancel(cancel)?;
+            }
             let decor = self.page_decor(lane, &shape.lineage, shape.base_cut, &marks, complete, true)?;
             rows.reverse();
             return Ok((shape.history_rev, rows, decor, complete));
@@ -2188,23 +2170,15 @@ impl StoreThreads {
 
     /// The item record of one history row: its frame, its latest amend's body, and both
     /// out-of-line slots read back.
-    fn history_item(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        row: &HistoryRow,
-    ) -> Result<ItemRecord, CoreError> {
+    fn history_item(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, row: &HistoryRow) -> Result<ItemRecord, CoreError> {
         #[cfg(any(test, feature = "test-support"))]
         mixdog_store::read_count::add(id.as_str(), 1);
         let dir = self.dir(&row.session);
-        let Record::Item(mut item) =
-            log::read_frame(lane, &dir, row.pos, row.frame_len).map_err(|e| Self::read_error(id, e))?
-        else {
+        let Record::Item(mut item) = log::read_frame(lane, &dir, row.pos, row.frame_len).map_err(|e| Self::read_error(id, e))? else {
             return Err(unexpected("item"));
         };
         if let Some((pos, len)) = row.amend {
-            let Record::Amend(amend) = log::read_frame(lane, &dir, pos, len).map_err(|e| Self::read_error(id, e))?
-            else {
+            let Record::Amend(amend) = log::read_frame(lane, &dir, pos, len).map_err(|e| Self::read_error(id, e))? else {
                 return Err(unexpected("amend"));
             };
             item.body = amend.body;
@@ -2240,10 +2214,7 @@ impl StoreThreads {
             let from = if level == deepest { from } else { 0 };
             let found = self.index.dividers_on_lane(lane, lineage, cut, level, from, u64::MAX).map_err(|e| internal("dividers", &e))?;
             for divider in found {
-                let before = shown
-                    .iter()
-                    .filter(|(shown, ordinal)| *shown > level || (*shown == level && *ordinal < divider.boundary))
-                    .count();
+                let before = shown.iter().filter(|(shown, ordinal)| *shown > level || (*shown == level && *ordinal < divider.boundary)).count();
                 out.push(super::seams::WindowDivider {
                     before,
                     ordinal: divider.pos.ordinal,
@@ -2260,13 +2231,7 @@ impl StoreThreads {
 }
 impl StoreThreads {
     /// The first page of the read, over the lineage as of now; the caller holds the read gate at `generation`.
-    fn context_start(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        generation: u64,
-        skip: usize,
-    ) -> Result<ContextState, CoreError> {
+    fn context_start(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, generation: u64, skip: usize) -> Result<ContextState, CoreError> {
         let shape = self.shape(lane, id)?;
         let lineage = shape.lineage.as_ref().clone();
         let cut = shape.base_cut;
@@ -2276,29 +2241,13 @@ impl StoreThreads {
             self.index.context_page_from_on_lane(lane, &self.sessions, &lineage, cut, skip)
         }
         .map_err(|e| internal("context", &e))?;
-        Ok(ContextState {
-            lineage,
-            cut,
-            first: true,
-            at: ContextAt::Page(page),
-            generation,
-            skip,
-        })
+        Ok(ContextState { lineage, cut, first: true, at: ContextAt::Page(page), generation, skip })
     }
 
     /// The cpu end of a page: its messages, then the next page or the whole context.
-    fn context_finish(
-        lane: &InLane<CpuInteractive>,
-        mut state: ContextState,
-        decoded: DecodedContext,
-        blobs: ContextBlobs,
-    ) -> Result<ContextStep, CoreError> {
+    fn context_finish(lane: &InLane<CpuInteractive>, mut state: ContextState, decoded: DecodedContext, blobs: ContextBlobs) -> Result<ContextStep, CoreError> {
         let next = decoded.next;
-        let rows = finish_context(lane, decoded, blobs)
-            .map_err(|e| internal("context", &e))?
-            .into_iter()
-            .map(|m| (ItemId::from(m.iid), m.body))
-            .collect();
+        let rows = finish_context(lane, decoded, blobs).map_err(|e| internal("context", &e))?.into_iter().map(|m| (ItemId::from(m.iid), m.body)).collect();
         let first = state.first;
         let next = next.map(|cursor| {
             state.first = false;
@@ -2310,11 +2259,7 @@ impl StoreThreads {
 }
 impl ThreadStore for StoreThreads {
     #[allow(clippy::disallowed_methods, reason = "runs inside an interactive-io lane job (lane proof argument)")]
-    fn read_head(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-    ) -> Result<HeadRead, CoreError> {
+    fn read_head(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<HeadRead, CoreError> {
         let _gate = self.read_gate(id)?;
         if !self.dir(id.as_str()).is_dir() {
             return Err(Self::not_found(id));
@@ -2380,38 +2325,24 @@ impl ThreadStore for StoreThreads {
         Ok(self.open(lane, id)?.fold.log_id.clone())
     }
 
-    fn read_window(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        head: &HeadRead,
-    ) -> Result<WindowRead, CoreError> {
+    fn read_window(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, head: &HeadRead) -> Result<WindowRead, CoreError> {
         // The window comes from the index: it must hold every barrier acked so far (a thread
         // unloaded and reopened in this process).
         self.wait(lane, self.projector.caught_up())?;
         // The head was read in an earlier job; only the thread's own loaded actor rewrites its log, and a head is read
         // to load the thread, so no rewrite of this log comes between the two.
         let _gate = self.read_gate(id)?;
-        let opened = head
-            .0
-            .downcast_ref::<log::OpenedLog>()
-            .expect("StoreThreads head");
+        let opened = head.0.downcast_ref::<log::OpenedLog>().expect("StoreThreads head");
         let fold = &opened.fold;
         let lineage = self.lineage(lane, fold)?;
-        let (rows, cursor) = self
-            .index
-            .history_page_on_lane(lane, &lineage, fold.base_cut, None, WINDOW_ROWS)
-            .map_err(|e| internal("window", &e))?;
+        let (rows, cursor) = self.index.history_page_on_lane(lane, &lineage, fold.base_cut, None, WINDOW_ROWS).map_err(|e| internal("window", &e))?;
         let mut window = Vec::with_capacity(rows.len());
         for row in rows.iter().rev() {
             window.push((row.ordinal, self.history_item(lane, id, row)?));
         }
         let archived = archived_ordinals(&rows);
         let dividers = self.window_dividers(lane, &lineage, fold.base_cut, &rows, cursor.is_some())?;
-        let prompts = self
-            .index
-            .prompts_on_lane(lane, &lineage, fold.base_cut)
-            .map_err(|e| internal("prompts", &e))?;
+        let prompts = self.index.prompts_on_lane(lane, &lineage, fold.base_cut).map_err(|e| internal("prompts", &e))?;
         let dir = &opened.dir;
         let mut runs = Vec::new();
         let mut drafts = Vec::new();
@@ -2434,8 +2365,7 @@ impl ThreadStore for StoreThreads {
         }
         let mut approvals = Vec::new();
         for approval in &fold.approvals {
-            let Record::Approval(mut record) = self.frame_at(lane, id, dir, approval.requested)?
-            else {
+            let Record::Approval(mut record) = self.frame_at(lane, id, dir, approval.requested)? else {
                 return Err(unexpected("approval"));
             };
             if let Some(body) = &record.body {
@@ -2455,35 +2385,15 @@ impl ThreadStore for StoreThreads {
             }
             queue.push((entry.enqueued.ordinal, record));
         }
-        Ok(WindowRead(Box::new(Window {
-            window,
-            archived,
-            dividers,
-            has_older: cursor.is_some(),
-            prompts,
-            runs,
-            drafts,
-            approvals,
-            queue,
-        })))
+        Ok(WindowRead(Box::new(Window { window, archived, dividers, has_older: cursor.is_some(), prompts, runs, drafts, approvals, queue })))
     }
 
-    fn decode(
-        &self,
-        _lane: &InLane<CpuInteractive>,
-        _id: &ThreadId,
-        head: HeadRead,
-        window: WindowRead,
-    ) -> Result<OpenedLog, CoreError> {
+    fn decode(&self, _lane: &InLane<CpuInteractive>, _id: &ThreadId, head: HeadRead, window: WindowRead) -> Result<OpenedLog, CoreError> {
         let opened = *head.0.downcast::<log::OpenedLog>().expect("StoreThreads head");
         let read = *window.0.downcast::<Window>().expect("StoreThreads window");
         let fold = &opened.fold;
         // `thread/clear` rewinds to the lineage's first row: a fork may cut into its base.
-        let lineage_start = if fold.base.is_some() {
-            0
-        } else {
-            fold.start_ordinal + 1
-        };
+        let lineage_start = if fold.base.is_some() { 0 } else { fold.start_ordinal + 1 };
         Ok(OpenedLog {
             header: fold.header.clone(),
             control: fold.control,
@@ -2507,40 +2417,24 @@ impl ThreadStore for StoreThreads {
 
     /// The whole lineage's prompt rows, as the index keeps them (newest 50, deduped), once the
     /// index holds the history mutation that asked for them.
-    fn user_rows(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-    ) -> Result<Vec<ItemRecord>, CoreError> {
+    fn user_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<Vec<ItemRecord>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
         let _gate = self.read_gate(id)?;
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
-        let prompts = self
-            .index
-            .prompts_on_lane(lane, &lineage, opened.fold.base_cut)
-            .map_err(|e| internal("prompts", &e))?;
+        let prompts = self.index.prompts_on_lane(lane, &lineage, opened.fold.base_cut).map_err(|e| internal("prompts", &e))?;
         // Oldest first, as the seam returns rows; only `prompt` is read by the caller.
         Ok(prompts.into_iter().rev().map(prompt_row).collect())
     }
 
     /// Every page of the lineage's history, as acked so far; a page after a rewind restarts
     /// the read over the new history.
-    fn history_rows(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-    ) -> Result<(u64, Vec<ItemRecord>), CoreError> {
+    fn history_rows(&self, lane: &InLane<InteractiveIo>, id: &ThreadId) -> Result<(u64, Vec<ItemRecord>), CoreError> {
         let (rev, rows, _) = self.history_tail(lane, id, usize::MAX)?;
         Ok((rev, rows))
     }
 
-    fn history_tail(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        want: usize,
-    ) -> Result<(u64, Vec<ItemRecord>, bool), CoreError> {
+    fn history_tail(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, want: usize) -> Result<(u64, Vec<ItemRecord>, bool), CoreError> {
         self.wait(lane, self.projector.caught_up())?;
         let _gate = self.read_gate(id)?;
         loop {
@@ -2561,8 +2455,8 @@ impl ThreadStore for StoreThreads {
         after: Option<super::seams::TurnHistoryCursor>,
         cancel: &mixdog_rt::CancellationToken,
     ) -> Result<Option<super::seams::TurnHistoryChunk>, CoreError> {
-        use mixdog_store::sqlite::PageCursor;
         use super::seams::{TurnHistoryChunk, TurnHistoryCursor};
+        use mixdog_store::sqlite::PageCursor;
 
         const RECORDS_PER_CHUNK: usize = 16;
         check_turn_read_cancel(cancel)?;
@@ -2579,12 +2473,9 @@ impl ThreadStore for StoreThreads {
                 // Prove the starting index view against the logs, not the global projector queue.
                 for session in &shape.logs {
                     check_turn_read_cancel(cancel)?;
-                    let opened = log::open_log(lane, &self.dir(session), &self.blobs, &self.index)
-                        .map_err(|error| Self::open_error(id, error))?;
+                    let opened = log::open_log(lane, &self.dir(session), &self.blobs, &self.index).map_err(|error| Self::open_error(id, error))?;
                     let end = FramePos { ordinal: opened.fold.next_ordinal, file_no: opened.newest_file_no, offset: opened.committed_end };
-                    if !self.index.history_projected_through_on_lane(lane, session, &opened.fold.log_id, end)
-                        .map_err(|error| internal("history", &error))?
-                    {
+                    if !self.index.history_projected_through_on_lane(lane, session, &opened.fold.log_id, end).map_err(|error| internal("history", &error))? {
                         return Ok(None);
                     }
                 }
@@ -2602,10 +2493,13 @@ impl ThreadStore for StoreThreads {
             Err(DbError::CursorStale) => return Ok(None),
             Err(error) => return Err(internal("history", &error)),
         };
-        let records = rows.iter().map(|row| {
-            check_turn_read_cancel(cancel)?;
-            self.history_item(lane, id, row)
-        }).collect::<Result<Vec<_>, _>>();
+        let records = rows
+            .iter()
+            .map(|row| {
+                check_turn_read_cancel(cancel)?;
+                self.history_item(lane, id, row)
+            })
+            .collect::<Result<Vec<_>, _>>();
         check_turn_read_cancel(cancel)?;
         if !shape.is_current() {
             return Ok(None);
@@ -2643,13 +2537,7 @@ impl ThreadStore for StoreThreads {
         self.history_with_decor(lane, id, want, None)
     }
 
-    fn history_before(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        anchor: &str,
-        rows: usize,
-    ) -> Result<Option<HistoryBefore>, CoreError> {
+    fn history_before(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, anchor: &str, rows: usize) -> Result<Option<HistoryBefore>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
         let _gate = self.read_gate(id)?;
         loop {
@@ -2681,8 +2569,7 @@ impl ThreadStore for StoreThreads {
         let Some(row) = self.index.thread_op_on_lane(lane, id.as_str(), op).map_err(|e| internal("thread-op", &e))? else {
             return Ok(None);
         };
-        let record =
-            log::read_frame(lane, &self.dir(id.as_str()), row.pos, row.frame_len).map_err(|e| Self::read_error(id, e))?;
+        let record = log::read_frame(lane, &self.dir(id.as_str()), row.pos, row.frame_len).map_err(|e| Self::read_error(id, e))?;
         let op_ref = super::thread_ops::op_ref_of(&record);
         let result = op_ref.and_then(|o| o.result.as_ref()).map(|r| r.get().clone());
         let audience = op_ref.and_then(|o| o.audience.as_ref()).map(|a| a.as_str().to_owned());
@@ -2711,12 +2598,7 @@ impl ThreadStore for StoreThreads {
     }
 
     /// Pages newest first until the row is found: a switch anchors near the history's end.
-    fn history_row(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        iid: &str,
-    ) -> Result<Option<(u64, ItemRecord)>, CoreError> {
+    fn history_row(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<(u64, ItemRecord)>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
         let _gate = self.read_gate(id)?;
         'read: loop {
@@ -2740,19 +2622,12 @@ impl ThreadStore for StoreThreads {
         }
     }
 
-    fn compaction_entry(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        iid: &str,
-    ) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
+    fn compaction_entry(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, iid: &str) -> Result<Option<mixdog_store::sqlite::CompactionEntry>, CoreError> {
         self.wait(lane, self.projector.caught_up())?;
         let _gate = self.read_gate(id)?;
         let opened = self.open(lane, id)?;
         let lineage = self.lineage(lane, &opened.fold)?;
-        self.index
-            .compaction_entry_on_lane(lane, &lineage, opened.fold.base_cut, iid)
-            .map_err(|e| internal("history", &e))
+        self.index.compaction_entry_on_lane(lane, &lineage, opened.fold.base_cut, iid).map_err(|e| internal("history", &e))
     }
 
     fn indexed(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<(), CoreError>> {
@@ -2760,10 +2635,7 @@ impl ThreadStore for StoreThreads {
         Box::pin(async move { projector.indexed(&session).await })
     }
 
-    fn session_meta(
-        &self,
-        id: &ThreadId,
-    ) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
+    fn session_meta(&self, id: &ThreadId) -> futures::future::BoxFuture<'static, Result<Option<super::seams::SessionMeta>, CoreError>> {
         let (index, id) = (self.index.clone(), id.as_str().to_owned());
         Box::pin(async move {
             let Some(summary) = index.summary(&id).await.map_err(|e| internal("meta", &e))? else {
@@ -2820,12 +2692,7 @@ impl ThreadStore for StoreThreads {
 
     /// Pages run while the cursor holds; a page after a rewind or compaction restarts the
     /// read over the new lineage.
-    fn context_io(
-        &self,
-        lane: &InLane<InteractiveIo>,
-        id: &ThreadId,
-        read: Option<ContextRead>,
-    ) -> Result<ContextRead, CoreError> {
+    fn context_io(&self, lane: &InLane<InteractiveIo>, id: &ThreadId, read: Option<ContextRead>) -> Result<ContextRead, CoreError> {
         let Some(read) = read else {
             // The read must see every row acked so far.
             self.wait(lane, self.projector.caught_up())?;
@@ -2839,23 +2706,17 @@ impl ThreadStore for StoreThreads {
             return Ok(ContextRead(Box::new(self.context_start(lane, id, *gate, state.skip)?)));
         }
         state.at = match state.at {
-            ContextAt::Next(cursor) => match self.index.context_page_on_lane(
-                lane,
-                &self.sessions,
-                &state.lineage,
-                state.cut,
-                Some(cursor),
-                CONTEXT_PAGE_ROWS,
-            ) {
-                Ok(page) => ContextAt::Page(page),
-                Err(ContextError::Db(DbError::CursorStale)) => {
-                    return Ok(ContextRead(Box::new(self.context_start(lane, id, *gate, state.skip)?)));
+            ContextAt::Next(cursor) => {
+                match self.index.context_page_on_lane(lane, &self.sessions, &state.lineage, state.cut, Some(cursor), CONTEXT_PAGE_ROWS) {
+                    Ok(page) => ContextAt::Page(page),
+                    Err(ContextError::Db(DbError::CursorStale)) => {
+                        return Ok(ContextRead(Box::new(self.context_start(lane, id, *gate, state.skip)?)));
+                    }
+                    Err(e) => return Err(internal("context", &e)),
                 }
-                Err(e) => return Err(internal("context", &e)),
-            },
+            }
             ContextAt::Decoded(decoded) => {
-                let blobs = read_context_blobs(lane, &self.blobs, &decoded)
-                    .map_err(|e| internal("context", &e))?;
+                let blobs = read_context_blobs(lane, &self.blobs, &decoded).map_err(|e| internal("context", &e))?;
                 ContextAt::Finish(decoded, blobs)
             }
             ContextAt::Page(_) | ContextAt::Finish(..) | ContextAt::Pending => {
@@ -2865,11 +2726,7 @@ impl ThreadStore for StoreThreads {
         Ok(ContextRead(Box::new(state)))
     }
 
-    fn context_cpu(
-        &self,
-        lane: &InLane<CpuInteractive>,
-        read: ContextRead,
-    ) -> Result<ContextStep, CoreError> {
+    fn context_cpu(&self, lane: &InLane<CpuInteractive>, read: ContextRead) -> Result<ContextStep, CoreError> {
         let state = *read.0.downcast::<ContextState>().expect("StoreThreads context");
         let ContextState { lineage, cut, first, at, generation, skip } = state;
         let rest = |at| ContextState { lineage, cut, first, at, generation, skip };
@@ -2883,12 +2740,8 @@ impl ThreadStore for StoreThreads {
                 let (state, blobs) = (rest(ContextAt::Pending), ContextBlobs::default());
                 Self::context_finish(lane, state, decoded, blobs)
             }
-            ContextAt::Finish(decoded, blobs) => {
-                Self::context_finish(lane, rest(ContextAt::Pending), decoded, blobs)
-            }
-            ContextAt::Next(_) | ContextAt::Decoded(_) | ContextAt::Pending => {
-                Err(internal("context", &"cpu step on an io state"))
-            }
+            ContextAt::Finish(decoded, blobs) => Self::context_finish(lane, rest(ContextAt::Pending), decoded, blobs),
+            ContextAt::Next(_) | ContextAt::Decoded(_) | ContextAt::Pending => Err(internal("context", &"cpu step on an io state")),
         }
     }
 
@@ -2926,38 +2779,24 @@ impl ThreadStore for StoreThreads {
     }
 
     /// RL §9.2 rule 1: the session is marked dirty before the activation's first append.
-    fn open_log(
-        &self,
-        lane: &InLane<DurabilityIo>,
-        id: &ThreadId,
-        at: AppendPosition,
-    ) -> Result<Box<dyn SessionLog>, BarrierError> {
+    fn open_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, at: AppendPosition) -> Result<Box<dyn SessionLog>, BarrierError> {
         // Its rewrite runs on the log without a writer: none is opened before it is done (a head was read before, so this is
         // only ever a thread whose head no read refused).
         if self.owed.holds(id.as_str()) {
             return Err(BarrierError::failed("sensitiveRewriteOwed"));
         }
         let opened = *at.0.downcast::<log::OpenedLog>().expect("StoreThreads position");
-        self.wait(lane, self.index.mark_dirty(id.as_str()))
-            .map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
+        self.wait(lane, self.index.mark_dirty(id.as_str())).map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
         let writer = LogWriter::open(lane, opened, self.writer.clone()).map_err(|e| match e {
             // A fold that lost state with its blobs (mixdog-store FORMAT.md §4.5): read-only as a damaged log is.
             OpenAppendError::StoreDamaged(_) | OpenAppendError::BodiesLost(_) => BarrierError::failed("storeDamaged"),
-            OpenAppendError::Io(e) => BarrierError::Failed {
-                io_kind: e.op.to_string().into(),
-                cause: e.source.to_string().into(),
-            },
+            OpenAppendError::Io(e) => BarrierError::Failed { io_kind: e.op.to_string().into(), cause: e.source.to_string().into() },
         })?;
         Ok(self.store_log(id, writer))
     }
 
     /// RL §9.2 rule 4: the catalog row (dirty) is committed before `log.000000` is published.
-    fn create_log(
-        &self,
-        lane: &InLane<DurabilityIo>,
-        id: &ThreadId,
-        session: &CommitRecord,
-    ) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
+    fn create_log(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, session: &CommitRecord) -> Result<(Box<dyn SessionLog>, u64), BarrierError> {
         let failed = BarrierError::failed;
         let Record::Session(record) = session.record.as_ref() else {
             return Err(failed("notASession"));
@@ -2974,25 +2813,10 @@ impl ThreadStore for StoreThreads {
                 .ok_or_else(|| failed("header"))?,
         };
         let start = record.base.as_ref().map_or(0, |b| b.end_ordinal_exclusive);
-        let fold = Fold::from_session(
-            record,
-            header,
-            FramePos {
-                ordinal: start,
-                file_no: 0,
-                offset: 0,
-            },
-        );
-        self.wait(lane, self.index.upsert(CatalogHead::of(&fold), DirtyMark::Set))
-            .map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
+        let fold = Fold::from_session(record, header, FramePos { ordinal: start, file_no: 0, offset: 0 });
+        self.wait(lane, self.index.upsert(CatalogHead::of(&fold), DirtyMark::Set)).map_err(|e| BarrierError::failed(&format!("index:{e}")))?;
         let entered = self.context_lens.batch(id.as_str());
-        let (writer, ack) = LogWriter::create(
-            lane,
-            &self.dir(id.as_str()),
-            session.encoded.0.clone(),
-            self.writer.clone(),
-        )
-        .map_err(barrier)?;
+        let (writer, ack) = LogWriter::create(lane, &self.dir(id.as_str()), session.encoded.0.clone(), self.writer.clone()).map_err(barrier)?;
         let ordinal = ack.positions[0].ordinal;
         let growth = super::context_lens::Growth::of(&ack.projection);
         entered.stored(growth, || self.projector.send(ack.projection));
@@ -3000,21 +2824,19 @@ impl ThreadStore for StoreThreads {
     }
 
     fn draft_write(&self, lane: &InLane<DurabilityIo>, id: &ThreadId, write: &super::turn_draft::DraftWrite) -> Result<(), CoreError> {
-        use mixdog_store::draft_file;
         use super::turn_draft::DraftWrite;
+        use mixdog_store::draft_file;
         let dir = self.dir(id.as_str());
         let done = match write {
             DraftWrite::Append { rid, body } => draft_file::append(lane, &dir, rid, body),
             DraftWrite::Replace { rid, body } => draft_file::replace(lane, &dir, rid, body),
             DraftWrite::Remove { rid } => draft_file::remove(lane, &dir, rid),
-            DraftWrite::Sweep { open } => draft_file::list(lane, &dir).and_then(|rids| {
-                rids.iter().filter(|rid| !open.contains(rid)).try_for_each(|rid| draft_file::remove(lane, &dir, rid))
-            }),
+            DraftWrite::Sweep { open } => draft_file::list(lane, &dir)
+                .and_then(|rids| rids.iter().filter(|rid| !open.contains(rid)).try_for_each(|rid| draft_file::remove(lane, &dir, rid))),
         };
         done.map_err(|e| internal("draft", &e))
     }
 }
-
 
 /// [`super::seams::SensitiveMarks`] over the process's sensitive-value store, with the bodies the store's projection
 /// redacted, as they were committed: thread → item id → body. Like the store's values, they stay for the life of the
@@ -3084,7 +2906,11 @@ impl SensitiveMarksOf {
     /// `record` as the log stores it, and each message body it carries with the body as committed when the projection
     /// changed it (`None`: stored as it is). `None` for a record stored as it is.
     #[allow(clippy::type_complexity)]
-    fn projected(&self, session: &str, record: &mixdog_store::schema::record::Record) -> (Option<mixdog_store::schema::record::Record>, Vec<(String, Option<Value>)>) {
+    fn projected(
+        &self,
+        session: &str,
+        record: &mixdog_store::schema::record::Record,
+    ) -> (Option<mixdog_store::schema::record::Record>, Vec<(String, Option<Value>)>) {
         use mixdog_store::schema::blob::Slot;
         use mixdog_store::schema::record::Record;
         let mut out = record.clone();
@@ -3295,11 +3121,7 @@ impl super::seams::CloseIngest for MemoryCloseIngest {
             return Box::pin(async {});
         }
         // `session.cwd || getCurrentCwd()`.
-        let cwd = if cwd.is_empty() {
-            std::env::current_dir().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default()
-        } else {
-            cwd.to_owned()
-        };
+        let cwd = if cwd.is_empty() { std::env::current_dir().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default() } else { cwd.to_owned() };
         let args = serde_json::json!({
             "action": "ingest_session",
             "sessionId": id.as_str(),

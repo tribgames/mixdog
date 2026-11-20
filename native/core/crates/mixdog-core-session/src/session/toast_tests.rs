@@ -21,10 +21,10 @@ use super::control::Ctl;
 use super::seams::RunOutcome;
 use super::testing::Rig;
 use super::tests::caught_up;
-use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
+use crate::eventually_on;
 
 /// The `toasts` of the newest `thread/runtime/updated` on `thread`'s feed, `None` before one is published.
 fn published_toasts(rig: &Rig, thread: &ThreadId) -> Option<Vec<Value>> {
@@ -71,10 +71,8 @@ async fn the_turns_close_leaves_its_toast_in_the_runtime_state() {
     let rig = failing_rig();
     let (_directory, handle, shown) = thread_with_toast(&rig).await;
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
-    eventually_on!(&[&handle.cell.stepped], || {
-        rig.feeds.frames(handle.id.as_str()).iter().any(|(_, method, _)| method == "turn/completed").then_some(())
-    })
-    .await;
+    eventually_on!(&[&handle.cell.stepped], || { rig.feeds.frames(handle.id.as_str()).iter().any(|(_, method, _)| method == "turn/completed").then_some(()) })
+        .await;
     assert_eq!(published_toasts(&rig, &handle.id), Some(shown.clone()), "the frame after turn/completed holds the toast");
     let held = handle.cell.view.load_full().state.runtime.clone().expect("runtime").toasts;
     assert_eq!(held, shown);
@@ -202,5 +200,3 @@ async fn a_closed_session_publishes_no_expiry() {
     tokio::time::advance(Duration::from_millis(3000)).await;
     assert_eq!(runtime_frames(&rig, &handle.id), published, "no timer of the closed thread publishes");
 }
-
-

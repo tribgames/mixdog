@@ -62,14 +62,7 @@ pub struct RouteActions {
 }
 
 /// The setup actions [`RouteActions`] serves.
-pub const ACTIONS: [&str; 6] = [
-    "set_route",
-    "set_agent_route",
-    "reset_route_fallback",
-    "continue_in_model",
-    "schedule_quota_resume",
-    "cancel_quota_resume",
-];
+pub const ACTIONS: [&str; 6] = ["set_route", "set_agent_route", "reset_route_fallback", "continue_in_model", "schedule_quota_resume", "cancel_quota_resume"];
 
 const LEAF_FIELDS: [&str; 6] = ["effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
 
@@ -160,8 +153,7 @@ impl RouteActions {
         // route write itself is done, and a receipt that claims nothing is not a false one.
         let Ok(Some(chain)) = self.sessions.caller_chain(thread, &config).await else { return out };
         let position = &chain.position;
-        let kind_matches = position["kind"] == json!(owner_kind)
-            && (owner_kind != "bot" || position.get("agent").and_then(Value::as_str) == owner_agent);
+        let kind_matches = position["kind"] == json!(owner_kind) && (owner_kind != "bot" || position.get("agent").and_then(Value::as_str) == owner_agent);
         let follows = position["chainFrom"] == json!("settings") && chain.source_is_primary && kind_matches;
         let followed: Vec<String> = position["fallbacks"].as_array().map(|l| l.iter().map(pair).collect()).unwrap_or_default();
         let saved: Vec<String> = saved.iter().map(pair).collect();

@@ -51,12 +51,7 @@ pub struct Migration {
 
 impl From<&Running> for RunningWork {
     fn from(running: &Running) -> Self {
-        Self {
-            kind: running.kind,
-            thread_id: running.thread_id.clone(),
-            turn_id: running.turn_id.clone(),
-            title: running.title.clone(),
-        }
+        Self { kind: running.kind, thread_id: running.thread_id.clone(), turn_id: running.turn_id.clone(), title: running.title.clone() }
     }
 }
 
@@ -262,15 +257,23 @@ pub enum Effect {
     CancelRunning(Vec<Running>),
     /// A stop was requested: the new-task attempts in flight end now, as Node's host dispose ends them ([`super::CorePort::cut_new_tasks`]).
     CutNewTasks,
-    ReleaseDecision { pid: u32 },
+    ReleaseDecision {
+        pid: u32,
+    },
     /// Node's text of the self-shutdown that is about to begin (`Lifecycle::note_trigger`), before its `BeginRelease`.
     NodeTrigger(&'static str),
     /// The no-clients grace starts: [`super::Machine::grace_expired`] is called with `generation` after `delay`.
-    ArmGrace { generation: u64, delay: std::time::Duration },
+    ArmGrace {
+        generation: u64,
+        delay: std::time::Duration,
+    },
     /// A client attached inside the grace: the pending timer is dropped.
     CancelGrace,
     /// A hold was taken: [`super::Machine::hold_expired`] is called with `generation` after `delay`, the hold's TTL.
-    ArmHold { generation: u64, delay: std::time::Duration },
+    ArmHold {
+        generation: u64,
+        delay: std::time::Duration,
+    },
     /// The hold ended before its TTL: the pending timer is dropped.
     CancelHold,
     BeginRelease(ReleaseCause),

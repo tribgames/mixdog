@@ -71,22 +71,10 @@ pub fn project_rows(value: &Value) -> Result<Vec<ProjectRow>, ApplyError> {
         })
         .take(MAX_ALIASES);
     for (path, alias) in aliases {
-        rows.insert(
-            path.clone(),
-            ProjectRow {
-                path: path.clone(),
-                alias: Some(alias.to_owned()),
-                hidden: false,
-                hidden_rank: None,
-                last_used_at: None,
-            },
-        );
+        rows.insert(path.clone(), ProjectRow { path: path.clone(), alias: Some(alias.to_owned()), hidden: false, hidden_rank: None, last_used_at: None });
     }
     let hidden = root.get("hidden").and_then(Value::as_array).into_iter().flatten();
-    let hidden = hidden
-        .filter_map(Value::as_str)
-        .filter(|path| !path.is_empty())
-        .take(MAX_HIDDEN_PATHS);
+    let hidden = hidden.filter_map(Value::as_str).filter(|path| !path.is_empty()).take(MAX_HIDDEN_PATHS);
     let mut rank = 0i64;
     for path in hidden {
         let row = rows.entry(path.to_owned()).or_insert_with(|| ProjectRow {
@@ -114,19 +102,13 @@ pub fn room_rows(value: &Value) -> Result<Vec<RoomRow>, ApplyError> {
     };
     let mut rows = Vec::with_capacity(rooms.len());
     for (room_id, record) in rooms {
-        let mut doc = record
-            .as_object()
-            .cloned()
-            .ok_or_else(|| schema_violation("a room record is not an object"))?;
+        let mut doc = record.as_object().cloned().ok_or_else(|| schema_violation("a room record is not an object"))?;
         if let Some(running) = doc.get("running").filter(|running| !running.is_null()) {
             let interrupted = running.get("startedAt").and_then(Value::as_i64).unwrap_or(0);
             doc.insert("running".into(), Value::Null);
             doc.insert("interruptedAt".into(), Value::from(interrupted));
         }
-        rows.push(RoomRow {
-            room_id: room_id.clone(),
-            doc: Value::Object(doc),
-        });
+        rows.push(RoomRow { room_id: room_id.clone(), doc: Value::Object(doc) });
     }
     rows.sort_by(|a, b| a.room_id.cmp(&b.room_id));
     Ok(rows)
@@ -141,10 +123,7 @@ fn convert(table: StateTable, value: &Value) -> Result<Rows, ApplyError> {
 
 fn source_rows(cx: &ItemContext<'_>, item: &ManifestItem, table: StateTable) -> Step<(Rows, u64)> {
     let bytes = source::read_source(cx, super::single_source(item)?)?;
-    let Parsed {
-        value,
-        replaced_surrogates,
-    } = source::parse_json(&bytes)?;
+    let Parsed { value, replaced_surrogates } = source::parse_json(&bytes)?;
     Ok((convert(table, &value)?, replaced_surrogates))
 }
 
@@ -153,10 +132,7 @@ pub(super) fn stage(cx: &ItemContext<'_>, item: &ManifestItem, table: StateTable
     let bytes = source::canonical_text(&serde_json::to_value(&rows).expect("rows serialize")).into_bytes();
     let path = cx.stage_dir(item.key.as_str()).join(ROWS_FILE);
     fsx::write_new(&path, &bytes, false).map_err(|error| ApplyError::io("write", &path, error))?;
-    Ok(Staged {
-        output_sha256: durable::sha256_hex(&bytes),
-        replaced_surrogates,
-    })
+    Ok(Staged { output_sha256: durable::sha256_hex(&bytes), replaced_surrogates })
 }
 
 fn state_path(data: &Path) -> std::path::PathBuf {
@@ -170,18 +146,12 @@ fn open_state(data: &Path) -> Result<Connection, ApplyError> {
         std::fs::create_dir_all(parent).map_err(|error| ApplyError::io("create_dir", parent, error))?;
     }
     let connection = Connection::open(&path).map_err(blocked)?;
-    let version: i64 = connection
-        .pragma_query_value(None, "user_version", |row| row.get(0))
-        .map_err(blocked)?;
+    let version: i64 = connection.pragma_query_value(None, "user_version", |row| row.get(0)).map_err(blocked)?;
     if version == 0 {
         connection.execute_batch(STATE_DDL).map_err(blocked)?;
     }
-    connection
-        .query_row("PRAGMA journal_mode = WAL", [], |_| Ok(()))
-        .map_err(blocked)?;
-    connection
-        .pragma_update(None, "synchronous", mixdog_store::fsio::sqlite_synchronous())
-        .map_err(blocked)?;
+    connection.query_row("PRAGMA journal_mode = WAL", [], |_| Ok(())).map_err(blocked)?;
+    connection.pragma_update(None, "synchronous", mixdog_store::fsio::sqlite_synchronous()).map_err(blocked)?;
     Ok(connection)
 }
 
@@ -195,14 +165,11 @@ pub(super) fn publish(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<()> {
     let (data, manifest_sha256) = (cx.roots.data.as_path(), cx.manifest_sha256);
     let staged = cx.stage_dir(item.key.as_str()).join(ROWS_FILE);
     let bytes = durable::read(&staged)?;
-    let rows: Rows = serde_json::from_slice(&bytes)
-        .map_err(|error| ApplyError::blocked("read", &staged, error))?;
+    let rows: Rows = serde_json::from_slice(&bytes).map_err(|error| ApplyError::blocked("read", &staged, error))?;
     let path = state_path(data);
     let blocked = |error: rusqlite::Error| ApplyError::blocked("sqlite", &path, error);
     let mut connection = open_state(data)?;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(blocked)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(blocked)?;
     let key = meta_key(item);
     let published: Option<String> = transaction
         .query_row("SELECT value FROM meta WHERE key = ?1", [&key], |row| row.get(0))
@@ -224,28 +191,17 @@ pub(super) fn publish(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<()> {
                 )
                 .map_err(blocked)?;
             for row in rows {
-                insert
-                    .execute(params![row.path, row.alias, row.hidden, row.hidden_rank, row.last_used_at])
-                    .map_err(blocked)?;
+                insert.execute(params![row.path, row.alias, row.hidden, row.hidden_rank, row.last_used_at]).map_err(blocked)?;
             }
         }
         Rows::Rooms(rows) => {
-            let mut insert = transaction
-                .prepare("INSERT OR REPLACE INTO rooms (room_id, doc) VALUES (?1, ?2)")
-                .map_err(blocked)?;
+            let mut insert = transaction.prepare("INSERT OR REPLACE INTO rooms (room_id, doc) VALUES (?1, ?2)").map_err(blocked)?;
             for row in rows {
-                insert
-                    .execute(params![row.room_id, source::canonical_text(&row.doc)])
-                    .map_err(blocked)?;
+                insert.execute(params![row.room_id, source::canonical_text(&row.doc)]).map_err(blocked)?;
             }
         }
     }
-    transaction
-        .execute(
-            "INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)",
-            params![key, manifest_sha256],
-        )
-        .map_err(blocked)?;
+    transaction.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", params![key, manifest_sha256]).map_err(blocked)?;
     transaction.commit().map_err(blocked)
 }
 
@@ -254,13 +210,9 @@ pub(super) fn put_meta(cx: &ItemContext<'_>, rows: &[(String, String)]) -> Step<
     let path = state_path(&cx.roots.data);
     let blocked = |error: rusqlite::Error| ApplyError::blocked("sqlite", &path, error);
     let mut connection = open_state(&cx.roots.data)?;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(blocked)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(blocked)?;
     for (key, value) in rows {
-        transaction
-            .execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", params![key, value])
-            .map_err(blocked)?;
+        transaction.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?1, ?2)", params![key, value]).map_err(blocked)?;
     }
     transaction.commit().map_err(blocked)
 }
@@ -281,9 +233,7 @@ pub(super) fn delete_meta(cx: &ItemContext<'_>, keys: &[String]) -> Step<()> {
     let path = state_path(&cx.roots.data);
     let connection = open_state(&cx.roots.data)?;
     for key in keys {
-        connection
-            .execute("DELETE FROM meta WHERE key = ?1", [key])
-            .map_err(|error| ApplyError::blocked("sqlite", &path, error))?;
+        connection.execute("DELETE FROM meta WHERE key = ?1", [key]).map_err(|error| ApplyError::blocked("sqlite", &path, error))?;
     }
     Ok(())
 }
@@ -293,17 +243,13 @@ pub(super) fn delete_meta(cx: &ItemContext<'_>, keys: &[String]) -> Step<()> {
 pub(super) fn withdraw(cx: &ItemContext<'_>, item: &ManifestItem) -> Step<()> {
     let staged = cx.stage_dir(item.key.as_str()).join(ROWS_FILE);
     let rows: Option<Rows> = match durable::read_optional(&staged)? {
-        Some(bytes) => Some(
-            serde_json::from_slice(&bytes).map_err(|error| ApplyError::blocked("read", &staged, error))?,
-        ),
+        Some(bytes) => Some(serde_json::from_slice(&bytes).map_err(|error| ApplyError::blocked("read", &staged, error))?),
         None => None,
     };
     let path = state_path(&cx.roots.data);
     let blocked = |error: rusqlite::Error| ApplyError::blocked("sqlite", &path, error);
     let mut connection = open_state(&cx.roots.data)?;
-    let transaction = connection
-        .transaction_with_behavior(TransactionBehavior::Immediate)
-        .map_err(blocked)?;
+    let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(blocked)?;
     match rows {
         Some(Rows::Projects(rows)) => {
             for row in rows {
@@ -327,27 +273,17 @@ fn target_rows(data: &Path, table: StateTable) -> Result<Rows, ApplyError> {
     let connection = open_state(data)?;
     match table {
         StateTable::Projects => {
-            let mut select = connection
-                .prepare("SELECT path, alias, hidden, hidden_rank, last_used_at FROM projects ORDER BY path")
-                .map_err(blocked)?;
+            let mut select = connection.prepare("SELECT path, alias, hidden, hidden_rank, last_used_at FROM projects ORDER BY path").map_err(blocked)?;
             let rows = select
                 .query_map([], |row| {
-                    Ok(ProjectRow {
-                        path: row.get(0)?,
-                        alias: row.get(1)?,
-                        hidden: row.get(2)?,
-                        hidden_rank: row.get(3)?,
-                        last_used_at: row.get(4)?,
-                    })
+                    Ok(ProjectRow { path: row.get(0)?, alias: row.get(1)?, hidden: row.get(2)?, hidden_rank: row.get(3)?, last_used_at: row.get(4)? })
                 })
                 .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
                 .map_err(blocked)?;
             Ok(Rows::Projects(rows))
         }
         StateTable::Rooms => {
-            let mut select = connection
-                .prepare("SELECT room_id, doc FROM rooms ORDER BY room_id")
-                .map_err(blocked)?;
+            let mut select = connection.prepare("SELECT room_id, doc FROM rooms ORDER BY room_id").map_err(blocked)?;
             let rows = select
                 .query_map([], |row| Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?)))
                 .and_then(|rows| rows.collect::<Result<Vec<_>, _>>())
@@ -395,8 +331,9 @@ pub(super) fn verify(cx: &ItemContext<'_>, item: &ManifestItem, table: StateTabl
             let transaction = connection.transaction_with_behavior(TransactionBehavior::Immediate).map_err(blocked)?;
             for (before, after) in cleared.iter().zip(expected) {
                 if before != after {
-                    transaction.execute("UPDATE rooms SET doc = ?1 WHERE room_id = ?2",
-                        params![source::canonical_text(&after.doc), after.room_id]).map_err(blocked)?;
+                    transaction
+                        .execute("UPDATE rooms SET doc = ?1 WHERE room_id = ?2", params![source::canonical_text(&after.doc), after.room_id])
+                        .map_err(blocked)?;
                 }
             }
             transaction.commit().map_err(blocked)?;
@@ -426,26 +363,13 @@ mod tests {
                 "hidden":["C:/z","C:/a","C:/z",""]}"#,
         ))
         .unwrap();
-        let summary: Vec<_> = rows
-            .iter()
-            .map(|row| (row.path.as_str(), row.alias.as_deref(), row.hidden, row.hidden_rank))
-            .collect();
-        assert_eq!(
-            summary,
-            [
-                ("C:/a", Some("A"), true, Some(1)),
-                ("C:/b", Some("B"), false, None),
-                ("C:/z", None, true, Some(0)),
-            ]
-        );
+        let summary: Vec<_> = rows.iter().map(|row| (row.path.as_str(), row.alias.as_deref(), row.hidden, row.hidden_rank)).collect();
+        assert_eq!(summary, [("C:/a", Some("A"), true, Some(1)), ("C:/b", Some("B"), false, None), ("C:/z", None, true, Some(0)),]);
     }
 
     #[test]
     fn a_running_round_is_cleared_and_other_fields_stay() {
-        let rows = room_rows(&json(
-            r#"{"rooms":{"r2":{"id":"r2","running":{"startedAt":5},"lastPreview":"hi"},"r1":{"id":"r1","running":null}}}"#,
-        ))
-        .unwrap();
+        let rows = room_rows(&json(r#"{"rooms":{"r2":{"id":"r2","running":{"startedAt":5},"lastPreview":"hi"},"r1":{"id":"r1","running":null}}}"#)).unwrap();
         assert_eq!(rows[0].room_id, "r1");
         assert_eq!(rows[1].doc["running"], Value::Null);
         assert_eq!(rows[1].doc["interruptedAt"], 5);

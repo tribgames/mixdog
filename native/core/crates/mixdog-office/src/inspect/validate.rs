@@ -141,9 +141,10 @@ pub async fn validate<P: WriteProof, H: ComHost>(cx: &InspectContext<'_, P, H>, 
     } else {
         None
     };
-    let post_save_gate = native.as_ref().filter(|native| native.get("persisted").is_some_and(|persisted| !persisted.is_null())).map(|native| {
-        evaluate_office_submission_gate(&list_of(native.get("issues")), &Value::Bool(is_true(native.get("persisted"))), &Value::Null)
-    });
+    let post_save_gate = native
+        .as_ref()
+        .filter(|native| native.get("persisted").is_some_and(|persisted| !persisted.is_null()))
+        .map(|native| evaluate_office_submission_gate(&list_of(native.get("issues")), &Value::Bool(is_true(native.get("persisted"))), &Value::Null));
     // `a && b && c` of JavaScript answers the first falsy operand itself, so a missing `ok` of a part (the Office host's read has
     // none) leaves the verdict `undefined`, which JSON drops; `None` is that.
     let field = |value: &Value, key: &str| value.get(key).cloned();
@@ -166,7 +167,9 @@ pub async fn validate<P: WriteProof, H: ComHost>(cx: &InspectContext<'_, P, H>, 
         assertions.as_ref().map_or(Some(Value::Bool(true)), |assertions| field(assertions, "ok")),
         native_holds,
         post_save_gate.as_ref().map_or(Some(Value::Bool(true)), |gate| field(gate, "ok")),
-        compatibility.as_ref().map_or(Some(Value::Bool(true)), |reopen| if holds(reopen, "available") { field(reopen, "opened") } else { Some(Value::Bool(true)) }),
+        compatibility
+            .as_ref()
+            .map_or(Some(Value::Bool(true)), |reopen| if holds(reopen, "available") { field(reopen, "opened") } else { Some(Value::Bool(true)) }),
     ];
     let ok = operands.iter().find(|operand| !operand.as_ref().is_some_and(truthy)).cloned().unwrap_or_else(|| operands[5].clone());
     let mut answer = Map::new();
@@ -183,7 +186,8 @@ pub async fn validate<P: WriteProof, H: ComHost>(cx: &InspectContext<'_, P, H>, 
             answer.shift_remove("ok");
         }
     }
-    for (key, value) in [("schema", schema), ("assertions", assertions), ("native", native), ("postSaveGate", post_save_gate), ("compatibility", compatibility)] {
+    for (key, value) in [("schema", schema), ("assertions", assertions), ("native", native), ("postSaveGate", post_save_gate), ("compatibility", compatibility)]
+    {
         answer.insert(key.to_owned(), value.unwrap_or(Value::Null));
     }
     Ok(Value::Object(answer))

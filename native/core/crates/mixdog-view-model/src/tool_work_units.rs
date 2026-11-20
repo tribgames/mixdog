@@ -30,8 +30,27 @@ use crate::tool_primitives::truthy;
 
 /// The order categories read in when a header has no order of its own (`Visualize` is not in it: it reads after the rest).
 pub const CATEGORY_ORDER: [&str; 21] = [
-    "Read", "Search", "Load", "MCP", "Skill", "Web Research", "Memory", "Explore", "Patch", "Git", "Shell", "Agent", "Task", "Setup",
-    "Browser", "Computer", "Terminal", "Office", "Media", "Tidy", "Other",
+    "Read",
+    "Search",
+    "Load",
+    "MCP",
+    "Skill",
+    "Web Research",
+    "Memory",
+    "Explore",
+    "Patch",
+    "Git",
+    "Shell",
+    "Agent",
+    "Task",
+    "Setup",
+    "Browser",
+    "Computer",
+    "Terminal",
+    "Office",
+    "Media",
+    "Tidy",
+    "Other",
 ];
 
 /// `classifyToolCategory`: the aggregate category of a tool name and arguments.
@@ -66,8 +85,16 @@ fn tool_category(normalized: &str) -> &'static str {
         "media" => "Media",
         "tidy" => "Tidy",
         "visualize" => "Visualize",
-        "list_mcp_resources" | "list_mcp_resource_templates" | "cwd" | "session" | "setup" | "goal" | "request_user_input" | "ask_user"
-        | "handoff_user" | "update_plan" => "Setup",
+        "list_mcp_resources"
+        | "list_mcp_resource_templates"
+        | "cwd"
+        | "session"
+        | "setup"
+        | "goal"
+        | "request_user_input"
+        | "ask_user"
+        | "handoff_user"
+        | "update_plan" => "Setup",
         "skill" | "skill_execute" | "skill_view" | "skills_list" | "use_skill" => "Skill",
         _ => "Other",
     }
@@ -224,11 +251,7 @@ impl Profile {
 /// The text of a patch split before every line that starts a `diff --git` section.
 fn git_sections(text: &str) -> Vec<&str> {
     let starts: Vec<usize> = DIFF_GIT_START.find_iter(text).map(|range| range.start).collect();
-    starts
-        .iter()
-        .enumerate()
-        .map(|(index, start)| &text[*start..starts.get(index + 1).copied().unwrap_or(text.len())])
-        .collect()
+    starts.iter().enumerate().map(|(index, start)| &text[*start..starts.get(index + 1).copied().unwrap_or(text.len())]).collect()
 }
 
 /// `patchOperationProfile`: the per-kind (add, update, delete) file counts read off a patch payload.
@@ -523,7 +546,14 @@ fn memory_tool_unit(a: &Value) -> WorkUnit {
     if op == "delete" {
         return unit_descriptor(
             "Memory",
-            &UnitOverrides { active: "Deleting", done: "Deleted", noun: "memory item", count: counted(a, &["id", "ids"]), effect: true, ..UnitOverrides::default() },
+            &UnitOverrides {
+                active: "Deleting",
+                done: "Deleted",
+                noun: "memory item",
+                count: counted(a, &["id", "ids"]),
+                effect: true,
+                ..UnitOverrides::default()
+            },
         );
     }
     if op == "add" || op == "edit" {
@@ -683,12 +713,25 @@ fn tool_unit(normalized: &str, a: &Value) -> Option<WorkUnit> {
         "view_image" => counted_unit("Read", a, &["path", "file_path", "file"], "image", ""),
         "read_mcp_resource" => counted_unit("Read", a, &["uri", "uris"], "resource", ""),
         "apply_patch" => apply_patch_unit(a),
-        "grep" => {
-            unit_descriptor("Search", &UnitOverrides { active: "Searching", done: "Searched", noun: "pattern", count: counted(a, &["pattern", "patterns", "query"]), ..UnitOverrides::default() })
-        }
+        "grep" => unit_descriptor(
+            "Search",
+            &UnitOverrides {
+                active: "Searching",
+                done: "Searched",
+                noun: "pattern",
+                count: counted(a, &["pattern", "patterns", "query"]),
+                ..UnitOverrides::default()
+            },
+        ),
         "glob" => unit_descriptor(
             "Search",
-            &UnitOverrides { active: "Finding", done: "Found", noun: "glob", count: counted(a, &["pattern", "patterns", "glob", "globs"]), ..UnitOverrides::default() },
+            &UnitOverrides {
+                active: "Finding",
+                done: "Found",
+                noun: "glob",
+                count: counted(a, &["pattern", "patterns", "glob", "globs"]),
+                ..UnitOverrides::default()
+            },
         ),
         "find" => unit_descriptor(
             "Search",

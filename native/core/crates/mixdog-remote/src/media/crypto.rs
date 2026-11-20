@@ -55,9 +55,7 @@ fn seal(key: &[u8; 32], plaintext: &[u8], aad: &[u8]) -> Vec<u8> {
     let mut nonce = [0u8; NONCE_BYTES];
     rand::fill(&mut nonce[..]);
     // AES-GCM encryption of in-memory bytes only fails past 2^36 bytes.
-    let sealed = cipher
-        .encrypt(Nonce::from_slice(&nonce), Payload { msg: plaintext, aad })
-        .unwrap_or_default();
+    let sealed = cipher.encrypt(Nonce::from_slice(&nonce), Payload { msg: plaintext, aad }).unwrap_or_default();
     let mut frame = Vec::with_capacity(LENGTH_BYTES + NONCE_BYTES + sealed.len());
     frame.extend_from_slice(&((NONCE_BYTES + sealed.len()) as u32).to_be_bytes());
     frame.extend_from_slice(&nonce);
@@ -69,9 +67,7 @@ fn open(key: &[u8; 32], body: &[u8], aad: &[u8]) -> Result<Vec<u8>, MediaCryptoE
     if body.len() < NONCE_BYTES + TAG_BYTES {
         return Err(MediaCryptoError::Truncated);
     }
-    Aes256Gcm::new(key.into())
-        .decrypt(Nonce::from_slice(&body[..NONCE_BYTES]), Payload { msg: &body[NONCE_BYTES..], aad })
-        .map_err(|_| MediaCryptoError::Auth)
+    Aes256Gcm::new(key.into()).decrypt(Nonce::from_slice(&body[..NONCE_BYTES]), Payload { msg: &body[NONCE_BYTES..], aad }).map_err(|_| MediaCryptoError::Auth)
 }
 
 pub fn encrypt_media_meta(key: &[u8; 32], asset_id: &str, variant: &str, meta: &MediaWindowMeta) -> Vec<u8> {
@@ -82,31 +78,17 @@ pub fn encrypt_media_meta(key: &[u8; 32], asset_id: &str, variant: &str, meta: &
     seal(key, body.to_string().as_bytes(), &meta_aad(asset_id, variant, meta.start))
 }
 
-pub fn encrypt_media_segment(
-    key: &[u8; 32],
-    asset_id: &str,
-    variant: &str,
-    offset: u64,
-    size: u64,
-    plaintext: &[u8],
-) -> Vec<u8> {
+pub fn encrypt_media_segment(key: &[u8; 32], asset_id: &str, variant: &str, offset: u64, size: u64, plaintext: &[u8]) -> Vec<u8> {
     seal(key, plaintext, &data_aad(asset_id, variant, offset, size))
 }
 
 /// `expected_start` is the segment-aligned offset the caller asked for: a meta frame answering
 /// another request fails authentication.
-pub fn decrypt_media_meta(
-    key: &[u8; 32],
-    asset_id: &str,
-    variant: &str,
-    expected_start: u64,
-    body: &[u8],
-) -> Result<MediaWindowMeta, MediaCryptoError> {
+pub fn decrypt_media_meta(key: &[u8; 32], asset_id: &str, variant: &str, expected_start: u64, body: &[u8]) -> Result<MediaWindowMeta, MediaCryptoError> {
     let plaintext = open(key, body, &meta_aad(asset_id, variant, expected_start))?;
     let value: Value = serde_json::from_slice(&plaintext).map_err(|_| MediaCryptoError::InvalidWindow)?;
     let field = |name: &str| value.get(name).and_then(Value::as_u64);
-    let (Some(size), Some(start), Some(mime)) = (field("size"), field("start"), value.get("mime").and_then(Value::as_str))
-    else {
+    let (Some(size), Some(start), Some(mime)) = (field("size"), field("start"), value.get("mime").and_then(Value::as_str)) else {
         return Err(MediaCryptoError::InvalidWindow);
     };
     let end = value.get("end").and_then(Value::as_i64).ok_or(MediaCryptoError::InvalidWindow)?;
@@ -114,23 +96,10 @@ pub fn decrypt_media_meta(
     if start != expected_start || end < i128::from(start) - 1 || end >= i128::from(size) {
         return Err(MediaCryptoError::InvalidWindow);
     }
-    Ok(MediaWindowMeta {
-        size,
-        mime: mime.to_owned(),
-        start,
-        end,
-        version: value.get("version").and_then(Value::as_str).map(str::to_owned),
-    })
+    Ok(MediaWindowMeta { size, mime: mime.to_owned(), start, end, version: value.get("version").and_then(Value::as_str).map(str::to_owned) })
 }
 
-pub fn decrypt_media_segment(
-    key: &[u8; 32],
-    asset_id: &str,
-    variant: &str,
-    offset: u64,
-    size: u64,
-    body: &[u8],
-) -> Result<Vec<u8>, MediaCryptoError> {
+pub fn decrypt_media_segment(key: &[u8; 32], asset_id: &str, variant: &str, offset: u64, size: u64, body: &[u8]) -> Result<Vec<u8>, MediaCryptoError> {
     open(key, body, &data_aad(asset_id, variant, offset, size))
 }
 

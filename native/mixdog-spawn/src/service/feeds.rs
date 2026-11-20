@@ -59,19 +59,12 @@ pub const TERMINAL_LANE_FEED: &str = "process:relay";
 const ORDER_DEADLINE: std::time::Duration = std::time::Duration::from_secs(10);
 
 fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 
 pub(crate) fn encode(method: &str, params: Value, stamp: FeedStamp) -> Bytes {
-    let note = JsonRpcNotification {
-        method: method.to_owned(),
-        params: Some(params),
-        emitted_at_ms: Some(now_ms()),
-        feed: Some(stamp),
-        lone_surrogates: Vec::new(),
-    };
+    let note =
+        JsonRpcNotification { method: method.to_owned(), params: Some(params), emitted_at_ms: Some(now_ms()), feed: Some(stamp), lone_surrogates: Vec::new() };
     Bytes::from(serde_json::to_vec(&note).expect("a notification serializes"))
 }
 
@@ -83,19 +76,11 @@ struct StateView {
 
 impl FeedView for StateView {
     fn encode_snapshot(&self, _lane: &InLane<CpuInteractive>, at: FeedPosition, _window: &Window) -> Bytes {
-        let params = FeedSnapshotParams {
-            feed_id: self.id.clone(),
-            state: self.state.clone(),
-        };
+        let params = FeedSnapshotParams { feed_id: self.id.clone(), state: self.state.clone() };
         encode(
             "feed/snapshot",
             serde_json::to_value(params).expect("snapshot params serialize"),
-            FeedStamp {
-                id: self.id.clone(),
-                epoch: at.epoch,
-                seq: at.seq,
-                from: None,
-            },
+            FeedStamp { id: self.id.clone(), epoch: at.epoch, seq: at.seq, from: None },
         )
     }
 }
@@ -109,15 +94,8 @@ pub(crate) struct FramePublisher {
 
 impl FramePublisher {
     pub(crate) fn create(feeds: &dyn ScopedFeeds, id: FeedId, state: Value) -> Self {
-        let view = Arc::new(StateView {
-            id: id.clone(),
-            state,
-        });
-        Self {
-            feed: feeds.create(id.clone(), view),
-            id,
-            producer: Mutex::new(()),
-        }
+        let view = Arc::new(StateView { id: id.clone(), state });
+        Self { feed: feeds.create(id.clone(), view), id, producer: Mutex::new(()) }
     }
 
     pub(crate) fn source(&self) -> Arc<dyn FeedSource> {
@@ -134,23 +112,8 @@ impl FramePublisher {
         let _one_producer = self.producer.lock().unwrap_or_else(|e| e.into_inner());
         let position = self.feed.position();
         let seq = position.seq + 1;
-        let frame = FeedFrame {
-            seq,
-            bytes: encode(
-                method,
-                params,
-                FeedStamp {
-                    id: self.id.clone(),
-                    epoch: position.epoch,
-                    seq,
-                    from: None,
-                },
-            ),
-        };
-        let view = Arc::new(StateView {
-            id: self.id.clone(),
-            state,
-        });
+        let frame = FeedFrame { seq, bytes: encode(method, params, FeedStamp { id: self.id.clone(), epoch: position.epoch, seq, from: None }) };
+        let view = Arc::new(StateView { id: self.id.clone(), state });
         // The only failure is a seq gap, impossible under the producer lock.
         let _ = self.feed.publish(&[frame], Some(view));
     }
@@ -322,14 +285,7 @@ impl FeedSource for Gate {
 impl ProcessFeeds {
     pub fn new(manager: LocalProcessManager, scoped: Arc<dyn ScopedFeeds>) -> Arc<Self> {
         let lane = FramePublisher::create(scoped.as_ref(), FeedId::from(TERMINAL_LANE_FEED), json!({}));
-        Arc::new(Self {
-            manager,
-            scoped,
-            entries: Mutex::new(HashMap::new()),
-            finished: Mutex::new(VecDeque::new()),
-            on_exit: OnceLock::new(),
-            lane,
-        })
+        Arc::new(Self { manager, scoped, entries: Mutex::new(HashMap::new()), finished: Mutex::new(VecDeque::new()), on_exit: OnceLock::new(), lane })
     }
 
     /// Called with the handle of every process whose feed saw its exit.
@@ -342,13 +298,9 @@ impl ProcessFeeds {
     pub(crate) fn feed(self: &Arc<Self>, handle: &str, text: bool) -> Arc<dyn FeedSource> {
         let mut entries = self.entries.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(entry) = entries.get(handle) {
-            let rerun = entry.finished.load(Ordering::Acquire)
-                && self.manager.info(&entry.handle).is_ok_and(|info| info.exit.is_none());
+            let rerun = entry.finished.load(Ordering::Acquire) && self.manager.info(&entry.handle).is_ok_and(|info| info.exit.is_none());
             if !rerun {
-                return Arc::new(Gate {
-                    feeds: Arc::clone(self),
-                    entry: Arc::clone(entry),
-                });
+                return Arc::new(Gate { feeds: Arc::clone(self), entry: Arc::clone(entry) });
             }
             entry.close();
         }
@@ -372,10 +324,7 @@ impl ProcessFeeds {
             published: tokio::sync::watch::Sender::new(0),
         });
         entries.insert(handle.to_owned(), Arc::clone(&entry));
-        Arc::new(Gate {
-            feeds: Arc::clone(self),
-            entry,
-        })
+        Arc::new(Gate { feeds: Arc::clone(self), entry })
     }
 
     /// The terminal lane's source, for a reader that makes the pump fill the relay buffer. Tests only.
@@ -394,11 +343,7 @@ impl ProcessFeeds {
     /// which never passes the [`Gate`] that starts the pump, so a tab read only through the feed lane would never be pumped.
     /// Returns a hold taken before the pump starts: the ensure's answer goes ahead of the shell's first output. `order` is asked, when
     /// this starts the pump, for what the pump tells how much output it has taken (`TerminalTabs::relay_order`).
-    pub(crate) fn open_terminal(
-        self: &Arc<Self>,
-        handle: &str,
-        order: impl FnOnce() -> Option<PumpTell>,
-    ) -> Option<FeedHold> {
+    pub(crate) fn open_terminal(self: &Arc<Self>, handle: &str, order: impl FnOnce() -> Option<PumpTell>) -> Option<FeedHold> {
         let _ = self.feed(handle, true);
         let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
         let held = entry.hold();
@@ -413,11 +358,7 @@ impl ProcessFeeds {
 
     /// The feed of a terminal tab, live and pumping (as [`Self::open_terminal`], without a hold), for an attach that cuts its replay and
     /// its subscription at one output offset.
-    pub(crate) fn terminal_cut(
-        self: &Arc<Self>,
-        handle: &str,
-        order: impl FnOnce() -> Option<PumpTell>,
-    ) -> Option<TerminalCut> {
+    pub(crate) fn terminal_cut(self: &Arc<Self>, handle: &str, order: impl FnOnce() -> Option<PumpTell>) -> Option<TerminalCut> {
         let _ = self.feed(handle, true);
         let entry = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(handle).cloned()?;
         if !entry.started.swap(true, Ordering::AcqRel) {
@@ -603,11 +544,7 @@ impl ProcessFeeds {
                     }
                 }
                 Some(ProcessEvent::Exited { exit, .. }) => {
-                    let state = if entry.text {
-                        json!({ "text": screen.read(), "exited": true })
-                    } else {
-                        json!({ "exited": true })
-                    };
+                    let state = if entry.text { json!({ "text": screen.read(), "exited": true }) } else { json!({ "exited": true }) };
                     entry.publisher.publish("process/exited", exited_params(handle, &exit), state);
                     // Node's relay lane sends what waits when its 16 ms are up, exit or not; the tab's exit on the lane follows it.
                     if let Some(due) = relay.due() {
@@ -640,12 +577,7 @@ impl ProcessFeeds {
         if let Some(hook) = self.on_exit.get() {
             hook(entry.handle.as_str());
         }
-        let current = self
-            .entries
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(entry.handle.as_str())
-            .is_some_and(|live| Arc::ptr_eq(live, entry));
+        let current = self.entries.lock().unwrap_or_else(|e| e.into_inner()).get(entry.handle.as_str()).is_some_and(|live| Arc::ptr_eq(live, entry));
         self.retire(if current { vec![Arc::clone(entry)] } else { Vec::new() });
     }
 }
@@ -726,20 +658,24 @@ mod tests {
         use mixdog_core_api::domain::process::SpawnRequest;
         let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
         let handle = ProcessHandle::from("feed-hold");
-        let (program, args) = if cfg!(windows) { ("cmd.exe", vec!["/c".to_owned(), "echo held".to_owned()]) } else { ("sh", vec!["-c".to_owned(), "echo held".to_owned()]) };
+        let (program, args) =
+            if cfg!(windows) { ("cmd.exe", vec!["/c".to_owned(), "echo held".to_owned()]) } else { ("sh", vec!["-c".to_owned(), "echo held".to_owned()]) };
         manager
             // As a terminal tab's process: its output stays in the ring for the pump that subscribes after this reader.
-            .spawn_with(SpawnRequest {
-                handle: handle.clone(),
-                command: CommandSpec::Argv { program: program.to_owned(), args },
-                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
-                env: EnvSpec { inherit: true, ..EnvSpec::default() },
-                pty: None,
-                stdin_piped: false,
-                output: OutputMode::Merged,
-                owner: ProcessOwner::Internal,
-                time_limit: None,
-            }, crate::manager::SpawnOptions { replays_after_exit: true, ..Default::default() })
+            .spawn_with(
+                SpawnRequest {
+                    handle: handle.clone(),
+                    command: CommandSpec::Argv { program: program.to_owned(), args },
+                    cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                    env: EnvSpec { inherit: true, ..EnvSpec::default() },
+                    pty: None,
+                    stdin_piped: false,
+                    output: OutputMode::Merged,
+                    owner: ProcessOwner::Internal,
+                    time_limit: None,
+                },
+                crate::manager::SpawnOptions { replays_after_exit: true, ..Default::default() },
+            )
             .await
             .unwrap();
         let mut events = manager.subscribe(&handle, Some(0)).unwrap();
@@ -775,17 +711,20 @@ mod tests {
         let (program, args) = if cfg!(windows) { ("cmd.exe", vec!["/c".to_owned(), echo]) } else { ("sh", vec!["-c".to_owned(), echo]) };
         manager
             // As a terminal tab's process: its output stays in the ring for the pump that subscribes after this reader.
-            .spawn_with(SpawnRequest {
-                handle: handle.clone(),
-                command: CommandSpec::Argv { program: program.to_owned(), args },
-                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
-                env: EnvSpec { inherit: true, ..EnvSpec::default() },
-                pty: None,
-                stdin_piped: false,
-                output: OutputMode::Merged,
-                owner: ProcessOwner::Internal,
-                time_limit: None,
-            }, crate::manager::SpawnOptions { replays_after_exit: true, ..Default::default() })
+            .spawn_with(
+                SpawnRequest {
+                    handle: handle.clone(),
+                    command: CommandSpec::Argv { program: program.to_owned(), args },
+                    cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                    env: EnvSpec { inherit: true, ..EnvSpec::default() },
+                    pty: None,
+                    stdin_piped: false,
+                    output: OutputMode::Merged,
+                    owner: ProcessOwner::Internal,
+                    time_limit: None,
+                },
+                crate::manager::SpawnOptions { replays_after_exit: true, ..Default::default() },
+            )
             .await
             .unwrap();
         let mut events = manager.subscribe(&handle, Some(0)).unwrap();
@@ -879,17 +818,20 @@ mod tests {
         };
         manager
             // As a terminal tab's process: its output stays in the ring for the pump that subscribes after this reader.
-            .spawn_with(SpawnRequest {
-                handle: handle.clone(),
-                command,
-                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
-                env: EnvSpec { inherit: true, ..EnvSpec::default() },
-                pty: None,
-                stdin_piped: true,
-                output: OutputMode::Merged,
-                owner: ProcessOwner::Internal,
-                time_limit: None,
-            }, crate::manager::SpawnOptions { replays_after_exit: true, ..Default::default() })
+            .spawn_with(
+                SpawnRequest {
+                    handle: handle.clone(),
+                    command,
+                    cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                    env: EnvSpec { inherit: true, ..EnvSpec::default() },
+                    pty: None,
+                    stdin_piped: true,
+                    output: OutputMode::Merged,
+                    owner: ProcessOwner::Internal,
+                    time_limit: None,
+                },
+                crate::manager::SpawnOptions { replays_after_exit: true, ..Default::default() },
+            )
             .await
             .unwrap();
         let scoped = Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default()));
@@ -928,7 +870,9 @@ mod tests {
         let now = tokio::time::timeout(DEADLINE, tap.notifications_until(|_| true)).await.unwrap();
         assert!(!text(&now).contains("after"), "output written after the cut went out before the hold: {}", text(&now));
         drop(held);
-        tokio::time::timeout(DEADLINE, tap.notifications_until(|frames| text(frames).contains("after"))).await.expect("the later output goes once the hold ends");
+        tokio::time::timeout(DEADLINE, tap.notifications_until(|frames| text(frames).contains("after")))
+            .await
+            .expect("the later output goes once the hold ends");
         let _ = manager.kill(&handle);
     }
 
@@ -944,20 +888,24 @@ mod tests {
         use mixdog_core_api::domain::process::SpawnRequest;
         let manager = LocalProcessManager::new(mixdog_rt::testing::tokens().spawn_io, crate::manager::ProcessConfig::default());
         let handle = ProcessHandle::from("relay-unread");
-        let (program, args) = if cfg!(windows) { ("cmd.exe", vec!["/c".to_owned(), "echo unread".to_owned()]) } else { ("sh", vec!["-c".to_owned(), "echo unread".to_owned()]) };
+        let (program, args) =
+            if cfg!(windows) { ("cmd.exe", vec!["/c".to_owned(), "echo unread".to_owned()]) } else { ("sh", vec!["-c".to_owned(), "echo unread".to_owned()]) };
         manager
             // As a terminal tab's process: its output stays in the ring for the pump that subscribes after this reader.
-            .spawn_with(SpawnRequest {
-                handle: handle.clone(),
-                command: CommandSpec::Argv { program: program.to_owned(), args },
-                cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
-                env: EnvSpec { inherit: true, ..EnvSpec::default() },
-                pty: None,
-                stdin_piped: false,
-                output: OutputMode::Merged,
-                owner: ProcessOwner::Internal,
-                time_limit: None,
-            }, crate::manager::SpawnOptions { replays_after_exit: true, ..Default::default() })
+            .spawn_with(
+                SpawnRequest {
+                    handle: handle.clone(),
+                    command: CommandSpec::Argv { program: program.to_owned(), args },
+                    cwd: AbsPath::new(std::env::temp_dir()).unwrap(),
+                    env: EnvSpec { inherit: true, ..EnvSpec::default() },
+                    pty: None,
+                    stdin_piped: false,
+                    output: OutputMode::Merged,
+                    owner: ProcessOwner::Internal,
+                    time_limit: None,
+                },
+                crate::manager::SpawnOptions { replays_after_exit: true, ..Default::default() },
+            )
             .await
             .unwrap();
         let feeds = ProcessFeeds::new(manager, Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(mixdog_core_api::mock::MockLimits::default())));

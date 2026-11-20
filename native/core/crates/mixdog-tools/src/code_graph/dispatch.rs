@@ -1,9 +1,6 @@
 //! Resolve the project root a `code_graph` call runs in, build its graph and route the call
 //! to one of the mode answers.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)"
-)]
+#![allow(clippy::disallowed_methods, reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)")]
 
 use std::path::{Path, PathBuf};
 
@@ -13,25 +10,10 @@ use super::federation::{TrustSnapshot, drop_cwd_anchors, plan_federation, run_fe
 use super::graph::Graph;
 use super::modes::{self, Ctx};
 use super::output::Warnings;
-use super::roots::{
-    FileAnchor, abs_from, find_dir_project_root, resolve_aggregate_anchor_root,
-    resolve_directory_root, resolve_file_anchor_root,
-};
+use super::roots::{FileAnchor, abs_from, find_dir_project_root, resolve_aggregate_anchor_root, resolve_directory_root, resolve_file_anchor_root};
 
-const MODES: [&str; 12] = [
-    "overview",
-    "imports",
-    "dependents",
-    "related",
-    "impact",
-    "symbols",
-    "find_symbol",
-    "symbol_search",
-    "search",
-    "references",
-    "callers",
-    "callees",
-];
+const MODES: [&str; 12] =
+    ["overview", "imports", "dependents", "related", "impact", "symbols", "find_symbol", "symbol_search", "search", "references", "callers", "callees"];
 
 /// Path of `abs` under `root` with forward slashes, or the absolute path when outside it.
 pub(super) fn display_rel(abs: &Path, root: &Path) -> String {
@@ -48,10 +30,7 @@ pub(super) fn display_rel(abs: &Path, root: &Path) -> String {
             }
         }
     }
-    abs.strip_prefix(root)
-        .unwrap_or(abs)
-        .to_string_lossy()
-        .replace('\\', "/")
+    abs.strip_prefix(root).unwrap_or(abs).to_string_lossy().replace('\\', "/")
 }
 
 /// A finished call: the model text, and the absolute paths the answer depends on.
@@ -105,8 +84,11 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
     // membership or sentinel-free aggregate anchor resolution.
     let plan = plan_federation(&args, &base, base_project_root.as_ref(), has_file_arg, has_aggregate, env);
     if args.node_offset.is_some() {
-        if args.mode != "callers" || args.depth.unwrap_or(1.0) < 2.0 || args.user_limit() != Some(1)
-            || args.symbol_list().len() != 1 || args.file_list().len() > 1
+        if args.mode != "callers"
+            || args.depth.unwrap_or(1.0) < 2.0
+            || args.user_limit() != Some(1)
+            || args.symbol_list().len() != 1
+            || args.file_list().len() > 1
         {
             return Err("code_graph: node_offset requires transitive callers, one symbol, at most one file, and limit:1".to_owned());
         }
@@ -163,79 +145,70 @@ pub(super) fn run_scoped(args: &Args, default_cwd: &Path, env: &Env<'_>, exclude
     // generation, which re-reads the file. Nothing discards the parsed records of the files that did not change.
     let mut attempt = 0;
     let (_graph, section, warnings) = loop {
-    let (graph, one_file) = match single_file.as_ref().filter(|_| mode == "symbols") {
-        Some(file) => match Graph::build_single(&root, file)? {
-            Some(g) => (Lease::alone(std::sync::Arc::new(g)), true),
+        let (graph, one_file) = match single_file.as_ref().filter(|_| mode == "symbols") {
+            Some(file) => match Graph::build_single(&root, file)? {
+                Some(g) => (Lease::alone(std::sync::Arc::new(g)), true),
+                None => (env.cache.graph(&root, excluded)?, false),
+            },
             None => (env.cache.graph(&root, excluded)?, false),
-        },
-        None => (env.cache.graph(&root, excluded)?, false),
-    };
-    if !graph.verify_records() {
-        if attempt == 0 {
-            attempt = 1;
-            continue;
+        };
+        if !graph.verify_records() {
+            if attempt == 0 {
+                attempt = 1;
+                continue;
+            }
+            return Err("code_graph: could not verify the current project sources; run it again".to_owned());
         }
-        return Err("code_graph: could not verify the current project sources; run it again".to_owned());
-    }
 
-    // `runCodeGraphWork`: `symbols[]` and `files[]` fan out into `# <mode> <item>` sections.
-    let mode = if mode == "symbols" && args.body == Some(true) && !args.symbol_list().is_empty() {
-        "find_symbol"
-    } else {
-        mode
-    };
-    let batch_mode = if mode == "search" { "symbol_search" } else { mode };
-    let mut warnings = Warnings::default();
-    warnings.collect(one_file, &root, &graph);
-    // A mode's failure fails the call; inside a fan-out it is that section's `Error:` body (`_fanoutSections`).
-    let raw = |a: &Args| -> Result<Section, String> {
-        answer(mode, a, &base, default_cwd, &root, &graph, a.file.as_deref()).map(Section::whole)
-    };
-    let caught = |section: Result<Section, String>| section.unwrap_or_else(|e| Section::whole(format!("Error: {e}")));
-    // `files` scopes the symbol modes: one entry becomes the anchor, several fan out per file.
-    let scope_files = if BATCHABLE.contains(&batch_mode) && args.file.as_deref().is_none_or(|f| f.trim().is_empty()) {
-        args.file_list()
-    } else {
-        Vec::new()
-    };
-    let one = |a: &Args| -> Result<Section, String> {
-        match scope_files.as_slice() {
-            [] => raw(a),
-            [only] => raw(&a.with_file(only)),
-            many => Ok(fanout(many, |f| format!("file {f}"), |f| caught(raw(&a.with_file(f))))),
-        }
-    };
-    let section = 'work: {
-        if BATCHABLE.contains(&batch_mode) {
-            let list = args.symbol_list();
-            match list.as_slice() {
-                [] => {}
-                [only] if args.symbol.as_deref() == Some(only.as_str()) => {}
-                [only] => break 'work one(&args.with_symbol(only)),
-                many => break 'work Ok(fanout(many, |s| format!("{batch_mode} {s}"), |s| caught(one(&args.with_symbol(s))))),
+        // `runCodeGraphWork`: `symbols[]` and `files[]` fan out into `# <mode> <item>` sections.
+        let mode = if mode == "symbols" && args.body == Some(true) && !args.symbol_list().is_empty() { "find_symbol" } else { mode };
+        let batch_mode = if mode == "search" { "symbol_search" } else { mode };
+        let mut warnings = Warnings::default();
+        warnings.collect(one_file, &root, &graph);
+        // A mode's failure fails the call; inside a fan-out it is that section's `Error:` body (`_fanoutSections`).
+        let raw = |a: &Args| -> Result<Section, String> { answer(mode, a, &base, default_cwd, &root, &graph, a.file.as_deref()).map(Section::whole) };
+        let caught = |section: Result<Section, String>| section.unwrap_or_else(|e| Section::whole(format!("Error: {e}")));
+        // `files` scopes the symbol modes: one entry becomes the anchor, several fan out per file.
+        let scope_files =
+            if BATCHABLE.contains(&batch_mode) && args.file.as_deref().is_none_or(|f| f.trim().is_empty()) { args.file_list() } else { Vec::new() };
+        let one = |a: &Args| -> Result<Section, String> {
+            match scope_files.as_slice() {
+                [] => raw(a),
+                [only] => raw(&a.with_file(only)),
+                many => Ok(fanout(many, |f| format!("file {f}"), |f| caught(raw(&a.with_file(f))))),
             }
-        }
-        if FILE_BATCHABLE.contains(&batch_mode) {
-            let list = args.file_list();
-            match list.as_slice() {
-                [] => {}
-                [only] if args.file.as_deref() == Some(only.as_str()) => {}
-                [only] => break 'work one(&args.with_file(only)),
-                many => break 'work Ok(fanout(many, |f| format!("{batch_mode} {f}"), |f| caught(one(&args.with_file(f))))),
+        };
+        let section = 'work: {
+            if BATCHABLE.contains(&batch_mode) {
+                let list = args.symbol_list();
+                match list.as_slice() {
+                    [] => {}
+                    [only] if args.symbol.as_deref() == Some(only.as_str()) => {}
+                    [only] => break 'work one(&args.with_symbol(only)),
+                    many => break 'work Ok(fanout(many, |s| format!("{batch_mode} {s}"), |s| caught(one(&args.with_symbol(s))))),
+                }
             }
+            if FILE_BATCHABLE.contains(&batch_mode) {
+                let list = args.file_list();
+                match list.as_slice() {
+                    [] => {}
+                    [only] if args.file.as_deref() == Some(only.as_str()) => {}
+                    [only] => break 'work one(&args.with_file(only)),
+                    many => break 'work Ok(fanout(many, |f| format!("{batch_mode} {f}"), |f| caught(one(&args.with_file(f))))),
+                }
+            }
+            one(&args)
+        }?;
+        if graph.source_stale() || !graph.resolver_inputs_current() {
+            if attempt == 0 {
+                attempt = 1;
+                continue;
+            }
+            // The files changed again under the fresh build: the empty reads would silently drop references, bodies or
+            // callers from the answer, so it fails instead.
+            return Err("code_graph: source files changed while the query ran; run it again".to_owned());
         }
-        one(&args)
-    }?;
-    if graph.source_stale() || !graph.resolver_inputs_current() {
-        if attempt == 0 {
-            attempt = 1;
-            continue;
-        }
-        // The files changed again under the fresh build: the empty reads would silently drop references, bodies or
-        // callers from the answer, so it fails instead.
-        return Err("code_graph: source files changed while the query ran; run it again".to_owned());
-    }
-    break (graph, section, warnings);
+        break (graph, section, warnings);
     };
     // Node marks the call incomplete once a graph holds an unindexed file (`collectGraphParseWarnings`).
     let complete = section.complete && warnings.is_empty();
@@ -286,15 +259,7 @@ fn fanout<T>(items: &[T], header: impl Fn(&T) -> String, run: impl Fn(&T) -> Sec
     Section { text: texts.join("\n\n"), complete }
 }
 
-fn answer(
-    mode: &str,
-    args: &Args,
-    base: &Path,
-    default_cwd: &Path,
-    root: &PathBuf,
-    graph: &Graph,
-    anchor: Option<&str>,
-) -> Result<String, String> {
+fn answer(mode: &str, args: &Args, base: &Path, default_cwd: &Path, root: &PathBuf, graph: &Graph, anchor: Option<&str>) -> Result<String, String> {
     let abs = anchor.map(|a| abs_from(base, a));
     let rel = abs.as_ref().map(|p| display_rel(p, root));
     let is_dir = abs.as_ref().is_some_and(|p| p.is_dir());
@@ -307,16 +272,8 @@ fn answer(
         (Some(r), false) => (Some(r.clone()), None),
         _ => (None, None),
     };
-    let ctx = Ctx {
-        args,
-        cwd: root,
-        default_cwd,
-        graph,
-        norm_file: anchor,
-        node: file_rel.as_deref().and_then(|r| graph.node(r)),
-        rel: file_rel,
-        scope_prefix,
-    };
+    let ctx =
+        Ctx { args, cwd: root, default_cwd, graph, norm_file: anchor, node: file_rel.as_deref().and_then(|r| graph.node(r)), rel: file_rel, scope_prefix };
     match mode {
         "overview" => Ok(modes::overview(&ctx)),
         "imports" => Ok(modes::imports(&ctx)),

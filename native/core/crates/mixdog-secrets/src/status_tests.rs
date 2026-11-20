@@ -1,11 +1,11 @@
 //! The keychain health: how each outcome of a keychain call moves the state a user sees, and when it raises a notice.
 
-use std::sync::Arc;
 use super::MemoryStore;
 use super::SecretError;
 use super::SecretStore;
 use super::status::StatusTracker;
 use super::status::TrackedStore;
+use std::sync::Arc;
 
 /// A store that fails or never runs, on demand.
 struct Scripted(Mutex<Vec<Result<Option<String>, SecretError>>>);
@@ -28,7 +28,12 @@ impl SecretStore for Scripted {
 #[tokio::test]
 async fn a_tracked_store_notes_each_outcome_but_not_a_call_that_never_ran() {
     let tracker = StatusTracker::new(false, Arc::new(|| {}));
-    let script = Arc::new(Scripted(Mutex::new(vec![Ok(None), Err(SecretError::new("[keychain] the keyring is locked")), Err(SecretError::unrun("lane full")), Ok(Some("v".into()))])));
+    let script = Arc::new(Scripted(Mutex::new(vec![
+        Ok(None),
+        Err(SecretError::new("[keychain] the keyring is locked")),
+        Err(SecretError::unrun("lane full")),
+        Ok(Some("v".into())),
+    ])));
     let store = TrackedStore::new(script, Arc::clone(&tracker));
     assert_eq!(tracker.snapshot().state, "unknown");
     store.get("a").await.unwrap();
@@ -57,9 +62,12 @@ async fn the_no_provider_report_is_a_fallback_only_on_linux() {
 fn tracker_with_notices(linux: bool) -> (Arc<StatusTracker>, Arc<std::sync::atomic::AtomicUsize>) {
     let notices = Arc::new(std::sync::atomic::AtomicUsize::new(0));
     let counted = Arc::clone(&notices);
-    let tracker = StatusTracker::new(linux, Arc::new(move || {
-        counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    }));
+    let tracker = StatusTracker::new(
+        linux,
+        Arc::new(move || {
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        }),
+    );
     (tracker, notices)
 }
 

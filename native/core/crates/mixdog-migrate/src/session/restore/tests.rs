@@ -1,8 +1,4 @@
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "test fixtures read the corpus with blocking std::fs"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "test fixtures read the corpus with blocking std::fs")]
 
 use std::collections::HashMap;
 
@@ -100,10 +96,7 @@ fn stored_text_parts_show_as_their_chips() {
         {"type": "image", "mimeType": "image/jpeg"},
     ]);
     let text = UserText::new(&blobs).text(Some(&content));
-    assert_eq!(
-        text,
-        "[Pasted text #1 +3 lines]\n[Pasted text #2 +12 lines]\n[File #3: notes.md]\n[Image: shot.png]\n[Image: image/jpeg]"
-    );
+    assert_eq!(text, "[Pasted text #1 +3 lines]\n[Pasted text #2 +12 lines]\n[File #3: notes.md]\n[Image: shot.png]\n[Image: image/jpeg]");
 }
 
 #[test]
@@ -141,4 +134,3 @@ fn only_segments_the_archive_index_reads_are_shown() {
     let reordered = r#"{"seq":2,"v":1,"id":"seg2","prev":null,"at":5,"count":1,"bytes":2,"items":[]}"#;
     assert!(!indexed_segment(reordered.as_bytes()));
 }
-

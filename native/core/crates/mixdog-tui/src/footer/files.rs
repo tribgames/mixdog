@@ -149,7 +149,15 @@ impl StatusWorld for World<'_> {
     }
 
     fn inherited_route(&self) -> ClaudeRoute {
-        let sources = ClaudeSources { settings: self.settings, own: self.own, last: self.last, request: None, max_age_ms: PERSISTED_MAX_AGE_MS, for_boot: false, now: self.now };
+        let sources = ClaudeSources {
+            settings: self.settings,
+            own: self.own,
+            last: self.last,
+            request: None,
+            max_age_ms: PERSISTED_MAX_AGE_MS,
+            for_boot: false,
+            now: self.now,
+        };
         read_claude_code_current_route(self, &sources)
     }
 }

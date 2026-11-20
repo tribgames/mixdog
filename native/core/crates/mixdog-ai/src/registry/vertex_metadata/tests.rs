@@ -24,22 +24,14 @@ struct Server {
 
 fn server(rows: Vec<(u16, Vec<(&str, &str)>, &str)>) -> Arc<Server> {
     Arc::new(Server {
-        rows: Mutex::new(
-            rows.into_iter()
-                .map(|(s, h, b)| (s, h.into_iter().map(|(n, v)| (n.to_owned(), v.to_owned())).collect(), b.to_owned()))
-                .collect(),
-        ),
+        rows: Mutex::new(rows.into_iter().map(|(s, h, b)| (s, h.into_iter().map(|(n, v)| (n.to_owned(), v.to_owned())).collect(), b.to_owned())).collect()),
         seen: Mutex::default(),
     })
 }
 
 #[async_trait]
 impl HttpSend for Server {
-    async fn send(
-        &self,
-        request: WireRequest,
-        _exchange: crate::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
         self.seen.lock().unwrap().push(request);
         let (status, headers, body) = self.rows.lock().unwrap().pop_front().expect("scripted answer");
         Ok(HttpResponse { status, headers, body: Box::new(Once(Some(Bytes::from(body)))) })
@@ -66,10 +58,7 @@ async fn only_a_server_that_names_itself_google_has_a_project() {
 
 #[tokio::test]
 async fn the_token_is_cached_until_near_expiry_and_dropped_when_rejected() {
-    let http = server(vec![
-        (200, vec![], r#"{"access_token":"T1","expires_in":3600}"#),
-        (200, vec![], r#"{"access_token":"T2","expires_in":3600}"#),
-    ]);
+    let http = server(vec![(200, vec![], r#"{"access_token":"T1","expires_in":3600}"#), (200, vec![], r#"{"access_token":"T2","expires_in":3600}"#)]);
     let auth = MetadataAuth::new(http.clone(), "p", Box::new(|| 1_000));
     let first = auth.authorize().await.unwrap();
     assert_eq!(first.headers, vec![("authorization".to_owned(), "Bearer T1".to_owned())]);

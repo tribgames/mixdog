@@ -19,11 +19,11 @@ use mixdog_ooxml::soffice::Soffice;
 use mixdog_rt::{CancellationToken, LaneToken, LaneTokens, MaintenanceIo};
 use tokio::sync::OnceCell;
 
-use mixdog_fonts::install::{BoxFuture as FontFuture, Downloaded, FontDirs, FontHost, OfficeFonts, RegisterCommand};
-use mixdog_fonts::provision::NOTO_FONTS;
 use super::document::{DocumentEngine, PagesRequest, PdfPreview, PreviewRequest, RenderedPage, RenderedPages};
 use crate::error::CodedError;
 use crate::registry::{BoxFuture, Registry};
+use mixdog_fonts::install::{BoxFuture as FontFuture, Downloaded, FontDirs, FontHost, OfficeFonts, RegisterCommand};
+use mixdog_fonts::provision::NOTO_FONTS;
 
 /// The lanes of this process: the one set of executors [`super::pdf_render::lanes`] owns. The process installs its backend once,
 /// so a second owner here made whichever of a PDF render and a document preview ran second fail with "backend already installed".
@@ -80,7 +80,7 @@ async fn preview_of(cell: &OnceCell<DocumentPreview>, cache_root: &str) -> Resul
         let data_dir = if cache_root.is_empty() { std::env::temp_dir() } else { PathBuf::from(cache_root) };
         let office = OfficeCom::new(OfficeComConfig::new(data_dir, lanes));
         let engines = Arc::new(SystemEngines::new(lanes, office));
-        let renderer = Arc::new(RasterPages::new(lanes, registry,Arc::new(NoWriteNote)));
+        let renderer = Arc::new(RasterPages::new(lanes, registry, Arc::new(NoWriteNote)));
         Ok(DocumentPreview::new(lanes, engines, renderer))
     })
     .await
@@ -92,11 +92,7 @@ impl DocumentEngine for OfficeEngine {
         let cell = Arc::clone(&self.preview);
         Box::pin(async move {
             let preview = preview_of(&cell, &request.cache_root).await?;
-            let options = PreviewOptions {
-                cache_root: request.cache_root,
-                password: request.password.unwrap_or_default(),
-                cancel: request.cancel,
-            };
+            let options = PreviewOptions { cache_root: request.cache_root, password: request.password.unwrap_or_default(), cancel: request.cancel };
             let made = preview.preview_pdf(&request.file, options).await.map_err(answer)?;
             Ok(PdfPreview {
                 path: made.path.to_string_lossy().into_owned(),
@@ -112,12 +108,7 @@ impl DocumentEngine for OfficeEngine {
         let cell = Arc::clone(&self.preview);
         Box::pin(async move {
             let preview = preview_of(&cell, &request.cache_root).await?;
-            let options = PagesOptions {
-                pages: request.pages,
-                max_width: request.max_width,
-                cache_root: request.cache_root,
-                cancel: request.cancel,
-            };
+            let options = PagesOptions { pages: request.pages, max_width: request.max_width, cache_root: request.cache_root, cancel: request.cancel };
             let rendered = preview.preview_pages(Path::new(&request.pdf), options).await.map_err(answer)?;
             Ok(RenderedPages {
                 page_count: rendered.page_count,
@@ -161,7 +152,13 @@ impl FontHost for WorkerFontHost {
     fn run(&self, command: RegisterCommand) -> FontFuture<'_, ()> {
         Box::pin(async move {
             let mut child = tokio::process::Command::new(&command.program);
-            child.args(&command.args).current_dir(&command.cwd).stdin(std::process::Stdio::null()).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).kill_on_drop(true);
+            child
+                .args(&command.args)
+                .current_dir(&command.cwd)
+                .stdin(std::process::Stdio::null())
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .kill_on_drop(true);
             if let Some(env) = &command.env {
                 child.env_clear().envs(env);
             }

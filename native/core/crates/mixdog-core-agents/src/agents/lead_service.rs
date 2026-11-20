@@ -238,4 +238,3 @@ mod tests {
         assert_eq!(message.to_string(), "Mixy's status could not be read.");
     }
 }
-

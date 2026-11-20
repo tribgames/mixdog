@@ -37,12 +37,7 @@ fn finite(value: &Value) -> bool {
 /// `^(?:input_cost_per_token|output_cost_per_token|cache_read_input_token_cost|
 /// cache_creation_input_token_cost)(?:_above_\d+k_tokens)?(?:_priority|_ultrafast|_flex)?$`
 fn is_rate_column(field: &str) -> bool {
-    const BASES: [&str; 4] = [
-        "input_cost_per_token",
-        "output_cost_per_token",
-        "cache_read_input_token_cost",
-        "cache_creation_input_token_cost",
-    ];
+    const BASES: [&str; 4] = ["input_cost_per_token", "output_cost_per_token", "cache_read_input_token_cost", "cache_creation_input_token_cost"];
     BASES.iter().any(|base| {
         let Some(mut rest) = field.strip_prefix(base) else { return false };
         if let Some(tier) = rest.strip_prefix("_above_") {
@@ -57,9 +52,7 @@ fn is_rate_column(field: &str) -> bool {
 }
 
 fn is_per_second_resolution(field: &str) -> bool {
-    field
-        .strip_prefix("output_cost_per_second_")
-        .is_some_and(|tail| !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
+    field.strip_prefix("output_cost_per_second_").is_some_and(|tail| !tail.is_empty() && tail.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_'))
 }
 
 pub(crate) fn litellm_row(row: &Value) -> Option<Value> {
@@ -71,10 +64,7 @@ pub(crate) fn litellm_row(row: &Value) -> Option<Value> {
         }
     }
     for (field, value) in row {
-        if (is_rate_column(field) || is_per_second_resolution(field) || field == "regional_endpoint_uplift_multiplier")
-            && value.is_number()
-            && finite(value)
-        {
+        if (is_rate_column(field) || is_per_second_resolution(field) || field == "regional_endpoint_uplift_multiplier") && value.is_number() && finite(value) {
             out.insert(field.clone(), value.clone());
         }
     }
@@ -104,19 +94,13 @@ pub fn project_litellm(data: &Value) -> Value {
 
 fn pick_present(source: Option<&Value>, fields: &[&str]) -> Option<Obj> {
     let source = source?.as_object()?;
-    let out: Obj = fields
-        .iter()
-        .filter_map(|f| source.get(*f).filter(|v| !v.is_null()).map(|v| ((*f).to_owned(), v.clone())))
-        .collect();
+    let out: Obj = fields.iter().filter_map(|f| source.get(*f).filter(|v| !v.is_null()).map(|v| ((*f).to_owned(), v.clone()))).collect();
     (!out.is_empty()).then_some(out)
 }
 
 fn pick_arrays(source: Option<&Value>, fields: &[&str]) -> Option<Obj> {
     let source = source?.as_object()?;
-    let out: Obj = fields
-        .iter()
-        .filter_map(|f| source.get(*f).filter(|v| v.is_array()).map(|v| ((*f).to_owned(), v.clone())))
-        .collect();
+    let out: Obj = fields.iter().filter_map(|f| source.get(*f).filter(|v| v.is_array()).map(|v| ((*f).to_owned(), v.clone()))).collect();
     (!out.is_empty()).then_some(out)
 }
 

@@ -27,9 +27,9 @@ pub mod blocks;
 pub mod compose;
 pub mod migrate;
 pub mod notice;
-pub mod settings;
 pub mod probes;
 pub mod real_sources;
+pub mod settings;
 pub mod sources;
 
 #[cfg(test)]

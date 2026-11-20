@@ -86,36 +86,13 @@ impl StatusReader for AutomationActions {
 #[cfg(test)]
 mod tests {
 
-
     use super::*;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
     #[test]
     fn a_callers_scope_is_the_scope_of_the_access_rules() {
         assert_eq!(access_scope(CallerScope::Human), AccessScope::Human);
-        assert_eq!(
-            access_scope(CallerScope::Agent { agent_id: "reviewer".into(), unattended: true }),
-            AccessScope::Agent { agent_id: "reviewer".into() }
-        );
+        assert_eq!(access_scope(CallerScope::Agent { agent_id: "reviewer".into(), unattended: true }), AccessScope::Agent { agent_id: "reviewer".into() });
         assert_eq!(access_scope(CallerScope::RoomMember), AccessScope::RoomMember);
         assert_eq!(access_scope(CallerScope::Headless), AccessScope::Headless);
     }
-
-
-
 }

@@ -225,10 +225,7 @@ fn unrecorded_links(record: &WorktreeRecord) -> Result<Vec<String>, (&'static st
             Ok(entries) => entries,
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
             Err(error) => {
-                return Err((
-                    "unreadable",
-                    format!("The worktree folder could not be checked for links ({error}); nothing was deleted."),
-                ));
+                return Err(("unreadable", format!("The worktree folder could not be checked for links ({error}); nothing was deleted.")));
             }
         };
         for entry in entries.filter_map(|e| e.ok()) {
@@ -294,7 +291,8 @@ mod tests {
         std::fs::create_dir_all(&target).unwrap();
         let link = checkout.join("sub").join("deps");
         #[cfg(windows)]
-        let made = std::os::windows::fs::symlink_dir(&target, &link).is_ok() || std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(&link).arg(&target).output().is_ok_and(|o| o.status.success());
+        let made = std::os::windows::fs::symlink_dir(&target, &link).is_ok()
+            || std::process::Command::new("cmd").args(["/c", "mklink", "/J"]).arg(&link).arg(&target).output().is_ok_and(|o| o.status.success());
         #[cfg(unix)]
         let made = std::os::unix::fs::symlink(&target, &link).is_ok();
         assert!(made);
@@ -349,21 +347,20 @@ mod tests {
         std::fs::write(store.join("journal"), "x").unwrap();
         assert!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)).is_some());
         record.extra.insert("editorRecoveryStores".into(), serde_json::json!([{ "root": root, "directory": dir.path() }]));
-        assert_eq!(retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)), Some(record.path.clone()), "a malformed descriptor retains");
+        assert_eq!(
+            retained_store(&record, &dir.path().join("data").join(mixdog_workspace::recovery::JOURNALS_DIR)),
+            Some(record.path.clone()),
+            "a malformed descriptor retains"
+        );
     }
 }
-
 
 impl Worktrees {
     /// git's registration of the record's checkout, if any: the listed paths are canonical, so
     /// the record's is compared canonical too (`samePath`).
     pub(crate) async fn registration_for(&self, record: &WorktreeRecord, cancel: &CancellationToken) -> Result<Option<GitWorktree>, ScmFailure> {
         let wanted = path_key(&self.canonical_paths(vec![PathBuf::from(&record.path)], cancel).await?[0]);
-        Ok(self
-            .list_git_worktrees(&repo_cwd(record), cancel)
-            .await?
-            .into_iter()
-            .find(|row| path_key(Path::new(&row.path)) == wanted))
+        Ok(self.list_git_worktrees(&repo_cwd(record), cancel).await?.into_iter().find(|row| path_key(Path::new(&row.path)) == wanted))
     }
 
     pub(crate) async fn prune_registration(&self, record: &WorktreeRecord, allow_locked: bool, cancel: &CancellationToken) -> Result<bool, ScmFailure> {
@@ -390,7 +387,14 @@ impl Worktrees {
     /// repository lock every removal takes through `run`. The descriptor survives daemon exit
     /// and startup reconcile. A root outside any managed checkout runs as an ordinary project,
     /// unless it lies in the managed store itself (a checkout that vanished).
-    pub async fn with_recovery_store<T, F, Fut>(&self, root: &Path, directory: &Path, action: RecoveryAction, run: F, cancel: &CancellationToken) -> Result<T, ScmFailure>
+    pub async fn with_recovery_store<T, F, Fut>(
+        &self,
+        root: &Path,
+        directory: &Path,
+        action: RecoveryAction,
+        run: F,
+        cancel: &CancellationToken,
+    ) -> Result<T, ScmFailure>
     where
         F: FnOnce() -> Fut,
         Fut: std::future::Future<Output = Result<T, ScmFailure>>,

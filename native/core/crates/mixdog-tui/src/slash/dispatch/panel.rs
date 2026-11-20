@@ -96,8 +96,7 @@ fn autoclear(host: &mut dyn SlashHost, arg: &str) -> bool {
     match call {
         Ok(next) if truthy(&next) => {
             let enabled = if next.get("enabled").is_some_and(truthy) { "on" } else { "off" };
-            let idle =
-                format_duration(next.get("idleMs").map_or(f64::NAN, mixdog_js::to_number), DurationOptions::default());
+            let idle = format_duration(next.get("idleMs").map_or(f64::NAN, mixdog_js::to_number), DurationOptions::default());
             host.push_notice(&format!("autoclear {enabled} \u{b7} idle {idle}"), Tone::Info);
         }
         Ok(_) => host.push_notice("autoclear unavailable", Tone::Warn),

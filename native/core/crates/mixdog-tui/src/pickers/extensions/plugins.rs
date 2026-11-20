@@ -5,9 +5,7 @@ use mixdog_js::js_trim;
 use serde_json::{Value, json};
 
 use super::Extensions;
-use super::panel::{
-    Action, ExtItem, ExtPanel, ExtensionsHost, Handler, claim, close_now, js_text, or_text, read_status, status_list, with_scope,
-};
+use super::panel::{Action, ExtItem, ExtPanel, ExtensionsHost, Handler, claim, close_now, js_text, or_text, read_status, status_list, with_scope};
 use crate::slash::host::{PromptSurface, TextPrompt, Tone};
 use crate::slash::notices::{truthy, value_text};
 
@@ -75,12 +73,7 @@ fn source_label(plugin: &Value) -> String {
 
 fn mcp_action_item(plugin: &Value) -> ExtItem {
     if !has_mcp(plugin) {
-        return ExtItem::new(
-            "enable-mcp",
-            "No MCP server",
-            "plugin declares no MCP servers (.mcp.json or manifest mcpServers)",
-            Action::Noop,
-        );
+        return ExtItem::new("enable-mcp", "No MCP server", "plugin declares no MCP servers (.mcp.json or manifest mcpServers)", Action::Noop);
     }
     let enabled = plugin.get("mcpEnabled").is_some_and(truthy);
     let names = mcp_names(plugin).join(", ");
@@ -101,7 +94,8 @@ fn plugin_summary(plugin: &Value) -> String {
     } else {
         String::new()
     };
-    let warning = plugin.get("warning").filter(|warning| truthy(warning)).map_or_else(String::new, |warning| format!(" \u{b7} \u{26a0} {}", value_text(warning)));
+    let warning =
+        plugin.get("warning").filter(|warning| truthy(warning)).map_or_else(String::new, |warning| format!(" \u{b7} \u{26a0} {}", value_text(warning)));
     format!("{}{version} \u{b7} skills {}{mcp}{warning}", source_label(plugin), or_text(plugin, "skillCount", "0"))
 }
 
@@ -135,12 +129,7 @@ fn detail_items(plugin: &Value) -> Vec<ExtItem> {
     let version = plugin.get("version").filter(|version| truthy(version)).map_or_else(String::new, |version| format!(" \u{b7} {}", value_text(version)));
     let names = mcp_names(plugin);
     vec![
-        ExtItem::new(
-            "info",
-            "Plugin info",
-            &format!("{}{version} \u{b7} skills {}", source_label(plugin), or_text(plugin, "skillCount", "0")),
-            Action::Info,
-        ),
+        ExtItem::new("info", "Plugin info", &format!("{}{version} \u{b7} skills {}", source_label(plugin), or_text(plugin, "skillCount", "0")), Action::Info),
         ExtItem::new(
             "update",
             if local { "Refresh metadata" } else { "Update plugin" },
@@ -268,7 +257,12 @@ impl Extensions {
         host.set_prompt(PromptSurface::Provider, None);
         host.set_prompt(PromptSurface::Settings, None);
         let items = vec![
-            ExtItem::new("installed", "Installed plugins", &format!("{} installed", status.get("count").filter(|count| truthy(count)).map_or_else(|| "0".to_owned(), value_text)), Action::Installed),
+            ExtItem::new(
+                "installed",
+                "Installed plugins",
+                &format!("{} installed", status.get("count").filter(|count| truthy(count)).map_or_else(|| "0".to_owned(), value_text)),
+                Action::Installed,
+            ),
             ExtItem::new("add", "Add plugin", "Git URL, owner/repo, or local path", Action::Add),
         ];
         host.paint(&mut own, Some(ExtPanel::new("Plugins", "Add or manage local plugin integrations.", items, Handler::Plugins)));

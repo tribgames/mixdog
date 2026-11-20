@@ -111,9 +111,7 @@ impl CallLink {
             {
                 let mut credit = self.credit.lock().unwrap_or_else(|e| e.into_inner());
                 if *credit > 0 {
-                    let size = want
-                        .min(MAX_CHUNK_BYTES)
-                        .min(usize::try_from(*credit).unwrap_or(usize::MAX));
+                    let size = want.min(MAX_CHUNK_BYTES).min(usize::try_from(*credit).unwrap_or(usize::MAX));
                     *credit -= size as u64;
                     return Ok(size);
                 }
@@ -144,24 +142,8 @@ pub struct CallCtx {
 }
 
 impl CallCtx {
-    pub(crate) fn new(
-        link: Arc<CallLink>,
-        method: String,
-        params: Value,
-        paths: Vec<String>,
-        thread: String,
-        cwd: String,
-    ) -> Self {
-        Self {
-            id: link.id,
-            method,
-            params,
-            paths,
-            thread,
-            cwd,
-            cancel: link.cancel.clone(),
-            link,
-        }
+    pub(crate) fn new(link: Arc<CallLink>, method: String, params: Value, paths: Vec<String>, thread: String, cwd: String) -> Self {
+        Self { id: link.id, method, params, paths, thread, cwd, cancel: link.cancel.clone(), link }
     }
 
     /// Sends result bytes as chunks of at most 64 KiB, each within the credit the pool has granted; waits while the credit is
@@ -170,9 +152,7 @@ impl CallCtx {
         let mut offset = 0;
         while offset < bytes.len() {
             let size = self.link.take_credit(bytes.len() - offset).await?;
-            self.link
-                .out
-                .frame(wire::chunk(self.id, &bytes[offset..offset + size]));
+            self.link.out.frame(wire::chunk(self.id, &bytes[offset..offset + size]));
             offset += size;
         }
         Ok(())

@@ -160,7 +160,12 @@ async fn a_run_streams_its_events_to_the_asking_connection_and_answers() {
 async fn what_the_type_does_not_read_still_counts_toward_the_bound() {
     let (service, _) = service(Vec::new()).await;
     let service = service.with_request_bound(100);
-    let mut call = CoreRequest { method: Method(RUN), params: json!({ "runId": "r1", "call": { "method": "providerConfig" }, "allowedProviders": null }), op: None, ctx: mixdog_core_api::CallContext::connection(ConnectionId(7), Origin::Local, CancellationToken::new()) };
+    let mut call = CoreRequest {
+        method: Method(RUN),
+        params: json!({ "runId": "r1", "call": { "method": "providerConfig" }, "allowedProviders": null }),
+        op: None,
+        ctx: mixdog_core_api::CallContext::connection(ConnectionId(7), Origin::Local, CancellationToken::new()),
+    };
     assert_eq!(claimed_chars(&call.params["call"]), 27, "the typed call alone would be admitted");
     call.params["call"]["unread"] = json!("x".repeat(200));
     let Reply::Value(answer) = service.call(call).await.unwrap() else { panic!("not a value") };
@@ -343,5 +348,3 @@ async fn run_local_events_are_those_of_run_in_order() {
     assert!(!seen.is_empty());
     assert_eq!(seen, relayed);
 }
-
-

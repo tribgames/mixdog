@@ -159,15 +159,8 @@ pub struct UserImage {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    UserMessage {
-        text: String,
-        message_id: String,
-        images: Vec<UserImage>,
-        context: RequestContext,
-    },
-    Resume {
-        context: RequestContext,
-    },
+    UserMessage { text: String, message_id: String, images: Vec<UserImage>, context: RequestContext },
+    Resume { context: RequestContext },
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -197,12 +190,7 @@ impl RunRequest {
         run.bytes(1, &self.conversation_state);
         let mut action = Writer::new();
         match &self.action {
-            Action::UserMessage {
-                text,
-                message_id,
-                images,
-                context,
-            } => {
+            Action::UserMessage { text, message_id, images, context } => {
                 let mut user_message = Writer::new();
                 user_message.string(1, text);
                 user_message.string(2, message_id);
@@ -264,13 +252,25 @@ pub enum ExecResult {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UnavailableKind {
     /// `rejected { path, reason }`, result field number and path.
-    Path { field: u32 },
-    Shell { field: u32 },
+    Path {
+        field: u32,
+    },
+    Shell {
+        field: u32,
+    },
     /// `error { error }` inside the result.
-    Error { field: u32, error_field: u32 },
+    Error {
+        field: u32,
+        error_field: u32,
+    },
     /// `error { path, error }` inside the result (write and fetch).
-    PathError { field: u32, error_field: u32 },
-    Empty { field: u32 },
+    PathError {
+        field: u32,
+        error_field: u32,
+    },
+    Empty {
+        field: u32,
+    },
 }
 
 pub fn exec_client_message(id: u64, exec_id: &str, result: &ExecResult, detail: &ExecEcho) -> Vec<u8> {

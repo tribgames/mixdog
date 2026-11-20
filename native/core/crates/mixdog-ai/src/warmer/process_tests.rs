@@ -3,26 +3,8 @@
 //! (`record-cache-warm-deps.mjs`), priced over the models.dev table the recording used; and the
 //! setting read from `fixtures/cache-warm/golden.json`.
 
-
-
 use super::chain::WarmTimers;
 use super::process::TokioTimers;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 // The timers are tokio's, so the test moves the paused clock itself, to 1 ms before the 150 ms delay and then onto it.
 #[tokio::test(start_paused = true)]
@@ -33,7 +15,12 @@ async fn a_timer_runs_after_its_delay_and_a_cancelled_one_never_does() {
     let (fired, mut ran) = tokio::sync::mpsc::unbounded_channel::<&'static str>();
     for (name, delay, cancel) in [("late", 150.0, false), ("cancelled", 150.0, true), ("negative", -5.0, false)] {
         let fired = fired.clone();
-        let handle = TokioTimers.schedule(delay, Box::pin(async move { let _ = fired.send(name); }));
+        let handle = TokioTimers.schedule(
+            delay,
+            Box::pin(async move {
+                let _ = fired.send(name);
+            }),
+        );
         if cancel {
             handle.cancel();
         }
@@ -49,5 +36,3 @@ async fn a_timer_runs_after_its_delay_and_a_cancelled_one_never_does() {
     assert_eq!((ran.recv().await, began.elapsed()), (Some("late"), ms(150)), "the 150 ms timer runs at 150 ms");
     assert_eq!(ran.recv().await, None, "the cancelled timer never runs");
 }
-
-

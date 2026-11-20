@@ -132,7 +132,9 @@ pub(super) fn set_paragraph_flow(format: &Com, props: &Value) -> Result<()> {
         format.set_member("LineSpacingRule", Com::I4(rule))?;
         format.set_member("LineSpacing", r4(&line_spacing)?)?;
     }
-    for (key, member) in [("keepWithNext", "KeepWithNext"), ("keepTogether", "KeepTogether"), ("widowControl", "WidowControl"), ("pageBreakBefore", "PageBreakBefore")] {
+    for (key, member) in
+        [("keepWithNext", "KeepWithNext"), ("keepTogether", "KeepTogether"), ("widowControl", "WidowControl"), ("pageBreakBefore", "PageBreakBefore")]
+    {
         let value = prop(props, key);
         if !value.is_null() {
             format.set_member(member, flag(&value, -1))?;

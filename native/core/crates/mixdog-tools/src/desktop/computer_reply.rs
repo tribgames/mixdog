@@ -21,10 +21,7 @@ pub(super) fn single(action: &str, result: &Map<String, Value>) -> Result<Vec<To
     let shaped = Value::Object(payload(action, result)).to_string();
     // The payload adds fields to the helper's text: it is held to the same bound.
     if shaped.encode_utf16().count() > MAX_TEXT_CHARS {
-        return Err(ComputerError::Failed {
-            code: "computer_invalid_reply".into(),
-            message: "computer bridge returned invalid or oversized text".into(),
-        });
+        return Err(ComputerError::Failed { code: "computer_invalid_reply".into(), message: "computer bridge returned invalid or oversized text".into() });
     }
     parts[0] = ToolPart::Text(shaped);
     Ok(parts)

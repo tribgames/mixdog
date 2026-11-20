@@ -198,7 +198,13 @@ pub(crate) fn device_path(registry: &Registry, laid: &Laid, matrix: Transform, m
             let mut single = PathBuilder::new();
             glyph::into_path(&contours, &mut single, |(x, y)| (ox + x, oy - y));
             if let Some(outline) = single.finish() {
-                let stroke = Stroke { width: mixdog_fonts::measure::fake_bold_width(scale * upem) * matrix.sy.abs(), miter_limit: 4.0, line_join: LineJoin::Miter, line_cap: LineCap::Butt, dash: None };
+                let stroke = Stroke {
+                    width: mixdog_fonts::measure::fake_bold_width(scale * upem) * matrix.sy.abs(),
+                    miter_limit: 4.0,
+                    line_join: LineJoin::Miter,
+                    line_cap: LineCap::Butt,
+                    dash: None,
+                };
                 if let Some(grown) = outline.stroke(&stroke, 1.0) {
                     sampled.push_path(&grown);
                 }

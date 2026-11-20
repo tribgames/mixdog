@@ -32,32 +32,18 @@ type Client = WebSocketStream<TcpStream>;
 async fn listen(origin: ListenerOrigin) -> WebSocketListener {
     install_rt();
     let hub = ConnectionHub::new(small_limits()).unwrap();
-    WebSocketListener::bind(
-        "127.0.0.1:0".parse().unwrap(),
-        hub,
-        BearerAuth::new(TOKEN),
-        origin,
-    )
-    .await
-    .unwrap()
+    WebSocketListener::bind("127.0.0.1:0".parse().unwrap(), hub, BearerAuth::new(TOKEN), origin).await.unwrap()
 }
 
 /// Dials with the given header lines, each `(name, value)` appended as written.
 async fn dial(addr: SocketAddr, headers: &[(&str, &str)]) -> Result<Client, WsError> {
     let tcp = TcpStream::connect(addr).await.unwrap();
     let mut request = format!("ws://{addr}/rpc").into_client_request().unwrap();
-    request
-        .headers_mut()
-        .insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
+    request.headers_mut().insert("authorization", format!("Bearer {TOKEN}").parse().unwrap());
     for (name, value) in headers {
-        request.headers_mut().append(
-            tokio_tungstenite::tungstenite::http::HeaderName::from_bytes(name.as_bytes()).unwrap(),
-            value.parse().unwrap(),
-        );
+        request.headers_mut().append(tokio_tungstenite::tungstenite::http::HeaderName::from_bytes(name.as_bytes()).unwrap(), value.parse().unwrap());
     }
-    tokio_tungstenite::client_async(request, tcp)
-        .await
-        .map(|(client, _)| client)
+    tokio_tungstenite::client_async(request, tcp).await.map(|(client, _)| client)
 }
 
 async fn accepted(origin: ListenerOrigin, headers: &[(&str, &str)]) -> (Client, AcceptedConnection) {
@@ -83,14 +69,7 @@ async fn refusal_reason(origin: ListenerOrigin, headers: &[(&str, &str)]) -> Str
 #[tokio::test]
 async fn window_header_loopback_narrows() {
     let (_client, server) = accepted(ListenerOrigin::Loopback, &[(WINDOW_HEADER, "win-1")]).await;
-    assert_eq!(
-        server.origin,
-        ConnectionOrigin::Window {
-            window_id: "win-1".into(),
-            tunnel: false,
-            role: WindowRole::Main,
-        }
-    );
+    assert_eq!(server.origin, ConnectionOrigin::Window { window_id: "win-1".into(), tunnel: false, role: WindowRole::Main });
     assert_eq!(server.origin.window_id(), Some("win-1"));
     assert_eq!(server.origin.window_role(), Some(&WindowRole::Main));
     assert_eq!(server.origin.origin(), Origin::Local);
@@ -99,35 +78,18 @@ async fn window_header_loopback_narrows() {
 #[tokio::test]
 async fn window_header_tunnel_narrows() {
     let (_client, server) = accepted(ListenerOrigin::SshTunnel, &[(WINDOW_HEADER, "win-2")]).await;
-    assert_eq!(
-        server.origin,
-        ConnectionOrigin::Window {
-            window_id: "win-2".into(),
-            tunnel: true,
-            role: WindowRole::Main,
-        }
-    );
+    assert_eq!(server.origin, ConnectionOrigin::Window { window_id: "win-2".into(), tunnel: true, role: WindowRole::Main });
     assert_eq!(server.origin.origin(), Origin::Ssh);
 }
 
 #[tokio::test]
 async fn window_role_main_and_server() {
     for listener in [ListenerOrigin::Loopback, ListenerOrigin::SshTunnel] {
-        let (_client, server) =
-            accepted(listener, &[(WINDOW_HEADER, "w"), (WINDOW_ROLE_HEADER, "main")]).await;
+        let (_client, server) = accepted(listener, &[(WINDOW_HEADER, "w"), (WINDOW_ROLE_HEADER, "main")]).await;
         assert_eq!(server.origin.window_role(), Some(&WindowRole::Main));
 
-        let (_client, server) = accepted(
-            listener,
-            &[(WINDOW_HEADER, "w"), (WINDOW_ROLE_HEADER, "server:conn_1.a:b-c")],
-        )
-        .await;
-        assert_eq!(
-            server.origin.window_role(),
-            Some(&WindowRole::Server {
-                connection_id: "conn_1.a:b-c".into()
-            })
-        );
+        let (_client, server) = accepted(listener, &[(WINDOW_HEADER, "w"), (WINDOW_ROLE_HEADER, "server:conn_1.a:b-c")]).await;
+        assert_eq!(server.origin.window_role(), Some(&WindowRole::Server { connection_id: "conn_1.a:b-c".into() }));
     }
 }
 
@@ -138,44 +100,20 @@ async fn window_header_malformed_refused() {
         for bad in ["", "has space", "slash/id", long.as_str()] {
             assert_eq!(refusal_reason(listener, &[(WINDOW_HEADER, bad)]).await, "invalidWindow", "{bad:?}");
         }
-        assert_eq!(
-            refusal_reason(listener, &[(WINDOW_HEADER, "a"), (WINDOW_HEADER, "b")]).await,
-            "invalidWindow"
-        );
+        assert_eq!(refusal_reason(listener, &[(WINDOW_HEADER, "a"), (WINDOW_HEADER, "b")]).await, "invalidWindow");
         for role in ["", "Main", "server", "server:", "server:bad id", "admin", "main:x"] {
-            assert_eq!(
-                refusal_reason(listener, &[(WINDOW_HEADER, "a"), (WINDOW_ROLE_HEADER, role)]).await,
-                "invalidWindowRole",
-                "{role:?}"
-            );
+            assert_eq!(refusal_reason(listener, &[(WINDOW_HEADER, "a"), (WINDOW_ROLE_HEADER, role)]).await, "invalidWindowRole", "{role:?}");
         }
-        assert_eq!(
-            refusal_reason(
-                listener,
-                &[(WINDOW_HEADER, "a"), (WINDOW_ROLE_HEADER, "main"), (WINDOW_ROLE_HEADER, "main")]
-            )
-            .await,
-            "invalidWindowRole"
-        );
+        assert_eq!(refusal_reason(listener, &[(WINDOW_HEADER, "a"), (WINDOW_ROLE_HEADER, "main"), (WINDOW_ROLE_HEADER, "main")]).await, "invalidWindowRole");
         // A role without a window names nothing.
-        assert_eq!(
-            refusal_reason(listener, &[(WINDOW_ROLE_HEADER, "main")]).await,
-            "invalidWindowRole"
-        );
+        assert_eq!(refusal_reason(listener, &[(WINDOW_ROLE_HEADER, "main")]).await, "invalidWindowRole");
     }
 }
 
 #[tokio::test]
 async fn window_and_relay_peer_refused() {
     for listener in [ListenerOrigin::Loopback, ListenerOrigin::SshTunnel] {
-        assert_eq!(
-            refusal_reason(
-                listener,
-                &[(WINDOW_HEADER, "win-1"), ("mixdog-relay-peer", "0a1b2c3d-4e5f")]
-            )
-            .await,
-            "conflictingNarrowing"
-        );
+        assert_eq!(refusal_reason(listener, &[(WINDOW_HEADER, "win-1"), ("mixdog-relay-peer", "0a1b2c3d-4e5f")]).await, "conflictingNarrowing");
     }
 }
 
@@ -186,7 +124,6 @@ async fn no_header_unchanged() {
     assert_eq!(server.origin.window_id(), None);
     let (_client, server) = accepted(ListenerOrigin::SshTunnel, &[]).await;
     assert_eq!(server.origin, ConnectionOrigin::SshTunnel);
-    let (_client, server) =
-        accepted(ListenerOrigin::SshTunnel, &[("mixdog-relay-peer", "0a1b2c3d-4e5f")]).await;
+    let (_client, server) = accepted(ListenerOrigin::SshTunnel, &[("mixdog-relay-peer", "0a1b2c3d-4e5f")]).await;
     assert_eq!(server.origin, ConnectionOrigin::Relay { peer_id: "0a1b2c3d-4e5f".into() });
 }

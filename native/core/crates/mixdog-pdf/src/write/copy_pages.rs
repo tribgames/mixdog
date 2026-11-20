@@ -151,11 +151,7 @@ fn value_text(value: &Obj) -> Option<String> {
     match value {
         Obj::Str(bytes) => Some(decode_text_string(bytes)),
         Obj::Name(name) => Some(name.to_string()),
-        Obj::Num(number) => Some(if number.fract() == 0.0 && number.abs() < 1e15 {
-            format!("{}", *number as i64)
-        } else {
-            number.to_string()
-        }),
+        Obj::Num(number) => Some(if number.fract() == 0.0 && number.abs() < 1e15 { format!("{}", *number as i64) } else { number.to_string() }),
         _ => None,
     }
 }
@@ -191,17 +187,11 @@ impl PdfDocument {
         if self.has_acro_form() {
             return Ok(());
         }
-        let root = self
-            .store
-            .trailer
-            .root
-            .ok_or_else(|| invalid("the file has no catalog"))?;
+        let root = self.store.trailer.root.ok_or_else(|| invalid("the file has no catalog"))?;
         let mut form = Dict::new();
         form.set("Fields", Obj::Array(Arc::new(Vec::new())));
         let form_ref = self.store.register(Obj::Dict(Arc::new(form)));
-        self.store
-            .modify_dict(root, |catalog| catalog.set("AcroForm", Obj::Ref(form_ref)))
-            .ok_or_else(|| invalid("the catalog is not a dictionary"))
+        self.store.modify_dict(root, |catalog| catalog.set("AcroForm", Obj::Ref(form_ref))).ok_or_else(|| invalid("the catalog is not a dictionary"))
     }
 
     /// `PDFAcroForm.normalizedEntries`: `Fields` is an array afterwards.
@@ -276,11 +266,7 @@ impl PdfDocument {
             None => own,
             Some(parent) => {
                 let parent_name = self.fully_qualified_name(parent, depth + 1);
-                Some(format!(
-                    "{}.{}",
-                    parent_name.as_deref().unwrap_or("undefined"),
-                    own.as_deref().unwrap_or("undefined")
-                ))
+                Some(format!("{}.{}", parent_name.as_deref().unwrap_or("undefined"), own.as_deref().unwrap_or("undefined")))
             }
         }
     }
@@ -290,8 +276,7 @@ impl PdfDocument {
         let Some(Obj::Array(kids)) = self.store.lookup(dict, "Kids") else {
             return false;
         };
-        kids.iter()
-            .any(|kid| matches!(self.store.resolve(kid), Some(Obj::Dict(kid)) if kid.has("T")))
+        kids.iter().any(|kid| matches!(self.store.resolve(kid), Some(Obj::Dict(kid)) if kid.has("T")))
     }
 
     fn collect_fields(&self, entries: &[Obj], depth: usize, out: &mut Vec<FormField>) {
@@ -311,22 +296,12 @@ impl PdfDocument {
                 }
                 continue;
             }
-            let field_type = match self
-                .inheritable_raw(dict, "FT")
-                .and_then(|raw| self.store.resolve(&raw).and_then(Obj::as_name).map(str::to_owned))
-            {
+            let field_type = match self.inheritable_raw(dict, "FT").and_then(|raw| self.store.resolve(&raw).and_then(Obj::as_name).map(str::to_owned)) {
                 Some(name) if matches!(name.as_str(), "Btn" | "Ch" | "Tx" | "Sig") => name,
                 _ => continue,
             };
-            let value = self
-                .inheritable_raw(dict, "V")
-                .and_then(|raw| self.store.resolve(&raw).and_then(value_text));
-            out.push(FormField {
-                reference: *reference,
-                name: self.fully_qualified_name(*reference, 0).unwrap_or_default(),
-                field_type,
-                value,
-            });
+            let value = self.inheritable_raw(dict, "V").and_then(|raw| self.store.resolve(&raw).and_then(value_text));
+            out.push(FormField { reference: *reference, name: self.fully_qualified_name(*reference, 0).unwrap_or_default(), field_type, value });
         }
     }
 
@@ -361,10 +336,7 @@ impl PdfDocument {
         }
         let missing = |document: &PdfDocument| {
             let name = document.fully_qualified_name(field, 0);
-            invalid(format!(
-                "Tried to remove inexistent field {}",
-                name.as_deref().unwrap_or("undefined")
-            ))
+            invalid(format!("Tried to remove inexistent field {}", name.as_deref().unwrap_or("undefined")))
         };
         let holds = move |item: &Obj| matches!(item, Obj::Ref(r) if *r == field);
         let parent = self.store.dict(field).and_then(|dict| self.parent_field(dict));
@@ -382,12 +354,7 @@ impl PdfDocument {
             })?;
             return if removed { Ok(()) } else { Err(missing(self)) };
         };
-        let kids = self
-            .store
-            .dict(parent)
-            .and_then(|dict| self.store.lookup(dict, "Kids"))
-            .and_then(Obj::as_array)
-            .map(|items| (**items).clone());
+        let kids = self.store.dict(parent).and_then(|dict| self.store.lookup(dict, "Kids")).and_then(Obj::as_array).map(|items| (**items).clone());
         let Some(mut kids) = kids else {
             return Err(missing(self));
         };
@@ -442,12 +409,7 @@ impl PdfDocument {
             }
         }
         for field_ref in &roots {
-            let title = self
-                .store
-                .dict(*field_ref)
-                .and_then(|dict| dict.get_raw("T"))
-                .and_then(Obj::as_str)
-                .map(decode_text_string);
+            let title = self.store.dict(*field_ref).and_then(|dict| dict.get_raw("T")).and_then(Obj::as_str).map(decode_text_string);
             let mut name = title.unwrap_or_default();
             if !name.is_empty() && names.contains(&name) {
                 let mut suffix = 2;
@@ -479,12 +441,7 @@ impl PdfDocument {
         }
         for field in self.form_fields() {
             let widgets = self.field_widgets(field.reference);
-            let gone: Vec<Ref> = widgets
-                .iter()
-                .flatten()
-                .filter(|widget| !placed.contains(*widget))
-                .copied()
-                .collect();
+            let gone: Vec<Ref> = widgets.iter().flatten().filter(|widget| !placed.contains(*widget)).copied().collect();
             if gone.is_empty() {
                 continue;
             }
@@ -492,12 +449,7 @@ impl PdfDocument {
                 self.remove_form_field(field.reference, 0)?;
                 continue;
             }
-            let kids = self
-                .store
-                .dict(field.reference)
-                .and_then(|dict| self.store.lookup(dict, "Kids"))
-                .and_then(Obj::as_array)
-                .map(|items| (**items).clone());
+            let kids = self.store.dict(field.reference).and_then(|dict| self.store.lookup(dict, "Kids")).and_then(Obj::as_array).map(|items| (**items).clone());
             let Some(mut kids) = kids else {
                 continue;
             };
@@ -520,12 +472,7 @@ impl PdfDocument {
                 return Err(invalid(format!("PDF page out of range: {}", index + 1)));
             }
         }
-        let mut copier = Copier {
-            source: &source.store,
-            dest: &mut self.store,
-            mapped: HashMap::new(),
-            depth: 0,
-        };
+        let mut copier = Copier { source: &source.store, dest: &mut self.store, mapped: HashMap::new(), depth: 0 };
         let mut copied = Vec::with_capacity(indices.len());
         for index in indices {
             let Some(page) = source_pages.get(*index).and_then(|page| source.store.dict(*page)) else {

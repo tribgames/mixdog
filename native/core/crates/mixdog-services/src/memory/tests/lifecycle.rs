@@ -95,11 +95,9 @@ async fn a_forced_cut_discards_the_connection_of_an_embedding_a_cancelled_ingest
     ensure_memory_schema(&db, 384, &Value::Null).await.expect("schema");
     let (memory, mut entered, release) = memory_holding_claims(&db, &pg.dir.path().join("data"));
     ingest_then_cancel_the_caller(&memory, &mut entered, true).await;
-    let held: i32 = db
-        .query("SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND state LIKE 'idle in transaction%'", &[])
-        .await
-        .expect("activity")[0]
-        .get(0);
+    let held: i32 =
+        db.query("SELECT pid FROM pg_stat_activity WHERE datname = current_database() AND state LIKE 'idle in transaction%'", &[]).await.expect("activity")[0]
+            .get(0);
     // The observer is a handle of its own owner: the cut owner's transport admits nothing after its revocation.
     let observer = pg.db(Schema::Memory).await;
     let scope = db.scope().clone();
@@ -259,7 +257,8 @@ async fn scoped_operations_are_cut_mid_statement_and_refused_after_the_stop() {
     let search_db = crate::memory::session_search::db::SessionSearchDb::open(pg.db(Schema::SessionSearch).await).await.expect("schema");
     let memory_db = pg.db(Schema::Memory).await;
     let observer = pg.db(Schema::SessionSearch).await;
-    let ingest = crate::memory::session_search::ingest::SessionSearchIngest::new(search_db.clone(), Arc::new(crate::memory::sensitive::SensitiveStore::default()));
+    let ingest =
+        crate::memory::session_search::ingest::SessionSearchIngest::new(search_db.clone(), Arc::new(crate::memory::sensitive::SensitiveStore::default()));
     let search = crate::memory::access::MemoryAccess::over(search_db.db().clone());
     let thread_search = crate::memory::thread_search::ThreadSearchService::new(search.clone());
     observer.batch("CREATE SCHEMA IF NOT EXISTS scheduler; CREATE TABLE IF NOT EXISTS scheduler.schedules (name text)").await.expect("the legacy table");

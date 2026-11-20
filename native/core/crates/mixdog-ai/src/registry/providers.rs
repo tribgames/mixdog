@@ -364,18 +364,13 @@ impl ProviderRegistry {
     /// signature changed and removes those a stored decision turned off.
     /// Locally, `decisions` is the stored providers section (`None` when unreadable:
     /// nothing is removed), and sync never adds. A remote sync reconciles the PC's full set.
-    pub async fn sync_providers(
-        &self,
-        record: &Map<String, Value>,
-        decisions: Option<Map<String, Value>>,
-    ) -> Result<(), RegistryError> {
+    pub async fn sync_providers(&self, record: &Map<String, Value>, decisions: Option<Map<String, Value>>) -> Result<(), RegistryError> {
         if self.remote.is_some() {
             return self.apply_remote(false).await;
         }
         let is_off = decisions.map(|d| {
             Box::new(move |name: &str| {
-                d.get(name).and_then(|v| v.get("enabled")).and_then(Value::as_bool) == Some(false)
-                    || (name.starts_with("custom-") && !d.contains_key(name))
+                d.get(name).and_then(|v| v.get("enabled")).and_then(Value::as_bool) == Some(false) || (name.starts_with("custom-") && !d.contains_key(name))
             }) as Box<IsProviderOff>
         });
         let config = self.with_custom_key_ids(record).await?;
@@ -411,8 +406,7 @@ impl ProviderRegistry {
         };
         for name in registered_oauth {
             let opted_out = config.get(name).is_some_and(|cfg| {
-                cfg.get("enabled").and_then(Value::as_bool) != Some(true)
-                    && cfg.get("credentialProbeUnavailable").and_then(Value::as_bool) != Some(true)
+                cfg.get("enabled").and_then(Value::as_bool) != Some(true) && cfg.get("credentialProbeUnavailable").and_then(Value::as_bool) != Some(true)
             });
             if opted_out {
                 continue;
@@ -512,8 +506,7 @@ impl ProviderRegistry {
                     Self::remove(&mut state, &name);
                 }
             }
-            state.explicitly_disabled =
-                OAUTH_PROVIDER_NAMES.iter().filter(|n| is_off(n)).map(|n| (*n).to_owned()).collect();
+            state.explicitly_disabled = OAUTH_PROVIDER_NAMES.iter().filter(|n| is_off(n)).map(|n| (*n).to_owned()).collect();
         }
         skipped
     }
@@ -644,21 +637,18 @@ impl ProviderRegistry {
             return None;
         }
         let adapter = Arc::clone(&self.state().providers.get(name)?.adapter);
-        let listing = adapter.models().is_some().then(|| {
-            Arc::new(AdapterRows { provider: ProviderId::from(name), adapter: Arc::clone(&adapter) }) as Arc<dyn ListedRows>
-        });
+        let listing = adapter
+            .models()
+            .is_some()
+            .then(|| Arc::new(AdapterRows { provider: ProviderId::from(name), adapter: Arc::clone(&adapter) }) as Arc<dyn ListedRows>);
         Some(RouteProvider { cached: self.builder.cached_model_info(name), listing })
     }
 
     /// Live instances minus dev-gated providers whose option is off.
     pub fn all(&self) -> Vec<(String, Arc<dyn ProviderAdapter>)> {
         let state = self.state();
-        let mut out: Vec<_> = state
-            .providers
-            .iter()
-            .filter(|(name, _)| self.builder.available(name))
-            .map(|(name, e)| (name.clone(), Arc::clone(&e.adapter)))
-            .collect();
+        let mut out: Vec<_> =
+            state.providers.iter().filter(|(name, _)| self.builder.available(name)).map(|(name, e)| (name.clone(), Arc::clone(&e.adapter))).collect();
         out.sort_by(|a, b| a.0.cmp(&b.0));
         out
     }
@@ -1190,6 +1180,4 @@ mod tests {
             unreachable!("nothing is sent")
         }
     }
-
-
 }

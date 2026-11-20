@@ -42,8 +42,8 @@ use super::files::entry_file;
 use super::files::entry_path;
 use super::files::manifest_of;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
-use mixdog_core_config::config::bot_migration;
 use mixdog_core_config::config::agent_routes::agent_editor_id;
+use mixdog_core_config::config::bot_migration;
 use mixdog_core_config::workflow::ids::agent_id_from_name;
 use mixdog_core_config::workflow::ids::available_workflow_id;
 use mixdog_core_config::workflow::ids::clean;
@@ -295,8 +295,7 @@ pub(super) fn plan_save(folders: &Folders, lane: &Lane, payload: &Map<String, Va
             folders.load(lane, candidate).is_some()
                 || is_archived(&folders.user_dir(lane, candidate))
                 || migrated.contains(candidate)
-                || (store_active
-                    && (folders.data.join("agents").join(candidate).exists() || folders.data.join("bots").join(candidate).exists()))
+                || (store_active && (folders.data.join("agents").join(candidate).exists() || folders.data.join("bots").join(candidate).exists()))
         })
     } else {
         given
@@ -357,19 +356,11 @@ pub(super) fn save_files(
     };
     let name = if plan.name.is_empty() { id.clone() } else { plan.name.clone() };
     let shipped = folders.shipped_dir(id);
-    let mut manifest = hidden_manifest(if plan.user_has_file {
-        read_manifest_for_update(lane, &plan.user_dir)?
-    } else {
-        manifest_of(&shipped)
-    });
+    let mut manifest = hidden_manifest(if plan.user_has_file { read_manifest_for_update(lane, &plan.user_dir)? } else { manifest_of(&shipped) });
     let data = &folders.data;
     let store_bot = !existed && kind.as_deref() == Some("bot") && plan.store_active;
     if !existed && plan.store_active {
-        let taken = if store_bot {
-            data.join("agents").join(id).exists()
-        } else {
-            data.join("bots").join(id).exists() || plan.migrated
-        };
+        let taken = if store_bot { data.join("agents").join(id).exists() } else { data.join("bots").join(id).exists() || plan.migrated };
         if taken {
             return Err(format!("agent id \"{id}\" is already in use; pick another name"));
         }
@@ -378,9 +369,8 @@ pub(super) fn save_files(
     let in_store = dir == data.join("bots").join(id);
     let update = apply_manifest_edits(&mut manifest, payload, &dir, no_widen)?;
     // PERSONA.md: written when given and non-empty, removed when given empty, untouched when absent.
-    let persona = payload.get("persona").map(|value| {
-        mixdog_js::js_trim(&if value.is_null() { String::new() } else { mixdog_js::value_to_string(value) }).to_owned()
-    });
+    let persona =
+        payload.get("persona").map(|value| mixdog_js::js_trim(&if value.is_null() { String::new() } else { mixdog_js::value_to_string(value) }).to_owned());
     let definition = Definition { name: name.clone(), description: plan.description.clone(), body: body.clone(), fields: Vec::new() };
     let absorbed = !in_store
         && persona.as_deref().is_none_or(str::is_empty)
@@ -564,11 +554,7 @@ pub(super) fn delete_files(lane: &InLane<DurabilityIo>, plan: &LifecyclePlan) ->
     let agent_file = dir.join("AGENT.md");
     let agent_archive = dir.join(ARCHIVED_AGENT_FILE);
     if agent_file.exists() && agent_archive.exists() {
-        return Err(format!(
-            "agent \"{}\" cannot be deleted: {} already exists; move or remove it first",
-            plan.id,
-            agent_archive.display()
-        ));
+        return Err(format!("agent \"{}\" cannot be deleted: {} already exists; move or remove it first", plan.id, agent_archive.display()));
     }
     let entry = archivable_entry(dir, &entry_path(dir, &manifest_of(dir)));
     std::fs::create_dir_all(dir).map_err(|error| error.to_string())?;
@@ -706,11 +692,8 @@ pub(super) fn avatar_images(folders: &Folders, lane: &Lane, agent_id: &str) -> V
     let dir = if lead { folders.identity_dir(lane) } else { folders.user_dir(lane, &id) };
     // An archived agent's face stays readable for its archived chat.
     let archived = !lead && is_archived(&dir);
-    let avatar = if lead || archived {
-        manifest_of(&dir).get("avatar").and_then(normalize_agent_avatar).unwrap_or(Value::Null)
-    } else {
-        folders.avatar_of(lane, &id)
-    };
+    let avatar =
+        if lead || archived { manifest_of(&dir).get("avatar").and_then(normalize_agent_avatar).unwrap_or(Value::Null) } else { folders.avatar_of(lane, &id) };
     if avatar["kind"] != "custom" || (!lead && !archived && !folders.has_user_file(lane, &id)) {
         return Value::Null;
     }
@@ -750,11 +733,9 @@ fn revision(dir: &Path) -> String {
     let manifest = manifest_of(dir);
     let entry = entry_file(&manifest);
     let mut hash = Sha256::new();
-    for (name, file) in [
-        ("agent.json".to_owned(), dir.join("agent.json")),
-        (entry.clone(), entry_path(dir, &manifest)),
-        (PERSONA_FILE.to_owned(), dir.join(PERSONA_FILE)),
-    ] {
+    for (name, file) in
+        [("agent.json".to_owned(), dir.join("agent.json")), (entry.clone(), entry_path(dir, &manifest)), (PERSONA_FILE.to_owned(), dir.join(PERSONA_FILE))]
+    {
         hash.update(format!("{name}\0").as_bytes());
         match std::fs::read(&file) {
             Ok(bytes) => hash.update(&bytes),

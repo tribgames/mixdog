@@ -62,14 +62,7 @@ impl StoredSearchSessions {
     /// `loadSession` null).
     pub(super) async fn header(&self, session_id: &str) -> Option<Header> {
         let (reader, thread): (Arc<dyn ThreadStore>, ThreadId) = (self.threads.clone(), ThreadId::from(session_id));
-        self.lanes
-            .io
-            .submit_wait(&CancellationToken::new(), move |lane| reader.read_header(lane, &thread))
-            .await
-            .ok()?
-            .await
-            .ok()?
-            .ok()
+        self.lanes.io.submit_wait(&CancellationToken::new(), move |lane| reader.read_header(lane, &thread)).await.ok()?.await.ok()?.ok()
     }
 }
 
@@ -121,10 +114,14 @@ impl StoredSessions for StoredSearchSessions {
             return Ok(SessionStamp::Gone);
         };
         let first = self.sessions_dir().join(session_id).join(mixdog_store::log::log_name(0));
-        let version = self.lanes.io
+        let version = self
+            .lanes
+            .io
             .submit_wait(&CancellationToken::new(), move |_| mixdog_workspace::ident::stat_version(&first))
-            .await.map_err(|e| failed("schedule session stamp", e))?
-            .await.map_err(|e| failed("read session stamp", e))?;
+            .await
+            .map_err(|e| failed("schedule session stamp", e))?
+            .await
+            .map_err(|e| failed("read session stamp", e))?;
         if mixdog_store::log_epoch::settled(session_id) != Some(epoch) {
             return Ok(SessionStamp::Busy);
         }
@@ -133,16 +130,16 @@ impl StoredSessions for StoredSearchSessions {
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(SessionStamp::Gone),
             Err(e) => return Err(failed("stat first session log", e)),
         };
-        Ok(SessionStamp::At(format!("frame-v2:{}:{}:{}:{}:{}:{}:{}:{}",
-            at.ordinal, at.file_no, at.offset, version.dev, version.ino, version.size, version.mtime_ns, version.ctime_ns)))
+        Ok(SessionStamp::At(format!(
+            "frame-v2:{}:{}:{}:{}:{}:{}:{}:{}",
+            at.ordinal, at.file_no, at.offset, version.dev, version.ino, version.size, version.mtime_ns, version.ctime_ns
+        )))
     }
 
     async fn read(&self, session_id: &str) -> Option<IngestSession> {
         let id = ThreadId::from(session_id);
         let (threads, shape_id) = (self.threads.clone(), id.clone());
-        let shape = self.lanes.io
-            .submit_wait(&CancellationToken::new(), move |lane| threads.search_shape(lane, &shape_id))
-            .await.ok()?.await.ok()?.ok()?;
+        let shape = self.lanes.io.submit_wait(&CancellationToken::new(), move |lane| threads.search_shape(lane, &shape_id)).await.ok()?.await.ok()?.ok()?;
         if !shape.is_current() {
             return None;
         }

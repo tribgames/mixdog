@@ -9,20 +9,20 @@
 //!
 //! The HTTP exchange is the shared [`HttpSend`] seam of `transport::http`.
 
-use crate::transport::deadlines::MODEL_STREAM;
 use crate::transport::deadlines::ANTHROPIC_MODELS;
+use crate::transport::deadlines::MODEL_STREAM;
 use std::collections::VecDeque;
 use std::io::Write;
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 
+use crate::cache_tail::AdmittedWrite;
+use crate::transport::link::Exchange;
 use async_trait::async_trait;
 use flate2::Compression;
 use flate2::GzBuilder;
 use futures::future::BoxFuture;
-use crate::transport::link::Exchange;
-use crate::cache_tail::AdmittedWrite;
 use mixdog_core_api::domain::cache_tail::{Admission, Counters, Purpose, TailRoute, Verdict, WireManifest};
 
 /// The permit a write went out under, with the gate that issued it: the write's usage is settled on it, once.
@@ -103,20 +103,16 @@ use crate::transport::link::deadline_error;
 use crate::transport::model_driver::Expiry;
 use crate::transport::model_driver::ModelCall;
 use crate::transport::model_driver::ModelDriver;
+use crate::transport::preconnect::Preconnect;
+use crate::transport::preconnect::Setting;
 use mixdog_core_api::domain::provider::AttemptHandle;
 use mixdog_core_api::domain::provider::AttemptPhase;
 use mixdog_core_api::domain::provider::Exposure;
 use mixdog_core_api::domain::provider::PhaseWindows;
 use mixdog_core_api::domain::provider::StreamTimeoutPhase;
 use mixdog_rt::Expired;
-use crate::transport::preconnect::Preconnect;
-use crate::transport::preconnect::Setting;
 
-use crate::warmer::send::{Post, WarmContext, send_cache_warm};
-use crate::warmer::stream::{WarmFailure, WarmUsage};
 use super::before_output::BeforeOutput;
-use super::fast_mode::CapacityError;
-use super::fast_mode;
 use super::betas::BetaFeatures;
 use super::betas::beta_header;
 use super::codec::ANTHROPIC_VERSION;
@@ -127,18 +123,22 @@ use super::codec::Plain;
 use super::codec::beta_names;
 use super::codec::layer_extra_headers;
 use super::codec::threaded;
+use super::fast_mode;
+use super::fast_mode::CapacityError;
+use super::models::AnthropicModel;
+use super::models::listing_url;
+use super::models::parse_listing;
+use super::oauth::OAuthSession;
+use super::policy::retry_policy;
 use super::threads;
 use super::threads::Directive;
 use super::threads::Mode;
 use super::threads::Plan;
 use super::threads::PlanInput;
 use super::threads::ThreadSession;
+use crate::warmer::send::{Post, WarmContext, send_cache_warm};
+use crate::warmer::stream::{WarmFailure, WarmUsage};
 use serde_json::Value;
-use super::models::AnthropicModel;
-use super::models::listing_url;
-use super::models::parse_listing;
-use super::oauth::OAuthSession;
-use super::policy::retry_policy;
 
 /// The compression job could not run to completion; nothing was sent.
 fn gzip_failure(cause: &dyn std::fmt::Display) -> ProviderError {
@@ -171,8 +171,10 @@ impl WarmCacheEvidence {
             let Ok(event) = serde_json::from_str::<Value>(&data) else { continue };
             let kind = event.get("type").and_then(Value::as_str);
             // Stop at the same frame as the warm reader, even if more frames arrived in this chunk.
-            if event.is_null() || event.get("error").is_some_and(crate::providers::js_value::truthy)
-                || matches!(kind, Some("error" | "message_stop")) || (kind == Some("content_block_start") && self.reported)
+            if event.is_null()
+                || event.get("error").is_some_and(crate::providers::js_value::truthy)
+                || matches!(kind, Some("error" | "message_stop"))
+                || (kind == Some("content_block_start") && self.reported)
             {
                 self.ended = true;
                 self.pending.clear();
@@ -233,7 +235,13 @@ pub type Compressor = Arc<dyn Fn(Vec<u8>) -> BoxFuture<'static, Result<Vec<u8>, 
 
 /// The gzip header's operating-system byte Node's zlib writes (`OS_CODE` of zlib's `zutil.h`): the compressed body
 /// is byte for byte Node's.
-const GZIP_OS: u8 = if cfg!(windows) { 10 } else if cfg!(target_os = "macos") { 19 } else { 3 };
+const GZIP_OS: u8 = if cfg!(windows) {
+    10
+} else if cfg!(target_os = "macos") {
+    19
+} else {
+    3
+};
 
 /// `officialMessagesUrl` (`anthropic-api-key-fetch.mjs:10-17`): the request goes to exactly
 /// `https://api.anthropic.com` at path `/v1/messages`, decided on the final URL so a custom base, proxy or gateway
@@ -319,10 +327,7 @@ impl Credentials {
     fn refreshable(&self, status: Option<u16>, body: &[u8]) -> bool {
         match self {
             Self::ApiKey(_) => status == Some(401),
-            Self::OAuth(_) => {
-                status == Some(401)
-                    || (status == Some(403) && String::from_utf8_lossy(body).contains("OAuth token has been revoked"))
-            }
+            Self::OAuth(_) => status == Some(401) || (status == Some(403) && String::from_utf8_lossy(body).contains("OAuth token has been revoked")),
         }
     }
 }
@@ -387,7 +392,8 @@ impl CacheWarmSend for AnthropicAdapter {
         let post: Post<'_> = Box::new(move || {
             Box::pin(async move {
                 // A cache warm is no model attempt: the driver's auxiliary transport, timed by its own exchange, plain.
-                let admit = Admit { request: warm_ref, manifest: manifest.as_ref(), secret: &secret, purpose: Purpose::Warm, announced: Admit::quiet(true), speed: "" };
+                let admit =
+                    Admit { request: warm_ref, manifest: manifest.as_ref(), secret: &secret, purpose: Purpose::Warm, announced: Admit::quiet(true), speed: "" };
                 let (mut response, _, write) = self.dispatch(Route::Aux, self.request_with(&wire, &secret), Some(&admit)).await?;
                 if !response.is_success() {
                     drop(write);
@@ -650,7 +656,8 @@ mod idle_tests {
         }
     }
 
-    const MESSAGE_START: &str = "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-4-6\",\"usage\":{\"input_tokens\":1}}}\n\n";
+    const MESSAGE_START: &str =
+        "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"model\":\"claude-sonnet-4-6\",\"usage\":{\"input_tokens\":1}}}\n\n";
     struct OpenBody {
         first: Option<&'static [u8]>,
         waiting: Option<tokio::sync::oneshot::Sender<()>>,
@@ -724,16 +731,29 @@ mod idle_tests {
     #[tokio::test]
     async fn dropping_a_warm_body_settles_only_the_cache_evidence_it_read() {
         let clock = Arc::new(std::sync::atomic::AtomicI64::new(1));
-        let gate = crate::cache_tail::Books::default().gate("warm-drop", None, crate::cache_tail::GateSettings {
-            clock: { let clock = clock.clone(); Arc::new(move || clock.load(Ordering::SeqCst)) },
-            auto_clear: Arc::new(|| true), sizing: 1, fresh: false, last_send_at: Some(1),
-        });
+        let gate = crate::cache_tail::Books::default().gate(
+            "warm-drop",
+            None,
+            crate::cache_tail::GateSettings {
+                clock: {
+                    let clock = clock.clone();
+                    Arc::new(move || clock.load(Ordering::SeqCst))
+                },
+                auto_clear: Arc::new(|| true),
+                sizing: 1,
+                fresh: false,
+                last_send_at: Some(1),
+            },
+        );
         let route = TailRoute("anthropic|fixture".into());
         let manifest = crate::cache_tail::manifest::anthropic(&serde_json::json!({
             "messages": [{"role":"user","content":[{"type":"text","text":"prompt","cache_control":{"type":"ephemeral"}}]}]
         }));
-        let Verdict::Send(permit) = gate.0.admit(Admission { purpose: Purpose::Warm, route: &route, manifest: &manifest, generation: None, unreduced: None }).await
-        else { panic!("the session's tail is live") };
+        let Verdict::Send(permit) =
+            gate.0.admit(Admission { purpose: Purpose::Warm, route: &route, manifest: &manifest, generation: None, unreduced: None }).await
+        else {
+            panic!("the session's tail is live")
+        };
         let mut body = WarmCacheBody {
             body: Box::new(OpenBody {
                 first: Some(b"data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"cache_read_input_tokens\":0,\"cache_creation_input_tokens\":9,\"cache_creation\":{\"ephemeral_5m_input_tokens\":9,\"ephemeral_1h_input_tokens\":0}}}}\n\n"),
@@ -799,7 +819,10 @@ mod idle_tests {
             let partial = err.partial_usage.as_deref().expect("reported usage on failure");
             let reported = reported.expect("usage before the failure");
             assert_eq!(partial.raw, reported.raw);
-            assert_eq!((partial.input_tokens, partial.output_tokens, partial.cache_read_tokens, partial.cache_write_tokens, partial.cache_write_1h_tokens), (4, 2, 8, 13, 7));
+            assert_eq!(
+                (partial.input_tokens, partial.output_tokens, partial.cache_read_tokens, partial.cache_write_tokens, partial.cache_write_1h_tokens),
+                (4, 2, 8, 13, 7)
+            );
             let split = &partial.raw.as_ref().unwrap()["cache_creation"];
             assert_eq!(split["ephemeral_5m_input_tokens"], 3);
             assert_eq!(split["ephemeral_1h_input_tokens"], 7);
@@ -859,7 +882,10 @@ mod idle_tests {
         let identity = SendIdentity::default();
         let stale = identity.begin_attempt(PhaseWindows::default(), false);
         let decoder = shared();
-        let mut stream = AnthropicStream::new(Timetable::of(&[(1, TEXT)]), Box::new(decoder.clone())).with_partial(decoder).with_identity(identity.clone()).with_attempt(stale);
+        let mut stream = AnthropicStream::new(Timetable::of(&[(1, TEXT)]), Box::new(decoder.clone()))
+            .with_partial(decoder)
+            .with_identity(identity.clone())
+            .with_attempt(stale);
         let current = identity.begin_attempt(PhaseWindows::default(), false);
         identity.take_boundaries();
         assert!(matches!(stream.next().await, Some(Ok(_))), "the stale stream still decodes its own bytes");
@@ -876,7 +902,6 @@ mod idle_tests {
         let _stream = AnthropicStream::new(Timetable::of(&[(5, ": k\n\n")]), Box::new(shared())).with_identity(identity.clone());
         assert!(!identity.take_transport());
     }
-
 
     #[async_trait]
     impl HttpSend for Script {
@@ -943,7 +968,15 @@ mod idle_tests {
         let (adapter, identity) = (adapter(), SendIdentity::default());
         let call = model_call(&adapter, &identity);
         let window = adapter.first_message_ms() as u64;
-        let script = Script::of(&[0], &[&[(0, "event: ping\ndata: {\"type\":\"ping\"}\n\n"), (window / 2000, ": ping\n\n"), (window / 2000, ": ping\n\n"), (window / 2000, ": ping\n\n")]]);
+        let script = Script::of(
+            &[0],
+            &[&[
+                (0, "event: ping\ndata: {\"type\":\"ping\"}\n\n"),
+                (window / 2000, ": ping\n\n"),
+                (window / 2000, ": ping\n\n"),
+                (window / 2000, ": ping\n\n"),
+            ]],
+        );
         let mut stream = open(script, &call, &identity).await.expect("the head");
         let began = tokio::time::Instant::now();
         let err = failure(&mut stream).await;
@@ -989,8 +1022,16 @@ mod idle_tests {
         assert_eq!(err.message, format!("Anthropic SSE stream timed out after {}ms of inactivity", idle * 1000));
         assert_eq!(began.elapsed(), Duration::from_secs(6 * apart + idle), "exactly one window after the last chunk, past two windows of pings");
         // The thinking start is the stream's one output (the decoder reports it as reasoning progress); no ping or fragment adds one.
-        assert_eq!(shown.iter().filter(|event| crate::providers::idle::output(event)).count(), 1, "a ping or a fragment is never reported as model output: {shown:?}");
-        assert_eq!(identity.take_boundaries().iter().filter(|(_, boundary)| *boundary == Boundary::FirstSemanticOutput).count(), 1, "the first output was published once, by the thinking start");
+        assert_eq!(
+            shown.iter().filter(|event| crate::providers::idle::output(event)).count(),
+            1,
+            "a ping or a fragment is never reported as model output: {shown:?}"
+        );
+        assert_eq!(
+            identity.take_boundaries().iter().filter(|(_, boundary)| *boundary == Boundary::FirstSemanticOutput).count(),
+            1,
+            "the first output was published once, by the thinking start"
+        );
         assert_eq!(script.next.load(Ordering::SeqCst), 1, "one POST");
     }
     /// A text delta that arrives without any `message_start` is no output of the attempt, and the pings after it renew nothing:
@@ -1002,7 +1043,17 @@ mod idle_tests {
         let window = adapter.first_message_ms() as u64;
         let delta = "event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n";
         let every = window / 1000 / 3;
-        let script = Script::of(&[0], &[&[(0, delta), (every, ": ping\n\n"), (every, "event: ping\ndata: {\"type\":\"ping\"}\n\n"), (every, ": ping\n\n"), (every, ": ping\n\n"), (every, ": ping\n\n")]]);
+        let script = Script::of(
+            &[0],
+            &[&[
+                (0, delta),
+                (every, ": ping\n\n"),
+                (every, "event: ping\ndata: {\"type\":\"ping\"}\n\n"),
+                (every, ": ping\n\n"),
+                (every, ": ping\n\n"),
+                (every, ": ping\n\n"),
+            ]],
+        );
         let mut stream = open(script, &call, &identity).await.expect("the head");
         let began = tokio::time::Instant::now();
         let err = failure(&mut stream).await;
@@ -1044,7 +1095,10 @@ mod idle_tests {
         let identity = SendIdentity::default();
         let attempt = identity.begin_attempt(PhaseWindows::default(), false);
         let decoder = shared();
-        let mut stream = AnthropicStream::new(Timetable::of(&[(0, chunk)]), Box::new(decoder.clone())).with_partial(decoder.clone()).with_identity(identity.clone()).with_attempt(attempt);
+        let mut stream = AnthropicStream::new(Timetable::of(&[(0, chunk)]), Box::new(decoder.clone()))
+            .with_partial(decoder.clone())
+            .with_identity(identity.clone())
+            .with_attempt(attempt);
         let first = mixdog_rt::time::timeout(Duration::from_secs(1), stream.next()).await.ok().flatten().map(|item| item.expect("an event"));
         (identity.take_transport(), first, decoder.message_started())
     }
@@ -1062,7 +1116,9 @@ mod idle_tests {
         assert!(transport && matches!(event, Some(StreamEvent::ProviderKeepalive)) && !started, "a named ping is a keepalive");
         let (transport, event, started) = observe(MESSAGE_START).await;
         assert!(transport && matches!(event, Some(StreamEvent::Progress(ProgressKind::Semantic))) && started, "message_start");
-        let (transport, event, _) = observe("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n").await;
+        let (transport, event, _) =
+            observe("event: content_block_delta\ndata: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"hi\"}}\n\n")
+                .await;
         assert!(transport && matches!(event, Some(StreamEvent::TextDelta(t)) if t == "hi"), "a semantic delta");
     }
 }
@@ -1092,7 +1148,10 @@ impl ModelStream for AnthropicStream {
                     // The idle window is a byte-idle limit (`anthropic-sse.mjs:274`): a chunk of a started stream renews it on
                     // receipt, before the thread parser or the SSE framing spend any time on it.
                     let was_started = started(self);
-                    if was_started && !chunk.is_empty() && let Some(attempt) = &self.attempt {
+                    if was_started
+                        && !chunk.is_empty()
+                        && let Some(attempt) = &self.attempt
+                    {
                         attempt.renew_idle();
                     }
                     if let Some(thread) = self.thread.as_mut() {
@@ -1181,7 +1240,6 @@ impl ModelStream for AnthropicStream {
     fn on_wire_left(&mut self, _left: Arc<dyn Fn() + Send + Sync>) {}
 }
 
-
 /// A refusal with the credential the request carried (whatever its kind, wherever its text echoes it) redacted from its
 /// body, so no message, log line or thread decision built from it holds the credential. The credential is the one the
 /// refused request was sent with, not whichever one the account holds by the time the refusal is read.
@@ -1202,35 +1260,17 @@ impl AnthropicAdapter {
         self
     }
 
-    pub fn api_key(
-        config: AnthropicConfig,
-        http: Arc<dyn HttpSend>,
-        keys: Arc<dyn ApiKeySource>,
-        gzip_lane: CpuBulk,
-    ) -> Self {
+    pub fn api_key(config: AnthropicConfig, http: Arc<dyn HttpSend>, keys: Arc<dyn ApiKeySource>, gzip_lane: CpuBulk) -> Self {
         Self::new(Flavor::ApiKey, config, http, Credentials::ApiKey(keys), true, gzip_lane)
     }
 
     /// `enterprise`: a pay-as-you-go subscription whose 429 is retried like an
     /// API key's; every other subscription surfaces a 429 at once.
-    pub fn oauth(
-        config: AnthropicConfig,
-        http: Arc<dyn HttpSend>,
-        session: Arc<OAuthSession>,
-        enterprise: bool,
-        gzip_lane: CpuBulk,
-    ) -> Self {
+    pub fn oauth(config: AnthropicConfig, http: Arc<dyn HttpSend>, session: Arc<OAuthSession>, enterprise: bool, gzip_lane: CpuBulk) -> Self {
         Self::new(Flavor::OAuth, config, http, Credentials::OAuth(session), enterprise, gzip_lane)
     }
 
-    fn new(
-        flavor: Flavor,
-        config: AnthropicConfig,
-        http: Arc<dyn HttpSend>,
-        credentials: Credentials,
-        retry_429: bool,
-        gzip_lane: CpuBulk,
-    ) -> Self {
+    fn new(flavor: Flavor, config: AnthropicConfig, http: Arc<dyn HttpSend>, credentials: Credentials, retry_429: bool, gzip_lane: CpuBulk) -> Self {
         #[cfg(feature = "count-work")]
         crate::work::provider_built();
         // `terminalAtLimit`: an API-key first-party Opus ends its send after repeated overloads instead of spending the
@@ -1314,7 +1354,9 @@ impl AnthropicAdapter {
                 // A body that cannot be read is not described as one with no transcript: the attempt fails unsent.
                 match layout {
                     Layout::Map(map) => Ok(crate::cache_tail::manifest::of_body(&map)),
-                    Layout::Sent(bytes) => serde_json::from_slice::<Value>(&bytes).map(|body| crate::cache_tail::manifest::anthropic(&body)).map_err(std::io::Error::other),
+                    Layout::Sent(bytes) => {
+                        serde_json::from_slice::<Value>(&bytes).map(|body| crate::cache_tail::manifest::anthropic(&body)).map_err(std::io::Error::other)
+                    }
                 }
             })
             .await
@@ -1369,9 +1411,7 @@ impl AnthropicAdapter {
             })
             .await
             .map_err(|e| gzip_failure(&e))?;
-        job.await
-            .map_err(|e| gzip_failure(&e))?
-            .map_err(|e| gzip_failure(&e))
+        job.await.map_err(|e| gzip_failure(&e))?.map_err(|e| gzip_failure(&e))
     }
 
     /// One model POST of `wire` with the credential: an attempt of the driver (and the plain re-send after a refused gzip
@@ -1399,7 +1439,8 @@ impl AnthropicAdapter {
             recovery: Some(std::time::Duration::from_secs(300)),
         };
         let label = self.stream_label();
-        let call = ModelCall::new(&request.options.send_identity, windows, Arc::new(move |expiry, delivery, exposure| expired(label, expiry, delivery, exposure)));
+        let call =
+            ModelCall::new(&request.options.send_identity, windows, Arc::new(move |expiry, delivery, exposure| expired(label, expiry, delivery, exposure)));
         if recovery { call.recovery() } else { call }
     }
 
@@ -1418,7 +1459,12 @@ impl AnthropicAdapter {
     /// refused gzip body is another), a request that is not one begins none. Each write is admitted by `admit` on its own
     /// ([`Self::dispatch`]): the compressed body after the compression's wait, the plain re-send again at its own moment.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn fetch_routed(&self, route: Route<'_>, request: WireRequest, admit: Option<&Admit<'_>>) -> Result<(HttpResponse, Option<AttemptHandle>, Tail), ProviderError> {
+    async fn fetch_routed(
+        &self,
+        route: Route<'_>,
+        request: WireRequest,
+        admit: Option<&Admit<'_>>,
+    ) -> Result<(HttpResponse, Option<AttemptHandle>, Tail), ProviderError> {
         let wire = &request;
         let eligible = wire.method.eq_ignore_ascii_case("POST")
             && official_messages_url(&wire.url)
@@ -1458,13 +1504,16 @@ impl AnthropicAdapter {
     /// caller), immediately before the write; the response comes back bound to that permit. A refusal is the write's error:
     /// nothing is sent. A transport failure settles the permit empty.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn dispatch(&self, route: Route<'_>, mut request: WireRequest, admit: Option<&Admit<'_>>) -> Result<(HttpResponse, Option<AttemptHandle>, Tail), ProviderError> {
+    async fn dispatch(
+        &self,
+        route: Route<'_>,
+        mut request: WireRequest,
+        admit: Option<&Admit<'_>>,
+    ) -> Result<(HttpResponse, Option<AttemptHandle>, Tail), ProviderError> {
         let exchange = if matches!(self.credentials, Credentials::OAuth(_)) {
             // Validate the final write, including replays and cache warms. Redirects can move both the bearer and
             // body to another path on the same origin, or resend the body alone to another origin.
-            if request.method != "POST"
-                || !url::Url::parse(&request.url).is_ok_and(|url| url.as_str() == "https://api.anthropic.com/v1/messages")
-            {
+            if request.method != "POST" || !url::Url::parse(&request.url).is_ok_and(|url| url.as_str() == "https://api.anthropic.com/v1/messages") {
                 let mut error = ProviderError::new(ErrorKind::InvalidRequest, DeliveryState::NotSent);
                 error.message = "Anthropic subscription requests must use the official Messages endpoint".into();
                 return Err(error);
@@ -1515,12 +1564,7 @@ impl AnthropicAdapter {
             return None;
         }
         let message = String::from_utf8_lossy(&rejected.body);
-        let refusal = CapacityError {
-            status: rejected.status.unwrap_or(0),
-            message: &message,
-            headers: &rejected.headers,
-            retry_after_ms: None,
-        };
+        let refusal = CapacityError { status: rejected.status.unwrap_or(0), message: &message, headers: &rejected.headers, retry_after_ms: None };
         if !self.codec.config().fast_mode.note_capacity_error(&refusal, true, fast_mode::now_ms()).downgraded() {
             return None;
         }
@@ -1564,7 +1608,13 @@ impl AnthropicAdapter {
     /// `issueNonStreamingFallback` (anthropic-api-recovery.mjs:41-64): the request once more without streaming, under
     /// the non-streaming timeout, its whole response as the turn's events.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    async fn non_streaming(&self, request: &ModelRequest, wire: &WireRequest, secret: &Secret, manifest: Option<&Arc<WireManifest>>) -> Result<Box<dyn ModelStream>, ProviderError> {
+    async fn non_streaming(
+        &self,
+        request: &ModelRequest,
+        wire: &WireRequest,
+        secret: &Secret,
+        manifest: Option<&Arc<WireManifest>>,
+    ) -> Result<Box<dyn ModelStream>, ProviderError> {
         let mut wire = wire.clone();
         if let Some(body) = super::nonstream::body(&wire.body) {
             wire.body = body;
@@ -1604,8 +1654,23 @@ impl AnthropicAdapter {
         let config = self.codec.config();
         let provider = self.codec.flavor().provider_name();
         // The serving credential as an opaque identity (an API key's own hash, a subscription's account file).
-        let route = TailRoute(format!("{provider}|{}|{}|{}", config.base_url, admit.request.model, self.credentials.thread_account(provider, &config.base_url, admit.secret)));
-        match gate.0.admit(Admission { purpose: admit.purpose, route: &route, manifest, generation: admit.request.options.tail_generation, unreduced: admit.request.options.tail_unreduced }).await {
+        let route = TailRoute(format!(
+            "{provider}|{}|{}|{}",
+            config.base_url,
+            admit.request.model,
+            self.credentials.thread_account(provider, &config.base_url, admit.secret)
+        ));
+        match gate
+            .0
+            .admit(Admission {
+                purpose: admit.purpose,
+                route: &route,
+                manifest,
+                generation: admit.request.options.tail_generation,
+                unreduced: admit.request.options.tail_unreduced,
+            })
+            .await
+        {
             Verdict::Send(permit) => Ok(Some(AdmittedWrite::new(gate, permit))),
             Verdict::Refuse(refusal) => Err(ProviderError::tail_refused(refusal)),
         }
@@ -1656,15 +1721,9 @@ impl AnthropicAdapter {
         let secret = self.credentials.current().await?;
         let mut headers = vec![("anthropic-version".to_owned(), ANTHROPIC_VERSION.to_owned())];
         let exchange = if flavor == Flavor::OAuth {
-            headers.push((
-                "anthropic-beta".to_owned(),
-                beta_header(flavor, BetaFeatures::default()),
-            ));
+            headers.push(("anthropic-beta".to_owned(), beta_header(flavor, BetaFeatures::default())));
             headers.push(("anthropic-dangerous-direct-browser-access".to_owned(), "true".to_owned()));
-            headers.push((
-                "user-agent".to_owned(),
-                self.codec.resolve_cli_user_agent().await,
-            ));
+            headers.push(("user-agent".to_owned(), self.codec.resolve_cli_user_agent().await));
             headers.push(("x-app".to_owned(), "cli".to_owned()));
             // The bearer is scoped to the official listing, not to a redirect target on the same origin.
             Exchange { redirect: Redirect::Error, ..ANTHROPIC_MODELS }
@@ -1672,13 +1731,8 @@ impl AnthropicAdapter {
             layer_extra_headers(&mut headers, &self.codec.config().extra_headers);
             ANTHROPIC_MODELS
         };
-        let wire = WireRequest {
-            transport: TransportKind::Http1,
-            method: "GET".to_owned(),
-            url: listing_url(flavor, self.codec.config()),
-            headers,
-            body: Vec::new(),
-        };
+        let wire =
+            WireRequest { transport: TransportKind::Http1, method: "GET".to_owned(), url: listing_url(flavor, self.codec.config()), headers, body: Vec::new() };
         // A GET with no transcript: nothing to admit.
         let response = self.driver.aux().send(self.request_with(&wire, &secret), exchange).await?;
         if !(200..300).contains(&response.status) {
@@ -1738,7 +1792,14 @@ impl AnthropicAdapter {
                 // it carries and the clock of that moment; the cache layout is the transcript's, which a thread plan, a
                 // dropped speed or a shrunk `max_tokens` leaves as it is. Every real exchange is an attempt of the driver:
                 // fresh head, first-message and first-output windows, none inherited.
-                let admit = Admit { request: &request, manifest: plain.manifest.as_ref(), secret: &secret, purpose: request.options.tail_purpose, announced: Admit::quiet(false), speed: body_speed(&wire.body) };
+                let admit = Admit {
+                    request: &request,
+                    manifest: plain.manifest.as_ref(),
+                    secret: &secret,
+                    purpose: request.options.tail_purpose,
+                    announced: Admit::quiet(false),
+                    speed: body_speed(&wire.body),
+                };
                 let (response, attempt, mut tail) = match self.post(&call, &wire, &admit).await {
                     Ok(sent) => sent,
                     Err(error) => {
@@ -1754,7 +1815,15 @@ impl AnthropicAdapter {
                     let thread = plan.as_mut().and_then(Plan::take_session);
                     // The transport mark is the stream's, raised on each body chunk (`anthropic-sse.mjs:275`): health only.
                     let decoder = self.codec.decoder_with_partial(&request, super::betas::sent_display_updates(&super::codec::beta_names(&wire)));
-                    let stream = Box::new(AnthropicStream::new(response.body, Box::new(decoder.clone())).with_identity(request.options.send_identity.clone()).with_attempt(attempt).with_partial(decoder).with_thread(thread).with_secret(&secret).with_tail(tail.take()));
+                    let stream = Box::new(
+                        AnthropicStream::new(response.body, Box::new(decoder.clone()))
+                            .with_identity(request.options.send_identity.clone())
+                            .with_attempt(attempt)
+                            .with_partial(decoder)
+                            .with_thread(thread)
+                            .with_secret(&secret)
+                            .with_tail(tail.take()),
+                    );
                     // OAuth replays only a rejected initial response (`_resendAfterRejection`).
                     if self.codec.flavor() != Flavor::ApiKey {
                         return Ok(stream);
@@ -1783,9 +1852,7 @@ impl AnthropicAdapter {
                 // A fast-pool refusal (or "Fast mode is not enabled") says nothing about standard-speed
                 // capacity: the cooldown is recorded, `speed` is dropped and the request replayed once
                 // at once, instead of waiting out a window only the fast pool owns.
-                if !speed_dropped
-                    && let Some(standard) = self.after_fast_refusal(&wire.body, &rejected)
-                {
+                if !speed_dropped && let Some(standard) = self.after_fast_refusal(&wire.body, &rejected) {
                     wire.body = standard;
                     speed_dropped = true;
                     continue;
@@ -1809,8 +1876,13 @@ impl AnthropicAdapter {
                 let mut err = self.codec.classify(&rejected);
                 // `rejectedToolSchema`: a 400 that names one of the tools this body carried.
                 crate::providers::rejections::mark_tool_schema(&mut err, &rejected.body, &crate::providers::rejections::wire_tool_names(&wire.body));
-                if !refreshed && self.credentials.refreshable(err.status, &rejected.body)
-                    && request.options.send_identity.claim_refresh(self.credentials.thread_account(self.codec.flavor().provider_name(), &self.codec.config().base_url, &secret))
+                if !refreshed
+                    && self.credentials.refreshable(err.status, &rejected.body)
+                    && request.options.send_identity.claim_refresh(self.credentials.thread_account(
+                        self.codec.flavor().provider_name(),
+                        &self.codec.config().base_url,
+                        &secret,
+                    ))
                 {
                     refreshed = true;
                     if self.codec.flavor() == Flavor::OAuth {

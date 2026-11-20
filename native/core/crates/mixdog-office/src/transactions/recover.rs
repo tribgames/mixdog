@@ -29,7 +29,12 @@ fn journal_summary(record: &Value) -> Value {
     let text = |first: Option<&Value>, second: Option<&Value>| -> Value {
         first.filter(|value| truthy(value)).or(second.filter(|value| truthy(value))).cloned().unwrap_or_else(|| json!(""))
     };
-    let phase = record.get("phase").filter(|value| truthy(value)).or(transaction.get("phase").filter(|value| truthy(value))).cloned().unwrap_or_else(|| json!("active"));
+    let phase = record
+        .get("phase")
+        .filter(|value| truthy(value))
+        .or(transaction.get("phase").filter(|value| truthy(value)))
+        .cloned()
+        .unwrap_or_else(|| json!("active"));
     let mut summary = Map::new();
     // `undefined` is left out of the object, as JSON leaves it.
     let mut put = |key: &str, value: Option<&Value>| {
@@ -71,7 +76,12 @@ fn saved_transaction(id: &str, record: &Value, saved: &Value) -> Transaction {
         let own = text_of(saved.get(name));
         if own.is_empty() { text_of(record.get(name)) } else { own }
     };
-    let phase = record.get("phase").filter(|phase| truthy(phase)).or(saved.get("phase")).and_then(Value::as_str).map_or(TransactionPhase::Active, TransactionPhase::parse);
+    let phase = record
+        .get("phase")
+        .filter(|phase| truthy(phase))
+        .or(saved.get("phase"))
+        .and_then(Value::as_str)
+        .map_or(TransactionPhase::Active, TransactionPhase::parse);
     Transaction {
         id: id.to_owned(),
         started_at: text_of(saved.get("startedAt")),
@@ -117,7 +127,11 @@ const RECOVER_NEEDS_ID: &str = "recover finishes an interrupted Office transacti
 /// `recoverOfficeTransaction(args, dataDir)`: `args.transaction` is the id and `args.strategy` one of `commit`, `rollback`,
 /// `discard`. A live Office document that is no longer open is answered, not failed: a commit finalizes the journal without
 /// touching the disk, a rollback says to reopen the document.
-pub async fn recover_office_transaction<P: WriteProof, H: ComHost + OfficeHost>(cx: &TransactionContext<'_, P, H>, args: &Value, data_dir: &Path) -> Result<Value, TransactionError> {
+pub async fn recover_office_transaction<P: WriteProof, H: ComHost + OfficeHost>(
+    cx: &TransactionContext<'_, P, H>,
+    args: &Value,
+    data_dir: &Path,
+) -> Result<Value, TransactionError> {
     let id = js_trim(&text_of(args.get("transaction"))).to_owned();
     if id.is_empty() {
         return Err(RECOVER_NEEDS_ID.into());
@@ -139,7 +153,8 @@ pub async fn recover_office_transaction<P: WriteProof, H: ComHost + OfficeHost>(
     lock(&handle).state = SessionState::InTransaction(Box::new(opened));
     let saved_data_dir = lock(&handle).data_dir.clone();
     // What the journal itself recorded, for removing its artifacts.
-    let (saved_id, saved_checkpoint, saved_baseline) = (text_of(saved_transaction_value.get("id")), text_of(saved_transaction_value.get("checkpoint")), text_of(saved_transaction_value.get("baselinePdf")));
+    let (saved_id, saved_checkpoint, saved_baseline) =
+        (text_of(saved_transaction_value.get("id")), text_of(saved_transaction_value.get("checkpoint")), text_of(saved_transaction_value.get("baselinePdf")));
     let clear = |session_dir: &Path| clear_transaction_artifacts(lane, session_dir, &saved_id, &saved_checkpoint, &saved_baseline);
     if strategy == "discard" {
         lock(&handle).state = SessionState::Idle;

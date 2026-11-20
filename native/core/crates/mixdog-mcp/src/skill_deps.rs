@@ -98,12 +98,7 @@ pub fn normalize_dependencies(value: &Value, strict: bool) -> Result<Vec<Value>,
         let text = |key: &str| map.get(key).and_then(Value::as_str).map(js_trim).unwrap_or_default().to_owned();
         let (kind, name) = (text("type").to_lowercase(), text("value"));
         let forbidden = |c: char| is_js_space(c) || matches!(c, '<' | '>' | '\0');
-        if kind.is_empty()
-            || name.is_empty()
-            || utf16_len(&kind) > 64
-            || utf16_len(&name) > 256
-            || kind.chars().chain(name.chars()).any(forbidden)
-        {
+        if kind.is_empty() || name.is_empty() || utf16_len(&kind) > 64 || utf16_len(&name) > 256 || kind.chars().chain(name.chars()).any(forbidden) {
             return Err("Skill tool dependency type and value must be nonempty identifiers.".to_owned());
         }
         if strict && !matches!(kind.as_str(), "tool" | "mcp") {
@@ -161,12 +156,7 @@ fn bounded_read(path: &Path) -> Result<String, String> {
 /// The dependencies of the skill at `file_path` (its `SKILL.md`) whose frontmatter is
 /// `frontmatter`.
 #[allow(clippy::disallowed_methods, reason = "runs as a maintenance-lane job (InLane proof)")]
-pub fn read_skill_tool_dependencies(
-    _lane: &InLane<MaintenanceIo>,
-    data_dir: &Path,
-    file_path: &Path,
-    frontmatter: &Value,
-) -> SkillToolDependencies {
+pub fn read_skill_tool_dependencies(_lane: &InLane<MaintenanceIo>, data_dir: &Path, file_path: &Path, frontmatter: &Value) -> SkillToolDependencies {
     let mut issues = Vec::new();
     let mut declared: Vec<Value> = Vec::new();
     let mut add = |value: &Value, label: &str, issues: &mut Vec<String>| match normalize_dependencies(value, false) {
@@ -177,9 +167,7 @@ pub fn read_skill_tool_dependencies(
     let metadata = file_path.parent().unwrap_or(Path::new("")).join("agents").join("openai.yaml");
     if metadata.exists() {
         let parsed = bounded_read(&metadata).and_then(|text| {
-            serde_yaml::from_str::<serde_yaml::Value>(&text)
-                .map_err(|e| e.to_string())
-                .and_then(|yaml| serde_json::to_value(yaml).map_err(|e| e.to_string()))
+            serde_yaml::from_str::<serde_yaml::Value>(&text).map_err(|e| e.to_string()).and_then(|yaml| serde_json::to_value(yaml).map_err(|e| e.to_string()))
         });
         match parsed {
             Ok(doc) => add(doc.pointer("/dependencies/tools").unwrap_or(&Value::Null), "agents/openai.yaml", &mut issues),
@@ -200,12 +188,7 @@ pub fn read_skill_tool_dependencies(
             normalize_dependencies(doc.pointer("/dependencies/tools").unwrap_or(&Value::Null), false)
         });
         return match loaded {
-            Ok(tools) => SkillToolDependencies {
-                tool_dependencies: tools,
-                declared: declared_list,
-                source: DependencySource::Override,
-                issues: Vec::new(),
-            },
+            Ok(tools) => SkillToolDependencies { tool_dependencies: tools, declared: declared_list, source: DependencySource::Override, issues: Vec::new() },
             // A broken override must not silently restore dependencies the user removed.
             Err(error) => SkillToolDependencies {
                 tool_dependencies: Vec::new(),
@@ -249,12 +232,7 @@ pub enum SaveError {
 
 /// Saves the user's override for the skill at `file_path`. `None` restores the original
 /// declaration; an empty list explicitly disconnects every tool.
-pub async fn save_skill_tool_dependencies(
-    io: DurabilityIo,
-    data_dir: &Path,
-    file_path: &Path,
-    dependencies: Option<&Value>,
-) -> Result<(), SaveError> {
+pub async fn save_skill_tool_dependencies(io: DurabilityIo, data_dir: &Path, file_path: &Path, dependencies: Option<&Value>) -> Result<(), SaveError> {
     let path = override_path(data_dir, file_path);
     let content = match dependencies {
         None => None,
@@ -267,9 +245,7 @@ pub async fn save_skill_tool_dependencies(
             Some(content)
         }
     };
-    let job = io
-        .submit(&CancellationToken::new(), move |lane| write_override(lane, &path, content))
-        .map_err(|full| SaveError::Io(full.to_string()))?;
+    let job = io.submit(&CancellationToken::new(), move |lane| write_override(lane, &path, content)).map_err(|full| SaveError::Io(full.to_string()))?;
     job.await.map_err(|e| SaveError::Io(e.to_string()))?.map_err(|e| SaveError::Io(e.to_string()))
 }
 

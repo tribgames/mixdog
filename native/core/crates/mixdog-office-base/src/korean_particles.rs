@@ -8,8 +8,7 @@
 use mixdog_js::{js_object_keys, js_trim, value_to_string};
 use serde_json::Value;
 
-const PAIRS: [(&str, &str); 8] =
-    [("으로", "로"), ("이며", "며"), ("이고", "고"), ("은", "는"), ("이", "가"), ("을", "를"), ("과", "와"), ("아", "야")];
+const PAIRS: [(&str, &str); 8] = [("으로", "로"), ("이며", "며"), ("이고", "고"), ("은", "는"), ("이", "가"), ("을", "를"), ("과", "와"), ("아", "야")];
 /// The particle ends the word only when a space or punctuation follows; "{{name}}이사" is a noun, not 이.
 const BOUNDARIES: [&str; 7] = [" ", ",", ".", "\u{b7}", ")", "!", "?"];
 
@@ -76,7 +75,10 @@ mod tests {
 
     #[test]
     fn the_particle_follows_the_last_syllable() {
-        assert_eq!(rewrite("{{c}}은 {{d}}은 {{e}}이 {{f}}을 ", json!({ "c": "모아페이", "d": "한빛상사", "e": "서울", "f": "부산" })), "모아페이는 한빛상사는 서울이 부산을 ");
+        assert_eq!(
+            rewrite("{{c}}은 {{d}}은 {{e}}이 {{f}}을 ", json!({ "c": "모아페이", "d": "한빛상사", "e": "서울", "f": "부산" })),
+            "모아페이는 한빛상사는 서울이 부산을 "
+        );
         assert_eq!(rewrite("{{a}}으로 {{b}}으로 {{c}}로 ", json!({ "a": "서울", "b": "부산", "c": "대구" })), "서울로 부산으로 대구로 ");
         assert_eq!(rewrite("{{a}}과 {{b}}와,", json!({ "a": "사과", "b": "책" })), "사과와 책과,");
     }

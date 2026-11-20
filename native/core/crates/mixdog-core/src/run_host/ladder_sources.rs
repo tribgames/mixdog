@@ -51,12 +51,7 @@ pub struct ProcessLadder {
 
 impl ProcessLadder {
     pub fn new(p: &ProcessServices) -> Self {
-        Self {
-            catalog: p.catalog.clone(),
-            config: p.config.clone(),
-            rejections: p.rejections.clone(),
-            caps: CatalogCaps::new(p.catalog.clone(), &*p.env),
-        }
+        Self { catalog: p.catalog.clone(), config: p.config.clone(), rejections: p.rejections.clone(), caps: CatalogCaps::new(p.catalog.clone(), &*p.env) }
     }
 }
 

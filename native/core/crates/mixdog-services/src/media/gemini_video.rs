@@ -59,7 +59,15 @@ fn key_headers(key: &str) -> Vec<(String, String)> {
 }
 
 #[allow(clippy::result_large_err, reason = "preserve the canonical media AdapterError payload and existing caller/error contract without API boxing")]
-async fn via_omni(http: &dyn JsonPost, key: &str, model: &str, prompt: &str, options: &Value, references: &References, cancel: &CancellationToken) -> Result<GeminiVideo, AdapterError> {
+async fn via_omni(
+    http: &dyn JsonPost,
+    key: &str,
+    model: &str,
+    prompt: &str,
+    options: &Value,
+    references: &References,
+    cancel: &CancellationToken,
+) -> Result<GeminiVideo, AdapterError> {
     let (endpoint, account) = (format!("{BASE_URL}/interactions"), key_account(key));
     let references = references.prepare(&Target { endpoint: &endpoint, account: &account, model, operation: "video-omni" }).await?;
     // Omni takes a multimodal input array; a reference image switches the task from
@@ -90,7 +98,8 @@ async fn via_omni(http: &dyn JsonPost, key: &str, model: &str, prompt: &str, opt
             Some(single) if truthy(Some(single)) => vec![single],
             _ => Vec::new(),
         };
-        let video = content.into_iter().find(|item| item.get("type").and_then(Value::as_str) == Some("video") && item.get("data").is_some_and(Value::is_string));
+        let video =
+            content.into_iter().find(|item| item.get("type").and_then(Value::as_str) == Some("video") && item.get("data").is_some_and(Value::is_string));
         if let Some(video) = video {
             let bytes = decode_base64_media(&video["data"], "Gemini Omni video")?;
             let mime = if truthy(video.get("mime_type")) { value_to_string(&video["mime_type"]) } else { "video/mp4".to_owned() };
@@ -153,7 +162,8 @@ async fn via_veo(
     let deadline = pacer.now() + TOTAL_TIMEOUT_MS;
     let bounded = || Duration::from_millis((deadline - pacer.now()).clamp(1, REQUEST_TIMEOUT_MS) as u64);
     let body = json!({ "instances": [Value::Object(instance)], "parameters": Value::Object(parameters.clone()) });
-    let started = http.post(&format!("{BASE_URL}/models/{}:predictLongRunning", encode_uri_component(model)), &headers, &body, bounded(), cancel).await.map_err(plain)?;
+    let started =
+        http.post(&format!("{BASE_URL}/models/{}:predictLongRunning", encode_uri_component(model)), &headers, &body, bounded(), cancel).await.map_err(plain)?;
     if !is_ok(started.status) {
         return Err(upstream_error("Veo video", started.status, &started.body).into());
     }
@@ -186,7 +196,13 @@ async fn via_veo(
             return Err(media(format!("Veo generation failed: {message}"), "MEDIA_UPSTREAM_FAILED", 502));
         }
         let response = data.get("response");
-        let sample = [response.and_then(|r| r.get("generateVideoResponse")).and_then(|g| g.get("generatedSamples")).and_then(|s| s.get(0)), response.and_then(|r| r.get("generatedVideos")).and_then(|s| s.get(0))].into_iter().find(|s| truthy(*s)).flatten();
+        let sample = [
+            response.and_then(|r| r.get("generateVideoResponse")).and_then(|g| g.get("generatedSamples")).and_then(|s| s.get(0)),
+            response.and_then(|r| r.get("generatedVideos")).and_then(|s| s.get(0)),
+        ]
+        .into_iter()
+        .find(|s| truthy(*s))
+        .flatten();
         let video = sample.and_then(|s| s.get("video"));
         let uri = [video.and_then(|v| v.get("uri")), video.and_then(|v| v.get("fileUri"))].into_iter().find(|u| truthy(*u)).flatten();
         let Some(uri) = uri else {

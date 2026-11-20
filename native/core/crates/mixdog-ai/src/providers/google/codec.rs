@@ -24,24 +24,20 @@ use sha2::Sha256;
 use mixdog_core_api::domain::provider::GeminiCacheState;
 
 use super::cache::policy::cached_body;
-use crate::providers::leak::request_tool_names;
+use super::claude;
 use super::decode::DecodeDialect;
 use super::decode::GeminiDecoder;
 use super::decode::UsageStyle;
 use super::error::ErrorDialect;
+use super::error::classify;
 use super::error::vertex_gcloud_access;
 use super::error::vertex_model_access;
-use super::error::classify;
+use super::maas;
+use super::maas::VertexModel;
+use super::maas::vertex_model;
 use super::request::Dialect;
 use super::request::build_request;
 use super::request::invalid;
-use super::claude;
-use super::maas;
-use super::maas::VertexModel;
-use crate::providers::anthropic::CapsLookup;
-use crate::providers::leak::ToolNames;
-use crate::providers::leak::body_tool_names;
-use super::maas::vertex_model;
 use super::serving::Route;
 use super::serving::Tier;
 use super::serving::VertexAccount;
@@ -49,6 +45,10 @@ use super::serving::VertexPlace;
 use super::serving::Wire;
 use super::serving::env_location;
 use super::traits::ModelTraits;
+use crate::providers::anthropic::CapsLookup;
+use crate::providers::leak::ToolNames;
+use crate::providers::leak::body_tool_names;
+use crate::providers::leak::request_tool_names;
 use crate::registry::keys::Environment;
 
 pub const GEMINI_ORIGIN: &str = "https://generativelanguage.googleapis.com";
@@ -103,8 +103,7 @@ fn path_segment(id: &str) -> String {
     let mut out = String::new();
     for byte in id.bytes() {
         match byte {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'('
-            | b')' | b'@' => out.push(byte as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'!' | b'~' | b'*' | b'\'' | b'(' | b')' | b'@' => out.push(byte as char),
             other => out.push_str(&format!("%{other:02X}")),
         }
     }
@@ -121,14 +120,7 @@ fn uuid_v4() -> String {
     b[6] = (b[6] & 0x0f) | 0x40;
     b[8] = (b[8] & 0x3f) | 0x80;
     let hex: Vec<String> = b.iter().map(|x| format!("{x:02x}")).collect();
-    format!(
-        "{}-{}-{}-{}-{}",
-        hex[0..4].concat(),
-        hex[4..6].concat(),
-        hex[6..8].concat(),
-        hex[8..10].concat(),
-        hex[10..16].concat()
-    )
+    format!("{}-{}-{}-{}-{}", hex[0..4].concat(), hex[4..6].concat(), hex[6..8].concat(), hex[8..10].concat(), hex[10..16].concat())
 }
 
 /// `-<n>` where `n` is the first eight bytes of SHA-256 over the first user
@@ -187,11 +179,7 @@ impl GoogleCodec {
         traits: Arc<dyn ModelTraits>,
     ) -> Self {
         Self {
-            target: Target::Antigravity {
-                origin: origin.into(),
-                project: project.into(),
-                client_version: client_version.into(),
-            },
+            target: Target::Antigravity { origin: origin.into(), project: project.into(), client_version: client_version.into() },
             traits,
             provider: ProviderId::from("antigravity-oauth"),
             claude_caps: Arc::new(|_| None),
@@ -273,11 +261,7 @@ impl GoogleCodec {
         };
         match self.target {
             Target::Gemini { .. } => Dialect { omit_ignored_sampling: true, ..base },
-            Target::Vertex { .. } => Dialect {
-                system_role: None,
-                function_ids: false,
-                ..base
-            },
+            Target::Vertex { .. } => Dialect { system_role: None, function_ids: false, ..base },
             Target::Antigravity { .. } => Dialect {
                 system_role: Some("user"),
                 family_gated: true,
@@ -476,12 +460,7 @@ impl GoogleCodec {
     /// The HTTP request for `inner`; with `cache` the body carries only the
     /// uncached tail and `cachedContent` (the cache holds the rest).
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    pub fn wire(
-        &self,
-        request: &ModelRequest,
-        inner: &Value,
-        cache: Option<Attach<'_>>,
-    ) -> Result<WireRequest, ProviderError> {
+    pub fn wire(&self, request: &ModelRequest, inner: &Value, cache: Option<Attach<'_>>) -> Result<WireRequest, ProviderError> {
         self.wire_at(request, inner, cache, false)
     }
 
@@ -496,13 +475,7 @@ impl GoogleCodec {
 
     /// [`Self::wire`]; `global` sends a Vertex request to `global`.
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
-    pub fn wire_at(
-        &self,
-        request: &ModelRequest,
-        inner: &Value,
-        cache: Option<Attach<'_>>,
-        global: bool,
-    ) -> Result<WireRequest, ProviderError> {
+    pub fn wire_at(&self, request: &ModelRequest, inner: &Value, cache: Option<Attach<'_>>, global: bool) -> Result<WireRequest, ProviderError> {
         let id = self.model_id(&request.model)?;
         let mut inner = match cache {
             Some(attach) => {
@@ -521,10 +494,7 @@ impl GoogleCodec {
         let content_type = "Content-Type";
         let mut headers = vec![(content_type.to_owned(), "application/json".to_owned())];
         let (url, body) = match &self.target {
-            Target::Gemini { origin } => (
-                format!("{origin}/v1beta/models/{}:streamGenerateContent?alt=sse", path_segment(id)),
-                inner,
-            ),
+            Target::Gemini { origin } => (format!("{origin}/v1beta/models/{}:streamGenerateContent?alt=sse", path_segment(id)), inner),
             Target::Vertex { place } => {
                 let route = Route { publisher: "google", id, wire: Wire::Gemini };
                 let tier = Tier::requested(request.options.model_parameters.as_ref());
@@ -533,10 +503,7 @@ impl GoogleCodec {
                 if let Some(value) = tier.header_value() {
                     headers.push(("X-Vertex-AI-LLM-Shared-Request-Type".into(), value.into()));
                 }
-                (
-                    format!("{base}/publishers/google/models/{}:streamGenerateContent?alt=sse", path_segment(id)),
-                    inner,
-                )
+                (format!("{base}/publishers/google/models/{}:streamGenerateContent?alt=sse", path_segment(id)), inner)
             }
             Target::Antigravity { origin, project, client_version } => {
                 // antigravity-oauth.mjs:166-172: the bearer leads the head (its slot, filled where the request is
@@ -571,13 +538,7 @@ impl GoogleCodec {
             err.message = e.to_string();
             err
         })?;
-        Ok(WireRequest {
-            transport: TransportKind::Http1,
-            method: "POST".into(),
-            url,
-            headers,
-            body,
-        })
+        Ok(WireRequest { transport: TransportKind::Http1, method: "POST".into(), url, headers, body })
     }
 
     /// The decoder of an answer to `request`; `global`: the request was resent to Vertex's `global` location.
@@ -610,10 +571,4 @@ impl GoogleCodec {
 }
 
 #[cfg(test)]
-mod tests {
-
-
-
-
-
-}
+mod tests {}

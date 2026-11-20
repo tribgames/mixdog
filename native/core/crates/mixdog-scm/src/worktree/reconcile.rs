@@ -28,8 +28,8 @@ use crate::worktree::housekeeping::is_gone;
 use crate::worktree::manager::Worktrees;
 use crate::worktree::manager::is_snapshot;
 use crate::worktree::registry::WorktreeRecord;
-use crate::worktree::removal::AutoOptions;
 use crate::worktree::removal::Auto;
+use crate::worktree::removal::AutoOptions;
 use crate::worktree::removal::InUse;
 use crate::worktree::removal::NeverInUse;
 use crate::worktree::removal::snapshot_in_use;
@@ -101,7 +101,9 @@ pub(crate) fn describe(failure: &ScmFailure) -> String {
         return message.to_owned();
     }
     match failure {
-        ScmFailure::Coded { code, detail, .. } => crate::worktree::texts::contract_message(code, detail.as_deref()).map_or_else(|| failure.to_string(), str::to_owned),
+        ScmFailure::Coded { code, detail, .. } => {
+            crate::worktree::texts::contract_message(code, detail.as_deref()).map_or_else(|| failure.to_string(), str::to_owned)
+        }
         _ => failure.to_string(),
     }
 }
@@ -131,7 +133,13 @@ pub fn cleanup_wants(record: &WorktreeRecord, is_retained: bool, rules: &Cleanup
 impl Worktrees {
     /// Who keeps `record`: `(owner_live, retained, removable)`. `removable` is what a prune
     /// would remove: neither, or disposable and not live, with no retained recovery data.
-    pub async fn retention_of(&self, record: &WorktreeRecord, live: &HashSet<String>, retained: &HashSet<String>, cancel: &CancellationToken) -> Result<(bool, bool, bool), ScmFailure> {
+    pub async fn retention_of(
+        &self,
+        record: &WorktreeRecord,
+        live: &HashSet<String>,
+        retained: &HashSet<String>,
+        cancel: &CancellationToken,
+    ) -> Result<(bool, bool, bool), ScmFailure> {
         let snapshot = is_snapshot(record);
         let owner_live = if snapshot {
             self.snapshot_holder_live(record, live, cancel).await?
@@ -161,10 +169,7 @@ impl Worktrees {
         let common = PathBuf::from(common_dir);
         let stale = {
             let common = common.clone();
-            on_lane(self.scm().lane, cancel, move || {
-                admin_registrations(&common).into_iter().filter(|r| is_gone(&r.worktree_path)).collect::<Vec<_>>()
-            })
-            .await?
+            on_lane(self.scm().lane, cancel, move || admin_registrations(&common).into_iter().filter(|r| is_gone(&r.worktree_path)).collect::<Vec<_>>()).await?
         };
         if stale.is_empty() {
             return Ok(Vec::new());
@@ -209,7 +214,10 @@ impl Worktrees {
                 if !is_retained {
                     ids.push(record.id.clone());
                 }
-            } else if !owner_live && (record.extra.contains_key("removalIncomplete") && !record.extra["removalIncomplete"].is_null() || cleanup_wants(&record, is_retained, &options.rules)) {
+            } else if !owner_live
+                && (record.extra.contains_key("removalIncomplete") && !record.extra["removalIncomplete"].is_null()
+                    || cleanup_wants(&record, is_retained, &options.rules))
+            {
                 ids.push(record.id.clone());
             }
         }
@@ -289,7 +297,11 @@ impl Worktrees {
                         kept_by_record[slot].push(json!({ "id": record.id, "reason": "budget" }));
                         continue;
                     }
-                    let auto = AutoOptions { in_use: options.in_use.clone(), preserve_branch: options.preserve_branch, final_check_timeout: options.final_check_timeout };
+                    let auto = AutoOptions {
+                        in_use: options.in_use.clone(),
+                        preserve_branch: options.preserve_branch,
+                        final_check_timeout: options.final_check_timeout,
+                    };
                     let kept_start = report.kept.len();
                     match self.remove_automatically(&mut record, &auto, cancel).await {
                         Err(ScmFailure::Cancelled) => return Err(ScmFailure::Cancelled),
@@ -339,7 +351,13 @@ impl Worktrees {
 
     /// One record's bookkeeping under the repository lock. `Some(budgeted)` names it a candidate of the automatic
     /// removal the caller runs once the lock is released (`budgeted`: it counts against the pass's budget).
-    async fn reconcile_record(&self, record: &mut WorktreeRecord, options: &ReconcileOptions, report: &mut ReconcileReport, cancel: &CancellationToken) -> Result<Option<bool>, ScmFailure> {
+    async fn reconcile_record(
+        &self,
+        record: &mut WorktreeRecord,
+        options: &ReconcileOptions,
+        report: &mut ReconcileReport,
+        cancel: &CancellationToken,
+    ) -> Result<Option<bool>, ScmFailure> {
         let is_retained = record.owner_session_id.as_ref().is_some_and(|id| options.retained.contains(id));
         let keep = |report: &mut ReconcileReport, reason: &str| report.kept.push(json!({ "id": record.id, "reason": reason }));
         if !record.shared_session_ids.is_empty() {

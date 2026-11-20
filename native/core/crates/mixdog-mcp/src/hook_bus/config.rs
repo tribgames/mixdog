@@ -67,15 +67,7 @@ fn cache_key(entries: &[HookConfigEntry]) -> (String, bool) {
                 cacheable = false;
                 Some("error".to_owned())
             });
-            format!(
-                "{}|{}|{:?}|{:?}|{:?}|{}",
-                e.path.display(),
-                stamp.unwrap_or_default(),
-                e.source_type,
-                e.plugin_root,
-                e.plugin_data,
-                e.untrusted
-            )
+            format!("{}|{}|{:?}|{:?}|{:?}|{}", e.path.display(), stamp.unwrap_or_default(), e.source_type, e.plugin_root, e.plugin_data, e.untrusted)
         })
         .collect();
     (parts.join("\n"), cacheable)
@@ -121,13 +113,7 @@ pub fn read_document(lane: &InLane<MaintenanceIo>, path: &Path, restore: bool) -
 }
 
 /// Loads the configuration that applies at `cwd`, reusing `previous` while no file changed.
-pub fn load_config(
-    lane: &InLane<MaintenanceIo>,
-    data_dir: &Path,
-    cwd: &Path,
-    env_file: Option<&Path>,
-    previous: Option<Arc<HookConfig>>,
-) -> Loaded {
+pub fn load_config(lane: &InLane<MaintenanceIo>, data_dir: &Path, cwd: &Path, env_file: Option<&Path>, previous: Option<Arc<HookConfig>>) -> Loaded {
     let trusted = read_trusted_projects(lane, data_dir);
     let plugins = read_registry(lane, data_dir);
     let entries = config_entries(&HookSources { env_file, data_dir, project_dir: cwd, trusted_projects: &trusted, plugins: &plugins });
@@ -167,10 +153,7 @@ pub fn load_config(
         } else {
             let rules = normalize_rules(&parsed);
             if rules.is_empty() && !report.invalid_events.is_empty() {
-                config.errors.push((
-                    entry.path.clone(),
-                    format!("no usable hooks: malformed event(s) under \"hooks\": {}", report.invalid_events.join(", ")),
-                ));
+                config.errors.push((entry.path.clone(), format!("no usable hooks: malformed event(s) under \"hooks\": {}", report.invalid_events.join(", "))));
             }
             config.legacy_rules.extend(rules);
         }

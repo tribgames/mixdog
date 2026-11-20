@@ -33,10 +33,7 @@ fn catalog_of(rows: Value) -> (HuggingFaceCatalog, Arc<Mutex<Vec<String>>>, temp
 async fn a_query_is_form_encoded_into_one_search_url() {
     let (catalog, asked, _dir) = catalog_of(json!([]));
     catalog.search(Some(&json!("  llama 3 é/ü*  "))).await.unwrap();
-    assert_eq!(
-        asked.lock().unwrap()[0],
-        "https://huggingface.co/api/models?search=llama+3+%C3%A9%2F%C3%BC*&filter=gguf&limit=20&sort=downloads&direction=-1"
-    );
+    assert_eq!(asked.lock().unwrap()[0], "https://huggingface.co/api/models?search=llama+3+%C3%A9%2F%C3%BC*&filter=gguf&limit=20&sort=downloads&direction=-1");
 }
 
 #[tokio::test]

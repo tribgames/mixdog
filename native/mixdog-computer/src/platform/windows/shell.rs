@@ -3,26 +3,23 @@
 use super::capture_budget::Budget;
 use crate::platform::{AppEntry, Launched};
 use crate::port::windows::{Launch, WinPort};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::ffi::c_void;
-use windows::core::HSTRING;
-use windows::Graphics::Imaging::{
-    BitmapAlphaMode, BitmapDecoder, BitmapInterpolationMode, BitmapPixelFormat, BitmapTransform,
-    ColorManagementMode, ExifOrientationMode, SoftwareBitmap,
-};
 use windows::Globalization::Language;
+use windows::Graphics::Imaging::{
+    BitmapAlphaMode, BitmapDecoder, BitmapInterpolationMode, BitmapPixelFormat, BitmapTransform, ColorManagementMode, ExifOrientationMode, SoftwareBitmap,
+};
 use windows::Media::Ocr::OcrEngine;
 use windows::Storage::Streams::{DataWriter, InMemoryRandomAccessStream};
 use windows::Win32::Foundation::HGLOBAL;
 use windows::Win32::System::Com::CoTaskMemFree;
-use windows::Win32::System::DataExchange::{
-    CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard,
-};
+use windows::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, IsClipboardFormatAvailable, OpenClipboard};
 use windows::Win32::System::Memory::{GlobalLock, GlobalUnlock};
 use windows::Win32::UI::Shell::{
-    IEnumShellItems, IShellItem, SHGetKnownFolderItem, BHID_EnumItems, FOLDERID_AppsFolder, KF_FLAG_DEFAULT, SIGDN,
-    SIGDN_NORMALDISPLAY, SIGDN_PARENTRELATIVEPARSING,
+    BHID_EnumItems, FOLDERID_AppsFolder, IEnumShellItems, IShellItem, KF_FLAG_DEFAULT, SHGetKnownFolderItem, SIGDN, SIGDN_NORMALDISPLAY,
+    SIGDN_PARENTRELATIVEPARSING,
 };
+use windows::core::HSTRING;
 
 const CF_UNICODETEXT: u32 = 13;
 
@@ -97,15 +94,12 @@ fn launch_failure(target: &str, code: u32, message: &str, route: &str) -> String
         _ if route == "app_activation" => "app_activation_failed",
         _ => "shell_launch_failed",
     };
-    let hint = if category == "target_not_found"
-        && target
-            .char_indices()
-            .any(|(at, c)| c.is_whitespace() && target[at + c.len_utf8()..].starts_with(['-', '/']))
-    {
-        "; launch takes one executable, path, file, or URL and passes no command-line arguments"
-    } else {
-        ""
-    };
+    let hint =
+        if category == "target_not_found" && target.char_indices().any(|(at, c)| c.is_whitespace() && target[at + c.len_utf8()..].starts_with(['-', '/'])) {
+            "; launch takes one executable, path, file, or URL and passes no command-line arguments"
+        } else {
+            ""
+        };
     format!("launch failed [{category}/{code}] for '{target}': {message}{hint}")
 }
 
@@ -114,9 +108,7 @@ fn launch_failure(target: &str, code: u32, message: &str, route: &str) -> String
 pub fn launch(port: &WinPort, target: &str, app: Option<&AppEntry>) -> Result<Launched, String> {
     let apps_folder;
     let (route, app_id, launched) = match app {
-        Some(entry) if entry.app_id.contains('!') => {
-            ("app_activation", entry.app_id.clone(), port.launch(Launch::AppId(&entry.app_id))?)
-        }
+        Some(entry) if entry.app_id.contains('!') => ("app_activation", entry.app_id.clone(), port.launch(Launch::AppId(&entry.app_id))?),
         Some(entry) => {
             apps_folder = format!("shell:AppsFolder\\{}", entry.app_id);
             ("apps_folder", entry.app_id.clone(), port.launch(Launch::Shell(&apps_folder))?)
@@ -130,16 +122,7 @@ pub fn launch(port: &WinPort, target: &str, app: Option<&AppEntry>) -> Result<La
         let code = if hresult & 0xFFFF_0000 == 0x8007_0000 { hresult & 0xFFFF } else { hresult };
         launch_failure(target, code, error.message().trim(), route)
     })?;
-    Ok(Launched {
-        route,
-        pid: pid as i64,
-        app_id,
-        app_hint: if pid > 0 {
-            super::native::process_name(pid)
-        } else {
-            String::new()
-        },
-    })
+    Ok(Launched { route, pid: pid as i64, app_id, app_hint: if pid > 0 { super::native::process_name(pid) } else { String::new() } })
 }
 
 fn display_name(item: &IShellItem, kind: SIGDN) -> String {
@@ -161,18 +144,13 @@ fn display_name(item: &IShellItem, kind: SIGDN) -> String {
 pub fn installed_apps() -> Result<Vec<AppEntry>, String> {
     // SAFETY: COM is initialised on this thread by the desktop.
     unsafe {
-        let folder: IShellItem = SHGetKnownFolderItem(&FOLDERID_AppsFolder, KF_FLAG_DEFAULT, None)
-            .map_err(|error| error.message())?;
-        let items: IEnumShellItems = folder
-            .BindToHandler(None, &BHID_EnumItems)
-            .map_err(|error| error.message())?;
+        let folder: IShellItem = SHGetKnownFolderItem(&FOLDERID_AppsFolder, KF_FLAG_DEFAULT, None).map_err(|error| error.message())?;
+        let items: IEnumShellItems = folder.BindToHandler(None, &BHID_EnumItems).map_err(|error| error.message())?;
         let mut apps = Vec::new();
         loop {
             let mut batch = [None];
             let mut fetched = 0u32;
-            items
-                .Next(&mut batch, Some(&mut fetched))
-                .map_err(|error| error.message())?;
+            items.Next(&mut batch, Some(&mut fetched)).map_err(|error| error.message())?;
             let Some(item) = batch[0].take() else { break };
             if fetched == 0 {
                 break;
@@ -194,8 +172,7 @@ fn engine_for(language: &str) -> Result<Option<OcrEngine>, String> {
     let engine = if language.is_empty() {
         OcrEngine::TryCreateFromUserProfileLanguages()
     } else {
-        let language = Language::CreateLanguage(&HSTRING::from(language))
-            .map_err(|error| error.message())?;
+        let language = Language::CreateLanguage(&HSTRING::from(language)).map_err(|error| error.message())?;
         OcrEngine::TryCreateFromLanguage(&language)
     };
     Ok(engine.ok())
@@ -209,10 +186,7 @@ fn winrt(error: windows::core::Error) -> String {
 /// here, runtime-ocr-clipboard.ps1:19-66; a wedged recognizer now refuses).
 const OCR_WORK_MS: u32 = 20_000;
 
-fn decode(
-    image: &[u8],
-    budget: &Budget,
-) -> Result<(BitmapDecoder, InMemoryRandomAccessStream), String> {
+fn decode(image: &[u8], budget: &Budget) -> Result<(BitmapDecoder, InMemoryRandomAccessStream), String> {
     // Screenshots stay in volatile memory, including when the host is killed.
     let stream = InMemoryRandomAccessStream::new().map_err(winrt)?;
     let writer = DataWriter::CreateDataWriter(&stream).map_err(winrt)?;
@@ -227,10 +201,7 @@ fn decode(
 pub fn ocr(image: &[u8], language: &str, max_words: usize) -> Result<Value, String> {
     let budget = Budget::new(OCR_WORK_MS);
     let (decoder, _stream) = decode(image, &budget)?;
-    let (width, height) = (
-        decoder.PixelWidth().map_err(winrt)?,
-        decoder.PixelHeight().map_err(winrt)?,
-    );
+    let (width, height) = (decoder.PixelWidth().map_err(winrt)?, decoder.PixelHeight().map_err(winrt)?);
     let maximum = OcrEngine::MaxImageDimension().map_err(winrt)?;
     let largest = width.max(height);
     // Window text a dozen pixels tall defeats the recognizer; doubling it
@@ -238,21 +209,11 @@ pub fn ocr(image: &[u8], language: &str, max_words: usize) -> Result<Value, Stri
     // back, so callers keep seeing pixels of the image they sent.
     let upscale: u32 = if largest <= 1600 && largest * 2 <= maximum { 2 } else { 1 };
     let bitmap: SoftwareBitmap = if largest > maximum || upscale > 1 {
-        let scale = if upscale > 1 {
-            upscale as f64
-        } else {
-            maximum as f64 / largest as f64
-        };
+        let scale = if upscale > 1 { upscale as f64 } else { maximum as f64 / largest as f64 };
         let transform = BitmapTransform::new().map_err(winrt)?;
-        transform
-            .SetInterpolationMode(BitmapInterpolationMode::Cubic)
-            .map_err(winrt)?;
-        transform
-            .SetScaledWidth(((width as f64 * scale).floor() as u32).max(1))
-            .map_err(winrt)?;
-        transform
-            .SetScaledHeight(((height as f64 * scale).floor() as u32).max(1))
-            .map_err(winrt)?;
+        transform.SetInterpolationMode(BitmapInterpolationMode::Cubic).map_err(winrt)?;
+        transform.SetScaledWidth(((width as f64 * scale).floor() as u32).max(1)).map_err(winrt)?;
+        transform.SetScaledHeight(((height as f64 * scale).floor() as u32).max(1)).map_err(winrt)?;
         budget.wait(decoder.GetSoftwareBitmapTransformedAsync(
             BitmapPixelFormat::Bgra8,
             BitmapAlphaMode::Ignore,
@@ -263,8 +224,7 @@ pub fn ocr(image: &[u8], language: &str, max_words: usize) -> Result<Value, Stri
     } else {
         budget.wait(decoder.GetSoftwareBitmapAsync())?
     };
-    let engine = engine_for(language)?
-        .ok_or_else(|| format!("Windows OCR has no recognizer for language '{language}'"))?;
+    let engine = engine_for(language)?.ok_or_else(|| format!("Windows OCR has no recognizer for language '{language}'"))?;
     let result = budget.wait(engine.RecognizeAsync(&bitmap))?;
     let scale = upscale as f64;
     let (mut words, mut lines, mut total) = (Vec::new(), Vec::new(), 0usize);
@@ -303,11 +263,7 @@ pub fn ocr(image: &[u8], language: &str, max_words: usize) -> Result<Value, Stri
             "height": if known { (max_y - min_y).round() as i64 } else { 0 },
         }));
     }
-    let tag = engine
-        .RecognizerLanguage()
-        .and_then(|language| language.LanguageTag())
-        .map(|tag| tag.to_string())
-        .unwrap_or_default();
+    let tag = engine.RecognizerLanguage().and_then(|language| language.LanguageTag()).map(|tag| tag.to_string()).unwrap_or_default();
     Ok(json!({
         "text": format!("OCR: {} lines, {} words", lines.len(), total),
         "language": tag,
@@ -322,13 +278,7 @@ pub fn ocr(image: &[u8], language: &str, max_words: usize) -> Result<Value, Stri
 
 pub fn ocr_status(language: &str) -> Value {
     let installed: Vec<String> = OcrEngine::AvailableRecognizerLanguages()
-        .map(|languages| {
-            languages
-                .into_iter()
-                .filter_map(|language| language.LanguageTag().ok())
-                .map(|tag| tag.to_string())
-                .collect()
-        })
+        .map(|languages| languages.into_iter().filter_map(|language| language.LanguageTag().ok()).map(|tag| tag.to_string()).collect())
         .unwrap_or_default();
     let engine = engine_for(language).ok().flatten();
     json!({

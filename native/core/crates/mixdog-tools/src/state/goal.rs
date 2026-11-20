@@ -61,12 +61,7 @@ pub enum GoalSettlement {
 #[async_trait]
 pub trait GoalPort: Send + Sync {
     async fn status(&self, thread: &ThreadId) -> Result<GoalSnapshot, PortError>;
-    async fn create(
-        &self,
-        thread: &ThreadId,
-        objective: String,
-        time_limit_ms: Option<u64>,
-    ) -> Result<GoalSnapshot, PortError>;
+    async fn create(&self, thread: &ThreadId, objective: String, time_limit_ms: Option<u64>) -> Result<GoalSnapshot, PortError>;
     async fn settle(&self, thread: &ThreadId, settlement: GoalSettlement) -> Result<GoalSnapshot, PortError>;
     /// Adds `added_ms` to the time cap of an active or paused Goal that has one.
     async fn extend(&self, thread: &ThreadId, added_ms: u64) -> Result<GoalSnapshot, PortError>;
@@ -109,19 +104,19 @@ fn reply(snapshot: &GoalSnapshot, full: bool) -> String {
 }
 
 fn extension_reply(snapshot: &GoalSnapshot) -> String {
-    let goal = snapshot.goal.as_ref().map(|goal| serde_json::json!({
-        "id": goal.get("id"),
-        "status": goal.get("status"),
-        "timeLimitMs": goal.get("timeLimitMs"),
-    }));
+    let goal = snapshot.goal.as_ref().map(|goal| {
+        serde_json::json!({
+            "id": goal.get("id"),
+            "status": goal.get("status"),
+            "timeLimitMs": goal.get("timeLimitMs"),
+        })
+    });
     compact(&Reply { goal, remaining_ms: snapshot.remaining_ms })
 }
 
 /// The action of a call, or the existing refusal text.
 fn validate(args: &Value) -> Result<String, String> {
-    let object = args
-        .as_object()
-        .ok_or_else(|| "goal arguments must be an object".to_owned())?;
+    let object = args.as_object().ok_or_else(|| "goal arguments must be an object".to_owned())?;
     let action = clean(object.get("action")).to_lowercase();
     if action.is_empty() {
         return Err("goal action is required".to_owned());
@@ -130,17 +125,9 @@ fn validate(args: &Value) -> Result<String, String> {
         return Err(format!("goal action must be one of: {}", ACTIONS.join(", ")));
     }
     let tool_fields = ["action", "objective", "time_limit_minutes", "blocker", "extend_minutes"];
-    let extras: Vec<&str> = object
-        .keys()
-        .map(String::as_str)
-        .filter(|k| !tool_fields.contains(k) && !RETIRED_FIELDS.contains(k))
-        .collect();
+    let extras: Vec<&str> = object.keys().map(String::as_str).filter(|k| !tool_fields.contains(k) && !RETIRED_FIELDS.contains(k)).collect();
     if !extras.is_empty() {
-        return Err(format!(
-            "goal arguments contain unknown fields: {}. Allowed for {action}: {}",
-            extras.join(", "),
-            action_fields(&action).join(", ")
-        ));
+        return Err(format!("goal arguments contain unknown fields: {}. Allowed for {action}: {}", extras.join(", "), action_fields(&action).join(", ")));
     }
     Ok(action)
 }
@@ -184,12 +171,7 @@ pub struct GoalTool {
 
 impl GoalTool {
     pub fn new(goals: Arc<dyn GoalPort>, todos: Arc<dyn TodoStore>, facts: Arc<dyn CallerFacts>) -> Self {
-        Self {
-            spec: spec_from_def(include_str!("defs/goal.json"), false, &[]),
-            goals,
-            todos,
-            facts,
-        }
+        Self { spec: spec_from_def(include_str!("defs/goal.json"), false, &[]), goals, todos, facts }
     }
 }
 
@@ -215,8 +197,7 @@ impl Tool for GoalTool {
             }
             // The user's explicit ask for more time (the description restricts it to that).
             "extend" => {
-                let added = minutes_ms(args.get("extend_minutes").unwrap_or(&Value::Null), "extend_minutes")
-                    .map_err(|m| invalid("extend_minutes", m))?;
+                let added = minutes_ms(args.get("extend_minutes").unwrap_or(&Value::Null), "extend_minutes").map_err(|m| invalid("extend_minutes", m))?;
                 extension_reply(&self.goals.extend(thread, added).await?)
             }
             "block" => {
@@ -264,14 +245,9 @@ mod tests {
 
     #[test]
     fn settlement_view_is_compact_and_ordered() {
-        let snapshot = GoalSnapshot {
-            goal: Some(json!({"id":"g1","status":"blocked","timeUsedMs":5,"blocker":"stuck","objective":"x"})),
-            remaining_ms: Some(10),
-        };
-        assert_eq!(
-            reply(&snapshot, false),
-            r#"{"goal":{"id":"g1","status":"blocked","timeUsedMs":5,"blocker":"stuck"},"remaining_ms":10}"#
-        );
+        let snapshot =
+            GoalSnapshot { goal: Some(json!({"id":"g1","status":"blocked","timeUsedMs":5,"blocker":"stuck","objective":"x"})), remaining_ms: Some(10) };
+        assert_eq!(reply(&snapshot, false), r#"{"goal":{"id":"g1","status":"blocked","timeUsedMs":5,"blocker":"stuck"},"remaining_ms":10}"#);
         assert_eq!(reply(&GoalSnapshot::default(), true), r#"{"goal":null,"remaining_ms":null}"#);
     }
 
@@ -292,16 +268,10 @@ mod tests {
 
     #[test]
     fn unknown_fields_are_refused_but_retired_ones_ignored() {
-        assert_eq!(
-            validate(&json!({"action":"status","bogus":1})).unwrap_err(),
-            "goal arguments contain unknown fields: bogus. Allowed for status: action"
-        );
+        assert_eq!(validate(&json!({"action":"status","bogus":1})).unwrap_err(), "goal arguments contain unknown fields: bogus. Allowed for status: action");
         assert_eq!(validate(&json!({"action":"Status","tasks":[]})), Ok("status".to_owned()));
         assert_eq!(validate(&json!({})).unwrap_err(), "goal action is required");
-        assert_eq!(
-            validate(&json!({"action":"stop"})).unwrap_err(),
-            "goal action must be one of: status, create, complete, block, extend"
-        );
+        assert_eq!(validate(&json!({"action":"stop"})).unwrap_err(), "goal action must be one of: status, create, complete, block, extend");
         // `extend_minutes` is a tool field (`TOOL_FIELDS`), so it is no unknown field on another action either.
         assert_eq!(validate(&json!({"action":"extend","extend_minutes":5})), Ok("extend".to_owned()));
         assert_eq!(validate(&json!({"action":"create","extend_minutes":5})), Ok("create".to_owned()));
@@ -339,12 +309,10 @@ mod tests {
         assert_eq!(props["extend_minutes"]["maximum"], json!(10080));
     }
 
-
     #[test]
     fn a_time_limit_in_minutes_becomes_the_budget_in_milliseconds() {
         for (minutes, ms) in [(json!(1), 60_000), (json!(2.5), 150_000), (json!(10080), 604_800_000)] {
             assert_eq!(time_limit_ms(&json!({"time_limit_minutes": minutes})), Ok(Some(ms)), "{minutes}");
         }
     }
-
 }

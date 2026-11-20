@@ -132,8 +132,7 @@ struct Measured {
     rows: usize,
 }
 
-static STREAMING_ROWS: LazyLock<Mutex<Lru<String, Measured>>> =
-    LazyLock::new(|| Mutex::new(Lru::new(STREAMING_ROWS_LRU_MAX)));
+static STREAMING_ROWS: LazyLock<Mutex<Lru<String, Measured>>> = LazyLock::new(|| Mutex::new(Lru::new(STREAMING_ROWS_LRU_MAX)));
 
 fn cached_rows(key: Option<&str>) -> Option<Measured> {
     let key = key?;
@@ -179,9 +178,7 @@ fn measure_plain(text: &str, columns: usize, key: Option<&str>, cached: Option<M
     let last_break = plain.rfind('\n');
     let stable_prefix = last_break.map_or("", |at| &plain[..=at]);
     let reused = cached.as_ref().and_then(|hit| match &hit.mode {
-        Mode::Plain { stable_prefix: previous, stable_rows }
-            if hit.columns == columns && stable_prefix.starts_with(previous.as_str()) =>
-        {
+        Mode::Plain { stable_prefix: previous, stable_rows } if hit.columns == columns && stable_prefix.starts_with(previous.as_str()) => {
             Some((previous.len(), *stable_rows))
         }
         _ => None,
@@ -199,31 +196,15 @@ fn measure_plain(text: &str, columns: usize, key: Option<&str>, cached: Option<M
     };
     let final_line = last_break.map_or(plain, |at| &plain[at + 1..]);
     let rows = (stable_rows + wrapped_line_rows(final_line, width)).max(1);
-    cache_rows(
-        key,
-        Measured {
-            text: text.to_owned(),
-            columns,
-            mode: Mode::Plain { stable_prefix: stable_prefix.to_owned(), stable_rows },
-            rows,
-        },
-    );
+    cache_rows(key, Measured { text: text.to_owned(), columns, mode: Mode::Plain { stable_prefix: stable_prefix.to_owned(), stable_rows }, rows });
     rows
 }
 
-fn measure_markdown(
-    text: &str,
-    columns: usize,
-    key: Option<&str>,
-    cached: Option<Measured>,
-    parts: &dyn StreamingSplit,
-) -> usize {
+fn measure_markdown(text: &str, columns: usize, key: Option<&str>, cached: Option<Measured>, parts: &dyn StreamingSplit) -> usize {
     let stable_chunks = streaming_stable_chunks(parts);
     let reusable = cached.as_ref().and_then(|hit| match &hit.mode {
         Mode::Markdown { stable_chunks: previous, stable_rows }
-            if hit.columns == columns
-                && previous.len() <= stable_chunks.len()
-                && previous.iter().zip(&stable_chunks).all(|(a, b)| a == b) =>
+            if hit.columns == columns && previous.len() <= stable_chunks.len() && previous.iter().zip(&stable_chunks).all(|(a, b)| a == b) =>
         {
             Some((previous.len(), *stable_rows))
         }
@@ -246,15 +227,7 @@ fn measure_markdown(
         child_count += 1;
     }
     let measured_rows = if child_count == 0 { 1 } else { rows.max(1) };
-    cache_rows(
-        key,
-        Measured {
-            text: text.to_owned(),
-            columns,
-            mode: Mode::Markdown { stable_chunks, stable_rows },
-            rows: measured_rows,
-        },
-    );
+    cache_rows(key, Measured { text: text.to_owned(), columns, mode: Mode::Markdown { stable_chunks, stable_rows }, rows: measured_rows });
     measured_rows
 }
 
@@ -290,13 +263,7 @@ mod tests {
     }
 
     fn plain_parts(text: &str) -> Parts {
-        Parts {
-            plain: true,
-            stable_prefix: String::new(),
-            stable_chunks: Vec::new(),
-            unstable_suffix: text.to_owned(),
-            unstable_for_render: text.to_owned(),
-        }
+        Parts { plain: true, stable_prefix: String::new(), stable_chunks: Vec::new(), unstable_suffix: text.to_owned(), unstable_for_render: text.to_owned() }
     }
 
     #[test]

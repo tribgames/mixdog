@@ -37,19 +37,13 @@ fn parse(body: &[u8]) -> Option<Marker> {
                 return None;
             }
             let value: i64 = std::str::from_utf8(digits).ok()?.parse().ok()?;
-            Some(Marker::Done {
-                exit_code: Some(if negative { -value } else { value }),
-            })
+            Some(Marker::Done { exit_code: Some(if negative { -value } else { value }) })
         }
     }
 }
 
 fn find<T: PartialEq>(haystack: &[T], needle: &[T], from: usize) -> Option<usize> {
-    haystack
-        .get(from..)?
-        .windows(needle.len())
-        .position(|w| w == needle)
-        .map(|at| at + from)
+    haystack.get(from..)?.windows(needle.len()).position(|w| w == needle).map(|at| at + from)
 }
 
 /// Streaming marker reader and stripper over decoded text. Positions and the 24-character
@@ -100,10 +94,7 @@ impl MarkerScanner {
                 None => search = body,
                 Some(end) if end > MAX_BODY => search = body,
                 Some(end) => {
-                    let ascii: Option<Vec<u8>> = window[..end]
-                        .iter()
-                        .map(|u| u8::try_from(*u).ok().filter(u8::is_ascii))
-                        .collect();
+                    let ascii: Option<Vec<u8>> = window[..end].iter().map(|u| u8::try_from(*u).ok().filter(u8::is_ascii)).collect();
                     if let Some(marker) = ascii.and_then(|b| parse(&b)) {
                         markers.push(marker);
                     }
@@ -115,10 +106,7 @@ impl MarkerScanner {
             }
         }
         // A chunk ending inside the prefix itself ("…\x1b]69").
-        let held = (1..=(prefix.len() - 1).min(input.len() - from))
-            .rev()
-            .find(|length| input.ends_with(&prefix[..*length]))
-            .unwrap_or(0);
+        let held = (1..=(prefix.len() - 1).min(input.len() - from)).rev().find(|length| input.ends_with(&prefix[..*length])).unwrap_or(0);
         out.extend_from_slice(&input[from..input.len() - held]);
         self.carry = input[input.len() - held..].to_vec();
         (String::from_utf16_lossy(&out), markers)
@@ -162,11 +150,7 @@ impl Utf8Decoder {
 
     /// The end of the stream: a character left incomplete is lost.
     pub fn finish(&mut self) -> String {
-        if std::mem::take(&mut self.pending).is_empty() {
-            String::new()
-        } else {
-            "\u{FFFD}".to_owned()
-        }
+        if std::mem::take(&mut self.pending).is_empty() { String::new() } else { "\u{FFFD}".to_owned() }
     }
 }
 
@@ -222,13 +206,7 @@ impl ActivityTracker {
     /// `infer_start_from_submit`: the integration reports prompts only (cmd), so a line
     /// submitted at a prompt is what starts a command.
     pub fn new(infer_start_from_submit: bool) -> Self {
-        Self {
-            current: None,
-            focus: BTreeSet::new(),
-            leases: BTreeMap::new(),
-            last_epoch: 0,
-            infer_start_from_submit,
-        }
+        Self { current: None, focus: BTreeSet::new(), leases: BTreeMap::new(), last_epoch: 0, infer_start_from_submit }
     }
 
     pub fn state(&self) -> Option<ActivityState> {
@@ -249,11 +227,7 @@ impl ActivityTracker {
             return self.set(Some(ActivityState::Running));
         }
         if self.current == Some(ActivityState::Running) {
-            let next = if self.focus.is_empty() {
-                ActivityState::Finished
-            } else {
-                ActivityState::Idle
-            };
+            let next = if self.focus.is_empty() { ActivityState::Finished } else { ActivityState::Idle };
             return self.set(Some(next));
         }
         if marker == Marker::Prompt && self.current.is_none() {
@@ -264,10 +238,7 @@ impl ActivityTracker {
 
     /// Input written to the PTY (keystrokes, pastes, agent commands).
     pub fn input(&mut self, data: &str) -> Option<Option<ActivityState>> {
-        let settled = matches!(
-            self.current,
-            Some(ActivityState::Idle | ActivityState::Finished)
-        );
+        let settled = matches!(self.current, Some(ActivityState::Idle | ActivityState::Finished));
         if !self.infer_start_from_submit || !settled || !data.contains('\r') {
             return None;
         }

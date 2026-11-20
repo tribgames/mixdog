@@ -294,15 +294,10 @@ impl SecretStore for FallbackStore {
             Err(error) if error.no_provider && cfg!(target_os = "linux") => {
                 let (files, account, value) = (self.files.clone(), account.to_owned(), value.to_owned());
                 // The message carries the filesystem error only, never the value.
-                on_lane(self.io, move || fs_unix::set(&files, &account, &value))
-                    .await?
-                    .map_err(|e| {
-                        let reason = e.raw_os_error().map_or_else(|| "unknown error".to_owned(), |c| format!("os error {c}"));
-                        SecretError::new(format!(
-                            "{}\n  The private secrets file could not be written either: {reason}",
-                            error.message
-                        ))
-                    })
+                on_lane(self.io, move || fs_unix::set(&files, &account, &value)).await?.map_err(|e| {
+                    let reason = e.raw_os_error().map_or_else(|| "unknown error".to_owned(), |c| format!("os error {c}"));
+                    SecretError::new(format!("{}\n  The private secrets file could not be written either: {reason}", error.message))
+                })
             }
             Err(error) => Err(error),
         }
@@ -363,12 +358,12 @@ mod tests {
         assert_eq!(fs_unix::get(&files, "acct").unwrap(), None);
     }
 
-
     /// The file of an account is `encodeURIComponent(account).secret` under `secrets/`, and holds the value as it is.
     #[test]
     fn the_file_of_an_account_is_its_uri_encoded_name() {
         let files = SecretsFiles::new(Path::new("data"));
-        for (account, name) in [("plain", "plain.secret"), ("a/b c", "a%2Fb%20c.secret"), ("é", "%C3%A9.secret"), ("mcp-oauth.ab12", "mcp-oauth.ab12.secret")] {
+        for (account, name) in [("plain", "plain.secret"), ("a/b c", "a%2Fb%20c.secret"), ("é", "%C3%A9.secret"), ("mcp-oauth.ab12", "mcp-oauth.ab12.secret")]
+        {
             assert_eq!(files.file(account).file_name().unwrap().to_str().unwrap(), name, "{account}");
             assert_eq!(files.file(account).parent().unwrap(), Path::new("data").join("secrets"));
         }

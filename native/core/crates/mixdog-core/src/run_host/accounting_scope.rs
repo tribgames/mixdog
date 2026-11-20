@@ -47,17 +47,22 @@ impl SendScope for HeaderScope {
         let header = options.usage_session_id.as_deref().or(options.session_id.as_deref()).and_then(|id| self.sessions.header(id));
         let header = header.as_deref();
         let from_header = |key: &str| header.and_then(|h| text(h, key));
-        let primary = header
-            .filter(|h| text(h, "provider").as_deref() == Some(provider))
-            .and_then(|h| h.get("routeFallbackPrimary"))
-            .and_then(|primary| {
-                let name = primary.get("provider").and_then(Value::as_str).filter(|s| !s.is_empty())?;
-                let model = primary.get("model").and_then(Value::as_str).unwrap_or_default();
-                Some((name.to_owned(), model.to_owned()))
-            });
+        let primary = header.filter(|h| text(h, "provider").as_deref() == Some(provider)).and_then(|h| h.get("routeFallbackPrimary")).and_then(|primary| {
+            let name = primary.get("provider").and_then(Value::as_str).filter(|s| !s.is_empty())?;
+            let model = primary.get("model").and_then(Value::as_str).unwrap_or_default();
+            Some((name.to_owned(), model.to_owned()))
+        });
         Scope {
-            session_id: options.usage_session_id.clone().filter(|s| !s.is_empty()).or_else(|| options.session_id.clone().filter(|s| !s.is_empty())).or_else(|| from_header("id")),
-            source_type: from_header("sourceType").or_else(|| options.source_type.clone().filter(|s| !s.is_empty())).or_else(|| options.request_kind.clone().filter(|s| !s.is_empty())).unwrap_or_default(),
+            session_id: options
+                .usage_session_id
+                .clone()
+                .filter(|s| !s.is_empty())
+                .or_else(|| options.session_id.clone().filter(|s| !s.is_empty()))
+                .or_else(|| from_header("id")),
+            source_type: from_header("sourceType")
+                .or_else(|| options.source_type.clone().filter(|s| !s.is_empty()))
+                .or_else(|| options.request_kind.clone().filter(|s| !s.is_empty()))
+                .unwrap_or_default(),
             owner_session_id: from_header("ownerSessionId").or_else(|| from_header("parentSessionId")),
             primary,
         }

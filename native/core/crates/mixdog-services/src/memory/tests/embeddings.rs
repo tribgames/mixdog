@@ -4,12 +4,8 @@
 
 use std::path::PathBuf;
 
-
 use crate::memory::embed::config::{self, InputType};
 use crate::memory::embed::engine::{EmbedConfig, Embedder};
-
-
-
 
 /// `scripts/verify-embedding-runtime.mjs` on the Rust core: the shipped model is installed the way the core installs it
 /// (from the hub, into an empty cache), loaded through the memory service's embedder, and embeds the probe string.
@@ -34,5 +30,3 @@ async fn the_shipped_model_installs_and_embeds_a_probe_string() {
     assert_eq!(Some(vector.len()), config::known_dims(config::DEFAULT_MODEL_ID), "the model's dimensions");
     assert!(vector.iter().all(|value| value.is_finite()) && vector.iter().any(|value| *value != 0.0), "a real vector");
 }
-
-

@@ -17,9 +17,7 @@ use mixdog_pdf::embed::FontEnv;
 use mixdog_pdf::write::PdfDocument;
 use serde_json::{Map, Value};
 
-use super::blocks::{
-    assert_pdf_blocks, block_text, block_type, forecast_entries, forecast_index, is_truthy, items_of, num_nn, num_or, text_of, text_or,
-};
+use super::blocks::{assert_pdf_blocks, block_text, block_type, forecast_entries, forecast_index, is_truthy, items_of, num_nn, num_or, text_of, text_or};
 use super::layout::{Flow, LineOpts, TextBox, caption_height, draw_lines, lines_height, wrap};
 use super::{Face, RectStyle, WriterError, WriterResult, chart_faces, file_error, save_document};
 
@@ -112,11 +110,8 @@ fn chart_layout(font: &Face, bold: &Face, block: &Value, text_box: TextBox) -> W
     let labels: Vec<String> = values.iter().map(|value| format!("{}{unit}", en_us_number(*value))).collect();
     let across = js_to_lowercase(&text_or(block.get("chartType"), "bar")) != "column";
     let title_size = size + 1.0;
-    let title_height = if is_truthy(block.get("title")) {
-        lines_height(bold, &text_of(block.get("title")), title_size, text_box.width, title_size * 1.3)? + 6.0
-    } else {
-        0.0
-    };
+    let title_height =
+        if is_truthy(block.get("title")) { lines_height(bold, &text_of(block.get("title")), title_size, text_box.width, title_size * 1.3)? + 6.0 } else { 0.0 };
     let highlight = match block.get("highlight") {
         Some(Value::Number(number)) => number.as_f64().unwrap_or(f64::NAN),
         Some(other) => categories.iter().position(|category| *category == value_to_string(other)).map_or(-1.0, |at| at as f64),
@@ -252,14 +247,7 @@ pub fn draw_chart_block(flow: &mut Flow, block: &Value, following: Option<&Value
             }
             let face = if strong(index) { &bold } else { &font };
             let label = &layout.labels[index];
-            flow.page().draw_text(
-                label,
-                x + (layout.column_width - face.width(label, size)?) / 2.0,
-                baseline + height + 4.0,
-                size,
-                face,
-                label_ink(index),
-            )?;
+            flow.page().draw_text(label, x + (layout.column_width - face.width(label, size)?) / 2.0, baseline + height + 4.0, size, face, label_ink(index))?;
             for (line_index, line) in layout.names[index].iter().enumerate() {
                 let line_y = baseline - 6.0 - size - line_index as f64 * size * 1.3;
                 flow.page().draw_text(line, x + (layout.column_width - font.width(line, size)?) / 2.0, line_y, size, &font, dark)?;
@@ -275,14 +263,7 @@ pub fn draw_chart_block(flow: &mut Flow, block: &Value, following: Option<&Value
 /// `createChartPdf(path, block, { width, palette })`: one chart block on a page of its own size (`width` points wide
 /// besides its padding, as tall as the chart), for a document that places the chart as a picture (a Word report): the
 /// same drawing the PDF chart block makes, cut to the chart. The result is `{ path, width, height }`.
-pub fn create_chart_pdf<P: WriteProof>(
-    proof: &P,
-    env: &FontEnv,
-    path: &str,
-    block: &Value,
-    width: f64,
-    palette: Option<&Value>,
-) -> WriterResult<Value> {
+pub fn create_chart_pdf<P: WriteProof>(proof: &P, env: &FontEnv, path: &str, block: &Value, width: f64, palette: Option<&Value>) -> WriterResult<Value> {
     let mut chart: Map<String, Value> = block.as_object().cloned().unwrap_or_default();
     chart.insert("type".into(), Value::String("chart".into()));
     chart.insert("x".into(), json_number(0.0));
@@ -341,7 +322,8 @@ mod tests {
         assert_eq!(layout.labels, ["10k", "20k"]);
         assert_eq!(layout.rows, vec![9.5 * 2.4; 2]);
         assert_eq!(layout.height, layout.title_height + 9.5 * 2.4 * 2.0);
-        let upright = json!({ "type": "chart", "chartType": "column", "categories": ["Q1", "Q2"], "values": [1, 2], "height": 100, "forecast": "Q2", "highlight": "Q1" });
+        let upright =
+            json!({ "type": "chart", "chartType": "column", "categories": ["Q1", "Q2"], "values": [1, 2], "height": 100, "forecast": "Q2", "highlight": "Q1" });
         let layout = chart_layout(&font, &bold, &upright, TextBox { left: 0.0, width: 200.0 }).unwrap();
         assert!(!layout.across);
         assert_eq!(layout.column_width, 100.0);

@@ -103,9 +103,7 @@ fn grandfathers(doc: &Doc, origin: Origin) -> bool {
 /// git, memory and office as installed, a fresh one counts none.
 pub fn builtin_installed(doc: &Doc, id: &str) -> bool {
     if has_builtins_section(doc) {
-        return entry(doc, "builtins", id)
-            .and_then(|e| e.get("installed"))
-            .is_some_and(|v| *v == Value::Bool(true));
+        return entry(doc, "builtins", id).and_then(|e| e.get("installed")).is_some_and(|v| *v == Value::Bool(true));
     }
     GRANDFATHERED_BUILTIN_IDS.contains(&id) && grandfathers(doc, Origin::Loaded)
 }
@@ -119,16 +117,12 @@ pub fn builtin_feature_active(doc: &Doc, id: &str, env: Env<'_>, onnx_supported:
     let var = |name: &str| feature_env_override(env, name);
     match id {
         "webSearch" => var("MIXDOG_FEATURE_WEB_SEARCH").unwrap_or_else(|| module_enabled(doc, id)),
-        "memory" => var("MIXDOG_FEATURE_MEMORY")
-            .unwrap_or_else(|| builtin_installed(doc, id) && memory_tools_enabled(doc)),
+        "memory" => var("MIXDOG_FEATURE_MEMORY").unwrap_or_else(|| builtin_installed(doc, id) && memory_tools_enabled(doc)),
         "office" => installed_and_enabled(doc, id, var("MIXDOG_FEATURE_OFFICE")),
         "tidy" => installed_and_enabled(doc, id, var("MIXDOG_FEATURE_TIDY")),
         "git" => installed_and_enabled(doc, id, var("MIXDOG_FEATURE_GIT")),
         "localProvider" => builtin_installed(doc, id) && module_enabled(doc, id),
-        "autoEffort" => {
-            onnx_supported
-                && var("MIXDOG_FEATURE_AUTO_EFFORT").unwrap_or_else(|| module_enabled(doc, id))
-        }
+        "autoEffort" => onnx_supported && var("MIXDOG_FEATURE_AUTO_EFFORT").unwrap_or_else(|| module_enabled(doc, id)),
         "media" => var("MIXDOG_FEATURE_MEDIA").unwrap_or_else(|| module_enabled(doc, id)),
         _ => false,
     }
@@ -161,10 +155,7 @@ pub fn adopted_stored_agent(doc: &Doc) -> Doc {
 }
 
 pub fn normalize_instruction_files(value: Option<&Value>) -> &'static str {
-    INSTRUCTION_FILES_MODES
-        .into_iter()
-        .find(|mode| value.and_then(Value::as_str) == Some(*mode))
-        .unwrap_or("off")
+    INSTRUCTION_FILES_MODES.into_iter().find(|mode| value.and_then(Value::as_str) == Some(*mode)).unwrap_or("off")
 }
 
 /// `autoEffortBase`: `String(setting ?? '')` trimmed and lower-cased; anything else is `medium`.
@@ -174,10 +165,7 @@ pub fn auto_effort_base(value: Option<&Value>) -> &'static str {
         Some(other) => mixdog_js::value_to_string(other),
     };
     let effort = mixdog_js::js_trim(&text).to_lowercase();
-    AUTO_EFFORT_BASES
-        .into_iter()
-        .find(|base| *base == effort)
-        .unwrap_or("medium")
+    AUTO_EFFORT_BASES.into_iter().find(|base| *base == effort).unwrap_or("medium")
 }
 
 /// `getToolModuleSettings()`, key for key.
@@ -186,12 +174,8 @@ pub fn tool_module_settings(doc: &Doc, external: &External, env: Env<'_>) -> Val
     let active = |id: &str| builtin_feature_active(doc, id, env, onnx);
     let installed = |id: &str| builtin_installed(doc, id);
     let local = external.local_provider.as_object().cloned().unwrap_or_default();
-    let runtime_installed = local
-        .get("runtime")
-        .and_then(|runtime| runtime.get("installed"))
-        .is_some_and(|v| *v == Value::Bool(true));
-    let git_enabled = feature_env_override(env, "MIXDOG_FEATURE_GIT")
-        .unwrap_or_else(|| module_enabled(doc, "git") && external.git_available);
+    let runtime_installed = local.get("runtime").and_then(|runtime| runtime.get("installed")).is_some_and(|v| *v == Value::Bool(true));
+    let git_enabled = feature_env_override(env, "MIXDOG_FEATURE_GIT").unwrap_or_else(|| module_enabled(doc, "git") && external.git_available);
     let always_on = |name: &str, var: &str| {
         json!({
             "enabled": feature_env_override(env, var).unwrap_or_else(|| module_enabled(doc, name)),
@@ -200,15 +184,9 @@ pub fn tool_module_settings(doc: &Doc, external: &External, env: Env<'_>) -> Val
     };
     let mut local_provider = local;
     // Node spreads the status object, then the command error, so those keys win over its own.
-    local_provider.insert(
-        "installationCommandError".into(),
-        external.installation_command_error.clone().map_or(Value::Null, Value::String),
-    );
+    local_provider.insert("installationCommandError".into(), external.installation_command_error.clone().map_or(Value::Null, Value::String));
     local_provider.insert("enabled".into(), json!(active("localProvider")));
-    local_provider.insert(
-        "installed".into(),
-        json!(installed("localProvider") && runtime_installed),
-    );
+    local_provider.insert("installed".into(), json!(installed("localProvider") && runtime_installed));
     let judge = &external.effort_judge;
     json!({
         "instructionFiles": normalize_instruction_files(doc.get("instructionFiles")),

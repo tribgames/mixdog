@@ -11,7 +11,6 @@ use serde_json::Map;
 
 use super::*;
 
-
 /// Prices nothing, as an empty catalog does: the unpriced snapshot Node gives a
 /// model it does not know.
 struct Unpriced;
@@ -74,9 +73,6 @@ fn usage_of(spec: &Value) -> Usage {
     }
 }
 
-
-
-
 fn identity(case: &Value, started_at: i64) -> SendIdentity {
     let text = |key: &str| case.get(key).and_then(Value::as_str).map(str::to_owned);
     let provider = text("provider").unwrap();
@@ -98,8 +94,6 @@ fn identity(case: &Value, started_at: i64) -> SendIdentity {
     }
 }
 
-
-
 /// `usage-accounting.mjs` `save`: `currentProviderAccountId` throwing inside the row's write
 /// writes no row and sets `usageAccountingError` to the error's message; the send's result stands.
 /// An I/O failure reading the account roster is that throw.
@@ -119,10 +113,8 @@ async fn an_unreadable_account_roster_fails_the_recording_and_exposes_the_error(
             .unwrap()
             .unwrap();
     }
-    let store = crate::accounts::AccountStore::new(
-        dir.path().to_path_buf(),
-        crate::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io },
-    );
+    let store =
+        crate::accounts::AccountStore::new(dir.path().to_path_buf(), crate::oauth::CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
     let why = store.of("openai-oauth").await.unwrap_err();
     assert!(!why.is_empty());
 
@@ -173,10 +165,7 @@ async fn the_sink_stamps_the_measured_time_on_the_terminal_event() {
     now.store(12_345, std::sync::atomic::Ordering::SeqCst);
     let recorded = sink.finish_accounting(Outcome::Completed(Completed { stream_ended_at: 12_000, ..Completed::default() })).await;
     assert_eq!(recorded.and_then(|r| r.request_ms), Some(2_345));
-    assert_eq!(
-        sink.events(),
-        [StreamEvent::TextDelta("hi".into()), StreamEvent::Completed { stop: None, pricing_model: None, request_ms: Some(2_345) }]
-    );
+    assert_eq!(sink.events(), [StreamEvent::TextDelta("hi".into()), StreamEvent::Completed { stop: None, pricing_model: None, request_ms: Some(2_345) }]);
 
     let mut unledgered = RecordingSink::collecting().with_accounting(SendAccounting::new(identity(&case, 10_000), Arc::new(Unpriced), None));
     unledgered.event(completed());
@@ -202,8 +191,10 @@ mod through_the_registry {
     use std::sync::atomic::Ordering;
 
     use mixdog_core_api::domain::keepalive::{KeepaliveSchedule, TransportKind};
-    use mixdog_core_api::domain::provider::{ErrorResponse, ModelRequest, ModelStream, ProviderAdapter, RequestOptions, StreamEvent, WireCodec, WireDecoder, WireRequest};
     use mixdog_core_api::domain::provider::SendEnd;
+    use mixdog_core_api::domain::provider::{
+        ErrorResponse, ModelRequest, ModelStream, ProviderAdapter, RequestOptions, StreamEvent, WireCodec, WireDecoder, WireRequest,
+    };
     use mixdog_core_api::domain::retry::RetryPolicy;
     use mixdog_protocol::ProviderId;
 
@@ -294,8 +285,6 @@ mod through_the_registry {
         }
     }
 
-
-
     /// The roster's current account, switchable.
     struct Roster(Mutex<String>);
     #[async_trait]
@@ -338,14 +327,9 @@ mod through_the_registry {
         }
     }
 
-
-
-
     fn rows_of_sink(sink: &Collect) -> Vec<Value> {
         sink.0.lock().unwrap().iter().map(|row| serde_json::to_value(row).unwrap()).collect()
     }
-
-
 
     /// The registry path with `scripts` (one per attempt) and a clock that reads 1.5 s later at the end of a send.
     async fn inline_adapter(scripts: Vec<Script>) -> (Arc<dyn ProviderAdapter>, Arc<Collect>) {
@@ -525,9 +509,7 @@ async fn a_completed_cursor_request_preserves_whether_usage_reported_its_zero_ou
         ..Usage::default()
     };
     for (facts, expected) in [(None, json!(false)), (Some(Facts::from(&zero)), Value::Null)] {
-        accounting.finish(Outcome::Completed(Completed {
-            facts, stream_ended_at: STARTED + 1500, ..Completed::default()
-        })).await;
+        accounting.finish(Outcome::Completed(Completed { facts, stream_ended_at: STARTED + 1500, ..Completed::default() })).await;
         let row = rows(&sink).pop().unwrap();
         let rates: Value = serde_json::from_str(row.rates.as_deref().unwrap()).unwrap();
         assert_eq!(row.output, 0.0);

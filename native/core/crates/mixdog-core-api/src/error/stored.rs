@@ -31,11 +31,7 @@ pub fn rejection_to_json(error: &CoreError) -> Value {
 
 /// The error a stored rejection holds.
 pub fn rejection_from_json(value: Value) -> Result<CoreError, CoreError> {
-    serde_json::from_value::<StoredError>(value)
-        .map(StoredError::into_error)
-        .map_err(|_| CoreError::Internal {
-            incident_id: "op-rejection-unreadable".into(),
-        })
+    serde_json::from_value::<StoredError>(value).map(StoredError::into_error).map_err(|_| CoreError::Internal { incident_id: "op-rejection-unreadable".into() })
 }
 
 macro_rules! stored_error {
@@ -112,54 +108,27 @@ mod precondition {
     use crate::error::Precondition;
 
     #[derive(Serialize, Deserialize)]
-    #[serde(
-        tag = "kind",
-        rename_all = "camelCase",
-        rename_all_fields = "camelCase"
-    )]
+    #[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
     enum Stored {
-        Content {
-            expected: Option<Vec<u8>>,
-            actual: Option<Vec<u8>>,
-        },
-        LastUsedAt {
-            expected: i64,
-            actual: i64,
-        },
-        Revision {
-            expected: Arc<str>,
-            actual: Arc<str>,
-        },
+        Content { expected: Option<Vec<u8>>, actual: Option<Vec<u8>> },
+        LastUsedAt { expected: i64, actual: i64 },
+        Revision { expected: Arc<str>, actual: Arc<str> },
     }
 
     pub fn serialize<S: Serializer>(value: &Precondition, out: S) -> Result<S::Ok, S::Error> {
         let bytes = |b: &Option<Bytes>| b.as_ref().map(|b| b.to_vec());
         match value {
-            Precondition::Content { expected, actual } => Stored::Content {
-                expected: bytes(expected),
-                actual: bytes(actual),
-            },
-            Precondition::LastUsedAt { expected, actual } => Stored::LastUsedAt {
-                expected: *expected,
-                actual: *actual,
-            },
-            Precondition::Revision { expected, actual } => Stored::Revision {
-                expected: expected.clone(),
-                actual: actual.clone(),
-            },
+            Precondition::Content { expected, actual } => Stored::Content { expected: bytes(expected), actual: bytes(actual) },
+            Precondition::LastUsedAt { expected, actual } => Stored::LastUsedAt { expected: *expected, actual: *actual },
+            Precondition::Revision { expected, actual } => Stored::Revision { expected: expected.clone(), actual: actual.clone() },
         }
         .serialize(out)
     }
 
     pub fn deserialize<'de, D: Deserializer<'de>>(input: D) -> Result<Precondition, D::Error> {
         Ok(match Stored::deserialize(input)? {
-            Stored::Content { expected, actual } => Precondition::Content {
-                expected: expected.map(Bytes::from),
-                actual: actual.map(Bytes::from),
-            },
-            Stored::LastUsedAt { expected, actual } => {
-                Precondition::LastUsedAt { expected, actual }
-            }
+            Stored::Content { expected, actual } => Precondition::Content { expected: expected.map(Bytes::from), actual: actual.map(Bytes::from) },
+            Stored::LastUsedAt { expected, actual } => Precondition::LastUsedAt { expected, actual },
             Stored::Revision { expected, actual } => Precondition::Revision { expected, actual },
         })
     }
@@ -174,21 +143,9 @@ mod tests {
     #[test]
     fn a_stored_rejection_reads_back_as_the_same_error() {
         for error in [
-            CoreError::PreconditionFailed {
-                precondition: Precondition::Content {
-                    expected: Some(Bytes::from_static(b"a\xff")),
-                    actual: None,
-                },
-            },
-            CoreError::ProviderError {
-                provider: "anthropic".into(),
-                status: Some(529),
-                kind: "overloaded".into(),
-            },
-            CoreError::TurnNotActive {
-                thread_id: ThreadId::from("t1"),
-                turn_id: None,
-            },
+            CoreError::PreconditionFailed { precondition: Precondition::Content { expected: Some(Bytes::from_static(b"a\xff")), actual: None } },
+            CoreError::ProviderError { provider: "anthropic".into(), status: Some(529), kind: "overloaded".into() },
+            CoreError::TurnNotActive { thread_id: ThreadId::from("t1"), turn_id: None },
             CoreError::OpIdRequired,
         ] {
             let stored = rejection_to_json(&error);

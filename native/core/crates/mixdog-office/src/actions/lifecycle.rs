@@ -37,7 +37,10 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
             let request = json!({ "action": "save_copy", "session": id, "format": format, "mode": mode, "path": target, "output": output });
             let answer = self.host().call(&request, signal, Some(std::time::Duration::from_millis(120_000))).await;
             if !answer.get("ok").is_some_and(truthy) {
-                let reason = answer.get("error").filter(|error| truthy(error)).map_or_else(|| "Microsoft Office save-copy failed".to_owned(), mixdog_js::value_to_string);
+                let reason = answer
+                    .get("error")
+                    .filter(|error| truthy(error))
+                    .map_or_else(|| "Microsoft Office save-copy failed".to_owned(), mixdog_js::value_to_string);
                 return Err(reason.into());
             }
         } else {
@@ -87,7 +90,11 @@ impl<P: WriteProof, H: Host, C: SessionCloser, R: RenderEngine, B: BatchHost> Ma
         metrics.record("recalculation", started);
         let recalculation = recalculated?.unwrap_or(Value::Null);
         if recalculation.get("needed").is_some_and(truthy) && !recalculation.get("recalculated").is_some_and(truthy) {
-            let next = recalculation.get("reason").filter(|reason| truthy(reason)).cloned().unwrap_or_else(|| json!("Open the workbook in Microsoft Office background mode and finalize again."));
+            let next = recalculation
+                .get("reason")
+                .filter(|reason| truthy(reason))
+                .cloned()
+                .unwrap_or_else(|| json!("Open the workbook in Microsoft Office background mode and finalize again."));
             let context = HoldContext { session: &id, fail_on: &fail_on, recalculation: &recalculation, metrics: &metrics, requires_visual_review };
             return Ok(finalize_hold(&context, "recalculation_failed", vec![("nextAction", next)]));
         }

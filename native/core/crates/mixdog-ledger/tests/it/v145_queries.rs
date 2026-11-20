@@ -1,11 +1,7 @@
 //! What the queries answer over a ledger as 1.4.5 left it (`v145::write_v145`: three requests of two days, 10 input,
 //! 5 output, 1 cache read, 2 cache write and $0.50 each; sessions `a` on both days, `b` on the 4th).
 
-#![allow(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "test fixture I/O"
-)]
+#![allow(clippy::disallowed_types, clippy::disallowed_methods, reason = "test fixture I/O")]
 
 use std::collections::BTreeMap;
 use std::sync::Arc;
@@ -111,14 +107,11 @@ async fn the_request_list_separates_unknown_prompt_and_missing_usage_from_measur
             "input": input, "output": output, "cacheRead": 0, "cacheWrite": 0,
             "costUsd": null, "costSource": cost_source, "rates": rates, "origin": "live",
             "durationMs": 0, "status": status
-        })).unwrap();
+        }))
+        .unwrap();
         writer.record_queued(record).await.unwrap();
     }
-    let page = reader.requests_page(RequestQuery {
-        from_ms: NOW,
-        to_ms: NOW + 10,
-        ..RequestQuery::default()
-    }).await.unwrap();
+    let page = reader.requests_page(RequestQuery { from_ms: NOW, to_ms: NOW + 10, ..RequestQuery::default() }).await.unwrap();
     let rows = page["requests"].as_array().unwrap();
     let counts = |row: &Value| ["input", "cacheRead", "cacheWrite", "output", "tokens"].map(|key| row[key].clone());
     assert_eq!(rows.len(), 5);
@@ -171,8 +164,7 @@ async fn quota_history_of_a_145_ledger_keeps_the_readings_recorded_after_the_upg
         sample: QuotaSample { ts, used_pct, reset_at: Some(NOW + 4 * 3_600_000) },
     };
     writer.record_quota_queued(vec![reading(NOW - 3_600_000, 10.0), reading(NOW - 1_800_000, 40.0)]).await.unwrap();
-    let options: QuotaHistoryOptions =
-        serde_json::from_value(json!({"provider": "openai", "account": "acct", "window": "5h"})).unwrap();
+    let options: QuotaHistoryOptions = serde_json::from_value(json!({"provider": "openai", "account": "acct", "window": "5h"})).unwrap();
     let history = reader.quota_history(options, BTreeMap::new(), NOW).await.unwrap();
     let text = serde_json::to_string(&history).unwrap();
     assert!(text.contains(r#""peak":40"#), "the window's peak: {text}");

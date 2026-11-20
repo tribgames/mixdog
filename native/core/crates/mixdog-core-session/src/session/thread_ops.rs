@@ -102,9 +102,7 @@ impl ThreadOpGates for ThreadOps {
         let gate = self
             .gates()
             .entry(thread.clone())
-            .or_insert_with(|| {
-                OpGate::thread(OpScope::Thread(thread.clone()), Arc::new(ThreadOpStore { dir: self.dir.clone(), thread: thread.clone() }))
-            })
+            .or_insert_with(|| OpGate::thread(OpScope::Thread(thread.clone()), Arc::new(ThreadOpStore { dir: self.dir.clone(), thread: thread.clone() })))
             .clone();
         Ok(gate)
     }
@@ -144,19 +142,13 @@ impl OpStore for ThreadOpStore {
 
     async fn put(&self, id: &OpId, record: OpRecord) -> Result<(), CoreError> {
         let (method, digest, audience, state, detail, result) = match record {
-            OpRecord::Fenced => {
-                (FENCE_METHOD.to_owned(), PayloadDigest::of_params(&json!({})).as_str().to_owned(), None, Logged::Fenced, None, None)
-            }
+            OpRecord::Fenced => (FENCE_METHOD.to_owned(), PayloadDigest::of_params(&json!({})).as_str().to_owned(), None, Logged::Fenced, None, None),
             OpRecord::Settled { method, digest, audience, state } => {
                 let (state, detail, result) = match state {
                     OpState::Applied { result, .. } => (Logged::Applied, None, result),
                     OpState::Rejected { error } => (Logged::Rejected, Some(rejection_to_json(&error)), None),
-                    OpState::ExternalPending { effect, target } => {
-                        (Logged::ExternalPending, Some(json!({ "effect": &*effect, "target": &*target })), None)
-                    }
-                    OpState::ExternalUnknown { effect, target } => {
-                        (Logged::ExternalUnknown, Some(json!({ "effect": &*effect, "target": &*target })), None)
-                    }
+                    OpState::ExternalPending { effect, target } => (Logged::ExternalPending, Some(json!({ "effect": &*effect, "target": &*target })), None),
+                    OpState::ExternalUnknown { effect, target } => (Logged::ExternalUnknown, Some(json!({ "effect": &*effect, "target": &*target })), None),
                 };
                 let audience = audience.map(|a| Digest::try_from(a.as_str().to_owned())).transpose().map_err(|_| unreadable())?;
                 (method.to_string(), digest.as_str().to_owned(), audience, state, detail, result)

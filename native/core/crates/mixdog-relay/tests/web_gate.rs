@@ -25,8 +25,7 @@ const TOKEN: &str = "a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a0a
 const NATIVE_APP: &str = "Mozilla/5.0 MixdogApp/1.0";
 
 /// Headers of a fetch or subresource from the opaque-origin preview frame.
-const FROM_PREVIEW_FRAME: [(&str, &str); 4] =
-    [("Origin", "null"), ("Sec-Fetch-Site", "cross-site"), ("Sec-Fetch-Mode", "cors"), ("Sec-Fetch-Dest", "empty")];
+const FROM_PREVIEW_FRAME: [(&str, &str); 4] = [("Origin", "null"), ("Sec-Fetch-Site", "cross-site"), ("Sec-Fetch-Mode", "cors"), ("Sec-Fetch-Dest", "empty")];
 
 fn write(path: &Path, bytes: impl AsRef<[u8]>) {
     mixdog_fsio::create_dir_all(&Unlaned, path.parent().unwrap()).unwrap();
@@ -104,11 +103,7 @@ fn decode_chunked(mut data: &[u8]) -> Vec<u8> {
 }
 
 fn paired_store() -> FakeStore {
-    FakeStore {
-        tokens: HashMap::from([(TOKEN.to_owned(), DEVICE.to_owned())]),
-        known: vec![DEVICE.to_owned()],
-        versions: HashMap::new(),
-    }
+    FakeStore { tokens: HashMap::from([(TOKEN.to_owned(), DEVICE.to_owned())]), known: vec![DEVICE.to_owned()], versions: HashMap::new() }
 }
 
 const MANIFEST: &str = r#"{"id":"/","name":"Mixdog","start_url":"/","scope":"/","share_target":{"action":"/share-target","method":"POST"}}"#;
@@ -197,9 +192,8 @@ fn request_headers(pairs: &[(&str, &str)]) -> mixdog_relay::http1::Headers {
 
 #[test]
 fn a_cookie_authenticates_only_same_origin_browser_initiated_or_top_level_navigation_requests() {
-    let fetch_metadata = |site: &'static str, mode: &'static str, dest: &'static str| {
-        [("Sec-Fetch-Site", site), ("Sec-Fetch-Mode", mode), ("Sec-Fetch-Dest", dest)]
-    };
+    let fetch_metadata =
+        |site: &'static str, mode: &'static str, dest: &'static str| [("Sec-Fetch-Site", site), ("Sec-Fetch-Mode", mode), ("Sec-Fetch-Dest", dest)];
     let allowed: Vec<Vec<(&str, &str)>> = vec![
         vec![],
         fetch_metadata("same-origin", "cors", "empty").to_vec(),
@@ -226,7 +220,6 @@ fn a_cookie_authenticates_only_same_origin_browser_initiated_or_top_level_naviga
     framed.push(("Cookie", &cookie));
     assert_eq!(request_cookie_token(&request_headers(&framed)), "");
 }
-
 
 fn io() -> InteractiveIo {
     mixdog_rt::testing::tokens().interactive_io
@@ -370,12 +363,7 @@ async fn the_static_gate_ignores_the_pairing_cookie_on_a_request_from_the_previe
     let mut framed = FROM_PREVIEW_FRAME.to_vec();
     framed.push(("Cookie", &cookie));
     assert_eq!(exchange(&gate, "GET", "/", &framed).await.status, 401);
-    let app = [
-        ("Cookie", cookie.as_str()),
-        ("Sec-Fetch-Site", "same-origin"),
-        ("Sec-Fetch-Mode", "cors"),
-        ("Sec-Fetch-Dest", "empty"),
-    ];
+    let app = [("Cookie", cookie.as_str()), ("Sec-Fetch-Site", "same-origin"), ("Sec-Fetch-Mode", "cors"), ("Sec-Fetch-Dest", "empty")];
     assert_eq!(exchange(&gate, "GET", "/", &app).await.status, 200, "the app itself still authenticates by cookie");
 }
 // ---- the gate and the static routes ----
@@ -460,9 +448,7 @@ async fn only_unmatched_pcs_see_recovery_and_the_worker_can_still_update() {
     let dir = tempfile::tempdir().unwrap();
     let releases = dir.path().join("releases");
     let renderer_dir = renderer(dir.path());
-    let entry = |id: &str, version: &str, hash: &str, legacy: bool| {
-        serde_json::json!({ "id": id, "desktopVersion": version, "shellVersion": hash, "addedAt": 10, "legacy": legacy })
-    };
+    let entry = |id: &str, version: &str, hash: &str, legacy: bool| serde_json::json!({ "id": id, "desktopVersion": version, "shellVersion": hash, "addedAt": 10, "legacy": legacy });
     let hash = "a".repeat(64);
     let index = serde_json::json!({ "schemaVersion": 1, "releases": [entry("legacy", "", &hash, true), entry("r110", "1.1.0", "", false)] });
     write(&releases.join("index.json"), index.to_string());

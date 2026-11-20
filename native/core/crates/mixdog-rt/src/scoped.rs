@@ -122,10 +122,7 @@ mod tests {
                 "partial"
             }
         });
-        let out = Scope::new()
-            .cancel(&cancel)
-            .run_with_grace(&mut work, std::time::Duration::from_secs(60), || signalled.cancel())
-            .await;
+        let out = Scope::new().cancel(&cancel).run_with_grace(&mut work, std::time::Duration::from_secs(60), || signalled.cancel()).await;
         assert_eq!(out, Scoped::Done("partial"));
     }
 
@@ -153,10 +150,7 @@ mod tests {
                 "partial"
             }
         });
-        let out = Scope::new()
-            .cancel(&cancel)
-            .run_with_grace(&mut work, std::time::Duration::from_millis(1500), || signalled.cancel())
-            .await;
+        let out = Scope::new().cancel(&cancel).run_with_grace(&mut work, std::time::Duration::from_millis(1500), || signalled.cancel()).await;
         assert_eq!(out, Scoped::Done("partial"));
     }
 

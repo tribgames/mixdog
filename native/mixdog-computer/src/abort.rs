@@ -33,10 +33,7 @@ pub fn run() -> i32 {
     let recovered = platform::recover_inactive_ledger();
     let target = parse_window_id(&std::env::var("MIXDOG_ABORT_TARGET").unwrap_or_default());
     let restore = parse_window_id(&std::env::var("MIXDOG_ABORT_RESTORE").unwrap_or_default());
-    let cursor = cursor_point(
-        std::env::var("MIXDOG_ABORT_CURSOR_X").ok().as_deref(),
-        std::env::var("MIXDOG_ABORT_CURSOR_Y").ok().as_deref(),
-    );
+    let cursor = cursor_point(std::env::var("MIXDOG_ABORT_CURSOR_X").ok().as_deref(), std::env::var("MIXDOG_ABORT_CURSOR_Y").ok().as_deref());
     let mut restored = Ok(());
     if target != 0 && marker.is_ok() {
         let observer = Observer::new();

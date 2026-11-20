@@ -179,11 +179,7 @@ fn parse_desktop(rest: &str) -> Option<InputDesktop> {
         "1" => Some(true),
         _ => None,
     };
-    Some(InputDesktop {
-        name: (name != "-").then(|| name.to_owned()),
-        consent: flag(consent)?,
-        logon_ui: flag(logon)?,
-    })
+    Some(InputDesktop { name: (name != "-").then(|| name.to_owned()), consent: flag(consent)?, logon_ui: flag(logon)? })
 }
 
 /// Splits the process's output into lines; a line past [`MAX_LINE_BYTES`] is an error.
@@ -324,15 +320,7 @@ mod tests {
 
     impl Behaviour {
         fn serving() -> Self {
-            Self {
-                auto_ready: true,
-                answer: true,
-                error: None,
-                release_on_eof: true,
-                cleanup_exits: true,
-                exit_on_spawn: false,
-                missing_binary: false,
-            }
+            Self { auto_ready: true, answer: true, error: None, release_on_eof: true, cleanup_exits: true, exit_on_spawn: false, missing_binary: false }
         }
     }
 
@@ -413,8 +401,7 @@ mod tests {
                 CommandSpec::Argv { args, .. } => args.clone(),
                 CommandSpec::Shell { .. } => Vec::new(),
             };
-            let mut run =
-                FakeRun { request, tx, rx: Some(rx), written: Vec::new(), stdin_closed: false, killed: false, exited: false, seq: 0 };
+            let mut run = FakeRun { request, tx, rx: Some(rx), written: Vec::new(), stdin_closed: false, killed: false, exited: false, seq: 0 };
             if args == [SCREEN_INPUT_MODE] {
                 if self.behaviour.exit_on_spawn {
                     run.exit(ExitStatus::Code(1));
@@ -428,11 +415,7 @@ mod tests {
             Ok(SpawnedProcess { handle, pid: 1 })
         }
 
-        fn subscribe(
-            &self,
-            handle: &ProcessHandle,
-            _from_seq: Option<u64>,
-        ) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
+        fn subscribe(&self, handle: &ProcessHandle, _from_seq: Option<u64>) -> Result<Box<dyn EventSource<ProcessEvent>>, ProcessError> {
             let mut runs = lock(&self.runs);
             let run = runs.iter_mut().find(|run| run.request.handle == *handle).ok_or(ProcessError::UnknownHandle)?;
             let rx = run.rx.take().ok_or(ProcessError::UnknownHandle)?;
@@ -548,20 +531,13 @@ mod tests {
     #[test]
     fn a_failed_input_becomes_a_computer_error_with_its_code() {
         let error: ComputerError = ScreenInputError::new("out_of_bounds").into();
-        assert_eq!(
-            error,
-            ComputerError::Failed { code: "out_of_bounds".into(), message: "remote screen input out_of_bounds".into() }
-        );
+        assert_eq!(error, ComputerError::Failed { code: "out_of_bounds".into(), message: "remote screen input out_of_bounds".into() });
     }
-
 
     fn setup(behaviour: Behaviour) -> (Arc<Fake>, ScreenInput) {
         let fake = Arc::new(Fake { runs: Mutex::new(Vec::new()), behaviour });
-        let config = ScreenInputConfig {
-            binary: PathBuf::from("mixdog-computer"),
-            cwd: AbsPath::new(std::env::temp_dir()).expect("an absolute temp dir"),
-            marker: 77,
-        };
+        let config =
+            ScreenInputConfig { binary: PathBuf::from("mixdog-computer"), cwd: AbsPath::new(std::env::temp_dir()).expect("an absolute temp dir"), marker: 77 };
         let input = ScreenInput::new(fake.clone(), config);
         (fake, input)
     }
@@ -777,7 +753,6 @@ mod tests {
         assert_eq!(input.session(), Some(3));
     }
 }
-
 
 impl std::error::Error for ScreenInputError {}
 impl Inner {
@@ -1073,12 +1048,7 @@ impl ScreenInput {
         if inner.state().stopping {
             return Err(ScreenInputError::new("start_failed"));
         }
-        let request = inner.request(
-            vec![SCREEN_INPUT_MODE.to_owned()],
-            true,
-            ("MIXDOG_SCREEN_INPUT_MARKER", inner.config.marker.to_string()),
-            None,
-        );
+        let request = inner.request(vec![SCREEN_INPUT_MODE.to_owned()], true, ("MIXDOG_SCREEN_INPUT_MARKER", inner.config.marker.to_string()), None);
         let handle = request.handle.clone();
         let Ok((_, events)) = inner.manager.spawn_subscribed(request).await else {
             return Err(ScreenInputError::new("start_failed"));
@@ -1143,10 +1113,7 @@ impl ScreenInput {
     pub async fn cursor(&self) -> Result<(i32, i32), ScreenInputError> {
         let fields = self.inner.command(&Command::Cursor).await?;
         match fields.as_slice() {
-            [x, y] => Ok((
-                x.parse().map_err(|_| ScreenInputError::new("protocol_error"))?,
-                y.parse().map_err(|_| ScreenInputError::new("protocol_error"))?,
-            )),
+            [x, y] => Ok((x.parse().map_err(|_| ScreenInputError::new("protocol_error"))?, y.parse().map_err(|_| ScreenInputError::new("protocol_error"))?)),
             _ => Err(ScreenInputError::new("protocol_error")),
         }
     }

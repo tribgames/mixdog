@@ -189,30 +189,13 @@ impl Tuning {
     /// From the process environment, read once by the caller.
     pub fn from_env(get: impl Fn(&str) -> Option<String>) -> Self {
         let (_, max_before_warn) = stall_windows_ms(&get);
-        let first_byte =
-            resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS"], 60_000.0, 30_000.0, max_before_warn);
-        let generate_total = resolve_timeout_ms(
-            &get,
-            &["MIXDOG_PROVIDER_GENERATE_TOTAL_TIMEOUT_MS"],
-            max_before_warn,
-            first_byte,
-            max_before_warn,
-        );
-        let create_attempt_ms = resolve_timeout_ms(
-            &get,
-            &["MIXDOG_PROVIDER_CACHE_CREATE_TIMEOUT_MS"],
-            generate_total.min(120_000.0),
-            30_000.0,
-            max_before_warn,
-        );
+        let first_byte = resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_FIRST_BYTE_TIMEOUT_MS"], 60_000.0, 30_000.0, max_before_warn);
+        let generate_total = resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_GENERATE_TOTAL_TIMEOUT_MS"], max_before_warn, first_byte, max_before_warn);
+        let create_attempt_ms =
+            resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_CACHE_CREATE_TIMEOUT_MS"], generate_total.min(120_000.0), 30_000.0, max_before_warn);
         let retry_jitter_ratio = retry_jitter_ratio(&get);
-        let create_total_ms = resolve_timeout_ms(
-            &get,
-            &["MIXDOG_PROVIDER_CACHE_CREATE_TOTAL_TIMEOUT_MS"],
-            generate_total.min(180_000.0),
-            30_000.0,
-            max_before_warn,
-        );
+        let create_total_ms =
+            resolve_timeout_ms(&get, &["MIXDOG_PROVIDER_CACHE_CREATE_TOTAL_TIMEOUT_MS"], generate_total.min(180_000.0), 30_000.0, max_before_warn);
         let positive = |name: &str, default: f64| {
             let n = get(name).map_or(f64::NAN, |v| string_to_number(&v));
             if n > 0.0 { n } else { default }
@@ -384,10 +367,7 @@ pub fn decide(
     let prefix_matches = state.cache_prefix_content_count <= request.contents.len()
         && !state.cache_prefix_hash.is_empty()
         && state.cache_prefix_hash == prefix_hash(model, request, state.cache_prefix_content_count);
-    let can_attach = live_ms > 0.0
-        && state.cache_model == model
-        && state.cache_credential_fingerprint == credential_fingerprint
-        && prefix_matches;
+    let can_attach = live_ms > 0.0 && state.cache_model == model && state.cache_credential_fingerprint == credential_fingerprint && prefix_matches;
     Decision { can_attach, can_reuse: can_attach && live_ms > headroom_ms && iters_since_create < tuning.refresh_every_n }
 }
 

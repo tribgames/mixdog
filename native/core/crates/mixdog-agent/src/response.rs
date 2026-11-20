@@ -77,14 +77,7 @@ pub struct ResponseBuilder {
 
 impl ResponseBuilder {
     pub fn new(model: &str, ids: ToolCallIds) -> Self {
-        Self {
-            response: ModelResponse {
-                model: model.to_owned(),
-                ..ModelResponse::default()
-            },
-            ids,
-            completed: false,
-        }
+        Self { response: ModelResponse { model: model.to_owned(), ..ModelResponse::default() }, ids, completed: false }
     }
 
     pub fn push(&mut self, event: StreamEvent) {
@@ -169,10 +162,7 @@ pub fn stop_text(stop: &StopReason) -> String {
 pub fn is_output_limit(stop: Option<&StopReason>) -> bool {
     match stop {
         Some(StopReason::MaxTokens) => true,
-        Some(StopReason::Other(value)) => matches!(
-            mixdog_js::js_trim(value).to_ascii_lowercase().as_str(),
-            "length" | "max_tokens" | "max_output_tokens"
-        ),
+        Some(StopReason::Other(value)) => matches!(mixdog_js::js_trim(value).to_ascii_lowercase().as_str(), "length" | "max_tokens" | "max_output_tokens"),
         _ => false,
     }
 }
@@ -183,10 +173,7 @@ pub fn is_incomplete(stop: Option<&StopReason>) -> bool {
     match stop {
         Some(StopReason::MaxTokens) => true,
         Some(StopReason::Other(value)) => {
-            matches!(
-                value.as_str(),
-                "pause_turn" | "max_tokens" | "length" | "MAX_TOKENS" | "OTHER"
-            )
+            matches!(value.as_str(), "pause_turn" | "max_tokens" | "length" | "MAX_TOKENS" | "OTHER")
         }
         _ => false,
     }
@@ -197,9 +184,7 @@ pub fn is_incomplete(stop: Option<&StopReason>) -> bool {
 pub fn continuation_signal(stop: Option<&StopReason>) -> Option<&'static str> {
     match stop {
         Some(StopReason::ContinueTurn) => Some("end_turn_false"),
-        Some(StopReason::Other(value)) if mixdog_js::js_trim(value).eq_ignore_ascii_case("pause_turn") => {
-            Some("pause_turn")
-        }
+        Some(StopReason::Other(value)) if mixdog_js::js_trim(value).eq_ignore_ascii_case("pause_turn") => Some("pause_turn"),
         _ => None,
     }
 }
@@ -272,12 +257,7 @@ fn echo(message: &mut AgentMessage, response: &ModelResponse, keep_blocks: bool)
 pub fn intermediate_message(response: &ModelResponse) -> Option<AgentMessage> {
     let keep_blocks = response.tool_calls.is_empty();
     let blocks = keep_blocks && response.replay.is_empty() && !response.server_blocks.is_empty();
-    if response.content.is_empty()
-        && response.reasoning.is_empty()
-        && response.replay.is_empty()
-        && response.thinking_blocks.is_none()
-        && !blocks
-    {
+    if response.content.is_empty() && response.reasoning.is_empty() && response.replay.is_empty() && response.thinking_blocks.is_none() && !blocks {
         return None;
     }
     let mut message = AgentMessage::assistant(response.content.clone(), Vec::new());
@@ -304,10 +284,7 @@ mod tests {
         assert!(!is_output_limit(Some(&StopReason::Other("pause_turn".into()))));
         assert!(is_incomplete(Some(&StopReason::Other("pause_turn".into()))));
         assert!(!is_incomplete(Some(&StopReason::Other("other".into()))));
-        assert_eq!(
-            continuation_signal(Some(&StopReason::Other("pause_turn".into()))),
-            Some("pause_turn")
-        );
+        assert_eq!(continuation_signal(Some(&StopReason::Other("pause_turn".into()))), Some("pause_turn"));
     }
 
     #[test]
@@ -326,14 +303,9 @@ mod tests {
         let empty = ModelResponse::default();
         assert_eq!(classify_termination(&empty, false), Some(Termination::Empty));
         assert_eq!(classify_termination(&empty, true), None);
-        let cut = ModelResponse {
-            content: "x".into(),
-            stop: Some(StopReason::MaxTokens),
-            ..ModelResponse::default()
-        };
+        let cut = ModelResponse { content: "x".into(), stop: Some(StopReason::MaxTokens), ..ModelResponse::default() };
         assert_eq!(classify_termination(&cut, false), Some(Termination::Truncated));
     }
-
 
     /// The thinking blocks of an Anthropic turn whose call leaked reach the assistant message that holds the call, and the
     /// final content the Responses collector returns replaces the streamed text.
@@ -346,7 +318,8 @@ mod tests {
         builder.push(StreamEvent::ThinkingBlocks(blocks.clone()));
         let response = builder.finish();
         assert_eq!(response.content, "the visible answer");
-        let call = ToolCall { id: "toolu_leaked_0123456789abcdef".into(), name: "read".into(), arguments: serde_json::json!({ "path": "a" }), native_type: None };
+        let call =
+            ToolCall { id: "toolu_leaked_0123456789abcdef".into(), name: "read".into(), arguments: serde_json::json!({ "path": "a" }), native_type: None };
         let message = tool_call_message(&ModelResponse { tool_calls: vec![call], ..response });
         assert_eq!(message.message.thinking_blocks.as_ref(), Some(&blocks));
     }
@@ -367,17 +340,16 @@ mod tests {
     /// The account that served an answer is stored on the message and read back for the next send.
     #[test]
     fn the_serving_key_is_stored_on_the_message_and_read_back_for_the_next_send() {
-        let served = AccountRouting {
-            provider: "anthropic".into(),
-            account_id: "acct-2".into(),
-            session_account_id: Some("acct-1".into()),
-        };
+        let served = AccountRouting { provider: "anthropic".into(), account_id: "acct-2".into(), session_account_id: Some("acct-1".into()) };
         let mut builder = ResponseBuilder::new("m1", ToolCallIds::new(&[]));
         builder.push(StreamEvent::TextDelta("hi".into()));
         builder.push(StreamEvent::AccountRouting(served.clone()));
         let message = intermediate_message(&builder.finish()).unwrap();
         let stored = &message.provider_metadata.as_ref().unwrap()["accountRouting"];
-        assert_eq!((stored["provider"].as_str(), stored["accountId"].as_str(), stored["sessionAccountId"].as_str()), (Some("anthropic"), Some("acct-2"), Some("acct-1")));
+        assert_eq!(
+            (stored["provider"].as_str(), stored["accountId"].as_str(), stored["sessionAccountId"].as_str()),
+            (Some("anthropic"), Some("acct-2"), Some("acct-1"))
+        );
         assert_eq!(message.wire().account_routing, Some(served));
     }
 }

@@ -32,9 +32,9 @@ use super::signal::read_media;
 use crate::clients::table::Revocation;
 use crate::media::MediaOutput;
 use crate::media::MediaRequest;
-use crate::media::Permit;
 use crate::media::MediaSession;
 use crate::media::MediaSources;
+use crate::media::Permit;
 use crate::media::serve_media_window;
 
 /// What the adapter needs from its session's coordinator.

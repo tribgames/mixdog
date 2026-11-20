@@ -96,11 +96,7 @@ pub fn gemini_page(body: &[u8]) -> Result<GeminiPage, ProviderError> {
     let data: Value = serde_json::from_slice(body).map_err(|e| unreadable(format!("gemini model listing is not JSON: {e}")))?;
     Ok(GeminiPage {
         models: data.get("models").and_then(Value::as_array).cloned().unwrap_or_default(),
-        next: data
-            .get("nextPageToken")
-            .and_then(Value::as_str)
-            .filter(|token| !token.is_empty())
-            .map(str::to_owned),
+        next: data.get("nextPageToken").and_then(Value::as_str).filter(|token| !token.is_empty()).map(str::to_owned),
     })
 }
 
@@ -131,9 +127,7 @@ static GEMINI_VERSION: LazyLock<JsRegex> = LazyLock::new(|| regex(r"gemini-(\d+)
 
 /// `[major, minor]` of a Gemini id; an absent part is 0 (`Number(undefined) || 0`).
 fn gemini_version(id: &str) -> Vec<f64> {
-    GEMINI_VERSION.captures(id).map_or_else(Vec::new, |caps| {
-        (1..=2).map(|i| caps.get(i).and_then(|part| part.parse::<f64>().ok()).unwrap_or(0.0)).collect()
-    })
+    GEMINI_VERSION.captures(id).map_or_else(Vec::new, |caps| (1..=2).map(|i| caps.get(i).and_then(|part| part.parse::<f64>().ok()).unwrap_or(0.0)).collect())
 }
 
 /// `compareVersion(a, b) > 0`.
@@ -290,8 +284,7 @@ const VERTEX_MODELS: [(&str, &str, Option<u64>, Option<&str>); 52] = [
 /// generic wire vocabulary.
 fn documented_levels(id: &str) -> Option<Vec<String>> {
     let bare = id.strip_prefix("models/").unwrap_or(id).to_lowercase();
-    matches!(bare.as_str(), "gemini-4-argon" | "gemini-3.8-flash")
-        .then(|| ["low", "medium", "high"].map(str::to_owned).to_vec())
+    matches!(bare.as_str(), "gemini-4-argon" | "gemini-3.8-flash").then(|| ["low", "medium", "high"].map(str::to_owned).to_vec())
 }
 
 /// `vertexTierOption`: the service-tier parameter a listed model offers.
@@ -337,11 +330,7 @@ pub fn publisher_page(body: &[u8]) -> Result<GeminiPage, ProviderError> {
     let data: Value = serde_json::from_slice(body).map_err(|e| unreadable(format!("vertex model listing is not JSON: {e}")))?;
     Ok(GeminiPage {
         models: data.get("publisherModels").and_then(Value::as_array).cloned().unwrap_or_default(),
-        next: data
-            .get("nextPageToken")
-            .and_then(Value::as_str)
-            .filter(|token| !token.is_empty())
-            .map(str::to_owned),
+        next: data.get("nextPageToken").and_then(Value::as_str).filter(|token| !token.is_empty()).map(str::to_owned),
     })
 }
 
@@ -429,24 +418,14 @@ pub fn antigravity_request(origin: &str, project: &str, client_version: &str) ->
         transport: TransportKind::Http1,
         method: "POST".into(),
         url: format!("{origin}/v1internal:fetchAvailableModels"),
-        headers: vec![
-            ("content-type".into(), "application/json".into()),
-            ("user-agent".into(), antigravity_user_agent(client_version)),
-        ],
+        headers: vec![("content-type".into(), "application/json".into()), ("user-agent".into(), antigravity_user_agent(client_version))],
         body: serde_json::to_vec(&body).expect("a JSON value serializes"),
     }
 }
 
 /// Tier labels the gateway puts in parentheses.
-const TIER_EFFORTS: [(&str, &str); 7] = [
-    ("extra low", "minimal"),
-    ("minimal", "minimal"),
-    ("low", "low"),
-    ("medium", "medium"),
-    ("high", "high"),
-    ("xhigh", "xhigh"),
-    ("extra high", "xhigh"),
-];
+const TIER_EFFORTS: [(&str, &str); 7] =
+    [("extra low", "minimal"), ("minimal", "minimal"), ("low", "low"), ("medium", "medium"), ("high", "high"), ("xhigh", "xhigh"), ("extra high", "xhigh")];
 const EFFORT_ORDER: [&str; 5] = ["minimal", "low", "medium", "high", "xhigh"];
 /// The thinkingLevel values the gateway accepts on a single wire id.
 const GATEWAY_LEVELS: [&str; 3] = ["low", "medium", "high"];
@@ -499,12 +478,7 @@ fn pick_wire(candidates: &[String], base: &str) -> String {
     let version = FIRST_NUMBER.find(base).map(|range| &base[range]);
     let rank = |id: &str| usize::from(!version.is_some_and(|v| id.contains(v)));
     let mut sorted: Vec<&String> = candidates.iter().collect();
-    sorted.sort_by(|a, b| {
-        rank(a)
-            .cmp(&rank(b))
-            .then(utf16_len(a).cmp(&utf16_len(b)))
-            .then_with(|| locale_compare(a, b))
-    });
+    sorted.sort_by(|a, b| rank(a).cmp(&rank(b)).then(utf16_len(a).cmp(&utf16_len(b))).then_with(|| locale_compare(a, b)));
     sorted[0].clone()
 }
 
@@ -559,11 +533,7 @@ pub fn resolve_wire(roster: &[ModelRecord], model: &str, effort: Option<&str>) -
     match wire {
         WireIds::Tiers(tiers) => {
             let wanted = effort.unwrap_or("").to_lowercase();
-            let chosen = tiers
-                .iter()
-                .find(|(level, _)| *level == wanted)
-                .or_else(|| tiers.iter().find(|(level, _)| level == "high"))
-                .or(tiers.last());
+            let chosen = tiers.iter().find(|(level, _)| *level == wanted).or_else(|| tiers.iter().find(|(level, _)| level == "high")).or(tiers.last());
             (chosen.map(|(_, wire)| wire.clone()).unwrap_or_else(|| model.to_owned()), None)
         }
         WireIds::One(wire) => (wire.clone(), if record.reasoning_levels.is_empty() || xhigh_pin(model) { None } else { effort.map(str::to_owned) }),
@@ -614,10 +584,7 @@ fn antigravity_rows(raw: &Map<String, Value>, traits: &dyn ModelTraits) -> Vec<A
         let at = match families.iter().position(|(k, _)| *k == key) {
             Some(at) => at,
             None => {
-                families.push((
-                    key,
-                    Family { base, context_window: 0.0, max_output: 0.0, vision: false, reasoning: false, wires: Vec::new() },
-                ));
+                families.push((key, Family { base, context_window: 0.0, max_output: 0.0, vision: false, reasoning: false, wires: Vec::new() }));
                 families.len() - 1
             }
         };
@@ -707,12 +674,8 @@ fn antigravity_rows(raw: &Map<String, Value>, traits: &dyn ModelTraits) -> Vec<A
 /// chat model is a failed listing, never an empty one.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn antigravity_records(body: &[u8], traits: &dyn ModelTraits) -> Result<Vec<ModelRecord>, ProviderError> {
-    let data: Value = serde_json::from_slice(body)
-        .map_err(|e| unreadable(format!("[antigravity-oauth] fetchAvailableModels is not JSON: {e}")))?;
-    let raw = data
-        .get("models")
-        .and_then(Value::as_object)
-        .ok_or_else(|| unreadable("[antigravity-oauth] fetchAvailableModels returned no models"))?;
+    let data: Value = serde_json::from_slice(body).map_err(|e| unreadable(format!("[antigravity-oauth] fetchAvailableModels is not JSON: {e}")))?;
+    let raw = data.get("models").and_then(Value::as_object).ok_or_else(|| unreadable("[antigravity-oauth] fetchAvailableModels returned no models"))?;
     let rows = antigravity_rows(raw, traits);
     if rows.is_empty() {
         return Err(unreadable("[antigravity-oauth] fetchAvailableModels listed no chat models"));

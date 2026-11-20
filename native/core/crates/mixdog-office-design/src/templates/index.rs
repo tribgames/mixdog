@@ -14,12 +14,12 @@ use serde_json::{Map, Value, json};
 
 use super::induct::{induce_pptx_sample_roles, role_key};
 use super::inspect::{
-    direct_pptx_shape_blocks, extname, fs_message, infer_pptx_sample_kind, number_from_path, office_template_coverage, pptx_sample_capacity, pptx_shape_metadata, pptx_slide_entries, pptx_slot,
-    walk_template_directory, xml_attribute,
+    direct_pptx_shape_blocks, extname, fs_message, infer_pptx_sample_kind, number_from_path, office_template_coverage, pptx_sample_capacity,
+    pptx_shape_metadata, pptx_slide_entries, pptx_slot, walk_template_directory, xml_attribute,
 };
 use crate::library::{
-    Environment, LibraryConfig, SCHEMA_VERSION, TEMPLATE_INSPECTOR_VERSION, TemplateIndexer, canonical_path, library_paths, normalize_layouts, normalize_local_samples, read_json, safe_id, sha256_file,
-    template_format, write_json_atomic,
+    Environment, LibraryConfig, SCHEMA_VERSION, TEMPLATE_INSPECTOR_VERSION, TemplateIndexer, canonical_path, library_paths, normalize_layouts,
+    normalize_local_samples, read_json, safe_id, sha256_file, template_format, write_json_atomic,
 };
 use crate::{opt_prop, prop, text};
 
@@ -187,7 +187,11 @@ struct Details {
 
 fn stat<P: ReadProof>(proof: &P, path: &Path) -> std::io::Result<Details> {
     let meta = mixdog_fsio::metadata(proof, path)?;
-    let mtime_ms = meta.modified().ok().and_then(|time| time.duration_since(UNIX_EPOCH).ok()).map_or(0.0, |since| since.as_secs() as f64 * 1e3 + f64::from(since.subsec_nanos()) / 1e6);
+    let mtime_ms = meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(UNIX_EPOCH).ok())
+        .map_or(0.0, |since| since.as_secs() as f64 * 1e3 + f64::from(since.subsec_nanos()) / 1e6);
     Ok(Details { size: meta.len() as f64, mtime_ms })
 }
 
@@ -213,7 +217,10 @@ fn sample_slots(sample: &Value, metadata: Option<&Value>) -> Result<Vec<Value>, 
         let wanted = mixdog_js::string_to_number(shape_index);
         let shape = shape_list(sample).iter().find(|shape| prop(shape, "shape").and_then(Value::as_f64) == Some(wanted));
         let Some(shape) = shape else {
-            return Err(format!("Office local template sample {} references missing shape {shape_index}", value_to_string(prop(sample, "slide").unwrap_or(&Value::Null))));
+            return Err(format!(
+                "Office local template sample {} references missing shape {shape_index}",
+                value_to_string(prop(sample, "slide").unwrap_or(&Value::Null))
+            ));
         };
         slots.push(pptx_slot(shape, &text(Some(role))));
     }
@@ -283,7 +290,8 @@ fn declared_layouts(metadata: &Value, inspected: &Value, id: &str, path: &str) -
             let slots = if non_empty_array(prop(layout, "slots")) { layout["slots"].clone() } else { from_sample("slots", json!([])) };
             let has_capacity = prop(layout, "capacity").and_then(Value::as_object).is_some_and(|capacity| !capacity.is_empty());
             let capacity = if has_capacity { layout["capacity"].clone() } else { from_sample("capacity", json!({})) };
-            let capabilities = if non_empty_array(prop(layout, "capabilities")) { layout["capabilities"].clone() } else { from_sample("capabilities", json!([])) };
+            let capabilities =
+                if non_empty_array(prop(layout, "capabilities")) { layout["capabilities"].clone() } else { from_sample("capabilities", json!([])) };
             out.insert("slots".to_owned(), slots);
             out.insert("capacity".to_owned(), capacity);
             out.insert("capabilities".to_owned(), capabilities);
@@ -301,17 +309,26 @@ fn indexed_sample_slides(inspected: &Value, layouts: &[Value]) -> Vec<Value> {
             let layout = layouts.iter().find(|entry| same_number(prop(entry, "sourceSlide"), prop(sample, "slide")));
             let layout_slots = layout.and_then(|layout| prop(layout, "slots")).and_then(Value::as_array);
             let title_shape = shape_list(sample).iter().find(|shape| {
-                layout_slots.is_some_and(|slots| slots.iter().any(|slot| prop(slot, "role") == Some(&Value::String("title".to_owned())) && same_number(prop(slot, "shape"), prop(shape, "shape"))))
+                layout_slots.is_some_and(|slots| {
+                    slots
+                        .iter()
+                        .any(|slot| prop(slot, "role") == Some(&Value::String("title".to_owned())) && same_number(prop(slot, "shape"), prop(shape, "shape")))
+                })
             });
             let mut out = sample.as_object().cloned().unwrap_or_default();
             let title = text(prop(sample, "title"));
             let title = if title.is_empty() { title_shape.map(|shape| text(prop(shape, "text"))).unwrap_or_default() } else { title };
-            let from_layout = |key: &str, fallback: Option<&Value>| layout.and_then(|layout| prop(layout, key)).filter(|v| truthy(v)).or(fallback).cloned().unwrap_or(Value::Null);
+            let from_layout = |key: &str, fallback: Option<&Value>| {
+                layout.and_then(|layout| prop(layout, key)).filter(|v| truthy(v)).or(fallback).cloned().unwrap_or(Value::Null)
+            };
             out.insert("title".to_owned(), Value::String(title));
             out.insert("kind".to_owned(), from_layout("kind", prop(sample, "kind")));
             out.insert("density".to_owned(), from_layout("density", prop(sample, "density")));
             out.insert("purposes".to_owned(), layout.and_then(|layout| prop(layout, "purposes")).filter(|v| truthy(v)).cloned().unwrap_or_else(|| json!([])));
-            out.insert("expressionModes".to_owned(), layout.and_then(|layout| prop(layout, "expressionModes")).filter(|v| truthy(v)).cloned().unwrap_or_else(|| json!([])));
+            out.insert(
+                "expressionModes".to_owned(),
+                layout.and_then(|layout| prop(layout, "expressionModes")).filter(|v| truthy(v)).cloned().unwrap_or_else(|| json!([])),
+            );
             out.insert("slots".to_owned(), from_layout("slots", prop(sample, "slots")));
             out.insert("capacity".to_owned(), from_layout("capacity", prop(sample, "capacity")));
             Value::Object(out)
@@ -331,7 +348,14 @@ fn file_name(path: &str) -> &str {
 }
 
 // A fresh index entry for one template file.
-fn index_template_file<P: ReadProof>(proof: &P, env: &Environment, path: &Path, details: &Details, sidecar_path: &Path, sidecar: Option<&Details>) -> Result<Value, String> {
+fn index_template_file<P: ReadProof>(
+    proof: &P,
+    env: &Environment,
+    path: &Path,
+    details: &Details,
+    sidecar_path: &Path,
+    sidecar: Option<&Details>,
+) -> Result<Value, String> {
     let path_text = path.to_string_lossy().into_owned();
     let canonical = canonical_path(env, &path_text);
     let digest = sha256_file(proof, path).map_err(|error| fs_message(&error, "open", path))?;
@@ -419,7 +443,9 @@ pub fn index_office_templates<P: WriteProof>(lane: &P, env: &Environment, data_d
         }
         templates.push(index_template_file(lane, env, path, &details, &sidecar_path, sidecar.as_ref())?);
     }
-    templates.sort_by(|left, right| locale_compare(&text(prop(left, "id")), &text(prop(right, "id"))).then_with(|| locale_compare(&text(prop(left, "path")), &text(prop(right, "path")))));
+    templates.sort_by(|left, right| {
+        locale_compare(&text(prop(left, "id")), &text(prop(right, "id"))).then_with(|| locale_compare(&text(prop(left, "path")), &text(prop(right, "path"))))
+    });
     let digest_rows: Vec<Value> = templates
         .iter()
         .map(|entry| Value::Array(["id", "path", "sha256", "sidecarMtimeMs"].iter().map(|key| prop(entry, key).cloned().unwrap_or(Value::Null)).collect()))

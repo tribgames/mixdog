@@ -53,12 +53,12 @@ impl RetentionHost for Host {
 
     async fn stored_header(&self, id: &str) -> Result<Option<Header>, CoreError> {
         Ok((|| -> Option<Header> {
-        let at = *self.stored.lock().unwrap().get(id)?;
-        let mut header = Header::new();
-        header.insert("owner".into(), json!("agent"));
-        header.insert("ownerSessionId".into(), json!("sess_lead"));
-        header.insert("lastUsedAt".into(), json!(at));
-        Some(header)
+            let at = *self.stored.lock().unwrap().get(id)?;
+            let mut header = Header::new();
+            header.insert("owner".into(), json!("agent"));
+            header.insert("ownerSessionId".into(), json!("sess_lead"));
+            header.insert("lastUsedAt".into(), json!(at));
+            Some(header)
         })())
     }
 
@@ -165,10 +165,6 @@ async fn a_failed_delete_keeps_its_session_and_a_moved_member_is_not_deleted() {
     assert_eq!(applied.deleted, ["sess_q"], "the child went; the parent moved meanwhile and stayed");
 }
 
-
-
-
-
 /// Once the sweep's token fires, nothing new is admitted: not the next tree, not the next
 /// member of a tree already begun, not an archive.
 #[tokio::test]
@@ -230,9 +226,7 @@ async fn the_timer_sweeps_every_interval_until_cancelled() {
             Err(CoreError::Internal { incident_id: "index".to_owned().into() })
         }
         async fn stored_header(&self, _: &str) -> Result<Option<Header>, CoreError> {
-            Ok((|| -> Option<Header> {
-            None
-            })())
+            Ok((|| -> Option<Header> { None })())
         }
         fn is_live(&self, _: &str) -> bool {
             false
@@ -307,7 +301,6 @@ async fn the_timer_task_ends_after_the_admitted_operation() {
     assert_eq!(inner.deleted.lock().unwrap().len(), 1, "no second delete after the token fired");
 }
 
-
 fn header(fields: Value) -> Header {
     fields.as_object().unwrap().clone()
 }
@@ -357,13 +350,7 @@ fn leads_task_sessions_home_chats_and_rooms_are_never_members() {
 /// lists a top member (one with no member parent) first, wherever it stands in the input.
 #[test]
 fn members_join_into_trees_by_their_links_and_a_top_member_comes_first() {
-    let members = [
-        plain("a", &[], 1.0),
-        plain("b", &["a"], 1.0),
-        plain("c", &["b"], 1.0),
-        plain("d", &["sess_lead"], 1.0),
-        plain("e", &[], 1.0),
-    ];
+    let members = [plain("a", &[], 1.0), plain("b", &["a"], 1.0), plain("c", &["b"], 1.0), plain("d", &["sess_lead"], 1.0), plain("e", &[], 1.0)];
     assert_eq!(trees(&members), vec![vec![0, 1, 2], vec![3], vec![4]]);
 
     let reversed = [plain("c", &["b"], 1.0), plain("b", &["a"], 1.0), plain("a", &[], 1.0)];
@@ -464,4 +451,3 @@ async fn a_member_that_disappears_after_the_read_keeps_its_tree() {
     assert_eq!(apply(&patched, &members, NOW, &CancellationToken::new()).await, Applied::default());
     assert!(host.deleted.lock().unwrap().is_empty());
 }
-

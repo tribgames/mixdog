@@ -23,28 +23,18 @@ pub struct AnalysisError {
 impl AnalysisError {
     /// `new Error(message)`.
     pub fn plain(message: impl Into<String>) -> Self {
-        AnalysisError {
-            name: "Error".to_owned(),
-            message: message.into(),
-        }
+        AnalysisError { name: "Error".to_owned(), message: message.into() }
     }
 
     /// A failure of the reader, as the exception pdf.js's worker reports it.
     pub fn from_pdf(error: &PdfError) -> Self {
         let exception = wrap_reason(error);
-        AnalysisError {
-            name: exception.name.to_owned(),
-            message: exception.message,
-        }
+        AnalysisError { name: exception.name.to_owned(), message: exception.message }
     }
 
     /// A failure of the reader, except that the caller's cancellation is the call's own message.
     pub fn from_pdf_or_cancelled(error: &PdfError, cancelled: &str) -> Self {
-        if matches!(error, PdfError::Cancelled) {
-            AnalysisError::plain(cancelled)
-        } else {
-            AnalysisError::from_pdf(error)
-        }
+        if matches!(error, PdfError::Cancelled) { AnalysisError::plain(cancelled) } else { AnalysisError::from_pdf(error) }
     }
 }
 
@@ -64,20 +54,12 @@ pub enum PdfSource<'a> {
 
 /// `openPdfJs`: the document with the office analysis configuration (`useSystemFonts: true`, no cMap or standard-font
 /// URLs, errors ignored as pdf.js's default does). `cancel` is asked while pages are read.
-pub fn open_pdf<P: ReadProof>(
-    proof: &P,
-    source: PdfSource<'_>,
-    cancel: Option<CancelCheck>,
-) -> Result<Document, AnalysisError> {
+pub fn open_pdf<P: ReadProof>(proof: &P, source: PdfSource<'_>, cancel: Option<CancelCheck>) -> Result<Document, AnalysisError> {
     let bytes = match source {
-        PdfSource::Path(path) => mixdog_fsio::read(proof, path)
-            .map_err(|error| AnalysisError::plain(error.to_string()))?,
+        PdfSource::Path(path) => mixdog_fsio::read(proof, path).map_err(|error| AnalysisError::plain(error.to_string()))?,
         PdfSource::Bytes(bytes) => bytes.to_vec(),
     };
-    let options = OpenOptions {
-        cancel,
-        ..OpenOptions::default()
-    };
+    let options = OpenOptions { cancel, ..OpenOptions::default() };
     Document::open(bytes, &options).map_err(|error| AnalysisError::from_pdf(&error))
 }
 
@@ -87,11 +69,7 @@ pub fn selected_pages(total: i64, pages: Option<&[f64]>) -> Result<Vec<usize>, A
     let values: Vec<f64> = match pages {
         Some(pages) if !pages.is_empty() => {
             let mut seen = HashSet::new();
-            pages
-                .iter()
-                .copied()
-                .filter(|page| seen.insert(same_value_zero_key(*page)))
-                .collect()
+            pages.iter().copied().filter(|page| seen.insert(same_value_zero_key(*page))).collect()
         }
         _ => {
             if usize::try_from(total).is_ok_and(|total| total > MAX_PDF_ANALYSIS_PAGES) {
@@ -106,10 +84,7 @@ pub fn selected_pages(total: i64, pages: Option<&[f64]>) -> Result<Vec<usize>, A
     let mut out = Vec::with_capacity(values.len());
     for page in values {
         if !(page.is_finite() && page.fract() == 0.0) || page < 1.0 || page > total as f64 {
-            return Err(AnalysisError::plain(format!(
-                "PDF page out of range: {}",
-                mixdog_js::number_to_string(page)
-            )));
+            return Err(AnalysisError::plain(format!("PDF page out of range: {}", mixdog_js::number_to_string(page))));
         }
         out.push(page as usize);
     }
@@ -117,9 +92,7 @@ pub fn selected_pages(total: i64, pages: Option<&[f64]>) -> Result<Vec<usize>, A
 }
 
 fn too_many() -> AnalysisError {
-    AnalysisError::plain(format!(
-        "PDF analysis accepts at most {MAX_PDF_ANALYSIS_PAGES} pages per call"
-    ))
+    AnalysisError::plain(format!("PDF analysis accepts at most {MAX_PDF_ANALYSIS_PAGES} pages per call"))
 }
 
 /// `Set` membership: NaN equals NaN and -0 equals +0.
@@ -145,21 +118,12 @@ mod tests {
 
     #[test]
     fn named_pages_keep_their_order_and_appear_once() {
-        assert_eq!(
-            selected_pages(5, Some(&[3.0, 1.0, 3.0, 1.0, 2.0])).unwrap(),
-            [3, 1, 2]
-        );
+        assert_eq!(selected_pages(5, Some(&[3.0, 1.0, 3.0, 1.0, 2.0])).unwrap(), [3, 1, 2]);
     }
 
     #[test]
     fn a_page_outside_the_document_is_named() {
-        for (page, text) in [
-            (0.0, "0"),
-            (4.0, "4"),
-            (1.5, "1.5"),
-            (f64::NAN, "NaN"),
-            (-2.0, "-2"),
-        ] {
+        for (page, text) in [(0.0, "0"), (4.0, "4"), (1.5, "1.5"), (f64::NAN, "NaN"), (-2.0, "-2")] {
             let error = selected_pages(3, Some(&[page])).unwrap_err();
             assert_eq!(error.message, format!("PDF page out of range: {text}"));
             assert_eq!(error.name, "Error");
@@ -170,21 +134,12 @@ mod tests {
     fn more_than_the_limit_is_refused_before_the_range_is_checked() {
         let many: Vec<f64> = (1..=101).map(f64::from).collect();
         let error = selected_pages(1000, Some(&many)).unwrap_err();
-        assert_eq!(
-            error.message,
-            "PDF analysis accepts at most 100 pages per call"
-        );
+        assert_eq!(error.message, "PDF analysis accepts at most 100 pages per call");
         let range: Vec<f64> = (1..=100).map(f64::from).collect();
         assert_eq!(selected_pages(100, Some(&range)).unwrap().len(), 100);
-        assert_eq!(
-            selected_pages(101, None).unwrap_err().message,
-            "PDF analysis accepts at most 100 pages per call"
-        );
+        assert_eq!(selected_pages(101, None).unwrap_err().message, "PDF analysis accepts at most 100 pages per call");
         let beyond: Vec<f64> = (1..=100).map(|page| f64::from(page) + 5.0).collect();
-        assert_eq!(
-            selected_pages(100, Some(&beyond)).unwrap_err().message,
-            "PDF page out of range: 101"
-        );
+        assert_eq!(selected_pages(100, Some(&beyond)).unwrap_err().message, "PDF page out of range: 101");
     }
 
     #[test]
@@ -196,17 +151,10 @@ mod tests {
     #[test]
     fn the_reader_failure_keeps_its_exception_name() {
         let error = AnalysisError::from_pdf(&PdfError::incorrect_password());
-        assert_eq!(
-            (error.name.as_str(), error.message.as_str()),
-            ("PasswordException", "Incorrect Password")
-        );
-        let cancelled = AnalysisError::from_pdf_or_cancelled(
-            &PdfError::Cancelled,
-            "PDF layout extraction was cancelled",
-        );
+        assert_eq!((error.name.as_str(), error.message.as_str()), ("PasswordException", "Incorrect Password"));
+        let cancelled = AnalysisError::from_pdf_or_cancelled(&PdfError::Cancelled, "PDF layout extraction was cancelled");
         assert_eq!(cancelled.message, "PDF layout extraction was cancelled");
     }
 }
-
 
 impl std::error::Error for AnalysisError {}

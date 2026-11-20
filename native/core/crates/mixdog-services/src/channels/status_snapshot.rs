@@ -40,12 +40,14 @@ pub struct StatusSnapshot {
 /// `skipped` is the scheduler's `shouldSkip`; cron entries are looked at before one-shots, and the
 /// earlier of two equal instants wins.
 fn snapshot(schedules: &[Schedule], skipped: impl Fn(&str) -> bool, now_ms: i64, public_url: Option<String>) -> Value {
-    let crons = schedules.iter().filter(|s| s.when_cron.is_some() && !skipped(&s.name)).filter_map(|s| {
-        Some((s.name.as_str(), s.next_fire_at?.timestamp_millis(), "cron"))
-    });
-    let one_shots = schedules.iter().filter(|s| s.when_cron.is_none() && !skipped(&s.name)).filter_map(|s| {
-        Some((s.name.as_str(), s.when_at?.timestamp_millis(), "one-shot"))
-    });
+    let crons = schedules
+        .iter()
+        .filter(|s| s.when_cron.is_some() && !skipped(&s.name))
+        .filter_map(|s| Some((s.name.as_str(), s.next_fire_at?.timestamp_millis(), "cron")));
+    let one_shots = schedules
+        .iter()
+        .filter(|s| s.when_cron.is_none() && !skipped(&s.name))
+        .filter_map(|s| Some((s.name.as_str(), s.when_at?.timestamp_millis(), "one-shot")));
     let mut next: Option<(&str, i64, &str)> = None;
     for candidate in crons.chain(one_shots) {
         if next.is_none_or(|(_, at, _)| candidate.1 < at) {
@@ -125,7 +127,6 @@ mod tests {
         assert_ne!(stable_text(&first), stable_text(&snapshot(&[cron("a", 3_000)], |_| false, 1_000, None)));
     }
 }
-
 
 impl StatusSnapshot {
     pub fn new(scheduler: Scheduler, base: Arc<dyn PublicBase>, clock: Arc<dyn Clock>, path: PathBuf, lane: DurabilityIo) -> Arc<Self> {

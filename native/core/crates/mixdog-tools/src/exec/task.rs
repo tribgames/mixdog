@@ -201,14 +201,7 @@ fn wait_ceiling_ms(timeout: Option<f64>, default: u64) -> u64 {
 }
 
 #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
-async fn read_or_wait(
-    runtime: &ExecRuntime,
-    ctx: &ToolContext,
-    job: Arc<Job>,
-    waiting: bool,
-    timeout: Option<f64>,
-    tail: bool,
-) -> ToolOutcome {
+async fn read_or_wait(runtime: &ExecRuntime, ctx: &ToolContext, job: Arc<Job>, waiting: bool, timeout: Option<f64>, tail: bool) -> ToolOutcome {
     let mut interrupted = false;
     let mut notified: Option<Option<String>> = None;
     if waiting {
@@ -248,13 +241,9 @@ async fn read_or_wait(
     let mut rendered = job.render_with(false, Some(&body), silence.as_deref());
     if waiting && running {
         if interrupted {
-            rendered.push_str(
-                "\n\nWait ended by new user input; task still running in the background. Handle the new message first.",
-            );
+            rendered.push_str("\n\nWait ended by new user input; task still running in the background. Handle the new message first.");
         } else if let Some(detail) = notified {
-            let from = detail
-                .filter(|d| d != &job.id)
-                .map_or(String::new(), |d| format!(" (task_id: {d})"));
+            let from = detail.filter(|d| d != &job.id).map_or(String::new(), |d| format!(" (task_id: {d})"));
             rendered.push_str(&format!(
                 "\n\nWait ended because a notification arrived{from}; it is delivered to you now. This task ({}) is still running in the background.",
                 job.id
@@ -297,12 +286,8 @@ async fn agent_task(
 ) -> ToolOutcome {
     if action == "cancel" {
         return match tasks.cancel(&ctx.thread_id, id, "cancelled by task control") {
-            Some(AgentTaskCancellation::Cancelled { operation }) => {
-                ok(format!("status: completed\ntask_id: {id}\ncancelled: agent/{operation}"))
-            }
-            Some(AgentTaskCancellation::AlreadySettled { status }) => {
-                unavailable(format!("Error: task already {status}: {id}"))
-            }
+            Some(AgentTaskCancellation::Cancelled { operation }) => ok(format!("status: completed\ntask_id: {id}\ncancelled: agent/{operation}")),
+            Some(AgentTaskCancellation::AlreadySettled { status }) => unavailable(format!("Error: task already {status}: {id}")),
             None => not_found(id),
         };
     }
@@ -480,10 +465,8 @@ pub(crate) fn describe_type(value: &JsonValue) -> &'static str {
 }
 
 /// Keys whose array values `normalizeStringListArgs` flattens one level and strips of blanks.
-const STRING_LIST_ARG_KEYS: [&str; 15] = [
-    "path", "paths", "root", "file", "files", "pattern", "patterns", "query", "regex", "needle", "glob", "file_pattern",
-    "include", "type", "symbols",
-];
+const STRING_LIST_ARG_KEYS: [&str; 15] =
+    ["path", "paths", "root", "file", "files", "pattern", "patterns", "query", "regex", "needle", "glob", "file_pattern", "include", "type", "symbols"];
 
 /// `normalizeStringListArgs` (`arg-guard.mjs`): a string-or-list argument that arrives nested, padded with blanks
 /// or empty is flattened one level, stripped of its blanks and removed when nothing is left.
@@ -536,10 +519,7 @@ fn guard_task_args(args: JsonValue) -> Result<JsonValue, String> {
         return Err("Error: task requires explicit \"action\"".to_owned());
     };
     if !matches!(action.as_str(), "list" | "read" | "wait" | "cancel") {
-        return Err(format!(
-            "Error: task arg \"action\" must be one of list|read|wait|cancel (got {})",
-            serde_json::to_string(raw_action).unwrap_or_default()
-        ));
+        return Err(format!("Error: task arg \"action\" must be one of list|read|wait|cancel (got {})", serde_json::to_string(raw_action).unwrap_or_default()));
     }
     if let Some(key) = a.keys().find(|k| !matches!(k.as_str(), "action" | "task_id" | "timeout_ms" | "output")) {
         return Err(format!("Error: task arg \"{key}\" is unsupported; use only action, task_id, timeout_ms, and output"));
@@ -589,16 +569,15 @@ impl TaskTool {
         if id.starts_with("sess_") {
             return invalid(
                 "task_id",
-                format!("Error: \"{id}\" is an agent/session id, not a background task_id. Agent tasks deliver completion notifications; use agent list/read only for manual recovery."),
+                format!(
+                    "Error: \"{id}\" is an agent/session id, not a background task_id. Agent tasks deliver completion notifications; use agent list/read only for manual recovery."
+                ),
             );
         }
         // The guard trims for its check only: a padded action is refused here for every id, before the task is looked up.
         if !matches!(action.as_str(), "read" | "wait" | "cancel") {
             let got = serde_json::to_string(&args["action"]).unwrap_or_default();
-            return invalid(
-                "action",
-                format!("Error: task action must be one of list|read|wait|cancel (got {got})"),
-            );
+            return invalid("action", format!("Error: task action must be one of list|read|wait|cancel (got {got})"));
         }
         if action == "wait"
             && let Some(refusal) = self.runtime.config.wake.refuse_wait(&ctx.thread_id)

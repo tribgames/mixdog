@@ -137,36 +137,16 @@ fn google_params() -> BTreeMap<String, String> {
     BTreeMap::from([("access_type".to_owned(), "offline".to_owned())])
 }
 
-fn oauth_binding_with(
-    name: &str,
-    entry: &Value,
-    url: &Url,
-    connector_id: Option<&str>,
-    google: Option<(String, String)>,
-) -> OAuthBinding {
+fn oauth_binding_with(name: &str, entry: &Value, url: &Url, connector_id: Option<&str>, google: Option<(String, String)>) -> OAuthBinding {
     let catalog = connector_id.and_then(connector);
     let scopes: Vec<String> = catalog
         .and_then(|c| c.google_scopes)
-        .map(|list| {
-            ["openid".to_owned(), "email".to_owned()]
-                .into_iter()
-                .chain(list.iter().map(|s| format!("{GOOGLE_SCOPE_BASE}/{s}")))
-                .collect()
-        })
+        .map(|list| ["openid".to_owned(), "email".to_owned()].into_iter().chain(list.iter().map(|s| format!("{GOOGLE_SCOPE_BASE}/{s}"))).collect())
         .unwrap_or_default();
     let own = text(entry, "oauthClientId");
     let (client, client_unavailable) = if !own.is_empty() {
         let auth_params = if catalog.is_some_and(|c| c.google_scopes.is_some()) { google_params() } else { BTreeMap::new() };
-        (
-            Some(StaticClient {
-                client_id: own.to_owned(),
-                secret_account: client_secret_account(url),
-                inline_secret: None,
-                scopes,
-                auth_params,
-            }),
-            None,
-        )
+        (Some(StaticClient { client_id: own.to_owned(), secret_account: client_secret_account(url), inline_secret: None, scopes, auth_params }), None)
     } else if catalog.is_some_and(|c| c.google_scopes.is_some()) {
         // Google offers no dynamic client registration: never fall back to it.
         match google {
@@ -228,7 +208,6 @@ mod tests {
         assert!(!tool_default_asks(Some("gmail"), "read_email"));
     }
 }
-
 
 /// The Google client embedded at build time (see `build.rs`).
 const EMBEDDED_GOOGLE: Option<(&str, &str)> = include!(concat!(env!("OUT_DIR"), "/google_client.rs"));

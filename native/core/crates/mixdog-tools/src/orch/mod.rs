@@ -10,8 +10,8 @@ pub mod ports;
 pub mod register;
 pub mod schema;
 pub mod service;
-pub mod setup_input;
 pub mod session;
+pub mod setup_input;
 pub mod skill;
 pub mod status;
 #[cfg(test)]

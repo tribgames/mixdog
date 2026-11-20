@@ -143,11 +143,7 @@ pub(super) fn edit_distance_window(source: &[String], old: &[String]) -> Option<
 /// Trims only contiguous outer ` ` lines, smallest trim first, and accepts the shortened block only
 /// when it matches verbatim at exactly one place in the whole file.
 pub(super) fn outer_context_trimmed_window(source: &[String], hunk: &Hunk, s: &Stats) -> Option<Restored> {
-    let body: Vec<&String> = hunk
-        .lines
-        .iter()
-        .filter(|l| !l.is_empty() && !is_eof_marker(l) && matches!(l.as_bytes()[0], b' ' | b'-' | b'+'))
-        .collect();
+    let body: Vec<&String> = hunk.lines.iter().filter(|l| !l.is_empty() && !is_eof_marker(l) && matches!(l.as_bytes()[0], b' ' | b'-' | b'+')).collect();
     if !body.iter().any(|l| l.starts_with('-')) {
         return None;
     }

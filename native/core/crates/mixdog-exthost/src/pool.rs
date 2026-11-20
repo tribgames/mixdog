@@ -18,6 +18,7 @@ use std::sync::atomic::Ordering;
 use std::task::Poll;
 
 use arc_swap::ArcSwap;
+use mixdog_core_api::domain::common::EventSource;
 use mixdog_core_api::domain::ext::ExtCall;
 use mixdog_core_api::domain::ext::ExtError;
 use mixdog_core_api::domain::ext::ExtFrame;
@@ -25,7 +26,6 @@ use mixdog_core_api::domain::ext::ExtPool;
 use mixdog_core_api::domain::ext::ExtWorkerId;
 use mixdog_core_api::domain::ext::ExtWorkerState;
 use mixdog_core_api::domain::ext::ExtWorkerStatus;
-use mixdog_core_api::domain::common::EventSource;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::LaneToken;
 use mixdog_rt::SpawnIo;
@@ -128,10 +128,7 @@ impl ExtHostPool {
         Self::build(config, grace)
     }
 
-    fn build(
-        config: ExtHostConfig,
-        grace: GraceWait,
-    ) -> Result<Self, ExtHostError> {
+    fn build(config: ExtHostConfig, grace: GraceWait) -> Result<Self, ExtHostError> {
         let exits = ChildExits::watch()?;
         let (events, inbox) = mpsc::unbounded_channel();
         let status = Arc::new(ArcSwap::from_pointee(Vec::new()));
@@ -140,17 +137,10 @@ impl ExtHostPool {
         let dispatcher_status = status.clone();
         let rt = Handle::current();
         let browser_launches = Arc::new(AtomicU64::new(0));
-        let browser = browser::start(
-            config.render_browser.clone(),
-            config.spawn_io,
-            rt.clone(),
-            browser_launches.clone(),
-            exits.clone(),
-        );
+        let browser = browser::start(config.render_browser.clone(), config.spawn_io, rt.clone(), browser_launches.clone(), exits.clone());
         let dispatcher_browser = browser.clone();
         mixdog_rt::spawn("exthost.dispatch", TaskClass::Work, async move {
-            let dispatcher =
-                Dispatcher::new(config, rt, dispatcher_events, dispatcher_browser, dispatcher_status, exits, grace);
+            let dispatcher = Dispatcher::new(config, rt, dispatcher_events, dispatcher_browser, dispatcher_status, exits, grace);
             dispatcher.run(inbox).await;
         });
         Ok(Self {
@@ -172,11 +162,7 @@ impl ExtHostPool {
     pub fn outstanding_window_bytes(&self) -> Vec<u64> {
         let mut windows = self.windows.lock().unwrap_or_else(|e| e.into_inner());
         windows.retain(|w| w.strong_count() > 0);
-        windows
-            .iter()
-            .filter_map(std::sync::Weak::upgrade)
-            .map(|w| w.load(Ordering::Acquire))
-            .collect()
+        windows.iter().filter_map(std::sync::Weak::upgrade).map(|w| w.load(Ordering::Acquire)).collect()
     }
 
     /// The shared render browser, for in-process users (the web renderer): the same browser the
@@ -218,34 +204,12 @@ impl ExtPool for ExtHostPool {
         let (frames_tx, frames) = mpsc::unbounded_channel();
         let outstanding = Arc::new(AtomicU64::new(0));
         #[cfg(feature = "test-support")]
-        self.windows
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .push(Arc::downgrade(&outstanding));
+        self.windows.lock().unwrap_or_else(|e| e.into_inner()).push(Arc::downgrade(&outstanding));
         let route = Arc::new(OnceLock::new());
-        let queued = Queued {
-            call,
-            out: Arc::new(CallOut {
-                frames: frames_tx,
-                outstanding: outstanding.clone(),
-            }),
-            route: route.clone(),
-        };
-        let stream = CallStream {
-            id,
-            frames,
-            outstanding,
-            route,
-            events: self.events.clone(),
-            pending: self.pending.clone(),
-            finished: false,
-        };
+        let queued = Queued { call, out: Arc::new(CallOut { frames: frames_tx, outstanding: outstanding.clone() }), route: route.clone() };
+        let stream = CallStream { id, frames, outstanding, route, events: self.events.clone(), pending: self.pending.clone(), finished: false };
         // On failure `stream` drops here and gives the pending slot back.
-        self.events
-            .send(Event::Enqueue { id, queued })
-            .map_err(|_| ExtError::Unavailable {
-                reason: "extension host stopped".to_owned(),
-            })?;
+        self.events.send(Event::Enqueue { id, queued }).map_err(|_| ExtError::Unavailable { reason: "extension host stopped".to_owned() })?;
         Ok(Box::new(stream))
     }
 
@@ -257,9 +221,7 @@ impl ExtPool for ExtHostPool {
         if !self.status.load().iter().any(|s| s.id == worker) {
             return Err(ExtError::UnknownWorker);
         }
-        self.events
-            .send(Event::Stop(worker.0))
-            .map_err(|_| ExtError::UnknownWorker)
+        self.events.send(Event::Stop(worker.0)).map_err(|_| ExtError::UnknownWorker)
     }
 }
 
@@ -382,8 +344,7 @@ impl Dispatcher {
             Event::Finished { worker, call, pin } => {
                 self.running.remove(&call);
                 if let Some(entry) = self.workers.get_mut(&worker)
-                    && let WorkerState::Busy { thread, .. } =
-                        std::mem::replace(&mut entry.state, WorkerState::Idle)
+                    && let WorkerState::Busy { thread, .. } = std::mem::replace(&mut entry.state, WorkerState::Idle)
                 {
                     self.schedule.finished(&thread, worker, Some(pin));
                 }
@@ -441,11 +402,7 @@ impl Dispatcher {
             if entry.retiring {
                 continue;
             }
-            if !self.shutting_down
-                && matches!(entry.state, WorkerState::Idle)
-                && entry.io.is_some()
-                && !self.schedule.pins_worker(worker)
-            {
+            if !self.shutting_down && matches!(entry.state, WorkerState::Idle) && entry.io.is_some() && !self.schedule.pins_worker(worker) {
                 entry.retirement_timer.get_or_insert_with(|| Box::pin(mixdog_rt::time::sleep(RETIRE_IDLE)));
             } else {
                 entry.retirement_timer = None;
@@ -561,12 +518,8 @@ impl Dispatcher {
     /// pool's status.
     fn pump(&mut self) {
         loop {
-            let ready: Vec<u32> = self
-                .workers
-                .iter()
-                .filter(|(_, w)| matches!(w.state, WorkerState::Idle) && w.io.is_some() && !w.retiring)
-                .map(|(id, _)| *id)
-                .collect();
+            let ready: Vec<u32> =
+                self.workers.iter().filter(|(_, w)| matches!(w.state, WorkerState::Idle) && w.io.is_some() && !w.retiring).map(|(id, _)| *id).collect();
             let Some(assignment) = self.schedule.next(&ready) else { break };
             self.start_call(assignment.worker, assignment.thread, assignment.id, assignment.item);
         }
@@ -578,28 +531,13 @@ impl Dispatcher {
     fn start_call(&mut self, worker: u32, thread: ThreadId, id: u32, queued: Queued) {
         let Some(entry) = self.workers.get_mut(&worker) else { return };
         let Some(io) = &entry.io else { return };
-        let paths: Vec<String> = queued
-            .call
-            .paths
-            .iter()
-            .map(|p| p.as_path().to_string_lossy().into_owned())
-            .collect();
+        let paths: Vec<String> = queued.call.paths.iter().map(|p| p.as_path().to_string_lossy().into_owned()).collect();
         // The slot is set before the call is written, so no frame of the call can find it empty.
         io.slot.set(id, queued.out.clone());
         let _ = queued.route.set(io.writer.clone());
-        let _ = io.writer.send(frame::call(
-            id,
-            &queued.call.method,
-            &queued.call.params,
-            &paths,
-            thread.as_str(),
-        ));
+        let _ = io.writer.send(frame::call(id, &queued.call.method, &queued.call.params, &paths, thread.as_str()));
         self.seq += 1;
-        entry.state = WorkerState::Busy {
-            call: id,
-            thread,
-            since_seq: self.seq,
-        };
+        entry.state = WorkerState::Busy { call: id, thread, since_seq: self.seq };
         self.running.insert(id, worker);
     }
 
@@ -608,11 +546,7 @@ impl Dispatcher {
         if self.shutting_down || self.spawn_failed {
             return;
         }
-        let starting = self
-            .workers
-            .values()
-            .filter(|w| matches!(w.state, WorkerState::Starting))
-            .count();
+        let starting = self.workers.values().filter(|w| matches!(w.state, WorkerState::Starting)).count();
         let wanted = self.schedule.demand().saturating_sub(starting);
         let room = self.config.workers.saturating_sub(self.workers.len());
         for _ in 0..wanted.min(room) {
@@ -623,26 +557,13 @@ impl Dispatcher {
     fn spawn_worker(&mut self) {
         let worker = self.next_worker;
         self.next_worker += 1;
-        self.workers.insert(
-            worker,
-            Worker {
-                state: WorkerState::Starting,
-                io: None,
-                stop_requested: false,
-                retirement_timer: None,
-                retiring: false,
-            },
-        );
+        self.workers.insert(worker, Worker { state: WorkerState::Starting, io: None, stop_requested: false, retirement_timer: None, retiring: false });
         let program = self.config.program.clone();
         let args = self.config.args.clone();
         let rt = self.rt.clone();
         let events = self.events.clone();
-        let submitted = self
-            .config
-            .spawn_io
-            .submit(&CancellationToken::new(), move |_lane| {
-                process::spawn_command(&program, &args, &[], &rt).map_err(|e| e.to_string())
-            });
+        let submitted =
+            self.config.spawn_io.submit(&CancellationToken::new(), move |_lane| process::spawn_command(&program, &args, &[], &rt).map_err(|e| e.to_string()));
         mixdog_rt::spawn("exthost.spawn", TaskClass::Work, async move {
             let result = match submitted {
                 Ok(job) => job.await.map_err(|e| e.to_string()).and_then(|r| r),
@@ -660,10 +581,7 @@ impl Dispatcher {
             .map(|(id, w)| ExtWorkerStatus {
                 id: ExtWorkerId(*id),
                 state: match &w.state {
-                    WorkerState::Busy { call, since_seq, .. } => ExtWorkerState::Busy {
-                        call: u64::from(*call),
-                        since_seq: *since_seq,
-                    },
+                    WorkerState::Busy { call, since_seq, .. } => ExtWorkerState::Busy { call: u64::from(*call), since_seq: *since_seq },
                     _ => ExtWorkerState::Idle,
                 },
             })
@@ -679,9 +597,7 @@ fn stop(io: &WorkerIo) {
 }
 
 fn closing() -> ExtError {
-    ExtError::Unavailable {
-        reason: "extension host is closing".to_owned(),
-    }
+    ExtError::Unavailable { reason: "extension host is closing".to_owned() }
 }
 
 fn fail(queued: &Queued, error: ExtError) {
@@ -705,11 +621,7 @@ pub(crate) mod tests {
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_stop_that_arrives_while_the_worker_is_spawning_is_applied_when_it_exists() {
         let spawn_io = mixdog_rt::testing::tokens().spawn_io;
-        let render_browser = RenderBrowserConfig {
-            command: None,
-            profile_root: std::env::temp_dir().join("mixdog-exthost-unit"),
-            no_sandbox: false,
-        };
+        let render_browser = RenderBrowserConfig { command: None, profile_root: std::env::temp_dir().join("mixdog-exthost-unit"), no_sandbox: false };
         let config = ExtHostConfig {
             program: fake_binary("ext_fake_worker"),
             args: Vec::new(),
@@ -721,13 +633,7 @@ pub(crate) mod tests {
         let (events, mut inbox) = mpsc::unbounded_channel();
         let status = Arc::new(ArcSwap::from_pointee(Vec::new()));
         let exits = ChildExits::watch().unwrap();
-        let browser = browser::start(
-            render_browser,
-            spawn_io,
-            Handle::current(),
-            Arc::new(AtomicU64::new(0)),
-            exits.clone(),
-        );
+        let browser = browser::start(render_browser, spawn_io, Handle::current(), Arc::new(AtomicU64::new(0)), exits.clone());
         let mut dispatcher = Dispatcher::new(config, Handle::current(), events, browser, status.clone(), exits, timer_grace());
 
         dispatcher.spawn_worker();
@@ -793,7 +699,9 @@ pub(crate) mod tests {
                         break;
                     }
                 }
-            }).await.map_err(|_| "the first worker never became ready")?;
+            })
+            .await
+            .map_err(|_| "the first worker never became ready")?;
 
             // Drive only retirement deadlines by hand. All child I/O uses a real-time watchdog.
             dispatcher.retirement_due(0);
@@ -801,12 +709,7 @@ pub(crate) mod tests {
             dispatcher.on(Event::Enqueue {
                 id: 1,
                 queued: Queued {
-                    call: ExtCall {
-                        thread: ThreadId::from("waiting"),
-                        method: "sleep".into(),
-                        params: serde_json::json!({"ms": 0}),
-                        paths: Vec::new(),
-                    },
+                    call: ExtCall { thread: ThreadId::from("waiting"), method: "sleep".into(), params: serde_json::json!({"ms": 0}), paths: Vec::new() },
                     out: Arc::new(CallOut { frames, outstanding: Arc::default() }),
                     route: Arc::default(),
                 },
@@ -815,10 +718,7 @@ pub(crate) mod tests {
             dispatcher.retirement_due(0);
             // Do not handle any process events yet. Even if the owner has already killed and
             // reaped the child, the dispatcher must reserve its sole slot until it handles Exited.
-            if dispatcher.workers.len() != 1
-                || !dispatcher.workers.get(&0).is_some_and(|worker| worker.retiring)
-                || !dispatcher.schedule.has_queued()
-            {
+            if dispatcher.workers.len() != 1 || !dispatcher.workers.get(&0).is_some_and(|worker| worker.retiring) || !dispatcher.schedule.has_queued() {
                 return Err("grace expiry made the retiring worker's slot available before Exited");
             }
             mixdog_rt::time::timeout(watchdog, async {
@@ -836,8 +736,11 @@ pub(crate) mod tests {
                         },
                     }
                 }
-            }).await.map_err(|_| "the worker slot was not reusable")?
-        }.await;
+            })
+            .await
+            .map_err(|_| "the worker slot was not reusable")?
+        }
+        .await;
 
         // The replacement uses the same fake; force test teardown without another grace wait.
         let _ = dispatcher.events.send(Event::Shutdown(None));

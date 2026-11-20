@@ -51,9 +51,7 @@ impl DevinLogin {
 }
 
 fn now_ms() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| u64::try_from(d.as_millis()).unwrap_or(u64::MAX))
 }
 
 /// `DEVIN_OAUTH_<CODE>: <text>`: the message the desktop words in the user's language.
@@ -134,10 +132,7 @@ impl PkceProvider for DevinLogin {
         let body = serde_json::to_vec(&json!({ "code": code, "code_verifier": verifier })).expect("a JSON value serializes");
         let headers = vec![("Accept", "application/json".to_owned()), ("Content-Type", "application/json".to_owned())];
         let reply = http::try_call(self.http.as_ref(), "POST", TOKEN_URL, headers, body).await.map_err(|error| {
-            public(coded(
-                "TOKEN_EXCHANGE_FAILED",
-                format!("Devin token exchange request failed ({}). {}", http::network_cause(&error), http::NETWORK_HINT),
-            ))
+            public(coded("TOKEN_EXCHANGE_FAILED", format!("Devin token exchange request failed ({}). {}", http::network_cause(&error), http::NETWORK_HINT)))
         })?;
         // Response bodies may carry the login token: only the status is reported.
         if !reply.ok() {

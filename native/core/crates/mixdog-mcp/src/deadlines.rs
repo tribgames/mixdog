@@ -23,8 +23,5 @@ pub const NOTICE: Liveness = Liveness::unary(Duration::from_secs(30));
 pub const STARTUP: Liveness = Liveness::stream(Duration::from_secs(30));
 
 pub fn expired(expired: Expired) -> TransportError {
-    TransportError::Request(format!(
-        "request timed out after {}ms",
-        expired.after.as_millis()
-    ))
+    TransportError::Request(format!("request timed out after {}ms", expired.after.as_millis()))
 }

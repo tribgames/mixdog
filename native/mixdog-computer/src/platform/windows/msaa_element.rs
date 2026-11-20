@@ -2,7 +2,7 @@
 //! ref holds): reads, the default action and value writes.
 
 use super::background::{hold_inactive, release_inactive};
-use super::msaa::{state_text, AccNode, MsaaNode};
+use super::msaa::{AccNode, MsaaNode, state_text};
 use crate::a11y::{Element, Stale};
 use crate::platform::Wid;
 use crate::port::windows::WinPort;
@@ -29,22 +29,11 @@ struct Hold {
 
 impl<A: AccNode> MsaaElement<A> {
     pub fn new(node: MsaaNode<A>, port: Arc<WinPort>) -> Self {
-        Self::with_hold(
-            node,
-            port,
-            Hold {
-                acquire: hold_inactive,
-                release: release_inactive,
-            },
-        )
+        Self::with_hold(node, port, Hold { acquire: hold_inactive, release: release_inactive })
     }
 
     fn with_hold(node: MsaaNode<A>, port: Arc<WinPort>, hold: Hold) -> Self {
-        Self {
-            node: RefCell::new(node),
-            port,
-            hold,
-        }
+        Self { node: RefCell::new(node), port, hold }
     }
 
     /// Reads `field` of the node after a refresh; a failed refresh leaves the
@@ -90,8 +79,7 @@ impl<A: AccNode + 'static> Element for MsaaElement<A> {
     }
     fn bounds(&self) -> Option<(f64, f64, f64, f64)> {
         let mut node = self.node.borrow_mut();
-        node.refresh()
-            .then(|| (node.x as f64, node.y as f64, node.w as f64, node.h as f64))
+        node.refresh().then(|| (node.x as f64, node.y as f64, node.w as f64, node.h as f64))
     }
     fn enabled(&self) -> bool {
         self.live(|node| node.enabled())
@@ -142,9 +130,7 @@ impl<A: AccNode + 'static> Element for MsaaElement<A> {
         "msaa"
     }
     fn default_action(&self) -> Option<String> {
-        self.live(|node| {
-            (!node.default_action.trim().is_empty()).then(|| node.default_action.clone())
-        })
+        self.live(|node| (!node.default_action.trim().is_empty()).then(|| node.default_action.clone()))
     }
     fn read_only(&self) -> bool {
         self.live(|node| node.read_only())
@@ -165,11 +151,7 @@ impl<A: AccNode + 'static> Element for MsaaElement<A> {
     /// MixMsaaNode.ObservableState: empty when the node cannot be read.
     fn observable_state(&self) -> Option<String> {
         let mut node = self.node.borrow_mut();
-        Some(if node.refresh() {
-            format!("value={}|state={}", node.value, state_text(node.state))
-        } else {
-            String::new()
-        })
+        Some(if node.refresh() { format!("value={}|state={}", node.value, state_text(node.state)) } else { String::new() })
     }
     /// Get-RefRecord's MSAA wording (input-refs.ps1:104-117).
     fn stale_message(&self, kind: Stale) -> Option<&'static str> {
@@ -218,16 +200,7 @@ mod tests {
     }
 
     fn button(name: &str) -> Reading {
-        Reading {
-            x: 10,
-            y: 20,
-            w: 30,
-            h: 40,
-            name: name.into(),
-            role: 0x2B,
-            default_action: "Press".into(),
-            ..Reading::default()
-        }
+        Reading { x: 10, y: 20, w: 30, h: 40, name: name.into(), role: 0x2B, default_action: "Press".into(), ..Reading::default() }
     }
 
     fn element(reading: Reading) -> (MsaaElement<Fake>, Rc<RefCell<Option<Reading>>>) {
@@ -236,17 +209,12 @@ mod tests {
     }
 
     /// An element whose calls are logged and whose window is never touched.
-    fn logged(
-        reading: Reading,
-    ) -> (MsaaElement<Fake>, Rc<RefCell<Option<Reading>>>, Rc<RefCell<Vec<String>>>) {
+    fn logged(reading: Reading) -> (MsaaElement<Fake>, Rc<RefCell<Option<Reading>>>, Rc<RefCell<Vec<String>>>) {
         let cell = Rc::new(RefCell::new(Some(reading)));
         let log = Rc::new(RefCell::new(Vec::new()));
         let mut node = MsaaNode::new(Fake(cell.clone(), log.clone()), 0, "0/1".into(), 7, "hwnd:0x7");
         node.refresh();
-        let hold = Hold {
-            acquire: |_, _| 0,
-            release: |_, _| Ok(()),
-        };
+        let hold = Hold { acquire: |_, _| 0, release: |_, _| Ok(()) };
         let (port, _) = crate::port::windows::fake::FakeWin::port(&crate::port::Scope::open(1));
         (MsaaElement::with_hold(node, port, hold), cell, log)
     }
@@ -259,10 +227,7 @@ mod tests {
         assert_eq!(element.window(), 7);
         cell.replace(Some(button("Cancel")));
         assert_eq!(element.identity(), "Button|Cancel");
-        assert_eq!(
-            element.stale_message(Stale::Identity),
-            Some("no longer identifies the same element")
-        );
+        assert_eq!(element.stale_message(Stale::Identity), Some("no longer identifies the same element"));
     }
 
     #[test]
@@ -275,10 +240,7 @@ mod tests {
         assert_eq!(element.bounds(), None);
         // The last read stays.
         assert_eq!(element.name(), "OK");
-        assert_eq!(
-            element.stale_message(Stale::Target),
-            Some("is stale or its MSAA target changed")
-        );
+        assert_eq!(element.stale_message(Stale::Target), Some("is stale or its MSAA target changed"));
         // An area of nothing is as dead as no answer.
         cell.replace(Some(Reading { w: 0, ..button("OK") }));
         assert!(!element.alive());
@@ -286,21 +248,12 @@ mod tests {
 
     #[test]
     fn the_read_side_follows_the_state_flags() {
-        let (element, cell) = element(Reading {
-            role: 0x2A,
-            state: 0x40,
-            ..button("")
-        });
+        let (element, cell) = element(Reading { role: 0x2A, state: 0x40, ..button("") });
         assert!(element.read_only() && !element.settable());
         assert!(element.can_press());
         assert_eq!(element.default_action().as_deref(), Some("Press"));
         assert!(!element.masked() && !element.offscreen() && element.enabled());
-        cell.replace(Some(Reading {
-            role: 0x2A,
-            state: 0x1 | 0x2000_0000 | 0x10000,
-            default_action: " ".into(),
-            ..button("")
-        }));
+        cell.replace(Some(Reading { role: 0x2A, state: 0x1 | 0x2000_0000 | 0x10000, default_action: " ".into(), ..button("") }));
         assert!(element.settable() && !element.read_only());
         assert!(element.masked() && element.offscreen() && !element.enabled());
         assert!(!element.can_press() && element.default_action().is_none());

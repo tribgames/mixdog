@@ -22,25 +22,25 @@ use mixdog_core_api::ids::Method;
 use mixdog_core_api::ids::OpId;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_base::rooms::ids::MIXY_AGENT_ID;
-use mixdog_core_base::support::{FsFailure, FsStep, io_failure};
 use mixdog_core_base::rooms::ids::agent_home_session_id;
 use mixdog_core_base::rooms::ids::agent_id_of_home_session;
 use mixdog_core_base::rooms::ids::room_id_of_session;
+use mixdog_core_base::support::{FsFailure, FsStep, io_failure};
 use mixdog_core_config::config::Config;
 use mixdog_core_config::workflow::ids::truthy;
 use mixdog_core_ports::ports::setup_actions::CallerScope;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_ports::ports::threads::port_error;
-use mixdog_protocol::ThreadItem;
 use mixdog_core_session::session::SessionDirectory;
 use mixdog_core_session::session::session_title::AiTitle;
 use mixdog_core_session::session::session_title::StoredTitles;
 use mixdog_core_session::session::thread_settings::ThreadSettings;
+use mixdog_protocol::ThreadItem;
 use mixdog_rt::InteractiveIo;
 use mixdog_rt::LaneToken;
 use mixdog_services::bots::beat::Change;
-use mixdog_services::bots::beat::state::{suggestion_key, suggestion_line};
 use mixdog_services::bots::beat::HeartbeatStore;
+use mixdog_services::bots::beat::state::{suggestion_key, suggestion_line};
 use mixdog_store::schema::record::Header;
 use mixdog_tools::orch::session::ControlCall;
 use mixdog_tools::orch::session::ProjectRow;
@@ -630,22 +630,15 @@ impl SessionPort for DirectorySessionPort {
         let next = resolve_path(&cwd.as_path().to_string_lossy(), raw_path);
         let path = std::path::PathBuf::from(&next);
         let cancel = CancellationToken::new();
-        let job = self
-            .parts
-            .io
-            .submit(&cancel, move |lane| mixdog_statefile::metadata(lane, &path))
-            .map_err(|_| PortError::Cancelled)?;
-        let metadata = job
-            .await
-            .map_err(|_| PortError::Cancelled)?
-            .map_err(|error| {
-                // Node's `statSync` throws its `fs` text: `ENOENT: no such file or directory, stat '<path>'`.
-                let failure = FsFailure { error, step: FsStep::Stat(std::path::PathBuf::from(&next)) };
-                match io_failure("session", &failure) {
-                    CoreError::DomainError { message: Some(message), .. } => failed(message.to_string()),
-                    other => failed(other.to_string()),
-                }
-            })?;
+        let job = self.parts.io.submit(&cancel, move |lane| mixdog_statefile::metadata(lane, &path)).map_err(|_| PortError::Cancelled)?;
+        let metadata = job.await.map_err(|_| PortError::Cancelled)?.map_err(|error| {
+            // Node's `statSync` throws its `fs` text: `ENOENT: no such file or directory, stat '<path>'`.
+            let failure = FsFailure { error, step: FsStep::Stat(std::path::PathBuf::from(&next)) };
+            match io_failure("session", &failure) {
+                CoreError::DomainError { message: Some(message), .. } => failed(message.to_string()),
+                other => failed(other.to_string()),
+            }
+        })?;
         if !metadata.is_dir() {
             return Err(PortError::Invalid { field: "path".to_owned(), reason: format!("session: not a directory: {next}") });
         }
@@ -684,11 +677,7 @@ impl SessionPort for DirectorySessionPort {
             CoreError::DomainError { message: Some(message), .. } => failed(message.as_ref()),
             other => core(other),
         })?;
-        let id = reply
-            .pointer("/thread/id")
-            .and_then(Value::as_str)
-            .ok_or_else(|| failed("session: the fork answered no thread"))?
-            .to_owned();
+        let id = reply.pointer("/thread/id").and_then(Value::as_str).ok_or_else(|| failed("session: the fork answered no thread"))?.to_owned();
         let compacted = reply.get("compacted") == Some(&Value::Bool(true));
         // A suffixed title tells the copy apart in session lists; locked as a model title so
         // auto-titling keeps it, renames still win.

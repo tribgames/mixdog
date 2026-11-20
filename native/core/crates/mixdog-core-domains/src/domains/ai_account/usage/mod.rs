@@ -3,10 +3,10 @@
 //! and serves the provider quota dashboard.
 
 pub mod dashboard;
-pub mod session_usage;
-pub mod sources;
 #[cfg(test)]
 mod feature_tests;
+pub mod session_usage;
+pub mod sources;
 
 use std::sync::Arc;
 
@@ -19,9 +19,9 @@ use mixdog_core_api::Reply;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
 use mixdog_core_api::service::Admit;
-use mixdog_ledger::measure::is_conversation_source;
 use mixdog_ledger::error::LedgerError;
 use mixdog_ledger::ledger::UsageLedger;
+use mixdog_ledger::measure::is_conversation_source;
 use mixdog_ledger::stats::UsageRequestsOptions;
 use mixdog_ledger::stats::UsageStatsOptions;
 use mixdog_store::sqlite::lead::is_lead_visible_row;
@@ -120,8 +120,7 @@ impl UsageService {
     }
 
     async fn get_usage_requests(&self, options: Value) -> Result<Value, CoreError> {
-        let options: UsageRequestsOptions =
-            serde_json::from_value(options).map_err(|e| invalid("options", &e.to_string()))?;
+        let options: UsageRequestsOptions = serde_json::from_value(options).map_err(|e| invalid("options", &e.to_string()))?;
         let ledger = self.ledger.ledger().await.map_err(|e| ledger_failure(e, DOMAIN))?;
         // Settled first, so a send's record is in the page requested after it.
         let mut page = ledger.get_usage_requests(options, now_ms()).await.map_err(|e| ledger_failure(e, DOMAIN))?;
@@ -172,11 +171,8 @@ impl UsageService {
         if !kind.is_empty() && !openable {
             return json!({ "title": "", "role": "", "agent": false, "internalKind": kind });
         }
-        let owner_id = own
-            .as_ref()
-            .and_then(|o| o.get("ownerSessionId").and_then(Value::as_str))
-            .filter(|o| !o.is_empty())
-            .map_or(owner.to_owned(), str::to_owned);
+        let owner_id =
+            own.as_ref().and_then(|o| o.get("ownerSessionId").and_then(Value::as_str)).filter(|o| !o.is_empty()).map_or(owner.to_owned(), str::to_owned);
         let mut label = json!({ "title": title_of(own.as_ref(), sid), "role": "", "agent": false });
         let own_is_agent = own.as_ref().is_none_or(|o| truthy(o.get("agent")));
         if !owner_id.is_empty() && owner_id != sid && own_is_agent {
@@ -213,15 +209,16 @@ impl DomainService for UsageService {
             _ => json!({}),
         };
         let value = match req.method.as_str() {
-            "usage/getUsageDashboard" => self
-                .dashboards
-                .get(&options, self.sources.as_ref(), &self.accounts)
-                .await
-                .map_err(|f| f.into_core(DOMAIN))?,
+            "usage/getUsageDashboard" => self.dashboards.get(&options, self.sources.as_ref(), &self.accounts).await.map_err(|f| f.into_core(DOMAIN))?,
             "usage/getUsageStats" => {
-                let options: UsageStatsOptions =
-                    serde_json::from_value(options).map_err(|e| invalid("options", &e.to_string()))?;
-                self.ledger.ledger().await.map_err(|e| ledger_failure(e, DOMAIN))?.get_usage_stats(options, now_ms).await.map_err(|e| ledger_failure(e, DOMAIN))?
+                let options: UsageStatsOptions = serde_json::from_value(options).map_err(|e| invalid("options", &e.to_string()))?;
+                self.ledger
+                    .ledger()
+                    .await
+                    .map_err(|e| ledger_failure(e, DOMAIN))?
+                    .get_usage_stats(options, now_ms)
+                    .await
+                    .map_err(|e| ledger_failure(e, DOMAIN))?
             }
             "usage/getUsageRequests" => self.get_usage_requests(options).await?,
             other => return Err(wrong_method(DOMAIN, other)),

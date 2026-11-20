@@ -41,7 +41,10 @@ const HOOKS: [&str; 2] = ["host/browser/signIn", "host/browser/turn"];
 
 /// A notification the host sends.
 #[derive(Debug, Clone, PartialEq)]
-#[allow(clippy::large_enum_variant, reason = "The fake forwards canonical host DTOs by value; preserve its public constructors without adding a boxed page-facts payload")]
+#[allow(
+    clippy::large_enum_variant,
+    reason = "The fake forwards canonical host DTOs by value; preserve its public constructors without adding a boxed page-facts payload"
+)]
 pub enum Push {
     Events(HostBrowserEventsParams),
     Facts(HostBrowserPageFactsParams),
@@ -105,7 +108,9 @@ pub struct FakeHost {
 fn contains(actual: &Value, wanted: &Value) -> bool {
     match (actual, wanted) {
         (Value::Object(actual), Value::Object(wanted)) => wanted.iter().all(|(key, wanted)| actual.get(key).is_some_and(|actual| contains(actual, wanted))),
-        (Value::Array(actual), Value::Array(wanted)) => actual.len() == wanted.len() && actual.iter().zip(wanted).all(|(actual, wanted)| contains(actual, wanted)),
+        (Value::Array(actual), Value::Array(wanted)) => {
+            actual.len() == wanted.len() && actual.iter().zip(wanted).all(|(actual, wanted)| contains(actual, wanted))
+        }
         // A number is the same number whether the engine wrote it as `1.0` or the recording (a host that parsed the wire) as `1`.
         (Value::Number(actual), Value::Number(wanted)) => actual == wanted || actual.as_f64() == wanted.as_f64(),
         (actual, wanted) => actual == wanted,
@@ -213,7 +218,9 @@ impl HostWire for FakeHost {
             let problem = match state.expected.front() {
                 None => Some(format!("{method}: no call is scripted")),
                 Some(next) if next.method != method => Some(format!("{method}: the script expects {}", next.method)),
-                Some(next) if next.params.as_ref().is_some_and(|wanted| !contains(&params, wanted)) => Some(format!("{method}: the params do not hold what the script expects")),
+                Some(next) if next.params.as_ref().is_some_and(|wanted| !contains(&params, wanted)) => {
+                    Some(format!("{method}: the params do not hold what the script expects"))
+                }
                 Some(_) => None,
             };
             match problem {
@@ -377,11 +384,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_transcript_in_the_wrong_order_fails_the_call() {
-        let text = [
-            r#"{"method":"host/browser/pages/list","result":{"pages":[]}}"#,
-            r#"{"method":"host/browser/page/stop","result":{}}"#,
-        ]
-        .join("\n");
+        let text = [r#"{"method":"host/browser/pages/list","result":{"pages":[]}}"#, r#"{"method":"host/browser/page/stop","result":{}}"#].join("\n");
         let host = FakeHost::from_transcript_str(&text).expect("parses");
         assert!(host.page_stop(stop_params("p1"), &token()).await.is_err());
         assert!(host.finish().is_err());

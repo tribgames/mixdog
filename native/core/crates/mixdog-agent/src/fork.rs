@@ -124,12 +124,8 @@ mod tests {
     use super::*;
 
     fn saved() -> ModelRequest {
-        let options = RequestOptions {
-            send_group: Some("g".into()),
-            max_output_tokens_override: Some(9),
-            tool_choice: Some("auto".into()),
-            ..RequestOptions::default()
-        };
+        let options =
+            RequestOptions { send_group: Some("g".into()), max_output_tokens_override: Some(9), tool_choice: Some("auto".into()), ..RequestOptions::default() };
         ModelRequest { model: "m".into(), messages: vec![Message::new(Role::User, Content::Text("hi".into()))], tools: Vec::new(), options }
     }
 

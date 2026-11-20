@@ -96,17 +96,24 @@ pub mod sensitive {
     ];
 
     const KEY_EXTENSIONS: [&str; 11] = [".pem", ".key", ".p12", ".pfx", ".p8", ".ppk", ".jks", ".keystore", ".kdbx", ".keychain", ".keychain-db"];
-    const CREDENTIAL_FILES: [&str; 12] = [".netrc", "_netrc", ".npmrc", ".pypirc", ".git-credentials", ".pgpass", ".vault-token", ".htpasswd", ".dockercfg", ".envrc", ".s3cfg", "kubeconfig"];
+    const CREDENTIAL_FILES: [&str; 12] =
+        [".netrc", "_netrc", ".npmrc", ".pypirc", ".git-credentials", ".pgpass", ".vault-token", ".htpasswd", ".dockercfg", ".envrc", ".s3cfg", "kubeconfig"];
     const MIXDOG_SECRET_DIRECTORIES: [&str; 5] = ["secrets", "mcp-oauth", "provider-accounts", "relay-data", "dev-profile"];
     const MIXDOG_SECRET_EXTENSIONS: [&str; 2] = [".dpapi", ".token"];
     const MAX_BACKUP_SUFFIXES: usize = 3;
 
     static ENV_FILE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:\.env.*|[^.]{1,64}(?:\.[^.]{1,64}){0,3}\.env)$", ""));
-    static CREDENTIAL_JSON: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^(?:.*credential.*|service[-_ ]?account.*|client[-_]?secret.*)\.json$", ""));
+    static CREDENTIAL_JSON: LazyLock<JsRegex> =
+        LazyLock::new(|| JsRegex::new_static(r"^(?:.*credential.*|service[-_ ]?account.*|client[-_]?secret.*)\.json$", ""));
     static SSH_PRIVATE_KEY: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^id_[a-z0-9]{2,16}(?:[_-][^._-]{1,32}){0,3}$", ""));
-    static BACKUP_SUFFIX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"(?:\.(?:bak|backup|old|orig|prev|save|sav|swp|swo|tmp|copy|\d{1,3})|~)$", ""));
-    static MIXDOG_SECRET_FILE: LazyLock<JsRegex> =
-        LazyLock::new(|| JsRegex::new_static(r"^\.?(mixdog-config|provider-accounts|relay-hook-device|auth\.json|[a-z0-9-]+-oauth(-credentials)?\.json|[a-z0-9-]+-bridge\.json)", ""));
+    static BACKUP_SUFFIX: LazyLock<JsRegex> =
+        LazyLock::new(|| JsRegex::new_static(r"(?:\.(?:bak|backup|old|orig|prev|save|sav|swp|swo|tmp|copy|\d{1,3})|~)$", ""));
+    static MIXDOG_SECRET_FILE: LazyLock<JsRegex> = LazyLock::new(|| {
+        JsRegex::new_static(
+            r"^\.?(mixdog-config|provider-accounts|relay-hook-device|auth\.json|[a-z0-9-]+-oauth(-credentials)?\.json|[a-z0-9-]+-bridge\.json)",
+            "",
+        )
+    });
     static EXTENDED_PREFIX: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^[\\/]{2}[?.][\\/]", ""));
 
     /// `backupOriginal`: the name a backup copy was made of (`.npmrc.bak.1` is `.npmrc`).
@@ -166,12 +173,12 @@ pub mod sensitive {
         if secret_file_name(name) || SECRET_SEQUENCES.iter().any(|run| has_run(&segments, run)) {
             return true;
         }
-        within.iter().any(|root| !root.is_empty() && root.iter().enumerate().all(|(i, segment)| segments.get(i) == Some(segment)) && mixdog_secret(&segments[root.len()..]))
+        within.iter().any(|root| {
+            !root.is_empty() && root.iter().enumerate().all(|(i, segment)| segments.get(i) == Some(segment)) && mixdog_secret(&segments[root.len()..])
+        })
     }
 
     fn has_run(segments: &[String], run: &[&str]) -> bool {
         segments.windows(run.len()).any(|window| window.iter().zip(run).all(|(a, b)| a == b))
     }
 }
-
-

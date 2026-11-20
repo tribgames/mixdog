@@ -32,8 +32,7 @@ impl InConn {
         let client_close = Arc::new(Mutex::new(None));
         let server_closed = Arc::new(Mutex::new(false));
         let pump = tokio::spawn({
-            let (queued, client_close, server_closed) =
-                (queued.clone(), client_close.clone(), server_closed.clone());
+            let (queued, client_close, server_closed) = (queued.clone(), client_close.clone(), server_closed.clone());
             async move {
                 while let Some(m) = end.from_client.recv().await {
                     match m {
@@ -50,14 +49,7 @@ impl InConn {
                 }
             }
         });
-        Self {
-            from_client: Mutex::new(Some(rx)),
-            queued,
-            sender: end.sender,
-            client_close,
-            server_closed,
-            pump,
-        }
+        Self { from_client: Mutex::new(Some(rx)), queued, sender: end.sender, client_close, server_closed, pump }
     }
 }
 
@@ -107,21 +99,14 @@ impl InNet {
         let connector = InProcessConnector::new(Arc::new({
             let fail = fail.clone();
             move |end: ServerEnd| {
-                if fail
-                    .try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1))
-                    .is_ok()
-                {
+                if fail.try_update(Ordering::SeqCst, Ordering::SeqCst, |n| n.checked_sub(1)).is_ok() {
                     return Err("refused".to_string());
                 }
                 let _ = tx.send(InConn::serve(end));
                 Ok(())
             }
         }));
-        Self {
-            connector: Arc::new(connector),
-            accepted: Mutex::new(Some(rx)),
-            fail,
-        }
+        Self { connector: Arc::new(connector), accepted: Mutex::new(Some(rx)), fail }
     }
 }
 

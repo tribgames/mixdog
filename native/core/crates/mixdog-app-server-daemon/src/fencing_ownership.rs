@@ -97,7 +97,12 @@ mod tests {
         let lost = Arc::new(Taken(Mutex::new(None)));
         let logged = Arc::new(Mutex::new(Vec::<String>::new()));
         let sink = logged.clone();
-        let fencing = FencingOwnership::new(lost.clone(), late, PathBuf::from("/data/daemon-owner.lock"), Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())));
+        let fencing = FencingOwnership::new(
+            lost.clone(),
+            late,
+            PathBuf::from("/data/daemon-owner.lock"),
+            Arc::new(move |line| sink.lock().unwrap().push(line.to_owned())),
+        );
         assert_eq!(fencing.revalidate(), Ok(()));
         assert!(!fx.recorder.has_exited(), "a held lock fences nothing");
         *lost.0.lock().unwrap() = Some(FenceReason::LockFileReplaced);

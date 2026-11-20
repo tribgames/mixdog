@@ -8,8 +8,8 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use async_trait::async_trait;
-use base64::engine::general_purpose::STANDARD;
 use base64::Engine;
+use base64::engine::general_purpose::STANDARD;
 use hmac::{Hmac, Mac};
 use sha1::Sha1;
 use sha2::{Digest, Sha256};
@@ -18,10 +18,9 @@ use crate::binary::{client_install_command, is_missing_message, missing_client_m
 use crate::command::parse_ssh_target;
 use crate::context::{ConfigFiles, Platform, PreparedSpawn, SshChild, SshConfigFiles, SshEnv, SshSpawner, ToolOutput, ToolRunner};
 use crate::diagnostics::{
-    describe_argv, diagnostics_key_for, redact_secrets, redact_server, server_names, DiagnosticKind, Diagnostics, DiagnosticsInput,
-    DIAGNOSTICS_MAX_ENTRIES,
+    DIAGNOSTICS_MAX_ENTRIES, DiagnosticKind, Diagnostics, DiagnosticsInput, describe_argv, diagnostics_key_for, redact_secrets, redact_server, server_names,
 };
-use crate::known_hosts::{entries_for, host_field_matches, key_fingerprint, known_hosts_spec, parse, KnownHostMarker};
+use crate::known_hosts::{KnownHostMarker, entries_for, host_field_matches, key_fingerprint, known_hosts_spec, parse};
 use crate::user_config::{config_hosts, expand_includes, parse_config_hosts};
 
 fn normalized(path: &Path) -> String {
@@ -119,11 +118,7 @@ fn env_with(platform: Platform, vars: &[(&str, &str)], files: &[&str]) -> SshEnv
 #[test]
 fn windows_looks_on_path_first_then_in_system32_openssh() {
     let vars = [("Path", r#"C:\Tools;"C:\Program Files\OpenSSH""#), ("SystemRoot", r"C:\Windows")];
-    let env = env_with(
-        Platform::Windows,
-        &vars,
-        &[r"C:\Program Files\OpenSSH\ssh.exe", r"C:\Windows\System32\OpenSSH\ssh.exe"],
-    );
+    let env = env_with(Platform::Windows, &vars, &[r"C:\Program Files\OpenSSH\ssh.exe", r"C:\Windows\System32\OpenSSH\ssh.exe"]);
     assert_eq!(resolve_ssh_tool("ssh", &env), Some(PathBuf::from(r"C:\Program Files\OpenSSH\ssh.exe")));
     for tool in ["ssh", "ssh-keygen", "ssh-keyscan", "ssh-add"] {
         let file = format!(r"C:\Windows\System32\OpenSSH\{tool}.exe");
@@ -260,19 +255,13 @@ Match host foo
     let pairs: Vec<(&str, &str)> = hosts.iter().map(|host| (host.alias.as_str(), host.detail.as_str())).collect();
     assert_eq!(
         pairs,
-        [
-            ("gpu-box", "jae@10.0.0.21"),
-            ("vps-main", "root@vps.example.com:2202"),
-            ("vps-backup", "root@vps.example.com:2202"),
-            ("plain", "plain"),
-        ]
+        [("gpu-box", "jae@10.0.0.21"), ("vps-main", "root@vps.example.com:2202"), ("vps-backup", "root@vps.example.com:2202"), ("plain", "plain"),]
     );
 }
 
 #[test]
 fn an_alias_already_listed_is_not_repeated() {
-    let details: Vec<String> =
-        parse_config_hosts("Host a\n  HostName x\nHost a\n  HostName y\n").into_iter().map(|host| host.detail).collect();
+    let details: Vec<String> = parse_config_hosts("Host a\n  HostName x\nHost a\n  HostName y\n").into_iter().map(|host| host.detail).collect();
     assert_eq!(details, ["x"]);
 }
 
@@ -285,10 +274,7 @@ fn include_pulls_in_relative_tilde_and_wildcard_files_so_their_aliases_reach_the
     let home = PathBuf::from("/home/김 철수");
     let ssh = home.join(".ssh");
     let files = MemFiles::with(&[
-        (
-            ssh.join("config"),
-            "Include work/*.conf\nInclude ~/extra/hosts \"~/extra/spaced name\"\nHost top\n  HostName top.example.com\n",
-        ),
+        (ssh.join("config"), "Include work/*.conf\nInclude ~/extra/hosts \"~/extra/spaced name\"\nHost top\n  HostName top.example.com\n"),
         (ssh.join("work").join("a.conf"), "Host work-a\n  HostName a.example.com\n  User ann\n"),
         (ssh.join("work").join("b.conf"), "Host work-b\n  HostName b.example.com\n"),
         (ssh.join("work").join("readme.txt"), "Host ignored\n"),
@@ -393,8 +379,7 @@ fn the_tunnels_starts_and_exits_are_logged_so_restarts_show() {
         let mut trace = diagnostics.trace_spawn("ssh", &args, Some("k"), 0);
         trace.closed(Some(code), None, 0);
     }
-    let tunnel: Vec<String> =
-        texts(&diagnostics, "k", DiagnosticKind::Tunnel).iter().map(|text| text.split(' ').next().unwrap_or("").to_owned()).collect();
+    let tunnel: Vec<String> = texts(&diagnostics, "k", DiagnosticKind::Tunnel).iter().map(|text| text.split(' ').next().unwrap_or("").to_owned()).collect();
     assert_eq!(tunnel, ["start", "exited", "start", "exited"]);
 }
 
@@ -424,12 +409,7 @@ fn copied_text_replaces_the_servers_user_and_host_with_server_short_names_only_n
     );
     let diagnostics = Diagnostics::new();
     let key = diagnostics_key_for(&target);
-    diagnostics.record(
-        Some(&key),
-        DiagnosticKind::Stderr,
-        &format!("ssh: connect to host vps.example.com port 2202: Connection refused token={TOKEN}"),
-        0,
-    );
+    diagnostics.record(Some(&key), DiagnosticKind::Stderr, &format!("ssh: connect to host vps.example.com port 2202: Connection refused token={TOKEN}"), 0);
     let config: Vec<String> = ["HostName 203.0.113.7", "User deploy", "Port 2202"].iter().map(|line| (*line).to_owned()).collect();
     let extra = ["203.0.113.7".to_owned()];
     let report = diagnostics.report(&DiagnosticsInput {
@@ -481,11 +461,7 @@ fn the_report_holds_only_the_last_n_lines() {
 #[test]
 fn tool_paths_are_joined_as_node_joins_them() {
     // Forward slashes become the platform's, `.` and `..` collapse, doubled separators are one.
-    let env = env_with(
-        Platform::Windows,
-        &[("Path", r"C:/Tools/./extra/..//bin"), ("SystemRoot", r"C:\Windows")],
-        &[r"C:\Tools\bin\ssh.exe"],
-    );
+    let env = env_with(Platform::Windows, &[("Path", r"C:/Tools/./extra/..//bin"), ("SystemRoot", r"C:\Windows")], &[r"C:\Tools\bin\ssh.exe"]);
     assert_eq!(resolve_ssh_tool("ssh", &env), Some(PathBuf::from(r"C:\Tools\bin\ssh.exe")));
     let linux = env_with(Platform::Linux, &[("PATH", "/opt/x/../bin/:/usr//bin")], &["/usr/bin/ssh", "/opt/bin/ssh"]);
     assert_eq!(resolve_ssh_tool("ssh", &linux), Some(PathBuf::from("/opt/bin/ssh")));

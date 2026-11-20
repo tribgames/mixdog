@@ -91,16 +91,8 @@ pub fn decode_text_string(bytes: &[u8]) -> String {
         _ => return bytes.iter().map(|b| pdf_doc_char(*b)).collect(),
     };
     let body = &bytes[2..];
-    let units: Vec<u16> = body
-        .chunks_exact(2)
-        .map(|pair| {
-            if little_endian {
-                u16::from_le_bytes([pair[0], pair[1]])
-            } else {
-                u16::from_be_bytes([pair[0], pair[1]])
-            }
-        })
-        .collect();
+    let units: Vec<u16> =
+        body.chunks_exact(2).map(|pair| if little_endian { u16::from_le_bytes([pair[0], pair[1]]) } else { u16::from_be_bytes([pair[0], pair[1]]) }).collect();
     let mut text = String::with_capacity(units.len());
     let mut at = 0;
     while at < units.len() {
@@ -139,12 +131,7 @@ pub fn pdf_date(unix_seconds: i64) -> String {
     let day = day_of_year - (153 * shifted_month + 2) / 5 + 1;
     let month = if shifted_month < 10 { shifted_month + 3 } else { shifted_month - 9 };
     let year = year_of_era + era * 400 + i64::from(month <= 2);
-    format!(
-        "D:{year:04}{month:02}{day:02}{:02}{:02}{:02}Z",
-        secs / 3600,
-        secs % 3600 / 60,
-        secs % 60
-    )
+    format!("D:{year:04}{month:02}{day:02}{:02}{:02}{:02}Z", secs / 3600, secs % 3600 / 60, secs % 60)
 }
 
 impl PdfDocument {
@@ -246,11 +233,8 @@ impl PdfDocument {
         let info = self.info_ref();
         self.set_producer(PRODUCER);
         let date = Obj::Str(Arc::from(pdf_date(now_unix_seconds).into_bytes()));
-        let has = |store: &crate::write::store::ObjectStore, key: &str| {
-            store
-                .dict(info)
-                .is_some_and(|dict| dict.get_raw(key).is_some_and(|value| !value.is_null()))
-        };
+        let has =
+            |store: &crate::write::store::ObjectStore, key: &str| store.dict(info).is_some_and(|dict| dict.get_raw(key).is_some_and(|value| !value.is_null()));
         let needs_creator = !has(&self.store, "Creator");
         let needs_created = !has(&self.store, "CreationDate");
         self.store.modify_dict(info, |dict| {

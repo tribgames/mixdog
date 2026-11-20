@@ -21,12 +21,12 @@ use super::messages::pending_task_notification_indexes;
 use super::messages::request_start;
 use super::observation::stale_observations;
 use super::observation::supersede_observation;
-use mixdog_js::token_estimate::estimate_tokens;
 use crate::message::AgentMessage;
+use crate::message::Source;
 use crate::offload::Artifact;
 use crate::offload::ArtifactStore;
-use crate::message::Source;
 use crate::project::is_actual_user_instruction;
+use mixdog_js::token_estimate::estimate_tokens;
 
 const TOOL_HISTORY_CONTEXT_RATIO: f64 = 0.05;
 /// The working set of recent execution evidence does not grow with the window.
@@ -40,8 +40,7 @@ const EARLIER_DUMPS_SEPARATOR: &str = " | ";
 const ARCHIVE_BLOB_MIN_BYTES: usize = 16_384;
 
 static RECOVERY_PATH: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"available at (.+?) \(sha256:", ""));
-static EARLIER_DUMPS: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(r"^Earlier dumps \(older first\): (.+)$", "m"));
+static EARLIER_DUMPS: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^Earlier dumps \(older first\): (.+)$", "m"));
 
 /// A transcript message as the stored row Node wrote: model-visible fields in
 /// stored key order, display ids and UI diffs left out.
@@ -102,9 +101,7 @@ fn execution_tokens(ctx: &TailContext<'_>, messages: &[AgentMessage]) -> u64 {
             row
         })
         .collect();
-    ctx.meter
-        .messages(messages)
-        .max(estimate_tokens(&mixdog_js::json_stringify(&JsonValue::Array(rows))))
+    ctx.meter.messages(messages).max(estimate_tokens(&mixdog_js::json_stringify(&JsonValue::Array(rows))))
 }
 
 #[derive(Clone)]
@@ -175,11 +172,7 @@ fn without_stale_replay(messages: &[AgentMessage]) -> Vec<AgentMessage> {
         .enumerate()
         .map(|(index, m)| {
             let open_round_thinking = index >= round_start && crate::recovery::has_signed_thinking(m);
-            if m.role() == Role::Assistant && newest.is_some_and(|n| index < n) && !open_round_thinking {
-                without_replay(m)
-            } else {
-                m.clone()
-            }
+            if m.role() == Role::Assistant && newest.is_some_and(|n| index < n) && !open_round_thinking { without_replay(m) } else { m.clone() }
         })
         .collect()
 }
@@ -198,10 +191,7 @@ async fn serialize_archive(ctx: &TailContext<'_>, transcript: &[AgentMessage]) -
             out.push_str(&line);
             continue;
         }
-        let blob = ctx
-            .store(&line)
-            .await
-            .ok_or("compact: execution history could not be archived; original context preserved")?;
+        let blob = ctx.store(&line).await.ok_or("compact: execution history could not be archived; original context preserved")?;
         let mut reference = serde_json::Map::new();
         reference.insert("path".to_owned(), JsonValue::String(blob.path));
         if let Some(id) = message.tool_call_id() {
@@ -220,10 +210,7 @@ fn without_message_ids(value: &mut JsonValue) {
     match value {
         JsonValue::Array(items) => items.iter_mut().for_each(without_message_ids),
         JsonValue::Object(object) => {
-            let strip = object
-                .get("meta")
-                .and_then(|meta| meta.pointer("/transcript/messageId"))
-                .is_some_and(JsonValue::is_string);
+            let strip = object.get("meta").and_then(|meta| meta.pointer("/transcript/messageId")).is_some_and(JsonValue::is_string);
             if strip && let Some(JsonValue::Object(meta)) = object.get_mut("meta") {
                 if let Some(JsonValue::Object(transcript)) = meta.get_mut("transcript") {
                     transcript.shift_remove("messageId");
@@ -246,11 +233,8 @@ fn without_message_ids(value: &mut JsonValue) {
 fn recovery_archive_paths(m: &AgentMessage) -> Vec<String> {
     let content = m.text();
     let own = RECOVERY_PATH.captures(&content).and_then(|c| c.get(1)).map(str::to_owned);
-    let mut paths: Vec<String> = EARLIER_DUMPS
-        .captures(&content)
-        .and_then(|c| c.get(1))
-        .map(|c| c.split(EARLIER_DUMPS_SEPARATOR).map(str::to_owned).collect())
-        .unwrap_or_default();
+    let mut paths: Vec<String> =
+        EARLIER_DUMPS.captures(&content).and_then(|c| c.get(1)).map(|c| c.split(EARLIER_DUMPS_SEPARATOR).map(str::to_owned).collect()).unwrap_or_default();
     paths.extend(own);
     paths
 }
@@ -259,21 +243,11 @@ fn recovery_archive_paths(m: &AgentMessage) -> Vec<String> {
 /// `latest`'s lines in it when the reminder stands in for that group too.
 fn recovery_reminder(archive: &Artifact, previous: &[AgentMessage], latest: Option<&Group>) -> AgentMessage {
     let mut seen = HashSet::new();
-    let earlier_all: Vec<String> = previous
-        .iter()
-        .flat_map(recovery_archive_paths)
-        .filter(|p| seen.insert(p.clone()))
-        .filter(|p| *p != archive.path)
-        .collect();
+    let earlier_all: Vec<String> = previous.iter().flat_map(recovery_archive_paths).filter(|p| seen.insert(p.clone())).filter(|p| *p != archive.path).collect();
     let earlier = &earlier_all[earlier_all.len().saturating_sub(MAX_EARLIER_DUMPS)..];
-    let earlier_line = if earlier.is_empty() {
-        String::new()
-    } else {
-        format!("\nEarlier dumps (older first): {}", earlier.join(EARLIER_DUMPS_SEPARATOR))
-    };
-    let latest_line = latest.map_or(String::new(), |g| {
-        format!(" The latest execution group (message indices {}-{}) is on lines {}-{}.", g.start, g.end - 1, g.start + 1, g.end)
-    });
+    let earlier_line = if earlier.is_empty() { String::new() } else { format!("\nEarlier dumps (older first): {}", earlier.join(EARLIER_DUMPS_SEPARATOR)) };
+    let latest_line = latest
+        .map_or(String::new(), |g| format!(" The latest execution group (message indices {}-{}) is on lines {}-{}.", g.start, g.end - 1, g.start + 1, g.end));
     let text = format!(
         "<system-reminder>\nSome execution history was omitted or shortened to fit the tool-history budget. This is not an instruction to repeat those calls. The original calls, outcomes, and earlier recovery references are available at {} (sha256:{}). The dump is JSONL: line N+1 is message index N; an \"archivedMessage\" line names the file holding that message, so search its directory too. Read only missing evidence when needed.{latest_line}{}\n</system-reminder>",
         archive.path, archive.sha256, earlier_line
@@ -307,10 +281,8 @@ fn shrink_group(ctx: &TailContext<'_>, group: &Group, archive: &Artifact, level:
                 }
                 let id = message.tool_call_id().unwrap_or_default();
                 let mut shrunk = message.clone();
-                shrunk.message.content = Content::Text(format!(
-                    "{} Outcome must be read from the original result if needed.]",
-                    reference(offset, "Tool result body", id)
-                ));
+                shrunk.message.content =
+                    Content::Text(format!("{} Outcome must be read from the original result if needed.]", reference(offset, "Tool result body", id)));
                 return shrunk;
             }
             if level < 2 {
@@ -411,29 +383,18 @@ async fn ensure_archive(
         return Ok(());
     }
     let text = serialize_archive(ctx, transcript).await?;
-    let dump = ctx
-        .store(&text)
-        .await
-        .ok_or("compact: execution history could not be archived; original context preserved")?;
+    let dump = ctx.store(&text).await.ok_or("compact: execution history could not be archived; original context preserved")?;
     *recovery = vec![recovery_reminder(&dump, previous, None)];
     *archive = Some(dump);
     Ok(())
 }
 
-pub async fn build_execution_tail(
-    ctx: &TailContext<'_>,
-    transcript: &[AgentMessage],
-    options: &TailOptions,
-) -> Result<TailOutput, String> {
+pub async fn build_execution_tail(ctx: &TailContext<'_>, transcript: &[AgentMessage], options: &TailOptions) -> Result<TailOutput, String> {
     let budget = tool_history_budget(options.context_window);
     let messages = without_stale_replay(transcript);
     let groups = execution_groups(&messages);
     let stale = stale_observations(&messages);
-    let previous_recovery: Vec<AgentMessage> = messages
-        .iter()
-        .filter(|m| m.source == Some(Source::CompactExecutionRecovery))
-        .cloned()
-        .collect();
+    let previous_recovery: Vec<AgentMessage> = messages.iter().filter(|m| m.source == Some(Source::CompactExecutionRecovery)).cloned().collect();
     let mut kept: BTreeMap<usize, Group> = BTreeMap::new();
     let mut tokens = 0u64;
     let mut archive: Option<Artifact> = None;
@@ -467,33 +428,16 @@ pub async fn build_execution_tail(
         tokens -= execution_tokens(ctx, &removed.messages);
     }
     if execution_tokens(ctx, &recovery) > budget {
-        return Err(
-            "compact: tool-history budget cannot hold its recovery reference; original context preserved".into(),
-        );
+        return Err("compact: tool-history budget cannot hold its recovery reference; original context preserved".into());
     }
     // A displaced latest group is refit against the final reference.
     if let Some(latest) = groups.last()
         && kept.is_empty()
     {
-        keep_group(
-            ctx,
-            transcript,
-            &previous_recovery,
-            &stale,
-            latest,
-            true,
-            budget,
-            &mut tokens,
-            &mut kept,
-            &mut archive,
-            &mut recovery,
-        )
-        .await?;
+        keep_group(ctx, transcript, &previous_recovery, &stale, latest, true, budget, &mut tokens, &mut kept, &mut archive, &mut recovery).await?;
     }
     if !groups.is_empty() && kept.is_empty() {
-        return Err(
-            "compact: latest execution group cannot fit the tool-history budget; original context preserved".into(),
-        );
+        return Err("compact: latest execution group cannot fit the tool-history budget; original context preserved".into());
     }
     let latest = latest_actual_user_instruction_index(&messages);
     let pending_indexes = pending_task_notification_indexes(&messages);
@@ -506,20 +450,11 @@ pub async fn build_execution_tail(
         let start = request_start(&messages, first_kept.min(latest_kept)).unwrap_or(0);
         pending_indexes.iter().copied().fold(start, usize::min)
     };
-    let tail = assemble_tail(
-        &messages,
-        &kept,
-        &Assemble { anchor, first_kept, preserve_conversation: options.preserve_conversation, pending: &pending },
-    );
+    let tail = assemble_tail(&messages, &kept, &Assemble { anchor, first_kept, preserve_conversation: options.preserve_conversation, pending: &pending });
     // With no execution to retain, keep the existing latest-request contract.
     if !options.preserve_conversation && groups.is_empty() && previous_recovery.is_empty() {
         return Ok(TailOutput {
-            messages: messages
-                .iter()
-                .enumerate()
-                .filter(|(index, _)| Some(*index) == latest || pending.contains(index))
-                .map(|(_, m)| m.clone())
-                .collect(),
+            messages: messages.iter().enumerate().filter(|(index, _)| Some(*index) == latest || pending.contains(index)).map(|(_, m)| m.clone()).collect(),
             tool_tokens: 0,
             tool_budget: budget,
             retained_groups: 0,
@@ -567,11 +502,7 @@ async fn keep_group(
             .enumerate()
             .map(|(offset, message)| match stale.get(&(group.start + offset)) {
                 Some(found) => {
-                    let origin = format!(
-                        "The original is archived at {} (message index {}).",
-                        dump.path,
-                        group.start + offset
-                    );
+                    let origin = format!("The original is archived at {} (message index {}).", dump.path, group.start + offset);
                     supersede_observation(message, found, &origin)
                 }
                 None => message.clone(),

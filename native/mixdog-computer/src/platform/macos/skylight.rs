@@ -10,7 +10,7 @@
 //! the app stays behind the user's frontmost one.
 
 use super::ffi::{CGEventRef, CGPoint};
-use std::ffi::{c_void, CStr};
+use std::ffi::{CStr, c_void};
 use std::sync::OnceLock;
 
 pub(crate) type PostToPid = unsafe extern "C" fn(i32, *mut c_void);
@@ -23,10 +23,7 @@ fn lookup(name: &CStr) -> *mut c_void {
     SKYLIGHT.get_or_init(|| {
         // SAFETY: loading a system framework by path.
         unsafe {
-            libc::dlopen(
-                c"/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight".as_ptr(),
-                libc::RTLD_LAZY,
-            );
+            libc::dlopen(c"/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight".as_ptr(), libc::RTLD_LAZY);
         }
     });
     // SAFETY: resolving one symbol by name.
@@ -39,8 +36,7 @@ pub(crate) fn private_post() -> Option<PostToPid> {
     *SYMBOL.get_or_init(|| {
         let pointer = lookup(c"SLEventPostToPid");
         // SAFETY: the symbol has this signature.
-        (!pointer.is_null())
-            .then(|| unsafe { std::mem::transmute::<*mut c_void, PostToPid>(pointer) })
+        (!pointer.is_null()).then(|| unsafe { std::mem::transmute::<*mut c_void, PostToPid>(pointer) })
     })
 }
 
@@ -51,8 +47,7 @@ pub unsafe fn set_window_location(event: CGEventRef, point: CGPoint) {
     let set = *SYMBOL.get_or_init(|| {
         let pointer = lookup(c"CGEventSetWindowLocation");
         // SAFETY: the symbol has this signature.
-        (!pointer.is_null())
-            .then(|| unsafe { std::mem::transmute::<*mut c_void, SetWindowLocation>(pointer) })
+        (!pointer.is_null()).then(|| unsafe { std::mem::transmute::<*mut c_void, SetWindowLocation>(pointer) })
     });
     if let Some(set) = set {
         set(event, point);
@@ -71,11 +66,7 @@ pub(crate) fn activation_symbols() -> Option<(GetProcessForPid, PostEventRecordT
     *SYMBOLS.get_or_init(|| {
         let (psn, post) = (lookup(c"GetProcessForPID"), lookup(c"SLPSPostEventRecordTo"));
         // SAFETY: both symbols have these signatures.
-        (!psn.is_null() && !post.is_null()).then(|| unsafe {
-            (
-                std::mem::transmute::<*mut c_void, GetProcessForPid>(psn),
-                std::mem::transmute::<*mut c_void, PostEventRecordTo>(post),
-            )
-        })
+        (!psn.is_null() && !post.is_null())
+            .then(|| unsafe { (std::mem::transmute::<*mut c_void, GetProcessForPid>(psn), std::mem::transmute::<*mut c_void, PostEventRecordTo>(post)) })
     })
 }

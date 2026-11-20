@@ -22,9 +22,9 @@ use super::preset::resolve_agent_spawn_preset;
 use super::result::WorkerResult;
 use super::turn::TurnPlan;
 use super::turn::TurnRunner;
+use super::worker_turns::TurnOwner;
 use super::world::SendWorld;
 use super::world::SpawnContext;
-use super::worker_turns::TurnOwner;
 use crate::agent_tool::board::JobMeta;
 use crate::agent_tool::dispatch::wants_session_scan;
 use crate::agent_tool::host::DispatchOptions;
@@ -291,7 +291,8 @@ impl SendFlowImpl {
                 queue_depth,
             })
         };
-        if self.world.surface_runs(&session) && busy
+        if self.world.surface_runs(&session)
+            && busy
             && let Some(queued) = self.world.enqueue_turn(&session, &prompt, &attachments, context).await?
         {
             return Ok(queued_view(queued.get("queueDepth").and_then(Value::as_u64)));

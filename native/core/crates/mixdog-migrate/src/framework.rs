@@ -65,9 +65,7 @@ impl MigrationRoots {
 
     /// Absolute path of a root-relative `/`-separated path.
     pub fn resolve(&self, root: Root, rel: &str) -> Result<PathBuf> {
-        let base = self
-            .root(root)
-            .ok_or_else(|| Blocked::journal(format!("{rel}: no {root:?} root")))?;
+        let base = self.root(root).ok_or_else(|| Blocked::journal(format!("{rel}: no {root:?} root")))?;
         Ok(rel.split('/').fold(base.to_path_buf(), |p, seg| p.join(seg)))
     }
 
@@ -75,10 +73,7 @@ impl MigrationRoots {
         Roots {
             data: self.data.to_string_lossy().into_owned(),
             home: self.home.to_string_lossy().into_owned(),
-            profile: self
-                .profile
-                .as_ref()
-                .map(|p| p.to_string_lossy().into_owned()),
+            profile: self.profile.as_ref().map(|p| p.to_string_lossy().into_owned()),
         }
     }
 }
@@ -110,14 +105,8 @@ impl Wave {
 /// Outcome of `ItemDriver::stage`.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Staged {
-    Output {
-        output_sha256: String,
-        replaced_surrogates: u64,
-    },
-    Quarantine {
-        code: QuarantineCode,
-        detail: String,
-    },
+    Output { output_sha256: String, replaced_surrogates: u64 },
+    Quarantine { code: QuarantineCode, detail: String },
 }
 
 /// Outcome of `ItemDriver::verify`.
@@ -139,8 +128,7 @@ pub trait ItemDriver: Send + Sync {
     fn owns(&self, item: &ManifestItem) -> bool;
     fn wave(&self, item: &ManifestItem) -> Wave;
     fn stage(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Staged>;
-    fn publish(&self, cx: &ItemContext<'_>, item: &ManifestItem, staged: &StagedEntry)
-    -> Result<()>;
+    fn publish(&self, cx: &ItemContext<'_>, item: &ManifestItem, staged: &StagedEntry) -> Result<()>;
     fn verify(&self, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<Verdict>;
     /// References of a verified item that name nothing (reported, never quarantined);
     /// recounted when `complete.json` is written.
@@ -165,11 +153,7 @@ pub trait ItemDriver: Send + Sync {
 /// Header keys another kind group sets on a migrated session (one `meta` frame each),
 /// e.g. the desktop's per-session metadata (SPEC §4.11).
 pub trait SessionMetaSource: Send + Sync {
-    fn session_meta(
-        &self,
-        cx: &ItemContext<'_>,
-        session_id: &str,
-    ) -> Result<Option<Map<String, Value>>>;
+    fn session_meta(&self, cx: &ItemContext<'_>, session_id: &str) -> Result<Option<Map<String, Value>>>;
 }
 
 /// Test seam: called with a point name before and after every journal append and
@@ -210,10 +194,7 @@ impl SessionView for ItemContext<'_> {
         let dir = self.roots.data.join("sessions").join(session_id);
         crate::session::target::read_session(self, &dir)
             .map(|folded| Some(folded.header))
-            .map_err(|detail| Blocked::StoreSchema {
-                key: format!("session/{session_id}"),
-                detail,
-            })
+            .map_err(|detail| Blocked::StoreSchema { key: format!("session/{session_id}"), detail })
     }
 }
 
@@ -236,11 +217,7 @@ impl ItemContext<'_> {
 
     /// Session ids whose item was verified in an earlier wave.
     pub fn verified_sessions(&self) -> impl Iterator<Item = &str> {
-        self.states.iter().filter_map(|(k, s)| {
-            (*s == ItemState::Verified)
-                .then_some(())
-                .and_then(|()| k.strip_prefix("session/"))
-        })
+        self.states.iter().filter_map(|(k, s)| (*s == ItemState::Verified).then_some(()).and_then(|()| k.strip_prefix("session/")))
     }
 
     /// `<D>/migration/stage/<escaped key>/`.
@@ -271,20 +248,12 @@ impl ItemContext<'_> {
 
     /// Shared sources `key` consumes, in manifest order.
     pub fn shared_for(&self, key: &str) -> Vec<&SourceFile> {
-        self.manifest
-            .shared
-            .iter()
-            .filter(|s| s.consumers.iter().any(|c| c == key))
-            .map(|s| &s.file)
-            .collect()
+        self.manifest.shared.iter().filter(|s| s.consumers.iter().any(|c| c == key)).map(|s| &s.file).collect()
     }
 
     /// Whether the manifest has an item with this key.
     pub fn has_item(&self, key: &str) -> bool {
-        self.manifest
-            .items
-            .binary_search_by(|i| i.key.as_str().cmp(key))
-            .is_ok()
+        self.manifest.items.binary_search_by(|i| i.key.as_str().cmp(key)).is_ok()
     }
 
     pub fn fault(&self, point: &str) -> Result<()> {
@@ -326,11 +295,7 @@ impl ItemContext<'_> {
         } else {
             BlobStatus::Corrupt
         };
-        self.blobs
-            .0
-            .lock()
-            .expect("blob statuses")
-            .insert(hex.to_string(), status);
+        self.blobs.0.lock().expect("blob statuses").insert(hex.to_string(), status);
         Ok(status)
     }
 }

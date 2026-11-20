@@ -12,8 +12,8 @@
 
 use std::time::Duration;
 
-use serde_json::{Value, json};
 use mixdog_rt::CancelView;
+use serde_json::{Value, json};
 use uuid::Uuid;
 
 use super::attachments::prompt_content;
@@ -21,8 +21,8 @@ use super::host::{RoutineTurn, TurnSettle};
 use super::ids::{agent_home_session_id, schedule_owner_agent_id};
 use super::owned::RoutineRun;
 use super::routine::{
-    HEARTBEAT_WALL_CLOCK_MS, ROUTINE_QUIET, RoutineKind, RoutineTrigger, is_routine_quiet_reply, normalize_routine_trigger,
-    routine_relay_header, routine_trigger_header,
+    HEARTBEAT_WALL_CLOCK_MS, ROUTINE_QUIET, RoutineKind, RoutineTrigger, is_routine_quiet_reply, normalize_routine_trigger, routine_relay_header,
+    routine_trigger_header,
 };
 use super::runtime::RoutineRuntime;
 use crate::scheduler::model::HOME_QUEUE_LIMIT;
@@ -110,16 +110,11 @@ impl RoutineRuntime {
         };
         let project = args.cwd.clone().unwrap_or_default();
         let now = self.clock.now();
-        let mut opening = args
-            .header
-            .clone()
-            .unwrap_or_else(|| routine_trigger_header(kind, name, &project, now, self.tz));
+        let mut opening = args.header.clone().unwrap_or_else(|| routine_trigger_header(kind, name, &project, now, self.tz));
         let mut selection = args.skill_selection.clone().unwrap_or_else(|| body.clone());
         let mut attachments = args.attachments.clone().unwrap_or(Value::Null);
         if let Some(executor) = args.executor_agent_id.as_deref().filter(|e| !e.is_empty()) {
-            let report = self
-                .run_executor_fire(executor, kind, name, &agent_id, &body, &selection, &attachments, args.cwd.as_deref(), cancel)
-                .await?;
+            let report = self.run_executor_fire(executor, kind, name, &agent_id, &body, &selection, &attachments, args.cwd.as_deref(), cancel).await?;
             let report = mixdog_js::js_trim(&report).to_string();
             if cancel.is_cancelled() {
                 return Err(abort_error(cancel));
@@ -139,8 +134,11 @@ impl RoutineRuntime {
             attachments = Value::Null;
         }
         let slot = self.take_slot(&home_id)?;
-        let trigger = normalize_routine_trigger(&json!({"kind": kind, "name": name, "event": args.event}))
-            .unwrap_or(RoutineTrigger { kind, name: name.to_string(), event: None });
+        let trigger = normalize_routine_trigger(&json!({"kind": kind, "name": name, "event": args.event})).unwrap_or(RoutineTrigger {
+            kind,
+            name: name.to_string(),
+            event: None,
+        });
         let turn = RoutineTurn {
             id: format!("routine_{}", Uuid::new_v4()),
             session_id: home_id.clone(),

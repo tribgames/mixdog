@@ -163,7 +163,10 @@ fn newest_roster_model(world: &dyn ClaudeWorld, family: &str) -> Option<String> 
         .filter(|row| row.get("id").is_some_and(|id| js_to_lowercase(&mixdog_js::value_to_string(id)).starts_with(&prefix)))
         .collect();
     mixdog_js::js_sort_by(&mut rows, |a, b| stamp(b) - stamp(a));
-    rows.first().and_then(|row| row.get("id")).filter(|id| !matches!(id, Value::Null) && !id.as_str().is_some_and(str::is_empty)).map(mixdog_js::value_to_string)
+    rows.first()
+        .and_then(|row| row.get("id"))
+        .filter(|id| !matches!(id, Value::Null) && !id.as_str().is_some_and(str::is_empty))
+        .map(mixdog_js::value_to_string)
 }
 
 /// `familyDefaultModel(family)`: the environment override, else the newest roster model, else the shipped one.
@@ -333,7 +336,8 @@ fn route_from_payload(world: &dyn ClaudeWorld, payload: Option<&Value>, source: 
     if model.is_none() && raw_model.is_empty() && effort.is_none() && fast.is_none() && budget_positive.is_none() {
         return None;
     }
-    let display = model.as_deref().map(|model| display_claude_model(world, Some(model), &raw_model, &clean(model_object.and_then(|object| object.get("display_name")))));
+    let display =
+        model.as_deref().map(|model| display_claude_model(world, Some(model), &raw_model, &clean(model_object.and_then(|object| object.get("display_name")))));
     Some(ClaudeRoute {
         mode: CLAUDE_CURRENT_MODE.into(),
         source: Some(source.into()),
@@ -574,7 +578,10 @@ mod tests {
         sources.settings = Some(&settings);
         sources.last = Some(AgedFile { value: &last, mtime_ms: 999_000.0 });
         let route = read_claude_code_current_route(&world, &sources);
-        assert_eq!((route.source.as_deref(), route.model.as_deref(), route.effort.as_deref()), (Some("cc-statusline-last"), Some("claude-sonnet-4-6"), Some("medium")));
+        assert_eq!(
+            (route.source.as_deref(), route.model.as_deref(), route.effort.as_deref()),
+            (Some("cc-statusline-last"), Some("claude-sonnet-4-6"), Some("medium"))
+        );
         assert_eq!(route.thinking_budget_tokens, Some(4000.0));
         assert_eq!(route.thinking_enabled, Some(true));
         // A last status older than ten minutes is not read.

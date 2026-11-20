@@ -19,17 +19,11 @@
 use serde_json::{Map, Value};
 
 /// The route fields a request publishes before the runtime write settles.
-pub const ROUTE_PREVIEW_KEYS: [&str; 8] =
-    ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
+pub const ROUTE_PREVIEW_KEYS: [&str; 8] = ["provider", "model", "effort", "fast", "autoEffort", "modelParameters", "contextPercent", "contextTokens"];
 
 /// `String(a ?? b ?? '')`.
 fn nullish_text(first: Option<&Value>, second: Option<&Value>) -> String {
-    [first, second]
-        .into_iter()
-        .flatten()
-        .find(|value| !value.is_null())
-        .map(mixdog_js::value_to_string)
-        .unwrap_or_default()
+    [first, second].into_iter().flatten().find(|value| !value.is_null()).map(mixdog_js::value_to_string).unwrap_or_default()
 }
 
 /// `optimisticRoutePatch(requested, current)`: the patch that publishes a requested route before the runtime write settles;
@@ -217,10 +211,7 @@ mod tests {
         assert!(!writes.finish(first.token), "only the newest write releases the lock");
         // The newest write settles and publishes the final route.
         let ok = WriteOutcome { sync: true, ..WriteOutcome::default() };
-        assert_eq!(
-            writes.settle(second.token, true, true, &ok),
-            Settlement { sync_context: true, publish_route: true, ..Settlement::default() }
-        );
+        assert_eq!(writes.settle(second.token, true, true, &ok), Settlement { sync_context: true, publish_route: true, ..Settlement::default() });
         assert!(writes.finish(second.token));
     }
 

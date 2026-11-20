@@ -115,7 +115,9 @@ fn persistent_excel_sessions_own_one_document_and_preserve_utf8_text() {
     assert_eq!(get("/sheet[Sheet1]/cell[A1]")["element"]["value"], "하이하이하이");
 
     live.call(json!({ "action": "begin", "session": session }));
-    live.call(json!({ "action": "batch", "session": session, "operations": [{ "op": "set_cell", "sheet": "Sheet1", "cell": "A1", "value": "트랜잭션 임시값" }] }));
+    live.call(
+        json!({ "action": "batch", "session": session, "operations": [{ "op": "set_cell", "sheet": "Sheet1", "cell": "A1", "value": "트랜잭션 임시값" }] }),
+    );
     let diff = live.call(json!({ "action": "diff", "session": session }));
     assert!(number(&diff["transaction"]["diff"]["summary"]["modified"]) > 0.0);
     live.call(json!({ "action": "rollback", "session": session }));
@@ -160,7 +162,11 @@ fn persistent_excel_sessions_own_one_document_and_preserve_utf8_text() {
         }]
     }));
     let sourced = live.call(json!({ "action": "snapshot", "session": visible["session"] }));
-    assert!(matches(r"Source: source-model\.xlsx#/sheet\[Inputs\]/cell\[C3\]", "", sourced["document"]["sheets"][0]["notes"][0]["text"].as_str().unwrap_or_default()));
+    assert!(matches(
+        r"Source: source-model\.xlsx#/sheet\[Inputs\]/cell\[C3\]",
+        "",
+        sourced["document"]["sheets"][0]["notes"][0]["text"].as_str().unwrap_or_default()
+    ));
 
     live.call(json!({ "action": "close", "session": visible["session"], "save": true }));
     assert!(wait_for_process_exit(visible["appPid"].as_u64().expect("appPid")));
@@ -224,7 +230,26 @@ fn excel_a_pivot_over_korean_fields_takes_korean_captions() {
 #[ignore = "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1"]
 fn excel_a_text_excel_would_type_as_a_date_a_number_or_a_truth_value_stays_text() {
     let Some(live) = Live::start() else { return };
-    let texts = ["1", "1,234", "12,345.6", "15%", "12.5%", "-500000", ".5", "007", "1-1", "1/2", "2026/10/05", "2026-10-05", "1e3", "(100)", "10:30", "TRUE", "#N/A", "214-86-12345"];
+    let texts = [
+        "1",
+        "1,234",
+        "12,345.6",
+        "15%",
+        "12.5%",
+        "-500000",
+        ".5",
+        "007",
+        "1-1",
+        "1/2",
+        "2026/10/05",
+        "2026-10-05",
+        "1e3",
+        "(100)",
+        "10:30",
+        "TRUE",
+        "#N/A",
+        "214-86-12345",
+    ];
     let operations = json!([
         { "op": "set_style", "range": "B1", "properties": { "numberFormat": "0.0" } },
         { "op": "set_range", "range": format!("A1:A{}", texts.len()), "values": texts.iter().map(|text| json!([text])).collect::<Vec<_>>() },
@@ -458,7 +483,9 @@ fn excel_freeze_panes_freezes_a_row_and_a_column_on_an_opened_workbook_as_the_po
     let frozen = |mode: &str| -> Vec<String> {
         let output = live.path(&format!("frozen-{mode}.xlsx"));
         let opened = live.call(json!({ "action": "open", "path": source, "mode": mode, "output": output }));
-        live.call(json!({ "action": "batch", "session": opened["session"], "operations": [{ "op": "freeze_panes", "sheet": "Sheet1", "row": 2, "column": 2 }] }));
+        live.call(
+            json!({ "action": "batch", "session": opened["session"], "operations": [{ "op": "freeze_panes", "sheet": "Sheet1", "row": 2, "column": 2 }] }),
+        );
         live.call(json!({ "action": "save", "session": opened["session"] }));
         live.close(&opened["session"]);
         let sheet = live.package(&output).text("xl/worksheets/sheet1.xml");
@@ -586,8 +613,13 @@ fn excel_charts_and_pictures_are_reviewed_against_the_print_area_and_each_other_
         ]),
     );
     let issues = live.call(json!({ "action": "issues", "session": created["session"] }));
-    let found: Vec<String> = items(&issues["issues"]).iter().map(|entry| format!("{} {}", entry["code"].as_str().unwrap_or_default(), entry["path"].as_str().unwrap_or_default())).collect();
-    for expected in ["drawing_outside_print_area /sheet[Sheet1]/chart[1]", "drawing_outside_print_area /sheet[Sheet1]/image[1]", "drawing_overlap /sheet[Sheet1]/chart[2]"] {
+    let found: Vec<String> = items(&issues["issues"])
+        .iter()
+        .map(|entry| format!("{} {}", entry["code"].as_str().unwrap_or_default(), entry["path"].as_str().unwrap_or_default()))
+        .collect();
+    for expected in
+        ["drawing_outside_print_area /sheet[Sheet1]/chart[1]", "drawing_outside_print_area /sheet[Sheet1]/image[1]", "drawing_overlap /sheet[Sheet1]/chart[2]"]
+    {
         assert!(found.iter().any(|entry| entry == expected), "{expected} in {found:?}");
     }
     live.close(&created["session"]);
@@ -641,7 +673,8 @@ fn excel_the_snapshot_names_hidden_rows_and_columns_and_reads_formulas_from_the_
 #[ignore = "starts Microsoft Excel; MIXDOG_TEST_LIVE_OFFICE=1"]
 fn excel_copy_sheet_copies_and_insert_columns_takes_a_column_letter() {
     let Some(live) = Live::start() else { return };
-    let created = live.create("sheets.xlsx", "xlsx", "background", json!([{ "op": "set_range", "sheet": "Sheet1", "range": "A1:B2", "values": [["a", "b"], [1, 2]] }]));
+    let created =
+        live.create("sheets.xlsx", "xlsx", "background", json!([{ "op": "set_range", "sheet": "Sheet1", "range": "A1:B2", "values": [["a", "b"], [1, 2]] }]));
     let edited = live.call(json!({
         "action": "batch",
         "session": created["session"],

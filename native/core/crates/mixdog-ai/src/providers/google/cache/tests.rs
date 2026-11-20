@@ -14,29 +14,13 @@ use super::policy::Tuning;
 use super::registry::Registry;
 use mixdog_core_api::domain::provider::ProviderState;
 
-
-
-
-
-
-
-
-
-
 fn system(case: u64) -> String {
     format!("{}case-{case}", "You are the Lead. ".repeat(1000))
 }
 
 fn parts(g: &Value) -> (Vec<Value>, Option<Value>, Vec<Value>) {
-    (
-        g["tools"].as_array().unwrap().clone(),
-        Some(g["toolConfig"].clone()),
-        g["contents"].as_array().unwrap().clone(),
-    )
+    (g["tools"].as_array().unwrap().clone(), Some(g["toolConfig"].clone()), g["contents"].as_array().unwrap().clone())
 }
-
-
-
 
 /// Runs only the backoff waits: the attempt and total limits never fire, so each failure the transport reports is the
 /// attempt's own, and the retry ladder runs to its end.
@@ -54,8 +38,6 @@ impl CacheRuntime for LadderRuntime {
         if ms >= 120_000 { Box::pin(futures::future::pending()) } else { Box::pin(futures::future::ready(())) }
     }
 }
-
-
 
 #[test]
 fn provider_state_round_trip_keeps_every_node_key() {
@@ -76,8 +58,6 @@ fn provider_state_round_trip_keeps_every_node_key() {
     assert!(rest_only.gemini.is_none());
     assert_eq!(serde_json::to_value(&rest_only).unwrap(), serde_json::json!({"providerAccountId": "a"}));
 }
-
-
 
 /// The create's request is bounded by Node's total timer (`sites.geminiCacheCreate`: `armed` 180 s, the fetch rejected
 /// with `Gemini cachedContents.create total timed out after 180000ms`); the timeouts are retried and, once the ladder is

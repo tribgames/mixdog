@@ -30,19 +30,11 @@ pub struct Entry {
 
 impl Entry {
     pub fn stream(name: &str, data: Vec<u8>) -> Self {
-        Self {
-            name: name.to_owned(),
-            data: Some(data),
-            children: Vec::new(),
-        }
+        Self { name: name.to_owned(), data: Some(data), children: Vec::new() }
     }
 
     pub fn storage(name: &str, children: Vec<Entry>) -> Self {
-        Self {
-            name: name.to_owned(),
-            data: None,
-            children,
-        }
+        Self { name: name.to_owned(), data: None, children }
     }
 }
 
@@ -119,10 +111,7 @@ pub fn build_cfb(entries: &[Entry], version: u16) -> Vec<u8> {
         let mut ordered = nodes[id].children.clone();
         ordered.sort_by(|a, b| {
             let (a, b) = (&nodes[*a].name, &nodes[*b].name);
-            a.chars()
-                .count()
-                .cmp(&b.chars().count())
-                .then_with(|| a.to_uppercase().cmp(&b.to_uppercase()))
+            a.chars().count().cmp(&b.chars().count()).then_with(|| a.to_uppercase().cmp(&b.to_uppercase()))
         });
         let child = build_tree(&mut nodes, &ordered, 0, ordered.len() as isize - 1);
         nodes[id].child = Some(child);
@@ -138,11 +127,7 @@ pub fn build_cfb(entries: &[Entry], version: u16) -> Vec<u8> {
             let end = ((i + 1) * sector_size).min(bytes.len());
             sector[..end - i * sector_size].copy_from_slice(&bytes[i * sector_size..end]);
             sectors.push(sector);
-            fat.push(if i == count - 1 {
-                END_OF_CHAIN
-            } else {
-                sectors.len() as u32
-            });
+            fat.push(if i == count - 1 { END_OF_CHAIN } else { sectors.len() as u32 });
         }
         if count > 0 { start } else { END_OF_CHAIN }
     };
@@ -162,11 +147,7 @@ pub fn build_cfb(entries: &[Entry], version: u16) -> Vec<u8> {
             let count = node.data.len().div_ceil(MINI_SECTOR_SIZE);
             node.start = Some(mini_fat.len() as u32);
             for i in 0..count {
-                mini_fat.push(if i == count - 1 {
-                    END_OF_CHAIN
-                } else {
-                    mini_fat.len() as u32 + 1
-                });
+                mini_fat.push(if i == count - 1 { END_OF_CHAIN } else { mini_fat.len() as u32 + 1 });
             }
             mini_streams.extend_from_slice(&node.data);
             mini_streams.resize(mini_streams.len() + count * MINI_SECTOR_SIZE - node.data.len(), 0);
@@ -188,11 +169,7 @@ pub fn build_cfb(entries: &[Entry], version: u16) -> Vec<u8> {
         for (j, unit) in node.name.encode_utf16().enumerate() {
             put_u16(&mut directory, at + j * 2, unit);
         }
-        put_u16(
-            &mut directory,
-            at + 64,
-            ((node.name.encode_utf16().count() + 1) * 2) as u16,
-        );
+        put_u16(&mut directory, at + 64, ((node.name.encode_utf16().count() + 1) * 2) as u16);
         directory[at + 66] = node.kind;
         directory[at + 67] = 1;
         put_u32(&mut directory, at + 68, node.left);
@@ -214,16 +191,10 @@ pub fn build_cfb(entries: &[Entry], version: u16) -> Vec<u8> {
     let mut difat_count = 0usize;
     while fat_count * entries_per_sector < fat.len() + fat_count + difat_count {
         fat_count += 1;
-        difat_count = if fat_count > HEADER_DIFAT_ENTRIES {
-            (fat_count - HEADER_DIFAT_ENTRIES).div_ceil(entries_per_sector - 1)
-        } else {
-            0
-        };
+        difat_count = if fat_count > HEADER_DIFAT_ENTRIES { (fat_count - HEADER_DIFAT_ENTRIES).div_ceil(entries_per_sector - 1) } else { 0 };
     }
     let fat_sector_ids: Vec<u32> = (0..fat_count).map(|i| (sectors.len() + i) as u32).collect();
-    let difat_sector_ids: Vec<u32> = (0..difat_count)
-        .map(|i| (sectors.len() + fat_count + i) as u32)
-        .collect();
+    let difat_sector_ids: Vec<u32> = (0..difat_count).map(|i| (sectors.len() + fat_count + i) as u32).collect();
     let mut fat_entries = fat.clone();
     fat_entries.extend(fat_sector_ids.iter().map(|_| FAT_SECTOR));
     fat_entries.extend(difat_sector_ids.iter().map(|_| DIFAT_SECTOR));
@@ -242,11 +213,7 @@ pub fn build_cfb(entries: &[Entry], version: u16) -> Vec<u8> {
         for (j, id) in beyond_header[from..to].iter().enumerate() {
             put_u32(&mut sector, j * 4, *id);
         }
-        let next = if i == difat_count - 1 {
-            END_OF_CHAIN
-        } else {
-            difat_sector_ids[i + 1]
-        };
+        let next = if i == difat_count - 1 { END_OF_CHAIN } else { difat_sector_ids[i + 1] };
         put_u32(&mut sector, sector_size - 4, next);
         sectors.push(sector);
     }
@@ -258,29 +225,13 @@ pub fn build_cfb(entries: &[Entry], version: u16) -> Vec<u8> {
     put_u16(&mut header, 28, 0xfffe);
     put_u16(&mut header, 30, if version == 4 { 12 } else { 9 });
     put_u16(&mut header, 32, 6);
-    put_u32(
-        &mut header,
-        40,
-        if version == 4 {
-            (directory.len() / sector_size) as u32
-        } else {
-            0
-        },
-    );
+    put_u32(&mut header, 40, if version == 4 { (directory.len() / sector_size) as u32 } else { 0 });
     put_u32(&mut header, 44, fat_count as u32);
     put_u32(&mut header, 48, directory_start);
     put_u32(&mut header, 56, MINI_STREAM_CUTOFF as u32);
     put_u32(&mut header, 60, mini_fat_start);
     put_u32(&mut header, 64, (mini_fat_bytes.len() / sector_size) as u32);
-    put_u32(
-        &mut header,
-        68,
-        if difat_count > 0 {
-            difat_sector_ids[0]
-        } else {
-            END_OF_CHAIN
-        },
-    );
+    put_u32(&mut header, 68, if difat_count > 0 { difat_sector_ids[0] } else { END_OF_CHAIN });
     put_u32(&mut header, 72, difat_count as u32);
     header[76..512].fill(0xff);
     for (i, id) in fat_sector_ids.iter().take(HEADER_DIFAT_ENTRIES).enumerate() {
@@ -294,13 +245,7 @@ pub fn build_cfb(entries: &[Entry], version: u16) -> Vec<u8> {
 }
 
 fn data_spaces() -> Entry {
-    Entry::storage(
-        "\u{6}DataSpaces",
-        vec![
-            Entry::stream("Version", vec![0; 76]),
-            Entry::stream("DataSpaceMap", vec![0; 112]),
-        ],
-    )
+    Entry::storage("\u{6}DataSpaces", vec![Entry::stream("Version", vec![0; 76]), Entry::stream("DataSpaceMap", vec![0; 112])])
 }
 
 /// The root-level streams of an encrypted OOXML document ([MS-OFFCRYPTO] 2.3.4), with the given ciphertext size.
@@ -309,11 +254,7 @@ pub fn encrypted_ooxml_entries(package_bytes: usize) -> Vec<Entry> {
     info.extend_from_slice(b"<encryption/>");
     let mut package = vec![0u8; 8];
     package.resize(8 + package_bytes, 0x5a);
-    vec![
-        Entry::stream("EncryptionInfo", info),
-        Entry::stream("EncryptedPackage", package),
-        data_spaces(),
-    ]
+    vec![Entry::stream("EncryptionInfo", info), Entry::stream("EncryptedPackage", package), data_spaces()]
 }
 
 /// A binary Word document's "WordDocument" stream whose FibBase ([MS-DOC] 2.5.1) has fEncrypted set or clear.
@@ -355,9 +296,7 @@ static RANDOM_STATE: AtomicU64 = AtomicU64::new(0x9e37_79b9_7f4a_7c15);
 pub fn random_bytes(length: usize) -> Vec<u8> {
     let mut out = Vec::with_capacity(length + 8);
     while out.len() < length {
-        let mut z = RANDOM_STATE
-            .fetch_add(0x9e37_79b9_7f4a_7c15, Ordering::Relaxed)
-            .wrapping_add(0x9e37_79b9_7f4a_7c15);
+        let mut z = RANDOM_STATE.fetch_add(0x9e37_79b9_7f4a_7c15, Ordering::Relaxed).wrapping_add(0x9e37_79b9_7f4a_7c15);
         z = (z ^ (z >> 30)).wrapping_mul(0xbf58_476d_1ce4_e5b9);
         z = (z ^ (z >> 27)).wrapping_mul(0x94d0_49bb_1331_11eb);
         out.extend_from_slice(&(z ^ (z >> 31)).to_le_bytes());
@@ -443,14 +382,7 @@ pub struct Encryption {
 
 impl Default for Encryption {
     fn default() -> Self {
-        Self {
-            standard: false,
-            spin_count: 1000,
-            hash_algorithm: "SHA512",
-            key_salt_size: 16,
-            integrity: true,
-            hmac_salt_size: None,
-        }
+        Self { standard: false, spin_count: 1000, hash_algorithm: "SHA512", key_salt_size: 16, integrity: true, hmac_salt_size: None }
     }
 }
 
@@ -476,10 +408,7 @@ pub fn encrypt_ooxml_entries(plain: &[u8], password: &str, options: &Encryption)
         key.extend(derive(0x5c));
         key.truncate(16);
         let verifier = random_bytes(16);
-        let csp: Vec<u8> = "Microsoft Enhanced RSA and AES Cryptographic Provider\0"
-            .encode_utf16()
-            .flat_map(u16::to_le_bytes)
-            .collect();
+        let csp: Vec<u8> = "Microsoft Enhanced RSA and AES Cryptographic Provider\0".encode_utf16().flat_map(u16::to_le_bytes).collect();
         let mut header: Vec<u8> = Vec::new();
         for word in [0x24u32, 0, 0x660e, 0x8004, 128, 0x18, 0, 0] {
             header.extend_from_slice(&word.to_le_bytes());
@@ -493,12 +422,7 @@ pub fn encrypt_ooxml_entries(plain: &[u8], password: &str, options: &Encryption)
         info.extend_from_slice(&salt);
         info.extend_from_slice(&aes_encrypt("ecb", &key, &[], &verifier));
         info.extend_from_slice(&20u32.to_le_bytes());
-        info.extend_from_slice(&aes_encrypt(
-            "ecb",
-            &key,
-            &[],
-            &pad_to(&sha(HashAlgorithm::Sha1, &[&verifier]), 16),
-        ));
+        info.extend_from_slice(&aes_encrypt("ecb", &key, &[], &pad_to(&sha(HashAlgorithm::Sha1, &[&verifier]), 16)));
         encryption_info = info;
         encrypted_package = with_size(plain.len(), &aes_encrypt("ecb", &key, &[], &pad_to(plain, 16)));
     } else {
@@ -510,8 +434,7 @@ pub fn encrypt_ooxml_entries(plain: &[u8], password: &str, options: &Encryption)
         let hashed = spun(algorithm, &password_salt, password, options.spin_count);
         let key_for = |block: &[u8]| fitted(&sha(algorithm, &[&hashed, block]), 32);
         let verifier_input = random_bytes(16);
-        let encrypted =
-            |block: &[u8], data: &[u8]| base64(&aes_encrypt("cbc", &key_for(block), &password_salt, &pad_to(data, 16)));
+        let encrypted = |block: &[u8], data: &[u8]| base64(&aes_encrypt("cbc", &key_for(block), &password_salt, &pad_to(data, 16)));
         let mut segments: Vec<u8> = Vec::new();
         for (index, segment) in plain.chunks(4096).enumerate() {
             let iv = fitted(&sha(algorithm, &[&key_salt, &(index as u32).to_le_bytes()]), 16);
@@ -550,10 +473,7 @@ pub fn encrypt_ooxml_entries(plain: &[u8], password: &str, options: &Encryption)
             options.spin_count,
             base64(&password_salt),
             encrypted(&[0xfe, 0xa7, 0xd2, 0x76, 0x3b, 0x4b, 0x9e, 0x79], &verifier_input),
-            encrypted(
-                &[0xd7, 0xaa, 0x0f, 0x6d, 0x30, 0x61, 0x34, 0x4e],
-                &sha(algorithm, &[&verifier_input])
-            ),
+            encrypted(&[0xd7, 0xaa, 0x0f, 0x6d, 0x30, 0x61, 0x34, 0x4e], &sha(algorithm, &[&verifier_input])),
             encrypted(&[0x14, 0x6e, 0x0b, 0xe7, 0xab, 0xac, 0xd0, 0xd6], &secret),
         );
         let mut info = vec![4, 0, 4, 0, 0x40, 0, 0, 0];
@@ -561,9 +481,5 @@ pub fn encrypt_ooxml_entries(plain: &[u8], password: &str, options: &Encryption)
         encryption_info = info;
         encrypted_package = package;
     }
-    vec![
-        Entry::stream("EncryptionInfo", encryption_info),
-        Entry::stream("EncryptedPackage", encrypted_package),
-        data_spaces(),
-    ]
+    vec![Entry::stream("EncryptionInfo", encryption_info), Entry::stream("EncryptedPackage", encrypted_package), data_spaces()]
 }

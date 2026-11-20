@@ -76,10 +76,7 @@ where
     let key: Key = (credential.to_owned(), held.to_owned(), TypeId::of::<T>());
     let (flight, start) = {
         let mut map = flights();
-        match map
-            .get(&key)
-            .and_then(|(_, slot)| slot.downcast_ref::<Shared<BoxFuture<'static, Result<T, Expired>>>>())
-        {
+        match map.get(&key).and_then(|(_, slot)| slot.downcast_ref::<Shared<BoxFuture<'static, Result<T, Expired>>>>()) {
             Some(running) => (running.clone(), None),
             None => {
                 let identity = Arc::new(());
@@ -141,11 +138,7 @@ mod tests {
         let calls = (0..8).map(|_| refresh_once(path, "r", slow(counter.clone(), 7)));
         let results = futures::future::join_all(calls).await;
         assert!(results.iter().all(|r| *r == Ok(7)));
-        assert_eq!(
-            counter.load(Ordering::SeqCst),
-            1,
-            "one refresh for eight callers"
-        );
+        assert_eq!(counter.load(Ordering::SeqCst), 1, "one refresh for eight callers");
         // The flight is over: the next caller refreshes again.
         assert_eq!(refresh_once(path, "r", slow(counter.clone(), 8)).await, Ok(8));
         assert_eq!(counter.load(Ordering::SeqCst), 2);
@@ -236,7 +229,6 @@ mod tests {
         assert_eq!(runtime().block_on(refresh_once(path, "r", async { 8u32 })), Ok(8));
     }
 
-
     // Node's refresh promise runs to its end when its callers went away; the refreshed credential is written.
     #[tokio::test(start_paused = true)]
     async fn a_refresh_whose_callers_all_went_away_runs_to_its_end() {
@@ -279,9 +271,7 @@ mod tests {
         let owner = refresh_once(path, "r", std::future::pending::<u32>());
         let joiner = refresh_once(path, "r", std::future::pending::<u32>());
         let (owner, joiner) = tokio::join!(owner, joiner);
-        let expired = Err(Expired {
-            after: std::time::Duration::from_secs(150),
-        });
+        let expired = Err(Expired { after: std::time::Duration::from_secs(150) });
         assert_eq!((owner, joiner), (expired, expired));
         // The dead flight is gone: the next caller starts a new refresh.
         assert_eq!(refresh_once(path, "r", async { 5u32 }).await, Ok(5));

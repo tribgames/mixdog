@@ -6,17 +6,14 @@ pub(crate) struct InventoryLease {
 
 impl InventoryLease {
     pub(crate) fn new(now_ms: u64, lease_ms: u64) -> Self {
-        Self {
-            until_ms: AtomicU64::new(now_ms.saturating_add(lease_ms)),
-        }
+        Self { until_ms: AtomicU64::new(now_ms.saturating_add(lease_ms)) }
     }
 
     pub(crate) fn extend(&self, now_ms: u64, lease_ms: u64) {
         if lease_ms == 0 {
             return;
         }
-        self.until_ms
-            .fetch_max(now_ms.saturating_add(lease_ms), Ordering::AcqRel);
+        self.until_ms.fetch_max(now_ms.saturating_add(lease_ms), Ordering::AcqRel);
     }
 
     pub(crate) fn active(&self, now_ms: u64) -> bool {

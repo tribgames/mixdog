@@ -12,8 +12,8 @@
 use std::sync::Arc;
 
 use mixdog_core_api::ids::ThreadId;
-use tokio::sync::Notify;
 use mixdog_core_session::session::agent_registry::signals::StatusSignals;
+use tokio::sync::Notify;
 
 use super::compose_parts::LateDirectory;
 
@@ -193,7 +193,12 @@ mod tests {
         let activity = AgentActivity::new(Arc::new(LateDirectory::default()));
         let changed = activity.changed();
         assert!(changed.notified().now_or_never().is_none(), "no signal, no wake");
-        for signal in [|a: &AgentActivity| a.owner("a"), |a: &AgentActivity| a.everyone(), |a: &AgentActivity| a.approval_wait("w"), |a: &AgentActivity| a.session_record("w")] {
+        for signal in [
+            |a: &AgentActivity| a.owner("a"),
+            |a: &AgentActivity| a.everyone(),
+            |a: &AgentActivity| a.approval_wait("w"),
+            |a: &AgentActivity| a.session_record("w"),
+        ] {
             signal(&activity);
             signal(&activity);
             assert!(changed.notified().now_or_never().is_some(), "a signal wakes the section");

@@ -97,15 +97,7 @@ mod tests {
 
     fn assistant(ids: &[&str]) -> Message {
         let mut m = Message::new(Role::Assistant, Content::Text(String::new()));
-        m.tool_calls = ids
-            .iter()
-            .map(|id| ToolCall {
-                id: (*id).to_owned(),
-                name: "t".into(),
-                arguments: json!({}),
-                native_type: None,
-            })
-            .collect();
+        m.tool_calls = ids.iter().map(|id| ToolCall { id: (*id).to_owned(), name: "t".into(), arguments: json!({}), native_type: None }).collect();
         m
     }
 
@@ -118,10 +110,7 @@ mod tests {
     #[test]
     fn valid_ids_pass_and_invalid_ones_map_consistently() {
         let long = "x".repeat(60);
-        let map = wire_tool_call_ids(&[
-            assistant(&["call_1", "toolu/bad id", &long]),
-            result("toolu/bad id"),
-        ]);
+        let map = wire_tool_call_ids(&[assistant(&["call_1", "toolu/bad id", &long]), result("toolu/bad id")]);
         let to = &map["toolu/bad id"];
         assert!(OPENAI_CHAT_IDS.is_valid(to) && to.starts_with("toolu_bad_id_"), "{to}");
         assert_eq!(map.len(), 2);
@@ -141,24 +130,11 @@ mod tests {
             json!({"role":"user","content":"next"}),
             json!({"role":"tool","tool_call_id":"a","content":"late"}),
         ]);
-        let shape: Vec<(String, String)> = out
-            .iter()
-            .map(|m| {
-                (
-                    m["role"].as_str().unwrap().to_owned(),
-                    m.get("tool_call_id").and_then(JsonValue::as_str).unwrap_or("").to_owned(),
-                )
-            })
-            .collect();
+        let shape: Vec<(String, String)> =
+            out.iter().map(|m| (m["role"].as_str().unwrap().to_owned(), m.get("tool_call_id").and_then(JsonValue::as_str).unwrap_or("").to_owned())).collect();
         assert_eq!(
             shape,
-            [
-                ("user".into(), "".into()),
-                ("assistant".into(), "".into()),
-                ("tool".into(), "a".into()),
-                ("tool".into(), "b".into()),
-                ("user".into(), "".into()),
-            ]
+            [("user".into(), "".into()), ("assistant".into(), "".into()), ("tool".into(), "a".into()), ("tool".into(), "b".into()), ("user".into(), "".into()),]
         );
         assert_eq!(out[2]["content"], PAIRING_STUB);
         assert_eq!(out[3]["content"], "B");

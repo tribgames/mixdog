@@ -142,9 +142,11 @@ pub async fn start(
         let (returned, step) = lanes
             .durability
             .submit(&cancel, move |lane| {
-                let step = decided.into_iter().try_for_each(|pid| gate.release(pid).map(drop)).map_err(StartupError::Release).and_then(|()| {
-                    gate.step(lane).map_err(StartupError::Gate)
-                });
+                let step = decided
+                    .into_iter()
+                    .try_for_each(|pid| gate.release(pid).map(drop))
+                    .map_err(StartupError::Release)
+                    .and_then(|()| gate.step(lane).map_err(StartupError::Gate));
                 (gate, step)
             })
             .map_err(|_| StartupError::Lane)?
@@ -185,10 +187,7 @@ pub async fn start(
 
 /// The manual converter has no control listener. It may cross the same
 /// barrier as `serve`, but never waits for or releases a prior owner itself.
-pub fn require_migration_barrier(
-    lane: &mixdog_rt::InLane<DurabilityIo>,
-    ownership: Arc<CoreOwnership>,
-) -> Result<(), String> {
+pub fn require_migration_barrier(lane: &mixdog_rt::InLane<DurabilityIo>, ownership: Arc<CoreOwnership>) -> Result<(), String> {
     let root = crate::discovery::runtime_root().map_err(|error| error.to_string())?;
     let record = BarrierRecord { version: env!("CARGO_PKG_VERSION").into(), update_text: crate::control::UPDATE_TEXT.into() };
     let mut gate = Gate::new(ownership, crate::discovery::path(&root), record).map_err(|error| error.to_string())?;

@@ -4,7 +4,6 @@
 
 use std::sync::Arc;
 
-
 use super::bindings::Admitted;
 use super::{NativePushService, PairedClients};
 use crate::legs::dispatch::{CapabilityOffer, Dispatch, Handler, HandlerFuture, LegCall, Rejected, RevokeHook};

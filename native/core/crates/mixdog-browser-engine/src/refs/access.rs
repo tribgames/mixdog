@@ -111,7 +111,13 @@ pub fn checked_ref_result(result: Value, ref_id: &str) -> Result<Value, RefError
 
 /// `callRef`: `declaration` (a function expression) runs with the element as `this` and `args`; its value comes back, a
 /// function that returns nothing answers `null`, and a page-side exception is a [`RefError::Failed`].
-pub async fn call_ref(host: &dyn BrowserHost, target: &RefTarget<'_>, declaration: &str, args: Vec<Value>, cancel: &CancellationToken) -> Result<Value, RefError> {
+pub async fn call_ref(
+    host: &dyn BrowserHost,
+    target: &RefTarget<'_>,
+    declaration: &str,
+    args: Vec<Value>,
+    cancel: &CancellationToken,
+) -> Result<Value, RefError> {
     call_ref_in_frame(host, target, declaration, args, cancel).await.map(|(value, _)| value)
 }
 
@@ -290,6 +296,5 @@ mod tests {
         );
     }
 }
-
 
 impl std::error::Error for RefError {}

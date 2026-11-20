@@ -33,9 +33,7 @@ pub fn scrub_credentials(text: &str) -> String {
         let scheme_end = tail.find("://").expect("find_scheme found it") + 3;
         out.push_str(&tail[..scheme_end]);
         let after = &tail[scheme_end..];
-        let authority_end = after
-            .find(|c: char| c == '/' || c.is_whitespace())
-            .unwrap_or(after.len());
+        let authority_end = after.find(|c: char| c == '/' || c.is_whitespace()).unwrap_or(after.len());
         match after[..authority_end].rfind('@') {
             Some(user_end) => {
                 out.push_str("[redacted]@");
@@ -49,23 +47,10 @@ pub fn scrub_credentials(text: &str) -> String {
 }
 
 fn find_scheme(text: &str) -> Option<usize> {
-    ["https://", "http://", "ssh://"]
-        .iter()
-        .filter_map(|scheme| text.find(scheme))
-        .min()
+    ["https://", "http://", "ssh://"].iter().filter_map(|scheme| text.find(scheme)).min()
 }
 
-const SECRET_KEYS: &[&str] = &[
-    "access_token",
-    "api_key",
-    "api-key",
-    "apikey",
-    "auth",
-    "password",
-    "secret",
-    "signature",
-    "token",
-];
+const SECRET_KEYS: &[&str] = &["access_token", "api_key", "api-key", "apikey", "auth", "password", "secret", "signature", "token"];
 
 fn scrub_query_secrets(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
@@ -76,14 +61,10 @@ fn scrub_query_secrets(text: &str) -> String {
         let c = bytes[i];
         if (c == b'?' || c == b'&') && i + 1 < bytes.len() {
             let tail = &lower[i + 1..];
-            if let Some(key) = SECRET_KEYS
-                .iter()
-                .find(|key| tail.starts_with(*key) && tail[key.len()..].starts_with('='))
-            {
+            if let Some(key) = SECRET_KEYS.iter().find(|key| tail.starts_with(*key) && tail[key.len()..].starts_with('=')) {
                 let value_start = i + 1 + key.len() + 1;
-                let value_end = text[value_start..]
-                    .find(|ch: char| ch == '&' || ch.is_whitespace() || ch == '\'' || ch == '"')
-                    .map_or(text.len(), |n| value_start + n);
+                let value_end =
+                    text[value_start..].find(|ch: char| ch == '&' || ch.is_whitespace() || ch == '\'' || ch == '"').map_or(text.len(), |n| value_start + n);
                 out.push(c as char);
                 out.push_str(&text[i + 1..value_start]);
                 out.push_str("[redacted]");
@@ -120,17 +101,11 @@ mod tests {
         assert!(matches!(detail.as_deref(), Some(DomainErrorDetail::WorktreeBusyJobs { reason, .. }) if reason == "folder-in-use"));
     }
 
-
     #[test]
     fn failure_codes_reach_the_seam_error() {
         let error: CoreError = ScmFailure::git("fatal: x").into();
         match error {
-            CoreError::DomainError {
-                domain,
-                code,
-                message,
-                detail,
-            } => {
+            CoreError::DomainError { domain, code, message, detail } => {
                 assert_eq!(&*domain, "git");
                 assert_eq!(code.as_deref(), Some(CODE_COMMAND_FAILED));
                 assert_eq!(message.as_deref(), Some("fatal: x"));
@@ -201,11 +176,7 @@ pub enum ScmFailure {
     QueueFull { queue: String },
     /// A coded refusal of an operation with the English text a surface shows.
     #[error("{message}")]
-    Refused {
-        domain: &'static str,
-        code: &'static str,
-        message: String,
-    },
+    Refused { domain: &'static str, code: &'static str, message: String },
     /// A coded refusal that carries structured detail (worktree and merge refusals).
     #[error("{code}")]
     Coded {
@@ -216,61 +187,33 @@ pub enum ScmFailure {
         message: Option<Box<str>>,
     },
     #[error("io error {os_code:?}: {message}")]
-    Io {
-        os_code: Option<i32>,
-        message: String,
-    },
+    Io { os_code: Option<i32>, message: String },
     #[error("object {0:?} is missing")]
     ObjectMissing(ObjectId),
 }
 impl ScmFailure {
     pub fn invalid(path: impl Into<String>, expected: impl Into<String>) -> Self {
-        Self::Invalid {
-            path: path.into(),
-            expected: expected.into(),
-        }
+        Self::Invalid { path: path.into(), expected: expected.into() }
     }
 
     pub fn git(text: impl Into<String>) -> Self {
-        Self::Command {
-            domain: GIT_DOMAIN,
-            text: text.into(),
-        }
+        Self::Command { domain: GIT_DOMAIN, text: text.into() }
     }
 
     pub fn refused(code: &'static str, message: impl Into<String>) -> Self {
-        Self::Refused {
-            domain: GIT_DOMAIN,
-            code,
-            message: message.into(),
-        }
+        Self::Refused { domain: GIT_DOMAIN, code, message: message.into() }
     }
 
     pub fn coded(code: &'static str, detail: DomainErrorDetail) -> Self {
-        Self::Coded {
-            domain: WORKTREE_DOMAIN,
-            code,
-            detail: Some(Box::new(detail)),
-            message: None,
-        }
+        Self::Coded { domain: WORKTREE_DOMAIN, code, detail: Some(Box::new(detail)), message: None }
     }
 
     pub fn coded_plain(code: &'static str) -> Self {
-        Self::Coded {
-            domain: WORKTREE_DOMAIN,
-            code,
-            detail: None,
-            message: None,
-        }
+        Self::Coded { domain: WORKTREE_DOMAIN, code, detail: None, message: None }
     }
 
     pub fn coded_with_message(code: &'static str, detail: DomainErrorDetail, message: impl Into<String>) -> Self {
-        Self::Coded {
-            domain: WORKTREE_DOMAIN,
-            code,
-            detail: Some(Box::new(detail)),
-            message: Some(message.into().into_boxed_str()),
-        }
+        Self::Coded { domain: WORKTREE_DOMAIN, code, detail: Some(Box::new(detail)), message: Some(message.into().into_boxed_str()) }
     }
 
     /// The explicit text of a coded failure, when its producer set one.
@@ -298,10 +241,7 @@ impl ScmFailure {
 }
 impl From<std::io::Error> for ScmFailure {
     fn from(error: std::io::Error) -> Self {
-        Self::Io {
-            os_code: error.raw_os_error(),
-            message: error.to_string(),
-        }
+        Self::Io { os_code: error.raw_os_error(), message: error.to_string() }
     }
 }
 impl From<ScmFailure> for CoreError {
@@ -315,26 +255,14 @@ impl From<ScmFailure> for CoreError {
                 message: Some(NOT_A_REPOSITORY_TEXT.into()),
                 detail: None,
             },
-            ScmFailure::Invalid { path, expected } => CoreError::InvalidParams {
-                path: path.into(),
-                expected: expected.into(),
-            },
-            ScmFailure::Command { domain, text } => CoreError::DomainError {
-                domain: domain.into(),
-                code: Some(CODE_COMMAND_FAILED.into()),
-                message: Some(text.into()),
-                detail: None,
-            },
-            ScmFailure::Unavailable { capability } => CoreError::CapabilityUnavailable {
-                capability: capability.into(),
-                detail: Arc::from(""),
-            },
-            ScmFailure::Spawn { code, .. } => CoreError::DomainError {
-                domain: GIT_DOMAIN.into(),
-                code: Some(code.into()),
-                message: Some(format!("spawn {code}").into()),
-                detail: None,
-            },
+            ScmFailure::Invalid { path, expected } => CoreError::InvalidParams { path: path.into(), expected: expected.into() },
+            ScmFailure::Command { domain, text } => {
+                CoreError::DomainError { domain: domain.into(), code: Some(CODE_COMMAND_FAILED.into()), message: Some(text.into()), detail: None }
+            }
+            ScmFailure::Unavailable { capability } => CoreError::CapabilityUnavailable { capability: capability.into(), detail: Arc::from("") },
+            ScmFailure::Spawn { code, .. } => {
+                CoreError::DomainError { domain: GIT_DOMAIN.into(), code: Some(code.into()), message: Some(format!("spawn {code}").into()), detail: None }
+            }
             ScmFailure::TimedOut { command, millis } => CoreError::DomainError {
                 domain: GIT_DOMAIN.into(),
                 code: Some(CODE_TIMED_OUT.into()),
@@ -354,25 +282,11 @@ impl From<ScmFailure> for CoreError {
                 message: Some(failure.to_string().into()),
                 detail: None,
             },
-            ScmFailure::QueueFull { queue } => CoreError::QueueFull {
-                queue: queue.into(),
-            },
-            ScmFailure::Refused {
-                domain,
-                code,
-                message,
-            } => CoreError::DomainError {
-                domain: domain.into(),
-                code: Some(code.into()),
-                message: Some(message.into()),
-                detail: None,
-            },
-            ScmFailure::Coded {
-                domain,
-                code,
-                detail,
-                message,
-            } => CoreError::DomainError {
+            ScmFailure::QueueFull { queue } => CoreError::QueueFull { queue: queue.into() },
+            ScmFailure::Refused { domain, code, message } => {
+                CoreError::DomainError { domain: domain.into(), code: Some(code.into()), message: Some(message.into()), detail: None }
+            }
+            ScmFailure::Coded { domain, code, detail, message } => CoreError::DomainError {
                 domain: domain.into(),
                 code: Some(code.into()),
                 message: match message {
@@ -381,18 +295,12 @@ impl From<ScmFailure> for CoreError {
                 },
                 detail,
             },
-            ScmFailure::Io { message, .. } => CoreError::DomainError {
-                domain: GIT_DOMAIN.into(),
-                code: Some(CODE_IO.into()),
-                message: Some(message.into()),
-                detail: None,
-            },
-            ScmFailure::ObjectMissing(id) => CoreError::DomainError {
-                domain: GIT_DOMAIN.into(),
-                code: Some("OBJECT_MISSING".into()),
-                message: Some(id.0.into()),
-                detail: None,
-            },
+            ScmFailure::Io { message, .. } => {
+                CoreError::DomainError { domain: GIT_DOMAIN.into(), code: Some(CODE_IO.into()), message: Some(message.into()), detail: None }
+            }
+            ScmFailure::ObjectMissing(id) => {
+                CoreError::DomainError { domain: GIT_DOMAIN.into(), code: Some("OBJECT_MISSING".into()), message: Some(id.0.into()), detail: None }
+            }
         }
     }
 }
@@ -404,9 +312,7 @@ impl From<ScmFailure> for ScmError {
             ScmFailure::Io { os_code, .. } => ScmError::Io { os_code },
             ScmFailure::Unavailable { capability } => ScmError::Unavailable { capability },
             ScmFailure::TimedOut { command, millis } => ScmError::TimedOut { command, millis },
-            other => ScmError::Corrupt {
-                detail: other.to_string(),
-            },
+            other => ScmError::Corrupt { detail: other.to_string() },
         }
     }
 }

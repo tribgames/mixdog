@@ -68,9 +68,7 @@ fn attr(node: &NodeRef, name: &str) -> Option<String> {
 }
 
 fn tag_of(node: &NodeRef) -> String {
-    node.node_name()
-        .map(|name| name.to_ascii_lowercase())
-        .unwrap_or_default()
+    node.node_name().map(|name| name.to_ascii_lowercase()).unwrap_or_default()
 }
 
 fn element_children<'a>(node: &NodeRef<'a>) -> Vec<NodeRef<'a>> {
@@ -121,20 +119,12 @@ fn markdown(node: &NodeRef, base: &Url) -> String {
         "img" => {
             let alt = attr(node, "alt").map(|alt| js_trim(&alt).to_string()).unwrap_or_default();
             let url = safe_link(attr(node, "src").as_deref(), base);
-            if !alt.is_empty() && !url.is_empty() {
-                format!("![{}](<{url}>)", alt.replace(['[', ']'], ""))
-            } else {
-                String::new()
-            }
+            if !alt.is_empty() && !url.is_empty() { format!("![{}](<{url}>)", alt.replace(['[', ']'], "")) } else { String::new() }
         }
         "a" => {
             let label = js_trim(&children()).to_string();
             let url = safe_link(attr(node, "href").as_deref(), base);
-            if !label.is_empty() && !url.is_empty() {
-                format!("[{label}](<{url}>)")
-            } else {
-                label
-            }
+            if !label.is_empty() && !url.is_empty() { format!("[{label}](<{url}>)") } else { label }
         }
         "h1" | "h2" | "h3" | "h4" | "h5" | "h6" => {
             let level: usize = tag[1..].parse().unwrap_or(1);
@@ -179,12 +169,7 @@ fn table(node: &NodeRef, base: &Url) -> String {
         .select("tr")
         .nodes()
         .iter()
-        .filter(|row| {
-            row.ancestors(None)
-                .iter()
-                .find(|ancestor| ancestor.is_element() && tag_of(ancestor) == "table")
-                .is_some_and(|table| table.id == node.id)
-        })
+        .filter(|row| row.ancestors(None).iter().find(|ancestor| ancestor.is_element() && tag_of(ancestor) == "table").is_some_and(|table| table.id == node.id))
         .map(|row| {
             element_children(row)
                 .iter()
@@ -256,12 +241,7 @@ fn meta_content(doc: &Document, selector: &str) -> Option<String> {
 
 fn document_title(doc: &Document) -> String {
     let title = doc.select_single("title");
-    title
-        .nodes()
-        .first()
-        .map(|node| collapse_space(&node.text()))
-        .map(|text| js_trim(&text).to_string())
-        .unwrap_or_default()
+    title.nodes().first().map(|node| collapse_space(&node.text())).map(|text| js_trim(&text).to_string()).unwrap_or_default()
 }
 
 /// Article extraction on a copy of the pruned document, returning its markdown
@@ -281,8 +261,7 @@ fn is_html(mime: &str, body: &str) -> bool {
     if mime == "text/html" || mime == "application/xhtml+xml" {
         return true;
     }
-    static SNIFF: LazyLock<JsRegex> =
-        LazyLock::new(|| JsRegex::new_static(r"^\s*(?:<!doctype html|<html[\s>]|<head[\s>]|<body[\s>])", "i"));
+    static SNIFF: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(r"^\s*(?:<!doctype html|<html[\s>]|<head[\s>]|<body[\s>])", "i"));
     mime.is_empty() && SNIFF.is_match(body)
 }
 
@@ -310,10 +289,8 @@ pub fn extract_document(url: &Url, body: &str, content_type: &str) -> Result<Ext
     }
     let doc = Document::from(body);
     let title = document_title(&doc);
-    let images: Vec<String> = ["meta[property=\"og:image\"]", "meta[name=\"twitter:image\"]"]
-        .iter()
-        .filter_map(|selector| meta_content(&doc, selector))
-        .collect();
+    let images: Vec<String> =
+        ["meta[property=\"og:image\"]", "meta[name=\"twitter:image\"]"].iter().filter_map(|selector| meta_content(&doc, selector)).collect();
     doc.select(REMOVED).remove();
     let mut root: Option<(NodeRef, usize)> = None;
     for candidate in doc.select(CONTAINERS).nodes() {
@@ -343,17 +320,9 @@ pub fn extract_document(url: &Url, body: &str, content_type: &str) -> Result<Ext
             unique.push(value);
         }
     }
-    let lines: Vec<String> = unique
-        .into_iter()
-        .map(|value| safe_link(Some(value), url))
-        .filter(|link| !link.is_empty())
-        .map(|link| format!("og:image: {link}"))
-        .collect();
-    let content = if lines.is_empty() {
-        content
-    } else {
-        format!("{}\n\n{content}", lines.join("\n"))
-    };
+    let lines: Vec<String> =
+        unique.into_iter().map(|value| safe_link(Some(value), url)).filter(|link| !link.is_empty()).map(|link| format!("og:image: {link}")).collect();
+    let content = if lines.is_empty() { content } else { format!("{}\n\n{content}", lines.join("\n")) };
     Ok(Extracted {
         title: js_trim(&title).to_string(),
         content,

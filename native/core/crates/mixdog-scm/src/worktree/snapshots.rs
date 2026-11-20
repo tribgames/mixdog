@@ -57,7 +57,8 @@ pub struct SnapshotLease {
 impl Drop for SnapshotLease {
     fn drop(&mut self) {
         if let Some((ledger, id)) = self.ledger.take()
-            && let Some(held) = ledger.held.lock().expect("snapshot ledger").get_mut(&id) {
+            && let Some(held) = ledger.held.lock().expect("snapshot ledger").get_mut(&id)
+        {
             held.leases = held.leases.saturating_sub(1);
         }
     }
@@ -105,9 +106,7 @@ impl SnapshotLedger {
             return Err(());
         }
         entry.leases += 1;
-        Ok(SnapshotLease {
-            ledger: Some((self.clone(), id)),
-        })
+        Ok(SnapshotLease { ledger: Some((self.clone(), id)) })
     }
 
     /// Marks the snapshot as being removed unless a command holds it.
@@ -129,21 +128,11 @@ impl SnapshotLedger {
     }
 
     fn note_turn(&self, session: &str, tx: &str) {
-        self.turns
-            .lock()
-            .expect("snapshot ledger")
-            .entry(session.to_owned())
-            .or_default()
-            .insert(tx.to_owned());
+        self.turns.lock().expect("snapshot ledger").entry(session.to_owned()).or_default().insert(tx.to_owned());
     }
 
     fn take_turns(&self, session: &str) -> Vec<String> {
-        self.turns
-            .lock()
-            .expect("snapshot ledger")
-            .remove(session)
-            .map(|set| set.into_iter().collect())
-            .unwrap_or_default()
+        self.turns.lock().expect("snapshot ledger").remove(session).map(|set| set.into_iter().collect()).unwrap_or_default()
     }
 }
 
@@ -164,11 +153,7 @@ impl Worktrees {
         }
         let ledger = self.ledger();
         let tx = match tx_id.trim() {
-            "" => format!(
-                "worker-snapshot-{}-{}",
-                std::process::id(),
-                ledger.sequence.fetch_add(1, Ordering::Relaxed)
-            ),
+            "" => format!("worker-snapshot-{}-{}", std::process::id(), ledger.sequence.fetch_add(1, Ordering::Relaxed)),
             given => given.to_owned(),
         };
         let record = self.snapshot(project, session, commit, &tx, confirm_large, cancel).await?;
@@ -199,9 +184,7 @@ impl Worktrees {
             .all_records(cancel)
             .await?
             .into_iter()
-            .filter(|r| {
-                crate::worktree::manager::is_snapshot(r) && r.extra.get("holderSessionId").and_then(Value::as_str) == Some(session_id)
-            })
+            .filter(|r| crate::worktree::manager::is_snapshot(r) && r.extra.get("holderSessionId").and_then(Value::as_str) == Some(session_id))
             .map(|r| (r.id.clone(), r.extra.get("txId").and_then(Value::as_str).map(str::to_owned)))
             .collect();
         let (mut removed, mut kept) = (Vec::<Value>::new(), Vec::<Value>::new());
@@ -220,24 +203,14 @@ impl Worktrees {
     /// The worker's turn settled: removes the snapshots it made (`releaseWorkerSnapshots`). One a
     /// command still runs in is retried with a doubling delay, 5 attempts in all; the rest stays for
     /// the prune. `retry_ms` replaces the first delay.
-    pub async fn release_worker_snapshots(
-        &self,
-        session_id: &str,
-        retry_ms: Option<u64>,
-        cancel: &CancellationToken,
-    ) -> Result<Value, ScmFailure> {
+    pub async fn release_worker_snapshots(&self, session_id: &str, retry_ms: Option<u64>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         self.release_snapshots(session_id, Retry { ms: retry_ms.unwrap_or(Retry::WORKER.ms), ..Retry::WORKER }, cancel).await
     }
 
     /// The Lead's turn settled: the same removal as the worker's with the Lead's schedule
     /// (`removeTurnSnapshots`): up to 20 attempts, the doubling delay capped at 64 s. `retry_ms`
     /// replaces the first delay.
-    pub async fn release_turn_snapshots(
-        &self,
-        session_id: &str,
-        retry_ms: Option<u64>,
-        cancel: &CancellationToken,
-    ) -> Result<Value, ScmFailure> {
+    pub async fn release_turn_snapshots(&self, session_id: &str, retry_ms: Option<u64>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         self.release_snapshots(session_id, Retry { ms: retry_ms.unwrap_or(Retry::TURN.ms), ..Retry::TURN }, cancel).await
     }
 
@@ -255,9 +228,7 @@ impl Worktrees {
             kept.clear();
             let mut again = Vec::new();
             for tx in pending {
-                let found = self
-                    .snapshot_of(session_id, &tx, cancel)
-                    .await?;
+                let found = self.snapshot_of(session_id, &tx, cancel).await?;
                 let Some(id) = found else { continue };
                 match self.remove_snapshot(&id, true, cancel).await {
                     Ok(_) => removed.push(json!(id)),
@@ -335,10 +306,7 @@ mod tests {
         cancel.cancel();
         assert!(matches!(waiting.await.unwrap(), Err(ScmFailure::Cancelled)));
     }
-
-
 }
-
 
 impl Retry {
     /// A worker's turn (`worker-snapshots.mjs`): `RETRY_MS` 2_000 and `RETRY_LIMIT` 5 (lines 13-14),

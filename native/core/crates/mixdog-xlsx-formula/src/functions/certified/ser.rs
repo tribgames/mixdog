@@ -15,9 +15,6 @@ impl Ser {
         self.0.len()
     }
 
-
-
-
     /// exp of a series whose constant term is `c0` already exponentiated by the caller: returns the series of
     /// `exp(f - f0)`, i.e. with constant 1 (f' = g' f recurrence: j f_j = sum_k k g_k f_(j-k)).
     pub fn exp_shifted(&self) -> Ser {

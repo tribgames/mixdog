@@ -133,14 +133,7 @@ impl TagResume {
 
     /// The saved working directory is gone: a fresh session may start only in a directory the
     /// caller names that exists, never in the missing one.
-    async fn refuse_missing_cwd(
-        &self,
-        operation: &str,
-        tag: &str,
-        missing_cwd: Option<&str>,
-        args: &Value,
-        caller_cwd: &str,
-    ) -> Result<(), String> {
+    async fn refuse_missing_cwd(&self, operation: &str, tag: &str, missing_cwd: Option<&str>, args: &Value, caller_cwd: &str) -> Result<(), String> {
         let cwd = clean(args.get("cwd"));
         let base = if caller_cwd.is_empty() { self.default_cwd.as_str() } else { caller_cwd };
         let named = if cwd.is_empty() { String::new() } else { resolve_path(base, &cwd) };
@@ -178,10 +171,8 @@ impl TagResume {
         args["tag"] = Value::String(tag.to_owned());
         let prepared = Prepared { args, session_id: session.id.clone(), session, prompt: Some(prompt), route: request.route };
         self.send_flow.adopt_caller(&prepared, request.notify).await?;
-        let result = self
-            .send_flow
-            .dispatch_to_existing_session(&prepared, request.notify, DispatchOptions { resumed: true, ..DispatchOptions::default() })
-            .await?;
+        let result =
+            self.send_flow.dispatch_to_existing_session(&prepared, request.notify, DispatchOptions { resumed: true, ..DispatchOptions::default() }).await?;
         // Only once the turn was admitted on the session: the tag resolves to it again (its row
         // is stamped fresh, so nothing ages it out before the turn writes its own), and the
         // reap record goes.

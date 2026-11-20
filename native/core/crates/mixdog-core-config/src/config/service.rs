@@ -26,16 +26,16 @@ use serde_json::Value;
 use serde_json::json;
 
 use super::Config;
-use super::OutputStyles;
 use super::ConfigEdit;
 use super::ConfigError;
+use super::OutputStyles;
 use super::PUBLISHED_SUBTREES;
 use super::Settings;
 use super::save_and_adopt;
-use mixdog_core_base::support::failed;
-use mixdog_core_base::support::wrong_method;
 use crate::tool_modules::ToolModules;
 use crate::tool_modules::ToolModulesError;
+use mixdog_core_base::support::failed;
+use mixdog_core_base::support::wrong_method;
 
 /// What [`ConfigService`] serves: `dispatch` handles the first twelve, `settings_call` the rest.
 /// The compaction and network-proxy methods are their services' own.
@@ -174,9 +174,7 @@ impl ConfigService {
                 let engines = params
                     .pointer("/options/engines")
                     .and_then(Value::as_array)
-                    .map(|engines| {
-                        engines.iter().filter_map(Value::as_str).map(str::to_owned).collect()
-                    });
+                    .map(|engines| engines.iter().filter_map(Value::as_str).map(str::to_owned).collect());
                 tool(self.tool_modules.install_builtin_feature(name, engines).await)
             }
             "config/getWorktreeSettings" => Ok(worktree_view(&self.config)),
@@ -215,7 +213,6 @@ impl ConfigService {
         }
         Ok(json!({ "config": config }))
     }
-
 }
 
 /// `config/value/write`. A paired phone (`relay`) writes only what Node's relay methods wrote for it ([`relay_may_write`]);
@@ -239,8 +236,7 @@ async fn value_write(config: &Config, params: &Value, relay: bool) -> Result<Val
         if edit.value.as_f64() != Some(1.0) {
             return Err(invalid(&edit.path, "Desktop zoom is fixed at 100%."));
         }
-        let saved: Map<String, Value> =
-            SAVED_SUBTREES.iter().filter_map(|name| config.get(name).map(|value| ((*name).to_owned(), value))).collect();
+        let saved: Map<String, Value> = SAVED_SUBTREES.iter().filter_map(|name| config.get(name).map(|value| ((*name).to_owned(), value))).collect();
         return Ok(json!({ "revision": config.revision(), "values": [1], "config": saved }));
     }
     write(config, vec![edit], announce).await
@@ -260,13 +256,11 @@ fn relay_may_write(edit: &ConfigEdit) -> bool {
     let path = edit.path.as_str();
     match edit.mode {
         ConfigWriteMode::Replace => {
-            RELAY_SETTING_PATHS.contains(&path)
-                || path == "desktop.activityRailPins"
-                || (path == "quotaAutoResume" && edit.value.is_boolean())
+            RELAY_SETTING_PATHS.contains(&path) || path == "desktop.activityRailPins" || (path == "quotaAutoResume" && edit.value.is_boolean())
         }
-        ConfigWriteMode::MergePatch | ConfigWriteMode::MergePatchBots => path
-            .strip_prefix("notifications.devices.")
-            .is_some_and(|id| !id.is_empty() && !id.contains('.')),
+        ConfigWriteMode::MergePatch | ConfigWriteMode::MergePatchBots => {
+            path.strip_prefix("notifications.devices.").is_some_and(|id| !id.is_empty() && !id.contains('.'))
+        }
         ConfigWriteMode::SetConversation => path == "notifications.overrides",
         ConfigWriteMode::InitializeIfMissing => false,
     }
@@ -287,8 +281,7 @@ async fn write(config: &Config, edits: Vec<ConfigEdit>, announce: Option<&'stati
 pub async fn set_worktree_settings(config: &Config, patch: &Value) -> Result<Value, CoreError> {
     let before = config.agent();
     let current = before.get("worktree").cloned().unwrap_or(Value::Null);
-    let next = apply_patch(&current, patch)
-        .map_err(|error| invalid("params.patch", &error.to_string()))?;
+    let next = apply_patch(&current, patch).map_err(|error| invalid("params.patch", &error.to_string()))?;
     let mut after = before.clone();
     after.insert("worktree".into(), serde_json::to_value(&next).expect("settings serialize"));
     save_and_adopt(config, &before, &after).await.map_err(core_error)?;
@@ -345,11 +338,7 @@ async fn settings_call(settings: &Settings, method: &str, params: &Value, relay:
 pub(super) const SAVED_SUBTREES: &[&str] = &["agent", "desktop"];
 
 fn edit_of(params: &Value) -> Result<ConfigEdit, CoreError> {
-    let path = params
-        .get("path")
-        .and_then(Value::as_str)
-        .ok_or_else(|| invalid("params.path", "string"))?
-        .to_owned();
+    let path = params.get("path").and_then(Value::as_str).ok_or_else(|| invalid("params.path", "string"))?.to_owned();
     let value = params.get("value").cloned().ok_or_else(|| invalid("params.value", "any value"))?;
     let mode = match params.get("mode").and_then(Value::as_str) {
         None | Some("replace") => ConfigWriteMode::Replace,
@@ -363,17 +352,11 @@ fn edit_of(params: &Value) -> Result<ConfigEdit, CoreError> {
 }
 
 fn flag(params: &Value, key: &str) -> Result<bool, CoreError> {
-    params
-        .get(key)
-        .and_then(Value::as_bool)
-        .ok_or_else(|| invalid(&format!("params.{key}"), "boolean"))
+    params.get(key).and_then(Value::as_bool).ok_or_else(|| invalid(&format!("params.{key}"), "boolean"))
 }
 
 fn text<'a>(params: &'a Value, key: &str) -> Result<&'a str, CoreError> {
-    params
-        .get(key)
-        .and_then(Value::as_str)
-        .ok_or_else(|| invalid(&format!("params.{key}"), "string"))
+    params.get(key).and_then(Value::as_str).ok_or_else(|| invalid(&format!("params.{key}"), "string"))
 }
 
 fn invalid(path: &str, expected: &str) -> CoreError {
@@ -383,9 +366,7 @@ fn invalid(path: &str, expected: &str) -> CoreError {
 pub(super) fn core_error(error: ConfigError) -> CoreError {
     match error {
         ConfigError::Rejected(error) => error,
-        ConfigError::InvalidParams { path, expected } => {
-            CoreError::InvalidParams { path: path.into(), expected: expected.into() }
-        }
+        ConfigError::InvalidParams { path, expected } => CoreError::InvalidParams { path: path.into(), expected: expected.into() },
         other => CoreError::DomainError {
             domain: "config".into(),
             code: Some(

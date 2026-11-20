@@ -87,16 +87,9 @@ fn effort_info(item: &JsonValue) -> (Vec<&'static str>, Option<bool>) {
     .flatten()
     .find_map(JsonValue::as_array);
     if let Some(rows) = declared {
-        let named: Vec<&'static str> = rows
-            .iter()
-            .filter_map(|row| row.as_str().or_else(|| row.get("value").and_then(JsonValue::as_str)))
-            .filter_map(normalize_effort)
-            .collect();
-        let levels: Vec<&'static str> = EFFORT_LEVELS
-            .iter()
-            .copied()
-            .filter(|level| named.contains(level))
-            .collect();
+        let named: Vec<&'static str> =
+            rows.iter().filter_map(|row| row.as_str().or_else(|| row.get("value").and_then(JsonValue::as_str))).filter_map(normalize_effort).collect();
+        let levels: Vec<&'static str> = EFFORT_LEVELS.iter().copied().filter(|level| named.contains(level)).collect();
         if levels.is_empty() {
             return (Vec::new(), None);
         }
@@ -112,23 +105,14 @@ fn effort_info(item: &JsonValue) -> (Vec<&'static str>, Option<bool>) {
 /// Provider-native chat-ness: Together `type`, OpenRouter output modalities,
 /// Mistral `capabilities`. `None` when the listing says nothing.
 fn native_mode(item: &JsonValue) -> Option<String> {
-    let kind = item
-        .get("type")
-        .and_then(JsonValue::as_str)
-        .map(|t| mixdog_js::js_trim(t).to_lowercase());
+    let kind = item.get("type").and_then(JsonValue::as_str).map(|t| mixdog_js::js_trim(t).to_lowercase());
     match kind.as_deref() {
         Some("chat") => return Some("chat".into()),
         Some("language" | "code") => return Some("completion".into()),
-        Some(
-            k @ ("embedding" | "embeddings" | "image" | "audio" | "rerank" | "moderation" | "video"
-            | "transcribe"),
-        ) => return Some(k.to_owned()),
+        Some(k @ ("embedding" | "embeddings" | "image" | "audio" | "rerank" | "moderation" | "video" | "transcribe")) => return Some(k.to_owned()),
         _ => {}
     }
-    if let Some(outputs) = item
-        .get("architecture")
-        .and_then(|a| a.get("output_modalities"))
-        .and_then(JsonValue::as_array)
+    if let Some(outputs) = item.get("architecture").and_then(|a| a.get("output_modalities")).and_then(JsonValue::as_array)
         && !outputs.is_empty()
         && !outputs.iter().any(|m| m.as_str() == Some("text"))
     {
@@ -166,20 +150,14 @@ fn declared_wires(item: &JsonValue) -> Option<Vec<Wire>> {
 
 /// `architecture.output_modalities` (OpenRouter) or `modalities.output`.
 fn output_modalities(item: &JsonValue) -> Option<Vec<String>> {
-    let list = item
-        .get("architecture")
-        .and_then(|a| a.get("output_modalities"))
-        .or_else(|| item.get("modalities").and_then(|m| m.get("output")))?
-        .as_array()?;
+    let list =
+        item.get("architecture").and_then(|a| a.get("output_modalities")).or_else(|| item.get("modalities").and_then(|m| m.get("output")))?.as_array()?;
     Some(list.iter().filter_map(|m| m.as_str().map(str::to_owned)).collect())
 }
 
 /// Rows of a `/models` body: `{data:[…]}` or a bare array.
 pub fn parse_models(body: &JsonValue) -> Vec<CompatModelInfo> {
-    let rows = body
-        .get("data")
-        .and_then(JsonValue::as_array)
-        .or_else(|| body.as_array());
+    let rows = body.get("data").and_then(JsonValue::as_array).or_else(|| body.as_array());
     rows.into_iter()
         .flatten()
         .filter_map(|item| {
@@ -202,11 +180,7 @@ pub fn parse_models(body: &JsonValue) -> Vec<CompatModelInfo> {
                 top.and_then(|t| t.get("context_length")),
                 item.get("contextWindow"),
             ]);
-            let alias_target = item.get("alias_target").and_then(|a| {
-                a.as_str()
-                    .or_else(|| a.get("slug").and_then(JsonValue::as_str))
-                    .map(str::to_owned)
-            });
+            let alias_target = item.get("alias_target").and_then(|a| a.as_str().or_else(|| a.get("slug").and_then(JsonValue::as_str)).map(str::to_owned));
             let display_name = ["display_name", "name"]
                 .iter()
                 .find_map(|key| item.get(key).and_then(JsonValue::as_str))
@@ -234,20 +208,10 @@ impl CompatModelInfo {
     /// kind says nothing against it.
     pub fn serves_chat(&self) -> bool {
         // A model that cannot emit text serves no text turn.
-        if self
-            .output_modalities
-            .as_ref()
-            .is_some_and(|m| !m.is_empty() && !m.iter().any(|x| x == "text"))
-        {
+        if self.output_modalities.as_ref().is_some_and(|m| !m.is_empty() && !m.iter().any(|x| x == "text")) {
             return false;
         }
-        !matches!(
-            self.mode.as_deref(),
-            Some(
-                "non_chat" | "embedding" | "embeddings" | "image" | "audio" | "rerank"
-                    | "moderation" | "video" | "transcribe"
-            )
-        )
+        !matches!(self.mode.as_deref(), Some("non_chat" | "embedding" | "embeddings" | "image" | "audio" | "rerank" | "moderation" | "video" | "transcribe"))
     }
 
     /// Fills what this row does not state from `seed` (catalog data the
@@ -298,10 +262,7 @@ impl Default for ModelTable {
 
 impl ModelTable {
     pub fn with_seed(seed: &'static [SeedModel]) -> Self {
-        Self {
-            rows: ArcSwap::from_pointee(HashMap::new()),
-            seed,
-        }
+        Self { rows: ArcSwap::from_pointee(HashMap::new()), seed }
     }
 
     pub fn replace(&self, models: Vec<CompatModelInfo>) {
@@ -341,10 +302,7 @@ impl ModelTable {
             return Some(row.clone());
         }
         self.seed.iter().find(|s| s.id == id).map(|seed| {
-            let mut row = CompatModelInfo {
-                id: id.to_owned(),
-                ..CompatModelInfo::default()
-            };
+            let mut row = CompatModelInfo { id: id.to_owned(), ..CompatModelInfo::default() };
             row.fill_from(seed);
             Arc::new(row)
         })
@@ -352,13 +310,7 @@ impl ModelTable {
 
     /// The listed models that can serve a chat turn, sorted by id.
     pub fn chat_models(&self) -> Vec<Arc<CompatModelInfo>> {
-        let mut rows: Vec<_> = self
-            .rows
-            .load()
-            .values()
-            .filter(|row| row.serves_chat())
-            .cloned()
-            .collect();
+        let mut rows: Vec<_> = self.rows.load().values().filter(|row| row.serves_chat()).cloned().collect();
         rows.sort_by(|a, b| a.id.cmp(&b.id));
         rows
     }

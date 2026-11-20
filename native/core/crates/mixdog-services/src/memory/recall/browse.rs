@@ -9,12 +9,9 @@ use serde_json::json;
 
 use crate::memory::error::{MemoryError, Result};
 use crate::memory::pg::db::Db;
-use crate::memory::recall::filters::{
-    ScopeOptions, append_project_scope, is_valid_category, project_scope_predicate, scope_filter, VALID_CATEGORIES,
-};
+use crate::memory::recall::filters::{ScopeOptions, VALID_CATEGORIES, append_project_scope, is_valid_category, project_scope_predicate, scope_filter};
 use crate::memory::recall::format::{
-    GroupedOptions, RenderOptions, SessionMeta, compact_digest_rows, render_entry_lines, render_session_grouped_lines,
-    search_haystack,
+    GroupedOptions, RenderOptions, SessionMeta, compact_digest_rows, render_entry_lines, render_session_grouped_lines, search_haystack,
 };
 use crate::memory::recall::period::Clock;
 use crate::memory::recall::plan::{RECALL_WINDOW_CAP, SearchArgs, SearchPlan, resolve_query_project_scope};
@@ -68,8 +65,7 @@ pub async fn retrieve_entries(db: &Db, filters: &EntryFilters) -> Result<Vec<Row
         params.push(P::I(to));
     }
     if let Some(categories) = &filters.category {
-        let cats: Vec<String> =
-            categories.iter().map(|c| js_trim(c).to_lowercase()).filter(|c| is_valid_category(c)).collect();
+        let cats: Vec<String> = categories.iter().map(|c| js_trim(c).to_lowercase()).filter(|c| is_valid_category(c)).collect();
         if !cats.is_empty() {
             let ph = (0..cats.len()).map(|i| format!("${}", params.len() + 1 + i)).collect::<Vec<_>>().join(",");
             where_clauses.push(format!("category IN ({ph})"));
@@ -80,12 +76,7 @@ pub async fn retrieve_entries(db: &Db, filters: &EntryFilters) -> Result<Vec<Row
         where_clauses.push(format!("status = ${}", params.len() + 1));
         params.push(P::T(status));
     }
-    let excluded: Vec<String> = filters
-        .exclude_statuses
-        .iter()
-        .map(|s| js_trim(s).to_lowercase())
-        .filter(|s| VALID_STATUSES.contains(&s.as_str()))
-        .collect();
+    let excluded: Vec<String> = filters.exclude_statuses.iter().map(|s| js_trim(s).to_lowercase()).filter(|s| VALID_STATUSES.contains(&s.as_str())).collect();
     if !excluded.is_empty() {
         let ph = (0..excluded.len()).map(|i| format!("${}", params.len() + 1 + i)).collect::<Vec<_>>().join(",");
         where_clauses.push(format!("(status IS NULL OR status NOT IN ({ph}))"));
@@ -96,11 +87,7 @@ pub async fn retrieve_entries(db: &Db, filters: &EntryFilters) -> Result<Vec<Row
     }
     let limit = filters.limit.unwrap_or(50).clamp(1, RECALL_WINDOW_CAP);
     let sort = js_trim(filters.sort.as_deref().unwrap_or("importance")).to_lowercase();
-    let order_by = if sort == "date" {
-        "ts DESC, source_turn DESC NULLS LAST, id DESC"
-    } else {
-        "score DESC NULLS LAST, ts DESC, id DESC"
-    };
+    let order_by = if sort == "date" { "ts DESC, source_turn DESC NULLS LAST, id DESC" } else { "score DESC NULLS LAST, ts DESC, id DESC" };
     params.push(P::I(limit as i64));
     params.push(P::I(filters.offset as i64));
     let sql = format!(
@@ -163,14 +150,7 @@ const RAW_TEXT_EXPR: &str = "lower(coalesce(content, '') || ' ' || coalesce(elem
 
 /// Newest unchunked turns inside a window, ranked by term evidence first when
 /// terms are given. A failing read yields no rows.
-pub async fn read_raw_rows_in_window(
-    db: &Db,
-    clock: &Clock,
-    ts_from: Option<i64>,
-    ts_to: Option<i64>,
-    hard_limit: usize,
-    options: &RawOptions,
-) -> Vec<Row> {
+pub async fn read_raw_rows_in_window(db: &Db, clock: &Clock, ts_from: Option<i64>, ts_to: Option<i64>, hard_limit: usize, options: &RawOptions) -> Vec<Row> {
     let mut where_clauses = vec!["chunk_root IS NULL".to_owned(), "is_root = 0".into(), "ts >= $1".into(), "ts <= $2".into()];
     let mut params = vec![P::I(ts_from.unwrap_or(0)), P::I(ts_to.unwrap_or(clock.now_ms))];
     let mut term_order = String::new();
@@ -453,35 +433,19 @@ async fn select_session_page(
     Ok((page, next))
 }
 
-async fn session_raw_rows(
-    db: &Db,
-    clock: &Clock,
-    sid: &str,
-    project_scope: &str,
-    query_terms: &[String],
-    fetch_cap: usize,
-) -> Vec<Row> {
+async fn session_raw_rows(db: &Db, clock: &Clock, sid: &str, project_scope: &str, query_terms: &[String], fetch_cap: usize) -> Vec<Row> {
     let base = RawOptions { project_scope: Some(project_scope.to_owned()), session_id: Some(sid.to_owned()), ..RawOptions::default() };
     if query_terms.is_empty() {
         return read_raw_rows_in_window(db, clock, None, None, fetch_cap, &base).await;
     }
     let matched = RawOptions { terms: query_terms.to_vec(), min_hits: Some(1), ..base.clone() };
-    let (recent, matched) = tokio::join!(
-        read_raw_rows_in_window(db, clock, None, None, fetch_cap, &base),
-        read_raw_rows_in_window(db, clock, None, None, fetch_cap, &matched)
-    );
+    let (recent, matched) =
+        tokio::join!(read_raw_rows_in_window(db, clock, None, None, fetch_cap, &base), read_raw_rows_in_window(db, clock, None, None, fetch_cap, &matched));
     let mut seen = HashSet::new();
     recent.into_iter().chain(matched).filter(|r| seen.insert(r.id)).collect()
 }
 
-async fn fill_session(
-    db: &Db,
-    clock: &Clock,
-    plan: &SearchPlan,
-    sid: &str,
-    query_terms: &[String],
-    cat_list: &[String],
-) -> Result<(Vec<Row>, usize, bool)> {
+async fn fill_session(db: &Db, clock: &Clock, plan: &SearchPlan, sid: &str, query_terms: &[String], cat_list: &[String]) -> Result<(Vec<Row>, usize, bool)> {
     let fetch_cap = if query_terms.is_empty() { PER_SESSION_ROW_CAP } else { PER_SESSION_SEARCH_CAP };
     let filters = EntryFilters {
         limit: Some(fetch_cap),
@@ -715,18 +679,18 @@ pub async fn recall_session_rows(db: &Db, clock: &Clock, args: &SearchArgs, opti
         Some(limit)
     };
     let terms = session_recall_terms(&args.text("query"));
-    let exclude = if !compact_digest && !compact_handoff && terms.is_empty() {
-        find_in_flight_turn(db, clock, &session_id).await
-    } else {
-        None
-    };
+    let exclude = if !compact_digest && !compact_handoff && terms.is_empty() { find_in_flight_turn(db, clock, &session_id).await } else { None };
     let mut rows = select_session_page_rows(db, &session_id, &terms, exclude, fetch_limit).await?;
     if args.flag("includeMembers") || compact_handoff {
         attach_root_members_by_turn(db, &mut rows).await?;
     }
     if compact_handoff {
         let keep = crate::memory::recall::plan::js_number(args.raw.get("preserveLatestUserTurns"));
-        rows = crate::memory::recall::compact::compact_handoff_rows(rows, if keep.is_finite() { keep.max(0.0).floor() as usize } else { 0 }, options.estimate_tokens);
+        rows = crate::memory::recall::compact::compact_handoff_rows(
+            rows,
+            if keep.is_finite() { keep.max(0.0).floor() as usize } else { 0 },
+            options.estimate_tokens,
+        );
     } else if compact_digest {
         rows = compact_digest_rows(rows, limit);
     }
@@ -748,13 +712,7 @@ pub async fn recall_session_rows(db: &Db, clock: &Clock, args: &SearchArgs, opti
 // ---- #id lookup ----------------------------------------------------------------
 
 /// Rows named by `#id`, with the members of any root, in the caller's order.
-pub async fn search_by_ids(
-    db: &Db,
-    clock: &Clock,
-    args: &SearchArgs,
-    ids: &[i64],
-    resolved_scope: Option<&str>,
-) -> Result<String> {
+pub async fn search_by_ids(db: &Db, clock: &Clock, args: &SearchArgs, ids: &[i64], resolved_scope: Option<&str>) -> Result<String> {
     let ids: Vec<i64> = ids.iter().copied().filter(|id| *id > 0).collect();
     if ids.is_empty() {
         return Ok("(no valid ids)".to_owned());
@@ -816,24 +774,15 @@ pub async fn search_by_ids(
         }
     }
     let by_id: HashMap<i64, &Row> = rows.iter().map(|r| (r.id, r)).collect();
-    let ordered: Vec<Row> = ids
-        .iter()
-        .filter_map(|id| by_id.get(id).map(|r| (*r).clone()))
-        .filter(|r| !(r.is_root == 0 && member_leaf_ids.contains(&r.id)))
-        .collect();
-    Ok(render_entry_lines(
-        clock,
-        &ordered,
-        &RenderOptions { preserve_source: true, include_root_source: true, ..RenderOptions::default() },
-    ))
+    let ordered: Vec<Row> =
+        ids.iter().filter_map(|id| by_id.get(id).map(|r| (*r).clone())).filter(|r| !(r.is_root == 0 && member_leaf_ids.contains(&r.id))).collect();
+    Ok(render_entry_lines(clock, &ordered, &RenderOptions { preserve_source: true, include_root_source: true, ..RenderOptions::default() }))
 }
 
 // ---- core memory leg -----------------------------------------------------------
 
-const CORE_STOPWORDS: [&str; 14] = [
-    "about", "after", "again", "before", "check", "color", "decision", "decided", "earlier", "memory", "previous",
-    "routing", "stored", "tell",
-];
+const CORE_STOPWORDS: [&str; 14] =
+    ["about", "after", "again", "before", "check", "color", "decision", "decided", "earlier", "memory", "previous", "routing", "stored", "tell"];
 
 fn core_recall_terms(query: &str) -> Vec<String> {
     let mut seen = HashSet::new();
@@ -942,7 +891,13 @@ pub async fn recall_core_rows(db: &Db, clock: &Clock, query_text: &str, options:
             Row {
                 id: -row.get::<_, i64>("id"),
                 core: true,
-                ts: if updated != 0 { updated } else if created != 0 { created } else { clock.now_ms },
+                ts: if updated != 0 {
+                    updated
+                } else if created != 0 {
+                    created
+                } else {
+                    clock.now_ms
+                },
                 element: row.get("element"),
                 summary: row.get("summary"),
                 category: row.get("category"),

@@ -26,10 +26,7 @@ impl UserData {
             .map_err(|_| GuardError::Syntax(format!("[user-data] invalid initialization marker at {}", path.display())))?;
         match marker.get("instanceId").and_then(Value::as_str) {
             Some(id) if !id.is_empty() => Ok(Some(id.to_owned())),
-            _ => Err(GuardError::Syntax(format!(
-                "[user-data] initialization marker at {} must have a non-empty instanceId",
-                path.display()
-            ))),
+            _ => Err(GuardError::Syntax(format!("[user-data] initialization marker at {} must have a non-empty instanceId", path.display()))),
         }
     }
 

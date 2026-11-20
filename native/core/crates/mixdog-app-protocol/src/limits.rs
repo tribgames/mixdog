@@ -126,9 +126,7 @@ impl Limits {
     /// P §6.5 invariants: the largest frame, including a snapshot, always fits an empty event budget.
     pub fn check(&self) -> Result<(), LimitsViolation> {
         if self.event_budget_bytes + self.control_reserve_bytes != self.queue_bytes {
-            return Err(LimitsViolation(
-                "eventBudgetBytes = queueBytes - controlReserveBytes",
-            ));
+            return Err(LimitsViolation("eventBudgetBytes = queueBytes - controlReserveBytes"));
         }
         if self.max_snapshot_bytes * 2 > self.event_budget_bytes {
             return Err(LimitsViolation("maxSnapshotBytes <= eventBudgetBytes / 2"));
@@ -137,9 +135,7 @@ impl Limits {
             return Err(LimitsViolation("maxItemFieldBytes <= maxSnapshotBytes / 8"));
         }
         if self.max_frame_bytes != self.max_item_field_bytes + 64 * KIB {
-            return Err(LimitsViolation(
-                "maxFrameBytes = maxItemFieldBytes + 64 KiB",
-            ));
+            return Err(LimitsViolation("maxFrameBytes = maxItemFieldBytes + 64 KiB"));
         }
         if self.max_frame_bytes * 4 > self.event_budget_bytes {
             return Err(LimitsViolation("maxFrameBytes <= eventBudgetBytes / 4"));
@@ -155,18 +151,12 @@ impl Limits {
             return Err(LimitsViolation("maxFrameBytes <= orderedQueueBytes"));
         }
         // base64 of the raw chunk plus the request's schema-bounded fields.
-        if self.max_blob_put_chunk_bytes.div_ceil(3) * 4 + BLOB_PUT_ENVELOPE_BYTES
-            > self.max_inbound_frame_bytes
-        {
-            return Err(LimitsViolation(
-                "base64(maxBlobPutChunkBytes) fits maxInboundFrameBytes",
-            ));
+        if self.max_blob_put_chunk_bytes.div_ceil(3) * 4 + BLOB_PUT_ENVELOPE_BYTES > self.max_inbound_frame_bytes {
+            return Err(LimitsViolation("base64(maxBlobPutChunkBytes) fits maxInboundFrameBytes"));
         }
         // An upload's chunk is the same size as a blob chunk: the window must take at least one of them.
         if self.max_upload_in_flight_bytes < self.max_blob_put_chunk_bytes.div_ceil(3) * 4 {
-            return Err(LimitsViolation(
-                "maxUploadInFlightBytes holds base64(maxBlobPutChunkBytes)",
-            ));
+            return Err(LimitsViolation("maxUploadInFlightBytes holds base64(maxBlobPutChunkBytes)"));
         }
         Ok(())
     }
@@ -247,10 +237,6 @@ impl TryFrom<u16> for CloseCode {
     type Error = String;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
-        Self::ALL
-            .iter()
-            .copied()
-            .find(|code| code.code() == value)
-            .ok_or_else(|| format!("unknown close code {value}"))
+        Self::ALL.iter().copied().find(|code| code.code() == value).ok_or_else(|| format!("unknown close code {value}"))
     }
 }

@@ -95,11 +95,7 @@ fn is_root_lead(doc: &Map<String, Value>, id: &str) -> bool {
     if clean(doc.get("agent")).to_lowercase() != "lead" {
         return false;
     }
-    let parent = [doc.get("ownerSessionId"), doc.get("parentSessionId")]
-        .into_iter()
-        .map(clean)
-        .find(|candidate| is_session_id(candidate))
-        .unwrap_or_default();
+    let parent = [doc.get("ownerSessionId"), doc.get("parentSessionId")].into_iter().map(clean).find(|candidate| is_session_id(candidate)).unwrap_or_default();
     parent.is_empty() || parent == id
 }
 
@@ -124,12 +120,7 @@ pub fn member(id: &str, header: &Header) -> Option<Member> {
     if is_root_lead(&doc, id) || mixdog_store::summary::session_visibility(&doc) != "agent-only" {
         return None;
     }
-    Some(Member {
-        id: id.to_owned(),
-        parent_ids: parent_ids(&doc, id),
-        last_active: activity_at(&doc),
-        archived: positive(doc.get("archivedAt")) > 0.0,
-    })
+    Some(Member { id: id.to_owned(), parent_ids: parent_ids(&doc, id), last_active: activity_at(&doc), archived: positive(doc.get("archivedAt")) > 0.0 })
 }
 
 /// `subAgentTrees`: the members joined by any owner or parent link between them (a link to a
@@ -320,7 +311,7 @@ pub async fn sweep(host: &dyn RetentionHost, now: f64, cancel: &CancellationToke
 
 /// The wall clock in epoch milliseconds (`Date.now()`).
 pub fn now_ms() -> f64 {
-    mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0.0,|d| d.as_millis() as f64)
+    mixdog_rt::wall_clock!().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
 }
 
 /// Runs a pass every [`SWEEP_INTERVAL`], the first one an interval after the start, until

@@ -4,9 +4,7 @@ use std::{sync::Arc, time::Duration};
 
 use async_trait::async_trait;
 
-use crate::api::{
-    ClientInfo, Clock, ConnectOptions, Connector, DEFAULT_LADDER, InitializeCapabilities, Target,
-};
+use crate::api::{ClientInfo, Clock, ConnectOptions, Connector, DEFAULT_LADDER, InitializeCapabilities, Target};
 
 /// Real time and real randomness for the ladder (SPEC H17: 250 ms → 5 s, full jitter).
 pub struct SystemClock;

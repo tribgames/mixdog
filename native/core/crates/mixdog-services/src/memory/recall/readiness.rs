@@ -351,7 +351,10 @@ mod tests {
         }
     }
 
-    fn probe(ready: bool, panic_with: Option<&'static str>) -> (Arc<Probe>, tokio::sync::oneshot::Sender<Result<Vec<f32>, String>>, tokio::sync::oneshot::Receiver<String>) {
+    fn probe(
+        ready: bool,
+        panic_with: Option<&'static str>,
+    ) -> (Arc<Probe>, tokio::sync::oneshot::Sender<Result<Vec<f32>, String>>, tokio::sync::oneshot::Receiver<String>) {
         let (release, gate) = tokio::sync::oneshot::channel();
         let (report, reports) = tokio::sync::oneshot::channel();
         (Arc::new(Probe { ready, embed: Mutex::new(Some(gate)), panic_with, reports: Mutex::new(Some(report)) }), release, reports)
@@ -390,7 +393,6 @@ mod tests {
         assert_eq!(cancelled_embedding(Some("boom"), Ok(vec![])).await, "panicked: boom");
     }
 }
-
 
 #[async_trait]
 impl QueryEmbedder for RecallEmbedder {

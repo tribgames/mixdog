@@ -6,7 +6,8 @@
 use std::collections::HashMap;
 use std::collections::HashSet;
 
-use crate::providers::file_text::{FileKind, file_decoded_text, file_fallback_text, file_kind};use mixdog_core_api::domain::provider::Content;
+use crate::providers::file_text::{FileKind, file_decoded_text, file_fallback_text, file_kind};
+use mixdog_core_api::domain::provider::Content;
 use mixdog_core_api::domain::provider::ContentPart;
 use mixdog_core_api::domain::provider::DocumentSource;
 use mixdog_core_api::domain::provider::ImageSource;
@@ -19,10 +20,8 @@ use mixdog_protocol::tool_call_ids::ANTHROPIC_IDS;
 use serde_json::Value;
 use serde_json::json;
 
-const ERROR_RESULT_EMPTY_TEXT: &str =
-    "[error result had no text; its attached content follows this block]";
-const ERROR_RESULT_MEDIA_NOTE: &str =
-    "[attached screenshot/media for this failed call follows this block]";
+const ERROR_RESULT_EMPTY_TEXT: &str = "[error result had no text; its attached content follows this block]";
+const ERROR_RESULT_MEDIA_NOTE: &str = "[attached screenshot/media for this failed call follows this block]";
 const MISSING_RESULT_TEXT: &str = "[tool_result missing — recovered by sanitizeAnthropicContentPairs]";
 
 #[derive(Clone, Debug, PartialEq)]
@@ -48,13 +47,7 @@ pub(crate) struct WireMessage {
 
 impl WireMessage {
     pub(crate) fn new(role: &'static str, content: WireContent) -> Self {
-        Self {
-            role,
-            content,
-            output_config: None,
-            clear_at: false,
-            turn_reminder: None,
-        }
+        Self { role, content, output_config: None, clear_at: false, turn_reminder: None }
     }
 
     /// A lowered assistant turn, with the reminder its request carried.
@@ -164,12 +157,7 @@ fn part_to_block(part: &ContentPart) -> Value {
             "type": "image",
             "source": { "type": "file", "file_id": file_id },
         }),
-        ContentPart::File {
-            source,
-            mime_type,
-            filename,
-            ..
-        } => {
+        ContentPart::File { source, mime_type, filename, .. } => {
             use mixdog_core_api::domain::provider::BinarySource;
             match source {
                 BinarySource::Base64(data) => file_block(filename.as_deref(), mime_type, data),
@@ -183,10 +171,9 @@ fn part_to_block(part: &ContentPart) -> Value {
             }
         }
         ContentPart::Document { source: DocumentSource::Base64 { media_type, data }, title } => file_block(title.as_deref(), media_type, data),
-        ContentPart::Document { source: DocumentSource::Text { media_type, data }, title } => document_block(
-            json!({ "type": "text", "media_type": media_type.as_deref().unwrap_or("text/plain"), "data": data }),
-            title.as_deref(),
-        ),
+        ContentPart::Document { source: DocumentSource::Text { media_type, data }, title } => {
+            document_block(json!({ "type": "text", "media_type": media_type.as_deref().unwrap_or("text/plain"), "data": data }), title.as_deref())
+        }
         ContentPart::Document { source: DocumentSource::Content(content), title } => {
             document_block(json!({ "type": "content", "content": content }), title.as_deref())
         }
@@ -258,66 +245,31 @@ fn split_error_content(content: WireContent) -> (WireContent, Vec<Value>) {
     if hoisted.is_empty() {
         return (WireContent::Blocks(blocks), hoisted);
     }
-    let text = texts
-        .iter()
-        .map(|t| t.trim())
-        .filter(|t| !t.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n");
-    let text = if text.is_empty() {
-        ERROR_RESULT_EMPTY_TEXT.to_owned()
-    } else {
-        format!("{text}\n\n{ERROR_RESULT_MEDIA_NOTE}")
-    };
-    (
-        WireContent::Blocks(vec![json!({ "type": "text", "text": text })]),
-        hoisted,
-    )
+    let text = texts.iter().map(|t| t.trim()).filter(|t| !t.is_empty()).collect::<Vec<_>>().join("\n\n");
+    let text = if text.is_empty() { ERROR_RESULT_EMPTY_TEXT.to_owned() } else { format!("{text}\n\n{ERROR_RESULT_MEDIA_NOTE}") };
+    (WireContent::Blocks(vec![json!({ "type": "text", "text": text })]), hoisted)
 }
 
 fn tool_references(message: &Message, own_provider: &str) -> Vec<String> {
     let Some(native) = &message.native_tool_search else {
         return Vec::new();
     };
-    let provider = native
-        .get("provider")
-        .and_then(Value::as_str)
-        .unwrap_or("")
-        .to_lowercase();
-    let usable_provider = provider.is_empty()
-        || provider == "anthropic"
-        || provider == "anthropic-oauth"
-        || provider == own_provider;
+    let provider = native.get("provider").and_then(Value::as_str).unwrap_or("").to_lowercase();
+    let usable_provider = provider.is_empty() || provider == "anthropic" || provider == "anthropic-oauth" || provider == own_provider;
     if !usable_provider {
         return Vec::new();
     }
     native
         .get("toolReferences")
         .and_then(Value::as_array)
-        .map(|names| {
-            names
-                .iter()
-                .filter_map(Value::as_str)
-                .map(|n| n.trim().to_owned())
-                .filter(|n| !n.is_empty())
-                .collect()
-        })
+        .map(|names| names.iter().filter_map(Value::as_str).map(|n| n.trim().to_owned()).filter(|n| !n.is_empty()).collect())
         .unwrap_or_default()
 }
 
-fn tool_result_content(
-    message: &Message,
-    references: &[String],
-    available: &HashSet<String>,
-) -> WireContent {
+fn tool_result_content(message: &Message, references: &[String], available: &HashSet<String>) -> WireContent {
     let usable: Vec<&String> = references.iter().filter(|n| available.contains(*n)).collect();
     if !usable.is_empty() {
-        return WireContent::Blocks(
-            usable
-                .iter()
-                .map(|name| json!({ "type": "tool_reference", "tool_name": name }))
-                .collect(),
-        );
+        return WireContent::Blocks(usable.iter().map(|name| json!({ "type": "tool_reference", "tool_name": name })).collect());
     }
     let normalized = normalize_content(&message.content);
     if references.is_empty() {
@@ -413,13 +365,7 @@ fn sibling_blocks(content: WireContent) -> Vec<Value> {
         WireContent::Text(text) => vec![json!({ "type": "text", "text": text })],
         WireContent::Blocks(blocks) => blocks,
     };
-    blocks
-        .into_iter()
-        .filter(|b| {
-            !(block_type(b) == Some("text")
-                && b.get("text").and_then(Value::as_str).is_some_and(is_blank))
-        })
-        .collect()
+    blocks.into_iter().filter(|b| !(block_type(b) == Some("text") && b.get("text").and_then(Value::as_str).is_some_and(is_blank))).collect()
 }
 
 // ---------------------------------------------------------------------------
@@ -457,11 +403,7 @@ pub(crate) fn lower_messages(messages: &[Message], cx: &LowerContext<'_>) -> Vec
         if message.role == Role::Tool {
             let references = tool_references(message, cx.own_provider);
             let content = tool_result_content(message, &references, cx.available_tools);
-            let (content, hoisted) = if message.is_error {
-                split_error_content(content)
-            } else {
-                (content, Vec::new())
-            };
+            let (content, hoisted) = if message.is_error { split_error_content(content) } else { (content, Vec::new()) };
             let mut block = json!({
                 "type": "tool_result",
                 "tool_use_id": message.tool_call_id.as_deref().map(wire_id).unwrap_or_default(),
@@ -527,11 +469,7 @@ pub(crate) fn lower_messages(messages: &[Message], cx: &LowerContext<'_>) -> Vec
 
 /// The block list of an assistant turn that carries structure (replay,
 /// ordered blocks, thinking blocks or tool calls); `None` for a plain one.
-fn assistant_blocks(
-    message: &Message,
-    cx: &LowerContext<'_>,
-    wire_id: &dyn Fn(&str) -> String,
-) -> Option<Vec<Value>> {
+fn assistant_blocks(message: &Message, cx: &LowerContext<'_>, wire_id: &dyn Fn(&str) -> String) -> Option<Vec<Value>> {
     let mut replay: Vec<Value> = Vec::new();
     for envelope in message.replay_for(cx.owner) {
         match &envelope.items {
@@ -554,12 +492,7 @@ fn assistant_blocks(
         return None;
     }
     // Thinking blocks come back unmodified and ahead of the tool calls.
-    let mut blocks: Vec<Value> = thinking
-        .into_iter()
-        .flatten()
-        .filter(|b| b.is_object())
-        .cloned()
-        .collect();
+    let mut blocks: Vec<Value> = thinking.into_iter().flatten().filter(|b| b.is_object()).cloned().collect();
     let text = assistant_text(&message.content);
     if !is_blank(&text) {
         blocks.push(json!({ "type": "text", "text": text }));
@@ -612,10 +545,7 @@ fn sanitize_content_pairs(messages: Vec<WireMessage>) -> Vec<WireMessage> {
     let mut out: Vec<WireMessage> = Vec::with_capacity(work.len());
     let mut pending: HashSet<String> = HashSet::new();
     for i in 0..work.len() {
-        if let Some(had_results) = work[i]
-            .user_blocks()
-            .map(|blocks| blocks.iter().any(|b| block_type(b) == Some("tool_result")))
-        {
+        if let Some(had_results) = work[i].user_blocks().map(|blocks| blocks.iter().any(|b| block_type(b) == Some("tool_result"))) {
             strip_orphan_tool_results(&mut work[i], &pending);
             if had_results {
                 pending.clear();
@@ -624,17 +554,13 @@ fn sanitize_content_pairs(messages: Vec<WireMessage>) -> Vec<WireMessage> {
         if work[i].role == "assistant"
             && let WireContent::Blocks(blocks) = &mut work[i].content
         {
-            blocks.retain(|b| {
-                !(block_type(b) == Some("tool_use")
-                    && b.get("id").and_then(Value::as_str).is_none_or(str::is_empty))
-            });
+            blocks.retain(|b| !(block_type(b) == Some("tool_use") && b.get("id").and_then(Value::as_str).is_none_or(str::is_empty)));
         }
         if work[i].user_blocks().is_some_and(Vec::is_empty) {
             continue;
         }
         let ids = tool_use_ids(&work[i]);
-        let is_assistant_blocks =
-            work[i].role == "assistant" && matches!(work[i].content, WireContent::Blocks(_));
+        let is_assistant_blocks = work[i].role == "assistant" && matches!(work[i].content, WireContent::Blocks(_));
         out.push(work[i].clone());
         if !is_assistant_blocks {
             continue;
@@ -683,9 +609,7 @@ fn lead_with_tool_results(message: &mut WireMessage, stubs: Vec<Value>) {
     let Some(blocks) = message.user_blocks_mut() else {
         return;
     };
-    let (results, others): (Vec<Value>, Vec<Value>) = std::mem::take(blocks)
-        .into_iter()
-        .partition(|b| block_type(b) == Some("tool_result"));
+    let (results, others): (Vec<Value>, Vec<Value>) = std::mem::take(blocks).into_iter().partition(|b| block_type(b) == Some("tool_result"));
     blocks.extend(stubs);
     blocks.extend(results);
     blocks.extend(others);

@@ -31,10 +31,7 @@ pub struct Request {
 
 impl Request {
     pub fn header(&self, name: &str) -> Option<&str> {
-        self.headers
-            .iter()
-            .find(|(k, _)| k.eq_ignore_ascii_case(name))
-            .map(|(_, v)| v.as_str())
+        self.headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str())
     }
 
     pub fn path(&self) -> &str {
@@ -47,9 +44,7 @@ impl Request {
 
     /// The first value of query parameter `name`, percent-decoded.
     pub fn query(&self, name: &str) -> Option<String> {
-        url::form_urlencoded::parse(self.raw_query().as_bytes())
-            .find(|(k, _)| k == name)
-            .map(|(_, v)| v.into_owned())
+        url::form_urlencoded::parse(self.raw_query().as_bytes()).find(|(k, _)| k == name).map(|(_, v)| v.into_owned())
     }
 }
 
@@ -61,11 +56,7 @@ pub struct Response {
 
 impl Response {
     pub fn new(status: u16) -> Self {
-        Self {
-            status,
-            headers: Vec::new(),
-            body: Vec::new(),
-        }
+        Self { status, headers: Vec::new(), body: Vec::new() }
     }
 
     pub fn header(mut self, name: &str, value: &str) -> Self {
@@ -85,12 +76,7 @@ impl Response {
     }
 
     fn bytes(&self) -> Vec<u8> {
-        let mut head = format!(
-            "HTTP/1.1 {} {}\r\nconnection: close\r\ncontent-length: {}\r\n",
-            self.status,
-            reason_phrase(self.status),
-            self.body.len()
-        );
+        let mut head = format!("HTTP/1.1 {} {}\r\nconnection: close\r\ncontent-length: {}\r\n", self.status, reason_phrase(self.status), self.body.len());
         for (k, v) in &self.headers {
             head.push_str(&format!("{k}: {v}\r\n"));
         }
@@ -136,19 +122,9 @@ async fn read_request(stream: &mut TcpStream) -> io::Result<Request> {
     let head = String::from_utf8_lossy(&buf[..head_end]).into_owned();
     let mut lines = head.split("\r\n");
     let mut first = lines.next().unwrap_or("").split(' ');
-    let (method, target) = (
-        first.next().unwrap_or("").to_owned(),
-        first.next().unwrap_or("").to_owned(),
-    );
-    let headers: Vec<(String, String)> = lines
-        .filter_map(|l| l.split_once(':'))
-        .map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned()))
-        .collect();
-    let length = headers
-        .iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case("content-length"))
-        .and_then(|(_, v)| v.parse::<usize>().ok())
-        .unwrap_or(0);
+    let (method, target) = (first.next().unwrap_or("").to_owned(), first.next().unwrap_or("").to_owned());
+    let headers: Vec<(String, String)> = lines.filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_owned(), v.trim().to_owned())).collect();
+    let length = headers.iter().find(|(k, _)| k.eq_ignore_ascii_case("content-length")).and_then(|(_, v)| v.parse::<usize>().ok()).unwrap_or(0);
     if head_end + 4 + length > MAX_REQUEST {
         return Err(io::Error::from(io::ErrorKind::InvalidData));
     }
@@ -161,12 +137,7 @@ async fn read_request(stream: &mut TcpStream) -> io::Result<Request> {
         body.extend_from_slice(&chunk[..n]);
     }
     body.truncate(length);
-    Ok(Request {
-        method,
-        target,
-        headers,
-        body,
-    })
+    Ok(Request { method, target, headers, body })
 }
 
 /// Binds `127.0.0.1:port` (0 = any), and with `also_v6` `[::1]` on the same
@@ -280,10 +251,7 @@ pub(crate) mod tests {
         mixdog_rt::testing::tokens();
         let (listeners, port) = bind(0, false).await.unwrap();
         let server = mixdog_rt::spawn("test.loopback", TaskClass::Work, async move {
-            serve(listeners, |request: Request| -> Handled<Vec<u8>> {
-                Box::pin(async move { (Response::new(204), Some(request.body)) })
-            })
-            .await
+            serve(listeners, |request: Request| -> Handled<Vec<u8>> { Box::pin(async move { (Response::new(204), Some(request.body)) }) }).await
         });
         exchange(port, "POST /cb HTTP/1.1\r\nHost: x\r\nContent-Length: 7\r\n\r\n{\"a\":1}").await;
         assert_eq!(server.await.unwrap(), b"{\"a\":1}");

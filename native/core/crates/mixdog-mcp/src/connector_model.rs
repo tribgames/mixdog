@@ -203,8 +203,7 @@ fn url_key(url: &str) -> String {
 
 /// A Gmail address as typed (trimmed, lowercased), or "" when it is none.
 pub fn gmail_address(value: &Value) -> String {
-    static EMAIL: std::sync::LazyLock<JsRegex> =
-        std::sync::LazyLock::new(|| JsRegex::new_static(r#"^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:".]+$"#, ""));
+    static EMAIL: std::sync::LazyLock<JsRegex> = std::sync::LazyLock::new(|| JsRegex::new_static(r#"^[^\s@<>(),;:"]+@[^\s@<>(),;:"]+\.[^\s@<>(),;:".]+$"#, ""));
     let address = if value.is_null() { String::new() } else { js_trim(&mixdog_js::value_to_string(value)).to_lowercase() };
     if EMAIL.is_match(&address) { address } else { String::new() }
 }

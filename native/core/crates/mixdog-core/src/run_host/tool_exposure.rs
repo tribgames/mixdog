@@ -148,8 +148,7 @@ pub fn is_bridge_tool_definition(tool: &Value) -> bool {
     if name == "search_tools" || name == "call_tool" {
         return true;
     }
-    name == "load_tool"
-        && tool.get("description").and_then(Value::as_str).is_some_and(|d| LEGACY_BRIDGE_LOAD_TOOL_DESCRIPTIONS.contains(&d))
+    name == "load_tool" && tool.get("description").and_then(Value::as_str).is_some_and(|d| LEGACY_BRIDGE_LOAD_TOOL_DESCRIPTIONS.contains(&d))
 }
 
 /// The provider-native tool objects a session's request sends ahead of the schemas, in wire order.

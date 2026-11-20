@@ -126,7 +126,4 @@ impl WireClient {
         self.send(id, method, params).await;
         self.answer(id).await
     }
-
 }
-
-

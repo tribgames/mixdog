@@ -74,11 +74,7 @@ impl CancelRegistry {
         let key = state.next_key;
         state.by_activity.entry(activity_id).or_default().push((key, token));
         drop(state);
-        Tracked {
-            registry: Arc::clone(self),
-            activity_id,
-            key,
-        }
+        Tracked { registry: Arc::clone(self), activity_id, key }
     }
 
     fn cancel(&self, running: &[Running]) {
@@ -167,12 +163,7 @@ impl CorePort for RuntimeCore {
             running: notice
                 .running
                 .iter()
-                .map(|work| DrainRunning {
-                    thread_id: work.thread_id.clone(),
-                    turn_id: work.turn_id.clone(),
-                    kind: work.kind,
-                    title: work.title.clone(),
-                })
+                .map(|work| DrainRunning { thread_id: work.thread_id.clone(), turn_id: work.turn_id.clone(), kind: work.kind, title: work.title.clone() })
                 .collect(),
             confirm_token: notice.confirm_token.clone(),
         });
@@ -229,7 +220,10 @@ enum Job {
     /// The index rebuild moved: the last document is written again with the progress as it is when this one is handled.
     Refresh,
     /// Everything queued before it has been written; `withdraw` removes the file as well.
-    Barrier { withdraw: bool, done: mpsc::Sender<()> },
+    Barrier {
+        withdraw: bool,
+        done: mpsc::Sender<()>,
+    },
 }
 
 type WriteDocument = Box<dyn Fn(&Path, &Discovery) -> std::io::Result<()> + Send>;
@@ -274,9 +268,8 @@ fn rebuild_of(progress: &mixdog_store::sqlite::RebuildProgress) -> Option<discov
 /// behind it (the owed sensitive rewrites) until it ends, and for the rest of the boot any of it that failed (those sessions
 /// stay unread until the next start).
 fn rebuild_for(state: CoreState, progress: &mixdog_store::sqlite::RebuildProgress) -> Option<discovery::Rebuild> {
-    rebuild_of(progress).filter(|rebuild| {
-        booting(state) || (state == CoreState::Serving && (rebuild.done + rebuild.failed < rebuild.total || rebuild.failed > 0))
-    })
+    rebuild_of(progress)
+        .filter(|rebuild| booting(state) || (state == CoreState::Serving && (rebuild.done + rebuild.failed < rebuild.total || rebuild.failed > 0)))
 }
 
 impl DiscoveryPublication {
@@ -294,13 +287,7 @@ impl DiscoveryPublication {
         Self::spawn(root, base, write, None, on_fatal)
     }
 
-    fn spawn(
-        root: PathBuf,
-        base: Discovery,
-        write: WriteDocument,
-        owned: Option<Arc<discovery::OwnedDiscovery>>,
-        on_fatal: OnFatal,
-    ) -> Self {
+    fn spawn(root: PathBuf, base: Discovery, write: WriteDocument, owned: Option<Arc<discovery::OwnedDiscovery>>, on_fatal: OnFatal) -> Self {
         let (jobs, inbox) = mpsc::channel::<Job>();
         let jobs = Arc::new(Mutex::new(jobs));
         let instance_id = base.core.instance_id.clone();
@@ -327,7 +314,9 @@ impl DiscoveryPublication {
                 let put = |document: &mut Discovery| {
                     if let Err(error) = write(&root, document) {
                         tracing::error!(%error, "discovery was not published");
-                        if document.core.state != CoreState::Draining { on_fatal(&error); }
+                        if document.core.state != CoreState::Draining {
+                            on_fatal(&error);
+                        }
                     }
                 };
                 for job in inbox {
@@ -363,14 +352,7 @@ impl DiscoveryPublication {
                 }
             })
             .expect("the OS refused a discovery thread");
-        Self {
-            base,
-            rpc: Mutex::new(None),
-            ssh_rpc: Mutex::new(None),
-            model_proxy: std::sync::atomic::AtomicBool::new(false),
-            jobs,
-            rebuild: reporter_handle,
-        }
+        Self { base, rpc: Mutex::new(None), ssh_rpc: Mutex::new(None), model_proxy: std::sync::atomic::AtomicBool::new(false), jobs, rebuild: reporter_handle }
     }
 
     /// This boot's rebuild reporter: the store open that rebuilds the index advances it, and the document names it.
@@ -473,7 +455,8 @@ mod model_proxy_tests {
     #[test]
     fn serving_advertises_the_model_proxy_only_for_a_core_that_runs_through_it() {
         let state = DiscoveryState { phase: DiscoveryPhase::Serving, blocked: None, drain_id: None };
-        let read = |root: &Path| -> serde_json::Value { serde_json::from_slice(&mixdog_fsio::read(&mixdog_fsio::Unlaned, discovery::path(root)).unwrap()).unwrap() };
+        let read =
+            |root: &Path| -> serde_json::Value { serde_json::from_slice(&mixdog_fsio::read(&mixdog_fsio::Unlaned, discovery::path(root)).unwrap()).unwrap() };
         let template = || Discovery {
             pid: 1,
             endpoints: discovery::Endpoints { session: discovery::SessionEndpoint { port: 4001, token: "tok".into() }, model_proxy: None },

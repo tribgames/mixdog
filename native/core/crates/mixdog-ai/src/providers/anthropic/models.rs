@@ -55,10 +55,8 @@ static RELEASE: LazyLock<JsRegex> = LazyLock::new(|| regex(r"-(\d{4})(\d{2})(\d{
 static VERSION: LazyLock<JsRegex> = LazyLock::new(|| regex(r"^claude-[a-z]+-(\d+)(?:-(\d+))?", "i"));
 /// Version 4 models that already have the long window (opus / sonnet 4.6 to 4.8).
 static LONG_CONTEXT_FOUR: LazyLock<JsRegex> = LazyLock::new(|| regex(r"^claude-(opus|sonnet)-4-(6|7|8)(?:$|-)", "i"));
-static GENERATION_FAMILY_FIRST: LazyLock<JsRegex> =
-    LazyLock::new(|| regex(r"^claude-[a-z][a-z0-9]*-(\d+)(?:-(\d{1,2})(?!\d))?(?:[-@]|$)", ""));
-static GENERATION_VERSION_FIRST: LazyLock<JsRegex> =
-    LazyLock::new(|| regex(r"^claude-(\d+)(?:-(\d{1,2})(?!\d))?(?:[-@]|$)", ""));
+static GENERATION_FAMILY_FIRST: LazyLock<JsRegex> = LazyLock::new(|| regex(r"^claude-[a-z][a-z0-9]*-(\d+)(?:-(\d{1,2})(?!\d))?(?:[-@]|$)", ""));
+static GENERATION_VERSION_FIRST: LazyLock<JsRegex> = LazyLock::new(|| regex(r"^claude-(\d+)(?:-(\d{1,2})(?!\d))?(?:[-@]|$)", ""));
 
 /// How a model id is listed in the catalog.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -101,11 +99,7 @@ impl AnthropicModel {
     /// The reasoning options a picker shows: one `effort` option when the
     /// model advertises levels, none otherwise.
     pub fn reasoning_options(&self) -> Vec<ReasoningOption> {
-        if self.effort_levels.is_empty() {
-            Vec::new()
-        } else {
-            vec![ReasoningOption { kind: "effort".to_owned(), values: self.effort_levels.clone() }]
-        }
+        if self.effort_levels.is_empty() { Vec::new() } else { vec![ReasoningOption { kind: "effort".to_owned(), values: self.effort_levels.clone() }] }
     }
 
     pub fn to_record(&self) -> ModelRecord {
@@ -150,33 +144,19 @@ fn truthy(value: &Value) -> bool {
 
 /// `row[k1] || row[k2] || ...` for a string field.
 fn first_string(row: &Value, keys: &[&str]) -> Option<String> {
-    keys.iter()
-        .filter_map(|k| row.get(*k))
-        .find(|v| truthy(v))
-        .and_then(|v| v.as_str().map(str::to_owned))
+    keys.iter().filter_map(|k| row.get(*k)).find(|v| truthy(v)).and_then(|v| v.as_str().map(str::to_owned))
 }
 
 /// `row[k1] || row[k2] || ...` for a token count.
 fn first_count(row: &Value, keys: &[&str]) -> Option<u64> {
-    keys.iter()
-        .filter_map(|k| row.get(*k))
-        .find(|v| truthy(v))
-        .and_then(Value::as_f64)
-        .map(|f| f as u64)
+    keys.iter().filter_map(|k| row.get(*k)).find(|v| truthy(v)).and_then(Value::as_f64).map(|f| f as u64)
 }
 
 /// The window of a model no row and no catalog states one for: the long
 /// window from version 5 and for opus / sonnet 4.6 to 4.8, else the default.
 fn default_context(id: &str) -> u64 {
-    let major = VERSION
-        .captures(id)
-        .and_then(|c| c.get(1).and_then(|m| m.parse::<f64>().ok()))
-        .unwrap_or(0.0);
-    if major >= LONG_CONTEXT_FROM_MAJOR || LONG_CONTEXT_FOUR.is_match(id) {
-        LONG_CONTEXT
-    } else {
-        DEFAULT_CONTEXT
-    }
+    let major = VERSION.captures(id).and_then(|c| c.get(1).and_then(|m| m.parse::<f64>().ok())).unwrap_or(0.0);
+    if major >= LONG_CONTEXT_FROM_MAJOR || LONG_CONTEXT_FOUR.is_match(id) { LONG_CONTEXT } else { DEFAULT_CONTEXT }
 }
 
 fn capitalized(family: &str) -> String {
@@ -266,9 +246,7 @@ fn declared_thinking(capabilities: Option<&Value>, kind: &str) -> Option<bool> {
 }
 
 fn thinking_supported(capabilities: Option<&Value>) -> bool {
-    capabilities
-        .and_then(|c| c.get("thinking"))
-        .is_some_and(|t| t.as_bool() == Some(true) || t.get("supported").and_then(Value::as_bool) == Some(true))
+    capabilities.and_then(|c| c.get("thinking")).is_some_and(|t| t.as_bool() == Some(true) || t.get("supported").and_then(Value::as_bool) == Some(true))
 }
 
 /// One row, normalized for `flavor`; `None` for a row naming no model.
@@ -293,11 +271,8 @@ pub fn normalize(raw: &Value, flavor: Flavor, caps: &CapsLookup) -> Option<Anthr
     } else {
         &["context_window", "max_context_window", "max_input_tokens"]
     };
-    let output_keys: &[&str] = if api_key {
-        &["max_tokens", "max_output_tokens", "output_token_limit", "outputTokenLimit"]
-    } else {
-        &["max_tokens", "max_output_tokens"]
-    };
+    let output_keys: &[&str] =
+        if api_key { &["max_tokens", "max_output_tokens", "output_token_limit", "outputTokenLimit"] } else { &["max_tokens", "max_output_tokens"] };
     let release_date = (!api_key && dated)
         .then(|| RELEASE.captures(&id))
         .flatten()
@@ -401,17 +376,10 @@ pub(crate) fn listing_url(flavor: Flavor, config: &AnthropicConfig) -> String {
 
 /// Every normalized row of a listing body, in the order served. A body that
 /// is not a JSON object with a `data` array lists nothing.
-pub(crate) fn parse_listing(
-    body: &[u8],
-    flavor: Flavor,
-    caps: &CapsLookup,
-) -> Result<Vec<AnthropicModel>, serde_json::Error> {
+pub(crate) fn parse_listing(body: &[u8], flavor: Flavor, caps: &CapsLookup) -> Result<Vec<AnthropicModel>, serde_json::Error> {
     let document: Value = serde_json::from_slice(body)?;
-    let mut models: Vec<AnthropicModel> = document
-        .get("data")
-        .and_then(Value::as_array)
-        .map(|rows| rows.iter().filter_map(|row| normalize(row, flavor, caps)).collect())
-        .unwrap_or_default();
+    let mut models: Vec<AnthropicModel> =
+        document.get("data").and_then(Value::as_array).map(|rows| rows.iter().filter_map(|row| normalize(row, flavor, caps)).collect()).unwrap_or_default();
     if flavor == Flavor::OAuth {
         mark_latest(&mut models);
     }

@@ -21,9 +21,8 @@ pub(super) const EDGE_SCROLL_ROWS: f64 = 3.0;
 /// qualifying press restarts the sequence at one.
 fn multi_click_count(last: Option<&LastClick>, x: i32, y: i32, now_ms: u64) -> u32 {
     let Some(last) = last else { return 1 };
-    let qualifies = now_ms.saturating_sub(last.t_ms) < MULTI_CLICK_MS
-        && (last.y - y).abs() <= MULTI_CLICK_ROW_DRIFT
-        && (last.x - x).abs() <= MULTI_CLICK_COLUMN_DRIFT;
+    let qualifies =
+        now_ms.saturating_sub(last.t_ms) < MULTI_CLICK_MS && (last.y - y).abs() <= MULTI_CLICK_ROW_DRIFT && (last.x - x).abs() <= MULTI_CLICK_COLUMN_DRIFT;
     let count = if qualifies { last.count.max(1) + 1 } else { 1 };
     if count > 3 { 1 } else { count }
 }

@@ -111,4 +111,3 @@ pub fn lost_in_entry(entry: &Value) -> u32 {
         .filter(|image| image.get("originalRef").and_then(Value::as_str).is_some_and(|original| missing.iter().any(|m| m == original)))
         .count() as u32
 }
-

@@ -157,7 +157,6 @@ impl Inner {
     }
 }
 
-
 impl std::error::Error for LoadError {}
 /// `scheduleSave`: one pending beat at a time.
 fn schedule_save(inner: &Arc<Inner>, state: &mut State) {
@@ -179,10 +178,7 @@ impl DeviceStore {
     pub async fn open(data_dir: &Path, io: DurabilityIo) -> Result<Self, LoadError> {
         let path = data_dir.join("devices.json");
         let read_path = path.clone();
-        let rows = lane_job(io, move |lane| persistence::load(lane, &read_path))
-            .await
-            .map_err(|error| LoadError(error.to_string()))?
-            .map_err(LoadError)?;
+        let rows = lane_job(io, move |lane| persistence::load(lane, &read_path)).await.map_err(|error| LoadError(error.to_string()))?.map_err(LoadError)?;
         let state = State { devices: Devices::from_rows(rows), dirty: 0, saved: 0, timer: None };
         Ok(Self { inner: Arc::new(Inner { path, io, state: Mutex::new(state), writer: tokio::sync::Mutex::new(()) }) })
     }

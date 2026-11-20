@@ -13,9 +13,9 @@ use super::runtime::RoutineRuntime;
 use super::sessions::{ScheduleRunOpts, WebhookRun};
 use crate::channels::running::RunningWork;
 use crate::scheduler::{RunOutcome, Schedule, ScheduleRunner, SkipReason};
+use crate::webhooks::handler::WebhookRoute;
 use crate::webhooks::prompt::{prompt_headers, webhook_event_summary, webhook_run_prompt};
 use crate::webhooks::signature::Headers;
-use crate::webhooks::handler::WebhookRoute;
 use crate::webhooks::{EndpointRecords, HttpReply, WebhookDispatch};
 
 /// A schedule fire as a visible turn in its owner's home thread.
@@ -61,12 +61,7 @@ pub struct HomeWebhookDispatch {
 }
 
 impl HomeWebhookDispatch {
-    pub fn new(
-        routines: Arc<RoutineRuntime>,
-        store: Arc<dyn EndpointRecords>,
-        events: Option<Arc<dyn WebhookEvents>>,
-        work: RunningWork,
-    ) -> Self {
+    pub fn new(routines: Arc<RoutineRuntime>, store: Arc<dyn EndpointRecords>, events: Option<Arc<dyn WebhookEvents>>, work: RunningWork) -> Self {
         Self { routines, store, events, work }
     }
 
@@ -121,14 +116,7 @@ impl HomeWebhookDispatch {
 
 #[async_trait]
 impl WebhookDispatch for HomeWebhookDispatch {
-    async fn route(
-        &self,
-        name: &str,
-        payload: Value,
-        headers: &Headers,
-        delivery_id: &str,
-        endpoint_in_table: bool,
-    ) -> Result<WebhookRoute, String> {
+    async fn route(&self, name: &str, payload: Value, headers: &Headers, delivery_id: &str, endpoint_in_table: bool) -> Result<WebhookRoute, String> {
         let resumed = self.store.resuming_rule_handoff(name, delivery_id).await?;
         if endpoint_in_table && !resumed {
             match self.dispatch_endpoint(name, &payload, headers, delivery_id).await {

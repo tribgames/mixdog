@@ -59,7 +59,10 @@ fn a_token_without_a_refresh_token_is_access_only_until_it_expires_and_then_need
 
 #[test]
 fn a_stored_identity_shows_its_email_and_id_trimmed_and_a_chatgpt_account_id_by_its_first_eight_characters() {
-    let row = described("openai-oauth", json!({ "access_token": "a", "refresh_token": "r", "expires_at": NOW + 10 * MINUTE, "account_id": "0123456789abcdef", "identity": { "id": " user-1 ", "email": " me@example.com " } }));
+    let row = described(
+        "openai-oauth",
+        json!({ "access_token": "a", "refresh_token": "r", "expires_at": NOW + 10 * MINUTE, "account_id": "0123456789abcdef", "identity": { "id": " user-1 ", "email": " me@example.com " } }),
+    );
     assert_eq!((row["email"].clone(), row["identityId"].clone(), row["accountId"].clone()), (json!("me@example.com"), json!("user-1"), json!("01234567…")));
 }
 
@@ -114,7 +117,9 @@ fn a_dev_only_provider_is_listed_only_while_its_stored_option_is_the_boolean_tru
     for provider in ["openai-oauth", "anthropic-oauth", "grok-oauth", "muse-code-oauth", "command-code-oauth", "opencode-go-oauth"] {
         assert!(oauth_available(provider, &json!({})), "{provider} is always listed");
     }
-    for (provider, option) in [("antigravity-oauth", "antigravityOAuth"), ("cursor-oauth", "cursorOAuth"), ("devin-oauth", "devinOAuth"), ("mimo-oauth", "mimoOAuth")] {
+    for (provider, option) in
+        [("antigravity-oauth", "antigravityOAuth"), ("cursor-oauth", "cursorOAuth"), ("devin-oauth", "devinOAuth"), ("mimo-oauth", "mimoOAuth")]
+    {
         assert!(!oauth_available(provider, &json!({})), "{provider}: off without its option");
         assert!(!oauth_available(provider, &json!({ option: "true" })), "{provider}: only a boolean counts");
         assert!(!oauth_available(provider, &json!({ option: false })));

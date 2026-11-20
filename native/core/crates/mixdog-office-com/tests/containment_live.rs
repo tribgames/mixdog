@@ -113,11 +113,7 @@ fn host() {
 }
 
 fn process_alive(pid: u32) -> bool {
-    let output = Command::new("tasklist")
-        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
-        .creation_flags(CREATE_NO_WINDOW)
-        .output()
-        .expect("tasklist");
+    let output = Command::new("tasklist").args(["/FI", &format!("PID eq {pid}"), "/NH"]).creation_flags(CREATE_NO_WINDOW).output().expect("tasklist");
     String::from_utf8_lossy(&output.stdout).contains(&pid.to_string())
 }
 

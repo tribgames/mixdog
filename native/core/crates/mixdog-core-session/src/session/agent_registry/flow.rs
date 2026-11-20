@@ -9,11 +9,11 @@ use std::sync::Mutex;
 use std::sync::atomic::AtomicU64;
 use std::sync::atomic::Ordering;
 
+use crate::session::failure_record::{Route, failure_text, log_failure};
 use async_trait::async_trait;
 use mixdog_agent::agent_tool::flow::handoff::handoff_content;
 use mixdog_agent::agent_tool::flow::seams::AssistantText;
 use mixdog_agent::agent_tool::flow::seams::TurnError;
-use crate::session::failure_record::{Route, failure_text, log_failure};
 use mixdog_agent::agent_tool::flow::seams::TurnRequest;
 use mixdog_agent::agent_tool::flow::seams::TurnResult;
 use mixdog_agent::agent_tool::flow::seams::TurnSessions;
@@ -281,13 +281,7 @@ fn replay_item_text(item: &Value) -> String {
 /// `providerReplayText(replay)`: the visible text of a replay envelope's items.
 fn provider_replay_text(replay: Option<&Value>) -> String {
     let items = replay.and_then(|replay| replay.get("items")).and_then(Value::as_array);
-    items
-        .into_iter()
-        .flatten()
-        .map(replay_item_text)
-        .filter(|text| !text.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n")
+    items.into_iter().flatten().map(replay_item_text).filter(|text| !text.is_empty()).collect::<Vec<_>>().join("\n")
 }
 
 #[cfg(test)]
@@ -322,10 +316,7 @@ mod tests {
             failure_reason: Some("stalled".into()),
             ..RowUpdate::default()
         };
-        assert_eq!(
-            Value::Object(patch(update)),
-            json!({ "status": "failed", "stage": "failed", "failureReason": "stalled", "task_id": null })
-        );
+        assert_eq!(Value::Object(patch(update)), json!({ "status": "failed", "stage": "failed", "failureReason": "stalled", "task_id": null }));
     }
 
     const ENVELOPE: &str =
@@ -359,7 +350,6 @@ mod tests {
             self.0.lock().unwrap().push(format!("{thread} {reason}"));
         }
     }
-
 
     /// `session.messages.length` of a worker with a long conversation: counted from the store's index. The rows are not read: a
     /// turn start and a status read would otherwise read the whole context to return one number.
@@ -447,11 +437,7 @@ mod tests {
         let before = store.calls().len();
         let texts = turns.assistant_texts(handle.id.as_str(), 250).await;
         let contents: Vec<String> = texts.into_iter().map(|text| text.content).collect();
-        let want: Vec<String> = whole[250..]
-            .iter()
-            .filter(|m| m["role"] == "assistant")
-            .map(|m| m["content"].as_str().expect("text").to_owned())
-            .collect();
+        let want: Vec<String> = whole[250..].iter().filter(|m| m["role"] == "assistant").map(|m| m["content"].as_str().expect("text").to_owned()).collect();
         assert_eq!(contents, want);
         assert!(contents.iter().any(|c| c == "late"));
         let newest = |m: &Value| m["role"] == "assistant" && !m["content"].as_str().is_some_and(|t| t.trim().is_empty());
@@ -497,8 +483,8 @@ mod tests {
     /// the reads see only the rows the turn added, and a failure is the turn's own message.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_worker_turn_runs_with_its_handoff_and_returns_the_final_result() {
-        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
         use crate::session::tests::start_thread;
+        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
 
         let rig = crate::session::testing::Rig::new();
         let seen: Arc<Mutex<Vec<(Option<String>, TurnKind, Option<String>, Value)>>> = Arc::default();
@@ -515,7 +501,11 @@ mod tests {
                     run.input_body.clone(),
                 ));
                 if run.input_body["content"].to_string().contains("boom") {
-                    return crate::session::RunOutcome::Failed(mixdog_protocol::TurnError { message: "provider down".into(), data: json!({}), provider_error: None });
+                    return crate::session::RunOutcome::Failed(mixdog_protocol::TurnError {
+                        message: "provider down".into(),
+                        data: json!({}),
+                        provider_error: None,
+                    });
                 }
                 let reply = crate::session::ItemCommit {
                     iid: mixdog_core_api::ids::ItemId::from(format!("a-{}", run.turn)),
@@ -541,7 +531,9 @@ mod tests {
                 kind: TurnKind::Spawn,
                 session_id: handle.id.as_str().to_owned(),
                 prompt: prompt.to_owned(),
-                attachments: vec![json!({ "type": "image", "attachmentRef": "a".repeat(64), "mimeType": "image/png", "filename": "x.png", "sizeBytes": 5, "data": "dropped" })],
+                attachments: vec![
+                    json!({ "type": "image", "attachmentRef": "a".repeat(64), "mimeType": "image/png", "filename": "x.png", "sizeBytes": 5, "data": "dropped" }),
+                ],
                 context: Some(json!({ "k": 1 })),
                 cwd: String::new(),
                 skill_selection: Some("skills".into()),
@@ -582,8 +574,8 @@ mod tests {
     /// terminal hook's copy and in the rows a stopped turn's handoff is read from; carried, the value is the owner's too.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_workers_report_reaches_its_owner_with_the_workers_sensitive_values_as_the_marker() {
-        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
         use crate::session::tests::start_thread;
+        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
         const CODE: &str = "482913";
 
         let rig = crate::session::testing::Rig::new();
@@ -602,7 +594,12 @@ mod tests {
                     prompt: None,
                 };
                 run.port.commit_item(reply).await.expect("commit");
-                crate::session::RunOutcome::Completed(Box::new(TurnResult { content: text.clone(), report_content: Some(text), iterations: 1, ..Default::default() }))
+                crate::session::RunOutcome::Completed(Box::new(TurnResult {
+                    content: text.clone(),
+                    report_content: Some(text),
+                    iterations: 1,
+                    ..Default::default()
+                }))
             })
         }));
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
@@ -667,13 +664,17 @@ mod tests {
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
         // The session's folder is its own project: the turn's rewrites of the header keep it (a header edited in place is not).
         let reply = directory
-            .request(crate::session::tests::request("thread/start", json!({ "opId": "op-start", "kind": "task", "projectPath": root.to_string_lossy() }), "op-start"))
+            .request(crate::session::tests::request(
+                "thread/start",
+                json!({ "opId": "op-start", "kind": "task", "projectPath": root.to_string_lossy() }),
+                "op-start",
+            ))
             .await
             .expect("thread/start");
         let mixdog_core_api::Reply::Subscribe(subscribe) = reply else { panic!("thread/start subscribes") };
         let worker = directory.handle(&ThreadId::from(subscribe.result["thread"]["id"].as_str().expect("thread id"))).expect("loaded");
-        let turns = SessionTurns::new(directory.clone(), Arc::new(Released(Mutex::default())))
-            .with_files(mixdog_rt::testing::tokens().durability_io, Vec::new());
+        let turns =
+            SessionTurns::new(directory.clone(), Arc::new(Released(Mutex::default()))).with_files(mixdog_rt::testing::tokens().durability_io, Vec::new());
         let heard: Arc<Mutex<Vec<String>>> = Arc::default();
         let sink = heard.clone();
         let request = TurnRequest {
@@ -700,9 +701,9 @@ mod tests {
     /// off the queue again: left there it would run later with nobody waiting for it.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn a_worker_turn_refused_as_busy_leaves_nothing_queued() {
-        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
         use crate::eventually_on;
         use crate::session::tests::{idle, start_thread, turn};
+        use mixdog_agent::agent_tool::flow::seams::{ToolResultMessage, TurnHooks, TurnKind};
 
         let rig = crate::session::testing::Rig::new();
         let hold = Arc::new(tokio::sync::Notify::new());
@@ -758,11 +759,7 @@ mod tests {
         let rig = crate::session::testing::Rig::new();
         rig.set_script(Arc::new(|_run| {
             Box::pin(async move {
-                let result = mixdog_agent::agent_tool::flow::seams::TurnResult {
-                    content: "done".into(),
-                    iterations: 2,
-                    ..Default::default()
-                };
+                let result = mixdog_agent::agent_tool::flow::seams::TurnResult { content: "done".into(), iterations: 2, ..Default::default() };
                 crate::session::RunOutcome::Completed(Box::new(result))
             })
         }));
@@ -794,9 +791,10 @@ mod tests {
         assert!(completions.enqueue_completion("sess_worker", envelope, &meta));
         let worker = ThreadId::from("sess_worker");
         let queued = || {
-            rig.store.records(&worker).iter().any(|(_, record)| {
-                matches!(record, mixdog_store::schema::record::Record::Queue(q) if q.qid.as_str().starts_with("completion_"))
-            })
+            rig.store
+                .records(&worker)
+                .iter()
+                .any(|(_, record)| matches!(record, mixdog_store::schema::record::Record::Queue(q) if q.qid.as_str().starts_with("completion_")))
         };
         crate::eventually_on!(&[&directory.handle(&worker).expect("loaded").cell.stepped], || queued().then_some(())).await;
         let owner = ThreadId::from("sess_owner");
@@ -873,22 +871,10 @@ mod tests {
         let directory = Arc::new(SessionDirectory::new(rig.deps()));
         let handle = start_thread(&directory).await;
         let completions = SessionCompletions::new(directory.clone());
-        let cards = || {
-            handle
-                .cell
-                .view
-                .load_full()
-                .items
-                .iter()
-                .filter(|item| matches!(item.as_ref(), ThreadItemKind::ToolCall { .. }))
-                .count()
-        };
-        let preview = |status: &str| {
-            format!("background task\ntask_id: t1\nsurface: agent\nstatus: {status}\nstarted: 2026-01-01T00:00:00.000Z")
-        };
-        let preview_meta = |status: &str| {
-            json!({ "type": "agent_task_result", "model_visible": false, "execution_surface": "agent", "execution_id": "t1", "status": status })
-        };
+        let cards = || handle.cell.view.load_full().items.iter().filter(|item| matches!(item.as_ref(), ThreadItemKind::ToolCall { .. })).count();
+        let preview = |status: &str| format!("background task\ntask_id: t1\nsurface: agent\nstatus: {status}\nstarted: 2026-01-01T00:00:00.000Z");
+        let preview_meta =
+            |status: &str| json!({ "type": "agent_task_result", "model_visible": false, "execution_surface": "agent", "execution_id": "t1", "status": status });
         assert!(completions.notify(handle.id.as_str(), &preview("completed"), &preview_meta("completed")));
         assert!(completions.notify(handle.id.as_str(), &preview("failed"), &preview_meta("failed")));
         eventually_on!(&[&handle.cell.stepped], || (cards() == 1).then_some(())).await;
@@ -907,7 +893,6 @@ mod tests {
         assert_eq!(cards(), 1, "one card for the execution; its body shows once");
     }
 }
-
 
 /// The session layer as a worker's turn uses it (`TurnSessions`): reads over the stored model
 /// context, the todo list, and the turn started through the internal `turn/start`.
@@ -1002,7 +987,6 @@ impl TurnSessions for SessionTurns {
         self.release.release(&thread, reason);
     }
 }
-
 
 /// The result a worker's turn hands its owner, with the worker's sensitive values as the marker (its own context keeps
 /// them; the report leaves the session).
@@ -1158,9 +1142,7 @@ impl SessionTurns {
             done,
         });
         let params = json!({ "threadId": thread, "opId": op, "input": input });
-        let started = handle
-            .request(CoreRequest { method: Method("turn/start"), params, op: Some(op.clone()), ctx: ctx.clone() })
-            .await;
+        let started = handle.request(CoreRequest { method: Method("turn/start"), params, op: Some(op.clone()), ctx: ctx.clone() }).await;
         let unstarted = |message: String| {
             handle.cell.agent_start.lock().unwrap_or_else(|p| p.into_inner()).take();
             TurnError::new(message)
@@ -1172,7 +1154,9 @@ impl SessionTurns {
                     let params = json!({ "threadId": thread, "opId": format!("{op}:unqueue"), "queuedId": queued, "restore": false });
                     // The refusal below stands whatever this answers, but a turn left queued would run
                     // later with nobody waiting for it.
-                    if let Err(error) = handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(OpId::from(format!("{op}:unqueue"))), ctx }).await {
+                    if let Err(error) =
+                        handle.request(CoreRequest { method: Method("thread/queue/delete"), params, op: Some(OpId::from(format!("{op}:unqueue"))), ctx }).await
+                    {
                         tracing::warn!(session = %request.session_id, "a refused turn was not taken off the queue: {error:?}");
                     }
                 }

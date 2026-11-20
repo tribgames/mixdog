@@ -78,7 +78,6 @@ mod tests {
         assert_eq!(locale_compare("a", "A"), Ordering::Less);
     }
 
-
     fn sorted(compare: fn(&str, &str) -> Ordering, words: &[&str]) -> Vec<String> {
         let mut out: Vec<String> = words.iter().map(|w| (*w).to_owned()).collect();
         out.sort_by(|a, b| compare(a, b));
@@ -122,4 +121,3 @@ mod tests {
         assert_ne!(locale_compare_utf16(&lone, &a), Ordering::Equal);
     }
 }
-

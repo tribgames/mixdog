@@ -22,10 +22,10 @@ use mixdog_tools::orch::explore::ExploreFailure;
 use mixdog_tools::orch::explore::ExploreRun;
 use mixdog_tools::orch::explore::ExploreRunner;
 
-use crate::env::RunEvent;
-use crate::env::RunEnv;
-use crate::env::RunObserver;
 use crate::env::Retracted;
+use crate::env::RunEnv;
+use crate::env::RunEvent;
+use crate::env::RunObserver;
 use crate::env::TextRetraction;
 use crate::limits::TurnLimits;
 use crate::message::AgentMessage;
@@ -171,9 +171,7 @@ fn replay_item_text(item: &JsonValue) -> String {
     match kind {
         Some("message") => object.get("content").map(blocks_text).unwrap_or_default(),
         Some("text" | "output_text") => object.get("text").and_then(JsonValue::as_str).unwrap_or("").to_owned(),
-        None if object.get("thought") != Some(&JsonValue::Bool(true)) => {
-            object.get("text").and_then(JsonValue::as_str).unwrap_or("").to_owned()
-        }
+        None if object.get("thought") != Some(&JsonValue::Bool(true)) => object.get("text").and_then(JsonValue::as_str).unwrap_or("").to_owned(),
         _ => String::new(),
     }
 }
@@ -210,11 +208,7 @@ fn handoff_text(transcript: &[AgentMessage]) -> String {
 
 fn salvage(transcript: &[AgentMessage], streamed: &str) -> String {
     let handoff = handoff_text(transcript);
-    [handoff.as_str(), mixdog_js::js_trim(streamed)]
-        .into_iter()
-        .filter(|t| !mixdog_js::js_trim(t).is_empty())
-        .collect::<Vec<_>>()
-        .join("\n\n")
+    [handoff.as_str(), mixdog_js::js_trim(streamed)].into_iter().filter(|t| !mixdog_js::js_trim(t).is_empty()).collect::<Vec<_>>().join("\n\n")
 }
 
 #[async_trait]
@@ -269,9 +263,7 @@ impl ExploreRunner for AgentExplorer {
                 token.cancel();
             }
         });
-        let outcome = Run::new(env, token, route.provider, self.host.tools(), tool_env, config, messages, RunCarry::default())
-            .run()
-            .await;
+        let outcome = Run::new(env, token, route.provider, self.host.tools(), tool_env, config, messages, RunCarry::default()).run().await;
         timer.cancel();
         let late = fired.load(Ordering::SeqCst);
 

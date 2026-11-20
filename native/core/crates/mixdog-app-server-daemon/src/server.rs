@@ -20,8 +20,6 @@ use mixdog_app_server::Inbound;
 use mixdog_app_server::Outgoing;
 use mixdog_app_server::ServerConfig;
 use mixdog_app_server::VersionOrder;
-use mixdog_core_api::call::WindowRole;
-use mixdog_core_api::call::WindowScope;
 use mixdog_app_server::is_control;
 use mixdog_app_server_client::api::Connector;
 use mixdog_app_server_client::inprocess::FromClient;
@@ -31,12 +29,14 @@ use mixdog_app_server_client::inprocess::ServerSender;
 use mixdog_app_server_transport::AcceptedConnection;
 use mixdog_app_server_transport::ConnectionHub;
 use mixdog_app_server_transport::ConnectionOrigin;
-use mixdog_app_server_transport::Incoming;
 use mixdog_app_server_transport::InboundFrames;
+use mixdog_app_server_transport::Incoming;
 use mixdog_app_server_transport::SocketClosed;
 use mixdog_app_server_transport::SocketRead;
 use mixdog_app_server_transport::SocketWrite;
 use mixdog_app_server_transport::Transport;
+use mixdog_core_api::call::WindowRole;
+use mixdog_core_api::call::WindowScope;
 use mixdog_rt::TaskClass;
 use tokio::sync::mpsc;
 
@@ -314,13 +314,13 @@ mod tests {
         })
     }
 
-
     /// The core, composed over the router the server will use as its host channel.
     async fn core(dir: &std::path::Path, data: &std::path::Path) -> (Arc<ComposedCore>, Arc<Outgoing>) {
         let outgoing = Outgoing::new();
         let core = compose(
             &mixdog_rt::testing::tokens(),
-            ComposeConfig { rebuild: Default::default(),
+            ComposeConfig {
+                rebuild: Default::default(),
                 data_dir: data.to_path_buf(),
                 user_data_dir: dir.join("userdata"),
                 runtime_root: dir.join("runtime"),
@@ -328,7 +328,11 @@ mod tests {
                 ort_library: mixdog_services::effort_judge::model::OrtRuntime::NoBinding,
                 outgoing: outgoing.clone(),
                 ownership: Arc::new(mixdog_core_api::domain::mock::MockOwnership::default()),
-                log: crate::daemon_log::DaemonLog::new(dir.join("daemon.log"), mixdog_rt::testing::tokens().maintenance_io, mixdog_rt::CancellationToken::new()),
+                log: crate::daemon_log::DaemonLog::new(
+                    dir.join("daemon.log"),
+                    mixdog_rt::testing::tokens().maintenance_io,
+                    mixdog_rt::CancellationToken::new(),
+                ),
                 stop: mixdog_rt::CancellationToken::new(),
                 catalog_http: crate::compose_test_support::offline_http(),
                 pg_install: None,
@@ -341,23 +345,32 @@ mod tests {
     #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     fn a_client_initializes_and_starts_a_thread_over_the_pair() {
-        crate::compose_test_support::in_child(module_path!(), "a_client_initializes_and_starts_a_thread_over_the_pair", { let mut runtime = tokio::runtime::Builder::new_multi_thread(); runtime.worker_threads(2); runtime }, |dir| async move {
-            let data = crate::compose_test_support::data_in(&dir);
-            crate::compose_test_support::seed_default_model(&data);
-            let (core, outgoing) = core(&dir, &data).await;
-            let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
-            let mut halves = connector.open(&Target { id: "in-process".into() }).await.unwrap();
-            let initialize = serde_json::json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
+        crate::compose_test_support::in_child(
+            module_path!(),
+            "a_client_initializes_and_starts_a_thread_over_the_pair",
+            {
+                let mut runtime = tokio::runtime::Builder::new_multi_thread();
+                runtime.worker_threads(2);
+                runtime
+            },
+            |dir| async move {
+                let data = crate::compose_test_support::data_in(&dir);
+                crate::compose_test_support::seed_default_model(&data);
+                let (core, outgoing) = core(&dir, &data).await;
+                let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
+                let mut halves = connector.open(&Target { id: "in-process".into() }).await.unwrap();
+                let initialize = serde_json::json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
                 "clientInfo":{"name":"test","version":env!("CARGO_PKG_VERSION"),"kind":"cli"},"capabilities":{}}});
-            halves.writer.send(initialize.to_string()).await.unwrap();
-            let initialized = reply(&mut halves, 0).await;
-            assert!(initialized.get("result").is_some(), "{initialized}");
-            let start = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"thread/start","params":{"opId":"op-1","kind":"task"}});
-            halves.writer.send(start.to_string()).await.unwrap();
-            let started = reply(&mut halves, 1).await;
-            assert!(started.get("result").is_some(), "{started}");
-            shutdown.run().await;
-        });
+                halves.writer.send(initialize.to_string()).await.unwrap();
+                let initialized = reply(&mut halves, 0).await;
+                assert!(initialized.get("result").is_some(), "{initialized}");
+                let start = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"thread/start","params":{"opId":"op-1","kind":"task"}});
+                halves.writer.send(start.to_string()).await.unwrap();
+                let started = reply(&mut halves, 1).await;
+                assert!(started.get("result").is_some(), "{started}");
+                shutdown.run().await;
+            },
+        );
     }
     /// `compose` refuses to start while a domain method of the table is unclaimed, but the `thread` and `turn` namespaces are not claimed by
     /// domains: the server, the session directory and the session actor answer them, and nothing at startup checks that every row of the
@@ -366,48 +379,61 @@ mod tests {
     #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     fn every_thread_and_turn_method_of_the_table_reaches_a_handler() {
-        crate::compose_test_support::in_child(module_path!(), "every_thread_and_turn_method_of_the_table_reaches_a_handler", { let mut runtime = tokio::runtime::Builder::new_multi_thread(); runtime.worker_threads(2); runtime }, |dir| async move {
-            let data = crate::compose_test_support::data_in(&dir);
-            crate::compose_test_support::seed_default_model(&data);
-            let (core, outgoing) = core(&dir, &data).await;
-            let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
-            let mut halves = connector.open(&Target { id: "in-process".into() }).await.unwrap();
-            let initialize = serde_json::json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
+        crate::compose_test_support::in_child(
+            module_path!(),
+            "every_thread_and_turn_method_of_the_table_reaches_a_handler",
+            {
+                let mut runtime = tokio::runtime::Builder::new_multi_thread();
+                runtime.worker_threads(2);
+                runtime
+            },
+            |dir| async move {
+                let data = crate::compose_test_support::data_in(&dir);
+                crate::compose_test_support::seed_default_model(&data);
+                let (core, outgoing) = core(&dir, &data).await;
+                let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
+                let mut halves = connector.open(&Target { id: "in-process".into() }).await.unwrap();
+                let initialize = serde_json::json!({"jsonrpc":"2.0","id":0,"method":"initialize","params":{
                 "clientInfo":{"name":"test","version":env!("CARGO_PKG_VERSION"),"kind":"cli"},"capabilities":{}}});
-            halves.writer.send(initialize.to_string()).await.unwrap();
-            assert!(reply(&mut halves, 0).await.get("result").is_some());
-            let start = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"thread/start","params":{"opId":"op-1","kind":"task"}});
-            halves.writer.send(start.to_string()).await.unwrap();
-            let started = reply(&mut halves, 1).await;
-            let thread = started["result"]["thread"]["id"].as_str().unwrap_or_else(|| panic!("{started}")).to_owned();
+                halves.writer.send(initialize.to_string()).await.unwrap();
+                assert!(reply(&mut halves, 0).await.get("result").is_some());
+                let start = serde_json::json!({"jsonrpc":"2.0","id":1,"method":"thread/start","params":{"opId":"op-1","kind":"task"}});
+                halves.writer.send(start.to_string()).await.unwrap();
+                let started = reply(&mut halves, 1).await;
+                let thread = started["result"]["thread"]["id"].as_str().unwrap_or_else(|| panic!("{started}")).to_owned();
 
-            // The thread's own delete goes last, so every other row meets a live thread.
-            let methods = || mixdog_app_protocol::CLIENT_METHODS.iter().filter(|spec| matches!(spec.method.split('/').next(), Some("thread" | "turn")) && spec.method != "thread/start");
-            let ordered = methods().filter(|spec| spec.method != "thread/delete").chain(methods().filter(|spec| spec.method == "thread/delete"));
-            let samples = sample::Samples::new();
-            let mut unserved = Vec::new();
-            for (id, spec) in (2u64..).zip(ordered) {
-                // The schema's minimal valid params, so the server's decode passes and the request reaches the handler; the thread and op id are this
-                // test's. `threadId` is optional on some rows, and a request that names none is not addressed to a loaded thread.
-                let mut params = samples.params(spec.method);
-                params["threadId"] = serde_json::json!(thread);
-                if params.get("opId").is_some() {
-                    params["opId"] = serde_json::json!(format!("op-{id}"));
+                // The thread's own delete goes last, so every other row meets a live thread.
+                let methods = || {
+                    mixdog_app_protocol::CLIENT_METHODS
+                        .iter()
+                        .filter(|spec| matches!(spec.method.split('/').next(), Some("thread" | "turn")) && spec.method != "thread/start")
+                };
+                let ordered = methods().filter(|spec| spec.method != "thread/delete").chain(methods().filter(|spec| spec.method == "thread/delete"));
+                let samples = sample::Samples::new();
+                let mut unserved = Vec::new();
+                for (id, spec) in (2u64..).zip(ordered) {
+                    // The schema's minimal valid params, so the server's decode passes and the request reaches the handler; the thread and op id are this
+                    // test's. `threadId` is optional on some rows, and a request that names none is not addressed to a loaded thread.
+                    let mut params = samples.params(spec.method);
+                    params["threadId"] = serde_json::json!(thread);
+                    if params.get("opId").is_some() {
+                        params["opId"] = serde_json::json!(format!("op-{id}"));
+                    }
+                    let request = serde_json::json!({"jsonrpc":"2.0","id":id,"method":spec.method,"params":params});
+                    halves.writer.send(request.to_string()).await.unwrap();
+                    let answer = reply(&mut halves, id).await;
+                    let data = &answer["error"]["data"];
+                    let refused = answer["error"]["code"] == -32601
+                        || (data["reason"] == "capabilityUnavailable" && data["detail"] == "unclaimed")
+                        || (data["reason"] == "invalidParams" && data["path"] == "method");
+                    if refused {
+                        unserved.push(format!("{}: {answer}", spec.method));
+                    }
                 }
-                let request = serde_json::json!({"jsonrpc":"2.0","id":id,"method":spec.method,"params":params});
-                halves.writer.send(request.to_string()).await.unwrap();
-                let answer = reply(&mut halves, id).await;
-                let data = &answer["error"]["data"];
-                let refused = answer["error"]["code"] == -32601
-                    || (data["reason"] == "capabilityUnavailable" && data["detail"] == "unclaimed")
-                    || (data["reason"] == "invalidParams" && data["path"] == "method");
-                if refused {
-                    unserved.push(format!("{}: {answer}", spec.method));
-                }
-            }
-            shutdown.run().await;
-            assert!(unserved.is_empty(), "table methods no handler serves: {unserved:#?}");
-        });
+                shutdown.run().await;
+                assert!(unserved.is_empty(), "table methods no handler serves: {unserved:#?}");
+            },
+        );
     }
     #[test]
     fn a_close_line_names_the_reason_the_connection_ended_with() {
@@ -424,7 +450,11 @@ mod tests {
             let said = line(Some(code));
             assert!(said.contains(&format!("reason={reason} code={number} ")), "{said}");
         }
-        let window = ConnectionOrigin::Window { window_id: "w1".into(), tunnel: false, role: mixdog_app_server_transport::WindowRole::Server { connection_id: "c9".into() } };
+        let window = ConnectionOrigin::Window {
+            window_id: "w1".into(),
+            tunnel: false,
+            role: mixdog_app_server_transport::WindowRole::Server { connection_id: "c9".into() },
+        };
         assert_eq!(connection_kind(&window), "kind=window window=w1 role=server:c9");
     }
     #[tokio::test]
@@ -453,10 +483,7 @@ mod tests {
         for name in ["data1", "data2", "ctl"] {
             frames.send(frame(name)).await.unwrap();
         }
-        mixdog_rt::time::timeout(std::time::Duration::from_secs(60), handled_rx)
-            .await
-            .expect("the control frame waited behind the paused reader")
-            .unwrap();
+        mixdog_rt::time::timeout(std::time::Duration::from_secs(60), handled_rx).await.expect("the control frame waited behind the paused reader").unwrap();
         assert_eq!(*seen.lock().unwrap(), ["data1", "ctl"], "the data frame is held, the control frame is not");
         resume.send(()).unwrap();
         drop(frames);
@@ -472,10 +499,7 @@ mod tests {
         for name in ["data1", "ctl-close"] {
             frames.send(frame(name)).await.unwrap();
         }
-        let code = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), pumped)
-            .await
-            .expect("the close waited behind the paused reader")
-            .unwrap();
+        let code = mixdog_rt::time::timeout(std::time::Duration::from_secs(60), pumped).await.expect("the close waited behind the paused reader").unwrap();
         assert_eq!(code, Some(CloseCode::InvalidFrame));
         drop(resume);
     }
@@ -484,34 +508,43 @@ mod tests {
     #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     fn a_wedged_stop_step_does_not_hold_the_headless_shutdown() {
-        crate::compose_test_support::in_child(module_path!(), "a_wedged_stop_step_does_not_hold_the_headless_shutdown", tokio::runtime::Builder::new_current_thread(), |dir| async move {
-            let (core, outgoing) = core(&dir, &crate::compose_test_support::data_in(&dir)).await;
-            core.on_stop("wedged", std::future::pending());
-            let (_connector, shutdown) = serve_in_process(core, outgoing).unwrap();
-            let budgets = ReleaseBudgets { close_data_handles: std::time::Duration::ZERO, ..ReleaseBudgets::default() };
-            shutdown.run_with(budgets).await;
-        });
+        crate::compose_test_support::in_child(
+            module_path!(),
+            "a_wedged_stop_step_does_not_hold_the_headless_shutdown",
+            tokio::runtime::Builder::new_current_thread(),
+            |dir| async move {
+                let (core, outgoing) = core(&dir, &crate::compose_test_support::data_in(&dir)).await;
+                core.on_stop("wedged", std::future::pending());
+                let (_connector, shutdown) = serve_in_process(core, outgoing).unwrap();
+                let budgets = ReleaseBudgets { close_data_handles: std::time::Duration::ZERO, ..ReleaseBudgets::default() };
+                shutdown.run_with(budgets).await;
+            },
+        );
     }
     #[test]
     #[ignore = "integration: composes the real core, which needs a bundled Postgres runtime (MIXDOG_PG_RUNTIME); no network"]
     fn shutdown_stops_the_core_in_registration_order_and_refuses_new_clients() {
-        crate::compose_test_support::in_child(module_path!(), "shutdown_stops_the_core_in_registration_order_and_refuses_new_clients", tokio::runtime::Builder::new_current_thread(), |dir| async move {
-            let (core, outgoing) = core(&dir, &crate::compose_test_support::data_in(&dir)).await;
-            let order = Arc::new(Mutex::new(Vec::new()));
-            for name in ["trace", "usage", "sessions"] {
-                let order = order.clone();
-                core.on_stop(name, async move { order.lock().unwrap().push(name) });
-            }
-            let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
-            shutdown.run().await;
-            assert_eq!(*order.lock().unwrap(), ["trace", "usage", "sessions"]);
-            shutdown.run().await;
-            assert_eq!(order.lock().unwrap().len(), 3, "a second stop runs nothing again");
-            assert!(connector.open(&Target { id: "in-process".into() }).await.is_err());
-        });
+        crate::compose_test_support::in_child(
+            module_path!(),
+            "shutdown_stops_the_core_in_registration_order_and_refuses_new_clients",
+            tokio::runtime::Builder::new_current_thread(),
+            |dir| async move {
+                let (core, outgoing) = core(&dir, &crate::compose_test_support::data_in(&dir)).await;
+                let order = Arc::new(Mutex::new(Vec::new()));
+                for name in ["trace", "usage", "sessions"] {
+                    let order = order.clone();
+                    core.on_stop(name, async move { order.lock().unwrap().push(name) });
+                }
+                let (connector, shutdown) = serve_in_process(core, outgoing).unwrap();
+                shutdown.run().await;
+                assert_eq!(*order.lock().unwrap(), ["trace", "usage", "sessions"]);
+                shutdown.run().await;
+                assert_eq!(order.lock().unwrap().len(), 3, "a second stop runs nothing again");
+                assert!(connector.open(&Target { id: "in-process".into() }).await.is_err());
+            },
+        );
     }
 }
-
 
 impl Running {
     /// `outgoing` is the router `core` was composed with as its host channel
@@ -529,9 +562,7 @@ impl Running {
         )?;
         // One contained sink for every connection line, served or not: recording never reaches the connection that is recorded.
         let sink = contained(core.log_line_sink());
-        server
-            .set_connection_log(sink.clone())
-            .unwrap_or_else(|_| unreachable!("a server built a line above has no connection log yet"));
+        server.set_connection_log(sink.clone()).unwrap_or_else(|_| unreachable!("a server built a line above has no connection log yet"));
         // Sockets that never reach `drive` (refused, abandoned, handshake failed) leave their line through the same sink.
         hub.set_log(sink).unwrap_or_else(|_| unreachable!("a hub built a line above has no log yet"));
         let windows = hub.clone();
@@ -653,10 +684,7 @@ impl Shutdown {
 }
 /// Serves `core` to clients of this process: the connector opens in-process connections (scoped
 /// as `Origin::Local`, see `ConnectionOrigin::InProcess`), and `Shutdown::run` stops the core.
-pub fn serve_in_process(
-    core: Arc<ComposedCore>,
-    outgoing: Arc<Outgoing>,
-) -> Result<(Arc<dyn Connector>, Shutdown), LimitsViolation> {
+pub fn serve_in_process(core: Arc<ComposedCore>, outgoing: Arc<Outgoing>) -> Result<(Arc<dyn Connector>, Shutdown), LimitsViolation> {
     let running = Running::build(core.clone(), outgoing)?;
     let refusing = Arc::new(AtomicBool::new(false));
     let accept = {

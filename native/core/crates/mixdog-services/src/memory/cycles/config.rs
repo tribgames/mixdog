@@ -110,7 +110,6 @@ mod tests {
         assert!(!config.cycles_enabled());
     }
 
-
     #[test]
     fn an_env_flag_flips_only_on_the_documented_spellings() {
         for on in ["1", "true", "YES", " On "] {
@@ -125,7 +124,6 @@ mod tests {
         }
     }
 }
-
 
 /// The environment of this process.
 pub fn process_env() -> EnvReader {

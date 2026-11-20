@@ -13,11 +13,7 @@ use crate::scan_lang::{self, LANG_INFOS};
 
 /// Every language that produces graph nodes right now.
 pub fn languages() -> Vec<&'static str> {
-    LANG_INFOS
-        .iter()
-        .filter(|info| info.extract())
-        .map(|info| info.id)
-        .collect()
+    LANG_INFOS.iter().filter(|info| info.extract()).map(|info| info.id).collect()
 }
 
 /// Source extensions the dependents path-classifier should treat as files.

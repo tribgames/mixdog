@@ -84,7 +84,11 @@ fn extra_body_fields_layer_provider_then_model_and_go_before_the_stream_flags() 
     };
     let sent = rewriter(Protocol::OpenaiChat, config).rewrite(encoded.clone(), &request).expect("rewrites");
     let body = body_of(&sent);
-    assert_eq!((body["top_k"].clone(), body["min_p"].clone()), (json!(9), json!(0.1)), "the model's fields win over the provider's; another model's are not used");
+    assert_eq!(
+        (body["top_k"].clone(), body["min_p"].clone()),
+        (json!(9), json!(0.1)),
+        "the model's fields win over the provider's; another model's are not used"
+    );
     let keys: Vec<&String> = body.keys().collect();
     let position = |key: &str| keys.iter().position(|k| *k == key).unwrap_or_else(|| panic!("{key} in {keys:?}"));
     assert!(position("messages") < position("top_k") && position("top_k") < position("stream"), "{keys:?}");
@@ -95,7 +99,10 @@ fn extra_body_fields_layer_provider_then_model_and_go_before_the_stream_flags() 
 fn a_field_the_app_owns_is_never_replaced_by_the_configured_body() {
     let request = model_request(RequestOptions::default());
     let encoded = chat(&request);
-    let config = CustomRequestConfig { request_body: object(json!({ "model": "evil", "messages": [], "stream": false, "tools": [] })), ..CustomRequestConfig::default() };
+    let config = CustomRequestConfig {
+        request_body: object(json!({ "model": "evil", "messages": [], "stream": false, "tools": [] })),
+        ..CustomRequestConfig::default()
+    };
     let sent = rewriter(Protocol::OpenaiChat, config).rewrite(encoded.clone(), &request).expect("rewrites");
     assert_eq!(body_of(&sent), body_of(&encoded));
 }
@@ -106,7 +113,10 @@ fn headers_layer_provider_then_model_and_a_model_header_never_carries_credential
     let encoded = chat(&request);
     let config = CustomRequestConfig {
         headers: vec![("X-Team".into(), "alpha".into()), ("X-Mode".into(), "base".into())],
-        model_headers: vec![("m1".into(), vec![("x-mode".into(), "tuned".into()), ("Authorization".into(), "Bearer stolen".into()), ("Host".into(), "evil".into())]), ("other".into(), vec![("X-Other".into(), "1".into())])],
+        model_headers: vec![
+            ("m1".into(), vec![("x-mode".into(), "tuned".into()), ("Authorization".into(), "Bearer stolen".into()), ("Host".into(), "evil".into())]),
+            ("other".into(), vec![("X-Other".into(), "1".into())]),
+        ],
         ..CustomRequestConfig::default()
     };
     let sent = rewriter(Protocol::OpenaiChat, config).rewrite(encoded.clone(), &request).expect("rewrites");

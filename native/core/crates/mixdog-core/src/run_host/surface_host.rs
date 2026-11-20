@@ -36,68 +36,52 @@ use mixdog_core_ports::ports::route::LiveRoute;
 use mixdog_core_ports::ports::threads::ThreadState;
 use mixdog_core_ports::ports::tools_status::SurfaceHost;
 use mixdog_core_ports::ports::tools_status::surface_of_header;
+use mixdog_core_prompt::prompt::blocks::SystemBlocks;
 use mixdog_core_session::session::EmptyToolSurface;
 use mixdog_core_session::session::NewThreadTools;
 use mixdog_core_session::session::agent_registry::LiveSessions;
 use mixdog_core_session::session::session_options::LEAD_DISALLOWED_TOOLS;
 use mixdog_core_session::session::session_options::write_lead_record;
-use mixdog_core_session::session::thread_switches::WorkflowTarget;
-use sha2::Digest as _;
-use sha2::Sha256;
 use mixdog_core_session::session::thread_settings::has_conversation_messages;
 use mixdog_core_session::session::thread_settings::normalize_tool_mode;
 use mixdog_core_session::session::thread_settings::tool_spec_for_mode;
 use mixdog_core_session::session::thread_switches::WorkflowSurface;
-use mixdog_core_prompt::prompt::blocks::SystemBlocks;
+use mixdog_core_session::session::thread_switches::WorkflowTarget;
 use mixdog_core_session::session::thread_switches::coding_lead;
 use mixdog_core_session::session::thread_switches::current_mode;
 use mixdog_core_session::session::thread_switches::workflow_meta;
 use mixdog_js::js_trim;
-use mixdog_store::agent_mode::session_mode_of;
-use mixdog_tools::policy::surface::AGENT_DENIED_TOOLS;
 use mixdog_mcp::McpHub;
 use mixdog_mcp::hub::normalize_scope;
 use mixdog_mcp::mcp_glue::McpScopes;
+use mixdog_store::agent_mode::session_mode_of;
 use mixdog_store::schema::record::Header;
 use mixdog_store::schema::record::HeaderChange;
 use mixdog_tools::orch::status::StatusSurface;
 use mixdog_tools::orch::util::PortError;
 use mixdog_tools::policy::ConnectorPermissions;
 use mixdog_tools::policy::Withdrawal;
+use mixdog_tools::policy::surface::AGENT_DENIED_TOOLS;
 use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
+use sha2::Digest as _;
+use sha2::Sha256;
 
 use super::agent_variants::VariantError;
 use super::agent_variants::agent_definitions;
-use super::agent_variants::check_pool;
 use super::agent_variants::bind_agent_docs;
+use super::agent_variants::check_pool;
 use super::deferred_manifest::apply_initial_manifest;
 use super::prompt_rebuild::PromptRebuild;
 use super::prompt_rebuild::RebuildRequest;
 use super::prompt_session::SessionPrompt;
-use mixdog_core_prompt::prompt::notice::OwnedSections;
-use mixdog_core_prompt::prompt::notice::note_presented;
-use mixdog_core_prompt::prompt::notice::stage_prompt_settings_notice;
-use mixdog_ai::service::routes::provider_tail_cache_lifetime_ms;
 use super::prompt_session::refresh_environment;
-use super::tool_availability::Moved;
-use super::tool_availability::stage_connector_availability;
-use super::turn_settings::TurnSettings;
-use super::tool_availability::missing_definitions;
-use super::tool_availability::stage_tool_availability;
-use super::tool_pool::model_surface::workflow_disallows_agent_tool;
-use super::workflow_surface::RunWorkflowSurface;
-use super::workflow_surface::denials::reaction_disabled;
 use super::reactions::REACTION_TOOL_NAME;
 use super::route_surface::ResumedSurface;
 use super::route_surface::header_diff;
 use super::route_surface::is_agent_owner;
 use super::route_surface::load_tool_def;
-use super::tool_exposure::tool_exposure_migration_needed;
-use super::tool_migration::has_unanswered_tool_calls;
-use super::tool_migration::invalidate_for_tool_surface_migration;
-use super::tool_migration::mark_tool_surface_migrated;
 use super::session_tools::BRIDGE;
 use super::session_tools::Resolve;
 use super::session_tools::SessionMcp;
@@ -107,19 +91,35 @@ use super::session_tools::internal_tools;
 use super::session_tools::resolve;
 use super::session_tools::route_rank;
 use super::session_tools::session_doc;
+use super::tool_availability::Moved;
+use super::tool_availability::missing_definitions;
+use super::tool_availability::stage_connector_availability;
+use super::tool_availability::stage_tool_availability;
+use super::tool_exposure::tool_exposure_migration_needed;
+use super::tool_migration::has_unanswered_tool_calls;
+use super::tool_migration::invalidate_for_tool_surface_migration;
+use super::tool_migration::mark_tool_surface_migrated;
 use super::tool_pool::model_surface::SurfaceInputs;
 use super::tool_pool::model_surface::model_internal_tools;
 use super::tool_pool::model_surface::workflow_allows_agents;
+use super::tool_pool::model_surface::workflow_disallows_agent_tool;
 use super::tool_surface::ApplyOptions;
+use super::tool_surface::SurfaceHost as ToolSurfaceHost;
 use super::tool_surface::ToolSurface;
 use super::tool_surface::clean;
-use super::tool_surface::parse_tool_selection;
-use super::tool_surface::truthy;
 use super::tool_surface::filter_disallowed_tools;
+use super::tool_surface::parse_tool_selection;
 use super::tool_surface::tool_name;
-use super::tool_surface::SurfaceHost as ToolSurfaceHost;
+use super::tool_surface::truthy;
 use super::turn_reminders::AgentEntry;
 use super::turn_reminders::agent_list_entries;
+use super::turn_settings::TurnSettings;
+use super::workflow_surface::RunWorkflowSurface;
+use super::workflow_surface::denials::reaction_disabled;
+use mixdog_ai::service::routes::provider_tail_cache_lifetime_ms;
+use mixdog_core_prompt::prompt::notice::OwnedSections;
+use mixdog_core_prompt::prompt::notice::note_presented;
+use mixdog_core_prompt::prompt::notice::stage_prompt_settings_notice;
 
 /// A tool as the session layer holds it (Node's tool object): its definition, with `name`, `title`,
 /// `trigger`, `public` (only `false`), `description`, `inputSchema` and `annotations`, each only where
@@ -331,7 +331,14 @@ impl LeadSurfaceHost {
     pub fn new(sources: SurfaceSources) -> Result<Self, VariantError> {
         check_pool(&sources.pool)?;
         let agent_defs = agent_definitions(&sources.pool);
-        Ok(Self { mode: normalize_tool_mode(&sources.mode), sources, agent_defs, applied: std::sync::Mutex::default(), mcp_state: std::sync::Mutex::default(), creating: std::sync::Mutex::default() })
+        Ok(Self {
+            mode: normalize_tool_mode(&sources.mode),
+            sources,
+            agent_defs,
+            applied: std::sync::Mutex::default(),
+            mcp_state: std::sync::Mutex::default(),
+            creating: std::sync::Mutex::default(),
+        })
     }
 
     /// `availabilityKey()`: the config installed, the surface generation and the gate list.
@@ -364,7 +371,8 @@ impl LeadSurfaceHost {
     /// a hidden agent.
     fn honored_allowlist(&self, header: &Header) -> Option<Vec<String>> {
         let agent = header.get("promptIdentity").and_then(|identity| identity.get("agent")).and_then(Value::as_str).filter(|agent| !agent.is_empty());
-        let honored = header.get("schemaAllowedTools").is_some_and(Value::is_array) && (!is_agent_owner(&Value::Object(header.clone())) || (self.sources.hidden_agent)(agent));
+        let honored = header.get("schemaAllowedTools").is_some_and(Value::is_array)
+            && (!is_agent_owner(&Value::Object(header.clone())) || (self.sources.hidden_agent)(agent));
         honored.then(|| strings(header.get("schemaAllowedTools")))
     }
 
@@ -450,7 +458,12 @@ impl LeadSurfaceHost {
                 session[key] = Value::Array(kept);
             }
         }
-        let standalone = finalize_docs(s.workflow.internal_tools(header).await.map_err(String::from)?, allowed.as_deref(), &denied, owner_is_agent.then_some(&self.agent_defs));
+        let standalone = finalize_docs(
+            s.workflow.internal_tools(header).await.map_err(String::from)?,
+            allowed.as_deref(),
+            &denied,
+            owner_is_agent.then_some(&self.agent_defs),
+        );
         if let Some(items) = session.get("tools").and_then(Value::as_array) {
             let kept = finalize_docs(items.clone(), allowed.as_deref(), &denied, owner_is_agent.then_some(&self.agent_defs));
             session["tools"] = Value::Array(kept);
@@ -461,7 +474,15 @@ impl LeadSurfaceHost {
         if identity.is_some() {
             let names = |key: &str| doc_names(session.get(key));
             let has_git_tool = names("tools").iter().chain(names("deferredToolCatalog").iter()).any(|name| name == "git");
-            let request = RebuildRequest { header: header.clone(), target: target.clone(), denied: denied.clone(), allow: allowed.clone(), provider: provider.clone(), model: model.clone(), has_git_tool };
+            let request = RebuildRequest {
+                header: header.clone(),
+                target: target.clone(),
+                denied: denied.clone(),
+                allow: allowed.clone(),
+                provider: provider.clone(),
+                model: model.clone(),
+                has_git_tool,
+            };
             let composed = s.prompt.rebuild(request).await?;
             session["messages"] = Value::Array(composed.blocks.node_messages());
             prompt = Some(composed);
@@ -580,7 +601,8 @@ impl LeadSurfaceHost {
         }
         let allowed = self.honored_allowlist(header);
         let has_git_tool = doc_names(header.get("tools")).iter().chain(doc_names(header.get("deferredToolCatalog")).iter()).any(|name| name == "git");
-        let prompt = s.prompt.rebuild(RebuildRequest { header: header.clone(), target, denied: denied.clone(), allow: allowed, provider, model, has_git_tool }).await?;
+        let prompt =
+            s.prompt.rebuild(RebuildRequest { header: header.clone(), target, denied: denied.clone(), allow: allowed, provider, model, has_git_tool }).await?;
         Ok((prompt, denied))
     }
 
@@ -595,24 +617,28 @@ impl LeadSurfaceHost {
         let s = &self.sources;
         loop {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
-            let had_core_memory = header.get("promptSettings")
+            let had_core_memory = header
+                .get("promptSettings")
                 .and_then(|settings| settings.pointer("/texts/coreMemory"))
                 .and_then(Value::as_str)
                 .is_some_and(|text| !text.is_empty());
             if !(core_memory_empty && had_core_memory)
-                && !compaction_cold(&header) && !tail_expired(&header, s.clock.now_ms())
+                && !compaction_cold(&header)
+                && !tail_expired(&header, s.clock.now_ms())
                 && !self.reminder_dropped(thread, &header).await?
             {
                 return Ok(());
             }
             let workflow_id = header.get("workflow").and_then(|workflow| workflow.get("id")).and_then(Value::as_str).unwrap_or_default();
-            let (composed, denied) = self.composed(thread, &header, workflow_id, Some(current_mode(&header).as_str())).await.map_err(|message| failed("tools", message))?;
+            let (composed, denied) =
+                self.composed(thread, &header, workflow_id, Some(current_mode(&header).as_str())).await.map_err(|message| failed("tools", message))?;
             let next = self.folded_prompt(thread, &header, &composed, &denied).map_err(|message| failed("tools", message))?;
             let change = header_diff(&header, &next);
             if change.set.is_empty() && change.unset.is_empty() {
                 return Ok(());
             }
-            let expect: Map<String, Value> = change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
+            let expect: Map<String, Value> =
+                change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
             if s.threads.patch_header_if(thread, expect, change.set, change.unset).await.map_err(|error| port(thread, error))?.is_none() {
                 return Ok(());
             }
@@ -624,12 +650,18 @@ impl LeadSurfaceHost {
     async fn reminder_dropped(&self, thread: &ThreadId, header: &Header) -> Result<bool, CoreError> {
         let overlays = [("workflowOverlay", "workflowSwitch"), ("orchestrationModeOverlay", "orchestrationModeSwitch")];
         let content = |overlay: &str| clean(header.get(overlay).and_then(|overlay| overlay.get("content")));
-        let dropped: Vec<String> = overlays.iter().filter(|(overlay, notice)| truthy(header.get(*overlay)) && !truthy(header.get(*notice))).map(|(overlay, _)| content(overlay)).collect();
+        let dropped: Vec<String> = overlays
+            .iter()
+            .filter(|(overlay, notice)| truthy(header.get(*overlay)) && !truthy(header.get(*notice)))
+            .map(|(overlay, _)| content(overlay))
+            .collect();
         if dropped.is_empty() {
             return Ok(false);
         }
         let rows = self.sources.messages.messages(thread).await.map_err(|error| port(thread, error))?;
-        let holds = |content: &str| !content.is_empty() && rows.iter().any(|row| row.get("role").and_then(Value::as_str) != Some("system") && message_text(row).contains(content));
+        let holds = |content: &str| {
+            !content.is_empty() && rows.iter().any(|row| row.get("role").and_then(Value::as_str) != Some("system") && message_text(row).contains(content))
+        };
         Ok(dropped.iter().any(|content| !holds(content)))
     }
 
@@ -708,14 +740,19 @@ impl LeadSurfaceHost {
             let mut moved = None;
             if tools {
                 let feature_denied = s.feature_denied.denied(Some(&header)).await.map_err(|message| failed("tools", message))?;
-                let candidates = if missing_definitions(&next, &feature_denied).is_empty() { Vec::new() } else { self.definition_candidates(thread, &header).await.map_err(|message| failed("tools", message))? };
+                let candidates = if missing_definitions(&next, &feature_denied).is_empty() {
+                    Vec::new()
+                } else {
+                    self.definition_candidates(thread, &header).await.map_err(|message| failed("tools", message))?
+                };
                 moved = stage_tool_availability(&mut next, &feature_denied, &candidates, s.clock.now_ms());
             }
             let change = header_diff(&header, &next);
             if change.set.is_empty() && change.unset.is_empty() {
                 return Ok(Staged { moved, connectors, header });
             }
-            let expect: Map<String, Value> = change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
+            let expect: Map<String, Value> =
+                change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
             if s.threads.patch_header_if(thread, expect, change.set, change.unset).await.map_err(|error| port(thread, error))?.is_none() {
                 return Ok(Staged { moved, connectors, header: next });
             }
@@ -793,8 +830,7 @@ impl TurnSettings for LeadSurfaceHost {
         self.stage(thread, !unchanged, sections.as_ref().filter(|_| !unchanged)).await.map_err(described)?;
         // After the gates: a tool opened since the compaction is in the catalog the fold builds from.
         if identity {
-            self.fold_prompt_if_cold(thread, sections.as_ref().is_some_and(|value| value.core_memory.is_empty()))
-                .await.map_err(described)?;
+            self.fold_prompt_if_cold(thread, sections.as_ref().is_some_and(|value| value.core_memory.is_empty())).await.map_err(described)?;
         }
         self.note_applied(thread, key);
         self.fold_mcp_surface(thread).await.map_err(described)
@@ -840,8 +876,15 @@ impl TurnSettings for LeadSurfaceHost {
                 return Ok(None);
             };
             let change = header_diff(&header, &next);
-            let expect: Map<String, Value> = change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
-            if s.threads.patch_header_if(thread, expect, change.set, change.unset).await.map_err(|error| port(thread, error)).map_err(|error| format!("{error:?}"))?.is_none() {
+            let expect: Map<String, Value> =
+                change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
+            if s.threads
+                .patch_header_if(thread, expect, change.set, change.unset)
+                .await
+                .map_err(|error| port(thread, error))
+                .map_err(|error| format!("{error:?}"))?
+                .is_none()
+            {
                 return Ok(Some(next));
             }
         }
@@ -871,14 +914,15 @@ impl LeadSurfaceHost {
         let mut grace_deadline = None;
         loop {
             let header = s.threads.header(thread).await.map_err(|error| port(thread, error))?;
-            if first_turn && truthy(header.get("deferredInitialRefreshPending"))
-                && (header.get("owner").and_then(Value::as_str) == Some("agent")
-                    || header.get("visibility").and_then(Value::as_str) == Some("agent-only"))
+            if first_turn
+                && truthy(header.get("deferredInitialRefreshPending"))
+                && (header.get("owner").and_then(Value::as_str) == Some("agent") || header.get("visibility").and_then(Value::as_str) == Some("agent-only"))
                 && let Some(scope) = header_scope(&header)
                 && waited_scope.as_deref() != Some(scope)
             {
                 let deadline = *grace_deadline.get_or_insert_with(|| {
-                    let grace_ms = std::env::var("MIXDOG_MCP_AGENT_GRACE_MS").ok()
+                    let grace_ms = std::env::var("MIXDOG_MCP_AGENT_GRACE_MS")
+                        .ok()
                         .filter(|value| !value.is_empty())
                         .and_then(|value| {
                             let value = value.trim();
@@ -901,7 +945,8 @@ impl LeadSurfaceHost {
                 self.note_mcp_state(thread, state);
                 return Ok(header);
             }
-            let expect: Map<String, Value> = change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
+            let expect: Map<String, Value> =
+                change.set.keys().chain(change.unset.iter()).map(|key| (key.clone(), header.get(key).cloned().unwrap_or(Value::Null))).collect();
             // A header that moved meanwhile is read and decided again; the state is kept only for a fold that landed.
             if s.threads.patch_header_if(thread, expect, change.set, change.unset).await.map_err(|error| port(thread, error))?.is_none() {
                 self.note_mcp_state(thread, state);
@@ -1242,7 +1287,14 @@ impl LeadSurfaceHost {
         let resolved = resolve(
             &s.pool,
             s.mcp.tools(scope, &cwd),
-            &Resolve { tool_spec: header.get("toolSpec"), model: &model, skills_listed, agent_owned: false, schema_allowed: allowed.as_deref(), disallowed: &denied },
+            &Resolve {
+                tool_spec: header.get("toolSpec"),
+                model: &model,
+                skills_listed,
+                agent_owned: false,
+                schema_allowed: allowed.as_deref(),
+                disallowed: &denied,
+            },
         );
         // `schemaOmittedToolNames`: with a caller allowlist, every routed tool it hides is omitted from BP1 too.
         let mut omit = denied.clone();
@@ -1331,7 +1383,8 @@ fn message_text(message: &Value) -> String {
 /// A compaction is a cold point: its pass marked it (`compactionFoldPending`) or parked a compaction intent for the next send
 /// (`COLD_INTENTS` of `agent-profile-fold.mjs`).
 fn compaction_cold(header: &Header) -> bool {
-    header.get("compactionFoldPending") == Some(&Value::Bool(true)) || matches!(header.get("pendingCacheBreakIntent").and_then(Value::as_str), Some("post_turn_compaction" | "manual_compaction"))
+    header.get("compactionFoldPending") == Some(&Value::Bool(true))
+        || matches!(header.get("pendingCacheBreakIntent").and_then(Value::as_str), Some("post_turn_compaction" | "manual_compaction"))
 }
 
 /// `sessionTailCacheExpired`: the provider's cache already let the message tail expire since the session's last send.

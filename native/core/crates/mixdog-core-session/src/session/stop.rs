@@ -73,7 +73,12 @@ impl WorkRef {
 
     /// The hand-back a Stop before the run began owes.
     pub fn restore(&self) -> Option<Restore> {
-        self.handback.as_ref().filter(|handback| !handback.text.is_empty()).map(|handback| Restore { text: handback.text.clone(), ids: self.restore_ids(), device: handback.device.clone(), at: 0 })
+        self.handback.as_ref().filter(|handback| !handback.text.is_empty()).map(|handback| Restore {
+            text: handback.text.clone(),
+            ids: self.restore_ids(),
+            device: handback.device.clone(),
+            at: 0,
+        })
     }
 
     /// The `work_stop{stopped}` body (`mixdog_store::work_stops`). `row`: the stopped run's input row, which a hand-back takes out
@@ -395,11 +400,8 @@ pub(crate) fn decide(facts: &Facts, restore_prompt: Option<bool>, canceller: &st
     };
     let handed_over = cross && !restore_text.is_empty();
     // `reclaimInFlightPrompt` runs for a prompt handed back to a composer only: no work is put back in the queue.
-    let reclaim = (!restore_text.is_empty()).then(|| Reclaim {
-        text: restore_text.clone(),
-        ids: facts.ids.clone(),
-        handoff: handed_over.then(|| facts.device.clone()),
-    });
+    let reclaim =
+        (!restore_text.is_empty()).then(|| Reclaim { text: restore_text.clone(), ids: facts.ids.clone(), handoff: handed_over.then(|| facts.device.clone()) });
     Decision {
         reason,
         restored_ids: if restore_text.is_empty() || handed_over { Vec::new() } else { facts.ids.clone() },
@@ -424,7 +426,14 @@ mod tests {
     /// reclaim, so the cancelled end is shown and nothing is put back in the queue.
     #[test]
     fn a_second_stop_before_the_turn_ended_keeps_the_first_stops_hand_back() {
-        let user = PromptState::new(Facts { text: "p".into(), ids: vec!["s".into()], device: "A".into(), restorable: true, entry: json!({ "options": {} }), ..Facts::default() });
+        let user = PromptState::new(Facts {
+            text: "p".into(),
+            ids: vec!["s".into()],
+            device: "A".into(),
+            restorable: true,
+            entry: json!({ "options": {} }),
+            ..Facts::default()
+        });
         let first = user.decide_and_record(None, "A", false, false);
         assert!(first.reclaim.is_some());
         let second = user.decide_and_record(None, "A", false, false);
@@ -438,13 +447,4 @@ mod tests {
         }
         assert!(kickoff.snapshot().user_stopped && kickoff.snapshot().reclaim.is_none());
     }
-
-
-
-
-
-
-
-
-
 }

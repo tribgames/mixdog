@@ -6,10 +6,7 @@
 
 // The migration is a sanctioned blocking-I/O home (RL §13): it runs once, before the
 // runtime, on its own thread.
-#![allow(
-    clippy::disallowed_types,
-    reason = "one-time migration: the index database read back directly on the migration thread"
-)]
+#![allow(clippy::disallowed_types, reason = "one-time migration: the index database read back directly on the migration thread")]
 
 use std::collections::BTreeMap;
 use std::path::Path;
@@ -81,18 +78,12 @@ fn expected(cx: &ItemContext<'_>, sessions: &[String]) -> Result<BTreeMap<String
 }
 
 fn projected(db: &Path) -> Result<BTreeMap<String, (u64, u64)>> {
-    let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY)
-        .map_err(|e| Blocked::sqlite("open", db, e))?;
-    let mut stmt = conn
-        .prepare("SELECT id, row_count, projected_offset FROM sessions")
-        .map_err(|e| Blocked::sqlite("read", db, e))?;
+    let conn = Connection::open_with_flags(db, OpenFlags::SQLITE_OPEN_READ_ONLY).map_err(|e| Blocked::sqlite("open", db, e))?;
+    let mut stmt = conn.prepare("SELECT id, row_count, projected_offset FROM sessions").map_err(|e| Blocked::sqlite("read", db, e))?;
     let rows = stmt
-        .query_map([], |r| {
-            Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)? as u64)))
-        })
+        .query_map([], |r| Ok((r.get::<_, String>(0)?, (r.get::<_, i64>(1)? as u64, r.get::<_, i64>(2)? as u64))))
         .map_err(|e| Blocked::sqlite("read", db, e))?;
-    rows.collect::<std::result::Result<_, _>>()
-        .map_err(|e| Blocked::sqlite("read", db, e))
+    rows.collect::<std::result::Result<_, _>>().map_err(|e| Blocked::sqlite("read", db, e))
 }
 
 fn sessions(cx: &ItemContext<'_>) -> Vec<String> {
@@ -109,11 +100,7 @@ fn held(sessions: &[String]) -> String {
 /// included).
 fn adopt_all(cx: &ItemContext<'_>, index: &dyn ServingIndex, sessions: &[String]) -> Result<()> {
     for id in sessions {
-        index.adopt(&cx.roots.data, id).map_err(|os_error| Blocked::Io {
-            op: "adopt_session",
-            path: cx.roots.data.join("sessions").join(id),
-            os_error,
-        })?;
+        index.adopt(&cx.roots.data, id).map_err(|os_error| Blocked::Io { op: "adopt_session", path: cx.roots.data.join("sessions").join(id), os_error })?;
     }
     Ok(())
 }
@@ -121,14 +108,7 @@ fn adopt_all(cx: &ItemContext<'_>, index: &dyn ServingIndex, sessions: &[String]
 impl ItemDriver for IndexDriver {
     fn plan(&self, roots: &MigrationRoots, sink: &mut PlanSink) -> Result<()> {
         let _ = roots;
-        sink.add_item(plan::item(
-            INDEX_KEY,
-            KindGroup::Data,
-            ItemKind::Index,
-            Contract::Convert,
-            Vec::new(),
-            Some(Target::Index),
-        )?)
+        sink.add_item(plan::item(INDEX_KEY, KindGroup::Data, ItemKind::Index, Contract::Convert, Vec::new(), Some(Target::Index))?)
     }
 
     fn owns(&self, item: &ManifestItem) -> bool {
@@ -143,28 +123,16 @@ impl ItemDriver for IndexDriver {
         if let Some(index) = self.projector.serving() {
             let sessions = sessions(cx);
             adopt_all(cx, index, &sessions)?;
-            return Ok(Staged::Output {
-                output_sha256: held(&sessions),
-                replaced_surrogates: 0,
-            });
+            return Ok(Staged::Output { output_sha256: held(&sessions), replaced_surrogates: 0 });
         }
         let stage = cx.stage_dir(item.key.as_str());
         durable::create_dir_all(&stage)?;
         let db = stage.join(STAGED_FILE);
         durable::step(durable::Step::Project, &db, &[]);
-        self.projector
-            .project(&cx.roots.data, &db, &sessions(cx))
-            .map_err(|os_error| Blocked::Io {
-                op: "project_index",
-                path: db.clone(),
-                os_error,
-            })?;
+        self.projector.project(&cx.roots.data, &db, &sessions(cx)).map_err(|os_error| Blocked::Io { op: "project_index", path: db.clone(), os_error })?;
         durable::step(durable::Step::Projected, &db, &[]);
         durable::sync_file(&db)?;
-        Ok(Staged::Output {
-            output_sha256: durable::hash_file(&db)?.1,
-            replaced_surrogates: 0,
-        })
+        Ok(Staged::Output { output_sha256: durable::hash_file(&db)?.1, replaced_surrogates: 0 })
     }
 
     fn publish(&self, cx: &ItemContext<'_>, item: &ManifestItem, staged: &StagedEntry) -> Result<()> {
@@ -179,16 +147,10 @@ impl ItemDriver for IndexDriver {
             if durable::exists(&target)? && durable::hash_file(&target)?.1 == staged.output_sha256.as_str() {
                 return Ok(());
             }
-            return Err(Blocked::TargetConflict {
-                key: item.key.as_str().into(),
-                path: target,
-            });
+            return Err(Blocked::TargetConflict { key: item.key.as_str().into(), path: target });
         }
         if durable::exists(&target)? {
-            return Err(Blocked::TargetConflict {
-                key: item.key.as_str().into(),
-                path: target,
-            });
+            return Err(Blocked::TargetConflict { key: item.key.as_str().into(), path: target });
         }
         durable::create_dir_all(target.parent().expect("index dir"))?;
         durable::durable_rename(&stage, &target)
@@ -204,9 +166,7 @@ impl ItemDriver for IndexDriver {
             if let Some(missing) = sessions.iter().find(|id| !have.contains_key(*id)) {
                 return Err(Blocked::journal(format!("the serving index holds no row of {missing}")));
             }
-            return Ok(Verdict::Verified {
-                digest: Some(crate::json::hex_digest(&held(&sessions))),
-            });
+            return Ok(Verdict::Verified { digest: Some(crate::json::hex_digest(&held(&sessions))) });
         }
         let want = expected(cx, &sessions(cx))?;
         let have = projected(&db)?;
@@ -216,13 +176,8 @@ impl ItemDriver for IndexDriver {
                 detail: format!("{} catalog rows, {} sessions; projection differs", have.len(), want.len()),
             });
         }
-        let text = want
-            .iter()
-            .map(|(id, (rows, size))| format!("{id} {rows} {size}\n"))
-            .collect::<String>();
-        Ok(Verdict::Verified {
-            digest: Some(crate::json::hex_digest(&durable::sha256_hex(text.as_bytes()))),
-        })
+        let text = want.iter().map(|(id, (rows, size))| format!("{id} {rows} {size}\n")).collect::<String>();
+        Ok(Verdict::Verified { digest: Some(crate::json::hex_digest(&durable::sha256_hex(text.as_bytes()))) })
     }
 
     fn withdraw(&self, cx: &ItemContext<'_>, _item: &ManifestItem) -> Result<()> {

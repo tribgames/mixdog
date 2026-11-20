@@ -67,39 +67,123 @@ type Site = (&'static str, &'static [u64], &'static [&'static str], Option<&'sta
 
 const SITES: &[Site] = &[
     ("grokDiscovery", &[15000], &["grok-oauth discovery timed out after 15000ms"], Some("grok-oauth discovery timed out after 15000ms"), &[]),
-    ("grokRefresh", &[30000, 30000, 30000], &["grok-oauth refresh timed out after 30000ms", "grok-oauth refresh timed out after 30000ms", "grok-oauth refresh timed out after 30000ms"], Some("grok-oauth refresh timed out after 30000ms"), &[]),
-    ("grokCodeExchange", &[30000], &["The operation was aborted due to timeout"], Some("[grok-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."), &[]),
-    ("anthropicRefresh", &[30000, 4000], &["This operation was aborted", "The operation was aborted due to timeout"], Some("Anthropic OAuth token refresh timed out after 30000ms"), &[]),
+    (
+        "grokRefresh",
+        &[30000, 30000, 30000],
+        &["grok-oauth refresh timed out after 30000ms", "grok-oauth refresh timed out after 30000ms", "grok-oauth refresh timed out after 30000ms"],
+        Some("grok-oauth refresh timed out after 30000ms"),
+        &[],
+    ),
+    (
+        "grokCodeExchange",
+        &[30000],
+        &["The operation was aborted due to timeout"],
+        Some("[grok-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."),
+        &[],
+    ),
+    (
+        "anthropicRefresh",
+        &[30000, 4000],
+        &["This operation was aborted", "The operation was aborted due to timeout"],
+        Some("Anthropic OAuth token refresh timed out after 30000ms"),
+        &[],
+    ),
     ("antigravityRefresh", &[30000], &["The operation was aborted due to timeout"], Some("The operation was aborted due to timeout"), &[]),
     ("geminiModelList", &[60000], &["The operation was aborted due to timeout"], Some("The operation was aborted due to timeout"), &[]),
-    ("mimoProbe", &[15000, 15000, 15000], &["The operation was aborted due to timeout", "The operation was aborted due to timeout", "The operation was aborted due to timeout"], Some("The operation was aborted due to timeout"), &[]),
+    (
+        "mimoProbe",
+        &[15000, 15000, 15000],
+        &["The operation was aborted due to timeout", "The operation was aborted due to timeout", "The operation was aborted due to timeout"],
+        Some("The operation was aborted due to timeout"),
+        &[],
+    ),
     ("commandCodeIdentity", &[15000], &["The operation was aborted due to timeout"], Some("The operation was aborted due to timeout"), &[]),
     ("museKey", &[20000], &["The operation was aborted due to timeout"], Some("The operation was aborted due to timeout"), &[]),
-    ("devinExchange", &[30000], &["The operation was aborted due to timeout"], Some("DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."), &[]),
+    (
+        "devinExchange",
+        &[30000],
+        &["The operation was aborted due to timeout"],
+        Some(
+            "DEVIN_OAUTH_TOKEN_EXCHANGE_FAILED: Devin token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY.",
+        ),
+        &[],
+    ),
     ("compatModelList", &[10000], &["groq model list timed out after 10000ms"], Some("groq model list timed out after 10000ms"), &[]),
     ("anthropicModelList", &[10000], &["The operation was aborted due to timeout"], None, &[]),
-    ("customOpenaiChatListing", &[10000, 10000], &["custom-listing model list timed out after 10000ms"], Some("custom-listing model list timed out after 10000ms"), &[]),
+    (
+        "customOpenaiChatListing",
+        &[10000, 10000],
+        &["custom-listing model list timed out after 10000ms"],
+        Some("custom-listing model list timed out after 10000ms"),
+        &[],
+    ),
     ("customAnthropicListing", &[10000], &["The operation was aborted due to timeout"], Some("The operation was aborted due to timeout"), &[]),
     ("customOpenaiChatProbe", &[10000, 60000, 60000], &["This operation was aborted"], None, &[]),
     ("customAnthropicProbe", &[60000, 60000], &["This operation was aborted"], None, &[]),
     ("devinUnary", &[], &["fetch failed"], Some("Devin connection failed: fetch failed"), &[]),
     ("vertexToken", &[], &["fetch failed"], Some("Vertex AI authentication failed: fetch failed"), &[]),
     ("antigravityVersion", &[5000], &["The operation was aborted due to timeout"], None, &[]),
-    ("modelsDev", &[10000], &["The operation was aborted due to timeout"], None, &["[model-catalog] models.dev fetch failed: The operation was aborted due to timeout"]),
+    (
+        "modelsDev",
+        &[10000],
+        &["The operation was aborted due to timeout"],
+        None,
+        &["[model-catalog] models.dev fetch failed: The operation was aborted due to timeout"],
+    ),
     ("cursorRefresh", &[30000], &["The operation was aborted due to timeout"], Some("The operation was aborted due to timeout"), &[]),
-    ("openaiRefresh", &[30000], &["This operation was aborted"], Some("OpenAI OAuth token refresh failed (OpenAI OAuth token refresh timed out after 30000ms). Re-authenticate via provider login."), &[]),
+    (
+        "openaiRefresh",
+        &[30000],
+        &["This operation was aborted"],
+        Some("OpenAI OAuth token refresh failed (OpenAI OAuth token refresh timed out after 30000ms). Re-authenticate via provider login."),
+        &[],
+    ),
     ("openaiCatalog", &[4000, 10000], &["The operation was aborted due to timeout", "The operation was aborted due to timeout"], None, &[]),
     ("museDeviceAuth", &[30000], &["The operation was aborted due to timeout"], Some("[muse-code-oauth] request to auth.meta.com timed out"), &[]),
     ("antigravityCodeExchange", &[30000], &["The operation was aborted due to timeout"], Some("The operation was aborted due to timeout"), &[]),
     ("antigravityProject", &[30000], &["The operation was aborted due to timeout"], Some("The operation was aborted due to timeout"), &[]),
     ("opencodeConsole", &[20000], &["The operation was aborted due to timeout"], Some("The operation was aborted due to timeout"), &[]),
-    ("openaiCodeExchange", &[30000, 30000], &["The operation was aborted due to timeout"], Some("[openai-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."), &[]),
-    ("openaiCodeExchangeManual", &[30000, 30000], &["The operation was aborted due to timeout"], Some("[openai-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."), &[]),
+    (
+        "openaiCodeExchange",
+        &[30000, 30000],
+        &["The operation was aborted due to timeout"],
+        Some("[openai-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."),
+        &[],
+    ),
+    (
+        "openaiCodeExchangeManual",
+        &[30000, 30000],
+        &["The operation was aborted due to timeout"],
+        Some("[openai-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."),
+        &[],
+    ),
     ("opencodeGoUsage", &[6500], &["This operation was aborted"], Some("This operation was aborted"), &[]),
     ("grokModelList", &[10000, 10000, 4000], &["grok-oauth model list timed out after 10000ms"], Some("grok-oauth model list timed out after 10000ms"), &[]),
-    ("grokProxyList", &[10000], &["The operation was aborted due to timeout", "grok-oauth proxy model list timed out after 10000ms", "grok-oauth proxy model list timed out after 10000ms"], None, &[]),
-    ("anthropicCodeExchange", &[300000, 30000], &["The operation was aborted due to timeout"], Some("[anthropic-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."), &[]),
-    ("geminiCacheCreate", &[180000, 120000], &["Gemini cachedContents.create total timed out after 180000ms"], None, &["[gemini] cachedContents.create error: Gemini cachedContents.create total timed out after 180000ms"]),
+    (
+        "grokProxyList",
+        &[10000],
+        &[
+            "The operation was aborted due to timeout",
+            "grok-oauth proxy model list timed out after 10000ms",
+            "grok-oauth proxy model list timed out after 10000ms",
+        ],
+        None,
+        &[],
+    ),
+    (
+        "anthropicCodeExchange",
+        &[300000, 30000],
+        &["The operation was aborted due to timeout"],
+        Some("[anthropic-oauth] token exchange request failed (timed out). Check your proxy/VPN: Mixdog uses the system proxy, or HTTPS_PROXY."),
+        &[],
+    ),
+    (
+        "geminiCacheCreate",
+        &[180000, 120000],
+        &["Gemini cachedContents.create total timed out after 180000ms"],
+        None,
+        &["[gemini] cachedContents.create error: Gemini cachedContents.create total timed out after 180000ms"],
+    ),
     ("cursorPoll", &[], &["fetch failed", "fetch failed", "fetch failed"], Some("fetch failed"), &[]),
     ("opencodeConsoleGet", &[20000], &["The operation was aborted due to timeout"], Some("The operation was aborted due to timeout"), &[]),
     ("oauthUsage", &[4500], &["The operation was aborted due to timeout"], Some("The operation was aborted due to timeout"), &[]),
@@ -181,7 +265,17 @@ pub(crate) fn thrown(name: &str) -> &'static str {
 /// The code Node threw at the site, where it is a string.
 pub(crate) fn thrown_code(name: &str) -> Option<&'static str> {
     match name {
-        "grokDiscovery" => Some("EPROVIDERTIMEOUT"), "grokRefresh" => Some("EPROVIDERTIMEOUT"), "compatModelList" => Some("EPROVIDERTIMEOUT"), "customOpenaiChatListing" => Some("EPROVIDERTIMEOUT"), "customAnthropicListing" => Some("EPROVIDERTIMEOUT"), "devinUnary" => Some("unavailable"), "vertexToken" => Some("EVERTEXAUTH"), "grokModelList" => Some("EPROVIDERTIMEOUT"), "cursorUsageCall" => Some("EPROVIDERTIMEOUT"), "cursorModelsCall" => Some("EPROVIDERTIMEOUT"), "cursorConnect" => Some("stream_aborted"),
+        "grokDiscovery" => Some("EPROVIDERTIMEOUT"),
+        "grokRefresh" => Some("EPROVIDERTIMEOUT"),
+        "compatModelList" => Some("EPROVIDERTIMEOUT"),
+        "customOpenaiChatListing" => Some("EPROVIDERTIMEOUT"),
+        "customAnthropicListing" => Some("EPROVIDERTIMEOUT"),
+        "devinUnary" => Some("unavailable"),
+        "vertexToken" => Some("EVERTEXAUTH"),
+        "grokModelList" => Some("EPROVIDERTIMEOUT"),
+        "cursorUsageCall" => Some("EPROVIDERTIMEOUT"),
+        "cursorModelsCall" => Some("EPROVIDERTIMEOUT"),
+        "cursorConnect" => Some("stream_aborted"),
         _ => None,
     }
 }
@@ -208,7 +302,13 @@ mod tests {
     #[tokio::test(start_paused = true)]
     async fn a_cursor_stream_whose_head_never_comes_ends_at_thirty_seconds_as_aborted() {
         let transport = TimingOut::new();
-        let request = WireRequest { transport: TransportKind::Http2, method: "POST".into(), url: "https://api2.cursor.sh/run".into(), headers: Vec::new(), body: Vec::new() };
+        let request = WireRequest {
+            transport: TransportKind::Http2,
+            method: "POST".into(),
+            url: "https://api2.cursor.sh/run".into(),
+            headers: Vec::new(),
+            body: Vec::new(),
+        };
         let error = transport.send(request, CURSOR_RUN).await.err().expect("never answers");
         let seen = transport.seen();
         assert_eq!(seen[0].after, Duration::from_secs(30));

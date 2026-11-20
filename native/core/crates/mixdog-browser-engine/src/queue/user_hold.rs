@@ -23,8 +23,7 @@ use super::queue::QueueError;
 pub const LOCAL_INPUT_QUIET: Duration = Duration::from_millis(1_000);
 
 /// The text an interrupted agent command fails with, and the cancel reason that makes the queue report it.
-pub const LOCAL_INPUT_TAKEOVER: &str =
-    "Browser command interrupted by local user input. An earlier action may have completed; do not replay it. Wait until the user is idle, then observe the page again.";
+pub const LOCAL_INPUT_TAKEOVER: &str = "Browser command interrupted by local user input. An earlier action may have completed; do not replay it. Wait until the user is idle, then observe the page again.";
 
 struct Hold {
     held: bool,
@@ -189,7 +188,6 @@ mod tests {
         hold.host_gone();
         assert_eq!(hold.takeover_error(&page("p1")), Ok(()));
     }
-
 
     #[tokio::test]
     async fn a_held_page_refuses_agent_commands_until_released_and_quiet() {

@@ -36,93 +36,48 @@ async fn mock_core_serves_every_seam() {
     let ctx = CallContext::connection(ConnectionId(1), mixdog_protocol::Origin::Local, Default::default());
     assert_eq!(ctx.origin, mixdog_protocol::Origin::Local);
 
-    let handle = core
-        .threads()
-        .open(&ThreadId::from("t1"), &ctx)
-        .await
-        .unwrap();
-    assert!(matches!(
-        core.threads().open(&ThreadId::from("nope"), &ctx).await,
-        Err(CoreError::ThreadNotFound { .. })
-    ));
+    let handle = core.threads().open(&ThreadId::from("t1"), &ctx).await.unwrap();
+    assert!(matches!(core.threads().open(&ThreadId::from("nope"), &ctx).await, Err(CoreError::ThreadNotFound { .. })));
     handle.interrupt(&TurnId::from("u1"), None).unwrap();
-    assert!(matches!(
-        handle.interrupt(&TurnId::from("old"), None),
-        Err(CoreError::TurnNotActive { .. })
-    ));
+    assert!(matches!(handle.interrupt(&TurnId::from("old"), None), Err(CoreError::TurnNotActive { .. })));
 
     let reply = core
         .domain_for("config/read")
         .unwrap()
-        .call(CoreRequest {
-            method: Method("config/read"),
-            params: json!({"a": 1}),
-            op: None,
-            ctx: ctx.clone(),
-        })
+        .call(CoreRequest { method: Method("config/read"), params: json!({"a": 1}), op: None, ctx: ctx.clone() })
         .await
         .unwrap();
     assert!(matches!(reply, Reply::Value(v) if v["method"] == "config/read"));
 
-    let status = core
-        .ops()
-        .status(
-            &OpScope::Thread(ThreadId::from("t1")),
-            &["op".into()],
-            true,
-            &ctx,
-        )
-        .await;
+    let status = core.ops().status(&OpScope::Thread(ThreadId::from("t1")), &["op".into()], true, &ctx).await;
     assert_eq!(status.unwrap(), [OpStatus::NotApplied]);
 
     thread.feed().publish(&[event(1)], None).unwrap();
     let conn = MockConnection::new(ConnectionId(1), MockLimits::default());
     let source: Arc<dyn FeedSource> = handle.clone();
-    let attached = subscribe(
-        &source,
-        SubscriptionId::from("s"),
-        Window::LastItems(50),
-        None,
-        &conn,
-    )
-    .unwrap();
+    let attached = subscribe(&source, SubscriptionId::from("s"), Window::LastItems(50), None, &conn).unwrap();
     assert_eq!(attached.decision.mode, AttachMode::Snapshot);
-    conn.send_control_release(Bytes::from_static(b"r"), attached.release)
-        .unwrap();
+    conn.send_control_release(Bytes::from_static(b"r"), attached.release).unwrap();
     assert_eq!(conn.drain_text(), ["control:r", "s:snapshot@1"]);
 
-    core.host_media()
-        .frame(ConnectionId(1), Bytes::from_static(b"x"));
+    core.host_media().frame(ConnectionId(1), Bytes::from_static(b"x"));
     assert_eq!(mock.media().frames().len(), 1);
-    assert_eq!(
-        *core.lifecycle().borrow(),
-        mixdog_core_api::CoreState::Serving
-    );
+    assert_eq!(*core.lifecycle().borrow(), mixdog_core_api::CoreState::Serving);
 }
 
 #[tokio::test]
 async fn host_requests_keep_the_host_json_rpc_error() {
+    use mixdog_core_api::HostCapability;
     use mixdog_core_api::HostChannel;
     use mixdog_core_api::HostError;
-    use mixdog_core_api::HostCapability;
     use mixdog_core_api::mock::MockHostChannel;
 
     const COMMAND: Method = Method("host/browser/command");
     let host = MockHostChannel::default();
     let browser = HostCapability::Browser;
-    assert!(matches!(
-        host.request(browser, COMMAND, json!({})).await,
-        Err(HostError::Core(CoreError::CapabilityUnavailable { .. }))
-    ));
+    assert!(matches!(host.request(browser, COMMAND, json!({})).await, Err(HostError::Core(CoreError::CapabilityUnavailable { .. }))));
     host.claim(browser);
     let data = json!({ "timing": { "ms": 12 } });
     host.fail(COMMAND, -32000, "Error: no tab", Some(data.clone()));
-    assert_eq!(
-        host.request(browser, COMMAND, json!({})).await,
-        Err(HostError::Rpc {
-            code: -32000,
-            message: "Error: no tab".into(),
-            data: Some(data),
-        })
-    );
+    assert_eq!(host.request(browser, COMMAND, json!({})).await, Err(HostError::Rpc { code: -32000, message: "Error: no tab".into(), data: Some(data) }));
 }

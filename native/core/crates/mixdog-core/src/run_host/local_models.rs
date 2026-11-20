@@ -10,8 +10,8 @@ use mixdog_ai::service::model_proxy_inline::AttachmentReader;
 use mixdog_core_api::domain::ext::DocumentText;
 use mixdog_core_run::run_host::route_wiring::LocalEntry;
 use mixdog_protocol::{ProviderId, ThreadId};
-use mixdog_services::local_provider::catalog::LOCAL_PROVIDER_ID;
 use mixdog_services::local_provider::LocalProvider;
+use mixdog_services::local_provider::catalog::LOCAL_PROVIDER_ID;
 use serde_json::Value;
 
 use super::media::{AttachmentFacts, MediaLowering};
@@ -25,12 +25,7 @@ pub struct ManagedLocalModels {
 }
 
 impl ManagedLocalModels {
-    pub fn new(
-        provider: Arc<LocalProvider>,
-        docs: Arc<dyn DocumentText>,
-        reader: Arc<dyn AttachmentReader>,
-        facts: Arc<dyn AttachmentFacts>,
-    ) -> Self {
+    pub fn new(provider: Arc<LocalProvider>, docs: Arc<dyn DocumentText>, reader: Arc<dyn AttachmentReader>, facts: Arc<dyn AttachmentFacts>) -> Self {
         Self { provider, docs, reader, facts }
     }
 }
@@ -58,13 +53,6 @@ impl LocalModels for ManagedLocalModels {
     /// `nativeDocuments` is not declared), so documents lower to text as for any text provider.
     fn media(&self, updated: &Value) -> Arc<dyn MediaText> {
         let thread = ThreadId::from(updated.get("id").and_then(Value::as_str).unwrap_or(""));
-        Arc::new(MediaLowering::new(
-            thread,
-            self.docs.clone(),
-            self.reader.clone(),
-            self.facts.clone(),
-            false,
-            ProviderId::from(LOCAL_PROVIDER_ID),
-        ))
+        Arc::new(MediaLowering::new(thread, self.docs.clone(), self.reader.clone(), self.facts.clone(), false, ProviderId::from(LOCAL_PROVIDER_ID)))
     }
 }

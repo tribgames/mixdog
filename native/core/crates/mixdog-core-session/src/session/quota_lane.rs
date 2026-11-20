@@ -7,13 +7,13 @@ use std::future::Future;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use mixdog_app_protocol::v2::thread::TurnInput;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::call::CallContext;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_config::config::Config;
 use mixdog_js::value_to_string;
 use mixdog_protocol::ThreadItem;
-use mixdog_app_protocol::v2::thread::TurnInput;
 use serde_json::Value;
 use serde_json::json;
 use tokio::sync::oneshot;
@@ -21,8 +21,6 @@ use tokio::sync::oneshot;
 use super::SessionDirectory;
 use super::actor::Inbox;
 use super::run::ModelContext;
-use mixdog_core_ports::ports::domain_sessions::QuotaFacts;
-use mixdog_core_ports::ports::domain_sessions::QuotaResumeSessions;
 use mixdog_core_goal::goal::js::Goal;
 use mixdog_core_goal::goal::js::truthy;
 use mixdog_core_goal::goal::quota::GoalQuotaResume;
@@ -30,6 +28,8 @@ use mixdog_core_goal::quota_settlement::QuotaSettlement;
 use mixdog_core_goal::quota_settlement::ResumeContext;
 use mixdog_core_goal::quota_settlement::failed_turn_retry_prompt;
 use mixdog_core_goal::quota_settlement::latest_quota_failure;
+use mixdog_core_ports::ports::domain_sessions::QuotaFacts;
+use mixdog_core_ports::ports::domain_sessions::QuotaResumeSessions;
 
 /// The notice of a quota-failed turn nothing can replay.
 pub const UNRESUMABLE: &str = "This turn cannot be resumed automatically. Send a new message to continue.";
@@ -213,7 +213,8 @@ fn previous_completions(transcript: &Value) -> Vec<Value> {
     let mut completions = transcript.get("previousCompletions").and_then(Value::as_array).cloned().unwrap_or_default();
     let completion = transcript.get("completion").and_then(Value::as_object).expect("checked");
     let own = completion.get("at").filter(|at| !at.is_null()).or_else(|| transcript.get("at").filter(|at| !at.is_null()));
-    let mut entry: serde_json::Map<String, Value> = completion.iter().filter(|(key, _)| key.as_str() != "at").map(|(key, value)| (key.clone(), value.clone())).collect();
+    let mut entry: serde_json::Map<String, Value> =
+        completion.iter().filter(|(key, _)| key.as_str() != "at").map(|(key, value)| (key.clone(), value.clone())).collect();
     if let Some(at) = own {
         entry.insert("at".into(), at.clone());
     }

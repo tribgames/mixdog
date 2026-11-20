@@ -107,14 +107,7 @@ impl Cdp {
                 }
             })
         };
-        Ok(Self {
-            outgoing,
-            pending,
-            next_id: AtomicU64::new(1),
-            events,
-            closed,
-            _tasks: [AbortOnDrop(writer), AbortOnDrop(reader)],
-        })
+        Ok(Self { outgoing, pending, next_id: AtomicU64::new(1), events, closed, _tasks: [AbortOnDrop(writer), AbortOnDrop(reader)] })
     }
 
     /// A receiver of every event from now on. Subscribe before the call whose events are awaited.

@@ -13,13 +13,13 @@
 pub mod auth;
 pub mod decoder;
 pub mod listing;
+#[cfg(test)]
+mod listing_tests;
 pub mod login;
 pub mod models;
 pub mod request;
 pub mod schema;
 pub mod variants;
-#[cfg(test)]
-mod listing_tests;
 
 use crate::transport::deadlines::CURSOR_MODELS;
 use crate::transport::deadlines::CURSOR_RUN;
@@ -44,9 +44,9 @@ use mixdog_core_api::domain::provider::StreamEvent;
 use mixdog_core_api::domain::provider::WireCodec;
 use mixdog_core_api::domain::provider::WireDecoder;
 use mixdog_core_api::domain::provider::WireRequest;
+use mixdog_core_api::domain::retry::AdviceRule;
 use mixdog_core_api::domain::retry::Backoff;
 use mixdog_core_api::domain::retry::Jitter;
-use mixdog_core_api::domain::retry::AdviceRule;
 use mixdog_core_api::domain::retry::RetryPolicy;
 use mixdog_core_api::domain::retry::RetryRow;
 use mixdog_core_api::domain::retry::RetrySchedule;
@@ -63,13 +63,13 @@ use self::request::conversation_id;
 use self::request::random_uuid;
 use crate::providers::connect::ConnectFailure;
 use crate::providers::connect::frame;
+use crate::providers::connect::provider_error;
+use crate::providers::listing_row;
+use crate::retry::advice;
 use crate::transport::http::BidiOpen;
 use crate::transport::http::BodyStream;
 use crate::transport::http::FrameSink;
 use crate::transport::http::HttpSend;
-use crate::providers::connect::provider_error;
-use crate::providers::listing_row;
-use crate::retry::advice;
 
 pub const API_URL: &str = "https://api2.cursor.sh";
 pub const RUN_PATH: &str = "/agent.v1.AgentService/Run";
@@ -104,10 +104,7 @@ pub struct CursorTarget {
 
 pub(crate) fn rpc_headers(access_token: &str, client_version: &str, unary: bool) -> Vec<(String, String)> {
     let mut headers = vec![
-        (
-            "content-type".to_owned(),
-            if unary { "application/proto" } else { "application/connect+proto" }.to_owned(),
-        ),
+        ("content-type".to_owned(), if unary { "application/proto" } else { "application/connect+proto" }.to_owned()),
         ("te".to_owned(), "trailers".to_owned()),
         ("authorization".to_owned(), format!("Bearer {access_token}")),
         ("x-ghost-mode".to_owned(), "true".to_owned()),
@@ -180,7 +177,8 @@ pub(crate) fn unwrap_unary_body(body: &[u8]) -> &[u8] {
 
 /// Rejected credentials are worth one forced refresh before giving up.
 fn is_auth_failure(error: &ProviderError) -> bool {
-    matches!(error.kind, mixdog_core_api::domain::provider::ErrorKind::Auth | mixdog_core_api::domain::provider::ErrorKind::Permission) || matches!(error.status, Some(401 | 403))
+    matches!(error.kind, mixdog_core_api::domain::provider::ErrorKind::Auth | mixdog_core_api::domain::provider::ErrorKind::Permission)
+        || matches!(error.status, Some(401 | 403))
 }
 
 /// The server's own detail of a Connect failure the protocol-drift check reads: the message after `Cursor <code>: `.
@@ -190,8 +188,9 @@ fn failure_detail(error: &ProviderError) -> &str {
 
 /// `isCursorProtocolDrift` (cursor-wire-guards.mjs:293): a protocol error, or a detail that names a wire mismatch.
 fn is_protocol_drift(error: &ProviderError) -> bool {
-    static DRIFT: std::sync::LazyLock<regex::Regex> =
-        std::sync::LazyLock::new(|| regex::Regex::new(r"(?i)(?-u:\b)(protocol|protobuf|wire drift|invalid argument|failed_precondition)(?-u:\b)").expect("constant pattern"));
+    static DRIFT: std::sync::LazyLock<regex::Regex> = std::sync::LazyLock::new(|| {
+        regex::Regex::new(r"(?i)(?-u:\b)(protocol|protobuf|wire drift|invalid argument|failed_precondition)(?-u:\b)").expect("constant pattern")
+    });
     error.code.as_deref() == Some("protocol_error") || DRIFT.is_match(failure_detail(error))
 }
 
@@ -207,7 +206,6 @@ fn with_failure_hint(mut error: ProviderError) -> ProviderError {
     error.message = format!("{} {hint}", error.message);
     error
 }
-
 
 // ---------------------------------------------------------------------------
 // Adapter
@@ -614,10 +612,7 @@ impl WireCodec for CursorCodecStub {
     }
 
     fn encode(&self, _request: &ModelRequest) -> Result<WireRequest, ProviderError> {
-        Err(ProviderError::new(
-            mixdog_core_api::domain::provider::ErrorKind::Unknown,
-            DeliveryState::NotSent,
-        ))
+        Err(ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Unknown, DeliveryState::NotSent))
     }
 
     fn decoder(&self, _request: &ModelRequest) -> Box<dyn WireDecoder> {
@@ -628,7 +623,6 @@ impl WireCodec for CursorCodecStub {
         http_status_error(response.status.unwrap_or(0), &response.headers)
     }
 }
-
 
 impl CursorStream {
     fn new(body: Box<dyn BodyStream>, sink: Arc<dyn FrameSink>, decoder: CursorDecoder, secret: String) -> Self {

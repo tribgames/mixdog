@@ -81,14 +81,12 @@ fn a_word_document_lists_its_headers_and_footers_after_the_body() {
 
 #[test]
 fn a_deck_reads_one_section_per_slide_in_slide_number_order_and_marks_an_empty_one() {
-    let slide = |text: &str| format!("<p:sld><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>");
+    let slide =
+        |text: &str| format!("<p:sld><p:cSld><p:spTree><p:sp><p:txBody><a:p><a:r><a:t>{text}</a:t></a:r></a:p></p:txBody></p:sp></p:spTree></p:cSld></p:sld>");
     let two = slide("Second slide");
     let ten = slide("Tenth slide");
     let empty = "<p:sld><p:cSld><p:spTree></p:spTree></p:cSld></p:sld>";
-    let text = extract(
-        &[("ppt/slides/slide10.xml", &ten), ("ppt/slides/slide2.xml", &two), ("ppt/slides/slide3.xml", empty)],
-        "deck.pptx",
-    );
+    let text = extract(&[("ppt/slides/slide10.xml", &ten), ("ppt/slides/slide2.xml", &two), ("ppt/slides/slide3.xml", empty)], "deck.pptx");
     assert_eq!(text, "--- slide 2 ---\nSecond slide\n\n--- slide 3 ---\n(no text)\n\n--- slide 10 ---\nTenth slide");
 }
 
@@ -108,10 +106,7 @@ fn a_workbook_reads_each_sheet_by_name_with_cells_by_row_and_trailing_blanks_dro
         r#"<row r="2"><c r="A2" t="inlineStr"><is><t>North</t></is></c><c r="B2"><v>42</v></c></row>"#,
         "</sheetData></worksheet>"
     );
-    let text = extract(
-        &[("xl/workbook.xml", workbook), ("xl/_rels/workbook.xml.rels", rels), ("xl/worksheets/sheet1.xml", sheet)],
-        "book.xlsx",
-    );
+    let text = extract(&[("xl/workbook.xml", workbook), ("xl/_rels/workbook.xml.rels", rels), ("xl/worksheets/sheet1.xml", sheet)], "book.xlsx");
     assert!(text.starts_with("--- sheet Sales ---\n"), "{text}");
     assert!(text.contains("Region") && text.contains("Total") && text.contains("North") && text.contains("42"), "{text}");
     let region = text.lines().position(|line| line.contains("Region")).unwrap();
@@ -218,10 +213,8 @@ fn headers_and_footers_list_each_line_once_and_drop_bare_page_numbers() {
     let header1 = format!("<w:hdr>{}</w:hdr>", paragraph("Confidential"));
     let header2 = format!("<w:hdr>{}</w:hdr>", paragraph("Confidential"));
     let footer1 = format!("<w:ftr>{}{}</w:ftr>", paragraph("Doc 7"), paragraph("12 / 40"));
-    let text = extract(
-        &[("word/document.xml", &body), ("word/header1.xml", &header1), ("word/header2.xml", &header2), ("word/footer1.xml", &footer1)],
-        "a.docx",
-    );
+    let text =
+        extract(&[("word/document.xml", &body), ("word/header1.xml", &header1), ("word/header2.xml", &header2), ("word/footer1.xml", &footer1)], "a.docx");
     assert_eq!(text, "Body\n\n--- header ---\nConfidential\n\n--- footer ---\nDoc 7");
 }
 

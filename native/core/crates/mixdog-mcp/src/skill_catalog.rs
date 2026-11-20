@@ -129,7 +129,6 @@ mod tests {
     }
 }
 
-
 /// `MIXDOG_DISABLE_SKILLS`:`1`, `true`, `on` or `yes`.
 pub fn skills_disabled_by_env() -> bool {
     std::env::var("MIXDOG_DISABLE_SKILLS").is_ok_and(|value| skills_disabled(&value))
@@ -139,22 +138,8 @@ pub fn skills_disabled(value: &str) -> bool {
     ["1", "true", "on", "yes"].iter().any(|flag| value.eq_ignore_ascii_case(flag))
 }
 impl SkillCatalog {
-    pub fn new(
-        data_dir: PathBuf,
-        maintenance: MaintenanceIo,
-        roots: SkillRoots,
-        settings: Arc<dyn SkillSettingsSource>,
-        watch: &SkillsWatch,
-    ) -> Arc<Self> {
-        Arc::new(Self {
-            data_dir,
-            maintenance,
-            roots,
-            settings,
-            changes: watch.subscribe(),
-            cache: ArcSwap::from_pointee(None),
-            watching: OnceLock::new(),
-        })
+    pub fn new(data_dir: PathBuf, maintenance: MaintenanceIo, roots: SkillRoots, settings: Arc<dyn SkillSettingsSource>, watch: &SkillsWatch) -> Arc<Self> {
+        Arc::new(Self { data_dir, maintenance, roots, settings, changes: watch.subscribe(), cache: ArcSwap::from_pointee(None), watching: OnceLock::new() })
     }
 
     /// Has `watch` follow the skill and plugin roots: each collection registers `targets` on it first,

@@ -88,17 +88,13 @@ impl MethodTypeVisitor for SchemaPairs<'_> {
     {
         let params = self.generator.subschema_for::<P>();
         let result = self.generator.subschema_for::<R>();
-        self.rows
-            .insert(method, json!({ "params": params, "result": result }));
+        self.rows.insert(method, json!({ "params": params, "result": result }));
     }
 }
 
 fn method_pairs(visit: impl FnOnce(&mut SchemaPairs<'_>)) -> String {
     let mut generator = generator();
-    let mut pairs = SchemaPairs {
-        generator: &mut generator,
-        rows: BTreeMap::new(),
-    };
+    let mut pairs = SchemaPairs { generator: &mut generator, rows: BTreeMap::new() };
     visit(&mut pairs);
     let rows = pairs.rows;
     let definitions = generator.definitions().clone();
@@ -119,10 +115,7 @@ fn tables() -> Value {
 }
 
 fn operations_map() -> String {
-    let rows: Vec<Value> = INVENTORY
-        .iter()
-        .map(|(list, name, target)| json!({ "list": list, "name": name, "target": target }))
-        .collect();
+    let rows: Vec<Value> = INVENTORY.iter().map(|(list, name, target)| json!({ "list": list, "name": name, "target": target })).collect();
     pretty(&json!({ "inventory": rows }))
 }
 
@@ -145,10 +138,7 @@ fn constants() -> String {
             })
         })
         .collect();
-    let close: Vec<Value> = CloseCode::ALL
-        .iter()
-        .map(|code| json!({ "code": code.code(), "reason": code.reason() }))
-        .collect();
+    let close: Vec<Value> = CloseCode::ALL.iter().map(|code| json!({ "code": code.code(), "reason": code.reason() })).collect();
     pretty(&json!({
         "limits": Limits::default(),
         "inlineMax": mixdog_protocol::INLINE_MAX,
@@ -215,11 +205,7 @@ impl MethodTypeVisitor for TsMethodMap<'_> {
     {
         self.collector.visit::<P>();
         self.collector.visit::<R>();
-        self.lines.push(format!(
-            "  \"{method}\": {{ params: {}; result: {} }};",
-            P::name(),
-            R::name()
-        ));
+        self.lines.push(format!("  \"{method}\": {{ params: {}; result: {} }};", P::name(), R::name()));
     }
 }
 
@@ -257,22 +243,13 @@ fn typescript() -> String {
     // The error data of a failed `model/proxy/*` call; no method result reaches it.
     collector.visit::<crate::v2::model_proxy::ProxyFailure>();
 
-    let mut client = TsMethodMap {
-        collector: &mut collector,
-        lines: Vec::new(),
-    };
+    let mut client = TsMethodMap { collector: &mut collector, lines: Vec::new() };
     crate::methods::visit_client_methods(&mut client);
     let client_lines = client.lines;
-    let mut server = TsMethodMap {
-        collector: &mut collector,
-        lines: Vec::new(),
-    };
+    let mut server = TsMethodMap { collector: &mut collector, lines: Vec::new() };
     crate::server_requests::visit_server_requests(&mut server);
     let server_lines = server.lines;
-    let mut notes = TsMethodMap {
-        collector: &mut collector,
-        lines: Vec::new(),
-    };
+    let mut notes = TsMethodMap { collector: &mut collector, lines: Vec::new() };
     crate::notifications::visit_server_notifications(&mut notes);
     let note_lines = notes.lines;
 
@@ -285,9 +262,7 @@ fn typescript() -> String {
         out.push_str(&decl.lines().map(str::trim_end).collect::<Vec<_>>().join("\n"));
         out.push_str("\n\n");
     }
-    out.push_str(
-        "/** Params and result of every client method. */\nexport type ClientMethods = {\n",
-    );
+    out.push_str("/** Params and result of every client method. */\nexport type ClientMethods = {\n");
     out.push_str(&client_lines.join("\n"));
     out.push_str("\n};\n\nexport type ClientMethod = keyof ClientMethods;\n\n");
     out.push_str("/** Params and result of every server request (core → client). */\nexport type ServerRequestMethods = {\n");
@@ -316,50 +291,21 @@ fn typescript() -> String {
 
 /// Every golden file, in a fixed order.
 pub fn generate() -> Vec<GeneratedFile> {
-    let schema = |name, content| GeneratedFile {
-        kind: FileKind::Schema,
-        name,
-        content,
-    };
+    let schema = |name, content| GeneratedFile { kind: FileKind::Schema, name, content };
     vec![
         schema("jsonrpc.json", root::<crate::rpc::JsonRpcMessage>()),
-        schema(
-            "client_request.json",
-            root::<crate::methods::ClientRequest>(),
-        ),
-        schema(
-            "client_notification.json",
-            root::<crate::notifications::ClientNotification>(),
-        ),
-        schema(
-            "server_request.json",
-            root::<crate::server_requests::ServerRequest>(),
-        ),
-        schema(
-            "server_notification.json",
-            root::<crate::notifications::ServerNotification>(),
-        ),
+        schema("client_request.json", root::<crate::methods::ClientRequest>()),
+        schema("client_notification.json", root::<crate::notifications::ClientNotification>()),
+        schema("server_request.json", root::<crate::server_requests::ServerRequest>()),
+        schema("server_notification.json", root::<crate::notifications::ServerNotification>()),
         schema("error_data.json", root::<crate::error::ErrorData>()),
-        schema(
-            "notification_preferences.json",
-            root::<mixdog_protocol::NotificationPreferences>(),
-        ),
+        schema("notification_preferences.json", root::<mixdog_protocol::NotificationPreferences>()),
         schema("initialize.json", root::<crate::v1::InitializeResponse>()),
-        schema(
-            "client_methods.json",
-            method_pairs(|v| crate::methods::visit_client_methods(v)),
-        ),
-        schema(
-            "server_request_methods.json",
-            method_pairs(|v| crate::server_requests::visit_server_requests(v)),
-        ),
+        schema("client_methods.json", method_pairs(|v| crate::methods::visit_client_methods(v))),
+        schema("server_request_methods.json", method_pairs(|v| crate::server_requests::visit_server_requests(v))),
         schema("method_table.json", pretty(&tables())),
         schema("operations_map.json", operations_map()),
         schema("constants.json", constants()),
-        GeneratedFile {
-            kind: FileKind::TypeScript,
-            name: "index.ts",
-            content: typescript(),
-        },
+        GeneratedFile { kind: FileKind::TypeScript, name: "index.ts", content: typescript() },
     ]
 }

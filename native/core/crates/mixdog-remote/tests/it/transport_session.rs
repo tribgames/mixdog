@@ -106,7 +106,8 @@ fn opened_by_phone(seen: &Mutex<Seen>, receiver: &mut Receiver, phone: &mut mixd
 async fn a_transport_session_carries_ready_and_both_directions_on_the_relay() {
     let identity = ServerIdentity::generate();
     let challenge = Challenge::create(&["binaryFrames", "transportWebrtc", "mediaE2ee"]);
-    let (hello, mut phone) = create_client_handshake(&identity.pairing(), &challenge, ClientHandshakeOptions { transport: true, ..Default::default() }).unwrap();
+    let (hello, mut phone) =
+        create_client_handshake(&identity.pairing(), &challenge, ClientHandshakeOptions { transport: true, ..Default::default() }).unwrap();
     let pc = accept_client_hello(&identity, &challenge, &hello).unwrap();
     assert!(pc.transport_enabled());
     let confirmation = pc.handshake_confirmation().unwrap().to_owned();

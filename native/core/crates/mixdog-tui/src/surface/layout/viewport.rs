@@ -69,11 +69,8 @@ pub(super) fn carve_viewport(
     // is carved instead so the hint's baseline matches the spinner row (the guard row stays blank as the spacer). The reserve
     // is untouched, so the prompt box and statusline never move. Non-empty transcripts keep the attach-to-last-item and
     // guard-row placements.
-    let overlay_hint_band_rows = usize::from(
-        budgets.overlay_hint_requested
-            && input.state.item_count == 0
-            && viewport_height - transcript_guard_rows - welcome_prompt_hint_rows >= 2,
-    );
+    let overlay_hint_band_rows =
+        usize::from(budgets.overlay_hint_requested && input.state.item_count == 0 && viewport_height - transcript_guard_rows - welcome_prompt_hint_rows >= 2);
     // Instant panel close (slash palette): the reclaimed rows stay blank for exactly one commit. The mask is part of this
     // frame's row accounting: subtracted from the content height and rendered as a sibling band below the content clip
     // (where the closed panel's ink was). Rendering it inside the scrolled transcript column made the painted column taller
@@ -82,17 +79,14 @@ pub(super) fn carve_viewport(
     let panel_close_mask_rows = transition
         .panel_close_ink_mask_rows
         .min((viewport_height - transcript_guard_rows).saturating_sub(welcome_prompt_hint_rows + overlay_hint_band_rows + 1));
-    let transcript_content_height = (viewport_height - transcript_guard_rows)
-        .saturating_sub(panel_close_mask_rows + welcome_prompt_hint_rows + overlay_hint_band_rows)
-        .max(1);
+    let transcript_content_height =
+        (viewport_height - transcript_guard_rows).saturating_sub(panel_close_mask_rows + welcome_prompt_hint_rows + overlay_hint_band_rows).max(1);
     // The keyboard-selection edge step stays anchored to the base guard. It is not a follow threshold: any positive wheel
     // target is a reading position; only the true bottom may auto-follow a live tail.
     let transcript_bottom_slack_rows = base_guard_rows;
     refs.transcript_bottom_slack_rows = transcript_bottom_slack_rows;
-    refs.transcript_viewport = Some(TranscriptViewport {
-        top: budgets.welcome_rows,
-        bottom: budgets.welcome_rows.max(budgets.welcome_rows + transcript_content_height - 1),
-    });
+    refs.transcript_viewport =
+        Some(TranscriptViewport { top: budgets.welcome_rows, bottom: budgets.welcome_rows.max(budgets.welcome_rows + transcript_content_height - 1) });
     // The live terminal row count for the mouse handler's region routing and status-band selection clip.
     refs.frame_rows = if input.rows == 0 { 24 } else { input.rows };
     // When the prompt box is hidden (a floating or option panel owns the bottom area), its stale measured rect is dropped so

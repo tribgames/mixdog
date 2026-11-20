@@ -48,9 +48,7 @@ pub struct AgentMemory<C: MemoryControl> {
 }
 
 fn required_agent_id(agent_id: &str) -> Result<(), RoomError> {
-    agent_home_session_id(agent_id)
-        .map(|_| ())
-        .ok_or_else(|| RoomError::Invalid("agent id is invalid.".into()))
+    agent_home_session_id(agent_id).map(|_| ()).ok_or_else(|| RoomError::Invalid("agent id is invalid.".into()))
 }
 
 /// A delete's input: a positive list index and its list version.
@@ -92,9 +90,7 @@ impl<C: MemoryControl> AgentMemory<C> {
         let _turn = self.serial.acquire(agent_id).await;
         match self.control.delete(agent_id, id, index_revision).await? {
             DeleteOutcome::Deleted => Ok(()),
-            DeleteOutcome::StaleRevision => Err(RoomError::PreconditionFailed(
-                "The agent memory changed since it was listed; list it again.".into(),
-            )),
+            DeleteOutcome::StaleRevision => Err(RoomError::PreconditionFailed("The agent memory changed since it was listed; list it again.".into())),
         }
     }
 }
@@ -129,9 +125,7 @@ mod tests {
     }
 
     fn memory(count: u64) -> AgentMemory<Fake> {
-        let entries = (1..=count)
-            .map(|id| MemoryEntry { id, index_revision: "rev1".into(), summary: format!("m{id}") })
-            .collect();
+        let entries = (1..=count).map(|id| MemoryEntry { id, index_revision: "rev1".into(), summary: format!("m{id}") }).collect();
         AgentMemory::new(Fake { entries: Mutex::new(entries), revision: Mutex::new("rev1".into()) })
     }
 

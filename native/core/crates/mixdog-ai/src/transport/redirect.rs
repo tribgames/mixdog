@@ -29,6 +29,7 @@ use mixdog_core_api::domain::provider::WireRequest;
 use tokio_tungstenite::tungstenite::handshake::client::Request;
 use tokio_tungstenite::tungstenite::http::Response;
 
+use super::KeepaliveSchedule;
 use super::link::BidiOpen;
 use super::link::BodyStream;
 use super::link::Exchange;
@@ -39,7 +40,6 @@ use super::link::WsDial;
 use super::link::WsSocket;
 use super::ws;
 use super::ws::ConnectError;
-use super::KeepaliveSchedule;
 
 /// The header naming the origin the product addressed (the recorder's `x-bench-origin`).
 pub const ORIGIN_HEADER: &str = "x-bench-origin";
@@ -145,12 +145,7 @@ impl<L: HttpSend> HttpSend for Redirected<L> {
 
 #[async_trait]
 impl<L: BidiOpen> BidiOpen for Redirected<L> {
-    async fn open(
-        &self,
-        request: WireRequest,
-        first: Vec<u8>,
-        exchange: Exchange,
-    ) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
+    async fn open(&self, request: WireRequest, first: Vec<u8>, exchange: Exchange) -> Result<(HttpResponse, Arc<dyn FrameSink>), ProviderError> {
         self.inner.open(self.redirect(request), first, exchange).await
     }
 }

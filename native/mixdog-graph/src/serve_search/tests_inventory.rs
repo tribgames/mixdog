@@ -74,8 +74,7 @@ fn inventory_key_preserves_request_globs() {
 #[test]
 fn negative_globs_prune_the_walk_and_split_the_inventory_key() {
     let plain = parse_args(&request(&["--files", "."], 20).args).unwrap();
-    let excluded =
-        parse_args(&request(&["--files", "--glob", "!**/node_modules/**", "."], 20).args).unwrap();
+    let excluded = parse_args(&request(&["--files", "--glob", "!**/node_modules/**", "."], 20).args).unwrap();
     let prune = prune_globs(Path::new("."), &excluded);
     // Preserve the original rule: synthesizing a parent exclusion would
     // prevent a later positive override from selecting its children.
@@ -122,39 +121,17 @@ fn filesystem_root_watch_is_unavailable_without_blocking_scoped_watches() {
 
 #[test]
 fn watcher_preserves_inventory_for_content_changes_only() {
-    assert_eq!(
-        inventory_changed_by_event(
-            &EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any,)),
-            &[]
-        ),
-        Some(false)
-    );
-    assert_eq!(
-        inventory_changed_by_event(
-            &EventKind::Modify(ModifyKind::Name(notify::event::RenameMode::Any,)),
-            &[]
-        ),
-        Some(true)
-    );
-    assert_eq!(
-        inventory_changed_by_event(&EventKind::Create(notify::event::CreateKind::Any), &[]),
-        Some(true)
-    );
-    assert_eq!(
-        inventory_changed_by_event(&EventKind::Remove(notify::event::RemoveKind::Any), &[]),
-        Some(true)
-    );
+    assert_eq!(inventory_changed_by_event(&EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any,)), &[]), Some(false));
+    assert_eq!(inventory_changed_by_event(&EventKind::Modify(ModifyKind::Name(notify::event::RenameMode::Any,)), &[]), Some(true));
+    assert_eq!(inventory_changed_by_event(&EventKind::Create(notify::event::CreateKind::Any), &[]), Some(true));
+    assert_eq!(inventory_changed_by_event(&EventKind::Remove(notify::event::RemoveKind::Any), &[]), Some(true));
     assert_eq!(inventory_changed_by_event(&EventKind::Other, &[]), None);
 }
 
 #[test]
 fn inventory_walk_parallelism_stays_bounded() {
     assert!((2..=4).contains(&inventory_walk_threads(Path::new("."))));
-    let root = if cfg!(windows) {
-        Path::new(r"C:\")
-    } else {
-        Path::new("/")
-    };
+    let root = if cfg!(windows) { Path::new(r"C:\") } else { Path::new("/") };
     assert!((2..=12).contains(&inventory_walk_threads(root)));
 }
 
@@ -162,25 +139,14 @@ fn inventory_walk_parallelism_stays_bounded() {
 fn complete_inventory_wait_honors_request_cancellation() {
     let live = pending_walk();
     let cancelled = AtomicBool::new(true);
-    assert_eq!(
-        wait_live_complete(&live, &cancelled, None).unwrap_err(),
-        CANCELLED
-    );
+    assert_eq!(wait_live_complete(&live, &cancelled, None).unwrap_err(), CANCELLED);
 }
 
 #[test]
 fn complete_inventory_wait_honors_soft_deadline() {
     let live = pending_walk();
     let cancelled = AtomicBool::new(false);
-    assert_eq!(
-        wait_live_complete(
-            &live,
-            &cancelled,
-            Some(Instant::now() - Duration::from_millis(1)),
-        )
-        .unwrap_err(),
-        SOFT_TIMEOUT
-    );
+    assert_eq!(wait_live_complete(&live, &cancelled, Some(Instant::now() - Duration::from_millis(1)),).unwrap_err(), SOFT_TIMEOUT);
 }
 
 #[test]
@@ -219,30 +185,20 @@ fn last_waiter_cancels_normal_inventory_but_explicit_prewarm_survives() {
 
 #[test]
 fn root_search_globs_filter_inventory_without_changing_the_match_set() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("mg-root-filter-{nonce}"));
     std::fs::create_dir_all(dir.join("nested")).unwrap();
     std::fs::write(dir.join("target.mjs"), "one").unwrap();
     std::fs::write(dir.join("nested/target.mjs"), "two").unwrap();
     std::fs::write(dir.join("other.rs"), "other").unwrap();
-    let drive = if cfg!(windows) {
-        Path::new(r"C:\")
-    } else {
-        Path::new("/")
-    };
-    let parsed =
-        parse_args(&request(&["--files", "--glob", "**/target.mjs", "."], 25).args).unwrap();
+    let drive = if cfg!(windows) { Path::new(r"C:\") } else { Path::new("/") };
+    let parsed = parse_args(&request(&["--files", "--glob", "**/target.mjs", "."], 25).args).unwrap();
     let mut key = walk_key(&dir, &parsed);
     // Exercise the drive-root enumeration policy on a controlled tree.
     key.prune = prune_globs(drive, &parsed);
     let paths = scan_inventory_subtree(&key, &dir).unwrap();
     assert_eq!(paths.len(), 2);
-    assert!(paths
-        .iter()
-        .all(|path| path.file_name().unwrap() == "target.mjs"));
+    assert!(paths.iter().all(|path| path.file_name().unwrap() == "target.mjs"));
     let other = parse_args(&request(&["--files", "--glob", "**/*.rs", "."], 25).args).unwrap();
     key.prune = prune_globs(drive, &other);
     let paths = scan_inventory_subtree(&key, &dir).unwrap();
@@ -260,10 +216,7 @@ fn invalidation_detaches_active_snapshot_without_dropping_its_waiter() {
     let (live, owner) = store.begin_live(key.clone(), false);
     assert!(owner);
 
-    assert_eq!(
-        store.invalidate_paths(&[root.join("changed.log")]),
-        vec![root.clone()]
-    );
+    assert_eq!(store.invalidate_paths(&[root.join("changed.log")]), vec![root.clone()]);
     assert!(!live.cancelled.load(Ordering::Acquire));
     assert!(matches!(&*lock_recover(&live.state), LiveState::Running));
     assert!(lock_recover(&store.live).get(&key).is_none());
@@ -280,10 +233,7 @@ fn invalidation_detaches_active_snapshot_without_dropping_its_waiter() {
 
 #[test]
 fn inventory_repair_during_walk_preserves_ignore_and_hidden_rules() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("mg-live-repair-{nonce}"));
     std::fs::create_dir_all(dir.join(".git")).unwrap();
     std::fs::write(dir.join(".gitignore"), "ignored/\n").unwrap();
@@ -336,10 +286,7 @@ fn unsolicited_invalidate_events_do_not_refresh_the_idle_stamp() {
 
 #[test]
 fn search_right_after_a_file_change_sees_the_change() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("mg-fresh-{nonce}"));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("a.txt"), "x\n").unwrap();
@@ -359,10 +306,7 @@ fn search_right_after_a_file_change_sees_the_change() {
 
 #[test]
 fn search_during_debounce_window_gets_repaired_inventory_within_wait() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("mg-demand-{nonce}"));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("a.txt"), "x\n").unwrap();
@@ -388,10 +332,7 @@ fn search_during_debounce_window_gets_repaired_inventory_within_wait() {
 
 #[test]
 fn multiple_waiters_bound_wakeups_and_still_get_the_repair() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("mg-waiters-{nonce}"));
     std::fs::create_dir_all(&dir).unwrap();
     std::fs::write(dir.join("a.txt"), "x\n").unwrap();
@@ -466,10 +407,7 @@ fn multiple_waiters_bound_wakeups_and_still_get_the_repair() {
 
 #[test]
 fn lost_notifications_cannot_republish_an_obsolete_repair() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap()
-        .as_nanos();
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join(format!("mg-rescan-repair-{nonce}"));
     std::fs::create_dir_all(&dir).unwrap();
     let actual = dir.join("actual.txt");
@@ -480,11 +418,7 @@ fn lost_notifications_cannot_republish_an_obsolete_repair() {
     let key = walk_key(&dir, &parsed);
     let store = Arc::new(FileListStore::new());
     let events = [
-        notify::Event::new(EventKind::Modify(ModifyKind::Data(
-            notify::event::DataChange::Any,
-        )))
-        .add_path(actual.clone())
-        .set_flag(notify::event::Flag::Rescan),
+        notify::Event::new(EventKind::Modify(ModifyKind::Data(notify::event::DataChange::Any))).add_path(actual.clone()).set_flag(notify::event::Flag::Rescan),
         notify::Event::new(EventKind::Any).add_path(actual.clone()),
         notify::Event::new(EventKind::Other).add_path(actual.clone()),
     ];
@@ -499,22 +433,14 @@ fn lost_notifications_cannot_republish_an_obsolete_repair() {
             processing: true,
             token,
         };
-        store
-            .pending_repairs
-            .lock()
-            .unwrap()
-            .insert(key.clone(), make_job(Arc::clone(&old)));
+        store.pending_repairs.lock().unwrap().insert(key.clone(), make_job(Arc::clone(&old)));
         let (paths, inventory_changed) = inventory_event_change(event).unwrap();
         assert!(inventory_changed);
         store.invalidate_paths(&paths);
         // Old work must be harmless both before and after a replacement
         // job reuses the same key.
         store.finish_inventory_repair(&key, &old, Ok(Arc::new(vec![dir.join("obsolete.txt")])));
-        store
-            .pending_repairs
-            .lock()
-            .unwrap()
-            .insert(key.clone(), make_job(Arc::clone(&replacement)));
+        store.pending_repairs.lock().unwrap().insert(key.clone(), make_job(Arc::clone(&replacement)));
         store.finish_inventory_repair(&key, &old, Ok(Arc::new(vec![dir.join("obsolete.txt")])));
         store.finish_inventory_repair(&key, &replacement, Ok(Arc::new(vec![actual.clone()])));
         let after = handle(&req, &AtomicBool::new(false), &store, None).unwrap();
@@ -533,11 +459,7 @@ fn inventory_with_walk_errors_is_never_cached_as_complete() {
     let (live, owner) = store.begin_live(key.clone(), false);
     assert!(owner);
     live.walk_errors.store(1, Ordering::Release);
-    assert!(!store.finish_live(
-        key.clone(),
-        &live,
-        Ok(Arc::new(vec![PathBuf::from("partial/visible.rs")])),
-    ));
+    assert!(!store.finish_live(key.clone(), &live, Ok(Arc::new(vec![PathBuf::from("partial/visible.rs")])),));
     assert!(store.take_ready(&key).is_none());
     assert_eq!(live.walk_errors.load(Ordering::Acquire), 1);
 }
@@ -566,19 +488,12 @@ fn streaming_and_complete_waiters_share_one_walk_without_panicking() {
     {
         let files = lock_recover(&live.files);
         assert_eq!(files.len(), 1);
-        let (files, _) = live
-            .files_cond
-            .wait_timeout(files, Duration::from_millis(10))
-            .unwrap_or_else(|e| e.into_inner());
+        let (files, _) = live.files_cond.wait_timeout(files, Duration::from_millis(10)).unwrap_or_else(|e| e.into_inner());
         assert_eq!(files.len(), 1);
     }
 
     assert!(store.finish_live(key, &live, Ok(Arc::new(vec![PathBuf::from("streamed.rs")])),));
-    let completed = complete
-        .join()
-        .expect("complete waiter must not panic")
-        .expect("walk must finish")
-        .expect("walk must produce files");
+    let completed = complete.join().expect("complete waiter must not panic").expect("walk must finish").expect("walk must produce files");
     assert_eq!(completed.len(), 1);
 }
 
@@ -609,22 +524,15 @@ fn watched_inventory_survives_ttl_until_watch_is_removed() {
 
 #[test]
 fn incremental_inventory_repair_splices_changed_paths() {
-    let nonce = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .expect("clock")
-        .as_nanos();
-    let root = std::env::temp_dir().join(format!(
-        "mixdog-inventory-repair-{}-{nonce}",
-        std::process::id()
-    ));
+    let nonce = SystemTime::now().duration_since(UNIX_EPOCH).expect("clock").as_nanos();
+    let root = std::env::temp_dir().join(format!("mixdog-inventory-repair-{}-{nonce}", std::process::id()));
     std::fs::create_dir_all(&root).expect("fixture root");
     let keep = root.join("keep.rs");
     let removed = root.join("removed.rs");
     let added = root.join("added.rs");
     std::fs::write(&keep, "keep").expect("keep");
     std::fs::write(&added, "added").expect("added");
-    let parsed =
-        parse_args(&request(&["--files", root.to_string_lossy().as_ref()], 20).args).unwrap();
+    let parsed = parse_args(&request(&["--files", root.to_string_lossy().as_ref()], 20).args).unwrap();
     let key = walk_key(&root, &parsed);
     let mut base = vec![keep.clone(), removed.clone()];
     base.sort();

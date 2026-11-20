@@ -1,10 +1,6 @@
 //! The day sums on the production path (a `UsageWriter` that builds them itself): they are the
 //! exact numbers Node's whole-session `SUM` stores, and a build interrupted at any point resumes.
-#![allow(
-    clippy::disallowed_types,
-    clippy::disallowed_methods,
-    reason = "test fixture I/O; mixdog-store::sqlite has not landed"
-)]
+#![allow(clippy::disallowed_types, clippy::disallowed_methods, reason = "test fixture I/O; mixdog-store::sqlite has not landed")]
 
 use std::path::Path;
 
@@ -26,10 +22,7 @@ fn unbuilt(path: &Path, records: &[UsageRecord]) {
     for chunk in records.chunks(500) {
         append_batch(&mut conn, chunk).unwrap();
     }
-    conn.execute_batch(
-        "DELETE FROM usage_session_days; UPDATE usage_session_days_state SET complete=0,next=0",
-    )
-    .unwrap();
+    conn.execute_batch("DELETE FROM usage_session_days; UPDATE usage_session_days_state SET complete=0,next=0").unwrap();
 }
 
 fn record(n: u64, session: &str) -> UsageRecord {
@@ -49,9 +42,7 @@ async fn a_build_interrupted_midway_resumes_after_a_reopen() {
     let tokens = mixdog_rt::testing::tokens();
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().join("ledger.sqlite");
-    let records: Vec<UsageRecord> = (0..40_u64)
-        .flat_map(|session| (0..25).map(move |i| record(session * 100 + i, &format!("s{session}"))))
-        .collect();
+    let records: Vec<UsageRecord> = (0..40_u64).flat_map(|session| (0..25).map(move |i| record(session * 100 + i, &format!("s{session}")))).collect();
     unbuilt(&path, &records);
 
     // A build that got three steps far, then stopped.
@@ -60,33 +51,18 @@ async fn a_build_interrupted_midway_resumes_after_a_reopen() {
         for _ in 0..3 {
             assert!(!build_sums_step(&mut conn, 100).unwrap());
         }
-        let next: i64 = conn
-            .query_row("SELECT next FROM usage_session_days_state", [], |r| {
-                r.get(0)
-            })
-            .unwrap();
+        let next: i64 = conn.query_row("SELECT next FROM usage_session_days_state", [], |r| r.get(0)).unwrap();
         assert!(next > 0 && !sums_complete(&conn).unwrap());
         // A record lands on a session it has built and on one it has not.
         append_batch(&mut conn, &[record(7_000, "s0"), record(5_000, "s39")]).unwrap();
     }
 
-    let writer = UsageWriter::open_with_build_budget(
-        tokens.sqlite_writer_thread,
-        tokens.maintenance_io,
-        &path,
-        100,
-    )
-    .unwrap();
+    let writer = UsageWriter::open_with_build_budget(tokens.sqlite_writer_thread, tokens.maintenance_io, &path, 100).unwrap();
     writer.sums_built().await.unwrap();
 
     let conn = Connection::open(&path).unwrap();
-    let (counted, events): (i64, i64) = conn
-        .query_row(
-            "SELECT (SELECT SUM(turns) FROM usage_session_days),(SELECT COUNT(*) FROM usage_events)",
-            [],
-            |r| Ok((r.get(0)?, r.get(1)?)),
-        )
-        .unwrap();
+    let (counted, events): (i64, i64) =
+        conn.query_row("SELECT (SELECT SUM(turns) FROM usage_session_days),(SELECT COUNT(*) FROM usage_events)", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
     assert_eq!((counted, events), (1_002, 1_002));
     let mismatched: i64 = conn
         .query_row(
@@ -99,7 +75,6 @@ async fn a_build_interrupted_midway_resumes_after_a_reopen() {
         .unwrap();
     assert_eq!(mismatched, 0);
 }
-
 
 /// A session of 1,000 records at 0.000001 and one at 0.0000005. Summed whole it is 0.0010004999999999999, which the
 /// six-decimal display writes as 0.001; sums added slice by slice would show 0.001001.
@@ -123,15 +98,11 @@ async fn a_large_session_sums_whole_and_its_cost_displays_at_six_decimals() {
     let path = dir.path().join("ledger.sqlite");
     unbuilt(&path, &records);
     // The default budget: the session is larger than a batch and is still summed whole.
-    let writer =
-        UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
+    let writer = UsageWriter::open(tokens.sqlite_writer_thread, tokens.maintenance_io, &path).unwrap();
     writer.sums_built().await.unwrap();
 
     let reader = UsageReader::new(&path, tokens.interactive_io, tokens.maintenance_io);
-    let usage = reader
-        .session_usage(vec!["rounding".into()], vec![])
-        .await
-        .unwrap();
+    let usage = reader.session_usage(vec!["rounding".into()], vec![]).await.unwrap();
     assert_eq!(usage["turns"], 1_001);
     assert_eq!(usage["input"], 10_010);
     assert_eq!(usage["costUsd"].as_f64().unwrap(), 0.0010004999999999999);

@@ -35,11 +35,11 @@ use mixdog_core_base::rooms::ids::agent_id_of_home_session;
 use mixdog_core_base::support::on_lane_wait;
 use mixdog_core_rooms::rooms::catalog_rows::MemberNames;
 use mixdog_core_session::session::secret_input::CardHolds;
-use mixdog_core_session::session::shell_jobs::OwnedShells;
 use mixdog_core_session::session::secret_input::CardScope;
 use mixdog_core_session::session::secret_input::HumanOnlyCard;
 use mixdog_core_session::session::secret_input::Redact;
 use mixdog_core_session::session::secret_input::SecretFill;
+use mixdog_core_session::session::shell_jobs::OwnedShells;
 use mixdog_core_session::session::turn_snapshots::TurnSnapshots;
 use mixdog_protocol::ThreadId;
 use mixdog_rt::InteractiveIo;
@@ -82,13 +82,8 @@ pub fn frame_dir(data_dir: &Path) -> PathBuf {
 /// `browserUrlPolicyFromEnvironment` for a session that works on this PC (`remote: false`): private networks are the person's
 /// own, and `MIXDOG_BROWSER_ALLOWED_DOMAINS` narrows the domains.
 pub fn url_policy(env: &dyn Fn(&str) -> Option<String>) -> UrlPolicy {
-    let allowed_domains = env("MIXDOG_BROWSER_ALLOWED_DOMAINS")
-        .unwrap_or_default()
-        .split(',')
-        .map(str::trim)
-        .filter(|domain| !domain.is_empty())
-        .map(str::to_owned)
-        .collect();
+    let allowed_domains =
+        env("MIXDOG_BROWSER_ALLOWED_DOMAINS").unwrap_or_default().split(',').map(str::trim).filter(|domain| !domain.is_empty()).map(str::to_owned).collect();
     UrlPolicy { allow_private_network: true, allowed_domains }
 }
 
@@ -101,7 +96,8 @@ pub struct StoreBlobPort {
 #[async_trait]
 impl BlobPort for StoreBlobPort {
     async fn read(&self, digest: &str) -> Result<Bytes, String> {
-        let digest = mixdog_store::blobs::digest_of_reference(digest.strip_prefix("sha256:").unwrap_or(digest)).ok_or_else(|| format!("not a blob digest: {digest}"))?;
+        let digest =
+            mixdog_store::blobs::digest_of_reference(digest.strip_prefix("sha256:").unwrap_or(digest)).ok_or_else(|| format!("not a blob digest: {digest}"))?;
         let blobs = self.blobs.clone();
         on_lane_wait(self.lane, &CancellationToken::new(), move |lane| blobs.read(lane, &digest))
             .await
@@ -111,7 +107,8 @@ impl BlobPort for StoreBlobPort {
     }
 
     async fn verified_size(&self, digest: &str) -> Result<Option<u64>, String> {
-        let digest = mixdog_store::blobs::digest_of_reference(digest.strip_prefix("sha256:").unwrap_or(digest)).ok_or_else(|| format!("not a blob digest: {digest}"))?;
+        let digest =
+            mixdog_store::blobs::digest_of_reference(digest.strip_prefix("sha256:").unwrap_or(digest)).ok_or_else(|| format!("not a blob digest: {digest}"))?;
         let blobs = self.blobs.clone();
         on_lane_wait(self.lane, &CancellationToken::new(), move |lane| blobs.verify(lane, &digest))
             .await
@@ -128,11 +125,20 @@ pub struct EngineFiles {
 
 #[async_trait]
 impl FilePort for EngineFiles {
-    #[allow(clippy::disallowed_methods, reason = "All blocking filesystem operations in this method run inside its awaited on_lane_wait InteractiveIo closure.")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "All blocking filesystem operations in this method run inside its awaited on_lane_wait InteractiveIo closure."
+    )]
     async fn stat(&self, path: &Path) -> FileFacts {
         let path = path.to_path_buf();
         on_lane_wait(self.lane, &CancellationToken::new(), move |_| match std::fs::metadata(&path) {
-            Ok(info) => FileFacts { exists: true, is_file: info.is_file(), size: info.len(), canonical: std::fs::canonicalize(&path).ok(), modified: info.modified().ok() },
+            Ok(info) => FileFacts {
+                exists: true,
+                is_file: info.is_file(),
+                size: info.len(),
+                canonical: std::fs::canonicalize(&path).ok(),
+                modified: info.modified().ok(),
+            },
             Err(_) => FileFacts::default(),
         })
         .await
@@ -150,7 +156,10 @@ impl FilePort for EngineFiles {
 
 #[async_trait]
 impl mixdog_browser_engine::reply::downloads_text::DownloadFiles for EngineFiles {
-    #[allow(clippy::disallowed_methods, reason = "All blocking filesystem operations in this method run inside its awaited on_lane_wait InteractiveIo closure.")]
+    #[allow(
+        clippy::disallowed_methods,
+        reason = "All blocking filesystem operations in this method run inside its awaited on_lane_wait InteractiveIo closure."
+    )]
     #[allow(clippy::disallowed_types, reason = "All blocking filesystem operations in this method run inside its awaited on_lane_wait InteractiveIo closure.")]
     async fn read_file(&self, path: &Path, limit: u64) -> std::io::Result<Bytes> {
         let path = path.to_path_buf();
@@ -164,7 +173,6 @@ impl mixdog_browser_engine::reply::downloads_text::DownloadFiles for EngineFiles
         .map_err(|error| std::io::Error::other(error.to_string()))?
     }
 }
-
 
 /// The session's filled secrets: the one secret fill's registry and the redactor that also hides saved-login passwords.
 pub struct FillSecretGuard {
@@ -456,7 +464,6 @@ mod run_gate_tests {
     }
 }
 
-
 #[async_trait]
 impl mixdog_tools::desktop::browser_engine::BrowserSwitch for ConfigBrowserSwitch {
     fn enabled(&self) -> bool {
@@ -592,7 +599,12 @@ impl crate::browser_engine_service::BrowserToolRunner for EngineToolRunner {
                 let outcome = value.get("outcome").cloned();
                 match rendered {
                     Ok(output) => {
-                        let text = output.parts.iter().filter_map(|part| if let ToolPart::Text(text) = part { Some(text.as_str()) } else { None }).collect::<Vec<_>>().join("\n");
+                        let text = output
+                            .parts
+                            .iter()
+                            .filter_map(|part| if let ToolPart::Text(text) = part { Some(text.as_str()) } else { None })
+                            .collect::<Vec<_>>()
+                            .join("\n");
                         BrowserEngineTestRunResult { text, image, is_error: false, outcome }
                     }
                     Err(error) => BrowserEngineTestRunResult { text: error.message_for_model, image, is_error: true, outcome },

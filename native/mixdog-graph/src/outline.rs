@@ -104,13 +104,13 @@ mod visibility;
 #[cfg(test)]
 mod test_support;
 
-pub use cli::{outline_files, run, FileOutline, OutlineItem, OutlineMember, OutlineReport};
-pub use extractors::{extractors_for, FileMeta, LangExtractors, Walked, WalkedItem};
+pub use cli::{FileOutline, OutlineItem, OutlineMember, OutlineReport, outline_files, run};
+pub use extractors::{FileMeta, LangExtractors, Walked, WalkedItem, extractors_for};
 pub use imports::{expand_elixir_alias_spec, expand_php_use_spec};
-pub use kind_map::{kind_map_for, unified_kind, KIND_MAP, KIND_VOCABULARY};
+pub use kind_map::{KIND_MAP, KIND_VOCABULARY, kind_map_for, unified_kind};
 pub use kinds::symbol_kind;
-pub use rules::{has_rules, language_rule_errors, rule_errors, DeclaredKind, LoadedRules};
-pub use symbols::{extract, identifier_hits, Extraction, SymbolInfo};
+pub use rules::{DeclaredKind, LoadedRules, has_rules, language_rule_errors, rule_errors};
+pub use symbols::{Extraction, SymbolInfo, extract, identifier_hits};
 
 pub(crate) use extractors::index_by_kind;
 pub(crate) use rules::{marker_value, split_yaml_documents, tsx_variant};

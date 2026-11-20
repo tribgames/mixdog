@@ -37,9 +37,7 @@ pub fn provider_status_label(provider: &Value) -> String {
     if !status.is_empty() {
         return status;
     }
-    if provider.get("enabled").is_some_and(truthy)
-        || provider.get("authenticated").is_some_and(truthy)
-    {
+    if provider.get("enabled").is_some_and(truthy) || provider.get("authenticated").is_some_and(truthy) {
         return "Set".to_owned();
     }
     if provider.get("detected").is_some_and(truthy) {
@@ -54,21 +52,13 @@ pub fn provider_detail_text(provider: &Value) -> String {
     if !detail.is_empty() {
         return detail;
     }
-    let text = |key: &str| {
-        provider
-            .get(key)
-            .filter(|value| truthy(value))
-            .map(value_text)
-    };
+    let text = |key: &str| provider.get(key).filter(|value| truthy(value)).map(value_text);
     if provider.get("env").is_some_and(truthy) {
         if let Some(name) = text("envName") {
             return format!("env: {name}");
         }
     }
-    text("envName")
-        .or_else(|| text("baseURL"))
-        .or_else(|| text("desc"))
-        .unwrap_or_default()
+    text("envName").or_else(|| text("baseURL")).or_else(|| text("desc")).unwrap_or_default()
 }
 
 /// `providerKindLabel(provider)`.
@@ -85,11 +75,7 @@ pub fn provider_kind_label(provider: &Value) -> &'static str {
 /// `keyConsoleUrl(provider)`: the row's `url` when it is an `https://` address, else nothing.
 pub fn key_console_url(provider: &Value) -> String {
     let url = clean_member(provider, "url");
-    if url.starts_with("https://") {
-        url
-    } else {
-        String::new()
-    }
+    if url.starts_with("https://") { url } else { String::new() }
 }
 
 /// `providerStatusFooter(provider)`: the active glyph plus kind, status and detail; nothing for no provider.
@@ -98,22 +84,14 @@ pub fn provider_status_footer(provider: Option<&Value>) -> Vec<FooterInput> {
         return Vec::new();
     };
     let active = provider_row_usable(provider);
-    let text = [
-        provider_kind_label(provider).to_owned(),
-        provider_status_label(provider),
-        provider_detail_text(provider),
-    ]
-    .into_iter()
-    .filter(|part| !part.is_empty())
-    .collect::<Vec<_>>()
-    .join(" \u{b7} ");
+    let text = [provider_kind_label(provider).to_owned(), provider_status_label(provider), provider_detail_text(provider)]
+        .into_iter()
+        .filter(|part| !part.is_empty())
+        .collect::<Vec<_>>()
+        .join(" \u{b7} ");
     vec![FooterInput::Object {
         glyph: if active { "\u{25cf}" } else { "\u{25cb}" }.to_owned(),
-        color: Some(theme_color(if active {
-            Key::Success
-        } else {
-            Key::Inactive
-        })),
+        color: Some(theme_color(if active { Key::Success } else { Key::Inactive })),
         text,
     }]
 }
@@ -125,12 +103,7 @@ pub fn web_search_default_route() -> Value {
 
 /// `isWebSearchDefaultRoute(route)`.
 pub fn is_web_search_default_route(route: &Value) -> bool {
-    let lower = |key: &str| {
-        route
-            .get(key)
-            .filter(|value| truthy(value))
-            .map(|value| value_text(value).to_lowercase())
-    };
+    let lower = |key: &str| route.get(key).filter(|value| truthy(value)).map(|value| value_text(value).to_lowercase());
     lower("provider").as_deref() == Some("default") && lower("model").as_deref() == Some("default")
 }
 
@@ -140,38 +113,14 @@ mod tests {
 
     fn rows() -> Vec<(Value, bool)> {
         vec![
-            (
-                json!({"id": "openai", "type": "api-key", "enabled": true, "authenticated": true, "stored": true, "env": false}),
-                true,
-            ),
-            (
-                json!({"id": "anthropic", "type": "api-key", "enabled": true, "authenticated": false}),
-                false,
-            ),
-            (
-                json!({"id": "gemini", "type": "api-key", "enabled": false, "authenticated": false}),
-                false,
-            ),
-            (
-                json!({"id": "anthropic-oauth", "type": "oauth", "authenticated": true, "usable": true, "reauthRequired": false}),
-                true,
-            ),
-            (
-                json!({"id": "grok-oauth", "type": "oauth", "authenticated": true, "usable": false}),
-                false,
-            ),
-            (
-                json!({"id": "openai-oauth", "type": "oauth", "usable": false, "reauthRequired": true}),
-                false,
-            ),
-            (
-                json!({"id": "mixdog-local", "type": "local", "enabled": true, "detected": true, "authenticated": true, "usable": true}),
-                true,
-            ),
-            (
-                json!({"id": "mixdog-local", "type": "local", "enabled": false, "detected": true, "authenticated": true, "usable": false}),
-                false,
-            ),
+            (json!({"id": "openai", "type": "api-key", "enabled": true, "authenticated": true, "stored": true, "env": false}), true),
+            (json!({"id": "anthropic", "type": "api-key", "enabled": true, "authenticated": false}), false),
+            (json!({"id": "gemini", "type": "api-key", "enabled": false, "authenticated": false}), false),
+            (json!({"id": "anthropic-oauth", "type": "oauth", "authenticated": true, "usable": true, "reauthRequired": false}), true),
+            (json!({"id": "grok-oauth", "type": "oauth", "authenticated": true, "usable": false}), false),
+            (json!({"id": "openai-oauth", "type": "oauth", "usable": false, "reauthRequired": true}), false),
+            (json!({"id": "mixdog-local", "type": "local", "enabled": true, "detected": true, "authenticated": true, "usable": true}), true),
+            (json!({"id": "mixdog-local", "type": "local", "enabled": false, "detected": true, "authenticated": true, "usable": false}), false),
         ]
     }
 
@@ -187,9 +136,7 @@ mod tests {
     fn the_footer_marks_a_provider_active_only_per_the_same_rule() {
         for (row, usable) in rows() {
             let footer = provider_status_footer(Some(&row));
-            let FooterInput::Object { glyph, .. } = &footer[0] else {
-                panic!("an object line")
-            };
+            let FooterInput::Object { glyph, .. } = &footer[0] else { panic!("an object line") };
             assert_eq!(glyph, if usable { "\u{25cf}" } else { "\u{25cb}" }, "{row}");
         }
         assert!(provider_status_footer(None).is_empty());
@@ -197,50 +144,25 @@ mod tests {
 
     #[test]
     fn the_labels_follow_the_row() {
-        assert_eq!(
-            provider_status_label(&json!({"status": " Invalid config "})),
-            "Invalid config"
-        );
-        assert_eq!(
-            provider_status_label(&json!({"authenticated": true})),
-            "Set"
-        );
-        assert_eq!(
-            provider_status_label(&json!({"detected": true})),
-            "Detected"
-        );
+        assert_eq!(provider_status_label(&json!({"status": " Invalid config "})), "Invalid config");
+        assert_eq!(provider_status_label(&json!({"authenticated": true})), "Set");
+        assert_eq!(provider_status_label(&json!({"detected": true})), "Detected");
         assert_eq!(provider_status_label(&json!({})), "Off");
-        assert_eq!(
-            provider_detail_text(&json!({"env": true, "envName": "KEY"})),
-            "env: KEY"
-        );
+        assert_eq!(provider_detail_text(&json!({"env": true, "envName": "KEY"})), "env: KEY");
         assert_eq!(provider_detail_text(&json!({"envName": "KEY"})), "KEY");
-        assert_eq!(
-            provider_detail_text(&json!({"baseURL": "http://x"})),
-            "http://x"
-        );
+        assert_eq!(provider_detail_text(&json!({"baseURL": "http://x"})), "http://x");
         assert_eq!(provider_kind_label(&json!({"type": "oauth"})), "OAuth");
-        assert_eq!(
-            provider_kind_label(&json!({"type": "local"})),
-            "Local endpoint"
-        );
+        assert_eq!(provider_kind_label(&json!({"type": "local"})), "Local endpoint");
         assert_eq!(provider_kind_label(&json!({})), "API key");
-        assert_eq!(
-            key_console_url(&json!({"url": " https://opencode.ai/keys "})),
-            "https://opencode.ai/keys"
-        );
+        assert_eq!(key_console_url(&json!({"url": " https://opencode.ai/keys "})), "https://opencode.ai/keys");
         assert_eq!(key_console_url(&json!({"url": "http://insecure"})), "");
     }
 
     #[test]
     fn the_web_search_marker_route() {
         assert!(is_web_search_default_route(&web_search_default_route()));
-        assert!(is_web_search_default_route(
-            &json!({"provider": "Default", "model": "DEFAULT"})
-        ));
-        assert!(!is_web_search_default_route(
-            &json!({"provider": "openai", "model": "default"})
-        ));
+        assert!(is_web_search_default_route(&json!({"provider": "Default", "model": "DEFAULT"})));
+        assert!(!is_web_search_default_route(&json!({"provider": "openai", "model": "default"})));
         assert!(!is_web_search_default_route(&Value::Null));
     }
 }

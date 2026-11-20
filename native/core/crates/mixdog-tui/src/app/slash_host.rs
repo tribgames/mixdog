@@ -81,10 +81,7 @@ fn options_value(options: &SubmitOptions) -> Value {
             .pasted_images
             .iter()
             .map(|(id, meta)| {
-                (
-                    id.to_string(),
-                    json!({ "id": meta.id, "mediaType": meta.media_type, "metadataText": meta.metadata_text, "sizeBytes": meta.size_bytes }),
-                )
+                (id.to_string(), json!({ "id": meta.id, "mediaType": meta.media_type, "metadataText": meta.metadata_text, "sizeBytes": meta.size_bytes }))
             })
             .collect();
         map.insert("pastedImages".to_owned(), Value::Object(images));

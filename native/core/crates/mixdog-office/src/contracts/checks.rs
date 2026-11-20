@@ -33,8 +33,7 @@ impl Site<'_> {
 /// `suppliedField`: a field the caller gave, or the stable id (`slideId`, `shapeId`) that stands for it on a
 /// stable-target backend.
 pub(super) fn supplied_field(operation: &Map<String, Value>, field: &str, stable_targets: bool) -> bool {
-    operation.contains_key(field)
-        || (stable_targets && matches!(field, "slide" | "shape") && operation.contains_key(&format!("{field}Id")))
+    operation.contains_key(field) || (stable_targets && matches!(field, "slide" | "shape") && operation.contains_key(&format!("{field}Id")))
 }
 
 /// `unknownFieldsFault`: fields the operation does not take. A style key passed as a field is not a typo: it belongs in
@@ -48,8 +47,7 @@ pub(super) fn unknown_fields_fault(
     property_keys: &[String],
     missing: &[String],
 ) -> Option<String> {
-    let unknown: Vec<String> =
-        js_object_keys(operation).into_iter().filter(|field| !allowed.contains(field)).cloned().collect();
+    let unknown: Vec<String> = js_object_keys(operation).into_iter().filter(|field| !allowed.contains(field)).cloned().collect();
     if unknown.is_empty() {
         return None;
     }
@@ -81,8 +79,7 @@ pub(super) fn unknown_fields_fault(
     if remaining.is_empty() {
         return None;
     }
-    let (misplaced, unexplained): (Vec<String>, Vec<String>) =
-        remaining.iter().cloned().partition(|field| property_keys.contains(field));
+    let (misplaced, unexplained): (Vec<String>, Vec<String>) = remaining.iter().cloned().partition(|field| property_keys.contains(field));
     // One field the operation does not take beside one it requires and did not get is that field under another name
     // (set_chart_data's chart for shape); the nearest spelling (chart→chartType) sent the retry the wrong way.
     let corrections = if unexplained.len() == 1 && missing.len() == 1 {
@@ -105,21 +102,12 @@ pub(super) fn unknown_fields_fault(
     } else {
         format!(" {} takes: {accepted}.", site.name)
     };
-    Some(format!(
-        "{} has unknown field(s): {}.{misplaced_note}{suggestion} {}",
-        site.at(),
-        remaining.join(", "),
-        site.hint()
-    ))
+    Some(format!("{} has unknown field(s): {}.{misplaced_note}{suggestion} {}", site.at(), remaining.join(", "), site.hint()))
 }
 
 /// `unknownPropertiesFault`: properties are where an unnoticed miss hurts most, an unknown key is dropped silently, so
 /// the caller believes the table was styled and only the rendered page says otherwise.
-pub(super) fn unknown_properties_fault(
-    site: &Site,
-    operation: &mut Map<String, Value>,
-    allowed_properties: &[String],
-) -> Option<String> {
+pub(super) fn unknown_properties_fault(site: &Site, operation: &mut Map<String, Value>, allowed_properties: &[String]) -> Option<String> {
     if allowed_properties.is_empty() {
         return None;
     }
@@ -137,8 +125,7 @@ pub(super) fn unknown_properties_fault(
             properties.insert(canonical.clone(), value);
         }
     }
-    let unknown: Vec<String> =
-        js_object_keys(properties).into_iter().filter(|field| !allowed_properties.contains(field)).cloned().collect();
+    let unknown: Vec<String> = js_object_keys(properties).into_iter().filter(|field| !allowed_properties.contains(field)).cloned().collect();
     if unknown.is_empty() {
         return None;
     }
@@ -160,9 +147,7 @@ pub(super) fn docx_style_definition_fault(site: &Site, operation: &Map<String, V
     if site.format != "docx" || site.name != "define_styles" || !operation.contains_key("styles") {
         return None;
     }
-    docx_style_definitions(operation)
-        .err()
-        .map(|message| format!("DOCX operation \"define_styles\" at operation {}: {message}", site.index + 1))
+    docx_style_definitions(operation).err().map(|message| format!("DOCX operation \"define_styles\" at operation {}: {message}", site.index + 1))
 }
 
 /// `docxTableAlignmentFaults`: a Word table has two alignments that read alike. `alignment` places the table on the page
@@ -199,19 +184,15 @@ pub(super) fn docx_table_alignment_faults(site: &Site, operation: &mut Map<Strin
     }
     if let Some(declared) = properties.get("columnAlignments") {
         let columns = declared.as_array();
-        let invalid: Vec<&Value> = columns
-            .map(|columns| columns.iter().filter(|entry| !text_alignments.contains(&normal(entry).as_str())).collect())
-            .unwrap_or_default();
+        let invalid: Vec<&Value> =
+            columns.map(|columns| columns.iter().filter(|entry| !text_alignments.contains(&normal(entry).as_str())).collect()).unwrap_or_default();
         if columns.is_none() || !invalid.is_empty() {
             let detail = if columns.is_some() {
                 format!(", not {}", invalid.iter().map(|entry| json_stringify(entry)).collect::<Vec<_>>().join(", "))
             } else {
                 format!(" (an array), not {}", json_stringify(declared))
             };
-            faults.push(format!(
-                "{prefix}: properties.columnAlignments is one of {} per column{detail}.",
-                text_alignments.join(", ")
-            ));
+            faults.push(format!("{prefix}: properties.columnAlignments is one of {} per column{detail}.", text_alignments.join(", ")));
         } else if let Some(columns) = columns {
             let lowered = columns.iter().map(|entry| Value::String(normal(entry))).collect();
             properties.insert("columnAlignments".to_owned(), Value::Array(lowered));
@@ -222,16 +203,10 @@ pub(super) fn docx_table_alignment_faults(site: &Site, operation: &mut Map<Strin
 
 /// `requiredInputFault`: the fields the operation needs and did not get, and the alternative groups none of which was
 /// given.
-pub(super) fn required_input_fault(
-    site: &Site,
-    operation: &Map<String, Value>,
-    signature: &Signature,
-    stable_targets: bool,
-) -> Option<String> {
+pub(super) fn required_input_fault(site: &Site, operation: &Map<String, Value>, signature: &Signature, stable_targets: bool) -> Option<String> {
     let supplied = |field: &String| supplied_field(operation, field, stable_targets);
     let missing: Vec<&String> = signature.required.iter().filter(|field| !supplied(*field)).collect();
-    let matches_alternative =
-        signature.one_of.is_empty() || signature.one_of.iter().any(|alternative| alternative.iter().all(supplied));
+    let matches_alternative = signature.one_of.is_empty() || signature.one_of.iter().any(|alternative| alternative.iter().all(supplied));
     if missing.is_empty() && matches_alternative {
         return None;
     }
@@ -296,7 +271,12 @@ mod tests {
         let allowed = strings(&["op", "allowNoChange", "range", "chartType"]);
         let mut unrelated = object(json!({ "op": "add_chart", "range": "A1:B5", "source": "A1:B5" }));
         let fault = unknown_fields_fault(&site("xlsx", "add_chart"), &mut unrelated, &allowed, &[], &[]).expect("fault");
-        assert!(fault.starts_with("XLSX operation \"add_chart\" at operation 1 has unknown field(s): source. add_chart takes: op, range, chartType. Call office with"), "{fault}");
+        assert!(
+            fault.starts_with(
+                "XLSX operation \"add_chart\" at operation 1 has unknown field(s): source. add_chart takes: op, range, chartType. Call office with"
+            ),
+            "{fault}"
+        );
         let mut typo = object(json!({ "op": "add_chart", "range": "A1:B5", "chartTipe": "column" }));
         let fault = unknown_fields_fault(&site("xlsx", "add_chart"), &mut typo, &allowed, &[], &[]).expect("fault");
         assert!(fault.contains("Did you mean: chartTipe→chartType?"), "{fault}");
@@ -306,8 +286,7 @@ mod tests {
     fn one_unknown_beside_one_missing_is_that_field() {
         let allowed = strings(&["op", "allowNoChange", "slide", "shape", "chartType"]);
         let mut operation = object(json!({ "op": "set_chart_data", "slide": 2, "chart": 1 }));
-        let fault = unknown_fields_fault(&site("pptx", "set_chart_data"), &mut operation, &allowed, &[], &strings(&["shape"]))
-            .expect("fault");
+        let fault = unknown_fields_fault(&site("pptx", "set_chart_data"), &mut operation, &allowed, &[], &strings(&["shape"])).expect("fault");
         assert!(fault.contains("Did you mean: chart→shape?"), "{fault}");
         assert!(!fault.contains("chartType"), "{fault}");
     }

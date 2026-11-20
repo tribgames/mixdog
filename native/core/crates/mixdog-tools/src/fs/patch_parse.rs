@@ -37,7 +37,8 @@ fn strip_metadata(raw: &str) -> String {
         text = js_trim_end(&text[..tab]).to_owned();
     }
     if let Some(quote) = text.chars().next().filter(|c| (*c == '"' || *c == '\'') && text.len() > 1)
-        && let Some(end) = text[1..].find(quote).map(|e| e + 1) {
+        && let Some(end) = text[1..].find(quote).map(|e| e + 1)
+    {
         text = text[1..end].to_owned();
     }
     text
@@ -61,9 +62,9 @@ fn normalise_anchor(raw: &str) -> String {
 
 fn is_patch_marker(line: &str) -> bool {
     let lower = line.to_ascii_lowercase();
-    ["*** begin patch", "*** end patch"].iter().any(|m| {
-        lower.strip_prefix(m).is_some_and(|rest| rest.chars().next().is_none_or(|c| !(c.is_alphanumeric() || c == '_')))
-    })
+    ["*** begin patch", "*** end patch"]
+        .iter()
+        .any(|m| lower.strip_prefix(m).is_some_and(|rest| rest.chars().next().is_none_or(|c| !(c.is_alphanumeric() || c == '_'))))
 }
 
 pub(super) fn parse_v4a(patch: &str) -> Result<Vec<Section>, String> {
@@ -78,7 +79,8 @@ pub(super) fn parse_v4a(patch: &str) -> Result<Vec<Section>, String> {
 
     fn finish_hunk(files: &mut [Section], hunk: &mut Option<Hunk>) {
         if let (Some(file), Some(h)) = (files.last_mut(), hunk.take())
-            && !h.lines.is_empty() {
+            && !h.lines.is_empty()
+        {
             file.hunks.push(h);
         }
     }
@@ -179,10 +181,7 @@ fn is_word(c: char) -> bool {
 fn is_begin_patch(line: &str) -> bool {
     let Some(rest) = line.strip_prefix("***") else { return false };
     let rest = rest.trim_start_matches(mixdog_js::is_js_space);
-    rest.len() >= 11
-        && rest.is_char_boundary(11)
-        && rest[..11].eq_ignore_ascii_case("begin patch")
-        && rest[11..].chars().next().is_none_or(|c| !is_word(c))
+    rest.len() >= 11 && rest.is_char_boundary(11) && rest[..11].eq_ignore_ascii_case("begin patch") && rest[11..].chars().next().is_none_or(|c| !is_word(c))
 }
 
 fn is_end_patch(line: &str) -> bool {
@@ -236,7 +235,9 @@ pub(super) fn salvage_opening(raw: &str) -> String {
     let mut changed = i > 0 || first != "*** Begin Patch";
     let j = (1..out.len()).find(|j| !js_trim(&out[*j]).is_empty()).unwrap_or(out.len());
     if let Some(body) = out.get(j).cloned()
-        && !is_file_header(&body) && !is_end_patch(&body) {
+        && !is_file_header(&body)
+        && !is_end_patch(&body)
+    {
         if is_unified_body(&body) && !prepared.split('\n').any(is_file_header) {
             // A unified diff wrapped in a V4A envelope: drop the envelope.
             return out.iter().enumerate().filter(|(idx, l)| *idx != 0 && !is_end_patch(l)).map(|(_, l)| l.as_str()).collect::<Vec<_>>().join("\n");
@@ -290,7 +291,9 @@ pub(super) fn is_counted_header(line: &str) -> bool {
 
 /// `stripDiffPrefix`: drops a leading `a/` or `b/` unless the path is absolute.
 pub(super) fn strip_diff_prefix(name: &str) -> &str {
-    let absolute = name.starts_with('/') || name.starts_with('\\') || (name.len() >= 3 && name.as_bytes()[1] == b':' && matches!(name.as_bytes()[2], b'/' | b'\\') && name.as_bytes()[0].is_ascii_alphabetic());
+    let absolute = name.starts_with('/')
+        || name.starts_with('\\')
+        || (name.len() >= 3 && name.as_bytes()[1] == b':' && matches!(name.as_bytes()[2], b'/' | b'\\') && name.as_bytes()[0].is_ascii_alphabetic());
     if absolute {
         return name;
     }
@@ -336,7 +339,9 @@ pub(super) fn parse_unified_as_v4a(patch: &str, anchors: UnifiedAnchors) -> Resu
     let mut hunk: Option<Hunk> = None;
     fn finish_hunk(files: &mut [Section], hunk: &mut Option<Hunk>) {
         if let (Some(file), Some(h)) = (files.last_mut(), hunk.take())
-            && file.kind == Kind::Update && !h.lines.is_empty() {
+            && file.kind == Kind::Update
+            && !h.lines.is_empty()
+        {
             file.hunks.push(h);
         }
     }
@@ -373,7 +378,8 @@ pub(super) fn parse_unified_as_v4a(patch: &str, anchors: UnifiedAnchors) -> Resu
         let Some(current) = files.last_mut() else { continue };
         if raw.is_empty() {
             if current.kind == Kind::Update
-                && let Some(h) = hunk.as_mut() {
+                && let Some(h) = hunk.as_mut()
+            {
                 h.lines.push(" ".to_owned());
             }
             continue;

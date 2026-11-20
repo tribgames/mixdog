@@ -64,11 +64,7 @@ fn answer(connection: &str) -> ClientSignal {
 }
 
 fn media_ready(connection: &str) -> ClientSignal {
-    client(
-        json!({ "type": "media-ready", "documentId": "p1:2", "geometryGeneration": 1, "pixelWidth": 800, "pixelHeight": 600 }),
-        &browser(),
-        connection,
-    )
+    client(json!({ "type": "media-ready", "documentId": "p1:2", "geometryGeneration": 1, "pixelWidth": 800, "pixelHeight": 600 }), &browser(), connection)
 }
 
 fn desktop(fields: Value) -> Value {
@@ -326,7 +322,13 @@ async fn screen_replay_compacts_only_cancelled_ids_and_explicitly_requires_a_new
     phone("ready", "main", 6).await.unwrap();
     assert_eq!(
         &deps.calls()[before..],
-        ["forward c1 ready ice=Some(1)", "forward c1 ready ice=Some(1)", "forward c1 ready ice=Some(1)", "forward c1 close ice=None", "forward c1 ready ice=Some(1)"]
+        [
+            "forward c1 ready ice=Some(1)",
+            "forward c1 ready ice=Some(1)",
+            "forward c1 ready ice=Some(1)",
+            "forward c1 close ice=None",
+            "forward c1 ready ice=Some(1)"
+        ]
     );
 
     phone("close", "first-unmatched", 999).await.unwrap();
@@ -589,7 +591,9 @@ async fn a_viewer_negotiates_promotes_applies_channel_input_and_hands_input_back
     viewer.pump().await;
     assert_eq!(*rig.dispatched.lock().unwrap(), [json!({ "type": "text", "documentId": "p1:2", "text": "hi" })]);
     let ack = |seq: u64, outcome: &str, queued: u64| {
-        format!("channel {{\"v\":1,\"kind\":\"input-ack\",\"epoch\":2,\"seq\":{seq},\"outcome\":\"{outcome}\",\"sentAt\":900,\"queuedMs\":{queued},\"dispatchMs\":0}}")
+        format!(
+            "channel {{\"v\":1,\"kind\":\"input-ack\",\"epoch\":2,\"seq\":{seq},\"outcome\":\"{outcome}\",\"sentAt\":900,\"queuedMs\":{queued},\"dispatchMs\":0}}"
+        )
     };
     assert!(rig.log().contains(&ack(1, "applied", 50)), "{:?}", rig.log());
 

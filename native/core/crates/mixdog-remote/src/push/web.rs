@@ -51,12 +51,7 @@ fn hkdf(salt: &[u8], ikm: &[u8], info: &[u8], out: &mut [u8]) {
 
 /// RFC 8291 §3.4 single-record `aes128gcm` body. The salt and ephemeral key are injectable so a
 /// test reproduces a vector instead of asserting on randomness.
-pub fn encrypt_web_push_payload(
-    keys: &WebPushKeys,
-    plaintext: &[u8],
-    salt: [u8; 16],
-    local: &p256::SecretKey,
-) -> Result<Vec<u8>, WebPushError> {
+pub fn encrypt_web_push_payload(keys: &WebPushKeys, plaintext: &[u8], salt: [u8; 16], local: &p256::SecretKey) -> Result<Vec<u8>, WebPushError> {
     if plaintext.len() > MAX_WEB_PUSH_PAYLOAD_BYTES {
         return Err(WebPushError::TooLarge);
     }
@@ -79,9 +74,7 @@ pub fn encrypt_web_push_payload(
     // 0x02 ends the padding of the LAST record; a lone record is always the last.
     let mut record = plaintext.to_vec();
     record.push(0x02);
-    let sealed = Aes128Gcm::new((&content_key).into())
-        .encrypt(Nonce::from_slice(&nonce), record.as_slice())
-        .map_err(|_| WebPushError::Keys)?;
+    let sealed = Aes128Gcm::new((&content_key).into()).encrypt(Nonce::from_slice(&nonce), record.as_slice()).map_err(|_| WebPushError::Keys)?;
     let mut body = Vec::with_capacity(HEADER_BYTES + sealed.len());
     body.extend_from_slice(&salt);
     body.extend_from_slice(&RECORD_SIZE.to_be_bytes());

@@ -78,7 +78,16 @@ fn with_code<'a>(issues: &'a [Value], code: &str) -> Vec<&'a Value> {
 fn three_consecutive_beats_and_a_deck_that_is_mostly_beats_are_reported_and_a_dark_theme_is_let_through() {
     let dark = "0F1B26";
     let run = issues_of(vec![
-        beat(1, dark), evidence(2), evidence(3), beat(4, dark), beat(5, dark), beat(6, dark), evidence(7), evidence(8), evidence(9), beat(10, dark),
+        beat(1, dark),
+        evidence(2),
+        evidence(3),
+        beat(4, dark),
+        beat(5, dark),
+        beat(6, dark),
+        evidence(7),
+        evidence(8),
+        evidence(9),
+        beat(10, dark),
     ]);
     let consecutive = with_code(&run, "consecutive_beats");
     assert_eq!(consecutive.len(), 1, "three beats in a row are reported");
@@ -87,11 +96,14 @@ fn three_consecutive_beats_and_a_deck_that_is_mostly_beats_are_reported_and_a_da
     let covers = issues_of(vec![beat(1, dark), beat(2, dark), evidence(3), evidence(4), evidence(5), evidence(6), evidence(7), beat(8, dark)]);
     assert!(with_code(&covers, "beat_share_high").is_empty(), "one agenda beat among six inner pages is the ordinary shape");
     assert!(with_code(&covers, "consecutive_beats").is_empty(), "two beats in the front matter and the closing are the ordinary shape");
-    let theme = issues_of(
-        (0..10)
-            .map(|i| if i % 3 == 2 { json!({ "index": i + 1, "background": { "color": dark }, "shapes": evidence(i + 1)["shapes"] }) } else { beat(i + 1, dark) })
-            .collect(),
-    );
+    let theme =
+        issues_of(
+            (0..10)
+                .map(|i| {
+                    if i % 3 == 2 { json!({ "index": i + 1, "background": { "color": dark }, "shapes": evidence(i + 1)["shapes"] }) } else { beat(i + 1, dark) }
+                })
+                .collect(),
+        );
     assert!(with_code(&theme, "beat_share_high").is_empty(), "a deck dark on every page is a theme, not beats");
 }
 

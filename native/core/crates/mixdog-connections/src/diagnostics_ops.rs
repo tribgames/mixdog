@@ -7,13 +7,13 @@ use std::time::Duration;
 use async_trait::async_trait;
 use mixdog_app_protocol::v2::connections::{SshLogView, SshServerLog};
 use mixdog_ssh::binary::ssh_tool_command;
-use mixdog_ssh::command::{parse_ssh_target, SshError, SshTarget};
+use mixdog_ssh::command::{SshError, SshTarget, parse_ssh_target};
 use mixdog_ssh::context::{AttemptContext, SshEnv};
 use mixdog_ssh::diagnostics::{
-    diagnostics_key_for, os_label, redact_secrets, redact_server, server_names, Diagnostics, DiagnosticsInput, DIAGNOSTICS_MAX_ENTRIES,
+    DIAGNOSTICS_MAX_ENTRIES, Diagnostics, DiagnosticsInput, diagnostics_key_for, os_label, redact_secrets, redact_server, server_names,
 };
-use mixdog_ssh::host_key::{parse_ssh_config_dump, ResolvedHost};
-use mixdog_ssh::spawn::{ssh_exec, ExecOptions};
+use mixdog_ssh::host_key::{ResolvedHost, parse_ssh_config_dump};
+use mixdog_ssh::spawn::{ExecOptions, ssh_exec};
 
 use crate::attempts::AttemptError;
 use crate::host_store::{SshHostRecord, SshHostStore};
@@ -77,13 +77,8 @@ impl DiagnosticsMachine for EnvDiagnostics {
     }
 
     async fn daemon_log(&self, target: &SshTarget, context: AttemptContext) -> Result<String, SshError> {
-        let options = ExecOptions {
-            target: target.clone(),
-            command: DAEMON_LOG_COMMAND.to_owned(),
-            input: None,
-            timeout: DAEMON_LOG_TIMEOUT,
-            context: Some(context),
-        };
+        let options =
+            ExecOptions { target: target.clone(), command: DAEMON_LOG_COMMAND.to_owned(), input: None, timeout: DAEMON_LOG_TIMEOUT, context: Some(context) };
         ssh_exec(&self.env, options).await.map(|output| output.stdout)
     }
 
@@ -108,8 +103,7 @@ fn hop_host(hop: &str) -> &str {
 /// The config lines worth copying, and the names the report redacts besides the target's own.
 fn config_of(host: Option<&ResolvedHost>) -> (Vec<String>, Vec<String>) {
     let Some(host) = host else { return (vec![UNRESOLVED.to_owned()], Vec::new()) };
-    let mut config =
-        vec![format!("HostName {}", host.hostname), format!("User {}", host.user.as_deref().unwrap_or("")), format!("Port {}", host.port)];
+    let mut config = vec![format!("HostName {}", host.hostname), format!("User {}", host.user.as_deref().unwrap_or("")), format!("Port {}", host.port)];
     if let Some(jump) = &host.proxy_jump {
         config.push(format!("ProxyJump {jump}"));
     }

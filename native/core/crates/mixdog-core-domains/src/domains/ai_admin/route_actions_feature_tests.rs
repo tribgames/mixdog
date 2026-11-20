@@ -117,10 +117,15 @@ async fn run(actions: &RouteActions, caller: &str, args: Value) -> Result<Value,
 #[tokio::test]
 async fn set_route_writes_the_fields_a_route_may_carry_as_an_explicit_main_model_choice() {
     let (actions, writes, _) = rig(CallerScope::Human, sessions(vec![]));
-    let answer = run(&actions, "t", json!({ "action": "set_route", "route": { "provider": " openai ", "model": " gpt-5 ", "effort": "high", "fast": true } })).await.unwrap();
+    let answer = run(&actions, "t", json!({ "action": "set_route", "route": { "provider": " openai ", "model": " gpt-5 ", "effort": "high", "fast": true } }))
+        .await
+        .unwrap();
     let route = json!({ "provider": "openai", "model": "gpt-5", "effort": "high", "fast": true });
     assert_eq!(answer, json!({ "route": route }), "no chain edited, no receipt");
-    assert_eq!(*writes.0.lock().unwrap(), [json!({ "call": "setRoute", "route": route, "keepMainModel": false, "sessionOnly": false, "switchEstablished": false, "defer": false })]);
+    assert_eq!(
+        *writes.0.lock().unwrap(),
+        [json!({ "call": "setRoute", "route": route, "keepMainModel": false, "sessionOnly": false, "switchEstablished": false, "defer": false })]
+    );
 }
 
 #[tokio::test]
@@ -137,19 +142,28 @@ async fn a_saved_chain_is_reported_as_applied_only_when_the_caller_follows_it_fr
     other_chain.chain = Some(CallerChain { position, source_is_primary: true });
     let (actions, _, _) = rig(CallerScope::Human, other_chain);
     let changed = json!({ "provider": "openai", "model": "a", "fallbacks": [{ "provider": "anthropic", "model": "other" }] });
-    assert_eq!(run(&actions, "t", json!({ "action": "set_route", "route": changed })).await.unwrap()["appliedToCurrentSession"], false, "the caller follows a different chain");
+    assert_eq!(
+        run(&actions, "t", json!({ "action": "set_route", "route": changed })).await.unwrap()["appliedToCurrentSession"],
+        false,
+        "the caller follows a different chain"
+    );
 
     let mut not_primary = sessions(vec![]);
     not_primary.chain = Some(CallerChain { position: json!({ "kind": "lead", "chainFrom": "settings", "fallbacks": [] }), source_is_primary: false });
     let (actions, _, _) = rig(CallerScope::Human, not_primary);
     let empty = json!({ "provider": "openai", "model": "a", "fallbacks": [] });
-    assert_eq!(run(&actions, "t", json!({ "action": "set_route", "route": empty })).await.unwrap()["appliedToCurrentSession"], false, "its chain does not start from the saved primary");
+    assert_eq!(
+        run(&actions, "t", json!({ "action": "set_route", "route": empty })).await.unwrap()["appliedToCurrentSession"],
+        false,
+        "its chain does not start from the saved primary"
+    );
 }
 
 #[tokio::test]
 async fn an_agent_thread_may_set_only_its_own_agents_route() {
     let (actions, writes, _) = rig(CallerScope::Agent { agent_id: "worker".into(), unattended: false }, sessions(vec![]));
-    let denied = run(&actions, "t", json!({ "action": "set_agent_route", "agent": "reviewer", "route": { "provider": "openai", "model": "m" } })).await.unwrap_err();
+    let denied =
+        run(&actions, "t", json!({ "action": "set_agent_route", "agent": "reviewer", "route": { "provider": "openai", "model": "m" } })).await.unwrap_err();
     assert_eq!(denied, "This thread manages only its own agent's settings (setup set_agent_route)");
     assert!(writes.0.lock().unwrap().is_empty());
     let own = run(&actions, "t", json!({ "action": "set_agent_route", "agent": " worker ", "route": { "provider": "openai", "model": "m" } })).await.unwrap();
@@ -160,17 +174,25 @@ async fn an_agent_thread_may_set_only_its_own_agents_route() {
 #[tokio::test]
 async fn an_agent_route_needs_an_agent_name() {
     let (actions, _, _) = rig(CallerScope::Human, sessions(vec![]));
-    assert_eq!(run(&actions, "t", json!({ "action": "set_agent_route", "agent": "  ", "route": { "provider": "openai", "model": "m" } })).await.unwrap_err(), "agent is required");
+    assert_eq!(
+        run(&actions, "t", json!({ "action": "set_agent_route", "agent": "  ", "route": { "provider": "openai", "model": "m" } })).await.unwrap_err(),
+        "agent is required"
+    );
 }
 
 #[tokio::test]
 async fn resetting_a_session_that_hopped_returns_it_to_its_primary_route() {
     let (actions, writes, sessions) = rig(CallerScope::Human, sessions(vec![("me", "lead", true), ("s2", "lead", true), ("s3", "lead", false)]));
     let own = run(&actions, "me", json!({ "action": "reset_route_fallback" })).await.unwrap();
-    assert_eq!(own, json!({ "scope": "session", "reset": [{ "sessionId": "me", "from": { "provider": "anthropic", "model": "fallback-model" }, "to": { "provider": "openai", "model": "primary-model" } }] }));
+    assert_eq!(
+        own,
+        json!({ "scope": "session", "reset": [{ "sessionId": "me", "from": { "provider": "anthropic", "model": "fallback-model" }, "to": { "provider": "openai", "model": "primary-model" } }] })
+    );
     assert_eq!(
         *writes.0.lock().unwrap(),
-        [json!({ "call": "setRoute", "route": { "provider": "openai", "model": "primary-model", "effort": "high" }, "keepMainModel": null, "sessionOnly": true, "switchEstablished": true, "defer": true })],
+        [
+            json!({ "call": "setRoute", "route": { "provider": "openai", "model": "primary-model", "effort": "high" }, "keepMainModel": null, "sessionOnly": true, "switchEstablished": true, "defer": true })
+        ],
         "the session's own pick, from its next turn, with only the switchable fields"
     );
 
@@ -179,13 +201,19 @@ async fn resetting_a_session_that_hopped_returns_it_to_its_primary_route() {
     assert_eq!(sessions.controls.lock().unwrap()[0], json!(["s2", "setRoute", { "provider": "openai", "model": "primary-model", "effort": "high" }]));
 
     let idle = run(&actions, "me", json!({ "action": "reset_route_fallback", "sessionId": "s3" })).await.unwrap();
-    assert_eq!(idle, json!({ "scope": "session", "reset": [], "alreadyOnPrimary": [{ "sessionId": "s3", "current": { "provider": "anthropic", "model": "fallback-model" } }] }));
+    assert_eq!(
+        idle,
+        json!({ "scope": "session", "reset": [], "alreadyOnPrimary": [{ "sessionId": "s3", "current": { "provider": "anthropic", "model": "fallback-model" } }] })
+    );
 }
 
 #[tokio::test]
 async fn resetting_names_one_target_and_refuses_what_it_cannot_find() {
     let (actions, _, _) = rig(CallerScope::Human, sessions(vec![("me", "lead", true)]));
-    assert_eq!(run(&actions, "me", json!({ "action": "reset_route_fallback", "sessionId": "me", "agent": "lead" })).await.unwrap_err(), "Pass sessionId or agent, not both");
+    assert_eq!(
+        run(&actions, "me", json!({ "action": "reset_route_fallback", "sessionId": "me", "agent": "lead" })).await.unwrap_err(),
+        "Pass sessionId or agent, not both"
+    );
     assert_eq!(run(&actions, "me", json!({ "action": "reset_route_fallback", "agent": "  " })).await.unwrap_err(), "agent is required");
     assert_eq!(run(&actions, "me", json!({ "action": "reset_route_fallback", "sessionId": "s9" })).await.unwrap_err(), "session s9 not found");
     let by_agent = run(&actions, "me", json!({ "action": "reset_route_fallback", "agent": "lead" })).await.unwrap();
@@ -196,15 +224,29 @@ async fn resetting_names_one_target_and_refuses_what_it_cannot_find() {
 async fn continuing_in_a_model_and_the_quota_resume_apply_to_another_session_only() {
     let (actions, _, sessions) = rig(CallerScope::Human, self::sessions(vec![("me", "lead", false), ("s2", "lead", false)]));
     let refused = "applies to another session: this one is running the setup call";
-    assert_eq!(run(&actions, "me", json!({ "action": "continue_in_model", "sessionId": "me", "route": { "provider": "openai", "model": "m" } })).await.unwrap_err(), format!("continue_in_model {refused}"));
-    assert_eq!(run(&actions, "me", json!({ "action": "schedule_quota_resume", "sessionId": "me" })).await.unwrap_err(), format!("schedule_quota_resume {refused}"));
+    assert_eq!(
+        run(&actions, "me", json!({ "action": "continue_in_model", "sessionId": "me", "route": { "provider": "openai", "model": "m" } })).await.unwrap_err(),
+        format!("continue_in_model {refused}")
+    );
+    assert_eq!(
+        run(&actions, "me", json!({ "action": "schedule_quota_resume", "sessionId": "me" })).await.unwrap_err(),
+        format!("schedule_quota_resume {refused}")
+    );
 
-    let continued = run(&actions, "me", json!({ "action": "continue_in_model", "sessionId": "s2", "route": { "provider": "openai", "model": "m", "effort": "low" } })).await;
+    let continued =
+        run(&actions, "me", json!({ "action": "continue_in_model", "sessionId": "s2", "route": { "provider": "openai", "model": "m", "effort": "low" } }))
+            .await;
     let continued = continued.unwrap();
     assert_eq!(continued["continued"], true);
     assert_eq!(continued["route"], json!({ "provider": "openai", "model": "m" }));
     assert_eq!(sessions.controls.lock().unwrap()[0][1], "continueSessionInModel");
 
-    assert_eq!(run(&actions, "me", json!({ "action": "schedule_quota_resume", "sessionId": "s2" })).await.unwrap(), json!({ "scope": "session", "sessionId": "s2", "scheduled": true }));
-    assert_eq!(run(&actions, "me", json!({ "action": "cancel_quota_resume", "sessionId": "s2" })).await.unwrap(), json!({ "scope": "session", "sessionId": "s2", "cancelled": true }));
+    assert_eq!(
+        run(&actions, "me", json!({ "action": "schedule_quota_resume", "sessionId": "s2" })).await.unwrap(),
+        json!({ "scope": "session", "sessionId": "s2", "scheduled": true })
+    );
+    assert_eq!(
+        run(&actions, "me", json!({ "action": "cancel_quota_resume", "sessionId": "s2" })).await.unwrap(),
+        json!({ "scope": "session", "sessionId": "s2", "cancelled": true })
+    );
 }

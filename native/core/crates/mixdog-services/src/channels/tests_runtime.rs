@@ -20,20 +20,16 @@ use super::admin::{AdminDeps, AdminError, ChannelAdmin};
 use super::bridge::BridgeCalls;
 use super::call::CallDispatch;
 use super::ports::{
-    AgentRuntime, AutomationServices, ChannelSettings, ProbeError, ProbeResponse, PublicBase, WebhookAutomation, WebhookListener,
-    WebhookPatch, WebhookProbe, WebhookSettings,
+    AgentRuntime, AutomationServices, ChannelSettings, ProbeError, ProbeResponse, PublicBase, WebhookAutomation, WebhookListener, WebhookPatch, WebhookProbe,
+    WebhookSettings,
 };
 use super::running::RunningWork;
 use super::runtime::ChannelRuntime;
 use super::service::ChannelService;
 use super::tools::{ACTIVATE_TOOL, ChannelLifecycle, ToolDispatch};
 use crate::bots::tests::{FakeHost, sched};
-use crate::bots::{
-    HomeScheduleRunner, HomeWebhookDispatch, OwnerProblem, RoutineKind, RoutineRuntime, StoreRoutineRecords, TurnSettle,
-};
-use crate::scheduler::{
-    Schedule, ScheduleError, ScheduleRecords, ScheduleStatus, ScheduleStore, Scheduler, StateScheduleStore, SystemClock,
-};
+use crate::bots::{HomeScheduleRunner, HomeWebhookDispatch, OwnerProblem, RoutineKind, RoutineRuntime, StoreRoutineRecords, TurnSettle};
+use crate::scheduler::{Schedule, ScheduleError, ScheduleRecords, ScheduleStatus, ScheduleStore, Scheduler, StateScheduleStore, SystemClock};
 use crate::webhooks::lifecycle::{TunnelStarter, WebhookServer};
 use crate::webhooks::relay::{RelayTunnelStarter, hook_public_base};
 use crate::webhooks::signature::{Headers, hmac_hex};
@@ -181,14 +177,8 @@ async fn env_with(channel_start_disabled: bool) -> Env {
     let records = Arc::new(StoreRoutineRecords::new(schedules.clone(), webhooks.clone()));
     let routines = RoutineRuntime::new(host.clone(), records, Arc::new(SystemClock), Tz::UTC);
     let work = RunningWork::new();
-    let scheduler = Scheduler::new(
-        schedules.clone(),
-        Arc::new(HomeScheduleRunner::new(routines.clone())),
-        Arc::new(SystemClock),
-        work.clone(),
-        Tz::UTC,
-        Vec::new(),
-    );
+    let scheduler =
+        Scheduler::new(schedules.clone(), Arc::new(HomeScheduleRunner::new(routines.clone())), Arc::new(SystemClock), work.clone(), Tz::UTC, Vec::new());
     let (settings, services, agent, base, probe) = (
         Arc::new(FakeSettings::default()),
         Arc::new(FakeServices::default()),
@@ -349,10 +339,7 @@ async fn a_rename_is_refused_while_a_run_holds_the_name_and_goes_through_the_sch
     e.admin.save_schedule(&recurring("a")).await.unwrap();
     let rename = json!({"name": "a", "newName": "b", "time": "0 9 * * *", "instructions": "Report.", "overwrite": true});
     let held = e.routines.runs().begin(RoutineKind::Schedule, "a").unwrap();
-    assert_eq!(
-        e.admin.save_schedule(&rename).await.unwrap_err(),
-        AdminError::Schedule(ScheduleError::RenameRunning { name: "a".into() })
-    );
+    assert_eq!(e.admin.save_schedule(&rename).await.unwrap_err(), AdminError::Schedule(ScheduleError::RenameRunning { name: "a".into() }));
     drop(held);
 
     e.runtime.start_automation().await.unwrap();
@@ -442,7 +429,8 @@ async fn the_test_request_is_signed_the_way_the_receiver_verifies_it() {
 
     // The real receiver accepts exactly this request, answers `verified` and runs nothing.
     let dispatch = Arc::new(HomeWebhookDispatch::new(e.routines.clone(), e.webhooks.clone(), None, e.work.clone()));
-    let service = WebhookService::new(e.webhooks.clone(), dispatch, WebhookConfig::default(), e.work.clone(), Arc::new(|| chrono::Utc::now().timestamp_millis()));
+    let service =
+        WebhookService::new(e.webhooks.clone(), dispatch, WebhookConfig::default(), e.work.clone(), Arc::new(|| chrono::Utc::now().timestamp_millis()));
     let reply = service.handle_post("/webhook/gh", &headers, sent.2.as_bytes()).await;
     assert_eq!((reply.status, reply.body), (200, json!({"status": "verified", "test": true})));
     assert!(e.host.turns().is_empty());
@@ -480,7 +468,10 @@ async fn every_parser_signs_in_its_own_format_and_failures_carry_a_code() {
     assert_eq!(e.admin.test_webhook("ge").await.unwrap()["error"], "Unexpected response (HTTP 502)");
     *e.probe.reply.lock().unwrap() = Some(Err(ProbeError::TimedOut));
     let timed_out = e.admin.test_webhook("ge").await.unwrap();
-    assert_eq!((timed_out["code"].as_str(), timed_out["error"].as_str(), timed_out["status"].clone()), (Some("timeout"), Some("Request timed out after 15 seconds."), json!(0)));
+    assert_eq!(
+        (timed_out["code"].as_str(), timed_out["error"].as_str(), timed_out["status"].clone()),
+        (Some("timeout"), Some("Request timed out after 15 seconds."), json!(0))
+    );
     *e.probe.reply.lock().unwrap() = Some(Err(ProbeError::Network("connection refused".into())));
     let refused = e.admin.test_webhook("ge").await.unwrap();
     assert_eq!((refused["code"].as_str(), refused["error"].as_str()), (Some("network"), Some("connection refused")));
@@ -523,10 +514,7 @@ async fn run_webhook_now_replays_the_latest_payload_behind_the_fence() {
     assert_eq!(message(e.admin.run_webhook_now("gh").await.unwrap_err()), "webhook \"gh\" does not exist");
     e.admin.save_webhook(&json!({"name": "gh", "instructions": "Summarise.", "owner": "gh-bot"})).await.unwrap();
     assert_eq!(message(e.admin.run_webhook_now("gh").await.unwrap_err()), "webhook \"gh\" has not received a payload yet");
-    e.webhooks
-        .record_event("gh", json!({"body": {"action": "opened"}, "headers": {"x-github-event": "issues"}}), chrono::Utc::now())
-        .await
-        .unwrap();
+    e.webhooks.record_event("gh", json!({"body": {"action": "opened"}, "headers": {"x-github-event": "issues"}}), chrono::Utc::now()).await.unwrap();
     let ran = e.admin.run_webhook_now("gh").await.unwrap();
     assert_eq!(ran, json!({"name": "gh", "ok": true, "sessionId": "sess_home_gh-bot", "result": "ok"}));
     let turn = &e.host.turns()[0];
@@ -596,17 +584,23 @@ async fn a_purge_that_fails_partway_deletes_nothing() {
     let delivery = format!("{DELIVERY_PREFIX}hook:d1");
     let bad = format!("{ENDPOINT_PREFIX}broken");
     let (put_delivery, put_bad) = (delivery.clone(), bad.clone());
-    e.state.write(move |tx| {
-        tx.put_meta(&put_delivery, "{}")?;
-        tx.put_meta(&put_bad, "not json")
-    }).await.unwrap();
+    e.state
+        .write(move |tx| {
+            tx.put_meta(&put_delivery, "{}")?;
+            tx.put_meta(&put_bad, "not json")
+        })
+        .await
+        .unwrap();
     assert!(e.admin.delete_owned_routines("gh-bot").await.is_err(), "an unreadable row fails the purge");
     assert_eq!(e.schedules.list().await.unwrap().len(), 2, "the schedules read before the failure are kept");
     assert!(e.webhooks.load("hook").await.unwrap().is_some());
     assert!(e.state.meta(&delivery).await.unwrap().is_some(), "the delivery log is kept");
     let restore = bad.clone();
     e.state.write(move |tx| tx.delete_meta(&restore)).await.unwrap();
-    assert_eq!(e.owned.delete_owned_by("gh-bot").await.unwrap(), super::routines_db::Removed { schedules: vec!["alpha".into(), "zeta".into()], webhooks: vec!["hook".into()] });
+    assert_eq!(
+        e.owned.delete_owned_by("gh-bot").await.unwrap(),
+        super::routines_db::Removed { schedules: vec!["alpha".into(), "zeta".into()], webhooks: vec!["hook".into()] }
+    );
     assert!(e.state.meta(&delivery).await.unwrap().is_none(), "the delivery log goes with its endpoint");
 }
 
@@ -866,7 +860,6 @@ struct LateReloads {
 }
 
 impl LateReloads {
-
     /// Lets the held reload go at the start's bind.
     fn release_late(&self) {
         self.open.send_replace(true);
@@ -894,7 +887,13 @@ impl ScheduleStore for LateReloads {
     async fn advance_cursor(&self, name: &str, s: chrono::DateTime<chrono::Utc>, next: Option<chrono::DateTime<chrono::Utc>>) -> Result<bool, ScheduleError> {
         self.inner.advance_cursor(name, s, next).await
     }
-    async fn claim_run(&self, name: &str, s: chrono::DateTime<chrono::Utc>, started: chrono::DateTime<chrono::Utc>, next: Option<chrono::DateTime<chrono::Utc>>) -> Result<bool, ScheduleError> {
+    async fn claim_run(
+        &self,
+        name: &str,
+        s: chrono::DateTime<chrono::Utc>,
+        started: chrono::DateTime<chrono::Utc>,
+        next: Option<chrono::DateTime<chrono::Utc>>,
+    ) -> Result<bool, ScheduleError> {
         self.inner.claim_run(name, s, started, next).await
     }
     async fn mark_success(&self, name: &str, at: chrono::DateTime<chrono::Utc>) -> Result<(), ScheduleError> {
@@ -971,7 +970,8 @@ async fn saving_a_webhook_leaves_the_hook_identity_and_the_setup_shows_the_publi
     let tunnels = Arc::new(RelayTunnelStarter::new(tokens().durability_io, data.path().to_path_buf(), Some(relay.into())));
     let listener = Arc::new(LoopbackServer::new(service.clone(), tunnels, None));
     let automation = Arc::new(WebhookAutomation::new(e.settings.clone(), service, listener));
-    let scheduler = Scheduler::new(e.schedules.clone(), Arc::new(HomeScheduleRunner::new(e.routines.clone())), Arc::new(SystemClock), e.work.clone(), Tz::UTC, Vec::new());
+    let scheduler =
+        Scheduler::new(e.schedules.clone(), Arc::new(HomeScheduleRunner::new(e.routines.clone())), Arc::new(SystemClock), e.work.clone(), Tz::UTC, Vec::new());
     let runtime = ChannelRuntime::new(scheduler, e.schedules.clone(), automation, e.agent.clone());
     let admin = ChannelAdmin::new(AdminDeps {
         schedules: e.schedules.clone(),
@@ -1038,19 +1038,6 @@ async fn the_receiver_follows_what_is_registered_unless_the_settings_say_otherwi
     assert!(listener.listening().await, "a stored true wins over nothing being registered");
     automation.stop().await;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
 
 /// Waits for a signal a test double gives; the bound only turns a missing signal into a failure.
 async fn signal(notify: &tokio::sync::Notify, what: &str) {
@@ -1237,16 +1224,12 @@ async fn the_runtime_is_running_as_soon_as_the_sync_is_launched() {
 /// The same for a start stuck in the provider init, which `stop_owned_runtime` alone would leave
 /// (nothing is running yet, so it returns early): the shutdown cancels and joins it.
 
-
 /// `channel-start.mjs:50-56`: a save's deferred start parks while a turn runs or a session is being
 /// created, and runs once the busy state clears and wakes it; the boot autostart
 /// (`channel-start.mjs:75-95`) does not look at the busy state.
 
 /// `automation-start.mjs:30-42`: the runtime counts as running as soon as the webhook sync is launched
 /// (Node's `syncWebhookAndEventRuntime()` is synchronous), not when the listener has bound.
-
-
-
 
 /// The event rules as the pipeline holds them: a stored change reaches it only through `reload_events`.
 struct RuleSettings {
@@ -1295,7 +1278,8 @@ async fn event_rules_changed_while_stopped_are_loaded_on_activation() {
         Arc::new(|| 0),
     ));
     let automation = Arc::new(WebhookAutomation::new(settings.clone(), service, Arc::new(NoListener)));
-    let scheduler = Scheduler::new(e.schedules.clone(), Arc::new(HomeScheduleRunner::new(e.routines.clone())), Arc::new(SystemClock), e.work.clone(), Tz::UTC, Vec::new());
+    let scheduler =
+        Scheduler::new(e.schedules.clone(), Arc::new(HomeScheduleRunner::new(e.routines.clone())), Arc::new(SystemClock), e.work.clone(), Tz::UTC, Vec::new());
     let runtime = ChannelRuntime::new(scheduler, e.schedules.clone(), automation, e.agent.clone());
     let tools = ToolDispatch::new(runtime.clone(), e.work.clone(), Box::new(|| false));
 

@@ -28,14 +28,7 @@ pub(crate) struct Schedule<C> {
 
 impl<C> Schedule<C> {
     pub(crate) fn new(per_thread_cap: usize) -> Self {
-        Self {
-            queues: BTreeMap::new(),
-            queued: HashMap::new(),
-            last: None,
-            inflight: HashMap::new(),
-            pins: HashMap::new(),
-            per_thread_cap,
-        }
+        Self { queues: BTreeMap::new(), queued: HashMap::new(), last: None, inflight: HashMap::new(), pins: HashMap::new(), per_thread_cap }
     }
 
     pub(crate) fn enqueue(&mut self, thread: ThreadId, id: u32, item: C) {
@@ -80,9 +73,7 @@ impl<C> Schedule<C> {
             ),
             None => Box::new(self.queues.keys()),
         };
-        let (thread, worker) = after
-            .into_iter()
-            .find_map(|thread| self.eligible(thread, ready).map(|w| (thread.clone(), w)))?;
+        let (thread, worker) = after.into_iter().find_map(|thread| self.eligible(thread, ready).map(|w| (thread.clone(), w)))?;
         let queue = self.queues.get_mut(&thread)?;
         let (id, item) = queue.pop_front()?;
         if queue.is_empty() {
@@ -91,12 +82,7 @@ impl<C> Schedule<C> {
         self.queued.remove(&id);
         *self.inflight.entry(thread.clone()).or_default() += 1;
         self.last = Some(thread.clone());
-        Some(Assignment {
-            thread,
-            worker,
-            id,
-            item,
-        })
+        Some(Assignment { thread, worker, id, item })
     }
 
     /// A call of `thread` ended on `worker`. `pin` is the worker's report of whether it still
@@ -136,9 +122,7 @@ impl<C> Schedule<C> {
             .iter()
             .filter(|(thread, _)| !self.pins.contains_key(*thread))
             .map(|(thread, queue)| {
-                let room = self
-                    .per_thread_cap
-                    .saturating_sub(self.inflight.get(thread).copied().unwrap_or(0));
+                let room = self.per_thread_cap.saturating_sub(self.inflight.get(thread).copied().unwrap_or(0));
                 queue.len().min(room)
             })
             .sum()
@@ -147,11 +131,7 @@ impl<C> Schedule<C> {
     /// Every queued call, removed.
     pub(crate) fn drain(&mut self) -> Vec<C> {
         self.queued.clear();
-        std::mem::take(&mut self.queues)
-            .into_values()
-            .flatten()
-            .map(|(_, item)| item)
-            .collect()
+        std::mem::take(&mut self.queues).into_values().flatten().map(|(_, item)| item).collect()
     }
 
     #[cfg(test)]
@@ -175,13 +155,7 @@ mod tests {
     #[test]
     fn round_robin_across_threads_fifo_within() {
         let mut s = Schedule::new(8);
-        for (thread, id, name) in [
-            ("a", 1, "a1"),
-            ("a", 2, "a2"),
-            ("a", 3, "a3"),
-            ("b", 4, "b1"),
-            ("c", 5, "c1"),
-        ] {
+        for (thread, id, name) in [("a", 1, "a1"), ("a", 2, "a2"), ("a", 3, "a3"), ("b", 4, "b1"), ("c", 5, "c1")] {
             s.enqueue(t(thread), id, name);
         }
         let order: Vec<_> = std::iter::from_fn(|| pick(&mut s, &[0]).map(|(n, _)| n)).collect();

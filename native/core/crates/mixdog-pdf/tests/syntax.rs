@@ -7,9 +7,8 @@ use std::io::{Read, Write};
 use std::sync::{Arc, Mutex};
 
 use mixdog_pdf::{
-    Budget, ByteStream, CommandArgs, Decryptor, DecryptorFactory, Dict, FilterResult, Guard,
-    KnownCommands, Lexer, Linearization, Obj, Parser, PdfError, Ref, StreamFilters, Xref,
-    XrefOptions,
+    Budget, ByteStream, CommandArgs, Decryptor, DecryptorFactory, Dict, FilterResult, Guard, KnownCommands, Lexer, Linearization, Obj, Parser, PdfError, Ref,
+    StreamFilters, Xref, XrefOptions,
 };
 
 // ---- helpers -----------------------------------------------------------------------------------------------------
@@ -17,20 +16,11 @@ use mixdog_pdf::{
 struct TestFilters;
 
 impl StreamFilters for TestFilters {
-    fn decode(
-        &self,
-        name: &str,
-        data: &[u8],
-        _params: Option<&Dict>,
-        _length: Option<usize>,
-        _max_output: usize,
-    ) -> FilterResult {
+    fn decode(&self, name: &str, data: &[u8], _params: Option<&Dict>, _length: Option<usize>, _max_output: usize) -> FilterResult {
         match name {
             "FlateDecode" | "Fl" => {
                 let mut out = Vec::new();
-                flate2::read::ZlibDecoder::new(data)
-                    .read_to_end(&mut out)
-                    .map_err(|e| PdfError::Format(e.to_string()))?;
+                flate2::read::ZlibDecoder::new(data).read_to_end(&mut out).map_err(|e| PdfError::Format(e.to_string()))?;
                 Ok(Some(out))
             }
             "Broken" => Err(PdfError::Format("broken".to_owned())),
@@ -46,11 +36,7 @@ fn deflate(data: &[u8]) -> Vec<u8> {
 }
 
 fn options() -> XrefOptions {
-    XrefOptions {
-        filters: Arc::new(TestFilters),
-        decryptor: None,
-        guard: Guard::unbounded(),
-    }
+    XrefOptions { filters: Arc::new(TestFilters), decryptor: None, guard: Guard::unbounded() }
 }
 
 fn lexer(bytes: &[u8]) -> Lexer {
@@ -73,26 +59,19 @@ fn parse(bytes: &[u8]) -> Result<Obj, PdfError> {
 }
 
 fn num(obj: &Obj) -> f64 {
-    obj.as_num()
-        .unwrap_or_else(|| panic!("not a number: {obj:?}"))
+    obj.as_num().unwrap_or_else(|| panic!("not a number: {obj:?}"))
 }
 
 fn string(obj: &Obj) -> Vec<u8> {
-    obj.as_str()
-        .unwrap_or_else(|| panic!("not a string: {obj:?}"))
-        .to_vec()
+    obj.as_str().unwrap_or_else(|| panic!("not a string: {obj:?}")).to_vec()
 }
 
 fn name(obj: &Obj) -> String {
-    obj.as_name()
-        .unwrap_or_else(|| panic!("not a name: {obj:?}"))
-        .to_owned()
+    obj.as_name().unwrap_or_else(|| panic!("not a name: {obj:?}")).to_owned()
 }
 
 fn dict(obj: &Obj) -> Arc<Dict> {
-    obj.as_dict()
-        .unwrap_or_else(|| panic!("not a dictionary: {obj:?}"))
-        .clone()
+    obj.as_dict().unwrap_or_else(|| panic!("not a dictionary: {obj:?}")).clone()
 }
 
 /// A file under construction; offsets are relative to the `%PDF-` header, as in the file's own tables.
@@ -107,11 +86,7 @@ impl Pdf {
         let mut buf = lead.as_bytes().to_vec();
         let lead = buf.len();
         buf.extend_from_slice(b"%PDF-1.4\n");
-        Pdf {
-            buf,
-            lead,
-            offsets: BTreeMap::new(),
-        }
+        Pdf { buf, lead, offsets: BTreeMap::new() }
     }
 
     fn pos(&self) -> usize {
@@ -129,10 +104,7 @@ impl Pdf {
 
     fn stream_obj(&mut self, num: i64, dict: &str, data: &[u8]) {
         self.offsets.insert(num, self.pos());
-        self.text(&format!(
-            "{num} 0 obj\n<< {dict} /Length {} >>\nstream\n",
-            data.len()
-        ));
+        self.text(&format!("{num} 0 obj\n<< {dict} /Length {} >>\nstream\n", data.len()));
         self.buf.extend_from_slice(data);
         self.text("\nendstream\nendobj\n");
     }
@@ -191,17 +163,10 @@ fn xref_entries(entries: &[(u8, u16, u8)]) -> Vec<u8> {
 fn numbers_follow_pdfjs_tolerance() {
     let found = tokens(b"0 123 -45 +6 .5 4. 3.25 --7 1-2");
     let values: Vec<f64> = found.iter().map(num).collect();
-    assert_eq!(
-        values,
-        vec![0.0, 123.0, -45.0, 6.0, 0.5, 4.0, 3.25, -7.0, 12.0]
-    );
+    assert_eq!(values, vec![0.0, 123.0, -45.0, 6.0, 0.5, 4.0, 3.25, -7.0, 12.0]);
     assert_eq!(found[1].as_int(), Some(123));
     assert_eq!(found[2].as_int(), Some(-45));
-    assert_eq!(
-        found[5].as_int(),
-        Some(4),
-        "4. is an integer for Number.isInteger"
-    );
+    assert_eq!(found[5].as_int(), Some(4), "4. is an integer for Number.isInteger");
     assert_eq!(found[6].as_int(), None);
 }
 
@@ -209,10 +174,7 @@ fn numbers_follow_pdfjs_tolerance() {
 fn lone_sign_before_white_space_is_zero_and_a_letter_is_an_error() {
     assert_eq!(num(&tokens(b"- ")[0]), 0.0);
     let err = lexer(b"-a").get_obj().unwrap_err();
-    assert_eq!(
-        err,
-        PdfError::Format("Invalid number: a (charCode 97)".to_owned())
-    );
+    assert_eq!(err, PdfError::Format("Invalid number: a (charCode 97)".to_owned()));
     assert_eq!(err.name(), "FormatError");
 }
 
@@ -222,11 +184,7 @@ fn literal_strings_resolve_escapes_and_balance_parentheses() {
     assert_eq!(string(&found[0]), b"Hi (x) A0 (in) end".to_vec());
     assert_eq!(string(&found[1]), b"++".to_vec());
     assert_eq!(string(&found[2]), Vec::<u8>::new());
-    assert_eq!(
-        string(&found[3]),
-        b"abc".to_vec(),
-        "an unterminated string ends with the data"
-    );
+    assert_eq!(string(&found[3]), b"abc".to_vec(), "an unterminated string ends with the data");
 }
 
 #[test]
@@ -290,12 +248,7 @@ fn arrays_dictionaries_and_references() {
     assert_eq!(a[1].as_ref_value(), Some(Ref::new(2, 0)));
     assert_eq!(string(&a[2]), b"s".to_vec());
     assert_eq!(name(&a[3]), "N");
-    assert!(
-        dict(d.get_raw("B").unwrap())
-            .get_raw("C")
-            .unwrap()
-            .is_null()
-    );
+    assert!(dict(d.get_raw("B").unwrap()).get_raw("C").unwrap().is_null());
     assert_eq!(num(d.get_raw("D").unwrap()), 3.5);
     assert_eq!(d.keys().collect::<Vec<_>>(), vec!["A", "B", "D"]);
 }
@@ -311,43 +264,19 @@ fn a_repeated_key_keeps_its_place_and_a_non_name_key_is_skipped() {
 
 #[test]
 fn end_of_file_inside_a_container_is_an_error_unless_recovering() {
-    assert_eq!(
-        parse(b"[1 2").unwrap_err(),
-        PdfError::ParserEof("End of file inside array.".to_owned())
-    );
-    assert_eq!(
-        parse(b"<< /A 1").unwrap_err(),
-        PdfError::ParserEof("End of file inside dictionary.".to_owned())
-    );
+    assert_eq!(parse(b"[1 2").unwrap_err(), PdfError::ParserEof("End of file inside array.".to_owned()));
+    assert_eq!(parse(b"<< /A 1").unwrap_err(), PdfError::ParserEof("End of file inside dictionary.".to_owned()));
     let mut recovering = Parser::new(lexer(b"[1 2"), None, true, true).unwrap();
-    assert_eq!(
-        recovering.get_obj(None).unwrap().as_array().unwrap().len(),
-        2
-    );
+    assert_eq!(recovering.get_obj(None).unwrap().as_array().unwrap().len(), 2);
     let mut recovering = Parser::new(lexer(b"<< /A 1"), None, true, true).unwrap();
     assert_eq!(dict(&recovering.get_obj(None).unwrap()).len(), 1);
 }
 
 #[test]
 fn nesting_deeper_than_the_budget_is_refused() {
-    let guard = Guard::new(
-        None,
-        Budget {
-            max_depth: 5,
-            ..Budget::default()
-        },
-    );
-    let mut parser = Parser::new(
-        Lexer::new(ByteStream::from_vec(b"[[[[[[[[1]]]]]]]]".to_vec()), guard),
-        None,
-        false,
-        false,
-    )
-    .unwrap();
-    assert!(matches!(
-        parser.get_obj(None),
-        Err(PdfError::ResourceLimit(_))
-    ));
+    let guard = Guard::new(None, Budget { max_depth: 5, ..Budget::default() });
+    let mut parser = Parser::new(Lexer::new(ByteStream::from_vec(b"[[[[[[[[1]]]]]]]]".to_vec()), guard), None, false, false).unwrap();
+    assert!(matches!(parser.get_obj(None), Err(PdfError::ResourceLimit(_))));
 }
 
 #[test]
@@ -361,11 +290,7 @@ fn a_stream_with_a_wrong_length_is_cut_at_endstream() {
     for length in ["3", "99", "-4", "(x)"] {
         let source = format!("<< /Length {length} >>\nstream\nhello\nendstream\nendobj\n");
         let obj = parse(source.as_bytes()).unwrap();
-        assert_eq!(
-            obj.as_stream().unwrap().raw(),
-            b"hello\n",
-            "length {length}"
-        );
+        assert_eq!(obj.as_stream().unwrap().raw(), b"hello\n", "length {length}");
     }
 }
 
@@ -378,10 +303,7 @@ fn a_truncated_endstream_spelling_is_found() {
 #[test]
 fn a_stream_without_endstream_is_a_format_error() {
     let err = parse(b"<< /Length 3 >>\nstream\nabc").unwrap_err();
-    assert_eq!(
-        err,
-        PdfError::Format("Missing endstream command.".to_owned())
-    );
+    assert_eq!(err, PdfError::Format("Missing endstream command.".to_owned()));
 }
 
 #[test]
@@ -392,15 +314,7 @@ fn the_filter_chain_is_resolved_and_a_bad_name_is_refused() {
     assert_eq!(chain.len(), 2);
     assert_eq!(chain[0].name, "ASCIIHexDecode");
     assert!(chain[0].params.is_none());
-    assert_eq!(
-        num(chain[1]
-            .params
-            .as_ref()
-            .unwrap()
-            .get_raw("Predictor")
-            .unwrap()),
-        12.0
-    );
+    assert_eq!(num(chain[1].params.as_ref().unwrap().get_raw("Predictor").unwrap()), 12.0);
     let err = parse(b"<< /Length 3 /Filter [5] >>\nstream\nabc\nendstream").unwrap_err();
     assert_eq!(err, PdfError::Format("Bad filter name \"5\"".to_owned()));
 }
@@ -409,70 +323,25 @@ fn the_filter_chain_is_resolved_and_a_bad_name_is_refused() {
 fn stream_decoding_runs_the_chain_and_tolerates_what_pdfjs_tolerates() {
     let guard = Guard::unbounded();
     let packed = deflate(b"plain text");
-    let mut source = format!(
-        "<< /Length {} /Filter /FlateDecode >>\nstream\n",
-        packed.len()
-    )
-    .into_bytes();
+    let mut source = format!("<< /Length {} /Filter /FlateDecode >>\nstream\n", packed.len()).into_bytes();
     source.extend_from_slice(&packed);
     source.extend_from_slice(b"\nendstream");
     let obj = parse(&source).unwrap();
-    assert_eq!(
-        obj.as_stream()
-            .unwrap()
-            .decode(&TestFilters, &guard)
-            .unwrap(),
-        b"plain text"
-    );
+    assert_eq!(obj.as_stream().unwrap().decode(&TestFilters, &guard).unwrap(), b"plain text");
 
     let unknown = parse(b"<< /Length 3 /Filter /LZWDecode >>\nstream\nabc\nendstream").unwrap();
-    assert_eq!(
-        unknown
-            .as_stream()
-            .unwrap()
-            .decode(&TestFilters, &guard)
-            .unwrap(),
-        b"abc",
-        "an unsupported filter leaves the bytes"
-    );
+    assert_eq!(unknown.as_stream().unwrap().decode(&TestFilters, &guard).unwrap(), b"abc", "an unsupported filter leaves the bytes");
     let broken = parse(b"<< /Length 3 /Filter /Broken >>\nstream\nabc\nendstream").unwrap();
-    assert!(
-        broken
-            .as_stream()
-            .unwrap()
-            .decode(&TestFilters, &guard)
-            .unwrap()
-            .is_empty(),
-        "a failing filter leaves nothing"
-    );
+    assert!(broken.as_stream().unwrap().decode(&TestFilters, &guard).unwrap().is_empty(), "a failing filter leaves nothing");
     let empty = parse(b"<< /Length 0 /Filter /FlateDecode >>\nstream\nendstream").unwrap();
-    assert!(
-        empty
-            .as_stream()
-            .unwrap()
-            .decode(&TestFilters, &guard)
-            .unwrap()
-            .is_empty()
-    );
+    assert!(empty.as_stream().unwrap().decode(&TestFilters, &guard).unwrap().is_empty());
 }
 
 #[test]
 fn an_inline_image_is_skipped_to_its_ei() {
-    let known: KnownCommands = [(
-        "Q".to_owned(),
-        CommandArgs {
-            num_args: 0,
-            variable_args: false,
-        },
-    )]
-    .into_iter()
-    .collect();
+    let known: KnownCommands = [("Q".to_owned(), CommandArgs { num_args: 0, variable_args: false })].into_iter().collect();
     let source = b"BI /W 2 /H 2 /BPC 8 /CS /G ID abcd EI\nQ\n";
-    let lexer = Lexer::with_known_commands(
-        ByteStream::from_vec(source.to_vec()),
-        Guard::unbounded(),
-        Some(Arc::new(known)),
-    );
+    let lexer = Lexer::with_known_commands(ByteStream::from_vec(source.to_vec()), Guard::unbounded(), Some(Arc::new(known)));
     let mut parser = Parser::new(lexer, None, false, false).unwrap();
     let image = parser.get_obj(None).unwrap();
     let stream = image.as_stream().unwrap();
@@ -497,9 +366,7 @@ fn linearization_reads_its_parameters() {
     }
     let total = file(0).len();
     let guard = Guard::unbounded();
-    let found = Linearization::create(&ByteStream::from_vec(file(total)), &guard)
-        .unwrap()
-        .unwrap();
+    let found = Linearization::create(&ByteStream::from_vec(file(total)), &guard).unwrap().unwrap();
     assert_eq!(found.num_pages, 5);
     assert_eq!(found.hints, vec![1, 2]);
     assert_eq!(found.page_first, 0);
@@ -521,17 +388,11 @@ fn a_classic_table_opens_and_fetches() {
     assert!(xref.trailer().unwrap().has("Size"));
     // The object cache is keyed by number, so the generation is checked on the first fetch only.
     let err = xref.fetch(Ref::new(3, 1), false).unwrap_err();
-    assert_eq!(
-        err,
-        PdfError::XRefEntry("Inconsistent generation in XRef: 3R1".to_owned())
-    );
+    assert_eq!(err, PdfError::XRefEntry("Inconsistent generation in XRef: 3R1".to_owned()));
     let page = dict(&fetch(&xref, 3));
     assert!(page.get_raw("Type").unwrap().is_name("Page"));
     assert_eq!(page.obj_id.as_deref(), Some("3R"));
-    assert!(
-        fetch(&xref, 9).is_null(),
-        "an object the table does not know is null"
-    );
+    assert!(fetch(&xref, 9).is_null(), "an object the table does not know is null");
     assert!(fetch(&xref, 0).is_null(), "a free entry is null");
     let catalog = dict(&fetch(&xref, 1));
     let pages = xref.get(&catalog, "Pages").unwrap();
@@ -548,12 +409,7 @@ fn offsets_are_relative_to_the_header() {
     let at = pdf.table(&[1, 2, 3], "/Size 4 /Root 1 0 R");
     pdf.startxref(at);
     let xref = pdf.open().unwrap();
-    assert!(
-        dict(&fetch(&xref, 3))
-            .get_raw("Type")
-            .unwrap()
-            .is_name("Page")
-    );
+    assert!(dict(&fetch(&xref, 3)).get_raw("Type").unwrap().is_name("Page"));
     assert_eq!(xref.count_updates_after(0), Some(1));
 }
 
@@ -580,31 +436,16 @@ fn an_xref_stream_opens_and_fetches() {
     for compress in [false, true] {
         let mut pdf = classic();
         let at = pdf.pos();
-        let entries = xref_entries(&[
-            (0, 0, 255),
-            (1, pdf.offsets[&1] as u16, 0),
-            (1, pdf.offsets[&2] as u16, 0),
-            (1, pdf.offsets[&3] as u16, 0),
-            (1, at as u16, 0),
-        ]);
+        let entries =
+            xref_entries(&[(0, 0, 255), (1, pdf.offsets[&1] as u16, 0), (1, pdf.offsets[&2] as u16, 0), (1, pdf.offsets[&3] as u16, 0), (1, at as u16, 0)]);
         if compress {
-            pdf.stream_obj(
-                4,
-                "/Type /XRef /Size 5 /W [1 2 1] /Root 1 0 R /Filter /FlateDecode",
-                &deflate(&entries),
-            );
+            pdf.stream_obj(4, "/Type /XRef /Size 5 /W [1 2 1] /Root 1 0 R /Filter /FlateDecode", &deflate(&entries));
         } else {
             pdf.stream_obj(4, "/Type /XRef /Size 5 /W [1 2 1] /Root 1 0 R", &entries);
         }
         pdf.startxref(at);
         let xref = pdf.open().unwrap();
-        assert!(
-            dict(&fetch(&xref, 3))
-                .get_raw("Type")
-                .unwrap()
-                .is_name("Page"),
-            "compressed: {compress}"
-        );
+        assert!(dict(&fetch(&xref, 3)).get_raw("Type").unwrap().is_name("Page"), "compressed: {compress}");
         assert!(xref.root().is_some());
     }
 }
@@ -623,11 +464,7 @@ fn object_stream(compress: bool, pdf: &mut Pdf, num: i64) {
     data.extend_from_slice(bodies.join("\n").as_bytes());
     let dict = format!("/Type /ObjStm /N 3 /First {first}");
     if compress {
-        pdf.stream_obj(
-            num,
-            &format!("{dict} /Filter /FlateDecode"),
-            &deflate(&data),
-        );
+        pdf.stream_obj(num, &format!("{dict} /Filter /FlateDecode"), &deflate(&data));
     } else {
         pdf.stream_obj(num, &dict, &data);
     }
@@ -639,33 +476,16 @@ fn compressed_objects_come_out_of_their_object_stream() {
         let mut pdf = Pdf::new("");
         object_stream(compress, &mut pdf, 5);
         let at = pdf.pos();
-        let entries = xref_entries(&[
-            (0, 0, 255),
-            (2, 5, 0),
-            (2, 5, 1),
-            (2, 5, 2),
-            (0, 0, 0),
-            (1, pdf.offsets[&5] as u16, 0),
-            (1, at as u16, 0),
-        ]);
+        let entries = xref_entries(&[(0, 0, 255), (2, 5, 0), (2, 5, 1), (2, 5, 2), (0, 0, 0), (1, pdf.offsets[&5] as u16, 0), (1, at as u16, 0)]);
         pdf.stream_obj(6, "/Type /XRef /Size 7 /W [1 2 1] /Root 1 0 R", &entries);
         pdf.startxref(at);
         let xref = pdf.open().unwrap();
         let page = dict(&fetch(&xref, 3));
-        assert!(
-            page.get_raw("Type").unwrap().is_name("Page"),
-            "compressed: {compress}"
-        );
+        assert!(page.get_raw("Type").unwrap().is_name("Page"), "compressed: {compress}");
         assert_eq!(page.obj_id.as_deref(), Some("3R"));
         assert!(xref.root().unwrap().has("Pages"));
-        assert_eq!(
-            string(dict(&fetch(&xref, 1)).get_raw("S").unwrap()),
-            b"abc".to_vec()
-        );
-        assert!(
-            fetch(&xref, 4).is_null(),
-            "a free entry of the stream is null"
-        );
+        assert_eq!(string(dict(&fetch(&xref, 1)).get_raw("S").unwrap()), b"abc".to_vec());
+        assert!(fetch(&xref, 4).is_null(), "a free entry of the stream is null");
     }
 }
 
@@ -680,17 +500,8 @@ fn a_hybrid_file_reads_the_table_and_its_xref_stream() {
     pdf.startxref(at);
     let xref = pdf.open().unwrap();
     assert!(xref.root().unwrap().has("Pages"));
-    assert!(
-        dict(&fetch(&xref, 2))
-            .get_raw("Type")
-            .unwrap()
-            .is_name("Pages")
-    );
-    assert_eq!(
-        xref.count_updates_after(0),
-        Some(1),
-        "the xref stream of a hybrid file is not an update"
-    );
+    assert!(dict(&fetch(&xref, 2)).get_raw("Type").unwrap().is_name("Pages"));
+    assert_eq!(xref.count_updates_after(0), Some(1), "the xref stream of a hybrid file is not an update");
 }
 
 // ---- encryption seams, cancellation ------------------------------------------------------------------------------
@@ -698,24 +509,11 @@ fn a_hybrid_file_reads_the_table_and_its_xref_stream() {
 struct Xor;
 
 impl Decryptor for Xor {
-    fn decrypt_string(
-        &self,
-        _num: i64,
-        _generation: i64,
-        data: &[u8],
-        _xref: Option<&Xref>,
-    ) -> Result<Vec<u8>, PdfError> {
+    fn decrypt_string(&self, _num: i64, _generation: i64, data: &[u8], _xref: Option<&Xref>) -> Result<Vec<u8>, PdfError> {
         Ok(data.iter().map(|b| b ^ 1).collect())
     }
 
-    fn decrypt_stream(
-        &self,
-        _num: i64,
-        _generation: i64,
-        data: &[u8],
-        _crypt_name: Option<&str>,
-        _embedded_file: bool,
-    ) -> Result<Vec<u8>, PdfError> {
+    fn decrypt_stream(&self, _num: i64, _generation: i64, data: &[u8], _crypt_name: Option<&str>, _embedded_file: bool) -> Result<Vec<u8>, PdfError> {
         Ok(data.iter().map(|b| b ^ 1).collect())
     }
 }
@@ -725,12 +523,7 @@ struct XorFactory {
 }
 
 impl DecryptorFactory for XorFactory {
-    fn create(
-        &self,
-        encrypt: &Dict,
-        file_id: &[u8],
-        _xref: &Xref,
-    ) -> Result<Arc<dyn Decryptor>, PdfError> {
+    fn create(&self, encrypt: &Dict, file_id: &[u8], _xref: &Xref) -> Result<Arc<dyn Decryptor>, PdfError> {
         assert!(encrypt.suppress_encryption);
         *self.seen_id.lock().unwrap() = file_id.to_vec();
         Ok(Arc::new(Xor))
@@ -741,40 +534,21 @@ fn encrypted_file() -> Pdf {
     let mut pdf = classic();
     pdf.obj(5, "<< /Filter /Standard >>");
     pdf.stream_obj(6, "", &[b'a' ^ 1, b'b' ^ 1, b'c' ^ 1]);
-    let at = pdf.table(
-        &[1, 2, 3, 5, 6],
-        "/Size 7 /Root 1 0 R /Encrypt 5 0 R /ID [(abcd) (efgh)]",
-    );
+    let at = pdf.table(&[1, 2, 3, 5, 6], "/Size 7 /Root 1 0 R /Encrypt 5 0 R /ID [(abcd) (efgh)]");
     pdf.startxref(at);
     pdf
 }
 
 #[test]
 fn an_encrypted_file_goes_through_the_decryptor() {
-    let factory = Arc::new(XorFactory {
-        seen_id: Mutex::new(Vec::new()),
-    });
-    let opts = XrefOptions {
-        filters: Arc::new(TestFilters),
-        decryptor: Some(factory.clone()),
-        guard: Guard::unbounded(),
-    };
+    let factory = Arc::new(XorFactory { seen_id: Mutex::new(Vec::new()) });
+    let opts = XrefOptions { filters: Arc::new(TestFilters), decryptor: Some(factory.clone()), guard: Guard::unbounded() };
     let xref = Xref::open(Arc::from(encrypted_file().buf), opts).unwrap();
     assert!(xref.is_encrypted());
     assert_eq!(*factory.seen_id.lock().unwrap(), b"abcd".to_vec());
-    assert_eq!(
-        string(dict(&fetch(&xref, 1)).get_raw("S").unwrap()),
-        vec![b'a' ^ 1, b'b' ^ 1, b'c' ^ 1]
-    );
+    assert_eq!(string(dict(&fetch(&xref, 1)).get_raw("S").unwrap()), vec![b'a' ^ 1, b'b' ^ 1, b'c' ^ 1]);
     let stream = fetch(&xref, 6);
-    assert_eq!(
-        stream
-            .as_stream()
-            .unwrap()
-            .decode(&TestFilters, xref.guard())
-            .unwrap(),
-        b"abc"
-    );
+    assert_eq!(stream.as_stream().unwrap().decode(&TestFilters, xref.guard()).unwrap(), b"abc");
 }
 
 #[test]
@@ -785,18 +559,11 @@ fn an_encrypted_file_without_a_decryptor_does_not_open() {
 #[test]
 fn a_cancelled_reader_stops() {
     let guard = Guard::new(Some(Arc::new(|| true)), Budget::default());
-    let opts = XrefOptions {
-        filters: Arc::new(TestFilters),
-        decryptor: None,
-        guard,
-    };
+    let opts = XrefOptions { filters: Arc::new(TestFilters), decryptor: None, guard };
     let mut pdf = classic();
     let at = pdf.table(&[1, 2, 3], "/Size 4 /Root 1 0 R");
     pdf.startxref(at);
-    assert_eq!(
-        Xref::open(Arc::from(pdf.buf), opts).err(),
-        Some(PdfError::Cancelled)
-    );
+    assert_eq!(Xref::open(Arc::from(pdf.buf), opts).err(), Some(PdfError::Cancelled));
 }
 
 // ---- reconstruction of broken files ------------------------------------------------------------------------------
@@ -807,18 +574,9 @@ fn a_startxref_that_leads_nowhere_makes_the_file_be_rebuilt() {
     pdf.table(&[1, 2, 3], "/Size 4 /Root 1 0 R");
     pdf.startxref(999_999);
     let xref = pdf.open().unwrap();
-    assert!(
-        dict(&fetch(&xref, 3))
-            .get_raw("Type")
-            .unwrap()
-            .is_name("Page")
-    );
+    assert!(dict(&fetch(&xref, 3)).get_raw("Type").unwrap().is_name("Page"));
     assert!(xref.root().unwrap().has("Pages"));
-    assert_eq!(
-        xref.count_updates_after(0),
-        None,
-        "a rebuilt table has no sections"
-    );
+    assert_eq!(xref.count_updates_after(0), None, "a rebuilt table has no sections");
 }
 
 #[test]
@@ -829,20 +587,13 @@ fn a_table_with_wrong_offsets_is_rebuilt_when_an_entry_leads_to_the_wrong_object
     // The entry of object 3 now names the offset of object 2.
     let wrong = format!("{:010}", pdf.offsets[&2]);
     let right = format!("{:010} 00000 n", pdf.offsets[&3]);
-    let text = String::from_utf8(pdf.buf.clone())
-        .unwrap()
-        .replace(&right, &format!("{wrong} 00000 n"));
+    let text = String::from_utf8(pdf.buf.clone()).unwrap().replace(&right, &format!("{wrong} 00000 n"));
     let xref = Xref::open(Arc::from(text.into_bytes()), options()).unwrap();
     let err = xref.fetch(Ref::new(3, 0), false).unwrap_err();
     assert!(mixdog_pdf::repair::triggers_rebuild(&err, false));
     assert!(!mixdog_pdf::repair::triggers_rebuild(&err, true));
     xref.rebuild().unwrap();
-    assert!(
-        dict(&fetch(&xref, 3))
-            .get_raw("Type")
-            .unwrap()
-            .is_name("Page")
-    );
+    assert!(dict(&fetch(&xref, 3)).get_raw("Type").unwrap().is_name("Page"));
 }
 
 #[test]
@@ -878,15 +629,10 @@ fn the_last_definition_of_an_object_wins() {
 fn a_file_with_no_catalog_is_invalid() {
     let mut pdf = Pdf::new("");
     pdf.obj(1, "<< /V 1 >>");
-    assert_eq!(
-        pdf.open().err(),
-        Some(PdfError::InvalidPdf("Invalid PDF structure.".to_owned()))
-    );
+    assert_eq!(pdf.open().err(), Some(PdfError::InvalidPdf("Invalid PDF structure.".to_owned())));
     assert_eq!(
         Xref::open(Arc::from(Vec::<u8>::new()), options()).err(),
-        Some(PdfError::InvalidPdf(
-            "The PDF file is empty, i.e. its size is zero bytes.".to_owned()
-        ))
+        Some(PdfError::InvalidPdf("The PDF file is empty, i.e. its size is zero bytes.".to_owned()))
     );
 }
 
@@ -894,15 +640,9 @@ fn a_file_with_no_catalog_is_invalid() {
 fn errors_carry_pdfjs_names_and_messages() {
     assert_eq!(PdfError::need_password().name(), "PasswordException");
     assert_eq!(PdfError::need_password().message(), "No password given");
-    assert_eq!(
-        PdfError::incorrect_password().message(),
-        "Incorrect Password"
-    );
+    assert_eq!(PdfError::incorrect_password().message(), "Incorrect Password");
     assert_eq!(PdfError::XRefParse.name(), "XRefParseException");
-    assert_eq!(
-        PdfError::XRefEntry("x".to_owned()).to_string(),
-        "XRefEntryException: x"
-    );
+    assert_eq!(PdfError::XRefEntry("x".to_owned()).to_string(), "XRefEntryException: x");
     assert!(PdfError::Cancelled.is_fatal());
     assert!(!PdfError::XRefParse.is_fatal());
 }
@@ -911,122 +651,42 @@ struct BrokenCipher {
     fatal: bool,
 }
 impl Decryptor for BrokenCipher {
-    fn decrypt_string(
-        &self,
-        _: i64,
-        _: i64,
-        _: &[u8],
-        _: Option<&Xref>,
-    ) -> Result<Vec<u8>, PdfError> {
+    fn decrypt_string(&self, _: i64, _: i64, _: &[u8], _: Option<&Xref>) -> Result<Vec<u8>, PdfError> {
         Err(PdfError::Format("string cipher failed".into()))
     }
-    fn validate_stream(
-        &self,
-        _: i64,
-        _: i64,
-        _: Option<&str>,
-        _: bool,
-        _: Option<&Xref>,
-    ) -> Result<(), PdfError> {
-        Err(if self.fatal {
-            PdfError::ResourceLimit("selected cipher budget".into())
-        } else {
-            PdfError::Format("stream cipher failed".into())
-        })
+    fn validate_stream(&self, _: i64, _: i64, _: Option<&str>, _: bool, _: Option<&Xref>) -> Result<(), PdfError> {
+        Err(if self.fatal { PdfError::ResourceLimit("selected cipher budget".into()) } else { PdfError::Format("stream cipher failed".into()) })
     }
-    fn decrypt_stream(
-        &self,
-        _: i64,
-        _: i64,
-        _: &[u8],
-        _: Option<&str>,
-        _: bool,
-    ) -> Result<Vec<u8>, PdfError> {
+    fn decrypt_stream(&self, _: i64, _: i64, _: &[u8], _: Option<&str>, _: bool) -> Result<Vec<u8>, PdfError> {
         panic!("failed selection never decodes")
     }
 }
 #[test]
 fn lazy_cipher_errors_propagate_and_only_explicit_crypt_swallows_nonfatal_errors() {
     for fatal in [false, true] {
-        let cipher = mixdog_pdf::Cipher {
-            decryptor: Arc::new(BrokenCipher { fatal }),
-            num: 1,
-            generation: 0,
-        };
+        let cipher = mixdog_pdf::Cipher { decryptor: Arc::new(BrokenCipher { fatal }), num: 1, generation: 0 };
         let mut parser = Parser::new(lexer(b"(x)"), None, true, false).unwrap();
-        assert!(
-            matches!(parser.get_obj(Some(&cipher)), Err(PdfError::Format(message)) if message == "string cipher failed")
-        );
-        let mut parser = Parser::new(
-            lexer(b"<< /Length 3 >> stream\nabc\nendstream"),
-            None,
-            true,
-            false,
-        )
-        .unwrap();
-        assert!(
-            parser.get_obj(Some(&cipher)).is_err(),
-            "default cipher errors occur when the stream is fetched"
-        );
-        let mut parser = Parser::new(
-            lexer(b"<< /Length 3 /Filter /Crypt >> stream\nabc\nendstream"),
-            None,
-            true,
-            false,
-        )
-        .unwrap();
+        assert!(matches!(parser.get_obj(Some(&cipher)), Err(PdfError::Format(message)) if message == "string cipher failed"));
+        let mut parser = Parser::new(lexer(b"<< /Length 3 >> stream\nabc\nendstream"), None, true, false).unwrap();
+        assert!(parser.get_obj(Some(&cipher)).is_err(), "default cipher errors occur when the stream is fetched");
+        let mut parser = Parser::new(lexer(b"<< /Length 3 /Filter /Crypt >> stream\nabc\nendstream"), None, true, false).unwrap();
         let result = parser.get_obj(Some(&cipher));
         if fatal {
             assert!(matches!(result, Err(PdfError::ResourceLimit(_))));
         } else {
-            assert!(
-                result
-                    .unwrap()
-                    .as_stream()
-                    .unwrap()
-                    .decode(&TestFilters, &Guard::unbounded())
-                    .unwrap()
-                    .is_empty()
-            );
+            assert!(result.unwrap().as_stream().unwrap().decode(&TestFilters, &Guard::unbounded()).unwrap().is_empty());
         }
     }
 }
 #[test]
 fn decoded_budget_is_checked_for_raw_decrypted_and_filtered_streams() {
-    let guard = Guard::new(
-        None,
-        Budget {
-            max_bytes: 2,
-            ..Budget::default()
-        },
-    );
-    for bytes in [
-        b"<< /Length 3 >> stream\nabc\nendstream".as_slice(),
-        b"<< /Length 7 /Filter /ASCIIHexDecode >> stream\n616263>\nendstream".as_slice(),
-    ] {
+    let guard = Guard::new(None, Budget { max_bytes: 2, ..Budget::default() });
+    for bytes in [b"<< /Length 3 >> stream\nabc\nendstream".as_slice(), b"<< /Length 7 /Filter /ASCIIHexDecode >> stream\n616263>\nendstream".as_slice()] {
         let obj = parse(bytes).unwrap();
-        assert!(matches!(
-            obj.as_stream()
-                .unwrap()
-                .decode(&mixdog_pdf::codec_glue::CodecFilters, &guard),
-            Err(PdfError::ResourceLimit(_))
-        ));
+        assert!(matches!(obj.as_stream().unwrap().decode(&mixdog_pdf::codec_glue::CodecFilters, &guard), Err(PdfError::ResourceLimit(_))));
     }
-    let cipher = mixdog_pdf::Cipher {
-        decryptor: Arc::new(Xor),
-        num: 1,
-        generation: 0,
-    };
-    let mut parser = Parser::new(
-        lexer(b"<< /Length 3 >> stream\nabc\nendstream"),
-        None,
-        true,
-        false,
-    )
-    .unwrap();
+    let cipher = mixdog_pdf::Cipher { decryptor: Arc::new(Xor), num: 1, generation: 0 };
+    let mut parser = Parser::new(lexer(b"<< /Length 3 >> stream\nabc\nendstream"), None, true, false).unwrap();
     let obj = parser.get_obj(Some(&cipher)).unwrap();
-    assert!(matches!(
-        obj.as_stream().unwrap().decode(&TestFilters, &guard),
-        Err(PdfError::ResourceLimit(_))
-    ));
+    assert!(matches!(obj.as_stream().unwrap().decode(&TestFilters, &guard), Err(PdfError::ResourceLimit(_))));
 }

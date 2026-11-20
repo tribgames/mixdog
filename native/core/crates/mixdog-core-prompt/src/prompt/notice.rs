@@ -130,9 +130,9 @@ fn headed_blocks(text: &str) -> Ordered {
 
 /// `outputStyleOf(meta)`: `(name, body)`.
 fn output_style_of(meta: &str) -> Option<(String, String)> {
-    headed_blocks(meta)
-        .into_iter()
-        .find_map(|(heading, body)| heading.strip_prefix("Output Style: ").filter(|name| !name.is_empty() && plain(name)).map(|name| (js_trim(name).to_owned(), body)))
+    headed_blocks(meta).into_iter().find_map(|(heading, body)| {
+        heading.strip_prefix("Output Style: ").filter(|name| !name.is_empty() && plain(name)).map(|name| (js_trim(name).to_owned(), body))
+    })
 }
 
 fn bullet_lines(text: &str) -> Vec<String> {
@@ -473,7 +473,10 @@ fn notice_items(keys: &[String], sections: &OwnedSections, told: &Map<String, Va
                 let style = output_style_of(&sections.meta);
                 for part in meta_sections(told_text(told, "meta"), sections) {
                     if part.starts_with("# Output Style") {
-                        let compact = style.as_ref().map(|(name, _)| format!("# Output Style\nThe output style is now \"{name}\"; {LATER}")).unwrap_or_else(|| part.clone());
+                        let compact = style
+                            .as_ref()
+                            .map(|(name, _)| format!("# Output Style\nThe output style is now \"{name}\"; {LATER}"))
+                            .unwrap_or_else(|| part.clone());
                         add(&mut items, key, part, Some(compact), None);
                     } else {
                         let lines = part.split('\n').count() - 1;
@@ -525,7 +528,11 @@ fn notice_items(keys: &[String], sections: &OwnedSections, told: &Map<String, Va
                     continue;
                 }
                 let later = format!("# Core Memory\nCore memory was updated; {LATER}");
-                let diff = if told.contains_key("coreMemory") { line_diff(told_text(told, "coreMemory"), &sections.core_memory, DIFF_MAX_BYTES) } else { String::new() };
+                let diff = if told.contains_key("coreMemory") {
+                    line_diff(told_text(told, "coreMemory"), &sections.core_memory, DIFF_MAX_BYTES)
+                } else {
+                    String::new()
+                };
                 let full = if diff.is_empty() { later.clone() } else { format!("# Core Memory\nCore memory was updated:\n{diff}") };
                 add(&mut items, key, full, Some(later), None);
             }
@@ -600,8 +607,13 @@ fn build_notice(keys: &[String], sections: &OwnedSections, told: &Map<String, Va
         }
     }
     let unsent = |key: &str| items.iter().enumerate().any(|(index, item)| item.key == key && !chosen.iter().any(|(chosen_index, _)| *chosen_index == index));
-    let emitted = keys.iter().filter(|key| items.iter().any(|item| &item.key == *key) && !unsent(key) && !partial.contains_key(key.as_str())).cloned().collect();
-    let content = if parts.is_empty() { String::new() } else { [NOTICE_OPEN.to_owned()].into_iter().chain(parts).chain([NOTICE_CLOSE.to_owned()]).collect::<Vec<_>>().join("\n\n") };
+    let emitted =
+        keys.iter().filter(|key| items.iter().any(|item| &item.key == *key) && !unsent(key) && !partial.contains_key(key.as_str())).cloned().collect();
+    let content = if parts.is_empty() {
+        String::new()
+    } else {
+        [NOTICE_OPEN.to_owned()].into_iter().chain(parts).chain([NOTICE_CLOSE.to_owned()]).collect::<Vec<_>>().join("\n\n")
+    };
     Built { content, emitted, partial }
 }
 
@@ -667,7 +679,11 @@ pub fn stage_prompt_settings_notice(session: &mut Header, sections: &OwnedSectio
     let changed = changed_keys(&presented, &next);
     let told = told_record(session, &presented);
     let fresh = changed_keys(&told, &next);
-    let built = if fresh.is_empty() { Built { content: String::new(), emitted: Vec::new(), partial: Map::new() } } else { build_notice(&fresh, sections, &texts_of(&told), compact) };
+    let built = if fresh.is_empty() {
+        Built { content: String::new(), emitted: Vec::new(), partial: Map::new() }
+    } else {
+        build_notice(&fresh, sections, &texts_of(&told), compact)
+    };
     if built.content.is_empty() {
         session.shift_remove("promptSettingsNotice");
         // Nothing to tell: the model's view is the prompt's, or what it was told.
@@ -714,7 +730,11 @@ fn revision_of(hashes: &Map<String, Value>) -> String {
 
 fn told_after(session: &Header, notice: &Value) -> Value {
     let Some(emitted) = notice.get("emitted").and_then(Value::as_array) else { return notice["record"].clone() };
-    let base = session.get("promptSettingsTold").filter(|told| !told.is_null()).or_else(|| session.get("promptSettings").filter(|p| !p.is_null())).unwrap_or(&notice["record"]);
+    let base = session
+        .get("promptSettingsTold")
+        .filter(|told| !told.is_null())
+        .or_else(|| session.get("promptSettings").filter(|p| !p.is_null()))
+        .unwrap_or(&notice["record"]);
     let mut hashes = base["hashes"].as_object().cloned().unwrap_or_default();
     let mut texts = texts_of(base);
     let record_texts = texts_of(&notice["record"]);
@@ -813,4 +833,3 @@ pub fn note_presented(session: &mut Header, sections: &OwnedSections) {
         session.shift_remove(key);
     }
 }
-

@@ -89,7 +89,8 @@ fn each_segment_of_a_jwt_credential_is_redacted() {
 /// A redirect's `Location` repeats the key the request carried double-encoded in its query.
 #[test]
 fn an_encoded_credential_in_a_header_is_redacted() {
-    let mut headers = vec![("location".to_owned(), "https://example.test/?key=long%252Fkey%252Bvalue&alt=sse".to_owned()), ("x-request-id".to_owned(), "req_1".to_owned())];
+    let mut headers =
+        vec![("location".to_owned(), "https://example.test/?key=long%252Fkey%252Bvalue&alt=sse".to_owned()), ("x-request-id".to_owned(), "req_1".to_owned())];
     matcher(&[KEY]).redact_headers(&mut headers);
     assert_eq!(headers[0].1, "https://example.test/?key=[REDACTED]&alt=sse");
     assert_eq!(headers[1].1, "req_1");
@@ -139,7 +140,8 @@ fn a_token_request_names_its_secret_fields() {
         body: b"grant_type=authorization_code&code=auth-code-1&code_verifier=verifier-2&client_id=public-client".to_vec(),
     };
     assert_eq!(of_request(&form), ["Y2xpZW50LWlkOmNsaWVudC1zZWNyZXQtOWE=", "client-id:client-secret-9a", "client-secret-9a", "auth-code-1", "verifier-2"]);
-    let json = WireRequest { body: br#"{"grant_type":"refresh_token","refresh_token":"refresh-3","client_id":"public"}"#.to_vec(), headers: Vec::new(), ..form };
+    let json =
+        WireRequest { body: br#"{"grant_type":"refresh_token","refresh_token":"refresh-3","client_id":"public"}"#.to_vec(), headers: Vec::new(), ..form };
     assert_eq!(of_request(&json), ["refresh-3"]);
 }
 
@@ -221,22 +223,27 @@ fn percent_u_layer(rng: &mut Rng, bytes: &[u8]) -> Vec<u8> {
 /// A form encoder's space as `+`, or a form decoder's `+` as a space.
 fn form_layer(rng: &mut Rng, bytes: &[u8]) -> Vec<u8> {
     let encode = rng.chance();
-    bytes.iter().map(|b| match (b, encode) {
-        (b' ', true) => b'+',
-        (b'+', false) => b' ',
-        (b, _) => *b,
-    }).collect()
+    bytes
+        .iter()
+        .map(|b| match (b, encode) {
+            (b' ', true) => b'+',
+            (b'+', false) => b' ',
+            (b, _) => *b,
+        })
+        .collect()
 }
 
 fn percent_layer(rng: &mut Rng, bytes: &[u8]) -> Vec<u8> {
     let lower = rng.chance();
     bytes
         .iter()
-        .flat_map(|b| if *b == b'%' || !b.is_ascii_alphanumeric() || rng.below(4) == 0 {
-            let hex = if lower { format!("%{b:02x}") } else { format!("%{b:02X}") };
-            hex.into_bytes()
-        } else {
-            vec![*b]
+        .flat_map(|b| {
+            if *b == b'%' || !b.is_ascii_alphanumeric() || rng.below(4) == 0 {
+                let hex = if lower { format!("%{b:02x}") } else { format!("%{b:02X}") };
+                hex.into_bytes()
+            } else {
+                vec![*b]
+            }
         })
         .collect()
 }
@@ -261,7 +268,11 @@ fn html_layer(rng: &mut Rng, bytes: &[u8]) -> Vec<u8> {
             b'&' => b"&amp;".to_vec(),
             b'/' if rng.chance() => b"&sol;".to_vec(),
             b if *b < 0x80 && (!b.is_ascii_alphanumeric() || rng.below(4) == 0) => {
-                if rng.chance() { format!("&#{b};").into_bytes() } else { format!("&#x{b:X};").into_bytes() }
+                if rng.chance() {
+                    format!("&#{b};").into_bytes()
+                } else {
+                    format!("&#x{b:X};").into_bytes()
+                }
             }
             b => vec![*b],
         })
@@ -293,8 +304,13 @@ fn encoded(rng: &mut Rng, secret: &str) -> (Vec<u8>, Vec<&'static str>) {
         names.push("base64");
     }
     for _ in 0..rng.below(4) {
-        let (name, layer): (&str, fn(&mut Rng, &[u8]) -> Vec<u8>) =
-            [("percent", percent_layer as fn(&mut Rng, &[u8]) -> Vec<u8>), ("json", json_layer), ("html", html_layer), ("utf16", utf16_layer), ("percent-u", percent_u_layer)][rng.below(5)];
+        let (name, layer): (&str, fn(&mut Rng, &[u8]) -> Vec<u8>) = [
+            ("percent", percent_layer as fn(&mut Rng, &[u8]) -> Vec<u8>),
+            ("json", json_layer),
+            ("html", html_layer),
+            ("utf16", utf16_layer),
+            ("percent-u", percent_u_layer),
+        ][rng.below(5)];
         bytes = layer(rng, &bytes);
         names.push(name);
     }
@@ -310,19 +326,27 @@ fn decoded(text: &[u8]) -> Vec<u8> {
         while i < current.len() {
             let rest = &current[i..];
             let hex_at = |at: usize| rest.get(at).and_then(|b| (*b as char).to_digit(16));
-            if rest.starts_with(b"%u") && let Some(unit) = rest.get(2..6).and_then(|d| u32::from_str_radix(std::str::from_utf8(d).ok()?, 16).ok()) {
+            if rest.starts_with(b"%u")
+                && let Some(unit) = rest.get(2..6).and_then(|d| u32::from_str_radix(std::str::from_utf8(d).ok()?, 16).ok())
+            {
                 next.extend(char::from_u32(unit).unwrap_or('\u{FFFD}').to_string().into_bytes());
                 i += 6;
-            } else if rest[0] == b'%' && let (Some(h), Some(l)) = (hex_at(1), hex_at(2)) {
+            } else if rest[0] == b'%'
+                && let (Some(h), Some(l)) = (hex_at(1), hex_at(2))
+            {
                 next.push((h * 16 + l) as u8);
                 i += 3;
-            } else if rest.starts_with(b"\\u") && let Some(unit) = rest.get(2..6).and_then(|d| u32::from_str_radix(std::str::from_utf8(d).ok()?, 16).ok()) {
+            } else if rest.starts_with(b"\\u")
+                && let Some(unit) = rest.get(2..6).and_then(|d| u32::from_str_radix(std::str::from_utf8(d).ok()?, 16).ok())
+            {
                 next.extend(char::from_u32(unit).unwrap_or('\u{FFFD}').to_string().into_bytes());
                 i += 6;
             } else if rest[0] == b'\\' && rest.len() > 1 && b"/\\\"".contains(&rest[1]) {
                 next.push(rest[1]);
                 i += 2;
-            } else if rest[0] == b'&' && let Some(end) = rest.iter().take(12).position(|b| *b == b';') {
+            } else if rest[0] == b'&'
+                && let Some(end) = rest.iter().take(12).position(|b| *b == b';')
+            {
                 let name = std::str::from_utf8(&rest[1..end]).unwrap_or("");
                 let value = match name {
                     "amp" => Some(u32::from(b'&')),
@@ -375,9 +399,9 @@ fn holds_form(text: &[u8], secret: &str) -> bool {
     let n = secret.len();
     let whole = n < WHOLE_TOKEN_BELOW;
     let contains = |hay: &[u8]| {
-        hay.windows(n).enumerate().any(|(at, w)| {
-            w == secret.as_bytes() && (!whole || ((at == 0 || !is_word(hay[at - 1])) && hay.get(at + n).is_none_or(|b| !is_word(*b))))
-        })
+        hay.windows(n)
+            .enumerate()
+            .any(|(at, w)| w == secret.as_bytes() && (!whole || ((at == 0 || !is_word(hay[at - 1])) && hay.get(at + n).is_none_or(|b| !is_word(*b)))))
     };
     if contains(&plain) {
         return true;
@@ -388,11 +412,14 @@ fn holds_form(text: &[u8], secret: &str) -> bool {
             return [STANDARD_NO_PAD, URL_SAFE_NO_PAD].iter().any(|engine| engine.decode(run).is_ok_and(|bytes| bytes == secret.as_bytes()));
         }
         (0..4.min(run.len())).any(|skip| {
-            let run: Vec<u8> = run[skip..].iter().map(|b| match b {
-                b'-' => b'+',
-                b'_' => b'/',
-                other => *other,
-            }).collect();
+            let run: Vec<u8> = run[skip..]
+                .iter()
+                .map(|b| match b {
+                    b'-' => b'+',
+                    b'_' => b'/',
+                    other => *other,
+                })
+                .collect();
             let usable = run.len() / 4 * 4 + if run.len() % 4 >= 2 { run.len() % 4 } else { 0 };
             STANDARD_NO_PAD.decode(&run[..usable]).is_ok_and(|bytes| contains(&bytes))
         })
@@ -457,7 +484,9 @@ fn only_a_value_its_own_source_replaced_retires_and_the_oldest_retired_goes_firs
     for gone in ["access-b-1", "access-b-2"] {
         assert!(!registry.holds(gone), "{gone}");
     }
-    for kept in ["static-key-0001", "refresh-a-0", "access-a-1", "access-b-6", "shared-value-of-two-sources", "access-a-0", "access-b-3", "access-b-4", "access-b-5"] {
+    for kept in
+        ["static-key-0001", "refresh-a-0", "access-a-1", "access-b-6", "shared-value-of-two-sources", "access-a-0", "access-b-3", "access-b-4", "access-b-5"]
+    {
         assert!(registry.holds(kept), "{kept}");
     }
     registry.keep("keychain agent.c.apiKey", &[]);
@@ -555,7 +584,6 @@ fn generated_encodings_registered_mid_stream_or_long_ago_never_leave() {
         assert!(!holds(&clean, member), "round {round}: {member:?} under {layers:?} left in {:?}", String::from_utf8_lossy(&clean));
     }
 }
-
 
 /// The cost on a streaming path: 1 MiB of event stream in 16 KiB chunks, five credentials, one pass per chunk with the
 /// automaton built once. The figures are printed (`--nocapture`); the text, holding none of them, arrives unchanged.

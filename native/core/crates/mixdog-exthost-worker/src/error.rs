@@ -15,12 +15,7 @@ pub struct CodedError {
 
 impl CodedError {
     pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
-        Self {
-            code: code.into(),
-            message: message.into(),
-            pin: false,
-            source: None,
-        }
+        Self { code: code.into(), message: message.into(), pin: false, source: None }
     }
 
     /// The code a call answers when a handler fails without one.
@@ -67,13 +62,7 @@ fn is_environment_code(code: &str) -> bool {
 
 fn is_environment_message(message: &str) -> bool {
     let message = message.to_lowercase();
-    [
-        "out of memory",
-        "allocation failed",
-        "cannot allocate memory",
-    ]
-    .iter()
-    .any(|needle| message.contains(needle))
+    ["out of memory", "allocation failed", "cannot allocate memory"].iter().any(|needle| message.contains(needle))
 }
 
 /// Environment failures (the machine, not the bytes): an error code such as `ERR_*`, `ENOMEM` or `MODULE_NOT_FOUND`, or an
@@ -102,12 +91,7 @@ mod tests {
 
     #[test]
     fn the_listed_codes_are_environment_failures() {
-        for code in [
-            "ERR_WORKER_OUT_OF_MEMORY",
-            "ERR_X",
-            "ENOMEM",
-            "MODULE_NOT_FOUND",
-        ] {
+        for code in ["ERR_WORKER_OUT_OF_MEMORY", "ERR_X", "ENOMEM", "MODULE_NOT_FOUND"] {
             assert!(is_environment_error(&CodedError::new(code, "x")), "{code}");
         }
         for code in ["ENOENT", "failed", "XERR_X", "ENOMEMX", "err_x"] {
@@ -117,15 +101,8 @@ mod tests {
 
     #[test]
     fn the_listed_messages_are_environment_failures_in_any_case() {
-        for message in [
-            "JavaScript heap Out Of Memory",
-            "Allocation failed",
-            "cannot allocate memory",
-        ] {
-            assert!(
-                is_environment_error(&CodedError::failed(message)),
-                "{message}"
-            );
+        for message in ["JavaScript heap Out Of Memory", "Allocation failed", "cannot allocate memory"] {
+            assert!(is_environment_error(&CodedError::failed(message)), "{message}");
         }
         assert!(!is_environment_error(&CodedError::failed("bad bytes")));
     }
@@ -133,9 +110,7 @@ mod tests {
     #[test]
     fn a_wrapped_cause_is_followed_to_its_depth() {
         let env = CodedError::new("ENOMEM", "x");
-        assert!(is_environment_error(
-            &CodedError::failed("wrapper").with_source(env)
-        ));
+        assert!(is_environment_error(&CodedError::failed("wrapper").with_source(env)));
         // Four levels are looked at: the failure and three causes.
         let deep = |levels: usize| {
             let mut error = CodedError::new("ENOMEM", "x");

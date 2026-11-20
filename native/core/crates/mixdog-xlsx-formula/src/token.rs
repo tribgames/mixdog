@@ -13,19 +13,13 @@ use crate::value::UnsupportedFormula;
 /// and a bare name is any letters.
 const SHEET_PREFIX: &str = r"(?:'(?:[^']|'')+'|[\p{L}_][\p{L}\p{N}_.]*)!";
 /// A cell or cell range first, then the whole-column (`A:A`) and whole-row (`1:1`) forms.
-const REFERENCE_BODY: &str =
-    r"\$?[A-Za-z]{1,3}\$?\d{1,7}(?::\$?[A-Za-z]{1,3}\$?\d{1,7})?|\$?[A-Za-z]{1,3}:\$?[A-Za-z]{1,3}|\$?\d{1,7}:\$?\d{1,7}";
+const REFERENCE_BODY: &str = r"\$?[A-Za-z]{1,3}\$?\d{1,7}(?::\$?[A-Za-z]{1,3}\$?\d{1,7})?|\$?[A-Za-z]{1,3}:\$?[A-Za-z]{1,3}|\$?\d{1,7}:\$?\d{1,7}";
 
 /// An error literal: after the sheet name when it named another sheet (`Data!#REF!`), and one whose sheet was deleted
 /// as `#REF!` before the cells it named (`#REF!B2:B4`).
-static ERROR: LazyLock<JsRegex> = LazyLock::new(|| {
-    JsRegex::new_static(
-        &format!("^(?:{SHEET_PREFIX})?#(?:REF!(?:{REFERENCE_BODY})?|DIV/0!|VALUE!|NAME\\?|N/A|NUM!|NULL!)"),
-        "u",
-    )
-});
-static REFERENCE: LazyLock<JsRegex> =
-    LazyLock::new(|| JsRegex::new_static(&format!("^(?:{SHEET_PREFIX})?(?:{REFERENCE_BODY})"), "u"));
+static ERROR: LazyLock<JsRegex> =
+    LazyLock::new(|| JsRegex::new_static(&format!("^(?:{SHEET_PREFIX})?#(?:REF!(?:{REFERENCE_BODY})?|DIV/0!|VALUE!|NAME\\?|N/A|NUM!|NULL!)"), "u"));
+static REFERENCE: LazyLock<JsRegex> = LazyLock::new(|| JsRegex::new_static(&format!("^(?:{SHEET_PREFIX})?(?:{REFERENCE_BODY})"), "u"));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum TokenKind {
@@ -158,7 +152,9 @@ fn error_might_match(rest: &str) -> bool {
 
 fn reference_might_match(rest: &str) -> bool {
     // The existing regex remains authoritative for quoted sheet names and all Unicode details.
-    if rest.starts_with('\'') { return true; }
+    if rest.starts_with('\'') {
+        return true;
+    }
     let body = sheet_body(rest);
     let body = body.strip_prefix('$').unwrap_or(body);
     let letters = run(body, |c| c.is_ascii_alphabetic());
@@ -166,7 +162,9 @@ fn reference_might_match(rest: &str) -> bool {
         let tail = &body[letters..];
         return tail.starts_with(':') || tail.strip_prefix('$').unwrap_or(tail).starts_with(|c: char| c.is_ascii_digit());
     }
-    if letters != 0 { return false; }
+    if letters != 0 {
+        return false;
+    }
     let digits = run(body, |c| c.is_ascii_digit());
     (1..=7).contains(&digits) && body[digits..].starts_with(':')
 }
@@ -245,9 +243,7 @@ pub struct FormulaReference {
 pub fn formula_references(formula: &str) -> Result<Vec<FormulaReference>, UnsupportedFormula> {
     Ok(tokenize(formula)?
         .into_iter()
-        .filter(|token| {
-            token.kind == TokenKind::Reference || (token.kind == TokenKind::Error && !token.text.starts_with('#'))
-        })
+        .filter(|token| token.kind == TokenKind::Reference || (token.kind == TokenKind::Error && !token.text.starts_with('#')))
         .map(|token| FormulaReference { text: token.text, start: token.start, utf16_start: token.utf16_start })
         .collect())
 }
@@ -261,8 +257,7 @@ fn split_cell(part: &str) -> Option<(&str, &str, &str, &str)> {
     }
     let (column, rest) = rest.split_at(letters);
     let (row_lock, digits) = rest.strip_prefix('$').map_or(("", rest), |rest| ("$", rest));
-    ((1..=7).contains(&digits.len()) && digits.bytes().all(|b| b.is_ascii_digit()))
-        .then_some((column_lock, column, row_lock, digits))
+    ((1..=7).contains(&digits.len()) && digits.bytes().all(|b| b.is_ascii_digit())).then_some((column_lock, column, row_lock, digits))
 }
 
 fn off_the_sheet() -> UnsupportedFormula {
@@ -307,8 +302,7 @@ fn shift_reference_part(part: &str, row_delta: i64, column_delta: i64) -> Result
 
 fn shift_reference(text: &str, row_delta: i64, column_delta: i64) -> Result<String, UnsupportedFormula> {
     let (sheet, body) = text.rfind('!').map_or(("", text), |bang| text.split_at(bang + 1));
-    let parts: Result<Vec<String>, _> =
-        body.split(':').map(|part| shift_reference_part(part, row_delta, column_delta)).collect();
+    let parts: Result<Vec<String>, _> = body.split(':').map(|part| shift_reference_part(part, row_delta, column_delta)).collect();
     Ok(format!("{sheet}{}", parts?.join(":")))
 }
 
@@ -316,11 +310,7 @@ fn shift_reference(text: &str, row_delta: i64, column_delta: i64) -> Result<Stri
 /// `row_delta` rows and `column_delta` columns away: every relative reference moves with the cell and every one
 /// pinned with `$` stays where it is. Fails when the move would leave the sheet, or the formula is outside what this
 /// engine reads.
-pub fn translate_shared_formula(
-    formula: &str,
-    row_delta: i64,
-    column_delta: i64,
-) -> Result<String, UnsupportedFormula> {
+pub fn translate_shared_formula(formula: &str, row_delta: i64, column_delta: i64) -> Result<String, UnsupportedFormula> {
     let text = formula.strip_prefix('=').unwrap_or(formula);
     if row_delta == 0 && column_delta == 0 {
         return Ok(text.to_owned());

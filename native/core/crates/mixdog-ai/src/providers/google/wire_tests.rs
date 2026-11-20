@@ -6,19 +6,8 @@
 //! cache schedules) are compared with what `GoogleAdapter::attempt` puts on the wire when the recorded answers come
 //! back, with the session state the send leaves behind.
 
-
-
-
-
-
-
-
-
-
-
 /// How long a step of the test may take in real time before it is a failure (nothing here waits on the network).
 const STEP: std::time::Duration = std::time::Duration::from_secs(30);
-
 
 /// The wait's answer, or the failure that names it once the deadline has passed.
 async fn answered<T>(what: &str, wait: impl std::future::Future<Output = T>) -> Result<T, String> {
@@ -37,13 +26,3 @@ async fn a_wait_nobody_answers_fails_at_its_deadline_naming_it() {
     let failure = futures::poll!(waiting.as_mut());
     assert_eq!(failure, std::task::Poll::Ready(Err(format!("the awaited answer: no answer within {STEP:?}"))));
 }
-
-
-
-
-
-
-
-
-
-

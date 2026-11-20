@@ -200,10 +200,7 @@ pub fn image_metadata_text(dims: Option<&Dimensions>, source_path: Option<&str>)
     parts.push(format!("{original_width}x{original_height}"));
     if was_resized {
         let scale = f64::from(original_width) / f64::from(display_width);
-        parts.push(format!(
-            "displayed at {display_width}x{display_height}. Multiply coordinates by {} to map to the original image.",
-            to_fixed_2(scale)
-        ));
+        parts.push(format!("displayed at {display_width}x{display_height}. Multiply coordinates by {} to map to the original image.", to_fixed_2(scale)));
     } else {
         parts.push(format!("displayed at {display_width}x{display_height}"));
     }

@@ -78,9 +78,11 @@ impl LedgerSource {
         }
         // The directory is made on the durability lane before the store is touched: no lock is held across the wait.
         if let Some(dir) = path.parent().filter(|dir| !dir.as_os_str().is_empty()).map(Path::to_owned) {
-            mixdog_core_base::support::on_lane(self.lanes.durability_io, &mixdog_rt::CancellationToken::new(), move |lane| mixdog_statefile::create_private_dir_all(lane, &dir))
-                .await
-                .map_err(|error| LedgerError::Io(std::io::Error::other(error.to_string())))??;
+            mixdog_core_base::support::on_lane(self.lanes.durability_io, &mixdog_rt::CancellationToken::new(), move |lane| {
+                mixdog_statefile::create_private_dir_all(lane, &dir)
+            })
+            .await
+            .map_err(|error| LedgerError::Io(std::io::Error::other(error.to_string())))??;
         }
         let mut stores = self.stores();
         if let Some(open) = stores.get(&path) {
@@ -244,5 +246,4 @@ mod tests {
         let memory = LedgerSource::new(memory, root.path().join("data3"), tokens, Arc::new(NoPrices), usage_stats_feed::recording_push());
         assert!(memory.get().await.is_err() && memory.if_open().is_none());
     }
-
 }

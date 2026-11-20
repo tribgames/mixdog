@@ -186,11 +186,7 @@ fn load_grok(raw: &Value) -> Option<Value> {
     out.insert("user_id".into(), or_empty(first_truthy(&[raw.get("user_id"), raw.get("userId"), Some(&claim_user)])));
     out.insert("principal_type".into(), or_empty(first_truthy(&[raw.get("principal_type"), raw.get("principalType"), Some(&claim_type)])));
     out.insert("principal_id".into(), or_empty(first_truthy(&[raw.get("principal_id"), raw.get("principalId"), Some(&claim_principal)])));
-    let email = if truthy(raw.get("email")) {
-        raw["email"].clone()
-    } else {
-        json!(email_from_jwts(&[token_text(raw.get("id_token")), access]))
-    };
+    let email = if truthy(raw.get("email")) { raw["email"].clone() } else { json!(email_from_jwts(&[token_text(raw.get("id_token")), access])) };
     out.insert("email".into(), email);
     out.insert("source".into(), json!("own"));
     Some(Value::Object(out))
@@ -290,7 +286,8 @@ fn load_token_file(raw: &Value) -> Option<Value> {
     let access = token_text(raw.get("access_token"));
     let stored = js_number(raw.get("expires_at"));
     out.insert("expires_at".into(), number(if stored != 0.0 { stored } else { expiry_from_access_token(&access) }));
-    let from_token = decode_jwt_payload(&access).and_then(|claims| normalize_account_identity(Some(&json!({ "id": claims.get("sub"), "email": claims.get("email") }))));
+    let from_token =
+        decode_jwt_payload(&access).and_then(|claims| normalize_account_identity(Some(&json!({ "id": claims.get("sub"), "email": claims.get("email") }))));
     out.insert("identity".into(), normalize_account_identity(raw.get("identity")).or(from_token).unwrap_or(Value::Null));
     out.insert("source".into(), json!(SOURCE_OWN));
     Some(Value::Object(out))

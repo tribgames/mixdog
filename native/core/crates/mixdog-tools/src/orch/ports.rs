@@ -19,4 +19,5 @@ pub trait CallerFacts: Send + Sync {
 }
 
 /// What a heartbeat turn is told when it tries to hand work off.
-pub const HEARTBEAT_NO_HANDOFF: &str = "a heartbeat turn cannot hand work off: its result would reach nobody. Propose it to the user instead (session action suggest).";
+pub const HEARTBEAT_NO_HANDOFF: &str =
+    "a heartbeat turn cannot hand work off: its result would reach nobody. Propose it to the user instead (session action suggest).";

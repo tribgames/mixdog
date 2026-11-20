@@ -52,7 +52,13 @@ impl ThreadState for Store {
     async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
         unreachable!("the arm updates the header through HeaderUpdates")
     }
-    async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+    async fn patch_header_if(
+        &self,
+        _: &ThreadId,
+        _: Map<String, Value>,
+        _: Map<String, Value>,
+        _: Vec<String>,
+    ) -> Result<Option<Map<String, Value>>, PortError> {
         unreachable!("the arm updates the header through HeaderUpdates")
     }
     async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
@@ -181,7 +187,11 @@ async fn a_dependency_the_session_does_not_have_is_unavailable_and_changes_nothi
     let store = Store::new(session());
     let before = store.snapshot();
     let notice = arm(&store, &[]).arm(&thread(), &dependencies(json!([{ "type": "tool", "value": "missing_tool" }]), &[])).await.expect("answered");
-    assert!(said(&notice).contains("Required tools unavailable") && said(&notice).contains("missing_tool (not available in this session)"), "{}", said(&notice));
+    assert!(
+        said(&notice).contains("Required tools unavailable") && said(&notice).contains("missing_tool (not available in this session)"),
+        "{}",
+        said(&notice)
+    );
     assert_eq!(store.snapshot(), before);
 }
 

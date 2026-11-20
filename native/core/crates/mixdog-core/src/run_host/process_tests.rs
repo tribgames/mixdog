@@ -6,8 +6,8 @@ use std::sync::{Arc, Mutex};
 
 use async_trait::async_trait;
 use mixdog_agent::text_only::MediaText;
-use mixdog_ai::client_versions::ClientVersions;
 use mixdog_ai::catalog::{CatalogService, CatalogSnapshot, ListingLookup, ModelRecord, ModelsDevSource};
+use mixdog_ai::client_versions::ClientVersions;
 use mixdog_ai::effort::RejectionEntry;
 use mixdog_ai::netproxy::NetworkProxy;
 use mixdog_ai::netproxy::system::SystemProxy;
@@ -18,40 +18,29 @@ use mixdog_ai::registry::keys::{Environment, MemoryVault};
 use mixdog_ai::registry::providers::ProviderBuilder;
 use mixdog_ai::service::effort_configuration::UnsupportedEfforts;
 use mixdog_ai::transport::http::{HttpResponse, HttpSend};
-use mixdog_core_api::domain::provider::{
-    DeliveryState, ErrorKind, ModelRequest, ProviderAdapter, ProviderError, RequestOptions, WireRequest,
-};
+use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ModelRequest, ProviderAdapter, ProviderError, RequestOptions, WireRequest};
 use mixdog_core_api::mock::MockStatePublisher;
 use mixdog_protocol::ProviderId;
 use mixdog_store::schema::record::Header;
-use serde_json::{json, Map, Value};
+use serde_json::{Map, Value, json};
 
 use super::accounting_scope::HeaderScope;
+use super::builder_env::{CatalogCaps, CatalogOpenAiFacts, builder_env, client_identity};
 use super::fixture_fs;
-use super::builder_env::{builder_env, client_identity, CatalogCaps, CatalogOpenAiFacts};
 use super::hop_bindings::HopBindings;
 use super::ladder_sources::ProcessLadder;
-use super::process::{
-    resolve_installation_id, EffortRejections, FileRejections, HostInfo, LocalModels, ProcessServices, SessionHeaders,
-};
-use mixdog_core_run::run_host::route_wiring::LocalEntry;
-use super::step_judge::{ladder_facts, LadderSources};
+use super::process::{EffortRejections, FileRejections, HostInfo, LocalModels, ProcessServices, SessionHeaders, resolve_installation_id};
+use super::step_judge::{LadderSources, ladder_facts};
 use mixdog_core_config::config::Config;
 use mixdog_core_config::config::ConfigLanes;
+use mixdog_core_run::run_host::route_wiring::LocalEntry;
 
 struct Offline;
 
 #[async_trait]
 impl HttpSend for Offline {
-    async fn send(
-        &self,
-        _: WireRequest,
-        _exchange: mixdog_ai::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
-        Err(ProviderError::new(
-            ErrorKind::Transient,
-            DeliveryState::NotSent,
-        ))
+    async fn send(&self, _: WireRequest, _exchange: mixdog_ai::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+        Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
     }
 }
 
@@ -136,8 +125,15 @@ impl mixdog_ai::providers::local::LocalRuntime for NoRuntime {
     fn supports_tools(&self, _: &str) -> Option<bool> {
         None
     }
-    async fn ensure_server(&self, _: &str, _: Option<mixdog_rt::CancellationToken>) -> Result<mixdog_ai::providers::local::Endpoint, mixdog_core_api::domain::provider::ProviderError> {
-        let mut error = mixdog_core_api::domain::provider::ProviderError::new(mixdog_core_api::domain::provider::ErrorKind::Unknown, mixdog_core_api::domain::provider::DeliveryState::NotSent);
+    async fn ensure_server(
+        &self,
+        _: &str,
+        _: Option<mixdog_rt::CancellationToken>,
+    ) -> Result<mixdog_ai::providers::local::Endpoint, mixdog_core_api::domain::provider::ProviderError> {
+        let mut error = mixdog_core_api::domain::provider::ProviderError::new(
+            mixdog_core_api::domain::provider::ErrorKind::Unknown,
+            mixdog_core_api::domain::provider::DeliveryState::NotSent,
+        );
         error.message = "[local-provider] runtime is not installed".into();
         Err(error)
     }
@@ -232,10 +228,7 @@ impl mixdog_ai::transport::http::HttpSend for NoNetwork {
         &self,
         _: mixdog_core_api::domain::provider::WireRequest,
         _exchange: mixdog_ai::transport::Exchange,
-    ) -> Result<
-        mixdog_ai::transport::http::HttpResponse,
-        mixdog_core_api::domain::provider::ProviderError,
-    > {
+    ) -> Result<mixdog_ai::transport::http::HttpResponse, mixdog_core_api::domain::provider::ProviderError> {
         Err(mixdog_core_api::domain::provider::ProviderError::new(
             mixdog_core_api::domain::provider::ErrorKind::Transient,
             mixdog_core_api::domain::provider::DeliveryState::NotSent,
@@ -263,7 +256,12 @@ async fn an_installation_id_needs_a_valid_version_and_variant_and_a_damaged_file
     let set = |v: &str| TestEnv([("MIXDOG_CODEX_INSTALLATION_ID".to_owned(), v.to_owned())].into());
     let valid = "11111111-2222-8333-b444-555555555555";
     assert_eq!(resolve_installation_id(&set(&valid.to_uppercase()), &tokens, tempfile::tempdir().unwrap().path()).await, valid);
-    for bad in ["11111111-2222-0333-8444-555555555555", "11111111-2222-9333-8444-555555555555", "11111111-2222-4333-c444-555555555555", "11111111-2222-4333-0444-555555555555"] {
+    for bad in [
+        "11111111-2222-0333-8444-555555555555",
+        "11111111-2222-9333-8444-555555555555",
+        "11111111-2222-4333-c444-555555555555",
+        "11111111-2222-4333-0444-555555555555",
+    ] {
         let dir = tempfile::tempdir().unwrap();
         let id = resolve_installation_id(&set(bad), &tokens, dir.path()).await;
         assert_ne!(id, bad, "{bad} is not a uuid");
@@ -438,11 +436,7 @@ pub(crate) async fn world(env: &[(&str, &str)], providers: Value, records: Vec<M
         unsupported: Arc::new(UnsupportedEfforts::default()),
         local: Arc::new(Local),
     };
-    World {
-        services,
-        rejections,
-        _dir: dir,
-    }
+    World { services, rejections, _dir: dir }
 }
 #[tokio::test]
 async fn every_builder_input_comes_from_the_process_services() {
@@ -455,7 +449,14 @@ async fn every_builder_input_comes_from_the_process_services() {
     // `providerAvailable`: a gated provider follows its stored Developer option, live.
     assert!((env.gated_off)("cursor-oauth"));
     assert!(!(env.gated_off)("anthropic"));
-    w.services.config.update_agent(|doc| { doc.insert("developer".into(), json!({"cursorOAuth": true})); Ok(()) }).await.unwrap();
+    w.services
+        .config
+        .update_agent(|doc| {
+            doc.insert("developer".into(), json!({"cursorOAuth": true}));
+            Ok(())
+        })
+        .await
+        .unwrap();
     assert!(!(env.gated_off)("cursor-oauth"));
 
     // The builder builds adapters from it.
@@ -481,7 +482,12 @@ async fn after_a_reload_each_provider_kind_is_readied_from_the_agent_config() {
     );
     let names: Vec<String> = providers.keys().cloned().collect();
     let w = world(&[], Value::Object(providers), Vec::new()).await;
-    let (registry, _) = super::compose_parts::provider_registry(&w.services, builder_env(&w.services), Arc::new(mixdog_exthost::ExtImageCodec::new(Arc::new(mixdog_core_api::domain::mock::MockExtPool::new(1)))), None);
+    let (registry, _) = super::compose_parts::provider_registry(
+        &w.services,
+        builder_env(&w.services),
+        Arc::new(mixdog_exthost::ExtImageCodec::new(Arc::new(mixdog_core_api::domain::mock::MockExtPool::new(1)))),
+        None,
+    );
     for name in names {
         let enabled = mixdog_ai::service::admin_route::ensure_provider_enabled(&w.services.config.agent(), &name);
         registry.init_providers(&enabled).await.unwrap_or_else(|e| panic!("{name}: {e}"));
@@ -507,7 +513,12 @@ async fn the_ladder_reads_the_process_stores() {
         "custom-acme": {"type": "custom", "schemaVersion": 2, "name": "Custom", "protocol": "openai-chat", "baseURL": "https://example.test/v1",
             "modelOverrides": {"m1": {"manual": true, "reasoning": {"levels": ["low", "high"]}}}},
     });
-    let w = world(&[], providers, vec![anthropic_row(&json!({"id": "claude-sonnet-4-6", "reasoningOptions": [{"type": "effort", "values": ["low", "medium", "high", "max"]}]}))]).await;
+    let w = world(
+        &[],
+        providers,
+        vec![anthropic_row(&json!({"id": "claude-sonnet-4-6", "reasoningOptions": [{"type": "effort", "values": ["low", "medium", "high", "max"]}]}))],
+    )
+    .await;
     w.rejections.0.lock().unwrap().insert(("openai".into(), "gpt-5.5".into()), RejectionEntry { rejected: vec!["xhigh".into()], allowed: Vec::new() });
     let ladder = ProcessLadder::new(&w.services);
 
@@ -612,5 +623,3 @@ async fn the_hop_wires_a_route_as_the_turn_start_does() {
     let model = text_only.expect("the local runtime is text-only").model;
     assert_eq!((model.name.as_str(), model.supports_tools), ("Qwen", Some(false)));
 }
-
-

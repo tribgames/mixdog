@@ -188,7 +188,15 @@ fn copy_paths(common_dir: &Path) -> [PathBuf; 2] {
 /// wrote refuses everything and is never written; anything else that is not a ledger, or holds
 /// an invalid lease record, is damaged (its valid records still count).
 fn read_copy(path: &Path, primary: bool) -> Result<Copy, ScmFailure> {
-    let empty = |bytes: Option<Vec<u8>>| Copy { path: path.to_owned(), bytes, leases: Vec::new(), damaged: false, uncertain: false, complete: false, recovered_at: None };
+    let empty = |bytes: Option<Vec<u8>>| Copy {
+        path: path.to_owned(),
+        bytes,
+        leases: Vec::new(),
+        damaged: false,
+        uncertain: false,
+        complete: false,
+        recovered_at: None,
+    };
     let bytes = match std::fs::read(path) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => return Ok(empty(None)),
@@ -601,13 +609,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let root = repo(dir.path());
         let [primary, mirror] = ledger_files(&root);
-        let dead = r#"{"version":2,"leases":[{"kind":"management","pid":2147483646,"token":"t","path":"__ROOT__"}]}"#.replace("__ROOT__", &canonical_text(&root).replace('\\', "\\\\"));
+        let dead = r#"{"version":2,"leases":[{"kind":"management","pid":2147483646,"token":"t","path":"__ROOT__"}]}"#
+            .replace("__ROOT__", &canonical_text(&root).replace('\\', "\\\\"));
         std::fs::write(&primary, &dead).unwrap();
         std::fs::write(&mirror, b"not json").unwrap();
         let activity = Activity::new(&dir.path().join("data"));
         let grant = activity.try_admit(Some("s"), &root, "turn", false).await.unwrap();
         assert!(grant.is_some(), "a proven-dead pid does not hold the checkout");
-        let kept: Vec<_> = std::fs::read_dir(root.join(".git")).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().contains(".corrupt-")).collect();
+        let kept: Vec<_> =
+            std::fs::read_dir(root.join(".git")).unwrap().filter_map(|e| e.ok()).filter(|e| e.file_name().to_string_lossy().contains(".corrupt-")).collect();
         assert_eq!(kept.len(), 1);
         assert_eq!(std::fs::read(&primary).unwrap(), std::fs::read(&mirror).unwrap());
     }
@@ -635,7 +645,6 @@ mod tests {
         assert_eq!(std::fs::read(&primary).unwrap(), br#"{"version":3,"leases":[]}"#);
     }
 }
-
 
 fn env_ms(name: &str, fallback: u64) -> Duration {
     let value = std::env::var(name).ok().and_then(|v| v.trim().parse::<f64>().ok()).filter(|v| v.is_finite() && *v > 0.0);

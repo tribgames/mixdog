@@ -6,7 +6,10 @@
 
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum SseItem {
-    Event { event: Option<String>, data: String },
+    Event {
+        event: Option<String>,
+        data: String,
+    },
     /// A `:` comment line: informational only, never progress.
     Comment,
 }
@@ -45,10 +48,7 @@ impl SseDecoder {
         }
         if line.is_empty() {
             if self.has_data || self.event.is_some() {
-                out.push(SseItem::Event {
-                    event: self.event.take(),
-                    data: std::mem::take(&mut self.data),
-                });
+                out.push(SseItem::Event { event: self.event.take(), data: std::mem::take(&mut self.data) });
                 self.has_data = false;
             }
             return;
@@ -107,13 +107,7 @@ mod tests {
     fn joins_multiline_data_and_reports_a_pending_event() {
         let mut decoder = SseDecoder::default();
         let items = decoder.feed(b"event: x\ndata: a\ndata: b\n\ndata: c");
-        assert_eq!(
-            items,
-            [SseItem::Event {
-                event: Some("x".into()),
-                data: "a\nb".into()
-            }]
-        );
+        assert_eq!(items, [SseItem::Event { event: Some("x".into()), data: "a\nb".into() }]);
         assert!(decoder.has_pending());
     }
 

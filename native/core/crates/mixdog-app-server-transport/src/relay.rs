@@ -51,18 +51,12 @@ impl RelayEndpoint {
     /// A decrypted text frame from the phone. Waits while the core's reader is behind, which
     /// is the backpressure for this phone only.
     pub async fn send_text(&self, frame: String) -> Result<(), RelayClosed> {
-        self.to_core
-            .send(RelayIn::Text(frame))
-            .await
-            .map_err(|_| RelayClosed)
+        self.to_core.send(RelayIn::Text(frame)).await.map_err(|_| RelayClosed)
     }
 
     /// Any liveness evidence from the phone (a pong, or any frame the core does not need).
     pub async fn send_activity(&self) -> Result<(), RelayClosed> {
-        self.to_core
-            .send(RelayIn::Activity)
-            .await
-            .map_err(|_| RelayClosed)
+        self.to_core.send(RelayIn::Activity).await.map_err(|_| RelayClosed)
     }
 
     /// The next outbound item; `None` once the connection ended.
@@ -109,22 +103,11 @@ impl SocketWrite for RelayWrite {
 }
 
 /// Opens the connection of one paired phone. Fails when `maxConnections` are open.
-pub fn open_relay(
-    hub: &ConnectionHub,
-    peer_id: String,
-) -> Result<(AcceptedConnection, RelayEndpoint), ConnectionLimit> {
+pub fn open_relay(hub: &ConnectionHub, peer_id: String) -> Result<(AcceptedConnection, RelayEndpoint), ConnectionLimit> {
     let (to_core, inbound) = mpsc::channel(INBOUND_QUEUE);
     // One slot: a phone that stops reading stalls the writer, and the byte budget takes over.
     let (outbound, from_core) = mpsc::channel(1);
-    let accepted = hub.attach(
-        ConnectionOrigin::Relay { peer_id },
-        RelayRead(inbound),
-        RelayWrite(outbound),
-    )?;
-    let endpoint = RelayEndpoint {
-        to_core,
-        from_core,
-        connection: accepted.sink.clone(),
-    };
+    let accepted = hub.attach(ConnectionOrigin::Relay { peer_id }, RelayRead(inbound), RelayWrite(outbound))?;
+    let endpoint = RelayEndpoint { to_core, from_core, connection: accepted.sink.clone() };
     Ok((accepted, endpoint))
 }

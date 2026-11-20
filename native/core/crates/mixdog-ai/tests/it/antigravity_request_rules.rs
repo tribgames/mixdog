@@ -85,7 +85,12 @@ fn session_of(text: &str) -> String {
 
 #[test]
 fn the_envelope_names_the_project_model_request_and_agent_in_nodes_order_and_the_session_follows_the_first_user_text() {
-    let body = built("gemini-3.6-flash", vec![message(Role::User, "hello"), message(Role::Assistant, "hi"), message(Role::User, "more")], vec![], RequestOptions::default());
+    let body = built(
+        "gemini-3.6-flash",
+        vec![message(Role::User, "hello"), message(Role::Assistant, "hi"), message(Role::User, "more")],
+        vec![],
+        RequestOptions::default(),
+    );
     assert_eq!(keys(&body), ["project", "model", "request", "requestType", "userAgent", "requestId"]);
     assert_eq!((body["project"].as_str(), body["model"].as_str()), (Some("proj-1"), Some("gemini-3.6-flash")));
     assert_eq!((body["requestType"].as_str(), body["userAgent"].as_str()), (Some("agent"), Some("antigravity")));
@@ -103,10 +108,16 @@ fn the_envelope_names_the_project_model_request_and_agent_in_nodes_order_and_the
 
 #[test]
 fn a_first_turn_without_text_gets_a_fresh_session_each_time_and_a_request_with_no_messages_is_refused() {
-    let blank = || built("gemini-3.6-flash", vec![message(Role::User, "  ")], vec![], RequestOptions::default())["request"]["sessionId"].as_str().unwrap().to_owned();
+    let blank =
+        || built("gemini-3.6-flash", vec![message(Role::User, "  ")], vec![], RequestOptions::default())["request"]["sessionId"].as_str().unwrap().to_owned();
     let (a, b) = (blank(), blank());
     assert!(a.starts_with('-') && a.len() > 30 && a != b, "{a} {b}");
-    let err = codec().encode(&ModelRequest { model: "gemini-3.6-flash".into(), messages: vec![message(Role::System, "only a system prompt")], tools: vec![], options: RequestOptions::default() });
+    let err = codec().encode(&ModelRequest {
+        model: "gemini-3.6-flash".into(),
+        messages: vec![message(Role::System, "only a system prompt")],
+        tools: vec![],
+        options: RequestOptions::default(),
+    });
     assert!(err.err().expect("refused").message.contains("No messages to send"));
 }
 
@@ -137,8 +148,16 @@ fn function_declarations_bring_a_tool_config_whose_mode_is_validated_unless_the_
         assert_eq!(antigravity_function_calling_mode(&Vars(vec![("MIXDOG_ANTIGRAVITY_FC_MODE", raw)])), mode, "{raw:?}");
     }
     assert_eq!(antigravity_function_calling_mode(&Vars(Vec::new())), "VALIDATED");
-    let from_env = GoogleCodec::antigravity(ANTIGRAVITY_ORIGIN, "proj-1", "1.0.0", Arc::new(CatalogGoogleTraits(Vec::new()))).with_env(Arc::new(Vars(vec![("MIXDOG_ANTIGRAVITY_FC_MODE", "AUTO")])));
-    let wire = from_env.encode(&ModelRequest { model: "gemini-3.6-flash".into(), messages: vec![message(Role::User, "q")], tools: vec![read_tool()], options: RequestOptions::default() }).unwrap();
+    let from_env = GoogleCodec::antigravity(ANTIGRAVITY_ORIGIN, "proj-1", "1.0.0", Arc::new(CatalogGoogleTraits(Vec::new())))
+        .with_env(Arc::new(Vars(vec![("MIXDOG_ANTIGRAVITY_FC_MODE", "AUTO")])));
+    let wire = from_env
+        .encode(&ModelRequest {
+            model: "gemini-3.6-flash".into(),
+            messages: vec![message(Role::User, "q")],
+            tools: vec![read_tool()],
+            options: RequestOptions::default(),
+        })
+        .unwrap();
     let sent: Value = serde_json::from_slice(&wire.body).unwrap();
     assert_eq!(sent["request"]["toolConfig"], json!({"functionCallingConfig": {"mode": "AUTO"}}));
 }
@@ -149,7 +168,15 @@ fn a_claude_request_is_always_capped_and_its_effort_rides_on_the_thinking_level_
     // No effort: thoughts are asked for, the cap is the fixed 64000 of a gateway that declared none.
     assert_eq!(ask(RequestOptions::default()), json!({"maxOutputTokens": 64000, "thinkingConfig": {"includeThoughts": true}}));
     // The gateway's enum ends at `high`: the levels above it are sent as `high`, a level it does not name is left out.
-    for (asked, level) in [("low", Some("low")), ("MEDIUM", Some("medium")), ("high", Some("high")), ("xhigh", Some("high")), ("max", Some("high")), ("ultra", Some("high")), ("bogus", None)] {
+    for (asked, level) in [
+        ("low", Some("low")),
+        ("MEDIUM", Some("medium")),
+        ("high", Some("high")),
+        ("xhigh", Some("high")),
+        ("max", Some("high")),
+        ("ultra", Some("high")),
+        ("bogus", None),
+    ] {
         let mut want = json!({"includeThoughts": true});
         if let Some(level) = level {
             want["thinkingLevel"] = json!(level);
@@ -207,7 +234,8 @@ fn an_empty_text_part_the_stream_recorded_is_not_replayed_to_claude_and_a_turn_o
     let replayed = |parts: Value| {
         let mut turn = message(Role::Assistant, "");
         turn.push_replay(ProviderReplay { owner: ProviderId::from("antigravity"), items: json!({"parts": parts, "model": "claude-sonnet-4-6"}) });
-        built("claude-sonnet-4-6", vec![message(Role::User, "q"), turn, message(Role::User, "next")], vec![], RequestOptions::default())["request"]["contents"].clone()
+        built("claude-sonnet-4-6", vec![message(Role::User, "q"), turn, message(Role::User, "next")], vec![], RequestOptions::default())["request"]["contents"]
+            .clone()
     };
     // The bridge rejects `text.text: Field required`: the empty part goes, the others stay in order.
     let contents = replayed(json!([{"text": ""}, {"text": "answer"}]));

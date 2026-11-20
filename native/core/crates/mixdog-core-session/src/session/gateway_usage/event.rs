@@ -214,7 +214,15 @@ fn raw_usage_keys(raw: Option<&Value>) -> Vec<Value> {
 }
 
 /// `summarizeGatewayUsage(routeInfo, providerOut, compact, durationMs)` at `now`.
-pub fn summarize(section: &mut RouteSection, pricing: &dyn UsagePricing, route: &Value, provider_out: &Value, compact: &Value, duration_ms: Option<f64>, now: i64) -> Map<String, Value> {
+pub fn summarize(
+    section: &mut RouteSection,
+    pricing: &dyn UsagePricing,
+    route: &Value,
+    provider_out: &Value,
+    compact: &Value,
+    duration_ms: Option<f64>,
+    now: i64,
+) -> Map<String, Value> {
     let empty = Value::Object(Map::new());
     let usage = get(provider_out, "usage").filter(|u| truthy(Some(u))).unwrap_or(&empty);
     let started_at = ensure_route_section(section, route, now);
@@ -241,14 +249,26 @@ pub fn summarize(section: &mut RouteSection, pricing: &dyn UsagePricing, route: 
     put("routeKey", Value::from(route_identity_key(route)));
     put("routeSectionStartedAt", json_number(started_at as f64));
     put("responseModel", clean_string(get(provider_out, "model")).map(Value::String).unwrap_or_else(|| or_null(get(route, "model"))));
-    put("serviceTier", text_or_null(clean_string(get(provider_out, "serviceTier")).or_else(|| clean_string(get(usage, "raw").and_then(|raw| raw.get("service_tier"))))));
+    put(
+        "serviceTier",
+        text_or_null(clean_string(get(provider_out, "serviceTier")).or_else(|| clean_string(get(usage, "raw").and_then(|raw| raw.get("service_tier"))))),
+    );
     put("inputTokens", json_number(num(get(usage, "inputTokens"), 0.0)));
     put("outputTokens", json_number(num(get(usage, "outputTokens"), 0.0)));
     put("cacheReadTokens", json_number(num(nullish(get(usage, "cachedTokens"), get(usage, "cacheReadTokens")), 0.0)));
     put("cacheWriteTokens", json_number(num(get(usage, "cacheWriteTokens"), 0.0)));
     put("promptTokens", json_number(prompt_tokens));
     put("costUsd", json_number(cost));
-    put("costSource", Value::from(if provider_cost { "provider" } else if cost > 0.0 { "catalog" } else { "none" }));
+    put(
+        "costSource",
+        Value::from(if provider_cost {
+            "provider"
+        } else if cost > 0.0 {
+            "catalog"
+        } else {
+            "none"
+        }),
+    );
     put("contextUsedPct", context_used_pct.map_or(Value::Null, json_number));
     put("compact", compact_copy(compact));
     put("durationMs", duration_ms.and_then(finite).map_or(Value::Null, |ms| json_number(math::max(0.0, math::round(ms)))));
@@ -286,7 +306,20 @@ fn compact_transport_timing(timing: Option<&Value>) -> Option<Value> {
     let mut out = Map::new();
     out.insert("transport".into(), text("transport"));
     out.insert("outcome".into(), text("outcome"));
-    for key in ["admissionQueueWaitMs", "providerConcurrentRequests", "providerQueuedRequests", "poolOwnerWaitMs", "socketAcquireMs", "poolAcquireMs", "requestBuildSerializationMs", "preResponseCreatedMs", "providerFirstEventMs", "retryBackoffMs", "handshakeRetries", "acquireAttempts"] {
+    for key in [
+        "admissionQueueWaitMs",
+        "providerConcurrentRequests",
+        "providerQueuedRequests",
+        "poolOwnerWaitMs",
+        "socketAcquireMs",
+        "poolAcquireMs",
+        "requestBuildSerializationMs",
+        "preResponseCreatedMs",
+        "providerFirstEventMs",
+        "retryBackoffMs",
+        "handshakeRetries",
+        "acquireAttempts",
+    ] {
         out.insert(key.into(), count(key));
     }
     out.insert("acquireMode".into(), text("acquireMode"));

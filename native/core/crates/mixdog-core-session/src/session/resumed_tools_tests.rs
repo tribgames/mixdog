@@ -8,8 +8,8 @@ use serde_json::json;
 use super::SessionDirectory;
 use super::testing::Rig;
 use super::testing::lock;
-use crate::eventually_on;
 use super::tests::start_thread;
+use crate::eventually_on;
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_stored_thread_opened_for_use_takes_its_refreshed_tools() {

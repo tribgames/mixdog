@@ -2,7 +2,7 @@
 //! keyboard value replacement proves before it deletes anything
 //! (BackgroundSelectAll and BackgroundTextEnd, MixWin32Keyboard.cs:597-660).
 
-use super::background::{keyboard_target_of, read_value, WinBackground};
+use super::background::{WinBackground, keyboard_target_of, read_value};
 use crate::platform::Wid;
 use crate::port::windows::ReadMessage;
 
@@ -55,9 +55,7 @@ fn select_all_proof(send: Send, has_text: bool) -> Result<i32, String> {
     let original = read_selection(send)?;
     let caret = caret_at_end(send)?;
     send(EM_SETSEL, 0, -1)?;
-    let whole = caret >= 0
-        && (caret > 0 || !has_text)
-        && matches!(read_selection(send)?, Some((0, last)) if last >= caret);
+    let whole = caret >= 0 && (caret > 0 || !has_text) && matches!(read_selection(send)?, Some((0, last)) if last >= caret);
     if whole {
         return Ok(caret);
     }

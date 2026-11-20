@@ -33,9 +33,7 @@ impl mixdog_workspace::service::CodeGraph for WorkspaceCodeGraph {
             // Node throws the dispatcher's `Error`; the wire carries its message.
             Err(Failure::Refused(message)) => Err(WsError::new(Reason::Io, message)),
             Err(Failure::Lane(mixdog_scm::error::ScmFailure::Cancelled)) => Err(WsError::new(Reason::Cancelled, "aborted")),
-            Err(Failure::Lane(mixdog_scm::error::ScmFailure::QueueFull { queue })) => {
-                Err(WsError::new(Reason::Overloaded, format!("lane {queue} is full")))
-            }
+            Err(Failure::Lane(mixdog_scm::error::ScmFailure::QueueFull { queue })) => Err(WsError::new(Reason::Overloaded, format!("lane {queue} is full"))),
             Err(Failure::Lane(other)) => Err(WsError::new(Reason::Io, format!("code_graph failed: {other}"))),
         }
     }
@@ -110,7 +108,6 @@ mod tests {
         let error = graph.query(&root, json!({ "mode": "bogus", "symbols": "add" }), &cancel).await.unwrap_err();
         assert_eq!(error.message, "code_graph: unknown mode \"bogus\"");
     }
-
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn an_answer_from_the_whole_graph_warns_of_unindexed_files_and_names_the_first_five() {

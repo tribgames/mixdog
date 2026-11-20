@@ -5,12 +5,9 @@
 
 use super::super::msaa::{self, MsaaNode};
 use super::super::native;
-use super::snapshot::{cached_flag, cached_supported, variant_text, CHROMIUM_PREFIX};
-use super::{any_of, control_type_id, property_condition, role_of, Uia};
-use crate::a11y::{
-    format_value, integrity_refusal, is_interactive, PredicateObservation, PredicateRead,
-    INTERACTIVE_ROLES,
-};
+use super::snapshot::{CHROMIUM_PREFIX, cached_flag, cached_supported, variant_text};
+use super::{Uia, any_of, control_type_id, property_condition, role_of};
+use crate::a11y::{INTERACTIVE_ROLES, PredicateObservation, PredicateRead, format_value, integrity_refusal, is_interactive};
 use crate::platform::WindowInfo;
 use windows::Win32::System::Variant::VARIANT;
 use windows::Win32::UI::Accessibility::*;
@@ -125,10 +122,7 @@ fn msaa_walk(window: &WindowInfo, maximum: usize) -> Result<(Vec<MsaaSeen>, bool
 
 /// The probe's answer from what each tree showed: UI Automation first, then
 /// the roles of the MSAA nodes, read only when it is asked for.
-fn probe_source(
-    uia: bool,
-    msaa_roles: impl FnOnce() -> Result<Vec<String>, String>,
-) -> Result<Option<&'static str>, String> {
+fn probe_source(uia: bool, msaa_roles: impl FnOnce() -> Result<Vec<String>, String>) -> Result<Option<&'static str>, String> {
     if uia {
         return Ok(Some("uia"));
     }
@@ -161,43 +155,27 @@ impl Uia {
     fn texts(&self, element: &IUIAutomationElement, read_text: bool) -> Result<Texts, String> {
         // SAFETY: cached property reads on an element built with the
         // predicate cache.
-        let (control_type, name, enabled) = unsafe {
-            (
-                element.CachedControlType(),
-                element.CachedName(),
-                element.CachedIsEnabled(),
-            )
-        };
+        let (control_type, name, enabled) = unsafe { (element.CachedControlType(), element.CachedName(), element.CachedIsEnabled()) };
         let role = control_type.map_or("Custom", |control_type| role_of(control_type.0));
         let valued = cached_flag(element, UIA_IsValuePatternAvailablePropertyId);
         let supported = cached_supported(element, UIA_ValueValuePropertyId);
         // A terminal or document body has no value: its visible lines are
         // what a predicate matches. Only a focusable surface is read, which
         // bounds the cost of one poll.
-        let surface = read_text
-            && !valued
-            && cached_flag(element, UIA_IsKeyboardFocusablePropertyId)
-            && cached_flag(element, UIA_IsTextPatternAvailablePropertyId);
+        let surface =
+            read_text && !valued && cached_flag(element, UIA_IsKeyboardFocusablePropertyId) && cached_flag(element, UIA_IsTextPatternAvailablePropertyId);
         Ok(Texts {
             role,
             name: name.ok().map(|name| name.to_string()),
             value: value_text(role, supported.as_ref().map(variant_text), valued),
-            lines: if surface {
-                self.visible_lines(element)?
-            } else {
-                Some(Vec::new())
-            },
+            lines: if surface { self.visible_lines(element)? } else { Some(Vec::new()) },
             enabled: enabled.is_ok_and(|flag| flag.as_bool()),
         })
     }
 
     /// Get-WindowPredicates' element read: every on-screen descendant, since
     /// a role filter cannot prove a text absent, then the MSAA tree.
-    pub(super) fn predicates(
-        &self,
-        window: &WindowInfo,
-        max: usize,
-    ) -> Result<(Vec<PredicateObservation>, bool), String> {
+    pub(super) fn predicates(&self, window: &WindowInfo, max: usize) -> Result<(Vec<PredicateObservation>, bool), String> {
         if let Some(refusal) = integrity_refusal(&native::integrity(window.handle)) {
             return Err(refusal);
         }
@@ -207,8 +185,7 @@ impl Uia {
         let everything = unsafe { self.automation.CreateTrueCondition() }.map_err(to_error)?;
         let cache = self.predicate_cache().map_err(to_error)?;
         // SAFETY: a plain cached search under the window's root.
-        let found = unsafe { root.FindAllBuildCache(TreeScope_Descendants, &everything, &cache) }
-            .map_err(to_error)?;
+        let found = unsafe { root.FindAllBuildCache(TreeScope_Descendants, &everything, &cache) }.map_err(to_error)?;
         // SAFETY: a plain length read.
         let count = unsafe { found.Length() }.map_err(to_error)?;
         let read_text = !window.class_name.starts_with(CHROMIUM_PREFIX);
@@ -247,10 +224,7 @@ impl Uia {
         let to_error = |error: windows::core::Error| error.message();
         let mut conditions = Vec::new();
         for role in INTERACTIVE_ROLES {
-            conditions.push(
-                property_condition(&self.automation, UIA_ControlTypePropertyId, VARIANT::from(control_type_id(role)))
-                    .map_err(to_error)?,
-            );
+            conditions.push(property_condition(&self.automation, UIA_ControlTypePropertyId, VARIANT::from(control_type_id(role))).map_err(to_error)?);
         }
         let condition = any_of(&self.automation, conditions).map_err(to_error)?;
         // SAFETY: a plain search under the window's root.
@@ -282,13 +256,7 @@ mod tests {
     }
 
     fn seen(role: &str, name: &str, value: &str, has_area: bool) -> MsaaSeen {
-        MsaaSeen {
-            role: role.into(),
-            name: name.into(),
-            value: value.into(),
-            enabled: false,
-            has_area,
-        }
+        MsaaSeen { role: role.into(), name: name.into(), value: value.into(), enabled: false, has_area }
     }
 
     fn names(read: &PredicateRead) -> Vec<&str> {
@@ -383,15 +351,7 @@ mod tests {
         let mut read = PredicateRead::new(10);
         append_msaa(
             &mut read,
-            Ok((
-                vec![
-                    seen("Button", "OK", "", true),
-                    seen("Button", "hidden", "", false),
-                    seen("Pane", " ", "", true),
-                    seen("Edit", "", "typed", true),
-                ],
-                true,
-            )),
+            Ok((vec![seen("Button", "OK", "", true), seen("Button", "hidden", "", false), seen("Pane", " ", "", true), seen("Edit", "", "typed", true)], true)),
         );
         assert_eq!(names(&read), ["OK", ""]);
         assert_eq!(read.observations[1].value, "typed");
@@ -411,10 +371,7 @@ mod tests {
         assert!(read.observations.is_empty() && !read.complete);
 
         let mut read = PredicateRead::new(1);
-        append_msaa(
-            &mut read,
-            Ok((vec![seen("Button", "a", "", true), seen("Button", "b", "", true)], true)),
-        );
+        append_msaa(&mut read, Ok((vec![seen("Button", "a", "", true), seen("Button", "b", "", true)], true)));
         assert_eq!(names(&read), ["a"]);
         assert!(!read.complete);
 

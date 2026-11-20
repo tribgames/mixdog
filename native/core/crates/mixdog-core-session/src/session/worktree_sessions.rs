@@ -84,11 +84,7 @@ impl StoredWorktreeSessions {
 
 /// `doc.title || doc.name || null`.
 fn title_of(header: &Header) -> Option<String> {
-    ["title", "name"]
-        .iter()
-        .filter_map(|key| header.get(*key).and_then(Value::as_str))
-        .find(|text| !text.is_empty())
-        .map(str::to_owned)
+    ["title", "name"].iter().filter_map(|key| header.get(*key).and_then(Value::as_str)).find(|text| !text.is_empty()).map(str::to_owned)
 }
 
 #[async_trait]
@@ -136,4 +132,3 @@ impl SessionSource for StoredWorktreeSessions {
             .collect()
     }
 }
-

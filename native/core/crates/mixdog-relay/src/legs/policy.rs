@@ -139,12 +139,7 @@ pub struct UplinkLeg {
 impl UplinkLeg {
     /// `newUplinkLeg`: until THIS connection declares, the floor.
     pub fn new(capacity_ceiling: usize) -> Self {
-        Self {
-            capacity_ceiling,
-            capacity: uplink_capacity_for(None, Some(capacity_ceiling as f64)),
-            text_frames: false,
-            published: String::new(),
-        }
+        Self { capacity_ceiling, capacity: uplink_capacity_for(None, Some(capacity_ceiling as f64)), text_frames: false, published: String::new() }
     }
 
     /// `declareUplinkLeg`: this connection's declaration, normalised once.
@@ -157,19 +152,9 @@ impl UplinkLeg {
 /// What this relay publishes to a desktop leg about itself (`relayCapabilities`). `text_frames` is an ACKNOWLEDGEMENT: it
 /// appears only where the relay will carry phone text in the binary envelope on this leg. The ceilings are computed from the
 /// leg state the enforcement path reads, so what is PUBLISHED is what is ENFORCED.
-pub fn relay_capabilities(
-    leg: &UplinkLeg,
-    max_frame_bytes: usize,
-    native_push_platforms: &[String],
-    web_push: bool,
-    ice: bool,
-) -> Value {
-    let ceilings = uplink_ceilings(UplinkPath {
-        capacity: leg.capacity,
-        client_id: CANONICAL_CLIENT_ID,
-        text_frames: leg.text_frames,
-        policy: max_frame_bytes,
-    });
+pub fn relay_capabilities(leg: &UplinkLeg, max_frame_bytes: usize, native_push_platforms: &[String], web_push: bool, ice: bool) -> Value {
+    let ceilings =
+        uplink_ceilings(UplinkPath { capacity: leg.capacity, client_id: CANONICAL_CLIENT_ID, text_frames: leg.text_frames, policy: max_frame_bytes });
     let mut frame = serde_json::Map::new();
     frame.insert("type".into(), json!("relay-capabilities"));
     frame.insert("binaryFrames".into(), json!(1));
@@ -306,12 +291,7 @@ impl LegCharge {
     pub fn charge(self: &Arc<Self>, size: usize) -> Release {
         self.pending.fetch_add(size, Ordering::SeqCst);
         self.meter.add(size);
-        Release(Arc::new(ReleaseState {
-            leg: Arc::clone(self),
-            size,
-            epoch: self.epoch.load(Ordering::SeqCst),
-            released: AtomicBool::new(false),
-        }))
+        Release(Arc::new(ReleaseState { leg: Arc::clone(self), size, epoch: self.epoch.load(Ordering::SeqCst), released: AtomicBool::new(false) }))
     }
 
     /// `releaseLeg`: a leg that goes away takes its outstanding charge with it. The epoch bump makes the stale releases

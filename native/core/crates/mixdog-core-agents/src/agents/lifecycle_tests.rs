@@ -277,23 +277,57 @@ async fn a_failed_presence_read_archives_nothing_and_a_restored_agent_gets_its_c
     struct Failing(Homes);
     #[async_trait]
     impl HomeDeps for Failing {
-        async fn list_agents(&self) -> Result<Value, DepError> { self.0.list_agents().await }
-        async fn mixy_route(&self) -> Result<Value, DepError> { self.0.mixy_route().await }
-        async fn mixy_created(&self) -> Result<bool, DepError> { self.0.mixy_created().await }
-        async fn read_session(&self, id: &str) -> Result<Value, DepError> { self.0.read_session(id).await }
-        async fn create_session(&self, id: &str, params: &Value) -> Result<(), DepError> { self.0.create_session(id, params).await }
-        async fn set_route(&self, id: &str, route: &Value) -> Result<(), DepError> { self.0.set_route(id, route).await }
-        async fn set_archived(&self, id: &str, archived: bool) -> Result<(), DepError> { self.0.set_archived(id, archived).await }
-        async fn set_retired(&self, id: &str, retired: bool) -> Result<(), DepError> { self.0.set_retired(id, retired).await }
-        async fn task_workspace(&self) -> Result<String, DepError> { self.0.task_workspace().await }
-        async fn clear_session(&self, id: &str, to: &str) -> Result<(), DepError> { self.0.clear_session(id, to).await }
-        fn mint_archive_id(&self) -> String { self.0.mint_archive_id() }
-        async fn is_retired(&self, id: &str) -> Result<bool, DepError> { self.0.is_retired(id).await }
-        async fn name_retired(&self, id: &str, name: &str) -> Result<(), DepError> { self.0.name_retired(id, name).await }
-        async fn archived_agent_name(&self, id: &str) -> Result<String, DepError> { self.0.archived_agent_name(id).await }
-        async fn known_session_ids(&self) -> Result<Vec<String>, DepError> { self.0.known_session_ids().await }
-        async fn agent_presence(&self, _: &[String]) -> Result<HashMap<String, Presence>, DepError> { Err(DepError::new("presence unreadable")) }
-        async fn forget_room_member(&self, id: &str) -> Result<(), DepError> { self.0.forget_room_member(id).await }
+        async fn list_agents(&self) -> Result<Value, DepError> {
+            self.0.list_agents().await
+        }
+        async fn mixy_route(&self) -> Result<Value, DepError> {
+            self.0.mixy_route().await
+        }
+        async fn mixy_created(&self) -> Result<bool, DepError> {
+            self.0.mixy_created().await
+        }
+        async fn read_session(&self, id: &str) -> Result<Value, DepError> {
+            self.0.read_session(id).await
+        }
+        async fn create_session(&self, id: &str, params: &Value) -> Result<(), DepError> {
+            self.0.create_session(id, params).await
+        }
+        async fn set_route(&self, id: &str, route: &Value) -> Result<(), DepError> {
+            self.0.set_route(id, route).await
+        }
+        async fn set_archived(&self, id: &str, archived: bool) -> Result<(), DepError> {
+            self.0.set_archived(id, archived).await
+        }
+        async fn set_retired(&self, id: &str, retired: bool) -> Result<(), DepError> {
+            self.0.set_retired(id, retired).await
+        }
+        async fn task_workspace(&self) -> Result<String, DepError> {
+            self.0.task_workspace().await
+        }
+        async fn clear_session(&self, id: &str, to: &str) -> Result<(), DepError> {
+            self.0.clear_session(id, to).await
+        }
+        fn mint_archive_id(&self) -> String {
+            self.0.mint_archive_id()
+        }
+        async fn is_retired(&self, id: &str) -> Result<bool, DepError> {
+            self.0.is_retired(id).await
+        }
+        async fn name_retired(&self, id: &str, name: &str) -> Result<(), DepError> {
+            self.0.name_retired(id, name).await
+        }
+        async fn archived_agent_name(&self, id: &str) -> Result<String, DepError> {
+            self.0.archived_agent_name(id).await
+        }
+        async fn known_session_ids(&self) -> Result<Vec<String>, DepError> {
+            self.0.known_session_ids().await
+        }
+        async fn agent_presence(&self, _: &[String]) -> Result<HashMap<String, Presence>, DepError> {
+            Err(DepError::new("presence unreadable"))
+        }
+        async fn forget_room_member(&self, id: &str) -> Result<(), DepError> {
+            self.0.forget_room_member(id).await
+        }
     }
     mixdog_rt::testing::tokens();
     let failing = Arc::new(Failing(Homes::default()));
@@ -330,7 +364,12 @@ struct Seen {
 struct Greeting(Mutex<Seen>);
 
 fn greeting(stored: Option<&[&str]>, catalog: Value) -> Arc<Greeting> {
-    Arc::new(Greeting(Mutex::new(Seen { stored: stored.map(|ids| ids.iter().map(|id| (*id).to_owned()).collect()), catalog, fail: Vec::new(), log: Vec::new() })))
+    Arc::new(Greeting(Mutex::new(Seen {
+        stored: stored.map(|ids| ids.iter().map(|id| (*id).to_owned()).collect()),
+        catalog,
+        fail: Vec::new(),
+        log: Vec::new(),
+    })))
 }
 
 impl Greeting {

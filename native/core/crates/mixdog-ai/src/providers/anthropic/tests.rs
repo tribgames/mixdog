@@ -51,12 +51,10 @@ use crate::transport::http::HttpSend;
 
 mod cache_tail_wire;
 mod cut_recovery;
-mod oauth_route;
 mod fallback_rows;
+mod oauth_route;
 mod recoveries;
 mod warm;
-
-
 
 fn sonnet_caps() -> ModelCaps {
     ModelCaps {
@@ -72,9 +70,7 @@ fn sonnet_caps() -> ModelCaps {
 }
 
 pub(super) fn config(base_url: &str) -> AnthropicConfig {
-    let mut config = AnthropicConfig::new(Arc::new(|model: &str| {
-        (model == "claude-sonnet-4-6").then(sonnet_caps)
-    }));
+    let mut config = AnthropicConfig::new(Arc::new(|model: &str| (model == "claude-sonnet-4-6").then(sonnet_caps)));
     config.base_url = base_url.to_owned();
     config
 }
@@ -98,10 +94,7 @@ pub(super) fn text_message(role: Role, text: &str) -> Message {
 }
 
 fn base_messages() -> Vec<Message> {
-    vec![
-        text_message(Role::System, "You are a fixture assistant."),
-        text_message(Role::User, "Look up the answer."),
-    ]
+    vec![text_message(Role::System, "You are a fixture assistant."), text_message(Role::User, "Look up the answer.")]
 }
 
 #[test]
@@ -109,10 +102,7 @@ fn either_thread_opt_out_keeps_both_messages_routes_unthreaded() {
     for flavor in [Flavor::ApiKey, Flavor::OAuth] {
         let mut config = config("https://api.anthropic.com");
         config.message_threads = true;
-        let mut request = request(base_messages(), RequestOptions {
-            session_id: Some("explicit-thread-opt-out".into()),
-            ..RequestOptions::default()
-        });
+        let mut request = request(base_messages(), RequestOptions { session_id: Some("explicit-thread-opt-out".into()), ..RequestOptions::default() });
         request.model = "claude-opus-5-5".into();
         let threaded = |cfg, request: &ModelRequest| {
             let wire = AnthropicCodec::new(flavor, cfg).encode(request).expect("encoded request");
@@ -129,12 +119,7 @@ fn either_thread_opt_out_keeps_both_messages_routes_unthreaded() {
 fn with_result() -> Vec<Message> {
     let mut messages = base_messages();
     let mut assistant = text_message(Role::Assistant, "");
-    assistant.tool_calls.push(ToolCall {
-        id: "call_fx1".into(),
-        name: "lookup".into(),
-        arguments: json!({ "key": "answer" }),
-        native_type: None,
-    });
+    assistant.tool_calls.push(ToolCall { id: "call_fx1".into(), name: "lookup".into(), arguments: json!({ "key": "answer" }), native_type: None });
     let mut result = text_message(Role::Tool, "42");
     result.tool_call_id = Some("call_fx1".into());
     messages.push(assistant);
@@ -143,20 +128,11 @@ fn with_result() -> Vec<Message> {
 }
 
 pub(super) fn request(messages: Vec<Message>, options: RequestOptions) -> ModelRequest {
-    ModelRequest {
-        model: "claude-sonnet-4-6".into(),
-        messages,
-        tools: tools(),
-        options,
-    }
+    ModelRequest { model: "claude-sonnet-4-6".into(), messages, tools: tools(), options }
 }
 
 fn header<'a>(headers: &'a [(String, String)], name: &str) -> &'a str {
-    headers
-        .iter()
-        .find(|(k, _)| k.eq_ignore_ascii_case(name))
-        .map(|(_, v)| v.as_str())
-        .unwrap_or_else(|| panic!("header {name}"))
+    headers.iter().find(|(k, _)| k.eq_ignore_ascii_case(name)).map(|(_, v)| v.as_str()).unwrap_or_else(|| panic!("header {name}"))
 }
 
 /// Folds an attempt's events into what the recorded `result.json` describes.
@@ -199,7 +175,6 @@ fn oauth_codec() -> AnthropicCodec {
     AnthropicCodec::new(Flavor::OAuth, config("https://api.anthropic.com"))
 }
 
-
 // ---------------------------------------------------------------------------
 // Scripted transport
 // ---------------------------------------------------------------------------
@@ -214,12 +189,7 @@ pub(super) struct Scripted {
 
 impl Scripted {
     pub(super) fn body(status: u16, body: &str) -> Self {
-        Self {
-            status,
-            headers: Vec::new(),
-            chunks: vec![body.as_bytes().to_vec()],
-            fault: None,
-        }
+        Self { status, headers: Vec::new(), chunks: vec![body.as_bytes().to_vec()], fault: None }
     }
 }
 
@@ -246,10 +216,7 @@ pub(super) struct ScriptedHttp {
 
 impl ScriptedHttp {
     pub(super) fn new(script: impl IntoIterator<Item = Scripted>) -> Arc<Self> {
-        Arc::new(Self {
-            script: Mutex::new(script.into_iter().collect()),
-            sent: Mutex::default(),
-        })
+        Arc::new(Self { script: Mutex::new(script.into_iter().collect()), sent: Mutex::default() })
     }
 
     pub(super) fn sent(&self) -> Vec<mixdog_core_api::domain::provider::WireRequest> {
@@ -263,21 +230,10 @@ impl ScriptedHttp {
 
 #[async_trait]
 impl HttpSend for ScriptedHttp {
-    async fn send(
-        &self,
-        request: mixdog_core_api::domain::provider::WireRequest,
-        exchange: crate::transport::Exchange,
-    ) -> Result<HttpResponse, ProviderError> {
+    async fn send(&self, request: mixdog_core_api::domain::provider::WireRequest, exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
         self.sent.lock().expect("sent").push((request, exchange));
         let next = self.script.lock().expect("script").pop_front().expect("scripted response");
-        Ok(HttpResponse {
-            status: next.status,
-            headers: next.headers,
-            body: Box::new(ScriptedBody {
-                chunks: next.chunks.into(),
-                fault: next.fault,
-            }),
-        })
+        Ok(HttpResponse { status: next.status, headers: next.headers, body: Box::new(ScriptedBody { chunks: next.chunks.into(), fault: next.fault }) })
     }
 }
 
@@ -310,14 +266,11 @@ async fn drain(stream: &mut dyn ModelStream) -> Vec<Result<StreamEvent, Provider
 
 #[test]
 fn gateway_base_url_drops_first_party_tool_streaming() {
-    let wire = api_codec()
-        .encode(&request(base_messages(), RequestOptions::default()))
-        .expect("encode");
+    let wire = api_codec().encode(&request(base_messages(), RequestOptions::default())).expect("encode");
     let body: Value = serde_json::from_slice(&wire.body).expect("json");
     assert!(body["tools"][0].get("eager_input_streaming").is_none());
-    let official = AnthropicCodec::new(Flavor::ApiKey, config("https://api.anthropic.com"))
-        .encode(&request(base_messages(), RequestOptions::default()))
-        .expect("encode");
+    let official =
+        AnthropicCodec::new(Flavor::ApiKey, config("https://api.anthropic.com")).encode(&request(base_messages(), RequestOptions::default())).expect("encode");
     let body: Value = serde_json::from_slice(&official.body).expect("json");
     assert_eq!(body["tools"][0]["eager_input_streaming"], true);
 }
@@ -347,12 +300,7 @@ fn a_custom_endpoint_gets_no_server_fallback_or_fast_speed() {
         req.model = "claude-opus-5".into();
         let wire = AnthropicCodec::new(Flavor::ApiKey, config).encode(&req).expect("encode");
         let body: Value = serde_json::from_slice(&wire.body).expect("json");
-        let betas = wire
-            .headers
-            .iter()
-            .find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta"))
-            .map(|(_, value)| value.clone())
-            .unwrap_or_default();
+        let betas = wire.headers.iter().find(|(name, _)| name.eq_ignore_ascii_case("anthropic-beta")).map(|(_, value)| value.clone()).unwrap_or_default();
         (body, betas)
     };
     let (body, betas) = sent(false);
@@ -365,13 +313,8 @@ fn a_custom_endpoint_gets_no_server_fallback_or_fast_speed() {
 
 #[test]
 fn manual_budget_on_an_adaptive_only_model_is_a_local_error() {
-    let options = RequestOptions {
-        model_parameters: Some(json!({ "thinkingBudgetTokens": 4096 })),
-        ..RequestOptions::default()
-    };
-    let err = api_codec()
-        .encode(&request(base_messages(), options))
-        .expect_err("rejected locally");
+    let options = RequestOptions { model_parameters: Some(json!({ "thinkingBudgetTokens": 4096 })), ..RequestOptions::default() };
+    let err = api_codec().encode(&request(base_messages(), options)).expect_err("rejected locally");
     assert_eq!(err.kind, ErrorKind::InvalidRequest);
     assert_eq!(err.delivery, DeliveryState::NotSent);
 }
@@ -385,9 +328,7 @@ fn cache_breakpoints_follow_the_layout() {
     env.cache_tier = Some(mixdog_core_api::domain::provider::CacheTier::Env);
     messages.insert(1, tier3);
     messages.insert(2, env);
-    let wire = oauth_codec()
-        .encode(&request(messages, RequestOptions::default()))
-        .expect("encode");
+    let wire = oauth_codec().encode(&request(messages, RequestOptions::default())).expect("encode");
     let body: Value = serde_json::from_slice(&wire.body).expect("json");
     let system = body["system"].as_array().expect("system");
     assert_eq!(system.len(), 4);
@@ -403,9 +344,7 @@ fn cache_breakpoints_follow_the_layout() {
 // ---------------------------------------------------------------------------
 
 fn lowered(messages: Vec<Message>) -> Value {
-    let wire = api_codec()
-        .encode(&request(messages, RequestOptions::default()))
-        .expect("encode");
+    let wire = api_codec().encode(&request(messages, RequestOptions::default())).expect("encode");
     serde_json::from_slice::<Value>(&wire.body).expect("json")["messages"].clone()
 }
 
@@ -424,12 +363,7 @@ fn user_text_after_a_tool_result_folds_into_it() {
 fn invalid_tool_ids_get_one_deterministic_stand_in_for_call_and_result() {
     let mut messages = base_messages();
     let mut assistant = text_message(Role::Assistant, "");
-    assistant.tool_calls.push(ToolCall {
-        id: "call:fx.1".into(),
-        name: "lookup".into(),
-        arguments: json!({}),
-        native_type: None,
-    });
+    assistant.tool_calls.push(ToolCall { id: "call:fx.1".into(), name: "lookup".into(), arguments: json!({}), native_type: None });
     let mut result = text_message(Role::Tool, "ok");
     result.tool_call_id = Some("call:fx.1".into());
     messages.extend([assistant, result]);
@@ -443,12 +377,7 @@ fn invalid_tool_ids_get_one_deterministic_stand_in_for_call_and_result() {
 fn unanswered_tool_use_gets_an_error_stub() {
     let mut messages = base_messages();
     let mut assistant = text_message(Role::Assistant, "");
-    assistant.tool_calls.push(ToolCall {
-        id: "toolu_1".into(),
-        name: "lookup".into(),
-        arguments: json!({}),
-        native_type: None,
-    });
+    assistant.tool_calls.push(ToolCall { id: "toolu_1".into(), name: "lookup".into(), arguments: json!({}), native_type: None });
     messages.push(assistant);
     let out = lowered(messages);
     assert_eq!(out[2]["role"], "user");
@@ -464,14 +393,8 @@ fn replay_blocks_come_back_verbatim_and_only_for_their_owner() {
         { "type": "thinking", "thinking": "hm", "signature": "sig" },
         { "type": "tool_use", "id": "toolu_9", "name": "lookup", "input": {"key": "k"} },
     ]);
-    assistant.push_replay(ProviderReplay {
-        owner: ProviderId::from("anthropic"),
-        items: blocks.clone(),
-    });
-    assistant.push_replay(ProviderReplay {
-        owner: ProviderId::from("openai"),
-        items: json!([{ "type": "foreign" }]),
-    });
+    assistant.push_replay(ProviderReplay { owner: ProviderId::from("anthropic"), items: blocks.clone() });
+    assistant.push_replay(ProviderReplay { owner: ProviderId::from("openai"), items: json!([{ "type": "foreign" }]) });
     let mut result = text_message(Role::Tool, "v");
     result.tool_call_id = Some("toolu_9".into());
     messages.extend([assistant, result]);
@@ -483,12 +406,7 @@ fn replay_blocks_come_back_verbatim_and_only_for_their_owner() {
 fn error_results_keep_only_text_and_hoist_media() {
     let mut messages = base_messages();
     let mut assistant = text_message(Role::Assistant, "");
-    assistant.tool_calls.push(ToolCall {
-        id: "toolu_1".into(),
-        name: "lookup".into(),
-        arguments: json!({}),
-        native_type: None,
-    });
+    assistant.tool_calls.push(ToolCall { id: "toolu_1".into(), name: "lookup".into(), arguments: json!({}), native_type: None });
     let mut result = Message::new(
         Role::Tool,
         Content::Parts(vec![
@@ -590,11 +508,7 @@ fn an_error_event_is_a_typed_provider_error() {
 // ---------------------------------------------------------------------------
 
 fn response(status: u16, headers: &[(&str, &str)], body: &str) -> ErrorResponse {
-    ErrorResponse {
-        status: Some(status),
-        headers: headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(),
-        body: body.as_bytes().to_vec(),
-    }
+    ErrorResponse { status: Some(status), headers: headers.iter().map(|(k, v)| ((*k).to_owned(), (*v).to_owned())).collect(), body: body.as_bytes().to_vec() }
 }
 
 // ---------------------------------------------------------------------------
@@ -617,7 +531,6 @@ fn retry_rows_hold_the_recorded_numbers() {
 fn sse(name: &str, data: Value) -> String {
     format!("event: {name}\ndata: {data}\n\n")
 }
-
 
 /// `preflightAnthropicOAuthCredentials` (anthropic-oauth-credentials.mjs): a token that lasts less than the
 /// requested lease is refreshed even when it is outside the usual skew; one that lasts it is left alone. The
@@ -680,10 +593,7 @@ async fn a_401_refresh_with_a_plain_body_marks_the_account_with_nodes_text() {
     let session = OAuthSession::new(store.file.clone(), http).with_clock(Arc::new(move || now));
     let err = session.access_token().await.expect_err("dead grant");
     assert!(err.reauth_required);
-    assert_eq!(
-        err.message,
-        "Anthropic sign-in expired. Sign in again from Providers. token refresh 401: Unauthorized Bearer [REDACTED]."
-    );
+    assert_eq!(err.message, "Anthropic sign-in expired. Sign in again from Providers. token refresh 401: Unauthorized Bearer [REDACTED].");
     assert_eq!(store.load().await.expect("stored").reauth_required, Some(true));
 }
 
@@ -696,10 +606,7 @@ fn token_responses_normalise_like_node() {
     use super::oauth::TokenFlow;
     use super::oauth::apply_token_response;
 
-    let previous = StoredOAuth {
-        identity: Some(json!({ "id": "old", "email": "old@example.com" })),
-        ..MemoryStore::credential()
-    };
+    let previous = StoredOAuth { identity: Some(json!({ "id": "old", "email": "old@example.com" })), ..MemoryStore::credential() };
     let now = 1_700_000_000_000;
     let account = json!({
         "account": { "uuid": " acct-1 ", "email_address": "name@example.com" },
@@ -709,10 +616,7 @@ fn token_responses_normalise_like_node() {
     response.as_object_mut().expect("object").extend(account.as_object().expect("object").clone());
     let login = apply_token_response(&previous, &response, now, TokenFlow::Login).expect("login");
     assert_eq!(login.expires_at, now + 3_600_000, "expires_in counts from now");
-    assert_eq!(
-        login.identity,
-        Some(json!({ "id": "acct-1", "email": "name@example.com", "organizationId": "org-1" }))
-    );
+    assert_eq!(login.identity, Some(json!({ "id": "acct-1", "email": "name@example.com", "organizationId": "org-1" })));
 
     // An absolute expiry wins over expires_in; seconds are scaled to ms.
     for (field, value, want) in [
@@ -753,16 +657,8 @@ async fn a_login_exchange_stores_the_account_and_keeps_the_plan() {
     });
     let http = ScriptedHttp::new([Scripted::body(200, &token.to_string())]);
     let login = super::oauth::AnthropicLogin::new(store.file.clone(), http.clone());
-    login.authorize_url(&crate::oauth::AuthorizeRequest {
-        redirect_uri: "http://localhost:54545/callback",
-        code_challenge: "challenge",
-        state: "state-1",
-    });
-    login
-        .exchange("code", "verifier", "http://localhost:54545/callback")
-        .await
-        .map_err(|e: LoginFailure| format!("{e:?}"))
-        .expect("exchange");
+    login.authorize_url(&crate::oauth::AuthorizeRequest { redirect_uri: "http://localhost:54545/callback", code_challenge: "challenge", state: "state-1" });
+    login.exchange("code", "verifier", "http://localhost:54545/callback").await.map_err(|e: LoginFailure| format!("{e:?}")).expect("exchange");
     let stored = store.load().await.expect("stored");
     assert_eq!(stored.access_token, "fresh");
     assert_eq!(stored.expires_at, 4_100_000_000_000);
@@ -773,12 +669,7 @@ async fn a_login_exchange_stores_the_account_and_keeps_the_plan() {
 
 #[test]
 fn authorize_url_carries_the_login_parameters() {
-    let url = url::Url::parse(&super::oauth::authorize_url(
-        &crate::oauth::redirects::ANTHROPIC.uri(54545),
-        "challenge",
-        "state-1",
-    ))
-    .expect("url");
+    let url = url::Url::parse(&super::oauth::authorize_url(&crate::oauth::redirects::ANTHROPIC.uri(54545), "challenge", "state-1")).expect("url");
     let query: std::collections::HashMap<_, _> = url.query_pairs().into_owned().collect();
     assert_eq!(url.origin().ascii_serialization(), "https://claude.com");
     assert_eq!(query["client_id"], super::oauth::CLIENT_ID);
@@ -801,7 +692,6 @@ fn credential_document_round_trips_unknown_fields() {
     assert!(!stored.is_enterprise());
 }
 
-
 impl MemoryStore {
     fn credential() -> StoredOAuth {
         StoredOAuth {
@@ -816,18 +706,11 @@ impl MemoryStore {
         }
     }
 
-
     pub(super) fn signed_in() -> Arc<Self> {
         let dir = tempfile::tempdir().expect("tempdir");
         let path = dir.path().join("anthropic-oauth-credentials.json");
         let tokens = mixdog_rt::testing::tokens();
-        let file = CredentialFile::new(
-            path.clone(),
-            CredentialIo {
-                read: tokens.interactive_io,
-                write: tokens.durability_io,
-            },
-        );
+        let file = CredentialFile::new(path.clone(), CredentialIo { read: tokens.interactive_io, write: tokens.durability_io });
         let store = Arc::new(Self { _dir: dir, path, file });
         store.write(&Self::credential());
         store
@@ -901,25 +784,14 @@ fn status_table_headers_and_quota_flags() {
     assert_eq!(quota.kind, ErrorKind::QuotaExhausted);
     assert_eq!(quota.retry_after, Some(Duration::from_secs(30)));
     assert_eq!(quota.should_retry, Some(false));
-    assert_eq!(
-        quota.reset_at,
-        Some(std::time::UNIX_EPOCH + Duration::from_secs(1_800_000_000))
-    );
+    assert_eq!(quota.reset_at, Some(std::time::UNIX_EPOCH + Duration::from_secs(1_800_000_000)));
     let by_ms = codec.classify(&response(429, &[("retry-after-ms", "1500"), ("retry-after", "30")], ""));
     assert_eq!(by_ms.retry_after, Some(Duration::from_millis(1500)));
     assert_eq!(codec.classify(&response(413, &[], "{}")).code.as_deref(), Some("request_too_large"));
 }
 async fn run_chunked(chunks: Vec<Vec<u8>>, fault: Option<TransportFault>) -> Vec<Result<StreamEvent, ProviderError>> {
-    let http = ScriptedHttp::new([Scripted {
-        status: 200,
-        headers: Vec::new(),
-        chunks,
-        fault,
-    }]);
-    let mut stream = api_adapter(http)
-        .attempt(Arc::new(request(base_messages(), RequestOptions::default())))
-        .await
-        .expect("stream");
+    let http = ScriptedHttp::new([Scripted { status: 200, headers: Vec::new(), chunks, fault }]);
+    let mut stream = api_adapter(http).attempt(Arc::new(request(base_messages(), RequestOptions::default()))).await.expect("stream");
     drain(stream.as_mut()).await
 }
 #[tokio::test]
@@ -930,14 +802,8 @@ async fn a_failure_after_thinking_alone_is_an_exposure_and_is_not_retried() {
     use mixdog_core_api::domain::retry::Verdict;
 
     let body = [
-        sse(
-            "message_start",
-            json!({ "type": "message_start", "message": { "usage": { "input_tokens": 3 } } }),
-        ),
-        sse(
-            "content_block_start",
-            json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "thinking", "thinking": "" } }),
-        ),
+        sse("message_start", json!({ "type": "message_start", "message": { "usage": { "input_tokens": 3 } } })),
+        sse("content_block_start", json!({ "type": "content_block_start", "index": 0, "content_block": { "type": "thinking", "thinking": "" } })),
         sse(
             "content_block_delta",
             json!({ "type": "content_block_delta", "index": 0,
@@ -959,17 +825,10 @@ async fn a_failure_after_thinking_alone_is_an_exposure_and_is_not_retried() {
 async fn oauth_401_survivor_requires_sign_in() {
     let unauthorised = r#"{"error":{"message":"fixture upstream error","type":"fixture_error","code":"401"}}"#;
     let token = r#"{"access_token":"new-access","refresh_token":"new-refresh","expires_in":3600}"#;
-    let http = ScriptedHttp::new([
-        Scripted::body(401, unauthorised),
-        Scripted::body(200, token),
-        Scripted::body(401, unauthorised),
-    ]);
+    let http = ScriptedHttp::new([Scripted::body(401, unauthorised), Scripted::body(200, token), Scripted::body(401, unauthorised)]);
     let store = MemoryStore::signed_in();
     let adapter = oauth_adapter(http.clone(), store.clone());
-    let Err(err) = adapter
-        .attempt(Arc::new(request(base_messages(), RequestOptions::default())))
-        .await
-    else {
+    let Err(err) = adapter.attempt(Arc::new(request(base_messages(), RequestOptions::default()))).await else {
         panic!("a refused request");
     };
     assert_eq!(err.kind, ErrorKind::Auth);
@@ -983,16 +842,10 @@ async fn oauth_401_survivor_requires_sign_in() {
 }
 #[tokio::test]
 async fn a_dead_grant_marks_the_account_and_does_not_replay() {
-    let http = ScriptedHttp::new([
-        Scripted::body(401, r#"{"error":{"type":"authentication_error"}}"#),
-        Scripted::body(400, r#"{"error":"invalid_grant"}"#),
-    ]);
+    let http = ScriptedHttp::new([Scripted::body(401, r#"{"error":{"type":"authentication_error"}}"#), Scripted::body(400, r#"{"error":"invalid_grant"}"#)]);
     let store = MemoryStore::signed_in();
     let adapter = oauth_adapter(http.clone(), store.clone());
-    let Err(err) = adapter
-        .attempt(Arc::new(request(base_messages(), RequestOptions::default())))
-        .await
-    else {
+    let Err(err) = adapter.attempt(Arc::new(request(base_messages(), RequestOptions::default()))).await else {
         panic!("a refused request");
     };
     assert_eq!(err.kind, ErrorKind::Auth);
@@ -1018,12 +871,7 @@ fn no_timer_exists_in_the_provider_sources() {
         ("oauth.rs", include_str!("oauth.rs")),
         ("policy.rs", include_str!("policy.rs")),
     ];
-    let forbidden = [
-        concat!("tokio::time::", "timeout"),
-        concat!("tokio::time::", "sleep"),
-        concat!("time::", "timeout("),
-        concat!("Instant::", "now"),
-    ];
+    let forbidden = [concat!("tokio::time::", "timeout"), concat!("tokio::time::", "sleep"), concat!("time::", "timeout("), concat!("Instant::", "now")];
     for (name, source) in sources {
         // The rule is for what ships: a module's inline test module (`#[cfg(test)] mod x {`, trailing) may drive the idle
         // watchdog under a paused clock. A `#[cfg(test)] mod x;` declaration does not end the scanned part.
@@ -1069,7 +917,11 @@ async fn an_anthropic_sends_ledger_row_keeps_the_cache_out_of_its_input() {
     struct Excluding;
     impl UsagePricing for Excluding {
         fn price_usage(&self, args: &UsageArgs) -> PricedUsage {
-            let input = if args.input_tokens_inclusive == Some(true) { (args.input_tokens - args.cache_read_tokens - args.cache_write_tokens).max(0.0) } else { args.input_tokens };
+            let input = if args.input_tokens_inclusive == Some(true) {
+                (args.input_tokens - args.cache_read_tokens - args.cache_write_tokens).max(0.0)
+            } else {
+                args.input_tokens
+            };
             PricedUsage { input, cost_usd: None, rates: Default::default() }
         }
     }
@@ -1119,7 +971,6 @@ async fn an_anthropic_sends_ledger_row_keeps_the_cache_out_of_its_input() {
     assert!((rate - 11746.0 / 13666.0).abs() < 1e-9);
 }
 
-
 // ---------------------------------------------------------------------------
 // Fixtures and helpers
 // ---------------------------------------------------------------------------
@@ -1135,4 +986,3 @@ async fn an_anthropic_sends_ledger_row_keeps_the_cache_out_of_its_input() {
 // ---------------------------------------------------------------------------
 // Adapter attempts
 // ---------------------------------------------------------------------------
-

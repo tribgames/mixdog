@@ -177,7 +177,8 @@ mod tests {
 
     #[test]
     fn postconditions_normalize_bounded_waits_and_match_text_plus_url() {
-        let expected = normalize(Some(&json!({"text": "Saved", "textGone": "Loading", "url": "/complete", "timeoutMs": 90_000}))).expect("valid").expect("some");
+        let expected =
+            normalize(Some(&json!({"text": "Saved", "textGone": "Loading", "url": "/complete", "timeoutMs": 90_000}))).expect("valid").expect("some");
         assert_eq!(
             expected,
             Postcondition { text: "Saved".into(), text_gone: "Loading".into(), url: "/complete".into(), timeout: Duration::from_millis(20_000) }
@@ -224,6 +225,5 @@ mod tests {
         assert!(matches(only("a\nb", "", ""), sample(Some("a  \r\n  b"), "")));
     }
 }
-
 
 impl std::error::Error for ExpectError {}

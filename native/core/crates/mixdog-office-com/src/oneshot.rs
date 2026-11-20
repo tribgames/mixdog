@@ -33,10 +33,7 @@ pub(crate) fn answer_from_exit(stdout: &str, stderr: &str, code: Option<i32>) ->
             };
             answer.insert("ok".to_owned(), Value::Bool(false));
             answer.insert("operationCompleted".to_owned(), Value::Bool(completed));
-            answer.insert(
-                "error".to_owned(),
-                Value::String("Office operation finished but cleanup failed; do not replay the operation.".to_owned()),
-            );
+            answer.insert("error".to_owned(), Value::String("Office operation finished but cleanup failed; do not replay the operation.".to_owned()));
             answer.insert("cleanup".to_owned(), json!({"ok": false, "errors": cleanup_errors}));
             return Value::Object(answer);
         }
@@ -54,10 +51,7 @@ pub(crate) fn answer_from_exit(stdout: &str, stderr: &str, code: Option<i32>) ->
 
 /// The client of a one-shot host.
 pub(crate) fn attach(running: crate::session::Running, grace: Duration, sweeper: crate::sweep::Sweeper) -> std::sync::Arc<HostClient> {
-    HostClient::attach(
-        running,
-        Attach { session_id: String::new(), one_shot: true, sessions: std::sync::Weak::new(), grace, sweeper },
-    )
+    HostClient::attach(running, Attach { session_id: String::new(), one_shot: true, sessions: std::sync::Weak::new(), grace, sweeper })
 }
 
 #[cfg(test)]
@@ -74,14 +68,8 @@ mod tests {
     fn an_unparseable_answer_is_the_stderr_then_the_line_then_the_exit_code() {
         assert_eq!(answer_from_exit("not json", " boom \n", Some(1)), json!({"ok": false, "error": "boom"}));
         assert_eq!(answer_from_exit("not json\n", "", Some(1)), json!({"ok": false, "error": "not json"}));
-        assert_eq!(
-            answer_from_exit("", "", Some(3)),
-            json!({"ok": false, "error": "Microsoft Office host exited with code 3"})
-        );
-        assert_eq!(
-            answer_from_exit("", "", None),
-            json!({"ok": false, "error": "Microsoft Office host exited with code null"})
-        );
+        assert_eq!(answer_from_exit("", "", Some(3)), json!({"ok": false, "error": "Microsoft Office host exited with code 3"}));
+        assert_eq!(answer_from_exit("", "", None), json!({"ok": false, "error": "Microsoft Office host exited with code null"}));
     }
 
     #[test]
@@ -103,14 +91,8 @@ mod tests {
     }
 }
 
-
 /// Runs one payload through a fresh host and answers.
-pub(crate) async fn call_once(
-    client: std::sync::Arc<HostClient>,
-    payload: &Value,
-    timeout: Duration,
-    cancel: &CancellationToken,
-) -> OfficeReply {
+pub(crate) async fn call_once(client: std::sync::Arc<HostClient>, payload: &Value, timeout: Duration, cancel: &CancellationToken) -> OfficeReply {
     if !cancel.is_cancelled() {
         let body = if payload.is_null() { json!({}) } else { payload.clone() };
         client.send(body.to_string());

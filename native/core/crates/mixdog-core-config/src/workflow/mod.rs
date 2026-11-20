@@ -17,13 +17,13 @@ pub mod pack;
 mod prefs;
 pub(crate) mod presets;
 pub mod retire;
-mod search;
-pub mod sections;
-pub mod thread_settings;
-#[cfg(test)]
-mod tests;
 #[cfg(test)]
 mod retire_behaviour_tests;
+mod search;
+pub mod sections;
+#[cfg(test)]
+mod tests;
+pub mod thread_settings;
 #[cfg(test)]
 mod thread_settings_feature_tests;
 
@@ -44,18 +44,18 @@ use serde_json::Map;
 use serde_json::Value;
 use serde_json::json;
 
-pub use self::pack::WorkflowPaths;
-pub use self::presets::effective_presets;
-pub use self::presets::with_default_presets;
-use self::ids::Doc;
 use self::ids::DEFAULT_WORKFLOW_ID;
+use self::ids::Doc;
 use self::ids::active_workflow_id;
 use self::ids::configured_orchestration_mode;
 use self::ids::workflow_id;
+pub use self::pack::WorkflowPaths;
+pub use self::presets::effective_presets;
+pub use self::presets::with_default_presets;
 use crate::config::AgentRoutes;
 use crate::config::Config;
-use crate::config::save_and_adopt;
 use crate::config::ConfigError;
+use crate::config::save_and_adopt;
 use mixdog_core_base::support::OpScopes;
 use mixdog_core_base::support::decode;
 use mixdog_core_base::support::failed;
@@ -149,12 +149,7 @@ fn config_failure(error: ConfigError) -> CoreError {
     match error {
         ConfigError::InvalidParams { path, expected } => CoreError::InvalidParams { path: path.into(), expected: expected.into() },
         ConfigError::Overloaded(full) => CoreError::from(full),
-        other => CoreError::DomainError {
-            domain: DOMAIN.into(),
-            code: Some("configFailed".into()),
-            message: Some(other.to_string().into()),
-            detail: None,
-        },
+        other => CoreError::DomainError { domain: DOMAIN.into(), code: Some("configFailed".into()), message: Some(other.to_string().into()), detail: None },
     }
 }
 
@@ -167,13 +162,7 @@ fn payload_of(req: &CoreRequest) -> Value {
 }
 
 impl WorkflowConfig {
-    pub fn new(
-        config: Config,
-        paths: WorkflowPaths,
-        host: Arc<dyn WorkflowHost>,
-        ops: OpScopes,
-        tokens: &LaneTokens,
-    ) -> Arc<Self> {
+    pub fn new(config: Config, paths: WorkflowPaths, host: Arc<dyn WorkflowHost>, ops: OpScopes, tokens: &LaneTokens) -> Arc<Self> {
         Arc::new(Self {
             routes: AgentRoutes::new(config.clone(), paths.data.clone()),
             config,
@@ -249,7 +238,7 @@ impl WorkflowConfig {
             .run(
                 req,
                 None,
-                move || async move { on_lane(durability, &cancel, move |lane| pack::save_pack(lane, &paths,&payload, &*now)).await? },
+                move || async move { on_lane(durability, &cancel, move |lane| pack::save_pack(lane, &paths, &payload, &*now)).await? },
                 move || async move {
                     let id = ids::clean(replay_payload.get("id"));
                     on_lane(interactive, &replay_cancel, move |_| pack::get_pack(&replay_paths, &id)).await?
@@ -267,7 +256,7 @@ impl WorkflowConfig {
             .run(
                 req,
                 None,
-                move || async move { on_lane(durability, &cancel, move |lane| pack::create_pack(lane, &paths,&payload, &*now)).await? },
+                move || async move { on_lane(durability, &cancel, move |lane| pack::create_pack(lane, &paths, &payload, &*now)).await? },
                 move || async move {
                     on_lane(interactive, &replay_cancel, move |_| match pack::created_id(&replay_paths, &replay_payload) {
                         Some(id) => pack::get_pack(&replay_paths, &id),
@@ -290,8 +279,7 @@ impl WorkflowConfig {
                 req,
                 None,
                 move || async move {
-                    let (id, reverted) =
-                        on_lane(durability, &cancel, move |_| pack::delete_pack(&paths, &requested)).await??;
+                    let (id, reverted) = on_lane(durability, &cancel, move |_| pack::delete_pack(&paths, &requested)).await??;
                     // A fully removed pack must not stay active; Default takes over.
                     let before = self.config.agent();
                     if !reverted && active_workflow_id(&before) == id {
@@ -427,13 +415,8 @@ impl WorkflowConfig {
                 None,
                 || async {
                     let before = self.config.agent();
-                    let custom = if onboarding::object_payload(&payload, "agentRoutes").is_some() {
-                        self.host.custom_agent_ids().await
-                    } else {
-                        Vec::new()
-                    };
-                    let completion =
-                        onboarding::completed(&before, &payload, &self.host.main_route(), &custom, &(self.now)()).map_err(thrown)?;
+                    let custom = if onboarding::object_payload(&payload, "agentRoutes").is_some() { self.host.custom_agent_ids().await } else { Vec::new() };
+                    let completion = onboarding::completed(&before, &payload, &self.host.main_route(), &custom, &(self.now)()).map_err(thrown)?;
                     self.save(&before, &completion.after).await?;
                     // Whatever wrote the Lead route also moves the live Main route, so a pending
                     // conditional fill finds a route that is not empty.

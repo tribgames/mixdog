@@ -6,7 +6,7 @@ use crate::keys::{Key, Mod};
 use crate::lease_api::ForegroundLease;
 use crate::observer::Shared;
 use crate::protocol::{Obj, Req};
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 #[cfg(target_os = "linux")]
@@ -17,9 +17,9 @@ mod unsupported;
 #[cfg(windows)]
 pub(crate) mod windows;
 #[cfg(windows)]
-pub(crate) use windows::lease_now_ms;
-#[cfg(windows)]
 pub(crate) use windows::input::receipt as windows_input;
+#[cfg(windows)]
+pub(crate) use windows::lease_now_ms;
 
 /// The host's own check right before one action of a request that runs several (a menu level, a saved-login write): its
 /// grant's expiry and target. It holds no permission: each action is still arbitrated by the platform's effect port.
@@ -39,8 +39,7 @@ pub fn window_id(handle: Wid) -> String {
 /// non-ASCII input is simply "no prefix" instead of a panic.
 fn strip_prefix_ignore_case<'a>(value: &'a str, prefix: &str) -> Option<&'a str> {
     let head = value.get(..prefix.len())?;
-    head.eq_ignore_ascii_case(prefix)
-        .then(|| &value[prefix.len()..])
+    head.eq_ignore_ascii_case(prefix).then(|| &value[prefix.len()..])
 }
 
 pub fn parse_window_id(value: &str) -> Wid {
@@ -116,10 +115,7 @@ pub struct Cleanup {
 }
 
 impl Cleanup {
-    pub const CONFIRMED: Cleanup = Cleanup {
-        status: "confirmed",
-        cancellation: None,
-    };
+    pub const CONFIRMED: Cleanup = Cleanup { status: "confirmed", cancellation: None };
 }
 
 /// A refused capture: the coded text and what became of its resources.
@@ -132,10 +128,7 @@ pub struct CaptureFailure {
 /// A refusal before any resource was held releases nothing.
 impl From<String> for CaptureFailure {
     fn from(text: String) -> CaptureFailure {
-        CaptureFailure {
-            text,
-            cleanup: Cleanup::CONFIRMED,
-        }
+        CaptureFailure { text, cleanup: Cleanup::CONFIRMED }
     }
 }
 
@@ -144,11 +137,7 @@ impl WindowInfo {
         window_id(self.handle)
     }
     pub fn owner_id(&self) -> String {
-        if self.owner == 0 {
-            String::new()
-        } else {
-            window_id(self.owner)
-        }
+        if self.owner == 0 { String::new() } else { window_id(self.owner) }
     }
 }
 
@@ -180,16 +169,13 @@ pub struct Launched {
 }
 
 /// A `capture_backend` this desktop does not know.
-pub const UNKNOWN_CAPTURE_BACKEND: &str =
-    "capture_source_unavailable|unknown window capture backend";
+pub const UNKNOWN_CAPTURE_BACKEND: &str = "capture_source_unavailable|unknown window capture backend";
 
 /// A saved-login step on a desktop without the saved-login worker.
-pub const SAVED_LOGIN_UNSUPPORTED: &str =
-    "saved_login_refused: saved logins are not supported on this desktop; no input was sent";
+pub const SAVED_LOGIN_UNSUPPORTED: &str = "saved_login_refused: saved logins are not supported on this desktop; no input was sent";
 
 /// The reason a saved-login read finds no focused field in the browser.
-pub const SAVED_LOGIN_NO_FOCUS: &str =
-    "no field of this browser window holds keyboard focus; click the field first";
+pub const SAVED_LOGIN_NO_FOCUS: &str = "no field of this browser window holds keyboard focus; click the field first";
 
 /// A saved-login refusal: nothing was sent (Stop-SavedLogin,
 /// runtime-saved-login.ps1:33-35).
@@ -254,8 +240,7 @@ pub trait SavedLoginReads {
 }
 
 /// A native edit selection on a desktop that cannot select by messages.
-pub const NO_NATIVE_EDIT_SELECTION: &str =
-    "background_unsupported|this desktop cannot select a control's text by native messages; no input sent";
+pub const NO_NATIVE_EDIT_SELECTION: &str = "background_unsupported|this desktop cannot select a control's text by native messages; no input sent";
 
 /// A process whose fate the system does not prove (Do-ProcessFate,
 /// runtime-saved-login.ps1:330-347).
@@ -268,25 +253,9 @@ pub fn unknown_process_fate() -> Value {
 pub trait Background {
     /// Refuses before any input when this target cannot take background input.
     fn validate(&self, window: Wid, action: &str) -> Result<(), String>;
-    fn pointer(
-        &self,
-        window: Wid,
-        x: i32,
-        y: i32,
-        kind: &str,
-        modifiers: &[Mod],
-    ) -> Result<String, String>;
-    fn wheel(
-        &self,
-        window: Wid,
-        x: i32,
-        y: i32,
-        clicks: i32,
-        horizontal: bool,
-        modifiers: &[Mod],
-    ) -> Result<String, String>;
-    fn drag(&self, window: Wid, points: &[(i32, i32)], modifiers: &[Mod])
-        -> Result<String, String>;
+    fn pointer(&self, window: Wid, x: i32, y: i32, kind: &str, modifiers: &[Mod]) -> Result<String, String>;
+    fn wheel(&self, window: Wid, x: i32, y: i32, clicks: i32, horizontal: bool, modifiers: &[Mod]) -> Result<String, String>;
+    fn drag(&self, window: Wid, points: &[(i32, i32)], modifiers: &[Mod]) -> Result<String, String>;
     fn keys(&self, window: Wid, keys: &str) -> Result<String, String>;
     fn text(&self, window: Wid, text: &str) -> Result<String, String>;
 
@@ -299,13 +268,7 @@ pub trait Background {
         self.text(window, text)
     }
     /// `validate` for the exact child and key stream a step will use.
-    fn validate_target(
-        &self,
-        window: Wid,
-        _preferred: Wid,
-        action: &str,
-        _keys: Option<&str>,
-    ) -> Result<(), String> {
+    fn validate_target(&self, window: Wid, _preferred: Wid, action: &str, _keys: Option<&str>) -> Result<(), String> {
         self.validate(window, action)
     }
     /// Keeps `root` inactive across several deliveries; scopes nest.
@@ -349,13 +312,7 @@ pub trait Background {
         false
     }
     /// A refusal for input a standard dialog would not act on.
-    fn dialog_refusal(
-        &self,
-        _top: Wid,
-        _preferred: Wid,
-        _action: &str,
-        _keys: Option<&str>,
-    ) -> Option<String> {
+    fn dialog_refusal(&self, _top: Wid, _preferred: Wid, _action: &str, _keys: Option<&str>) -> Option<String> {
         None
     }
 }
@@ -396,20 +353,9 @@ pub trait Desktop {
     }
     /// The window's own rendering; refuses where the platform has none.
     fn window_surface(&self, handle: Wid) -> Result<Surface, String> {
-        Err(format!(
-            "capture_source_unavailable: {} has no native window surface backend; the composited capture covers {}",
-            self.name(),
-            window_id(handle)
-        ))
+        Err(format!("capture_source_unavailable: {} has no native window surface backend; the composited capture covers {}", self.name(), window_id(handle)))
     }
-    fn move_window(
-        &self,
-        handle: Wid,
-        x: i32,
-        y: i32,
-        width: i32,
-        height: i32,
-    ) -> Result<(), String>;
+    fn move_window(&self, handle: Wid, x: i32, y: i32, width: i32, height: i32) -> Result<(), String>;
     fn set_window_state(&self, handle: Wid, state: WinState) -> Result<(), String>;
     fn close_window(&self, handle: Wid) -> Result<bool, String>;
     fn is_responding(&self, handle: Wid) -> bool;
@@ -420,8 +366,7 @@ pub trait Desktop {
 
     fn cursor(&self) -> (i32, i32);
     fn move_pointer(&self, x: i32, y: i32) -> Result<(), String>;
-    fn button(&self, button: Button, down: bool, x: i32, y: i32, clicks: u32)
-        -> Result<(), String>;
+    fn button(&self, button: Button, down: bool, x: i32, y: i32, clicks: u32) -> Result<(), String>;
     /// Moves the pointer while the left button is held.
     fn drag_move(&self, x: i32, y: i32) -> Result<(), String>;
     fn wheel(&self, x: i32, y: i32, clicks: i32, horizontal: bool) -> Result<(), String>;
@@ -455,13 +400,7 @@ pub trait Desktop {
     /// RGBA pixels encoded for the model: a JPEG of `quality` (PNG when it
     /// cannot be made), or a PNG without one. None where this desktop has no
     /// encoder; the caller then keeps the PNG it holds.
-    fn encode_image(
-        &self,
-        _rgba: &[u8],
-        _width: u32,
-        _height: u32,
-        _quality: Option<u8>,
-    ) -> Option<(&'static str, Vec<u8>)> {
+    fn encode_image(&self, _rgba: &[u8], _width: u32, _height: u32, _quality: Option<u8>) -> Option<(&'static str, Vec<u8>)> {
         None
     }
 
@@ -476,12 +415,7 @@ pub trait Desktop {
     }
     /// The window's rendering through the named capture backend, within
     /// `work_ms` of work.
-    fn window_surface_backend(
-        &self,
-        handle: Wid,
-        backend: &str,
-        _work_ms: u32,
-    ) -> Result<Surface, CaptureFailure> {
+    fn window_surface_backend(&self, handle: Wid, backend: &str, _work_ms: u32) -> Result<Surface, CaptureFailure> {
         match backend {
             "print_window" => self.window_surface(handle).map_err(CaptureFailure::from),
             _ => Err(UNKNOWN_CAPTURE_BACKEND.to_string().into()),
@@ -545,9 +479,7 @@ pub fn create(observer: Arc<Shared>, marker: i64, scope: &crate::port::Scope) ->
     #[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
     {
         let _ = (observer, marker, scope);
-        Box::new(unsupported::Unsupported::new(
-            "platform_unsupported: this build has no desktop backend",
-        ))
+        Box::new(unsupported::Unsupported::new("platform_unsupported: this build has no desktop backend"))
     }
 }
 
@@ -590,7 +522,9 @@ pub fn elevated_launch(request: serde_json::Value, cancelled: std::sync::Arc<cra
     #[cfg(not(windows))]
     {
         let _ = (request, cancelled);
-        crate::elevated_launch::emit(serde_json::json!({"kind":"result", "stopped":true, "error":"privileged_worker_unavailable: elevation is not available on this platform"}));
+        crate::elevated_launch::emit(
+            serde_json::json!({"kind":"result", "stopped":true, "error":"privileged_worker_unavailable: elevation is not available on this platform"}),
+        );
         2
     }
 }
@@ -599,7 +533,10 @@ pub fn process_start_ticks(pid: u32) -> Result<Option<i64>, String> {
     #[cfg(windows)]
     return windows::elevated::process_start_ticks(pid);
     #[cfg(not(windows))]
-    { let _ = pid; Err("process identity query is not available on this platform".into()) }
+    {
+        let _ = pid;
+        Err("process identity query is not available on this platform".into())
+    }
 }
 
 /// `--cursor-watchdog <parent_pid>`: the child that keeps the cursor theme and
@@ -664,18 +601,8 @@ pub fn parent_pid(pid: i64) -> i64 {
     unsafe {
         let mut info: libc::proc_bsdinfo = std::mem::zeroed();
         let size = std::mem::size_of::<libc::proc_bsdinfo>() as i32;
-        let read = libc::proc_pidinfo(
-            pid as i32,
-            libc::PROC_PIDTBSDINFO,
-            0,
-            &mut info as *mut _ as *mut libc::c_void,
-            size,
-        );
-        if read == size {
-            info.pbi_ppid as i64
-        } else {
-            0
-        }
+        let read = libc::proc_pidinfo(pid as i32, libc::PROC_PIDTBSDINFO, 0, &mut info as *mut _ as *mut libc::c_void, size);
+        if read == size { info.pbi_ppid as i64 } else { 0 }
     }
 }
 

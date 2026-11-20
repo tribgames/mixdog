@@ -6,14 +6,14 @@
 use std::io;
 use std::time::Duration;
 
-use mixdog_js::js_trim;
-use serde_json::Map;
-use serde_json::Value;
-use serde_json::json;
 use bytes::Bytes;
 use futures::future::Either;
 use http_body_util::Empty;
 use hyper_util::rt::TokioIo;
+use mixdog_js::js_trim;
+use serde_json::Map;
+use serde_json::Value;
+use serde_json::json;
 use tokio::io::AsyncRead;
 use tokio::io::AsyncWrite;
 use url::Position;
@@ -27,8 +27,8 @@ use super::route::RouteError;
 use super::route::proxy_variables_set;
 use super::setting::NetworkProxySetting;
 use super::setting::proxy_display;
-use super::tunnel::TunnelError;
 use super::tunnel::Conn;
+use super::tunnel::TunnelError;
 use super::tunnel::connect_proxy;
 use super::tunnel::dial;
 use super::tunnel::open_proxy_tunnel;
@@ -51,11 +51,8 @@ const FIRST_PARTY_ORIGINS: [(&str, &str); 6] = [
 ];
 
 /// The preset table of the OpenAI-compatible providers (`OPENAI_COMPAT_PRESETS`).
-const PRESET_BASE_URLS: [(&str, &str); 3] = [
-    ("deepseek", "https://api.deepseek.com"),
-    ("xai", "https://api.x.ai/v1"),
-    ("openrouter", "https://openrouter.ai/api/v1"),
-];
+const PRESET_BASE_URLS: [(&str, &str); 3] =
+    [("deepseek", "https://api.deepseek.com"), ("xai", "https://api.x.ai/v1"), ("openrouter", "https://openrouter.ai/api/v1")];
 
 fn is_truthy(value: &Value) -> bool {
     match value {
@@ -109,12 +106,7 @@ pub async fn explain_proxy_route(policy: &NetworkProxy, origin: &str, setting: &
     route_facts(policy, origin, setting, &route).await
 }
 
-async fn route_facts(
-    policy: &NetworkProxy,
-    origin: &str,
-    setting: &NetworkProxySetting,
-    route: &Result<Route, RouteError>,
-) -> Result<Value, RouteError> {
+async fn route_facts(policy: &NetworkProxy, origin: &str, setting: &NetworkProxySetting, route: &Result<Route, RouteError>) -> Result<Value, RouteError> {
     let env = policy.env();
     let no_proxy = env.get("NO_PROXY").or_else(|| env.get("no_proxy")).unwrap_or_default();
     let mut facts = Map::new();
@@ -166,11 +158,7 @@ fn io_code(error: &io::Error) -> Option<&'static str> {
 /// `{ ok: false, ms, origin, code, route }`: the failure is the proxy's or the
 /// network's, never retried directly. One deadline covers the whole check, as
 /// Node's single timed fetch does.
-pub async fn check_proxy_connection(
-    clients: &RoutedClients,
-    origin: &str,
-    setting: &NetworkProxySetting,
-) -> Result<Value, RouteError> {
+pub async fn check_proxy_connection(clients: &RoutedClients, origin: &str, setting: &NetworkProxySetting) -> Result<Value, RouteError> {
     // The route reported to Settings must be the same decision the HEAD uses.
     let decision = clients.policy().route_with(origin, setting).await;
     let route = route_facts(clients.policy(), origin, setting, &decision).await?;
@@ -225,17 +213,10 @@ async fn head_request(origin: &str, route: &Route) -> Result<u16, String> {
 
 /// A HEAD for `url` over `stream`. `forwarded` is `Some` when the stream is a
 /// proxy's, which gets the absolute URL and the proxy credentials, if any.
-async fn send_head<S: AsyncRead + AsyncWrite + Unpin>(
-    stream: S,
-    url: &Url,
-    forwarded: Option<Option<String>>,
-) -> Result<u16, String> {
-    let (mut sender, connection) = hyper::client::conn::http1::handshake::<_, Empty<Bytes>>(TokioIo::new(stream))
-        .await
-        .map_err(|error| hyper_code(&error))?;
+async fn send_head<S: AsyncRead + AsyncWrite + Unpin>(stream: S, url: &Url, forwarded: Option<Option<String>>) -> Result<u16, String> {
+    let (mut sender, connection) = hyper::client::conn::http1::handshake::<_, Empty<Bytes>>(TokioIo::new(stream)).await.map_err(|error| hyper_code(&error))?;
     let target = if forwarded.is_some() { url.as_str() } else { "/" };
-    let mut request =
-        hyper::Request::builder().method("HEAD").uri(target).header("host", &url[Position::BeforeHost..Position::AfterPort]);
+    let mut request = hyper::Request::builder().method("HEAD").uri(target).header("host", &url[Position::BeforeHost..Position::AfterPort]);
     if let Some(Some(credentials)) = forwarded {
         request = request.header("proxy-authorization", credentials);
     }
@@ -246,9 +227,7 @@ async fn send_head<S: AsyncRead + AsyncWrite + Unpin>(
         Either::Left((response, _)) => response.map(|response| response.status().as_u16()).map_err(|error| hyper_code(&error)),
         Either::Right((Err(error), _)) => Err(hyper_code(&error)),
         // The peer answered and closed: the connection ends in the poll that hands the answer over.
-        Either::Right((Ok(()), exchange)) => {
-            exchange.await.map(|response| response.status().as_u16()).map_err(|error| hyper_code(&error))
-        }
+        Either::Right((Ok(()), exchange)) => exchange.await.map(|response| response.status().as_u16()).map_err(|error| hyper_code(&error)),
     }
 }
 
@@ -272,9 +251,7 @@ fn tunnel_error_code(error: &TunnelError, proxy: &str) -> String {
         TunnelError::Dropped(_) if proxy.starts_with("socks5:") => "UND_ERR_SOCKET".into(),
         TunnelError::Dropped(_) => "UND_ERR_PRX_CONN".into(),
         TunnelError::Tls(failure) => match failure.certificate() {
-            Some(rustls::CertificateError::NotValidForName | rustls::CertificateError::NotValidForNameContext { .. }) => {
-                "UND_ERR_PRX_TLS".to_owned()
-            }
+            Some(rustls::CertificateError::NotValidForName | rustls::CertificateError::NotValidForNameContext { .. }) => "UND_ERR_PRX_TLS".to_owned(),
             _ => tls_code(failure).to_owned(),
         },
         TunnelError::TimedOut => "UND_ERR_HEADERS_TIMEOUT".into(),

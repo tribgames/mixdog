@@ -180,10 +180,7 @@ mod tests {
     #[test]
     fn the_formats_of_a_style_sheet_by_style_index() {
         let styles = r#"<styleSheet><numFmts><numFmt numFmtId="164" formatCode="0.000%"/><numFmt numFmtId="14" formatCode="yyyy/mm/dd"/><numFmt numFmtId="165" formatCode=""/></numFmts><cellStyleXfs><xf numFmtId="9"/></cellStyleXfs><cellXfs><xf numFmtId="164"/><xf numFmtId="14"/><xf numFmtId="10"/><xf numFmtId="165"/><xf/><xf numFmtId="999"/></cellXfs></styleSheet>"#;
-        assert_eq!(
-            cell_number_formats(styles).unwrap(),
-            vec!["0.000%", "yyyy/mm/dd", "0.00%", "", "", ""]
-        );
+        assert_eq!(cell_number_formats(styles).unwrap(), vec!["0.000%", "yyyy/mm/dd", "0.00%", "", "", ""]);
         assert!(cell_number_formats("").unwrap().is_empty());
         assert!(cell_number_formats("<styleSheet/>").unwrap().is_empty());
     }

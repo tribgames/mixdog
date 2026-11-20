@@ -6,7 +6,9 @@ use std::time::Duration;
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use mixdog_core_api::domain::provider::{DeliveryState, ErrorKind, ErrorResponse, ModelRequest, ModelStream, ProviderError, StreamEvent, TransportFault, WireCodec, WsPhase};
+use mixdog_core_api::domain::provider::{
+    DeliveryState, ErrorKind, ErrorResponse, ModelRequest, ModelStream, ProviderError, StreamEvent, TransportFault, WireCodec, WsPhase,
+};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 use tokio_tungstenite::tungstenite::http::{HeaderName, HeaderValue};
 
@@ -50,7 +52,9 @@ impl XaiSocket {
 
     /// `None` selects HTTP, `Some` opts into a socket and says whether it may fall back to HTTP.
     pub fn selection(&self, explicit: Option<&str>) -> Option<bool> {
-        let raw = explicit.map(str::to_owned).or_else(|| self.configured.clone())
+        let raw = explicit
+            .map(str::to_owned)
+            .or_else(|| self.configured.clone())
             .or_else(|| self.env.var("MIXDOG_XAI_RESPONSES_TRANSPORT"))
             .or_else(|| self.env.var("MIXDOG_XAI_TRANSPORT"));
         let shared = self.env.var("MIXDOG_OAI_TRANSPORT");
@@ -145,9 +149,9 @@ fn select(raw: Option<&str>, shared: Option<&str>, fallback: Option<&str>) -> Op
         return None;
     }
     let policy = transport_policy::resolve_openai(shared);
-    (policy.mode != Mode::HttpSse).then(|| policy.allow_http_fallback && !fallback.is_some_and(|value| {
-        matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "false" | "off" | "no")
-    }))
+    (policy.mode != Mode::HttpSse).then(|| {
+        policy.allow_http_fallback && !fallback.is_some_and(|value| matches!(value.trim().to_ascii_lowercase().as_str(), "0" | "false" | "off" | "no"))
+    })
 }
 
 pub(crate) fn can_fallback(error: &ProviderError) -> bool {
@@ -223,9 +227,13 @@ impl ModelStream for SocketResponse {
         }
     }
 
-    fn delivery(&self) -> DeliveryState { self.inner.delivery() }
+    fn delivery(&self) -> DeliveryState {
+        self.inner.delivery()
+    }
 
-    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>) { self.inner.on_wire_left(left); }
+    fn on_wire_left(&mut self, left: Arc<dyn Fn() + Send + Sync>) {
+        self.inner.on_wire_left(left);
+    }
 }
 
 #[cfg(test)]

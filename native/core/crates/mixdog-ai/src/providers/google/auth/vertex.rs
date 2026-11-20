@@ -12,11 +12,11 @@ use async_trait::async_trait;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider::DeliveryState;
 use mixdog_core_api::domain::provider::ErrorKind;
 use mixdog_core_api::domain::provider::ProviderError;
 use mixdog_core_api::domain::provider::WireRequest;
-use mixdog_core_api::domain::keepalive::TransportKind;
 use serde_json::Value;
 use serde_json::json;
 use sha2::Digest;
@@ -36,38 +36,20 @@ const IAM_CREDENTIALS: &str = "https://iamcredentials.googleapis.com/v1";
 const JWT_BEARER_GRANT: &str = "urn:ietf:params:oauth:grant-type:jwt-bearer";
 const REFRESH_SKEW_MS: u64 = 5 * 60_000;
 /// Project sources ahead of the credential's own, in precedence order.
-pub const PROJECT_ENV: [&str; 6] = [
-    "GOOGLE_VERTEX_PROJECT",
-    "GOOGLE_CLOUD_PROJECT",
-    "GCP_PROJECT",
-    "GCLOUD_PROJECT",
-    "VERTEXAI_PROJECT",
-    "ANTHROPIC_VERTEX_PROJECT_ID",
-];
+pub const PROJECT_ENV: [&str; 6] =
+    ["GOOGLE_VERTEX_PROJECT", "GOOGLE_CLOUD_PROJECT", "GCP_PROJECT", "GCLOUD_PROJECT", "VERTEXAI_PROJECT", "ANTHROPIC_VERTEX_PROJECT_ID"];
 
 /// One grant of an ADC file or a stored key.
 #[derive(Clone, Debug)]
 pub enum Grant {
-    ServiceAccount {
-        client_email: String,
-        private_key: String,
-        project_id: String,
-    },
-    AuthorizedUser {
-        client_id: String,
-        client_secret: String,
-        refresh_token: String,
-    },
+    ServiceAccount { client_email: String, private_key: String, project_id: String },
+    AuthorizedUser { client_id: String, client_secret: String, refresh_token: String },
 }
 
 #[derive(Clone, Debug)]
 pub enum Kind {
     Grant(Grant),
-    Impersonated {
-        target: String,
-        delegates: Vec<String>,
-        source: Grant,
-    },
+    Impersonated { target: String, delegates: Vec<String>, source: Grant },
 }
 
 /// A parsed credential and the identity every token it mints is bound to.
@@ -119,8 +101,7 @@ fn grant_of(value: &Value, path: &str, nested: bool) -> Result<(Grant, String, S
     }
     let missing = |type_: &str, names: &[&str]| {
         let lacking: Vec<&str> = names.iter().copied().filter(|n| text(value, n).is_empty()).collect();
-        (!lacking.is_empty())
-            .then(|| invalid(format!("The {type_} credentials in {path} are missing {}.", lacking.join(", "))))
+        (!lacking.is_empty()).then(|| invalid(format!("The {type_} credentials in {path} are missing {}.", lacking.join(", "))))
     };
     match text(value, "type").as_str() {
         "service_account" => {
@@ -129,24 +110,15 @@ fn grant_of(value: &Value, path: &str, nested: bool) -> Result<(Grant, String, S
             }
             let (email, key) = (text(value, "client_email"), text(value, "private_key"));
             let print = fingerprint(&["service_account", &email, &key]);
-            Ok((
-                Grant::ServiceAccount { client_email: email.clone(), private_key: key, project_id: text(value, "project_id") },
-                email,
-                print,
-            ))
+            Ok((Grant::ServiceAccount { client_email: email.clone(), private_key: key, project_id: text(value, "project_id") }, email, print))
         }
         "authorized_user" => {
             if let Some(err) = missing("authorized_user", &["client_id", "client_secret", "refresh_token"]) {
                 return Err(err);
             }
-            let (id, secret, refresh) =
-                (text(value, "client_id"), text(value, "client_secret"), text(value, "refresh_token"));
+            let (id, secret, refresh) = (text(value, "client_id"), text(value, "client_secret"), text(value, "refresh_token"));
             let print = fingerprint(&["authorized_user", &id, &secret, &refresh]);
-            Ok((
-                Grant::AuthorizedUser { client_id: id, client_secret: secret, refresh_token: refresh },
-                text(value, "account"),
-                print,
-            ))
+            Ok((Grant::AuthorizedUser { client_id: id, client_secret: secret, refresh_token: refresh }, text(value, "account"), print))
         }
         other => Err(invalid(format!(
             "Vertex AI does not support \"{}\" credentials{} ({path}). Use a service-account key, or sign in with \
@@ -160,8 +132,7 @@ fn grant_of(value: &Value, path: &str, nested: bool) -> Result<(Grant, String, S
 /// One ADC file (`path` names it in messages and in the identity).
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn parse_adc(raw: &str, path: &str) -> Result<Credential, ProviderError> {
-    let value: Value = serde_json::from_str(raw)
-        .map_err(|_| invalid(format!("The credentials file {path} is not valid JSON.")))?;
+    let value: Value = serde_json::from_str(raw).map_err(|_| invalid(format!("The credentials file {path} is not valid JSON.")))?;
     let quota_project_id = text(&value, "quota_project_id");
     let (kind, account, project_id, print) = if text(&value, "type") == "impersonated_service_account" {
         let url = text(&value, "service_account_impersonation_url");
@@ -204,8 +175,7 @@ pub fn parse_adc(raw: &str, path: &str) -> Result<Credential, ProviderError> {
 /// A stored service-account key (settings), which must name its project.
 #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
 pub fn parse_service_account(raw: &str) -> Result<Credential, ProviderError> {
-    let value: Value =
-        serde_json::from_str(raw).map_err(|_| invalid("Vertex AI service-account JSON is invalid."))?;
+    let value: Value = serde_json::from_str(raw).map_err(|_| invalid("Vertex AI service-account JSON is invalid."))?;
     if !value.is_object() {
         return Err(invalid("Vertex AI service-account JSON is invalid."));
     }
@@ -242,8 +212,7 @@ pub fn project_base(project: &str, location: &str) -> Result<String, ProviderErr
     if !valid_location {
         return Err(invalid("[vertex-ai] location is invalid"));
     }
-    let valid_project = (1..=128).contains(&project.len())
-        && project.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'));
+    let valid_project = (1..=128).contains(&project.len()) && project.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | ':' | '-'));
     if !valid_project {
         return Err(invalid("[vertex-ai] project ID override is invalid"));
     }
@@ -275,12 +244,8 @@ pub fn jwt_assertion(client_email: &str, private_key: &str, now_secs: u64) -> Re
         })),
     );
     let (der, pkcs1) = pem_der(private_key)?;
-    let pair = if pkcs1 {
-        ring::signature::RsaKeyPair::from_der(&der)
-    } else {
-        ring::signature::RsaKeyPair::from_pkcs8(&der)
-    }
-    .map_err(|_| invalid("could not sign the service-account JWT"))?;
+    let pair = if pkcs1 { ring::signature::RsaKeyPair::from_der(&der) } else { ring::signature::RsaKeyPair::from_pkcs8(&der) }
+        .map_err(|_| invalid("could not sign the service-account JWT"))?;
     let mut signature = vec![0; pair.public().modulus_len()];
     pair.sign(&ring::signature::RSA_PKCS1_SHA256, &ring::rand::SystemRandom::new(), input.as_bytes(), &mut signature)
         .map_err(|_| invalid("could not sign the service-account JWT"))?;
@@ -321,11 +286,8 @@ fn grant_refusal(status: u16, body: &[u8], authorized_user: bool) -> ProviderErr
 
 /// A refused impersonation: a 403 names the role the signed-in account lacks.
 fn impersonation_refusal(status: u16, body: &[u8], target: &str) -> ProviderError {
-    let hint = if status == 403 {
-        " The signed-in account needs the Service Account Token Creator role (roles/iam.serviceAccountTokenCreator) on it."
-    } else {
-        ""
-    };
+    let hint =
+        if status == 403 { " The signed-in account needs the Service Account Token Creator role (roles/iam.serviceAccountTokenCreator) on it." } else { "" };
     refusal(status, format!("impersonating {target} failed ({}).{hint}", error_detail(body, status).0))
 }
 
@@ -391,15 +353,13 @@ mod site_tests {
     /// A token request arms no timer: it ends at the dispatcher and reads as the real Node function did (`sites.vertexToken`).
     #[tokio::test(start_paused = true)]
     async fn a_token_request_reads_as_nodes_when_the_dispatcher_ends_it() {
-        let credential =
-            parse_adc(r#"{"type":"authorized_user","client_id":"c","client_secret":"s","refresh_token":"r"}"#, "adc.json").unwrap();
+        let credential = parse_adc(r#"{"type":"authorized_user","client_id":"c","client_secret":"s","refresh_token":"r"}"#, "adc.json").unwrap();
         let transport = TimingOut::new();
         let error = VertexAuth::new(transport.clone(), credential, Box::new(|| 0)).authorize().await.expect_err("never answers");
         assert_dispatcher("vertexToken", &transport);
         assert_thrown("vertexToken", &error.message);
     }
 }
-
 
 impl VertexAuth {
     pub fn new(http: Arc<dyn HttpSend>, credential: Credential, now_ms: Box<dyn Fn() -> u64 + Send + Sync>) -> Self {
@@ -412,10 +372,7 @@ impl VertexAuth {
 
     fn fresh(&self) -> Option<String> {
         let cached = self.cached.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-        cached
-            .as_ref()
-            .filter(|m| (self.now_ms)() + REFRESH_SKEW_MS < m.expires_at_ms)
-            .map(|m| m.token.clone())
+        cached.as_ref().filter(|m| (self.now_ms)() + REFRESH_SKEW_MS < m.expires_at_ms).map(|m| m.token.clone())
     }
 
     #[allow(clippy::result_large_err, reason = "Keep the canonical structured failure by value and preserve this contract without an extra boxing allocation")]
@@ -428,16 +385,7 @@ impl VertexAuth {
     ) -> Result<Vec<u8>, ProviderError> {
         let response = self
             .http
-            .send(
-                WireRequest {
-                    transport: TransportKind::Http1,
-                    method: "POST".into(),
-                    url: url.into(),
-                    headers,
-                    body,
-                },
-                VERTEX_TOKEN,
-            )
+            .send(WireRequest { transport: TransportKind::Http1, method: "POST".into(), url: url.into(), headers, body }, VERTEX_TOKEN)
             .await
             .map_err(|mut error| {
                 // `_post`'s catch (`vertex-ai-auth.mjs:570-572`) words what the fetch threw.
@@ -456,12 +404,9 @@ impl VertexAuth {
         // Spelled as Node's fetch call writes it (`vertex-ai-auth`), which the wire keeps.
         let form_header = vec![("Content-Type".to_owned(), "application/x-www-form-urlencoded".to_owned())];
         let body = match grant {
-            Grant::AuthorizedUser { client_id, client_secret, refresh_token } => form_body(&[
-                ("grant_type", "refresh_token"),
-                ("client_id", client_id),
-                ("client_secret", client_secret),
-                ("refresh_token", refresh_token),
-            ]),
+            Grant::AuthorizedUser { client_id, client_secret, refresh_token } => {
+                form_body(&[("grant_type", "refresh_token"), ("client_id", client_id), ("client_secret", client_secret), ("refresh_token", refresh_token)])
+            }
             Grant::ServiceAccount { client_email, private_key, .. } => {
                 let assertion = jwt_assertion(client_email, private_key, (self.now_ms)() / 1000)?;
                 form_body(&[("grant_type", JWT_BEARER_GRANT), ("assertion", &assertion)])
@@ -487,10 +432,7 @@ impl VertexAuth {
         match &self.credential.kind {
             Kind::Grant(grant) => {
                 let token = self.grant_token(grant).await?;
-                Ok(Minted {
-                    expires_at_ms: now + token.expires_in_secs.unwrap_or(3600).max(1) * 1000,
-                    token: token.access_token,
-                })
+                Ok(Minted { expires_at_ms: now + token.expires_in_secs.unwrap_or(3600).max(1) * 1000, token: token.access_token })
             }
             Kind::Impersonated { target, delegates, source } => {
                 let source_token = self.grant_token(source).await?;

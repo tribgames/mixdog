@@ -52,7 +52,8 @@ impl DirInner {
         }
         let summary = self.deps.transcript.summary(child, &state.header);
         let thread_state = state.thread_state(StorageState::Ok);
-        let params = SnapshotParams { thread: &summary, state: &thread_state, items: state.window.iter().map(|row| row.item.as_ref()).collect(), has_older: false };
+        let params =
+            SnapshotParams { thread: &summary, state: &thread_state, items: state.window.iter().map(|row| row.item.as_ref()).collect(), has_older: false };
         Ok(Reply::Value(serde_json::to_value(&params).map_err(|_| CoreError::Internal { incident_id: "archived-agent-read".into() })?))
     }
 }

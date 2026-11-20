@@ -233,7 +233,8 @@ fn human_request_fields(input: &Obj) -> Obj {
             None => Vec::new(),
         };
         let fill = text(takeover.get("fillId"), 100);
-        let fill_ok = fill.strip_prefix("secret_").is_some_and(|rest| (8..=80).contains(&rest.len()) && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
+        let fill_ok =
+            fill.strip_prefix("secret_").is_some_and(|rest| (8..=80).contains(&rest.len()) && rest.chars().all(|c| c.is_ascii_alphanumeric() || c == '-'));
         if let Some(page) = login {
             shown.insert("purpose".into(), json!("login"));
             shown.insert("url".into(), json!(page.url));
@@ -458,7 +459,9 @@ pub fn room_view(state: Option<&RoomViewState>, handoff_questions: &[Value]) -> 
     let Some(state) = state else { return questions.map(|q| ThreadRoomView { handoff_questions: Some(q), ..ThreadRoomView::default() }) };
     let typing = if state.deciding {
         // The hand-off band: its own state (`room.deciding`) in the typing row's place, so it has the band's one footprint.
-        Some(json!({ "kind": "notice", "id": DECIDING_ROW_ID, "tone": "info", "text": "…", "room": { "kind": "typing", "speaker": "", "name": "", "deciding": true } }))
+        Some(
+            json!({ "kind": "notice", "id": DECIDING_ROW_ID, "tone": "info", "text": "…", "room": { "kind": "typing", "speaker": "", "name": "", "deciding": true } }),
+        )
     } else {
         (!state.speaking.is_empty()).then(|| {
             json!({
@@ -548,7 +551,9 @@ impl SessionDirectory {
         if shown.is_none_or(|request| request.id.0.to_string() != approval_id) {
             return Ok(false);
         }
-        handle.decide_arbitrated(Decision { request: ServerRequestId(approval_id.to_owned()), connection, device, connection_kind, origin, result: decision }).await
+        handle
+            .decide_arbitrated(Decision { request: ServerRequestId(approval_id.to_owned()), connection, device, connection_kind, origin, result: decision })
+            .await
     }
 }
 

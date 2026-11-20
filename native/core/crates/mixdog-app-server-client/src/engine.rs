@@ -18,10 +18,7 @@ use mixdog_app_protocol::{
     v1::InitializeParams,
     v2::{
         feed::{AppSnapshotParams, AppSubscribeParams, ScopedFeedKind, ThreadResumePosition},
-        op::{
-            BlobPutParams, BlobReadParams, BlobReadResponse, OpScopeName, OpStatusParams,
-            OpStatusResponse,
-        },
+        op::{BlobPutParams, BlobReadParams, BlobReadResponse, OpScopeName, OpStatusParams, OpStatusResponse},
         thread::{ThreadIdParams, ThreadResumeParams},
     },
 };
@@ -37,9 +34,7 @@ use crate::api::*;
 
 /// Full jitter: uniform in [0, min(cap, base·2^attempt)). `unit` is uniform in [0, 1).
 pub fn ladder_delay(attempt: u32, unit: f64, cfg: LadderConfig) -> u64 {
-    let ceiling = cfg
-        .cap_ms
-        .min(cfg.base_ms.saturating_mul(1u64 << attempt.min(32)));
+    let ceiling = cfg.cap_ms.min(cfg.base_ms.saturating_mul(1u64 << attempt.min(32)));
     (unit * ceiling as f64).floor() as u64
 }
 
@@ -85,23 +80,15 @@ fn is_connection_end(e: &ClientError) -> bool {
 
 /// App-feed notifications whose params are a `SectionUpdate`.
 fn is_section_method(method: &str) -> bool {
-    SERVER_NOTIFICATIONS.iter().any(|n| {
-        n.method == method && n.delivery == Some(Delivery::App) && n.params == "SectionUpdate"
-    })
+    SERVER_NOTIFICATIONS.iter().any(|n| n.method == method && n.delivery == Some(Delivery::App) && n.params == "SectionUpdate")
 }
 
 fn class_index(c: RequestClass) -> usize {
     c as usize
 }
 
-const INTERNAL: MethodInfo = MethodInfo {
-    class: RequestClass::C0,
-    op_scope: OpScopeRule::None,
-};
-const READ_C1: MethodInfo = MethodInfo {
-    class: RequestClass::C1,
-    op_scope: OpScopeRule::None,
-};
+const INTERNAL: MethodInfo = MethodInfo { class: RequestClass::C0, op_scope: OpScopeRule::None };
+const READ_C1: MethodInfo = MethodInfo { class: RequestClass::C1, op_scope: OpScopeRule::None };
 
 // ───────────── shared state ─────────────
 
@@ -110,10 +97,7 @@ type Reply = oneshot::Sender<Result<Json, ClientError>>;
 #[derive(Clone)]
 enum Hook {
     /// Runs inside frame handling, before the next frame: records the attach position (and the subscription) of a feed.
-    Attach {
-        feed_id: String,
-        thread: Option<(String, ResumeWindow)>,
-    },
+    Attach { feed_id: String, thread: Option<(String, ResumeWindow)> },
     /// Runs inside frame handling like `Attach`: the feed of a scoped subscription (`feed/subscribe`, `system/ports/subscribe`)
     /// is tracked from its attach position; its frames pass through as notifications.
     Scoped { feed_id: String },
@@ -132,16 +116,8 @@ struct Unanswered {
 }
 
 enum FoldItem {
-    Feed {
-        n: RpcNotification,
-        f: FeedStamp,
-        snapshot: bool,
-        cur_gen: u64,
-    },
-    Connection {
-        n: RpcNotification,
-        cur_gen: u64,
-    },
+    Feed { n: RpcNotification, f: FeedStamp, snapshot: bool, cur_gen: u64 },
+    Connection { n: RpcNotification, cur_gen: u64 },
 }
 
 #[derive(Default)]
@@ -176,7 +152,9 @@ struct Shared {
 
 enum Cmd {
     /// The feed is unsubscribed: its fold lane ends once its queued items are done.
-    DropLane { feed: String },
+    DropLane {
+        feed: String,
+    },
     /// The ladder's wait for the next attempt ends now.
     AttachNow,
     Rpc {
@@ -265,22 +243,10 @@ impl FoldStore for StoreView {
         self.0.lock().store.threads.get(thread_id).cloned()
     }
     fn section(&self, section: SectionName, key: Option<&str>) -> Option<SectionEntry> {
-        self.0
-            .lock()
-            .store
-            .sections
-            .get(&section)?
-            .get(key.unwrap_or_default())
-            .cloned()
+        self.0.lock().store.sections.get(&section)?.get(key.unwrap_or_default()).cloned()
     }
     fn sections(&self, section: SectionName) -> Vec<SectionEntry> {
-        self.0
-            .lock()
-            .store
-            .sections
-            .get(&section)
-            .map(|b| b.values().cloned().collect())
-            .unwrap_or_default()
+        self.0.lock().store.sections.get(&section).map(|b| b.values().cloned().collect()).unwrap_or_default()
     }
     fn app_feed(&self) -> Option<FeedStamp> {
         self.0.lock().store.app.clone()
@@ -340,16 +306,8 @@ pub async fn connect(options: ConnectOptions) -> Result<Client, ClientError> {
         return Err(e);
     }
     driver.ever_ready = true;
-    let id = inner
-        .lock()
-        .server
-        .as_ref()
-        .expect("initialized")
-        .server_instance_id
-        .clone();
-    inner.set_status(ConnectionStatus::Ready {
-        server_instance_id: id,
-    });
+    let id = inner.lock().server.as_ref().expect("initialized").server_instance_id.clone();
+    inner.set_status(ConnectionStatus::Ready { server_instance_id: id });
     tokio::spawn(driver.run());
     Ok(Client { inner })
 }
@@ -366,27 +324,13 @@ impl ProtocolClient for Client {
         self.inner.lock().status.clone()
     }
 
-    async fn call_raw(
-        &self,
-        method: &str,
-        params: Json,
-        options: CallOptions,
-    ) -> Result<Json, ClientError> {
-        let info =
-            method_info(method).ok_or_else(|| ClientError::UnknownMethod(method.to_string()))?;
+    async fn call_raw(&self, method: &str, params: Json, options: CallOptions) -> Result<Json, ClientError> {
+        let info = method_info(method).ok_or_else(|| ClientError::UnknownMethod(method.to_string()))?;
         let mut params = params;
         if info.is_mutation() {
-            let obj = params.as_object_mut().ok_or_else(|| {
-                ClientError::ProtocolViolation("mutation params must be an object".into())
-            })?;
+            let obj = params.as_object_mut().ok_or_else(|| ClientError::ProtocolViolation("mutation params must be an object".into()))?;
             let given = obj.get("opId").and_then(Json::as_str).map(str::to_string);
-            let op_id = options.op_id.or(given).unwrap_or_else(|| {
-                self.inner
-                    .opts
-                    .new_op_id
-                    .as_ref()
-                    .map_or_else(new_op_id, |f| f())
-            });
+            let op_id = options.op_id.or(given).unwrap_or_else(|| self.inner.opts.new_op_id.as_ref().map_or_else(new_op_id, |f| f()));
             obj.insert("opId".into(), Json::String(op_id));
         }
         let hook = scoped_feed_of(method, &params, true).map(|feed_id| Hook::Scoped { feed_id });
@@ -402,35 +346,17 @@ impl ProtocolClient for Client {
     }
 
     async fn notify(&self, method: &str, params: Json) -> Result<(), ClientError> {
-        self.send_frame(None, json!({ "method": method, "params": params }))
-            .await
+        self.send_frame(None, json!({ "method": method, "params": params })).await
     }
 
-    async fn notify_on(
-        &self,
-        attachment: AttachmentId,
-        method: &str,
-        params: Json,
-    ) -> Result<(), ClientError> {
-        self.send_frame(Some(attachment), json!({ "method": method, "params": params }))
-            .await
+    async fn notify_on(&self, attachment: AttachmentId, method: &str, params: Json) -> Result<(), ClientError> {
+        self.send_frame(Some(attachment), json!({ "method": method, "params": params })).await
     }
 
-    async fn resume_thread(
-        &self,
-        thread_id: &ThreadId,
-        window: ResumeWindow,
-    ) -> Result<ThreadResumeResponse, ClientError> {
+    async fn resume_thread(&self, thread_id: &ThreadId, window: ResumeWindow) -> Result<ThreadResumeResponse, ClientError> {
         let params = self.inner.resume_params(thread_id, &window);
-        let hook = Hook::Attach {
-            feed_id: thread_id.to_string(),
-            thread: Some((thread_id.to_string(), window)),
-        };
-        from_json(
-            self.inner
-                .run("thread/resume", params, &INTERNAL, Some(hook), false)
-                .await?,
-        )
+        let hook = Hook::Attach { feed_id: thread_id.to_string(), thread: Some((thread_id.to_string(), window)) };
+        from_json(self.inner.run("thread/resume", params, &INTERNAL, Some(hook), false).await?)
     }
 
     async fn unsubscribe_thread(&self, thread_id: &ThreadId) -> Result<(), ClientError> {
@@ -440,56 +366,26 @@ impl ProtocolClient for Client {
             s.recv.remove(thread_id.as_str());
             s.store.threads.remove(thread_id.as_str());
         }
-        let _ = self.inner.cmd.send(Cmd::DropLane {
-            feed: thread_id.as_str().to_string(),
-        });
-        let params = to_json(&ThreadIdParams {
-            thread_id: thread_id.clone(),
-        });
-        self.inner
-            .run("thread/unsubscribe", params, &INTERNAL, None, false)
-            .await
-            .map(|_| ())
+        let _ = self.inner.cmd.send(Cmd::DropLane { feed: thread_id.as_str().to_string() });
+        let params = to_json(&ThreadIdParams { thread_id: thread_id.clone() });
+        self.inner.run("thread/unsubscribe", params, &INTERNAL, None, false).await.map(|_| ())
     }
 
     async fn subscribe_app(&self) -> Result<(), ClientError> {
-        let hook = Hook::Attach {
-            feed_id: APP_FEED_ID.to_string(),
-            thread: None,
-        };
-        self.inner
-            .run(
-                "app/subscribe",
-                self.inner.app_params(),
-                &INTERNAL,
-                Some(hook),
-                false,
-            )
-            .await
-            .map(|_| ())
+        let hook = Hook::Attach { feed_id: APP_FEED_ID.to_string(), thread: None };
+        self.inner.run("app/subscribe", self.inner.app_params(), &INTERNAL, Some(hook), false).await.map(|_| ())
     }
 
     fn pending_server_requests(&self) -> Vec<ServerRequest> {
         self.inner.lock().server_requests.iter().map(|(request, _)| request.clone()).collect()
     }
 
-    async fn respond(
-        &self,
-        address: ReplyAddress,
-        answer: ServerRequestAnswer,
-    ) -> Result<(), ClientError> {
-        let ReplyAddress {
-            attachment,
-            request_id,
-        } = address;
+    async fn respond(&self, address: ReplyAddress, answer: ServerRequestAnswer) -> Result<(), ClientError> {
+        let ReplyAddress { attachment, request_id } = address;
         let mut frame = json!({ "id": request_id });
         match answer {
             ServerRequestAnswer::Result(r) => frame["result"] = r,
-            ServerRequestAnswer::Error {
-                code,
-                message,
-                data,
-            } => {
+            ServerRequestAnswer::Error { code, message, data } => {
                 frame["error"] = json!({ "code": code, "message": message });
                 if let Some(d) = data {
                     frame["error"]["data"] = d;
@@ -504,46 +400,21 @@ impl ProtocolClient for Client {
     }
 
     async fn put_blob(&self, bytes: &[u8], media_type: &str) -> Result<BlobRef, ClientError> {
-        let digest: BlobDigest = format!(
-            "sha256:{}",
-            Sha256::digest(bytes)
-                .iter()
-                .map(|b| format!("{b:02x}"))
-                .collect::<String>()
-        )
-        .parse()
-        .map_err(|e: InvalidBlobDigest| ClientError::ProtocolViolation(e.to_string()))?;
-        let chunk = self
-            .inner
-            .lock()
-            .server
-            .as_ref()
-            .expect("initialized")
-            .limits
-            .max_blob_put_chunk_bytes as usize;
+        let digest: BlobDigest = format!("sha256:{}", Sha256::digest(bytes).iter().map(|b| format!("{b:02x}")).collect::<String>())
+            .parse()
+            .map_err(|e: InvalidBlobDigest| ClientError::ProtocolViolation(e.to_string()))?;
+        let chunk = self.inner.lock().server.as_ref().expect("initialized").limits.max_blob_put_chunk_bytes as usize;
         let mut offset = 0;
         loop {
             let end = (offset + chunk).min(bytes.len());
-            let params = to_json(&BlobPutParams {
-                digest: digest.clone(),
-                offset: offset as u64,
-                bytes_b64: B64.encode(&bytes[offset..end]),
-            });
-            self.inner
-                .run("blob/put", params, &READ_C1, None, false)
-                .await?;
+            let params = to_json(&BlobPutParams { digest: digest.clone(), offset: offset as u64, bytes_b64: B64.encode(&bytes[offset..end]) });
+            self.inner.run("blob/put", params, &READ_C1, None, false).await?;
             offset += chunk;
             if offset >= bytes.len() {
                 break;
             }
         }
-        Ok(BlobRef {
-            blob: BlobDescriptor {
-                digest,
-                bytes: bytes.len() as u64,
-                media_type: media_type.to_string(),
-            },
-        })
+        Ok(BlobRef { blob: BlobDescriptor { digest, bytes: bytes.len() as u64, media_type: media_type.to_string() } })
     }
 
     fn events(&self) -> broadcast::Receiver<ClientEvent> {
@@ -582,11 +453,7 @@ impl Attacher {
 
 /// The feed a scoped subscription call opens (`subscribe`) or ends (`!subscribe`); `None` for any other call.
 fn scoped_feed_of(method: &str, params: &Json, subscribe: bool) -> Option<String> {
-    let (generic, ports) = if subscribe {
-        ("feed/subscribe", "system/ports/subscribe")
-    } else {
-        ("feed/unsubscribe", "system/ports/unsubscribe")
-    };
+    let (generic, ports) = if subscribe { ("feed/subscribe", "system/ports/subscribe") } else { ("feed/unsubscribe", "system/ports/unsubscribe") };
     if method == ports {
         return Some(ScopedFeedKind::Ports.prefix().to_owned());
     }
@@ -615,20 +482,9 @@ impl Client {
         Attacher { cmd: self.inner.cmd.clone() }
     }
 
-    async fn send_frame(
-        &self,
-        attachment: Option<AttachmentId>,
-        frame: Json,
-    ) -> Result<(), ClientError> {
+    async fn send_frame(&self, attachment: Option<AttachmentId>, frame: Json) -> Result<(), ClientError> {
         let (reply, rx) = oneshot::channel();
-        self.inner
-            .cmd
-            .send(Cmd::Send {
-                frame,
-                attachment,
-                reply,
-            })
-            .map_err(|_| ClientError::ClientClosed)?;
+        self.inner.cmd.send(Cmd::Send { frame, attachment, reply }).map_err(|_| ClientError::ClientClosed)?;
         rx.await.map_err(|_| ClientError::ClientClosed)?
     }
 }
@@ -648,10 +504,11 @@ fn conform_tool_approval(frame: &mut Json) {
     if !params.contains_key("request") {
         let card = params.get("card").filter(|card| card.is_object()).cloned();
         let content = card.unwrap_or_else(|| {
-            let content: serde_json::Map<String, Json> = ["name", "args", "cwd", "reason", "kind", "agentId", "grantAction", "remember", "outbound", "secret", "takeover", "permission", "connector"]
-                .iter()
-                .filter_map(|key| params.get(*key).map(|value| ((*key).to_owned(), value.clone())))
-                .collect();
+            let content: serde_json::Map<String, Json> =
+                ["name", "args", "cwd", "reason", "kind", "agentId", "grantAction", "remember", "outbound", "secret", "takeover", "permission", "connector"]
+                    .iter()
+                    .filter_map(|key| params.get(*key).map(|value| ((*key).to_owned(), value.clone())))
+                    .collect();
             Json::Object(content)
         });
         params.insert("request".to_owned(), content);
@@ -734,19 +591,11 @@ mod tests {
     #[tokio::test(flavor = "current_thread")]
     async fn an_unsubscribed_feeds_lane_ends_after_its_queued_items() {
         let options: Json = serde_json::from_str(
-            &std::fs::read_to_string(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../../../packages/protocol-client/conformance/options.json"
-            ))
-            .unwrap(),
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/protocol-client/conformance/options.json")).unwrap(),
         )
         .unwrap();
         let net = Arc::new(MockNetwork::default());
-        let mut opts = ConnectOptions::new(
-            Target { id: "local".into() },
-            net.clone(),
-            serde_json::from_value(options["clientInfo"].clone()).unwrap(),
-        );
+        let mut opts = ConnectOptions::new(Target { id: "local".into() }, net.clone(), serde_json::from_value(options["clientInfo"].clone()).unwrap());
         opts.capabilities = serde_json::from_value(options["capabilities"].clone()).unwrap();
         let connecting = tokio::spawn(connect(opts));
         let conn = net.accept().await;
@@ -759,10 +608,7 @@ mod tests {
 
         let resume = {
             let c = client.clone();
-            tokio::spawn(async move {
-                c.resume_thread(&ThreadId::from("t1"), ResumeWindow::LastItems { last_items: 50 })
-                    .await
-            })
+            tokio::spawn(async move { c.resume_thread(&ThreadId::from("t1"), ResumeWindow::LastItems { last_items: 50 }).await })
         };
         let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
         conn.server_send(&json!({ "id": req["id"], "result": thread_result("t1") }));
@@ -788,11 +634,7 @@ mod tests {
         for _ in 0..50 {
             tokio::task::yield_now().await;
         }
-        assert_eq!(
-            Arc::strong_count(&client.inner),
-            base + 1,
-            "the lane stays alive while its queued items are unfinished"
-        );
+        assert_eq!(Arc::strong_count(&client.inner), base + 1, "the lane stays alive while its queued items are unfinished");
 
         conn.server_send(&json!({ "id": read["id"], "result": { "bytesB64": "aGVsbG8=" } }));
         until("lane ended", || Arc::strong_count(&client.inner) == base).await;
@@ -813,19 +655,11 @@ mod tests {
 
     async fn ready(clock: Option<Arc<dyn Clock>>) -> (Arc<Client>, Arc<MockNetwork>, crate::mock::MockConn) {
         let options: Json = serde_json::from_str(
-            &std::fs::read_to_string(concat!(
-                env!("CARGO_MANIFEST_DIR"),
-                "/../../../../packages/protocol-client/conformance/options.json"
-            ))
-            .unwrap(),
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/protocol-client/conformance/options.json")).unwrap(),
         )
         .unwrap();
         let net = Arc::new(MockNetwork::default());
-        let mut opts = ConnectOptions::new(
-            Target { id: "local".into() },
-            net.clone(),
-            serde_json::from_value(options["clientInfo"].clone()).unwrap(),
-        );
+        let mut opts = ConnectOptions::new(Target { id: "local".into() }, net.clone(), serde_json::from_value(options["clientInfo"].clone()).unwrap());
         opts.capabilities = serde_json::from_value(options["capabilities"].clone()).unwrap();
         if let Some(clock) = clock {
             opts.clock = clock;
@@ -885,7 +719,6 @@ mod tests {
         assert_eq!(conn.client_close(), Some(1002));
     }
 
-
     #[tokio::test(flavor = "current_thread")]
     async fn a_frame_of_a_feed_nobody_subscribed_is_dropped() {
         let (client, _net, conn) = ready(None).await;
@@ -931,7 +764,6 @@ mod tests {
     }
 }
 
-
 impl Inner {
     fn lock(&self) -> MutexGuard<'_, Shared> {
         self.shared.lock().expect("client state poisoned")
@@ -948,25 +780,9 @@ impl Inner {
         self.emit(ClientEvent::Status(s));
     }
 
-    async fn rpc_once(
-        &self,
-        method: &str,
-        params: Json,
-        cls: Option<RequestClass>,
-        hook: Option<Hook>,
-        park: Option<Box<Park>>,
-    ) -> Result<Json, ClientError> {
+    async fn rpc_once(&self, method: &str, params: Json, cls: Option<RequestClass>, hook: Option<Hook>, park: Option<Box<Park>>) -> Result<Json, ClientError> {
         let (reply, rx) = oneshot::channel();
-        self.cmd
-            .send(Cmd::Rpc {
-                method: method.to_string(),
-                params,
-                cls,
-                hook,
-                park,
-                reply,
-            })
-            .map_err(|_| ClientError::ClientClosed)?;
+        self.cmd.send(Cmd::Rpc { method: method.to_string(), params, cls, hook, park, reply }).map_err(|_| ClientError::ClientClosed)?;
         rx.await.map_err(|_| ClientError::ClientClosed)?
     }
 
@@ -999,14 +815,7 @@ impl Inner {
 
     /// One call with its policy: ready wait, `-32001` retry on its trigger (SPEC R7), mutation parking for reconciliation.
     /// `stay` calls (stub resolution inside the fold) never wait for a reconnect: they fail `ConnectionLost` instead.
-    async fn run(
-        &self,
-        method: &str,
-        params: Json,
-        info: &MethodInfo,
-        hook: Option<Hook>,
-        stay: bool,
-    ) -> Result<Json, ClientError> {
+    async fn run(&self, method: &str, params: Json, info: &MethodInfo, hook: Option<Hook>, stay: bool) -> Result<Json, ClientError> {
         loop {
             if stay {
                 if !matches!(self.lock().status, ConnectionStatus::Ready { .. }) {
@@ -1017,38 +826,17 @@ impl Inner {
             }
             let sent = {
                 let s = self.lock();
-                SentAt {
-                    all: s.responses,
-                    by_class: s.class_responses,
-                    feed: s.feed_events,
-                }
+                SentAt { all: s.responses, by_class: s.class_responses, feed: s.feed_events }
             };
             let park = if info.is_mutation() {
-                let op_id = params
-                    .get("opId")
-                    .and_then(Json::as_str)
-                    .unwrap_or_default()
-                    .to_string();
-                let scope = info.op_scope_of(&params).ok_or_else(|| {
-                    ClientError::ProtocolViolation(format!("{method}: op scope field missing"))
-                })?;
-                Some(Box::new(Park {
-                    op_id,
-                    scope,
-                    method: method.to_string(),
-                    params: params.clone(),
-                    info: *info,
-                }))
+                let op_id = params.get("opId").and_then(Json::as_str).unwrap_or_default().to_string();
+                let scope = info.op_scope_of(&params).ok_or_else(|| ClientError::ProtocolViolation(format!("{method}: op scope field missing")))?;
+                Some(Box::new(Park { op_id, scope, method: method.to_string(), params: params.clone(), info: *info }))
             } else {
                 None
             };
-            match self
-                .rpc_once(method, params.clone(), Some(info.class), hook.clone(), park)
-                .await
-            {
-                Err(e) if matches!(&e, ClientError::Rpc(b) if b.code == mixdog_app_protocol::error::OVERLOADED) => {
-                    self.await_retry_trigger(e, &sent).await?
-                }
+            match self.rpc_once(method, params.clone(), Some(info.class), hook.clone(), park).await {
+                Err(e) if matches!(&e, ClientError::Rpc(b) if b.code == mixdog_app_protocol::error::OVERLOADED) => self.await_retry_trigger(e, &sent).await?,
                 other => return other,
             }
         }
@@ -1058,14 +846,12 @@ impl Inner {
         match e.error_data() {
             Some(ErrorData::InflightLimit { class, .. }) => {
                 let i = class_index(class);
-                self.wait_until(|s| s.class_responses[i] > sent.by_class[i])
-                    .await;
+                self.wait_until(|s| s.class_responses[i] > sent.by_class[i]).await;
             }
             Some(ErrorData::QueueFull { .. }) => self.wait_until(|s| s.responses > sent.all).await,
             Some(ErrorData::WindowFull { thread_id }) => {
                 let t = thread_id.to_string();
-                self.wait_until(|s| s.thread_last_event.get(&t).copied().unwrap_or(0) > sent.feed)
-                    .await;
+                self.wait_until(|s| s.thread_last_event.get(&t).copied().unwrap_or(0) > sent.feed).await;
             }
             _ => return Err(e),
         }
@@ -1074,60 +860,25 @@ impl Inner {
 
     fn resume_params(&self, thread_id: &ThreadId, window: &ResumeWindow) -> Json {
         let s = self.lock();
-        let resume_from = match (
-            s.store.threads.get(thread_id.as_str()),
-            s.subs.iter().find(|(t, _)| t == thread_id.as_str()),
-        ) {
-            (Some(prev), Some((_, pw))) => Some(ThreadResumePosition {
-                epoch: prev.feed.epoch.clone(),
-                seq: prev.feed.seq,
-                window: pw.clone(),
-            }),
+        let resume_from = match (s.store.threads.get(thread_id.as_str()), s.subs.iter().find(|(t, _)| t == thread_id.as_str())) {
+            (Some(prev), Some((_, pw))) => Some(ThreadResumePosition { epoch: prev.feed.epoch.clone(), seq: prev.feed.seq, window: pw.clone() }),
             _ => None,
         };
-        to_json(&ThreadResumeParams {
-            thread_id: thread_id.clone(),
-            window: window.clone(),
-            resume_from,
-        })
+        to_json(&ThreadResumeParams { thread_id: thread_id.clone(), window: window.clone(), resume_from })
     }
     fn app_params(&self) -> Json {
-        let resume_from =
-            self.lock()
-                .store
-                .app
-                .as_ref()
-                .map(|a| mixdog_app_protocol::v2::feed::FeedPosition {
-                    epoch: a.epoch.clone(),
-                    seq: a.seq,
-                });
+        let resume_from = self.lock().store.app.as_ref().map(|a| mixdog_app_protocol::v2::feed::FeedPosition { epoch: a.epoch.clone(), seq: a.seq });
         to_json(&AppSubscribeParams { resume_from })
     }
 
     async fn read_pages(&self, blob: &BlobDescriptor, stay: bool) -> Result<Vec<u8>, ClientError> {
-        let page = self
-            .lock()
-            .server
-            .as_ref()
-            .expect("initialized")
-            .limits
-            .max_blob_page_bytes;
+        let page = self.lock().server.as_ref().expect("initialized").limits.max_blob_page_bytes;
         let mut out = Vec::with_capacity(blob.bytes as usize);
         while (out.len() as u64) < blob.bytes {
             let offset = out.len() as u64;
-            let params = to_json(&BlobReadParams {
-                digest: blob.digest.clone(),
-                offset: Some(offset),
-                length: Some(page.min(blob.bytes - offset)),
-            });
-            let r: BlobReadResponse = from_json(
-                self.run("blob/read", params, &READ_C1, None, stay)
-                    .await
-                    .map_err(blob_error)?,
-            )?;
-            let bytes = B64
-                .decode(r.bytes_b64)
-                .map_err(|e| ClientError::ProtocolViolation(e.to_string()))?;
+            let params = to_json(&BlobReadParams { digest: blob.digest.clone(), offset: Some(offset), length: Some(page.min(blob.bytes - offset)) });
+            let r: BlobReadResponse = from_json(self.run("blob/read", params, &READ_C1, None, stay).await.map_err(blob_error)?)?;
+            let bytes = B64.decode(r.bytes_b64).map_err(|e| ClientError::ProtocolViolation(e.to_string()))?;
             if bytes.is_empty() {
                 return Err(ClientError::ProtocolViolation("empty blob page".into()));
             }
@@ -1138,11 +889,7 @@ impl Inner {
 
     /// Replaces every text stub by its content. A stub that cannot be read stays a stub and its error is appended to
     /// `failed`; only the end of the connection aborts the whole resolution.
-    fn resolve_blobs<'a>(
-        &'a self,
-        v: Json,
-        failed: &'a mut Vec<ClientError>,
-    ) -> Pin<Box<dyn Future<Output = Result<Json, ClientError>> + Send + 'a>> {
+    fn resolve_blobs<'a>(&'a self, v: Json, failed: &'a mut Vec<ClientError>) -> Pin<Box<dyn Future<Output = Result<Json, ClientError>> + Send + 'a>> {
         Box::pin(async move {
             match v {
                 Json::Array(items) => {
@@ -1158,9 +905,7 @@ impl Inner {
                             return Ok(Json::Object(map));
                         }
                         return match self.read_pages(&b.blob, true).await {
-                            Ok(bytes) => {
-                                Ok(Json::String(String::from_utf8_lossy(&bytes).into_owned()))
-                            }
+                            Ok(bytes) => Ok(Json::String(String::from_utf8_lossy(&bytes).into_owned())),
                             Err(e) if is_connection_end(&e) => Err(e),
                             Err(e) => {
                                 failed.push(e);
@@ -1190,20 +935,9 @@ impl Inner {
         if u.removed == Some(true) {
             bucket.remove(&k);
         } else {
-            bucket.insert(
-                k,
-                SectionEntry {
-                    section: u.section,
-                    key: u.key.clone(),
-                    revision: u.revision,
-                    value: u.value.unwrap_or(Json::Null),
-                },
-            );
+            bucket.insert(k, SectionEntry { section: u.section, key: u.key.clone(), revision: u.revision, value: u.value.unwrap_or(Json::Null) });
         }
-        let _ = self.store_changes.send(StoreChange::Section {
-            section: u.section,
-            key: u.key,
-        });
+        let _ = self.store_changes.send(StoreChange::Section { section: u.section, key: u.key });
     }
 
     async fn fold_item(&self, item: FoldItem) {
@@ -1213,44 +947,25 @@ impl Inner {
                     return;
                 }
                 if n.method == wire::SERVER_REQUEST_RESOLVED {
-                    match n
-                        .params
-                        .clone()
-                        .map(serde_json::from_value::<ServerRequestResolvedParams>)
-                    {
+                    match n.params.clone().map(serde_json::from_value::<ServerRequestResolvedParams>) {
                         Some(Ok(p)) => {
-                            self.lock()
-                                .server_requests
-                                .retain(|(r, _)| *r.id() != p.request_id);
+                            self.lock().server_requests.retain(|(r, _)| *r.id() != p.request_id);
                             self.emit(ClientEvent::ServerRequestResolved(p));
                         }
-                        _ => self.emit(ClientEvent::ProtocolViolation(
-                            "bad serverRequest/resolved".into(),
-                        )),
+                        _ => self.emit(ClientEvent::ProtocolViolation("bad serverRequest/resolved".into())),
                     }
                 } else {
                     self.emit(ClientEvent::Notification(n));
                 }
             }
-            FoldItem::Feed {
-                n,
-                f,
-                snapshot,
-                cur_gen,
-            } => {
+            FoldItem::Feed { n, f, snapshot, cur_gen } => {
                 let mut failed = Vec::new();
-                let params = match self
-                    .resolve_blobs(n.params.clone().unwrap_or(Json::Null), &mut failed)
-                    .await
-                {
+                let params = match self.resolve_blobs(n.params.clone().unwrap_or(Json::Null), &mut failed).await {
                     Ok(p) => p,
                     Err(_) => return,
                 };
                 for error in failed {
-                    self.emit(ClientEvent::BlobUnavailable {
-                        feed: f.clone(),
-                        error,
-                    });
+                    self.emit(ClientEvent::BlobUnavailable { feed: f.clone(), error });
                 }
                 let mut resolved = n;
                 resolved.params = Some(params.clone());
@@ -1274,16 +989,12 @@ impl Inner {
                                         self.apply_section(st, u);
                                     }
                                 }
-                                Err(e) => self.emit(ClientEvent::ProtocolViolation(format!(
-                                    "bad app/snapshot: {e}"
-                                ))),
+                                Err(e) => self.emit(ClientEvent::ProtocolViolation(format!("bad app/snapshot: {e}"))),
                             }
                         } else if is_section_method(&resolved.method) {
                             match serde_json::from_value::<SectionUpdate>(params) {
                                 Ok(u) => self.apply_section(st, u),
-                                Err(e) => self.emit(ClientEvent::ProtocolViolation(format!(
-                                    "bad section update: {e}"
-                                ))),
+                                Err(e) => self.emit(ClientEvent::ProtocolViolation(format!("bad section update: {e}"))),
                             }
                         } else {
                             passthrough = Some(resolved);
@@ -1291,22 +1002,15 @@ impl Inner {
                     } else {
                         let reducer = &self.opts.thread_reducer;
                         let state = if snapshot {
-                            reducer
-                                .as_ref()
-                                .map_or_else(|| params.clone(), |r| r.initial(&params))
+                            reducer.as_ref().map_or_else(|| params.clone(), |r| r.initial(&params))
                         } else if let Some(prev) = st.threads.get(f.id.as_str()) {
-                            reducer.as_ref().map_or_else(
-                                || prev.state.clone(),
-                                |r| r.apply(&prev.state, &resolved),
-                            )
+                            reducer.as_ref().map_or_else(|| prev.state.clone(), |r| r.apply(&prev.state, &resolved))
                         } else {
                             return;
                         };
                         let id = f.id.to_string();
                         st.threads.insert(id.clone(), ThreadFold { feed: f, state });
-                        let _ = self
-                            .store_changes
-                            .send(StoreChange::Thread { thread_id: id });
+                        let _ = self.store_changes.send(StoreChange::Thread { thread_id: id });
                     }
                 }
                 if let Some(n) = passthrough {
@@ -1335,25 +1039,15 @@ impl Inner {
     /// `op/status` is an ordinary call (ready wait, `-32001` retry). The end of the connection leaves the scope parked for the
     /// next reconnect's reconciliation; any other failure ends the scope's parked calls with `OpOutcomeUnknown`.
     async fn reconcile_scope(self: Arc<Self>, scope: String, op_ids: Vec<String>) {
-        let params = OpStatusParams {
-            scope: OpScopeName(scope),
-            op_ids: op_ids.iter().map(|i| OpId::from(i.as_str())).collect(),
-            fence: true,
-        };
+        let params = OpStatusParams { scope: OpScopeName(scope), op_ids: op_ids.iter().map(|i| OpId::from(i.as_str())).collect(), fence: true };
         let info = method_info("op/status").unwrap_or(INTERNAL);
-        let outcome = match self
-            .run("op/status", to_json(&params), &info, None, false)
-            .await
-        {
+        let outcome = match self.run("op/status", to_json(&params), &info, None, false).await {
             Ok(reply) => from_json::<OpStatusResponse>(reply),
             Err(e) => Err(e),
         };
         let take = |op_id: &str| {
             let mut s = self.lock();
-            s.unanswered
-                .iter()
-                .position(|u| u.park.op_id == op_id)
-                .map(|i| s.unanswered.remove(i))
+            s.unanswered.iter().position(|u| u.park.op_id == op_id).map(|i| s.unanswered.remove(i))
         };
         let response = match outcome {
             Ok(r) => r,
@@ -1361,11 +1055,7 @@ impl Inner {
             Err(cause) => {
                 for op_id in &op_ids {
                     if let Some(u) = take(op_id) {
-                        let error = ClientError::OpOutcomeUnknown {
-                            op_id: op_id.clone(),
-                            state: "statusFailed".into(),
-                            cause: Some(Box::new(cause.clone())),
-                        };
+                        let error = ClientError::OpOutcomeUnknown { op_id: op_id.clone(), state: "statusFailed".into(), cause: Some(Box::new(cause.clone())) };
                         let _ = u.reply.send(Err(error));
                     }
                 }
@@ -1376,9 +1066,7 @@ impl Inner {
             let Some(u) = take(&op_id) else { continue };
             match response.ops.iter().find(|e| e.op_id.as_str() == op_id) {
                 None => {
-                    let _ = u.reply.send(Err(ClientError::ProtocolViolation(format!(
-                        "op/status omitted {op_id}"
-                    ))));
+                    let _ = u.reply.send(Err(ClientError::ProtocolViolation(format!("op/status omitted {op_id}"))));
                 }
                 Some(e) => self.clone().settle(u, e.state.clone()),
             }
@@ -1402,14 +1090,8 @@ impl Inner {
     /// An rpc error drops the subscription; the end of the connection is the ladder's business.
     async fn restore_thread(self: Arc<Self>, thread_id: String, window: ResumeWindow) {
         let params = self.resume_params(&ThreadId::from(thread_id.as_str()), &window);
-        let hook = Hook::Attach {
-            feed_id: thread_id.clone(),
-            thread: Some((thread_id.clone(), window)),
-        };
-        if let Err(error @ ClientError::Rpc(_)) = self
-            .run("thread/resume", params, &INTERNAL, Some(hook), false)
-            .await
-        {
+        let hook = Hook::Attach { feed_id: thread_id.clone(), thread: Some((thread_id.clone(), window)) };
+        if let Err(error @ ClientError::Rpc(_)) = self.run("thread/resume", params, &INTERNAL, Some(hook), false).await {
             {
                 let mut s = self.lock();
                 s.subs.retain(|(t, _)| *t != thread_id);
@@ -1419,52 +1101,27 @@ impl Inner {
         }
     }
     async fn restore_app(self: Arc<Self>) {
-        let hook = Hook::Attach {
-            feed_id: APP_FEED_ID.to_string(),
-            thread: None,
-        };
-        if let Err(error @ ClientError::Rpc(_)) = self
-            .run(
-                "app/subscribe",
-                self.app_params(),
-                &INTERNAL,
-                Some(hook),
-                false,
-            )
-            .await
-        {
+        let hook = Hook::Attach { feed_id: APP_FEED_ID.to_string(), thread: None };
+        if let Err(error @ ClientError::Rpc(_)) = self.run("app/subscribe", self.app_params(), &INTERNAL, Some(hook), false).await {
             self.lock().app_subscribed = false;
-            self.emit(ClientEvent::SubscriptionLost {
-                thread_id: APP_FEED_ID.to_string(),
-                error,
-            });
+            self.emit(ClientEvent::SubscriptionLost { thread_id: APP_FEED_ID.to_string(), error });
         }
     }
 
     fn settle(self: Arc<Self>, u: Unanswered, state: OpState) {
         let Unanswered { park, reply } = u;
-        let unknown = |state: &str| ClientError::OpOutcomeUnknown {
-            op_id: park.op_id.clone(),
-            state: state.to_string(),
-            cause: None,
-        };
+        let unknown = |state: &str| ClientError::OpOutcomeUnknown { op_id: park.op_id.clone(), state: state.to_string(), cause: None };
         match state {
             OpState::Applied { result, .. } => {
                 let _ = reply.send(Ok(result.unwrap_or(Json::Null)));
             }
             OpState::Rejected { error } => {
-                let _ =
-                    reply
-                        .send(Err(from_json::<JsonRpcErrorBody>(error)
-                            .map_or_else(|e| e, ClientError::Rpc)));
+                let _ = reply.send(Err(from_json::<JsonRpcErrorBody>(error).map_or_else(|e| e, ClientError::Rpc)));
             }
             OpState::InProgress => {
                 // Same opId and payload: the core attaches the request to the running execution (§9.3).
                 tokio::spawn(async move {
-                    let _ = reply.send(
-                        self.run(&park.method, park.params, &park.info, None, false)
-                            .await,
-                    );
+                    let _ = reply.send(self.run(&park.method, park.params, &park.info, None, false).await);
                 });
             }
             OpState::NotApplied => {
@@ -1481,13 +1138,7 @@ impl Inner {
 }
 impl Driver {
     async fn open(&mut self) -> Result<(), ClientError> {
-        let halves = self
-            .inner
-            .opts
-            .connector
-            .open(&self.inner.opts.target)
-            .await
-            .map_err(ClientError::Connector)?;
+        let halves = self.inner.opts.connector.open(&self.inner.opts.target).await.map_err(ClientError::Connector)?;
         self.writer = Some(halves.writer);
         self.reader = Some(halves.reader);
         self.inner.lock().connected = true;
@@ -1504,39 +1155,24 @@ impl Driver {
 
     async fn write(&mut self, frame: &Json) -> Result<(), ClientError> {
         let w = self.writer.as_mut().ok_or(ClientError::ConnectionLost)?;
-        w.send(frame.to_string())
-            .await
-            .map_err(|_| ClientError::ConnectionLost)
+        w.send(frame.to_string()).await.map_err(|_| ClientError::ConnectionLost)
     }
 
     async fn violation(&mut self, code: u16, what: &str) {
-        self.inner
-            .emit(ClientEvent::ProtocolViolation(what.to_string()));
+        self.inner.emit(ClientEvent::ProtocolViolation(what.to_string()));
         if let Some(w) = self.writer.as_mut() {
             w.close(code, what.to_string()).await;
         }
     }
 
-    async fn register(
-        &mut self,
-        method: String,
-        params: Json,
-        cls: Option<RequestClass>,
-        hook: Option<Hook>,
-        park: Option<Box<Park>>,
-        reply: Reply,
-    ) {
+    async fn register(&mut self, method: String, params: Json, cls: Option<RequestClass>, hook: Option<Hook>, park: Option<Box<Park>>, reply: Reply) {
         if self.writer.is_none() {
             let terminal = self.inner.lock().terminal.clone();
             match (terminal, park) {
                 (Some(t), _) => {
                     let _ = reply.send(Err(t));
                 }
-                (None, Some(park)) => self
-                    .inner
-                    .lock()
-                    .unanswered
-                    .push(Unanswered { park: *park, reply }),
+                (None, Some(park)) => self.inner.lock().unanswered.push(Unanswered { park: *park, reply }),
                 (None, None) => {
                     let _ = reply.send(Err(ClientError::ConnectionLost));
                 }
@@ -1551,27 +1187,13 @@ impl Driver {
         }
         // A frame that cannot be written was never sent; treat it like a lost one (parked mutations are reconciled).
         let _ = self.write(&frame).await;
-        self.pending.insert(
-            id,
-            Pending {
-                cls,
-                hook,
-                park,
-                reply,
-            },
-        );
+        self.pending.insert(id, Pending { cls, hook, park, reply });
     }
 
     /// Sends a request and drives the connection until its response (used for handshake and restore).
-    async fn rpc_inline(
-        &mut self,
-        method: &str,
-        params: Json,
-        hook: Option<Hook>,
-    ) -> Result<Json, ClientError> {
+    async fn rpc_inline(&mut self, method: &str, params: Json, hook: Option<Hook>) -> Result<Json, ClientError> {
         let (tx, mut rx) = oneshot::channel();
-        self.register(method.to_string(), params, None, hook, None, tx)
-            .await;
+        self.register(method.to_string(), params, None, hook, None, tx).await;
         loop {
             let wake = tokio::select! {
                 r = &mut rx => return r.map_err(|_| ClientError::ClientClosed)?,
@@ -1605,27 +1227,12 @@ impl Driver {
             }
             // Only a wait between attempts is cut short; a connected client has nothing to attach.
             Cmd::AttachNow => self.attach_now = self.reader.is_none(),
-            Cmd::Rpc {
-                method,
-                params,
-                cls,
-                hook,
-                park,
-                reply,
-            } => self.register(method, params, cls, hook, park, reply).await,
-            Cmd::Send {
-                frame,
-                attachment,
-                reply,
-            } => {
+            Cmd::Rpc { method, params, cls, hook, park, reply } => self.register(method, params, cls, hook, park, reply).await,
+            Cmd::Send { frame, attachment, reply } => {
                 // The generation moves when a socket ends (`on_closed`), in this same task: a frame meant for a socket that
                 // has ended is refused here, before any byte is handed to the writer of its successor.
                 let stale = attachment.is_some_and(|a| a != self.inner.lock().attachment());
-                let r = if stale {
-                    Err(ClientError::StaleAttachment)
-                } else {
-                    self.write(&frame).await
-                };
+                let r = if stale { Err(ClientError::StaleAttachment) } else { self.write(&frame).await };
                 let _ = reply.send(r);
             }
             Cmd::Close { reply } => {
@@ -1658,10 +1265,7 @@ impl Driver {
             for id in ids {
                 let p = self.pending.remove(&id).expect("pending id");
                 match p.park {
-                    Some(park) => s.unanswered.push(Unanswered {
-                        park: *park,
-                        reply: p.reply,
-                    }),
+                    Some(park) => s.unanswered.push(Unanswered { park: *park, reply: p.reply }),
                     None => {
                         let _ = p.reply.send(Err(ClientError::ConnectionLost));
                     }
@@ -1675,12 +1279,7 @@ impl Driver {
         let mut ids: Vec<u64> = self.pending.keys().copied().collect();
         ids.sort_unstable();
         for id in ids {
-            let _ = self
-                .pending
-                .remove(&id)
-                .expect("pending id")
-                .reply
-                .send(Err(detail.clone()));
+            let _ = self.pending.remove(&id).expect("pending id").reply.send(Err(detail.clone()));
         }
         {
             let mut s = self.inner.lock();
@@ -1691,8 +1290,7 @@ impl Driver {
             }
         }
         self.inner.pulse();
-        self.inner
-            .set_status(ConnectionStatus::Closed { reason: detail });
+        self.inner.set_status(ConnectionStatus::Closed { reason: detail });
     }
 
     async fn on_frame(&mut self, text: &str) {
@@ -1711,18 +1309,13 @@ impl Driver {
                         // A capability holder's request is its handler's to end: only what the core resolves itself is held (a
                         // method the protocol does not list does not parse, so it is never held: the TS client's `isOfferedRequest`).
                         // The address is taken here, on decode: the socket this frame came in on, whenever its handler runs.
-                        let address = ReplyAddress {
-                            attachment: self.inner.lock().attachment(),
-                            request_id: r.id().clone(),
-                        };
+                        let address = ReplyAddress { attachment: self.inner.lock().attachment(), request_id: r.id().clone() };
                         if r.requires().is_none() {
                             self.inner.lock().server_requests.push((r.clone(), address.clone()));
                         }
                         self.inner.emit(ClientEvent::ServerRequest(r, address));
                     }
-                    Err(e) => self.inner.emit(ClientEvent::ProtocolViolation(format!(
-                        "bad server request: {e}"
-                    ))),
+                    Err(e) => self.inner.emit(ClientEvent::ProtocolViolation(format!("bad server request: {e}"))),
                 }
             } else {
                 match serde_json::from_value::<RpcNotification>(m) {
@@ -1733,17 +1326,10 @@ impl Driver {
             return;
         }
         // RFC 6455: 1007 for a payload that does not decode, 1002 for a sequence violation.
-        let Some(id) = m
-            .get("id")
-            .and_then(Json::as_u64)
-            .filter(|id| self.pending.contains_key(id))
-        else {
+        let Some(id) = m.get("id").and_then(Json::as_u64).filter(|id| self.pending.contains_key(id)) else {
             return self.violation(1002, "response to unknown request").await;
         };
-        let body = match m
-            .get("error")
-            .map(|err| serde_json::from_value::<JsonRpcErrorBody>(err.clone()))
-        {
+        let body = match m.get("error").map(|err| serde_json::from_value::<JsonRpcErrorBody>(err.clone())) {
             Some(Err(_)) => return self.violation(1007, "bad error body").await, // stays pending: the close settles it
             Some(Ok(body)) => Some(body),
             None => None,
@@ -1770,16 +1356,11 @@ impl Driver {
                 Hook::Attach { .. } => wrapped,
             })
             .and_then(|s| serde_json::from_value::<Subscription>(s.clone()).ok()) else {
-                let _ = p.reply.send(Err(ClientError::ProtocolViolation(
-                    "response without subscription".into(),
-                )));
+                let _ = p.reply.send(Err(ClientError::ProtocolViolation("response without subscription".into())));
                 return;
             };
             let mut sh = self.inner.lock();
-            sh.recv.insert(
-                feed_id.clone(),
-                (s.epoch.to_string(), s.start_seq.saturating_sub(1)),
-            );
+            sh.recv.insert(feed_id.clone(), (s.epoch.to_string(), s.start_seq.saturating_sub(1)));
             match (thread, hook) {
                 (Some((id, w)), _) => match sh.subs.iter_mut().find(|(t, _)| t == id) {
                     Some(e) => e.1 = w.clone(),
@@ -1846,8 +1427,7 @@ impl Driver {
                 None
             } else {
                 let cur = s.recv.get(&id);
-                let bad = !snapshot
-                    && !cur.is_some_and(|(e, q)| *e == f.epoch.as_str() && f.seq == q + 1);
+                let bad = !snapshot && !cur.is_some_and(|(e, q)| *e == f.epoch.as_str() && f.seq == q + 1);
                 if !bad {
                     s.recv.insert(id.clone(), (f.epoch.to_string(), f.seq));
                 }
@@ -1859,44 +1439,23 @@ impl Driver {
             None => {}
             Some(true) => self.violation(1002, &format!("feed gap on {id}")).await,
             Some(false) => {
-                self.fold(
-                    Some(id),
-                    FoldItem::Feed {
-                        n,
-                        f,
-                        snapshot,
-                        cur_gen,
-                    },
-                );
+                self.fold(Some(id), FoldItem::Feed { n, f, snapshot, cur_gen });
             }
         }
     }
 
     async fn handshake(&mut self) -> Result<(), ClientError> {
-        let params = InitializeParams {
-            client_info: self.inner.opts.client_info.clone(),
-            capabilities: Some(self.inner.opts.capabilities.clone()),
-        };
+        let params = InitializeParams { client_info: self.inner.opts.client_info.clone(), capabilities: Some(self.inner.opts.capabilities.clone()) };
         let result = match self.rpc_inline("initialize", to_json(&params), None).await {
             Ok(r) => r,
             Err(e) => {
                 return Err(match e.error_data() {
-                    Some(ErrorData::ClientOutdated {
-                        server_version,
-                        client_version,
-                    }) => ClientError::VersionRefused {
-                        reason: "clientOutdated".into(),
-                        server_version,
-                        client_version,
-                    },
-                    Some(ErrorData::ServerOutdated {
-                        server_version,
-                        client_version,
-                    }) => ClientError::VersionRefused {
-                        reason: "serverOutdated".into(),
-                        server_version,
-                        client_version,
-                    },
+                    Some(ErrorData::ClientOutdated { server_version, client_version }) => {
+                        ClientError::VersionRefused { reason: "clientOutdated".into(), server_version, client_version }
+                    }
+                    Some(ErrorData::ServerOutdated { server_version, client_version }) => {
+                        ClientError::VersionRefused { reason: "serverOutdated".into(), server_version, client_version }
+                    }
                     _ => e,
                 });
             }
@@ -1934,13 +1493,8 @@ impl Driver {
             if self.done || self.inner.lock().terminal.is_some() {
                 return;
             }
-            self.inner
-                .set_status(ConnectionStatus::Reconnecting { attempt });
-            let delay = ladder_delay(
-                attempt,
-                self.inner.opts.clock.jitter(),
-                self.inner.opts.ladder,
-            );
+            self.inner.set_status(ConnectionStatus::Reconnecting { attempt });
+            let delay = ladder_delay(attempt, self.inner.opts.clock.jitter(), self.inner.opts.ladder);
             if !self.sleep(delay).await {
                 return;
             }
@@ -1951,17 +1505,8 @@ impl Driver {
             .await;
             match outcome {
                 Ok(()) => {
-                    let id = self
-                        .inner
-                        .lock()
-                        .server
-                        .as_ref()
-                        .expect("initialized")
-                        .server_instance_id
-                        .clone();
-                    self.inner.set_status(ConnectionStatus::Ready {
-                        server_instance_id: id,
-                    });
+                    let id = self.inner.lock().server.as_ref().expect("initialized").server_instance_id.clone();
+                    self.inner.set_status(ConnectionStatus::Ready { server_instance_id: id });
                     // The connection is usable now. Each subscription and each scope's reconciliation proceeds independently.
                     self.inner.restore_subscriptions();
                     self.inner.reconcile_ops();

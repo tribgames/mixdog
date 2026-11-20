@@ -12,9 +12,7 @@ use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use mixdog_fsio::Unlaned;
 use mixdog_relay::feedback::http::BODY_TIMEOUT;
-use mixdog_relay::feedback::{
-    FeedbackEndpoint, FeedbackMail, FeedbackOptions, FeedbackSender, FeedbackService, Mailer, MAX_BODY_BYTES, SendFailure,
-};
+use mixdog_relay::feedback::{FeedbackEndpoint, FeedbackMail, FeedbackOptions, FeedbackSender, FeedbackService, MAX_BODY_BYTES, Mailer, SendFailure};
 use mixdog_relay::http1::{Handler, HandlerFuture, Limits, Request, ResponseWriter, UpgradeRequest};
 use mixdog_relay::logline::Line;
 use mixdog_relay::mail::MailConfig;
@@ -82,7 +80,11 @@ struct Setup {
 
 impl Setup {
     fn with(sender: Arc<dyn FeedbackSender>) -> Self {
-        Self { sender: Some(sender), options: FeedbackOptions { ip_limit: 1000, global_limit: 10_000, ..FeedbackOptions::default() }, body_timeout: BODY_TIMEOUT }
+        Self {
+            sender: Some(sender),
+            options: FeedbackOptions { ip_limit: 1000, global_limit: 10_000, ..FeedbackOptions::default() },
+            body_timeout: BODY_TIMEOUT,
+        }
     }
 
     fn limits(mut self, ip_limit: usize, global_limit: usize) -> Self {

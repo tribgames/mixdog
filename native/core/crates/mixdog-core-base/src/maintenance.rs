@@ -108,9 +108,7 @@ impl ProbeRegistration {
 
 /// `Date.now()`.
 pub fn system_clock() -> Clock {
-    Arc::new(|| {
-        SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX))
-    })
+    Arc::new(|| SystemTime::now().duration_since(SystemTime::UNIX_EPOCH).map_or(0, |d| i64::try_from(d.as_millis()).unwrap_or(i64::MAX)))
 }
 
 fn millis(d: Duration) -> i64 {
@@ -269,7 +267,6 @@ mod tests {
         assert_eq!(runs.load(Ordering::SeqCst), 0);
     }
 
-
     /// The started timer ticks the due tasks on its own and ends with the schedule.
     #[tokio::test(start_paused = true)]
     async fn the_started_timer_runs_due_tasks() {
@@ -382,7 +379,6 @@ mod tests {
         assert!(schedule.run_tasks(true, 0).await.ran.is_empty(), "every task is unregistered");
     }
 }
-
 
 impl MaintenanceSchedule {
     pub fn new() -> Arc<Self> {

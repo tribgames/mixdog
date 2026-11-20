@@ -38,8 +38,8 @@ use mixdog_app_protocol::rpc::RequestId;
 use mixdog_app_protocol::v2::approval::ApprovalProvideSecretParams;
 use mixdog_core_api::CoreError;
 use mixdog_core_api::CoreRequest;
-use mixdog_core_api::HostClaim;
 use mixdog_core_api::DomainService;
+use mixdog_core_api::HostClaim;
 use mixdog_core_api::Reply;
 use mixdog_core_api::ids::ConnectionId;
 use mixdog_core_api::ids::Method;
@@ -88,10 +88,10 @@ pub use saved_login::SavedLoginWorker;
 pub use saved_login::SavedLogins;
 pub use saved_login::WindowPids;
 pub use saved_login::fill_saved_login;
+pub use saved_login::pixels_allowed;
 pub use saved_login_host::HelperWindowPids;
 pub use saved_login_host::HostSavedLoginWorker;
 pub use saved_login_host::HostSavedLogins;
-pub use saved_login::pixels_allowed;
 
 /// A thrown `TypeError`/`Error`: its message is the whole answer.
 fn thrown(message: &str) -> CoreError {
@@ -157,8 +157,13 @@ struct Held<T> {
 #[derive(Clone)]
 enum Target {
     /// The page is the host's; the claim is the desktop that bound it, which alone may receive the value.
-    Browser { claim: HostClaim },
-    Computer { window_id: String, reference: String },
+    Browser {
+        claim: HostClaim,
+    },
+    Computer {
+        window_id: String,
+        reference: String,
+    },
 }
 
 #[derive(Clone)]

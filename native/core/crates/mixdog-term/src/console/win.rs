@@ -8,8 +8,8 @@ use std::os::windows::io::AsRawHandle;
 
 use mixdog_fsio::{File, OpenOptions, Unlaned};
 use windows_sys::Win32::System::Console::{
-    CONSOLE_SCREEN_BUFFER_INFO, ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, ENABLE_WINDOW_INPUT,
-    GetConsoleMode, GetConsoleScreenBufferInfo, SetConsoleMode,
+    CONSOLE_SCREEN_BUFFER_INFO, ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING, ENABLE_WINDOW_INPUT, GetConsoleMode,
+    GetConsoleScreenBufferInfo, SetConsoleMode,
 };
 
 /// The input mode of a raw console: the flags libuv sets, so line input, echo and processed input are off. Without
@@ -59,13 +59,7 @@ pub(super) fn enable() -> io::Result<State> {
             output_changed = set_mode(output, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING).is_ok();
         }
     }
-    Ok(State {
-        input,
-        output: if output_changed { output } else { None },
-        input_mode,
-        output_mode,
-        restored: false,
-    })
+    Ok(State { input, output: if output_changed { output } else { None }, input_mode, output_mode, restored: false })
 }
 
 /// True when this call put the modes back.

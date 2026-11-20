@@ -26,30 +26,13 @@ use crate::service::admin_route::jnum;
 use crate::service::admin_route::number;
 use crate::service::admin_route::truthy;
 
-const SIMPLE_PREFIXES: [&str; 10] = [
-    "anthropic/",
-    "openai/",
-    "gemini/",
-    "google/",
-    "xai/",
-    "azure_ai/",
-    "deepseek/",
-    "openrouter/anthropic/",
-    "openrouter/openai/",
-    "vertex_ai/",
-];
+const SIMPLE_PREFIXES: [&str; 10] =
+    ["anthropic/", "openai/", "gemini/", "google/", "xai/", "azure_ai/", "deepseek/", "openrouter/anthropic/", "openrouter/openai/", "vertex_ai/"];
 const BEDROCK_PREFIXES: [&str; 2] = ["anthropic.", "bedrock/anthropic."];
 
-const CAPABILITY_FLAGS: [&str; 6] = [
-    "supportsVision",
-    "supportsFunctionCalling",
-    "supportsWebSearch",
-    "supportsPromptCaching",
-    "supportsFastMode",
-    "supportsReasoning",
-];
-const GUESSED_FLAGS: [&str; 5] =
-    ["supportsVision", "supportsFunctionCalling", "supportsWebSearch", "supportsPromptCaching", "supportsReasoning"];
+const CAPABILITY_FLAGS: [&str; 6] =
+    ["supportsVision", "supportsFunctionCalling", "supportsWebSearch", "supportsPromptCaching", "supportsFastMode", "supportsReasoning"];
+const GUESSED_FLAGS: [&str; 5] = ["supportsVision", "supportsFunctionCalling", "supportsWebSearch", "supportsPromptCaching", "supportsReasoning"];
 const PRICING_FIELDS: [&str; 17] = [
     "inputCostPerM",
     "outputCostPerM",
@@ -389,18 +372,13 @@ pub fn roster_row_metadata(provider: &str, row: &Value) -> Obj {
 /// `rosterReasoningOptions(row)`.
 fn roster_reasoning_options(row: &Value) -> Value {
     let options: Vec<Value> = row.get("reasoningOptions").and_then(Value::as_array).cloned().unwrap_or_default();
-    let usable: Vec<Value> = options
-        .into_iter()
-        .filter(|o| o.get("type").and_then(Value::as_str) != Some("effort") || is_array_nonempty(o.get("values")))
-        .collect();
+    let usable: Vec<Value> =
+        options.into_iter().filter(|o| o.get("type").and_then(Value::as_str) != Some("effort") || is_array_nonempty(o.get("values"))).collect();
     if usable.iter().any(|o| o.get("type").and_then(Value::as_str) == Some("effort")) {
         return Value::Array(usable);
     }
-    let levels: Vec<Value> = row
-        .get("reasoningLevels")
-        .and_then(Value::as_array)
-        .map(|a| a.iter().filter(|v| v.is_string()).cloned().collect())
-        .unwrap_or_default();
+    let levels: Vec<Value> =
+        row.get("reasoningLevels").and_then(Value::as_array).map(|a| a.iter().filter(|v| v.is_string()).cloned().collect()).unwrap_or_default();
     if levels.is_empty() {
         return Value::Array(usable);
     }
@@ -457,9 +435,7 @@ impl Lookup<'_> {
     fn catalog_metadata(&self, id: &str, mapped: Option<&str>) -> Option<Obj> {
         let mut meta: Option<Obj> = None;
         let provider_matches = |row: &Value| {
-            mapped.is_none_or(|m| {
-                row.get("litellm_provider").and_then(Value::as_str).and_then(registry::models_dev_provider_id).as_deref() == Some(m)
-            })
+            mapped.is_none_or(|m| row.get("litellm_provider").and_then(Value::as_str).and_then(registry::models_dev_provider_id).as_deref() == Some(m))
         };
         if let Some(ov) = registry::PRICING_OVERRIDES.get(id)
             && provider_matches(ov)
@@ -528,7 +504,8 @@ impl Lookup<'_> {
     /// Vendors that served a relayed model, by provenance that does not
     /// depend on catalog entry order.
     fn relayed_model_vendors(&self, id: &str) -> Vec<String> {
-        let is_vendor = |vendor: &str| !vendor.is_empty() && !vendor.starts_with("custom-") && !registry::provider_catalog_entry(vendor).is_some_and(|e| e.relay);
+        let is_vendor =
+            |vendor: &str| !vendor.is_empty() && !vendor.starts_with("custom-") && !registry::provider_catalog_entry(vendor).is_some_and(|e| e.relay);
         let mut vendors: Vec<String> = Vec::new();
         let add = |vendor: String, vendors: &mut Vec<String>| {
             if !vendors.contains(&vendor) {
@@ -537,10 +514,7 @@ impl Lookup<'_> {
         };
         let keys = std::iter::once(id.to_owned()).chain(SIMPLE_PREFIXES.iter().map(|p| format!("{p}{id}")));
         for key in keys {
-            let vendor = self
-                .litellm
-                .row(&key)
-                .and_then(|r| r.get("litellm_provider").and_then(Value::as_str).and_then(registry::models_dev_provider_id));
+            let vendor = self.litellm.row(&key).and_then(|r| r.get("litellm_provider").and_then(Value::as_str).and_then(registry::models_dev_provider_id));
             if let Some(vendor) = vendor.filter(|v| is_vendor(v)) {
                 add(vendor, &mut vendors);
             }
@@ -552,11 +526,7 @@ impl Lookup<'_> {
                 add(vendor.to_owned(), &mut vendors);
             }
         }
-        let unregistered: Vec<&str> = self
-            .models_dev
-            .providers()
-            .filter(|v| has_model(v) && !first_party.contains(v) && is_vendor(v))
-            .collect();
+        let unregistered: Vec<&str> = self.models_dev.providers().filter(|v| has_model(v) && !first_party.contains(v) && is_vendor(v)).collect();
         if let [only] = unregistered.as_slice() {
             add((*only).to_owned(), &mut vendors);
         }
@@ -673,11 +643,7 @@ impl Lookup<'_> {
                 meta = Some(m);
             }
         }
-        let cached = if provider.is_empty() {
-            None
-        } else {
-            self.rosters.row(source_provider, original_id).map(|row| roster_row_metadata(provider, &row))
-        };
+        let cached = if provider.is_empty() { None } else { self.rosters.row(source_provider, original_id).map(|row| roster_row_metadata(provider, &row)) };
         let seed = source.as_ref().and_then(|s| registry::seed_row(s, original_id));
         if meta.is_none() && cached.is_none() && seed.is_none() && guess.is_none() {
             return None;
@@ -749,7 +715,9 @@ pub fn enrich_model(lookup: &Lookup<'_>, listed: &Value) -> Value {
     }
     out.insert("contextWindow".into(), or_null(first_truthy(&[listed.get("contextWindow"), meta.get("contextWindow")])));
     out.insert("outputTokens".into(), or_null(first_truthy(&[listed.get("outputTokens"), meta.get("outputTokens")])));
-    for key in ["inputCostPerM", "outputCostPerM", "cacheReadCostPerM", "cacheWriteCostPerM", "pricingTiers", "pricingModel", "pricingProvider", "pricingSource"] {
+    for key in
+        ["inputCostPerM", "outputCostPerM", "cacheReadCostPerM", "cacheWriteCostPerM", "pricingTiers", "pricingModel", "pricingProvider", "pricingSource"]
+    {
         put(&mut out, key, meta.get(key).cloned());
     }
     for key in GUESSED_FLAGS {

@@ -21,7 +21,6 @@ use super::Client;
 use super::Rig;
 use super::VERSION;
 
-
 struct World {
     /// Held: a thread answers a start only while its directory is alive.
     _directory: Arc<SessionDirectory>,
@@ -88,8 +87,11 @@ impl World {
     }
 
     async fn submit(&self, client: &Client, prompt: &str, submission: &str) -> Value {
-        client
-            .request(10, "turn/start", json!({ "threadId": self.id, "opId": "op-submit", "input": { "prompt": prompt, "options": { "clientSubmissionId": submission } } }));
+        client.request(
+            10,
+            "turn/start",
+            json!({ "threadId": self.id, "opId": "op-submit", "input": { "prompt": prompt, "options": { "clientSubmissionId": submission } } }),
+        );
         let frame = client.response(10).await;
         assert_eq!(frame["result"]["kind"], "started", "{frame}");
         frame
@@ -134,7 +136,6 @@ impl World {
     }
 }
 
-
 #[tokio::test(start_paused = true)]
 async fn a_turn_that_is_not_the_running_one_is_refused_and_a_thread_that_is_not_loaded_is_idle() {
     let world = World::running().await;
@@ -175,7 +176,10 @@ async fn another_device_stopping_publishes_the_prompt_restore_through_the_state(
     let clock: u64 = 7777;
     world.session.clock.0.store(clock, std::sync::atomic::Ordering::SeqCst);
     let frame = world.interrupt(&canceller, json!({})).await;
-    assert_eq!((frame["result"]["aborted"].clone(), frame["result"]["restoreText"].clone(), frame["result"]["restoredSubmissionIds"].clone()), (json!(true), json!(""), json!([])));
+    assert_eq!(
+        (frame["result"]["aborted"].clone(), frame["result"]["restoreText"].clone(), frame["result"]["restoredSubmissionIds"].clone()),
+        (json!(true), json!(""), json!([]))
+    );
 
     let frames = world.published_prompt_restores().await;
     let want = json!({ "id": "restore-7777-sub1", "ids": ["sub1"], "text": "draft", "device": "desktop-1", "at": 7777 });

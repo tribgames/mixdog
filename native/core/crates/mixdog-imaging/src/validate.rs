@@ -19,24 +19,24 @@ use image::ImageDecoder;
 use image::codecs::gif::GifDecoder;
 use image::codecs::png::PngDecoder;
 use image::codecs::webp::WebPDecoder;
-use mixdog_image_egress::admission::AdmitError;
 use mixdog_image_egress::admission::Admission;
+use mixdog_image_egress::admission::AdmitError;
 use mixdog_image_egress::admission::Cancel;
 use mixdog_image_egress::admission::WORKER_BYTES;
 
 use crate::avif::is_hevc_heif;
 use crate::decode::DECODE_PIXEL_LIMIT;
 use crate::decode::Decoded;
-use crate::os_heic::HeicCodec;
-use crate::os_heic::HeicFailure;
-use mixdog_image_egress::ImageKind;
 use crate::decode::Format;
 use crate::decode::decode_within;
 use crate::decode::rasterize_svg;
 use crate::encode::encode_in_format;
+use crate::os_heic::HeicCodec;
+use crate::os_heic::HeicFailure;
 use crate::policy::IMAGE_MAX_HEIGHT;
 use crate::policy::IMAGE_MAX_WIDTH;
 use crate::resize::fit_inside_view;
+use mixdog_image_egress::ImageKind;
 
 /// Raise with any change that alters a verdict or a rendition; stored verdicts of an older version are re-run by migration.
 /// 2: a still beyond the tightest destination limits gets its rendition (JPEG for a JPEG), and a HEIC's orientation and colour
@@ -244,12 +244,7 @@ pub fn decode_base64_held(text: &str) -> Result<Vec<u8>, Reject> {
 /// Acquire the worker slot, decode base64 strictly, and hand the binary to `then` while the slot is held (so the base64
 /// text, the binary and the decoder are never allocated outside the budget). `then` receives the bytes and the bytes already
 /// charged, and normally calls [`validate_held`].
-pub fn with_base64<T>(
-    base64: &str,
-    admission: &Admission,
-    cancel: &Cancel,
-    then: impl FnOnce(Vec<u8>, u64) -> Result<T, Reject>,
-) -> Result<T, Reject> {
+pub fn with_base64<T>(base64: &str, admission: &Admission, cancel: &Cancel, then: impl FnOnce(Vec<u8>, u64) -> Result<T, Reject>) -> Result<T, Reject> {
     if base64.len() as u64 > MAX_BASE64_BYTES {
         return Err(Reject::TooLarge);
     }

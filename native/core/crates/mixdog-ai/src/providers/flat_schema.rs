@@ -24,11 +24,7 @@ pub(crate) fn merge_flat_schema_property(current: Option<&Value>, incoming: &Val
     let enum_of = |map: &Map<String, Value>| map.get("enum").and_then(Value::as_array).cloned();
     if enum_of(current_map).is_some() || enum_of(incoming_map).is_some() {
         let mut values: Vec<Value> = Vec::new();
-        for value in enum_of(current_map)
-            .into_iter()
-            .flatten()
-            .chain(enum_of(incoming_map).into_iter().flatten())
-        {
+        for value in enum_of(current_map).into_iter().flatten().chain(enum_of(incoming_map).into_iter().flatten()) {
             if !values.contains(&value) {
                 values.push(value);
             }
@@ -50,10 +46,7 @@ pub(crate) fn merge_flat_schema_property(current: Option<&Value>, incoming: &Val
         }
         merged.insert("properties".into(), Value::Object(js_ordered_map(properties)));
     }
-    match (
-        current_map.get("required").and_then(Value::as_array),
-        incoming_map.get("required").and_then(Value::as_array),
-    ) {
+    match (current_map.get("required").and_then(Value::as_array), incoming_map.get("required").and_then(Value::as_array)) {
         (Some(a), Some(b)) => {
             let shared: Vec<Value> = a.iter().filter(|name| b.contains(name)).cloned().collect();
             if shared.is_empty() {

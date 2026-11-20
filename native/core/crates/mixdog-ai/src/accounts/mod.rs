@@ -23,16 +23,16 @@ pub(crate) use binding::carry;
 pub use binding::has_explicit_provider_auth_binding;
 pub use binding::replace_provider_auth_bindings;
 pub use binding::with_provider_account;
-pub use model::Account;
-pub use model::REMAINING;
-pub use model::Block;
-pub use model::Policy;
-pub use model::Pool;
-pub use model::Usage;
-pub use model::Window;
 use mixdog_js::js_trim;
 use mixdog_js::slice_utf16;
 use mixdog_js::utf16_len;
+pub use model::Account;
+pub use model::Block;
+pub use model::Policy;
+pub use model::Pool;
+pub use model::REMAINING;
+pub use model::Usage;
+pub use model::Window;
 use serde_json::Value;
 
 use crate::oauth::CredentialFile;
@@ -105,24 +105,15 @@ pub(crate) fn is_account_provider(provider: &str) -> bool {
 }
 
 pub(crate) fn valid_account_id(id: &str) -> bool {
-    id == "default"
-        || (id.len() == 36 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b) || b == b'-'))
+    id == "default" || (id.len() == 36 && id.bytes().all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b) || b == b'-'))
 }
 
 fn require_provider(provider: &str) -> Result<(), AccountError> {
-    if is_account_provider(provider) {
-        Ok(())
-    } else {
-        invalid("Unknown OAuth provider.")
-    }
+    if is_account_provider(provider) { Ok(()) } else { invalid("Unknown OAuth provider.") }
 }
 
 fn require_id(id: &str) -> Result<(), AccountError> {
-    if valid_account_id(id) {
-        Ok(())
-    } else {
-        invalid("Invalid provider account id.")
-    }
+    if valid_account_id(id) { Ok(()) } else { invalid("Invalid provider account id.") }
 }
 
 /// A new account id (a v4 UUID).
@@ -152,11 +143,7 @@ fn normalize(provider: &str, mut pool: Pool) -> Pool {
         }
         // A reading stored before per-model gating steers nothing until the
         // account is measured again.
-        if row
-            .usage
-            .as_ref()
-            .is_some_and(|u| policy::stale_quota_windows(provider, &u.windows))
-        {
+        if row.usage.as_ref().is_some_and(|u| policy::stale_quota_windows(provider, &u.windows)) {
             row.usage = None;
         }
     }
@@ -166,10 +153,7 @@ fn normalize(provider: &str, mut pool: Pool) -> Pool {
 }
 
 fn pool_of(roster: &Value, provider: &str) -> Pool {
-    roster["providers"]
-        .get(provider)
-        .and_then(|raw| serde_json::from_value(raw.clone()).ok())
-        .unwrap_or_default()
+    roster["providers"].get(provider).and_then(|raw| serde_json::from_value(raw.clone()).ok()).unwrap_or_default()
 }
 
 /// A change to a roster, as `updateProviderAccounts` sends it. Every field is
@@ -218,13 +202,7 @@ pub struct BlockOptions {
 }
 
 fn model_tokens(tokens: Option<Vec<String>>) -> Option<Vec<String>> {
-    tokens.map(|t| {
-        t.into_iter()
-            .take(12)
-            .map(|x| slice_utf16(&js_trim(&x).to_lowercase(), 80))
-            .filter(|x| !x.is_empty())
-            .collect()
-    })
+    tokens.map(|t| t.into_iter().take(12).map(|x| slice_utf16(&js_trim(&x).to_lowercase(), 80)).filter(|x| !x.is_empty()).collect())
 }
 
 type SelectionHook = Arc<dyn Fn() + Send + Sync>;
@@ -245,12 +223,11 @@ const OWN_FILES: [(&str, &str, &str); 10] = [
 ];
 
 #[cfg(test)]
-mod sign_in_rules_tests;
-#[cfg(test)]
 mod rotation_tests;
 #[cfg(test)]
+mod sign_in_rules_tests;
+#[cfg(test)]
 mod tests;
-
 
 /// Handle on one data directory's account roster.
 #[derive(Clone)]
@@ -267,14 +244,7 @@ pub struct AccountStore {
 }
 impl AccountStore {
     pub fn new(dir: PathBuf, io: CredentialIo) -> Self {
-        Self {
-            dir,
-            io,
-            on_selection_change: None,
-            clock: Arc::new(SystemPace),
-            remote_client: false,
-            env: None,
-        }
+        Self { dir, io, on_selection_change: None, clock: Arc::new(SystemPace), remote_client: false, env: None }
     }
 
     /// Reads each provider's own credential where its `*_OAUTH_CREDENTIALS_PATH` in `env` names it (resolved against
@@ -350,12 +320,7 @@ impl AccountStore {
     pub fn account_path(&self, provider: &str, id: &str) -> Result<Option<PathBuf>, AccountError> {
         require_provider(provider)?;
         require_id(id)?;
-        Ok((id != "default").then(|| {
-            self.dir
-                .join("provider-accounts")
-                .join(provider)
-                .join(format!("{id}.json"))
-        }))
+        Ok((id != "default").then(|| self.dir.join("provider-accounts").join(provider).join(format!("{id}.json"))))
     }
 
     /// The credential file of account `id`: the provider's own file for
@@ -433,7 +398,8 @@ impl AccountStore {
     pub(crate) async fn quota_credential(&self, provider: &str, slot: &str) -> Option<String> {
         // Cursor's default credential can come from outside the roster file. A file reading
         // cannot prove anything about that override.
-        if provider == "cursor-oauth" && slot == "default"
+        if provider == "cursor-oauth"
+            && slot == "default"
             && self.env.as_ref().and_then(|env| env.key_var("CURSOR_ACCESS_TOKEN")).is_some_and(|token| !token.is_empty())
         {
             return None;
@@ -447,11 +413,7 @@ impl AccountStore {
         crate::service::oauth_usage::credential_stamp(provider, &doc)
     }
 
-    async fn update(
-        &self,
-        provider: &str,
-        mutate: impl FnOnce(&mut Pool) -> Result<(), AccountError> + Send + 'static,
-    ) -> Result<Pool, AccountError> {
+    async fn update(&self, provider: &str, mutate: impl FnOnce(&mut Pool) -> Result<(), AccountError> + Send + 'static) -> Result<Pool, AccountError> {
         require_provider(provider)?;
         let path = self.roster_path();
         let name = provider.to_owned();
@@ -464,8 +426,7 @@ impl AccountStore {
                     let mut pool = pool_of(roster, &name);
                     let before = pool.selected_id.clone();
                     mutate(&mut pool)?;
-                    *seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-                        (before, pool.selected_id.clone());
+                    *seen.lock().unwrap_or_else(std::sync::PoisonError::into_inner) = (before, pool.selected_id.clone());
                     roster["providers"][&name] = serde_json::to_value(&pool).map_err(io::Error::other)?;
                     Ok(())
                 })
@@ -482,13 +443,7 @@ impl AccountStore {
 
     /// Adds account `id` (and, with `include_default`, the provider's own
     /// credential as `Account 1`), selecting the first account if none is.
-    pub async fn register(
-        &self,
-        provider: &str,
-        id: &str,
-        label: &str,
-        include_default: bool,
-    ) -> Result<Pool, AccountError> {
+    pub async fn register(&self, provider: &str, id: &str, label: &str, include_default: bool) -> Result<Pool, AccountError> {
         require_id(id)?;
         let (id, label) = (id.to_owned(), slice_utf16(js_trim(label), MAX_LABEL));
         self.update(provider, move |pool| {
@@ -502,11 +457,7 @@ impl AccountStore {
                     return Err(AccountError::Rejected("At most 20 accounts can be connected.".into()));
                 }
                 let mut row = Account::new(id);
-                row.label = Some(if label.is_empty() {
-                    format!("Account {}", pool.accounts.len() + 1)
-                } else {
-                    label
-                });
+                row.label = Some(if label.is_empty() { format!("Account {}", pool.accounts.len() + 1) } else { label });
                 pool.accounts.push(row);
             }
             if pool.selected_id.is_none() {
@@ -544,10 +495,7 @@ impl AccountStore {
                     return invalid("Account order must contain every connected account exactly once.");
                 }
                 let mut rows = std::mem::take(&mut pool.accounts);
-                pool.accounts = order
-                    .iter()
-                    .filter_map(|id| rows.iter().position(|r| &r.id == id).map(|at| rows.swap_remove(at)))
-                    .collect();
+                pool.accounts = order.iter().filter_map(|id| rows.iter().position(|r| &r.id == id).map(|at| rows.swap_remove(at))).collect();
             }
             if let Some(auto) = change.auto {
                 // On keeps a non-manual policy; on from manual is switch-at-limit.
@@ -617,12 +565,7 @@ impl AccountStore {
     /// Records a usage reading. A fresh observation of available quota
     /// releases a prior refusal, but only on the meters the refusal drew on
     /// and only a MEASURED window.
-    pub async fn record_usage(
-        &self,
-        provider: &str,
-        id: &str,
-        windows: Vec<QuotaWindowInput>,
-    ) -> Result<(), AccountError> {
+    pub async fn record_usage(&self, provider: &str, id: &str, windows: Vec<QuotaWindowInput>) -> Result<(), AccountError> {
         if !self.pool(provider).await?.accounts.iter().any(|r| r.id == id) {
             return Ok(());
         }
@@ -640,10 +583,7 @@ impl AccountStore {
                     reset_at: w.reset_at,
                     models,
                     except,
-                    limit: w
-                        .limit
-                        .map(|l| slice_utf16(js_trim(&l), 80))
-                        .filter(|l| !l.is_empty()),
+                    limit: w.limit.map(|l| slice_utf16(js_trim(&l), 80)).filter(|l| !l.is_empty()),
                     binding: w.binding,
                     extra: {
                         let mut extra = serde_json::Map::new();
@@ -663,19 +603,13 @@ impl AccountStore {
             let Some(row) = pool.accounts.iter_mut().find(|r| r.id == id) else {
                 return Ok(());
             };
-            row.usage = Some(Usage {
-                windows,
-                checked_at: i64::try_from(clock.now_ms()).unwrap_or(i64::MAX),
-            });
+            row.usage = Some(Usage { windows, checked_at: i64::try_from(clock.now_ms()).unwrap_or(i64::MAX) });
             let usage = row.usage.clone();
             let kept: Vec<Block> = row
                 .blocks()
                 .into_iter()
                 .filter(|block| {
-                    let measured: Vec<&Window> = policy::block_evidence_windows(&usage, block)
-                        .into_iter()
-                        .filter(|w| w.used_pct.is_some())
-                        .collect();
+                    let measured: Vec<&Window> = policy::block_evidence_windows(&usage, block).into_iter().filter(|w| w.used_pct.is_some()).collect();
                     // Lifted: some measured window and every one below 100%.
                     measured.is_empty() || !measured.iter().all(|w| w.used_pct.is_some_and(|p| p < 100.0))
                 })
@@ -701,8 +635,7 @@ impl AccountStore {
                 return Ok(());
             };
             let ours = row.usage.as_ref().is_some_and(|u| {
-                !u.windows.is_empty()
-                    && u.windows.iter().all(|w| w.extra.get(model::CREDENTIAL).and_then(Value::as_str) == Some(stamp.as_str()))
+                !u.windows.is_empty() && u.windows.iter().all(|w| w.extra.get(model::CREDENTIAL).and_then(Value::as_str) == Some(stamp.as_str()))
             });
             if ours {
                 row.usage = Some(Usage { windows: Vec::new(), checked_at: i64::try_from(clock.now_ms()).unwrap_or(i64::MAX) });
@@ -717,14 +650,7 @@ impl AccountStore {
     /// Blocks `id` until `until` (Unix ms). A new refusal of the same model
     /// replaces that model's block; every other running block keeps its own
     /// deadline, so refusing one bucket never frees another.
-    pub async fn block(
-        &self,
-        provider: &str,
-        id: &str,
-        until: i64,
-        model: &str,
-        options: BlockOptions,
-    ) -> Result<Pool, AccountError> {
+    pub async fn block(&self, provider: &str, id: &str, until: i64, model: &str, options: BlockOptions) -> Result<Pool, AccountError> {
         let (id, scope) = (id.to_owned(), js_trim(model).to_owned());
         let clock = self.clock.clone();
         self.update(provider, move |pool| {
@@ -740,11 +666,8 @@ impl AccountStore {
                 blocked_source: options.server_scheduled.then(|| "retry-after".to_owned()),
                 blocked_quota: options.quota.then_some(true),
             };
-            let mut blocks: Vec<Block> = row
-                .blocks()
-                .into_iter()
-                .filter(|b| b.blocked_until > now && b.blocked_model.as_deref().unwrap_or("") != scope)
-                .collect();
+            let mut blocks: Vec<Block> =
+                row.blocks().into_iter().filter(|b| b.blocked_until > now && b.blocked_model.as_deref().unwrap_or("") != scope).collect();
             blocks.push(block);
             row.set_blocks(blocks);
             Ok(())
@@ -771,14 +694,7 @@ impl AccountStore {
         if !is_custom_key_provider(provider) {
             return invalid("Unknown custom provider.");
         }
-        Ok(self
-            .pool(provider)
-            .await?
-            .accounts
-            .into_iter()
-            .map(|r| r.id)
-            .filter(|id| id != "default")
-            .collect())
+        Ok(self.pool(provider).await?.accounts.into_iter().map(|r| r.id).filter(|id| id != "default").collect())
     }
 
     /// Sets the additional API keys to `ids`, in use order after the primary
@@ -811,20 +727,10 @@ impl AccountStore {
                         return Ok(());
                     }
                     let old = pool_of(roster, &name);
-                    let accounts: Vec<Account> = std::iter::once("default".to_owned())
-                        .chain(keep)
-                        .map(|id| old.account(&id).cloned().unwrap_or_else(|| Account::new(id)))
-                        .collect();
-                    let selected = old
-                        .selected_id
-                        .filter(|s| accounts.iter().any(|r| &r.id == s))
-                        .unwrap_or_else(|| "default".into());
-                    let pool = Pool {
-                        accounts,
-                        selected_id: Some(selected),
-                        use_credits: Some(true),
-                        ..Pool::default()
-                    };
+                    let accounts: Vec<Account> =
+                        std::iter::once("default".to_owned()).chain(keep).map(|id| old.account(&id).cloned().unwrap_or_else(|| Account::new(id))).collect();
+                    let selected = old.selected_id.filter(|s| accounts.iter().any(|r| &r.id == s)).unwrap_or_else(|| "default".into());
+                    let pool = Pool { accounts, selected_id: Some(selected), use_credits: Some(true), ..Pool::default() };
                     roster["providers"][&name] = serde_json::to_value(pool).map_err(io::Error::other)?;
                     Ok(())
                 })

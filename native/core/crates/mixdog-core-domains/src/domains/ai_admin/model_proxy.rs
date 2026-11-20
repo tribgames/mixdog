@@ -22,7 +22,8 @@ use mixdog_ai::service::model_proxy::{redacted_text, without_attachment_referenc
 use mixdog_ai::service::model_proxy_inline::{AttachmentReader, MODEL_PROXY_INLINE_MAX_BYTES, ReadError, inline_attachments};
 use mixdog_app_protocol::v2::model_proxy as w;
 use mixdog_core_api::domain::cache_tail::{
-    Admission, Claim, Cold, ColdRequest, Counters, Digest, Marker, Permit, Purpose, Resolution, TailGate, TailGateHandle, TailRefusal, TailRoute, Verdict, WireManifest, Zone,
+    Admission, Claim, Cold, ColdRequest, Counters, Digest, Marker, Permit, Purpose, Resolution, TailGate, TailGateHandle, TailRefusal, TailRoute, Verdict,
+    WireManifest, Zone,
 };
 use mixdog_core_api::domain::keepalive::TransportKind;
 use mixdog_core_api::domain::provider as p;
@@ -203,7 +204,12 @@ pub fn request_out(r: &p::ModelRequest) -> w::ProxyRequest {
         tools: r
             .tools
             .iter()
-            .map(|t| w::ProxyTool { name: t.name.clone(), description: t.description.clone(), input_schema: t.input_schema.clone(), defer_loading: t.defer_loading })
+            .map(|t| w::ProxyTool {
+                name: t.name.clone(),
+                description: t.description.clone(),
+                input_schema: t.input_schema.clone(),
+                defer_loading: t.defer_loading,
+            })
             .collect(),
         options: options_out(&r.options),
     }
@@ -227,10 +233,9 @@ fn plain_json(value: Value) -> Result<Value, Invalid> {
 
 fn part_in(part: w::ProxyPart) -> Result<p::ContentPart, Invalid> {
     Ok(match part {
-        w::ProxyPart::Text { text, cache_control } => p::ContentPart::Text(
-            text,
-            cache_control.filter(Value::is_object).map(|marker| [("cache_control".to_owned(), marker)].into_iter().collect()),
-        ),
+        w::ProxyPart::Text { text, cache_control } => {
+            p::ContentPart::Text(text, cache_control.filter(Value::is_object).map(|marker| [("cache_control".to_owned(), marker)].into_iter().collect()))
+        }
         w::ProxyPart::Image { source } => p::ContentPart::Image(match source {
             w::ProxyImage::Base64 { data, mime_type } => p::ImageSource::Base64 { data, mime_type, width: None, height: None },
             w::ProxyImage::Url { url } => p::ImageSource::Url(url),
@@ -290,11 +295,8 @@ fn message_in(m: w::ProxyMessage) -> Result<p::Message, Invalid> {
         w::ProxyMessageSource::TailReminder => p::MessageSource::TailReminder,
     });
     out.turn_reminder = m.turn_reminder;
-    out.account_routing = m.account_routing.map(|r| p::AccountRouting {
-        provider: r.provider,
-        account_id: r.account_id,
-        session_account_id: r.session_account_id,
-    });
+    out.account_routing =
+        m.account_routing.map(|r| p::AccountRouting { provider: r.provider, account_id: r.account_id, session_account_id: r.session_account_id });
     for r in m.provider_replay {
         out.push_replay(p::ProviderReplay { owner: r.owner.as_str().into(), items: plain_json(r.items)? });
     }
@@ -329,17 +331,21 @@ fn options_in(o: w::ProxyOptions) -> Result<p::RequestOptions, Invalid> {
         xai_api_mode: o.xai_api_mode,
         xai_responses_transport: o.xai_responses_transport,
         model_parameters: o.model_parameters,
-        thread: o.thread.map(|t| p::RequestThread { id: ThreadId::from(t.id.as_str()), window: t.window, turn: t.turn.map(|t| TurnId::from(t.as_str())), turn_started_at_ms: None }),
+        thread: o.thread.map(|t| p::RequestThread {
+            id: ThreadId::from(t.id.as_str()),
+            window: t.window,
+            turn: t.turn.map(|t| TurnId::from(t.as_str())),
+            turn_started_at_ms: None,
+        }),
         parent_session_id: o.parent_session_id,
         parallel_tool_calls: o.parallel_tool_calls,
         temperature: match o.temperature {
             None => None,
             Some(t) => Some(p::Temperature::new(t).ok_or_else(|| Invalid(format!("invalid temperature {t}")))?),
         },
-        effort_projection: o.effort_projection.map(|e| p::EffortProjection {
-            initial_effort: e.initial_effort,
-            updates: e.updates.into_iter().map(|(i, v)| (i as usize, v)).collect(),
-        }),
+        effort_projection: o
+            .effort_projection
+            .map(|e| p::EffortProjection { initial_effort: e.initial_effort, updates: e.updates.into_iter().map(|(i, v)| (i as usize, v)).collect() }),
         hosted_tools: o
             .hosted_tools
             .into_iter()
@@ -376,7 +382,13 @@ pub fn request_in(r: w::ProxyRequest) -> Result<p::ModelRequest, Invalid> {
         tools: r
             .tools
             .into_iter()
-            .map(|t| p::ToolDefinition { name: t.name, description: t.description, input_schema: t.input_schema, defer_loading: t.defer_loading, freeform: None })
+            .map(|t| p::ToolDefinition {
+                name: t.name,
+                description: t.description,
+                input_schema: t.input_schema,
+                defer_loading: t.defer_loading,
+                freeform: None,
+            })
             .collect(),
         options: options_in(r.options)?,
     })
@@ -445,18 +457,14 @@ pub fn event_out(e: &p::StreamEvent) -> w::ProxyEvent {
         E::ServedModel(model) => w::ProxyEvent::ServedModel { model: model.clone() },
         E::ProviderMetadata(value) => w::ProxyEvent::ProviderMetadata { value: value.clone() },
         E::ResponseId(id) => w::ProxyEvent::ResponseId { id: id.clone() },
-        E::AccountRouting(r) => w::ProxyEvent::AccountRouting {
-            provider: r.provider.clone(),
-            account_id: r.account_id.clone(),
-            session_account_id: r.session_account_id.clone(),
-        },
+        E::AccountRouting(r) => {
+            w::ProxyEvent::AccountRouting { provider: r.provider.clone(), account_id: r.account_id.clone(), session_account_id: r.session_account_id.clone() }
+        }
         E::AccountStage(p::AccountStage::Switching { message }) => w::ProxyEvent::AccountSwitching { message: redacted_text(message, MAX_DETAIL_TEXT) },
         E::AccountStage(p::AccountStage::Changed { provider, at, .. }) => w::ProxyEvent::AccountChanged { provider: provider.clone(), at: *at },
         E::WireRerouted(route) => w::ProxyEvent::WireRerouted { route: route.clone() },
         E::OutputStarted => w::ProxyEvent::OutputStarted,
-        E::ContentSummary { has_thinking, block_types } => {
-            w::ProxyEvent::ContentSummary { has_thinking: *has_thinking, block_types: block_types.clone() }
-        }
+        E::ContentSummary { has_thinking, block_types } => w::ProxyEvent::ContentSummary { has_thinking: *has_thinking, block_types: block_types.clone() },
         E::Completed { stop, pricing_model, request_ms } => w::ProxyEvent::Completed {
             pricing_model: pricing_model.clone(),
             request_ms: *request_ms,
@@ -562,8 +570,23 @@ macro_rules! kinds {
     };
 }
 kinds!(
-    Overloaded, RateLimited, QuotaExhausted, Entitlement, Billing, Auth, Permission, ContextOverflow, RequestTooLarge, Policy,
-    ServiceTierUnavailable, InvalidRequest, ImageRejected, ReplayRejected, ToolSchemaRejected, Transient, Unknown
+    Overloaded,
+    RateLimited,
+    QuotaExhausted,
+    Entitlement,
+    Billing,
+    Auth,
+    Permission,
+    ContextOverflow,
+    RequestTooLarge,
+    Policy,
+    ServiceTierUnavailable,
+    InvalidRequest,
+    ImageRejected,
+    ReplayRejected,
+    ToolSchemaRejected,
+    Transient,
+    Unknown
 );
 
 fn millis(t: SystemTime) -> Option<u64> {
@@ -697,15 +720,27 @@ fn picker_out(p: &p::PickerFields) -> w::ProxyPicker {
                 id: o.id.clone(),
                 label: o.label.clone(),
                 kind: o.kind.clone(),
-                options: o.options.iter().map(|v| w::ProxyParameterValue { value: v.value.clone(), label: v.label.clone(), context_window: v.context_window }).collect(),
+                options: o
+                    .options
+                    .iter()
+                    .map(|v| w::ProxyParameterValue { value: v.value.clone(), label: v.label.clone(), context_window: v.context_window })
+                    .collect(),
             })
             .collect(),
         parameter_variants: p.parameter_variants.clone(),
         fast_efforts: p.fast_efforts.clone(),
-        service_tiers: p.service_tiers.iter().map(|t| w::ProxyServiceTier { id: t.id.clone(), name: t.name.clone(), description: t.description.clone() }).collect(),
+        service_tiers: p
+            .service_tiers
+            .iter()
+            .map(|t| w::ProxyServiceTier { id: t.id.clone(), name: t.name.clone(), description: t.description.clone() })
+            .collect(),
         additional_speed_tiers: p.additional_speed_tiers.clone(),
         reasoning_options: p.reasoning_options.iter().map(|r| w::ProxyReasoningOption { kind: r.kind.clone(), values: r.values.clone() }).collect(),
-        custom_reasoning: p.custom_reasoning.as_ref().map(|c| w::ProxyCustomReasoning { wire_format: c.wire_format.clone(), wire_values: c.wire_values.clone(), replay: c.replay }),
+        custom_reasoning: p.custom_reasoning.as_ref().map(|c| w::ProxyCustomReasoning {
+            wire_format: c.wire_format.clone(),
+            wire_values: c.wire_values.clone(),
+            replay: c.replay,
+        }),
         tier: p.tier.clone(),
         latest: p.latest,
         description: p.description.clone(),
@@ -1113,7 +1148,16 @@ impl OwnerEnd {
                 let verdict = match manifest_in(manifest) {
                     Some(manifest) => {
                         let route = TailRoute(route);
-                        self.gate.0.admit(Admission { purpose: self.purpose, route: &route, manifest: &manifest, generation: self.generation, unreduced: self.unreduced }).await
+                        self.gate
+                            .0
+                            .admit(Admission {
+                                purpose: self.purpose,
+                                route: &route,
+                                manifest: &manifest,
+                                generation: self.generation,
+                                unreduced: self.unreduced,
+                            })
+                            .await
                     }
                     // A layout that does not read proves nothing: the POST is not sent.
                     None => Verdict::Refuse(TailRefusal::Skip(Cold::Unproven)),
@@ -1271,7 +1315,12 @@ pub fn request_too_large() -> w::ProxyFailure {
 
 /// A call that would take the data this PC holds for the server past its bound (`MODEL_PROXY_BUSY`, 429).
 pub fn busy() -> w::ProxyFailure {
-    refusal_with_status("MODEL_PROXY_BUSY", "This PC is already holding as much model-call data for this server as it accepts; try again shortly.", p::ErrorKind::RateLimited, 429)
+    refusal_with_status(
+        "MODEL_PROXY_BUSY",
+        "This PC is already holding as much model-call data for this server as it accepts; try again shortly.",
+        p::ErrorKind::RateLimited,
+        429,
+    )
 }
 
 /// A call that failed with a plain `Error` (no code, no status): the record Node answers with.
@@ -1303,7 +1352,13 @@ impl ProxyRunner {
     /// list the asking host may use (`ModelProxyRunParams::allowed_providers`); a provider outside it is neither
     /// named in the config answer nor reachable by any call.
     #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
-    pub async fn run(&self, call: w::ProxyCall, allowed: Option<&[String]>, events: &dyn ProxyEvents, cancel: &CancellationToken) -> Result<w::ProxyAnswer, w::ProxyFailure> {
+    pub async fn run(
+        &self,
+        call: w::ProxyCall,
+        allowed: Option<&[String]>,
+        events: &dyn ProxyEvents,
+        cancel: &CancellationToken,
+    ) -> Result<w::ProxyAnswer, w::ProxyFailure> {
         // A call given up reads nothing of this PC's (`signal.throwIfAborted()`, model-proxy-host.ts `execute`).
         if cancel.is_cancelled() {
             return Err(cancelled_failure());
@@ -1356,7 +1411,10 @@ impl ProxyRunner {
                 // The budget depends on the model, so it rides with the model's own row (host.ts `catalog`).
                 let budget = |id: &str| {
                     adapter.first_response_budget(id, None).and_then(|b| {
-                        Some(w::ProxyBudget { transport_ms: u64::try_from(b.transport_ms).ok().filter(|ms| *ms > 0)?, semantic_ms: u64::try_from(b.semantic_ms).ok().filter(|ms| *ms > 0)? })
+                        Some(w::ProxyBudget {
+                            transport_ms: u64::try_from(b.transport_ms).ok().filter(|ms| *ms > 0)?,
+                            semantic_ms: u64::try_from(b.semantic_ms).ok().filter(|ms| *ms > 0)?,
+                        })
                     })
                 };
                 Ok(w::ProxyAnswer::Models {
@@ -1383,7 +1441,14 @@ impl ProxyRunner {
     /// One send of the server's `request` on this PC's provider `provider`, with every attempt's events. `owner`: the
     /// session that owns the request's transcript judges each POST (no owner: nothing judges it).
     #[allow(clippy::result_large_err, reason = "preserve canonical ProviderError/CoreError payloads and the established domain error contract without boxing")]
-    async fn send(&self, provider: &str, request: Box<w::ProxyRequest>, owner: Option<Arc<OwnerLink>>, events: &dyn ProxyEvents, cancel: &CancellationToken) -> Result<w::ProxyAnswer, w::ProxyFailure> {
+    async fn send(
+        &self,
+        provider: &str,
+        request: Box<w::ProxyRequest>,
+        owner: Option<Arc<OwnerLink>>,
+        events: &dyn ProxyEvents,
+        cancel: &CancellationToken,
+    ) -> Result<w::ProxyAnswer, w::ProxyFailure> {
         let provider = provider.to_owned();
         let adapter = self.adapter(&provider).await?;
         let forked = request.options.forked_transport_scope;
@@ -1392,7 +1457,8 @@ impl ProxyRunner {
         request.options.tail_gate = owner.map(|owner| TailGateHandle(Arc::new(RemoteGate(owner))));
         // A request the server forked from a session gets a scope allocated here (`forkTransportScope(sessionId || name,
         // 'proxy')`), released when it ends whatever the outcome (`disposeTransportScope`).
-        let scope = forked.then(|| format!("{}#proxy:{}", request.options.session_id.as_deref().filter(|id| !id.is_empty()).unwrap_or(&provider), uuid::Uuid::new_v4()));
+        let scope = forked
+            .then(|| format!("{}#proxy:{}", request.options.session_id.as_deref().filter(|id| !id.is_empty()).unwrap_or(&provider), uuid::Uuid::new_v4()));
         request.options.transport_scope.clone_from(&scope);
         // The server's tools this PC's adapter leaves out go back to the server (Node's `onToolExcluded`).
         let (excluded, reports) = std::sync::mpsc::channel();
@@ -1507,7 +1573,14 @@ pub async fn remote_send(
             if cancel.is_cancelled() {
                 return Err(SendError::Cancelled);
             }
-            let mut owner = OwnerEnd { gate, purpose: request.options.tail_purpose, generation: request.options.tail_generation, unreduced: request.options.tail_unreduced, permits: HashMap::new(), refused: None };
+            let mut owner = OwnerEnd {
+                gate,
+                purpose: request.options.tail_purpose,
+                generation: request.options.tail_generation,
+                unreduced: request.options.tail_unreduced,
+                permits: HashMap::new(),
+                refused: None,
+            };
             let (say, back) = tokio::sync::mpsc::unbounded_channel();
             let answer = {
                 let exchange = transport.execute_duplex(call, &mut on_event, back, cancel);
@@ -1570,7 +1643,9 @@ impl ProxyListing {
         let call = serde_json::to_value(w::ProxyCall::ListModels { provider: self.provider.clone(), refresh })
             .map_err(|e| transient(&e.to_string(), p::DeliveryState::NotSent))?;
         let answer = ask_pc(self.transport.as_ref(), call).await?;
-        match serde_json::from_value::<w::ProxyAnswer>(answer).map_err(|e| transient(&format!("model proxy answered a listing wrongly: {e}"), p::DeliveryState::Ambiguous))? {
+        match serde_json::from_value::<w::ProxyAnswer>(answer)
+            .map_err(|e| transient(&format!("model proxy answered a listing wrongly: {e}"), p::DeliveryState::Ambiguous))?
+        {
             w::ProxyAnswer::Models { models, complete } => {
                 let complete = complete == Some(true);
                 let mut budgets = self.budgets.lock().unwrap_or_else(std::sync::PoisonError::into_inner);

@@ -177,12 +177,13 @@ async fn a_service_call_carries_the_turns_approval_gate() {
     assert_eq!(asks[0].call_id, Some(ToolCallId::from("c")));
 }
 
-
 #[tokio::test]
 async fn session_actions_answer_with_their_json_or_their_refusal() {
     let tool = SessionTool::new(Arc::new(Stub), Arc::new(Facts));
     let cwd = root().as_path().to_string_lossy().replace('\\', "\\\\");
-    let status = format!("{{\n  \"sessionId\": \"sess_lead1\",\n  \"title\": \"My title\",\n  \"titleSource\": \"user\",\n  \"cwd\": \"{cwd}\",\n  \"project\": \"{cwd}\",\n  \"provider\": \"anthropic\",\n  \"model\": \"claude-x\",\n  \"effort\": \"high\",\n  \"autoEffort\": true,\n  \"fast\": false\n}}");
+    let status = format!(
+        "{{\n  \"sessionId\": \"sess_lead1\",\n  \"title\": \"My title\",\n  \"titleSource\": \"user\",\n  \"cwd\": \"{cwd}\",\n  \"project\": \"{cwd}\",\n  \"provider\": \"anthropic\",\n  \"model\": \"claude-x\",\n  \"effort\": \"high\",\n  \"autoEffort\": true,\n  \"fast\": false\n}}"
+    );
     let cases = [
         (json!({"action":"status"}), true, status.clone()),
         (json!({"action":"status","session_id":"sess_lead1"}), true, r#"{"sessionId":"sess_lead1","busy":true,"agentsWorking":true,"quotaResume":{"state":"waiting"}}"#.to_owned()),
@@ -203,7 +204,13 @@ async fn session_actions_answer_with_their_json_or_their_refusal() {
     ];
     for (args, want_ok, want_text) in cases {
         let (ok, got) = match tool.call(&ctx(), args.clone()).await {
-            Ok(out) => (true, match &out.parts[0] { ToolPart::Text(t) => t.clone(), other => panic!("{other:?}") }),
+            Ok(out) => (
+                true,
+                match &out.parts[0] {
+                    ToolPart::Text(t) => t.clone(),
+                    other => panic!("{other:?}"),
+                },
+            ),
             Err(e) => (false, e.message_for_model),
         };
         assert_eq!((ok, got), (want_ok, want_text), "{args}");
@@ -246,7 +253,14 @@ async fn agent_tool_results_read_as_the_text_of_each_call() {
                 },
                 "list" => AgentReply::Roster {
                     workers: vec![WorkerRow { tag: "worker-a".into(), status: Some("idle".into()), stamp: "2".into(), ..WorkerRow::default() }],
-                    jobs: vec![JobRow { task_id: "job_1".into(), kind: "spawn".into(), status: "completed".into(), tag: Some("worker-a".into()), finished: true, ..JobRow::default() }],
+                    jobs: vec![JobRow {
+                        task_id: "job_1".into(),
+                        kind: "spawn".into(),
+                        status: "completed".into(),
+                        tag: Some("worker-a".into()),
+                        finished: true,
+                        ..JobRow::default()
+                    }],
                 },
                 _ => AgentReply::Closed(ClosedView { closed: true, tag: Some("worker-a".into()), session_id: Some("sess_a".into()), ..ClosedView::default() }),
             })
@@ -289,7 +303,11 @@ fn the_tidy_tool_is_defined_with_its_six_actions() {
     let tool = super::service::ServiceTool::tidy(Arc::new(Never));
     let spec = tool.spec();
     assert_eq!(spec.name, "tidy");
-    assert!(spec.description.starts_with("Clean up code across the languages in this project; engine/rule work belongs here, not shell."), "{}", spec.description);
+    assert!(
+        spec.description.starts_with("Clean up code across the languages in this project; engine/rule work belongs here, not shell."),
+        "{}",
+        spec.description
+    );
     assert_eq!(spec.input_schema["required"], json!(["action"]));
     assert_eq!(spec.input_schema["properties"]["action"]["enum"], json!(["scan", "check", "fix", "install", "rules", "results"]));
     let fields: Vec<&str> = spec.input_schema["properties"].as_object().unwrap().keys().map(String::as_str).collect();

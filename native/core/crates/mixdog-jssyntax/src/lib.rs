@@ -31,8 +31,7 @@ pub fn check_commonjs_script(source: &str) -> Result<(), Rejection> {
         // The grammar cannot read a few things V8 compiles: the source is rewritten into one it reads, or rejected.
         let repaired = repair::repair(&mut parser, source, &tree).filter(|r| !r.tree.root_node().has_error());
         return match repaired {
-            Some(fixed) => early::check(fixed.tree.root_node(), &fixed.source, &fixed.blanked)
-                .map_err(|reason| rejection(&reason)),
+            Some(fixed) => early::check(fixed.tree.root_node(), &fixed.source, &fixed.blanked).map_err(|reason| rejection(&reason)),
             None => Err(rejection(&message::grammar(root, source))),
         };
     }

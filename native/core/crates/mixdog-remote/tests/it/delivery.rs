@@ -151,12 +151,7 @@ async fn a_native_push_is_bound_encrypted_for_the_phone_and_unbound() {
     let mut rig = rig(&[]).await;
     let phone = generate_claim_key_pair();
     let token = "ab".repeat(32);
-    assert!(
-        rig.runtime
-            .register_native_push("phone1", &json!({ "platform": "apns", "token": token, "publicKey": phone.public_key }))
-            .await
-            .unwrap()
-    );
+    assert!(rig.runtime.register_native_push("phone1", &json!({ "platform": "apns", "token": token, "publicKey": phone.public_key })).await.unwrap());
     let bound = frame_of(&mut rig.frames, "native-push-bind").await;
     assert_eq!((bound["clientId"].as_str(), bound["token"].as_str()), (Some("phone1"), Some(token.as_str())));
 
@@ -178,10 +173,7 @@ async fn a_native_push_is_bound_encrypted_for_the_phone_and_unbound() {
 
     // An approval travels inside the encryption; the relay is told only the reason. `allowOnce`
     // is written only when true.
-    for (allow, expected) in [
-        (true, json!({ "approvalId": "ap-1", "allowOnce": true })),
-        (false, json!({ "approvalId": "ap-1" })),
-    ] {
+    for (allow, expected) in [(true, json!({ "approvalId": "ap-1", "allowOnce": true })), (false, json!({ "approvalId": "ap-1" }))] {
         let mut push = delivery("phone1", Reason::ApprovalPending, "Needs you.");
         push.approval = Some(("ap-1".into(), allow));
         rig.runtime.deliver_push(&push).await.unwrap();
@@ -206,9 +198,8 @@ fn the_legacy_store_registers_replaces_and_removes() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().to_path_buf();
     let p256dh = generate_claim_key_pair().public_key;
-    let record = move |endpoint: &str, client: &str| {
-        json!({ "endpoint": endpoint, "p256dh": p256dh, "auth": AUTH, "clientId": client, "label": "  My\u{a0}phone  " })
-    };
+    let record =
+        move |endpoint: &str, client: &str| json!({ "endpoint": endpoint, "p256dh": p256dh, "auth": AUTH, "clientId": client, "label": "  My\u{a0}phone  " });
     on_lane(move |lane| {
         let store = LegacyPushStore::new(&path);
         let first = store.register(lane, &record("https://push.example/a", "c1"), 10).unwrap();
@@ -232,7 +223,6 @@ fn the_legacy_store_registers_replaces_and_removes() {
         assert_eq!(store.public_key(lane).unwrap(), store.public_key(lane).unwrap());
     });
 }
-
 
 /// A lane that refuses the job is an error for that call and leaves the native store in place:
 /// the next call on a working lane still has its subscriptions (it used to find "unavailable").

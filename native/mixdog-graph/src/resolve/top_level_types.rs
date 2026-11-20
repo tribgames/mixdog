@@ -27,15 +27,9 @@ struct TypePatterns {
 
 impl TypePatterns {
     fn new() -> Self {
-        let type_decl_jks = Regex::new(
-            r"\b(?:class|interface|enum|record|object|struct)\s+([A-Za-z_][A-Za-z0-9_]*)",
-        )
-        .unwrap();
+        let type_decl_jks = Regex::new(r"\b(?:class|interface|enum|record|object|struct)\s+([A-Za-z_][A-Za-z0-9_]*)").unwrap();
         let go_type = Regex::new(r"(?m)^\s*type\s+([A-Za-z_][A-Za-z0-9_]*)\b").unwrap();
-        TypePatterns {
-            type_decl_jks,
-            go_type,
-        }
+        TypePatterns { type_decl_jks, go_type }
     }
 }
 

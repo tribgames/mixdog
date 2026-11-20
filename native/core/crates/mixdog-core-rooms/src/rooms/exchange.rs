@@ -62,7 +62,10 @@ pub struct Turn {
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
-    Speak { agent_id: String, instruction: String },
+    Speak {
+        agent_id: String,
+        instruction: String,
+    },
     Finish,
     /// No Maintainer model: nobody moderates.
     Unmanaged,
@@ -205,9 +208,7 @@ impl<H: ExchangeHost> State<'_, H> {
         if speech {
             self.messages += 1;
         }
-        self.mention = answer
-            .mention
-            .filter(|addressee| speech && addressee != agent_id && self.members.contains(addressee));
+        self.mention = answer.mention.filter(|addressee| speech && addressee != agent_id && self.members.contains(addressee));
         if let Some(usage) = answer.usage {
             self.limited_by = Some(usage);
             return Some(Outcome::Limited);
@@ -220,8 +221,7 @@ impl<H: ExchangeHost> State<'_, H> {
     }
 
     fn failed_everywhere(&self) -> bool {
-        let failing: Vec<&str> =
-            self.turns.iter().rev().take_while(|turn| turn.failed).map(|turn| turn.id.as_str()).collect();
+        let failing: Vec<&str> = self.turns.iter().rev().take_while(|turn| turn.failed).map(|turn| turn.id.as_str()).collect();
         self.members.iter().all(|id| failing.contains(&id.as_str()))
     }
 
@@ -233,9 +233,7 @@ impl<H: ExchangeHost> State<'_, H> {
             return false;
         }
         let after = at.map_or(0, |at| at + 1);
-        self.members.iter().all(|id| {
-            at.is_some_and(|at| self.turns[at].id == *id) || self.turns[after..].iter().any(|turn| turn.id == *id)
-        })
+        self.members.iter().all(|id| at.is_some_and(|at| self.turns[at].id == *id) || self.turns[after..].iter().any(|turn| turn.id == *id))
     }
 
     /// Each of `called` answers once, in order; `None` when all did.
@@ -244,12 +242,7 @@ impl<H: ExchangeHost> State<'_, H> {
             if let Some(halt) = self.halted() {
                 return Some(halt);
             }
-            let turn = Turn {
-                addressed: called.to_vec(),
-                instruction: String::new(),
-                mentioned_by: String::new(),
-                scene: self.scene,
-            };
+            let turn = Turn { addressed: called.to_vec(), instruction: String::new(), mentioned_by: String::new(), scene: self.scene };
             if let Some(cut) = self.take(agent_id, turn).await {
                 return Some(self.end(cut, None, vec![]));
             }
@@ -266,17 +259,10 @@ impl<H: ExchangeHost> State<'_, H> {
     /// has spoken (`must_pick`), falls back deterministically: first the member the user
     /// addressed, else the first member, preferring one that has not had a turn yet; later, the
     /// peer the last speech @mentioned, else finish.
-    fn next_speaker(
-        &self,
-        decision: Option<&Decision>,
-        targets: &[String],
-        must_pick: bool,
-    ) -> Option<(String, String)> {
+    fn next_speaker(&self, decision: Option<&Decision>, targets: &[String], must_pick: bool) -> Option<(String, String)> {
         let last = self.turns.last().map(|turn| turn.id.as_str()).unwrap_or("");
         match decision.map(|d| &d.action) {
-            Some(Action::Speak { agent_id, instruction })
-                if self.members.contains(agent_id) && agent_id != last =>
-            {
+            Some(Action::Speak { agent_id, instruction }) if self.members.contains(agent_id) && agent_id != last => {
                 return Some((agent_id.clone(), instruction.clone()));
             }
             Some(Action::Finish) if !must_pick => return None,
@@ -291,10 +277,7 @@ impl<H: ExchangeHost> State<'_, H> {
                 order.push(id);
             }
         }
-        let pick = order
-            .iter()
-            .find(|candidate| !self.turns.iter().any(|turn| &turn.id == **candidate))
-            .or(order.first())?;
+        let pick = order.iter().find(|candidate| !self.turns.iter().any(|turn| &turn.id == **candidate)).or(order.first())?;
         Some(((*pick).clone(), String::new()))
     }
 }
@@ -366,10 +349,7 @@ pub async fn run_room_exchange<H: ExchangeHost>(host: &H, params: ExchangeParams
             turns: state.turns.clone(),
             last: state.turns.last().map(|turn| turn.id.clone()).unwrap_or_default(),
             mention: state.mention.clone(),
-            remaining: Remaining {
-                messages: state.max_messages - state.messages,
-                steps: max_steps - state.steps + 1,
-            },
+            remaining: Remaining { messages: state.max_messages - state.messages, steps: max_steps - state.steps + 1 },
         };
         let decision = host.decide(&input).await;
         if let Some(halt) = state.halted() {
@@ -378,7 +358,8 @@ pub async fn run_room_exchange<H: ExchangeHost>(host: &H, params: ExchangeParams
         // No Maintainer model: the called members answered once above; a call to the whole room
         // gives every member one turn, in order. No further rounds, no follow-ups.
         if matches!(decision.as_ref().map(|d| &d.action), Some(Action::Unmanaged)) {
-            if state.waiting && targets.is_empty()
+            if state.waiting
+                && targets.is_empty()
                 && let Some(result) = state.call_each(&members).await
             {
                 return result;
@@ -477,10 +458,7 @@ mod tests {
 
     #[tokio::test]
     async fn addressees_answer_first_in_order_then_the_supervisor_steers() {
-        let host = Script::new(
-            &[("a", vec![speech()]), ("b", vec![speech(), speech()]), ("c", vec![speech()])],
-            vec![speak("c"), finish()],
-        );
+        let host = Script::new(&[("a", vec![speech()]), ("b", vec![speech(), speech()]), ("c", vec![speech()])], vec![speak("c"), finish()]);
         let result = run_room_exchange(&host, params(&["a", "b", "c"], &["b", "a"])).await;
         assert_eq!(host.log(), ["b", "a", "c"]);
         assert_eq!((result.outcome, result.messages, result.steps), (Outcome::Done, 3, 2));
@@ -496,13 +474,7 @@ mod tests {
 
     #[tokio::test]
     async fn a_supervisor_without_an_answer_falls_back_to_the_mention() {
-        let host = Script::new(
-            &[
-                ("a", vec![Answer { mention: Some("b".into()), ..speech() }]),
-                ("b", vec![speech()]),
-            ],
-            vec![None, None, None],
-        );
+        let host = Script::new(&[("a", vec![Answer { mention: Some("b".into()), ..speech() }]), ("b", vec![speech()])], vec![None, None, None]);
         let result = run_room_exchange(&host, params(&["a", "b"], &[])).await;
         assert_eq!(host.log(), ["a", "b"]);
         assert_eq!(result.outcome, Outcome::Done);
@@ -515,10 +487,7 @@ mod tests {
         p.max_messages = 2;
         let result = run_room_exchange(&host, p).await;
         assert_eq!(host.log(), ["a", "b"]);
-        assert_eq!(
-            (result.outcome, result.limit, result.remaining),
-            (Outcome::Capped, Some(CapLimit::Messages), vec!["c".to_string()])
-        );
+        assert_eq!((result.outcome, result.limit, result.remaining), (Outcome::Capped, Some(CapLimit::Messages), vec!["c".to_string()]));
     }
 
     #[tokio::test]
@@ -537,10 +506,7 @@ mod tests {
 
     #[tokio::test]
     async fn everyone_passing_after_a_speech_ends_the_talk() {
-        let host = Script::new(
-            &[("a", vec![speech()]), ("b", vec![pass()]), ("c", vec![pass()])],
-            vec![speak("a"), speak("b"), speak("c"), speak("a")],
-        );
+        let host = Script::new(&[("a", vec![speech()]), ("b", vec![pass()]), ("c", vec![pass()])], vec![speak("a"), speak("b"), speak("c"), speak("a")]);
         let result = run_room_exchange(&host, params(&["a", "b", "c"], &[])).await;
         assert_eq!(host.log(), ["a", "b", "c"]);
         assert_eq!(result.outcome, Outcome::Done);
@@ -558,10 +524,7 @@ mod tests {
     #[tokio::test]
     async fn usage_limit_ends_at_once_and_repeated_failures_end_failed() {
         let limit = UsageLimit { kind: "quota_exhausted".into(), provider: "p".into(), model: "m".into(), reset_at: None };
-        let host = Script::new(
-            &[("a", vec![Answer { failed: true, usage: Some(limit.clone()), ..pass() }]), ("b", vec![])],
-            vec![speak("a")],
-        );
+        let host = Script::new(&[("a", vec![Answer { failed: true, usage: Some(limit.clone()), ..pass() }]), ("b", vec![])], vec![speak("a")]);
         let result = run_room_exchange(&host, params(&["a", "b"], &[])).await;
         assert_eq!((result.outcome, result.usage), (Outcome::Limited, Some(limit)));
 

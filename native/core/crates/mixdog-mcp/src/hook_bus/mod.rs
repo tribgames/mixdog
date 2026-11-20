@@ -179,7 +179,6 @@ fn build_payload(event: &str, input: &ToolCall<'_>, response: Option<&Value>) ->
     Value::Object(payload)
 }
 
-
 impl HookBus {
     pub fn new(
         data_dir: PathBuf,
@@ -225,9 +224,7 @@ impl HookBus {
         let env_file = std::env::var_os("MIXDOG_HOOKS_FILE").map(PathBuf::from);
         let job = self
             .maintenance
-            .submit(&CancellationToken::new(), move |lane| {
-                config::load_config(lane, &data_dir, &cwd, env_file.as_deref(), previous)
-            })
+            .submit(&CancellationToken::new(), move |lane| config::load_config(lane, &data_dir, &cwd, env_file.as_deref(), previous))
             .map_err(|_| "the hooks configuration could not be read: the maintenance lane is full".to_owned())?;
         let loaded = job.await.map_err(|e| format!("the hooks configuration could not be read: {e:?}"))?;
         if loaded.fresh {
@@ -297,7 +294,8 @@ impl HookBus {
                     Arc::new(move |error: String| observer.emit("hook:error", json!({"name": name, "error": format!("hook spawn failed: {error}")})))
                         as runners::DetachedReport
                 });
-                let ctx = CommandContext { project_dir: cwd, project_exists: loaded.project_exists, plugin_data_dir: &plugin_data, payload, event, report_detached };
+                let ctx =
+                    CommandContext { project_dir: cwd, project_exists: loaded.project_exists, plugin_data_dir: &plugin_data, payload, event, report_detached };
                 Some(self.commands.run(handler, &ctx).await)
             }
             "http" => {

@@ -45,7 +45,8 @@ async fn index_over(data: &std::path::Path, tokens: LaneTokens) -> SqliteStore {
 
 /// A thread store over `data` and `index` whose logs take `marks`.
 async fn store_over(data: &std::path::Path, index: SqliteStore, tokens: LaneTokens, marks: &Arc<SensitiveStore>) -> Arc<StoreThreads> {
-    let threads = Arc::new(StoreThreads::over_data_dir(data, index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
+    let threads =
+        Arc::new(StoreThreads::over_data_dir(data, index, Arc::new(MockOwnership::default()), tokens.maintenance_io).await.expect("the thread store"));
     assert!(threads.redact_with(Arc::new(SensitiveMarksOf::new(marks.clone()))).is_ok());
     threads
 }
@@ -189,13 +190,24 @@ async fn what_the_row_reads_keep_of_a_log_is_read_again_after_every_write_that_m
     assert_ne!(opened_after_rewind.0, opened.0, "the rewind moved the history revision");
 
     let dir = data.path().join("sessions").join(THREAD);
-    let newest = std::fs::read_dir(&dir).expect("dir").flatten().map(|e| e.path()).filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("log."))).max().expect("a log file");
+    let newest = std::fs::read_dir(&dir)
+        .expect("dir")
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.file_name().is_some_and(|n| n.to_string_lossy().starts_with("log.")))
+        .max()
+        .expect("a log file");
     let before = std::fs::metadata(&newest).expect("metadata");
     assert!(marks.remember(THREAD, &[fill(SAME_LENGTH)]));
     redact(&log, tokens).await;
     threads.projected().await;
     assert_eq!(holding(data.path(), &[SAME_LENGTH]), Vec::<String>::new(), "the log was rewritten");
-    std::fs::File::options().write(true).open(&newest).expect("the log file").set_modified(before.modified().expect("a write time")).expect("the write time put back");
+    std::fs::File::options()
+        .write(true)
+        .open(&newest)
+        .expect("the log file")
+        .set_modified(before.modified().expect("a write time"))
+        .expect("the write time put back");
     assert_eq!(std::fs::metadata(&newest).expect("metadata").len(), before.len(), "the rewrite left the file's length");
     let (rewritten, (kept, opened)) = shape(threads.clone()).await;
     assert!(!rewound.of_one_read(&rewritten), "the rewritten log is opened again");
@@ -237,20 +249,27 @@ async fn the_length_of_a_context_is_followed_in_memory_through_the_threads_commi
     assert_eq!(threads.context_len_kept(&id), None, "nothing is kept of a thread never counted");
     assert_eq!(ask(threads.clone()).await, (1, (Some(1), 1)));
 
-    append(&log, tokens, vec![
-        row("b", "two"),
-        commit(json!({"k":"item","iid":"n","role":"user","form":"message","model":false,"visible":true,"refs":[],"body":{"inline":message}})),
-        commit(json!({"k":"amend","iid":"a","refs":[],"body":{"inline":message}})),
-        row("c", "three"),
-    ]).await;
+    append(
+        &log,
+        tokens,
+        vec![
+            row("b", "two"),
+            commit(json!({"k":"item","iid":"n","role":"user","form":"message","model":false,"visible":true,"refs":[],"body":{"inline":message}})),
+            commit(json!({"k":"amend","iid":"a","refs":[],"body":{"inline":message}})),
+            row("c", "three"),
+        ],
+    )
+    .await;
     assert_eq!(threads.context_len_kept(&id), Some(3), "the count holds the batch as its commit returns");
     threads.projected().await;
     assert_eq!(ask(threads.clone()).await, (3, (Some(3), 3)));
 
-    append(&log, tokens, vec![
-        commit(json!({"k":"compacted","cid":"c","replacement":{"inline":[{"iid":"s","body":message},{"iid":"t","body":message}]}})),
-        row("d", "four"),
-    ]).await;
+    append(
+        &log,
+        tokens,
+        vec![commit(json!({"k":"compacted","cid":"c","replacement":{"inline":[{"iid":"s","body":message},{"iid":"t","body":message}]}})), row("d", "four")],
+    )
+    .await;
     assert_eq!(threads.context_len_kept(&id), Some(3), "the context starts again at the replacement");
     threads.projected().await;
     assert_eq!(ask(threads.clone()).await, (3, (Some(3), 3)));
@@ -417,9 +436,15 @@ async fn startup_retry_finishes_a_swapped_rewrite_before_retiring_its_mark() {
     {
         let marks = Arc::new(SensitiveStore::default());
         let threads = store_over(data.path(), index.clone(), tokens, &marks).await;
-        create(&threads, tokens, "parent", vec![commit(json!({
-            "k":"meta","change":{"inline":{"set":{"title":title},"unset":[]}}
-        }))]).await;
+        create(
+            &threads,
+            tokens,
+            "parent",
+            vec![commit(json!({
+                "k":"meta","change":{"inline":{"set":{"title":title},"unset":[]}}
+            }))],
+        )
+        .await;
         assert!(marks.remember("parent", &[fill(CODE)]));
         threads.projected().await;
     }
@@ -427,9 +452,7 @@ async fn startup_retry_finishes_a_swapped_rewrite_before_retiring_its_mark() {
     let original = std::fs::read_dir(&pending).expect("pending dir").next().expect("a mark").expect("entry").path();
     let session = data.path().join("sessions/parent");
     let staged = data.path().join(mixdog_store::log_rewrite::REWRITE_DIR).join("parent");
-    let indexed_title = || async {
-        index.lead_row("parent").await.expect("index read").expect("indexed session").row["title"].clone()
-    };
+    let indexed_title = || async { index.lead_row("parent").await.expect("index read").expect("indexed session").row["title"].clone() };
     let marks = Arc::new(SensitiveStore::default());
     let threads = store_over(data.path(), index.clone(), tokens, &marks).await;
     index.refuse_next_reproject();
@@ -696,31 +719,40 @@ async fn a_search_copy_stays_owed_and_unsearched_until_it_is_confirmed_gone() {
 async fn a_carried_marks_thread_is_opened_again_until_its_owed_rewrite_released_it() {
     let refusal = |kind: &str| CoreError::CoreMigrating { kind: kind.into(), done: 0, total: 1 };
     let asked = std::sync::atomic::AtomicUsize::new(0);
-    let opened = super::directory::once_released(|| false, || async {
-        match asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
-            0 | 1 => Err(refusal("sensitiveRewrite")),
-            _ => Ok("opened"),
-        }
-    })
+    let opened = super::directory::once_released(
+        || false,
+        || async {
+            match asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst) {
+                0 | 1 => Err(refusal("sensitiveRewrite")),
+                _ => Ok("opened"),
+            }
+        },
+    )
     .await;
     assert!(matches!(opened, Ok("opened")), "{opened:?}");
     assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 3, "refused twice, then opened");
 
     let asked = std::sync::atomic::AtomicUsize::new(0);
-    let failed = super::directory::once_released(|| false, || async {
-        asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Err::<(), _>(refusal("sensitiveRewriteFailed"))
-    })
+    let failed = super::directory::once_released(
+        || false,
+        || async {
+            asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err::<(), _>(refusal("sensitiveRewriteFailed"))
+        },
+    )
     .await;
     assert!(matches!(&failed, Err(CoreError::CoreMigrating { kind, .. }) if &**kind == "sensitiveRewriteFailed"), "{failed:?}");
     assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1, "a failed rewrite is not waited for");
 
     // A shutdown that stopped the rewriter between sessions leaves this one held and not failed: not asked again.
     let asked = std::sync::atomic::AtomicUsize::new(0);
-    let held = super::directory::once_released(|| true, || async {
-        asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-        Err::<(), _>(refusal("sensitiveRewrite"))
-    })
+    let held = super::directory::once_released(
+        || true,
+        || async {
+            asked.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Err::<(), _>(refusal("sensitiveRewrite"))
+        },
+    )
     .await;
     assert!(matches!(&held, Err(CoreError::CoreMigrating { kind, .. }) if &**kind == "sensitiveRewrite"), "{held:?}");
     assert_eq!(asked.load(std::sync::atomic::Ordering::SeqCst), 1, "a held session is not waited for once the shutdown began");

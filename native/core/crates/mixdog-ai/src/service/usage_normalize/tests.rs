@@ -24,10 +24,7 @@ fn grok_billing_reads_credit_totals_and_unified_percent() {
         r#"{"label":"W","source":"grok-build-billing","usedPct":25,"usedCredits":50,"limitCredits":200,"remainingCredits":150,"resetAt":1900000000000}"#
     );
     let unified = serde_json::json!({"isUnifiedBillingUser": true, "currentPeriod": {"type": "USAGE_PERIOD_TYPE_MONTHLY"}, "creditUsagePercent": {"val": 140}});
-    assert_eq!(
-        credit_window_from_billing(&unified, NOW).unwrap().to_string(),
-        r#"{"label":"M","source":"grok-build-billing","usedPct":100}"#
-    );
+    assert_eq!(credit_window_from_billing(&unified, NOW).unwrap().to_string(), r#"{"label":"M","source":"grok-build-billing","usedPct":100}"#);
     assert!(credit_window_from_billing(&serde_json::json!({"x": 1}), NOW).is_none());
     // Node throws on an absent, blank or non-string period type, whatever else the answer holds.
     for typeless in [
@@ -38,8 +35,10 @@ fn grok_billing_reads_credit_totals_and_unified_percent() {
         assert!(credit_window_from_billing(&typeless, NOW).is_none(), "{typeless}");
     }
     // `currentPeriod?.type ?? current_period?.type`: a period without a type defers to the other spelling.
-    let deferred = serde_json::json!({"currentPeriod": {"end": 1_900_000_000}, "current_period": {"type": "USAGE_PERIOD_TYPE_WEEKLY"}, "weeklyLimit": 10, "used": 1});
-    assert_eq!(credit_window_from_billing(&deferred, NOW).unwrap()["label"], "W");    let cap = serde_json::json!({"currentPeriod": {"type": "OTHER"}, "onDemandCap": {"val": 10}, "onDemandUsed": 4, "billingPeriodStart": "2030-01-01T00:00:00Z", "billingPeriodEnd": "2030-01-08T00:00:00Z"});
+    let deferred =
+        serde_json::json!({"currentPeriod": {"end": 1_900_000_000}, "current_period": {"type": "USAGE_PERIOD_TYPE_WEEKLY"}, "weeklyLimit": 10, "used": 1});
+    assert_eq!(credit_window_from_billing(&deferred, NOW).unwrap()["label"], "W");
+    let cap = serde_json::json!({"currentPeriod": {"type": "OTHER"}, "onDemandCap": {"val": 10}, "onDemandUsed": 4, "billingPeriodStart": "2030-01-01T00:00:00Z", "billingPeriodEnd": "2030-01-08T00:00:00Z"});
     assert_eq!(
         balance_from_grok_billing(&cap, NOW).to_string(),
         r#"{"source":"grok-build-on-demand","period":"weekly","budgetCredits":10,"spentCredits":4,"remainingCredits":6}"#
@@ -62,7 +61,6 @@ fn reset_credit_offer_has_a_stable_revision() {
     assert!(normalize_codex_reset_credits(Some(&serde_json::json!({})), "acct", NOW).is_none());
 }
 
-
 /// Decided departure from Node's outputs: a `limits` entry scoped to a model of a known inference family is pinned to that
 /// family (`bind_inference_family`), so a refusal of it cannot read as account-wide; Node's window carries no scope. Each
 /// entry is the case, the window's label and the family it is pinned to (appended as `models`, as the product writes it).
@@ -77,7 +75,6 @@ fn with_pinned_families(name: &str, mut output: Value) -> Value {
     output
 }
 
-
 /// Each reading of the two usage endpoints as the documented rules normalise it (Node 1.4.5
 /// `normalizeOpenAIWhamUsage` / `normalizeAnthropicUsage`): window labels from the window length, percentages and
 /// credits rounded, the extra-limit windows scoped to their models, the spend balance in major units, and no result
@@ -85,15 +82,64 @@ fn with_pinned_families(name: &str, mut output: Value) -> Value {
 #[test]
 fn the_wham_and_anthropic_readings_normalise_to_their_documented_windows_and_balances() {
     let cases: [(&str, &str, &str, Option<&str>); 10] = [
-        ("wham-plain", "wham", r#"{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":42.567,"limit_window_seconds":18000,"reset_at":1900000000},"secondary_window":{"used_percent":"10","limit_window_seconds":604800,"reset_at":1900000050}},"credits":{"balance":"12.34567","unlimited":false,"has_credits":true}}"#, Some(r#"{"provider":"openai-oauth","source":"openai-codex-wham","planType":"plus","quotaWindows":[{"label":"5H","source":"openai-codex-oauth","usedPct":42.57,"resetAt":1900000000000,"limit":"codex"},{"label":"7D","source":"openai-codex-oauth","usedPct":10,"resetAt":1900000050000,"limit":"codex"}],"balance":{"source":"openai-codex-credits","unit":"credits","remainingCredits":12.3457,"unlimited":false,"hasCredits":true},"rawKeys":["credits","plan_type","rate_limit"]}"#)),
-        ("wham-additional", "wham", r#"{"plan_type":" pro ","rate_limit":{"primary":{"used_percent":100,"window_minutes":300,"resets_at":"2030-01-02T03:04:05Z"}},"additional_rate_limits":[{"metered_feature":"Codex-Spark","limit_name":"GPT-5-Codex-Spark","rate_limit":{"primary_window":{"used_percent":5,"limit_window_seconds":18000,"reset_at":1900000100},"secondary_window":{"used_percent":7.005,"limit_window_seconds":604800,"reset_at":1900000200}}},{"limit_name":"","rate_limit":{}},{"metered_feature":"empty","rate_limit":{}}]}"#, Some(r#"{"provider":"openai-oauth","source":"openai-codex-wham","planType":"pro","quotaWindows":[{"label":"5H","source":"openai-codex-oauth","usedPct":100,"resetAt":1893553445000,"limit":"codex","except":["gpt-5-codex-spark"]},{"label":"5H GPT-5-Codex-Spark","source":"openai-codex-oauth","usedPct":5,"resetAt":1900000100000,"limit":"codex_spark","models":["gpt-5-codex-spark"]},{"label":"7D GPT-5-Codex-Spark","source":"openai-codex-oauth","usedPct":7.01,"resetAt":1900000200000,"limit":"codex_spark","models":["gpt-5-codex-spark"]}],"balance":null,"rawKeys":["additional_rate_limits","plan_type","rate_limit"]}"#)),
+        (
+            "wham-plain",
+            "wham",
+            r#"{"plan_type":"plus","rate_limit":{"primary_window":{"used_percent":42.567,"limit_window_seconds":18000,"reset_at":1900000000},"secondary_window":{"used_percent":"10","limit_window_seconds":604800,"reset_at":1900000050}},"credits":{"balance":"12.34567","unlimited":false,"has_credits":true}}"#,
+            Some(
+                r#"{"provider":"openai-oauth","source":"openai-codex-wham","planType":"plus","quotaWindows":[{"label":"5H","source":"openai-codex-oauth","usedPct":42.57,"resetAt":1900000000000,"limit":"codex"},{"label":"7D","source":"openai-codex-oauth","usedPct":10,"resetAt":1900000050000,"limit":"codex"}],"balance":{"source":"openai-codex-credits","unit":"credits","remainingCredits":12.3457,"unlimited":false,"hasCredits":true},"rawKeys":["credits","plan_type","rate_limit"]}"#,
+            ),
+        ),
+        (
+            "wham-additional",
+            "wham",
+            r#"{"plan_type":" pro ","rate_limit":{"primary":{"used_percent":100,"window_minutes":300,"resets_at":"2030-01-02T03:04:05Z"}},"additional_rate_limits":[{"metered_feature":"Codex-Spark","limit_name":"GPT-5-Codex-Spark","rate_limit":{"primary_window":{"used_percent":5,"limit_window_seconds":18000,"reset_at":1900000100},"secondary_window":{"used_percent":7.005,"limit_window_seconds":604800,"reset_at":1900000200}}},{"limit_name":"","rate_limit":{}},{"metered_feature":"empty","rate_limit":{}}]}"#,
+            Some(
+                r#"{"provider":"openai-oauth","source":"openai-codex-wham","planType":"pro","quotaWindows":[{"label":"5H","source":"openai-codex-oauth","usedPct":100,"resetAt":1893553445000,"limit":"codex","except":["gpt-5-codex-spark"]},{"label":"5H GPT-5-Codex-Spark","source":"openai-codex-oauth","usedPct":5,"resetAt":1900000100000,"limit":"codex_spark","models":["gpt-5-codex-spark"]},{"label":"7D GPT-5-Codex-Spark","source":"openai-codex-oauth","usedPct":7.01,"resetAt":1900000200000,"limit":"codex_spark","models":["gpt-5-codex-spark"]}],"balance":null,"rawKeys":["additional_rate_limits","plan_type","rate_limit"]}"#,
+            ),
+        ),
         ("wham-no-rate", "wham", r#"{"plan_type":"x"}"#, None),
         ("wham-no-windows", "wham", r#"{"rate_limit":{"primary_window":{}}}"#, None),
-        ("anth-basic", "anthropic", r#"{"five_hour":{"utilization":12.5,"resets_at":"2030-01-02T03:04:05.123Z"},"seven_day":{"utilization":80,"resets_at":"2030-01-09T00:00:00Z"},"seven_day_opus":{"utilization":100,"resets_at":"2030-01-09T00:00:00Z"},"seven_day_oauth_apps":null,"extra_usage":{"is_enabled":true,"monthly_limit":5000,"used_credits":1250,"utilization":25,"currency":"EUR"}}"#, Some(r#"{"provider":"anthropic-oauth","source":"anthropic-oauth","quotaWindows":[{"label":"5H","source":"anthropic-oauth","usedPct":12.5,"resetAt":1893553445123},{"label":"7D","source":"anthropic-oauth","usedPct":80,"resetAt":1894147200000},{"label":"7D Opus","source":"anthropic-oauth","usedPct":100,"resetAt":1894147200000},{"label":"EXTRA","source":"anthropic-oauth-extra","usedPct":25,"limitUsd":50,"usedUsd":12.5,"remainingUsd":37.5,"models":[]}],"balance":{"source":"anthropic-oauth-extra","period":"monthly","budgetUsd":50,"spentUsd":12.5,"remainingUsd":37.5,"currency":"EUR"},"rawKeys":["extra_usage","five_hour","seven_day","seven_day_oauth_apps","seven_day_opus"]}"#)),
-        ("anth-limits", "anthropic", r#"{"limits":[{"kind":"session","percent":33,"resets_at":"2030-01-02T03:04:05Z"},{"kind":"weekly_all","percent":44,"resets_at":"2030-01-09T00:00:00Z"},{"group":"monthly","percent":1},{"kind":"weekly_x","percent":66,"scope":{"model":{"display_name":"Fable","id":"fable"}},"resets_at":"2030-01-09T00:00:00Z"}],"spend":{"used":{"amount_minor":1234,"exponent":2,"currency":"USD"},"cap":{"credits":{"amount_minor":5000,"exponent":2}}}}"#, Some(r#"{"provider":"anthropic-oauth","source":"anthropic-oauth","quotaWindows":[{"label":"5H","source":"anthropic-oauth","usedPct":33,"resetAt":1893553445000},{"label":"7D","source":"anthropic-oauth","usedPct":44,"resetAt":1894147200000},{"label":"MONTHLY","source":"anthropic-oauth","usedPct":1},{"label":"7D Fable","source":"anthropic-oauth","usedPct":66,"resetAt":1894147200000}],"balance":{"source":"anthropic-oauth-spend","remainingUsd":37.66,"spentUsd":12.34,"currency":"USD"},"rawKeys":["limits","spend"]}"#)),
-        ("anth-spend-balance", "anthropic", r#"{"five_hour":{"utilization":1},"spend":{"balance":{"amount_minor":2500,"exponent":2},"used":{"amount_minor":500}}}"#, Some(r#"{"provider":"anthropic-oauth","source":"anthropic-oauth","quotaWindows":[{"label":"5H","source":"anthropic-oauth","usedPct":1}],"balance":{"source":"anthropic-oauth-spend","remainingUsd":25,"spentUsd":5,"currency":"USD"},"rawKeys":["five_hour","spend"]}"#)),
-        ("anth-spend-limit", "anthropic", r#"{"five_hour":{"utilization":1},"spend":{"limit":{"amount_minor":10000,"currency":"GBP"},"used":{"amount_minor":2500}}}"#, Some(r#"{"provider":"anthropic-oauth","source":"anthropic-oauth","quotaWindows":[{"label":"5H","source":"anthropic-oauth","usedPct":1}],"balance":{"source":"anthropic-oauth-spend","remainingUsd":75,"spentUsd":25,"currency":"GBP"},"rawKeys":["five_hour","spend"]}"#)),
-        ("anth-extra-only", "anthropic", r#"{"extra_usage":{"is_enabled":false,"monthly_limit":100,"used_credits":10}}"#, Some(r#"{"provider":"anthropic-oauth","source":"anthropic-oauth","quotaWindows":[],"balance":{"source":"anthropic-oauth-extra","period":"monthly","budgetUsd":1,"spentUsd":0.1,"remainingUsd":0.9,"currency":"USD"},"rawKeys":["extra_usage"]}"#)),
+        (
+            "anth-basic",
+            "anthropic",
+            r#"{"five_hour":{"utilization":12.5,"resets_at":"2030-01-02T03:04:05.123Z"},"seven_day":{"utilization":80,"resets_at":"2030-01-09T00:00:00Z"},"seven_day_opus":{"utilization":100,"resets_at":"2030-01-09T00:00:00Z"},"seven_day_oauth_apps":null,"extra_usage":{"is_enabled":true,"monthly_limit":5000,"used_credits":1250,"utilization":25,"currency":"EUR"}}"#,
+            Some(
+                r#"{"provider":"anthropic-oauth","source":"anthropic-oauth","quotaWindows":[{"label":"5H","source":"anthropic-oauth","usedPct":12.5,"resetAt":1893553445123},{"label":"7D","source":"anthropic-oauth","usedPct":80,"resetAt":1894147200000},{"label":"7D Opus","source":"anthropic-oauth","usedPct":100,"resetAt":1894147200000},{"label":"EXTRA","source":"anthropic-oauth-extra","usedPct":25,"limitUsd":50,"usedUsd":12.5,"remainingUsd":37.5,"models":[]}],"balance":{"source":"anthropic-oauth-extra","period":"monthly","budgetUsd":50,"spentUsd":12.5,"remainingUsd":37.5,"currency":"EUR"},"rawKeys":["extra_usage","five_hour","seven_day","seven_day_oauth_apps","seven_day_opus"]}"#,
+            ),
+        ),
+        (
+            "anth-limits",
+            "anthropic",
+            r#"{"limits":[{"kind":"session","percent":33,"resets_at":"2030-01-02T03:04:05Z"},{"kind":"weekly_all","percent":44,"resets_at":"2030-01-09T00:00:00Z"},{"group":"monthly","percent":1},{"kind":"weekly_x","percent":66,"scope":{"model":{"display_name":"Fable","id":"fable"}},"resets_at":"2030-01-09T00:00:00Z"}],"spend":{"used":{"amount_minor":1234,"exponent":2,"currency":"USD"},"cap":{"credits":{"amount_minor":5000,"exponent":2}}}}"#,
+            Some(
+                r#"{"provider":"anthropic-oauth","source":"anthropic-oauth","quotaWindows":[{"label":"5H","source":"anthropic-oauth","usedPct":33,"resetAt":1893553445000},{"label":"7D","source":"anthropic-oauth","usedPct":44,"resetAt":1894147200000},{"label":"MONTHLY","source":"anthropic-oauth","usedPct":1},{"label":"7D Fable","source":"anthropic-oauth","usedPct":66,"resetAt":1894147200000}],"balance":{"source":"anthropic-oauth-spend","remainingUsd":37.66,"spentUsd":12.34,"currency":"USD"},"rawKeys":["limits","spend"]}"#,
+            ),
+        ),
+        (
+            "anth-spend-balance",
+            "anthropic",
+            r#"{"five_hour":{"utilization":1},"spend":{"balance":{"amount_minor":2500,"exponent":2},"used":{"amount_minor":500}}}"#,
+            Some(
+                r#"{"provider":"anthropic-oauth","source":"anthropic-oauth","quotaWindows":[{"label":"5H","source":"anthropic-oauth","usedPct":1}],"balance":{"source":"anthropic-oauth-spend","remainingUsd":25,"spentUsd":5,"currency":"USD"},"rawKeys":["five_hour","spend"]}"#,
+            ),
+        ),
+        (
+            "anth-spend-limit",
+            "anthropic",
+            r#"{"five_hour":{"utilization":1},"spend":{"limit":{"amount_minor":10000,"currency":"GBP"},"used":{"amount_minor":2500}}}"#,
+            Some(
+                r#"{"provider":"anthropic-oauth","source":"anthropic-oauth","quotaWindows":[{"label":"5H","source":"anthropic-oauth","usedPct":1}],"balance":{"source":"anthropic-oauth-spend","remainingUsd":75,"spentUsd":25,"currency":"GBP"},"rawKeys":["five_hour","spend"]}"#,
+            ),
+        ),
+        (
+            "anth-extra-only",
+            "anthropic",
+            r#"{"extra_usage":{"is_enabled":false,"monthly_limit":100,"used_credits":10}}"#,
+            Some(
+                r#"{"provider":"anthropic-oauth","source":"anthropic-oauth","quotaWindows":[],"balance":{"source":"anthropic-oauth-extra","period":"monthly","budgetUsd":1,"spentUsd":0.1,"remainingUsd":0.9,"currency":"USD"},"rawKeys":["extra_usage"]}"#,
+            ),
+        ),
         ("anth-empty", "anthropic", r#"{"foo":1}"#, None),
     ];
     for (name, which, input, output) in cases {

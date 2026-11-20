@@ -49,21 +49,14 @@ pub(super) struct FuzzyEntry {
 
 pub(super) fn paths_storage_bytes(files: &[PathBuf]) -> usize {
     files.iter().fold(0usize, |total, path| {
-        total
-            .saturating_add(std::mem::size_of::<PathBuf>())
-            .saturating_add(path.as_os_str().to_string_lossy().len().saturating_mul(2))
+        total.saturating_add(std::mem::size_of::<PathBuf>()).saturating_add(path.as_os_str().to_string_lossy().len().saturating_mul(2))
     })
 }
 
 pub(super) fn fuzzy_storage_bytes(corpus: &FuzzyCorpus) -> usize {
-    corpus
-        .paths
-        .iter()
-        .fold(std::mem::size_of::<FuzzyCorpus>(), |total, indexed| {
-            total
-                .saturating_add(std::mem::size_of::<FuzzyIndexedPath>())
-                .saturating_add(indexed.path.len())
-        })
+    corpus.paths.iter().fold(std::mem::size_of::<FuzzyCorpus>(), |total, indexed| {
+        total.saturating_add(std::mem::size_of::<FuzzyIndexedPath>()).saturating_add(indexed.path.len())
+    })
 }
 
 pub(super) enum LiveState {
@@ -99,9 +92,7 @@ impl LiveWalk {
     /// Nobody waits on the walk, nobody asked to keep it warm, and its
     /// inventory lease has run out.
     fn is_idle(&self, now_ms: u64) -> bool {
-        self.waiters.load(Ordering::Acquire) == 0
-            && !self.keep_warm.load(Ordering::Acquire)
-            && !self.inventory_lease.active(now_ms)
+        self.waiters.load(Ordering::Acquire) == 0 && !self.keep_warm.load(Ordering::Acquire) && !self.inventory_lease.active(now_ms)
     }
 }
 
@@ -119,8 +110,7 @@ pub(super) fn abandon_expired_idle_walk(live: &LiveWalk, now_ms: u64) -> bool {
 
 pub(super) struct FileListStore {
     pub(super) ready: Arc<Mutex<HashMap<WalkKey, ReadyEntry>>>,
-    pub(super) persisted_checkpoints:
-        Mutex<Option<Vec<crate::serve_search_usn::JournalCheckpoint>>>,
+    pub(super) persisted_checkpoints: Mutex<Option<Vec<crate::serve_search_usn::JournalCheckpoint>>>,
     pub(super) live: Mutex<HashMap<WalkKey, Arc<LiveWalk>>>,
     pub(super) fuzzy: Mutex<HashMap<FuzzyKey, FuzzyEntry>>,
     pub(super) generations: Mutex<HashMap<PathBuf, u64>>,
@@ -151,32 +141,19 @@ impl InventoryChanges {
         self.sequence += 1;
         // A bounded journal is only an optimization. A gap or an unknown
         // change boundary forces a fresh walk, never a guessed repair.
-        self.records.push_back((
-            self.sequence,
-            roots.to_vec(),
-            paths
-                .filter(|paths| paths.len() <= 256)
-                .map(<[PathBuf]>::to_vec),
-        ));
+        self.records.push_back((self.sequence, roots.to_vec(), paths.filter(|paths| paths.len() <= 256).map(<[PathBuf]>::to_vec)));
         while self.records.len() > 1024 {
             self.records.pop_front();
         }
     }
 
     pub(super) fn since(&self, sequence: u64, root: &Path) -> Option<Vec<PathBuf>> {
-        if self
-            .records
-            .front()
-            .is_some_and(|(first, _, _)| *first > sequence + 1)
-        {
+        if self.records.front().is_some_and(|(first, _, _)| *first > sequence + 1) {
             return None;
         }
         let mut changed = HashSet::new();
         for (_, roots, paths) in self.records.iter().filter(|(id, _, _)| *id > sequence) {
-            if !roots
-                .iter()
-                .any(|path| FileListStore::paths_overlap(path, root))
-            {
+            if !roots.iter().any(|path| FileListStore::paths_overlap(path, root)) {
                 continue;
             }
             for path in paths.as_ref()? {
@@ -197,17 +174,8 @@ impl InventoryChanges {
 
 /// Drop the ready inventories whose TTL expired, unless a watcher still
 /// covers their operand and keeps them current.
-fn drop_expired_unwatched(
-    ready: &mut HashMap<WalkKey, ReadyEntry>,
-    watched_roots: &[PathBuf],
-    now: Instant,
-) {
-    ready.retain(|ready_key, entry| {
-        entry.expires_at > now
-            || watched_roots
-                .iter()
-                .any(|root| FileListStore::paths_overlap(&ready_key.operand, root))
-    });
+fn drop_expired_unwatched(ready: &mut HashMap<WalkKey, ReadyEntry>, watched_roots: &[PathBuf], now: Instant) {
+    ready.retain(|ready_key, entry| entry.expires_at > now || watched_roots.iter().any(|root| FileListStore::paths_overlap(&ready_key.operand, root)));
 }
 
 /// Evict least-recently-touched entries until one more entry of
@@ -221,16 +189,9 @@ fn evict_least_recent<K: Clone + Eq + std::hash::Hash, V>(
     bytes: impl Fn(&V) -> usize,
 ) {
     while !cache.is_empty()
-        && (cache.len() >= FILE_LIST_CACHE_MAX
-            || cache.values().fold(incoming_bytes, |total, entry| {
-                total.saturating_add(bytes(entry))
-            }) > bytes_limit)
+        && (cache.len() >= FILE_LIST_CACHE_MAX || cache.values().fold(incoming_bytes, |total, entry| total.saturating_add(bytes(entry))) > bytes_limit)
     {
-        let Some(oldest) = cache
-            .iter()
-            .min_by_key(|(_, entry)| touched_at(entry))
-            .map(|(key, _)| key.clone())
-        else {
+        let Some(oldest) = cache.iter().min_by_key(|(_, entry)| touched_at(entry)).map(|(key, _)| key.clone()) else {
             break;
         };
         cache.remove(&oldest);
@@ -264,10 +225,7 @@ impl FileListStore {
     }
 
     /// A store holding `ready` inventories and nothing else yet.
-    fn with_ready(
-        ready: HashMap<WalkKey, ReadyEntry>,
-        persisted_checkpoints: Option<Vec<crate::serve_search_usn::JournalCheckpoint>>,
-    ) -> Self {
+    fn with_ready(ready: HashMap<WalkKey, ReadyEntry>, persisted_checkpoints: Option<Vec<crate::serve_search_usn::JournalCheckpoint>>) -> Self {
         Self {
             ready: Arc::new(Mutex::new(ready)),
             persisted_checkpoints: Mutex::new(persisted_checkpoints),
@@ -332,14 +290,10 @@ impl FileListStore {
         for checkpoint in &checkpoints {
             let result = crate::serve_search_usn::sync_volume(checkpoint.volume);
             let trusted = result.trusted && result.volume_serial == Some(checkpoint.volume_serial);
-            let current = crate::serve_search_usn::journal_checkpoints()
-                .into_iter()
-                .find(|current| current.volume == checkpoint.volume);
+            let current = crate::serve_search_usn::journal_checkpoints().into_iter().find(|current| current.volume == checkpoint.volume);
             let continuous = trusted
                 && current.is_some_and(|current| {
-                    current.volume_serial == checkpoint.volume_serial
-                        && current.journal_id == checkpoint.journal_id
-                        && current.next_usn >= checkpoint.next_usn
+                    current.volume_serial == checkpoint.volume_serial && current.journal_id == checkpoint.journal_id && current.next_usn >= checkpoint.next_usn
                 });
             let resolved = if continuous {
                 let mut ids = result.changed.clone();
@@ -361,9 +315,7 @@ impl FileListStore {
             if entry.root_identity != crate::serve_search_usn::path_identity(&key.operand) {
                 return false;
             }
-            !paths
-                .iter()
-                .any(|path| Self::paths_overlap(path, &key.operand))
+            !paths.iter().any(|path| Self::paths_overlap(path, &key.operand))
         });
     }
 
@@ -374,10 +326,7 @@ impl FileListStore {
     }
 
     pub(super) fn generation(&self, operand: &Path) -> u64 {
-        lock_recover(&self.generations)
-            .get(operand)
-            .copied()
-            .unwrap_or(0)
+        lock_recover(&self.generations).get(operand).copied().unwrap_or(0)
     }
 
     pub(super) fn paths_overlap(left: &Path, right: &Path) -> bool {
@@ -385,13 +334,7 @@ impl FileListStore {
     }
 
     pub(super) fn affected_roots(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
-        lock_recover(&self.watched_roots)
-            .keys()
-            .filter(|root| {
-                paths.is_empty() || paths.iter().any(|path| Self::paths_overlap(root, path))
-            })
-            .cloned()
-            .collect()
+        lock_recover(&self.watched_roots).keys().filter(|root| paths.is_empty() || paths.iter().any(|path| Self::paths_overlap(root, path))).cloned().collect()
     }
 
     pub(super) fn invalidate_paths(&self, paths: &[PathBuf]) -> Vec<PathBuf> {
@@ -413,19 +356,12 @@ impl FileListStore {
                 if now >= deadline {
                     break;
                 }
-                if !entry.processing
-                    && !entry.paths.is_empty()
-                    && lock_recover(&self.repair_demanded).insert(key.clone())
-                {
+                if !entry.processing && !entry.paths.is_empty() && lock_recover(&self.repair_demanded).insert(key.clone()) {
                     // First demand for this key: skip its debounce/min gap.
                     self.repair_demand_wakeups.fetch_add(1, Ordering::Relaxed);
                     self.repair_changed.notify_all();
                 }
-                pending = self
-                    .repair_changed
-                    .wait_timeout(pending, deadline.saturating_duration_since(now))
-                    .unwrap_or_else(|error| error.into_inner())
-                    .0;
+                pending = self.repair_changed.wait_timeout(pending, deadline.saturating_duration_since(now)).unwrap_or_else(|error| error.into_inner()).0;
             }
             if !pending.contains_key(key) {
                 // Repair done: a later repair of this key needs a fresh demand.
@@ -440,20 +376,12 @@ impl FileListStore {
         if !ready.contains_key(key) {
             lock_recover(&self.fuzzy).retain(|fuzzy, _| &fuzzy.walk != key);
         }
-        let entry = ready.get_mut(key).filter(|entry| {
-            entry.generation == generation && entry.directory_failures.is_empty()
-        })?;
+        let entry = ready.get_mut(key).filter(|entry| entry.generation == generation && entry.directory_failures.is_empty())?;
         entry.touched_at = now;
         Some(Arc::clone(&entry.files))
     }
 
-    pub(super) fn remember_inventory(
-        &self,
-        key: WalkKey,
-        files: Arc<Vec<PathBuf>>,
-        generation: u64,
-        directory_failures: Arc<Vec<DirectoryFailure>>,
-    ) {
+    pub(super) fn remember_inventory(&self, key: WalkKey, files: Arc<Vec<PathBuf>>, generation: u64, directory_failures: Arc<Vec<DirectoryFailure>>) {
         let Some(ttl) = file_list_ttl() else { return };
         if self.generation(&key.operand) != generation {
             return;
@@ -462,11 +390,7 @@ impl FileListStore {
         let estimated_bytes = paths_storage_bytes(&files).saturating_add(
             directory_failures
                 .iter()
-                .map(|failure| {
-                    std::mem::size_of::<DirectoryFailure>()
-                        + failure.path.as_os_str().len() * 2
-                        + failure.detail.len()
-                })
+                .map(|failure| std::mem::size_of::<DirectoryFailure>() + failure.path.as_os_str().len() * 2 + failure.detail.len())
                 .sum::<usize>(),
         );
         let bytes_limit = file_list_cache_bytes();
@@ -478,37 +402,14 @@ impl FileListStore {
         let now = Instant::now();
         drop_expired_unwatched(&mut ready, &watched_roots, now);
         ready.remove(&key);
-        evict_least_recent(
-            &mut ready,
-            estimated_bytes,
-            bytes_limit,
-            |entry| entry.touched_at,
-            |entry| entry.estimated_bytes,
-        );
-        ready.insert(
-            key.clone(),
-            ReadyEntry {
-                files,
-                directory_failures,
-                expires_at: now + ttl,
-                generation,
-                touched_at: now,
-                estimated_bytes,
-                root_identity,
-            },
-        );
+        evict_least_recent(&mut ready, estimated_bytes, bytes_limit, |entry| entry.touched_at, |entry| entry.estimated_bytes);
+        ready.insert(key.clone(), ReadyEntry { files, directory_failures, expires_at: now + ttl, generation, touched_at: now, estimated_bytes, root_identity });
         drop(ready);
         schedule_file_list_snapshot(Arc::clone(&self.ready));
         lock_recover(&self.fuzzy).retain(|fuzzy, _| fuzzy.walk != key);
     }
 
-    pub(super) fn fuzzy_corpus(
-        &self,
-        key: &FuzzyKey,
-        files: &Arc<Vec<PathBuf>>,
-        root: &Path,
-        filter: &PathFilter,
-    ) -> Arc<FuzzyCorpus> {
+    pub(super) fn fuzzy_corpus(&self, key: &FuzzyKey, files: &Arc<Vec<PathBuf>>, root: &Path, filter: &PathFilter) -> Arc<FuzzyCorpus> {
         if let Some(corpus) = self.take_fuzzy_corpus(key) {
             return corpus;
         }
@@ -517,8 +418,7 @@ impl FileListStore {
                 .iter()
                 .filter(|file| filter.allows(file))
                 .map(|file| {
-                    let path =
-                        relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file));
+                    let path = relative_inventory_path(file, root).unwrap_or_else(|| wire_path(file));
                     let ascii_mask = fuzzy_ascii_presence(&path);
                     FuzzyIndexedPath { path, ascii_mask }
                 })
@@ -534,11 +434,7 @@ impl FileListStore {
         Some(Arc::clone(&entry.corpus))
     }
 
-    pub(super) fn remember_fuzzy_corpus(
-        &self,
-        key: &FuzzyKey,
-        corpus: Arc<FuzzyCorpus>,
-    ) -> Arc<FuzzyCorpus> {
+    pub(super) fn remember_fuzzy_corpus(&self, key: &FuzzyKey, corpus: Arc<FuzzyCorpus>) -> Arc<FuzzyCorpus> {
         let estimated_bytes = fuzzy_storage_bytes(&corpus);
         let bytes_limit = fuzzy_cache_bytes();
         if estimated_bytes > bytes_limit {
@@ -549,21 +445,8 @@ impl FileListStore {
             entry.touched_at = Instant::now();
             return Arc::clone(&entry.corpus);
         }
-        evict_least_recent(
-            &mut fuzzy,
-            estimated_bytes,
-            bytes_limit,
-            |entry| entry.touched_at,
-            |entry| entry.estimated_bytes,
-        );
-        fuzzy.insert(
-            key.clone(),
-            FuzzyEntry {
-                corpus: Arc::clone(&corpus),
-                touched_at: Instant::now(),
-                estimated_bytes,
-            },
-        );
+        evict_least_recent(&mut fuzzy, estimated_bytes, bytes_limit, |entry| entry.touched_at, |entry| entry.estimated_bytes);
+        fuzzy.insert(key.clone(), FuzzyEntry { corpus: Arc::clone(&corpus), touched_at: Instant::now(), estimated_bytes });
         corpus
     }
 
@@ -585,30 +468,18 @@ impl FileListStore {
         inventory_lease_ms: u64,
         watched: bool,
     ) -> (Arc<LiveWalk>, LiveWaiterGuard<'a>) {
-        let (live, owner) =
-            self.begin_live_with_inventory(key.clone(), keep_warm, inventory_lease_ms);
+        let (live, owner) = self.begin_live_with_inventory(key.clone(), keep_warm, inventory_lease_ms);
         if !watched {
             live.cacheable.store(false, Ordering::Release);
         }
         let waiter = self.waiter_guard(key.clone(), Arc::clone(&live));
         if owner {
-            start_live_walk(
-                Arc::clone(self),
-                key,
-                Arc::clone(&live),
-                operand_path.to_path_buf(),
-                parsed.clone(),
-            );
+            start_live_walk(Arc::clone(self), key, Arc::clone(&live), operand_path.to_path_buf(), parsed.clone());
         }
         (live, waiter)
     }
 
-    pub(super) fn begin_live_with_inventory(
-        &self,
-        key: WalkKey,
-        keep_warm: bool,
-        inventory_lease_ms: u64,
-    ) -> (Arc<LiveWalk>, bool) {
+    pub(super) fn begin_live_with_inventory(&self, key: WalkKey, keep_warm: bool, inventory_lease_ms: u64) -> (Arc<LiveWalk>, bool) {
         // Read the generation before taking the live-map lock; generation()
         // locks the generations mutex and nesting it under `live` invites
         // lock-order inversions with invalidation.
@@ -617,16 +488,11 @@ impl FileListStore {
         let mut live = lock_recover(&self.live);
         if let Some(existing) = live.get(&key).cloned() {
             let state = lock_recover(&existing.state);
-            if matches!(&*state, LiveState::Running)
-                && existing.generation == generation
-                && !existing.cancelled.load(Ordering::Acquire)
-            {
+            if matches!(&*state, LiveState::Running) && existing.generation == generation && !existing.cancelled.load(Ordering::Acquire) {
                 if keep_warm {
                     existing.keep_warm.store(true, Ordering::Release);
                 }
-                existing
-                    .inventory_lease
-                    .extend(serve_search_uptime_ms(), inventory_lease_ms);
+                existing.inventory_lease.extend(serve_search_uptime_ms(), inventory_lease_ms);
                 existing.waiters.fetch_add(1, Ordering::Relaxed);
                 drop(state);
                 return (existing, false);
@@ -655,32 +521,19 @@ impl FileListStore {
         (created, true)
     }
 
-    pub(super) fn waiter_guard<'a>(
-        &'a self,
-        key: WalkKey,
-        live: Arc<LiveWalk>,
-    ) -> LiveWaiterGuard<'a> {
-        LiveWaiterGuard {
-            store: self,
-            key,
-            live,
-        }
+    pub(super) fn waiter_guard<'a>(&'a self, key: WalkKey, live: Arc<LiveWalk>) -> LiveWaiterGuard<'a> {
+        LiveWaiterGuard { store: self, key, live }
     }
 
     pub(super) fn release_live(&self, key: &WalkKey, live: &Arc<LiveWalk>) {
         let previous = live.waiters.fetch_sub(1, Ordering::AcqRel);
         debug_assert!(previous > 0, "live inventory waiter underflow");
-        if previous != 1
-            || live.keep_warm.load(Ordering::Acquire)
-            || live.inventory_lease.active(serve_search_uptime_ms())
-        {
+        if previous != 1 || live.keep_warm.load(Ordering::Acquire) || live.inventory_lease.active(serve_search_uptime_ms()) {
             return;
         }
         let should_cancel = {
             let mut live_map = lock_recover(&self.live);
-            let same = live_map
-                .get(key)
-                .is_some_and(|current| Arc::ptr_eq(current, live));
+            let same = live_map.get(key).is_some_and(|current| Arc::ptr_eq(current, live));
             let idle = live.is_idle(serve_search_uptime_ms());
             if same && idle {
                 live_map.remove(key);
@@ -692,12 +545,7 @@ impl FileListStore {
         }
     }
 
-    pub(super) fn finish_live(
-        &self,
-        key: WalkKey,
-        live: &Arc<LiveWalk>,
-        result: Result<Arc<Vec<PathBuf>>, Option<String>>,
-    ) -> bool {
+    pub(super) fn finish_live(&self, key: WalkKey, live: &Arc<LiveWalk>, result: Result<Arc<Vec<PathBuf>>, Option<String>>) -> bool {
         // Same ordering rule as begin_live: never lock generations under the
         // live-map lock. remember() re-checks the current generation, so a
         // racing invalidation still prevents caching a stale inventory.
@@ -705,9 +553,7 @@ impl FileListStore {
         let failures = Arc::new(lock_recover(&live.directory_failures).clone());
         let cacheable = {
             let mut live_map = lock_recover(&self.live);
-            let same = live_map
-                .get(&key)
-                .is_some_and(|current| Arc::ptr_eq(current, live));
+            let same = live_map.get(&key).is_some_and(|current| Arc::ptr_eq(current, live));
             if same {
                 live_map.remove(&key);
             }
@@ -720,10 +566,16 @@ impl FileListStore {
         let completed_state = match result {
             Ok(files) => {
                 if std::env::var_os("MIXDOG_SEARCH_CACHE_TRACE").is_some() {
-                    eprintln!("inventory-cache root={} saved={} generation={}/{} watch={} errors={} retryable={}",
-                        key.operand.display(), cacheable, live.generation, current_generation,
+                    eprintln!(
+                        "inventory-cache root={} saved={} generation={}/{} watch={} errors={} retryable={}",
+                        key.operand.display(),
+                        cacheable,
+                        live.generation,
+                        current_generation,
                         live.cacheable.load(Ordering::Acquire),
-                        live.walk_errors.load(Ordering::Acquire), failures.len());
+                        live.walk_errors.load(Ordering::Acquire),
+                        failures.len()
+                    );
                 }
                 if cacheable {
                     self.remember_inventory(key, Arc::clone(&files), live.generation, failures);
@@ -736,20 +588,10 @@ impl FileListStore {
                     // Notifications queued during repair invalidate it after
                     // this guard is released, just like a fresh inventory.
                     let changes = lock_recover(&self.changes);
-                    if let Some(paths) = changes
-                        .since(live.change_sequence, &key.operand)
-                        .filter(|paths| !paths.is_empty())
-                    {
+                    if let Some(paths) = changes.since(live.change_sequence, &key.operand).filter(|paths| !paths.is_empty()) {
                         if let Ok(repaired) = repair_inventory(&key, &files, &paths) {
-                            if !live.cancelled.load(Ordering::Acquire)
-                                && self.watcher_healthy.load(Ordering::Acquire)
-                            {
-                                self.remember_inventory(
-                                    key.clone(),
-                                    repaired,
-                                    self.generation(&key.operand),
-                                    failures,
-                                );
+                            if !live.cancelled.load(Ordering::Acquire) && self.watcher_healthy.load(Ordering::Acquire) {
+                                self.remember_inventory(key.clone(), repaired, self.generation(&key.operand), failures);
                             }
                         }
                     }

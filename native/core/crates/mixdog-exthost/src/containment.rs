@@ -88,9 +88,7 @@ mod os {
     pub(super) struct Handle(usize);
 
     pub(super) fn attach(child: &tokio::process::Child) -> std::io::Result<Handle> {
-        let process = child
-            .raw_handle()
-            .ok_or_else(|| std::io::Error::other("child already exited"))?;
+        let process = child.raw_handle().ok_or_else(|| std::io::Error::other("child already exited"))?;
         // SAFETY: plain Win32 calls on handles created here and on the live child's handle.
         unsafe {
             let job = CreateJobObjectW(std::ptr::null(), std::ptr::null());
@@ -115,9 +113,7 @@ mod os {
             let status = NtResumeProcess(process as HANDLE);
             if status < 0 {
                 CloseHandle(job);
-                return Err(std::io::Error::other(format!(
-                    "the suspended process could not be resumed (NTSTATUS 0x{status:08x})"
-                )));
+                return Err(std::io::Error::other(format!("the suspended process could not be resumed (NTSTATUS 0x{status:08x})")));
             }
             Ok(Handle(job as usize))
         }
@@ -144,10 +140,7 @@ mod os {
     pub(super) struct Handle(i32);
 
     pub(super) fn attach(child: &tokio::process::Child) -> std::io::Result<Handle> {
-        child
-            .id()
-            .map(|pid| Handle(pid as i32))
-            .ok_or_else(|| std::io::Error::other("child already exited"))
+        child.id().map(|pid| Handle(pid as i32)).ok_or_else(|| std::io::Error::other("child already exited"))
     }
 
     pub(super) fn terminate(handle: &Handle) {
@@ -164,12 +157,7 @@ mod os {
         // reaps nor blocks, and `handle.0` is our own child's pid.
         unsafe {
             let mut info: libc::siginfo_t = std::mem::zeroed();
-            let status = libc::waitid(
-                libc::P_PID,
-                handle.0 as libc::id_t,
-                &mut info,
-                libc::WEXITED | libc::WNOHANG | libc::WNOWAIT,
-            );
+            let status = libc::waitid(libc::P_PID, handle.0 as libc::id_t, &mut info, libc::WEXITED | libc::WNOHANG | libc::WNOWAIT);
             #[cfg(any(target_os = "linux", target_os = "android"))]
             let pid = info.si_pid();
             #[cfg(not(any(target_os = "linux", target_os = "android")))]

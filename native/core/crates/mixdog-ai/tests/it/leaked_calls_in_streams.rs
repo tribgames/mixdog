@@ -97,7 +97,8 @@ fn anthropic(tool: &str) -> Vec<StreamEvent> {
 fn chat(tool: &str) -> Vec<StreamEvent> {
     let profile = CompatProfile::plain("gateway", "https://gateway.invalid/v1", CredentialKind::StaticKey { reauth_on_401: false });
     let mut decoder = ChatDecoder::new(profile, ProviderId::from("gateway")).with_known_tools(known(tool));
-    let chunk = |delta: Value, finish: Option<&str>| sse(&json!({ "id": "c1", "model": "m", "choices": [{ "index": 0, "delta": delta, "finish_reason": finish }] }));
+    let chunk =
+        |delta: Value, finish: Option<&str>| sse(&json!({ "id": "c1", "model": "m", "choices": [{ "index": 0, "delta": delta, "finish_reason": finish }] }));
     let [a, b] = pieces();
     let units = vec![chunk(json!({ "content": a }), None), chunk(json!({ "content": b }), None), chunk(json!({}), Some("stop")), b"data: [DONE]\n\n".to_vec()];
     drive(&mut decoder, &units)
@@ -134,8 +135,10 @@ fn responses(tool: &str) -> Vec<StreamEvent> {
     let units = vec![
         sse(&json!({ "type": "response.output_text.delta", "output_index": 0, "item_id": "msg_1", "delta": a })),
         sse(&json!({ "type": "response.output_text.delta", "output_index": 0, "item_id": "msg_1", "delta": b })),
-        sse(&json!({ "type": "response.completed", "response": { "id": "r1", "model": "m", "status": "completed", "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2 },
-            "output": [{ "type": "message", "id": "msg_1", "role": "assistant", "content": [{ "type": "output_text", "text": full }] }] } })),
+        sse(
+            &json!({ "type": "response.completed", "response": { "id": "r1", "model": "m", "status": "completed", "usage": { "input_tokens": 1, "output_tokens": 1, "total_tokens": 2 },
+            "output": [{ "type": "message", "id": "msg_1", "role": "assistant", "content": [{ "type": "output_text", "text": full }] }] } }),
+        ),
     ];
     drive(decoder.as_mut(), &units)
 }
@@ -197,7 +200,8 @@ fn calls(events: &[StreamEvent]) -> Vec<(String, Value, String)> {
     events.iter().filter_map(|e| if let StreamEvent::ToolCallDone(c) = e { Some((c.name.clone(), c.arguments.clone(), c.id.clone())) } else { None }).collect()
 }
 
-const PROVIDERS: [(&str, fn(&str) -> Vec<StreamEvent>); 5] = [("anthropic", anthropic), ("chat", chat), ("responses", responses), ("gemini", gemini), ("cursor", cursor)];
+const PROVIDERS: [(&str, fn(&str) -> Vec<StreamEvent>); 5] =
+    [("anthropic", anthropic), ("chat", chat), ("responses", responses), ("gemini", gemini), ("cursor", cursor)];
 
 #[test]
 fn a_leaked_call_in_the_text_of_each_providers_stream_comes_out_as_a_tool_call_and_the_markup_is_not_shown() {

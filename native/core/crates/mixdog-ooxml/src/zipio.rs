@@ -69,8 +69,7 @@ pub(crate) fn utc_now() -> UtcNow {
 fn dos_now() -> DateTime {
     let now = utc_now();
     let year = now.year.clamp(1980, 2107) as u16;
-    DateTime::from_date_and_time(year, now.month as u8, now.day as u8, now.hour as u8, now.minute as u8, (now.second / 2 * 2) as u8)
-        .unwrap_or_default()
+    DateTime::from_date_and_time(year, now.month as u8, now.day as u8, now.hour as u8, now.minute as u8, (now.second / 2 * 2) as u8).unwrap_or_default()
 }
 
 /// `utils.resolve`: dot segments and doubled slashes inside a name are folded, `..` removes the segment before it.
@@ -122,9 +121,7 @@ fn no_end_of_central_directory(bytes: &[u8]) -> String {
 fn read_error(error: &ZipError, bytes: &[u8]) -> String {
     match error {
         ZipError::InvalidArchive(message) if message.contains("Could not find EOCD") => no_end_of_central_directory(bytes),
-        ZipError::UnsupportedArchive(message) if *message == ZipError::PASSWORD_REQUIRED => {
-            "Encrypted zip are not supported".to_owned()
-        }
+        ZipError::UnsupportedArchive(message) if *message == ZipError::PASSWORD_REQUIRED => "Encrypted zip are not supported".to_owned(),
         other => other.to_string(),
     }
 }
@@ -356,10 +353,7 @@ mod tests {
         package.set("[Content_Types].xml", "<Types/>");
         package.set("word/media/image1.png", vec![1_u8, 2, 3]);
         package.set("word/document.xml", "<w:document/>");
-        assert_eq!(
-            package.names(),
-            ["[Content_Types].xml", "word/", "word/media/", "word/media/image1.png", "word/document.xml"]
-        );
+        assert_eq!(package.names(), ["[Content_Types].xml", "word/", "word/media/", "word/media/image1.png", "word/document.xml"]);
         assert!(package.entry("word/").is_some_and(|entry| entry.dir));
         assert_eq!(package.file("word/"), None);
         assert_eq!(package.file("word/media/image1.png"), Some(&[1_u8, 2, 3][..]));
@@ -441,7 +435,8 @@ mod tests {
 
     #[test]
     fn a_file_that_is_not_a_zip_says_so_in_jszips_words() {
-        const WORDS: &str = "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html";
+        const WORDS: &str =
+            "Can't find end of central directory : is this a zip file ? If it is, see https://stuk.github.io/jszip/documentation/howto/read_zip.html";
         assert_eq!(Package::load(b"not a zip at all, just text").unwrap_err(), WORDS);
         assert_eq!(Package::load(b"").unwrap_err(), WORDS);
         let bytes = stored("a.txt", b"hello");

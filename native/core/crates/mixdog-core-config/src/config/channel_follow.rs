@@ -105,17 +105,41 @@ mod feature_tests {
     #[tokio::test]
     async fn a_change_of_the_channels_or_voice_section_reloads_the_channels_runtime() {
         let (config, _follow, mut reloads, _dir) = followed().await;
-        config.update(|doc| { doc.insert("channels".into(), json!({ "webhook": { "port": 2 } })); Ok(()) }).await.unwrap();
+        config
+            .update(|doc| {
+                doc.insert("channels".into(), json!({ "webhook": { "port": 2 } }));
+                Ok(())
+            })
+            .await
+            .unwrap();
         reloads.recv().await.expect("a channels change reloads");
-        config.update(|doc| { doc.insert("voice".into(), json!({ "enabled": true })); Ok(()) }).await.unwrap();
+        config
+            .update(|doc| {
+                doc.insert("voice".into(), json!({ "enabled": true }));
+                Ok(())
+            })
+            .await
+            .unwrap();
         reloads.recv().await.expect("a voice change reloads");
     }
 
     #[tokio::test]
     async fn a_change_elsewhere_in_the_config_restarts_no_listener() {
         let (config, _follow, mut reloads, _dir) = followed().await;
-        config.update(|doc| { doc.insert("theme".into(), json!("dark")); Ok(()) }).await.unwrap();
-        config.update(|doc| { doc.insert("channels".into(), json!({ "webhook": { "port": 3 } })); Ok(()) }).await.unwrap();
+        config
+            .update(|doc| {
+                doc.insert("theme".into(), json!("dark"));
+                Ok(())
+            })
+            .await
+            .unwrap();
+        config
+            .update(|doc| {
+                doc.insert("channels".into(), json!({ "webhook": { "port": 3 } }));
+                Ok(())
+            })
+            .await
+            .unwrap();
         reloads.recv().await.expect("the channels change reloads");
         assert!(reloads.try_recv().is_err(), "the theme change reloaded nothing");
     }
@@ -123,8 +147,20 @@ mod feature_tests {
     #[tokio::test]
     async fn a_rewrite_with_the_same_sections_reloads_nothing() {
         let (config, _follow, mut reloads, _dir) = followed().await;
-        config.update(|doc| { doc.insert("channels".into(), json!({ "webhook": { "port": 1 } })); Ok(()) }).await.unwrap();
-        config.update(|doc| { doc.insert("voice".into(), json!({ "x": 1 })); Ok(()) }).await.unwrap();
+        config
+            .update(|doc| {
+                doc.insert("channels".into(), json!({ "webhook": { "port": 1 } }));
+                Ok(())
+            })
+            .await
+            .unwrap();
+        config
+            .update(|doc| {
+                doc.insert("voice".into(), json!({ "x": 1 }));
+                Ok(())
+            })
+            .await
+            .unwrap();
         reloads.recv().await.expect("the voice change reloads");
         assert!(reloads.try_recv().is_err());
     }
@@ -174,8 +210,20 @@ mod feature_tests {
         let (done, mut finished) = mpsc::unbounded_channel();
         let lifecycle = Arc::new(Overlapping { calls: Default::default(), second: Default::default(), done });
         let _follow = ChannelConfigFollow::start(config.clone(), lifecycle);
-        config.update(|doc| { doc.insert("channels".into(), json!({ "webhook": { "port": 2 } })); Ok(()) }).await.unwrap();
-        config.update(|doc| { doc.insert("channels".into(), json!({ "webhook": { "port": 3 } })); Ok(()) }).await.unwrap();
+        config
+            .update(|doc| {
+                doc.insert("channels".into(), json!({ "webhook": { "port": 2 } }));
+                Ok(())
+            })
+            .await
+            .unwrap();
+        config
+            .update(|doc| {
+                doc.insert("channels".into(), json!({ "webhook": { "port": 3 } }));
+                Ok(())
+            })
+            .await
+            .unwrap();
         let first_done = mixdog_rt::time::timeout(std::time::Duration::from_secs(10), finished.recv()).await.expect("a reload finished").unwrap();
         assert_eq!(first_done, 2, "the newer change's reload finished while the older one was still loading");
         assert_eq!(finished.recv().await, Some(1));
@@ -198,11 +246,20 @@ mod feature_tests {
             let tmp = dir.path().join("mixdog-config.json.foreign-tmp");
             std::fs::write(&tmp, json!({ "agent": {}, "channels": { "revision": revision } }).to_string()).unwrap();
             std::fs::rename(&tmp, &path).unwrap();
-            mixdog_rt::time::timeout(std::time::Duration::from_secs(10), reloads.recv()).await.unwrap_or_else(|_| panic!("write {revision} was not heard")).expect("a reload");
+            mixdog_rt::time::timeout(std::time::Duration::from_secs(10), reloads.recv())
+                .await
+                .unwrap_or_else(|_| panic!("write {revision} was not heard"))
+                .expect("a reload");
         }
         assert!(reloads.try_recv().is_err(), "one reload per write, not more");
         drop(follow);
-        config.update(|doc| { doc.insert("channels".into(), json!({ "revision": 4 })); Ok(()) }).await.unwrap();
+        config
+            .update(|doc| {
+                doc.insert("channels".into(), json!({ "revision": 4 }));
+                Ok(())
+            })
+            .await
+            .unwrap();
         mixdog_rt::time::sleep(std::time::Duration::from_millis(300)).await;
         assert!(reloads.try_recv().is_err(), "an in-process write after the follow ended reloads nothing");
     }

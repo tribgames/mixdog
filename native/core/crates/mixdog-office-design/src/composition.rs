@@ -192,10 +192,9 @@ fn rows_of(table: Option<&Value>) -> usize {
 /// `textCount`: how many texts a value carries (a list counts its non-blank entries).
 fn text_count(value: Option<&Value>) -> usize {
     match value {
-        Some(Value::Array(entries)) => entries
-            .iter()
-            .filter(|entry| !js_trim(&if entry.is_null() { String::new() } else { value_to_string(entry) }).is_empty())
-            .count(),
+        Some(Value::Array(entries)) => {
+            entries.iter().filter(|entry| !js_trim(&if entry.is_null() { String::new() } else { value_to_string(entry) }).is_empty()).count()
+        }
         None | Some(Value::Null) => 0,
         Some(Value::String(written)) if written.is_empty() => 0,
         Some(_) => 1,
@@ -793,14 +792,13 @@ mod tests {
         assert_eq!((explicit["id"].as_str(), explicit["source"].as_str()), (Some("analysis-sheet"), Some("explicit")));
         let slide = plan("pptx", json!({ "kind": "cover", "variant": "poster" }), json!({}), &mut usage);
         assert_eq!(slide["id"], "cover:poster");
-        let modelled = plan(
-            "pptx",
-            json!({ "plan": { "name": "grid", "regions": [{ "role": "title", "x": 1.4, "y": 2, "w": 50, "h": 9 }] } }),
-            json!({}),
-            &mut usage,
-        );
+        let modelled =
+            plan("pptx", json!({ "plan": { "name": "grid", "regions": [{ "role": "title", "x": 1.4, "y": 2, "w": 50, "h": 9 }] } }), json!({}), &mut usage);
         assert!(modelled["id"].as_str().is_some_and(|id| id.starts_with("content:model:") && id.len() == "content:model:".len() + 16));
-        assert_eq!((modelled["family"].as_str(), modelled["variant"].as_str(), modelled["source"].as_str()), (Some("model-authored"), Some("grid"), Some("model-plan")));
+        assert_eq!(
+            (modelled["family"].as_str(), modelled["variant"].as_str(), modelled["source"].as_str()),
+            (Some("model-authored"), Some("grid"), Some("model-plan"))
+        );
     }
 
     #[test]

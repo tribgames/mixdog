@@ -182,11 +182,7 @@ impl TerminalConfig {
             shell_integration_dir: None,
             env_remove: CHILD_ENV_SCRUB.iter().map(|v| (*v).to_owned()).collect(),
             replay_limit: REPLAY_BUFFER_LIMIT,
-            now_ms: Arc::new(|| {
-                std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map_or(0, |d| d.as_millis() as u64)
-            }),
+            now_ms: Arc::new(|| std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)),
             events,
             #[cfg(feature = "core-test")]
             piped: false,
@@ -266,8 +262,7 @@ const DEFAULT_COLS: u32 = 80;
 const DEFAULT_ROWS: u32 = 24;
 
 fn valid_id_chars(text: &str, max: usize) -> bool {
-    (1..=max).contains(&text.len())
-        && text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+    (1..=max).contains(&text.len()) && text.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
 }
 
 /// `term_[A-Za-z0-9_-]{1,120}` or `session-terminal:<id>[:<n>]`.
@@ -281,10 +276,7 @@ fn requestable_id(id: &str) -> bool {
     match rest.split_once(':') {
         None => valid_id_chars(rest, 120),
         Some((session, tab)) => {
-            valid_id_chars(session, 120)
-                && (1..=3).contains(&tab.len())
-                && tab.bytes().all(|b| b.is_ascii_digit())
-                && !tab.starts_with('0')
+            valid_id_chars(session, 120) && (1..=3).contains(&tab.len()) && tab.bytes().all(|b| b.is_ascii_digit()) && !tab.starts_with('0')
         }
     }
 }
@@ -292,11 +284,7 @@ fn requestable_id(id: &str) -> bool {
 /// Shell label for a spawn path: `C:\...\pwsh.exe` -> `pwsh`.
 fn shell_label(shell: &str) -> String {
     let file = shell.rsplit(['\\', '/']).next().unwrap_or(shell);
-    let stem = if file.len() > 4 && file[file.len() - 4..].eq_ignore_ascii_case(".exe") {
-        &file[..file.len() - 4]
-    } else {
-        file
-    };
+    let stem = if file.len() > 4 && file[file.len() - 4..].eq_ignore_ascii_case(".exe") { &file[..file.len() - 4] } else { file };
     if stem.is_empty() { shell.to_owned() } else { stem.to_owned() }
 }
 
@@ -304,20 +292,14 @@ fn shell_label(shell: &str) -> String {
 fn normalize_root(value: &str) -> String {
     let path = value.replace('\\', "/");
     let path = path.trim_end_matches('/');
-    if cfg!(any(windows, target_os = "macos")) {
-        path.to_lowercase()
-    } else {
-        path.to_owned()
-    }
+    if cfg!(any(windows, target_os = "macos")) { path.to_lowercase() } else { path.to_owned() }
 }
 
 /// `path` is `root` or lies inside it (the rule `dispose_under` uses).
 pub fn is_path_under_root(root: &str, path: &str) -> bool {
     let base = normalize_root(root);
     let target = if path.is_empty() { String::new() } else { normalize_root(path) };
-    !base.is_empty()
-        && !target.is_empty()
-        && (target == base || target.starts_with(&format!("{base}/")))
+    !base.is_empty() && !target.is_empty() && (target == base || target.starts_with(&format!("{base}/")))
 }
 
 /// A relative `cwd` is taken against the core's working directory, as node-pty's spawn took it against Node's.
@@ -457,10 +439,7 @@ impl Tab {
     /// The tail chunk number `generation` left held back is still the current one and nothing is flushing or over.
     fn flush_ready(&self, generation: u64) -> bool {
         let state = self.lock();
-        !state.exited
-            && !state.flushing
-            && state.held_gen == generation
-            && state.scanner.as_ref().is_some_and(MarkerScanner::is_holding)
+        !state.exited && !state.flushing && state.held_gen == generation && state.scanner.as_ref().is_some_and(MarkerScanner::is_holding)
     }
 
     fn dispatch_flush(tab: Arc<Self>, held_gen: u64) {
@@ -632,11 +611,7 @@ impl TabFilter {
     }
 
     /// `admitted` with the ticker and the flush dispatch of the held-tail release given (the tests give theirs).
-    fn admitted_with(
-        &mut self,
-        ticker: Option<&mixdog_rt::Ticker>,
-        dispatch: impl FnOnce(Arc<Tab>, u64) + Send + 'static,
-    ) -> bool {
+    fn admitted_with(&mut self, ticker: Option<&mixdog_rt::Ticker>, dispatch: impl FnOnce(Arc<Tab>, u64) + Send + 'static) -> bool {
         let mut state = self.tab.lock();
         let text = std::mem::take(&mut self.text);
         state.buffer.append(&text);
@@ -651,8 +626,7 @@ impl TabFilter {
             if let Some(timer) = state.held_timer.take() {
                 timer.cancel();
             }
-            state.held_timer =
-                Some(self.tab.arm_flush(ticker.unwrap_or_else(|| mixdog_rt::ticker()), state.held_gen, dispatch));
+            state.held_timer = Some(self.tab.arm_flush(ticker.unwrap_or_else(|| mixdog_rt::ticker()), state.held_gen, dispatch));
         }
         changed
     }
@@ -819,7 +793,9 @@ impl Claims {
     fn serve_manual_clock(claims: &Arc<Self>, dir: std::path::PathBuf) {
         let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("the manual lease clock binds a loopback port");
         let port = listener.local_addr().expect("the bound port").port();
-        std::fs::write(dir.join("port.tmp"), port.to_string()).and_then(|()| std::fs::rename(dir.join("port.tmp"), dir.join("port"))).expect("the manual lease clock publishes its port");
+        std::fs::write(dir.join("port.tmp"), port.to_string())
+            .and_then(|()| std::fs::rename(dir.join("port.tmp"), dir.join("port")))
+            .expect("the manual lease clock publishes its port");
         let claims = Arc::downgrade(claims);
         std::thread::spawn(move || {
             for stream in listener.incoming().flatten() {
@@ -896,11 +872,7 @@ impl Claims {
     }
 
     fn owner_in(list: &[SizeClaim]) -> Option<SizeOwner> {
-        list.last().map(|claim| SizeOwner {
-            cols: claim.cols,
-            rows: claim.rows,
-            owner: claim.client.clone(),
-        })
+        list.last().map(|claim| SizeOwner { cols: claim.cols, rows: claim.rows, owner: claim.client.clone() })
     }
 
     /// The owner once every change of the id's claims under way has fitted the PTY and been announced (read under the id's gate):
@@ -961,43 +933,43 @@ impl Claims {
     fn claim(self: &Arc<Self>, id: &str, client: &str, cols: u16, rows: u16) {
         let _gate = self.gate(id);
         let (before, after) = {
-        let mut map = self.lock();
-        let renewing = map.get(id).is_some_and(|list| list.iter().any(|claim| claim.client == client));
-        if !renewing && map.values().filter(|list| list.iter().any(|claim| claim.client == client)).count() >= MAX_CLAIMS_PER_CLIENT {
-            return;
-        }
-        let list = map.entry(id.to_owned()).or_default();
-        let before = Self::owner_in(list);
-        let epoch = self.epoch.fetch_add(1, Ordering::AcqRel) + 1;
-        let lease = self.arm(id, client, epoch);
-        #[cfg(feature = "lease-clock")]
-        let due = self.due_at();
-        match list.iter_mut().find(|claim| claim.client == client) {
-            Some(claim) => {
-                if let Some(old) = claim.lease.take() {
-                    let _ = old.cancel();
-                }
-                claim.cols = cols;
-                claim.rows = rows;
-                claim.lease = lease;
-                claim.epoch = epoch;
-                #[cfg(feature = "lease-clock")]
-                {
-                    claim.due = due;
-                }
+            let mut map = self.lock();
+            let renewing = map.get(id).is_some_and(|list| list.iter().any(|claim| claim.client == client));
+            if !renewing && map.values().filter(|list| list.iter().any(|claim| claim.client == client)).count() >= MAX_CLAIMS_PER_CLIENT {
+                return;
             }
-            None => list.push(SizeClaim {
-                client: client.to_owned(),
-                cols,
-                rows,
-                lease,
-                epoch,
-                #[cfg(feature = "lease-clock")]
-                due,
-            }),
-        }
-        let after = Self::owner_in(list);
-        (before, after)
+            let list = map.entry(id.to_owned()).or_default();
+            let before = Self::owner_in(list);
+            let epoch = self.epoch.fetch_add(1, Ordering::AcqRel) + 1;
+            let lease = self.arm(id, client, epoch);
+            #[cfg(feature = "lease-clock")]
+            let due = self.due_at();
+            match list.iter_mut().find(|claim| claim.client == client) {
+                Some(claim) => {
+                    if let Some(old) = claim.lease.take() {
+                        let _ = old.cancel();
+                    }
+                    claim.cols = cols;
+                    claim.rows = rows;
+                    claim.lease = lease;
+                    claim.epoch = epoch;
+                    #[cfg(feature = "lease-clock")]
+                    {
+                        claim.due = due;
+                    }
+                }
+                None => list.push(SizeClaim {
+                    client: client.to_owned(),
+                    cols,
+                    rows,
+                    lease,
+                    epoch,
+                    #[cfg(feature = "lease-clock")]
+                    due,
+                }),
+            }
+            let after = Self::owner_in(list);
+            (before, after)
         };
         self.changed(id, before, after);
     }
@@ -1006,25 +978,25 @@ impl Claims {
     fn release(&self, id: &str, client: &str, epoch: Option<u64>) {
         let _gate = self.gate(id);
         let (before, after) = {
-        let mut map = self.lock();
-        let Some(list) = map.get_mut(id) else {
-            return;
-        };
-        let Some(at) = list.iter().position(|claim| claim.client == client) else {
-            return;
-        };
-        if epoch.is_some_and(|epoch| epoch != list[at].epoch) {
-            return;
-        }
-        let before = Self::owner_in(list);
-        if let Some(lease) = list.remove(at).lease {
-            let _ = lease.cancel();
-        }
-        let after = Self::owner_in(list);
-        if list.is_empty() {
-            map.remove(id);
-        }
-        (before, after)
+            let mut map = self.lock();
+            let Some(list) = map.get_mut(id) else {
+                return;
+            };
+            let Some(at) = list.iter().position(|claim| claim.client == client) else {
+                return;
+            };
+            if epoch.is_some_and(|epoch| epoch != list[at].epoch) {
+                return;
+            }
+            let before = Self::owner_in(list);
+            if let Some(lease) = list.remove(at).lease {
+                let _ = lease.cancel();
+            }
+            let after = Self::owner_in(list);
+            if list.is_empty() {
+                map.remove(id);
+            }
+            (before, after)
         };
         self.changed(id, before, after);
     }
@@ -1067,9 +1039,12 @@ pub struct PendingInput {
 impl PendingInput {
     /// Waits for room in the tab's input queue and writes the input; a tab that has gone meanwhile takes nothing, as Node's killed pty did.
     pub async fn finish(self) {
-        let _ = self.manager.write_input_wait_on_admission(&self.tab.handle, self.bytes, |bytes| {
-            TerminalTabs::note_input(&self.tab, std::str::from_utf8(bytes).expect("terminal input is UTF-8"));
-        }).await;
+        let _ = self
+            .manager
+            .write_input_wait_on_admission(&self.tab.handle, self.bytes, |bytes| {
+                TerminalTabs::note_input(&self.tab, std::str::from_utf8(bytes).expect("terminal input is UTF-8"));
+            })
+            .await;
     }
 }
 
@@ -1089,10 +1064,7 @@ pub struct TerminalTabs {
 enum Claim {
     Reattach(Arc<Tab>),
     Wait(watch::Receiver<()>),
-    Spawn {
-        guard: SpawnGuard,
-        prior: Option<Arc<Tab>>,
-    },
+    Spawn { guard: SpawnGuard, prior: Option<Arc<Tab>> },
 }
 
 impl TerminalTabs {
@@ -1105,10 +1077,7 @@ impl TerminalTabs {
             events: Arc::clone(&config.events),
             epoch: AtomicU64::new(0),
             #[cfg(feature = "lease-clock")]
-            manual: config
-                .lease_clock
-                .as_ref()
-                .map(|setting| ManualLeaseClock { now: Mutex::new(std::time::Duration::ZERO), secret: setting.secret.clone() }),
+            manual: config.lease_clock.as_ref().map(|setting| ManualLeaseClock { now: Mutex::new(std::time::Duration::ZERO), secret: setting.secret.clone() }),
             #[cfg(feature = "core-test")]
             gate_waiting: config.gate_waiting.clone(),
         });
@@ -1161,9 +1130,7 @@ impl TerminalTabs {
     // ----- profiles -------------------------------------------------------------------------
 
     async fn detected(&self) -> &Vec<ShellProfile> {
-        self.profiles
-            .get_or_init(|| profiles::detect(&self.manager))
-            .await
+        self.profiles.get_or_init(|| profiles::detect(&self.manager)).await
     }
 
     /// Every shell found on this machine, for the terminal strip's picker.
@@ -1180,12 +1147,7 @@ impl TerminalTabs {
 
     fn attached(&self, tab: &Tab) -> Attached {
         let (replay_lead, replay) = tab.lock().buffer.read_window();
-        Attached {
-            id: tab.id.clone(),
-            replay,
-            replay_lead,
-            size_owner: self.claims.owner_of(&tab.id),
-        }
+        Attached { id: tab.id.clone(), replay, replay_lead, size_owner: self.claims.owner_of(&tab.id) }
     }
 
     fn claim(&self, id: &str) -> Claim {
@@ -1198,14 +1160,7 @@ impl TerminalTabs {
         };
         let (tx, rx) = watch::channel(());
         table.insert(id.to_owned(), Slot::Spawning(rx));
-        Claim::Spawn {
-            guard: SpawnGuard {
-                tabs: Arc::clone(&self.tabs),
-                id: id.to_owned(),
-                _done: tx,
-            },
-            prior,
-        }
+        Claim::Spawn { guard: SpawnGuard { tabs: Arc::clone(&self.tabs), id: id.to_owned(), _done: tx }, prior }
     }
 
     /// Attaches to a PTY that is already running, never starting one: its id and replay, or
@@ -1244,12 +1199,7 @@ impl TerminalTabs {
                 (lead, replay, at, (hold.take().expect("the hold is taken once"))(at))
             }
         };
-        let attached = Attached {
-            id: tab.id.clone(),
-            replay,
-            replay_lead,
-            size_owner: self.claims.owner_of(&tab.id),
-        };
+        let attached = Attached { id: tab.id.clone(), replay, replay_lead, size_owner: self.claims.owner_of(&tab.id) };
         Some((attached, emitted, held))
     }
 
@@ -1281,11 +1231,7 @@ impl TerminalTabs {
         let requested = id.filter(|id| requestable_id(id));
         let tab_id = match requested {
             Some(id) => id.to_owned(),
-            None => format!(
-                "term_{}_{}",
-                std::process::id(),
-                self.sequence.fetch_add(1, Ordering::AcqRel) + 1
-            ),
+            None => format!("term_{}_{}", std::process::id(), self.sequence.fetch_add(1, Ordering::AcqRel) + 1),
         };
         loop {
             match self.claim(&tab_id) {
@@ -1338,24 +1284,12 @@ impl TerminalTabs {
     /// nested.
     fn start_cursor(&self, tab_id: &str, prior: Option<&Tab>) -> u64 {
         let from_prior = prior.map(|tab| tab.lock().buffer.cursor());
-        let from_floors = self
-            .cursor_floors
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .get(tab_id)
-            .copied();
+        let from_floors = self.cursor_floors.lock().unwrap_or_else(|e| e.into_inner()).get(tab_id).copied();
         let floor = from_floors.into_iter().chain(from_prior).max();
-        floor
-            .map_or(0, |floor| floor + 1)
-            .max(cursor_epoch((self.config.now_ms)()))
+        floor.map_or(0, |floor| floor + 1).max(cursor_epoch((self.config.now_ms)()))
     }
 
-    async fn spawn_tab(
-        &self,
-        tab_id: &str,
-        prior: Option<Arc<Tab>>,
-        request: &EnsureRequest,
-    ) -> Result<Arc<Tab>, TerminalError> {
+    async fn spawn_tab(&self, tab_id: &str, prior: Option<Arc<Tab>>, request: &EnsureRequest) -> Result<Arc<Tab>, TerminalError> {
         let handle = ProcessHandle::from(tab_id);
         self.wait_gone(&handle).await;
         if self.is_disposed() {
@@ -1369,12 +1303,7 @@ impl TerminalTabs {
             },
             ..SpawnProfile::default()
         });
-        let plan = plan_shell_integration(
-            &shell,
-            self.config.shell_integration_dir.as_deref(),
-            &|name| std::env::var(name).ok(),
-            cfg!(windows),
-        );
+        let plan = plan_shell_integration(&shell, self.config.shell_integration_dir.as_deref(), &|name| std::env::var(name).ok(), cfg!(windows));
         let cwd = match request.cwd.as_deref().filter(|c| !c.is_empty()) {
             Some(cwd) => resolve_cwd(cwd)?,
             None => ["USERPROFILE", "HOME"]
@@ -1391,9 +1320,7 @@ impl TerminalTabs {
 
         let start = self.start_cursor(tab_id, prior.as_deref());
         let infer_start = plan.integration == Some(Integration::Cmd);
-        let seq = prior
-            .as_ref()
-            .map_or_else(|| self.created.fetch_add(1, Ordering::AcqRel) + 1, |prior| prior.seq);
+        let seq = prior.as_ref().map_or_else(|| self.created.fetch_add(1, Ordering::AcqRel) + 1, |prior| prior.seq);
         let tab = Arc::new(Tab {
             id: tab_id.to_owned(),
             seq,
@@ -1425,22 +1352,13 @@ impl TerminalTabs {
         set.push(("TERM".to_owned(), "xterm-256color".to_owned()));
         let spawn = SpawnRequest {
             handle: handle.clone(),
-            command: CommandSpec::Argv {
-                program: plan.path.clone(),
-                args: plan.args.clone(),
-            },
+            command: CommandSpec::Argv { program: plan.path.clone(), args: plan.args.clone() },
             cwd,
-            env: EnvSpec {
-                inherit: true,
-                set,
-                remove: self.config.env_remove.clone(),
-            },
+            env: EnvSpec { inherit: true, set, remove: self.config.env_remove.clone() },
             pty: self.config.pty_size(cols, rows),
             stdin_piped: true,
             output: OutputMode::Merged,
-            owner: ProcessOwner::TerminalTab {
-                tab_id: TerminalTabId::from(tab_id),
-            },
+            owner: ProcessOwner::TerminalTab { tab_id: TerminalTabId::from(tab_id) },
             time_limit: None,
         };
         let on_exit: ExitHook = {
@@ -1452,7 +1370,8 @@ impl TerminalTabs {
         #[allow(unused_mut)]
         let mut options = SpawnOptions {
             ring_bytes: Some(self.config.replay_limit),
-            replays_after_exit: true, filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
+            replays_after_exit: true,
+            filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
             on_exit: Some(on_exit),
             // The tab's exit comes when Node's node-pty raised it, on this runtime's clock.
             node_pty_exit: Some(NodePtyExit { runtime: tokio::runtime::Handle::current() }),
@@ -1481,21 +1400,13 @@ impl TerminalTabs {
                     1
                 } else {
                     let suffix = tab.id.strip_prefix(&format!("{base}:"))?;
-                    let digits_ok = !suffix.is_empty()
-                        && !suffix.starts_with('0')
-                        && suffix.bytes().all(|b| b.is_ascii_digit());
+                    let digits_ok = !suffix.is_empty() && !suffix.starts_with('0') && suffix.bytes().all(|b| b.is_ascii_digit());
                     if !digits_ok {
                         return None;
                     }
                     suffix.parse::<u32>().ok()?
                 };
-                Some(SessionTab {
-                    tab: number,
-                    id: tab.id.clone(),
-                    shell: tab.shell.clone(),
-                    running: tab.running(),
-                    cwd: tab.cwd.clone(),
-                })
+                Some(SessionTab { tab: number, id: tab.id.clone(), shell: tab.shell.clone(), running: tab.running(), cwd: tab.cwd.clone() })
             })
             .collect();
         tabs.sort_by_key(|tab| tab.tab);
@@ -1508,11 +1419,7 @@ impl TerminalTabs {
         let tab = self.live(id)?;
         let state = tab.lock();
         Some(match since {
-            None => Replay {
-                text: state.buffer.read(),
-                cursor: state.buffer.cursor(),
-                reset: state.buffer.trimmed(),
-            },
+            None => Replay { text: state.buffer.read(), cursor: state.buffer.cursor(), reset: state.buffer.trimmed() },
             Some(cursor) => state.buffer.read_since(cursor),
         })
     }
@@ -1524,13 +1431,7 @@ impl TerminalTabs {
             .into_iter()
             .map(|tab| {
                 let running = !tab.lock().exited;
-                TabEntry {
-                    id: tab.id.clone(),
-                    shell: tab.shell.clone(),
-                    running,
-                    cwd: tab.cwd.clone(),
-                    size_owner: self.claims.owner_of(&tab.id),
-                }
+                TabEntry { id: tab.id.clone(), shell: tab.shell.clone(), running, cwd: tab.cwd.clone(), size_owner: self.claims.owner_of(&tab.id) }
             })
             .collect();
         entries.sort_by(|a, b| a.id.cmp(&b.id));
@@ -1544,10 +1445,7 @@ impl TerminalTabs {
             .into_iter()
             .filter_map(|tab| {
                 let state = tab.lock();
-                (!state.exited)
-                    .then(|| state.activity.state())
-                    .flatten()
-                    .map(|s| (tab.seq, tab.id.clone(), s))
+                (!state.exited).then(|| state.activity.state()).flatten().map(|s| (tab.seq, tab.id.clone(), s))
             })
             .collect();
         states.sort_by_key(|(seq, ..)| *seq);
@@ -1608,10 +1506,12 @@ impl TerminalTabs {
     /// Unlike pane keystrokes, a tool-submitted command needs an acknowledgement that the PTY took all its input.
     pub async fn write_command(&self, id: &str, data: &str, admitted: impl FnOnce()) -> Result<(), ProcessError> {
         let tab = self.running(id).ok_or(ProcessError::AlreadyExited)?;
-        self.manager.write_input_whole_on_admission(&tab.handle, data.as_bytes().to_vec(), |_| {
-            admitted();
-            Self::note_input(&tab, data);
-        }).await
+        self.manager
+            .write_input_whole_on_admission(&tab.handle, data.as_bytes().to_vec(), |_| {
+                admitted();
+                Self::note_input(&tab, data);
+            })
+            .await
     }
 
     fn note_input(tab: &Tab, data: &str) {
@@ -1732,12 +1632,7 @@ impl TerminalTabs {
             // A paused reader must be released before the kill, or the exit cannot arrive.
             tab.sync_pause();
         }
-        self.cursor_floors
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .entry(tab.id.clone())
-            .and_modify(|floor| *floor = (*floor).max(cursor))
-            .or_insert(cursor);
+        self.cursor_floors.lock().unwrap_or_else(|e| e.into_inner()).entry(tab.id.clone()).and_modify(|floor| *floor = (*floor).max(cursor)).or_insert(cursor);
         self.end_process(&tab.handle);
     }
 
@@ -1792,12 +1687,8 @@ impl TerminalTabs {
         if normalize_root(root).is_empty() {
             return Vec::new();
         }
-        let ids: Vec<String> = self
-            .all_tabs()
-            .into_iter()
-            .filter(|tab| tab.cwd.as_deref().is_some_and(|cwd| is_path_under_root(root, cwd)))
-            .map(|tab| tab.id.clone())
-            .collect();
+        let ids: Vec<String> =
+            self.all_tabs().into_iter().filter(|tab| tab.cwd.as_deref().is_some_and(|cwd| is_path_under_root(root, cwd))).map(|tab| tab.id.clone()).collect();
         for id in &ids {
             self.dispose(id);
         }
@@ -2007,7 +1898,11 @@ mod lock_order {
         let _ = filter.filter(b"x\r\n\x1b]697;C\x07");
         filter.admitted();
         tab.publish(&mut tab.lock(), Some(Some(ActivityState::Finished)));
-        assert_eq!(seen(), vec![Some(ActivityState::Idle), Some(ActivityState::Running), Some(ActivityState::Finished)], "a direct change goes after the waiting ones");
+        assert_eq!(
+            seen(),
+            vec![Some(ActivityState::Idle), Some(ActivityState::Running), Some(ActivityState::Finished)],
+            "a direct change goes after the waiting ones"
+        );
         tab.taken(u64::MAX);
         assert_eq!(seen().len(), 3, "nothing goes twice");
     }
@@ -2068,13 +1963,17 @@ mod lock_order {
                 let (manager, handle) = (manager.clone(), handle.clone());
                 KillOnDrop(Some(move || drop(manager.kill(&handle))))
             };
-            let feeds = crate::service::ProcessFeeds::new(
-                manager.clone(),
-                Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(MockLimits::default())),
-            );
+            let feeds = crate::service::ProcessFeeds::new(manager.clone(), Arc::new(mixdog_core_api::mock::MockScopedFeeds::new(MockLimits::default())));
             seen.feeds.set(Arc::clone(&feeds)).ok().unwrap();
             let conn = MockConnection::new(ConnectionId(1), MockLimits::default());
-            let attached = mixdog_core_api::feed::subscribe(&feeds.lane_source(), mixdog_core_api::ids::SubscriptionId::from("s"), mixdog_core_api::feed::Window::Fixed, None, &conn).unwrap();
+            let attached = mixdog_core_api::feed::subscribe(
+                &feeds.lane_source(),
+                mixdog_core_api::ids::SubscriptionId::from("s"),
+                mixdog_core_api::feed::Window::Fixed,
+                None,
+                &conn,
+            )
+            .unwrap();
             conn.send_control_release(bytes::Bytes::from_static(b"ok"), attached.release).unwrap();
             let pumped = Arc::clone(&tab);
             drop(feeds.open_terminal(handle.as_str(), move || Some(Arc::new(move |at: PumpPoint| pumped.pumped(at)) as PumpTell)));
@@ -2086,7 +1985,11 @@ mod lock_order {
             manager.write_input(&handle, b"2\n".to_vec()).unwrap();
             settle("the marker's change", || !seen.changes.lock().unwrap().is_empty()).await;
             let at_change = seen.changes.lock().unwrap()[0];
-            assert_eq!(at_change, if held { first } else { first + 1 }, "{gap_ms} ms after the last frame: the lane had sent {at_change} frames when the change went (first frame: {first})");
+            assert_eq!(
+                at_change,
+                if held { first } else { first + 1 },
+                "{gap_ms} ms after the last frame: the lane had sent {at_change} frames when the change went (first frame: {first})"
+            );
             // The held text goes out when its 16 ms are up.
             tokio::time::advance(Duration::from_millis(1)).await;
             settle("the chunk's text", || feeds.lane_seq() == first + 1).await;
@@ -2277,7 +2180,12 @@ mod lock_order {
                      $null = [Console]::In.ReadLine(); [Console]::Out.Write('z' + [char]27 + ']697;C' + [char]7); $null = [Console]::In.ReadLine()",
                     "read a; printf '%070000d\\033]697;P\\007' 0; read b; printf 'z\\033]697;C\\007'; read c",
                 ),
-                SpawnOptions { ring_bytes: Some(1024), replays_after_exit: true, filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
+                SpawnOptions {
+                    ring_bytes: Some(1024),
+                    replays_after_exit: true,
+                    filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
+                    ..SpawnOptions::default()
+                },
             )
             .await
             .unwrap();
@@ -2347,14 +2255,11 @@ mod lock_order {
         let (exited, exit) = std::sync::mpsc::channel();
         manager
             .spawn_with(
-                piped(
-                    &handle,
-                    "[Console]::Out.Write(('x' * 70000) + [char]27 + ']697;P' + [char]7)",
-                    "printf '%070000d\\033]697;P\\007' 0",
-                ),
+                piped(&handle, "[Console]::Out.Write(('x' * 70000) + [char]27 + ']697;P' + [char]7)", "printf '%070000d\\033]697;P\\007' 0"),
                 SpawnOptions {
                     ring_bytes: Some(1024),
-                    replays_after_exit: true, filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
+                    replays_after_exit: true,
+                    filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
                     on_exit: Some(Box::new(move |_| {
                         let _ = exited.send(());
                         Vec::new()
@@ -2390,7 +2295,12 @@ mod lock_order {
                      $null = [Console]::In.ReadLine(); [Console]::Out.Write('z' + [char]27 + ']697;C' + [char]7); $null = [Console]::In.ReadLine()",
                     "read a; printf '%070000d\\033]697;P\\007' 0; read b; printf 'z\\033]697;C\\007'; read c",
                 ),
-                SpawnOptions { ring_bytes: Some(1024), replays_after_exit: true, filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))), ..SpawnOptions::default() },
+                SpawnOptions {
+                    ring_bytes: Some(1024),
+                    replays_after_exit: true,
+                    filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
+                    ..SpawnOptions::default()
+                },
             )
             .await
             .unwrap();
@@ -2438,7 +2348,8 @@ mod lock_order {
             .spawn_with(
                 request,
                 SpawnOptions {
-                    replays_after_exit: true, filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
+                    replays_after_exit: true,
+                    filter: Some(Box::new(TabFilter::new(Arc::clone(&tab)))),
                     on_exit: Some(Box::new(move |exit| ending.exited(exit))),
                     ..SpawnOptions::default()
                 },
@@ -2491,12 +2402,7 @@ mod lock_order {
         let log = logged.until("the pump took every read", |log| log.contains(&Seen::Taken(clear + prompt + after)));
         assert_eq!(
             log,
-            vec![
-                Seen::Taken(clear),
-                Seen::Taken(clear + prompt),
-                Seen::Change(Some(ActivityState::Idle)),
-                Seen::Taken(clear + prompt + after)
-            ],
+            vec![Seen::Taken(clear), Seen::Taken(clear + prompt), Seen::Change(Some(ActivityState::Idle)), Seen::Taken(clear + prompt + after)],
             "each read is taken on its own, the marker's change right after its read"
         );
         let _ = manager.kill(&handle);
@@ -2530,7 +2436,11 @@ mod lock_order {
             .unwrap();
         tab.publish(&mut tab.lock(), Some(Some(ActivityState::Finished)));
         let changes = |log: &[Seen]| log.iter().filter(|seen| matches!(seen, Seen::Change(_))).cloned().collect::<Vec<_>>();
-        assert_eq!(changes(&logged.until("the direct change", |log| !changes(log).is_empty())), vec![Seen::Change(Some(ActivityState::Finished))], "the held chunk's marker was applied before the chunk was read");
+        assert_eq!(
+            changes(&logged.until("the direct change", |log| !changes(log).is_empty())),
+            vec![Seen::Change(Some(ActivityState::Finished))],
+            "the held chunk's marker was applied before the chunk was read"
+        );
         manager.set_output_paused(&handle, false).unwrap();
         let log = logged.until("the chunk's change", |log| changes(log).len() == 2);
         assert_eq!(changes(&log), vec![Seen::Change(Some(ActivityState::Finished)), Seen::Change(Some(ActivityState::Idle))]);
@@ -2565,10 +2475,7 @@ mod bounded_waits {
     /// manager's bounded drain (`output_drain`), with no timer of its own.
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
     async fn wait_gone_ends_when_a_descendant_holds_the_pipe() {
-        let (tabs, manager) = tabs_with(ProcessConfig {
-            output_drain: Duration::from_millis(50),
-            ..ProcessConfig::default()
-        });
+        let (tabs, manager) = tabs_with(ProcessConfig { output_drain: Duration::from_millis(50), ..ProcessConfig::default() });
         let handle = ProcessHandle::from(format!("wait-gone-{}", std::process::id()));
         let command = if cfg!(windows) {
             CommandSpec::Shell {
@@ -2579,20 +2486,14 @@ mod bounded_waits {
                 shell: Some("powershell".to_owned()),
             }
         } else {
-            CommandSpec::Shell {
-                script: "sleep 60 &".to_owned(),
-                shell: None,
-            }
+            CommandSpec::Shell { script: "sleep 60 &".to_owned(), shell: None }
         };
         manager
             .spawn(SpawnRequest {
                 handle: handle.clone(),
                 command,
                 cwd: AbsPath::new(std::env::temp_dir()).expect("the temp dir is absolute"),
-                env: EnvSpec {
-                    inherit: true,
-                    ..EnvSpec::default()
-                },
+                env: EnvSpec { inherit: true, ..EnvSpec::default() },
                 pty: None,
                 stdin_piped: false,
                 output: OutputMode::Merged,
@@ -2601,9 +2502,7 @@ mod bounded_waits {
             })
             .await
             .unwrap();
-        tokio::time::timeout(Duration::from_secs(10), tabs.wait_gone(&handle))
-            .await
-            .expect("wait_gone ends although the pipe is still held");
+        tokio::time::timeout(Duration::from_secs(10), tabs.wait_gone(&handle)).await.expect("wait_gone ends although the pipe is still held");
         assert!(manager.info(&handle).unwrap().exit.is_some());
     }
 
@@ -2620,10 +2519,7 @@ mod bounded_waits {
             tokio::spawn(async move { tabs.attach("term_1").await })
         };
         drop(guard);
-        let attached = tokio::time::timeout(Duration::from_secs(10), waiter)
-            .await
-            .expect("the waiter is released")
-            .unwrap();
+        let attached = tokio::time::timeout(Duration::from_secs(10), waiter).await.expect("the waiter is released").unwrap();
         assert!(attached.is_none());
     }
 }

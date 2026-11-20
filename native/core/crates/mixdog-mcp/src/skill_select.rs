@@ -90,8 +90,24 @@ fn is_line_terminator(c: char) -> bool {
 }
 
 const RESERVED_NAMES: [&str; 18] = [
-    "path", "home", "user", "shell", "pwd", "tmpdir", "temp", "tmp", "lang", "term", "xdg_config_home", "userprofile", "appdata", "localappdata",
-    "programfiles", "systemroot", "windir", "comspec",
+    "path",
+    "home",
+    "user",
+    "shell",
+    "pwd",
+    "tmpdir",
+    "temp",
+    "tmp",
+    "lang",
+    "term",
+    "xdg_config_home",
+    "userprofile",
+    "appdata",
+    "localappdata",
+    "programfiles",
+    "systemroot",
+    "windir",
+    "comspec",
 ];
 
 /// `isReservedMentionName`: an environment-variable name or a number is never an inline mention.
@@ -288,10 +304,7 @@ impl Selection {
 
 /// The header and the candidate mentions of a prompt.
 pub fn selection_of(prompt: &Prompt) -> Selection {
-    Selection {
-        header: selected_skill_name(prompt),
-        mentions: skill_mention_candidates(&user_prompt_text(prompt)).into_iter().map(|m| m.name).collect(),
-    }
+    Selection { header: selected_skill_name(prompt), mentions: skill_mention_candidates(&user_prompt_text(prompt)).into_iter().map(|m| m.name).collect() }
 }
 
 /// The skills enabled and in scope for a directory (`collectPromptSkillsCached(cwd)`).
@@ -338,7 +351,14 @@ mod tests {
 
     #[test]
     fn an_incomplete_or_misplaced_skill_header_selects_nothing() {
-        for prompt in ["Skill: \"review\"\nno blank line", "Skill: \"review\"", "say Skill: \"review\"\n\nx", "Skill: \"\"\n\nx", "Skill: \"a\nb\"\n\nx", "Skill: review\n\nx"] {
+        for prompt in [
+            "Skill: \"review\"\nno blank line",
+            "Skill: \"review\"",
+            "say Skill: \"review\"\n\nx",
+            "Skill: \"\"\n\nx",
+            "Skill: \"a\nb\"\n\nx",
+            "Skill: review\n\nx",
+        ] {
             assert_eq!(selected_skill_name(&text(prompt)), None, "{prompt:?}");
         }
     }
@@ -403,8 +423,4 @@ mod tests {
         ]);
         assert_eq!(names(&prompt, &["secret", "typed"]), ["typed"]);
     }
-
-
 }
-
-

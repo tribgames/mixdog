@@ -84,11 +84,7 @@ pub struct HelperCommand {
 
 impl HelperCommand {
     pub fn new(program: &str, args: &[&str]) -> HelperCommand {
-        HelperCommand {
-            program: program.to_owned(),
-            args: args.iter().map(|arg| (*arg).to_owned()).collect(),
-            ..HelperCommand::default()
-        }
+        HelperCommand { program: program.to_owned(), args: args.iter().map(|arg| (*arg).to_owned()).collect(), ..HelperCommand::default() }
     }
 }
 
@@ -285,13 +281,8 @@ pub fn can_open_browser(env: Env<'_>, platform: Platform, wsl: bool) -> bool {
 pub fn browser_candidates(platform: Platform, env: Env<'_>, wsl: bool, url: &str) -> Vec<(String, Vec<String>)> {
     match platform {
         Platform::Windows => {
-            let system_root = env_value(env, "SystemRoot")
-                .or_else(|| env_value(env, "WINDIR"))
-                .unwrap_or_else(|| "C:\\Windows".to_owned());
-            vec![(
-                format!("{system_root}\\System32\\rundll32.exe"),
-                vec!["url.dll,FileProtocolHandler".to_owned(), url.to_owned()],
-            )]
+            let system_root = env_value(env, "SystemRoot").or_else(|| env_value(env, "WINDIR")).unwrap_or_else(|| "C:\\Windows".to_owned());
+            vec![(format!("{system_root}\\System32\\rundll32.exe"), vec!["url.dll,FileProtocolHandler".to_owned(), url.to_owned()])]
         }
         Platform::Macos => vec![("open".to_owned(), vec![url.to_owned()])],
         _ if wsl => {
@@ -300,12 +291,7 @@ pub fn browser_candidates(platform: Platform, env: Env<'_>, wsl: bool, url: &str
                 ("wslview".to_owned(), vec![url.to_owned()]),
                 (
                     "powershell.exe".to_owned(),
-                    vec![
-                        "-NoProfile".to_owned(),
-                        "-NonInteractive".to_owned(),
-                        "-Command".to_owned(),
-                        format!("Start-Process -FilePath {quoted}"),
-                    ],
+                    vec!["-NoProfile".to_owned(), "-NonInteractive".to_owned(), "-Command".to_owned(), format!("Start-Process -FilePath {quoted}")],
                 ),
             ]
         }
@@ -386,12 +372,7 @@ fn dialog_command(program: &str, args: &[&str]) -> HelperCommand {
 /// The picker of macOS and of Linux and the other Unixes: `osascript choose folder`, else `zenity` before `kdialog`. A
 /// helper that could not run (started badly, timed out) means no dialog, so the caller types; any other exit without a
 /// path is a cancel.
-pub fn pick_folder_unix(
-    runner: &dyn Runner,
-    platform: Platform,
-    options: &FolderPickOptions,
-    exists: &dyn Fn(&str) -> bool,
-) -> FolderPick {
+pub fn pick_folder_unix(runner: &dyn Runner, platform: Platform, options: &FolderPickOptions, exists: &dyn Fn(&str) -> bool) -> FolderPick {
     let title = options.title.as_deref().unwrap_or(DEFAULT_FOLDER_TITLE);
     if platform == Platform::Macos {
         let outcome = runner.run(&dialog_command("osascript", &["-e", &macos_choose_script(title)]));
@@ -426,18 +407,16 @@ mod windows_dialog {
     use mixdog_fsio::Unlaned;
     use windows::Win32::Foundation::{COLORREF, HWND, RECT};
     use windows::Win32::System::Com::{
-        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize,
-        IBindCtx,
+        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IBindCtx,
     };
     use windows::Win32::System::Console::GetConsoleWindow;
     use windows::Win32::UI::Shell::{
-        FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_NOCHANGEDIR, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, FileOpenDialog,
-        IFileOpenDialog, IShellItem, SHCreateItemFromParsingName, SIGDN_FILESYSPATH,
+        FOS_FILEMUSTEXIST, FOS_FORCEFILESYSTEM, FOS_NOCHANGEDIR, FOS_PATHMUSTEXIST, FOS_PICKFOLDERS, FileOpenDialog, IFileOpenDialog, IShellItem,
+        SHCreateItemFromParsingName, SIGDN_FILESYSPATH,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DestroyWindow, GetForegroundWindow, GetWindowRect, LWA_ALPHA, SPI_GETWORKAREA, SW_SHOW,
-        SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS, SetForegroundWindow, SetLayeredWindowAttributes, ShowWindow,
-        SystemParametersInfoW, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
+        CreateWindowExW, DestroyWindow, GetForegroundWindow, GetWindowRect, LWA_ALPHA, SPI_GETWORKAREA, SW_SHOW, SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS,
+        SetForegroundWindow, SetLayeredWindowAttributes, ShowWindow, SystemParametersInfoW, WS_EX_LAYERED, WS_EX_TOOLWINDOW, WS_EX_TOPMOST, WS_POPUP,
     };
     use windows::core::{HRESULT, PCWSTR, w};
 
@@ -455,14 +434,7 @@ mod windows_dialog {
             return ((rect.left + rect.right) / 2, (rect.top + rect.bottom) / 2);
         }
         let mut area = RECT::default();
-        let _ = unsafe {
-            SystemParametersInfoW(
-                SPI_GETWORKAREA,
-                0,
-                Some((&mut area as *mut RECT).cast::<c_void>()),
-                SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0),
-            )
-        };
+        let _ = unsafe { SystemParametersInfoW(SPI_GETWORKAREA, 0, Some((&mut area as *mut RECT).cast::<c_void>()), SYSTEM_PARAMETERS_INFO_UPDATE_FLAGS(0)) };
         (area.left + (area.right - area.left) / 2, area.top + (area.bottom - area.top) / 2)
     }
 
@@ -470,20 +442,7 @@ mod windows_dialog {
     fn owner_window() -> Option<HWND> {
         let (left, top) = owner_center();
         let hwnd = unsafe {
-            CreateWindowExW(
-                WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED,
-                w!("STATIC"),
-                PCWSTR::null(),
-                WS_POPUP,
-                left,
-                top,
-                1,
-                1,
-                None,
-                None,
-                None,
-                None,
-            )
+            CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED, w!("STATIC"), PCWSTR::null(), WS_POPUP, left, top, 1, 1, None, None, None, None)
         }
         .ok()?;
         unsafe {
@@ -517,9 +476,7 @@ mod windows_dialog {
         let dialog: IFileOpenDialog = unsafe { CoCreateInstance(&FileOpenDialog, None, CLSCTX_INPROC_SERVER) }?;
         unsafe {
             let options = dialog.GetOptions()?;
-            dialog.SetOptions(
-                options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST | FOS_NOCHANGEDIR,
-            )?;
+            dialog.SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_FILEMUSTEXIST | FOS_NOCHANGEDIR)?;
             if !title.is_empty() {
                 dialog.SetTitle(PCWSTR(wide(title).as_ptr()))?;
             }
@@ -528,9 +485,7 @@ mod windows_dialog {
         // set.
         if !initial.is_empty() && mixdog_fsio::is_dir(&Unlaned, PathBuf::from(initial)) {
             let wide_initial = wide(initial);
-            let item = unsafe {
-                SHCreateItemFromParsingName::<_, _, IShellItem>(PCWSTR(wide_initial.as_ptr()), None::<&IBindCtx>)
-            };
+            let item = unsafe { SHCreateItemFromParsingName::<_, _, IShellItem>(PCWSTR(wide_initial.as_ptr()), None::<&IBindCtx>) };
             if let Ok(item) = item {
                 let _ = unsafe { dialog.SetDefaultFolder(&item) };
                 let _ = unsafe { dialog.SetFolder(&item) };
@@ -549,15 +504,11 @@ mod windows_dialog {
         Ok((!path.is_empty()).then(|| path.to_owned()))
     }
 
-
     /// The absolute folder the dialog opens in: the given path, else the current directory, made absolute (best effort).
     pub fn initial_folder(initial_path: &str) -> String {
         let trimmed = mixdog_js::js_trim(initial_path);
-        let base = if trimmed.is_empty() {
-            std::env::current_dir().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default()
-        } else {
-            trimmed.to_owned()
-        };
+        let base =
+            if trimmed.is_empty() { std::env::current_dir().map(|dir| dir.to_string_lossy().into_owned()).unwrap_or_default() } else { trimmed.to_owned() };
         std::path::absolute(&base).map(|path| path.to_string_lossy().into_owned()).unwrap_or(base)
     }
 }
@@ -592,18 +543,12 @@ mod tests {
         let none = env_of(&[]);
         assert_eq!(
             browser_candidates(Platform::Windows, &none, false, url),
-            vec![(
-                "C:\\Windows\\System32\\rundll32.exe".to_owned(),
-                vec!["url.dll,FileProtocolHandler".to_owned(), url.to_owned()]
-            )]
+            vec![("C:\\Windows\\System32\\rundll32.exe".to_owned(), vec!["url.dll,FileProtocolHandler".to_owned(), url.to_owned()])]
         );
         let windir = env_of(&[("SystemRoot", ""), ("WINDIR", "D:\\Win")]);
         assert_eq!(browser_candidates(Platform::Windows, &windir, false, url)[0].0, "D:\\Win\\System32\\rundll32.exe");
         assert_eq!(browser_candidates(Platform::Macos, &none, false, url), vec![("open".to_owned(), vec![url.to_owned()])]);
-        assert_eq!(
-            browser_candidates(Platform::Linux, &none, false, url),
-            vec![("xdg-open".to_owned(), vec![url.to_owned()])]
-        );
+        assert_eq!(browser_candidates(Platform::Linux, &none, false, url), vec![("xdg-open".to_owned(), vec![url.to_owned()])]);
         let wsl = browser_candidates(Platform::Linux, &none, true, url);
         assert_eq!(wsl[0], ("wslview".to_owned(), vec![url.to_owned()]));
         assert_eq!(wsl[1].0, "powershell.exe");
@@ -631,12 +576,7 @@ mod tests {
 
     impl Scripted {
         fn new(outcomes: Vec<Outcome>, launch_fails: Vec<&'static str>) -> Scripted {
-            Scripted {
-                outcomes: Mutex::new(outcomes),
-                commands: Mutex::new(Vec::new()),
-                launched: Mutex::new(Vec::new()),
-                launch_fails,
-            }
+            Scripted { outcomes: Mutex::new(outcomes), commands: Mutex::new(Vec::new()), launched: Mutex::new(Vec::new()), launch_fails }
         }
     }
 
@@ -648,11 +588,7 @@ mod tests {
 
         fn spawn_detached(&self, program: &str, _args: &[String]) -> io::Result<()> {
             self.launched.lock().unwrap().push(program.to_owned());
-            if self.launch_fails.contains(&program) {
-                Err(io::Error::from(io::ErrorKind::NotFound))
-            } else {
-                Ok(())
-            }
+            if self.launch_fails.contains(&program) { Err(io::Error::from(io::ErrorKind::NotFound)) } else { Ok(()) }
         }
     }
 
@@ -668,10 +604,7 @@ mod tests {
 
     #[test]
     fn the_macos_script_escapes_the_title() {
-        assert_eq!(
-            macos_choose_script("Pick \"a\" \\ folder"),
-            "set f to choose folder with prompt \"Pick \\\"a\\\" \\\\ folder\"\nPOSIX path of f"
-        );
+        assert_eq!(macos_choose_script("Pick \"a\" \\ folder"), "set f to choose folder with prompt \"Pick \\\"a\\\" \\\\ folder\"\nPOSIX path of f");
     }
 
     fn exited(code: i32, text: &str) -> Outcome {
@@ -705,10 +638,7 @@ mod tests {
         let runner = Scripted::new(vec![], vec![]);
         let pick = pick_folder_unix(&runner, Platform::Linux, &options, &|_| false);
         assert!(!pick.available);
-        assert_eq!(
-            pick.reason.as_deref(),
-            Some("No folder dialog is installed; install zenity or kdialog to pick folders.")
-        );
+        assert_eq!(pick.reason.as_deref(), Some("No folder dialog is installed; install zenity or kdialog to pick folders."));
         assert!(runner.commands.lock().unwrap().is_empty());
     }
 
@@ -722,10 +652,7 @@ mod tests {
         assert_eq!(command.args[0], "-e");
         assert_eq!(command.args[1], macos_choose_script(DEFAULT_FOLDER_TITLE));
         let runner = Scripted::new(vec![exited(1, "")], vec![]);
-        assert_eq!(
-            pick_folder_unix(&runner, Platform::Macos, &FolderPickOptions::default(), &|_| false),
-            FolderPick::chosen(None)
-        );
+        assert_eq!(pick_folder_unix(&runner, Platform::Macos, &FolderPickOptions::default(), &|_| false), FolderPick::chosen(None));
     }
 
     #[test]
@@ -739,7 +666,6 @@ mod tests {
     }
 }
 
-
 /// The environment of this process.
 pub fn process_env(name: &str) -> Option<String> {
     std::env::var_os(name).map(|value| value.to_string_lossy().into_owned())
@@ -747,11 +673,7 @@ pub fn process_env(name: &str) -> Option<String> {
 /// [`is_wsl`] of this machine, settled once.
 pub fn is_wsl_host() -> bool {
     static WSL: OnceLock<bool> = OnceLock::new();
-    *WSL.get_or_init(|| {
-        is_wsl(Platform::current(), &process_env, &|| {
-            mixdog_fsio::read_to_string(&Unlaned, "/proc/version").ok()
-        })
-    })
+    *WSL.get_or_init(|| is_wsl(Platform::current(), &process_env, &|| mixdog_fsio::read_to_string(&Unlaned, "/proc/version").ok()))
 }
 /// [`open_in_browser_with`] on this machine.
 pub fn open_in_browser(url: &str) {
@@ -789,17 +711,9 @@ pub fn pick_folder(options: &FolderPickOptions) -> FolderPick {
 /// modal, centred and not left on another monitor.
 #[cfg(windows)]
 pub fn pick_folder(options: &FolderPickOptions) -> FolderPick {
-    let title = options
-        .title
-        .clone()
-        .filter(|title| !title.is_empty())
-        .unwrap_or_else(|| DEFAULT_FOLDER_TITLE.to_owned());
+    let title = options.title.clone().filter(|title| !title.is_empty()).unwrap_or_else(|| DEFAULT_FOLDER_TITLE.to_owned());
     let initial = windows_dialog::initial_folder(&options.initial_path);
-    match thread::Builder::new()
-        .name("mixdog-folder-dialog".to_owned())
-        .spawn(move || windows_dialog::pick(&title, &initial))
-        .map(thread::JoinHandle::join)
-    {
+    match thread::Builder::new().name("mixdog-folder-dialog".to_owned()).spawn(move || windows_dialog::pick(&title, &initial)).map(thread::JoinHandle::join) {
         Ok(Ok(Ok(selected))) => FolderPick::chosen(selected),
         // The dialog could not be created or shown (the script of Node would have failed without printing a path), or
         // its thread could not be started.

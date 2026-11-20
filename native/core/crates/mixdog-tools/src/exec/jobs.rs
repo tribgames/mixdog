@@ -50,6 +50,7 @@ use super::codepage::Sniffer;
 use super::codepage::WINDOW_CAP;
 use super::codepage::aligned_offset;
 use super::codepage::decode_shell_bytes;
+use super::delivery::Omitted;
 use super::delivery::Piece;
 use super::delivery::delivery_full_chars;
 use super::delivery::edges_piece;
@@ -57,7 +58,6 @@ use super::delivery::fit_pieces;
 use super::delivery::omission_marker;
 use super::delivery::prepare_shell_text;
 use super::delivery::text_piece;
-use super::delivery::Omitted;
 use super::spill;
 use super::text::CarriageReturnFolder;
 use super::text::count_newlines;
@@ -266,16 +266,54 @@ impl JobStatus {
 }
 
 const SIGNAL_NAMES: [&str; 33] = [
-    "", "SIGHUP", "SIGINT", "SIGQUIT", "SIGILL", "SIGTRAP", "SIGABRT", "SIGBUS", "SIGFPE", "SIGKILL",
-    "SIGUSR1", "SIGSEGV", "SIGUSR2", "SIGPIPE", "SIGALRM", "SIGTERM", "SIGSTKFLT", "SIGCHLD",
-    "SIGCONT", "SIGSTOP", "SIGTSTP", "SIGTTIN", "SIGTTOU", "SIGURG", "SIGXCPU", "SIGXFSZ",
-    "SIGVTALRM", "SIGPROF", "SIGWINCH", "SIGIO", "SIGPWR", "SIGSYS", "",
+    "",
+    "SIGHUP",
+    "SIGINT",
+    "SIGQUIT",
+    "SIGILL",
+    "SIGTRAP",
+    "SIGABRT",
+    "SIGBUS",
+    "SIGFPE",
+    "SIGKILL",
+    "SIGUSR1",
+    "SIGSEGV",
+    "SIGUSR2",
+    "SIGPIPE",
+    "SIGALRM",
+    "SIGTERM",
+    "SIGSTKFLT",
+    "SIGCHLD",
+    "SIGCONT",
+    "SIGSTOP",
+    "SIGTSTP",
+    "SIGTTIN",
+    "SIGTTOU",
+    "SIGURG",
+    "SIGXCPU",
+    "SIGXFSZ",
+    "SIGVTALRM",
+    "SIGPROF",
+    "SIGWINCH",
+    "SIGIO",
+    "SIGPWR",
+    "SIGSYS",
+    "",
 ];
 
 /// Node's `os.constants.signals` on Windows.
 const WINDOWS_SIGNALS: [(i32, &str); 11] = [
-    (1, "SIGHUP"), (2, "SIGINT"), (3, "SIGQUIT"), (4, "SIGILL"), (22, "SIGABRT"), (8, "SIGFPE"),
-    (9, "SIGKILL"), (11, "SIGSEGV"), (15, "SIGTERM"), (21, "SIGBREAK"), (28, "SIGWINCH"),
+    (1, "SIGHUP"),
+    (2, "SIGINT"),
+    (3, "SIGQUIT"),
+    (4, "SIGILL"),
+    (22, "SIGABRT"),
+    (8, "SIGFPE"),
+    (9, "SIGKILL"),
+    (11, "SIGSEGV"),
+    (15, "SIGTERM"),
+    (21, "SIGBREAK"),
+    (28, "SIGWINCH"),
 ];
 
 /// The name of signal `number` in Node's `os.constants.signals` of the host platform.
@@ -287,11 +325,7 @@ pub fn signal_name(number: i32) -> Option<&'static str> {
 }
 
 pub(crate) fn unix_signal_name(number: i32) -> Option<&'static str> {
-    usize::try_from(number)
-        .ok()
-        .and_then(|n| SIGNAL_NAMES.get(n))
-        .copied()
-        .filter(|name| !name.is_empty())
+    usize::try_from(number).ok().and_then(|n| SIGNAL_NAMES.get(n)).copied().filter(|name| !name.is_empty())
 }
 
 /// What the task rows and views report for how a process ended.
@@ -451,16 +485,7 @@ struct Stream {
 
 impl Stream {
     fn new(oem: Option<Label>) -> Self {
-        Self {
-            oem,
-            buf: Vec::new(),
-            dead: 0,
-            base: 0,
-            cursor: Cursor::new(oem),
-            dropped_lines: 0,
-            first: Vec::new(),
-            window: None,
-        }
+        Self { oem, buf: Vec::new(), dead: 0, base: 0, cursor: Cursor::new(oem), dropped_lines: 0, first: Vec::new(), window: None }
     }
 
     /// The bytes memory holds, from `base`.
@@ -523,10 +548,10 @@ impl Stream {
         let offset = self.cursor.offset;
         if offset < from + len as u64 {
             let before = self.dropped_lines;
-            let kept = self.cursor.dropped.get_or_insert_with(|| Dropped {
-                lines_before: before + count_newlines(&dropped[..offset.saturating_sub(from) as usize]),
-                head: Vec::new(),
-            });
+            let kept = self
+                .cursor
+                .dropped
+                .get_or_insert_with(|| Dropped { lines_before: before + count_newlines(&dropped[..offset.saturating_sub(from) as usize]), head: Vec::new() });
             keep_head(&mut kept.head, offset, from, dropped);
         }
         self.dropped_lines += count_newlines(dropped);
@@ -555,9 +580,7 @@ impl Stream {
     /// Newlines in `[start, end)` (`countNewlinesInRange`); those before `base` are counted from what `dropped` kept.
     fn newlines(&self, start: u64, end: u64, dropped: Option<&Dropped>) -> usize {
         match dropped {
-            Some(kept) if start < self.base => {
-                self.dropped_lines.saturating_sub(kept.lines_before) + count_newlines(self.slice(self.base, end))
-            }
+            Some(kept) if start < self.base => self.dropped_lines.saturating_sub(kept.lines_before) + count_newlines(self.slice(self.base, end)),
             _ => count_newlines(self.slice(start, end)),
         }
     }
@@ -593,10 +616,7 @@ impl ForegroundStream<'_> {
     pub fn spilled_piece(&self) -> Option<Piece<'static>> {
         let stream = self.stream;
         (stream.base > 0).then(|| {
-            let mut cursor = Cursor {
-                dropped: Some(Dropped { lines_before: 0, head: stream.first.clone() }),
-                ..Cursor::new(stream.oem)
-            };
+            let mut cursor = Cursor { dropped: Some(Dropped { lines_before: 0, head: stream.first.clone() }), ..Cursor::new(stream.oem) };
             let label = stream.probe(&mut cursor.sniffer, true);
             if let Some(label) = label {
                 cursor.decoder.force(label);
@@ -710,9 +730,7 @@ pub fn shown_path(path: &Path) -> String {
 }
 
 fn iso(ms: u64) -> String {
-    chrono::DateTime::from_timestamp_millis(i64::try_from(ms).unwrap_or(i64::MAX))
-        .map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string())
-        .unwrap_or_default()
+    chrono::DateTime::from_timestamp_millis(i64::try_from(ms).unwrap_or(i64::MAX)).map(|t| t.format("%Y-%m-%dT%H:%M:%S%.3fZ").to_string()).unwrap_or_default()
 }
 
 /// The label every task carries: the command with whitespace collapsed, at most 120 characters.
@@ -813,15 +831,7 @@ fn aligned(stream: &Stream, at: u64, label: Option<Label>) -> u64 {
 
 /// `readRange`: `[start, end)` of `stream`, read with `cursor`. Of a range that starts before memory's `base`, the head
 /// and the newlines before `base` come from what the cursor kept as memory dropped them.
-fn read_range(
-    stream: &Stream,
-    cursor: &mut Cursor,
-    start: u64,
-    end: u64,
-    flush: bool,
-    label: Option<Label>,
-    path: &str,
-) -> Range {
+fn read_range(stream: &Stream, cursor: &mut Cursor, start: u64, end: u64, flush: bool, label: Option<Label>, path: &str) -> Range {
     let total = (end - start) as usize;
     if total <= FULL_READ_BYTES {
         let text = decode_visible(cursor, stream.slice(start, end), flush);
@@ -835,20 +845,12 @@ fn read_range(
     cursor.fold = CarriageReturnFolder::default();
     let tail_text = decode_visible(cursor, stream.slice(tail_start, end), flush);
     let lines = stream.newlines(start, end, cursor.dropped.as_ref());
-    Range {
-        piece: edges_piece(&head_text, &tail_text, total, lines, path),
-        bytes: total,
-        lines,
-        text: tail_text,
-    }
+    Range { piece: edges_piece(&head_text, &tail_text, total, lines, path), bytes: total, lines, text: tail_text }
 }
 
-static PERCENT: LazyLock<Regex> =
-    LazyLock::new(|| Regex::new(r"(\d{1,3}(?:\.\d+)?)\s?%").expect("static pattern"));
-static ETA: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"\b(?:ETA|eta|remaining|left)\b[:=\s]*(\d+(?::\d{2}){1,2}|\d+(?:\.\d+)?\s?(?:h|m|s|min|sec)\b)")
-        .expect("static pattern")
-});
+static PERCENT: LazyLock<Regex> = LazyLock::new(|| Regex::new(r"(\d{1,3}(?:\.\d+)?)\s?%").expect("static pattern"));
+static ETA: LazyLock<Regex> =
+    LazyLock::new(|| Regex::new(r"\b(?:ETA|eta|remaining|left)\b[:=\s]*(\d+(?::\d{2}){1,2}|\d+(?:\.\d+)?\s?(?:h|m|s|min|sec)\b)").expect("static pattern"));
 
 /// `formatDuration(ms, { mostSignificantOnly: true })`.
 pub fn most_significant_duration(ms: u64) -> String {
@@ -899,12 +901,11 @@ fn progress_digest(growth: &[Range], hung: Option<&str>) -> String {
     }
     if let Some(last) = text.split('\n').rev().find(|l| !mixdog_js::js_trim(l).is_empty()) {
         let shown = mixdog_js::slice_utf16(mixdog_js::js_trim(last), 200);
-        parts.push(format!(
-            "last line: {}",
-            serde_json::to_string(&shown).unwrap_or_default()
-        ));
+        parts.push(format!("last line: {}", serde_json::to_string(&shown).unwrap_or_default()));
     }
-    if let Some(m) = PERCENT.captures_iter(&text).last() && m[1].parse::<f64>().is_ok_and(|n| n <= 100.0) {
+    if let Some(m) = PERCENT.captures_iter(&text).last()
+        && m[1].parse::<f64>().is_ok_and(|n| n <= 100.0)
+    {
         parts.push(format!("{}%", &m[1]));
     }
     if let Some(m) = ETA.captures_iter(&text).last() {
@@ -922,8 +923,7 @@ fn progress_digest(growth: &[Range], hung: Option<&str>) -> String {
 const TERMINATION_RECHECK: Duration = Duration::from_millis(5_000);
 
 /// The error of a background job a runtime that is gone left running (`reconcileRecoveredShellJobCompletions`).
-const OUTCOME_LOST: &str =
-    "daemon restarted while this shell task was running; its outcome was lost. Re-run the command if the result is still needed.";
+const OUTCOME_LOST: &str = "daemon restarted while this shell task was running; its outcome was lost. Re-run the command if the result is still needed.";
 
 /// A job's ownership record, as a runtime that does not hold the job reads it (`readShellJobRecord`).
 pub(crate) struct KeptJob {
@@ -1053,17 +1053,14 @@ async fn collect(
     // Read once the job is finished, so no detach comes after it: a promotion that landed while the record was written
     // still counts in a time-limit kill's text (`facts_of`), as the job's later reads show it.
     let facts = job.exit().map(|e| job.facts_of(&job.state(), &e));
-    let outcome = facts.as_ref().map_or(
-        TaskOutcome { status: SpawnStatus::Failed, exit_code: None },
-        |f| TaskOutcome {
-            status: match f.status {
-                JobStatus::Completed | JobStatus::Running => SpawnStatus::Completed,
-                JobStatus::Failed => SpawnStatus::Failed,
-                JobStatus::Cancelled => SpawnStatus::Cancelled,
-            },
-            exit_code: f.exit_code,
+    let outcome = facts.as_ref().map_or(TaskOutcome { status: SpawnStatus::Failed, exit_code: None }, |f| TaskOutcome {
+        status: match f.status {
+            JobStatus::Completed | JobStatus::Running => SpawnStatus::Completed,
+            JobStatus::Failed => SpawnStatus::Failed,
+            JobStatus::Cancelled => SpawnStatus::Cancelled,
         },
-    );
+        exit_code: f.exit_code,
+    });
     runtime.finish_row(&job.id, outcome);
     if detached {
         // A background task's end is a boundary for the review of its folder (`completeBackgroundTask`).
@@ -1210,7 +1207,6 @@ mod tests {
         assert_eq!(decode_visible(&mut cursor, &bytes[1..], false), "é");
     }
 
-
     #[test]
     fn a_silent_job_is_reported_as_possibly_hung_in_the_digest() {
         assert_eq!(
@@ -1225,16 +1221,11 @@ mod tests {
     }
 }
 
-
 /// `MIXDOG_SHELL_OUTPUT_SILENCE_WARN_MS` (`resolveTimeoutMs`: a positive number, at least 1 s),
 /// else the agent stall budget `STALL_TIMEOUT_S` (default 600 s).
 pub fn silence_warn_ms() -> f64 {
     static WARN: LazyLock<f64> = LazyLock::new(|| {
-        let abort_s = std::env::var("STALL_TIMEOUT_S")
-            .ok()
-            .and_then(|raw| super::delivery::parse_int_prefix(&raw))
-            .filter(|n| *n > 0)
-            .unwrap_or(600);
+        let abort_s = std::env::var("STALL_TIMEOUT_S").ok().and_then(|raw| super::delivery::parse_int_prefix(&raw)).filter(|n| *n > 0).unwrap_or(600);
         let fallback = (abort_s as f64 * 1000.0).max(1_000.0);
         std::env::var("MIXDOG_SHELL_OUTPUT_SILENCE_WARN_MS")
             .ok()
@@ -1247,9 +1238,7 @@ pub fn silence_warn_ms() -> f64 {
 }
 /// `describeShellOutputSilence`: the warning for a silence at or past the threshold.
 pub fn describe_silence(silent_ms: u64) -> Option<String> {
-    (silent_ms as f64 >= silence_warn_ms()).then(|| {
-        format!("no output for {} — may be hung; inspect or cancel", most_significant_duration(silent_ms))
-    })
+    (silent_ms as f64 >= silence_warn_ms()).then(|| format!("no output for {} — may be hung; inspect or cancel", most_significant_duration(silent_ms)))
 }
 impl Job {
     /// What the logs lack: a log whose write failed or stalled holds the output only up to the
@@ -1376,10 +1365,7 @@ impl Job {
 
     pub(super) fn foreground_streams<T>(&self, f: impl FnOnce([ForegroundStream<'_>; 2]) -> T) -> T {
         let state = self.state();
-        f([
-            ForegroundStream { stream: &state.stdout, log: &self.stdout_log },
-            ForegroundStream { stream: &state.stderr, log: &self.stderr_log },
-        ])
+        f([ForegroundStream { stream: &state.stdout, log: &self.stdout_log }, ForegroundStream { stream: &state.stderr, log: &self.stderr_log }])
     }
 
     /// An owned snapshot for compaction, which can be held across an archive write.
@@ -1421,24 +1407,19 @@ impl Job {
         let mut growth = Vec::new();
         let mut sections: Vec<(String, Piece<'static>)> = Vec::new();
         let state = &mut *state;
-        for (name, stream, log) in [
-            ("stdout", &mut state.stdout, &self.stdout_log),
-            ("stderr", &mut state.stderr, &self.stderr_log),
-        ] {
+        for (name, stream, log) in [("stdout", &mut state.stdout, &self.stdout_log), ("stderr", &mut state.stderr, &self.stderr_log)] {
             let path = shown_path(log);
             // A replay reads with a fresh cursor and leaves the stream's own where it was (Node's `readShellTaskOutput`
             // replays with a fresh map). Otherwise the stream's cursor is taken out for the read, which reads the stream
             // beside it, and put back moved.
-            let mut cursor = if replay {
-                Cursor::new(stream.oem)
-            } else {
-                std::mem::replace(&mut stream.cursor, Cursor::new(stream.oem))
-            };
+            let mut cursor = if replay { Cursor::new(stream.oem) } else { std::mem::replace(&mut stream.cursor, Cursor::new(stream.oem)) };
             let size = stream.end();
             // The encoding is decided once, firmly (or when the task is terminal); until then
             // only the ASCII prefix is read.
             let label = stream.probe(&mut cursor.sniffer, options.terminal);
-            if let Some(label) = label && !cursor.committed {
+            if let Some(label) = label
+                && !cursor.committed
+            {
                 cursor.committed = true;
                 cursor.decoder.force(label);
             }
@@ -1466,8 +1447,7 @@ impl Job {
             }
             growth.push(range);
         }
-        let fixed: usize = sections.iter().map(|(p, _)| mixdog_js::utf16_len(p)).sum::<usize>()
-            + 2 * sections.len().saturating_sub(1);
+        let fixed: usize = sections.iter().map(|(p, _)| mixdog_js::utf16_len(p)).sum::<usize>() + 2 * sections.len().saturating_sub(1);
         let (prefixes, pieces): (Vec<String>, Vec<Piece>) = sections.into_iter().unzip();
         let bodies = fit_pieces(&pieces, delivery_full_chars() - fixed as f64);
         let body = if prefixes.is_empty() {
@@ -1475,11 +1455,7 @@ impl Job {
         } else {
             prefixes.iter().zip(bodies).map(|(prefix, body)| format!("{prefix}{body}")).collect::<Vec<_>>().join("\n\n")
         };
-        escape_harness_tags(&if options.digest {
-            format!("{}\n\n{body}", progress_digest(&growth, options.hung.as_deref()))
-        } else {
-            body
-        })
+        escape_harness_tags(&if options.digest { format!("{}\n\n{body}", progress_digest(&growth, options.hung.as_deref())) } else { body })
     }
 
     pub fn acknowledged(&self) -> bool {
@@ -1623,21 +1599,14 @@ impl Job {
     /// `renderShellCompletionNotice` for the survivors task that ended on its own.
     fn survivors_notification(&self) -> String {
         let flat = mixdog_js::js_words(&self.command).collect::<Vec<_>>().join(" ");
-        let command = if mixdog_js::utf16_len(&flat) > 160 {
-            format!("{}…", flat.chars().take(160).collect::<String>())
-        } else {
-            flat
-        };
+        let command = if mixdog_js::utf16_len(&flat) > 160 { format!("{}…", flat.chars().take(160).collect::<String>()) } else { flat };
         let tail = if command.is_empty() { String::new() } else { format!(": {command}") };
         [
             "<task-notification>".to_owned(),
             format!("<task-id>{}</task-id>", escape_field(&self.id)),
             "<status>completed</status>".to_owned(),
             format!("<summary>{}</summary>", escape_field(&format!("{}{tail}", completion_instruction("completed", None)))),
-            format!(
-                "<result>\nRetrieve output with task read (task_id: {}) only if it has not already been received.\n</result>",
-                self.id
-            ),
+            format!("<result>\nRetrieve output with task read (task_id: {}) only if it has not already been received.\n</result>", self.id),
             "</task-notification>".to_owned(),
         ]
         .join("\n")
@@ -1647,36 +1616,20 @@ impl Job {
     fn notification(&self, output: &str) -> String {
         let state = self.state();
         let Some(facts) = self.end_of(&state) else { return String::new() };
-        let duration = state
-            .finished_ms
-            .map(|f| format_duration(f.saturating_sub(self.shown_started(&state))));
-        let head = [
-            facts.exit_code.map(|c| format!("exit code: {c}")),
-            duration.map(|d| format!("duration: {d}")),
-        ]
-        .into_iter()
-        .flatten()
-        .collect::<Vec<_>>()
-        .join(", ");
+        let duration = state.finished_ms.map(|f| format_duration(f.saturating_sub(self.shown_started(&state))));
+        let head = [facts.exit_code.map(|c| format!("exit code: {c}")), duration.map(|d| format!("duration: {d}"))]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(", ");
         let result = [head.as_str(), output].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n");
         let status = facts.status.as_str();
         let outcome = if facts.status == JobStatus::Cancelled { "was cancelled" } else { status };
         let detail = format!("exit {}", facts.exit_code.map_or("n/a".to_owned(), |c| c.to_string()));
         let flat = mixdog_js::js_words(&self.command).collect::<Vec<_>>().join(" ");
-        let command = if mixdog_js::utf16_len(&flat) > 160 {
-            format!("{}…", flat.chars().take(160).collect::<String>())
-        } else {
-            flat
-        };
-        let summary = format!(
-            "Shell task {outcome} ({detail}){}",
-            if command.is_empty() { String::new() } else { format!(": {command}") }
-        );
-        let mut out = vec![
-            "<task-notification>".to_owned(),
-            format!("<task-id>{}</task-id>", escape_field(&self.id)),
-            format!("<status>{status}</status>"),
-        ];
+        let command = if mixdog_js::utf16_len(&flat) > 160 { format!("{}…", flat.chars().take(160).collect::<String>()) } else { flat };
+        let summary = format!("Shell task {outcome} ({detail}){}", if command.is_empty() { String::new() } else { format!(": {command}") });
+        let mut out = vec!["<task-notification>".to_owned(), format!("<task-id>{}</task-id>", escape_field(&self.id)), format!("<status>{status}</status>")];
         if let Some(code) = facts.exit_code {
             out.push(format!("<exit-code>{code}</exit-code>"));
         }
@@ -1771,9 +1724,12 @@ impl ExecRuntime {
     pub fn other_owner_shell_work(&self, owner: &ThreadId) -> (usize, usize) {
         let table = lock(&self.jobs);
         let running = table.values().filter(|job| &job.owner != owner && !job.survivors && !job.state().finished);
-        running.fold((0, 0), |(foreground, background), job| {
-            if job.state().promoted_ms.is_some() { (foreground, background + 1) } else { (foreground + 1, background) }
-        })
+        running.fold(
+            (0, 0),
+            |(foreground, background), job| {
+                if job.state().promoted_ms.is_some() { (foreground, background + 1) } else { (foreground + 1, background) }
+            },
+        )
     }
 
     /// `activeBackgroundTaskSessionIds({ surface: 'shell', awaitedOnly: true })`: the owner of every running awaited task, from one pass over
@@ -1886,11 +1842,7 @@ impl ExecRuntime {
             process: Some(handle),
             started_at_ms: started_ms,
         });
-        mixdog_rt::spawn(
-            "shell-collect",
-            TaskClass::Work,
-            collect(job.clone(), source, self.clone(), logs, processes.clone()),
-        );
+        mixdog_rt::spawn("shell-collect", TaskClass::Work, collect(job.clone(), source, self.clone(), logs, processes.clone()));
         Ok(job)
     }
 
@@ -2080,11 +2032,7 @@ impl ExecRuntime {
         let records = spill::read_records(self.config.lanes.interactive, cancel, &self.config.spill_dir, within).await;
         let now = self.now_ms();
         let held = lock(&self.jobs);
-        records
-            .into_iter()
-            .map(|(id, record)| KeptJob { id, record })
-            .filter(|kept| !held.contains_key(&kept.id) && kept.answers_for(owner, now))
-            .collect()
+        records.into_iter().map(|(id, record)| KeptJob { id, record }).filter(|kept| !held.contains_key(&kept.id) && kept.answers_for(owner, now)).collect()
     }
 
     /// The job `kept` names, ended as `end`, as its record and the end of its logs keep it (`registerBackgroundTask` +

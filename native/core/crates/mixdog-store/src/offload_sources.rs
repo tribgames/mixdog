@@ -46,11 +46,7 @@ fn key_as(segment: &str, fold: bool) -> String {
 /// Session ids are path segments: anything outside `[A-Za-z0-9_-]` becomes `_`, so a `..` or a slash cannot leave the
 /// tool-results root (Node's `safeSessionSegment`).
 pub fn safe_segment(session_id: &str) -> String {
-    let cleaned: String = session_id
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' })
-        .take(200)
-        .collect();
+    let cleaned: String = session_id.chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' || c == '-' { c } else { '_' }).take(200).collect();
     if cleaned.is_empty() { "_invalid".to_owned() } else { cleaned }
 }
 
@@ -203,7 +199,6 @@ mod tests {
         }
     }
 }
-
 
 /// This process's boot: the marks it writes name it.
 pub fn boot() -> &'static str {

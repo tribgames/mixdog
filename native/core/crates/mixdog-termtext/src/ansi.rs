@@ -57,20 +57,8 @@ pub(crate) fn is_close_code(code: i64) -> bool {
 pub(crate) fn is_js_whitespace(ch: char) -> bool {
     matches!(
         ch,
-        '\t' | '\u{b}'
-            | '\u{c}'
-            | ' '
-            | '\u{a0}'
-            | '\u{feff}'
-            | '\n'
-            | '\r'
-            | '\u{2028}'
-            | '\u{2029}'
-            | '\u{1680}'
-            | '\u{2000}'..='\u{200a}'
-            | '\u{202f}'
-            | '\u{205f}'
-            | '\u{3000}'
+        '\t' | '\u{b}' | '\u{c}' | ' ' | '\u{a0}' | '\u{feff}' | '\n' | '\r' | '\u{2028}' | '\u{2029}' | '\u{1680}' | '\u{2000}'
+            ..='\u{200a}' | '\u{202f}' | '\u{205f}' | '\u{3000}'
     )
 }
 
@@ -163,13 +151,7 @@ impl InkToken {
     }
 
     fn csi(value: String, csi: CsiSequence) -> Self {
-        Self {
-            kind: InkTokenKind::Csi,
-            value,
-            parameters: csi.parameters,
-            intermediates: csi.intermediates,
-            final_char: Some(csi.final_char),
-        }
+        Self { kind: InkTokenKind::Csi, value, parameters: csi.parameters, intermediates: csi.intermediates, final_char: Some(csi.final_char) }
     }
 }
 
@@ -425,7 +407,10 @@ pub enum StyledToken {
     Ansi(AnsiCode),
     /// Another OSC sequence: zero width, nothing to end.
     Control(String),
-    Char { value: String, full_width: bool },
+    Char {
+        value: String,
+        full_width: bool,
+    },
 }
 
 /// A visible character with the styles active at it.
@@ -638,11 +623,7 @@ pub fn reduce_ansi_codes(codes: &[AnsiCode]) -> Vec<AnsiCode> {
 
 /// `undoAnsiCodes(codes)`: the codes that undo `codes`, last first.
 pub fn undo_ansi_codes(codes: &[AnsiCode]) -> Vec<AnsiCode> {
-    reduce_ansi_codes(codes)
-        .into_iter()
-        .rev()
-        .map(|code| AnsiCode { code: code.end_code.clone(), end_code: code.end_code })
-        .collect()
+    reduce_ansi_codes(codes).into_iter().rev().map(|code| AnsiCode { code: code.end_code.clone(), end_code: code.end_code }).collect()
 }
 
 /// `diffAnsiCodes(from, to)`: the codes that take the style `from` to the style `to` (both reduced).
@@ -652,13 +633,7 @@ pub fn diff_ansi_codes(from: &[AnsiCode], to: &[AnsiCode]) -> Vec<AnsiCode> {
     let start_codes_in_from: Vec<&str> = from.iter().map(|code| code.code.as_str()).collect();
     let to_undo: Vec<AnsiCode> = from
         .iter()
-        .filter(|code| {
-            if is_intensity(code) {
-                !start_codes_in_to.contains(&code.code.as_str())
-            } else {
-                !end_codes_in_to.contains(&code.end_code.as_str())
-            }
-        })
+        .filter(|code| if is_intensity(code) { !start_codes_in_to.contains(&code.code.as_str()) } else { !end_codes_in_to.contains(&code.end_code.as_str()) })
         .cloned()
         .collect();
     let mut out = undo_ansi_codes(&to_undo);
@@ -720,10 +695,7 @@ mod tests {
 
     #[test]
     fn the_ink_tokenizer_splits_text_and_sequences() {
-        let kinds: Vec<(InkTokenKind, String)> = tokenize_ink("a\x1b[31mb\x1b]8;;u\x07c\x1b[?25h")
-            .into_iter()
-            .map(|t| (t.kind, t.value))
-            .collect();
+        let kinds: Vec<(InkTokenKind, String)> = tokenize_ink("a\x1b[31mb\x1b]8;;u\x07c\x1b[?25h").into_iter().map(|t| (t.kind, t.value)).collect();
         assert_eq!(
             kinds,
             [
@@ -759,15 +731,7 @@ mod tests {
         let kinds: Vec<InkTokenKind> = tokenize_ink("a\x1b\u{7f}b\u{9c}c\u{85}d").into_iter().map(|t| t.kind).collect();
         assert_eq!(
             kinds,
-            [
-                InkTokenKind::Text,
-                InkTokenKind::Esc,
-                InkTokenKind::Text,
-                InkTokenKind::St,
-                InkTokenKind::Text,
-                InkTokenKind::C1,
-                InkTokenKind::Text
-            ]
+            [InkTokenKind::Text, InkTokenKind::Esc, InkTokenKind::Text, InkTokenKind::St, InkTokenKind::Text, InkTokenKind::C1, InkTokenKind::Text]
         );
     }
 

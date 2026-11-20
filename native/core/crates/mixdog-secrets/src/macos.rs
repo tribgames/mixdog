@@ -49,8 +49,7 @@ impl SecretStore for KeychainStore {
     async fn set(&self, account: &str, value: &str) -> Result<(), SecretError> {
         let (account, value) = (account.to_owned(), value.to_owned());
         on_lane(self.io, move || {
-            set_generic_password(SERVICE, &account, value.as_bytes())
-                .map_err(|error| SecretError::new(format!("[keychain] security set failed: {error}")))
+            set_generic_password(SERVICE, &account, value.as_bytes()).map_err(|error| SecretError::new(format!("[keychain] security set failed: {error}")))
         })
         .await?
     }

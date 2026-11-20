@@ -34,14 +34,8 @@ async fn read_request(stream: &mut tokio::net::TcpStream) -> (String, String, Ve
     let mut first = lines.next().unwrap().split(' ');
     let method = first.next().unwrap().to_owned();
     let path = first.next().unwrap().to_owned();
-    let headers: Vec<(String, String)> = lines
-        .filter_map(|l| l.split_once(':'))
-        .map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_owned()))
-        .collect();
-    let length: usize = headers
-        .iter()
-        .find(|(k, _)| k == "content-length")
-        .map_or(0, |(_, v)| v.parse().unwrap());
+    let headers: Vec<(String, String)> = lines.filter_map(|l| l.split_once(':')).map(|(k, v)| (k.trim().to_lowercase(), v.trim().to_owned())).collect();
+    let length: usize = headers.iter().find(|(k, _)| k == "content-length").map_or(0, |(_, v)| v.parse().unwrap());
     while buf.len() < header_end + length {
         let n = stream.read(&mut chunk).await.unwrap();
         buf.extend_from_slice(&chunk[..n]);
@@ -111,10 +105,7 @@ async fn handshake_session_json_and_sse_responses_work_over_http() {
     let server = McpServer::new(config, io, Spiller::new(dir.path().to_path_buf(), io.durability), OutputPolicy::default(), None);
     server.connect().await.unwrap();
     assert_eq!(server.catalog().unwrap().entries[0].qualified, "mcp__web__echo", "tools/list came back as SSE");
-    let out = server
-        .call_tool("t", "echo", json!({"text": "over http"}), &CancellationToken::new(), None)
-        .await
-        .unwrap();
+    let out = server.call_tool("t", "echo", json!({"text": "over http"}), &CancellationToken::new(), None).await.unwrap();
     assert_eq!(out.parts, vec![ToolPart::Text("over http".to_owned())]);
 
     let seen = seen.lock().unwrap().clone();

@@ -108,7 +108,11 @@ async fn a_session_is_busy_from_its_first_turn_until_the_last_queued_one_settled
     eventually_on!(&[&handle.cell.stepped], || (handle.cell.queue.load().len() == 1).then_some(())).await;
     release.notify_one();
     let user = |text: &str| ("user", text.to_owned());
-    eventually_on!(&[&handle.cell.stepped], || (counted.held.load(SeqCst) == 0 && handle.cell.queue.load().is_empty() && rows(&handle).contains(&user("second"))).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (counted.held.load(SeqCst) == 0
+        && handle.cell.queue.load().is_empty()
+        && rows(&handle).contains(&user("second")))
+    .then_some(()))
+    .await;
     assert!(idle(&handle));
     assert_eq!(counted.began.load(SeqCst), 1, "one busy period, with no gap between the queued turns");
     assert!(counted.runs.load(SeqCst) >= 1, "each run is registered");
@@ -167,7 +171,6 @@ async fn a_client_retry_is_refused_while_the_core_holds_turn_starts() {
     let Reply::Value(answer) = handle.request(retry("r-3")).await.expect("answered") else { panic!("turn/retryFailed answers a value") };
     assert_eq!(answer, json!(false), "no failed turn to retry");
 }
-
 
 /// An in-core start (a routine's, a channel's) waits out the hold before it is admitted, as Node's `deferring` waits before
 /// `admitted` enters the turn gate, so an idle delete is not held off meanwhile. The drain commit that drops the hold refuses it

@@ -69,7 +69,10 @@ fn a_coding_session_is_denied_its_callers_tools_the_features_and_the_reaction_to
 fn a_bots_home_chat_may_react_but_is_denied_delegating_unless_its_workflow_delegates() {
     let home = json!({ "id": "sess_home_botty", "callerDisallowedTools": [] });
     assert_eq!(live(home, builtin_default(), &[]).unwrap(), ["agent"], "a workflow that delegates to no agent keeps the agent tool away");
-    assert_eq!(live(json!({ "id": "sess_home_botty", "callerDisallowedTools": ["get_goal"] }), delegating(), &["memory", "recall"]).unwrap(), ["get_goal", "memory", "recall"]);
+    assert_eq!(
+        live(json!({ "id": "sess_home_botty", "callerDisallowedTools": ["get_goal"] }), delegating(), &["memory", "recall"]).unwrap(),
+        ["get_goal", "memory", "recall"]
+    );
     let stored_as_coding = json!({ "id": "sess_home_botty", "sessionMode": "coding", "callerDisallowedTools": [] });
     assert_eq!(live(stored_as_coding, builtin_default(), &[]).unwrap(), Vec::<String>::new(), "a home thread stored as a coding session is one");
 }

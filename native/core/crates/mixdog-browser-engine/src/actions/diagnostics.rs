@@ -141,7 +141,11 @@ mod tests {
             None,
         );
         ledgers.network.loading_finished(&json!({"requestId": "10.1", "encodedDataLength": 123}), None, 1_075);
-        ledgers.network.request_will_be_sent(&json!({"requestId": "10.2", "type": "Image", "request": {"method": "GET", "url": "https://example.test/a.png", "headers": {}}}), None, 1_080);
+        ledgers.network.request_will_be_sent(
+            &json!({"requestId": "10.2", "type": "Image", "request": {"method": "GET", "url": "https://example.test/a.png", "headers": {}}}),
+            None,
+            1_080,
+        );
     }
 
     fn cdp(result: Value) -> Expect {
@@ -205,7 +209,8 @@ mod tests {
         with_requests(&mut ledgers, true);
         let host = FakeHost::scripted(vec![
             cdp(json!({"postData": "{\"name\":\"demo\"}"})).with_params(json!({"method": "Network.getRequestPostData", "params": {"requestId": "10.1"}})),
-            cdp(json!({"body": "{\"ok\":true}", "base64Encoded": false})).with_params(json!({"method": "Network.getResponseBody", "params": {"requestId": "10.1"}})),
+            cdp(json!({"body": "{\"ok\":true}", "base64Encoded": false}))
+                .with_params(json!({"method": "Network.getResponseBody", "params": {"requestId": "10.1"}})),
         ]);
         let text = run(&host, &ledgers, json!({"requestId": " r1 "})).await.expect("detail").text;
         assert!(text.starts_with("UNTRUSTED NETWORK DATA"), "{text}");
@@ -217,7 +222,8 @@ mod tests {
     async fn a_body_chromium_no_longer_has_is_said_so_and_a_pending_request_asks_for_nothing() {
         let mut ledgers = ledgers();
         with_requests(&mut ledgers, false);
-        let host = FakeHost::scripted(vec![Expect::err("host/browser/cdp/send", HostCallError::Failed { message: "No resource with given identifier found".into() })]);
+        let host =
+            FakeHost::scripted(vec![Expect::err("host/browser/cdp/send", HostCallError::Failed { message: "No resource with given identifier found".into() })]);
         let gone = run(&host, &ledgers, json!({"requestId": "r1"})).await.expect("detail").text;
         assert!(gone.contains("Response body is no longer available from Chromium."), "{gone}");
         let pending = run(&host, &ledgers, json!({"requestId": "r2"})).await.expect("detail").text;

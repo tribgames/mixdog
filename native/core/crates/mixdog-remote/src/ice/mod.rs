@@ -43,9 +43,7 @@ pub fn refresh_margin(life_ms: u64) -> u64 {
 }
 
 fn is_ice_url(url: &str) -> bool {
-    ["stun:", "turn:", "turns:"]
-        .iter()
-        .any(|scheme| url.strip_prefix(scheme).is_some_and(|rest| !rest.is_empty() && !rest.chars().any(mixdog_js::is_js_space)))
+    ["stun:", "turn:", "turns:"].iter().any(|scheme| url.strip_prefix(scheme).is_some_and(|rest| !rest.is_empty() && !rest.chars().any(mixdog_js::is_js_space)))
 }
 
 fn read_urls(value: &Value) -> Option<Vec<String>> {
@@ -104,7 +102,6 @@ struct State {
     epoch: u64,
 }
 
-
 pub struct SystemClock {
     start: std::time::Instant,
 }
@@ -119,9 +116,7 @@ impl IceClock for SystemClock {
     }
 
     fn wall_ms(&self) -> u64 {
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map_or(0, |d| d.as_millis() as u64)
+        std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as u64)
     }
 }
 pub struct RemoteIceServers<C: IceClock = SystemClock> {
@@ -154,10 +149,7 @@ impl<C: IceClock> RemoteIceServers<C> {
     }
 
     fn elapsed_since(&self, mark: Mark) -> u64 {
-        self.clock
-            .monotonic_ms()
-            .saturating_sub(mark.monotonic)
-            .max(self.clock.wall_ms().saturating_sub(mark.wall))
+        self.clock.monotonic_ms().saturating_sub(mark.monotonic).max(self.clock.wall_ms().saturating_sub(mark.wall))
     }
 
     fn degraded(&self, state: &State) -> Vec<IceServer> {

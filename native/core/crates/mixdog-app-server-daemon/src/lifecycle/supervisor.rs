@@ -57,11 +57,7 @@ pub enum StepEnd {
 /// `mixdog-release-<name>` thread of its own through the runtime handle, as a sync step does, and
 /// the wait for it is an async timeout, so no runtime worker and no blocking-pool thread is held
 /// for the length of the step.
-pub async fn supervise_async(
-    name: &'static str,
-    budget: Duration,
-    step: impl std::future::Future<Output = ()> + Send + 'static,
-) -> StepEnd {
+pub async fn supervise_async(name: &'static str, budget: Duration, step: impl std::future::Future<Output = ()> + Send + 'static) -> StepEnd {
     let runtime = tokio::runtime::Handle::current();
     let (done, finished) = tokio::sync::oneshot::channel::<()>();
     let spawned = std::thread::Builder::new().name(format!("mixdog-release-{name}")).spawn(move || {

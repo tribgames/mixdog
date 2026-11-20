@@ -68,10 +68,7 @@ pub enum FoldError {
 /// Reads an out-of-line body slot's bytes.
 pub type ResolveBody<'a> = dyn FnMut(&BodyBlob) -> Result<Vec<u8>, String> + 'a;
 
-pub(crate) fn resolve_slot<T: serde::de::DeserializeOwned + Clone>(
-    slot: &Slot<T>,
-    resolve: &mut ResolveBody<'_>,
-) -> Result<T, String> {
+pub(crate) fn resolve_slot<T: serde::de::DeserializeOwned + Clone>(slot: &Slot<T>, resolve: &mut ResolveBody<'_>) -> Result<T, String> {
     match slot {
         Slot::Inline(v) => Ok(v.clone()),
         Slot::Blob(blob) => {
@@ -96,8 +93,7 @@ impl Effect {
         match self {
             Effect::Rewind { .. } => true,
             Effect::Header(change) => {
-                change.set.iter().any(|(key, _)| key == crate::summary::DELETED)
-                    || change.unset.iter().any(|key| key == crate::summary::DELETED)
+                change.set.iter().any(|(key, _)| key == crate::summary::DELETED) || change.unset.iter().any(|key| key == crate::summary::DELETED)
             }
             _ => false,
         }
@@ -109,19 +105,35 @@ impl Effect {
 pub(crate) enum Effect {
     None,
     Header(HeaderChange),
-    Item { visible: bool, receipt: Option<String> },
-    Rewind { to: u64, below: Option<Below> },
+    Item {
+        visible: bool,
+        receipt: Option<String>,
+    },
+    Rewind {
+        to: u64,
+        below: Option<Below>,
+    },
     Compacted,
     RunStarted(String),
     RunEnded(String),
-    ApprovalRequested { aid: String, rid: String },
+    ApprovalRequested {
+        aid: String,
+        rid: String,
+    },
     ApprovalEnded(String),
     Enqueued(String),
     Updated(String),
     Prioritized(String),
-    Dequeued { qid: String, delivered: bool },
+    Dequeued {
+        qid: String,
+        delivered: bool,
+    },
     /// A user Stop's disposition (`crate::work_stops`).
-    WorkStop { sid: String, phase: crate::schema::record::WorkStopPhase, body: Option<serde_json::Value> },
+    WorkStop {
+        sid: String,
+        phase: crate::schema::record::WorkStopPhase,
+        body: Option<serde_json::Value>,
+    },
 }
 
 #[derive(Debug, Clone)]
@@ -260,11 +272,7 @@ impl Fold {
                     // A fork may rewind into its base range: the lineage view is cut.
                     let floor = if self.base.is_some() { 0 } else { self.start_ordinal };
                     if to < floor || to > ordinal {
-                        return Err(FoldError::RewindOutOfRange {
-                            to,
-                            start: self.start_ordinal,
-                            at: ordinal,
-                        });
+                        return Err(FoldError::RewindOutOfRange { to, start: self.start_ordinal, at: ordinal });
                     }
                     // No own row lies below a horizon at or under the log's start (a fork
                     // that rewound into its base range): nothing to look up.
@@ -285,27 +293,19 @@ impl Fold {
                 Record::Run(run) => match run.phase {
                     RunPhase::Started => Effect::RunStarted(run.rid.as_str().to_owned()),
                     RunPhase::Attempt => Effect::None,
-                    RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted => {
-                        Effect::RunEnded(run.rid.as_str().to_owned())
-                    }
+                    RunPhase::Completed | RunPhase::Failed | RunPhase::Interrupted => Effect::RunEnded(run.rid.as_str().to_owned()),
                 },
                 Record::Approval(a) => match a.phase {
-                    ApprovalPhase::Requested => Effect::ApprovalRequested {
-                        aid: a.aid.as_str().to_owned(),
-                        rid: a.rid.as_str().to_owned(),
-                    },
-                    ApprovalPhase::Decided | ApprovalPhase::Expired => {
-                        Effect::ApprovalEnded(a.aid.as_str().to_owned())
-                    }
+                    ApprovalPhase::Requested => Effect::ApprovalRequested { aid: a.aid.as_str().to_owned(), rid: a.rid.as_str().to_owned() },
+                    ApprovalPhase::Decided | ApprovalPhase::Expired => Effect::ApprovalEnded(a.aid.as_str().to_owned()),
                 },
                 Record::Queue(q) => match q.action {
                     QueueAction::Enqueue => Effect::Enqueued(q.qid.as_str().to_owned()),
                     QueueAction::Update => Effect::Updated(q.qid.as_str().to_owned()),
                     QueueAction::Prioritize => Effect::Prioritized(q.qid.as_str().to_owned()),
-                    QueueAction::Dequeue => Effect::Dequeued {
-                        qid: q.qid.as_str().to_owned(),
-                        delivered: q.reason == Some(crate::schema::record::DequeueReason::Delivered),
-                    },
+                    QueueAction::Dequeue => {
+                        Effect::Dequeued { qid: q.qid.as_str().to_owned(), delivered: q.reason == Some(crate::schema::record::DequeueReason::Delivered) }
+                    }
                 },
                 Record::WorkStop(stop) => Effect::WorkStop {
                     sid: stop.sid.as_str().to_owned(),
@@ -372,9 +372,7 @@ impl Fold {
             }
             Effect::RunStarted(rid) => self.runs.push(OpenRun { rid, started: pos }),
             Effect::RunEnded(rid) => self.runs.retain(|r| r.rid != rid),
-            Effect::ApprovalRequested { aid, rid } => {
-                self.approvals.push(PendingApproval { aid, rid, requested: pos })
-            }
+            Effect::ApprovalRequested { aid, rid } => self.approvals.push(PendingApproval { aid, rid, requested: pos }),
             Effect::ApprovalEnded(aid) => self.approvals.retain(|a| a.aid != aid),
             Effect::Enqueued(qid) => self.queue.push(QueuedEntry { qid, enqueued: pos, updated: None }),
             Effect::Updated(qid) => {

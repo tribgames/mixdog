@@ -16,8 +16,15 @@ struct Accepts;
 impl SetupActions for Accepts {
     fn actions(&self) -> &'static [&'static str] {
         &[
-            "create_definition", "delete_definition", "set_agent_route", "run_automation", "set_automation_enabled", "delete_automation",
-            "save_automation", "read_definition", "connect_connector",
+            "create_definition",
+            "delete_definition",
+            "set_agent_route",
+            "run_automation",
+            "set_automation_enabled",
+            "delete_automation",
+            "save_automation",
+            "read_definition",
+            "connect_connector",
         ]
     }
     async fn run(&self, call: &SetupCall<'_>) -> Result<Value, PortError> {
@@ -85,10 +92,7 @@ async fn an_agents_thread_changes_only_its_own_settings() {
     let own = |agent: &str| json!({ "action": "set_agent_route", "agent": agent });
     assert!(settings_call(&service, &own("helper")).await.is_ok());
     assert!(settings_call(&service, &own("  helper ")).await.is_ok(), "the name is trimmed");
-    assert_eq!(
-        settings_call(&service, &own("writer")).await.unwrap_err(),
-        "This thread manages only its own agent's settings (setup set_agent_route)"
-    );
+    assert_eq!(settings_call(&service, &own("writer")).await.unwrap_err(), "This thread manages only its own agent's settings (setup set_agent_route)");
     assert!(settings_call(&service, &json!({ "action": "set_agent_route" })).await.is_err(), "no name is not the agent's own");
     // A human's session is not bound to one agent.
     as_caller(&world, "human");
@@ -101,7 +105,9 @@ async fn a_heartbeat_turn_only_pauses_a_routine_or_runs_one() {
     let world = Arc::new(World::default());
     let service = gate(dir.path(), &world).await;
     as_caller(&world, "heartbeat");
-    let refused = |action: &str| format!("A heartbeat turn only pauses a routine or runs one again (setup {action} is refused); propose other changes with session action suggest");
+    let refused = |action: &str| {
+        format!("A heartbeat turn only pauses a routine or runs one again (setup {action} is refused); propose other changes with session action suggest")
+    };
     assert!(settings_call(&service, &json!({ "action": "run_automation" })).await.is_ok());
     assert!(settings_call(&service, &json!({ "action": "set_automation_enabled", "enabled": false })).await.is_ok());
     assert_eq!(settings_call(&service, &json!({ "action": "set_automation_enabled", "enabled": true })).await.unwrap_err(), refused("set_automation_enabled"));
@@ -164,7 +170,10 @@ async fn an_action_nobody_owns_is_unavailable_and_a_missing_action_is_invalid() 
     let world = Arc::new(World::default());
     let service = gate(dir.path(), &world).await;
     as_caller(&world, "human");
-    assert_eq!(settings_call(&service, &json!({ "action": "set_hook_rule_enabled" })).await.unwrap_err(), "setup set_hook_rule_enabled has no owner registered");
+    assert_eq!(
+        settings_call(&service, &json!({ "action": "set_hook_rule_enabled" })).await.unwrap_err(),
+        "setup set_hook_rule_enabled has no owner registered"
+    );
     for args in [json!({}), json!({ "action": "  " }), json!({ "action": 3 })] {
         assert_eq!(settings_call(&service, &args).await.unwrap_err(), "action must be one of the setup actions", "{args}");
     }
@@ -201,10 +210,7 @@ async fn voice_must_end_in_the_state_asked_for() {
 
     // The install failed: not enabled, and the reason is passed on.
     *world.voice.lock().unwrap() = "fail".into();
-    assert_eq!(
-        settings_call(&service, &toggle(true)).await.unwrap_err(),
-        "Voice did not reach the requested installed and enabled state: download failed"
-    );
+    assert_eq!(settings_call(&service, &toggle(true)).await.unwrap_err(), "Voice did not reach the requested installed and enabled state: download failed");
     // Turning it off needs only the switch to be off.
     assert_eq!(settings_call(&service, &toggle(false)).await.unwrap()["voice"]["enabled"], false);
     // A runtime that answered the opposite and gave no reason.

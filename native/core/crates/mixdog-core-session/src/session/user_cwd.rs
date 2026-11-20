@@ -110,9 +110,7 @@ impl UserCwd {
             Some(pid) => Some(pid.to_owned()),
             None => std::env::var("MIXDOG_SUPERVISOR_PID").ok(),
         };
-        let key = raw
-            .filter(|raw| !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit()))
-            .unwrap_or_else(|| "solo".into());
+        let key = raw.filter(|raw| !raw.is_empty() && raw.bytes().all(|b| b.is_ascii_digit())).unwrap_or_else(|| "solo".into());
         self.data_dir.join(format!("session-cwd-{key}.txt"))
     }
 }

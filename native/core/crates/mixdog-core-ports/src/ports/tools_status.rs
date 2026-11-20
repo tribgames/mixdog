@@ -77,11 +77,7 @@ fn truthy(value: Option<&Value>) -> bool {
 }
 
 fn names_of(header: &Header, key: &str) -> Vec<String> {
-    header
-        .get(key)
-        .and_then(Value::as_array)
-        .map(|items| items.iter().filter_map(Value::as_str).map(str::to_owned).collect())
-        .unwrap_or_default()
+    header.get(key).and_then(Value::as_array).map(|items| items.iter().filter_map(Value::as_str).map(str::to_owned).collect()).unwrap_or_default()
 }
 
 /// The surface a header describes.
@@ -155,7 +151,13 @@ mod tests {
         async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
             Ok(())
         }
-        async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+        async fn patch_header_if(
+            &self,
+            _: &ThreadId,
+            _: Map<String, Value>,
+            _: Map<String, Value>,
+            _: Vec<String>,
+        ) -> Result<Option<Map<String, Value>>, PortError> {
             Ok(None)
         }
         async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
@@ -231,7 +233,13 @@ mod tests {
         async fn patch_header(&self, _: &ThreadId, _: Map<String, Value>, _: Vec<String>) -> Result<(), PortError> {
             Ok(())
         }
-        async fn patch_header_if(&self, _: &ThreadId, _: Map<String, Value>, _: Map<String, Value>, _: Vec<String>) -> Result<Option<Map<String, Value>>, PortError> {
+        async fn patch_header_if(
+            &self,
+            _: &ThreadId,
+            _: Map<String, Value>,
+            _: Map<String, Value>,
+            _: Vec<String>,
+        ) -> Result<Option<Map<String, Value>>, PortError> {
             Ok(None)
         }
         async fn publish(&self, _: &ThreadId, _: Section) -> Result<(), PortError> {
@@ -274,6 +282,4 @@ mod tests {
         assert_eq!(surface.catalog.len(), 1);
         assert_eq!(surface.active, ["read"]);
     }
-
-
 }

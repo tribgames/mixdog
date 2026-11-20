@@ -117,8 +117,7 @@ pub fn review_text_fragmentation(boxes: &[Value], minimum_run: f64) -> Vec<Value
                     continue;
                 }
                 let (next, previous) = (&lines[candidate], &lines[last]);
-                let same_column =
-                    near(next.left, previous.left, 4.0) && near(next.width, previous.width, math::max(12.0, previous.width * 0.15));
+                let same_column = near(next.left, previous.left, 4.0) && near(next.width, previous.width, math::max(12.0, previous.width * 0.15));
                 let same_role = next.line.size == previous.line.size && next.line.bold == previous.line.bold && next.line.font == previous.line.font;
                 let step = next.top - previous.top;
                 let line_step = previous.line.size * 1.2;
@@ -207,8 +206,7 @@ fn series(
 /// with no native chart frame.
 pub fn review_dead_vector_chart(content: &[Value], boxes: &[Value], minimum_bars: f64) -> Vec<Value> {
     let mut issues = Vec::new();
-    let text_shapes: HashSet<String> =
-        boxes.iter().map(|entry| format!("{}:{}", text_of(entry.get("slide")), text_of(entry.get("shape")))).collect();
+    let text_shapes: HashSet<String> = boxes.iter().map(|entry| format!("{}:{}", text_of(entry.get("slide")), text_of(entry.get("shape")))).collect();
     for (_, entries) in by_slide(content, |entry| field(entry, "slide")) {
         if entries.iter().any(|entry| entry.get("kind").and_then(Value::as_str) == Some("p:graphicFrame")) {
             continue;
@@ -332,7 +330,12 @@ mod tests {
 
     #[test]
     fn horizontal_bars_from_one_left_edge_are_reported_and_equal_cards_are_not() {
-        let bars = [rect(4, 1, 72.0, 100.0, 300.0, 24.0), rect(4, 2, 72.0, 140.0, 180.0, 24.0), rect(4, 3, 72.0, 180.0, 420.0, 24.0), rect(4, 4, 72.0, 220.0, 90.0, 24.0)];
+        let bars = [
+            rect(4, 1, 72.0, 100.0, 300.0, 24.0),
+            rect(4, 2, 72.0, 140.0, 180.0, 24.0),
+            rect(4, 3, 72.0, 180.0, 420.0, 24.0),
+            rect(4, 4, 72.0, 220.0, 90.0, 24.0),
+        ];
         let issues = review_dead_vector_chart(&bars, &[], 4.0);
         assert!(issues[0]["message"].as_str().is_some_and(|message| message.contains("bar chart by hand")));
         let cards = [

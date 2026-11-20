@@ -2,11 +2,7 @@
 //! order and with the outcomes that file asserts), the wire layout against `mixdog_exthost::frame`, and the approved-path guard
 //! (the 2 cases of `path-scope.test.mjs` and the refusals of `office-run.e2e.test.mjs`).
 
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "a test driver: it makes the folders and the link the path guard is checked against"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a test driver: it makes the folders and the link the path guard is checked against")]
 
 use std::path::Path;
 use std::path::PathBuf;
@@ -72,12 +68,7 @@ impl Harness {
             }
             wake.notify_waiters();
         });
-        Self {
-            input: Some(input),
-            frames,
-            arrived,
-            exit,
-        }
+        Self { input: Some(input), frames, arrived, exit }
     }
 
     async fn send(&mut self, bytes: impl AsRef<[u8]>) {
@@ -86,8 +77,7 @@ impl Harness {
     }
 
     async fn call(&mut self, id: u32, method: &str, params: Value) {
-        self.send(pool_frame::call(id, method, &params, &[], "t"))
-            .await;
+        self.send(pool_frame::call(id, method, &params, &[], "t")).await;
     }
 
     async fn until(&self, ready: impl Fn(&[pool_frame::Inbound]) -> bool) {
@@ -104,12 +94,7 @@ impl Harness {
 
     /// The RESULT of call `id` as the JSON the worker wrote.
     async fn result(&self, id: u32) -> Value {
-        self.until(|frames| {
-            frames
-                .iter()
-                .any(|f| matches!(f, pool_frame::Inbound::Result { call, .. } if *call == id))
-        })
-        .await;
+        self.until(|frames| frames.iter().any(|f| matches!(f, pool_frame::Inbound::Result { call, .. } if *call == id))).await;
         let frames = self.frames.lock().unwrap();
         frames
             .iter()
@@ -139,12 +124,7 @@ impl Harness {
     }
 
     fn count(&self, wanted: impl Fn(&pool_frame::Inbound) -> bool) -> usize {
-        self.frames
-            .lock()
-            .unwrap()
-            .iter()
-            .filter(|f| wanted(f))
-            .count()
+        self.frames.lock().unwrap().iter().filter(|f| wanted(f)).count()
     }
 
     fn has_result(&self) -> bool {
@@ -152,12 +132,7 @@ impl Harness {
     }
 
     async fn need_browser(&self) {
-        self.until(|frames| {
-            frames
-                .iter()
-                .any(|f| matches!(f, pool_frame::Inbound::NeedBrowser { .. }))
-        })
-        .await;
+        self.until(|frames| frames.iter().any(|f| matches!(f, pool_frame::Inbound::NeedBrowser { .. }))).await;
     }
 
     /// The worker's exit once it has left.
@@ -177,65 +152,40 @@ async fn hold(ctx: mixdog_exthost_worker::CallCtx) -> Result<Outcome, CodedError
 
 fn page_registry() -> Registry {
     let mut registry = Registry::new();
-    registry.register("page", |ctx| async move {
-        Ok(Outcome::value(json!(ctx.request_browser().await?)))
-    });
+    registry.register("page", |ctx| async move { Ok(Outcome::value(json!(ctx.request_browser().await?))) });
     registry
 }
 
 #[tokio::test]
 async fn announces_itself_and_runs_a_call_to_its_result() {
     let mut registry = Registry::new();
-    registry.register("echo", |ctx| async move {
-        Ok(Outcome::pinned(
-            json!({"params": ctx.params, "thread": ctx.thread}),
-        ))
-    });
+    registry.register("echo", |ctx| async move { Ok(Outcome::pinned(json!({"params": ctx.params, "thread": ctx.thread}))) });
     let mut h = Harness::start(registry);
-    h.until(|frames| frames.first() == Some(&pool_frame::Inbound::Ready))
-        .await;
+    h.until(|frames| frames.first() == Some(&pool_frame::Inbound::Ready)).await;
     h.call(5, "echo", json!({"a": 1})).await;
-    assert_eq!(
-        h.result(5).await,
-        json!({"ok": {"params": {"a": 1}, "thread": "t"}, "pin": true})
-    );
+    assert_eq!(h.result(5).await, json!({"ok": {"params": {"a": 1}, "thread": "t"}, "pin": true}));
 }
 
 #[tokio::test]
 async fn a_call_reaches_its_handler_whole() {
     let mut registry = Registry::new();
-    registry.register("whole", |ctx| async move {
-        Ok(Outcome::value(json!([
-            ctx.id, ctx.method, ctx.params, ctx.paths, ctx.thread, ctx.cwd
-        ])))
-    });
+    registry.register("whole", |ctx| async move { Ok(Outcome::value(json!([ctx.id, ctx.method, ctx.params, ctx.paths, ctx.thread, ctx.cwd]))) });
     let mut h = Harness::start(registry);
     let body = br#"{"method":"whole","params":null,"paths":["/a","/b"],"thread":"th","cwd":"/w"}"#;
     h.send(raw(1, 9, body)).await;
-    assert_eq!(
-        h.result(9).await,
-        json!({"ok": [9, "whole", null, ["/a", "/b"], "th", "/w"], "pin": false})
-    );
+    assert_eq!(h.result(9).await, json!({"ok": [9, "whole", null, ["/a", "/b"], "th", "/w"], "pin": false}));
 }
 
 #[tokio::test]
 async fn an_unknown_method_and_a_failing_handler_are_results_not_crashes() {
     let mut registry = Registry::new();
     registry.register("boom", |_| async { Err(CodedError::new("E_BAD", "bad")) });
-    registry.register("plain", |_| async {
-        Err(CodedError::failed("plain failure"))
-    });
+    registry.register("plain", |_| async { Err(CodedError::failed("plain failure")) });
     let mut h = Harness::start(registry);
     h.call(1, "missing", json!(null)).await;
-    assert_eq!(
-        h.result(1).await,
-        json!({"err": {"code": "unknown_method", "message": "unknown ext-host method missing"}, "pin": false})
-    );
+    assert_eq!(h.result(1).await, json!({"err": {"code": "unknown_method", "message": "unknown ext-host method missing"}, "pin": false}));
     h.call(2, "boom", json!(null)).await;
-    assert_eq!(
-        h.result(2).await,
-        json!({"err": {"code": "E_BAD", "message": "bad"}, "pin": false})
-    );
+    assert_eq!(h.result(2).await, json!({"err": {"code": "E_BAD", "message": "bad"}, "pin": false}));
     h.call(3, "plain", json!(null)).await;
     assert_eq!(h.result(3).await["err"]["code"], "failed");
     assert!(!h.exit.is_finished());
@@ -288,10 +238,7 @@ async fn chunks_are_at_most_64_kib_and_keep_their_bytes_in_order() {
     h.call(1, "data", json!(null)).await;
     assert_eq!(h.result(1).await["ok"], 300_000);
     let sizes = h.chunk_sizes();
-    assert!(
-        sizes.iter().all(|n| *n <= wire::MAX_CHUNK_BYTES && *n > 0),
-        "{sizes:?}"
-    );
+    assert!(sizes.iter().all(|n| *n <= wire::MAX_CHUNK_BYTES && *n > 0), "{sizes:?}");
     let frames = h.frames.lock().unwrap();
     let joined: Vec<u8> = frames
         .iter()
@@ -312,12 +259,7 @@ async fn credit_smaller_than_a_chunk_is_spent_in_smaller_chunks() {
     });
     let mut h = Harness::start(registry);
     h.call(1, "big", json!(null)).await;
-    h.until(|frames| {
-        frames
-            .iter()
-            .any(|f| matches!(f, pool_frame::Inbound::Chunk { .. }))
-    })
-    .await;
+    h.until(|frames| frames.iter().any(|f| matches!(f, pool_frame::Inbound::Chunk { .. }))).await;
     h.send(pool_frame::credit(1, 10)).await;
     assert_eq!(h.result(1).await, json!({"ok": "done", "pin": false}));
     assert!(h.chunk_sizes().contains(&10));
@@ -331,10 +273,7 @@ async fn cancel_cancels_the_call_and_the_answer_is_cancelled() {
     let mut h = Harness::start(registry);
     h.call(1, "hold", json!(null)).await;
     h.send(pool_frame::cancel(1)).await;
-    assert_eq!(
-        h.result(1).await,
-        json!({"err": {"code": "cancelled", "message": "call cancelled"}, "pin": false})
-    );
+    assert_eq!(h.result(1).await, json!({"err": {"code": "cancelled", "message": "call cancelled"}, "pin": false}));
 }
 
 #[tokio::test]
@@ -347,10 +286,7 @@ async fn a_cancelled_call_answers_with_the_pin_its_handler_reported() {
     let mut h = Harness::start(registry);
     h.call(1, "hold_pinned", json!(null)).await;
     h.send(pool_frame::cancel(1)).await;
-    assert_eq!(
-        h.result(1).await,
-        json!({"err": {"code": "cancelled", "message": "call cancelled"}, "pin": true})
-    );
+    assert_eq!(h.result(1).await, json!({"err": {"code": "cancelled", "message": "call cancelled"}, "pin": true}));
 }
 
 #[tokio::test]
@@ -384,12 +320,7 @@ async fn a_cancel_stops_a_call_that_waits_for_credit() {
     });
     let mut h = Harness::start(registry);
     h.call(1, "big", json!(null)).await;
-    h.until(|frames| {
-        frames
-            .iter()
-            .any(|f| matches!(f, pool_frame::Inbound::Chunk { .. }))
-    })
-    .await;
+    h.until(|frames| frames.iter().any(|f| matches!(f, pool_frame::Inbound::Chunk { .. }))).await;
     h.send(pool_frame::cancel(1)).await;
     assert_eq!(h.result(1).await["err"]["code"], "cancelled");
 }
@@ -399,20 +330,14 @@ async fn the_browser_endpoint_the_pool_answers_reaches_the_handler() {
     let mut h = Harness::start(page_registry());
     h.call(1, "page", json!(null)).await;
     h.need_browser().await;
-    h.send(pool_frame::browser(1, &Ok("ws://x/y".to_owned())))
-        .await;
+    h.send(pool_frame::browser(1, &Ok("ws://x/y".to_owned()))).await;
     assert_eq!(h.result(1).await, json!({"ok": "ws://x/y", "pin": false}));
 
     let mut refused = Harness::start(page_registry());
     refused.call(2, "page", json!(null)).await;
     refused.need_browser().await;
-    refused
-        .send(pool_frame::browser(2, &Err("no chrome".to_owned())))
-        .await;
-    assert_eq!(
-        refused.result(2).await,
-        json!({"err": {"code": "browser_unavailable", "message": "no chrome"}, "pin": false})
-    );
+    refused.send(pool_frame::browser(2, &Err("no chrome".to_owned()))).await;
+    assert_eq!(refused.result(2).await, json!({"err": {"code": "browser_unavailable", "message": "no chrome"}, "pin": false}));
 }
 
 #[tokio::test]
@@ -425,20 +350,12 @@ async fn the_browser_is_asked_for_once_per_call_and_a_stray_answer_is_ignored() 
     });
     let mut h = Harness::start(registry);
     // No call is waiting: the answer is dropped, not an error.
-    h.send(pool_frame::browser(4, &Ok("ws://stray".to_owned())))
-        .await;
+    h.send(pool_frame::browser(4, &Ok("ws://stray".to_owned()))).await;
     h.call(1, "twice", json!(null)).await;
     h.need_browser().await;
-    h.send(pool_frame::browser(1, &Ok("ws://a".to_owned())))
-        .await;
-    assert_eq!(
-        h.result(1).await,
-        json!({"ok": ["ws://a", "ws://a"], "pin": false})
-    );
-    assert_eq!(
-        h.count(|f| matches!(f, pool_frame::Inbound::NeedBrowser { .. })),
-        1
-    );
+    h.send(pool_frame::browser(1, &Ok("ws://a".to_owned()))).await;
+    assert_eq!(h.result(1).await, json!({"ok": ["ws://a", "ws://a"], "pin": false}));
+    assert_eq!(h.count(|f| matches!(f, pool_frame::Inbound::NeedBrowser { .. })), 1);
 }
 
 #[tokio::test]
@@ -490,23 +407,11 @@ async fn a_panicking_handler_is_answered_and_the_worker_serves_on() {
     h.call(1, "panic", json!(null)).await;
     let first = h.result(1).await;
     assert_eq!(first["err"]["code"], "failed");
-    assert!(
-        first["err"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("handler went wrong"),
-        "{first}"
-    );
+    assert!(first["err"]["message"].as_str().unwrap().contains("handler went wrong"), "{first}");
     h.call(2, "panic_blocking", json!(null)).await;
     let second = h.result(2).await;
     assert_eq!(second["err"]["code"], "failed");
-    assert!(
-        second["err"]["message"]
-            .as_str()
-            .unwrap()
-            .contains("blocking handler went wrong"),
-        "{second}"
-    );
+    assert!(second["err"]["message"].as_str().unwrap().contains("blocking handler went wrong"), "{second}");
     h.call(3, "echo", json!(3)).await;
     assert_eq!(h.result(3).await, json!({"ok": 3, "pin": false}));
     assert!(!h.exit.is_finished());
@@ -548,10 +453,7 @@ async fn the_frames_the_worker_writes_decode_with_the_pools_reader() {
     let mut bytes = wire::ready().to_vec();
     bytes.extend(wire::chunk(7, b"abc"));
     bytes.extend(wire::result(7, &json!({"ok": {"a": 1}, "pin": true})));
-    bytes.extend(wire::result(
-        8,
-        &json!({"err": {"code": "x", "message": "m"}, "pin": false}),
-    ));
+    bytes.extend(wire::result(8, &json!({"err": {"code": "x", "message": "m"}, "pin": false})));
     bytes.extend(wire::need_browser(9));
     let mut reader = pool_frame::FrameReader::new(&bytes[..]);
     let mut got = Vec::new();
@@ -562,23 +464,9 @@ async fn the_frames_the_worker_writes_decode_with_the_pools_reader() {
         got,
         vec![
             pool_frame::Inbound::Ready,
-            pool_frame::Inbound::Chunk {
-                call: 7,
-                bytes: Bytes::from_static(b"abc")
-            },
-            pool_frame::Inbound::Result {
-                call: 7,
-                pin: true,
-                outcome: Ok(json!({"a": 1}))
-            },
-            pool_frame::Inbound::Result {
-                call: 8,
-                pin: false,
-                outcome: Err(pool_frame::WireError {
-                    code: "x".into(),
-                    message: "m".into()
-                })
-            },
+            pool_frame::Inbound::Chunk { call: 7, bytes: Bytes::from_static(b"abc") },
+            pool_frame::Inbound::Result { call: 7, pin: true, outcome: Ok(json!({"a": 1})) },
+            pool_frame::Inbound::Result { call: 8, pin: false, outcome: Err(pool_frame::WireError { code: "x".into(), message: "m".into() }) },
             pool_frame::Inbound::NeedBrowser { call: 9 },
         ]
     );
@@ -604,24 +492,12 @@ async fn the_frames_the_pool_writes_decode_with_the_workers_reader() {
         vec![
             wire::Inbound::Call {
                 id: 7,
-                request: wire::CallRequest {
-                    method: "m".into(),
-                    params,
-                    paths: vec!["/p".into()],
-                    thread: "th".into(),
-                    cwd: String::new(),
-                }
+                request: wire::CallRequest { method: "m".into(), params, paths: vec!["/p".into()], thread: "th".into(), cwd: String::new() }
             },
             wire::Inbound::Cancel { id: 7 },
             wire::Inbound::Credit { id: 7, bytes: 4096 },
-            wire::Inbound::Browser {
-                id: 7,
-                body: Bytes::from_static(br#"{"ws":"ws://h"}"#)
-            },
-            wire::Inbound::Browser {
-                id: 7,
-                body: Bytes::from_static(br#"{"error":"why"}"#)
-            },
+            wire::Inbound::Browser { id: 7, body: Bytes::from_static(br#"{"ws":"ws://h"}"#) },
+            wire::Inbound::Browser { id: 7, body: Bytes::from_static(br#"{"error":"why"}"#) },
             wire::Inbound::Bye,
         ]
     );
@@ -646,10 +522,7 @@ fn is_inside_tells_traversal_from_a_name_that_starts_with_dots() {
     assert!(is_inside(&root, &root.join("a").join("..b")));
     assert!(!is_inside(&root, &resolve(&root.join("..").join("x"))));
     assert!(!is_inside(&root, &resolve(&root.join(".."))));
-    assert!(!is_inside(
-        &root,
-        Path::new(&format!("{}-sibling", root.display()))
-    ));
+    assert!(!is_inside(&root, Path::new(&format!("{}-sibling", root.display()))));
 }
 
 fn dirs() -> (tempfile::TempDir, PathBuf, PathBuf) {
@@ -675,12 +548,7 @@ fn refused(result: Result<PathBuf, CodedError>) -> String {
 fn link_dir(link: &Path, target: &Path) {
     #[cfg(windows)]
     {
-        let made = std::process::Command::new("cmd")
-            .args(["/C", "mklink", "/J"])
-            .arg(link)
-            .arg(target)
-            .output()
-            .unwrap();
+        let made = std::process::Command::new("cmd").args(["/C", "mklink", "/J"]).arg(link).arg(target).output().unwrap();
         assert!(made.status.success(), "mklink failed");
     }
     #[cfg(unix)]
@@ -696,10 +564,7 @@ fn a_path_inside_an_approved_root_is_returned_as_resolved_and_a_missing_tail_is_
     assert_eq!(target, root.join("here.docx"));
     // Nothing of the tail exists yet.
     let missing = root.join("a").join("b").join("c.docx");
-    assert_eq!(
-        approved_path(&approved, missing.to_str().unwrap(), "").unwrap(),
-        missing
-    );
+    assert_eq!(approved_path(&approved, missing.to_str().unwrap(), "").unwrap(), missing);
     // A relative path is resolved against the base, and `..` is settled before the check.
     let relative = approved_path(&approved, "sub/../inside.docx", root.to_str().unwrap()).unwrap();
     assert_eq!(relative, root.join("inside.docx"));
@@ -716,15 +581,8 @@ fn a_relative_path_needs_a_base_and_the_refusal_names_the_path_as_given() {
 fn a_space_prefixed_outside_path_is_not_turned_into_a_workspace_one() {
     let (_temp, root, outside) = dirs();
     let spaced = format!(" {}", outside.join("spaced.docx").display());
-    let message = refused(approved_path(
-        &roots(&root),
-        &spaced,
-        root.to_str().unwrap(),
-    ));
-    assert!(
-        message.starts_with("path is not approved for this call: "),
-        "{message}"
-    );
+    let message = refused(approved_path(&roots(&root), &spaced, root.to_str().unwrap()));
+    assert!(message.starts_with("path is not approved for this call: "), "{message}");
     assert!(message.ends_with("spaced.docx"), "{message}");
 }
 
@@ -733,16 +591,8 @@ fn a_link_out_of_the_approved_root_is_refused() {
     let (_temp, root, outside) = dirs();
     link_dir(&root.join("link"), &outside);
     let approved = roots(&root);
-    refused(approved_path(
-        &approved,
-        "link/escaped.docx",
-        root.to_str().unwrap(),
-    ));
-    refused(approved_path(
-        &approved,
-        root.join("link").to_str().unwrap(),
-        "",
-    ));
+    refused(approved_path(&approved, "link/escaped.docx", root.to_str().unwrap()));
+    refused(approved_path(&approved, root.join("link").to_str().unwrap(), ""));
     // A plain workspace path still works.
     assert!(approved_path(&approved, "inside.docx", root.to_str().unwrap()).is_ok());
 }
@@ -753,10 +603,7 @@ fn a_link_into_the_approved_root_is_approved_by_its_real_path() {
     link_dir(&outside.join("door"), &root);
     // Approved through the link's real path, however it is spelled.
     let via_link = outside.join("door").join("file.docx");
-    assert_eq!(
-        approved_path(&roots(&root), via_link.to_str().unwrap(), "").unwrap(),
-        via_link
-    );
+    assert_eq!(approved_path(&roots(&root), via_link.to_str().unwrap(), "").unwrap(), via_link);
     // The root named through the link approves the same place.
     let through = vec![outside.join("door").to_string_lossy().into_owned()];
     assert!(approved_path(&through, root.join("file.docx").to_str().unwrap(), "").is_ok());
@@ -767,32 +614,17 @@ fn a_dotted_name_inside_the_root_is_served_and_a_parent_escape_is_refused() {
     let (_temp, root, _outside) = dirs();
     let approved = roots(&root);
     let dotted = root.join("..notes.pdf");
-    assert_eq!(
-        approved_path(&approved, dotted.to_str().unwrap(), "").unwrap(),
-        dotted
-    );
-    refused(approved_path(
-        &approved,
-        "../outside/x.pdf",
-        root.to_str().unwrap(),
-    ));
+    assert_eq!(approved_path(&approved, dotted.to_str().unwrap(), "").unwrap(), dotted);
+    refused(approved_path(&approved, "../outside/x.pdf", root.to_str().unwrap()));
     // Approved only for a sub folder: the dotted name beside it is outside.
     std::fs::create_dir(root.join("sub")).unwrap();
-    refused(approved_path(
-        &roots(&root.join("sub")),
-        dotted.to_str().unwrap(),
-        "",
-    ));
+    refused(approved_path(&roots(&root.join("sub")), dotted.to_str().unwrap(), ""));
 }
 
 #[test]
 fn nothing_approved_approves_nothing() {
     let (_temp, root, _outside) = dirs();
-    refused(approved_path(
-        &[],
-        root.join("a.docx").to_str().unwrap(),
-        "",
-    ));
+    refused(approved_path(&[], root.join("a.docx").to_str().unwrap(), ""));
 }
 
 #[cfg(windows)]
@@ -802,8 +634,5 @@ fn windows_paths_compare_without_regard_to_case() {
     let shouted = root.join("CASE.docx").to_string_lossy().to_uppercase();
     let approved = roots(&root);
     assert!(approved_path(&approved, &shouted, "").is_ok(), "{shouted}");
-    assert!(!is_inside(
-        Path::new(r"C:\Work"),
-        Path::new(r"D:\Work\x.docx")
-    ));
+    assert!(!is_inside(Path::new(r"C:\Work"), Path::new(r"D:\Work\x.docx")));
 }

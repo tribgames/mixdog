@@ -174,12 +174,7 @@ fn turn_input(input: &Value, path: &str) -> Checked {
 }
 
 /// A part's inline bytes (base64 within `maximum`), or, with none, the stored attachment it names.
-fn part_data<'a>(
-    part: &'a Map<String, Value>,
-    path: &str,
-    maximum: usize,
-    expected: &str,
-) -> Result<Option<&'a str>, ErrorData> {
+fn part_data<'a>(part: &'a Map<String, Value>, path: &str, maximum: usize, expected: &str) -> Result<Option<&'a str>, ErrorData> {
     let stored = present(part, "attachmentRef").and_then(Value::as_str).is_some_and(|reference| !reference.is_empty());
     match present(part, "data") {
         None if stored => Ok(None),
@@ -227,12 +222,7 @@ fn prompt_content(value: Option<&Value>, path: &str) -> Checked {
                     return Err(invalid(&part_path, "too many prompt images."));
                 }
                 let mime_path = format!("{part_path}/mimeType");
-                let mime = js_to_lowercase(required_string(
-                    part.get("mimeType").unwrap_or(&Value::Null),
-                    &mime_path,
-                    "image mime type",
-                    64,
-                )?);
+                let mime = js_to_lowercase(required_string(part.get("mimeType").unwrap_or(&Value::Null), &mime_path, "image mime type", 64)?);
                 if !is_prompt_image_mime(&mime) {
                     return Err(invalid(&mime_path, "image type is unsupported."));
                 }
@@ -253,12 +243,7 @@ fn prompt_content(value: Option<&Value>, path: &str) -> Checked {
                 // content, and a phone or a relay caller sends other types (`text/plain`), so only the type's shape
                 // is checked here. The desktop composer still offers only the supported types
                 // (`canonicalPromptFileMimeType`).
-                required_string(
-                    part.get("mimeType").unwrap_or(&Value::Null),
-                    &format!("{part_path}/mimeType"),
-                    "file mime type",
-                    MAX_PROMPT_FILE_MIME_LENGTH,
-                )?;
+                required_string(part.get("mimeType").unwrap_or(&Value::Null), &format!("{part_path}/mimeType"), "file mime type", MAX_PROMPT_FILE_MIME_LENGTH)?;
                 let data = part_data(part, &part_path, MAX_PROMPT_FILE_BASE64_LENGTH, "file data is invalid.")?;
                 file_length += data.map_or(0, utf16_len);
                 if file_length > MAX_PROMPT_FILE_BASE64_TOTAL {
@@ -313,9 +298,7 @@ fn submit_options(value: &Value, path: &str) -> Checked {
     require_allowed_keys(input, SUBMIT_OPTION_KEYS, path, "submit options")?;
     let at = |key: &str| format!("{path}/{key}");
     if let Some(id) = present(input, "clientSubmissionId") {
-        let ok = id
-            .as_str()
-            .is_some_and(|id| !js_trim(id).is_empty() && utf16_len(id) <= 256 && !has_control_character(id));
+        let ok = id.as_str().is_some_and(|id| !js_trim(id).is_empty() && utf16_len(id) <= 256 && !has_control_character(id));
         if !ok {
             return Err(invalid(&at("clientSubmissionId"), "submit id is invalid."));
         }
@@ -323,9 +306,7 @@ fn submit_options(value: &Value, path: &str) -> Checked {
     if present(input, "submittedAt").is_some_and(|n| !matches!(n, Value::Number(n) if is_positive_safe_integer(n))) {
         return Err(invalid(&at("submittedAt"), "submit timestamp is invalid."));
     }
-    for (key, expected) in
-        [("retryFailedTurn", "submit retryFailedTurn is invalid."), ("kickoff", "submit kickoff is invalid.")]
-    {
+    for (key, expected) in [("retryFailedTurn", "submit retryFailedTurn is invalid."), ("kickoff", "submit kickoff is invalid.")] {
         if present(input, key).is_some_and(|flag| !flag.is_boolean()) {
             return Err(invalid(&at(key), expected));
         }
@@ -336,9 +317,7 @@ fn submit_options(value: &Value, path: &str) -> Checked {
     if present(input, "displayText").is_some_and(|text| !text.as_str().is_some_and(|t| utf16_len(t) <= MAX_PROMPT_LENGTH)) {
         return Err(invalid(&at("displayText"), "submit display text is invalid."));
     }
-    let goal_ok = |command: &Value| {
-        command.as_str().is_some_and(|text| !js_trim(text).is_empty() && utf16_len(text) <= MAX_PROMPT_LENGTH)
-    };
+    let goal_ok = |command: &Value| command.as_str().is_some_and(|text| !js_trim(text).is_empty() && utf16_len(text) <= MAX_PROMPT_LENGTH);
     if present(input, "goalCommand").is_some_and(|command| !goal_ok(command)) {
         return Err(invalid(&at("goalCommand"), "goal command is invalid."));
     }
@@ -373,9 +352,7 @@ fn new_task_draft(value: &Value, path: &str) -> Checked {
     if let Some(workflow) = present(input, "workflowId") {
         required_string(workflow, &at("workflowId"), "workflowId", 256)?;
     }
-    if present(input, "orchestrationMode")
-        .is_some_and(|mode| !matches!(mode.as_str(), Some("none" | "focused" | "balanced" | "swarm")))
-    {
+    if present(input, "orchestrationMode").is_some_and(|mode| !matches!(mode.as_str(), Some("none" | "focused" | "balanced" | "swarm"))) {
         return Err(invalid(&at("orchestrationMode"), "orchestrationMode is invalid."));
     }
     match present(input, "worktree") {
@@ -465,12 +442,9 @@ mod validate_prompt {
             let got = check(&row.method, Some(&row.params)).expect("the group owns the method");
             match (&row.path, &row.expected) {
                 (None, None) => assert_eq!(got, Ok(()), "{}", row.case),
-                (Some(path), Some(expected)) => assert_eq!(
-                    got,
-                    Err(ErrorData::InvalidParams { path: path.clone(), expected: expected.clone() }),
-                    "{}",
-                    row.case
-                ),
+                (Some(path), Some(expected)) => {
+                    assert_eq!(got, Err(ErrorData::InvalidParams { path: path.clone(), expected: expected.clone() }), "{}", row.case)
+                }
                 _ => panic!("{}: path and expected go together", row.case),
             }
         }
@@ -526,8 +500,7 @@ mod validate_prompt {
     /// A row a client sends today is accepted (owner direction 3).
     #[test]
     fn every_client_row_is_accepted() {
-        let rows: Vec<Accepted> =
-            serde_json::from_str(include_str!("fixtures/clients-accepted.json")).expect("clients-accepted.json");
+        let rows: Vec<Accepted> = serde_json::from_str(include_str!("fixtures/clients-accepted.json")).expect("clients-accepted.json");
         let mut seen = 0;
         for row in rows {
             if let Some(got) = check(&row.method, Some(&row.params)) {
@@ -541,9 +514,7 @@ mod validate_prompt {
     /// The limits a fixture file cannot carry (their rows would be tens of megabytes), built here.
     #[test]
     fn large_inputs_keep_the_limits() {
-        let turn = |prompt: Value, options: Value| {
-            serde_json::json!({"threadId": "t", "opId": "o", "input": {"prompt": prompt, "options": options}})
-        };
+        let turn = |prompt: Value, options: Value| serde_json::json!({"threadId": "t", "opId": "o", "input": {"prompt": prompt, "options": options}});
         let text = |n: usize| "a".repeat(n);
         let accepted = |params: Value| assert_eq!(check("turn/start", Some(&params)), Some(Ok(())));
         let refused = |params: Value, path: &str, expected: &str| {
@@ -555,51 +526,26 @@ mod validate_prompt {
         // The limit counts UTF-16 units: 500,000 rockets fit, one more does not.
         accepted(turn("\u{1F680}".repeat(500_000).into(), Value::Null));
         refused(turn("\u{1F680}".repeat(500_001).into(), Value::Null), "/input/prompt", "prompt is invalid.");
-        let texts = |a: usize, b: usize| {
-            turn(serde_json::json!([{"type": "text", "text": text(a)}, {"type": "text", "text": text(b)}]), Value::Null)
-        };
+        let texts = |a: usize, b: usize| turn(serde_json::json!([{"type": "text", "text": text(a)}, {"type": "text", "text": text(b)}]), Value::Null);
         accepted(texts(600_000, 400_000));
         refused(texts(600_000, 400_001), "/input/prompt/1/text", "prompt text is too large.");
         let image = |n: usize| serde_json::json!({"type": "image", "mimeType": "image/png", "data": text(n)});
         refused(turn(serde_json::json!([image(16_000_004)]), Value::Null), "/input/prompt/0/data", "image data is invalid.");
-        refused(
-            turn(serde_json::json!([image(16_000_000), image(14_000_000), image(4)]), Value::Null),
-            "/input/prompt/2",
-            "prompt images are too large.",
-        );
+        refused(turn(serde_json::json!([image(16_000_000), image(14_000_000), image(4)]), Value::Null), "/input/prompt/2", "prompt images are too large.");
         let file = |n: usize| serde_json::json!({"type": "file", "mimeType": "application/pdf", "data": text(n)});
         refused(turn(serde_json::json!([file(28_000_004)]), Value::Null), "/input/prompt/0/data", "file data is invalid.");
-        refused(
-            turn(serde_json::json!([file(20_000_000), file(8_000_004)]), Value::Null),
-            "/input/prompt/1",
-            "prompt files are too large.",
-        );
+        refused(turn(serde_json::json!([file(20_000_000), file(8_000_004)]), Value::Null), "/input/prompt/1", "prompt files are too large.");
         accepted(turn("a".into(), serde_json::json!({"displayText": text(1_000_000)})));
-        refused(
-            turn("a".into(), serde_json::json!({"displayText": text(1_000_001)})),
-            "/input/options/displayText",
-            "submit display text is invalid.",
-        );
-        refused(
-            turn("a".into(), serde_json::json!({"goalCommand": text(1_000_001)})),
-            "/input/options/goalCommand",
-            "goal command is invalid.",
-        );
-        let pasted: serde_json::Map<String, Value> =
-            (0..33).map(|i| (i.to_string(), serde_json::json!({"text": text(1_000_000)}))).collect();
-        refused(
-            turn("a".into(), serde_json::json!({"pastedTexts": pasted})),
-            "/input/options",
-            "structured input is too large.",
-        );
+        refused(turn("a".into(), serde_json::json!({"displayText": text(1_000_001)})), "/input/options/displayText", "submit display text is invalid.");
+        refused(turn("a".into(), serde_json::json!({"goalCommand": text(1_000_001)})), "/input/options/goalCommand", "goal command is invalid.");
+        let pasted: serde_json::Map<String, Value> = (0..33).map(|i| (i.to_string(), serde_json::json!({"text": text(1_000_000)}))).collect();
+        refused(turn("a".into(), serde_json::json!({"pastedTexts": pasted})), "/input/options", "structured input is too large.");
     }
 
     /// The draft's route is held to `requiredModelSelection`, not only to being an object.
     #[test]
     fn draft_route_is_a_model_selection() {
-        let draft = |route: Value| {
-            serde_json::json!({"kind": "task", "opId": "0190f3c2-7a31-7c00-8000-000000000900", "draft": {"route": route}})
-        };
+        let draft = |route: Value| serde_json::json!({"kind": "task", "opId": "0190f3c2-7a31-7c00-8000-000000000900", "draft": {"route": route}});
         assert_eq!(check("thread/start", Some(&draft(serde_json::json!({"provider": "p", "contextTokens": 8})))), Some(Ok(())));
         let want = |path: &str, expected: &str| Some(Err(ErrorData::InvalidParams { path: path.to_owned(), expected: expected.to_owned() }));
         assert_eq!(
@@ -623,10 +569,7 @@ mod canonical_file_mime {
     fn pdf_and_office_types_take_their_canonical_case_and_lose_parameters() {
         assert_eq!(canonical_prompt_file_mime(" Application/PDF ; charset=x"), Some("application/pdf"));
         assert_eq!(canonical_prompt_file_mime("APPLICATION/MSWORD"), Some("application/msword"));
-        assert_eq!(
-            canonical_prompt_file_mime("application/vnd.ms-excel.sheet.macroenabled.12"),
-            Some("application/vnd.ms-excel.sheet.macroEnabled.12")
-        );
+        assert_eq!(canonical_prompt_file_mime("application/vnd.ms-excel.sheet.macroenabled.12"), Some("application/vnd.ms-excel.sheet.macroEnabled.12"));
     }
 
     #[test]
@@ -647,10 +590,7 @@ mod canonical_file_mime {
         }
         assert_eq!(
             super::check("turn/start", Some(&turn("".into()))),
-            Some(Err(ErrorData::InvalidParams {
-                path: "/input/prompt/0/mimeType".to_owned(),
-                expected: "file mime type is invalid.".to_owned()
-            }))
+            Some(Err(ErrorData::InvalidParams { path: "/input/prompt/0/mimeType".to_owned(), expected: "file mime type is invalid.".to_owned() }))
         );
     }
 }

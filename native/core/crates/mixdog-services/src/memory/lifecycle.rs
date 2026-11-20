@@ -117,8 +117,7 @@ impl Scope {
     /// A new owner; the handle addresses its work group.
     pub fn new() -> Self {
         let groups = [WORK, TRANSPORT, SHUTDOWN].into_iter().map(|id| (id, Group::default())).collect();
-        let registry =
-            Registry { phase: Phase::Open, next_slot: 0, next_group: SHUTDOWN + 1, slots: HashMap::new(), groups, keys: HashMap::new() };
+        let registry = Registry { phase: Phase::Open, next_slot: 0, next_group: SHUTDOWN + 1, slots: HashMap::new(), groups, keys: HashMap::new() };
         Self { owner: Arc::new(Owner { registry: Mutex::new(registry), changed: tokio::sync::Notify::new() }), group: WORK }
     }
 
@@ -670,7 +669,11 @@ mod tests {
         let parent = scope
             .spawn("parent", async move {
                 let _ = sealed_rx.await;
-                inner.spawn("child", async move { let _ = child_held.await; }).is_some()
+                inner
+                    .spawn("child", async move {
+                        let _ = child_held.await;
+                    })
+                    .is_some()
             })
             .expect("admitted");
         let _drain = scope.begin_drain("shutdown", async {}).expect("drain");
@@ -717,8 +720,18 @@ mod tests {
         let (sub, transport) = (scope.sub_scope(), scope.transport());
         let dropped = Arc::new(AtomicUsize::new(0));
         let (one, two) = (probe(&dropped), probe(&dropped));
-        let waiter = sub.spawn("held", async move { let _probe = one; std::future::pending::<()>().await }).expect("admitted");
-        let _driver = transport.spawn("driver", async move { let _probe = two; std::future::pending::<()>().await }).expect("admitted");
+        let waiter = sub
+            .spawn("held", async move {
+                let _probe = one;
+                std::future::pending::<()>().await
+            })
+            .expect("admitted");
+        let _driver = transport
+            .spawn("driver", async move {
+                let _probe = two;
+                std::future::pending::<()>().await
+            })
+            .expect("admitted");
         // An idle driver never holds up the work drain.
         let _drain = scope.begin_drain("shutdown", async {}).expect("drain");
         scope.work().idle().await;
@@ -820,7 +833,12 @@ mod tests {
         let scope = Scope::new();
         let dropped = Arc::new(AtomicUsize::new(0));
         let held = probe(&dropped);
-        let _waiter = scope.spawn("unscheduled", async move { let _held = held; std::future::pending::<()>().await }).expect("admitted");
+        let _waiter = scope
+            .spawn("unscheduled", async move {
+                let _held = held;
+                std::future::pending::<()>().await
+            })
+            .expect("admitted");
         scope.request_revoke();
         let mut acknowledged = Box::pin(scope.revoked());
         assert!(futures::poll!(&mut acknowledged).is_ready(), "acknowledged in the waiter's own poll");
@@ -859,7 +877,12 @@ mod tests {
         mixdog_rt::testing::tokens();
         let scope = Scope::new();
         let (release, gate) = tokio::sync::oneshot::channel::<()>();
-        let first = scope.coalesce::<u32, _>(("test", 2), "flight", || async move { let _ = gate.await; 3 }).expect("admitted");
+        let first = scope
+            .coalesce::<u32, _>(("test", 2), "flight", || async move {
+                let _ = gate.await;
+                3
+            })
+            .expect("admitted");
         let second = scope.coalesce::<u32, _>(("test", 2), "flight", || async { 9 }).expect("joined");
         let _ = release.send(());
         assert_eq!((first.await, second.await), (Some(3), Some(3)));

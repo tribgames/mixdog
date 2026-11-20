@@ -11,7 +11,6 @@ use async_trait::async_trait;
 use mixdog_js::to_number_of;
 use serde_json::Value;
 
-use super::ledger::LedgerAccounts;
 use super::accounts::{ACCOUNT_PROVIDERS, AccountProbe, AccountScope, ScopedLaneSources, SelectedAccounts, media_lane_account_provider};
 use super::adapter_http::JsonPost;
 use super::antigravity_image::{self, AntigravitySession};
@@ -23,6 +22,7 @@ use super::gemini_video;
 use super::image_api;
 use super::jobs::{GeneratedMedia, GenerationRequest, MediaFailure, MediaGenerator, ResolvedMedia};
 use super::lanes::{LaneError, MediaLanes};
+use super::ledger::LedgerAccounts;
 use super::probe::{FileAccountProbe, ProviderAuth};
 use super::references::References;
 use super::xai::{self, Pacer};
@@ -84,7 +84,12 @@ impl StudioGenerator {
     }
 
     fn lanes_in(&self, scope: AccountScope) -> MediaLanes {
-        MediaLanes::new(Arc::new(ScopedLaneSources { data_dir: self.parts.data_dir.clone(), scope, selected: self.parts.selected.clone(), probe: self.parts.accounts.clone() }))
+        MediaLanes::new(Arc::new(ScopedLaneSources {
+            data_dir: self.parts.data_dir.clone(),
+            scope,
+            selected: self.parts.selected.clone(),
+            probe: self.parts.accounts.clone(),
+        }))
     }
 
     /// The credential file of the lane's provider in `scope`.
@@ -152,8 +157,16 @@ impl MediaGenerator for StudioGenerator {
             "grok-oauth" | "xai" => {
                 let auth = self.xai_auth(lane, file.as_deref()).await?;
                 if video {
-                    let out = xai::generate_video(http, public, parts.pacer.as_ref(), &auth, model, &prompt, &options, &refs, &cancel, on_progress).await.map_err(adapter_failure)?;
-                    Ok(GeneratedMedia { bytes: out.bytes, mime: out.mime.to_owned(), revised_prompt: None, duration_seconds: out.duration_seconds.as_f64(), usage: Some(out.usage) })
+                    let out = xai::generate_video(http, public, parts.pacer.as_ref(), &auth, model, &prompt, &options, &refs, &cancel, on_progress)
+                        .await
+                        .map_err(adapter_failure)?;
+                    Ok(GeneratedMedia {
+                        bytes: out.bytes,
+                        mime: out.mime.to_owned(),
+                        revised_prompt: None,
+                        duration_seconds: out.duration_seconds.as_f64(),
+                        usage: Some(out.usage),
+                    })
                 } else {
                     let out = xai::generate_image(http, &auth, model, &prompt, &options, &refs, &cancel).await.map_err(adapter_failure)?;
                     Ok(image_result(out))
@@ -178,7 +191,9 @@ impl MediaGenerator for StudioGenerator {
             "gemini" => {
                 let key = parts.probe.api_key_auth("gemini").await.map_err(fetch_failure)?.token;
                 if video {
-                    let out = gemini_video::generate_video(http, public, parts.pacer.as_ref(), &key, model, &prompt, &options, &refs, &cancel, on_progress).await.map_err(adapter_failure)?;
+                    let out = gemini_video::generate_video(http, public, parts.pacer.as_ref(), &key, model, &prompt, &options, &refs, &cancel, on_progress)
+                        .await
+                        .map_err(adapter_failure)?;
                     Ok(GeneratedMedia { bytes: out.bytes, mime: out.mime, revised_prompt: None, duration_seconds: None, usage: out.usage })
                 } else {
                     let out = gemini_image::generate_image(http, &key, model, &prompt, &options, &refs, &cancel).await.map_err(adapter_failure)?;

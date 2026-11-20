@@ -11,10 +11,7 @@ fn local_row(advertised: Value) -> Value {
 
 #[test]
 fn a_client_that_heard_nothing_from_the_pc_shows_every_group_empty_and_unavailable() {
-    assert_eq!(
-        model_proxy_provider_setup(None),
-        json!({ "managedByClient": true, "unavailable": true, "api": [], "oauth": [], "local": [] })
-    );
+    assert_eq!(model_proxy_provider_setup(None), json!({ "managedByClient": true, "unavailable": true, "api": [], "oauth": [], "local": [] }));
 }
 
 #[test]

@@ -88,7 +88,13 @@ impl ProcessComputerBackend {
     /// One window capture (`captureComputer`): the observer's read, the bounded snapshot, the pixels, the observer's read again.
     /// `None` when the observer was replaced meanwhile and pixels alone may still answer; `replacement` is that read, which asks
     /// no accessibility.
-    async fn capture_window(&self, command: &Map<String, Value>, mode: &str, replacement: bool, cancel: &CancellationToken) -> Result<Option<Vec<ToolPart>>, ComputerError> {
+    async fn capture_window(
+        &self,
+        command: &Map<String, Value>,
+        mode: &str,
+        replacement: bool,
+        cancel: &CancellationToken,
+    ) -> Result<Option<Vec<ToolPart>>, ComputerError> {
         // `beginCaptureAttempt`: a new capture invalidates the frame before it, whatever it ends in.
         self.frames.clear();
         let default_budget = if mode == "state" { STATE_MAX_ELEMENTS } else { OTHER_MAX_ELEMENTS };
@@ -125,7 +131,11 @@ impl ProcessComputerBackend {
         let mut view = View::of(&read, geometry);
         // A fresh first answer of chrome alone earns one more read of the content (`shouldRereadContent`).
         let filtered = truthy(command, "query") || truthy(command, "role");
-        if !resolved.hit && !replacement && !truthy(command, "continuation") && should_reread(mode, view.semantic, &read.error, view.total, command.get("include_ocr") == Some(&Value::Bool(true)), filtered) {
+        if !resolved.hit
+            && !replacement
+            && !truthy(command, "continuation")
+            && should_reread(mode, view.semantic, &read.error, view.total, command.get("include_ocr") == Some(&Value::Bool(true)), filtered)
+        {
             read = self.read_accessibility(command, &window_id, budget, &Resolved::default(), cancel).await?;
             view = View::of(&read, geometry);
         }
@@ -187,7 +197,18 @@ impl ProcessComputerBackend {
     /// capture that follows an action). Marks, OCR rows and pages always go in full. A cached or failed read, and a `vision` one,
     /// has no rows to record and drops the delta list the session held.
     #[allow(clippy::too_many_arguments)]
-    fn observe(&self, parts: &mut [ToolPart], command: &Map<String, Value>, mode: &str, window_id: &str, related: &[String], read: &Accessibility, resolved: &Resolved, budget: i64, ocr_content: bool) {
+    fn observe(
+        &self,
+        parts: &mut [ToolPart],
+        command: &Map<String, Value>,
+        mode: &str,
+        window_id: &str,
+        related: &[String],
+        read: &Accessibility,
+        resolved: &Resolved,
+        budget: i64,
+        ocr_content: bool,
+    ) {
         let Some(snapshot) = read.result.as_ref().filter(|_| mode != "vision" && read.error.is_empty() && !resolved.hit) else {
             // A read that is no baseline (`recordable: false` in `finishCapture`) ends the list the model holds: the next one is full.
             self.shared.delta.forget_delta(&self.config.session_id);
@@ -244,7 +265,14 @@ impl ProcessComputerBackend {
 
     /// The bounded snapshot of a window (`readAccessibilitySnapshot`), or the cache's answer for one whose provider stalls. A
     /// refusal of the provider is the read's `failure`, which the capture reports and goes on without.
-    async fn read_accessibility(&self, command: &Map<String, Value>, window_id: &str, budget: i64, resolved: &Resolved, cancel: &CancellationToken) -> Result<Accessibility, ComputerError> {
+    async fn read_accessibility(
+        &self,
+        command: &Map<String, Value>,
+        window_id: &str,
+        budget: i64,
+        resolved: &Resolved,
+        cancel: &CancellationToken,
+    ) -> Result<Accessibility, ComputerError> {
         if resolved.hit {
             return Ok(Accessibility { ran: true, error: resolved.cached_error.clone(), ..Accessibility::default() });
         }
@@ -260,7 +288,14 @@ impl ProcessComputerBackend {
 
     /// The window's pixels from the helper within `CAPTURE_TIMEOUT`. A capture whose native release the helper did not confirm
     /// retires it, whether or not it carried pixels (`worker-requests.ts`).
-    async fn read_pixels(&self, window_id: &str, max_width: i64, quality: i64, ocr: Option<&computer_ocr::Ask>, cancel: &CancellationToken) -> Result<Pixels, ComputerError> {
+    async fn read_pixels(
+        &self,
+        window_id: &str,
+        max_width: i64,
+        quality: i64,
+        ocr: Option<&computer_ocr::Ask>,
+        cancel: &CancellationToken,
+    ) -> Result<Pixels, ComputerError> {
         let mut command = read_command("window_capture");
         if let Some(ocr) = ocr {
             ocr.apply(&mut command);
@@ -316,7 +351,13 @@ impl ProcessComputerBackend {
 
     /// The window capture as the tool returns it: the frame's description (`screenshotCapture`) in place of the helper's own text,
     /// the image with its size, the OCR lines after it. The frame is issued here, so a click can name it.
-    fn pixel_parts(&self, result: &Map<String, Value>, frame: Option<Frame>, quality: i64, ocr: &computer_ocr::Capture) -> Result<Vec<ToolPart>, ComputerError> {
+    fn pixel_parts(
+        &self,
+        result: &Map<String, Value>,
+        frame: Option<Frame>,
+        quality: i64,
+        ocr: &computer_ocr::Capture,
+    ) -> Result<Vec<ToolPart>, ComputerError> {
         let mut parts = parts_of(result)?;
         let issued = frame.clone();
         if let (Some(frame), Some(ToolPart::Image { mime, data, width, height })) = (frame, parts.get_mut(1)) {
@@ -418,9 +459,18 @@ fn mark_frame(parts: &mut [ToolPart], snapshot: Option<&Map<String, Value>>, wor
     }
     let mut marks = snapshot.map(|snapshot| som_marks(snapshot, frame)).unwrap_or_default();
     marks.extend(word_marks(words, frame));
-    let ToolPart::Image { mime, data: ImageData::Bytes(bytes), .. } = parts.iter_mut().find(|part| matches!(part, ToolPart::Image { .. }))? else { return None };
+    let ToolPart::Image { mime, data: ImageData::Bytes(bytes), .. } = parts.iter_mut().find(|part| matches!(part, ToolPart::Image { .. }))? else {
+        return None;
+    };
     let started = Instant::now();
-    let overlay = paint_marks_or_input(bytes, mime, u32::try_from(frame.capture_width).unwrap_or(0), u32::try_from(frame.capture_height).unwrap_or(0), &marks, quality.clamp(0, 100) as u8);
+    let overlay = paint_marks_or_input(
+        bytes,
+        mime,
+        u32::try_from(frame.capture_width).unwrap_or(0),
+        u32::try_from(frame.capture_height).unwrap_or(0),
+        &marks,
+        quality.clamp(0, 100) as u8,
+    );
     *bytes = overlay.image.bytes;
     *mime = overlay.image.mime;
     Some(Marked { rendered: overlay.rendered, error: overlay.error, ms: u64::try_from(started.elapsed().as_millis()).unwrap_or(u64::MAX) })
@@ -459,8 +509,17 @@ fn som_marks(snapshot: &Map<String, Value>, frame: &Frame) -> Vec<Mark> {
                 return None;
             }
             let (left, top) = (x.max(0.0), y.max(0.0));
-            let bounds = [left, top, (frame.capture_width as f64 - left).min(width - (left - x)).max(1.0), (frame.capture_height as f64 - top).min(height - (top - y)).max(1.0)];
-            Some(Mark { mark: u32::try_from(row.get("mark").and_then(Value::as_i64)?).ok()?, bounds, source: MarkSource::parse(row.get("source").and_then(Value::as_str)) })
+            let bounds = [
+                left,
+                top,
+                (frame.capture_width as f64 - left).min(width - (left - x)).max(1.0),
+                (frame.capture_height as f64 - top).min(height - (top - y)).max(1.0),
+            ];
+            Some(Mark {
+                mark: u32::try_from(row.get("mark").and_then(Value::as_i64)?).ok()?,
+                bounds,
+                source: MarkSource::parse(row.get("source").and_then(Value::as_str)),
+            })
         })
         .collect()
 }
@@ -496,13 +555,16 @@ fn truthy(command: &Map<String, Value>, key: &str) -> bool {
 pub(super) fn bounded_integer(command: &Map<String, Value>, key: &str, fallback: i64, minimum: i64, maximum: i64, label: &str) -> Result<i64, ComputerError> {
     let Some(value) = command.get(key) else { return Ok(fallback) };
     let integer = value.as_i64().or_else(|| value.as_f64().filter(|number| number.fract() == 0.0 && number.abs() < 9e15).map(|number| number as i64));
-    integer.filter(|integer| (minimum..=maximum).contains(integer)).ok_or_else(|| ComputerError::InvalidInput {
-        reason: format!("{label} must be an integer from {minimum} to {maximum}"),
-    })
+    integer
+        .filter(|integer| (minimum..=maximum).contains(integer))
+        .ok_or_else(|| ComputerError::InvalidInput { reason: format!("{label} must be an integer from {minimum} to {maximum}") })
 }
 
 fn strings(value: Option<&Value>) -> Vec<String> {
-    value.and_then(Value::as_array).map(|items| items.iter().filter_map(Value::as_str).filter(|item| !item.is_empty()).map(str::to_string).collect()).unwrap_or_default()
+    value
+        .and_then(Value::as_array)
+        .map(|items| items.iter().filter_map(Value::as_str).filter(|item| !item.is_empty()).map(str::to_string).collect())
+        .unwrap_or_default()
 }
 
 /// A read-only request of the helper, as the desktop host's own reads are (`host_read`).
@@ -598,7 +660,10 @@ fn elements_of(result: &Map<String, Value>) -> Vec<Element> {
                 y: number("y"),
                 width: number("width"),
                 height: number("height"),
-                actionable: row.get("actions").and_then(Value::as_array).is_some_and(|actions| actions.iter().any(|action| action.as_str().is_some_and(|action| !action.is_empty()))),
+                actionable: row
+                    .get("actions")
+                    .and_then(Value::as_array)
+                    .is_some_and(|actions| actions.iter().any(|action| action.as_str().is_some_and(|action| !action.is_empty()))),
             }
         })
         .collect()
@@ -607,7 +672,12 @@ fn elements_of(result: &Map<String, Value>) -> Vec<Element> {
 /// `actionableAccessibilityElements`: elements a command could address, whatever their placement.
 fn actionable_elements(elements: &[Element]) -> Vec<&Element> {
     const CONTAINER_ROLES: [&str; 7] = ["Window", "Pane", "Document", "Group", "Custom", "Image", "Text"];
-    elements.iter().filter(|element| element.enabled && element.width > 1.0 && element.height > 1.0 && !CONTAINER_ROLES.contains(&element.role.as_str()) && element.actionable).collect()
+    elements
+        .iter()
+        .filter(|element| {
+            element.enabled && element.width > 1.0 && element.height > 1.0 && !CONTAINER_ROLES.contains(&element.role.as_str()) && element.actionable
+        })
+        .collect()
 }
 
 /// `hasSemanticAccessibilityTarget`: whether the tree names something to act on in the window's content. `frame` is the captured
@@ -616,7 +686,12 @@ fn has_semantic_target(elements: &[Element], frame: Option<(f64, f64)>) -> bool 
     let largest = elements.iter().fold(0.0_f64, |largest, element| largest.max(element.width * element.height));
     let surfaces: Vec<&Element> = elements
         .iter()
-        .filter(|element| matches!(element.role.as_str(), "Document" | "Custom" | "Image") && element.width > 1.0 && element.height > 1.0 && element.width * element.height * 2.0 >= largest)
+        .filter(|element| {
+            matches!(element.role.as_str(), "Document" | "Custom" | "Image")
+                && element.width > 1.0
+                && element.height > 1.0
+                && element.width * element.height * 2.0 >= largest
+        })
         .collect();
     // An editor surface hands back its own text, so the window is already read.
     if surfaces.iter().any(|surface| !surface.value.trim().is_empty()) {
@@ -637,7 +712,9 @@ fn has_semantic_target(elements: &[Element], frame: Option<(f64, f64)>) -> bool 
     }
     actionable.iter().any(|element| {
         let (center_x, center_y) = (element.x + element.width / 2.0, element.y + element.height / 2.0);
-        surfaces.iter().any(|surface| center_x >= surface.x && center_y >= surface.y && center_x <= surface.x + surface.width && center_y <= surface.y + surface.height)
+        surfaces
+            .iter()
+            .any(|surface| center_x >= surface.x && center_y >= surface.y && center_x <= surface.x + surface.width && center_y <= surface.y + surface.height)
     })
 }
 
@@ -790,11 +867,16 @@ fn settle_reads(reads: Vec<Option<Observation>>) -> Option<Observation> {
 fn settle_input(before: Option<&Observation>, after: Option<&Observation>) -> Option<InputIdle> {
     let before = before?;
     let ready = after.is_some_and(|after| {
-        before.ready && after.ready && before.monitor == after.monitor && after.sequence >= before.sequence && after.target_sequence.unwrap_or(after.sequence) <= before.sequence
+        before.ready
+            && after.ready
+            && before.monitor == after.monitor
+            && after.sequence >= before.sequence
+            && after.target_sequence.unwrap_or(after.sequence) <= before.sequence
     });
     let reason = (!ready).then(|| {
         // A gap that outlasted the settle wait is input still arriving, not a broken observer.
-        let unavailable = |read: Option<&Observation>| !read.is_some_and(|read| read.ready) && read.and_then(|read| read.reason.as_deref()) != Some(INPUT_GAP_REASON);
+        let unavailable =
+            |read: Option<&Observation>| !read.is_some_and(|read| read.ready) && read.and_then(|read| read.reason.as_deref()) != Some(INPUT_GAP_REASON);
         let broken = unavailable(Some(before)) || unavailable(after);
         (if broken { "input_observer_unavailable" } else { USER_INPUT_DURING_CAPTURE }).to_string()
     });
@@ -895,8 +977,11 @@ mod tests {
     /// quality; the capture issues a frame a click maps through, bound to the observation it was read with.
     #[tokio::test]
     async fn a_state_capture_is_bounded_and_issues_a_frame() {
-        let manager = window(json!({"text": "snap", "window_id": "hwnd:0x2", "total_elements": 1, "elements": [
-            {"role": "Button", "enabled": true, "x": 120, "y": 100, "width": 50, "height": 20, "actions": ["click"]}]}), pixels(json!({"image_width": 200, "image_height": 100})));
+        let manager = window(
+            json!({"text": "snap", "window_id": "hwnd:0x2", "total_elements": 1, "elements": [
+            {"role": "Button", "enabled": true, "x": 120, "y": 100, "width": 50, "height": 20, "actions": ["click"]}]}),
+            pixels(json!({"image_width": 200, "image_height": 100})),
+        );
         let backend = state("capture-frame", &manager);
         let parts = backend.capture(command(json!({"mode": "state"})), "", &CancellationToken::new()).await.unwrap();
 
@@ -939,7 +1024,10 @@ mod tests {
     #[test]
     fn element_budget_and_encoding_are_bounded_integers() {
         let input = object(json!({"max_elements": 1001, "maxWidth": 100, "quality": 55.5}));
-        assert_eq!(bounded_integer(&input, "max_elements", 80, 1, 1000, "max_elements"), Err(ComputerError::InvalidInput { reason: "max_elements must be an integer from 1 to 1000".into() }));
+        assert_eq!(
+            bounded_integer(&input, "max_elements", 80, 1, 1000, "max_elements"),
+            Err(ComputerError::InvalidInput { reason: "max_elements must be an integer from 1 to 1000".into() })
+        );
         assert!(bounded_integer(&input, "maxWidth", 1280, 256, 3840, "maxWidth").is_err());
         assert!(bounded_integer(&input, "quality", 55, 0, 100, "quality").is_err());
         assert_eq!(bounded_integer(&input, "absent", 55, 0, 100, "quality"), Ok(55));
@@ -1081,7 +1169,10 @@ mod tests {
         assert_eq!(down.reason.as_deref(), Some("input_observer_unavailable"));
         let gap = read(false, "m", 5, Some("input_gap"), None);
         assert_eq!(settle_input(Some(&gap), Some(&gap)).unwrap().reason.as_deref(), Some("user_input_during_capture"));
-        assert_eq!(settle_input(Some(&read(false, "m", 5, Some("warming"), None)), Some(&quiet)).unwrap().reason.as_deref(), Some("input_observer_unavailable"));
+        assert_eq!(
+            settle_input(Some(&read(false, "m", 5, Some("warming"), None)), Some(&quiet)).unwrap().reason.as_deref(),
+            Some("input_observer_unavailable")
+        );
         assert!(settle_input(None, Some(&quiet)).is_none());
     }
 
@@ -1093,7 +1184,8 @@ mod tests {
         assert_eq!(settle_reads(vec![Some(gap.clone()), Some(read(true, "m", 8, None, None))]), Some(gap));
         assert_eq!(settle_reads(vec![None, Some(ready.clone())]), Some(ready));
         assert_eq!(settle_reads(vec![Some(read(true, "m", 1, None, None)), None]), None);
-        let seen = Observation::of(&object(json!({"monitor": "m", "sequence": 3, "observer_ready": false, "observer_reason": "input_gap", "target_sequence": 2})));
+        let seen =
+            Observation::of(&object(json!({"monitor": "m", "sequence": 3, "observer_ready": false, "observer_reason": "input_gap", "target_sequence": 2})));
         assert_eq!(seen, Some(read(false, "m", 3, Some("input_gap"), Some(2))));
         assert_eq!(Observation::of(&object(json!({"monitor": "", "sequence": 3}))), None);
         assert_eq!(Observation::of(&object(json!({"monitor": "m", "sequence": -1}))), None);
@@ -1108,7 +1200,10 @@ mod tests {
         backend.capture(command(json!({"mode": "vision"})), "", &CancellationToken::new()).await.unwrap();
         assert_eq!(manager.starts(), 2, "the observer read after the capture started the replacement helper");
 
-        let failure = HelperFailure { text: "capture_cleanup_failed|window capture resources did not all close".into(), result: Some(object(json!({"capture_cleanup": {"status": "failed"}}))) };
+        let failure = HelperFailure {
+            text: "capture_cleanup_failed|window capture resources did not all close".into(),
+            result: Some(object(json!({"capture_cleanup": {"status": "failed"}}))),
+        };
         assert!(cleanup_unconfirmed(&Err(failure)));
         assert!(!cleanup_unconfirmed(&Err(HelperFailure { text: "x".into(), result: None })));
         assert!(!cleanup_unconfirmed(&Ok(object(json!({"capture_cleanup": {"status": "confirmed"}})))));
@@ -1141,7 +1236,8 @@ mod tests {
                                "x": 10, "y": 10 + n * 30, "width": 80, "height": 20, "actions": ["click"]})
                     })
                     .collect();
-                let lines: Vec<String> = rows.iter().map(|row| format!("[{}] Button \"{}\" @50,50", row["ref"].as_str().unwrap(), row["name"].as_str().unwrap())).collect();
+                let lines: Vec<String> =
+                    rows.iter().map(|row| format!("[{}] Button \"{}\" @50,50", row["ref"].as_str().unwrap(), row["name"].as_str().unwrap())).collect();
                 Ok(json!({"text": format!("Window: T [hwnd:0x2]\nElements: total=8 generation={generation}\n{}", lines.join("\n")),
                           "window_id": "hwnd:0x2", "generation": generation, "total_elements": 8, "elements": rows}))
             }
@@ -1185,17 +1281,24 @@ mod tests {
     /// The marks of a frame are the snapshot's elements in its pixels, clipped to it; one entirely outside is not drawn.
     #[test]
     fn the_marks_are_the_elements_in_the_frames_pixels() {
-        let frame = frame_of(&object(json!({"x": 100, "y": -20, "width": 400, "height": 200, "image_width": 200, "image_height": 100})), "f", "hwnd:0x2", Vec::new(), None).unwrap();
+        let frame = frame_of(
+            &object(json!({"x": 100, "y": -20, "width": 400, "height": 200, "image_width": 200, "image_height": 100})),
+            "f",
+            "hwnd:0x2",
+            Vec::new(),
+            None,
+        )
+        .unwrap();
         let snapshot = object(json!({"elements": [
             {"mark": 1, "x": 120, "y": 100, "width": 50, "height": 20, "source": "uia"},
             {"mark": 2, "x": 1000, "y": 100, "width": 50, "height": 20},
             {"mark": 3, "x": 90, "y": 100, "width": 60, "height": 20, "source": "msaa"},
         ]}));
         let marks = som_marks(&snapshot, &frame);
-        assert_eq!(marks.iter().map(|mark| (mark.mark, mark.bounds, mark.source)).collect::<Vec<_>>(), vec![
-            (1, [10.0, 60.0, 25.0, 10.0], MarkSource::Uia),
-            (3, [0.0, 60.0, 25.0, 10.0], MarkSource::Msaa),
-        ]);
+        assert_eq!(
+            marks.iter().map(|mark| (mark.mark, mark.bounds, mark.source)).collect::<Vec<_>>(),
+            vec![(1, [10.0, 60.0, 25.0, 10.0], MarkSource::Uia), (3, [0.0, 60.0, 25.0, 10.0], MarkSource::Msaa),]
+        );
     }
 
     #[test]
@@ -1208,7 +1311,10 @@ mod tests {
         let mut payload = vec![ToolPart::Text(json!({"mode": "som"}).to_string())];
         Marked { rendered: false, error: Some("no paint".into()), ms: 1 }.record(&mut payload);
         let [ToolPart::Text(only)] = payload.as_slice() else { panic!("{payload:?}") };
-        assert_eq!(serde_json::from_str::<Value>(only).unwrap(), json!({"mode": "som", "overlay_rendered": false, "overlay_error": "no paint", "overlay_ms": 1}));
+        assert_eq!(
+            serde_json::from_str::<Value>(only).unwrap(),
+            json!({"mode": "som", "overlay_rendered": false, "overlay_error": "no paint", "overlay_ms": 1})
+        );
     }
 
     /// A frame the overlay cannot draw on keeps its pixels, and the reply says why.
@@ -1216,7 +1322,10 @@ mod tests {
     fn a_frame_that_cannot_be_marked_keeps_its_pixels() {
         let frame = frame_of(&object(json!({"x": 0, "y": 0, "width": 200, "height": 100})), "f", "hwnd:0x2", Vec::new(), None).unwrap();
         let snapshot = object(json!({"elements": [{"mark": 1, "x": 10, "y": 10, "width": 50, "height": 20}]}));
-        let mut parts = vec![ToolPart::Text("frame".into()), ToolPart::Image { mime: "image/jpeg".into(), data: ImageData::Bytes(b"not a jpeg".to_vec()), width: Some(200), height: Some(100) }];
+        let mut parts = vec![
+            ToolPart::Text("frame".into()),
+            ToolPart::Image { mime: "image/jpeg".into(), data: ImageData::Bytes(b"not a jpeg".to_vec()), width: Some(200), height: Some(100) },
+        ];
         let overlay = mark_frame(&mut parts, Some(&snapshot), &[], &frame, 55).expect("the reason");
         assert!(!overlay.rendered && overlay.error.is_some(), "{overlay:?}");
         assert!(matches!(&parts[1], ToolPart::Image { data: ImageData::Bytes(bytes), .. } if bytes == b"not a jpeg"));
@@ -1258,7 +1367,9 @@ mod tests {
         use super::super::computer_pixels::fakes::Desktop;
         let desktop = Arc::new(Desktop::new(two_displays(), display_pixels()));
         let blobs: Arc<dyn ComputerBlobs> = Arc::new(Blobs([("sha256:aaaa".to_owned(), b"jpeg".to_vec())].into()));
-        let backend = ProcessComputerBackend::new(config, Scripted::new(|_| Ok(json!({"text": "ok"})))).with_shared(ComputerShared { blobs: Some(blobs), ..ComputerShared::default() }).with_desktop(desktop.clone());
+        let backend = ProcessComputerBackend::new(config, Scripted::new(|_| Ok(json!({"text": "ok"}))))
+            .with_shared(ComputerShared { blobs: Some(blobs), ..ComputerShared::default() })
+            .with_desktop(desktop.clone());
         (backend, desktop)
     }
 
@@ -1281,7 +1392,8 @@ mod tests {
     #[tokio::test]
     async fn a_display_capture_without_a_blob_store_is_unavailable() {
         let (backend, _) = with_screen_desktop(ComputerConfig::new("helper", "screen-2"));
-        let bare = ProcessComputerBackend::new(ComputerConfig::new("helper", "screen-3"), Scripted::new(|_| Ok(json!({"text": "ok"})))).with_desktop(backend.desktop().unwrap().clone());
+        let bare = ProcessComputerBackend::new(ComputerConfig::new("helper", "screen-3"), Scripted::new(|_| Ok(json!({"text": "ok"}))))
+            .with_desktop(backend.desktop().unwrap().clone());
         let error = bare.capture(command(json!({"screen": 0, "mode": "vision"})), "vision", &CancellationToken::new()).await.unwrap_err();
         assert!(matches!(error, ComputerError::Unavailable { reason } if reason.contains("blob store")), "no blob store");
     }
@@ -1293,12 +1405,16 @@ mod tests {
         let data = tempfile::tempdir().unwrap();
         let config = ComputerConfig { data_dir: Some(data.path().to_path_buf()), ..ComputerConfig::new("helper", "screen-4") };
         let (backend, _) = with_screen_desktop(config);
-        let parts = backend.capture(command(json!({"screen": 1, "mode": "vision", "image_output": "file"})), "vision", &CancellationToken::new()).await.unwrap();
+        let parts =
+            backend.capture(command(json!({"screen": 1, "mode": "vision", "image_output": "file"})), "vision", &CancellationToken::new()).await.unwrap();
         assert!(parts.iter().all(|part| !matches!(part, ToolPart::Image { .. })), "the pixels left the reply: {parts:?}");
         let reply: Value = serde_json::from_str(&texts(&parts)[0]).unwrap();
         let file = reply["image_file"]["path"].as_str().expect("the file's path");
         assert!(file.starts_with(&*data.path().to_string_lossy()), "{file}");
-        assert_eq!((std::fs::read(file).unwrap(), reply["image_file"]["bytes"].clone(), reply["image_file"]["mime_type"].clone()), (b"jpeg".to_vec(), json!(4), json!("image/jpeg")));
+        assert_eq!(
+            (std::fs::read(file).unwrap(), reply["image_file"]["bytes"].clone(), reply["image_file"]["mime_type"].clone()),
+            (b"jpeg".to_vec(), json!(4), json!("image/jpeg"))
+        );
 
         let (inline, _) = with_screen_desktop(ComputerConfig::new("helper", "screen-5"));
         let parts = inline.capture(command(json!({"screen": 1, "mode": "vision", "image_output": "file"})), "vision", &CancellationToken::new()).await.unwrap();

@@ -148,12 +148,7 @@ impl Env {
     }
 
     fn deps(&self) -> WriterDeps {
-        WriterDeps {
-            io: Arc::new(OsIo),
-            blobs: BlobStore::new(&self.data),
-            ownership: Arc::new(MockOwnership::default()),
-            index: Arc::new(self.store.clone()),
-        }
+        WriterDeps { io: Arc::new(OsIo), blobs: BlobStore::new(&self.data), ownership: Arc::new(MockOwnership::default()), index: Arc::new(self.store.clone()) }
     }
 
     fn dir(&self, id: &str) -> PathBuf {
@@ -267,8 +262,7 @@ async fn a_session_whose_blobs_a_census_deleted_opens_from_what_is_left() {
     env.close(w).await;
     let records = log_records(&env.dir("s1"));
     let header = own_blob(&records[0]).expect("the header is out of line");
-    let states: Vec<Digest> =
-        records.iter().filter(|r| matches!(r, Record::Checkpoint(_))).filter_map(own_blob).collect();
+    let states: Vec<Digest> = records.iter().filter(|r| matches!(r, Record::Checkpoint(_))).filter_map(own_blob).collect();
     let [older, newest] = states.as_slice() else { panic!("two checkpoints out of line: {states:?}") };
     let remove = |digest: &Digest| std::fs::remove_file(BlobStore::new(&env.data).path(digest)).unwrap();
     remove(&header);
@@ -330,7 +324,6 @@ async fn a_session_that_lost_state_opens_read_only_until_the_blob_is_back() {
     drop(env.writer("s1").await);
 }
 
-
 /// A queue entry or run detail whose out-of-line body file is gone is no row, but the rebuild still reports it: the
 /// session is listed as damaged with the record's ordinal and digest, like a lost row body; with the file there, it is `ok`.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -371,7 +364,7 @@ async fn a_rebuild_reports_its_sessions_and_a_plain_open_reports_none() {
     }
     env.store.close();
     let whole = copy_data(&env.data);
-    let open =|data: PathBuf, progress: Arc<RebuildProgress>| {
+    let open = |data: PathBuf, progress: Arc<RebuildProgress>| {
         let (tx, rx) = std::sync::mpsc::channel();
         let _job = tokens()
             .maintenance_io

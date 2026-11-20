@@ -40,7 +40,9 @@ impl SetupActions for LateSetupActions {
     async fn run(&self, call: &SetupCall<'_>) -> Result<Value, PortError> {
         match self.owner.get() {
             Some(owner) => owner.run(call).await,
-            None => Err(PortError::Unavailable { capability: "setup".to_owned(), message: format!("setup {} was called before its owner was bound", call.action) }),
+            None => {
+                Err(PortError::Unavailable { capability: "setup".to_owned(), message: format!("setup {} was called before its owner was bound", call.action) })
+            }
         }
     }
 }

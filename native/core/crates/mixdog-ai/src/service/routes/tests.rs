@@ -89,16 +89,10 @@ fn two_models_of_one_provider_are_a_valid_chain_that_fails_over() {
 fn chain_providers_are_validated_like_node() {
     let r = |p: &str, m: &str| serde_json::json!({"provider": p, "model": m});
     assert!(validate_route_chain_providers(&[r("openai-api", "m"), r("anthropic", "m")], false).is_ok());
-    assert_eq!(
-        validate_route_chain_providers(&[r("openai", "m"), r("openai-api", "m")], false).unwrap_err(),
-        "duplicate route \"openai/m\""
-    );
+    assert_eq!(validate_route_chain_providers(&[r("openai", "m"), r("openai-api", "m")], false).unwrap_err(), "duplicate route \"openai/m\"");
     assert!(validate_route_chain_providers(&[r("openai", "m"), r("openai-api", "m")], true).is_ok());
     assert_eq!(validate_route_chain_providers(&[r("a", " ")], false).unwrap_err(), "route requires provider and model");
-    assert_eq!(
-        validate_route_chain_providers(&[r("a", "m"), r("default", "m")], false).unwrap_err(),
-        "follow Main is only allowed as the primary route"
-    );
+    assert_eq!(validate_route_chain_providers(&[r("a", "m"), r("default", "m")], false).unwrap_err(), "follow Main is only allowed as the primary route");
 }
 
 #[test]
@@ -134,7 +128,6 @@ fn the_cache_is_warm_inside_its_lifetime_less_a_margin() {
     // A short lifetime keeps the 30 s floor margin.
     assert!(!compaction_cache_warm(Some((CacheLifetime::Ms(40_000), sent)), sent + 10_000));
 }
-
 
 // Cases of Node's recording of these decisions (provider alias, GPT version, Anthropic ordering and hosted web-search capability), kept
 // here as tracked inputs: the shipped suite checks the product's own answer to each.
@@ -234,14 +227,8 @@ const CAPABLE_WITH_ROWS: &[(&str, &str, &str, &str, bool)] = &[
     ("openai", "gpt-5", r#"{"capabilities": {"tools": [{"name": "other"}]}}"#, r#"null"#, true),
     ("openai", "gpt-4", r#"{"capabilities": {"tools": [{"name": "other"}]}}"#, r#"null"#, false),
 ];
-const CANONICAL: &[(&str, &str)] = &[
-    ("openai-api", "openai"),
-    ("xai-api", "xai"),
-    ("gemini-api", "gemini"),
-    ("anthropic-api", "anthropic"),
-    (" openai ", "openai"),
-    ("openai", "openai"),
-];
+const CANONICAL: &[(&str, &str)] =
+    &[("openai-api", "openai"), ("xai-api", "xai"), ("gemini-api", "gemini"), ("anthropic-api", "anthropic"), (" openai ", "openai"), ("openai", "openai")];
 const GPT: &[(&str, Option<(u64, u64)>)] = &[
     ("gpt-5", Some((5, 0))),
     ("gpt-5.5", Some((5, 5))),
@@ -319,7 +306,6 @@ fn provider_aliases_gpt_versions_and_claude_order_are_the_documented_ones() {
     }
 }
 
-
 /// A web-search route as the documented rules normalise it (Node 1.4.5): the provider alias and the model are
 /// canonical and trimmed, an unknown effort or a non-boolean `fast` is dropped, the first candidate that names a route
 /// wins, and each way a fallback chain is wrong is refused in its own words. The text is compared, so the field order is
@@ -332,15 +318,63 @@ fn a_web_search_route_is_normalised_and_its_chain_checked_as_documented() {
         (r#"[null]"#, Ok(r#"{"provider":"default","model":"default"}"#), true, &[r#"{"provider":"default","model":"default"}"#], &[]),
         (r#"[null]"#, Ok(r#"{"provider":"default","model":"default"}"#), true, &[r#"{"provider":"default","model":"default"}"#], &[]),
         (r#"[{}]"#, Ok(r#"{"provider":"default","model":"default"}"#), true, &[r#"{"provider":"default","model":"default"}"#], &[]),
-        (r#"[{"provider":"default","model":"default"}]"#, Ok(r#"{"provider":"default","model":"default"}"#), true, &[r#"{"provider":"default","model":"default"}"#], &[]),
-        (r#"[{"provider":"openai-api","model":" gpt-5 ","effort":"HIGH","fast":true,"toolType":" web_search ","modelParameters":{"a":"1"}}]"#, Ok(r#"{"provider":"openai","model":"gpt-5","effort":"high","fast":true,"modelParameters":{"a":"1"},"toolType":"web_search"}"#), false, &[r#"{"provider":"openai","model":"gpt-5","effort":"high","fast":true,"modelParameters":{"a":"1"},"toolType":"web_search"}"#], &[]),
-        (r#"[{"provider":"xai","model":"grok-4.5","effort":"bogus","fast":"yes"}]"#, Ok(r#"{"provider":"xai","model":"grok-4.5"}"#), false, &[r#"{"provider":"xai","model":"grok-4.5"}"#], &[]),
-        (r#"[{"provider":"openai","model":"gpt-5","fallbacks":[{"provider":"gemini","model":"gemini-2.5-pro"}]}]"#, Ok(r#"{"provider":"openai","model":"gpt-5","fallbacks":[{"provider":"gemini","model":"gemini-2.5-pro"}]}"#), false, &[r#"{"provider":"openai","model":"gpt-5"}"#, r#"{"provider":"gemini","model":"gemini-2.5-pro"}"#], &[r#"{"provider":"gemini","model":"gemini-2.5-pro"}"#]),
-        (r#"[{"provider":"anthropic","model":"m","fallbacks":[{"provider":"anthropic-api","model":"m"}]}]"#, Err("duplicate route \"anthropic/m\""), false, &[], &[]),
-        (r#"[{"provider":"openai","model":"m","fallbacks":[{"provider":"default","model":"default"}]}]"#, Err("follow Main is only allowed as the primary route"), false, &[], &[]),
+        (
+            r#"[{"provider":"default","model":"default"}]"#,
+            Ok(r#"{"provider":"default","model":"default"}"#),
+            true,
+            &[r#"{"provider":"default","model":"default"}"#],
+            &[],
+        ),
+        (
+            r#"[{"provider":"openai-api","model":" gpt-5 ","effort":"HIGH","fast":true,"toolType":" web_search ","modelParameters":{"a":"1"}}]"#,
+            Ok(r#"{"provider":"openai","model":"gpt-5","effort":"high","fast":true,"modelParameters":{"a":"1"},"toolType":"web_search"}"#),
+            false,
+            &[r#"{"provider":"openai","model":"gpt-5","effort":"high","fast":true,"modelParameters":{"a":"1"},"toolType":"web_search"}"#],
+            &[],
+        ),
+        (
+            r#"[{"provider":"xai","model":"grok-4.5","effort":"bogus","fast":"yes"}]"#,
+            Ok(r#"{"provider":"xai","model":"grok-4.5"}"#),
+            false,
+            &[r#"{"provider":"xai","model":"grok-4.5"}"#],
+            &[],
+        ),
+        (
+            r#"[{"provider":"openai","model":"gpt-5","fallbacks":[{"provider":"gemini","model":"gemini-2.5-pro"}]}]"#,
+            Ok(r#"{"provider":"openai","model":"gpt-5","fallbacks":[{"provider":"gemini","model":"gemini-2.5-pro"}]}"#),
+            false,
+            &[r#"{"provider":"openai","model":"gpt-5"}"#, r#"{"provider":"gemini","model":"gemini-2.5-pro"}"#],
+            &[r#"{"provider":"gemini","model":"gemini-2.5-pro"}"#],
+        ),
+        (
+            r#"[{"provider":"anthropic","model":"m","fallbacks":[{"provider":"anthropic-api","model":"m"}]}]"#,
+            Err("duplicate route \"anthropic/m\""),
+            false,
+            &[],
+            &[],
+        ),
+        (
+            r#"[{"provider":"openai","model":"m","fallbacks":[{"provider":"default","model":"default"}]}]"#,
+            Err("follow Main is only allowed as the primary route"),
+            false,
+            &[],
+            &[],
+        ),
         (r#"[{"provider":"openai","model":"m","fallbacks":[{"provider":"x"}]}]"#, Err("fallback route requires provider and model"), false, &[], &[]),
-        (r#"[{"provider":"","model":"x"},{"provider":"gemini","model":"g"}]"#, Ok(r#"{"provider":"gemini","model":"g"}"#), false, &[r#"{"provider":"gemini","model":"g"}"#], &[]),
-        (r#"[{"provider":"default","model":" DEFAULT "}]"#, Ok(r#"{"provider":"default","model":"DEFAULT"}"#), true, &[r#"{"provider":"default","model":"DEFAULT"}"#], &[]),
+        (
+            r#"[{"provider":"","model":"x"},{"provider":"gemini","model":"g"}]"#,
+            Ok(r#"{"provider":"gemini","model":"g"}"#),
+            false,
+            &[r#"{"provider":"gemini","model":"g"}"#],
+            &[],
+        ),
+        (
+            r#"[{"provider":"default","model":" DEFAULT "}]"#,
+            Ok(r#"{"provider":"default","model":"DEFAULT"}"#),
+            true,
+            &[r#"{"provider":"default","model":"DEFAULT"}"#],
+            &[],
+        ),
     ];
     for (candidates, outcome, is_default, chain, exec) in rows {
         let candidates: Vec<Value> = serde_json::from_str(candidates).unwrap();

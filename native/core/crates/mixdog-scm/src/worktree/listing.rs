@@ -54,14 +54,7 @@ fn cleanup_row(row: &Value) -> CleanupRow {
         owner_live: row.get("ownerLive") == Some(&Value::Bool(true)),
         in_use: false,
         owner_session_id: text(row, "ownerSessionId"),
-        shared_session_ids: row
-            .get("sharedSessionIds")
-            .and_then(Value::as_array)
-            .into_iter()
-            .flatten()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect(),
+        shared_session_ids: row.get("sharedSessionIds").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).map(str::to_owned).collect(),
         created_at: row.get("createdAt").and_then(Value::as_i64).unwrap_or(0),
     }
 }

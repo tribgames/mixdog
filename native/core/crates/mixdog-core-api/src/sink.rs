@@ -59,21 +59,13 @@ pub trait ConnectionSink: Send + Sync {
     /// Opens a gated, empty lane for `sub` ([`crate::feed::subscribe`] is the only caller).
     /// `recovery` is called by the writer when this lane is the oldest lagged lane and the free
     /// event budget reaches `maxSnapshotBytes`.
-    fn open_lane(
-        &self,
-        sub: SubscriptionId,
-        recovery: Arc<dyn LaneRecovery>,
-    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed>;
+    fn open_lane(&self, sub: SubscriptionId, recovery: Arc<dyn LaneRecovery>) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed>;
 
     /// [`Self::open_lane`] for a feed whose events are never dropped (the ordered class): its
     /// frames hold the ordered event room (`orderedQueueBytes`), and once anything of it was
     /// written a failed reservation closes the connection with 4000 `slowConsumer` instead of lagging. A sink
     /// without the class opens a plain lane.
-    fn open_ordered_lane(
-        &self,
-        sub: SubscriptionId,
-        recovery: Arc<dyn LaneRecovery>,
-    ) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
+    fn open_ordered_lane(&self, sub: SubscriptionId, recovery: Arc<dyn LaneRecovery>) -> Result<(Arc<dyn Lane>, LaneRelease), SinkClosed> {
         self.open_lane(sub, recovery)
     }
 
@@ -150,10 +142,7 @@ impl Reservation {
             return None;
         }
         self.bytes -= bytes;
-        Some(Reservation {
-            bytes,
-            budget: Arc::clone(&self.budget),
-        })
+        Some(Reservation { bytes, budget: Arc::clone(&self.budget) })
     }
 
     /// Returns everything above `bytes` to the budget.
@@ -175,9 +164,7 @@ impl Drop for Reservation {
 
 impl std::fmt::Debug for Reservation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Reservation")
-            .field("bytes", &self.bytes)
-            .finish()
+        f.debug_struct("Reservation").field("bytes", &self.bytes).finish()
     }
 }
 

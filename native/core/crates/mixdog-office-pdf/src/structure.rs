@@ -19,9 +19,7 @@ use serde_json::{Map, Value, json};
 use crate::adapter::{BatchState, OperationSet};
 use crate::analysis::round2;
 use crate::document::AnalysisError;
-use crate::edit_document::{
-    edit_error, js_string, load_pdf, present, read_file, resolve_beside, selected_edit_pages, write_sibling,
-};
+use crate::edit_document::{edit_error, js_string, load_pdf, present, read_file, resolve_beside, selected_edit_pages, write_sibling};
 
 /// The operations this module runs.
 const OPERATIONS: [&str; 12] = [
@@ -82,10 +80,7 @@ fn rotate_pages<P: WriteProof>(state: &mut BatchState<'_, P>, operation: &Value)
         _ => 90.0,
     };
     if !delta.is_finite() || delta.fract() != 0.0 || delta % 90.0 != 0.0 {
-        return Err(AnalysisError::plain(format!(
-            "PDF rotation must be a multiple of 90 degrees: {}",
-            js_string(operation.get("rotation"))
-        )));
+        return Err(AnalysisError::plain(format!("PDF rotation must be a multiple of 90 degrees: {}", js_string(operation.get("rotation")))));
     }
     let absolute = operation.get("absolute").is_some_and(truthy);
     let mut pages = Vec::new();
@@ -96,10 +91,7 @@ fn rotate_pages<P: WriteProof>(state: &mut BatchState<'_, P>, operation: &Value)
         pages.push((selected.index + 1, current, next));
     }
     let changed = pages.iter().any(|(_, from, rotation)| from != rotation);
-    let pages: Vec<Value> = pages
-        .into_iter()
-        .map(|(page, from, rotation)| json!({ "page": page, "from": num(from), "rotation": num(rotation) }))
-        .collect();
+    let pages: Vec<Value> = pages.into_iter().map(|(page, from, rotation)| json!({ "page": page, "from": num(from), "rotation": num(rotation) })).collect();
     Ok(json!({ "op": op_name(operation), "changed": changed, "pages": pages }))
 }
 
@@ -129,10 +121,7 @@ fn displayed_sides(rotation: f64) -> [usize; 4] {
 fn crop_pages<P: WriteProof>(state: &mut BatchState<'_, P>, operation: &Value) -> Result<Value, AnalysisError> {
     let mut trims = [0.0f64; 4];
     for (name, side) in CROP_SIDES {
-        let value = [operation.get(name), operation.get("margin")]
-            .into_iter()
-            .find(|value| present(*value))
-            .flatten();
+        let value = [operation.get(name), operation.get("margin")].into_iter().find(|value| present(*value)).flatten();
         trims[side] = value.map_or(0.0, to_number);
     }
     if !trims.iter().all(|trim| trim.is_finite() && *trim >= 0.0) {
@@ -235,11 +224,7 @@ fn split_pages<P: WriteProof>(state: &mut BatchState<'_, P>, operation: &Value) 
     for group in indexes.chunks(group_size) {
         let part = state.document.copy_to_new_document(group).map_err(edit_error)?;
         let first = format!("{:03}", group[0] + 1);
-        let label = if group.len() == 1 {
-            first
-        } else {
-            format!("{first}-{:03}", group[group.len() - 1] + 1)
-        };
+        let label = if group.len() == 1 { first } else { format!("{first}-{:03}", group[group.len() - 1] + 1) };
         let target = directory.join(format!("{stem}-{label}.pdf"));
         let output = write_sibling(state.proof, state.note, state.path, &target.to_string_lossy(), &save_bytes(&part))?;
         files.push(json!({
@@ -265,10 +250,7 @@ fn move_page<P: WriteProof>(state: &mut BatchState<'_, P>, operation: &Value) ->
         return Err(AnalysisError::plain(format!("PDF page out of range: {}", js_string(operation.get("page")))));
     }
     if !whole(to) {
-        return Err(AnalysisError::plain(format!(
-            "PDF destination page out of range: {}",
-            js_string(operation.get("index"))
-        )));
+        return Err(AnalysisError::plain(format!("PDF destination page out of range: {}", js_string(operation.get("index")))));
     }
     let (from, to) = (from as usize, to as usize);
     let mut order: Vec<usize> = (0..count).collect();
@@ -301,10 +283,7 @@ fn merge_pdf<P: WriteProof>(state: &mut BatchState<'_, P>, operation: &Value) ->
     if present(operation.get("index")) {
         let index = to_number(&operation["index"]) - 1.0;
         if !index.is_finite() || index.fract() != 0.0 || index < 0.0 || index > state.document.page_count() as f64 {
-            return Err(AnalysisError::plain(format!(
-                "PDF insertion index out of range: {}",
-                js_string(operation.get("index"))
-            )));
+            return Err(AnalysisError::plain(format!("PDF insertion index out of range: {}", js_string(operation.get("index")))));
         }
         insert_at = Some(index as usize);
     }
@@ -413,10 +392,7 @@ fn add_bookmark<P: WriteProof>(state: &mut BatchState<'_, P>, operation: &Value)
     };
     let selected = selected_edit_pages(&state.document, &json!({ "page": page }))?;
     let index = selected[0].index;
-    state
-        .document
-        .add_outline_entries(&[OutlineEntry { title: title.clone(), page_index: index }])
-        .map_err(edit_error)?;
+    state.document.add_outline_entries(&[OutlineEntry { title: title.clone(), page_index: index }]).map_err(edit_error)?;
     Ok(json!({ "op": op_name(operation), "changed": true, "title": title, "page": index + 1 }))
 }
 
@@ -473,9 +449,7 @@ fn extract_attachment<P: WriteProof>(state: &mut BatchState<'_, P>, operation: &
     let entries = state.document.attachments();
     let wanted_name = operation.get("name").filter(|name| !name.is_null()).map(value_to_string);
     let wanted_index = operation.get("index").filter(|index| !index.is_null()).map(to_number);
-    let Some(wanted) = entries.iter().find(|entry| {
-        wanted_name.as_deref() == Some(entry.name.as_str()) || wanted_index == Some(entry.index as f64)
-    }) else {
+    let Some(wanted) = entries.iter().find(|entry| wanted_name.as_deref() == Some(entry.name.as_str()) || wanted_index == Some(entry.index as f64)) else {
         let named = wanted_name.clone().or_else(|| operation.get("index").filter(|index| !index.is_null()).map(value_to_string));
         let listed = entries.iter().map(|entry| entry.name.clone()).collect::<Vec<_>>().join(", ");
         return Err(AnalysisError::plain(format!(

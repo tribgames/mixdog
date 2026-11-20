@@ -20,12 +20,12 @@ use mixdog_image_egress::admission::Cancel;
 use mixdog_image_egress::admission::Coalescer;
 use mixdog_image_egress::admission::WORKER_BYTES;
 use mixdog_image_egress::admission::global;
+use mixdog_imaging::os_heic::HeicCodec as HeicCodecDyn;
 use mixdog_imaging::validate::Reject;
 use mixdog_imaging::validate::VALIDATOR_VERSION;
 use mixdog_imaging::validate::Validated;
-use mixdog_imaging::os_heic::HeicCodec as HeicCodecDyn;
-use mixdog_imaging::validate::validate_with;
 use mixdog_imaging::validate::validate_held;
+use mixdog_imaging::validate::validate_with;
 use mixdog_imaging::validate::with_base64;
 use mixdog_rt::InLane;
 use mixdog_statefile::Access;
@@ -59,7 +59,9 @@ pub enum Lookup {
     Found(Manifest),
     Absent,
     /// A manifest of another validator version: migration re-runs it, it is not used.
-    Stale { version: u32 },
+    Stale {
+        version: u32,
+    },
     /// The manifest file exists and is not intact.
     Damaged,
 }
@@ -220,7 +222,8 @@ impl ImageVault {
         // `finish` runs on interactive lanes too, which have no write proof; the directory is created as the original did.
         #[allow(clippy::disallowed_methods, reason = "runs on a lane job, interactive or durability; the interactive lane has no write proof")]
         std::fs::create_dir_all(&self.dir).map_err(|e| storage("image-vault dir", e))?;
-        publish_file_with(&self.manifest_path(original, VALIDATOR_VERSION), manifest.encode().as_bytes(), Access::Inherit).map_err(|e| storage("manifest", e))?;
+        publish_file_with(&self.manifest_path(original, VALIDATOR_VERSION), manifest.encode().as_bytes(), Access::Inherit)
+            .map_err(|e| storage("manifest", e))?;
         Ok(manifest)
     }
 
@@ -437,7 +440,10 @@ mod tests {
 
     async fn heic_import(world: &World, codec: Arc<dyn HeicCodecDyn>) -> Manifest {
         let vault = world.vault().with_codec(codec);
-        on_lane(world.tokens.durability_io, &CancellationToken::new(), move |lane| vault.import(lane, &heic_bytes(), "scan.heic", &Cancel::default())).await.unwrap().unwrap()
+        on_lane(world.tokens.durability_io, &CancellationToken::new(), move |lane| vault.import(lane, &heic_bytes(), "scan.heic", &Cancel::default()))
+            .await
+            .unwrap()
+            .unwrap()
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

@@ -4,10 +4,10 @@
 use super::SessionDirectory;
 use super::testing::Rig;
 use super::testing::lock;
-use crate::eventually_on;
 use super::tests::idle;
 use super::tests::start_thread;
 use super::tests::turn;
+use crate::eventually_on;
 
 fn calls(rig: &Rig) -> Vec<String> {
     lock(&rig.snapshots.0).clone()

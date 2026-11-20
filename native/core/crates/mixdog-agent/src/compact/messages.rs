@@ -26,9 +26,7 @@ pub fn context_ack_message() -> AgentMessage {
 }
 
 pub fn is_protected_context_ack(m: &AgentMessage) -> bool {
-    m.role() == Role::Assistant
-        && matches!(&m.message.content, Content::Text(text) if js_trim(text) == ".")
-        && m.tool_calls().is_empty()
+    m.role() == Role::Assistant && matches!(&m.message.content, Content::Text(text) if js_trim(text) == ".") && m.tool_calls().is_empty()
 }
 
 pub fn latest_actual_user_instruction_index(messages: &[AgentMessage]) -> Option<usize> {
@@ -39,9 +37,7 @@ pub fn latest_actual_user_instruction_index(messages: &[AgentMessage]) -> Option
 /// steering message continues the request instead of starting one.
 pub fn request_start(messages: &[AgentMessage], index: usize) -> Option<usize> {
     let end = (index + 1).min(messages.len());
-    let started = messages[..end]
-        .iter()
-        .rposition(|m| is_actual_user_instruction(m) && m.source != Some(Source::Steering));
+    let started = messages[..end].iter().rposition(|m| is_actual_user_instruction(m) && m.source != Some(Source::Steering));
     started.or_else(|| latest_actual_user_instruction_index(&messages[..end]))
 }
 
@@ -52,11 +48,7 @@ pub fn pending_task_notification_indexes(messages: &[AgentMessage]) -> Vec<usize
     let mut pending = Vec::new();
     for index in (0..messages.len()).rev() {
         let m = &messages[index];
-        if m.role() == Role::Assistant
-            && m.tool_calls().is_empty()
-            && !is_protected_context_ack(m)
-            && m.source != Some(Source::CompactExecutionText)
-        {
+        if m.role() == Role::Assistant && m.tool_calls().is_empty() && !is_protected_context_ack(m) && m.source != Some(Source::CompactExecutionText) {
             break;
         }
         if m.role() == Role::User && m.source == Some(Source::TaskNotification) {
@@ -75,8 +67,7 @@ pub fn is_compact_conversation_row(m: &AgentMessage) -> bool {
     if matches!(m.source, Some(Source::TaskNotification | Source::ScheduleResult)) {
         return true;
     }
-    matches!(&m.message.content, Content::Text(text) if is_control_marker(text))
-        && !is_actual_user_instruction(m)
+    matches!(&m.message.content, Content::Text(text) if is_control_marker(text)) && !is_actual_user_instruction(m)
 }
 
 /// A tool call's arguments as an object, whether stored parsed or as JSON text.

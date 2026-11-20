@@ -35,6 +35,7 @@ use mixdog_protocol::ProcessHandle;
 use serde::Deserialize;
 
 use super::archive;
+use super::bashism::rewrite_powershell_bashisms;
 use super::benign::is_benign_search_exit_one;
 use super::compact::Outcome;
 use super::compact::Plan;
@@ -46,29 +47,17 @@ use super::compact::still_worthwhile;
 use super::delivery::Piece;
 use super::delivery::ansi_stripped;
 use super::delivery::delivery_full_chars;
-use super::delivery::parse_int_prefix;
-use super::describe_type;
-use super::normalize_string_list_args;
 use super::delivery::fit_pieces;
+use super::delivery::parse_int_prefix;
 use super::delivery::render_shell_output_body;
 use super::delivery::shell_text_piece;
 use super::delivery::stripped_shell_piece;
+use super::describe_type;
+use super::direct::plan_direct_exe;
 use super::env::ShellEnv;
 use super::env::env_flag;
-use crate::orch::util::spec_from_def;
 use super::env::session_scratch_dir;
 use super::env::shell_env;
-use super::jobs::ExecRuntime;
-use super::jobs::Job;
-use super::jobs::ReadOptions;
-use super::jobs::shown_path;
-use super::jobs::signal_name;
-use super::shell_choice::chosen_shell;
-use super::shell_choice::default_program;
-use super::psfix::powershell_bashism_hint;
-use super::psfix::rewrite_wmic_process;
-use super::bashism::rewrite_powershell_bashisms;
-use super::direct::plan_direct_exe;
 use super::guard::Guarded;
 use super::guard::guard_call;
 use super::hoist::plan_hoist;
@@ -81,12 +70,23 @@ use super::invocation::frame_powershell_script;
 use super::invocation::prefix_powershell_skill_function;
 use super::invocation::prefix_powershell_utf8;
 use super::invocation::wrap_with_snapshot;
+use super::jobs::ExecRuntime;
+use super::jobs::Job;
+use super::jobs::ReadOptions;
+use super::jobs::shown_path;
+use super::jobs::signal_name;
+use super::normalize_string_list_args;
+use super::psfix::powershell_bashism_hint;
+use super::psfix::rewrite_wmic_process;
+use super::shell_choice::chosen_shell;
+use super::shell_choice::default_program;
 use super::snapshot::SnapshotRequest;
 use super::spill;
 use super::wake::WakeReason;
 use super::warning::place_warnings_after_status;
-use crate::policy::ExecVerdict;
 use super::warning::prepend_warning;
+use crate::orch::util::spec_from_def;
+use crate::policy::ExecVerdict;
 
 const SHELL_HOLD_DEFAULT_MS: u64 = 60_000;
 const SHELL_HOLD_MIN_MS: u64 = 1_000;
@@ -99,10 +99,8 @@ const TIMER_MAX_MS: u64 = 2_147_483_647;
 /// observes whether its process tree still holds live processes.
 pub(crate) const SURVIVING_DESCENDANTS_WARNING: &str =
     "⚠️ the command finished but left descendants running: they are tracked as the task below, and `task cancel` terminates them.";
-pub(crate) const SURVIVING_DESCENDANTS_UNREACHABLE_WARNING: &str =
-    "⚠️ the command finished but left a descendant running that this process can no longer signal (its parent exited and Windows keeps no live link to it). It stays tracked as the task below and its completion is reported, but `task cancel` may not be able to terminate it.";
-const BACKGROUND_GUIDANCE: &str =
-    "Its result is delivered automatically when it finishes; use task wait only if no other work remains.";
+pub(crate) const SURVIVING_DESCENDANTS_UNREACHABLE_WARNING: &str = "⚠️ the command finished but left a descendant running that this process can no longer signal (its parent exited and Windows keeps no live link to it). It stays tracked as the task below and its completion is reported, but `task cancel` may not be able to terminate it.";
+const BACKGROUND_GUIDANCE: &str = "Its result is delivered automatically when it finishes; use task wait only if no other work remains.";
 
 /// Why the command left the foreground (`promotion-results.mjs` `backgroundVerb`).
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -252,10 +250,8 @@ impl Tool for ForeignShellTool {
         if !given.get("command").and_then(JsonValue::as_str).is_some_and(|command| !command.is_empty()) {
             return Err(failed(ToolErrorCode::InvalidArgs { field: "command".into(), reason: "required".into() }, self.refusal(ctx)));
         }
-        let kept: serde_json::Map<String, JsonValue> = given
-            .into_iter()
-            .filter(|(key, _)| matches!(key.as_str(), "command" | "cwd" | "timeout_ms" | "wait_ms" | "background"))
-            .collect();
+        let kept: serde_json::Map<String, JsonValue> =
+            given.into_iter().filter(|(key, _)| matches!(key.as_str(), "command" | "cwd" | "timeout_ms" | "wait_ms" | "background")).collect();
         self.shell.call_as(ctx, JsonValue::Object(kept), self.posix).await
     }
 }
@@ -322,10 +318,7 @@ impl ShellTool {
 /// `formatShellToolFailure`.
 pub(crate) fn tool_failure(message: &str) -> String {
     let trimmed = mixdog_js::js_trim(message);
-    let stripped = trimmed
-        .get(..6)
-        .filter(|head| head.eq_ignore_ascii_case("error:"))
-        .map_or(trimmed, |_| mixdog_js::js_trim(&trimmed[6..]));
+    let stripped = trimmed.get(..6).filter(|head| head.eq_ignore_ascii_case("error:")).map_or(trimmed, |_| mixdog_js::js_trim(&trimmed[6..]));
     let text = if stripped.is_empty() { "shell tool failed" } else { stripped };
     format!("Error: [shell-tool-failed] {text}")
 }
@@ -366,10 +359,7 @@ pub(super) fn hold_ms(args: &Args, timeout_ms: u64, background_enabled: bool, en
 /// The foreground window a run limit longer than it is cut to (`BASH_MAX_TIMEOUT_MS`, else 120 s),
 /// never shorter than the hold.
 pub(super) fn foreground_cap_ms(hold: u64, env: &dyn Fn(&str) -> Option<String>) -> u64 {
-    let configured = env("BASH_MAX_TIMEOUT_MS")
-        .and_then(|raw| parse_int_prefix(&raw))
-        .filter(|n| *n > 0)
-        .map_or(120_000, |n| n as u64);
+    let configured = env("BASH_MAX_TIMEOUT_MS").and_then(|raw| parse_int_prefix(&raw)).filter(|n| *n > 0).map_or(120_000, |n| n as u64);
     configured.max(hold)
 }
 
@@ -421,9 +411,8 @@ async fn resolve_cwd(ctx: &ToolContext, requested: Option<String>) -> Result<Abs
     };
     // The one folded form (`resolve(sessionCwd, expandHome(cwd))`): the process, the job record and every
     // "is something running in this folder" test see the same spelling.
-    let resolved = super::settle::resolved_shell_cwd(ctx.cwd.as_path(), Some(&requested)).ok_or_else(|| {
-        failed(ToolErrorCode::NotFound { target: requested.clone() }, tool_failure("no home directory"))
-    })?;
+    let resolved = super::settle::resolved_shell_cwd(ctx.cwd.as_path(), Some(&requested))
+        .ok_or_else(|| failed(ToolErrorCode::NotFound { target: requested.clone() }, tool_failure("no home directory")))?;
     let abs = AbsPath::new(PathBuf::from(&resolved)).unwrap_or_else(|| ctx.cwd.join(&resolved));
     let shown = abs.as_path().display().to_string();
     match ctx.files.stat(ctx.io.interactive, abs.clone()).await {
@@ -432,14 +421,10 @@ async fn resolve_cwd(ctx: &ToolContext, requested: Option<String>) -> Result<Abs
             ToolErrorCode::InvalidArgs { field: "cwd".into(), reason: "not a directory".into() },
             tool_failure(&format!("shell cwd \"{shown}\" is not a directory")),
         )),
-        Err(error) if error.kind == FsErrorKind::NotFound => Err(failed(
-            ToolErrorCode::NotFound { target: requested },
-            tool_failure(&format!("shell cwd \"{shown}\" does not exist")),
-        )),
-        Err(_) => Err(failed(
-            ToolErrorCode::NotFound { target: requested },
-            tool_failure(&format!("shell cwd \"{shown}\" does not exist")),
-        )),
+        Err(error) if error.kind == FsErrorKind::NotFound => {
+            Err(failed(ToolErrorCode::NotFound { target: requested }, tool_failure(&format!("shell cwd \"{shown}\" does not exist"))))
+        }
+        Err(_) => Err(failed(ToolErrorCode::NotFound { target: requested }, tool_failure(&format!("shell cwd \"{shown}\" does not exist")))),
     }
 }
 
@@ -447,24 +432,15 @@ fn spawn_failure(error: ProcessError) -> ToolError {
     let (code, detail) = match error {
         ProcessError::PermissionDenied => (ToolErrorCode::PermissionDenied, "permission denied".to_owned()),
         ProcessError::LimitReached { limit } => (
-            ToolErrorCode::Unavailable {
-                capability: "shell".into(),
-                reason: format!("process limit {limit} reached"),
-            },
+            ToolErrorCode::Unavailable { capability: "shell".into(), reason: format!("process limit {limit} reached") },
             format!("too many running processes (limit {limit}); wait for one to finish"),
         ),
         ProcessError::ProgramNotFound { program } => (
-            ToolErrorCode::Unavailable {
-                capability: "shell".into(),
-                reason: format!("program not found: {program}"),
-            },
+            ToolErrorCode::Unavailable { capability: "shell".into(), reason: format!("program not found: {program}") },
             format!("shell program not found: {program}"),
         ),
         ProcessError::Io { os_code } => (ToolErrorCode::Io { os_code }, "failed to start the command".to_owned()),
-        other => (
-            ToolErrorCode::Unavailable { capability: "shell".into(), reason: format!("{other:?}") },
-            "failed to start the command".to_owned(),
-        ),
+        other => (ToolErrorCode::Unavailable { capability: "shell".into(), reason: format!("{other:?}") }, "failed to start the command".to_owned()),
     };
     failed(code, format!("Error: [shell-tool-failed] [spawn failed]\n\n{detail}"))
 }
@@ -482,10 +458,7 @@ fn input_failure(error: ProcessError) -> ToolError {
         ProcessError::Io { os_code } => ToolErrorCode::Io { os_code },
         other => ToolErrorCode::Unavailable { capability: "shell".into(), reason: format!("{other:?}") },
     };
-    failed(
-        code,
-        "Error: [shell-tool-failed] [stdin write failed]\n\nthe command could not be passed whole to the shell, so it was not run".to_owned(),
-    )
+    failed(code, "Error: [shell-tool-failed] [stdin write failed]\n\nthe command could not be passed whole to the shell, so it was not run".to_owned())
 }
 
 /// `_exitClassDiagnostic`.
@@ -493,23 +466,25 @@ fn exit_class_diagnostic(code: i32) -> String {
     if code == 126 {
         return " — 126: command found but not executable (permission or format)".to_owned();
     }
-    if code > 128 && code < 165 && let Some(name) = signal_name(code - 128) {
+    if code > 128
+        && code < 165
+        && let Some(name) = signal_name(code - 128)
+    {
         return format!(" — 128+{}: terminated by {name}", code - 128);
     }
     String::new()
 }
 
 fn compacted_payload(job: &Job, compaction: &Compaction) -> String {
-    let pieces = [
-        ("stdout", compaction.plan.stdout.as_str(), &job.stdout_log),
-        ("stderr", compaction.plan.stderr.as_str(), &job.stderr_log),
-    ].map(|(stream, compacted, log)| {
-        let path = compaction.recovery.iter().find(|r| r.stream == stream);
-        match path {
-            Some(r) => shell_text_piece(compacted, &r.path),
-            None => shell_text_piece(compacted, &shown_path(log)),
-        }
-    });
+    let pieces = [("stdout", compaction.plan.stdout.as_str(), &job.stdout_log), ("stderr", compaction.plan.stderr.as_str(), &job.stderr_log)].map(
+        |(stream, compacted, log)| {
+            let path = compaction.recovery.iter().find(|r| r.stream == stream);
+            match path {
+                Some(r) => shell_text_piece(compacted, &r.path),
+                None => shell_text_piece(compacted, &shown_path(log)),
+            }
+        },
+    );
     let bodies = fit_pieces(&pieces, delivery_full_chars() - 1.0);
     body_with_hint(&bodies[0], &bodies[1], &recovery_hint(compaction.plan.kind, &compaction.recovery))
 }
@@ -524,11 +499,7 @@ struct ForegroundOutput {
 }
 
 impl ForegroundOutput {
-    fn recheck_exit(
-        &mut self,
-        read_exit: impl FnOnce() -> Option<ProcessExit>,
-        settled_no_match: impl FnOnce() -> bool,
-    ) {
+    fn recheck_exit(&mut self, read_exit: impl FnOnce() -> Option<ProcessExit>, settled_no_match: impl FnOnce() -> bool) {
         if self.exit.is_none() {
             self.exit = read_exit();
             self.benign_search = clean_exit_code(self.exit) == Some(1) && settled_no_match();
@@ -557,17 +528,11 @@ fn foreground_payload(
         let clean_exit = clean_exit_code(exit);
         let check_benign = clean_exit == Some(1);
         let err_edge = err.spilled_piece();
-        let err_raw = (cached.is_none() && (err_edge.is_none() || check_benign || ((rescue || windows) && clean_exit != Some(0))))
-            .then(|| err.capture());
-        let benign_search = check_benign
-            && is_benign_search_exit_one(analysis_command, 1, false, err_raw.as_deref().unwrap_or(""));
+        let err_raw = (cached.is_none() && (err_edge.is_none() || check_benign || ((rescue || windows) && clean_exit != Some(0)))).then(|| err.capture());
+        let benign_search = check_benign && is_benign_search_exit_one(analysis_command, 1, false, err_raw.as_deref().unwrap_or(""));
         let may_have_failed = clean_exit != Some(0) && !benign_search;
         let err_text = cached.map_or_else(|| ansi_stripped(err_raw.as_deref().unwrap_or("")), |text| text[1].into());
-        let hint = if windows && may_have_failed {
-            powershell_bashism_hint(analysis_command, &err_text)
-        } else {
-            String::new()
-        };
+        let hint = if windows && may_have_failed { powershell_bashism_hint(analysis_command, &err_text) } else { String::new() };
         let check_stdout = rescue && may_have_failed && mixdog_js::js_trim(&err_text).is_empty();
         let out_edge = out.spilled_piece();
         let out_raw = (cached.is_none() && (out_edge.is_none() || check_stdout)).then(|| out.capture());
@@ -589,12 +554,7 @@ struct Compaction {
 
 /// Keep the prepared memory capture only when the plan was rejected and ordinary
 /// delivery can reuse it. A spilled stream always uses its own edge delivery.
-async fn try_compaction(
-    runtime: &ExecRuntime,
-    ctx: &ToolContext,
-    job: &Job,
-    command: &str,
-) -> (Option<Compaction>, Option<[String; 2]>) {
+async fn try_compaction(runtime: &ExecRuntime, ctx: &ToolContext, job: &Job, command: &str) -> (Option<Compaction>, Option<[String; 2]>) {
     let Some((raw, spilled)) = compaction_input(runtime, ctx, job).await else { return (None, None) };
     let stripped = raw.each_ref().map(|text| ansi_stripped(text));
     let compacted = compaction_of(runtime, ctx, command, &raw, stripped.each_ref().map(|s| s.as_ref())).await;
@@ -609,47 +569,20 @@ async fn try_compaction(
     (None, Some([out_stripped.unwrap_or(out), err_stripped.unwrap_or(err)]))
 }
 
-async fn compaction_input(
-    runtime: &ExecRuntime,
-    ctx: &ToolContext,
-    job: &Job,
-) -> Option<([String; 2], bool)> {
-    if job.captured_bytes() > crate::fs::common::output_max_bytes()
-        || runtime.config.data_dir.is_none()
-        || !env_flag("MIXDOG_SHELL_LOSSLESS_COMPACT", true)
-    {
+async fn compaction_input(runtime: &ExecRuntime, ctx: &ToolContext, job: &Job) -> Option<([String; 2], bool)> {
+    if job.captured_bytes() > crate::fs::common::output_max_bytes() || runtime.config.data_dir.is_none() || !env_flag("MIXDOG_SHELL_LOSSLESS_COMPACT", true) {
         return None;
     }
     // A configured cap above the memory limit can admit a spilled capture. Only its logs
     // have the whole output. If either log is incomplete, keep the ordinary delivery instead.
     let spilled = job.spilled();
-    let (out, err) = if spilled {
-        job.captured_from_logs(runtime.config.lanes.interactive, &ctx.cancel).await?
-    } else {
-        job.captured()
-    };
+    let (out, err) = if spilled { job.captured_from_logs(runtime.config.lanes.interactive, &ctx.cancel).await? } else { job.captured() };
     Some(([out, err], spilled))
 }
 
 /// `compactShellOutputLosslessly`: a plan that saves enough, with the full captures archived.
-async fn compaction_of(
-    runtime: &ExecRuntime,
-    ctx: &ToolContext,
-    command: &str,
-    raw: &[String; 2],
-    [out, err]: [&str; 2],
-) -> Option<Compaction> {
-    let plan = plan(
-        command,
-        out,
-        err,
-        &Outcome {
-            exit_code: Some(0),
-            signal: false,
-            timed_out: false,
-            has_existing_recovery: false,
-        },
-    )?;
+async fn compaction_of(runtime: &ExecRuntime, ctx: &ToolContext, command: &str, raw: &[String; 2], [out, err]: [&str; 2]) -> Option<Compaction> {
+    let plan = plan(command, out, err, &Outcome { exit_code: Some(0), signal: false, timed_out: false, has_existing_recovery: false })?;
     let data_dir = runtime.config.data_dir.as_deref()?;
     let lane = runtime.config.lanes.durability;
     let mut recovery = Vec::new();
@@ -680,9 +613,7 @@ async fn completed(
     timeout_ms: u64,
 ) -> ToolOutcome {
     let (compaction, cached) = match job.exit() {
-        Some(ProcessExit { killed: None, status: ExitStatus::Code(0) }) => {
-            try_compaction(runtime, ctx, job, command).await
-        }
+        Some(ProcessExit { killed: None, status: ExitStatus::Code(0) }) => try_compaction(runtime, ctx, job, command).await,
         _ => (None, None),
     };
     // The tee file is always consumed (deleted); its tail is attached only when the run failed
@@ -701,11 +632,7 @@ async fn completed(
         let heading = if survivors.reachable { SURVIVING_DESCENDANTS_WARNING } else { SURVIVING_DESCENDANTS_UNREACHABLE_WARNING };
         format!("{heading}\n{}", tracked.render(true, None))
     });
-    let warning_block = [survivor_warning.as_str(), rewrite_note]
-        .into_iter()
-        .filter(|s| !s.is_empty())
-        .collect::<Vec<_>>()
-        .join("\n");
+    let warning_block = [survivor_warning.as_str(), rewrite_note].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n");
     let exit = job.exit();
     let mut output = match compaction {
         Some(c) => ForegroundOutput { payload: compacted_payload(job, &c), exit, ..ForegroundOutput::default() },
@@ -744,7 +671,11 @@ fn render_foreground_result(
     let ForegroundOutput { mut payload, exit, benign_search, hint, attach_rescue } = output;
     let clean_exit = clean_exit_code(exit);
     let benign = clean_exit == Some(1) && benign_search;
-    if attach_rescue && clean_exit != Some(0) && !benign && let Some(tail) = tee_tail {
+    if attach_rescue
+        && clean_exit != Some(0)
+        && !benign
+        && let Some(tail) = tee_tail
+    {
         payload.push_str(&filter_rescue_note(tail));
     }
     // `_composeShellFailure`: the rewrite note rides the status; the PowerShell hint follows the
@@ -764,10 +695,7 @@ fn render_foreground_result(
             return Err(error);
         }
         let text = compose("[shell-run-failed] [missing exit status]".into(), true, false);
-        return Err(failed(
-            ToolErrorCode::Unavailable { capability: "shell".into(), reason: "missing exit status".into() },
-            text,
-        ));
+        return Err(failed(ToolErrorCode::Unavailable { capability: "shell".into(), reason: "missing exit status".into() }, text));
     };
     let signal_of = |status: ExitStatus| match status {
         ExitStatus::Signal(n) => Some(signal_name(n).map_or_else(|| n.to_string(), str::to_owned)),
@@ -797,10 +725,7 @@ fn render_foreground_result(
         (None, ExitStatus::Signal(n)) => {
             let signal = signal_name(n).map_or_else(|| n.to_string(), str::to_owned);
             let text = compose(format!("[shell-run-failed] [signal: {signal}]"), true, false);
-            Err(failed(
-                ToolErrorCode::Unavailable { capability: "shell".into(), reason: format!("signal {signal}") },
-                text,
-            ))
+            Err(failed(ToolErrorCode::Unavailable { capability: "shell".into(), reason: format!("signal {signal}") }, text))
         }
         (None, ExitStatus::Code(code)) => {
             let marker = format!(
@@ -865,16 +790,10 @@ mod tests {
         let cancel = tokio_util::sync::CancellationToken::new();
         cancel.cancel();
         let mut output = ForegroundOutput { payload: "partial output".into(), ..ForegroundOutput::default() };
-        output.recheck_exit(
-            || Some(ProcessExit { status: ExitStatus::Code(137), killed: Some(KillReason::Requested) }),
-            || false,
-        );
+        output.recheck_exit(|| Some(ProcessExit { status: ExitStatus::Code(137), killed: Some(KillReason::Requested) }), || false);
         let error = render_foreground_result(output, "run", "", 0, &cancel, None).unwrap_err();
         assert!(matches!(error.code, ToolErrorCode::Cancelled));
-        assert_eq!(
-            error.message_for_model,
-            "Error: [shell-run-failed] [signal: SIGKILL cause: cancellation]\n\npartial output",
-        );
+        assert_eq!(error.message_for_model, "Error: [shell-run-failed] [signal: SIGKILL cause: cancellation]\n\npartial output",);
         assert!(error.partial.is_some());
     }
 
@@ -882,15 +801,9 @@ mod tests {
     fn late_search_exit_one_uses_settled_stderr_for_no_match() {
         let cancel = tokio_util::sync::CancellationToken::new();
         let command = "grep x f";
-        for (stderr, expected) in [
-            ("", "[exit code: 1]\n[outcome: no-match]\n\n(no output)"),
-            ("grep: read error\n", "[exit code: 1]\n\n(no output)"),
-        ] {
+        for (stderr, expected) in [("", "[exit code: 1]\n[outcome: no-match]\n\n(no output)"), ("grep: read error\n", "[exit code: 1]\n\n(no output)")] {
             let mut output = ForegroundOutput { payload: "(no output)".into(), ..ForegroundOutput::default() };
-            output.recheck_exit(
-                || Some(ProcessExit { status: ExitStatus::Code(1), killed: None }),
-                || is_benign_search_exit_one(command, 1, false, stderr),
-            );
+            output.recheck_exit(|| Some(ProcessExit { status: ExitStatus::Code(1), killed: None }), || is_benign_search_exit_one(command, 1, false, stderr));
             let result = render_foreground_result(output, command, "", 0, &cancel, None).unwrap();
             assert!(matches!(result.parts.as_slice(), [ToolPart::Text(text)] if text == expected), "{stderr:?}");
         }
@@ -934,7 +847,6 @@ mod tests {
         assert_eq!(unix_signal_name(32), None);
     }
 
-
     /// An exit status above 128 names its signal and 126 names a non-executable; the Windows signal table has no
     /// entry for the other codes (134, 160 and above included).
     #[cfg(windows)]
@@ -955,7 +867,6 @@ mod tests {
         }
     }
 }
-
 
 fn process_env(name: &str) -> Option<String> {
     std::env::var(name).ok()
@@ -981,19 +892,13 @@ async fn cancel_foreground(runtime: &Arc<ExecRuntime>, ctx: &ToolContext, job: &
 impl ShellTool {
     #[allow(clippy::result_large_err, reason = "Preserve the canonical structured ToolError and ToolOutcome contract without per-error boxing.")]
     pub(super) async fn run(&self, ctx: &ToolContext, args: JsonValue, posix: bool, env: &(dyn Fn(&str) -> Option<String> + Sync)) -> ToolOutcome {
-        let args = guard_shell_args(args)
-            .map_err(|text| failed(ToolErrorCode::InvalidArgs { field: "arguments".into(), reason: text.clone() }, text))?;
+        let args = guard_shell_args(args).map_err(|text| failed(ToolErrorCode::InvalidArgs { field: "arguments".into(), reason: text.clone() }, text))?;
         let args: Args = serde_json::from_value(args).map_err(|e| {
-            failed(
-                ToolErrorCode::InvalidArgs { field: "arguments".into(), reason: e.to_string() },
-                tool_failure(&format!("invalid arguments: {e}")),
-            )
+            failed(ToolErrorCode::InvalidArgs { field: "arguments".into(), reason: e.to_string() }, tool_failure(&format!("invalid arguments: {e}")))
         })?;
         let runtime = &self.runtime;
         let background_enabled = self.background_enabled;
-        if !background_enabled
-            && let Some(field) = args.background.map(|_| "background").or(args.wait_ms.map(|_| "wait_ms"))
-        {
+        if !background_enabled && let Some(field) = args.background.map(|_| "background").or(args.wait_ms.map(|_| "wait_ms")) {
             let reason = "background shell tasks are disabled";
             return Err(failed(
                 ToolErrorCode::InvalidArgs { field: field.into(), reason: reason.into() },
@@ -1001,23 +906,17 @@ impl ShellTool {
             ));
         }
         if args.command.is_empty() {
-            return Err(failed(
-                ToolErrorCode::InvalidArgs { field: "command".into(), reason: "required".into() },
-                tool_failure("command is required"),
-            ));
+            return Err(failed(ToolErrorCode::InvalidArgs { field: "command".into(), reason: "required".into() }, tool_failure("command is required")));
         }
         // A call that asks for the bash shell is read as POSIX syntax where one resolves (`requestedShellType`).
         // Reject the invalid empty command before lane admission, so a full lane cannot replace that argument error.
-        let bash_requested = posix && super::shell_choice::bash_request_is_posix_on(runtime.config.windows, runtime.config.lanes.spawn, &ctx.cancel)
-            .await
-            .map_err(|reason| failed(
-                ToolErrorCode::Unavailable { capability: "shell".into(), reason: reason.clone() },
-                tool_failure(&reason),
-            ))?;
+        let bash_requested = posix
+            && super::shell_choice::bash_request_is_posix_on(runtime.config.windows, runtime.config.lanes.spawn, &ctx.cancel)
+                .await
+                .map_err(|reason| failed(ToolErrorCode::Unavailable { capability: "shell".into(), reason: reason.clone() }, tool_failure(&reason)))?;
         let check_policy = |text: &str| -> Result<(), ToolError> {
             let verdict = runtime.config.policy.evaluate(text);
-            let elevation_approved =
-                matches!(verdict, ExecVerdict::Ask(_)) && runtime.config.elevation.approved(ctx, text);
+            let elevation_approved = matches!(verdict, ExecVerdict::Ask(_)) && runtime.config.elevation.approved(ctx, text);
             match verdict.refusal(elevation_approved) {
                 Some(block) => Err(failed(ToolErrorCode::PermissionDenied, tool_failure(&block))),
                 None => Ok(()),
@@ -1025,10 +924,11 @@ impl ShellTool {
         };
         // The misuse guards run first: a leading sleep, a leading `cd` (moved into `cwd`), a
         // shell file read (a note) and `git … worktree add`.
-        let (guarded, guarded_cwd, guard_notes) = match guard_call(ctx, &args.command, args.cwd.as_deref(), args.background == Some(true), runtime.config.powershell && !bash_requested).await {
-            Guarded::Refused(text) => return Err(failed(ToolErrorCode::PermissionDenied, text)),
-            Guarded::Run { command, cwd, notes } => (command, cwd, notes),
-        };
+        let (guarded, guarded_cwd, guard_notes) =
+            match guard_call(ctx, &args.command, args.cwd.as_deref(), args.background == Some(true), runtime.config.powershell && !bash_requested).await {
+                Guarded::Refused(text) => return Err(failed(ToolErrorCode::PermissionDenied, text)),
+                Guarded::Run { command, cwd, notes } => (command, cwd, notes),
+            };
         let cwd = resolve_cwd(ctx, guarded_cwd).await?;
         check_policy(&guarded)?;
         // wmic → Get-CimInstance (PowerShell only): the text that runs is not the text the caller
@@ -1036,29 +936,15 @@ impl ShellTool {
         let mut command = guarded;
         // The shell of this spawn: the setting is read now, as Node does on every spawn.
         let configured = runtime.config.shell.configured();
-        let default_shell =
-            default_program(&runtime.config.shell, runtime.config.lanes.spawn, &ctx.cancel, &configured)
-                .await
-                .map_err(|reason| {
-                    failed(
-                        ToolErrorCode::Unavailable { capability: "shell".into(), reason: reason.clone() },
-                        tool_failure(&reason),
-                    )
-                })?;
-        let shell_program = chosen_shell(
-            runtime.config.windows,
-            &configured,
-            std::env::var("MIXDOG_SHELL").ok().as_deref(),
-            &default_shell,
-        );
+        let default_shell = default_program(&runtime.config.shell, runtime.config.lanes.spawn, &ctx.cancel, &configured)
+            .await
+            .map_err(|reason| failed(ToolErrorCode::Unavailable { capability: "shell".into(), reason: reason.clone() }, tool_failure(&reason)))?;
+        let shell_program = chosen_shell(runtime.config.windows, &configured, std::env::var("MIXDOG_SHELL").ok().as_deref(), &default_shell);
         let (mut rewrite_notes, mut hard_cap) = (Vec::<String>::new(), 0u64);
         if runtime.config.powershell {
             match rewrite_wmic_process(&command) {
                 Some(Err(message)) => {
-                    return Err(failed(
-                        ToolErrorCode::InvalidArgs { field: "command".into(), reason: message.clone() },
-                        tool_failure(&message),
-                    ));
+                    return Err(failed(ToolErrorCode::InvalidArgs { field: "command".into(), reason: message.clone() }, tool_failure(&message)));
                 }
                 Some(Ok(rewrite)) => {
                     command = rewrite.command;
@@ -1077,7 +963,11 @@ impl ShellTool {
         // Effects and results are read from the command as the caller meant it.
         let analysis_command = command.clone();
         // Bash-isms that always fail in Windows PowerShell are rewritten before the first run.
-        if runtime.config.windows && runtime.config.powershell && hard_cap == 0 && let Some((text, note)) = rewrite_powershell_bashisms(&command) {
+        if runtime.config.windows
+            && runtime.config.powershell
+            && hard_cap == 0
+            && let Some((text, note)) = rewrite_powershell_bashisms(&command)
+        {
             command = text;
             rewrite_notes.push(note);
         }
@@ -1088,29 +978,18 @@ impl ShellTool {
         // Inline scripts and oversized commands run from a file, so the host shell never has to
         // carry them through its quoting layer.
         let mut hoist_path = None;
-        let planned = plan_hoist(
-            &command,
-            runtime.config.windows,
-            runtime.config.powershell,
-            runtime.config.script_syntax.as_ref(),
-            &ctx.thread_id,
-        )
-        .await
-        .map_err(|error| {
-            // The exact `await` check could not be made: the call fails rather than guessing.
-            let reason = format!("{error:?}");
-            failed(
-                ToolErrorCode::Unavailable { capability: "syntax.check".into(), reason: reason.clone() },
-                tool_failure(&format!("script syntax check unavailable: {reason}")),
-            )
-        })?;
-        if let Some(plan) = planned && let Some(path) = spill::write_hoist_file(
-            runtime.config.lanes.spawn,
-            &ctx.cancel,
-            plan.extension,
-            &plan.body,
-        )
-        .await
+        let planned = plan_hoist(&command, runtime.config.windows, runtime.config.powershell, runtime.config.script_syntax.as_ref(), &ctx.thread_id)
+            .await
+            .map_err(|error| {
+                // The exact `await` check could not be made: the call fails rather than guessing.
+                let reason = format!("{error:?}");
+                failed(
+                    ToolErrorCode::Unavailable { capability: "syntax.check".into(), reason: reason.clone() },
+                    tool_failure(&format!("script syntax check unavailable: {reason}")),
+                )
+            })?;
+        if let Some(plan) = planned
+            && let Some(path) = spill::write_hoist_file(runtime.config.lanes.spawn, &ctx.cancel, plan.extension, &plan.body).await
         {
             command = plan.replace(&path.to_string_lossy().replace('\\', "/"));
             hoist_path = Some(path);
@@ -1119,22 +998,14 @@ impl ShellTool {
         let hold = hold_ms(&args, time_limit, background_enabled, env);
         let at_hold_end = hold_end(args.background == Some(true), time_limit, hold, env);
 
-        let scratch = runtime
-            .config
-            .data_dir
-            .as_deref()
-            .and_then(|data| session_scratch_dir(data, ctx.thread_id.as_str()));
+        let scratch = runtime.config.data_dir.as_deref().and_then(|data| session_scratch_dir(data, ctx.thread_id.as_str()));
         if let Some(dir) = &scratch {
             spill::create_dir(runtime.config.lanes.spawn, &ctx.cancel, dir).await;
         }
-        let vars: Vec<(String, String)> = std::env::vars_os()
-            .filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?)))
-            .collect();
+        let vars: Vec<(String, String)> = std::env::vars_os().filter_map(|(k, v)| Some((k.into_string().ok()?, v.into_string().ok()?))).collect();
         // The skill launchers: files written for this installation, their directory first on PATH.
         let launcher_dir: Option<PathBuf> = match (&runtime.config.skill_runtime, runtime.config.data_dir.as_deref()) {
-            (Some(rt), Some(data)) => {
-                Some(spill::ensure_launchers(runtime.config.lanes.spawn, &ctx.cancel, &runtime.launchers, rt, data).await)
-            }
+            (Some(rt), Some(data)) => Some(spill::ensure_launchers(runtime.config.lanes.spawn, &ctx.cancel, &runtime.launchers, rt, data).await),
             _ => runtime.config.skill_launcher_dir.clone(),
         };
         let mut env = shell_env(
@@ -1148,32 +1019,16 @@ impl ShellTool {
         );
 
         // A simple native `.exe` skips the PowerShell startup (Windows + PowerShell only).
-        let path_value = env
-            .set
-            .iter()
-            .chain(vars.iter())
-            .find(|(k, _)| k.eq_ignore_ascii_case("PATH"))
-            .map(|(_, v)| v.clone())
-            .unwrap_or_default();
-        let direct = plan_direct_exe(
-            runtime.config.lanes.spawn,
-            &ctx.cancel,
-            &command,
-            runtime.config.windows,
-            runtime.config.powershell,
-            cwd.as_path(),
-            &path_value,
-        )
-        .await;
+        let path_value = env.set.iter().chain(vars.iter()).find(|(k, _)| k.eq_ignore_ascii_case("PATH")).map(|(_, v)| v.clone()).unwrap_or_default();
+        let direct =
+            plan_direct_exe(runtime.config.lanes.spawn, &ctx.cancel, &command, runtime.config.windows, runtime.config.powershell, cwd.as_path(), &path_value)
+                .await;
         let mut tee_path: Option<PathBuf> = None;
         // A PowerShell script is fed on stdin to `POWERSHELL_BOOTSTRAP` (Node's fresh pwsh spawn,
         // `shell-run-spawn.mjs`).
         let mut fed_script: Option<String> = None;
         let spec = match direct {
-            Some(direct) => CommandSpec::Argv {
-                program: direct.exe.to_string_lossy().into_owned(),
-                args: direct.argv,
-            },
+            Some(direct) => CommandSpec::Argv { program: direct.exe.to_string_lossy().into_owned(), args: direct.argv },
             None => {
                 let skill = runtime.config.skill_runtime.as_ref();
                 if runtime.config.windows && runtime.config.powershell {
@@ -1193,7 +1048,9 @@ impl ShellTool {
                     // The command travels in the environment, not argv, behind a snapshot of the
                     // user's shell state when one can be made.
                     let mut wrapped = command.clone();
-                    if std::env::var("MIXDOG_BASH_SNAPSHOT").as_deref() != Ok("off") && let (Some(data), Some(dir)) = (runtime.config.data_dir.as_deref(), launcher_dir.as_deref()) {
+                    if std::env::var("MIXDOG_BASH_SNAPSHOT").as_deref() != Ok("off")
+                        && let (Some(data), Some(dir)) = (runtime.config.data_dir.as_deref(), launcher_dir.as_deref())
+                    {
                         let snapshot = runtime
                             .snapshots
                             .get(SnapshotRequest {
@@ -1213,10 +1070,7 @@ impl ShellTool {
                         }
                     }
                     env.set.push(("MIXDOG_SHELL_SCRIPT".to_owned(), wrapped));
-                    CommandSpec::Shell {
-                        script: EVAL_SCRIPT.to_owned(),
-                        shell: Some(shell_program),
-                    }
+                    CommandSpec::Shell { script: EVAL_SCRIPT.to_owned(), shell: Some(shell_program) }
                 } else {
                     CommandSpec::Shell { script: command.clone(), shell: None }
                 }
@@ -1232,10 +1086,7 @@ impl ShellTool {
             pty: None,
             stdin_piped: fed_script.is_some(),
             output: OutputMode::Separate,
-            owner: ProcessOwner::Tool {
-                thread_id: ctx.thread_id.clone(),
-                tool_call_id: ctx.call_id.clone(),
-            },
+            owner: ProcessOwner::Tool { thread_id: ctx.thread_id.clone(), tool_call_id: ctx.call_id.clone() },
             time_limit: (time_limit > 0).then(|| Duration::from_millis(time_limit)),
         };
         // A PowerShell script runs in the parked warm standby when it matches (`takeStandby`, `shell-run-spawn.mjs`),
@@ -1249,7 +1100,17 @@ impl ShellTool {
         };
         let hand_off = super::standby::hand_off_prelude(&request.env, &request.cwd.as_path().to_string_lossy());
         let started = runtime
-            .start(&ctx.processes, request, standby, task_id, command.clone(), ctx.thread_id.clone(), time_limit.max(background_limit), ctx.review.clone(), ctx.options.notify.clone())
+            .start(
+                &ctx.processes,
+                request,
+                standby,
+                task_id,
+                command.clone(),
+                ctx.thread_id.clone(),
+                time_limit.max(background_limit),
+                ctx.review.clone(),
+                ctx.options.notify.clone(),
+            )
             .await;
         let job = match started {
             Ok(job) => job,

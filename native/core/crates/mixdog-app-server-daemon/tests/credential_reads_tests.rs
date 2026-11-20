@@ -47,7 +47,6 @@ fn the_admin_key_variable_probe_is_one_credential_read() {
     }
 }
 
-
 /// The Windows store (DPAPI files) over a directory the test owns: a lookup is exactly one read, and `is_fallback` is a
 /// constant that reads nothing. Only Windows has a platform store the test can own: macOS ignores the directory and reads
 /// the user's real keychain, Linux the real keyring (two reads on a keyring miss: keyring, then the fallback file), so

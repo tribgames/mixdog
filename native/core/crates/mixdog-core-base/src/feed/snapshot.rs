@@ -30,13 +30,7 @@ pub(super) struct SnapshotCache {
 
 impl SnapshotCache {
     pub fn new(limit: usize) -> Self {
-        Self {
-            seq: 0,
-            flights: HashMap::new(),
-            completed: VecDeque::new(),
-            completed_bytes: 0,
-            limit,
-        }
+        Self { seq: 0, flights: HashMap::new(), completed: VecDeque::new(), completed_bytes: 0, limit }
     }
 
     /// The flight for the snapshot at `seq` for `window`, and whether the caller leads it
@@ -58,11 +52,7 @@ impl SnapshotCache {
 
     pub fn retain_completed(&mut self, window: &Window, flight: &Arc<Flight>, len: usize) {
         // A publish or same-seq view swap may have replaced this flight while it ran.
-        if !self
-            .flights
-            .get(window)
-            .is_some_and(|current| Arc::ptr_eq(current, flight))
-        {
+        if !self.flights.get(window).is_some_and(|current| Arc::ptr_eq(current, flight)) {
             return;
         }
         let charge = len.max(1); // Bound entries even for empty encodings.
@@ -108,9 +98,7 @@ impl Default for FlightState {
 
 impl Flight {
     fn lock(&self) -> MutexGuard<'_, FlightState> {
-        self.state
-            .lock()
-            .unwrap_or_else(|poisoned| poisoned.into_inner())
+        self.state.lock().unwrap_or_else(|poisoned| poisoned.into_inner())
     }
 
     fn failed(&self) -> bool {
@@ -157,9 +145,7 @@ pub(super) struct Lead {
 
 impl Lead {
     pub fn new(flight: Arc<Flight>) -> Self {
-        Self {
-            flight: Some(flight),
-        }
+        Self { flight: Some(flight) }
     }
 
     /// Marks the flight complete, handing back the parked slots for delivery outside the locks.

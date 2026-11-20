@@ -72,9 +72,7 @@ fn token_dir_names(lock_dir: &Path) -> Option<Vec<String>> {
     let mut names: Vec<String> = entries
         .filter_map(Result::ok)
         .filter_map(|entry| entry.file_name().into_string().ok())
-        .filter(|name| {
-            name.len() == TOKEN_LEN && name.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
-        })
+        .filter(|name| name.len() == TOKEN_LEN && name.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
         .collect();
     names.sort();
     Some(names)
@@ -98,20 +96,13 @@ fn inspect(lock_dir: &Path, stale: Duration, host: &dyn EnsureHost) -> Holder {
     let now = host.now_ms();
     let Some(token) = holders.into_iter().next() else {
         let Some(since) = mtime_ms(lock_dir) else { return gone };
-        return Holder {
-            gone: false,
-            stale: now.saturating_sub(since) > ABANDONED_AFTER_MS,
-            token: None,
-            owner: None,
-        };
+        return Holder { gone: false, stale: now.saturating_sub(since) > ABANDONED_AFTER_MS, token: None, owner: None };
     };
     let token_dir = lock_dir.join(&token);
     let Some(dir_since) = mtime_ms(&token_dir) else {
         return Holder { gone: false, stale: false, token: None, owner: None };
     };
-    let owner: Option<Owner> = fs::read(token_dir.join("owner.json"))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok());
+    let owner: Option<Owner> = fs::read(token_dir.join("owner.json")).ok().and_then(|bytes| serde_json::from_slice(&bytes).ok());
     let since = owner.as_ref().map_or(dir_since, |o| if o.started_at > 0 { o.started_at } else { dir_since });
     let age = now.saturating_sub(since);
     let stale_now = match &owner {
@@ -182,17 +173,8 @@ fn describe(owner: Option<&Owner>) -> String {
 }
 
 impl InstallLock {
-    pub fn acquire(
-        lock_dir: &Path,
-        options: &LockOptions,
-        host: &dyn EnsureHost,
-    ) -> Result<Self, EnsureError> {
-        let failed = |error: std::io::Error| {
-            EnsureError::InstallFailed(format!(
-                "Cannot create the install lock {}: {error}",
-                lock_dir.display()
-            ))
-        };
+    pub fn acquire(lock_dir: &Path, options: &LockOptions, host: &dyn EnsureHost) -> Result<Self, EnsureError> {
+        let failed = |error: std::io::Error| EnsureError::InstallFailed(format!("Cannot create the install lock {}: {error}", lock_dir.display()));
         let token = crate::lifecycle::hex(&rand::random::<[u8; TOKEN_LEN / 2]>());
         let mine = lock_dir.join(&token);
         let pause = |duration| host.pause(duration);
@@ -242,10 +224,7 @@ impl InstallLock {
             }
             let waited = host.now_ms().saturating_sub(began);
             if waited >= u64::try_from(options.wait.as_millis()).unwrap_or(u64::MAX) {
-                return Err(EnsureError::InstallLocked {
-                    lock: lock_dir.display().to_string(),
-                    owner: describe(holder.owner.as_ref()),
-                });
+                return Err(EnsureError::InstallLocked { lock: lock_dir.display().to_string(), owner: describe(holder.owner.as_ref()) });
             }
             host.pause(POLL);
         }

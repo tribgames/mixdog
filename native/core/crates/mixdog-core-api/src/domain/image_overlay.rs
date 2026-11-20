@@ -321,7 +321,12 @@ mod tests {
 
     #[test]
     fn a_stored_image_reference_is_edited_like_an_inline_image_and_replaced_by_a_stored_file() {
-        let stored = |r: &str| ContentPart::File { source: crate::domain::provider::BinarySource::AttachmentRef(r.into()), mime_type: "image/png".into(), filename: Some("scan.png".into()), text: None };
+        let stored = |r: &str| ContentPart::File {
+            source: crate::domain::provider::BinarySource::AttachmentRef(r.into()),
+            mime_type: "image/png".into(),
+            filename: Some("scan.png".into()),
+            text: None,
+        };
         let mut tool = Message::new(Role::Tool, Content::Parts(vec![stored("a"), ContentPart::Text("x".into(), None), stored("b")]));
         tool.tool_call_id = Some("c1".into());
         let mut assistant = Message::new(Role::Assistant, Content::Text(String::new()));
@@ -334,13 +339,16 @@ mod tests {
         overlay.apply(&mut ids, &mut msgs).unwrap();
         let Content::Parts(parts) = &msgs[1].content else { panic!("parts") };
         assert_eq!(parts.len(), 2, "the omitted reference is gone, the text and the replacement stay in order");
-        assert!(matches!(&parts[1], ContentPart::File { source: crate::domain::provider::BinarySource::AttachmentRef(r), mime_type, filename, .. } if *r == "c".repeat(64) && mime_type == "image/jpeg" && filename.as_deref() == Some("new.jpg")));
+        assert!(
+            matches!(&parts[1], ContentPart::File { source: crate::domain::provider::BinarySource::AttachmentRef(r), mime_type, filename, .. } if *r == "c".repeat(64) && mime_type == "image/jpeg" && filename.as_deref() == Some("new.jpg"))
+        );
         assert_eq!(ImageOverlay::from_json(&overlay.to_json()), Some(overlay));
     }
 
     #[test]
     fn a_later_choice_addresses_the_image_where_the_transcript_keeps_it_after_an_earlier_one_closed_a_gap() {
-        let row = || (vec!["m".to_owned()], vec![Message::new(Role::User, Content::Parts(vec![img("a"), ContentPart::Text("t".into(), None), img("b"), img("c")]))]);
+        let row =
+            || (vec!["m".to_owned()], vec![Message::new(Role::User, Content::Parts(vec![img("a"), ContentPart::Text("t".into(), None), img("b"), img("c")]))]);
         let mut overlay = ImageOverlay::default();
         overlay.omit(key("m", 0));
         let (mut ids, mut msgs) = row();
@@ -368,7 +376,12 @@ mod tests {
             message.gemini_metadata = Some(json!({ "textParts": [] }));
             message
         };
-        let history = || (vec!["a1".to_owned(), "a2".to_owned()], vec![recorded(Content::Parts(vec![ContentPart::Text("t".into(), None), img("p")])), recorded(Content::Text("x".into()))]);
+        let history = || {
+            (
+                vec!["a1".to_owned(), "a2".to_owned()],
+                vec![recorded(Content::Parts(vec![ContentPart::Text("t".into(), None), img("p")])), recorded(Content::Text("x".into()))],
+            )
+        };
         let mut overlay = ImageOverlay::default();
         overlay.omit(key("a1", 1));
         let (mut ids, mut msgs) = history();

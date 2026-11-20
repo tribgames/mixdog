@@ -5,11 +5,7 @@
 //! Environment: `MIXDOG_RUNTIME_ROOT` is where discovery and the claim live; `FAKE_CORE_MODE` is `serve` (the default; runs until
 //! `fake-core.stop` appears beside discovery), `crash-before-serving` (publishes `booting`, then panics) or `crash-after-serving`
 //! (serves, then exits with status 7); `FAKE_CORE_BOOT_MS` is how long it stays `booting` (default 150).
-#![allow(
-    clippy::disallowed_methods,
-    clippy::disallowed_types,
-    reason = "a test core with no lane: it writes a few files and sleeps"
-)]
+#![allow(clippy::disallowed_methods, clippy::disallowed_types, reason = "a test core with no lane: it writes a few files and sleeps")]
 
 use std::path::Path;
 use std::path::PathBuf;

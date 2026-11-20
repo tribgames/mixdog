@@ -8,8 +8,8 @@
 #[path = "main.rs"]
 mod engine;
 
-pub use engine::ENGINE_CONTRACT_MARKER;
 pub use engine::ApplyOptions;
 pub use engine::ApplyStats;
+pub use engine::ENGINE_CONTRACT_MARKER;
 pub use engine::FailedEntry;
 pub use engine::apply_patch_to_base;

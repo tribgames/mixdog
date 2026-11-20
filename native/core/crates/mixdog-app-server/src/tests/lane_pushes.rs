@@ -9,8 +9,8 @@ use mixdog_core_api::Feed;
 use mixdog_core_api::FeedSource;
 use mixdog_core_api::ids::ThreadId;
 use mixdog_core_api::mock::event;
-use serde_json::json;
 use serde_json::Value;
+use serde_json::json;
 
 use super::Client;
 use super::Rig;

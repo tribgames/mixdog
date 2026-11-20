@@ -77,12 +77,8 @@ impl EarlyNotice {
             return false;
         }
         let Some(task) = job.snapshot() else { return false };
-        let owner = [&context.caller_session_id, &context.owner_session_id]
-            .into_iter()
-            .flatten()
-            .find(|s| !s.is_empty())
-            .map(|s| clean_str(s))
-            .unwrap_or_default();
+        let owner =
+            [&context.caller_session_id, &context.owner_session_id].into_iter().flatten().find(|s| !s.is_empty()).map(|s| clean_str(s)).unwrap_or_default();
         if owner.is_empty() {
             return false;
         }

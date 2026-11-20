@@ -448,6 +448,4 @@ mod tests {
         assert!(rows.rows().await.unwrap().is_empty(), "no log yet: not judged");
         assert_eq!(rows.known_ids().await.unwrap(), ["sess_converting"]);
     }
-
-
 }

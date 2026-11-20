@@ -1,10 +1,7 @@
 //! The project graph a `code_graph` query answers from: one node per indexed source file,
 //! built from `mixdog-graph`'s parse (symbols, call sites, tokens, raw imports) and the
 //! import edges resolved over the indexed file set.
-#![allow(
-    clippy::disallowed_methods,
-    reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)"
-)]
+#![allow(clippy::disallowed_methods, reason = "blocking filesystem reads; the whole call runs as one maintenance-lane job (CodeGraphTool::call)")]
 
 use std::collections::{BTreeSet, HashMap, HashSet};
 use std::io::Read as _;
@@ -21,9 +18,9 @@ use mixdog_graph::{MAX_FILE_BYTES, walk_classified_files};
 use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
-use super::cache::{CachedFile, GraphCache, Ledger, Receipts};
 #[cfg(test)]
 use super::cache::GraphFiles;
+use super::cache::{CachedFile, GraphCache, Ledger, Receipts};
 use super::roots::{identity_key, path_key};
 
 // File versions. A file's *discovery* fingerprint is `(size, mtime_ns)`: a file whose fingerprint equals the one a record
@@ -100,7 +97,12 @@ impl Record {
     fn weigh(mut self) -> Self {
         let strings = |items: &[String]| items.iter().map(|s| 24 + s.len() as u64).sum::<u64>();
         let symbols: u64 = self.symbols.iter().map(|s| (std::mem::size_of::<SymbolInfo>() + s.name.len() + s.sig.len() + s.parent.len()) as u64).sum();
-        self.weight = (std::mem::size_of::<Record>() + self.rel.len() + self.parse_error.len() + self.package_name.len() + self.namespace_name.len() + self.go_package_name.len()) as u64
+        self.weight = (std::mem::size_of::<Record>()
+            + self.rel.len()
+            + self.parse_error.len()
+            + self.package_name.len()
+            + self.namespace_name.len()
+            + self.go_package_name.len()) as u64
             + symbols
             + strings(&self.raw_imports)
             + strings(&self.top_level_types)
@@ -333,9 +335,7 @@ fn forced_mismatch() -> bool {
 }
 
 pub(super) fn split_lines(text: &str) -> Vec<String> {
-    text.split('\n')
-        .map(|l| l.strip_suffix('\r').unwrap_or(l).to_string())
-        .collect()
+    text.split('\n').map(|l| l.strip_suffix('\r').unwrap_or(l).to_string()).collect()
 }
 
 /// Node's runtime caches of a resident graph (graph-model.mjs:150 `GRAPH_RUNTIME_CACHE_KEYS`) as the casing hint and
@@ -359,7 +359,8 @@ const RUNTIME_CACHE_KEYS: [&str; 6] =
 impl Runtime {
     /// graph-model.mjs:204 `_estimateGraphRetainedBytes` over the runtime caches: each key and its Map
     /// (`_estimateRuntimeCacheBytes`, graph-model.mjs:240).
-    pub fn cache_bytes(&self) -> u64 {        let maps: u64 = RUNTIME_CACHE_KEYS.iter().map(|k| 8 + js_str(k) + 48).sum();
+    pub fn cache_bytes(&self) -> u64 {
+        let maps: u64 = RUNTIME_CACHE_KEYS.iter().map(|k| 8 + js_str(k) + 48).sum();
         maps + self.keys.iter().map(|(_, b)| b).sum::<u64>() + self.sources.values().sum::<u64>()
     }
 
@@ -439,7 +440,17 @@ mod measured_tests {
     #[test]
     fn a_symbol_and_a_call_measure_as_their_serialized_values() {
         let of = |value: serde_json::Value| js_value(&value);
-        let mut symbol = SymbolInfo { name: "읽기".into(), kind: "function", start_line: 3, end_line: 9, start_col: 1, end_col: 2, exported: false, sig: String::new(), parent: String::new() };
+        let mut symbol = SymbolInfo {
+            name: "읽기".into(),
+            kind: "function",
+            start_line: 3,
+            end_line: 9,
+            start_col: 1,
+            end_col: 2,
+            exported: false,
+            sig: String::new(),
+            parent: String::new(),
+        };
         assert_eq!(symbol_bytes(&symbol), of(serde_json::to_value(&symbol).unwrap()));
         symbol.exported = true;
         symbol.sig = "pub fn 읽기(path: &Path) -> io::Result<String>".into();
@@ -469,7 +480,8 @@ fn source_entry_bytes(rel: &str, text: &str) -> u64 {
 }
 
 /// Node's graph signature (`<sha1 hex>#calls2`) and record schema version.
-const SIGNATURE_UNITS: usize = 47;const SCHEMA_VERSION: &str = "sym-record-v2-unified-kinds";
+const SIGNATURE_UNITS: usize = 47;
+const SCHEMA_VERSION: &str = "sym-record-v2-unified-kinds";
 
 pub(super) struct Graph {
     pub nodes: Vec<Node>,
@@ -631,7 +643,6 @@ mod bound_tests {
     }
 }
 
-
 /// `(size, mtime_ns)` of a file, from one metadata call.
 fn stamp_of(meta: &std::fs::Metadata) -> Option<(u64, u64)> {
     let nanos = meta.modified().ok()?.duration_since(std::time::UNIX_EPOCH).ok()?.as_nanos();
@@ -640,8 +651,8 @@ fn stamp_of(meta: &std::fs::Metadata) -> Option<(u64, u64)> {
 
 /// Open a source within the selected root; refuse raced links and check the actual open handle.
 fn open_source(root: &Path, rel: &Path) -> Option<(mixdog_fsio::File, PathBuf)> {
-    use mixdog_workspace::pathguard::canonical;
     use mixdog_workspace::ident::names_equal;
+    use mixdog_workspace::pathguard::canonical;
     let mut path = canonical(root).ok()?;
     for component in rel.components() {
         let std::path::Component::Normal(name) = component else { return None };
@@ -716,9 +727,7 @@ impl Node {
         let mut read = || -> Option<bool> {
             let (file, path) = open_source(&self.origin.root, Path::new(&self.rel))?;
             (&file).take(MAX_FILE_BYTES + 1).read_to_end(bytes).ok()?;
-            Some(bytes.len() as u64 <= MAX_FILE_BYTES
-                && source_here(&file, &path)
-                && digest_of(bytes) == self.digest && (!for_body || !forced_mismatch()))
+            Some(bytes.len() as u64 <= MAX_FILE_BYTES && source_here(&file, &path) && digest_of(bytes) == self.digest && (!for_body || !forced_mismatch()))
         };
         let current = read().unwrap_or(false);
         if !current {
@@ -805,18 +814,11 @@ impl Graph {
     }
 
     pub fn dependents(&self, rel: &str) -> Vec<String> {
-        self.reverse
-            .get(rel)
-            .map(|set| set.iter().cloned().collect())
-            .unwrap_or_default()
+        self.reverse.get(rel).map(|set| set.iter().cloned().collect()).unwrap_or_default()
     }
 
     /// Candidate files of a name: the ones whose tokens contain it.
-    pub fn token_candidates<'a>(
-        &'a self,
-        name: &'a str,
-        language: Option<&'a str>,
-    ) -> impl Iterator<Item = &'a Node> {
+    pub fn token_candidates<'a>(&'a self, name: &'a str, language: Option<&'a str>) -> impl Iterator<Item = &'a Node> {
         let key = format!("{}|{name}", language.unwrap_or("*"));
         let candidates = move |n: &&'a Node| language.is_none_or(|l| n.lang == l) && n.has_token(name);
         let mut runtime = self.lookups.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
@@ -898,7 +900,8 @@ impl Graph {
         Self::generation(&self.origin.root, key, entries, Some(self), hints, Some(cache))
     }
 
-    fn generation(root: &Path, key: &str, entries: &[Entry], base: Option<&Graph>, hints: &Receipts, cache: Option<&GraphCache>) -> Result<Arc<Graph>, String> {        use std::sync::atomic::AtomicUsize;
+    fn generation(root: &Path, key: &str, entries: &[Entry], base: Option<&Graph>, hints: &Receipts, cache: Option<&GraphCache>) -> Result<Arc<Graph>, String> {
+        use std::sync::atomic::AtomicUsize;
         let origin = match (base, cache) {
             (Some(base), _) => base.origin.successor(),
             (None, Some(cache)) => Origin::new(root, Some(cache.ledger())),
@@ -924,7 +927,9 @@ impl Graph {
         let one = |entry: &Entry| -> Result<Slot, String> {
             // A record of a hinted file stands only where its artifact processed exactly the hinted revision.
             // The unknown-location entry is every file's hint too.
-            let vouched = |receipts: &Receipts| [entry.identity.as_str(), Ledger::UNKNOWN].iter().all(|id| hints.get(*id).is_none_or(|revision| receipts.get(*id) == Some(revision)));
+            let vouched = |receipts: &Receipts| {
+                [entry.identity.as_str(), Ledger::UNKNOWN].iter().all(|id| hints.get(*id).is_none_or(|revision| receipts.get(*id) == Some(revision)))
+            };
             if let Some(node) = old.get(entry.rel.as_str())
                 && entry.stamp.is_some()
                 && node.lang == entry.lang
@@ -936,7 +941,11 @@ impl Graph {
             }
             let hit = previous.get(&entry.rel).filter(|_| vouched(&disk_receipts)).and_then(|slot| {
                 let mut slot = slot.lock().unwrap_or_else(std::sync::PoisonError::into_inner);
-                if slot.as_ref().is_some_and(|file| Some((file.size, file.mtime_ns)) == entry.stamp && digest_from_hex(&file.digest).is_some()) { slot.take() } else { None }
+                if slot.as_ref().is_some_and(|file| Some((file.size, file.mtime_ns)) == entry.stamp && digest_from_hex(&file.digest).is_some()) {
+                    slot.take()
+                } else {
+                    None
+                }
             });
             let record = match hit {
                 Some(file) => {
@@ -985,7 +994,11 @@ impl Graph {
         let in_graph: HashSet<&str> = nodes.iter().map(|node| node.rel.as_str()).collect();
         let in_inventory: HashSet<&str> = entries.iter().map(|entry| entry.identity.as_str()).collect();
         let with_node: HashSet<&str> = entries.iter().filter(|entry| in_graph.contains(entry.rel.as_str())).map(|entry| entry.identity.as_str()).collect();
-        let receipts: Receipts = hints.iter().filter(|(id, _)| with_node.contains(id.as_str()) || !in_inventory.contains(id.as_str())).map(|(id, revision)| (id.clone(), *revision)).collect();
+        let receipts: Receipts = hints
+            .iter()
+            .filter(|(id, _)| with_node.contains(id.as_str()) || !in_inventory.contains(id.as_str()))
+            .map(|(id, revision)| (id.clone(), *revision))
+            .collect();
         let started = std::time::Instant::now();
         let inputs = link_stable(root, &mut nodes)?;
         super::cache::note(|t| t.link_ms += super::cache::elapsed_ms(started));
@@ -1082,12 +1095,12 @@ impl Graph {
             + self.reverse.iter().map(|(k, set)| 48 + k.len() as u64 + set.iter().map(|s| 48 + s.len() as u64).sum::<u64>()).sum::<u64>()
     }
 
-
     /// graph-model.mjs:167 `_estimateGraphBaseBytes` of the graph Node holds for this file set: the object
     /// build.mjs:704 assembles (nodes shaped as build-file-infos.mjs:150 `assembleGraphNodes`), or, for a set
     /// loaded unchanged from the cache, the one graph-model.mjs:72 `_deserializeGraph` returns (no call sites, the
     /// `_callsHydration` marker, `truncated` only when set, empty token lists absent).
-    fn base_bytes(&self, root_key: &str, from_disk: bool) -> u64 {        let root_units = root_key.encode_utf16().count();
+    fn base_bytes(&self, root_key: &str, from_disk: bool) -> u64 {
+        let root_units = root_key.encode_utf16().count();
         let abs = |rel: &str| js_units(root_units + 1 + rel.encode_utf16().count());
         let mut imported_by: HashMap<&str, Vec<&str>> = HashMap::new();
         let mut reverse: Vec<(&str, Vec<&str>)> = Vec::new();
@@ -1175,12 +1188,7 @@ impl Graph {
 
     /// One file on its own, rooted at `root` (a symbol outline needs no edges).
     pub fn build_single(root: &Path, file: &Path) -> Result<Option<Graph>, String> {
-        let Some(lang) = file
-            .extension()
-            .and_then(|s| s.to_str())
-            .and_then(lang_for)
-            .map(lang_static)
-        else {
+        let Some(lang) = file.extension().and_then(|s| s.to_str()).and_then(lang_for).map(lang_static) else {
             return Ok(None);
         };
         if std::fs::metadata(file).map_err(|e| e.to_string())?.len() > MAX_FILE_BYTES {
@@ -1195,19 +1203,12 @@ impl Graph {
     }
 
     fn assemble(nodes: Vec<Node>, origin: Arc<Origin>) -> Graph {
-        let index = nodes
-            .iter()
-            .enumerate()
-            .map(|(i, n)| (n.rel.clone(), i))
-            .collect();
+        let index = nodes.iter().enumerate().map(|(i, n)| (n.rel.clone(), i)).collect();
         let mut reverse: HashMap<String, BTreeSet<String>> = HashMap::new();
         for node in &nodes {
             for target in &node.resolved_imports {
                 if *target != node.rel {
-                    reverse
-                        .entry(target.clone())
-                        .or_default()
-                        .insert(node.rel.clone());
+                    reverse.entry(target.clone()).or_default().insert(node.rel.clone());
                 }
             }
         }
@@ -1265,16 +1266,13 @@ fn read_observed(root: &Path, rel: &Path) -> Option<(Vec<u8>, (u64, u64))> {
         }
     });
     let after = stamp_of(&file.metadata(&mixdog_fsio::Unlaned).ok()?)?;
-    (before == after && before.0 == bytes.len() as u64 && before.0 <= MAX_FILE_BYTES
-        && source_here(&file, &path)).then_some((bytes, before))
+    (before == after && before.0 == bytes.len() as u64 && before.0 <= MAX_FILE_BYTES && source_here(&file, &path)).then_some((bytes, before))
 }
 /// Parses one file and drops its text: only what the graph keeps survives. `None`: the file could not be verified.
 fn parse_record(root: &Path, path: &Path, lang: &'static str, origin: &Origin) -> Result<Option<Record>, String> {
     #[cfg(test)]
     PARSED.with(|n| n.set(n.get() + 1));
-    let relative = path
-        .strip_prefix(root)
-        .map_err(|e| format!("path is outside graph root ({}): {e}", path.display()))?;
+    let relative = path.strip_prefix(root).map_err(|e| format!("path is outside graph root ({}): {e}", path.display()))?;
     let Some((bytes, fingerprint)) = read_observed(root, relative) else { return Ok(None) };
     let digest = digest_of(&bytes);
     let rel = relative.to_string_lossy().replace('\\', "/");

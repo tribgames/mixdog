@@ -12,6 +12,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::atomic::AtomicUsize;
 use std::sync::atomic::Ordering;
 
+use mixdog_store::schema::bounded::Text;
 use mixdog_store::schema::migration::COMPLETE_FORMAT;
 use mixdog_store::schema::migration::COMPLETE_PATH;
 use mixdog_store::schema::migration::Complete;
@@ -43,7 +44,6 @@ use mixdog_store::schema::migration::STAGE_DIR;
 use mixdog_store::schema::migration::SourceFile;
 use mixdog_store::schema::migration::StagedEntry;
 use mixdog_store::schema::migration::VerifiedEntry;
-use mixdog_store::schema::bounded::Text;
 
 use crate::desktop_profile::supplement;
 use crate::durable;
@@ -80,20 +80,13 @@ pub struct MigrateOptions {
 
 impl Default for MigrateOptions {
     fn default() -> Self {
-        Self {
-            workers: 4,
-            fault: None,
-            verified: None,
-        }
+        Self { workers: 4, fault: None, verified: None }
     }
 }
 
 /// Every kind group of the product, in planning order (sessions first: the shared
 /// sources and the profile's session metadata name session items).
-pub fn product_drivers(
-    projector: Arc<dyn crate::index::IndexProjector>,
-    office: crate::session::context_blobs::OfficeExtractor,
-) -> Vec<Arc<dyn ItemDriver>> {
+pub fn product_drivers(projector: Arc<dyn crate::index::IndexProjector>, office: crate::session::context_blobs::OfficeExtractor) -> Vec<Arc<dyn ItemDriver>> {
     let profile = Arc::new(crate::desktop_profile::DesktopProfileDriver::new());
     vec![
         Arc::new(crate::session::SessionDriver::new(vec![profile.clone()], office)),
@@ -248,10 +241,7 @@ impl Back {
 
     /// Project only the winning history of each home that has not finished
     /// conversion. The caller need not load payloads, archives or checkpoints.
-    pub fn home_evidence<T>(
-        &self,
-        mut summarize: impl FnMut(&mixdog_store::schema::record::Header, &[serde_json::Value]) -> T,
-    ) -> Result<BTreeMap<String, T>> {
+    pub fn home_evidence<T>(&self, mut summarize: impl FnMut(&mixdog_store::schema::record::Header, &[serde_json::Value]) -> T) -> Result<BTreeMap<String, T>> {
         use crate::session::source::{Fail, JSON_SUFFIX, LOG_SUFFIX, header_and_messages};
 
         let shared = self.shared();
@@ -277,7 +267,9 @@ impl Back {
             let mut replaced = 0;
             let (header, messages) = header_and_messages(id, json.as_deref(), log, &mut replaced).map_err(|error| match error {
                 Fail::Blocked(error) => error,
-                Fail::Quarantine(code, detail) => Blocked::StoreSchema { key: k.into(), detail: format!("bot classification cannot read the legacy home ({code:?}): {detail}") },
+                Fail::Quarantine(code, detail) => {
+                    Blocked::StoreSchema { key: k.into(), detail: format!("bot classification cannot read the legacy home ({code:?}): {detail}") }
+                }
             })?;
             homes.insert(agent, summarize(&header, &messages));
         }
@@ -328,17 +320,12 @@ impl Drop for Back {
 
 /// The quarantine folder name of a code (`QuarantineCode`'s serde name).
 pub fn code_name(code: QuarantineCode) -> String {
-    serde_json::to_value(code)
-        .ok()
-        .and_then(|v| v.as_str().map(str::to_string))
-        .unwrap_or_default()
+    serde_json::to_value(code).ok().and_then(|v| v.as_str().map(str::to_string)).unwrap_or_default()
 }
 
 /// `<D>/quarantine/<code>/<escaped key>/`.
 pub fn quarantine_dir(data: &Path, code: QuarantineCode, key: &str) -> std::path::PathBuf {
-    data.join(QUARANTINE_DIR)
-        .join(code_name(code))
-        .join(escape_key(key))
+    data.join(QUARANTINE_DIR).join(code_name(code)).join(escape_key(key))
 }
 
 type QuarantineReasons = BTreeMap<String, Vec<(QuarantineCode, PathBuf)>>;
@@ -369,11 +356,7 @@ fn quarantine_reasons(data: &Path) -> Result<QuarantineReasons> {
 }
 
 fn quarantined_sources(item: &ManifestItem) -> Vec<QuarantinedSource> {
-    item.sources.iter().map(|s| QuarantinedSource {
-        root: s.root,
-        path: s.path.clone(),
-        sha256: s.sha256.clone(),
-    }).collect()
+    item.sources.iter().map(|s| QuarantinedSource { root: s.root, path: s.path.clone(), sha256: s.sha256.clone() }).collect()
 }
 
 struct Shared<'a> {
@@ -389,14 +372,7 @@ struct Shared<'a> {
 
 impl Shared<'_> {
     fn cx<'b>(&'b self, states: &'b BTreeMap<String, ItemState>) -> ItemContext<'b> {
-        ItemContext {
-            roots: self.roots,
-            manifest: self.manifest,
-            manifest_sha256: self.manifest_sha256,
-            fault: self.fault,
-            blobs: self.blobs,
-            states,
-        }
+        ItemContext { roots: self.roots, manifest: self.manifest, manifest_sha256: self.manifest_sha256, fault: self.fault, blobs: self.blobs, states }
     }
 
     fn fault(&self, point: &str) -> Result<()> {
@@ -418,23 +394,12 @@ fn key(item: &ManifestItem) -> ItemKey {
 }
 
 impl Migrator {
-    pub fn new(
-        roots: MigrationRoots,
-        drivers: Vec<Arc<dyn ItemDriver>>,
-        options: MigrateOptions,
-    ) -> Self {
-        Self {
-            roots,
-            drivers,
-            options,
-        }
+    pub fn new(roots: MigrationRoots, drivers: Vec<Arc<dyn ItemDriver>>, options: MigrateOptions) -> Self {
+        Self { roots, drivers, options }
     }
 
     fn driver(&self, item: &ManifestItem) -> Result<&Arc<dyn ItemDriver>> {
-        self.drivers
-            .iter()
-            .find(|d| d.owns(item))
-            .ok_or_else(|| Blocked::journal(format!("no driver for {}", item.key.as_str())))
+        self.drivers.iter().find(|d| d.owns(item)).ok_or_else(|| Blocked::journal(format!("no driver for {}", item.key.as_str())))
     }
 
     fn fault(&self, point: &str) -> Result<()> {
@@ -469,8 +434,7 @@ impl Migrator {
             self.supplement(self.roots.profile.clone())?;
             return self.begin(self.roots.clone(), Pass::First);
         };
-        let complete: Complete = serde_json::from_slice(&bytes)
-            .map_err(|e| Blocked::journal(format!("complete.json: {e}")))?;
+        let complete: Complete = serde_json::from_slice(&bytes).map_err(|e| Blocked::journal(format!("complete.json: {e}")))?;
         match self.late_profile(&complete)? {
             Some(profile) => {
                 self.supplement(Some(profile.clone()))?;
@@ -501,8 +465,7 @@ impl Migrator {
             Some(bytes) => bytes,
             None => durable::read(&data.join(MANIFEST_PATH))?,
         };
-        let manifest: Manifest = serde_json::from_slice(&bytes)
-            .map_err(|e| Blocked::journal(format!("manifest: {e}")))?;
+        let manifest: Manifest = serde_json::from_slice(&bytes).map_err(|e| Blocked::journal(format!("manifest: {e}")))?;
         Ok(manifest.roots.profile.map(PathBuf::from))
     }
 
@@ -515,7 +478,9 @@ impl Migrator {
             .items
             .iter()
             .filter_map(|item| item.key.as_str().strip_prefix("session/").map(|id| (item, id)))
-            .filter(|(item, _)| journal.progress(item.key.as_str()).is_some_and(|p| matches!(p.state, ItemState::Planned | ItemState::Staged | ItemState::Published)))
+            .filter(|(item, _)| {
+                journal.progress(item.key.as_str()).is_some_and(|p| matches!(p.state, ItemState::Planned | ItemState::Staged | ItemState::Published))
+            })
             .map(|(_, id)| id.to_owned())
             .collect();
         let back = Back {
@@ -550,21 +515,15 @@ impl Migrator {
             if completed(bytes) {
                 return Ok(None);
             }
-            let manifest: Manifest = serde_json::from_slice(bytes)
-                .map_err(|e| Blocked::journal(format!("late-manifest.json: {e}")))?;
-            let profile = manifest
-                .roots
-                .profile
-                .as_deref()
-                .ok_or_else(|| Blocked::journal("late-manifest.json names no profile"))?;
+            let manifest: Manifest = serde_json::from_slice(bytes).map_err(|e| Blocked::journal(format!("late-manifest.json: {e}")))?;
+            let profile = manifest.roots.profile.as_deref().ok_or_else(|| Blocked::journal("late-manifest.json names no profile"))?;
             return Ok(Some(PathBuf::from(profile)));
         }
         let base = durable::read(&data.join(MANIFEST_PATH))?;
         if !completed(&base) {
             return Err(Blocked::journal("complete.json names no manifest"));
         }
-        let base: Manifest = serde_json::from_slice(&base)
-            .map_err(|e| Blocked::journal(format!("manifest.json: {e}")))?;
+        let base: Manifest = serde_json::from_slice(&base).map_err(|e| Blocked::journal(format!("manifest.json: {e}")))?;
         if base.roots.profile.is_some() {
             return Ok(None);
         }
@@ -577,19 +536,13 @@ impl Migrator {
         let (journal, manifest_sha256) = (shared.journal, shared.manifest_sha256);
         self.convert(shared, |wave| !wave.before_serving())?;
         if !journal.lock().expect("journal").verified_all() {
-            shared.record(
-                "verified_all",
-                JournalRecord::Phase(PhaseEntry {
-                    phase: Phase::VerifiedAll,
-                }),
-            )?;
+            shared.record("verified_all", JournalRecord::Phase(PhaseEntry { phase: Phase::VerifiedAll }))?;
         }
         // Counted before disposal (a dangling count may read a source disposal removes),
         // kept in the stage until `complete.json` carries it.
         let counts_path = data.join(STAGE_DIR).join(COUNTS_FILE);
         let mut kinds: CompleteKinds = match durable::read_optional(&counts_path)? {
-            Some(bytes) => serde_json::from_slice(&bytes)
-                .map_err(|e| Blocked::journal(format!("{COUNTS_FILE}: {e}")))?,
+            Some(bytes) => serde_json::from_slice(&bytes).map_err(|e| Blocked::journal(format!("{COUNTS_FILE}: {e}")))?,
             None => {
                 let kinds = self.counts(shared)?;
                 self.fault("counts:before")?;
@@ -610,10 +563,7 @@ impl Migrator {
             kinds,
         };
         self.fault("complete:before")?;
-        durable::publish_file(
-            &data.join(COMPLETE_PATH),
-            &serde_json::to_vec(&complete).expect("complete encodes"),
-        )?;
+        durable::publish_file(&data.join(COMPLETE_PATH), &serde_json::to_vec(&complete).expect("complete encodes"))?;
         self.fault("complete:after")?;
         durable::remove_dir_all(&data.join(STAGE_DIR))?;
         Ok(complete)
@@ -630,10 +580,8 @@ impl Migrator {
             if durable::sha256_hex(&bytes) != sha {
                 return Err(Blocked::journal("manifest.json does not match the journal's plan"));
             }
-            let manifest: Manifest = serde_json::from_slice(&bytes)
-                .map_err(|e| Blocked::journal(format!("manifest.json: {e}")))?;
-            let journal = Journal::open(&journal_path, &manifest)?
-                .ok_or_else(|| Blocked::journal("journal vanished"))?;
+            let manifest: Manifest = serde_json::from_slice(&bytes).map_err(|e| Blocked::journal(format!("manifest.json: {e}")))?;
+            let journal = Journal::open(&journal_path, &manifest)?.ok_or_else(|| Blocked::journal("journal vanished"))?;
             return Ok((manifest, sha, journal));
         }
         // Nothing was converted: plan afresh (an earlier manifest is replaced).
@@ -656,10 +604,7 @@ impl Migrator {
         self.fault("journal:plan:before")?;
         let journal = Journal::create(
             &journal_path,
-            PlanEntry {
-                manifest_sha256: Text::try_from(sha.as_str()).map_err(Blocked::journal)?,
-                items: manifest.items.len() as u64,
-            },
+            PlanEntry { manifest_sha256: Text::try_from(sha.as_str()).map_err(Blocked::journal)?, items: manifest.items.len() as u64 },
             &manifest,
         )?;
         self.fault("journal:plan:after")?;
@@ -706,12 +651,8 @@ impl Migrator {
 
     /// Orders session items by their newest source, newest first (a source that is gone sorts last; ties keep key order).
     fn newest_first(&self, shared: &Shared<'_>, items: &mut [&ManifestItem]) {
-        let newest = |item: &ManifestItem| {
-            item.sources
-                .iter()
-                .filter_map(|source| durable::modified(&shared.roots.resolve(source.root, &source.path).ok()?))
-                .max()
-        };
+        let newest =
+            |item: &ManifestItem| item.sources.iter().filter_map(|source| durable::modified(&shared.roots.resolve(source.root, &source.path).ok()?)).max();
         items.sort_by_cached_key(|item| std::cmp::Reverse(newest(item)));
     }
 
@@ -758,11 +699,7 @@ impl Migrator {
     fn wave(&self, shared: &Shared<'_>, wave: Wave, items: &[&ManifestItem]) -> Result<()> {
         let states = self.states(shared);
         let cx = shared.cx(&states);
-        let workers = if wave == Wave::Sessions {
-            self.options.workers.max(1)
-        } else {
-            1
-        };
+        let workers = if wave == Wave::Sessions { self.options.workers.max(1) } else { 1 };
         let waiting = shared.waiting.filter(|_| wave == Wave::Sessions);
         if workers == 1 && waiting.is_none() {
             for item in items {
@@ -797,29 +734,13 @@ impl Migrator {
     }
 
     /// Writes `reason.json`, withdraws a published target, then journals `quarantined`.
-    fn quarantine(
-        &self,
-        shared: &Shared<'_>,
-        cx: &ItemContext<'_>,
-        item: &ManifestItem,
-        code: QuarantineCode,
-        detail: String,
-    ) -> Result<()> {
+    fn quarantine(&self, shared: &Shared<'_>, cx: &ItemContext<'_>, item: &ManifestItem, code: QuarantineCode, detail: String) -> Result<()> {
         let k = item.key.as_str();
-        let reason = QuarantineReason {
-            format: REASON_FORMAT,
-            key: k.to_string(),
-            code,
-            expected: code.expected(),
-            detail,
-            sources: quarantined_sources(item),
-        };
+        let reason =
+            QuarantineReason { format: REASON_FORMAT, key: k.to_string(), code, expected: code.expected(), detail, sources: quarantined_sources(item) };
         let dir = quarantine_dir(&self.roots.data, code, k);
         shared.fault(&format!("reason:{k}:before"))?;
-        durable::publish_file(
-            &dir.join(REASON_FILE),
-            &serde_json::to_vec(&reason).expect("reason encodes"),
-        )?;
+        durable::publish_file(&dir.join(REASON_FILE), &serde_json::to_vec(&reason).expect("reason encodes"))?;
         shared.fault(&format!("reason:{k}:after"))?;
         self.finish_quarantine(shared, cx, item, code)
     }
@@ -832,10 +753,12 @@ impl Migrator {
         let mut intent = None;
         for (code, path) in paths {
             let Some(bytes) = durable::read_optional(path)? else { continue };
-            let reason: QuarantineReason = serde_json::from_slice(&bytes)
-                .map_err(|error| Blocked::journal(format!("{}: {error}", path.display())))?;
-            if intent.is_some() || reason.format != REASON_FORMAT || reason.key != k
-                || reason.code != *code || reason.expected != code.expected()
+            let reason: QuarantineReason = serde_json::from_slice(&bytes).map_err(|error| Blocked::journal(format!("{}: {error}", path.display())))?;
+            if intent.is_some()
+                || reason.format != REASON_FORMAT
+                || reason.key != k
+                || reason.code != *code
+                || reason.expected != code.expected()
                 || reason.sources != quarantined_sources(item)
             {
                 return Err(Blocked::journal(format!("{}: quarantine reason does not match the active item", path.display())));
@@ -845,37 +768,19 @@ impl Migrator {
         Ok(intent)
     }
 
-    fn finish_quarantine(
-        &self,
-        shared: &Shared<'_>,
-        cx: &ItemContext<'_>,
-        item: &ManifestItem,
-        code: QuarantineCode,
-    ) -> Result<()> {
+    fn finish_quarantine(&self, shared: &Shared<'_>, cx: &ItemContext<'_>, item: &ManifestItem, code: QuarantineCode) -> Result<()> {
         let k = item.key.as_str();
         self.driver(item)?.withdraw(cx, item)?;
         // A resumed withdrawal can need its stage (for example, the rows it
         // deletes). Leave cleanup to the normal pass once disposition is durable.
-        shared.record(
-            &format!("quarantined:{k}"),
-            JournalRecord::Quarantined(QuarantinedEntry {
-                key: key(item),
-                code,
-            }),
-        )
+        shared.record(&format!("quarantined:{k}"), JournalRecord::Quarantined(QuarantinedEntry { key: key(item), code }))
     }
 
     fn drive(&self, shared: &Shared<'_>, cx: &ItemContext<'_>, item: &ManifestItem) -> Result<()> {
         let driver = self.driver(item)?;
         let k = item.key.as_str();
         loop {
-            let progress = shared
-                .journal
-                .lock()
-                .expect("journal")
-                .progress(k)
-                .cloned()
-                .ok_or_else(|| Blocked::journal(format!("{k} not journaled")))?;
+            let progress = shared.journal.lock().expect("journal").progress(k).cloned().ok_or_else(|| Blocked::journal(format!("{k} not journaled")))?;
             if matches!(progress.state, ItemState::Planned | ItemState::Published)
                 && let Some(code) = Self::quarantine_intent(shared, item)?
             {
@@ -885,54 +790,35 @@ impl Migrator {
                 (_, ItemState::Verified | ItemState::Quarantined | ItemState::Disposed) => {
                     return Ok(());
                 }
-                (Contract::Retire, ItemState::Planned) | (_, ItemState::Published) => {
-                    match driver.verify(cx, item)? {
-                        Verdict::Verified { digest } => shared.record(
-                            &format!("verified:{k}"),
-                            JournalRecord::Verified(VerifiedEntry {
-                                key: key(item),
-                                digest,
-                            }),
-                        )?,
-                        Verdict::Quarantine { code, detail } => {
-                            self.quarantine(shared, cx, item, code, detail)?
-                        }
+                (Contract::Retire, ItemState::Planned) | (_, ItemState::Published) => match driver.verify(cx, item)? {
+                    Verdict::Verified { digest } => {
+                        shared.record(&format!("verified:{k}"), JournalRecord::Verified(VerifiedEntry { key: key(item), digest }))?
                     }
-                }
+                    Verdict::Quarantine { code, detail } => self.quarantine(shared, cx, item, code, detail)?,
+                },
                 (_, ItemState::Planned) => {
                     durable::remove_dir_all(&cx.stage_dir(k))?;
                     match driver.stage(cx, item)? {
-                        Staged::Output {
-                            output_sha256,
-                            replaced_surrogates,
-                        } if item.contract != Contract::Retain => shared.record(
+                        Staged::Output { output_sha256, replaced_surrogates } if item.contract != Contract::Retain => shared.record(
                             &format!("staged:{k}"),
                             JournalRecord::Staged(StagedEntry {
                                 key: key(item),
-                                output_sha256: Text::try_from(output_sha256)
-                                    .map_err(Blocked::journal)?,
+                                output_sha256: Text::try_from(output_sha256).map_err(Blocked::journal)?,
                                 replaced_surrogates,
                             }),
                         )?,
                         Staged::Output { .. } => {
                             return Err(Blocked::journal(format!("{k}: a retain item staged output")));
                         }
-                        Staged::Quarantine { code, detail } => {
-                            self.quarantine(shared, cx, item, code, detail)?
-                        }
+                        Staged::Quarantine { code, detail } => self.quarantine(shared, cx, item, code, detail)?,
                     }
                 }
                 (_, ItemState::Staged) => {
-                    let staged = progress
-                        .staged
-                        .ok_or_else(|| Blocked::journal(format!("{k} staged without entry")))?;
+                    let staged = progress.staged.ok_or_else(|| Blocked::journal(format!("{k} staged without entry")))?;
                     shared.fault(&format!("publish:{k}:before"))?;
                     driver.publish(cx, item, &staged)?;
                     shared.fault(&format!("publish:{k}:after"))?;
-                    shared.record(
-                        &format!("published:{k}"),
-                        JournalRecord::Published(KeyEntry { key: key(item) }),
-                    )?;
+                    shared.record(&format!("published:{k}"), JournalRecord::Published(KeyEntry { key: key(item) }))?;
                 }
             }
         }
@@ -970,13 +856,7 @@ impl Migrator {
         let cx = shared.cx(&states);
         for item in &shared.manifest.items {
             let k = item.key.as_str();
-            let progress = shared
-                .journal
-                .lock()
-                .expect("journal")
-                .progress(k)
-                .cloned()
-                .ok_or_else(|| Blocked::journal(format!("{k} not journaled")))?;
+            let progress = shared.journal.lock().expect("journal").progress(k).cloned().ok_or_else(|| Blocked::journal(format!("{k} not journaled")))?;
             let driver = self.driver(item)?;
             match progress.state {
                 ItemState::Disposed => continue,
@@ -996,9 +876,7 @@ impl Migrator {
                     }
                 }
                 ItemState::Quarantined => {
-                    let code = progress
-                        .quarantined
-                        .ok_or_else(|| Blocked::journal(format!("{k} without code")))?;
+                    let code = progress.quarantined.ok_or_else(|| Blocked::journal(format!("{k} without code")))?;
                     let dir = quarantine_dir(&self.roots.data, code, k);
                     let names = quarantine_names(item);
                     for (source, name) in item.sources.iter().zip(&names) {
@@ -1018,24 +896,14 @@ impl Migrator {
                     return Err(Blocked::journal(format!("{k} is {other:?} at disposal")));
                 }
             }
-            shared.record(
-                &format!("disposed:{k}"),
-                JournalRecord::Disposed(KeyEntry { key: key(item) }),
-            )?;
+            shared.record(&format!("disposed:{k}"), JournalRecord::Disposed(KeyEntry { key: key(item) }))?;
         }
         // A shared file goes once every consumer is disposed, unless one keeps it.
-        let by_key: BTreeMap<&str, &ManifestItem> = shared
-            .manifest
-            .items
-            .iter()
-            .map(|i| (i.key.as_str(), i))
-            .collect();
+        let by_key: BTreeMap<&str, &ManifestItem> = shared.manifest.items.iter().map(|i| (i.key.as_str(), i)).collect();
         for file in &shared.manifest.shared {
             let mut keep = false;
             for consumer in &file.consumers {
-                let item = by_key
-                    .get(consumer.as_str())
-                    .ok_or_else(|| Blocked::journal(format!("unknown consumer {consumer}")))?;
+                let item = by_key.get(consumer.as_str()).ok_or_else(|| Blocked::journal(format!("unknown consumer {consumer}")))?;
                 keep |= self.driver(item)?.keeps_sources(item);
             }
             if keep {
@@ -1061,15 +929,7 @@ impl Migrator {
         Ok(())
     }
 
-    fn quarantine_source(
-        &self,
-        shared: &Shared<'_>,
-        cx: &ItemContext<'_>,
-        item: &ManifestItem,
-        source: &SourceFile,
-        name: &str,
-        dir: &Path,
-    ) -> Result<()> {
+    fn quarantine_source(&self, shared: &Shared<'_>, cx: &ItemContext<'_>, item: &ManifestItem, source: &SourceFile, name: &str, dir: &Path) -> Result<()> {
         use mixdog_store::fsio;
 
         let k = item.key.as_str();
@@ -1140,27 +1000,15 @@ impl Migrator {
     fn counts(&self, shared: &Shared<'_>) -> Result<CompleteKinds> {
         let states = self.states(shared);
         let cx = shared.cx(&states);
-        let zero = Counts {
-            verified: 0,
-            quarantined_expected: 0,
-            quarantined_unexpected: 0,
-            retired: 0,
-            retained: 0,
-            dangling: 0,
-        };
-        let mut kinds = CompleteKinds {
-            data: zero,
-            desktop_profile: zero,
-        };
+        let zero = Counts { verified: 0, quarantined_expected: 0, quarantined_unexpected: 0, retired: 0, retained: 0, dangling: 0 };
+        let mut kinds = CompleteKinds { data: zero, desktop_profile: zero };
         let journal = shared.journal.lock().expect("journal");
         for item in &shared.manifest.items {
             let counts = match item.group {
                 KindGroup::Data => &mut kinds.data,
                 KindGroup::DesktopProfile => &mut kinds.desktop_profile,
             };
-            let progress = journal
-                .progress(item.key.as_str())
-                .ok_or_else(|| Blocked::journal("item not journaled"))?;
+            let progress = journal.progress(item.key.as_str()).ok_or_else(|| Blocked::journal("item not journaled"))?;
             match progress.quarantined {
                 Some(code) if !code.expected() => counts.quarantined_unexpected += 1,
                 Some(_) if item.contract == Contract::Retain => counts.retained += 1,
@@ -1178,10 +1026,10 @@ impl Migrator {
 
 pub mod cli;
 #[cfg(test)]
+mod registry_import_tests;
+#[cfg(test)]
 #[path = "run/migration_tests.rs"]
 pub(crate) mod tests;
-#[cfg(test)]
-mod registry_import_tests;
 
 /// Leave the reason, shared exports and generated source names in separate
 /// namespaces. Preserve the old names when they are already unambiguous.
@@ -1190,11 +1038,7 @@ fn quarantine_names(item: &ManifestItem) -> Vec<String> {
     let bases: Vec<String> = item.sources.iter().map(|s| base(&s.path)).collect();
     let canonical = |name: &str| name.trim_end_matches([' ', '.']).to_ascii_lowercase();
     let unique: BTreeSet<String> = bases.iter().map(|name| canonical(name)).collect();
-    let mut names = if unique.len() == bases.len() {
-        bases
-    } else {
-        item.sources.iter().map(|s| escape_key(&s.path)).collect()
-    };
+    let mut names = if unique.len() == bases.len() { bases } else { item.sources.iter().map(|s| escape_key(&s.path)).collect() };
     let mut used = BTreeSet::new();
     for (index, name) in names.iter_mut().enumerate() {
         let folded = canonical(name);

@@ -54,7 +54,11 @@ async fn start(handle: &SessionHandle) {
 fn stop(handle: &Arc<SessionHandle>) -> tokio::task::JoinHandle<Value> {
     let handle = handle.clone();
     tokio::spawn(async move {
-        let ctx = mixdog_core_api::call::CallContext::connection(mixdog_core_api::ids::ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new());
+        let ctx = mixdog_core_api::call::CallContext::connection(
+            mixdog_core_api::ids::ConnectionId(1),
+            mixdog_protocol::Origin::Local,
+            mixdog_rt::CancellationToken::new(),
+        );
         handle.stop(mixdog_core_api::thread::Stop { turn: None, restore_prompt: None, submission_id: None, ctx }).await.expect("stop")
     })
 }
@@ -173,7 +177,10 @@ async fn a_stopped_turns_activity_is_stamped_before_it_reports_finished() {
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     let records = rig.store.records(&handle.id);
     let ended = records.iter().position(|(_, r)| matches!(r, Record::Run(run) if run.phase == RunPhase::Interrupted)).expect("run{interrupted}");
-    let stamped = records.iter().position(|(_, r)| matches!(r, Record::Meta(m) if matches!(&m.change, mixdog_store::schema::blob::Slot::Inline(c) if c.set.contains_key("lastUsedAt")))).expect("the activity stamp");
+    let stamped = records
+        .iter()
+        .position(|(_, r)| matches!(r, Record::Meta(m) if matches!(&m.change, mixdog_store::schema::blob::Slot::Inline(c) if c.set.contains_key("lastUsedAt"))))
+        .expect("the activity stamp");
     assert!(stamped < ended, "the stamp at {stamped} precedes the turn's end at {ended}");
 }
 
@@ -189,7 +196,11 @@ async fn an_agents_stop_cancels_the_jobs_it_started_and_a_leads_does_not() {
     agent.cell.header.store(Arc::new(header));
     let lead = start_thread(&directory).await;
     for handle in [&lead, &agent] {
-        let ctx = mixdog_core_api::call::CallContext::connection(mixdog_core_api::ids::ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new());
+        let ctx = mixdog_core_api::call::CallContext::connection(
+            mixdog_core_api::ids::ConnectionId(1),
+            mixdog_protocol::Origin::Local,
+            mixdog_rt::CancellationToken::new(),
+        );
         let _ = handle.stop(mixdog_core_api::thread::Stop { turn: None, restore_prompt: None, submission_id: None, ctx }).await;
     }
     let aborted: Vec<String> = rig.signals.0.lock().unwrap().iter().filter(|signal| signal.starts_with("agent-abort:")).cloned().collect();
@@ -263,7 +274,11 @@ fn text_of(input: &mixdog_app_protocol::v2::thread::TurnInput) -> String {
 fn stop_result(handle: &Arc<SessionHandle>) -> tokio::task::JoinHandle<Result<Value, CoreError>> {
     let handle = handle.clone();
     tokio::spawn(async move {
-        let ctx = mixdog_core_api::call::CallContext::connection(mixdog_core_api::ids::ConnectionId(1), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new());
+        let ctx = mixdog_core_api::call::CallContext::connection(
+            mixdog_core_api::ids::ConnectionId(1),
+            mixdog_protocol::Origin::Local,
+            mixdog_rt::CancellationToken::new(),
+        );
         handle.stop(mixdog_core_api::thread::Stop { turn: None, restore_prompt: None, submission_id: None, ctx }).await
     })
 }
@@ -274,7 +289,9 @@ fn second_qid(rig: &Rig, id: &ThreadId) -> String {
         .records(id)
         .into_iter()
         .find_map(|(_, record)| match record {
-            Record::Queue(queue) if queue.entry.as_ref().is_some_and(|entry| matches!(entry, Slot::Inline(entry) if entry.to_string().contains("second"))) => Some(queue.qid.as_str().to_owned()),
+            Record::Queue(queue) if queue.entry.as_ref().is_some_and(|entry| matches!(entry, Slot::Inline(entry) if entry.to_string().contains("second"))) => {
+                Some(queue.qid.as_str().to_owned())
+            }
             _ => None,
         })
         .expect("`second` was queued")
@@ -288,7 +305,11 @@ fn restores(rig: &Rig, handle: &SessionHandle) -> Vec<Value> {
 fn stop_from(handle: &Arc<SessionHandle>, connection: u64) -> tokio::task::JoinHandle<Value> {
     let handle = handle.clone();
     tokio::spawn(async move {
-        let ctx = mixdog_core_api::call::CallContext::connection(mixdog_core_api::ids::ConnectionId(connection), mixdog_protocol::Origin::Local, mixdog_rt::CancellationToken::new());
+        let ctx = mixdog_core_api::call::CallContext::connection(
+            mixdog_core_api::ids::ConnectionId(connection),
+            mixdog_protocol::Origin::Local,
+            mixdog_rt::CancellationToken::new(),
+        );
         handle.stop(mixdog_core_api::thread::Stop { turn: None, restore_prompt: None, submission_id: None, ctx }).await.expect("stop")
     })
 }
@@ -339,8 +360,6 @@ async fn a_member_stop_that_cannot_be_saved_answers_the_storage_failure() {
     assert!(format!("{error:?}").contains(super::actor::STOP_NOT_SAVED), "{error:?}");
 }
 
-
-
 /// A Stop while the person is asked (ask_user's question pending): the question's wait ends with the abort, so the call's card
 /// reads the abort's `Error: <reason>` with the Stop's reason `user-cancel` (Node: `runAbortable` rejects with the signal's
 /// `SessionClosedError`, ask-user-tool.mjs:249; the eager entry notices `Error: <message>` to the card, eager-dispatch/entry.mjs:39-44;
@@ -354,19 +373,28 @@ async fn a_question_the_stop_ended_reads_the_aborts_error_on_its_card() {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             let call = json!({ "id": "c1", "name": "ask_user", "arguments": { "questions": [{ "question": "Add the file?" }] } });
-            let commit = |iid: &str, role: &str, body: Value| super::run::ItemCommit { iid: ItemId::from(iid.to_owned()), role: Some(role.into()), model: true, visible: true, body, prompt: None };
+            let commit = |iid: &str, role: &str, body: Value| super::run::ItemCommit {
+                iid: ItemId::from(iid.to_owned()),
+                role: Some(role.into()),
+                model: true,
+                visible: true,
+                body,
+                prompt: None,
+            };
             run.port.commit_item(commit("a-1", "assistant", json!({ "text": "", "toolCalls": [call] }))).await.expect("call");
-            let _ = run.port.request(ApprovalAsk {
-                kind: ApprovalKind::UserInput,
-                call_id: Some("c1".into()),
-                tool: Some("ask_user".into()),
-                action_kind: None,
-                reason: None,
-                payload: json!({ "questions": [{ "question": "Add the file?" }] }),
-                remember: Vec::new(),
-                expires_after: None,
-            })
-            .await;
+            let _ = run
+                .port
+                .request(ApprovalAsk {
+                    kind: ApprovalKind::UserInput,
+                    call_id: Some("c1".into()),
+                    tool: Some("ask_user".into()),
+                    action_kind: None,
+                    reason: None,
+                    payload: json!({ "questions": [{ "question": "Add the file?" }] }),
+                    remember: Vec::new(),
+                    expires_after: None,
+                })
+                .await;
             // The interruption closes the unanswered call as Node's finalizer does.
             run.port.closing().commit_item(commit("t-1", "tool", json!({ "toolCallId": "c1", "text": "Cancelled", "isError": true }))).await.expect("stub");
             RunOutcome::Interrupted
@@ -388,7 +416,6 @@ async fn a_question_the_stop_ended_reads_the_aborts_error_on_its_card() {
     assert_eq!(result, Some((Some(mixdog_protocol::MaybeBlob::Inline(expected)), Some(true), Some(mixdog_protocol::ItemStatus::Interrupted))));
 }
 
-
 /// Every run's prompt is noted as it reaches the provider (the script is the provider); a run of `first` waits for `gate`, any
 /// other completes once its input is durable.
 fn provider(seen: Arc<Mutex<Vec<String>>>, gate: Arc<Notify>) -> super::testing::Script {
@@ -408,7 +435,6 @@ fn provider(seen: Arc<Mutex<Vec<String>>>, gate: Arc<Notify>) -> super::testing:
     })
 }
 
-
 /// `first` ran; `second`, queued behind it, was dequeued by the drain and its start is reading its input row, the interactive io lane
 /// held (`io`, which the caller drops to let the read finish).
 async fn reading_second(rig: &Rig, seen: &Arc<Mutex<Vec<String>>>) -> (SessionDirectory, Arc<SessionHandle>, mixdog_rt::testing::HeldFull) {
@@ -423,7 +449,12 @@ async fn reading_second(rig: &Rig, seen: &Arc<Mutex<Vec<String>>>) -> (SessionDi
     assert_eq!(super::tests::turn(&handle, "second", "op-2").await["kind"], "queued");
     hold.send_replace(super::StartHold::Held);
     gate.notify_one();
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst) && handle.cell.queued.load().len() == 1 && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle)
+        && !handle.cell.busy.load(SeqCst)
+        && handle.cell.queued.load().len() == 1
+        && handle.cell.unacked.load(SeqCst) == 0)
+        .then_some(()))
+    .await;
     let io = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
     hold.send_replace(super::StartHold::Open);
     io.met_by_a_submit().await;
@@ -431,7 +462,6 @@ async fn reading_second(rig: &Rig, seen: &Arc<Mutex<Vec<String>>>) -> (SessionDi
     assert!(idle(&handle) && handle.cell.ui_busy.load(SeqCst), "the start of `second` is reading its input");
     (directory, handle, io)
 }
-
 
 /// A fresh process over the records `prefix` of `id` (nothing of the old actor's memory): opened, recovered and resumed, until the
 /// resume's queue drain decided. Every run's prompt reaching its provider is noted in `seen`.
@@ -449,7 +479,6 @@ async fn reopened(prefix: Vec<Record>, id: &ThreadId, seen: &Arc<Mutex<Vec<Strin
     eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst) && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
     (replay, restarted, handle)
 }
-
 
 /// P1 of the session-wide wake prohibition: a Stop during a turn's settlement freezes exactly the completions queued then for the
 /// wake that would follow (A), never a prohibition without identity. A completion that arrives after the Stop (B) is unrelated work:
@@ -487,7 +516,8 @@ async fn a_stop_during_the_settlement_freezes_the_queued_completion_and_a_later_
     let passes = handle.cell.drain_passes.load(SeqCst);
     release.notify_one();
     // The drain after B's settlement decided: nothing more starts.
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && settled.load(SeqCst) == 2 && handle.cell.drain_passes.load(SeqCst) > passes).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && settled.load(SeqCst) == 2 && handle.cell.drain_passes.load(SeqCst) > passes).then_some(()))
+        .await;
     let seen = seen.lock().unwrap().clone();
     assert!(seen[1].contains("job-b") && !seen[1].contains("job-a"), "B ran alone: {seen:?}");
     assert_eq!(seen.len(), 2, "A never ran: {seen:?}");
@@ -528,9 +558,7 @@ async fn a_stop_during_the_settlement_leaves_a_notice_of_another_priority_queued
     handle.inbox.send(channel).await.expect("the actor runs");
     saved.await.expect("answered").expect("C is queued durably");
     let queued = handle.cell.queue.load_full();
-    let qid_of = |channel: bool| {
-        queued.iter().find(|q| super::completions::is_channel(&q.entry) == channel).map(|q| q.qid.clone()).expect("queued")
-    };
+    let qid_of = |channel: bool| queued.iter().find(|q| super::completions::is_channel(&q.entry) == channel).map(|q| q.qid.clone()).expect("queued");
     let (a, c) = (qid_of(false), qid_of(true));
     let reply = awaiting(|| "the Stop's reply".to_owned(), stop(&handle)).await.expect("stop task");
     assert_eq!(reply["aborted"], json!(true), "{reply}");
@@ -547,7 +575,6 @@ async fn a_stop_during_the_settlement_leaves_a_notice_of_another_priority_queued
     assert!(work_stops::stopped(&header, &work_stops::queued(&c)).is_none(), "C is not stopped");
     assert!(handle.cell.queued.load().is_empty());
 }
-
 
 /// The same with nothing queued for the wake when the Stop is taken: it freezes nothing and prohibits nothing; B, arriving after it,
 /// runs once the settlement finishes.
@@ -576,7 +603,6 @@ async fn a_stop_during_the_settlement_with_nothing_queued_prohibits_nothing() {
     assert!(stop_records(&rig, &handle.id).is_empty());
 }
 
-
 /// A Stop while the run's end is parked behind a row whose facts are being read: the run is over, so the Stop aborts no finished
 /// token and rewrites no outcome; it is the settlement's Stop (nothing queued for a wake: nothing frozen).
 #[tokio::test(start_paused = true)]
@@ -590,7 +616,14 @@ async fn a_stop_while_the_runs_end_is_parked_aborts_no_finished_run() {
         Box::pin(async move {
             run.port.input_durable().await.expect("input durable");
             go.notified().await;
-            let item = super::run::ItemCommit { iid: ItemId::from("a-1".to_owned()), role: Some("assistant".into()), model: true, visible: true, body: json!({ "text": "done" }), prompt: None };
+            let item = super::run::ItemCommit {
+                iid: ItemId::from("a-1".to_owned()),
+                role: Some("assistant".into()),
+                model: true,
+                visible: true,
+                body: json!({ "text": "done" }),
+                prompt: None,
+            };
             let _queued = run.port.queue_item(item).await.expect("queued");
             RunOutcome::Completed(Default::default())
         })
@@ -609,13 +642,17 @@ async fn a_stop_while_the_runs_end_is_parked_aborts_no_finished_run() {
     assert!(!logged(&handle, "stop:frozen:"), "{:?}", ledger(&handle));
     drop(io);
     eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(())).await;
-    let ended: Vec<RunPhase> = rig.store.records(&handle.id).into_iter().filter_map(|(_, record)| match record {
-        Record::Run(run) if run.phase != RunPhase::Started => Some(run.phase),
-        _ => None,
-    }).collect();
+    let ended: Vec<RunPhase> = rig
+        .store
+        .records(&handle.id)
+        .into_iter()
+        .filter_map(|(_, record)| match record {
+            Record::Run(run) if run.phase != RunPhase::Started => Some(run.phase),
+            _ => None,
+        })
+        .collect();
     assert_eq!(ended, [RunPhase::Completed], "the finished turn's outcome is not rewritten");
 }
-
 
 /// The input read is held and the Stop's write is held: no success before the write is acknowledged; then the reply comes while
 /// the read is still held. The late read finishes the cancellation (the prompt back at its composer) and never runs the model.
@@ -653,7 +690,6 @@ async fn the_stop_answers_once_its_record_is_durable_while_the_input_read_is_sti
     assert!(handle.cell.queued.load().is_empty());
 }
 
-
 /// The rule's one stated exception, a Stop whose record could not be written (`StopWait`, `stop.rs`): the dequeue and the Stop
 /// cannot be saved (the store fails every write). The Stop answers `ESTOPNOTSAVED`, never success and never the restored text; the
 /// cancellation stands in this process (the late read never runs the model). A fresh process over what the store holds finds the
@@ -675,7 +711,12 @@ async fn exception_an_unsaved_stop_answers_the_storage_error_and_its_work_runs_a
     super::tests::turn(&handle, "second", "op-2").await;
     hold.send_replace(super::StartHold::Held);
     gate.notify_one();
-    eventually_on!(&[&handle.cell.stepped], || (idle(&handle) && !handle.cell.busy.load(SeqCst) && handle.cell.queued.load().len() == 1 && handle.cell.unacked.load(SeqCst) == 0).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (idle(&handle)
+        && !handle.cell.busy.load(SeqCst)
+        && handle.cell.queued.load().len() == 1
+        && handle.cell.unacked.load(SeqCst) == 0)
+        .then_some(()))
+    .await;
     let saved = rig.store.records(&handle.id).into_iter().map(|(_, record)| record).collect::<Vec<_>>();
     *rig.store.failing.lock().unwrap() = Some("EIO: injected".into());
     let io = mixdog_rt::testing::hold_full(mixdog_rt::LaneKind::InteractiveIo);
@@ -695,7 +736,6 @@ async fn exception_an_unsaved_stop_answers_the_storage_error_and_its_work_runs_a
     let (_replay, _restarted, _reopened) = reopened(saved, &handle.id, &replayed).await;
     eventually_on!(&[&_reopened.cell.stepped], || (replayed.lock().unwrap().iter().any(|text| text == "second")).then_some(())).await;
 }
-
 
 /// A successful Stop of a start that never ran, then a crash before its outcome was finished: a fresh process recovers the
 /// hand-back (the same one, by the Stop's id), settles it, and its resume's drain decides with zero provider admissions of the
@@ -736,7 +776,6 @@ async fn every_crash_prefix_of_a_saved_stop_keeps_its_work_from_running() {
     }
 }
 
-
 /// The control: without a Stop, a queued prompt saved before a restart is recovered and runs on resume.
 #[tokio::test(start_paused = true)]
 async fn without_a_stop_a_saved_queued_prompt_runs_after_a_restart() {
@@ -755,7 +794,6 @@ async fn without_a_stop_a_saved_queued_prompt_runs_after_a_restart() {
     eventually_on!(&[&reopened.cell.stepped], || (replayed.lock().unwrap().iter().any(|text| text == "second")).then_some(())).await;
     gate.notify_one();
 }
-
 
 /// Another device stops the prompt `desktop-1` submitted, so it goes back to `desktop-1` through the session state, under the id
 /// its Stop's record derives (Node's format). Live: published once and settled with the stopped turn's close, nothing awaited.
@@ -796,7 +834,6 @@ async fn a_hand_back_through_the_state_is_offered_once_more_under_the_same_id_af
     assert!(restore_ids(&after, &settled).is_empty(), "a settled hand-back is not offered again");
 }
 
-
 /// P2 of a recovery that skipped the rewind: the Stop's record is saved and the process dies before the stopped run's close (no
 /// rewind, no turn end). The fresh process finalizes the crashed run and finishes the disposition the live path would have: the
 /// handed-back prompt leaves the transcript and the model context, and the hand-back is offered under the id the Stop's reply
@@ -825,7 +862,6 @@ async fn a_crash_between_the_stops_save_and_its_cleanup_still_rewinds_the_prompt
     eventually_on!(&[&reopened.cell.stepped], || (settled_records(&replay, &handle.id) == [sid.clone()]).then_some(())).await;
     assert!(replayed.lock().unwrap().is_empty(), "nothing ran");
 }
-
 
 /// A room's user Stop of its exchange's submission Q, durably queued in a member session behind the member's unrelated held run,
 /// with unrelated U queued too: the targeted stop answers once its record is durable, aborts nothing it does not own (the held
@@ -861,14 +897,19 @@ async fn a_room_stop_freezes_its_queued_member_prompt_and_unrelated_work_still_r
     let replayed: Arc<Mutex<Vec<String>>> = Arc::default();
     let (_replay, _restarted, reopened) = reopened(saved, &handle.id, &replayed).await;
     // Fence: U ran and the drain after it decided its next start (none).
-    eventually_on!(&[&reopened.cell.stepped], || (replayed.lock().unwrap().iter().any(|text| text == "U") && idle(&reopened) && reopened.cell.queued.load().is_empty()).then_some(())).await;
+    eventually_on!(&[&reopened.cell.stepped], || (replayed.lock().unwrap().iter().any(|text| text == "U")
+        && idle(&reopened)
+        && reopened.cell.queued.load().is_empty())
+    .then_some(()))
+    .await;
     let passes = reopened.cell.drain_passes.load(SeqCst);
     super::tests::caught_up(&reopened).await;
-    eventually_on!(&[&reopened.cell.stepped], || (reopened.cell.drain_passes.load(SeqCst) >= passes && idle(&reopened) && !reopened.cell.busy.load(SeqCst)).then_some(())).await;
+    eventually_on!(&[&reopened.cell.stepped], || (reopened.cell.drain_passes.load(SeqCst) >= passes && idle(&reopened) && !reopened.cell.busy.load(SeqCst))
+        .then_some(()))
+    .await;
     assert!(!replayed.lock().unwrap().iter().any(|text| text == "Q"), "Q never starts: {:?}", replayed.lock().unwrap());
     gate.notify_one();
 }
-
 
 /// The room Stop lands before its member submission is admitted (the exchange registered it, the dispatch is held, the Stop is
 /// saved, then the dispatch is released): the admission meets the terminal identity and cannot run it, now or after a restart.
@@ -893,7 +934,6 @@ async fn a_room_stop_before_the_enqueue_keeps_the_late_admission_from_running() 
     assert!(replayed.lock().unwrap().is_empty());
 }
 
-
 /// The room Stop's seal latches Q in its member session before any storage: the member's held run ends and its drain decides
 /// while Q's record is not written yet (its storage has not even begun), and Q does not start. The record then lands.
 #[tokio::test(start_paused = true)]
@@ -913,14 +953,15 @@ async fn a_latched_room_submission_does_not_start_while_its_stop_is_not_saved_ye
     let passes = handle.cell.drain_passes.load(SeqCst);
     gate.notify_one();
     // Fence: the held run ended and the drain after it decided its next start.
-    eventually_on!(&[&handle.cell.stepped], || (handle.cell.drain_passes.load(SeqCst) > passes && idle(&handle) && !handle.cell.busy.load(SeqCst)).then_some(())).await;
+    eventually_on!(&[&handle.cell.stepped], || (handle.cell.drain_passes.load(SeqCst) > passes && idle(&handle) && !handle.cell.busy.load(SeqCst))
+        .then_some(()))
+    .await;
     assert_eq!(*seen.lock().unwrap(), ["first"], "the latched submission did not start");
     assert!(stop_records(&rig, &handle.id).is_empty(), "nothing was saved yet");
     directory.stop_work(&handle.id, vec!["rsub_q".into()]).await.expect("saved");
     assert!(handle.cell.queued.load().is_empty(), "the record took its queue copy");
     assert_eq!(*seen.lock().unwrap(), ["first"]);
 }
-
 
 /// A room prompt injected at a boundary into the member's running turn belongs to that run. A targeted Stop of it aborts the run
 /// (the prompt is in its model context: the run not continuing is the only way the prompt does not), and answers only once
@@ -979,7 +1020,6 @@ async fn a_room_prompt_taken_at_a_boundary_is_stopped_with_the_run_that_took_it(
     assert!(work_stops::stopped(&header, &work_stops::submission("sub-own")).is_none(), "the run's own submission is not made terminal");
 }
 
-
 /// Every run's prompt as it reaches the provider, with whether its token was already aborted then; a run of `first` waits for
 /// `gate`, any other waits to be stopped.
 fn noting_provider(seen: Arc<Mutex<Vec<(String, bool)>>>, gate: Arc<Notify>) -> super::testing::Script {
@@ -998,7 +1038,6 @@ fn noting_provider(seen: Arc<Mutex<Vec<(String, bool)>>>, gate: Arc<Notify>) -> 
         })
     })
 }
-
 
 /// The seal lands while the member's start of Q is between its final Stop check and its spawn, at either side of the start
 /// gate: `check` (before the gate registered it) and `gate` (registered, not yet spawned). Before the gate: the start is
@@ -1040,7 +1079,6 @@ async fn a_seal_between_the_final_check_and_the_spawn_never_leaves_the_work_runn
     }
 }
 
-
 /// The start gate's one lock: a start and a latch of the same identity racing on two threads always end in one of the two
 /// allowed outcomes, never a registered start the latch did not see.
 #[test]
@@ -1073,7 +1111,6 @@ fn a_start_racing_the_latch_is_refused_or_aborted() {
         assert!(started || !saw, "round {round}: a refused start is not running");
     }
 }
-
 
 /// A completion wake (queue identities, no submission) takes room submission X at a boundary; a targeted Stop of X aborts the
 /// run, freezes X alone, and leaves the completion's identities non-terminal (no stopped mark).
@@ -1125,7 +1162,6 @@ async fn a_targeted_stop_of_a_prompt_injected_into_a_completion_wake_freezes_onl
     assert!(!body.to_string().contains(&completion), "the record names X's unit only: {body}");
 }
 
-
 /// A latch exists only until the durable record protects its identity: once the member's `work_stop` is acknowledged and
 /// folded, the latch is released, and a redelivery of the submission is refused by the durable mark alone.
 #[tokio::test(start_paused = true)]
@@ -1144,7 +1180,6 @@ async fn a_latch_is_released_once_its_record_folds_and_the_durable_mark_refuses_
     super::tests::caught_up(&handle).await;
     assert!(idle(&handle) && handle.cell.queued.load().is_empty());
 }
-
 
 /// Duplicate Stops of a completion wake and the same completion delivered again, before and after a reload, join one disposition:
 /// one Stop record, no second run, no hand-back.
@@ -1193,15 +1228,6 @@ async fn duplicate_stops_and_a_redelivered_completion_join_one_disposition() {
     assert!(reopened.cell.queued.load().is_empty());
 }
 
-
-
-
-
-
-
-
-
-
 /// The output commits while the Stop stands between its reads and its decision: the decision sees it (Node's "output already
 /// produced"), the prompt stays in the transcript.
 #[tokio::test]
@@ -1224,7 +1250,6 @@ async fn an_output_that_commits_while_the_stop_is_reading_hands_nothing_back() {
     eventually_on!(&[&handle.cell.stepped], || idle(&handle).then_some(())).await;
     assert!(rows(&handle).contains(&("user", "draft".to_owned())), "the prompt stays: {:?}", rows(&handle));
 }
-
 
 /// The Stop decides first and the output commits after: the hand-back stands (Node's "prompt handed back"), and the prompt leaves.
 #[tokio::test]

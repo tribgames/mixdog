@@ -4,17 +4,11 @@
 
 use std::{path::PathBuf, sync::Arc, time::Duration};
 
-use mixdog_app_server_client::{
-    ConnectOptions, Json, ProtocolClient, ResumeWindow, Target, ThreadId, connect,
-    mock::MockNetwork,
-};
+use mixdog_app_server_client::{ConnectOptions, Json, ProtocolClient, ResumeWindow, Target, ThreadId, connect, mock::MockNetwork};
 use serde_json::json;
 
 fn options() -> Json {
-    let path = PathBuf::from(concat!(
-        env!("CARGO_MANIFEST_DIR"),
-        "/../../../../packages/protocol-client/conformance/options.json"
-    ));
+    let path = PathBuf::from(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/protocol-client/conformance/options.json"));
     serde_json::from_str(&std::fs::read_to_string(path).unwrap()).unwrap()
 }
 
@@ -29,11 +23,7 @@ fn thread_result(id: &str) -> Json {
 async fn a_feed_waiting_on_a_blob_does_not_delay_another_feed() {
     let options = options();
     let net = Arc::new(MockNetwork::default());
-    let mut opts = ConnectOptions::new(
-        Target { id: "local".into() },
-        net.clone(),
-        serde_json::from_value(options["clientInfo"].clone()).unwrap(),
-    );
+    let mut opts = ConnectOptions::new(Target { id: "local".into() }, net.clone(), serde_json::from_value(options["clientInfo"].clone()).unwrap());
     opts.capabilities = serde_json::from_value(options["capabilities"].clone()).unwrap();
     let connecting = tokio::spawn(connect(opts));
 
@@ -47,10 +37,7 @@ async fn a_feed_waiting_on_a_blob_does_not_delay_another_feed() {
 
     let resume = |id: &'static str| {
         let c = client.clone();
-        tokio::spawn(async move {
-            c.resume_thread(&ThreadId::from(id), ResumeWindow::LastItems { last_items: 50 })
-                .await
-        })
+        tokio::spawn(async move { c.resume_thread(&ThreadId::from(id), ResumeWindow::LastItems { last_items: 50 }).await })
     };
     let (a, b) = (resume("t1"), resume("t2"));
     for _ in 0..2 {

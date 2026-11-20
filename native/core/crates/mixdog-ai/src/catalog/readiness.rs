@@ -110,8 +110,7 @@ const OAUTH_PROVIDER_IDS: [&str; 10] = [
 fn is_custom_provider_id(id: &str) -> bool {
     let Some(uuid) = id.strip_prefix("custom-") else { return false };
     let groups: Vec<&str> = uuid.split('-').collect();
-    groups.len() == 5
-        && groups.iter().zip([8, 4, 4, 4, 12]).all(|(g, n)| g.len() == n && g.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
+    groups.len() == 5 && groups.iter().zip([8, 4, 4, 4, 12]).all(|(g, n)| g.len() == n && g.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f')))
 }
 
 /// `isKnownProvider(provider, config)`: a built-in API provider, `mixdog-local`,
@@ -155,15 +154,8 @@ mod tests {
     struct Offline;
     #[async_trait]
     impl HttpSend for Offline {
-        async fn send(
-            &self,
-            _: WireRequest,
-            _exchange: crate::transport::Exchange,
-        ) -> Result<HttpResponse, ProviderError> {
-            Err(ProviderError::new(
-                ErrorKind::Transient,
-                DeliveryState::NotSent,
-            ))
+        async fn send(&self, _: WireRequest, _exchange: crate::transport::Exchange) -> Result<HttpResponse, ProviderError> {
+            Err(ProviderError::new(ErrorKind::Transient, DeliveryState::NotSent))
         }
     }
 
@@ -270,11 +262,17 @@ mod tests {
         }
         assert!(!is_known_provider("cursor-oauth", &config, &off));
         assert!(is_known_provider("openai", &config, &off));
-        for id in ["", "  ", "nope", "custom-ffffffff-ffff-ffff-ffff-ffffffffffff", "custom-00000000-0000-0000-0000-000000000000", "custom-0123ABCD-0123-4567-89ab-0123456789ab"] {
+        for id in [
+            "",
+            "  ",
+            "nope",
+            "custom-ffffffff-ffff-ffff-ffff-ffffffffffff",
+            "custom-00000000-0000-0000-0000-000000000000",
+            "custom-0123ABCD-0123-4567-89ab-0123456789ab",
+        ] {
             assert!(!is_known_provider(id, &config, &on), "{id}");
         }
     }
-
 
     async fn readiness_over(builder: Arc<dyn ProviderBuilder>) -> Arc<ProviderReadiness> {
         let tokens = mixdog_rt::testing::tokens();
@@ -384,9 +382,13 @@ mod tests {
         ready.invalidate_provider_caches(true); // unbound: nothing else to drop
         let dropped = Arc::new(AtomicUsize::new(0));
         let counter = Arc::clone(&dropped);
-        assert!(ready.bind_invalidation(Arc::new(move || {
-            counter.fetch_add(1, Ordering::SeqCst);
-        })).is_ok());
+        assert!(
+            ready
+                .bind_invalidation(Arc::new(move || {
+                    counter.fetch_add(1, Ordering::SeqCst);
+                }))
+                .is_ok()
+        );
         assert!(ready.invalidation_bound());
         ready.invalidate_provider_caches(true);
         ready.invalidate_provider_caches(false);
@@ -394,7 +396,6 @@ mod tests {
         assert!(ready.bind_invalidation(Arc::new(|| {})).is_err(), "a second bind is refused");
     }
 }
-
 
 /// The 24 h catalog timer (`CATALOG_REFRESH_INTERVAL_MS`, registry.mjs:92).
 pub const CATALOG_REFRESH_INTERVAL: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
@@ -458,9 +459,7 @@ impl ProviderReadiness {
         let providers = registry.clone();
         catalog.bind_providers(Arc::new(move |name| providers.route_provider(name)));
         let registered = registry.clone();
-        catalog.bind_registered(move || {
-            registered.all().into_iter().map(|(name, adapter)| (ProviderId::from(name.as_str()), adapter)).collect()
-        });
+        catalog.bind_registered(move || registered.all().into_iter().map(|(name, adapter)| (ProviderId::from(name.as_str()), adapter)).collect());
         Arc::new(Self {
             registry,
             catalog,
@@ -696,10 +695,7 @@ impl ProviderReadiness {
                 }
                 let generation = gate.generation;
                 let forced = forced_providers(&providers, &gate.providers);
-                gate.flights
-                    .entry(key.clone())
-                    .or_insert_with(|| self.clone().initialize(providers, generation, forced).shared())
-                    .clone()
+                gate.flights.entry(key.clone()).or_insert_with(|| self.clone().initialize(providers, generation, forced).shared()).clone()
             };
             let result = flight.clone().await;
             if result.is_err() {
@@ -712,12 +708,7 @@ impl ProviderReadiness {
         })
     }
 
-    fn initialize(
-        self: Arc<Self>,
-        providers: Map<String, Value>,
-        generation: u64,
-        forced: Vec<String>,
-    ) -> BoxFuture<'static, Result<(), RegistryError>> {
+    fn initialize(self: Arc<Self>, providers: Map<String, Value>, generation: u64, forced: Vec<String>) -> BoxFuture<'static, Result<(), RegistryError>> {
         Box::pin(async move {
             let (closed, current, mut latest) = {
                 let gate = self.gate();

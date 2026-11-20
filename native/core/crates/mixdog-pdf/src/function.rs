@@ -32,11 +32,7 @@ pub(crate) fn clamp(v: f64, min: f64, max: f64) -> f64 {
 
 /// `interpolate` of function.js.
 fn interpolate(x: f64, xmin: f64, xmax: f64, ymin: f64, ymax: f64) -> f64 {
-    if xmin == xmax {
-        ymin
-    } else {
-        ymin + (x - xmin) * ((ymax - ymin) / (xmax - xmin))
-    }
+    if xmin == xmax { ymin } else { ymin + (x - xmin) * ((ymax - ymin) / (xmax - xmin)) }
 }
 
 /// `ToUint32` of a number stored into a `Uint32Array`.
@@ -61,11 +57,7 @@ fn plus(obj: &Obj) -> f64 {
         Obj::Str(bytes) => {
             let text = String::from_utf8_lossy(bytes);
             let trimmed = text.trim();
-            if trimmed.is_empty() {
-                0.0
-            } else {
-                trimmed.parse().unwrap_or(f64::NAN)
-            }
+            if trimmed.is_empty() { 0.0 } else { trimmed.parse().unwrap_or(f64::NAN) }
         }
         _ => f64::NAN,
     }
@@ -111,17 +103,11 @@ struct Sampled {
 
 impl Sampled {
     fn call(&self, src: &[f64], dest: &mut [f64]) {
-        let mut s = SAMPLE_SCRATCH
-            .with(|slot| slot.borrow_mut().take())
-            .unwrap_or_default();
+        let mut s = SAMPLE_SCRATCH.with(|slot| slot.borrow_mut().take()).unwrap_or_default();
         let input_size = self.input_size;
         let output_size = self.output_size;
         let use_simplex = input_size > MAX_MULTILINEAR_INPUTS;
-        let max_vertices = if use_simplex {
-            input_size + 1
-        } else {
-            1usize << input_size
-        };
+        let max_vertices = if use_simplex { input_size + 1 } else { 1usize << input_size };
         s.steps.clear();
         s.steps.resize(input_size, 0.0);
         s.weights0.clear();
@@ -142,13 +128,7 @@ impl Sampled {
             let domain_lo = at(&self.domain, 2 * i);
             let domain_hi = at(&self.domain, 2 * i + 1);
             let xi = clamp(at(src, i), domain_lo, domain_hi);
-            let mut e = interpolate(
-                xi,
-                domain_lo,
-                domain_hi,
-                at(&self.encode, 2 * i),
-                at(&self.encode, 2 * i + 1),
-            );
+            let mut e = interpolate(xi, domain_lo, domain_hi, at(&self.encode, 2 * i), at(&self.encode, 2 * i + 1));
             let size_i = at(&self.size, i);
             e = clamp(e, 0.0, size_i - 1.0);
             let e0 = e.floor();
@@ -190,31 +170,17 @@ impl Sampled {
             for i in 0..num_active {
                 let a = s.sorted[i];
                 s.vertices[i + 1] = to_u32(f64::from(s.vertices[i]) + s.steps[a]);
-                s.vertex_weights[i + 1] = if i + 1 < num_active {
-                    s.weights1[a] - s.weights1[s.sorted[i + 1]]
-                } else {
-                    s.weights1[a]
-                };
+                s.vertex_weights[i + 1] = if i + 1 < num_active { s.weights1[a] - s.weights1[s.sorted[i + 1]] } else { s.weights1[a] };
             }
             num_vertices = num_active + 1;
         }
         for j in 0..output_size {
             let mut rj = 0.0f64;
             for i in 0..num_vertices {
-                let sample = self
-                    .samples
-                    .get(s.vertices[i] as usize + j)
-                    .copied()
-                    .unwrap_or(f64::NAN);
+                let sample = self.samples.get(s.vertices[i] as usize + j).copied().unwrap_or(f64::NAN);
                 rj += sample * s.vertex_weights[i];
             }
-            rj = interpolate(
-                rj,
-                0.0,
-                1.0,
-                at(&self.decode, 2 * j),
-                at(&self.decode, 2 * j + 1),
-            );
+            rj = interpolate(rj, 0.0, 1.0, at(&self.decode, 2 * j), at(&self.decode, 2 * j + 1));
             if let Some(slot) = dest.get_mut(j) {
                 *slot = clamp(rj, at(&self.range, 2 * j), at(&self.range, 2 * j + 1));
             }
@@ -265,18 +231,11 @@ impl Stitched {
             i += 1;
         }
         let dmin = if i > 0 { bounds[i - 1] } else { self.domain[0] };
-        let dmax = if i < length {
-            bounds[i]
-        } else {
-            self.domain[1]
-        };
-        let tmp =
-            [interpolate(v, dmin, dmax, at(encode, 2 * i), at(encode, 2 * i + 1)) as f32 as f64];
+        let dmax = if i < length { bounds[i] } else { self.domain[1] };
+        let tmp = [interpolate(v, dmin, dmax, at(encode, 2 * i), at(encode, 2 * i + 1)) as f32 as f64];
         match self.functions.get(i) {
             Some(function) => function.call(&tmp, dest),
-            None => Err(format_error(
-                "Stitching function has no function for the interval",
-            )),
+            None => Err(format_error("Stitching function has no function for the interval")),
         }
     }
 }
@@ -341,9 +300,7 @@ fn create_at(xref: &Xref, obj: &Obj, parse_array: bool, depth: usize) -> Result<
     match &fetched {
         Obj::Array(items) => {
             if !parse_array {
-                return Err(format_error(
-                    "PDFFunctionFactory.create - expected \"parseArray\" argument.",
-                ));
+                return Err(format_error("PDFFunctionFactory.create - expected \"parseArray\" argument."));
             }
             parse_array_of(xref, items, depth)
         }
@@ -362,18 +319,11 @@ fn parse_array_of(xref: &Xref, items: &[Obj], depth: usize) -> Result<PdfFunctio
         return Ok(functions.remove(0));
     }
     let num_inputs = functions.first().map_or(0, |f| f.num_inputs);
-    if functions
-        .iter()
-        .any(|f| f.num_inputs != num_inputs || f.num_outputs != 1)
-    {
+    if functions.iter().any(|f| f.num_inputs != num_inputs || f.num_outputs != 1) {
         return Err(format_error("Invalid array of functions."));
     }
     let num_outputs = functions.len();
-    Ok(PdfFunction {
-        kind: Kind::Array(functions),
-        num_inputs,
-        num_outputs,
-    })
+    Ok(PdfFunction { kind: Kind::Array(functions), num_inputs, num_outputs })
 }
 
 /// `PDFFunction.parse`.
@@ -381,19 +331,14 @@ fn parse(xref: &Xref, function: &Obj, depth: usize) -> Result<PdfFunction> {
     if depth > MAX_DEPTH {
         return Err(format_error("Functions nested too deeply."));
     }
-    let dict = function
-        .dict_or_stream_dict()
-        .ok_or_else(|| format_error("Function is neither a dictionary nor a stream."))?;
+    let dict = function.dict_or_stream_dict().ok_or_else(|| format_error("Function is neither a dictionary nor a stream."))?;
     let kind = xref.get(dict, "FunctionType")?;
     match kind.as_num() {
         Some(0.0) => construct_sampled(xref, function, dict),
         Some(2.0) => construct_interpolated(xref, dict),
         Some(3.0) => construct_stitched(xref, dict, depth),
         Some(4.0) => construct_postscript(xref, function, dict),
-        _ => Err(format_error(&format!(
-            "Unknown function type: {}",
-            describe(&kind)
-        ))),
+        _ => Err(format_error(&format!("Unknown function type: {}", describe(&kind)))),
     }
 }
 
@@ -407,10 +352,7 @@ fn describe(obj: &Obj) -> String {
 }
 
 fn function_stream<'a>(function: &'a Obj, what: &str) -> Result<&'a PdfStream> {
-    function
-        .as_stream()
-        .map(|s| &**s)
-        .ok_or_else(|| format_error(&format!("{what} function is not a stream")))
+    function.as_stream().map(|s| &**s).ok_or_else(|| format_error(&format!("{what} function is not a stream")))
 }
 
 fn stream_bytes(xref: &Xref, stream: &PdfStream) -> Result<Vec<u8>> {
@@ -427,9 +369,7 @@ fn get_sample_array(size: &[f64], output_size: usize, bps: i32, bytes: &[u8]) ->
         return Err(format_error("Invalid array length"));
     }
     if length > MAX_SAMPLES {
-        return Err(PdfError::ResourceLimit(
-            "sampled function holds too many samples".to_owned(),
-        ));
+        return Err(PdfError::ResourceLimit("sampled function holds too many samples".to_owned()));
     }
     let length = length as usize;
     let sample_mul = 1.0 / (2.0f64.powi(bps) - 1.0);
@@ -464,10 +404,7 @@ fn construct_sampled(xref: &Xref, function: &Obj, dict: &Dict) -> Result<PdfFunc
     let input_size = domain.len() / 2;
     let output_size = range.len() / 2;
     let size = number_array(xref, dict, "Size")?.ok_or_else(|| format_error("No size"))?;
-    let bps = xref
-        .get(dict, "BitsPerSample")?
-        .as_num()
-        .ok_or_else(|| format_error("No BitsPerSample"))?;
+    let bps = xref.get(dict, "BitsPerSample")?.as_num().ok_or_else(|| format_error("No BitsPerSample"))?;
     if !(1.0..=32.0).contains(&bps) || bps.fract() != 0.0 {
         return Err(format_error("Unsupported BitsPerSample"));
     }
@@ -480,24 +417,13 @@ fn construct_sampled(xref: &Xref, function: &Obj, dict: &Dict) -> Result<PdfFunc
     }
     let encode = match number_array(xref, dict, "Encode")? {
         Some(encode) => encode,
-        None => (0..input_size)
-            .flat_map(|i| [0.0, at(&size, i) - 1.0])
-            .collect(),
+        None => (0..input_size).flat_map(|i| [0.0, at(&size, i) - 1.0]).collect(),
     };
     let decode = number_array(xref, dict, "Decode")?.unwrap_or_else(|| range.clone());
     let bytes = stream_bytes(xref, function_stream(function, "Sampled")?)?;
     let samples = get_sample_array(&size, output_size, bps as i32, &bytes)?;
     Ok(PdfFunction {
-        kind: Kind::Sampled(Sampled {
-            domain,
-            range,
-            encode,
-            decode,
-            size,
-            samples,
-            input_size,
-            output_size,
-        }),
+        kind: Kind::Sampled(Sampled { domain, range, encode, decode, size, samples, input_size, output_size }),
         num_inputs: input_size,
         num_outputs: output_size,
     })
@@ -511,11 +437,7 @@ fn construct_interpolated(xref: &Xref, dict: &Dict) -> Result<PdfFunction> {
     let n = xref.get(dict, "N")?.as_num();
     let diff: Vec<f64> = (0..c0.len()).map(|i| at(&c1, i) - c0[i]).collect();
     let num_outputs = diff.len();
-    Ok(PdfFunction {
-        kind: Kind::Interpolated(Interpolated { c0, diff, n }),
-        num_inputs: domain.map_or(1, |d| d.len() / 2),
-        num_outputs,
-    })
+    Ok(PdfFunction { kind: Kind::Interpolated(Interpolated { c0, diff, n }), num_inputs: domain.map_or(1, |d| d.len() / 2), num_outputs })
 }
 
 /// `constructStitched`.
@@ -526,9 +448,7 @@ fn construct_stitched(xref: &Xref, dict: &Dict, depth: usize) -> Result<PdfFunct
         return Err(format_error("Bad domain for stitched function"));
     }
     let Obj::Array(items) = xref.get(dict, "Functions")? else {
-        return Err(format_error(
-            "Functions of a stitched function is not an array",
-        ));
+        return Err(format_error("Functions of a stitched function is not an array"));
     };
     let mut functions = Vec::with_capacity(items.len());
     for item in items.iter() {
@@ -536,27 +456,12 @@ fn construct_stitched(xref: &Xref, dict: &Dict, depth: usize) -> Result<PdfFunct
         functions.push(parse(xref, &fetched, depth + 1)?);
     }
     let num_outputs = functions.first().map_or(0, |f| f.num_outputs);
-    if functions.is_empty()
-        || functions
-            .iter()
-            .any(|f| f.num_inputs != 1 || f.num_outputs != num_outputs)
-    {
-        return Err(format_error(
-            "Incompatible sub-functions for stitched function",
-        ));
+    if functions.is_empty() || functions.iter().any(|f| f.num_inputs != 1 || f.num_outputs != num_outputs) {
+        return Err(format_error("Incompatible sub-functions for stitched function"));
     }
     let bounds = number_array(xref, dict, "Bounds")?;
     let encode = number_array(xref, dict, "Encode")?;
-    Ok(PdfFunction {
-        kind: Kind::Stitched(Stitched {
-            domain,
-            functions,
-            bounds,
-            encode,
-        }),
-        num_inputs: input_size,
-        num_outputs,
-    })
+    Ok(PdfFunction { kind: Kind::Stitched(Stitched { domain, functions, bounds, encode }), num_inputs: input_size, num_outputs })
 }
 
 /// `constructPostScript`.
@@ -565,11 +470,7 @@ fn construct_postscript(xref: &Xref, function: &Obj, dict: &Dict) -> Result<PdfF
     let range = number_array(xref, dict, "Range")?.ok_or_else(|| format_error("No range."))?;
     let code = stream_bytes(xref, function_stream(function, "PostScript")?)?;
     let program = PostScriptFunction::new(&code, &domain, &range, xref.guard())?;
-    Ok(PdfFunction {
-        kind: Kind::PostScript(program),
-        num_inputs: domain.len() / 2,
-        num_outputs: range.len() / 2,
-    })
+    Ok(PdfFunction { kind: Kind::PostScript(program), num_inputs: domain.len() / 2, num_outputs: range.len() / 2 })
 }
 
 #[cfg(test)]
@@ -584,13 +485,7 @@ mod tests {
         assert_eq!(samples, vec![m, 2.0 * m, 3.0 * m, 4.0 * m]);
         // 12 bits across byte borders
         let samples = get_sample_array(&[2.0], 1, 12, &[0xab, 0xcd, 0xef]).expect("samples");
-        assert_eq!(
-            samples,
-            vec![
-                f64::from(0xabcu32) * (1.0 / 4095.0),
-                f64::from(0xdefu32) * (1.0 / 4095.0)
-            ]
-        );
+        assert_eq!(samples, vec![f64::from(0xabcu32) * (1.0 / 4095.0), f64::from(0xdefu32) * (1.0 / 4095.0)]);
         // 16 bits
         let samples = get_sample_array(&[1.0], 1, 16, &[0x80, 0x00]).expect("samples");
         assert_eq!(samples, vec![32768.0 * (1.0 / 65535.0)]);
@@ -604,8 +499,7 @@ mod tests {
 
     #[test]
     fn thirty_two_bit_samples_are_signed_like_javascripts_shifts() {
-        let samples = get_sample_array(&[2.0], 1, 32, &[0x80, 0, 0, 0, 0x7f, 0xff, 0xff, 0xff])
-            .expect("samples");
+        let samples = get_sample_array(&[2.0], 1, 32, &[0x80, 0, 0, 0, 0x7f, 0xff, 0xff, 0xff]).expect("samples");
         assert_eq!(samples[0], -2_147_483_648.0 * (1.0 / 4_294_967_295.0));
         assert_eq!(samples[1], 2_147_483_647.0 * (1.0 / 4_294_967_295.0));
     }
@@ -618,16 +512,7 @@ mod tests {
     }
 
     fn sampled_1d(samples: Vec<f64>, encode: Vec<f64>, size: f64) -> Sampled {
-        Sampled {
-            domain: vec![0.0, 1.0],
-            range: vec![0.0, 1.0],
-            encode,
-            decode: vec![0.0, 1.0],
-            size: vec![size],
-            samples,
-            input_size: 1,
-            output_size: 1,
-        }
+        Sampled { domain: vec![0.0, 1.0], range: vec![0.0, 1.0], encode, decode: vec![0.0, 1.0], size: vec![size], samples, input_size: 1, output_size: 1 }
     }
 
     #[test]
@@ -666,19 +551,11 @@ mod tests {
 
     #[test]
     fn exponential_interpolation() {
-        let f = Interpolated {
-            c0: vec![0.0, 1.0],
-            diff: vec![1.0, -1.0],
-            n: Some(2.0),
-        };
+        let f = Interpolated { c0: vec![0.0, 1.0], diff: vec![1.0, -1.0], n: Some(2.0) };
         let mut out = [0.0, 0.0];
         f.call(&[0.5], &mut out);
         assert_eq!(out, [0.25, 0.75]);
-        let missing = Interpolated {
-            c0: vec![0.0],
-            diff: vec![1.0],
-            n: None,
-        };
+        let missing = Interpolated { c0: vec![0.0], diff: vec![1.0], n: None };
         let mut one = [0.0];
         missing.call(&[0.5], &mut one);
         assert!(one[0].is_nan());

@@ -18,17 +18,17 @@ use crate::engine::Repo;
 use crate::engine::Scm;
 use crate::error::ScmFailure;
 use crate::git::RunOptions;
+use crate::inspect::status::path_text;
 use crate::locks::path_key;
 use crate::repo::on_lane;
 use crate::repo::operation_in_progress;
 use crate::repo::operation_verb;
-use crate::inspect::status::path_text;
 use crate::worktree::errors;
+use crate::worktree::include;
 use crate::worktree::merge::MergeResult;
 use crate::worktree::names;
 use crate::worktree::ownership::Owner;
 use crate::worktree::registry::Registry;
-use crate::worktree::include;
 use crate::worktree::registry::WorktreeRecord;
 use crate::worktree::settings::SettingsSource;
 use crate::worktree::settings::WorktreeSettings;
@@ -74,14 +74,7 @@ pub fn parse_worktree_list(text: &str) -> Vec<GitWorktree> {
         }
         if let Some(path) = field.strip_prefix("worktree ") {
             rows.extend(current.take());
-            current = Some(GitWorktree {
-                path: path.to_owned(),
-                head: String::new(),
-                branch: None,
-                detached: false,
-                prunable: false,
-                locked: None,
-            });
+            current = Some(GitWorktree { path: path.to_owned(), head: String::new(), branch: None, detached: false, prunable: false, locked: None });
         } else if let Some(row) = current.as_mut() {
             if let Some(head) = field.strip_prefix("HEAD ") {
                 row.head = head.to_owned();
@@ -212,25 +205,16 @@ mod tests {
         assert!(rows[1].detached && rows[1].prunable);
     }
 
-
     #[test]
     fn a_root_cleanup_given_twice_runs_once_and_another_still_joins_it() {
-        let scm = crate::engine::Scm::new(
-            crate::testing::TestProcesses::shared(),
-            mixdog_rt::testing::tokens().maintenance_io,
-            std::env::temp_dir(),
-        );
+        let scm = crate::engine::Scm::new(crate::testing::TestProcesses::shared(), mixdog_rt::testing::tokens().maintenance_io, std::env::temp_dir());
         let same: Arc<dyn crate::worktree::removal::RootCleanup> = Arc::new(Named("same"));
         let other: Arc<dyn crate::worktree::removal::RootCleanup> = Arc::new(Named("other"));
-        let worktrees = Worktrees::new(scm, std::env::temp_dir())
-            .with_root_cleanup(same.clone())
-            .with_root_cleanup(same.clone())
-            .with_root_cleanup(other);
+        let worktrees = Worktrees::new(scm, std::env::temp_dir()).with_root_cleanup(same.clone()).with_root_cleanup(same.clone()).with_root_cleanup(other);
         let names: Vec<&str> = worktrees.cleanups().iter().map(|cleanup| cleanup.name()).collect();
         assert_eq!(names, ["same", "other"]);
     }
 }
-
 
 /// The runtime token of this process's worker snapshots (`worker-snapshots.mjs state()`: a random
 /// `worker-snapshots-<uuid>` per process).
@@ -244,9 +228,7 @@ fn process_runtime_token() -> &'static str {
     })
 }
 fn now_ms() -> i64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as i64)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_millis() as i64)
 }
 impl Worktrees {
     pub fn new(scm: Arc<Scm>, data_dir: PathBuf) -> Self {
@@ -308,11 +290,16 @@ impl Worktrees {
 
     /// The id of the snapshot `holder` made in transaction `tx`.
     pub async fn snapshot_of(&self, holder: &str, tx: &str, cancel: &CancellationToken) -> Result<Option<String>, ScmFailure> {
-        Ok(self.all(cancel).await?.into_iter().find(|r| {
-            is_snapshot(r)
-                && r.extra.get("txId").and_then(Value::as_str) == Some(tx)
-                && r.extra.get("holderSessionId").and_then(Value::as_str) == Some(holder)
-        }).map(|r| r.id))
+        Ok(self
+            .all(cancel)
+            .await?
+            .into_iter()
+            .find(|r| {
+                is_snapshot(r)
+                    && r.extra.get("txId").and_then(Value::as_str) == Some(tx)
+                    && r.extra.get("holderSessionId").and_then(Value::as_str) == Some(holder)
+            })
+            .map(|r| r.id))
     }
 
     pub fn data_dir(&self) -> &Path {
@@ -367,27 +354,18 @@ impl Worktrees {
         }
         let repo = match self.scm.open(project, cancel).await {
             Ok(repo) => repo,
-            Err(ScmFailure::NotARepository) => {
-                return Err(errors::unsupported_repo_text(project_text, "The project folder is not a git repository."))
-            }
+            Err(ScmFailure::NotARepository) => return Err(errors::unsupported_repo_text(project_text, "The project folder is not a git repository.")),
             Err(other) => return Err(other),
         };
         let Ok(top_level) = repo.root().map(Path::to_path_buf) else {
             return Err(errors::unsupported_repo_text(project_text, "Bare repositories cannot host managed worktrees."));
         };
-        let head = self
-            .scm
-            .git
-            .outcome(cancel, &top_level, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default())
-            .await?;
+        let head = self.scm.git.outcome(cancel, &top_level, &["rev-parse", "--verify", "--quiet", "HEAD^{commit}"], &RunOptions::default()).await?;
         if !head.success() {
             return Err(errors::unsupported_repo_text(project_text, "The repository has no commits yet; commit once first."));
         }
-        let [top_level, common_dir]: [PathBuf; 2] = self
-            .canonical_paths(vec![top_level, repo.identity.common_dir.clone()], cancel)
-            .await?
-            .try_into()
-            .expect("two paths in, two out");
+        let [top_level, common_dir]: [PathBuf; 2] =
+            self.canonical_paths(vec![top_level, repo.identity.common_dir.clone()], cancel).await?.try_into().expect("two paths in, two out");
         Ok(RepoFacts {
             project_path: project.clone(),
             current_branch: self.scm.checked_out_branch(cancel, &top_level).await?,
@@ -414,11 +392,7 @@ impl Worktrees {
     }
 
     async fn local_branches(&self, cwd: &Path, cancel: &CancellationToken) -> Result<HashSet<String>, ScmFailure> {
-        let text = self
-            .scm
-            .git
-            .read(cancel, cwd, &["for-each-ref", "--format=%(refname:short)", "refs/heads"])
-            .await?;
+        let text = self.scm.git.read(cancel, cwd, &["for-each-ref", "--format=%(refname:short)", "refs/heads"]).await?;
         Ok(text.lines().map(|l| l.trim().to_lowercase()).filter(|l| !l.is_empty()).collect())
     }
 
@@ -445,11 +419,7 @@ impl Worktrees {
         if !matches!(request.carry.as_deref(), None | Some("ask" | "leave" | "carry")) {
             return Err(ScmFailure::invalid("carryChanges", "ask, leave or carry"));
         }
-        let subdir = facts
-            .project_path
-            .strip_prefix(&facts.top_level)
-            .map(|rel| rel.to_string_lossy().replace('\\', "/"))
-            .unwrap_or_default();
+        let subdir = facts.project_path.strip_prefix(&facts.top_level).map(|rel| rel.to_string_lossy().replace('\\', "/")).unwrap_or_default();
         // The project folder's uncommitted changes: a carry is judged by the same status read
         // that counts them; `ask` refuses while there are any.
         let pending = match request.carry.as_deref() {
@@ -503,17 +473,8 @@ impl Worktrees {
         };
         let env_files = self.untracked_env_files(&facts.top_level, cancel).await?;
         let plan = self.plan_includes(&facts.top_level, &entries, env_files, cancel).await?;
-        let (tracked, _needed) = self
-            .assert_checkout_fits(
-            &facts.top_level,
-            &base_commit,
-            plan.copy_bytes,
-            &root,
-            settings.size_warn_bytes,
-            request.confirm_large,
-            cancel,
-        )
-        .await?;
+        let (tracked, _needed) =
+            self.assert_checkout_fits(&facts.top_level, &base_commit, plan.copy_bytes, &root, settings.size_warn_bytes, request.confirm_large, cancel).await?;
         let mut branches = self.local_branches(&facts.top_level, cancel).await?;
         let prefix = settings.branch_prefix.clone();
         // Reserve a name, then add the checkout; when another process took the branch or the folder
@@ -563,11 +524,7 @@ impl Worktrees {
                 state: "creating".into(),
                 // An existing branch has no base it branched from: it merges where a merge first
                 // takes it (recorded then).
-                merge_target: if request.existing_branch {
-                    None
-                } else {
-                    request.base_branch.clone().or_else(|| facts.current_branch.clone())
-                },
+                merge_target: if request.existing_branch { None } else { request.base_branch.clone().or_else(|| facts.current_branch.clone()) },
                 shared_session_ids: Vec::new(),
                 extra: Default::default(),
             };
@@ -576,10 +533,7 @@ impl Worktrees {
             record.extra.insert("exactBranch".into(), json!(request.branch.is_some()));
             record.extra.insert("projectSubdir".into(), json!(subdir));
             record.extra.insert("disposable".into(), json!(false));
-            record.extra.insert(
-                "warnings".into(),
-                json!(tracked_warnings(&tracked).into_iter().chain(plan.warnings.clone()).collect::<Vec<_>>()),
-            );
+            record.extra.insert("warnings".into(), json!(tracked_warnings(&tracked).into_iter().chain(plan.warnings.clone()).collect::<Vec<_>>()));
             record.extra.insert("resources".into(), json!({ "worktree": null, "lock": null, "owner": null, "includes": [] }));
             self.put(cancel, record.clone()).await?;
             let target = path_text(&path);
@@ -591,11 +545,8 @@ impl Worktrees {
                 self.undo_failed_creation(&mut record, &failure, cancel).await;
                 return Err(failure);
             }
-            let args: Vec<&str> = if request.existing_branch {
-                vec!["worktree", "add", &target, &branch]
-            } else {
-                vec!["worktree", "add", "-b", &branch, &target, &base_commit]
-            };
+            let args: Vec<&str> =
+                if request.existing_branch { vec!["worktree", "add", &target, &branch] } else { vec!["worktree", "add", "-b", &branch, &target, &base_commit] };
             match self.scm.git.run(cancel, &facts.top_level, &args).await {
                 Ok(_) => break (record, path),
                 Err(failure) => {
@@ -616,9 +567,7 @@ impl Worktrees {
                 }
             }
         };
-        let populated = self
-            .populate_checkout(&mut record, &request, &facts, &subdir, &plan, &pending, &path, &base_commit, cancel)
-            .await;
+        let populated = self.populate_checkout(&mut record, &request, &facts, &subdir, &plan, &pending, &path, &base_commit, cancel).await;
         match populated {
             Ok((prepared, changes, _carried)) => {
                 repo.touched();
@@ -690,7 +639,11 @@ impl Worktrees {
                 self.rollback_record(&mut record, None, cancel).await?
             };
             if !removed {
-                return Err(errors::session_attempt_conflict("A previous worktree of this session is still being cleaned up; try again.", record.id, Some(remaining)));
+                return Err(errors::session_attempt_conflict(
+                    "A previous worktree of this session is still being cleaned up; try again.",
+                    record.id,
+                    Some(remaining),
+                ));
             }
         }
         Ok(None)
@@ -740,9 +693,7 @@ impl Worktrees {
         let reason = format!("mixdog session={}", request.session_id);
         self.set_resource(record, "worktree", "created", cancel).await.map_err(plain)?;
         self.set_resource(record, "lock", "pending", cancel).await.map_err(plain)?;
-        git.run(cancel, &facts.project_path, &["worktree", "lock", "--reason", &reason, &target])
-            .await
-            .map_err(plain)?;
+        git.run(cancel, &facts.project_path, &["worktree", "lock", "--reason", &reason, &target]).await.map_err(plain)?;
         self.set_resource(record, "lock", "created", cancel).await.map_err(plain)?;
         if !request.runtime_token.trim().is_empty() {
             let owner = crate::worktree::ownership::Owner {
@@ -760,10 +711,7 @@ impl Worktrees {
         let mut carried: Option<String> = None;
         if request.carry.as_deref() == Some("carry") {
             let label = record.id.clone();
-            let (count, reference) = self
-                .carry_uncommitted_changes(&facts.top_level, subdir, path, base_commit, &label, cancel)
-                .await
-                .map_err(plain)?;
+            let (count, reference) = self.carry_uncommitted_changes(&facts.top_level, subdir, path, base_commit, &label, cancel).await.map_err(plain)?;
             carried = reference.clone();
             // The recovery ref stays until the caller has committed the move or put the changes back.
             changes = (count > 0).then(|| json!({ "mode": "carried", "count": count, "recoveryRef": reference }));
@@ -773,15 +721,9 @@ impl Worktrees {
         let applied = if plan.items.is_empty() {
             Vec::new()
         } else {
-            self.apply_includes_recorded(record, plan, path, cancel)
-                .await
-                .map_err(|failure| (failure, carried.clone()))?
+            self.apply_includes_recorded(record, plan, path, cancel).await.map_err(|failure| (failure, carried.clone()))?
         };
-        let mut warnings: Vec<String> = record
-            .extra
-            .get("warnings")
-            .and_then(|w| serde_json::from_value(w.clone()).ok())
-            .unwrap_or_default();
+        let mut warnings: Vec<String> = record.extra.get("warnings").and_then(|w| serde_json::from_value(w.clone()).ok()).unwrap_or_default();
         warnings.extend(applied.iter().cloned());
         record.extra.insert("warnings".into(), json!(warnings));
         let made: Vec<include::IncludeItem> = include::ledger_of(record).into_iter().filter(|i| i.status == "created").collect();
@@ -796,9 +738,7 @@ impl Worktrees {
         // in the worktree folder (the setup claim).
         record.extra.insert("setup".into(), json!({ "pending": true, "prepared": prepared }));
         record.state = "ready".into();
-        self.put(cancel, record.clone())
-            .await
-            .map_err(|failure| (failure, carried.clone()))?;
+        self.put(cancel, record.clone()).await.map_err(|failure| (failure, carried.clone()))?;
         Ok((prepared, changes, carried))
     }
 
@@ -848,8 +788,7 @@ impl Worktrees {
         let root = names::managed_root(&self.data_dir, &facts.common_dir);
         // The same size preflight as a branch worktree, before anything is made.
         let settings = self.current_settings().await;
-        self.assert_checkout_fits(&facts.top_level, commit, 0, &root, settings.size_warn_bytes, confirm_large, cancel)
-            .await?;
+        self.assert_checkout_fits(&facts.top_level, commit, 0, &root, settings.size_warn_bytes, confirm_large, cancel).await?;
         let slug = names::unique_slug("snapshot", |c| ids.contains(&c.to_lowercase()) || root.join(c).exists());
         let path = names::managed_path(&self.data_dir, &facts.common_dir, &slug);
         let mut record = WorktreeRecord {
@@ -903,12 +842,7 @@ impl Worktrees {
     }
 
     /// Managed worktrees (optionally of one repository) with who keeps them.
-    pub async fn list(
-        &self,
-        repo_common_dir: Option<&Path>,
-        retention: &dyn Retention,
-        cancel: &CancellationToken,
-    ) -> Result<Vec<Value>, ScmFailure> {
+    pub async fn list(&self, repo_common_dir: Option<&Path>, retention: &dyn Retention, cancel: &CancellationToken) -> Result<Vec<Value>, ScmFailure> {
         let scope = repo_common_dir.map(path_key);
         let mut rows = Vec::new();
         for record in self.all(cancel).await? {
@@ -916,9 +850,7 @@ impl Worktrees {
                 continue;
             }
             let live = retention.owner_live(&record);
-            let removable = record.state == "ready"
-                && !live
-                && (!retention.retained(&record) || record.extra.get("disposable") == Some(&Value::Bool(true)));
+            let removable = record.state == "ready" && !live && (!retention.retained(&record) || record.extra.get("disposable") == Some(&Value::Bool(true)));
             let mut row = entry_json(&record);
             row["ownerLive"] = json!(live);
             row["removable"] = json!(removable);
@@ -933,11 +865,7 @@ impl Worktrees {
         others.retain(|id| Some(id.as_str()) != session);
         others.sort();
         others.dedup();
-        if others.is_empty() {
-            Ok(())
-        } else {
-            Err(errors::shared_by_others(others))
-        }
+        if others.is_empty() { Ok(()) } else { Err(errors::shared_by_others(others)) }
     }
 
     /// `WORKTREE_DIRTY` / `WORKTREE_UNMERGED` that a ready worktree's removal would refuse.
@@ -947,7 +875,8 @@ impl Worktrees {
         // show yet.
         if path.exists()
             && let Ok(identity) = self.scm.open(&path, cancel).await
-            && operation_in_progress(&identity.identity.git_dir).is_some() {
+            && operation_in_progress(&identity.identity.git_dir).is_some()
+        {
             return Err(errors::dirty(Some(record.id.clone()), None, None, None));
         }
         let dirty = self.dirty_paths(record, cancel).await?;
@@ -956,12 +885,7 @@ impl Worktrees {
         }
         let unmerged = self.checkout_unmerged_count(record, cancel).await?;
         if unmerged > 0 {
-            return Err(errors::unmerged_commits(
-                record.id.clone(),
-                record.branch.clone(),
-                record.merge_target.clone(),
-                unmerged,
-            ));
+            return Err(errors::unmerged_commits(record.id.clone(), record.branch.clone(), record.merge_target.clone(), unmerged));
         }
         Ok(())
     }
@@ -1013,11 +937,8 @@ impl Worktrees {
         let admin = common.join("worktrees");
         let linked = match gitdir {
             Some(gitdir) => {
-                let [real_gitdir, real_admin]: [PathBuf; 2] = self
-                    .canonical_paths(vec![PathBuf::from(gitdir), admin], cancel)
-                    .await?
-                    .try_into()
-                    .expect("two paths in, two out");
+                let [real_gitdir, real_admin]: [PathBuf; 2] =
+                    self.canonical_paths(vec![PathBuf::from(gitdir), admin], cancel).await?.try_into().expect("two paths in, two out");
                 let (gitdir_key, admin_key) = (path_key(&real_gitdir), path_key(&real_admin));
                 gitdir_key != admin_key && gitdir_key.starts_with(&format!("{admin_key}/"))
             }
@@ -1031,17 +952,8 @@ impl Worktrees {
     /// recovery records refuse whatever `force` is; only a ready entry has a checkout to check,
     /// and dirty or unmerged work in it needs `force`. `session_id` is the session asking (the
     /// owner when none).
-    pub async fn assert_worktree_removable(
-        &self,
-        entry_id: &str,
-        force: bool,
-        session_id: Option<&str>,
-        cancel: &CancellationToken,
-    ) -> Result<(), ScmFailure> {
-        let mut record = self
-            .record(cancel, entry_id)
-            .await?
-            .ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
+    pub async fn assert_worktree_removable(&self, entry_id: &str, force: bool, session_id: Option<&str>, cancel: &CancellationToken) -> Result<(), ScmFailure> {
+        let mut record = self.record(cancel, entry_id).await?.ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
         record.branch = self.checked_out_branch_of(&record, cancel).await?;
         Self::assert_not_shared(&record, session_id.or(record.owner_session_id.as_deref()))?;
         self.assert_recovery_stores_clear(&record, cancel).await?;
@@ -1057,30 +969,14 @@ impl Worktrees {
 
     /// Removes a managed worktree. Dirty or unmerged work needs `force`; the branch goes with it
     /// once git considers it merged.
-    pub async fn remove(
-        &self,
-        entry_id: &str,
-        force: bool,
-        session_id: Option<&str>,
-        cancel: &CancellationToken,
-    ) -> Result<Value, ScmFailure> {
-        let request = crate::worktree::removal::RemoveRequest {
-            entry_id: entry_id.to_owned(),
-            force,
-            session_id: session_id.map(str::to_owned),
-            ..Default::default()
-        };
+    pub async fn remove(&self, entry_id: &str, force: bool, session_id: Option<&str>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
+        let request =
+            crate::worktree::removal::RemoveRequest { entry_id: entry_id.to_owned(), force, session_id: session_id.map(str::to_owned), ..Default::default() };
         self.remove_managed(request, cancel).await
     }
 
     /// Removes the managed worktree at `path` (`git worktree remove <path>`).
-    pub async fn remove_by_path(
-        &self,
-        path: &Path,
-        force: bool,
-        session_id: Option<&str>,
-        cancel: &CancellationToken,
-    ) -> Result<Value, ScmFailure> {
+    pub async fn remove_by_path(&self, path: &Path, force: bool, session_id: Option<&str>, cancel: &CancellationToken) -> Result<Value, ScmFailure> {
         let wanted = path_key(path);
         let record = self
             .all(cancel)
@@ -1119,17 +1015,8 @@ impl Worktrees {
 
     /// Merges the worktree's branch into the project folder's branch; the target is remembered
     /// on the record so a later removal checks against it.
-    pub async fn merge(
-        &self,
-        entry_id: &str,
-        target: Option<&str>,
-        confirmed: bool,
-        cancel: &CancellationToken,
-    ) -> Result<MergeResult, ScmFailure> {
-        let record = self
-            .record(cancel, entry_id)
-            .await?
-            .ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
+    pub async fn merge(&self, entry_id: &str, target: Option<&str>, confirmed: bool, cancel: &CancellationToken) -> Result<MergeResult, ScmFailure> {
+        let record = self.record(cancel, entry_id).await?.ok_or_else(|| errors::missing(Some(entry_id.to_owned()), None, None))?;
         let Some(branch) = record.branch.clone() else {
             return Err(errors::missing(Some(entry_id.to_owned()), None, None));
         };
@@ -1141,17 +1028,9 @@ impl Worktrees {
         let operation = self.scm.open(&source, cancel).await.ok().and_then(|r| operation_in_progress(&r.identity.git_dir));
         let dirty = self.scm.uncommitted_paths(cancel, &source).await?;
         if operation.is_some() || !dirty.is_empty() {
-            return Err(errors::dirty(
-                Some(record.id.clone()),
-                operation.map(|o| operation_verb(o).to_owned()),
-                Some(dirty.len() as u64),
-                None,
-            ));
+            return Err(errors::dirty(Some(record.id.clone()), operation.map(|o| operation_verb(o).to_owned()), Some(dirty.len() as u64), None));
         }
-        let merged = self
-            .scm
-            .merge_branch_into_checkout(cancel, &project, &branch, target, confirmed, None)
-            .await?;
+        let merged = self.scm.merge_branch_into_checkout(cancel, &project, &branch, target, confirmed, None).await?;
         if merged.merged {
             let mut current = self.record(cancel, entry_id).await?.unwrap_or(record);
             if current.merge_target.as_deref() != Some(merged.target.as_str()) {

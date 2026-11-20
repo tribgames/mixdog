@@ -53,7 +53,10 @@ impl ProviderWarmupConfig {
         let before_first_turn = flag("MIXDOG_PROVIDER_WARMUP_BEFORE_FIRST_TURN");
         Self {
             enabled: !flag("MIXDOG_DISABLE_PROVIDER_WARMUP")
-                && (flag("MIXDOG_ENABLE_PROVIDER_WARMUP") || before_first_turn || present("MIXDOG_PROVIDER_WARMUP_DELAY_MS") || present("MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS")),
+                && (flag("MIXDOG_ENABLE_PROVIDER_WARMUP")
+                    || before_first_turn
+                    || present("MIXDOG_PROVIDER_WARMUP_DELAY_MS")
+                    || present("MIXDOG_PROVIDER_MODEL_WARMUP_DELAY_MS")),
             delay: env_delay(env("MIXDOG_PROVIDER_WARMUP_DELAY_MS"), 1_500, 60_000.0),
             before_first_turn,
         }

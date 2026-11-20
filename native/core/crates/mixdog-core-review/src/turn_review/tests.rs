@@ -15,13 +15,6 @@ use super::call_diff::patch_header_path_for_resolved;
 use super::nodepath;
 use super::testing::review_at;
 
-
-
-
-
-
-
-
 #[test]
 fn header_paths_are_relative_to_the_base() {
     assert_eq!(patch_header_path_for_resolved("/ws", "/ws/a/b.txt"), "a/b.txt");
@@ -32,12 +25,6 @@ fn header_paths_are_relative_to_the_base() {
 pub(super) fn plain(path: &Path) -> String {
     path.to_string_lossy().trim_start_matches(r"\\?\").to_owned()
 }
-
-
-
-
-
-
 
 /// Every file under `dir` with its bytes' length and a cheap checksum, for before/after comparison.
 fn tree_listing(dir: &Path) -> Vec<(String, u64, u64)> {
@@ -88,7 +75,12 @@ async fn review_starts_are_recorded_at_the_snapshot_and_forgotten_with_the_threa
     assert!(!first.1.0.is_empty());
     assert_eq!(bases.base(&thread, ReviewScope::Session, None).await.map(|b| b.1.0), Some(first.1.0.clone()), "the session starts at its first turn");
     std::fs::write(ws.join("a.txt"), "one\n2\n").unwrap();
-    let change = CallChange { path: plain(&ws.join("a.txt")), new_path: None, before: ReviewContent::bytes(b"one\ntwo\n".to_vec()), after: ReviewContent::bytes(b"one\n2\n".to_vec()) };
+    let change = CallChange {
+        path: plain(&ws.join("a.txt")),
+        new_path: None,
+        before: ReviewContent::bytes(b"one\ntwo\n".to_vec()),
+        after: ReviewContent::bytes(b"one\n2\n".to_vec()),
+    };
     review.record_tool_changes("s1", &ws_text, vec![change]).await;
     assert!(review.complete_turn("s1", token.as_ref()).await);
     review.begin_turn(&ws_text, "s1", TurnOpen { checkpoint_id: "cp2".into(), continue_turn: false }).await;
@@ -126,8 +118,19 @@ async fn user_repository_is_never_written() {
     let token = review.begin_turn(&ws_text, "s1", TurnOpen { checkpoint_id: "cp1".into(), continue_turn: false }).await;
     std::fs::write(ws.join("a.txt"), "one\n2\n").unwrap();
     std::fs::write(ws.join("b.txt"), "new\n").unwrap();
-    let change = |path: &str, before: ReviewContent, after: &str| CallChange { path: plain(&ws.join(path)), new_path: None, before, after: ReviewContent::bytes(after.as_bytes().to_vec()) };
-    review.record_tool_changes("s1", &ws_text, vec![change("a.txt", ReviewContent::bytes(b"one\ntwo\n".to_vec()), "one\n2\n"), change("b.txt", ReviewContent::Absent, "new\n")]).await;
+    let change = |path: &str, before: ReviewContent, after: &str| CallChange {
+        path: plain(&ws.join(path)),
+        new_path: None,
+        before,
+        after: ReviewContent::bytes(after.as_bytes().to_vec()),
+    };
+    review
+        .record_tool_changes(
+            "s1",
+            &ws_text,
+            vec![change("a.txt", ReviewContent::bytes(b"one\ntwo\n".to_vec()), "one\n2\n"), change("b.txt", ReviewContent::Absent, "new\n")],
+        )
+        .await;
     let reply = review.turn_review_diff(&ws_text, "s1", ReviewRead::default()).await;
     assert_eq!(reply["files"].as_array().unwrap().len(), 2);
     assert!(review.complete_turn("s1", token.as_ref()).await);
@@ -144,6 +147,3 @@ async fn user_repository_is_never_written() {
     assert!(alternates.lines().any(|l| nodepath::resolve_host(&[l]) == nodepath::resolve_host(&[&plain(&ws.join(".git").join("objects"))])), "{alternates}");
     assert!(shadows[0].join("objects").read_dir().unwrap().count() > 2, "the baseline objects are in the shadow repository");
 }
-
-
-

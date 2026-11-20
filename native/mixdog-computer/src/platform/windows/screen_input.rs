@@ -2,28 +2,19 @@
 //! input through this helper's checked `SendInput` transport, and the watcher
 //! of the input desktop, the elevation prompt and the sign-in screen.
 
-use super::input::{release_owned, Sender};
+use super::input::{Sender, release_owned};
 use crate::platform::Button as PointerButton;
-use crate::screen_input::{code, desktop_state, id_of, on_screen, parse, Button, Command};
+use crate::screen_input::{Button, Command, code, desktop_state, id_of, on_screen, parse};
 use std::io::{BufRead, Write};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use windows::Win32::Foundation::{CloseHandle, POINT};
-use windows::Win32::System::Diagnostics::ToolHelp::{
-    CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W, TH32CS_SNAPPROCESS,
-};
+use windows::Win32::System::Diagnostics::ToolHelp::{CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW, TH32CS_SNAPPROCESS};
 use windows::Win32::System::RemoteDesktop::ProcessIdToSessionId;
-use windows::Win32::System::StationsAndDesktops::{
-    CloseDesktop, GetUserObjectInformationW, OpenInputDesktop, DESKTOP_READOBJECTS, UOI_NAME,
-};
+use windows::Win32::System::StationsAndDesktops::{CloseDesktop, DESKTOP_READOBJECTS, GetUserObjectInformationW, OpenInputDesktop, UOI_NAME};
 use windows::Win32::System::Threading::GetCurrentProcessId;
-use windows::Win32::UI::HiDpi::{
-    SetProcessDpiAwarenessContext, DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2,
-};
-use windows::Win32::UI::WindowsAndMessaging::{
-    GetCursorPos, GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-    SM_YVIRTUALSCREEN,
-};
+use windows::Win32::UI::HiDpi::{DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2, SetProcessDpiAwarenessContext};
+use windows::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetSystemMetrics, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN};
 
 /// How often the watcher looks at the desktop (`WATCH_INTERVAL_MS`).
 const WATCH_INTERVAL: Duration = Duration::from_millis(400);
@@ -108,12 +99,7 @@ fn state(session: Option<u32>) -> String {
 fn virtual_screen() -> (i32, i32, i32, i32) {
     // SAFETY: metrics queries take plain values.
     unsafe {
-        (
-            GetSystemMetrics(SM_XVIRTUALSCREEN),
-            GetSystemMetrics(SM_YVIRTUALSCREEN),
-            GetSystemMetrics(SM_CXVIRTUALSCREEN),
-            GetSystemMetrics(SM_CYVIRTUALSCREEN),
-        )
+        (GetSystemMetrics(SM_XVIRTUALSCREEN), GetSystemMetrics(SM_YVIRTUALSCREEN), GetSystemMetrics(SM_CXVIRTUALSCREEN), GetSystemMetrics(SM_CYVIRTUALSCREEN))
     }
 }
 
@@ -197,12 +183,14 @@ pub fn run() -> i32 {
     out.line(&format!("desktop {last}"));
     out.line(&format!("ready {}", session.map_or_else(String::new, |session| session.to_string())).trim_end().to_string());
     let watcher = out.clone();
-    std::thread::spawn(move || loop {
-        std::thread::sleep(WATCH_INTERVAL);
-        let now = state(session);
-        if now != last {
-            watcher.line(&format!("desktop {now}"));
-            last = now;
+    std::thread::spawn(move || {
+        loop {
+            std::thread::sleep(WATCH_INTERVAL);
+            let now = state(session);
+            if now != last {
+                watcher.line(&format!("desktop {now}"));
+                last = now;
+            }
         }
     });
     for line in std::io::stdin().lock().lines() {

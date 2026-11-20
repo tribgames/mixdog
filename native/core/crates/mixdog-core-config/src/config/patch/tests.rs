@@ -12,9 +12,6 @@ fn doc(value: &Value) -> Doc {
     value.as_object().cloned().unwrap_or_default()
 }
 
-
-
-
 #[test]
 fn a_lead_fill_is_guarded_and_seeds_only_where_absent() {
     let changes = guard_lead_fill(vec![
@@ -72,7 +69,13 @@ async fn a_save_keeps_what_another_writer_changed_meanwhile() {
     let mut after = before.clone();
     after.insert("reactions".into(), json!(false));
     // Another writer edits a different field after `before` was taken.
-    config.update_agent(|agent| { agent.insert("heartbeat".into(), json!(true)); Ok(()) }).await.unwrap();
+    config
+        .update_agent(|agent| {
+            agent.insert("heartbeat".into(), json!(true));
+            Ok(())
+        })
+        .await
+        .unwrap();
     let applied = config.save_agent_config(&before, &after, false).await.unwrap();
     assert!(!applied.changed.is_empty());
     let agent = config.agent();
@@ -131,5 +134,3 @@ async fn a_web_search_fallback_speed_edit_survives_a_config_reload() {
     let loaded = config.reload_full_config().await.unwrap();
     assert_eq!(loaded["webSearchRoute"], edited["webSearchRoute"]);
 }
-
-

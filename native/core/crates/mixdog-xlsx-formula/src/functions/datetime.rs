@@ -50,11 +50,7 @@ fn make(y: f64, m: f64, d: f64, h: f64, min: f64, s: f64, ms: f64, constructor: 
     if [y, m, d, h, min, s, ms].iter().any(|x| !x.is_finite()) {
         return f64::NAN;
     }
-    let y = if constructor && (0.0..=99.0).contains(&y.trunc()) {
-        y.trunc() + 1900.0
-    } else {
-        y
-    };
+    let y = if constructor && (0.0..=99.0).contains(&y.trunc()) { y.trunc() + 1900.0 } else { y };
     // V8 MakeDay rejects these finite but unrepresentable calendar inputs
     // before normalizing months. Keep the original bounds, including large
     // cancelling year/month pairs which still produce valid dates inside them.
@@ -78,32 +74,15 @@ fn make(y: f64, m: f64, d: f64, h: f64, min: f64, s: f64, ms: f64, constructor: 
     let year_of_era = adjusted_year - era * 400;
     let march_month = i128::from((month + 9) % 12);
     let day_of_year = (153 * march_month + 2) / 5;
-    let days = era * 146_097 + year_of_era * 365 + year_of_era / 4 - year_of_era / 100
-        + day_of_year
-        - 719_468
-        + i128::from(day)
-        - 1;
-    let wall = days * 86_400_000
-        + ((i128::from(hour) * 60 + i128::from(minute)) * 60 + i128::from(second)) * 1000
-        + i128::from(milli);
+    let days = era * 146_097 + year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year - 719_468 + i128::from(day) - 1;
+    let wall = days * 86_400_000 + ((i128::from(hour) * 60 + i128::from(minute)) * 60 + i128::from(second)) * 1000 + i128::from(milli);
     if wall.abs() > 8_640_000_000_000_000_i128 + 86_400_000 {
         return f64::NAN;
     }
     local_to_utc_ms(year, month, day, hour, minute, second, milli)
 }
 fn midnight(t: f64) -> f64 {
-    local_fields(t).map_or(f64::NAN, |f| {
-        make(
-            f.year as f64,
-            (f.month - 1) as f64,
-            f.day as f64,
-            0.0,
-            0.0,
-            0.0,
-            0.0,
-            false,
-        )
-    })
+    local_fields(t).map_or(f64::NAN, |f| make(f.year as f64, (f.month - 1) as f64, f.day as f64, 0.0, 0.0, 0.0, 0.0, false))
 }
 fn change(t: f64, year: Option<f64>, month: Option<f64>, day: Option<f64>) -> f64 {
     local_fields(t).map_or(f64::NAN, |f| {
@@ -120,9 +99,7 @@ fn change(t: f64, year: Option<f64>, month: Option<f64>, day: Option<f64>) -> f6
     })
 }
 fn now() -> f64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0.0, |d| d.as_millis() as f64)
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0.0, |d| d.as_millis() as f64)
 }
 fn leap(y: i32) -> bool {
     y % 4 == 0 && (y % 100 != 0 || y % 400 == 0)
@@ -144,19 +121,7 @@ fn iso_week(t: f64) -> f64 {
     let Some(f) = local_fields(t) else {
         return f64::NAN;
     };
-    let d = change(
-        midnight(t),
-        None,
-        None,
-        Some(
-            f.day as f64 + 4.0
-                - if f.weekday == 0 {
-                    7.0
-                } else {
-                    f.weekday as f64
-                },
-        ),
-    );
+    let d = change(midnight(t), None, None, Some(f.day as f64 + 4.0 - if f.weekday == 0 { 7.0 } else { f.weekday as f64 }));
     let Some(f) = local_fields(d) else {
         return f64::NAN;
     };
@@ -172,11 +137,7 @@ fn yfrac(start: f64, end: f64, basis: &V) -> V {
     };
     let (mut sd, mut ed) = (s.day as f64, e.day as f64);
     let days = ((end - start) / 1000.0 / 60.0 / 60.0 / 24.0).ceil();
-    let basis = if is_truthy(basis) {
-        basis.clone()
-    } else {
-        V::Number(0.0)
-    };
+    let basis = if is_truthy(basis) { basis.clone() } else { V::Number(0.0) };
     let n = match basis {
         V::Number(0.0) => {
             if sd == 31.0 {
@@ -187,39 +148,24 @@ fn yfrac(start: f64, end: f64, basis: &V) -> V {
             } else if sd == 30.0 && ed == 31.0 {
                 ed = 30.0
             }
-            (ed + e.month as f64 * 30.0 + e.year as f64 * 360.0
-                - (sd + s.month as f64 * 30.0 + s.year as f64 * 360.0))
-                / 360.0
+            (ed + e.month as f64 * 30.0 + e.year as f64 * 360.0 - (sd + s.month as f64 * 30.0 + s.year as f64 * 360.0)) / 360.0
         }
         V::Number(1.0) => {
-            if s.year == e.year
-                || (s.year + 1 == e.year && (s.month > e.month || (s.month == e.month && sd >= ed)))
-            {
+            if s.year == e.year || (s.year + 1 == e.year && (s.month > e.month || (s.month == e.month && sd >= ed))) {
                 let march = |y| make(y as f64, 2.0, 1.0, 0.0, 0.0, 0.0, 0.0, true);
-                let feb = (leap(s.year) && start < march(s.year) && end >= march(s.year))
-                    || (leap(e.year) && end >= march(e.year) && start < march(e.year));
+                let feb = (leap(s.year) && start < march(s.year) && end >= march(s.year)) || (leap(e.year) && end >= march(e.year) && start < march(e.year));
                 // The original also uses getMonth()+1, then tests month==1:
                 // its January-29 quirk is intentional parity, not February.
-                days / if (s.year == e.year && leap(s.year)) || feb || (e.month == 1 && ed == 29.0)
-                {
-                    366.0
-                } else {
-                    365.0
-                }
+                days / if (s.year == e.year && leap(s.year)) || feb || (e.month == 1 && ed == 29.0) { 366.0 } else { 365.0 }
             } else {
                 let first = make(s.year as f64, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, true);
                 let last = make((e.year + 1) as f64, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, true);
-                days / (((last - first) / 1000.0 / 60.0 / 60.0 / 24.0)
-                    / (e.year - s.year + 1) as f64)
+                days / (((last - first) / 1000.0 / 60.0 / 60.0 / 24.0) / (e.year - s.year + 1) as f64)
             }
         }
         V::Number(2.0) => days / 360.0,
         V::Number(3.0) => days / 365.0,
-        V::Number(4.0) => {
-            (ed + e.month as f64 * 30.0 + e.year as f64 * 360.0
-                - (sd + s.month as f64 * 30.0 + s.year as f64 * 360.0))
-                / 360.0
-        }
+        V::Number(4.0) => (ed + e.month as f64 * 30.0 + e.year as f64 * 360.0 - (sd + s.month as f64 * 30.0 + s.year as f64 * 360.0)) / 360.0,
         _ => return V::Undefined,
     };
     V::Number(n)
@@ -227,13 +173,11 @@ fn yfrac(start: f64, end: f64, basis: &V) -> V {
 fn weekend(v: &V, mask: bool) -> Result<Vec<u32>, E> {
     if mask
         && let V::Text(s) = v
-            && s.len() == 7 && s.bytes().all(|c| matches!(c, b'0' | b'1' | b'|')) {
-                return Ok(s
-                    .bytes()
-                    .enumerate()
-                    .filter_map(|(i, c)| (c == b'1').then_some(((i + 1) % 7) as u32))
-                    .collect());
-            }
+        && s.len() == 7
+        && s.bytes().all(|c| matches!(c, b'0' | b'1' | b'|'))
+    {
+        return Ok(s.bytes().enumerate().filter_map(|(i, c)| (c == b'1').then_some(((i + 1) % 7) as u32)).collect());
+    }
     let Ok(key) = String::from_utf16(&to_js_utf16(v)) else {
         return Err(E::Value);
     };
@@ -260,42 +204,23 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             return err(E::Value);
         };
         let t = make(y, m - 1.0, d, 0.0, 0.0, 0.0, 0.0, true);
-        return if local_fields(t)
-            .map(|f| f.year < 0)
-            .unwrap_or(t.is_finite() && t < 0.0)
-        {
-            err(E::Num)
-        } else {
-            Ok(V::Date(t))
-        };
+        return if local_fields(t).map(|f| f.year < 0).unwrap_or(t.is_finite() && t < 0.0) { err(E::Num) } else { Ok(V::Date(t)) };
     }
     if name == "DATEVALUE" {
         let Some(units) = x.text_units() else {
             return err(E::Value);
         };
         let t = mixdog_js::time::date_parse_utf16(&units);
-        return if t.is_nan() {
-            err(E::Value)
-        } else {
-            Ok(V::Date(t))
-        };
+        return if t.is_nan() { err(E::Value) } else { Ok(V::Date(t)) };
     }
     if name == "NOW" || name == "TODAY" {
-        return Ok(V::Date(if name == "NOW" {
-            now()
-        } else {
-            midnight(now())
-        }));
+        return Ok(V::Date(if name == "NOW" { now() } else { midnight(now()) }));
     }
     if name == "TIME" {
         let (Ok(h), Ok(m), Ok(s)) = (number(&x), number(&y), number(&z)) else {
             return err(E::Value);
         };
-        return if h < 0.0 || m < 0.0 || s < 0.0 {
-            err(E::Num)
-        } else {
-            Ok(V::Number((3600.0 * h + 60.0 * m + s) / 86400.0))
-        };
+        return if h < 0.0 || m < 0.0 || s < 0.0 { err(E::Num) } else { Ok(V::Number((3600.0 * h + 60.0 * m + s) / 86400.0)) };
     }
     // DATEDIF does not perform the other date functions' error checks.
     if name == "DATEDIF" {
@@ -311,16 +236,15 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 "unit.toUpperCase is not a function"
             }));
         };
-        let start =
-            date(&x).map_err(|_| Failure::thrown("start_date.getFullYear is not a function"))?;
-        let end =
-            date(&y).map_err(|_| Failure::thrown("end_date.getFullYear is not a function"))?;
-        if unit.is_empty() { return Ok(V::Undefined); }
+        let start = date(&x).map_err(|_| Failure::thrown("start_date.getFullYear is not a function"))?;
+        let end = date(&y).map_err(|_| Failure::thrown("end_date.getFullYear is not a function"))?;
+        if unit.is_empty() {
+            return Ok(V::Undefined);
+        }
         let (Some(s), Some(e)) = (local_fields(start), local_fields(end)) else {
             return Ok(V::Number(f64::NAN));
         };
-        let months = (e.month as f64 - s.month as f64) + 12.0 * (e.year - s.year) as f64
-            - if e.day < s.day { 1.0 } else { 0.0 };
+        let months = (e.month as f64 - s.month as f64) + 12.0 * (e.year - s.year) as f64 - if e.day < s.day { 1.0 } else { 0.0 };
         let value = match unit.to_uppercase().as_str() {
             "Y" => to_js_number(&yfrac(start, end, &V::Number(0.0))).floor(),
             "D" => date_to_serial(midnight(end)) - date_to_serial(midnight(start)),
@@ -332,27 +256,13 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 } else {
                     let yr = if e.month == 1 { e.year - 1 } else { e.year };
                     let t = change(start, Some(yr as f64), None, None);
-                    let t = change(
-                        t,
-                        None,
-                        Some(if e.month == 1 {
-                            12.0
-                        } else {
-                            (e.month - 2) as f64
-                        }),
-                        None,
-                    );
+                    let t = change(t, None, Some(if e.month == 1 { 12.0 } else { (e.month - 2) as f64 }), None);
                     date_to_serial(midnight(end)) - date_to_serial(midnight(t))
                 }
             }
             "YD" => {
-                let year = if e.month > s.month || (e.month == s.month && e.day < s.day) {
-                    e.year
-                } else {
-                    e.year - 1
-                };
-                date_to_serial(midnight(end))
-                    - date_to_serial(midnight(change(start, Some(year as f64), None, None)))
+                let year = if e.month > s.month || (e.month == s.month && e.day < s.day) { e.year } else { e.year - 1 };
+                date_to_serial(midnight(end)) - date_to_serial(midnight(change(start, Some(year as f64), None, None)))
             }
             _ => return Ok(V::Undefined),
         };
@@ -362,10 +272,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
         Ok(t) => t,
         Err(e) => return err(e),
     };
-    if matches!(
-        name,
-        "DAY" | "HOUR" | "MINUTE" | "MONTH" | "SECOND" | "YEAR" | "TIMEVALUE" | "ISOWEEKNUM"
-    ) {
+    if matches!(name, "DAY" | "HOUR" | "MINUTE" | "MONTH" | "SECOND" | "YEAR" | "TIMEVALUE" | "ISOWEEKNUM") {
         let n = local_fields(start).map_or(f64::NAN, |f| match name {
             "DAY" => f.day as f64,
             "HOUR" => f.hour as f64,
@@ -373,9 +280,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             "MONTH" => f.month as f64,
             "SECOND" => f.second as f64,
             "YEAR" => f.year as f64,
-            "TIMEVALUE" => {
-                (3600.0 * f.hour as f64 + 60.0 * f.minute as f64 + f.second as f64) / 86400.0
-            }
+            "TIMEVALUE" => (3600.0 * f.hour as f64 + 60.0 * f.minute as f64 + f.second as f64) / 86400.0,
             _ => iso_week(start),
         });
         return Ok(V::Number(n));
@@ -386,52 +291,25 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
         }
         let raw = to_js_string(&y);
         let raw = raw.trim_start();
-        let digits: String = raw
-            .chars()
-            .enumerate()
-            .take_while(|(i, c)| c.is_ascii_digit() || (*i == 0 && matches!(c, '+' | '-')))
-            .map(|(_, c)| c)
-            .collect();
+        let digits: String = raw.chars().enumerate().take_while(|(i, c)| c.is_ascii_digit() || (*i == 0 && matches!(c, '+' | '-'))).map(|(_, c)| c).collect();
         let months = digits.parse::<f64>().unwrap_or(f64::NAN);
         let Some(f) = local_fields(start) else {
             return Ok(V::Date(f64::NAN));
         };
         let t = if name == "EOMONTH" {
-            make(
-                f.year as f64,
-                (f.month - 1) as f64 + months + 1.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                0.0,
-                true,
-            )
+            make(f.year as f64, (f.month - 1) as f64 + months + 1.0, 0.0, 0.0, 0.0, 0.0, 0.0, true)
         } else {
             let t = change(start, None, Some((f.month - 1) as f64 + months), Some(1.0));
-            local_fields(t).map_or(f64::NAN, |target| {
-                change(
-                    t,
-                    None,
-                    None,
-                    Some(f.day.min(end_day(target.year, target.month)) as f64),
-                )
-            })
+            local_fields(t).map_or(f64::NAN, |target| change(t, None, None, Some(f.day.min(end_day(target.year, target.month)) as f64)))
         };
         return Ok(V::Date(t));
     }
     if name == "WEEKDAY" || name == "WEEKNUM" {
         let ret = default(a, 1, V::Number(1.0));
         let key = String::from_utf16(&to_js_utf16(&ret)).ok();
-        let n = key
-            .as_ref()
-            .and_then(|key| key.parse::<u32>().ok().filter(|n| n.to_string() == *key));
+        let n = key.as_ref().and_then(|key| key.parse::<u32>().ok().filter(|n| n.to_string() == *key));
         let Some(f) = local_fields(start) else {
-            return Ok(if name == "WEEKDAY" {
-                V::Undefined
-            } else {
-                V::Number(f64::NAN)
-            });
+            return Ok(if name == "WEEKDAY" { V::Undefined } else { V::Number(f64::NAN) });
         };
         if name == "WEEKDAY" {
             return match n {
@@ -440,10 +318,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 Some(3) => Ok(V::Number(((f.weekday + 6) % 7) as f64)),
                 Some(v @ 12..=16) => Ok(V::Number(((f.weekday + 7 - (v - 10)) % 7 + 1) as f64)),
                 Some(0 | 4..=10) => Ok(V::Undefined),
-                _ => Err(Failure::thrown(format!(
-                    "Cannot read properties of undefined (reading '{}')",
-                    f.weekday
-                ))),
+                _ => Err(Failure::thrown(format!("Cannot read properties of undefined (reading '{}')", f.weekday))),
             };
         }
         if matches!(ret, V::Number(21.0)) {
@@ -459,9 +334,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
         let jan = make(f.year as f64, 0.0, 1.0, 0.0, 0.0, 0.0, 0.0, true);
         let jd = local_fields(jan).map_or(f64::NAN, |f| f.weekday as f64);
         let inc = if jd < ws { 1.0 } else { 0.0 };
-        return Ok(V::Number(
-            ((start - (jan - (jd - ws).abs() * DAY)) / DAY / 7.0 + 1.0).floor() + inc,
-        ));
+        return Ok(V::Number(((start - (jan - (jd - ws).abs() * DAY)) / DAY / 7.0 + 1.0).floor() + inc));
     }
     if name.starts_with("WORKDAY") || name.starts_with("NETWORKDAYS") {
         let work = name.starts_with("WORKDAY");
@@ -495,18 +368,10 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 Err(e) => return err(e),
             }
         }
-        let holiday = |f: LocalFields| {
-            hs.iter()
-                .flatten()
-                .any(|h| h.year == f.year && h.month == f.month && h.day == f.day)
-        };
+        let holiday = |f: LocalFields| hs.iter().flatten().any(|h| h.year == f.year && h.month == f.month && h.day == f.day);
         let mut day = start;
         if work {
-            let sign = if end_or_days == 0.0 {
-                0.0
-            } else {
-                end_or_days.signum()
-            };
+            let sign = if end_or_days == 0.0 { 0.0 } else { end_or_days.signum() };
             let mut count = 0.0;
             while count < end_or_days * sign {
                 let Some(f) = local_fields(day) else {
@@ -535,12 +400,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
         let mut i = 0.0;
         while i < days {
             if let Some(f) = local_fields(day) {
-                let weekday = if utc {
-                    mixdog_js::time::local_fields_in(mixdog_js::time::Tz::UTC, day)
-                        .map_or(f.weekday, |f| f.weekday)
-                } else {
-                    f.weekday
-                };
+                let weekday = if utc { mixdog_js::time::local_fields_in(mixdog_js::time::Tz::UTC, day).map_or(f.weekday, |f| f.weekday) } else { f.weekday };
                 if weekend.contains(&weekday) || holiday(f) {
                     total -= 1.0
                 }
@@ -555,9 +415,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
         Err(e) => return err(e),
     };
     if name == "DAYS" {
-        return Ok(V::Number(
-            date_to_serial(midnight(start)) - date_to_serial(midnight(end)),
-        ));
+        return Ok(V::Number(date_to_serial(midnight(start)) - date_to_serial(midnight(end))));
     }
     if name == "YEARFRAC" {
         return Ok(yfrac(start, end, &z));
@@ -574,11 +432,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
         let (sd, ed) = if is_truthy(&method) {
             (s.day.min(30) as f64, e.day.min(30) as f64)
         } else {
-            let sd = if s.day == end_day(s.year, s.month) {
-                30
-            } else {
-                s.day
-            };
+            let sd = if s.day == end_day(s.year, s.month) { 30 } else { s.day };
             let ed = if e.day == end_day(e.year, e.month) {
                 if sd < 30 {
                     em += 1.0;
@@ -591,9 +445,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             };
             (sd as f64, ed as f64)
         };
-        return Ok(V::Number(
-            360.0 * (e.year - s.year) as f64 + 30.0 * (em - s.month as f64) + ed - sd,
-        ));
+        return Ok(V::Number(360.0 * (e.year - s.year) as f64 + 30.0 * (em - s.month as f64) + ed - sd));
     }
     unreachable!()
 }

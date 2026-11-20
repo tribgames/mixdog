@@ -155,7 +155,10 @@ fn tail_with_partial(state: &serde_json::Map<String, Value>) -> Option<Value> {
     let row = match tail {
         Some(tail) => {
             let text = tail.get("text").and_then(Value::as_str);
-            text.filter(|text| tail.get("id") == partial.get("id") && tail.get("kind").and_then(Value::as_str) == Some("assistant") && js_len(text) as f64 == from).map(|text| {
+            text.filter(|text| {
+                tail.get("id") == partial.get("id") && tail.get("kind").and_then(Value::as_str) == Some("assistant") && js_len(text) as f64 == from
+            })
+            .map(|text| {
                 let mut row = tail.clone();
                 row.insert("text".to_owned(), Value::String(format!("{text}{partial_text}")));
                 Value::Object(row)
@@ -163,15 +166,20 @@ fn tail_with_partial(state: &serde_json::Map<String, Value>) -> Option<Value> {
         }
         None => {
             let identity = record(partial.get("tail"));
-            let settled = state.get("items").and_then(Value::as_array).is_some_and(|items| items.iter().rev().any(|item| record(Some(item)).and_then(|item| item.get("id")) == partial.get("id")));
-            identity.filter(|identity| from == 0.0 && identity.get("id") == partial.get("id") && !mixdog_js::js_trim(partial_text).is_empty() && !settled).map(|identity| {
-                let mut row = identity.clone();
-                row.insert("kind".to_owned(), Value::from("assistant"));
-                row.insert("id".to_owned(), partial.get("id").cloned().unwrap_or(Value::Null));
-                row.insert("streaming".to_owned(), Value::Bool(true));
-                row.insert("text".to_owned(), Value::from(partial_text));
-                Value::Object(row)
-            })
+            let settled = state
+                .get("items")
+                .and_then(Value::as_array)
+                .is_some_and(|items| items.iter().rev().any(|item| record(Some(item)).and_then(|item| item.get("id")) == partial.get("id")));
+            identity.filter(|identity| from == 0.0 && identity.get("id") == partial.get("id") && !mixdog_js::js_trim(partial_text).is_empty() && !settled).map(
+                |identity| {
+                    let mut row = identity.clone();
+                    row.insert("kind".to_owned(), Value::from("assistant"));
+                    row.insert("id".to_owned(), partial.get("id").cloned().unwrap_or(Value::Null));
+                    row.insert("streaming".to_owned(), Value::Bool(true));
+                    row.insert("text".to_owned(), Value::from(partial_text));
+                    Value::Object(row)
+                },
+            )
         }
     };
     row.or_else(|| tail.cloned().map(Value::Object))
@@ -197,16 +205,25 @@ pub fn is_streaming_text_append(before: Option<&Value>, after: &Value) -> bool {
     let lane_end = after.get("laneEnd").is_some_and(|end| !matches!(end, Value::Null | Value::Bool(false)) && end.as_str() != Some(""));
     let (Some(old), Some(next)) = (record(before.get("snapshot")), record(after.get("snapshot"))) else { return false };
     let busy = |state: &serde_json::Map<String, Value>| state.get("busy") == Some(&Value::Bool(true));
-    if !live(before) || !live(after) || before.get("sessionId") != after.get("sessionId") || lane_end || !busy(old) || !busy(next) || old.get("items") != next.get("items") {
+    if !live(before)
+        || !live(after)
+        || before.get("sessionId") != after.get("sessionId")
+        || lane_end
+        || !busy(old)
+        || !busy(next)
+        || old.get("items") != next.get("items")
+    {
         return false;
     }
     let (Some(Value::Object(left)), Some(Value::Object(right))) = (tail_with_partial(old), tail_with_partial(next)) else { return false };
     let (Some(left_text), Some(right_text)) = (left.get("text").and_then(Value::as_str), right.get("text").and_then(Value::as_str)) else { return false };
-    if left.get("id").is_none_or(Value::is_null) || left.get("id") != right.get("id") || right.get("kind").and_then(Value::as_str) != Some("assistant") || js_len(right_text) <= js_len(left_text) || !right_text.starts_with(left_text) {
+    if left.get("id").is_none_or(Value::is_null)
+        || left.get("id") != right.get("id")
+        || right.get("kind").and_then(Value::as_str) != Some("assistant")
+        || js_len(right_text) <= js_len(left_text)
+        || !right_text.starts_with(left_text)
+    {
         return false;
     }
     same_fields(&left, &right, &["text"]) && same_fields(old, next, &["streamingTail", "streamingPartial"])
 }
-
-
-

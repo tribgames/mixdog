@@ -142,7 +142,10 @@ fn a_comment_anchors_to_the_found_text_is_answered_resolved_and_deleted() {
     assert!(doc.part("[Content_Types].xml").contains("/word/comments.xml"));
     assert!(doc.part("word/_rels/document.xml.rels").contains("comments.xml"));
     let comments = doc.snapshot()["comments"].as_array().expect("comments").clone();
-    assert_eq!((comments[0]["text"].clone(), comments[0]["author"].clone(), comments[0]["anchoredText"].clone()), (json!("Check this"), json!("Rev"), json!("brown fox")));
+    assert_eq!(
+        (comments[0]["text"].clone(), comments[0]["author"].clone(), comments[0]["anchoredText"].clone()),
+        (json!("Check this"), json!("Rev"), json!("brown fox"))
+    );
     doc.assert_valid();
     doc.apply(json!([{ "op": "add_comment_reply", "comment": 1, "text": "Done" }, { "op": "set_comment_resolved", "comment": 1 }]));
     assert_eq!(doc.snapshot()["comments"].as_array().expect("comments").len(), 2);
@@ -223,7 +226,9 @@ fn styles_lists_breaks_and_notes_are_written_as_the_elements_word_expects() {
 #[test]
 fn a_table_of_contents_lists_the_headings_when_the_document_is_saved() {
     let doc = Doc::new("docx");
-    doc.apply(json!([{ "op": "insert_toc" }, { "op": "append_text", "text": "Chapter one" }, { "op": "set_paragraph_style", "paragraph": 2, "style": "Heading 1" }]));
+    doc.apply(
+        json!([{ "op": "insert_toc" }, { "op": "append_text", "text": "Chapter one" }, { "op": "set_paragraph_style", "paragraph": 2, "style": "Heading 1" }]),
+    );
     let xml = doc.part("word/document.xml");
     assert!(xml.contains("TOC "), "{xml}");
     assert!(count(&xml, "Chapter one") >= 2, "the heading is listed under the contents: {xml}");

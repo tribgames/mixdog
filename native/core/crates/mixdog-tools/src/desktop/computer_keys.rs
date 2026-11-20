@@ -478,7 +478,25 @@ mod tests {
 
     #[test]
     fn malformed_keys_are_refused() {
-        for malformed in ["", "  ", "ctrl+", "ctrl+a+b", "word", "{UNKNOWN}", "{a}", "{TAB 0}", "{TAB 101}", "{TAB", "foo{ESC}", "(abc)", "f25", "f0", "f01", "ctrl+\tA", "ctrl+\nA"] {
+        for malformed in [
+            "",
+            "  ",
+            "ctrl+",
+            "ctrl+a+b",
+            "word",
+            "{UNKNOWN}",
+            "{a}",
+            "{TAB 0}",
+            "{TAB 101}",
+            "{TAB",
+            "foo{ESC}",
+            "(abc)",
+            "f25",
+            "f0",
+            "f01",
+            "ctrl+\tA",
+            "ctrl+\nA",
+        ] {
             let error = normalize_key_sequence(malformed).expect_err(malformed);
             assert!(error.starts_with("invalid_key_chord: "), "{malformed:?}: {error}");
         }
@@ -574,7 +592,24 @@ mod tests {
         for keys in &blocked {
             assert_eq!(refusal(key(keys)), "blocked_input: destructive or session-ending key combination", "{keys}");
         }
-        for keys in ["win+r", "CTRL+DELETE", "ALT+DELETE", "SHIFT+F4", "CTRL+F4", "CTRL+END", "SHIFT+END", "%{END}", "^{END}", "%{F3 2}", "+{BACKSPACE}", "^{DELETE}", "{TAB}{DELETE}", "+{F4}", "delete", "l"] {
+        for keys in [
+            "win+r",
+            "CTRL+DELETE",
+            "ALT+DELETE",
+            "SHIFT+F4",
+            "CTRL+F4",
+            "CTRL+END",
+            "SHIFT+END",
+            "%{END}",
+            "^{END}",
+            "%{F3 2}",
+            "+{BACKSPACE}",
+            "^{DELETE}",
+            "{TAB}{DELETE}",
+            "+{F4}",
+            "delete",
+            "l",
+        ] {
             accepted(key(keys));
         }
     }
@@ -626,7 +661,11 @@ mod tests {
         accepted(json!({"action": "click", "modifiers": null}));
         accepted(json!({"action": "click"}));
         for modifiers in ["", " ctrl", "win", "super", "control", "ctrl++shift", "ctrl+delete"] {
-            assert_eq!(refusal(json!({"action": "click", "modifiers": modifiers})), "invalid_modifiers: use only ctrl, shift, or alt joined by +", "{modifiers:?}");
+            assert_eq!(
+                refusal(json!({"action": "click", "modifiers": modifiers})),
+                "invalid_modifiers: use only ctrl, shift, or alt joined by +",
+                "{modifiers:?}"
+            );
         }
         assert_eq!(refusal(json!({"action": "click", "modifiers": "ctrl+ctrl"})), "invalid_modifiers: duplicate pointer modifiers are unavailable");
         assert_eq!(refusal(json!({"action": "drag", "modifiers": "Shift+ctrl+SHIFT"})), "invalid_modifiers: duplicate pointer modifiers are unavailable");

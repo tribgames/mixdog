@@ -125,22 +125,12 @@ impl RoutineRuntime {
     /// The app's "retry" on one routine: rejects with the error when still refused.
     pub async fn retry_routine_delivery(self: &Arc<Self>, kind: &str, name: &str) -> Result<Value, String> {
         let kind = kind_of(kind)?;
-        let row = self
-            .records
-            .state(kind, name)
-            .await?
-            .ok_or_else(|| format!("{} \"{name}\" does not exist", kind.word()))?;
+        let row = self.records.state(kind, name).await?.ok_or_else(|| format!("{} \"{name}\" does not exist", kind.word()))?;
         let failed = self.redeliver_routine(kind, &row).await;
         if let Some(last) = failed.last() {
             let latest = self.records.state(kind, name).await?;
-            let error = latest
-                .and_then(|l| l.result_delivery)
-                .and_then(|d| d[last.as_str()]["error"].as_str().map(String::from))
-                .filter(|e| !e.is_empty());
-            return Err(format!(
-                "\"{name}\": the result still could not be delivered{}",
-                error.map(|e| format!(" ({e})")).unwrap_or_default()
-            ));
+            let error = latest.and_then(|l| l.result_delivery).and_then(|d| d[last.as_str()]["error"].as_str().map(String::from)).filter(|e| !e.is_empty());
+            return Err(format!("\"{name}\": the result still could not be delivered{}", error.map(|e| format!(" ({e})")).unwrap_or_default()));
         }
         let delivered = row.result_delivery.as_ref().and_then(Value::as_object).map_or(0, |m| m.len());
         Ok(json!({"name": name, "delivered": delivered}))

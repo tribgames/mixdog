@@ -174,9 +174,6 @@ mod tests {
             OneShotHandler::handle(&mut handler, &mut out, &request("{\"action\":\"frobnicate\"}")).unwrap_err(),
             "Unsupported Office host action: frobnicate"
         );
-        assert_eq!(
-            OneShotHandler::handle(&mut handler, &mut out, &request("{}")).unwrap_err(),
-            "Unsupported Office host action: "
-        );
+        assert_eq!(OneShotHandler::handle(&mut handler, &mut out, &request("{}")).unwrap_err(), "Unsupported Office host action: ");
     }
 }

@@ -157,11 +157,7 @@ pub struct AttachRequest {
 pub enum AttachStart {
     /// A new subscription on a freshly opened, gated `lane`: replay after `resume_from` when it
     /// is replayable and its frames fit the free event budget, else snapshot at `S`.
-    Open {
-        lane: Arc<dyn Lane>,
-        window: Window,
-        resume_from: Option<ResumeFrom>,
-    },
+    Open { lane: Arc<dyn Lane>, window: Window, resume_from: Option<ResumeFrom> },
     /// Writer-driven recovery of the subscription's lagged lane (P §6.5 step 3): mode forced
     /// to snapshot at `S` into `reservation` (`maxSnapshotBytes`), with the registered lane
     /// and window. A subscription no longer registered answers `connectionClosed`.
@@ -216,12 +212,7 @@ pub struct FeedFrame {
 pub trait FeedView: Send + Sync + 'static {
     /// Encodes the snapshot frame for `window` at `at`. Runs only on cpu-interactive; its
     /// input is bounded by the window design, so the frame fits `maxSnapshotBytes`.
-    fn encode_snapshot(
-        &self,
-        lane: &InLane<CpuInteractive>,
-        at: FeedPosition,
-        window: &Window,
-    ) -> Bytes;
+    fn encode_snapshot(&self, lane: &InLane<CpuInteractive>, at: FeedPosition, window: &Window) -> Bytes;
 
     /// The encoded snapshot as it is delivered to one lane now. A snapshot is encoded once and shared by every attach at its seq,
     /// so a value that depends on the time of delivery (the wait left of a retrying turn) is set here, by a copy of the frame
@@ -272,20 +263,10 @@ pub fn subscribe(
     resume_from: Option<ResumeFrom>,
     sink: &dyn ConnectionSink,
 ) -> Result<Attached, CoreError> {
-    let recovery = Arc::new(FeedRecovery {
-        feed: Arc::downgrade(feed),
-    });
-    let opened = if feed.ordered() {
-        sink.open_ordered_lane(sub.clone(), recovery)
-    } else {
-        sink.open_lane(sub.clone(), recovery)
-    };
+    let recovery = Arc::new(FeedRecovery { feed: Arc::downgrade(feed) });
+    let opened = if feed.ordered() { sink.open_ordered_lane(sub.clone(), recovery) } else { sink.open_lane(sub.clone(), recovery) };
     let (lane, release) = opened.map_err(|_| CoreError::ConnectionClosed)?;
-    let start = AttachStart::Open {
-        lane: lane.clone(),
-        window,
-        resume_from,
-    };
+    let start = AttachStart::Open { lane: lane.clone(), window, resume_from };
     match feed.attach(AttachRequest { sub, start }) {
         Ok(decision) => Ok(Attached { decision, release }),
         Err(error) => {
@@ -304,10 +285,7 @@ impl LaneRecovery for FeedRecovery {
     fn recover(&self, sub: SubscriptionId, reservation: Reservation) {
         if let Some(feed) = self.feed.upgrade() {
             // A detached subscription has nothing to recover; its reservation returns on drop.
-            let _ = feed.attach(AttachRequest {
-                sub,
-                start: AttachStart::Recover { reservation },
-            });
+            let _ = feed.attach(AttachRequest { sub, start: AttachStart::Recover { reservation } });
         }
     }
 }
@@ -317,11 +295,7 @@ pub trait Feed: FeedSource {
     /// Appends `frames` (contiguous, starting at `position().seq + 1`) and, if given, swaps the
     /// view to the state after the last frame, all under the feed lock. Called only by the
     /// feed's single producer, after the state the frames describe is durable.
-    fn publish(
-        &self,
-        frames: &[FeedFrame],
-        view: Option<Arc<dyn FeedView>>,
-    ) -> Result<(), PublishError>;
+    fn publish(&self, frames: &[FeedFrame], view: Option<Arc<dyn FeedView>>) -> Result<(), PublishError>;
 
     /// Whether [`Self::publish_deferred`] is supported: the view may then lag the frames, and a snapshot attach is given the
     /// view at the seq it was built for and the frames after it from the ring.

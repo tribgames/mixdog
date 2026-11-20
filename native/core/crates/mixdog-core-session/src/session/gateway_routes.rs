@@ -592,6 +592,4 @@ mod tests {
         let stored: Value = serde_json::from_str(&text(&data.path().join(STORE_FILE)).unwrap()).unwrap();
         assert_eq!((stored["sessions"].clone(), stored["sessionHosts"].clone()), (json!({}), json!({})));
     }
-
-
 }

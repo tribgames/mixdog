@@ -157,7 +157,14 @@ async fn run(session: &Streaming, input: Vec<InputMsg>, interrupt_at_the_end: bo
     for msg in input {
         tx.send(msg).expect("sent");
     }
-    let config = ReplConfig { provider: Some("prov".to_owned()), model: Some("mod".to_owned()), tool_mode: "full".to_owned(), cwd: "/work/proj".to_owned(), styler: Styler::new(true, true), interactive: true };
+    let config = ReplConfig {
+        provider: Some("prov".to_owned()),
+        model: Some("mod".to_owned()),
+        tool_mode: "full".to_owned(),
+        cwd: "/work/proj".to_owned(),
+        styler: Styler::new(true, true),
+        interactive: true,
+    };
     let mut terminal = Terminal { grid: VtGrid::new(60, 40) };
     let code = Repl::new(session, &Tag, &config, &mut terminal, &mut rx).run().await;
     (code, terminal.grid)
@@ -197,7 +204,10 @@ async fn a_tool_call_prints_its_card_and_the_turn_keeps_its_live_transcript() {
 #[tokio::test]
 async fn two_turns_and_editing_keys_before_enter() {
     let first = streamed_turn(&[], "a1", &["one"], &[]);
-    let earlier = vec![json!({ "id": "a1", "kind": "assistant", "text": "one" }), json!({ "id": "a1-end", "kind": "turndone", "status": "done", "finalAssistantId": "a1" })];
+    let earlier = vec![
+        json!({ "id": "a1", "kind": "assistant", "text": "one" }),
+        json!({ "id": "a1-end", "kind": "turndone", "status": "done", "finalAssistantId": "a1" }),
+    ];
     let second = streamed_turn(&earlier, "a2", &["two"], &[]);
     let session = Streaming::new(vec![first, second]);
     // "hexllo", Left x3, Backspace, Right x3 -> "hello"; the second prompt is recalled from the history with Up.

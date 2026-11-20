@@ -30,21 +30,12 @@ impl PageInfo {
         stream.read_u32()?;
         let flags = stream.read_u8()?;
         let striping = stream.read_u16()?;
-        Some(PageInfo {
-            width,
-            height,
-            default_black: flags & 4 != 0,
-            max_stripe_height: striping & 0x7fff,
-        })
+        Some(PageInfo { width, height, default_black: flags & 4 != 0, max_stripe_height: striping & 0x7fff })
     }
 
     /// The bitmap a page without a given buffer is allocated as: a page whose size the decoder cannot allocate fails.
     pub fn can_allocate(&self) -> bool {
-        let height = if self.height == u32::MAX {
-            u32::from(self.max_stripe_height)
-        } else {
-            self.height
-        };
+        let height = if self.height == u32::MAX { u32::from(self.max_stripe_height) } else { self.height };
         i32::try_from(self.width).is_ok_and(|w| i32::try_from(height).is_ok_and(|h| Image::new(w, h).is_some()))
     }
 }
@@ -52,9 +43,7 @@ impl PageInfo {
 impl Page {
     /// A white page of the PDF image's size; `None` when the decoder could not allocate it.
     pub fn new(width: i32, height: i32) -> Option<Page> {
-        Some(Page {
-            image: Image::new(width, height)?,
-        })
+        Some(Page { image: Image::new(width, height)? })
     }
 
     /// The page information's default pixel.
@@ -122,10 +111,7 @@ mod tests {
         data.extend_from_slice(&0x8010u16.to_be_bytes());
         let mut stream = BitStream::new(&data);
         let info = PageInfo::read(&mut stream).unwrap();
-        assert_eq!(
-            (info.width, info.height, info.default_black, info.max_stripe_height),
-            (8, u32::MAX, true, 16)
-        );
+        assert_eq!((info.width, info.height, info.default_black, info.max_stripe_height), (8, u32::MAX, true, 16));
         assert!(info.can_allocate());
         let mut short = BitStream::new(&data[..10]);
         assert!(PageInfo::read(&mut short).is_none());

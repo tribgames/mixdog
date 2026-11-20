@@ -87,12 +87,13 @@ use serde_json::Value;
 use serde_json::json;
 use tokio::sync::watch;
 
+use crate::arrival_order::Ticket;
 use crate::config::ServerConfig;
 use crate::config::VersionOrder;
 use crate::connection::Connection;
 use crate::connection::Registered;
-use crate::connection::Slot;
 use crate::connection::Session;
+use crate::connection::Slot;
 use crate::connection::Sub;
 use crate::error::error_body;
 use crate::error::error_data;
@@ -100,15 +101,14 @@ use crate::error::internal;
 use crate::frame::error_frame;
 use crate::frame::error_notification_frame;
 use crate::frame::response_frame;
-use crate::arrival_order::Ticket;
 use crate::lanes::CallLanes;
 use crate::lanes::Lane;
 use crate::lanes::Placed;
 use crate::lanes::Refusal;
 use crate::outgoing::Outgoing;
-use crate::sharded::lock;
 use crate::serialization::KeyedQueues;
 use crate::serialization::QueueKey;
+use crate::sharded::lock;
 
 /// A request waiting in a call lane, or starting from it.
 struct Job {
@@ -129,9 +129,24 @@ struct Job {
 /// `tests/lane_pushes.rs` replays), a control-plane message that never enters a lane; they run where they arrive.
 pub(crate) fn lane_of(spec: &MethodSpec) -> Lane {
     match spec.method {
-        "thread/resume" | "thread/start" | "thread/read" | "turn/start" | "room/send" | "turn/steer" | "turn/retryFailed" | "project/list" | "project/read" | "project/create"
-        | "project/touch" | "project/update" | "project/delete" | "project/ensureDirectory" | "terminal/ensure" | "terminal/focus"
-        | "terminal/dispose" | "terminal/profiles" => Lane::Interactive,
+        "thread/resume"
+        | "thread/start"
+        | "thread/read"
+        | "turn/start"
+        | "room/send"
+        | "turn/steer"
+        | "turn/retryFailed"
+        | "project/list"
+        | "project/read"
+        | "project/create"
+        | "project/touch"
+        | "project/update"
+        | "project/delete"
+        | "project/ensureDirectory"
+        | "terminal/ensure"
+        | "terminal/focus"
+        | "terminal/dispose"
+        | "terminal/profiles" => Lane::Interactive,
         "thread/approval/answer" | "thread/approval/answerNotification" => Lane::Critical,
         method if crate::node_calls::is_session_action(method) => Lane::Interactive,
         _ if spec.class == RequestClass::C0 => Lane::Critical,
@@ -162,14 +177,8 @@ const THREAD_NAMESPACES: [&str; 2] = ["thread", "turn"];
 
 /// Thread reads the directory answers from the stored session, loaded or not: they never open
 /// (load) the thread they name.
-const STORED_READS: [&str; 6] = [
-    "thread/items/list",
-    "thread/items/read",
-    "thread/turns/list",
-    "thread/attachment/list",
-    "thread/modelMessages/list",
-    "thread/finalAnswer/read",
-];
+const STORED_READS: [&str; 6] =
+    ["thread/items/list", "thread/items/read", "thread/turns/list", "thread/attachment/list", "thread/modelMessages/list", "thread/finalAnswer/read"];
 
 /// Thread methods the directory serves whether or not the thread opens: `thread/delete` answers
 /// for a session that is not there as Node does (`deleted: false` / `not-archived`), not
@@ -215,12 +224,7 @@ pub struct AppServer {
 impl AppServer {
     /// `outgoing` is the router the core was given as its `ServerRequestSink` and
     /// `HostChannel`.
-    pub fn new(
-        core: Arc<dyn CoreHandle>,
-        outgoing: Arc<Outgoing>,
-        origin_of: OriginOf,
-        config: ServerConfig,
-    ) -> Result<Self, LimitsViolation> {
+    pub fn new(core: Arc<dyn CoreHandle>, outgoing: Arc<Outgoing>, origin_of: OriginOf, config: ServerConfig) -> Result<Self, LimitsViolation> {
         config.limits.check()?;
         Ok(Self {
             shared: Arc::new(Shared {
@@ -265,11 +269,7 @@ impl AppServer {
     }
 
     /// Registers an accepted, authenticated connection.
-    pub fn open(
-        &self,
-        id: ConnectionId,
-        sink: Arc<dyn mixdog_core_api::ConnectionSink>,
-    ) -> ConnectionHandle {
+    pub fn open(&self, id: ConnectionId, sink: Arc<dyn mixdog_core_api::ConnectionSink>) -> ConnectionHandle {
         self.open_with_replay_principal(id, sink, None)
     }
 
@@ -282,10 +282,7 @@ impl AppServer {
     ) -> ConnectionHandle {
         let conn = Arc::new(Connection::new(id, sink, replay_principal));
         self.shared.outgoing.register(Arc::clone(&conn));
-        ConnectionHandle {
-            shared: Arc::clone(&self.shared),
-            conn,
-        }
+        ConnectionHandle { shared: Arc::clone(&self.shared), conn }
     }
 }
 
@@ -310,8 +307,7 @@ impl ConnectionHandle {
 
     /// One inbound text frame. Oversized and unparseable frames end the connection (P §3).
     pub fn on_text(&self, frame: &str) -> Inbound {
-        match decode_inbound_text(frame, self.shared.config.limits.max_inbound_frame_bytes as usize)
-        {
+        match decode_inbound_text(frame, self.shared.config.limits.max_inbound_frame_bytes as usize) {
             InboundText::Message(message) => self.on_message(message),
             InboundText::TooLarge => Inbound::Close(CloseCode::FrameTooBig),
             InboundText::Invalid => Inbound::Close(CloseCode::InvalidFrame),
@@ -322,9 +318,7 @@ impl ConnectionHandle {
         let (shared, conn) = (&self.shared, &self.conn);
         match message {
             JsonRpcMessage::Request(request) => shared.on_request(conn, request),
-            JsonRpcMessage::Notification(notification) => {
-                shared.on_notification(conn, notification)
-            }
+            JsonRpcMessage::Notification(notification) => shared.on_notification(conn, notification),
             JsonRpcMessage::Response(response) => {
                 shared.on_response(conn, response);
                 Inbound::Continue
@@ -338,11 +332,7 @@ impl ConnectionHandle {
 
     /// An X17 binary frame: only a connection that declared the host media role may send one.
     pub fn on_binary(&self, frame: Bytes) -> Result<(), CloseCode> {
-        let may_send = self
-            .conn
-            .session()
-            .and_then(|session| session.host.as_ref())
-            .is_some_and(|host| host.media);
+        let may_send = self.conn.session().and_then(|session| session.host.as_ref()).is_some_and(|host| host.media);
         if !may_send {
             return Err(CloseCode::UnsupportedData);
         }
@@ -353,9 +343,7 @@ impl ConnectionHandle {
     /// Whether this connection opted out of server notifications named `method`
     /// (`initialize` capabilities); false before `initialize`.
     pub fn opted_out(&self, method: &str) -> bool {
-        self.conn
-            .session()
-            .is_some_and(|session| session.opt_out_notification_methods.contains(method))
+        self.conn.session().is_some_and(|session| session.opt_out_notification_methods.contains(method))
     }
 }
 
@@ -417,9 +405,7 @@ pub(crate) fn method_index() -> &'static HashMap<&'static str, &'static MethodSp
 /// first, so a `turn/interrupt` or an approval decision never waits behind a paused data frame.
 pub fn is_control(message: &JsonRpcMessage) -> bool {
     match message {
-        JsonRpcMessage::Request(request) => method_index()
-            .get(request.method.as_str())
-            .is_some_and(|spec| spec.class == RequestClass::C0),
+        JsonRpcMessage::Request(request) => method_index().get(request.method.as_str()).is_some_and(|spec| spec.class == RequestClass::C0),
         JsonRpcMessage::Response(_) | JsonRpcMessage::Error(_) => true,
         JsonRpcMessage::Notification(_) => false,
     }
@@ -434,12 +420,7 @@ fn empty_result() -> Value {
 }
 
 /// The response of a subscribing request: its `result` with subscription `sub` as `decision` attached it.
-fn subscribed_frame(
-    id: &RequestId,
-    mut result: serde_json::Map<String, Value>,
-    sub: &SubscriptionId,
-    decision: &AttachDecision,
-) -> Bytes {
+fn subscribed_frame(id: &RequestId, mut result: serde_json::Map<String, Value>, sub: &SubscriptionId, decision: &AttachDecision) -> Bytes {
     let subscription = Subscription {
         id: sub.clone(),
         mode: match decision.mode {
@@ -486,25 +467,17 @@ impl Shared {
             return Inbound::Continue;
         }
         let Some(spec) = method_index().get(request.method.as_str()).copied() else {
-            self.reject(
-                conn,
-                &id,
-                &ErrorData::MethodNotFound {
-                    method: request.method,
-                },
-            );
+            self.reject(conn, &id, &ErrorData::MethodNotFound { method: request.method });
             return Inbound::Continue;
         };
         if !spec.allows(origin) {
-            let denied = CoreError::PermissionDenied {
-                method: spec.method.into(),
-                origin,
-            };
+            let denied = CoreError::PermissionDenied { method: spec.method.into(), origin };
             self.reject_core(conn, &id, &denied);
             return Inbound::Continue;
         }
         if let Some(window) = self.window(conn.id)
-            && let Err(denied) = window_gate(&window, spec.method, request.params.as_ref()) {
+            && let Err(denied) = window_gate(&window, spec.method, request.params.as_ref())
+        {
             let denied = CoreError::PermissionDenied { method: denied.method.into(), origin };
             self.reject_core(conn, &id, &denied);
             return Inbound::Continue;
@@ -687,7 +660,8 @@ impl Shared {
             return Inbound::Continue;
         }
         if spec.method != INITIALIZE
-            && let Err(data) = validate::check(spec.method, request.params.as_ref()) {
+            && let Err(data) = validate::check(spec.method, request.params.as_ref())
+        {
             drop(slot);
             self.reject(conn, &id, &data);
             return Inbound::Continue;
@@ -740,13 +714,8 @@ impl Shared {
                 };
                 match scope {
                     Some(scope) => {
-                        let (key, access) = QueueKey::resolve(scope, || {
-                            conn.session()
-                                .map(|session| session.client.name.clone())
-                                .unwrap_or_default()
-                        });
-                        self.queues
-                            .enqueue(key, access, conn.cancel.clone(), Box::pin(run));
+                        let (key, access) = QueueKey::resolve(scope, || conn.session().map(|session| session.client.name.clone()).unwrap_or_default());
+                        self.queues.enqueue(key, access, conn.cancel.clone(), Box::pin(run));
                     }
                     None => {
                         mixdog_rt::spawn("request", class, run);
@@ -762,12 +731,7 @@ impl Shared {
     #[cfg(feature = "replay-controls")]
     fn replay_stores_settled(self: &Arc<Self>, conn: &Arc<Connection>, id: RequestId, origin: Origin) {
         let (shared, owner, core) = (Arc::clone(self), Arc::clone(conn), Arc::clone(&self.core));
-        let request = CoreRequest {
-            method: Method(REPLAY_STORES_SETTLED),
-            params: empty_result(),
-            op: None,
-            ctx: self.context(conn, origin),
-        };
+        let request = CoreRequest { method: Method(REPLAY_STORES_SETTLED), params: empty_result(), op: None, ctx: self.context(conn, origin) };
         mixdog_rt::spawn("replay-stores-settled", TaskClass::Work, async move {
             let outcome = match core.domain_for(REPLAY_STORES_SETTLED) {
                 Some(domain) => domain.call(request).await,
@@ -780,30 +744,17 @@ impl Shared {
     /// Refuses what the core's lifecycle does not serve. C0 controls always pass, so a client
     /// can still subscribe, read op status and interrupt (P §11.1, §4.4).
     fn lifecycle_gate(&self, spec: &MethodSpec) -> Result<(), CoreError> {
-        let unavailable = |detail: &str| CoreError::CapabilityUnavailable {
-            capability: "core".into(),
-            detail: detail.into(),
-        };
+        let unavailable = |detail: &str| CoreError::CapabilityUnavailable { capability: "core".into(), detail: detail.into() };
         match &*self.lifecycle.borrow() {
             CoreState::Serving => Ok(()),
             CoreState::Migrating(progress) if spec.class != RequestClass::C0 => {
-                Err(CoreError::CoreMigrating {
-                    kind: progress.kind.clone(),
-                    done: progress.done,
-                    total: progress.total,
-                })
+                Err(CoreError::CoreMigrating { kind: progress.kind.clone(), done: progress.done, total: progress.total })
             }
             CoreState::Migrating(_) => Ok(()),
             // New work is refused; reads continue until the connections close.
             CoreState::Draining { reason } => {
                 let reads = spec.mutation == Mutation::None && spec.class != RequestClass::C3;
-                if spec.class == RequestClass::C0 || reads {
-                    Ok(())
-                } else {
-                    Err(CoreError::ServerShuttingDown {
-                        drain_reason: *reason,
-                    })
-                }
+                if spec.class == RequestClass::C0 || reads { Ok(()) } else { Err(CoreError::ServerShuttingDown { drain_reason: *reason }) }
             }
             CoreState::Booting => Err(unavailable("booting")),
             CoreState::Stopped => Err(unavailable("stopped")),
@@ -814,35 +765,23 @@ impl Shared {
     fn core_state(&self) -> Result<v1::CoreState, CoreError> {
         match &*self.lifecycle.borrow() {
             CoreState::Serving => Ok(v1::CoreState::Serving),
-            CoreState::Migrating(progress) => Ok(v1::CoreState::Migrating {
-                kind: progress.kind.to_string(),
-                done: progress.done,
-                total: progress.total,
-            }),
+            CoreState::Migrating(progress) => Ok(v1::CoreState::Migrating { kind: progress.kind.to_string(), done: progress.done, total: progress.total }),
             CoreState::Draining { reason } => Ok(v1::CoreState::Draining { reason: *reason }),
-            _ => Err(CoreError::CapabilityUnavailable {
-                capability: "core".into(),
-                detail: "notServing".into(),
-            }),
+            _ => Err(CoreError::CapabilityUnavailable { capability: "core".into(), detail: "notServing".into() }),
         }
     }
 
     // ---- initialize (P §4.4)
 
-    fn initialize(
-        &self,
-        conn: &Arc<Connection>,
-        id: &RequestId,
-        origin: Origin,
-        params: v1::InitializeParams,
-    ) -> Inbound {
+    fn initialize(&self, conn: &Arc<Connection>, id: &RequestId, origin: Origin, params: v1::InitializeParams) -> Inbound {
         if conn.session().is_some() {
             self.reject(conn, id, &ErrorData::AlreadyInitialized);
             return Inbound::Continue;
         }
         let window = self.window(conn.id);
         if window.is_some()
-            && let Err(denied) = window_scope::allows_initialize(&params) {
+            && let Err(denied) = window_scope::allows_initialize(&params)
+        {
             self.reject_core(conn, id, &CoreError::PermissionDenied { method: denied.method.into(), origin });
             return Inbound::Continue;
         }
@@ -854,23 +793,11 @@ impl Shared {
             }
         };
         let config = &self.config;
-        let refusal = |make: fn(String, String) -> ErrorData| {
-            make(config.server_version.clone(), params.client_info.version.clone())
-        };
+        let refusal = |make: fn(String, String) -> ErrorData| make(config.server_version.clone(), params.client_info.version.clone());
         let refused = match (config.version_gate)(&params.client_info) {
             VersionOrder::Equal => None,
-            VersionOrder::ClientOlder => Some(refusal(|server_version, client_version| {
-                ErrorData::ClientOutdated {
-                    server_version,
-                    client_version,
-                }
-            })),
-            VersionOrder::ClientNewer => Some(refusal(|server_version, client_version| {
-                ErrorData::ServerOutdated {
-                    server_version,
-                    client_version,
-                }
-            })),
+            VersionOrder::ClientOlder => Some(refusal(|server_version, client_version| ErrorData::ClientOutdated { server_version, client_version })),
+            VersionOrder::ClientNewer => Some(refusal(|server_version, client_version| ErrorData::ServerOutdated { server_version, client_version })),
         };
         if let Some(data) = refused {
             self.reject(conn, id, &data);
@@ -882,11 +809,7 @@ impl Shared {
         let device = client.title.clone().unwrap_or_else(|| client.name.clone());
         let kind = client.kind;
         let session = Session {
-            opt_out_notification_methods: capabilities
-                .opt_out_notification_methods
-                .unwrap_or_default()
-                .into_iter()
-                .collect(),
+            opt_out_notification_methods: capabilities.opt_out_notification_methods.unwrap_or_default().into_iter().collect(),
             approvals_inbox: capabilities.approvals_inbox.unwrap_or(false),
             host: capabilities.host,
             model_proxy: capabilities.model_proxy.unwrap_or(false),
@@ -918,11 +841,7 @@ impl Shared {
                 capabilities.remote = mixdog_app_protocol::remote_flags::remote_capabilities((config.native_push)());
                 capabilities
             },
-            connection: v1::ConnectionInfo {
-                origin,
-                device,
-                window: window.map(|window| window.id.to_string()),
-            },
+            connection: v1::ConnectionInfo { origin, device, window: window.map(|window| window.id.to_string()) },
         };
         let result = serde_json::to_value(response).expect("initialize response serializes");
         let _ = conn.sink.send_control(response_frame(id, &result));
@@ -952,20 +871,14 @@ impl Shared {
         after: &AfterAnswer,
     ) -> Dispatch {
         match request {
-            ClientRequest::AppSubscribe { params: app, .. } => {
-                Dispatch::Ready(Ok(Reply::Subscribe(Subscribe {
-                    result: empty_result(),
-                    feed: self.core.app_feed(),
-                    window: Window::Fixed,
-                    resume_from: app.resume_from.map(|position| ResumeFrom {
-                        position: FeedPosition {
-                            epoch: position.epoch,
-                            seq: position.seq,
-                        },
-                        window: Window::Fixed,
-                    }),
-                })))
-            }
+            ClientRequest::AppSubscribe { params: app, .. } => Dispatch::Ready(Ok(Reply::Subscribe(Subscribe {
+                result: empty_result(),
+                feed: self.core.app_feed(),
+                window: Window::Fixed,
+                resume_from: app
+                    .resume_from
+                    .map(|position| ResumeFrom { position: FeedPosition { epoch: position.epoch, seq: position.seq }, window: Window::Fixed }),
+            }))),
             ClientRequest::FeedSubscribe { params: sub, .. } => {
                 Dispatch::Ready(match self.core.scoped_feed(&sub.feed_id) {
                     // The feed's scope may end between this lookup and the attach; the attach
@@ -974,20 +887,14 @@ impl Shared {
                         result: empty_result(),
                         feed,
                         window: Window::Fixed,
-                        resume_from: sub.resume_from.map(|position| ResumeFrom {
-                            position: FeedPosition { epoch: position.epoch, seq: position.seq },
-                            window: Window::Fixed,
-                        }),
+                        resume_from: sub
+                            .resume_from
+                            .map(|position| ResumeFrom { position: FeedPosition { epoch: position.epoch, seq: position.seq }, window: Window::Fixed }),
                     })),
-                    None => Err(CoreError::InvalidParams {
-                        path: "feedId".into(),
-                        expected: "the id of a live scoped feed".into(),
-                    }),
+                    None => Err(CoreError::InvalidParams { path: "feedId".into(), expected: "the id of a live scoped feed".into() }),
                 })
             }
-            ClientRequest::FeedUnsubscribe { params, .. } => {
-                Dispatch::Ready(self.unsubscribe(conn, &params.feed_id))
-            }
+            ClientRequest::FeedUnsubscribe { params, .. } => Dispatch::Ready(self.unsubscribe(conn, &params.feed_id)),
             ClientRequest::FeedHeads { params, .. } => {
                 use mixdog_app_protocol::v2::feed;
                 let head = |source: Arc<dyn mixdog_core_api::FeedSource>| {
@@ -1007,12 +914,8 @@ impl Shared {
                 let feed = FeedId::from(params.thread_id.as_str());
                 Dispatch::Ready(self.unsubscribe(conn, &feed))
             }
-            ClientRequest::TurnInterrupt { params, .. } => {
-                self.interrupt(self.context(conn, origin), params)
-            }
-            ClientRequest::TurnSteer { params, .. } => {
-                Dispatch::Ready(self.steer(conn.id, id, params))
-            }
+            ClientRequest::TurnInterrupt { params, .. } => self.interrupt(self.context(conn, origin), params),
+            ClientRequest::TurnSteer { params, .. } => Dispatch::Ready(self.steer(conn.id, id, params)),
             ClientRequest::OpStatus { params, .. } => {
                 let core = Arc::clone(&self.core);
                 let ctx = self.context(conn, origin);
@@ -1026,10 +929,7 @@ impl Shared {
                             Some(thread) => OpScope::Thread(ThreadId::from(thread)),
                             None => OpScope::Domain(params.scope.0.as_str().into()),
                         };
-                        let statuses = core
-                            .ops()
-                            .status(&scope, &params.op_ids, params.fence, &ctx)
-                            .await?;
+                        let statuses = core.ops().status(&scope, &params.op_ids, params.fence, &ctx).await?;
                         op_status_reply(params.op_ids, statuses, relay.as_ref(), remote_access_for_relay)
                     }),
                 )
@@ -1047,10 +947,7 @@ impl Shared {
                         }
                         let declared = conn.session().is_some_and(|session| session.host.is_some());
                         if !declared {
-                            return Err(CoreError::CapabilityUnavailable {
-                                capability: "host".into(),
-                                detail: "notDeclared".into(),
-                            });
+                            return Err(CoreError::CapabilityUnavailable { capability: "host".into(), detail: "notDeclared".into() });
                         }
                         shared.outgoing.claim(params.host_id, &conn, params.serves.map(|listed| listed.into_iter().collect()), params.resources);
                         Ok(Reply::Value(empty_result()))
@@ -1088,28 +985,14 @@ impl Shared {
         ctx.after_answer = after.clone();
         ctx.lone_surrogates = lone_surrogates;
         let namespace = namespace(spec.method);
-        let thread = THREAD_NAMESPACES
-            .contains(&namespace)
-            .then(|| params.get("threadId").and_then(Value::as_str).map(ThreadId::from))
-            .flatten();
-        let request = CoreRequest {
-            method: Method(spec.method),
-            params,
-            op,
-            ctx,
-        };
+        let thread = THREAD_NAMESPACES.contains(&namespace).then(|| params.get("threadId").and_then(Value::as_str).map(ThreadId::from)).flatten();
+        let request = CoreRequest { method: Method(spec.method), params, op, ctx };
         let core = Arc::clone(&self.core);
         if THREAD_NAMESPACES.contains(&namespace) && core.domain_for(spec.method).is_none() {
             // A control that targets a loaded thread stays on RT-C; a cold open awaits the
             // core's load jobs and so runs on RT-W.
-            let loaded = thread
-                .as_ref()
-                .is_some_and(|id| core.threads().get(id).is_some());
-            let class = if spec.class == RequestClass::C0 && loaded {
-                TaskClass::Control
-            } else {
-                TaskClass::Work
-            };
+            let loaded = thread.as_ref().is_some_and(|id| core.threads().get(id).is_some());
+            let class = if spec.class == RequestClass::C0 && loaded { TaskClass::Control } else { TaskClass::Work };
             return Dispatch::Later(
                 class,
                 Box::pin(async move {
@@ -1117,9 +1000,7 @@ impl Shared {
                         Some(id) if !STORED_READS.contains(&request.method.0) && !DIRECTORY_SERVED.contains(&request.method.0) => {
                             match core.threads().open(&id, &request.ctx).await {
                                 Ok(handle) => handle.request(request).await,
-                                Err(CoreError::ThreadNotFound { .. }) if request.method.0 == "thread/read" => {
-                                    core.threads().read_vanished(&id, request).await
-                                }
+                                Err(CoreError::ThreadNotFound { .. }) if request.method.0 == "thread/read" => core.threads().read_vanished(&id, request).await,
                                 Err(error) => Err(error),
                             }
                         }
@@ -1183,44 +1064,24 @@ impl Shared {
     }
 
     /// `turn/steer` (C0, R10, R12).
-    fn steer(
-        &self,
-        from: ConnectionId,
-        id: &RequestId,
-        params: TurnSteerParams,
-    ) -> Result<Reply, CoreError> {
+    fn steer(&self, from: ConnectionId, id: &RequestId, params: TurnSteerParams) -> Result<Reply, CoreError> {
         // A request that names no turn steers the thread's active one, if it has one.
         let thread = match &params.expected_turn_id {
             Some(turn) => self.loaded_thread(&params.thread_id, turn)?,
-            None => self.core.threads().get(&params.thread_id).ok_or_else(|| CoreError::TurnNotActive { thread_id: params.thread_id.clone(), turn_id: None })?,
+            None => {
+                self.core.threads().get(&params.thread_id).ok_or_else(|| CoreError::TurnNotActive { thread_id: params.thread_id.clone(), turn_id: None })?
+            }
         };
         // `RunControl::steer` still takes an input and an op id; the wire carries neither
         // (contract change request), so the entry is named and the call keyed by this request.
         let op = OpId::from(format!("steer:{from}:{id}"));
-        thread.steer(
-            params.expected_turn_id.as_ref(),
-            json!({ "queuedId": params.queued_id }),
-            op,
-        )?;
-        reply_value(&TurnSteerResponse {
-            accepted: true,
-            queued_id: params.queued_id,
-        })
+        thread.steer(params.expected_turn_id.as_ref(), json!({ "queuedId": params.queued_id }), op)?;
+        reply_value(&TurnSteerResponse { accepted: true, queued_id: params.queued_id })
     }
 
     /// A control never loads a thread: one that is not loaded has no active turn.
-    fn loaded_thread(
-        &self,
-        thread: &ThreadId,
-        turn: &TurnId,
-    ) -> Result<Arc<dyn ThreadHandle>, CoreError> {
-        self.core
-            .threads()
-            .get(thread)
-            .ok_or_else(|| CoreError::TurnNotActive {
-                thread_id: thread.clone(),
-                turn_id: Some(turn.clone()),
-            })
+    fn loaded_thread(&self, thread: &ThreadId, turn: &TurnId) -> Result<Arc<dyn ThreadHandle>, CoreError> {
+        self.core.threads().get(thread).ok_or_else(|| CoreError::TurnNotActive { thread_id: thread.clone(), turn_id: Some(turn.clone()) })
     }
 
     // ---- responses
@@ -1241,12 +1102,7 @@ impl Shared {
     /// nothing it delivered is sent again. Otherwise: allocate the subscription, attach, and write the response with
     /// the lane release, so no lane frame can precede it. Server requests follow the response (P §8.3).
     fn finish_subscribe(&self, conn: &Connection, id: &RequestId, sub: Subscribe) {
-        let Subscribe {
-            result,
-            feed,
-            window,
-            resume_from,
-        } = sub;
+        let Subscribe { result, feed, window, resume_from } = sub;
         let Value::Object(result) = result else {
             let error = internal("subscribing reply without an object result");
             return self.reject_core(conn, id, &error);
@@ -1268,24 +1124,14 @@ impl Shared {
             Err(error) => return self.reject_core(conn, id, &error),
         };
         let frame = subscribed_frame(id, result, &sub_id, &attached.decision);
-        let registered = conn.register_subscription(
-            feed_id.clone(),
-            Sub {
-                id: sub_id.clone(),
-                feed: Arc::clone(&feed),
-                live: false,
-            },
-        );
+        let registered = conn.register_subscription(feed_id.clone(), Sub { id: sub_id.clone(), feed: Arc::clone(&feed), live: false });
         match registered {
             Registered::ConnectionClosed => return feed.detach(sub_id),
             Registered::Replaced(Some(old)) => old.feed.detach(old.id),
             Registered::Replaced(None) => {}
         }
         let release = attached.release;
-        if conn
-            .send_attach_response(&feed_id, &sub_id, || conn.sink.send_control_release(frame, release))
-            .is_err()
-        {
+        if conn.send_attach_response(&feed_id, &sub_id, || conn.sink.send_control_release(frame, release)).is_err() {
             return;
         }
         if feed_id == FeedId::from(mixdog_app_protocol::v2::feed::APP_FEED_ID) && conn.is_desktop_on(&feed_id) {
@@ -1342,9 +1188,7 @@ impl Shared {
                 Some(answer) => answer.error(error),
                 None => error,
             };
-            let _ = conn
-                .sink
-                .send_control(error_notification_frame(&error_data(&error)));
+            let _ = conn.sink.send_control(error_notification_frame(&error_data(&error)));
         }
     }
 
@@ -1354,11 +1198,7 @@ impl Shared {
         // An error answer has no free-text field: one that held a lone surrogate fails its request as a refused answer does,
         // so no consumer reads its U+FFFD-substituted message or data.
         let failed = if response.lone_surrogates.is_empty() {
-            HostError::Rpc {
-                code: response.error.code,
-                message: response.error.message.clone(),
-                data: response.error.data.clone(),
-            }
+            HostError::Rpc { code: response.error.code, message: response.error.message.clone(), data: response.error.data.clone() }
         } else {
             lone_answer()
         };
@@ -1372,10 +1212,7 @@ impl Shared {
         if conn.session().is_none() {
             return Inbound::Continue;
         }
-        let Some(spec) = CLIENT_NOTIFICATIONS
-            .iter()
-            .find(|spec| spec.method == notification.method)
-        else {
+        let Some(spec) = CLIENT_NOTIFICATIONS.iter().find(|spec| spec.method == notification.method) else {
             return Inbound::Continue;
         };
         if spec.method == "initialized" {
@@ -1413,19 +1250,12 @@ fn lone_refusal(what: &str, at: &str) -> ErrorData {
 
 /// The failure of a `host/*` request whose answer held a lone surrogate outside its free-text fields.
 fn lone_answer() -> HostError {
-    HostError::Rpc {
-        code: mixdog_app_protocol::error::INVALID_PARAMS,
-        message: "The answer contains unpaired Unicode surrogates.".into(),
-        data: None,
-    }
+    HostError::Rpc { code: mixdog_app_protocol::error::INVALID_PARAMS, message: "The answer contains unpaired Unicode surrogates.".into(), data: None }
 }
 
 /// The answer for a method no service claims.
 fn unclaimed(method: &str) -> CoreError {
-    CoreError::CapabilityUnavailable {
-        capability: method.into(),
-        detail: "unclaimed".into(),
-    }
+    CoreError::CapabilityUnavailable { capability: method.into(), detail: "unclaimed".into() }
 }
 
 /// Whether a window-scoped connection may call `method`: refused are the host-role methods, and for a server-role window a
@@ -1455,23 +1285,16 @@ fn has_blob_ref(value: &Value) -> bool {
 fn precheck(spec: &MethodSpec, params: Option<&Value>) -> Result<(), Box<ErrorData>> {
     let object = params.and_then(Value::as_object);
     if object.is_some_and(|params| params.contains_key("device")) {
-        return Err(Box::new(ErrorData::InvalidParams {
-            path: "device".to_owned(),
-            expected: "absent: the host stamps the device".to_owned(),
-        }));
+        return Err(Box::new(ErrorData::InvalidParams { path: "device".to_owned(), expected: "absent: the host stamps the device".to_owned() }));
     }
-    if matches!(spec.mutation, Mutation::Op(_))
-        && !object.is_some_and(|params| params.contains_key("opId"))
-    {
+    if matches!(spec.mutation, Mutation::Op(_)) && !object.is_some_and(|params| params.contains_key("opId")) {
         return Err(Box::new(ErrorData::OpIdRequired));
     }
     Ok(())
 }
 
 fn reply_value(value: &impl serde::Serialize) -> Result<Reply, CoreError> {
-    Ok(Reply::Value(
-        serde_json::to_value(value).expect("fixed reply serializes"),
-    ))
+    Ok(Reply::Value(serde_json::to_value(value).expect("fixed reply serializes")))
 }
 
 /// `relay`: the cleaner of a relay connection's read, which tells a stored rejection without what a phone must not see.
@@ -1502,10 +1325,7 @@ fn op_status_reply(
                     }),
                 },
                 OpStatus::InProgress => OpState::InProgress,
-                OpStatus::ExternalUnknown { effect, target } => OpState::ExternalUnknown {
-                    effect: effect.to_string(),
-                    target: target.to_string(),
-                },
+                OpStatus::ExternalUnknown { effect, target } => OpState::ExternalUnknown { effect: effect.to_string(), target: target.to_string() },
                 OpStatus::NotApplied => OpState::NotApplied,
                 OpStatus::Expired => OpState::Expired,
             },

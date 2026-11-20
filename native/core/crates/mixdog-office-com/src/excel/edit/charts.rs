@@ -31,6 +31,7 @@ use super::int_of_com;
 use super::is_blank;
 use super::is_match;
 use super::present;
+use super::print::set_one_page_wide;
 use super::prop;
 use super::quiet;
 use super::range_of;
@@ -40,20 +41,10 @@ use super::sheets::sheet_named;
 use super::single_cast;
 use super::string_of_com;
 use super::text_of;
-use super::print::set_one_page_wide;
 
 /// The chart kinds the portable writer draws, by the XlChartType Excel and PowerPoint take, in the order the refusal lists them.
-const CHART_CODES: [(&str, i32); 9] = [
-    ("column", 51),
-    ("bar", 57),
-    ("stacked_column", 52),
-    ("stacked_bar", 58),
-    ("line", 4),
-    ("area", 1),
-    ("pie", 5),
-    ("doughnut", -4120),
-    ("scatter", -4169),
-];
+const CHART_CODES: [(&str, i32); 9] =
+    [("column", 51), ("bar", 57), ("stacked_column", 52), ("stacked_bar", 58), ("line", 4), ("area", 1), ("pie", 5), ("doughnut", -4120), ("scatter", -4169)];
 
 /// `Office-ChartTypeCode`: an unknown name is refused as the portable writer refuses it (falling back to a clustered column
 /// drew "stacked_column" as side-by-side bars).
@@ -228,10 +219,7 @@ pub(super) fn add_chart(env: &Env<'_>, book: &Com, op: &Value) -> Result<Value> 
     }
     let height = if flag(op, "height") { single_cast(&prop(op, "height"))? } else { 280.0 };
     let shape = retry::excel(env, "Excel add chart", &[], || {
-        sheet.member("Shapes")?.call_member(
-            "AddChart2",
-            &[Com::I4(-1), Com::I4(chart_type), Com::R4(left), Com::R4(top), Com::R4(width), Com::R4(height)],
-        )
+        sheet.member("Shapes")?.call_member("AddChart2", &[Com::I4(-1), Com::I4(chart_type), Com::R4(left), Com::R4(top), Com::R4(width), Com::R4(height)])
     })?;
     let page_fit = set_one_page_wide(&sheet);
     let chart = retry::excel(env, "Excel chart proxy", &[], || shape.member("Chart"))?;
@@ -326,9 +314,7 @@ pub(super) fn add_chart(env: &Env<'_>, book: &Com, op: &Value) -> Result<Value> 
         });
     }
     let points = if series_count > 0 {
-        let counted = retry::excel(env, "Excel chart point count", &[-2_146_827_864], || {
-            series_item(&chart, 1)?.call_member("Points", &[])?.member("Count")
-        })?;
+        let counted = retry::excel(env, "Excel chart point count", &[-2_146_827_864], || series_item(&chart, 1)?.call_member("Points", &[])?.member("Count"))?;
         int_of_com(&counted)?
     } else {
         0
@@ -344,11 +330,8 @@ pub(super) fn add_chart(env: &Env<'_>, book: &Com, op: &Value) -> Result<Value> 
     if present(op, "highlight") && !text_of(op, "highlight").is_empty() && series_count == 1 && !slices {
         highlight_point(op, &chart, &palette, points)?;
     }
-    let mut more = vec![
-        ("name", Value::String(string_of_com(&shape.member("Name")?))),
-        ("series", Value::Int(series_count)),
-        ("categories", Value::Int(points)),
-    ];
+    let mut more =
+        vec![("name", Value::String(string_of_com(&shape.member("Name")?))), ("series", Value::Int(series_count)), ("categories", Value::Int(points))];
     if let Some(fit) = page_fit {
         more.push(("pageFit", Value::string(fit)));
     }
@@ -443,13 +426,7 @@ fn style_series(op: &Value, chart: &Com, series_index: i32, palette: &[String], 
         for point_index in 1..=point_count(&series) {
             let at = usize::try_from(point_index - 1).unwrap_or(0) % palette.len();
             let ink = color_of(&ink_on_fill(&palette[at])?)?;
-            quiet(|| {
-                series
-                    .call_member("Points", &[Com::I4(point_index)])?
-                    .member("DataLabel")?
-                    .member("Font")?
-                    .set_member("Color", ink.clone())
-            });
+            quiet(|| series.call_member("Points", &[Com::I4(point_index)])?.member("DataLabel")?.member("Font")?.set_member("Color", ink.clone()));
         }
     }
     Ok(())

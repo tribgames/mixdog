@@ -10,10 +10,7 @@ use mixdog_pdf::{Dict, Obj, PdfError, StreamFilters};
 use crate::read_support::{build, open, stream};
 
 fn decode(name: &str, data: &[u8], params: Option<&Dict>) -> Vec<u8> {
-    CodecFilters
-        .decode(name, data, params, None, 1 << 20)
-        .expect("decodes")
-        .expect("a known filter")
+    CodecFilters.decode(name, data, params, None, 1 << 20).expect("decodes").expect("a known filter")
 }
 
 fn flate(data: &[u8]) -> Vec<u8> {
@@ -73,11 +70,8 @@ fn png_encode(rows: &[Vec<u8>], kinds: &[u8]) -> Vec<u8> {
                 2 => b,
                 3 => ((u16::from(a) + u16::from(b)) / 2) as u8,
                 _ => {
-                    let (pa, pb, pc) = (
-                        (i32::from(b) - i32::from(c)).abs(),
-                        (i32::from(a) - i32::from(c)).abs(),
-                        (i32::from(a) + i32::from(b) - 2 * i32::from(c)).abs(),
-                    );
+                    let (pa, pb, pc) =
+                        ((i32::from(b) - i32::from(c)).abs(), (i32::from(a) - i32::from(c)).abs(), (i32::from(a) + i32::from(b) - 2 * i32::from(c)).abs());
                     if pa <= pb && pa <= pc {
                         a
                     } else if pb <= pc {
@@ -96,12 +90,7 @@ fn png_encode(rows: &[Vec<u8>], kinds: &[u8]) -> Vec<u8> {
 
 #[test]
 fn flate_undoes_every_png_row_filter() {
-    let rows = vec![
-        vec![10, 20, 30, 40],
-        vec![15, 25, 200, 41],
-        vec![7, 250, 9, 255],
-        vec![8, 249, 10, 1],
-    ];
+    let rows = vec![vec![10, 20, 30, 40], vec![15, 25, 200, 41], vec![7, 250, 9, 255], vec![8, 249, 10, 1]];
     let packed = flate(&png_encode(&rows, &[1, 2, 3, 4]));
     let params = parms(&[("Predictor", 15.0), ("Columns", 4.0)]);
     assert_eq!(decode("FlateDecode", &packed, Some(&params)), rows.concat());
@@ -120,11 +109,7 @@ fn lzw_with_a_predictor_undoes_the_row_filter_too() {
     while bits.len() % 8 != 0 {
         bits.push('0');
     }
-    let packed: Vec<u8> = bits
-        .as_bytes()
-        .chunks(8)
-        .map(|byte| u8::from_str_radix(std::str::from_utf8(byte).unwrap(), 2).unwrap())
-        .collect();
+    let packed: Vec<u8> = bits.as_bytes().chunks(8).map(|byte| u8::from_str_radix(std::str::from_utf8(byte).unwrap(), 2).unwrap()).collect();
     let params = parms(&[("Predictor", 2.0), ("Colors", 3.0), ("Columns", 2.0)]);
     assert_eq!(decode("LZWDecode", &packed, Some(&params)), [1, 2, 3, 2, 3, 4]);
 }
@@ -133,32 +118,22 @@ fn lzw_with_a_predictor_undoes_the_row_filter_too() {
 fn tiff_prediction_adds_the_pixel_on_the_left_per_component() {
     let params = parms(&[("Predictor", 2.0), ("Colors", 3.0), ("Columns", 3.0)]);
     let packed = flate(&[10, 20, 30, 1, 2, 3, 1, 2, 3, 100, 100, 100, 255, 0, 1, 0, 0, 0]);
-    assert_eq!(
-        decode("FlateDecode", &packed, Some(&params)),
-        [10, 20, 30, 11, 22, 33, 12, 24, 36, 100, 100, 100, 99, 100, 101, 99, 100, 101]
-    );
+    assert_eq!(decode("FlateDecode", &packed, Some(&params)), [10, 20, 30, 11, 22, 33, 12, 24, 36, 100, 100, 100, 99, 100, 101, 99, 100, 101]);
 }
 
 #[test]
 fn brotli_decodes_and_stops_past_the_limit() {
     let data: Vec<u8> = (0..4000u32).map(|n| (n % 251) as u8).collect();
     let mut packed = Vec::new();
-    brotli::BrotliCompress(&mut &data[..], &mut packed, &brotli::enc::BrotliEncoderParams::default())
-        .expect("compresses");
+    brotli::BrotliCompress(&mut &data[..], &mut packed, &brotli::enc::BrotliEncoderParams::default()).expect("compresses");
     assert_eq!(decode("BrotliDecode", &packed, None), data);
-    assert!(matches!(
-        CodecFilters.decode("BrotliDecode", &packed, None, None, 100),
-        Err(PdfError::ResourceLimit(_))
-    ));
+    assert!(matches!(CodecFilters.decode("BrotliDecode", &packed, None, None, 100), Err(PdfError::ResourceLimit(_))));
 }
 
 #[test]
 fn flate_output_past_the_limit_is_refused() {
     let packed = flate(&vec![0u8; 10_000]);
-    assert!(matches!(
-        CodecFilters.decode("FlateDecode", &packed, None, None, 100),
-        Err(PdfError::ResourceLimit(_))
-    ));
+    assert!(matches!(CodecFilters.decode("FlateDecode", &packed, None, None, 100), Err(PdfError::ResourceLimit(_))));
     assert_eq!(decode("FlateDecode", &packed, None).len(), 10_000);
 }
 

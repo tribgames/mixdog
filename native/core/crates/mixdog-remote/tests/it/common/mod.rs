@@ -162,7 +162,8 @@ impl Phone {
     /// The next application text frame the PC sent, opened, with its relay envelope's `droppable` (`Value::Null` when it has none).
     pub async fn recv_with_droppable(&mut self) -> (String, Value) {
         let id = self.peer.id.clone();
-        let frame = self.peer.inbox.lock().await.take(move |f| matches!(f["type"].as_str(), Some("frame" | "close-client")) && f["clientId"] == id.as_str()).await;
+        let frame =
+            self.peer.inbox.lock().await.take(move |f| matches!(f["type"].as_str(), Some("frame" | "close-client")) && f["clientId"] == id.as_str()).await;
         assert_eq!(frame["type"], "frame", "the PC closed the phone: {frame}");
         let text = String::from_utf8(self.channel.open(Wire::Text(frame["data"].as_str().unwrap())).unwrap()).unwrap();
         (text, frame["droppable"].clone())
@@ -187,7 +188,6 @@ impl Phone {
         self.peer.out.send(json!({ "type": "client-close", "clientId": self.peer.id })).unwrap();
     }
 }
-
 
 /// Runs `job` on the durability lane and returns its result.
 pub fn on_lane<R: Send + 'static>(job: impl FnOnce(&InLane<mixdog_rt::DurabilityIo>) -> R + Send + 'static) -> R {

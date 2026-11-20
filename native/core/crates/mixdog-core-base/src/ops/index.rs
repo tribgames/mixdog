@@ -43,23 +43,11 @@ impl CoreOpIndex {
 
 #[async_trait]
 impl OpIndex for CoreOpIndex {
-    async fn status(
-        &self,
-        scope: &OpScope,
-        ids: &[OpId],
-        fence: bool,
-        ctx: &CallContext,
-    ) -> Result<Vec<OpStatus>, CoreError> {
+    async fn status(&self, scope: &OpScope, ids: &[OpId], fence: bool, ctx: &CallContext) -> Result<Vec<OpStatus>, CoreError> {
         let gate = match scope {
             OpScope::Thread(thread) => self.threads.gate(thread, ctx).await?,
             OpScope::Domain(name) => {
-                self.domains
-                    .get(name)
-                    .cloned()
-                    .ok_or_else(|| CoreError::InvalidParams {
-                        path: "scope".into(),
-                        expected: "an op scope of this core".into(),
-                    })?
+                self.domains.get(name).cloned().ok_or_else(|| CoreError::InvalidParams { path: "scope".into(), expected: "an op scope of this core".into() })?
             }
         };
         gate.status(ids, fence, ctx).await

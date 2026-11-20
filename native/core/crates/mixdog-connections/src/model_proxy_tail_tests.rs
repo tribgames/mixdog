@@ -19,9 +19,7 @@ use mixdog_core_api::domain::cache_tail::{TailGateHandle, TailRefusal};
 use mixdog_core_api::domain::provider as p;
 use mixdog_core_api::ids::{ConnectionId, Method};
 use mixdog_core_api::{ConnectionNotifier, CoreError, HostCapability, HostChannel, HostError};
-use mixdog_core_domains::domains::ai_admin::model_proxy::{
-    ProviderConfigSource, ProviderLookup, ProxyRunner, QuotaProbe, WireRouter, remote_send,
-};
+use mixdog_core_domains::domains::ai_admin::model_proxy::{ProviderConfigSource, ProviderLookup, ProxyRunner, QuotaProbe, WireRouter, remote_send};
 use mixdog_core_domains::domains::ai_admin::model_proxy_service::ModelProxyService;
 use serde_json::{Value, json};
 use tokio::sync::mpsc;
@@ -229,7 +227,13 @@ impl ModelProxyTransport for Link {
     }
 
     /// The owner's verdicts go to the PC as `model/proxy/tail`, stamped with the request's id, as the server's router sends them.
-    async fn execute_duplex(&self, call: Value, events: &mut (dyn FnMut(Value) + Send), mut back: mpsc::UnboundedReceiver<Value>, _: &CancellationToken) -> Result<Value, ProxyError> {
+    async fn execute_duplex(
+        &self,
+        call: Value,
+        events: &mut (dyn FnMut(Value) + Send),
+        mut back: mpsc::UnboundedReceiver<Value>,
+        _: &CancellationToken,
+    ) -> Result<Value, ProxyError> {
         let mut frames = self.frames.lock().await;
         let id = self.open(call);
         loop {
@@ -296,7 +300,13 @@ async fn rig(name: &str) -> Rig {
     let gate = books.gate(
         &session,
         None,
-        mixdog_ai::cache_tail::GateSettings { clock: Arc::new(move || read.load(Ordering::SeqCst)), auto_clear: Arc::new(|| true), sizing: 1, fresh: true, last_send_at: None },
+        mixdog_ai::cache_tail::GateSettings {
+            clock: Arc::new(move || read.load(Ordering::SeqCst)),
+            auto_clear: Arc::new(|| true),
+            sizing: 1,
+            fresh: true,
+            last_send_at: None,
+        },
     );
     // The PC: its Anthropic account behind a captured transport, its core's model-call service, the relay on its link.
     let wire = Arc::new(Wire { replies: Mutex::default(), posts: Mutex::default() });
@@ -340,7 +350,8 @@ async fn rig(name: &str) -> Rig {
             }
         }
     }));
-    let link = Arc::new(Link { conn, frames: tokio::sync::Mutex::new(frames), ids: AtomicU64::new(0), vanish_on_ask: Default::default(), hold: Mutex::default() });
+    let link =
+        Arc::new(Link { conn, frames: tokio::sync::Mutex::new(frames), ids: AtomicU64::new(0), vanish_on_ask: Default::default(), hold: Mutex::default() });
     Rig { link, wire, clock, gate, books, session, relay, _net: net }
 }
 
@@ -421,7 +432,10 @@ async fn an_expired_tail_is_refused_before_the_pc_posts_and_the_rebuilt_request_
     rig.gate.0.rebuilt();
     lease.resolve(Resolution::Compacted);
     let mut compacted = rig.request(0);
-    compacted.messages = vec![p::Message::new(p::Role::User, p::Content::Text("summary of the earlier work".into())), p::Message::new(p::Role::User, p::Content::Text("q1".into()))];
+    compacted.messages = vec![
+        p::Message::new(p::Role::User, p::Content::Text("summary of the earlier work".into())),
+        p::Message::new(p::Role::User, p::Content::Text("q1".into())),
+    ];
     rig.script(written(0, 40));
     rig.send(&compacted).await.expect("the compacted base's first write");
     assert_eq!(rig.posts(), 2);

@@ -17,7 +17,8 @@ use serde_json::Value;
 /// the actor from the thread's header as it stands and the rows a finished turn appended since the
 /// snapshot (`appendedSinceSnapshot`), written in the record that counts the compaction, so it
 /// states the new `compaction.compactCount` itself.
-pub type CompactionHeader = Box<dyn FnOnce(&mixdog_store::schema::record::Header, &[(mixdog_core_api::ids::ItemId, Value)]) -> mixdog_store::schema::record::HeaderChange + Send>;
+pub type CompactionHeader =
+    Box<dyn FnOnce(&mixdog_store::schema::record::Header, &[(mixdog_core_api::ids::ItemId, Value)]) -> mixdog_store::schema::record::HeaderChange + Send>;
 
 /// What committing a manual compaction's result came to (`commitSessionCompaction`).
 #[derive(Debug, PartialEq, Eq)]
@@ -95,7 +96,8 @@ impl super::SessionDirectory {
     /// is not disposed: Node reopens it).
     pub fn hosting(&self, thread: &ThreadId) -> Option<SessionIncarnation> {
         let handle = self.handle(thread)?;
-        (!handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst)).then(|| SessionIncarnation { cell: handle.cell.clone(), inbox: handle.inbox.downgrade() })
+        (!handle.cell.closed.load(std::sync::atomic::Ordering::SeqCst))
+            .then(|| SessionIncarnation { cell: handle.cell.clone(), inbox: handle.inbox.downgrade() })
     }
 
     /// Commits `compaction`, planned on the model context whose item ids are `snapshot`, to
@@ -123,21 +125,29 @@ impl super::SessionDirectory {
 /// The methods the thread's actor serves itself: they read or change what only the actor owns
 /// (its busy state, its live rows, its queue).
 pub(super) fn is_actor_method(method: &str) -> bool {
-    matches!(method, "thread/pushNotice" | "thread/rememberPromptHistory" | "thread/clearSessionChangeHistory" | "thread/askSide" | "thread/cancelSide" | "thread/compact/start" | "thread/compact/schedule" | "turn/retryFailed")
+    matches!(
+        method,
+        "thread/pushNotice"
+            | "thread/rememberPromptHistory"
+            | "thread/clearSessionChangeHistory"
+            | "thread/askSide"
+            | "thread/cancelSide"
+            | "thread/compact/start"
+            | "thread/compact/schedule"
+            | "turn/retryFailed"
+    )
 }
 
 /// `SIDE_QUESTION_NO_REQUEST`.
 pub const SIDE_QUESTION_NO_REQUEST: &str = "Send a message first, then try /btw.";
 /// `SIDE_QUESTION_TOOL_ATTEMPT`.
-pub const SIDE_QUESTION_TOOL_ATTEMPT: &str =
-    "The model tried to use a tool instead of answering. A side question cannot run tools; try asking it differently.";
+pub const SIDE_QUESTION_TOOL_ATTEMPT: &str = "The model tried to use a tool instead of answering. A side question cannot run tools; try asking it differently.";
 const SIDE_QUESTION_EMPTY_ANSWER: &str = "The model returned no answer.";
 /// The abort reason of a canceled side question (`cancelSideQuestion`).
 pub const SIDE_QUESTION_CANCELED: &str = "Side question canceled.";
 /// The answer a fork gives each tool call of the saved reply (`SIDE_QUESTION_TOOL_STUB`): the
 /// calls run in the main session; the fork only needs each answered so the request stays valid.
-pub const SIDE_QUESTION_TOOL_STUB: &str =
-    "This tool call belongs to the main task and is handled there; its result is not part of this side question.";
+pub const SIDE_QUESTION_TOOL_STUB: &str = "This tool call belongs to the main task and is handled there; its result is not part of this side question.";
 
 /// What a side-question send ended with, other than an answer.
 #[derive(Debug, PartialEq)]
@@ -198,7 +208,13 @@ pub trait ManualCompaction: Send + Sync {
     /// `null` (no session, or nothing to report); a `skipped` result is returned as is.
     ///
     /// `cancel` is the session's abort signal (`getSessionAbortSignal`): the pass ends with its text when it fires.
-    async fn compact(&self, thread: &ThreadId, trigger: &str, require_reduction: bool, cancel: &mixdog_agent::cancel::Cancel) -> Result<Option<Value>, CoreError>;
+    async fn compact(
+        &self,
+        thread: &ThreadId,
+        trigger: &str,
+        require_reduction: bool,
+        cancel: &mixdog_agent::cancel::Cancel,
+    ) -> Result<Option<Value>, CoreError>;
     /// `compactConversationForHeir` (`inheritance.mjs`): `rows`, the conversation of `source` the carry measured (its committed
     /// turns as bound to the heir's prefix, `carrySource`, after the source's system blocks), compacted to fit `budget_tokens`
     /// by the source's compactor, on a copy - nothing of the source is touched. `summarize` (an explicitly chosen compacted

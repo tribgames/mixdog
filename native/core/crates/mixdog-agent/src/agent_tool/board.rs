@@ -261,7 +261,13 @@ fn field(name: &str, value: &str) -> String {
 /// `renderAgentCompletionEnvelope`.
 pub fn render_agent_completion(task_id: &str, tag: &str, status: &str, result: &str, error: &str, detail: &str) -> String {
     let who = if tag.is_empty() { task_id } else { tag };
-    let outcome = if matches!(status, "cancelled" | "canceled") { "was cancelled" } else if status.is_empty() { "completed" } else { status };
+    let outcome = if matches!(status, "cancelled" | "canceled") {
+        "was cancelled"
+    } else if status.is_empty() {
+        "completed"
+    } else {
+        status
+    };
     let detail = if detail.is_empty() { String::new() } else { format!(" ({detail})") };
     let mut lines = vec!["<task-notification>".to_owned(), field("task-id", task_id)];
     if !tag.is_empty() {
@@ -299,8 +305,7 @@ fn body_of(task: &Record) -> String {
 /// `renderBackgroundTaskNotification` for the agent surface.
 fn notification_of(task: &Record) -> String {
     // An agent's authored `content` is the notification's body; the renderer serves views only.
-    let authored =
-        task.result.as_ref().filter(|result| matches!(result, TaskResult::Json(_))).and_then(TaskResult::content).map(str::to_owned);
+    let authored = task.result.as_ref().filter(|result| matches!(result, TaskResult::Json(_))).and_then(TaskResult::content).map(str::to_owned);
     let body = authored.unwrap_or_else(|| body_of(task));
     let appendix = task.appendix.as_ref().map(|f| f(task.meta.session_id.as_deref())).unwrap_or_default();
     let result = if appendix.is_empty() { body } else { [body, appendix].into_iter().filter(|s| !s.is_empty()).collect::<Vec<_>>().join("\n\n") };
@@ -329,8 +334,11 @@ struct State {
 
 /// `lostTagKey`: a tag is one owner's.
 fn lost_tag_key(owner: &str, tag: &str) -> String {
-    format!("tag:{}
-{tag}", js_trim(owner))
+    format!(
+        "tag:{}
+{tag}",
+        js_trim(owner)
+    )
 }
 
 /// The eviction listener of `close-flow.mjs`: a pruned job marks its agent lost unless its result was delivered
@@ -566,10 +574,7 @@ impl JobBoard {
                     if board.lock().tasks.iter().any(|t| t.task_id == id && t.status == "cancelled") {
                         board.deliver_cancelled(&id);
                     } else {
-                        board.complete(
-                            &id,
-                            Completion { error: Some(error), terminal_reason: Some("run-rejected".to_owned()), ..Completion::new("failed") },
-                        );
+                        board.complete(&id, Completion { error: Some(error), terminal_reason: Some("run-rejected".to_owned()), ..Completion::new("failed") });
                     }
                 }
             }
@@ -623,8 +628,7 @@ impl JobBoard {
         let mut jobs = self.list_jobs(scope);
         if let Some(wanted) = wanted {
             jobs.retain(|job| {
-                is_terminal(&job.status)
-                    || job.meta.session_id.as_deref().filter(|id| !id.is_empty()).and_then(worker_pid).is_none_or(|pid| pid == wanted)
+                is_terminal(&job.status) || job.meta.session_id.as_deref().filter(|id| !id.is_empty()).and_then(worker_pid).is_none_or(|pid| pid == wanted)
             });
         }
         jobs
@@ -635,7 +639,10 @@ impl JobBoard {
     /// `BUSY_JOB_STATES`. A job with no session and no process is in every scope, one with only a
     /// process is in the scope naming it, as in [`JobBoard::list_jobs`].
     pub fn busy_count(&self, scope: &Scope, worker_pid: &dyn Fn(&str) -> Option<u64>) -> u64 {
-        self.list_jobs_for_client(scope, worker_pid).iter().filter(|t| matches!(t.status.as_str(), "starting" | "spawning" | "queued" | "pending" | "running")).count() as u64
+        self.list_jobs_for_client(scope, worker_pid)
+            .iter()
+            .filter(|t| matches!(t.status.as_str(), "starting" | "spawning" | "queued" | "pending" | "running"))
+            .count() as u64
     }
     /// [`JobBoard::busy_count`] for the session's own scope (its session id, no process, so no
     /// worker is asked).
@@ -890,12 +897,8 @@ impl JobBoard {
         let result = {
             let mut state = self.lock();
             let task = state.tasks.iter_mut().find(selected)?;
-            let completion = Completion {
-                error: Some(reason.to_owned()),
-                notify: notice == CancelNotice::Now,
-                terminal_reason,
-                ..Completion::new("cancelled")
-            };
+            let completion =
+                Completion { error: Some(reason.to_owned()), notify: notice == CancelNotice::Now, terminal_reason, ..Completion::new("cancelled") };
             let transitioned = self.complete_locked(task, completion, &mut effects);
             if transitioned && task.notify_on_cancel && notice != CancelNotice::Now && task.cancel_state.is_none() {
                 if notice == CancelNotice::Never {
@@ -938,10 +941,7 @@ impl JobBoard {
 
 impl Tasks for JobBoard {
     fn list(&self, scope: &Scope) -> Vec<TaskFacts> {
-        self.list_jobs(scope)
-            .into_iter()
-            .map(|t| TaskFacts { task_id: t.task_id, session_id: t.meta.session_id, tag: t.meta.tag })
-            .collect()
+        self.list_jobs(scope).into_iter().map(|t| TaskFacts { task_id: t.task_id, session_id: t.meta.session_id, tag: t.meta.tag }).collect()
     }
     fn get(&self, task_id: &str, scope: &Scope) -> Option<TaskFacts> {
         JobBoard::get(self, task_id, scope).map(|t| TaskFacts { task_id: t.task_id, session_id: t.meta.session_id, tag: t.meta.tag })
@@ -950,7 +950,11 @@ impl Tasks for JobBoard {
         JobBoard::cancel(self, task_id, reason, CancelNotice::Default);
     }
     fn cancel_owned(&self, session_id: &str, reason: &str) {
-        self.cancel_all(&CancelAll { reason: reason.to_owned(), scope: Scope { caller_session_id: Some(session_id.to_owned()), host_pid: None }, ..CancelAll::default() });
+        self.cancel_all(&CancelAll {
+            reason: reason.to_owned(),
+            scope: Scope { caller_session_id: Some(session_id.to_owned()), host_pid: None },
+            ..CancelAll::default()
+        });
     }
     fn cleanup(&self, scope: &Scope, force: bool) -> Cleaned {
         Cleaned { removed: self.cleanup_jobs(scope, force) }

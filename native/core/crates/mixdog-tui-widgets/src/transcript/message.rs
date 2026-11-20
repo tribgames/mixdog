@@ -134,10 +134,7 @@ impl Notice {
         let icon = if has_prefix { 2 } else { 0 };
         let row = columns.saturating_sub(1).max(1);
         let body_width = row.saturating_sub(GUTTER + icon).max(1);
-        Self {
-            prefix: has_prefix.then(|| (themed(accent), icon)),
-            body: TextBox::new(text.to_owned(), themed(body_key), TextWrap::Wrap, body_width),
-        }
+        Self { prefix: has_prefix.then(|| (themed(accent), icon)), body: TextBox::new(text.to_owned(), themed(body_key), TextWrap::Wrap, body_width) }
     }
 }
 
@@ -241,7 +238,14 @@ mod tests {
 
     #[test]
     fn notices_carry_a_dot_unless_plain_or_an_error() {
-        for (tone, expected) in [(Some("error"), "hello"), (Some("plain"), "hello"), (Some("warn"), "\u{b7} hello"), (Some("info"), "\u{b7} hello"), (Some("other"), "\u{b7} hello"), (None, "\u{b7} hello")] {
+        for (tone, expected) in [
+            (Some("error"), "hello"),
+            (Some("plain"), "hello"),
+            (Some("warn"), "\u{b7} hello"),
+            (Some("info"), "\u{b7} hello"),
+            (Some("other"), "\u{b7} hello"),
+            (None, "\u{b7} hello"),
+        ] {
             let rows = rows_of(&Notice::new("hello", tone, 40), 40);
             assert_eq!(rows[0], "");
             assert_eq!(rows[1].trim(), expected, "tone {tone:?}");

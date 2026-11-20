@@ -30,7 +30,13 @@ pub struct OverlayHint {
 }
 
 /// `overlayHintPlacement` over the mounted items.
-pub fn overlay_hint_placement(rendered: &[&Value], window: &RenderWindow, overlay_hint_requested: bool, floating_panel_rows: usize, transcript_guard_rows: usize) -> OverlayHint {
+pub fn overlay_hint_placement(
+    rendered: &[&Value],
+    window: &RenderWindow,
+    overlay_hint_requested: bool,
+    floating_panel_rows: usize,
+    transcript_guard_rows: usize,
+) -> OverlayHint {
     let attach_item_index = rendered.iter().rposition(|item| !(item_kind(item) == "tool" && should_suppress_fully_failed_tool_item(item)));
     let tail_pinned = window.effective_scroll_offset == 0;
     let on_last_item = overlay_hint_requested && floating_panel_rows == 0 && window.bottom_spacer_rows == 0 && tail_pinned && attach_item_index.is_some();

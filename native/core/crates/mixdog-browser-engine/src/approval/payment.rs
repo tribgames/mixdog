@@ -97,10 +97,8 @@ mod tests {
         assert!(page_has_payment_evidence(&failing, "p", &CancellationToken::new()).await);
         let gone = FakeHost::scripted(vec![Expect::err("host/browser/page/eval", HostCallError::PageGone)]);
         assert!(page_has_payment_evidence(&gone, "p", &CancellationToken::new()).await);
-        let threw = FakeHost::scripted(vec![Expect::ok(
-            "host/browser/page/eval",
-            json!({"exception": {"text": "x"}, "value": false, "facts": page_facts("p", 3)}),
-        )]);
+        let threw =
+            FakeHost::scripted(vec![Expect::ok("host/browser/page/eval", json!({"exception": {"text": "x"}, "value": false, "facts": page_facts("p", 3)}))]);
         assert!(page_has_payment_evidence(&threw, "p", &CancellationToken::new()).await);
     }
 

@@ -5,9 +5,9 @@
 
 use mixdog_ai::service::admin_route::Obj;
 use mixdog_ai::service::admin_route::clean_model_parameters;
-use mixdog_ai::service::admin_route::workflow_preset_id;
 use mixdog_ai::service::admin_route::find_preset;
 use mixdog_ai::service::admin_route::normalize_workflow_route;
+use mixdog_ai::service::admin_route::workflow_preset_id;
 use mixdog_js::js_trim;
 use mixdog_js::value_to_string;
 use serde_json::Map;
@@ -19,8 +19,7 @@ use super::ids::clean;
 use super::ids::truthy;
 
 const AGENT_PROVIDER_ALIASES: [(&str, &str); 3] = [("openai-api", "openai"), ("gemini-api", "gemini"), ("xai-api", "xai")];
-const FAST_CAPABLE_PRESET_PROVIDERS: [&str; 6] =
-    ["anthropic", "anthropic-oauth", "openai", "openai-oauth", "cursor-oauth", "cursor-api"];
+const FAST_CAPABLE_PRESET_PROVIDERS: [&str; 6] = ["anthropic", "anthropic-oauth", "openai", "openai-oauth", "cursor-oauth", "cursor-api"];
 
 /// `String(a || b || '')` for a preset's own fields.
 fn first_text(preset: &Value, keys: &[&str]) -> String {
@@ -250,7 +249,6 @@ mod tests {
         );
     }
 
-
     /// A saved Lead reads back, reloads and publishes at the speed it was saved at: an explicit Standard and
     /// Ultrafast's service tier survive the preset projection.
     #[test]
@@ -265,7 +263,10 @@ mod tests {
         let standard = lead(json!({ "fast": false, "modelParameters": {} }));
         assert_eq!(standard["fast"], false);
         assert!(standard.get("modelParameters").is_none(), "no selected parameter, nothing kept");
-        let ordinary = normalize_preset(&json!({ "id": "mine", "provider": "openai-oauth", "model": "gpt-x", "fast": false, "modelParameters": { "serviceTier": "ultrafast" } })).unwrap();
+        let ordinary = normalize_preset(
+            &json!({ "id": "mine", "provider": "openai-oauth", "model": "gpt-x", "fast": false, "modelParameters": { "serviceTier": "ultrafast" } }),
+        )
+        .unwrap();
         assert!(ordinary.get("fast").is_none() && ordinary.get("modelParameters").is_none(), "an ordinary preset keeps its shape");
         let agent: Doc = serde_json::from_value(json!({
             "default": "workflow-lead",
@@ -313,7 +314,6 @@ mod tests {
         assert_eq!(summary["lead"]["effort"], "high");
     }
 }
-
 
 /// `resolveAnthropicFamilyModel(family)`: the environment override, else the shipped model.
 fn anthropic_family_model(family: &str) -> String {

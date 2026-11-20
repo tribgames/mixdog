@@ -235,7 +235,22 @@ mod tests {
         let names: Vec<&str> = providers.keys().map(String::as_str).collect();
         assert_eq!(
             names,
-            ["openai", "anthropic", "gemini", "deepseek", "xai", "openrouter", "vertex-ai", "openai-oauth", "anthropic-oauth", "grok-oauth", "muse-code-oauth", "command-code-oauth", "opencode-go-oauth", "mixdog-local"]
+            [
+                "openai",
+                "anthropic",
+                "gemini",
+                "deepseek",
+                "xai",
+                "openrouter",
+                "vertex-ai",
+                "openai-oauth",
+                "anthropic-oauth",
+                "grok-oauth",
+                "muse-code-oauth",
+                "command-code-oauth",
+                "opencode-go-oauth",
+                "mixdog-local"
+            ]
         );
         assert_eq!(providers["openai-oauth"], json!({ "enabled": false, "websocket": true }));
         assert_eq!(providers["anthropic-oauth"], json!({ "enabled": false }));
