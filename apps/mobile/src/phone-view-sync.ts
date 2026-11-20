@@ -1,5 +1,4 @@
-// A literal port of the Node web app's view synchronization state machine (renderer/remote-view-sync.ts at b6f10295a, `createRemoteViewSync`):
-// the requested/completed counters, the epoch, one sync in flight, a refusal retried after 250 ms doubling to 10 s, `failureLimit` failures in a
+// The view synchronization state machine (`createRemoteViewSync`): the requested/completed counters, the epoch, one sync in flight, a refusal retried after 250 ms doubling to 10 s, `failureLimit` failures in a
 // row recycling the connection, and `close()` rejecting every waiter as interrupted. What a "sync" is stays the owner's business
 // (`synchronize`); the gate every call waits on (`ready`) is this module's alone.
 

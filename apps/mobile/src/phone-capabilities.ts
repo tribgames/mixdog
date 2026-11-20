@@ -1,6 +1,5 @@
-// The Node core told the phone what it serves in flags on the relay challenge (`remoteParity`, `nativePush`, `browserParity`, ...), and the
-// page gates features on them. A protocol core says what it serves in `initialize.capabilities` (`remote` holds Node's flags under their
-// own names), so the flags are read from there as they are. The core offers a flag only when every call it opens on this page is served
+// The page gates features on flags saying what the core serves (`remoteParity`, `nativePush`, `browserParity`, ...). The core states them
+// in `initialize.capabilities.remote` under those names, and they are read from there as they are. The core offers a flag only when every call it opens on this page is served
 // end to end, the page's adapter included (native/core/crates/mixdog-app-protocol/src/remote_flags.json, checked against the bundled
 // adapters by apps/desktop/src/renderer/remote-flags.test.mjs); a core that predates `remote` offers none.
 import type { InitializeResponse } from '../../../packages/protocol-client/src/index.ts';

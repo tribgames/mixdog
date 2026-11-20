@@ -130,7 +130,7 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
       const silentRedial = silent;
       const ms = redialDelay();
       const away = (): boolean => (options.visible ? !options.visible() : false);
-      // Node's silent redial runs inside the close handler, ahead of whatever the close settles; any other redial is a timer, however short.
+      // A silent redial runs inside the close handler, ahead of whatever the close settles; any other redial is a timer, however short.
       if (silentRedial && ms === 0 && !away()) return done();
       const finish = (): void => {
         clearTimeout(timer);
@@ -138,7 +138,7 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
         options.signal?.removeEventListener('abort', finish);
         done();
       };
-      // Node's scheduleReconnect arms nothing while the page is hidden, and a timer that fires after the page was hidden waits for the
+      // No redial is armed while the page is hidden, and a timer that fires after the page was hidden waits for the
       // wake that brings it back; a pairing reset (abort) ends every wait.
       const timer = setTimeout(() => {
         if (options.signal?.aborted || !away()) finish();
@@ -168,7 +168,7 @@ export async function connectPhone(options: PhoneClientOptions): Promise<PhoneCl
       spread = info.remote && info.ready;
       quiet = info.quiet;
       silent = info.quiet;
-      // The failure is reported before a terminal state asks the user, as the page always did.
+      // The failure is reported before a terminal state asks the user.
       options.onClose?.(code, reason, info);
       if (state) settle({ state });
     },

@@ -1,4 +1,4 @@
-// Fold parity (lifecycle-remote §9 test 6): the phone client over the E2EE relay connector — on the plain relay lane and on the
+// Fold (lifecycle-remote §9 test 6): the phone client over the E2EE relay connector — on the plain relay lane and on the
 // upgraded MXT transport — folds a thread exactly as the same client does over the mock transport the conformance suite uses.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
