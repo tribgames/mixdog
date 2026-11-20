@@ -157,12 +157,16 @@
 }
 .settings-import-note,
 .settings-import-error {
-  margin: 0;
-  padding: 8px var(--mx-dialog-inset);
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
 }
-.settings-import-list > .settings-import-note {
+/* A note that stands in for the list is the shared .mx-empty-state. */
+.settings-import-note:not(.mx-empty-state),
+.settings-import-error {
+  margin: 0;
+  padding: 8px var(--mx-dialog-inset);
+}
+.settings-import-list > .settings-import-note:not(.mx-empty-state) {
   padding: 12px;
 }
 .settings-import-error {
@@ -174,17 +178,10 @@
   box-sizing: border-box;
 }
 .settings-import-empty {
-  display: grid;
-  align-content: center;
   /* Filters (~44) + select-all (~38) + reserved list (330): the empty result
      takes the loading layout's height instead of collapsing the dialog. */
   min-height: 412px;
-  box-sizing: border-box;
-  justify-items: center;
-  gap: 8px;
-  padding: 32px var(--mx-dialog-inset) 28px;
   border-top: 1px solid var(--mx-border-muted);
-  text-align: center;
 }
 .settings-import-empty > b {
   color: var(--mx-text);

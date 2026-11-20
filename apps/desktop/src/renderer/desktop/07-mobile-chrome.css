@@ -883,9 +883,6 @@ html[data-mixdog-mobile-tabs] .session-sidebar .session-list.project-session-lis
 html[data-mixdog-mobile-tabs] .session-sidebar .session-list .session-subheading {
   padding-left: calc(8px - var(--mx-drawer-bleed));
 }
-html[data-mixdog-mobile-tabs] .session-sidebar .session-list .sidebar-section-empty {
-  padding-left: calc(30px - var(--mx-drawer-bleed));
-}
 /* The static dot and status ride the row's right edge with fixed offsets. */
 html[data-mixdog-mobile-tabs] .session-sidebar .session-list .session-row-unread-dot {
   right: calc(16.5px + var(--mx-drawer-bleed));

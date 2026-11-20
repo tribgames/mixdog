@@ -80,13 +80,10 @@ html[data-mixdog-mobile-tabs] .composer-add-menu [role="menuitem"] {
   line-height: var(--mx-line-meta);
 }
 .slash-palette.composer-add-menu p {
-  margin: 0;
-  padding: 4px 10px 6px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-minor);
-  text-align: left;
 }
 .composer-add-menu .composer-add-divider {
   height: var(--mx-hairline);

@@ -49,5 +49,5 @@ export function ScreenHeaderRow({
 /** The browser pane's state card (`.browser-remote-empty`), filling its
  *  nearest positioned box. */
 export function ScreenStateCard({ children }: { children: ReactNode }) {
-  return <div className="browser-remote-empty">{children}</div>;
+  return <div className="browser-remote-empty mx-empty-state mx-empty-state-cover">{children}</div>;
 }

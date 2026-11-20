@@ -911,7 +911,11 @@ export default function TerminalPane({
     >
       <div className="dock-terminal" ref={host} />
       {serverLink?.terminalsAvailable === false ? (
-        <div className="terminal-connection-note" data-kind="unavailable" role="note">
+        <div
+          className="terminal-connection-note mx-empty-state mx-empty-state-cover"
+          data-kind="unavailable"
+          role="note"
+        >
           {t('Terminals are not available on this server.')}
         </div>
       ) : isConnectionDown(serverLink) ? (

@@ -479,16 +479,6 @@ html[data-mixdog-mobile-tabs] .session-sidebar-panels .schedules-page > .sidebar
   margin: 0;
   padding: 4px 8px 12px;
 }
-.utility-dock .agent-activity-empty {
-  flex: 1;
-  min-height: 0;
-  display: grid;
-  place-content: center;
-  justify-items: center;
-  gap: 10px;
-  margin: 0;
-  text-align: center;
-}
 .utility-dock .agent-group-toolbar {
   display: flex;
   justify-content: flex-end;
@@ -2070,45 +2060,16 @@ html[data-mixdog-mobile-tabs]
   height: 31px;
   min-height: 31px;
 }
-/* The ONE empty state of every side panel (left rail and right dock): a
-   28px line laid from the row-fill edge, its text on the row-name line
-   (8px row inset + 16px slot + 6px gap), 14px/400 muted, left-aligned. A
-   panel's call to action (Mixy's create button) stacks under the line on
-   the same edge. */
+/* The side panels' (left rail and right dock) empty-state type: 14px/400
+   muted. The layout is the shared .mx-empty-state (18-surface-states.css). */
 .sidebar-section-empty,
 .utility-dock-empty,
 .schedules-empty,
 .dock-scm-clean,
 .visualize-pane .visualize-empty:not(.visualize-zoom-layer > .visualize-empty),
 .extensions-pane .settings-empty-list {
-  box-sizing: border-box;
-  flex: none;
-  min-width: 0;
-  min-height: 28px;
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  justify-content: flex-start;
-  gap: 8px;
-  margin: 0;
-  padding: 4px 8px 4px 30px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-item);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-ui);
-  text-align: left;
-}
-/* Rail destination pages lay their content from the slot line (their rows
-   bleed 8px out to the fill edge), so only the 22px slot + gap remains. */
-.session-sidebar-panels .schedules-page :is(.utility-dock-empty, .schedules-empty, .settings-empty-list) {
-  padding-left: 22px;
-}
-/* Right-dock panes lay their content from the panel edge itself (no 8px
-   surface inset), so the row-name line is 8 + 30 in. The Source Control clean
-   state is not listed: its scroller already gives that 8px. */
-.workbench-side-panel[data-side="right"] .utility-dock-empty,
-.workbench-side-panel[data-side="right"]
-  .visualize-pane
-  .visualize-empty:not(.visualize-zoom-layer > .visualize-empty) {
-  padding-left: 38px;
 }

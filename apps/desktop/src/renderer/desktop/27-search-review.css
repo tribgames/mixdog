@@ -86,8 +86,8 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-/* Empty state: no override — Search and Files wear the side panels' one
-   empty state (10-rail-pages.css). */
+/* Empty state: no override — Search and Files wear the shared .mx-empty-state
+   (18-surface-states.css). */
 .workbench-search-name-row {
   min-height: 24px;
   width: 100%;
@@ -129,6 +129,12 @@
    space, no shift) and inert, so they cannot be opened. */
 .workbench-search-results[data-pending="true"] {
   opacity: 0.55;
+}
+/* "Result limit reached." closes a file's matches: a row note, not an empty
+   state, so it keeps the row-name line. */
+.workbench-search-file > .utility-dock-empty {
+  margin: 0;
+  padding: 4px 8px 4px 30px;
 }
 .workbench-search-summary {
   margin: 0;
@@ -279,11 +285,8 @@
   text-overflow: ellipsis;
 }
 .turn-review-files-empty {
-  margin: 0;
-  padding: 18px 8px 14px;
   color: var(--mx-text-muted);
   font-weight: var(--mx-weight-regular);
-  text-align: center;
 }
 .turn-review-files-foot[hidden] {
   display: none;
@@ -1133,27 +1136,9 @@ div.diff-tailwindcss-wrapper .diff-line {
   background: var(--mx-pressed);
 }
 .review-empty {
-  padding: 32px;
+  margin: 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-ui);
-  text-align: center;
-}
-/* Whole-pane states (no project / loading / error): center on both axes. */
-.review-pane > .review-empty:only-child {
-  margin: auto;
-  padding: 0;
-}
-.review-scroll:has(> .review-empty-state) {
-  display: flex;
-  flex-direction: column;
-}
-.review-empty-state {
-  width: min(100%, 800px);
-  margin: auto;
-  display: grid;
-  gap: 12px;
-  justify-items: center;
-  padding: 0 32px;
 }
 .review-list {
   width: min(100%, 800px);

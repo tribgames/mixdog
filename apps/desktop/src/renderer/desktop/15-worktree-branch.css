@@ -281,11 +281,8 @@ html[data-mixdog-mobile-tabs] .branch-menu-item {
   background: transparent;
 }
 .branch-menu-empty {
-  margin: 0;
-  padding: 12px 8px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
-  text-align: center;
 }
 .branch-menu-rule {
   height: 1px;

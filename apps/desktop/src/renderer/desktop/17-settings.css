@@ -1071,13 +1071,6 @@ html[data-mixdog-mobile-tabs] .model-mgmt-dialog-body {
   border-radius: 50%;
   background: var(--mx-success);
 }
-.model-mgmt-empty {
-  display: grid;
-  justify-items: center;
-  gap: 8px;
-  padding: 40px 16px;
-  text-align: center;
-}
 .model-mgmt-empty b {
   font-size: 15px;
   font-weight: var(--mx-weight-semibold, 600);
@@ -1195,10 +1188,6 @@ html[data-mixdog-mobile-tabs] .model-mgmt-dialog-body {
    rows bring their padding, these controls need the inset spelled out. */
 .settings-group-body:has(> .auth-seg) {
   padding-block: 12px 4px;
-}
-.settings-group-body:has(> .auth-seg) > .settings-empty {
-  margin: 0;
-  padding: 10px 2px 8px;
 }
 .auth-seg {
   display: flex;

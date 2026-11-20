@@ -598,7 +598,7 @@ export function AgentProfilePane({
   }, [hasProfile, mixy, deleted, api, confirm, agentId, sessionId, profileName, profileDisabled, busy, reload]);
   usePublishDockPanelActions(leafId, active && shown, headerActions);
   if (!agentId) return null;
-  if (deleted) return <p className="utility-dock-empty">{t('This bot was deleted.')}</p>;
+  if (deleted) return <p className="utility-dock-empty mx-empty-state">{t('This bot was deleted.')}</p>;
   if (!profile) return error ? <ErrorNotice error={error} /> : <InitialSurface />;
   return (
     <div className="agent-profile">

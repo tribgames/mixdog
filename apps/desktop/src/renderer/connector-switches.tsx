@@ -175,7 +175,7 @@ export function ConnectorSwitchList({
     <div className="connector-switches" data-connector-switches={kind}>
       {error && <ErrorNotice error={error} />}
       {rows?.length === 0 && (
-        <p className="connector-switches-empty">
+        <p className="connector-switches-empty mx-empty-state">
           <span>{t('No connectors connected.')}</span>
           <button type="button" className="connector-switches-link" onClick={openConnectorsTab}>
             {t('Connect connectors')}

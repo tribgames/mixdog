@@ -339,18 +339,18 @@ export function PullRequestsPane({
                 />
               )}
               {categories === null && readError && (
-                <div className="dock-pr-empty" role="status">
+                <div className="dock-pr-empty mx-empty-state" role="status">
                   <b>{t('Pull requests are temporarily unavailable')}</b>
                   <span>{t('Refresh when the project is ready.')}</span>
                 </div>
               )}
               {categories === null && !readError && (
-                <p className="utility-dock-empty">
+                <p className="utility-dock-empty mx-empty-state">
                   <ProgressSpinner size={14} aria-hidden="true" /> {t('Loading pull requests…')}
                 </p>
               )}
               {pullRequestViews && visiblePullRequests.length === 0 && (
-                <div className="dock-pr-empty" role="status">
+                <div className="dock-pr-empty mx-empty-state" role="status">
                   <b>{emptyTitle}</b>
                   <span>{emptyMessage}</span>
                   {!filter && listView === 'open' && !onDefaultBranch && currentBranch && api?.ghPrCreate && (

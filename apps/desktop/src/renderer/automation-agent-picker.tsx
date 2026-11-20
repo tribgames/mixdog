@@ -191,7 +191,7 @@ export function RoutineSideGroups({
  *  bot-based, so the representative bot comes first. */
 export function RoutineNeedsBot() {
   return (
-    <div className="utility-dock-empty routine-needs-bot">
+    <div className="utility-dock-empty routine-needs-bot mx-empty-state">
       <p>{t('Create the representative bot first.')}</p>
       <button
         type="button"

@@ -724,7 +724,7 @@ export function SchedulesPane({
           </RoutineSideGroups>
         )}
         {!loading && !refreshError && !noBot && visible.length === 0 && (
-          <div className="utility-dock-empty">
+          <div className="utility-dock-empty mx-empty-state">
             <p>{t('No schedules.')}</p>
           </div>
         )}

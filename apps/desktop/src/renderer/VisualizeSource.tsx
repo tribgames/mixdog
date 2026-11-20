@@ -51,8 +51,8 @@ export function VisualizeSource({
     const timer = setTimeout(() => setCopied(false), 1500);
     return () => clearTimeout(timer);
   }, [copied]);
-  if (error) return <div className="visualize-empty">{error}</div>;
-  if (!loaded) return <div className="visualize-empty">{t('Loading…')}</div>;
+  if (error) return <div className="visualize-empty mx-empty-state">{error}</div>;
+  if (!loaded) return <div className="visualize-empty mx-empty-state">{t('Loading…')}</div>;
   const copy = () => {
     void navigator.clipboard?.writeText(text).then(
       () => setCopied(true),

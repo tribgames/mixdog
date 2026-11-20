@@ -513,5 +513,5 @@ export function Empty({ text }: { text: string }) {
 }
 
 export function ListEmpty({ text }: { text: string }) {
-  return <p className="settings-empty settings-empty-list">{text}</p>;
+  return <p className="settings-empty settings-empty-list mx-empty-state">{text}</p>;
 }

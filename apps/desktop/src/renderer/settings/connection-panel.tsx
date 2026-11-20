@@ -263,7 +263,7 @@ function ConnectedDevicesGroup({
           </button>
         )}
       </div>
-      {clients.length === 0 && <p className="conn-empty">{t('No connected devices.')}</p>}
+      {clients.length === 0 && <p className="conn-empty mx-empty-state">{t('No connected devices.')}</p>}
       {clients.length > 0 && (
         <div className="conn-list">
           {clients.map((client) => {

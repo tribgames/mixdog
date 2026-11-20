@@ -141,6 +141,15 @@ test('a touch tap opens a file pinned; a mouse click keeps the preview-then-doub
   assert.deepEqual(view.opened.at(-1), ['a.ts', 'preview']);
 });
 
+test('a double-click on an empty folder line creates a file, as on the blank tree', async (t) => {
+  const view = fixture(t, { listings: { '': [] } });
+  await view.render();
+  const empty = document.querySelector('.dock-files-tree > .mx-empty-state');
+  assert.equal(empty?.textContent, 'Empty folder.');
+  await act(async () => empty.dispatchEvent(new window.MouseEvent('dblclick', { bubbles: true })));
+  assert.ok(document.querySelector('.dock-files-tree .explorer-edit-box input'), 'the new-file row opens');
+});
+
 test('a refresh re-lists the root and every expanded folder once and keeps rows a failed listing could not replace', async (t) => {
   const listings = {
     '': [

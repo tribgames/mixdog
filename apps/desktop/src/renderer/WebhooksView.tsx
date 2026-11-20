@@ -763,7 +763,7 @@ export function WebhooksPane({
           </RoutineSideGroups>
         )}
         {!loading && !noBot && visible.length === 0 && (
-          <div className="utility-dock-empty">
+          <div className="utility-dock-empty mx-empty-state">
             <p>{t('No webhooks.')}</p>
           </div>
         )}

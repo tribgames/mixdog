@@ -182,8 +182,6 @@
   box-shadow: inset 2px 0 0 var(--mx-accent, currentColor);
 }
 .editor-outline-empty {
-  margin: 0;
-  padding: 4px 12px;
   color: var(--mx-text-muted);
 }
 /* Slim notice when Rich cannot open the document and Preview shows instead. */
@@ -342,12 +340,6 @@
   padding: 2px;
 }
 .editor-breadcrumb-picker-tree > p {
-  min-height: 44px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 5px;
-  margin: 0;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
 }
@@ -790,11 +782,8 @@
 }
 .editor-call-hierarchy-preview > p,
 .editor-call-hierarchy-tree > p {
-  margin: 0;
-  padding: 18px 10px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
-  text-align: center;
 }
 .editor-call-hierarchy-sash {
   position: relative;
@@ -925,13 +914,6 @@
   opacity: 0;
 }
 .editor-pane-preview-loading {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
   color: var(--mx-text-muted);
   background: var(--mx-sheet-ink, var(--mx-workspace-sheet));
   font-size: var(--mx-font-code);
@@ -1033,12 +1015,6 @@
   height: auto;
 }
 .editor-pane-notice {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  gap: 10px;
-  height: 100%;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-code);
 }
@@ -1214,8 +1190,6 @@
   line-height: 1;
 }
 .workbench-quick-results > p {
-  margin: 0;
-  padding: 13px 10px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
 }

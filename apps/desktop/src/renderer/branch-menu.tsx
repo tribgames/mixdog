@@ -900,11 +900,11 @@ function BranchMenuContents({
         {rows.length === 0 &&
           !newName &&
           (loading ? (
-            <p className="branch-menu-empty" data-loading role="status">
+            <p className="branch-menu-empty mx-empty-state" data-loading role="status">
               {t('Loading branches…')}
             </p>
           ) : (
-            <p className="branch-menu-empty">{t('No matching branches.')}</p>
+            <p className="branch-menu-empty mx-empty-state">{t('No matching branches.')}</p>
           ))}
       </div>
     </>

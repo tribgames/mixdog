@@ -729,11 +729,13 @@ export function ProviderAccountsList({
         </header>
       )}
       {!pool && !error && (
-        <div className="provider-accounts-notice" role="status">
+        <div className="provider-accounts-notice mx-empty-state" role="status">
           {t('Loading…')}
         </div>
       )}
-      {pool && !pool.accounts.length && <div className="provider-accounts-notice">{t('No connected accounts.')}</div>}
+      {pool && !pool.accounts.length && (
+        <div className="provider-accounts-notice mx-empty-state">{t('No connected accounts.')}</div>
+      )}
       <ol className="provider-accounts-list" ref={listRef}>
         {pool?.accounts.map((account, index) => {
           const selected = pool.selectedId === account.id;

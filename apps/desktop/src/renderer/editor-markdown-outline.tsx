@@ -135,7 +135,7 @@ export function EditorOutline({ headings, activeId }: { headings: readonly Outli
   return (
     <nav className="editor-outline" aria-label={t('Table of contents')}>
       {headings.length === 0 ? (
-        <p className="editor-outline-empty">{t('No headings')}</p>
+        <p className="editor-outline-empty mx-empty-state">{t('No headings')}</p>
       ) : (
         <ul>
           {headings.map((heading, index) => (

@@ -632,7 +632,7 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
                     setEditError,
                     setMemoryBusy,
                   })}
-                {memoriesLoading && <p className="projects-memory-empty">{t('Loading…')}</p>}
+                {memoriesLoading && <p className="projects-memory-empty mx-empty-state">{t('Loading…')}</p>}
                 {!memoriesLoading && memoryCatalog && memoryScope && memories.length > 0 && (
                   <div className="core-memory-list">
                     {memories.map((entry) =>
@@ -658,10 +658,10 @@ export const ProjectEditorDialog = forwardRef<ProjectEditorDialogHandle, Project
                   </div>
                 )}
                 {!memoriesLoading && memoryCatalog && !memoryScope && (
-                  <p className="projects-memory-empty">{t('Memory is temporarily unavailable.')}</p>
+                  <p className="projects-memory-empty mx-empty-state">{t('Memory is temporarily unavailable.')}</p>
                 )}
                 {!memoriesLoading && memoryScope && memories.length === 0 && (
-                  <p className="projects-memory-empty">{t('No memories yet.')}</p>
+                  <p className="projects-memory-empty mx-empty-state">{t('No memories yet.')}</p>
                 )}
               </div>
             </div>

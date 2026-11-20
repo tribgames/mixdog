@@ -475,7 +475,7 @@ export function UsageStatsBody({
             <tbody>
               <tr>
                 <td className="usage-empty" colSpan={10}>
-                  {t('No usage recorded yet.')}
+                  <div className="mx-empty-state">{t('No usage recorded yet.')}</div>
                 </td>
               </tr>
             </tbody>

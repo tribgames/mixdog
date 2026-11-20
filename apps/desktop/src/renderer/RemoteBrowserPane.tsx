@@ -1321,7 +1321,7 @@ function RemoteBrowserContent({
         }}
       />
       {(covered || (!imageUrl && !showsVideo)) && (
-        <div className="browser-remote-empty">
+        <div className="browser-remote-empty mx-empty-state mx-empty-state-cover">
           {failure ? (
             <ErrorNotice error={failure} title={t('Could not connect to browser screen')} role="status" />
           ) : (

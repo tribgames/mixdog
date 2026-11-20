@@ -552,11 +552,7 @@
   flex: none;
 }
 .settings-empty-list {
-  box-sizing: border-box;
   min-height: 56px;
-  display: flex;
-  align-items: center;
-  padding: 12px 0;
 }
 
 /* Compact settings replaces the window — a SCREEN, not a popup — so the
@@ -1663,11 +1659,7 @@ html[data-mixdog-mobile-tabs] .conn-qr-row {
 /* Cold-open placeholders: they occupy the space the loaded page will, so the
    data landing never pushes anything that is already on screen. */
 .settings-panel-placeholder {
-  box-sizing: border-box;
   min-height: 320px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   color: var(--mx-text-faint, var(--mx-text-muted));
   font-size: var(--mx-font-supporting, 12px);
 }

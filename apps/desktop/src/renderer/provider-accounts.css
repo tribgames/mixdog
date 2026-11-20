@@ -522,7 +522,6 @@
   text-overflow: ellipsis;
   white-space: nowrap;
 }
-.provider-accounts-notice,
 .provider-accounts-error {
   padding: 0 0 12px 32px;
 }
@@ -607,7 +606,6 @@
 .provider-accounts.is-list-only .provider-account-grip:hover:not(:disabled) {
   background: transparent;
 }
-.provider-accounts.is-list-only .provider-accounts-notice,
 .provider-accounts.is-list-only .provider-accounts-error {
   padding: 8px 10px;
 }

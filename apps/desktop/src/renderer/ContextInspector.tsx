@@ -263,7 +263,7 @@ export function ContextInspector({
   let detail: ReactNode;
   if (!selected) {
     detail = (
-      <div className="context-detail-empty">
+      <div className="context-detail-empty mx-empty-state">
         <p>{t('Select a category to list its entries here.')}</p>
       </div>
     );
@@ -376,7 +376,7 @@ export function ContextInspector({
                 </div>
               );
             })}
-          {!entries.length && <p>{t('No entries.')}</p>}
+          {!entries.length && <p className="mx-empty-state">{t('No entries.')}</p>}
         </div>
       </section>
     );

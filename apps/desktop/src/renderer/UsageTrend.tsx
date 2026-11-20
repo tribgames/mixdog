@@ -215,7 +215,7 @@ export function UsageTrend({
           )}
         </div>
       )}
-      {!loading && !(peak > 0) && <p className="stats-trend-empty">{trendEmptyText(metric, series)}</p>}
+      {!loading && !(peak > 0) && <p className="stats-trend-empty mx-empty-state">{trendEmptyText(metric, series)}</p>}
       <footer data-single={axisStart === axisEnd ? 'true' : undefined}>
         <span>{axisStart}</span>
         {axisStart !== axisEnd && <span>{axisEnd}</span>}

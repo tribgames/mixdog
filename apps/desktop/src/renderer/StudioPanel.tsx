@@ -240,7 +240,7 @@ export function StudioPanel({
             )}
             {shownBoards.map(boardRow)}
             {loaded && !creating && shownBoards.length === 0 && (
-              <p className="sidebar-section-empty studio-board-empty">
+              <p className="sidebar-section-empty studio-board-empty mx-empty-state">
                 {needle ? t('No results') : t('No boards yet.')}
               </p>
             )}

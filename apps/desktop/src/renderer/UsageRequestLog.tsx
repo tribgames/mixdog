@@ -338,7 +338,7 @@ export function UsageRequestLog({ api }: { api: QuotaApi }) {
             {!loading && !requests.length && (
               <tr>
                 <td className="usage-empty" colSpan={COLUMNS.length}>
-                  {t('No requests recorded in this period.')}
+                  <div className="mx-empty-state">{t('No requests recorded in this period.')}</div>
                 </td>
               </tr>
             )}

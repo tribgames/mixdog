@@ -23,7 +23,7 @@ export function BrowserPageOverlays({
         committed the pane stays in the app theme instead. */}
       {!painted && !pageFailure && <BrowserLoadingPlaceholder url={currentUrl || initialUrl || ''} />}
       {painted && !currentUrl && (
-        <div className="browser-pane-empty" aria-hidden="true">
+        <div className="browser-pane-empty mx-empty-state mx-empty-state-cover" aria-hidden="true">
           <span>{t('Search or enter address')}</span>
         </div>
       )}

@@ -11,6 +11,8 @@
   border-radius: var(--mx-radius-lg);
   background: var(--mx-bg-base);
   box-shadow: var(--mx-card-outline);
+  /* Its visible width is what an empty table's line centres in. */
+  container-type: inline-size;
 }
 .usage-table {
   width: 100%;
@@ -84,10 +86,21 @@
 .usage-plan[data-plan="api"] {
   background: var(--mx-hover);
 }
+/* An empty table stays a table: its one body row takes the card's height
+   under the header (the extra height goes to the body, not the header), and
+   the line rides the card's visible width, so a table wider than the card
+   (the request log's 908px) still shows it centred in view. */
+.usage-table:has(> tbody > tr > .usage-empty) {
+  height: 100%;
+}
 .usage-empty {
-  padding: 28px 12px !important;
+  padding: 12px 0 !important;
   color: var(--mx-text-muted);
-  text-align: center;
+}
+.usage-empty > .mx-empty-state {
+  position: sticky;
+  left: 0;
+  width: 100cqi;
 }
 /* First-open skeleton: same table geometry as loaded rows, so the modal never
    collapses into a "Loading…" strip and barely reflows when data lands. */
@@ -785,11 +798,7 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
 /* Same footprint as the bars, so switching between an empty and a busy
    period does not move the table below. */
 .stats-trend-empty {
-  display: flex;
-  align-items: center;
-  justify-content: center;
   height: 72px;
-  margin: 0;
   border: var(--mx-hairline) dashed var(--mx-border);
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-faint);
@@ -1218,16 +1227,11 @@ html[data-mixdog-mobile-tabs] .stats-trend-detail-heading button {
   cursor: default;
 }
 .quota-empty {
-  display: grid;
-  gap: 4px;
-  margin: 0;
-  padding: 28px 12px;
   border: var(--mx-hairline) dashed var(--mx-border);
   border-radius: var(--mx-radius-md);
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);
-  text-align: center;
 }
 .quota-empty b {
   color: var(--mx-text);

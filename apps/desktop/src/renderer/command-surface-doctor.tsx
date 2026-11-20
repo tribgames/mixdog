@@ -126,7 +126,7 @@ export function DoctorBody({
 
   return (
     <div className="doctor-surface">
-      {!report && <p className="doctor-surface-note">{t('No data available.')}</p>}
+      {!report && <p className="doctor-surface-note mx-empty-state">{t('No data available.')}</p>}
       {report?.busy && (
         <p className="doctor-surface-note" role="status">
           {t('Another command is running. Try again when it finishes.')}

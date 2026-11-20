@@ -75,6 +75,14 @@ function explorerOpenMode(pointerType: string | undefined): 'preview' | 'pinned'
   return pointerType === 'touch' ? 'pinned' : 'preview';
 }
 
+/** An event on the tree's blank area: the tree itself, or its empty-folder
+ *  line, which fills the tree and stands in for that area. */
+function onTreeBackground(event: { target: EventTarget; currentTarget: EventTarget }): boolean {
+  if (event.target === event.currentTarget) return true;
+  const target = event.target as Element;
+  return target.parentElement === event.currentTarget && target.classList.contains('mx-empty-state');
+}
+
 /** Right-click command surface. The row menu and the background menu are one
  *  portal over a single command set, so the whole surface lives beside the
  *  pane instead of inside it; the pane only owns where it is anchored. */
@@ -561,7 +569,8 @@ export const FilesRootPane = memo(function FilesRootPane({
   useEffect(() => {
     onControls?.({ ...controlsHandle.current, refreshing, canCollapseAll });
   }, [onControls, refreshing, canCollapseAll]);
-  if (!projectPath) return <p className="utility-dock-empty">{t('Open a project to browse its files.')}</p>;
+  if (!projectPath)
+    return <p className="utility-dock-empty mx-empty-state">{t('Open a project to browse its files.')}</p>;
   const openFile = (rel: string, mode: 'preview' | 'pinned' = 'preview') =>
     onOpenFile ? onOpenFile(projectPath, rel, mode) : void openEditorFileExternally(projectPath, rel);
   const absOf = (rel: string) => explorerAbsolutePath(projectPath, rel);
@@ -1040,7 +1049,7 @@ export const FilesRootPane = memo(function FilesRootPane({
           tabIndex={-1}
           onKeyDown={onTreeKeyDown}
           onDoubleClick={(event) => {
-            if (event.target === event.currentTarget && !editingRef.current) beginCreate(false);
+            if (onTreeBackground(event) && !editingRef.current) beginCreate(false);
           }}
           onContextMenu={(event) => {
             // Background right-click (New File / New Folder / Paste on
@@ -1063,12 +1072,12 @@ export const FilesRootPane = memo(function FilesRootPane({
             void performDrop('', event.ctrlKey || event.altKey);
           }}
           onDragLeave={(event) => {
-            if (event.currentTarget === event.target) setDropTarget(null);
+            if (onTreeBackground(event)) setDropTarget(null);
           }}
         >
           {rootVisible && treeItems}
           {rootVisible && rows.length === 0 && !editing && rootEntriesEmpty && (
-            <p className="utility-dock-empty">{t('Empty folder.')}</p>
+            <p className="utility-dock-empty mx-empty-state">{t('Empty folder.')}</p>
           )}
           {mutationError && <ErrorNotice error={mutationError} />}
         </div>

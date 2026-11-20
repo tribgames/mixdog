@@ -273,7 +273,7 @@ function QuotaTable({
           <tbody>
             <tr>
               <td className="usage-empty" colSpan={10}>
-                {t('No usage in this period.')}
+                <div className="mx-empty-state">{t('No usage in this period.')}</div>
               </td>
             </tr>
           </tbody>
@@ -664,7 +664,7 @@ export function QuotaUsageBody({ api }: { api: QuotaApi }) {
         </p>
       )}
       {empty ? (
-        <p className="quota-empty">
+        <p className="quota-empty mx-empty-state">
           <b>{t('No OAuth usage recorded yet.')}</b>
           <span>{t('Recorded from now on whenever provider usage is checked.')}</span>
         </p>

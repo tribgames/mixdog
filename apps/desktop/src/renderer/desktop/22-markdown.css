@@ -367,9 +367,11 @@ html:is([data-window-material="mica"], [data-mixdog-skin]) .jump-to-latest {
   display: grid;
   padding: 0 20px;
 }
-.command-surface .settings-group-body > p {
+.command-surface .settings-group-body > p:not(.mx-empty-state) {
   margin: 0;
   padding: 20px 0;
+}
+.command-surface .settings-group-body > p {
   color: var(--mx-text-muted);
 }
 .command-surface .settings-group-body > label {

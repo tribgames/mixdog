@@ -178,7 +178,7 @@ export function ContextBody({
     breakdown = (
       <section className="context-mix" aria-labelledby="context-mix-title">
         <h3 id="context-mix-title">{t('Estimated usage by category')}</h3>
-        <p className="settings-loading" role="status">
+        <p className="settings-loading mx-empty-state" role="status">
           {t('Loading…')}
         </p>
       </section>

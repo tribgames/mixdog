@@ -789,10 +789,6 @@
 .command-surface[data-surface="context"] .context-usage-overview {
   flex: 0 0 auto;
 }
-/* The body inset is gone, so the loading line brings its own. */
-.command-surface[data-surface="context"] .settings-loading {
-  padding: 22px;
-}
 .command-surface .mixdog-settings__body {
   gap: 28px;
 }
@@ -1042,9 +1038,6 @@
   overflow-y: auto;
   scrollbar-gutter: auto;
 }
-.command-surface[data-surface="doctor"] .settings-loading {
-  padding: 20px;
-}
 .doctor-surface {
   min-width: 0;
   display: grid;
@@ -1061,9 +1054,11 @@
 .doctor-surface-counts > [data-level="fail"] {
   color: var(--mx-danger);
 }
-.doctor-surface-note {
+.doctor-surface-note:not(.mx-empty-state) {
   margin: 0;
   padding: 18px 20px;
+}
+.doctor-surface-note {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   line-height: var(--mx-line-meta);

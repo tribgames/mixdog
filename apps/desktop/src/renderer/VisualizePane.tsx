@@ -523,8 +523,8 @@ function RemotePaneContent({
       </div>
     );
   }
-  if (error) return <div className="visualize-empty">{error}</div>;
-  if (!source) return <div className="visualize-empty">{t('Loading…')}</div>;
+  if (error) return <div className="visualize-empty mx-empty-state">{error}</div>;
+  if (!source) return <div className="visualize-empty mx-empty-state">{t('Loading…')}</div>;
   if (srcdoc !== undefined) {
     // Scripts run in an opaque origin: no access to this app, its storage or
     // its relay socket, and no outside network unless the tab allowed it (the
@@ -598,8 +598,8 @@ function DeferredInlinePane(props: VisualizePaneContentInput) {
     revision: props.shown.revision,
     index: props.index,
   });
-  if (error) return <div className="visualize-empty">{error}</div>;
-  if (!pane) return <div className="visualize-empty">{t('Loading…')}</div>;
+  if (error) return <div className="visualize-empty mx-empty-state">{error}</div>;
+  if (!pane) return <div className="visualize-empty mx-empty-state">{t('Loading…')}</div>;
   return <>{visualizePaneContent({ ...props, pane }).content}</>;
 }
 
@@ -627,7 +627,7 @@ function visualizePaneContent({
     // revision) as soon as the file is back.
     return {
       content: (
-        <div className="visualize-empty" role="status">
+        <div className="visualize-empty mx-empty-state" role="status">
           {t('This file was removed. The tab reloads when it is back.')}
         </div>
       ),
@@ -1406,7 +1406,7 @@ export function VisualizePane({ sessionId, active, onClose }: { sessionId: strin
           showSolo={showSolo}
         />
       ) : (
-        <div className="visualize-empty">{t('Results the agent shows will appear here.')}</div>
+        <div className="visualize-empty mx-empty-state">{t('Results the agent shows will appear here.')}</div>
       )}
       {((zoomable && zoomBarVisible) || paneCount > 1) && (
         <VisualizeZoomPill tab={tab} solo={solo} zoom={zoom} setZoom={setZoom} showSolo={showSolo} />

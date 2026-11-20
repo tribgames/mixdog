@@ -279,12 +279,6 @@ html[data-mixdog-mobile-tabs] .visualize-pane:has(> .browser-zoom-pill) > .visua
   justify-content: center;
   transform-origin: 0 0;
 }
-/* A remote pane's loading / error note is the same element the page box later
-   reuses (React keeps the div), so it fills the layer from the first frame
-   instead of sitting centred at its own height and then growing. */
-.visualize-zoom-layer > .visualize-empty {
-  align-self: stretch;
-}
 /* A pane frame and, while a reload loads, the hidden frame over it that
    replaces it once loaded (BufferedFrame): same box, so the page lays out as
    it will be shown. */
@@ -332,12 +326,6 @@ html[data-mixdog-mobile-tabs] .visualize-pane:has(> .browser-zoom-pill) > .visua
   width: calc(100% - 24px);
 }
 .visualize-empty {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 24px;
-  text-align: center;
   color: var(--mx-text-muted);
   font-size: 12px;
 }
@@ -730,7 +718,6 @@ html[data-mixdog-mobile-tabs] .visualize-pane:has(> .browser-zoom-pill) > .visua
   font-size: 11px;
 }
 .visualize-elements-empty {
-  margin: 4px 0;
   color: var(--mx-text-muted);
 }
 .visualize-elements-row {

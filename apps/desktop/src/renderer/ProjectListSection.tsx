@@ -181,7 +181,7 @@ export function ProjectListSection({
       )}
       <ScmContextMenu state={contextMenu} onClose={closeContextMenu} />
       {(projectsReady || projects.length > 0) && visible.length === 0 && (
-        <div className="utility-dock-empty">
+        <div className="utility-dock-empty mx-empty-state">
           <p>{t('No projects.')}</p>
         </div>
       )}

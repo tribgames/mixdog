@@ -136,7 +136,7 @@ export function BrowserPagePrompts({
                     ))}
                   </fieldset>
                 ) : (
-                  <p className="browser-device-empty">
+                  <p className="browser-device-empty mx-empty-state">
                     {t('No devices to connect. Connect a device to this PC and it appears here.')}
                   </p>
                 )}

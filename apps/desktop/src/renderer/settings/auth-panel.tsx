@@ -244,15 +244,17 @@ export function AuthPanel({ api = window.mixdogDesktop, active = true }: { api?:
           </>
         )}
         {logins === null ? (
-          <p className="settings-empty">{t('Loading…')}</p>
+          <p className="settings-empty mx-empty-state">{t('Loading…')}</p>
         ) : noLogins ? (
-          <p className="settings-empty">
+          <p className="settings-empty mx-empty-state">
             {t(
               'No logins yet. Chrome logins can be imported so the agent can sign in with them (one administrator approval).'
             )}
           </p>
         ) : shown.length === 0 ? (
-          <p className="settings-empty">{query.trim() ? t('No results found.') : t('No saved logins yet.')}</p>
+          <p className="settings-empty mx-empty-state">
+            {query.trim() ? t('No results found.') : t('No saved logins yet.')}
+          </p>
         ) : (
           <ul className="auth-list">
             {shown.slice(0, visible).map((row) => (

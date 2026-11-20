@@ -174,7 +174,7 @@ export function ModelManagementPanel({ api, data, snapshot, run }: PanelContext)
   const open = found ?? (openId && openSnapshot.current?.id === openId ? openSnapshot.current : null);
   if (!ready && !open) {
     return (
-      <div className="settings-panel-placeholder" role="status" aria-busy="true">
+      <div className="settings-panel-placeholder mx-empty-state" role="status" aria-busy="true">
         <span>{t('Loading providers…')}</span>
       </div>
     );
@@ -405,7 +405,7 @@ export function ModelManagementCard({
           {rows.length === 0 ? (
             // A failed list is explained by the notice above; "No matching models" would hide it.
             !failedEmpty && (
-              <div className="model-mgmt-empty">
+              <div className="model-mgmt-empty mx-empty-state">
                 <b>{needle ? t('No models match “{{query}}”', { query: query.trim() }) : t('No matching models.')}</b>
                 {needle && <ActionButton onClick={() => setQuery('')}>{t('Clear search')}</ActionButton>}
               </div>

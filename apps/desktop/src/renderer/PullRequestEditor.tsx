@@ -258,7 +258,7 @@ export function PullRequestEditor({
       <div className="workspace-pr-editor-scroll">
         {detailError && <ErrorNotice error={detailError} onRetry={() => setRefresh((value) => value + 1)} />}
         {!detail && !detailError && (
-          <p className="utility-dock-empty">
+          <p className="utility-dock-empty mx-empty-state">
             <ProgressSpinner size={14} aria-hidden="true" /> {t('Loading pull request…')}
           </p>
         )}
@@ -314,7 +314,7 @@ export function PullRequestEditor({
                       ))}
                     </div>
                   ) : (
-                    <div className="dock-pr-empty-row">{t('No conversation yet.')}</div>
+                    <div className="dock-pr-empty-row mx-empty-state">{t('No conversation yet.')}</div>
                   )}
                 </section>
                 {detail.state === 'OPEN' && (
@@ -388,7 +388,7 @@ export function PullRequestEditor({
                       ))}
                     </div>
                   ) : (
-                    <div className="dock-pr-empty-row">{t('No reviewers requested.')}</div>
+                    <div className="dock-pr-empty-row mx-empty-state">{t('No reviewers requested.')}</div>
                   )}
                   {detail.reviewDecision && (
                     <p className="dock-pr-review-decision" data-checks={reviewDecisionTone(detail.reviewDecision)}>
@@ -437,13 +437,19 @@ export function PullRequestEditor({
                         </button>
                         {open && (
                           <div className="dock-scm-commit-diff">
-                            {patch ? <GitFileDiff patch={patch} mode="unified" /> : <p>{t('No textual diff.')}</p>}
+                            {patch ? (
+                              <GitFileDiff patch={patch} mode="unified" />
+                            ) : (
+                              <p className="mx-empty-state">{t('No textual diff.')}</p>
+                            )}
                           </div>
                         )}
                       </section>
                     );
                   })}
-                  {detail.files.length === 0 && <div className="dock-pr-empty-row">{t('0 changed files')}</div>}
+                  {detail.files.length === 0 && (
+                    <div className="dock-pr-empty-row mx-empty-state">{t('0 changed files')}</div>
+                  )}
                 </section>
               </div>
             )}

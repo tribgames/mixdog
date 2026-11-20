@@ -474,7 +474,8 @@ export function recentSection({
           {!sessionsReady && rowCount === 0 ? (
             <InitialSurface />
           ) : (
-            sessionsReady && rowCount === 0 && <p className="sidebar-section-empty">{t('No sessions.')}</p>
+            sessionsReady &&
+            rowCount === 0 && <p className="sidebar-section-empty mx-empty-state">{t('No sessions.')}</p>
           )}
           {renderRows(allRows, visibleRows.length, hasMoreRows ? sentinelRef : undefined)}
         </nav>
@@ -714,7 +715,7 @@ function projectFolderGroup(
           className={`session-list project-session-list${branches.length > 0 ? ' project-session-list-split' : ''}`}
           aria-label={group.name}
         >
-          {group.rows.length === 0 && <p className="sidebar-section-empty">{t('No sessions.')}</p>}
+          {group.rows.length === 0 && <p className="sidebar-section-empty mx-empty-state">{t('No sessions.')}</p>}
           {branches.length === 0 && renderRows(group.rows, limit, group.key)}
           {branches.map((branch) => {
             const branchKey = projectBranchKey(group.key, branch.name);
