@@ -19,7 +19,6 @@ for (const name of Object.keys(FIXTURES)) {
     const { manifest, recordings } = verifiedFixture(name);
     assert.equal(recordings.length, manifest.count);
     assert.ok(manifest.count >= 1);
-    if (FIXTURES[name].node) assert.match(manifest.commit, /^[0-9a-f]{40}$/);
   });
 }
 
@@ -30,7 +29,7 @@ test('a fixture copy with an extra, a missing or a changed file, or of a changed
     changed: (dir) => writeFileSync(join(dir, '01.json'), `${readFileSync(join(dir, '01.json'), 'utf8')} `),
     recorder: (dir) => {
       const manifest = JSON.parse(readFileSync(join(dir, 'MANIFEST.json'), 'utf8'));
-      manifest.recorder[FIXTURES.roster.recorder[0]] = '0'.repeat(64);
+      manifest.recorder[FIXTURES.refusals.recorder[0]] = '0'.repeat(64);
       writeFileSync(join(dir, 'MANIFEST.json'), JSON.stringify(manifest));
     },
   };
@@ -43,9 +42,9 @@ test('a fixture copy with an extra, a missing or a changed file, or of a changed
   for (const [kind, change] of Object.entries(cases)) {
     const dir = mkdtempSync(join(tmpdir(), 'chat-fixture-'));
     try {
-      cpSync(new URL(FIXTURES.roster.dir, import.meta.url), dir, { recursive: true });
+      cpSync(new URL(FIXTURES.refusals.dir, import.meta.url), dir, { recursive: true });
       change(dir);
-      assert.throws(() => verifiedFixture('roster', pathToFileURL(`${dir}/`)), messages[kind], kind);
+      assert.throws(() => verifiedFixture('refusals', pathToFileURL(`${dir}/`)), messages[kind], kind);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }

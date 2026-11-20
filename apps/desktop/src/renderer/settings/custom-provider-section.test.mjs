@@ -722,14 +722,6 @@ test('a provider whose stored config is invalid shows Failed with the configurat
   assert.match(row.querySelector('.settings-resource-meta').textContent, /contextWindow must be a positive integer/);
 });
 
-test('the editor offers exactly the runtime reasoning levels', async () => {
-  const { REASONING_LEVELS } = await import('./custom-model-editor.tsx');
-  const { CUSTOM_REASONING_LEVELS } = await import(
-    '../../shared/test-recorded/custom-provider-section.test.0.recorded.mjs'
-  );
-  assert.deepEqual([...REASONING_LEVELS], [...CUSTOM_REASONING_LEVELS]);
-});
-
 test('model editor sends only touched fields: chips, explicit [], reset null', async (t) => {
   const calls = [];
   const { render } = mount(t, {

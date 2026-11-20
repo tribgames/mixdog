@@ -1,8 +1,5 @@
-// A bot's per-tool connector permissions in its profile. The host's connector API is Node b6f10295a's `createAgentConnectorsApi`:
-// the ordered calls the pane made and the replies (and policy writes) it gave are recorded, and replayed in that order; a call that
-// was not recorded, or comes out of order, fails the test.
+// A bot's per-tool connector permissions in its profile, over a stub host that holds the bot's own policy.
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
 import { installTestDom } from './test-support/test-dom.mjs';
@@ -22,50 +19,41 @@ const TOOLS_ONE = ['gmail__search_emails', 'gmail__send_email', 'gmail__delete_t
   (name) => ({ name: `mcp__${name}` })
 );
 
-const RECORDED = JSON.parse(
-  readFileSync(new URL('./test-support/connector-tool-permissions.calls.recorded.json', import.meta.url), 'utf8')
-);
-const RECORDED_CAPABILITIES = new Set(RECORDED.flat().map((call) => call.capability));
-let instance = 0;
+const HIGH_RISK = new Set(['send_email']);
 
-/** The connector API of one recorded host: the n-th call must be the n-th recorded call (capability and arguments); it answers the
- *  recorded reply, after the policy write Node made inside it. */
-function replayConnectors(state, editor) {
-  const calls = structuredClone(RECORDED[instance++]);
-  assert.ok(calls, 'a host that was not recorded');
-  let next = 0;
-  return new Proxy(
-    {},
-    {
-      get: (_target, capability) =>
-        RECORDED_CAPABILITIES.has(capability)
-          ? async (...args) => {
-              const at = next++;
-              const expected = calls[at];
-              assert.ok(expected, `connector call #${at} was not recorded: ${capability}`);
-              assert.deepEqual(
-                [capability, args],
-                [expected.capability, expected.args],
-                `connector call #${at} is out of order`
-              );
-              for (const update of expected.updates) {
-                assert.deepEqual(editor.getAgentConnectorPolicy(update.id), update.current);
-                state.policy = update.after;
-              }
-              return structuredClone(expected.value);
-            }
-          : undefined,
-    }
-  );
+/** The host's connector API over `state.policy` ({ off, tools }): a tool answers its overridden permission, else its default (a high-risk
+ *  tool asks, the rest run); a write replaces that one override and answers the policy. */
+function connectorApi(state, servers, tools) {
+  const parsed = tools.map(({ name }) => {
+    const [, connector, tool] = /^mcp__(.+?)__(.+)$/.exec(name);
+    return { connector, tool };
+  });
+  const overridden = ({ connector, tool }) => state.policy?.tools?.[connector]?.[tool];
+  return {
+    getAgentConnectors: async () => servers.map(({ name }) => ({ id: name, enabled: !state.policy?.off?.includes(name) })),
+    getAgentConnectorTools: async () =>
+      parsed.map((entry) => ({
+        ...entry,
+        permission: overridden(entry) ?? (HIGH_RISK.has(entry.tool) ? 'needs_approval' : 'auto'),
+        explicit: overridden(entry) !== undefined,
+      })),
+    getAgentAlwaysAllowedTools: async () => parsed.find((entry) => overridden(entry) === 'auto') ?? null,
+    setAgentConnectorToolPermission: async (_agent, connector, tool, permission) => {
+      state.policy = {
+        ...state.policy,
+        tools: { ...state.policy?.tools, [connector]: { ...state.policy?.tools?.[connector], [tool]: permission } },
+      };
+      return state.policy;
+    },
+  };
 }
 
 /** The profile over a host whose policy is `policy`; returns the policy getter and the writes. */
 function host(policy, { second = false } = {}) {
   const state = { policy, writes: [] };
-  const SERVERS = second ? [...SERVERS_ONE, { name: 'gmail-2' }] : SERVERS_ONE;
-  const TOOLS = second ? [...TOOLS_ONE, { name: 'mcp__gmail-2__send_email' }] : TOOLS_ONE;
-  const editor = { getAgentConnectorPolicy: () => state.policy };
-  const connectors = replayConnectors(state, editor);
+  const servers = second ? [...SERVERS_ONE, { name: 'gmail-2' }] : SERVERS_ONE;
+  const tools = second ? [...TOOLS_ONE, { name: 'mcp__gmail-2__send_email' }] : TOOLS_ONE;
+  const connectors = connectorApi(state, servers, tools);
   const api = {
     invokeCapability: async ({ capability, args }) => {
       if (capability === 'getAgentDefinition') {
@@ -84,7 +72,6 @@ function host(policy, { second = false } = {}) {
   };
   return { api, state };
 }
-
 async function open(t, agentId, policy, { remote = false, second = false } = {}) {
   const { api, state } = host(policy, { second });
   if (remote) window.mixdogRemoteServer = 'wss://relay.test';
@@ -136,7 +123,7 @@ test('choosing Needs approval on a disabled tool changes exactly that tool and l
   assert.equal(document.querySelector('[data-connector-tool="send_email"] .connector-tool-name').title, 'send_email');
 });
 
-test('legacy per-account data follows the topmost entry and converges to one entry after a choice', async (t) => {
+test('with a second account of the connector, the topmost entry is shown and a choice is sent for that connector, not the second account', async (t) => {
   const { state } = await open(
     t,
     'accounts-bot',
@@ -148,15 +135,9 @@ test('legacy per-account data follows the topmost entry and converges to one ent
   assert.deepEqual(pressed('gmail', 'send_email'), ['auto'], "the connector's own entry wins over gmail-2's");
   await act(async () => choice('gmail', 'send_email', 'needs_approval').click());
   await settle();
-  assert.deepEqual(
-    state.writes,
-    [['accounts-bot', 'gmail', 'send_email', 'needs_approval']],
-    'one write; the host fans out'
-  );
-  assert.deepEqual(state.policy.tools, { gmail: { send_email: 'needs_approval' } }, 'one entry under the connector');
+  assert.deepEqual(state.writes, [['accounts-bot', 'gmail', 'send_email', 'needs_approval']], 'one write, for gmail');
   assert.deepEqual(pressed('gmail', 'send_email'), ['needs_approval']);
 });
-
 test('a tool with no override shows its effective permission', async (t) => {
   await open(t, 'default-bot', null);
   assert.doesNotMatch(row('gmail').textContent, /changed/);

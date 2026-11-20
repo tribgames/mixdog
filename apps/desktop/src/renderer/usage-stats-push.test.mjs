@@ -15,58 +15,19 @@ import {
   refreshStatsDataCache,
   subscribeStatsDataCache,
 } from './command-surface-cache.ts';
-import { resolveUsageStatsPeriod, USAGE_STATS_FIXTURE_NOW } from './test-support/usage-stats-period.recorded.mjs';
+import { usageSnapshot } from './test-support/usage-stats-fixture.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
 
 function snapshot(tokens) {
-  const now = USAGE_STATS_FIXTURE_NOW;
-  const period = resolveUsageStatsPeriod({ view: 'hour', now });
-  const route = {
-    turns: 1,
-    sessions: 1,
-    input: tokens - 200,
-    output: 200,
-    tokens,
-    cacheRead: 500,
-    cacheWrite: 800,
-    cacheTokens: 1300,
-    costUsd: 2,
-    costCoverage: 1,
-    share: 1,
-    models: [],
-  };
-  return {
-    generatedAt: now,
-    period,
-    range: { days: period.days, firstDay: period.startDay || '2025-01-01' },
-    totals: { ...route, sessions: 1 },
-    providers: [
-      {
-        ...route,
-        provider: 'openai',
-        providerKind: 'api',
-        models: (tokens === 1200
-          ? [{ fast: true }]
-          : [{ speedTier: 'standard' }, { speedTier: 'fast' }, { speedTier: 'ultrafast', fast: true }]
-        ).map((tier) => ({ model: 'model-a', ...tier })),
-      },
-    ],
-    daily: [{ day: period.startDay, tokens, turns: 1, costUsd: 2, costKnownTurns: 1, providers: [] }],
-    hourly: Array.from({ length: 24 }, (_, hour) => ({
-      key: String(hour).padStart(2, '0'),
-      label: `${String(hour).padStart(2, '0')}:00`,
-      tokens: hour === 9 ? tokens : 0,
-      turns: hour === 9 ? 1 : 0,
-      costUsd: hour === 9 ? 2 : 0,
-      costKnownTurns: hour === 9 ? 1 : 0,
-      providers: [],
-      future: hour > 12,
-    })),
-    coverage: {},
-  };
+  const stats = usageSnapshot('hour', tokens);
+  stats.providers[0].models = (
+    tokens === 1200
+      ? [{ fast: true }]
+      : [{ speedTier: 'standard' }, { speedTier: 'fast' }, { speedTier: 'ultrafast', fast: true }]
+  ).map((tier) => ({ model: 'model-a', ...tier }));
+  return stats;
 }
-
 test('a pushed usage/stats entry updates an open statistics dialog without a read', async (context) => {
   const { dom } = installTestDom(null, {
     html: '<!doctype html><html><body><main></main></body></html>',

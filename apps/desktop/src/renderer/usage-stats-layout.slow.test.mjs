@@ -3,7 +3,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { build } from 'esbuild';
 import puppeteer from 'puppeteer-core';
-import { resolveUsageStatsPeriod, USAGE_STATS_FIXTURE_NOW } from './test-support/usage-stats-period.recorded.mjs';
+import { usageSnapshot } from './test-support/usage-stats-fixture.mjs';
 
 // Vite gives every dynamic import its own chunk, so a surface only loads what
 // it opens. esbuild cannot code-split an `iife` bundle, so it inlines those
@@ -40,10 +40,7 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
 
           const root = createRoot(document.getElementById("root"));
           const period = ${JSON.stringify(
-            resolveUsageStatsPeriod({
-              view: 'hour',
-              now: USAGE_STATS_FIXTURE_NOW,
-            })
+            usageSnapshot('hour').period
           )};
           window.renderStats = (state) => {
             const empty = state === "empty";

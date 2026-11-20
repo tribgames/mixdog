@@ -11,8 +11,6 @@ import { turnReviewScope } from './renderer-logic.mjs';
 import { preloadMarkdownBody } from './markdown-body-loader';
 import { parseStreamingMarkdownAst } from './markdown-worker-client';
 import { useTranscriptRows } from './use-conversation-rows';
-import { roomRowMessage } from '../shared/test-recorded/transcript-layout-stability.test.0.recorded.mjs';
-import { restoreTranscriptItems } from '../shared/test-recorded/transcript-layout-stability.test.1.recorded.mjs';
 
 function mount(t) {
   const { dom, root } = installTestDom(t, {
@@ -473,26 +471,13 @@ test('a tweaks line in a user message is drawn with an icon, not the emoji', asy
 test("a group room's restored user row shows its files as a prompt row does", async (t) => {
   const { root, document } = mount(t);
   const image = 'a'.repeat(64);
-  const pdf = 'b'.repeat(64);
-  // What the room log stores for a message with an image and a PDF, restored.
-  const message = roomRowMessage({
-    id: 'sub-room',
+  const item = {
     kind: 'user',
-    at: 5,
-    text: '[Image #1] check [PDF #2: spec.pdf]',
-    to: ['gh'],
-    toName: ['GitHub'],
-    parts: [
-      { type: 'image', attachmentRef: image, mimeType: 'image/png', sizeBytes: 3 },
-      { type: 'file', attachmentRef: pdf, mimeType: 'application/pdf', filename: 'spec.pdf', sizeBytes: 9 },
-    ],
-    attachments: [
-      { id: image, kind: 'image', name: 'shot.png', mimeType: 'image/png', size: 3 },
-      { id: pdf, kind: 'file', name: 'spec.pdf', mimeType: 'application/pdf', size: 9 },
-    ],
+    id: 'sub-room',
+    text: '[Image #1: shot.png] check [PDF #2: spec.pdf]',
+    room: { kind: 'user' },
     images: [{ id: 1, name: 'shot.png', mimeType: 'image/png', bytes: 3, attachmentRef: image }],
-  });
-  const [item] = restoreTranscriptItems([message], { sessionId: 'sess_room_abc123' });
+  };
   await act(async () => root.render(React.createElement(TranscriptRow, { item })));
   assert.equal(document.querySelector('.message-body > p').textContent, 'check');
   const cards = [...document.querySelectorAll('.message-attachments > .attachment-card')];
@@ -500,7 +485,6 @@ test("a group room's restored user row shows its files as a prompt row does", as
   assert.equal(cards[0].textContent, 'shot.png');
   assert.match(cards[1].textContent, /spec\.pdf/);
 });
-
 test('inline image markers preserve user text and attachment chips', async (t) => {
   const { root, document } = mount(t);
   const item = {

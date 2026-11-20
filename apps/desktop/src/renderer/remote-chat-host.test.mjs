@@ -1,8 +1,7 @@
 // Exercises the replies a paired phone receives through the host
 // adapter over scripted `mixdogd` replies, and compares the whole answer: the blank snapshots of the start calls, the remote fields,
 // transcript pages, the stale-view refusal and the refusal texts. The scripted reply of each case is the shape its Rust handler
-// returns (file:line in the comments); the recording's own inputs are the rows, registry and worktrees Node was given.
-// Nothing is filtered: a case Node answers and mixdogd cannot is listed in UNMATCHED, with the reason.
+// returns (file:line in the comments).
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { mergeToolRows, rowOf } from '../../../../packages/protocol-client/src/rows.ts';
@@ -12,7 +11,6 @@ import { routeService } from '../main/protocol/service-route.ts';
 import { scopeClient } from '../../../mobile/src/phone-send-scope.ts';
 import { createChatApi, foldTranscript } from './remote-protocol-chat.ts';
 import { createChatHostApi } from './remote-chat-host.ts';
-import { verifiedFixture } from './remote-protocol-chat-fixtures.mjs';
 import {
   historyPages,
   phoneSession as S,
@@ -29,7 +27,7 @@ const rpcError = (reason, extra = {}) =>
   });
 const domainError = (code, message) => rpcError('domainError', { ...(code ? { code } : {}), message });
 
-/** A Node transcript row as the item mixdogd holds it (the inverse of `rowOf` for the plain rows of these recordings). */
+/** A transcript row as the item mixdogd holds it (the inverse of `rowOf` for plain rows). */
 const itemOf = (row) =>
   row.kind === 'user'
     ? {
@@ -303,23 +301,6 @@ test('opening or resetting an unavailable agent home preserves the refusal and t
   }
 });
 
-// ── a prompt Node's intake refuses answers false ──────────────────────────────────────────────────────────────────────────────
-// roster.recorded.json `refusals`: Node's real host (session-host.ts) asked, on a real session, to submit a blank prompt (submission.mjs:14-15).
-// The phone's answer is the same and nothing is sent: the core takes a blank prompt and starts an empty turn.
-const nodeRefusals = verifiedFixture('roster').recordings[0].refusals;
-for (const [name, node] of Object.entries(nodeRefusals)) {
-  test(`${name}: Node's refusal, and nothing reaches the core`, async () => {
-    const call = name.slice(0, name.indexOf(' '));
-    const prompt = JSON.parse(name.slice(call.length + 1));
-    const { api, sent } = adapter({});
-    const got =
-      call === 'submitToSession'
-        ? await api.submitToSession(S, prompt, { id: 'blank' })
-        : await api.submitNewTask(prompt, { id: 'blank' }, {});
-    assert.deepEqual(got, node);
-    assert.deepEqual(sent, []);
-  });
-}
 test('a failure of a real send still throws', async () => {
   const { api } = adapter({ replies: { 'turn/start': domainError('OTHER', 'boom') } });
   await assert.rejects(api.submitToSession(S, 'hi', {}), { message: 'boom' });

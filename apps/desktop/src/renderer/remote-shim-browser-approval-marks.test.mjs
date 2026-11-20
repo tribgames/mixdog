@@ -1,7 +1,7 @@
 // A paired device learns which sessions have a Browser Use approval waiting on the PC -- marks only -- and still has no way to see or answer
 // the approval. Node's version (b6f10295a) also replayed the marks' delivery over the encrypted socket: the baseline after a re-key and the
 // refusal of a cleartext frame. Both belong to the connection, which the phone no longer builds from frames; the cleartext/authenticated rule
-// is replayed by apps/mobile/src/phone-client.test.ts and the reconnect by remote-shim-lifecycle.slow.test.mjs. What the page keeps is the
+// is replayed by apps/mobile/src/phone-client.test.ts. What the page keeps is the
 // subscription: the current list at once, then each change until the listener leaves.
 import assert from 'node:assert/strict';
 import test from 'node:test';

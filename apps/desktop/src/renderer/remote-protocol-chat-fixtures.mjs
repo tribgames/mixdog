@@ -1,34 +1,15 @@
-// The phone chat's recorded fixtures, each a folder of N recordings with its MANIFEST.json: the count and order of the recordings
-// with each file's sha256, the recorder and the local modules it imports with theirs, and (for a recording of Node) the Node commit.
+// The phone chat's recorded fixtures, each a folder of N recordings of a running mixdogd with its MANIFEST.json: the count and order of
+// the recordings with each file's sha256, and the recorder and the local modules it imports with theirs.
 // Loading verifies all of it: a file missing, extra or changed, or a recorder file changed since the recordings were made, fails.
 //
 //   node --import ./scripts/test-env.mjs --import ./scripts/test-tsx.mjs src/renderer/remote-protocol-chat-fixtures.mjs <fixture> <recording.json>...
-// installs the recordings as the fixture's folder (history | roster | live | refusals).
+// installs the recordings as the fixture's folder (live | refusals).
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 
 /** Each fixture's folder and the files its recorder is made of (paths relative to this folder). */
 export const FIXTURES = {
-  // Node's state history at the store's publish, one recording per case, each recorded twice byte-identical before it was installed.
-  history: {
-    dir: 'remote-protocol-chat-history.node/',
-    recorder: [
-      'remote-protocol-chat-history.record.mjs',
-      'remote-protocol-chat-history-loader.mjs',
-      'remote-protocol-chat-vclock.mjs',
-      'remote-protocol-chat-node-export.mjs',
-      'remote-protocol-chat-abort-cases.mjs',
-      'remote-protocol-chat-abort-provider.mjs',
-      'remote-protocol-chat-abort-procs.mjs',
-    ],
-    node: true,
-  },
-  roster: {
-    dir: 'remote-protocol-chat-roster.node/',
-    recorder: ['remote-protocol-chat-roster.record.mjs'],
-    node: true,
-  },
   live: {
     dir: 'remote-protocol-chat-live.core/',
     recorder: [
@@ -39,7 +20,6 @@ export const FIXTURES = {
       'remote-protocol-chat-fixtures.mjs',
       'remote-protocol-chat-abort-procs.mjs',
     ],
-    node: false,
   },
   refusals: {
     dir: 'remote-protocol-chat-refusals.core/',
@@ -53,7 +33,6 @@ export const FIXTURES = {
       'remote-protocol-chat-fixtures.mjs',
       'remote-protocol-chat-abort-procs.mjs',
     ],
-    node: false,
   },
 };
 
@@ -155,12 +134,7 @@ export function verifiedFixture(name, dir = dirOf(name)) {
         `${file} changed since ${FIXTURES[name].dir} was recorded (sha256 ${now[file]}, manifest ${want}): record again`
       );
   }
-  if (FIXTURES[name].node) {
-    for (const r of recordings)
-      if (r.manifest.commit !== manifest.commit || r.manifest.exact !== true)
-        throw new Error(`${FIXTURES[name].dir}: a recording is not of the manifest's exact Node commit`);
-  }
-  if (!FIXTURES[name].node) manifest.recordings.forEach(({ file }, i) => checkCoreRecording(name, file, recordings[i]));
+  manifest.recordings.forEach(({ file }, i) => checkCoreRecording(name, file, recordings[i]));
   return { manifest, recordings };
 }
 
@@ -171,16 +145,10 @@ export function verifiedFixture(name, dir = dirOf(name)) {
 export function installFixture(name, files, extra = {}) {
   const bytesOf = files.map((file) => readFileSync(file));
   const recordings = bytesOf.map((bytes) => JSON.parse(bytes.toString('utf8')));
-  const commit = FIXTURES[name].node ? recordings[0].manifest.commit : undefined;
-  if (FIXTURES[name].node)
-    for (const r of recordings)
-      if (r.manifest.commit !== commit || r.manifest.exact !== true)
-        throw new Error('the recordings are not all of one exact Node commit');
-  if (!FIXTURES[name].node) recordings.forEach((r, i) => checkCoreRecording(name, files[i], r));
+  recordings.forEach((r, i) => checkCoreRecording(name, files[i], r));
   const listed = bytesOf.map((bytes, i) => ({ file: `${String(i + 1).padStart(2, '0')}.json`, sha256: sha256(bytes) }));
   const manifest = {
     count: files.length,
-    ...(commit ? { commit } : {}),
     recordings: listed,
     recorder: recorderHashes(name),
     ...extra,

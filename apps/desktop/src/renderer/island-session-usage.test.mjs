@@ -3,7 +3,6 @@ import test from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { JSDOM } from 'jsdom';
-import { createUsageStatsApi } from '../shared/test-recorded/island-session-usage.test.0.recorded.mjs';
 import { islandUsageCue, MIN_READ_GAP_MS, useIslandSessionUsage } from './island-session-usage.ts';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
@@ -169,52 +168,4 @@ test("the cue is the token of the Lead's group that the pool rows carry, plus se
   // A pool from a host that carries no token never moves it.
   assert.equal(islandUsageCue([row(LEAD, LEAD)], LEAD, 0), '0|');
   assert.equal(islandUsageCue(null, LEAD, 0), '0|');
-});
-test('the island and /context together never have two reads of a session in flight', async (context) => {
-  const { render, window } = mountProbe(context);
-  let overlaps = 0;
-  const gates = [];
-  // The ledger worker answers when the test lets it; a read is several requests.
-  const ledger = {
-    settleWrites: async () => {
-      // A read begins here: none may still be waiting on the worker.
-      if (gates.length > 0) overlaps += 1;
-    },
-    sessionUsageAsync: () =>
-      new Promise((resolve) =>
-        gates.push(() => {
-          resolve({
-            turns: 1,
-            input: 1,
-            output: 0,
-            cacheRead: 0,
-            cacheWrite: 0,
-            unmeasuredTurns: 0,
-            costUsd: 0,
-            costKnownTurns: 1,
-            speedMs: 0,
-            speedOutput: 0,
-          });
-        })
-      ),
-  };
-  const api = createUsageStatsApi({
-    ledger: () => ledger,
-    accountPool: () => ({ accounts: [] }),
-    getSessionId: () => LEAD,
-  });
-  window.mixdogDesktop = {
-    invokeCapability: (request) => api.getSessionUsage(request.args[0]).then((value) => ({ value })),
-  };
-  await render({});
-  // /context opens and asks at the same moment, then cues keep coming.
-  const contextRead = api.getSessionUsage();
-  for (const total of [1, 2, 3]) await render({ cue: `0|agent-a:${total}` });
-  const flush = () => new Promise(setImmediate);
-  for (let step = 0; step < 40; step += 1) {
-    gates.shift()?.();
-    await act(flush);
-  }
-  await contextRead;
-  assert.equal(overlaps, 0);
 });

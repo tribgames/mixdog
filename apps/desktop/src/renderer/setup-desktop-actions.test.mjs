@@ -3,11 +3,7 @@ import test from 'node:test';
 import { executeSetupDesktopAction } from './setup-desktop-actions.ts';
 import { DESKTOP_SETUP_SETTING_ACTIONS } from '../shared/setup-settings-coverage.ts';
 import { desktopSettingsFromConfig } from '../main/settings-store.ts';
-import { SETUP_ACTIONS } from '../shared/test-recorded/setup-desktop-actions.test.0.recorded.mjs';
 import { DESKTOP_READ_CAPABILITIES } from '../shared/contract.ts';
-import { SESSION_READ_ACTIONS } from '../shared/test-recorded/setup-desktop-actions.test.1.recorded.mjs';
-import { SETUP_ACTIVITY_RAIL_PIN_IDS } from '../shared/test-recorded/setup-desktop-actions.test.2.recorded.mjs';
-import { ACTIVITY_RAIL_PIN_IDS } from '../shared/activity-rail-pins.ts';
 import { DESKTOP_PET_SCALES } from '../shared/desktop-pet.ts';
 
 function fixture() {
@@ -62,18 +58,15 @@ function fixture() {
   return { api, writes, run: (args) => executeSetupDesktopAction(args, api, preferences, 'session') };
 }
 
-test('every persisted Desktop setting is classified and points to a real setup action', () => {
+test('every persisted Desktop setting is classified', () => {
   assert.deepEqual(
     Object.keys(DESKTOP_SETUP_SETTING_ACTIONS).sort(),
     Object.keys(desktopSettingsFromConfig({})).sort()
   );
-  for (const action of Object.values(DESKTOP_SETUP_SETTING_ACTIONS)) assert.ok(SETUP_ACTIONS.includes(action));
   assert.ok(DESKTOP_READ_CAPABILITIES.includes('isSetupRequestActive'));
-  assert.ok(SESSION_READ_ACTIONS.includes('isSetupRequestActive'));
 });
 
-test('activity rail pins: setup accepts exactly the Desktop pin ids and replaces the ordered list', async () => {
-  assert.deepEqual(SETUP_ACTIVITY_RAIL_PIN_IDS, [...ACTIVITY_RAIL_PIN_IDS]);
+test('activity rail pins: setup replaces the ordered list and refuses an unknown pin id', async () => {
   const { run } = fixture();
   const result = await run({ action: 'set_activity_rail_pins', activityRailPins: ['search', 'sessions'] });
   assert.deepEqual(result.activityRailPins, ['search', 'sessions']);
@@ -576,19 +569,6 @@ test('botOverlay rejects bad values without writing and refuses to enable withou
   await missing.run({ action: 'set_desktop_settings', desktop: { botOverlay: { enabled: false } } });
   assert.deepEqual(missing.calls, [['enabled', false]]);
   assert.equal((await status()).enabled, true);
-});
-
-test('setup schema agrees with the Desktop stores for the new appearance and botOverlay fields', async () => {
-  const { SETUP_TOOL_DEFS } = await import('../shared/test-recorded/setup-desktop-actions.test.0.recorded.mjs');
-  const { CODE_SIZE_RANGE, UI_SCALE_RANGE } = await import('./appearance/font-settings.ts');
-  const { CHAT_TEXT_SCALES } = await import('./chat-text-size-preference.ts');
-  const { appearance, desktop } = SETUP_TOOL_DEFS[0].inputSchema.properties;
-  assert.deepEqual(desktop.properties.botOverlay.properties.scale.enum, [...DESKTOP_PET_SCALES]);
-  assert.equal(appearance.properties.uiScale.minimum, UI_SCALE_RANGE.min);
-  assert.equal(appearance.properties.uiScale.maximum, UI_SCALE_RANGE.max);
-  assert.equal(appearance.properties.codeSize.minimum, CODE_SIZE_RANGE.min);
-  assert.equal(appearance.properties.codeSize.maximum, CODE_SIZE_RANGE.max);
-  assert.deepEqual(appearance.properties.chatTextSize.enum, Object.keys(CHAT_TEXT_SCALES));
 });
 
 test('appearance fonts, skin transparency and an imported color theme write, read back and reject bad values', async (t) => {

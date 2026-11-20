@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import test from 'node:test';
+import test, { after } from 'node:test';
 import React, { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { installTestDom } from './test-support/test-dom.mjs';
@@ -16,9 +16,16 @@ import {
 } from './sidebar-reference-cache.ts';
 import { usageMoney } from './usage-format.ts';
 import { HOVER_POPOVER_CLOSE_DELAY_MS } from './hover-popover.ts';
-import { resolveUsageStatsPeriod, USAGE_STATS_FIXTURE_NOW } from './test-support/usage-stats-period.recorded.mjs';
+import { usageSnapshot } from './test-support/usage-stats-fixture.mjs';
 
 globalThis.IS_REACT_ACT_ENVIRONMENT = true;
+const { restore } = installTestDom(null, {
+  html: '<!doctype html><html><body></body></html>',
+  jsdom: { url: 'https://mixdog.test/' },
+  actEnvironment: false,
+});
+after(restore);
+
 function harness(context, Component = UsageStatsBody) {
   const { dom } = installTestDom(null, {
     html: '<!doctype html><html><body><main></main></body></html>',
@@ -33,43 +40,7 @@ function harness(context, Component = UsageStatsBody) {
   });
   return async (props) => act(async () => root.render(React.createElement(Component, props)));
 }
-function snapshot(view = 'hour', tokens = 1200, anchor, dates = {}) {
-  const now = USAGE_STATS_FIXTURE_NOW;
-  const period = resolveUsageStatsPeriod({ view, anchor, now, ...dates });
-  const route = {
-    turns: 1,
-    sessions: 1,
-    input: tokens - 200,
-    output: 200,
-    tokens,
-    cacheRead: 500,
-    cacheWrite: 800,
-    cacheTokens: 1300,
-    costUsd: 2,
-    costCoverage: 1,
-    share: 1,
-    models: [],
-  };
-  return {
-    generatedAt: now,
-    period,
-    range: { days: period.days, firstDay: period.startDay || '2025-01-01' },
-    totals: { ...route, sessions: 1 },
-    providers: [{ ...route, provider: 'openai', providerKind: 'api' }],
-    daily: [{ day: period.startDay || '2026-09-01', tokens, turns: 1, costUsd: 2, costKnownTurns: 1, providers: [] }],
-    hourly: Array.from({ length: 24 }, (_, hour) => ({
-      key: String(hour).padStart(2, '0'),
-      label: `${String(hour).padStart(2, '0')}:00`,
-      tokens: hour === 9 ? tokens : 0,
-      turns: hour === 9 ? 1 : 0,
-      costUsd: hour === 9 ? 2 : 0,
-      costKnownTurns: hour === 9 ? 1 : 0,
-      providers: [],
-      future: hour > 12,
-    })),
-    coverage: {},
-  };
-}
+const snapshot = (view = 'hour', tokens = 1200, anchor, dates = {}) => usageSnapshot(view, tokens, { anchor, ...dates });
 function button(label) {
   return [...document.querySelectorAll('button')].find((node) => node.textContent === t(label));
 }
