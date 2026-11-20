@@ -28,12 +28,12 @@ report its evidence without changing behavior.
 Run on each selected unit before looking for smells; only code that lands on
 the last rung goes on to the lenses.
 
-| Rung | Question | Result |
-|---|---|---|
-| Delete | Is there evidence the behavior is no longer needed (callers, requirements, flags, compatibility)? | remove the verified obsolete unit |
-| Reuse | Does a repo helper already do it? | replaced by a call |
-| Platform | Does the runtime, stdlib, or an installed dependency do it? | hand-rolled code replaced |
-| Simplify | It must exist; make it smaller | proceeds to the lenses |
+| Rung     | Question                                                                                          | Result                            |
+| -------- | ------------------------------------------------------------------------------------------------- | --------------------------------- |
+| Delete   | Is there evidence the behavior is no longer needed (callers, requirements, flags, compatibility)? | remove the verified obsolete unit |
+| Reuse    | Does a repo helper already do it?                                                                 | replaced by a call                |
+| Platform | Does the runtime, stdlib, or an installed dependency do it?                                       | hand-rolled code replaced         |
+| Simplify | It must exist; make it smaller                                                                    | proceeds to the lenses            |
 
 ## Lenses
 
@@ -58,20 +58,21 @@ focus excludes.
 
 ## Slop categories
 
-| Category | Flag | Keep | Fix |
-|---|---|---|---|
-| Comments | restating the code, step narration, history or changelog notes, dividers, commented-out code, a comment the code contradicts, a TODO with no owner or issue | a non-obvious why (external constraint, invariant, tradeoff), directives, public API docs, issue links | delete or correct; a "do not change" comment gets a proposed test or type that enforces it, applied only with approval |
-| Over-defensive code | checks on guaranteed values, try/catch around code that cannot throw, duplicated validation | I/O handling, trust boundaries, a logging top-level catch | remove only when a test proves the guard redundant; changing which errors propagate is RISKY |
-| Fake resilience | a fallback turning missing input or failure into a plausible value; a catch that only rethrows or swallows | a default the contract names, documented retry or degraded mode | remove only proven redundant behavior; changing the error contract is RISKY |
-| Excessive complexity | deep nesting, nested ternaries, long conditions, many params, clever one-liners, hand-rolled loops with an idiom | a deliberately dense hot path | guard clauses, early returns, lookup table, options object, extract by responsibility |
-| Needless abstraction | pass-through wrappers, single-use helpers, speculative indirection | a real seam (tests, multiple implementers, framework boundary) | inline after the behavior boundary check |
-| Boundary violations | wrong-layer imports, cycles, logic in handlers, reading another module's private state | an established pattern | move to the owning layer; flag when unsure |
-| Dead code | unused imports/locals/private functions, unreachable branches, debug leftovers | the never-dead list | follow `dead-code.md` |
-| Duplication | copy-pasted branches, two helpers doing one thing, redeclared types | similarity serving different intents | consolidate only when intents match |
-| Type escapes | `any`, unexplained ignores and suppressions, redundant coercions | an escape whose comment names the upstream bug | narrow with a guard or precise type; fix the warning or record why silenced |
-| Hardcoded config | environment-specific URLs, ids, absolute paths, unnamed thresholds | fixtures, docs, contract-fixed literals | use the project's config accessor; name the literal. A credential in source is a defect: report it |
-| Placeholder naming | `data2`, `tmp`, `handleStuff` on new code | the project's own idioms | rename locals; an exported rename is RISKY |
-| Oversized modules | files past the review threshold mixing responsibilities | a cohesive module | split confirmed independent responsibilities; no `utils`/`common` dumps (see Structural findings) |
+| Category             | Flag                                                                                                                                                        | Keep                                                                                                   | Fix                                                                                                                    |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------- |
+| Comments             | restating the code, step narration, history or changelog notes, dividers, commented-out code, a comment the code contradicts, a TODO with no owner or issue, a comment longer than the fact it carries | a non-obvious why (external constraint, invariant, tradeoff), directives, public API docs, issue links | delete, correct, or cut to its fact; a "do not change" comment gets a proposed test or type that enforces it, applied only with approval |
+| Over-defensive code  | checks on guaranteed values, try/catch around code that cannot throw, duplicated validation                                                                 | I/O handling, trust boundaries, a logging top-level catch                                              | remove when the edge or a type guarantees the value, or a test proves the guard redundant; changing which errors propagate is RISKY                           |
+| Fake resilience      | a fallback turning missing input or failure into a plausible value; a catch that only rethrows or swallows                                                  | a default the contract names, documented retry or degraded mode                                        | remove only proven redundant behavior; changing the error contract is RISKY                                            |
+| Heuristics | sniffing error or message text; special cases keyed on names, paths, vendors or versions; a fallback guessing the caller's intent; a threshold, limit, sleep or retry with no stated source | a documented format or a user-specified query; a limit whose source is named | decide on the exact signal (type, error kind, producer field, platform value) when within reach; a change to observable behavior is RISKY unless the current behavior is a shown defect; otherwise report what the signal needs |
+| Excessive complexity | deep nesting, nested ternaries, long conditions, many params, clever one-liners, hand-rolled loops with an idiom, a long function doing several jobs                                            | a deliberately dense hot path                                                                          | guard clauses, early returns, lookup table, options object, extract by responsibility                                  |
+| Needless abstraction, fragmentation | pass-through wrappers, single-use helpers that name no responsibility, speculative indirection, one responsibility spread over files or re-export-only modules, one decision repeated at call sites, a value converted back and forth                                                                                          | a real seam (tests, multiple implementers, framework boundary)                                         | inline or merge so each responsibility has one home, after the behavior boundary check                                                                               |
+| Boundary violations  | wrong-layer imports, cycles, logic in handlers, reading another module's private state                                                                      | an established pattern                                                                                 | move to the owning layer; flag when unsure                                                                             |
+| Dead code            | unused imports/locals/private functions, unreachable branches, debug leftovers                                                                              | the never-dead list                                                                                    | follow `dead-code.md`                                                                                                  |
+| Duplication          | copy-pasted branches, two helpers doing one thing, redeclared types                                                                                         | similarity serving different intents                                                                   | consolidate only when intents match                                                                                    |
+| Type escapes         | `any`, unexplained ignores and suppressions, redundant coercions                                                                                            | an escape whose comment names the upstream bug                                                         | narrow with a guard or precise type; fix the warning or record why silenced                                            |
+| Hardcoded config     | environment-specific URLs, ids, absolute paths                                                                                          | fixtures, docs, contract-fixed literals                                                                | use the project's config accessor; name the literal. A credential in source is a defect: report it                     |
+| Placeholder naming   | `data2`, `tmp`, `handleStuff` on new code                                                                                                                   | the project's own idioms                                                                               | rename locals; an exported rename is RISKY                                                                             |
+| Oversized modules    | files past the review threshold mixing responsibilities                                                                                                     | a cohesive module                                                                                      | split confirmed independent responsibilities; no `utils`/`common` dumps (see Structural findings)                      |
 
 ## Structural findings
 
@@ -131,12 +132,21 @@ rewriting plainly; keep facts, constraints and links.
 ## Whole-project runs
 
 Pre-release, whole-project use is normal when the user names the whole
-project: partition by directory, run the deterministic layers first, then
-judge structure per partition, then make one pass across partitions for what
-no single partition shows: two implementations of one responsibility, copies
-of a helper that drifted apart, one pattern written several ways, names and
-idioms that disagree between modules. Report findings ordered structural
-first. An upcoming release is no reason to defer SAFE or CAREFUL items; only
+project: partition by directory and run the deterministic layers first.
+
+Coverage comes from an inventory, not a sample. Per partition, list by tool
+every file and function past the size thresholds and every comment block of
+four or more lines, and give each entry a verdict from reading it: changed,
+or kept with the reason. Heuristics and fragmentation have no size signal, so
+each partition is searched for the slop-table patterns. An entry without a
+verdict, a verdict from a name or size alone, or a search not run leaves the
+partition unfinished. Each file has one owner, who reads it once with every
+lens.
+
+Then make one pass across partitions for what no single partition shows: two
+implementations of one responsibility, copies of a helper that drifted apart,
+one pattern written several ways, names and idioms that disagree between
+modules. An upcoming release is no reason to defer SAFE or CAREFUL items; only
 RISKY waits for approval. The release blocker list is the RISKY and defect
 sections, not the nits.
 
@@ -151,8 +161,8 @@ sections, not the nits.
 - Complexity serving a current compatibility obligation, staged migration, or
   vendored-code isolation.
 - Tool directives, public API docs, and security or compatibility
-  explanations; comments that may separate tokens or carry significant line
-  breaks go to manual review.
+  explanations, cut to their facts like any comment; comments that may
+  separate tokens or carry significant line breaks go to manual review.
 - The reason a comment carries (a measured number, an incident, a platform
   quirk, why an alternative was rejected): a trimmed or rewritten comment
   still states it, or it moves to a name or the nearest remaining comment.
@@ -162,11 +172,11 @@ sections, not the nits.
 
 ## Risk tiers
 
-| Tier | Meaning | Handling |
-|---|---|---|
-| SAFE | equivalence established, including initialization | apply as one batch |
-| CAREFUL | same semantics, structure changes (local rename, guard clause, verified inlining, helper extraction, responsibility split, consolidation) | one source unit at a time, including required new modules |
-| RISKY | may change behavior or a contract (public rename, error-handling or concurrency change, shared-infrastructure fix) | report with test coverage status; apply only the items the user approves |
+| Tier    | Meaning                                                                                                                                   | Handling                                                                 |
+| ------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ |
+| SAFE    | equivalence established, including initialization                                                                                         | apply as one batch                                                       |
+| CAREFUL | same semantics, structure changes (local rename, guard clause, verified inlining, helper extraction, responsibility split, consolidation) | one source unit at a time, including required new modules                |
+| RISKY   | may change behavior or a contract (public rename, error-handling or concurrency change, shared-infrastructure fix)                        | report with test coverage status; apply only the items the user approves |
 
 When lenses disagree: correctness > the user's focus > readability and reuse >
 micro-performance. Between two defensible rewrites, apply the one touching

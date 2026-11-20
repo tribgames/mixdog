@@ -22,7 +22,7 @@ Include only sections that have content:
 Scope: <paths | whole project> · Mode: report|apply · Overall: complete|partial
 Deterministic: engines used/missing (why tidy does not install each missing one, and the options) · files changed · diagnostics remaining
 Unchecked: files per language with the reason, copied from the last `unprocessed`, never from memory
-Coverage: units reviewed in depth, units covered by engines only, the cross-partition pass done or not
+Coverage: inventory entries and verdicts per kind (files, functions, comment blocks), the heuristic and fragmentation search per partition, units covered by engines only, the cross-partition pass done or not
 Completed / Kept / Unfinished: entries as above
 Noticed, not applied (RISKY or out of scope): entries · test coverage
 Defects found (not fixed here): <issues>
