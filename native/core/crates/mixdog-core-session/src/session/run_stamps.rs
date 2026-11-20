@@ -22,16 +22,30 @@ use mixdog_core_config::workflow::ids::truthy;
 /// `MAX_PATH`: how far up the parents a backfill walks.
 const MAX_PATH: usize = 32;
 
+/// The members of a record the stamp and its backfill read.
+const STAMP_FIELDS: &[&str] = &["run", "delegation", "owner", "visibility", "parentSessionId", "ownerSessionId", "sourceType", "sourceName"];
+
 /// Where a session's record is read (`loadRecord`).
 #[async_trait]
 pub trait Records: Send + Sync {
     async fn record(&self, session: &str) -> Option<Header>;
+
+    /// The members of [`record`](Self::record) named in `fields`. A record carries the session's prompt and tool catalog
+    /// (megabytes once decoded): a reader of a few members on every tool call takes those from where the record is held,
+    /// not a copy of all of it.
+    async fn record_fields(&self, session: &str, fields: &'static [&'static str]) -> Option<Header> {
+        Some(self.record(session).await?.into_iter().filter(|(key, _)| fields.contains(&key.as_str())).collect())
+    }
 }
 
 #[async_trait]
 impl Records for SessionDirectory {
     async fn record(&self, session: &str) -> Option<Header> {
         self.stored_header(&ThreadId::from(session)).await
+    }
+
+    async fn record_fields(&self, session: &str, fields: &'static [&'static str]) -> Option<Header> {
+        self.stored_fields(&ThreadId::from(session), fields).await
     }
 }
 
@@ -132,7 +146,7 @@ pub async fn run_stamp_of(session: &str, records: &dyn Records) -> Option<Value>
         if id.is_empty() {
             return None;
         }
-        let record = records.record(&id).await?;
+        let record = records.record_fields(&id, STAMP_FIELDS).await?;
         if let Some(run) = record.get("run") {
             return run.is_object().then(|| run.clone());
         }

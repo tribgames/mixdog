@@ -753,6 +753,21 @@ impl DirInner {
         self.try_stored_header(id).await.ok().flatten()
     }
 
+    /// [`stored_header`](Self::stored_header) holding only the members named in `fields`: of a loaded thread they are
+    /// picked from the live header, which is not copied.
+    pub(super) async fn stored_fields(&self, id: &ThreadId, fields: &'static [&'static str]) -> Option<mixdog_store::schema::record::Header> {
+        if let Some(handle) = self.loaded(id) {
+            return Some(keep_fields(handle.cell.header.load_full().as_ref(), Some(fields)));
+        }
+        self.deps.store.unheld().await;
+        let (store, thread) = (self.deps.store.clone(), id.clone());
+        let read = mixdog_core_base::support::on_lane(self.deps.lanes.io, &CancellationToken::new(), move |lane| {
+            store.read_header(lane, &thread).map(|header| header.into_iter().filter(|(key, _)| fields.contains(&key.as_str())).collect())
+        })
+        .await;
+        read.ok()?.ok()
+    }
+
     /// As [`stored_header`](Self::stored_header), but `Err` when the read job never ran.
     async fn try_stored_header(&self, id: &ThreadId) -> Result<Option<mixdog_store::schema::record::Header>, CoreError> {
         if let Some(handle) = self.loaded(id) {
@@ -2102,6 +2117,17 @@ impl SessionDirectory {
     /// lane. `None` when the session is unknown or deleted.
     pub async fn stored_header(&self, id: &ThreadId) -> Option<mixdog_store::schema::record::Header> {
         self.inner.stored_header(id).await
+    }
+
+    /// The members named in `fields` of a loaded thread's live header, which is not copied; `None` for a thread that is
+    /// not loaded.
+    pub fn loaded_fields(&self, id: &ThreadId, fields: &'static [&'static str]) -> Option<mixdog_store::schema::record::Header> {
+        self.inner.loaded(id).map(|handle| keep_fields(handle.cell.header.load_full().as_ref(), Some(fields)))
+    }
+
+    /// [`stored_header`](Self::stored_header) holding only the members named in `fields`.
+    pub async fn stored_fields(&self, id: &ThreadId, fields: &'static [&'static str]) -> Option<mixdog_store::schema::record::Header> {
+        self.inner.stored_fields(id, fields).await
     }
 
     /// The header a listing reads of a session it does not open: what an open would have read, without loading the session.

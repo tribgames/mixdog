@@ -38,7 +38,7 @@ impl ThreadTodos {
 impl TodoStore for ThreadTodos {
     /// A thread that cannot be read has no list.
     async fn read(&self, thread: &ThreadId) -> TodoList {
-        self.threads.header(thread).await.map(|header| list_of(&header)).unwrap_or_default()
+        self.threads.header_fields(thread, &["todo"]).await.map(|header| list_of(&header)).unwrap_or_default()
     }
 
     async fn update(&self, thread: &ThreadId, f: &mut TodoEdit<'_>) -> Result<(), String> {

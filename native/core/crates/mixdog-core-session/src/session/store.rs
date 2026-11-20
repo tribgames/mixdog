@@ -2250,7 +2250,7 @@ impl ThreadStore for StoreThreads {
         if !self.dir(id.as_str()).is_dir() {
             return Err(Self::not_found(id));
         }
-        Ok(self.open(lane, id)?.fold.header.clone())
+        Ok(self.open(lane, id)?.fold.header)
     }
 
     /// Kept by the version of the session's log (`log_epoch`), as [`StoreThreads::shape`] is: the header is folded

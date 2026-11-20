@@ -24,6 +24,11 @@ use mixdog_protocol::QuotaResume;
 pub trait ThreadState: Send + Sync {
     /// The thread's acked header; a cold thread is opened.
     async fn header(&self, thread: &ThreadId) -> Result<Header, PortError>;
+    /// The members of [`header`](Self::header) named in `fields`. A header carries the session's prompt and tool catalog
+    /// (megabytes once decoded): a reader of one member takes it from where the header is held, not a copy of all of it.
+    async fn header_fields(&self, thread: &ThreadId, fields: &'static [&'static str]) -> Result<Header, PortError> {
+        Ok(self.header(thread).await?.into_iter().filter(|(key, _)| fields.contains(&key.as_str())).collect())
+    }
     async fn patch_header(&self, thread: &ThreadId, set: Map<String, Value>, unset: Vec<String>) -> Result<(), PortError>;
     /// A header patch the session actor applies only while `expect` still holds of its header
     /// (key to the value the patch was computed from, `null` for absent). `Ok(Some(current))`
