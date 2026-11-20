@@ -537,233 +537,6 @@ fn conform_tool_approval(frame: &mut Json) {
     }
 }
 
-#[cfg(test)]
-#[allow(clippy::disallowed_methods)] // reads the shared scenario options file
-mod tests {
-
-    use super::*;
-    use crate::mock::MockNetwork;
-
-    #[test]
-    fn the_cores_tool_approval_frame_is_the_typed_request_it_names() {
-        let mut frame = json!({
-            "id": "1",
-            "method": "item/tool/requestApproval",
-            "params": {
-                "name": "glob", "args": { "pattern": "*.txt" }, "cwd": "/w", "reason": "why", "kind": "approval", "agentId": "lead",
-                "threadId": "t1", "turnId": "r1", "itemId": "c1", "requestedAt": 5, "order": 1,
-                "card": { "id": "itm_1", "name": "glob", "kind": "approval", "args": { "pattern": "*.txt" } }
-            }
-        });
-        conform_tool_approval(&mut frame);
-        let request: ServerRequest = serde_json::from_value(frame).expect("the frame is a typed request");
-        let wire = serde_json::to_value(&request).unwrap();
-        assert_eq!((wire["params"]["kind"].clone(), wire["params"]["tool"].clone()), (json!("builtin"), json!("glob")));
-        assert_eq!(wire["params"]["request"]["args"], json!({ "pattern": "*.txt" }));
-        assert_eq!(wire["params"]["request"]["kind"], json!("approval"), "the card keeps its own kind");
-
-        let mut gate = json!({ "id": "2", "method": "item/tool/requestApproval", "params": { "name": "handoff_user", "kind": "secret", "threadId": "t1", "requestedAt": 5, "order": 2 } });
-        conform_tool_approval(&mut gate);
-        assert_eq!(gate["params"]["kind"], json!("humanGate"));
-        let mut shell = json!({ "id": "3", "method": "item/tool/requestApproval", "params": { "name": "bash", "kind": "approval", "threadId": "t1", "requestedAt": 5, "order": 3 } });
-        conform_tool_approval(&mut shell);
-        assert_eq!(shell["params"]["kind"], json!("shell"));
-        let mut typed = json!({ "id": "4", "method": "item/tool/requestApproval", "params": { "kind": "patch", "tool": "apply_patch", "request": {}, "threadId": "t1", "requestedAt": 5, "order": 4 } });
-        let before = typed.clone();
-        conform_tool_approval(&mut typed);
-        assert_eq!(typed, before, "a request that is already typed stays as it is");
-    }
-
-    fn thread_result(id: &str) -> Json {
-        json!({
-            "thread": { "id": id, "preview": "", "title": "T", "updatedAt": 1, "messageCount": 0, "cwd": "/w", "classification": {}, "projectPath": null },
-            "subscription": { "id": format!("sub-{id}"), "mode": "snapshot", "epoch": "e1", "startSeq": 1 }
-        })
-    }
-
-    async fn until(_what: &str, mut ok: impl FnMut() -> bool) {
-        while !ok() {
-            tokio::task::yield_now().await;
-        }
-    }
-
-    /// A lane's task holds a reference on the shared state, so the reference count shows whether the task is alive.
-    #[tokio::test(flavor = "current_thread")]
-    async fn an_unsubscribed_feeds_lane_ends_after_its_queued_items() {
-        let options: Json = serde_json::from_str(
-            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/protocol-client/conformance/options.json")).unwrap(),
-        )
-        .unwrap();
-        let net = Arc::new(MockNetwork::default());
-        let mut opts = ConnectOptions::new(Target { id: "local".into() }, net.clone(), serde_json::from_value(options["clientInfo"].clone()).unwrap());
-        opts.capabilities = serde_json::from_value(options["capabilities"].clone()).unwrap();
-        let connecting = tokio::spawn(connect(opts));
-        let conn = net.accept().await;
-        let init: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        let mut result = options["initializeResult"].clone();
-        result["serverInstanceId"] = json!("s1");
-        conn.server_send(&json!({ "id": init["id"], "result": result }));
-        conn.next_sent().await; // initialized
-        let client = Arc::new(connecting.await.unwrap().unwrap());
-
-        let resume = {
-            let c = client.clone();
-            tokio::spawn(async move { c.resume_thread(&ThreadId::from("t1"), ResumeWindow::LastItems { last_items: 50 }).await })
-        };
-        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        conn.server_send(&json!({ "id": req["id"], "result": thread_result("t1") }));
-        resume.await.unwrap().unwrap();
-        let base = Arc::strong_count(&client.inner);
-
-        // The first item waits on a blob read nobody answers yet; the second is queued behind it.
-        let digest = format!("sha256:{}", "a".repeat(64));
-        conn.server_send(&json!({ "method": "thread/snapshot", "params": { "text": { "blob": { "digest": digest, "bytes": 5, "mediaType": "text/plain" } } }, "feed": { "id": "t1", "epoch": "e1", "seq": 1 } }));
-        let read: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        assert_eq!(read["method"], "blob/read");
-        conn.server_send(&json!({ "method": "item/completed", "params": { "n": 2 }, "feed": { "id": "t1", "epoch": "e1", "seq": 2 } }));
-        until("lane started", || Arc::strong_count(&client.inner) == base + 1).await;
-
-        let unsub = {
-            let c = client.clone();
-            tokio::spawn(async move { c.unsubscribe_thread(&ThreadId::from("t1")).await })
-        };
-        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        assert_eq!(req["method"], "thread/unsubscribe");
-        conn.server_send(&json!({ "id": req["id"], "result": {} }));
-        unsub.await.unwrap().unwrap();
-        for _ in 0..50 {
-            tokio::task::yield_now().await;
-        }
-        assert_eq!(Arc::strong_count(&client.inner), base + 1, "the lane stays alive while its queued items are unfinished");
-
-        conn.server_send(&json!({ "id": read["id"], "result": { "bytesB64": "aGVsbG8=" } }));
-        until("lane ended", || Arc::strong_count(&client.inner) == base).await;
-    }
-
-    /// A clock whose waits never end: only a cut-short wait lets the ladder go on.
-    struct Stalled;
-
-    #[async_trait]
-    impl Clock for Stalled {
-        async fn sleep(&self, _ms: u64) {
-            std::future::pending::<()>().await
-        }
-        fn jitter(&self) -> f64 {
-            0.5
-        }
-    }
-
-    async fn ready(clock: Option<Arc<dyn Clock>>) -> (Arc<Client>, Arc<MockNetwork>, crate::mock::MockConn) {
-        let options: Json = serde_json::from_str(
-            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/protocol-client/conformance/options.json")).unwrap(),
-        )
-        .unwrap();
-        let net = Arc::new(MockNetwork::default());
-        let mut opts = ConnectOptions::new(Target { id: "local".into() }, net.clone(), serde_json::from_value(options["clientInfo"].clone()).unwrap());
-        opts.capabilities = serde_json::from_value(options["capabilities"].clone()).unwrap();
-        if let Some(clock) = clock {
-            opts.clock = clock;
-        }
-        let connecting = tokio::spawn(connect(opts));
-        let conn = net.accept().await;
-        let init: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        let mut result = options["initializeResult"].clone();
-        result["serverInstanceId"] = json!("s1");
-        conn.server_send(&json!({ "id": init["id"], "result": result }));
-        conn.next_sent().await; // initialized
-        (Arc::new(connecting.await.unwrap().unwrap()), net, conn)
-    }
-
-    async fn next_notification(events: &mut broadcast::Receiver<ClientEvent>) -> RpcNotification {
-        loop {
-            if let ClientEvent::Notification(n) = events.recv().await.unwrap() {
-                return n;
-            }
-        }
-    }
-
-    async fn subscribe_to(client: &Arc<Client>, conn: &crate::mock::MockConn, method: &str, params: Json, mode: &str) {
-        let call = {
-            let c = client.clone();
-            let method = method.to_owned();
-            tokio::spawn(async move { c.call_raw(&method, params, CallOptions::default()).await })
-        };
-        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        assert_eq!(req["method"], method);
-        let subscription = json!({ "id": "sub-1", "mode": mode, "epoch": "e1", "startSeq": 1 });
-        let result = if method == "system/ports/subscribe" { subscription } else { json!({ "subscription": subscription }) };
-        conn.server_send(&json!({ "id": req["id"], "result": result }));
-        call.await.unwrap().unwrap();
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn the_ports_feed_is_tracked_after_its_subscribe_and_its_frames_pass_through() {
-        let (client, _net, conn) = ready(None).await;
-        let mut events = client.events();
-        subscribe_to(&client, &conn, "system/ports/subscribe", json!({}), "snapshot").await;
-        conn.server_send(&json!({ "method": "feed/snapshot", "params": { "feedId": "ports", "state": { "sections": [] } }, "feed": { "id": "ports", "epoch": "e1", "seq": 0 } }));
-        let snapshot = next_notification(&mut events).await;
-        assert_eq!(snapshot.method, "feed/snapshot");
-        conn.server_send(&json!({ "method": "system/ports/updated", "params": { "section": "ports", "revision": 1, "value": [] }, "feed": { "id": "ports", "epoch": "e1", "seq": 1 } }));
-        let update = next_notification(&mut events).await;
-        assert_eq!(update.method, "system/ports/updated");
-        assert_eq!(update.feed.as_ref().unwrap().id.as_str(), "ports");
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn a_gap_in_a_scoped_feed_closes_the_socket() {
-        let (client, _net, conn) = ready(None).await;
-        subscribe_to(&client, &conn, "feed/subscribe", json!({ "feedId": "login:f1" }), "replay").await;
-        conn.server_send(&json!({ "method": "login/updated", "params": {}, "feed": { "id": "login:f1", "epoch": "e1", "seq": 5 } }));
-        until("socket closed", || conn.client_close().is_some()).await;
-        assert_eq!(conn.client_close(), Some(1002));
-    }
-
-    #[tokio::test(flavor = "current_thread")]
-    async fn a_frame_of_a_feed_nobody_subscribed_is_dropped() {
-        let (client, _net, conn) = ready(None).await;
-        let mut events = client.events();
-        conn.server_send(&json!({ "method": "login/updated", "params": {}, "feed": { "id": "login:f1", "epoch": "e1", "seq": 1 } }));
-        for _ in 0..50 {
-            tokio::task::yield_now().await;
-        }
-        assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
-    }
-    #[tokio::test(flavor = "current_thread")]
-    async fn an_unsubscribe_ends_the_tracking_of_a_scoped_feed() {
-        let (client, _net, conn) = ready(None).await;
-        let mut events = client.events();
-        subscribe_to(&client, &conn, "feed/subscribe", json!({ "feedId": "login:f1" }), "snapshot").await;
-        conn.server_send(&json!({ "method": "login/updated", "params": { "n": 1 }, "feed": { "id": "login:f1", "epoch": "e1", "seq": 1 } }));
-        assert_eq!(next_notification(&mut events).await.method, "login/updated");
-        let unsubscribe = {
-            let c = client.clone();
-            tokio::spawn(async move { c.call_raw("feed/unsubscribe", json!({ "feedId": "login:f1" }), CallOptions::default()).await })
-        };
-        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
-        assert_eq!(req["method"], "feed/unsubscribe");
-        conn.server_send(&json!({ "id": req["id"], "result": {} }));
-        unsubscribe.await.unwrap().unwrap();
-        conn.server_send(&json!({ "method": "login/updated", "params": { "n": 2 }, "feed": { "id": "login:f1", "epoch": "e1", "seq": 2 } }));
-        for _ in 0..50 {
-            tokio::task::yield_now().await;
-        }
-        assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
-    }
-    #[tokio::test(flavor = "current_thread")]
-    async fn attach_now_ends_the_wait_of_the_ladder() {
-        let (client, net, conn) = ready(Some(Arc::new(Stalled))).await;
-        let mut status = client.inner.status.subscribe();
-        conn.server_close(1006, "gone");
-        status.wait_for(|s| matches!(s, ConnectionStatus::Reconnecting { .. })).await.unwrap();
-        assert_eq!(net.opened(), 1, "the stalled ladder has not dialled");
-        client.attacher().attach_now();
-        let next = tokio::time::timeout(std::time::Duration::from_secs(5), net.accept()).await.expect("the client dials at once");
-        let init: Json = serde_json::from_str(&next.next_sent().await).unwrap();
-        assert_eq!(init["method"], "initialize");
-    }
-}
-
 impl Inner {
     fn lock(&self) -> MutexGuard<'_, Shared> {
         self.shared.lock().expect("client state poisoned")
@@ -1538,5 +1311,232 @@ impl Driver {
                 self.reconnect().await;
             }
         }
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::disallowed_methods)] // reads the shared scenario options file
+mod tests {
+
+    use super::*;
+    use crate::mock::MockNetwork;
+
+    #[test]
+    fn the_cores_tool_approval_frame_is_the_typed_request_it_names() {
+        let mut frame = json!({
+            "id": "1",
+            "method": "item/tool/requestApproval",
+            "params": {
+                "name": "glob", "args": { "pattern": "*.txt" }, "cwd": "/w", "reason": "why", "kind": "approval", "agentId": "lead",
+                "threadId": "t1", "turnId": "r1", "itemId": "c1", "requestedAt": 5, "order": 1,
+                "card": { "id": "itm_1", "name": "glob", "kind": "approval", "args": { "pattern": "*.txt" } }
+            }
+        });
+        conform_tool_approval(&mut frame);
+        let request: ServerRequest = serde_json::from_value(frame).expect("the frame is a typed request");
+        let wire = serde_json::to_value(&request).unwrap();
+        assert_eq!((wire["params"]["kind"].clone(), wire["params"]["tool"].clone()), (json!("builtin"), json!("glob")));
+        assert_eq!(wire["params"]["request"]["args"], json!({ "pattern": "*.txt" }));
+        assert_eq!(wire["params"]["request"]["kind"], json!("approval"), "the card keeps its own kind");
+
+        let mut gate = json!({ "id": "2", "method": "item/tool/requestApproval", "params": { "name": "handoff_user", "kind": "secret", "threadId": "t1", "requestedAt": 5, "order": 2 } });
+        conform_tool_approval(&mut gate);
+        assert_eq!(gate["params"]["kind"], json!("humanGate"));
+        let mut shell = json!({ "id": "3", "method": "item/tool/requestApproval", "params": { "name": "bash", "kind": "approval", "threadId": "t1", "requestedAt": 5, "order": 3 } });
+        conform_tool_approval(&mut shell);
+        assert_eq!(shell["params"]["kind"], json!("shell"));
+        let mut typed = json!({ "id": "4", "method": "item/tool/requestApproval", "params": { "kind": "patch", "tool": "apply_patch", "request": {}, "threadId": "t1", "requestedAt": 5, "order": 4 } });
+        let before = typed.clone();
+        conform_tool_approval(&mut typed);
+        assert_eq!(typed, before, "a request that is already typed stays as it is");
+    }
+
+    fn thread_result(id: &str) -> Json {
+        json!({
+            "thread": { "id": id, "preview": "", "title": "T", "updatedAt": 1, "messageCount": 0, "cwd": "/w", "classification": {}, "projectPath": null },
+            "subscription": { "id": format!("sub-{id}"), "mode": "snapshot", "epoch": "e1", "startSeq": 1 }
+        })
+    }
+
+    async fn until(_what: &str, mut ok: impl FnMut() -> bool) {
+        while !ok() {
+            tokio::task::yield_now().await;
+        }
+    }
+
+    /// A lane's task holds a reference on the shared state, so the reference count shows whether the task is alive.
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_unsubscribed_feeds_lane_ends_after_its_queued_items() {
+        let options: Json = serde_json::from_str(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/protocol-client/conformance/options.json")).unwrap(),
+        )
+        .unwrap();
+        let net = Arc::new(MockNetwork::default());
+        let mut opts = ConnectOptions::new(Target { id: "local".into() }, net.clone(), serde_json::from_value(options["clientInfo"].clone()).unwrap());
+        opts.capabilities = serde_json::from_value(options["capabilities"].clone()).unwrap();
+        let connecting = tokio::spawn(connect(opts));
+        let conn = net.accept().await;
+        let init: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        let mut result = options["initializeResult"].clone();
+        result["serverInstanceId"] = json!("s1");
+        conn.server_send(&json!({ "id": init["id"], "result": result }));
+        conn.next_sent().await; // initialized
+        let client = Arc::new(connecting.await.unwrap().unwrap());
+
+        let resume = {
+            let c = client.clone();
+            tokio::spawn(async move { c.resume_thread(&ThreadId::from("t1"), ResumeWindow::LastItems { last_items: 50 }).await })
+        };
+        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        conn.server_send(&json!({ "id": req["id"], "result": thread_result("t1") }));
+        resume.await.unwrap().unwrap();
+        let base = Arc::strong_count(&client.inner);
+
+        // The first item waits on a blob read nobody answers yet; the second is queued behind it.
+        let digest = format!("sha256:{}", "a".repeat(64));
+        conn.server_send(&json!({ "method": "thread/snapshot", "params": { "text": { "blob": { "digest": digest, "bytes": 5, "mediaType": "text/plain" } } }, "feed": { "id": "t1", "epoch": "e1", "seq": 1 } }));
+        let read: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        assert_eq!(read["method"], "blob/read");
+        conn.server_send(&json!({ "method": "item/completed", "params": { "n": 2 }, "feed": { "id": "t1", "epoch": "e1", "seq": 2 } }));
+        until("lane started", || Arc::strong_count(&client.inner) == base + 1).await;
+
+        let unsub = {
+            let c = client.clone();
+            tokio::spawn(async move { c.unsubscribe_thread(&ThreadId::from("t1")).await })
+        };
+        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        assert_eq!(req["method"], "thread/unsubscribe");
+        conn.server_send(&json!({ "id": req["id"], "result": {} }));
+        unsub.await.unwrap().unwrap();
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        assert_eq!(Arc::strong_count(&client.inner), base + 1, "the lane stays alive while its queued items are unfinished");
+
+        conn.server_send(&json!({ "id": read["id"], "result": { "bytesB64": "aGVsbG8=" } }));
+        until("lane ended", || Arc::strong_count(&client.inner) == base).await;
+    }
+
+    /// A clock whose waits never end: only a cut-short wait lets the ladder go on.
+    struct Stalled;
+
+    #[async_trait]
+    impl Clock for Stalled {
+        async fn sleep(&self, _ms: u64) {
+            std::future::pending::<()>().await
+        }
+        fn jitter(&self) -> f64 {
+            0.5
+        }
+    }
+
+    async fn ready(clock: Option<Arc<dyn Clock>>) -> (Arc<Client>, Arc<MockNetwork>, crate::mock::MockConn) {
+        let options: Json = serde_json::from_str(
+            &std::fs::read_to_string(concat!(env!("CARGO_MANIFEST_DIR"), "/../../../../packages/protocol-client/conformance/options.json")).unwrap(),
+        )
+        .unwrap();
+        let net = Arc::new(MockNetwork::default());
+        let mut opts = ConnectOptions::new(Target { id: "local".into() }, net.clone(), serde_json::from_value(options["clientInfo"].clone()).unwrap());
+        opts.capabilities = serde_json::from_value(options["capabilities"].clone()).unwrap();
+        if let Some(clock) = clock {
+            opts.clock = clock;
+        }
+        let connecting = tokio::spawn(connect(opts));
+        let conn = net.accept().await;
+        let init: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        let mut result = options["initializeResult"].clone();
+        result["serverInstanceId"] = json!("s1");
+        conn.server_send(&json!({ "id": init["id"], "result": result }));
+        conn.next_sent().await; // initialized
+        (Arc::new(connecting.await.unwrap().unwrap()), net, conn)
+    }
+
+    async fn next_notification(events: &mut broadcast::Receiver<ClientEvent>) -> RpcNotification {
+        loop {
+            if let ClientEvent::Notification(n) = events.recv().await.unwrap() {
+                return n;
+            }
+        }
+    }
+
+    async fn subscribe_to(client: &Arc<Client>, conn: &crate::mock::MockConn, method: &str, params: Json, mode: &str) {
+        let call = {
+            let c = client.clone();
+            let method = method.to_owned();
+            tokio::spawn(async move { c.call_raw(&method, params, CallOptions::default()).await })
+        };
+        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        assert_eq!(req["method"], method);
+        let subscription = json!({ "id": "sub-1", "mode": mode, "epoch": "e1", "startSeq": 1 });
+        let result = if method == "system/ports/subscribe" { subscription } else { json!({ "subscription": subscription }) };
+        conn.server_send(&json!({ "id": req["id"], "result": result }));
+        call.await.unwrap().unwrap();
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn the_ports_feed_is_tracked_after_its_subscribe_and_its_frames_pass_through() {
+        let (client, _net, conn) = ready(None).await;
+        let mut events = client.events();
+        subscribe_to(&client, &conn, "system/ports/subscribe", json!({}), "snapshot").await;
+        conn.server_send(&json!({ "method": "feed/snapshot", "params": { "feedId": "ports", "state": { "sections": [] } }, "feed": { "id": "ports", "epoch": "e1", "seq": 0 } }));
+        let snapshot = next_notification(&mut events).await;
+        assert_eq!(snapshot.method, "feed/snapshot");
+        conn.server_send(&json!({ "method": "system/ports/updated", "params": { "section": "ports", "revision": 1, "value": [] }, "feed": { "id": "ports", "epoch": "e1", "seq": 1 } }));
+        let update = next_notification(&mut events).await;
+        assert_eq!(update.method, "system/ports/updated");
+        assert_eq!(update.feed.as_ref().unwrap().id.as_str(), "ports");
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_gap_in_a_scoped_feed_closes_the_socket() {
+        let (client, _net, conn) = ready(None).await;
+        subscribe_to(&client, &conn, "feed/subscribe", json!({ "feedId": "login:f1" }), "replay").await;
+        conn.server_send(&json!({ "method": "login/updated", "params": {}, "feed": { "id": "login:f1", "epoch": "e1", "seq": 5 } }));
+        until("socket closed", || conn.client_close().is_some()).await;
+        assert_eq!(conn.client_close(), Some(1002));
+    }
+
+    #[tokio::test(flavor = "current_thread")]
+    async fn a_frame_of_a_feed_nobody_subscribed_is_dropped() {
+        let (client, _net, conn) = ready(None).await;
+        let mut events = client.events();
+        conn.server_send(&json!({ "method": "login/updated", "params": {}, "feed": { "id": "login:f1", "epoch": "e1", "seq": 1 } }));
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn an_unsubscribe_ends_the_tracking_of_a_scoped_feed() {
+        let (client, _net, conn) = ready(None).await;
+        let mut events = client.events();
+        subscribe_to(&client, &conn, "feed/subscribe", json!({ "feedId": "login:f1" }), "snapshot").await;
+        conn.server_send(&json!({ "method": "login/updated", "params": { "n": 1 }, "feed": { "id": "login:f1", "epoch": "e1", "seq": 1 } }));
+        assert_eq!(next_notification(&mut events).await.method, "login/updated");
+        let unsubscribe = {
+            let c = client.clone();
+            tokio::spawn(async move { c.call_raw("feed/unsubscribe", json!({ "feedId": "login:f1" }), CallOptions::default()).await })
+        };
+        let req: Json = serde_json::from_str(&conn.next_sent().await).unwrap();
+        assert_eq!(req["method"], "feed/unsubscribe");
+        conn.server_send(&json!({ "id": req["id"], "result": {} }));
+        unsubscribe.await.unwrap().unwrap();
+        conn.server_send(&json!({ "method": "login/updated", "params": { "n": 2 }, "feed": { "id": "login:f1", "epoch": "e1", "seq": 2 } }));
+        for _ in 0..50 {
+            tokio::task::yield_now().await;
+        }
+        assert!(matches!(events.try_recv(), Err(broadcast::error::TryRecvError::Empty)));
+    }
+    #[tokio::test(flavor = "current_thread")]
+    async fn attach_now_ends_the_wait_of_the_ladder() {
+        let (client, net, conn) = ready(Some(Arc::new(Stalled))).await;
+        let mut status = client.inner.status.subscribe();
+        conn.server_close(1006, "gone");
+        status.wait_for(|s| matches!(s, ConnectionStatus::Reconnecting { .. })).await.unwrap();
+        assert_eq!(net.opened(), 1, "the stalled ladder has not dialled");
+        client.attacher().attach_now();
+        let next = tokio::time::timeout(std::time::Duration::from_secs(5), net.accept()).await.expect("the client dials at once");
+        let init: Json = serde_json::from_str(&next.next_sent().await).unwrap();
+        assert_eq!(init["method"], "initialize");
     }
 }

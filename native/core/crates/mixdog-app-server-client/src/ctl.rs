@@ -302,6 +302,132 @@ fn find_head_end(buf: &[u8]) -> Option<usize> {
     buf.windows(4).position(|w| w == b"\r\n\r\n")
 }
 
+impl Call {
+    /// `sessionTimeoutError(method, urlPath)`.
+    fn timed_out(&self) -> CtlError {
+        CtlError::Timeout { method: self.verb, path: self.path.clone() }
+    }
+
+    /// One connection operation under the inactivity bound (Node's socket `timeout`, reset by every byte moved).
+    async fn idle<T>(&self, op: impl Future<Output = std::io::Result<T>>) -> Result<T, CtlError> {
+        mixdog_rt::time::timeout(self.bound.inactivity, op).await.map_err(|_| self.timed_out())?.map_err(CtlError::Io)
+    }
+
+    /// `write_all` with the silence bound restarted by every write that moves bytes, as Node's socket timer is.
+    async fn write_all<W: AsyncWrite + Unpin>(&self, stream: &mut W, mut bytes: &[u8]) -> Result<(), CtlError> {
+        while !bytes.is_empty() {
+            let moved = self.idle(stream.write(bytes)).await?;
+            if moved == 0 {
+                return Err(CtlError::Io(std::io::ErrorKind::WriteZero.into()));
+            }
+            bytes = &bytes[moved..];
+        }
+        Ok(())
+    }
+}
+impl CtlClient {
+    pub fn new(endpoint: Endpoint) -> Self {
+        Self { endpoint }
+    }
+
+    /// Resolves the control listener from the discovery file at `path` (read now; build a new client after a core restart). A file
+    /// whose core `runs` says has ended (killed, or ended by `terminate`, without withdrawing it) names no core, as in Node's
+    /// `readSessionDiscovery`, which drops a file whose pid is not alive: the call answers that no core is running.
+    pub async fn from_discovery(path: &Path, runs: impl FnOnce(&Discovery) -> bool) -> Result<Self, CtlError> {
+        let discovery = Discovery::read(path)?;
+        if !runs(&discovery) {
+            return Err(DiscoveryError::Absent(path.to_path_buf()).into());
+        }
+        Ok(Self::new(discovery.control_endpoint()))
+    }
+
+    /// The core's own discovery file (`runtime_root()/daemon.json`).
+    pub async fn local(runs: impl FnOnce(&Discovery) -> bool) -> Result<Self, CtlError> {
+        Self::from_discovery(&crate::discovery::discovery_path(), runs).await
+    }
+
+    pub async fn status(&self) -> Result<CoreStatus, CtlError> {
+        self.request("GET", "status", None, PROBE).await
+    }
+
+    /// `hold{on}`: a client's `turn/start` and `turn/retryFailed` are refused and an in-core start waits, until the hold is released or its
+    /// default TTL lapses; a core with running work does not take the hold (the status says `hold: false`).
+    pub async fn hold(&self, on: bool) -> Result<CoreStatus, CtlError> {
+        self.post("hold", &HoldBody { on }).await
+    }
+
+    /// `stop`: commits the wind-down. Every command returns the state after it.
+    pub async fn stop(&self, mode: StopMode, reason: StopReason, confirm_token: Option<&str>) -> Result<CoreStatus, CtlError> {
+        self.post("stop", &StopBody { mode, reason, confirm_token, replacement: None }).await
+    }
+
+    /// [`CtlClient::stop`] for a replacement (`update`, `restart`, `fastDeploy`, `sshReplace`): the core refuses one that does not name
+    /// the build that replaces it.
+    pub async fn stop_replacing(
+        &self,
+        mode: StopMode,
+        reason: StopReason,
+        confirm_token: Option<&str>,
+        revision: &str,
+        version: &str,
+    ) -> Result<CoreStatus, CtlError> {
+        self.post("stop", &StopBody { mode, reason, confirm_token, replacement: Some(ReplacementBody { revision, version }) }).await
+    }
+
+    pub async fn cancel_drain(&self, drain_id: &str) -> Result<CoreStatus, CtlError> {
+        self.post("cancelDrain", &CancelDrainBody { drain_id }).await
+    }
+
+    /// The one decision on an `undecidable` prior owner; `confirm_token` is `status().blocked.confirm_token`.
+    pub async fn release(&self, pid: u32, confirm_token: &str) -> Result<CoreStatus, CtlError> {
+        self.post("release", &ReleaseBody { pid, confirm_token }).await
+    }
+
+    /// The user-authorized exit of a stalled core; `confirm_token` is `status().terminate_token`.
+    pub async fn terminate(&self, confirm_token: &str) -> Result<CoreStatus, CtlError> {
+        self.post("terminate", &TerminateBody { confirm_token }).await
+    }
+
+    async fn post<B: Serialize, R: DeserializeOwned>(&self, name: &str, body: &B) -> Result<R, CtlError> {
+        let body = serde_json::to_vec(body).map_err(|e| CtlError::BadReply(e.to_string()))?;
+        self.request("POST", name, Some(body), LIFECYCLE).await
+    }
+
+    /// Connects, sends the request and reads the reply; every step runs under the call's inactivity bound.
+    async fn exchange(&self, call: &Call, body: Option<Vec<u8>>) -> Result<Reply, CtlError> {
+        let mut stream = call.idle(TcpStream::connect(("127.0.0.1", self.endpoint.port))).await?;
+        let body = body.unwrap_or_default();
+        let mut head = format!(
+            "{} {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nConnection: close\r\n",
+            call.verb, call.path, self.endpoint.port, self.endpoint.token
+        );
+        if call.verb == "POST" {
+            head.push_str(&format!("Content-Type: application/json\r\nContent-Length: {}\r\n", body.len()));
+        }
+        head.push_str("\r\n");
+        call.write_all(&mut stream, head.as_bytes()).await?;
+        call.write_all(&mut stream, &body).await?;
+        call.idle(stream.flush()).await?;
+        read_reply(call, &mut stream).await
+    }
+
+    async fn request<R: DeserializeOwned>(&self, verb: &'static str, name: &str, body: Option<Vec<u8>>, bound: Bound) -> Result<R, CtlError> {
+        let call = Call { verb, path: format!("/mgmt/{name}"), bound };
+        let reply = match bound.total {
+            Some(total) => mixdog_rt::time::timeout(total, self.exchange(&call, body)).await.map_err(|_| call.timed_out())??,
+            None => self.exchange(&call, body).await?,
+        };
+        match reply.status {
+            200..=299 => serde_json::from_slice(&reply.body).map_err(|e| CtlError::BadReply(format!("body: {e}"))),
+            401 => Err(CtlError::Unauthorized),
+            status => {
+                let refusal: RefusalBody = serde_json::from_slice(&reply.body).map_err(|e| CtlError::BadReply(format!("{status} body: {e}")))?;
+                Err(CtlError::Refused { status, code: refusal.code, message: refusal.message })
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use serde_json::json;
@@ -627,131 +753,5 @@ mod tests {
         let err = call.write_all(&mut near, &[7u8; 64]).await.unwrap_err();
         assert_eq!(err.to_string(), "session timeout: POST /mgmt/stop");
         assert_eq!(stalled.elapsed(), silence);
-    }
-}
-
-impl Call {
-    /// `sessionTimeoutError(method, urlPath)`.
-    fn timed_out(&self) -> CtlError {
-        CtlError::Timeout { method: self.verb, path: self.path.clone() }
-    }
-
-    /// One connection operation under the inactivity bound (Node's socket `timeout`, reset by every byte moved).
-    async fn idle<T>(&self, op: impl Future<Output = std::io::Result<T>>) -> Result<T, CtlError> {
-        mixdog_rt::time::timeout(self.bound.inactivity, op).await.map_err(|_| self.timed_out())?.map_err(CtlError::Io)
-    }
-
-    /// `write_all` with the silence bound restarted by every write that moves bytes, as Node's socket timer is.
-    async fn write_all<W: AsyncWrite + Unpin>(&self, stream: &mut W, mut bytes: &[u8]) -> Result<(), CtlError> {
-        while !bytes.is_empty() {
-            let moved = self.idle(stream.write(bytes)).await?;
-            if moved == 0 {
-                return Err(CtlError::Io(std::io::ErrorKind::WriteZero.into()));
-            }
-            bytes = &bytes[moved..];
-        }
-        Ok(())
-    }
-}
-impl CtlClient {
-    pub fn new(endpoint: Endpoint) -> Self {
-        Self { endpoint }
-    }
-
-    /// Resolves the control listener from the discovery file at `path` (read now; build a new client after a core restart). A file
-    /// whose core `runs` says has ended (killed, or ended by `terminate`, without withdrawing it) names no core, as in Node's
-    /// `readSessionDiscovery`, which drops a file whose pid is not alive: the call answers that no core is running.
-    pub async fn from_discovery(path: &Path, runs: impl FnOnce(&Discovery) -> bool) -> Result<Self, CtlError> {
-        let discovery = Discovery::read(path)?;
-        if !runs(&discovery) {
-            return Err(DiscoveryError::Absent(path.to_path_buf()).into());
-        }
-        Ok(Self::new(discovery.control_endpoint()))
-    }
-
-    /// The core's own discovery file (`runtime_root()/daemon.json`).
-    pub async fn local(runs: impl FnOnce(&Discovery) -> bool) -> Result<Self, CtlError> {
-        Self::from_discovery(&crate::discovery::discovery_path(), runs).await
-    }
-
-    pub async fn status(&self) -> Result<CoreStatus, CtlError> {
-        self.request("GET", "status", None, PROBE).await
-    }
-
-    /// `hold{on}`: a client's `turn/start` and `turn/retryFailed` are refused and an in-core start waits, until the hold is released or its
-    /// default TTL lapses; a core with running work does not take the hold (the status says `hold: false`).
-    pub async fn hold(&self, on: bool) -> Result<CoreStatus, CtlError> {
-        self.post("hold", &HoldBody { on }).await
-    }
-
-    /// `stop`: commits the wind-down. Every command returns the state after it.
-    pub async fn stop(&self, mode: StopMode, reason: StopReason, confirm_token: Option<&str>) -> Result<CoreStatus, CtlError> {
-        self.post("stop", &StopBody { mode, reason, confirm_token, replacement: None }).await
-    }
-
-    /// [`CtlClient::stop`] for a replacement (`update`, `restart`, `fastDeploy`, `sshReplace`): the core refuses one that does not name
-    /// the build that replaces it.
-    pub async fn stop_replacing(
-        &self,
-        mode: StopMode,
-        reason: StopReason,
-        confirm_token: Option<&str>,
-        revision: &str,
-        version: &str,
-    ) -> Result<CoreStatus, CtlError> {
-        self.post("stop", &StopBody { mode, reason, confirm_token, replacement: Some(ReplacementBody { revision, version }) }).await
-    }
-
-    pub async fn cancel_drain(&self, drain_id: &str) -> Result<CoreStatus, CtlError> {
-        self.post("cancelDrain", &CancelDrainBody { drain_id }).await
-    }
-
-    /// The one decision on an `undecidable` prior owner; `confirm_token` is `status().blocked.confirm_token`.
-    pub async fn release(&self, pid: u32, confirm_token: &str) -> Result<CoreStatus, CtlError> {
-        self.post("release", &ReleaseBody { pid, confirm_token }).await
-    }
-
-    /// The user-authorized exit of a stalled core; `confirm_token` is `status().terminate_token`.
-    pub async fn terminate(&self, confirm_token: &str) -> Result<CoreStatus, CtlError> {
-        self.post("terminate", &TerminateBody { confirm_token }).await
-    }
-
-    async fn post<B: Serialize, R: DeserializeOwned>(&self, name: &str, body: &B) -> Result<R, CtlError> {
-        let body = serde_json::to_vec(body).map_err(|e| CtlError::BadReply(e.to_string()))?;
-        self.request("POST", name, Some(body), LIFECYCLE).await
-    }
-
-    /// Connects, sends the request and reads the reply; every step runs under the call's inactivity bound.
-    async fn exchange(&self, call: &Call, body: Option<Vec<u8>>) -> Result<Reply, CtlError> {
-        let mut stream = call.idle(TcpStream::connect(("127.0.0.1", self.endpoint.port))).await?;
-        let body = body.unwrap_or_default();
-        let mut head = format!(
-            "{} {} HTTP/1.1\r\nHost: 127.0.0.1:{}\r\nAuthorization: Bearer {}\r\nConnection: close\r\n",
-            call.verb, call.path, self.endpoint.port, self.endpoint.token
-        );
-        if call.verb == "POST" {
-            head.push_str(&format!("Content-Type: application/json\r\nContent-Length: {}\r\n", body.len()));
-        }
-        head.push_str("\r\n");
-        call.write_all(&mut stream, head.as_bytes()).await?;
-        call.write_all(&mut stream, &body).await?;
-        call.idle(stream.flush()).await?;
-        read_reply(call, &mut stream).await
-    }
-
-    async fn request<R: DeserializeOwned>(&self, verb: &'static str, name: &str, body: Option<Vec<u8>>, bound: Bound) -> Result<R, CtlError> {
-        let call = Call { verb, path: format!("/mgmt/{name}"), bound };
-        let reply = match bound.total {
-            Some(total) => mixdog_rt::time::timeout(total, self.exchange(&call, body)).await.map_err(|_| call.timed_out())??,
-            None => self.exchange(&call, body).await?,
-        };
-        match reply.status {
-            200..=299 => serde_json::from_slice(&reply.body).map_err(|e| CtlError::BadReply(format!("body: {e}"))),
-            401 => Err(CtlError::Unauthorized),
-            status => {
-                let refusal: RefusalBody = serde_json::from_slice(&reply.body).map_err(|e| CtlError::BadReply(format!("{status} body: {e}")))?;
-                Err(CtlError::Refused { status, code: refusal.code, message: refusal.message })
-            }
-        }
     }
 }

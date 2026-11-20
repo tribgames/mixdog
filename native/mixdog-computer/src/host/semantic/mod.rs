@@ -332,20 +332,9 @@ impl Host {
         let mut offset = 0usize;
         let mut continuation_total = None;
         if let Some(token) = req.str("continuation") {
-            let parts: Vec<&str> = token.split(':').collect();
-            let parsed = (parts.len() == 4).then(|| (parts[0].parse::<i64>().ok(), parts[1].parse::<usize>().ok(), parts[3].parse::<usize>().ok()));
-            let valid = matches!(parsed, Some((Some(token_generation), Some(token_offset), Some(token_total)))
-                if token_generation == generation - 1
-                    && token_offset <= token_total
-                    && expected_continuation.as_deref() == Some(token.as_str())
-                    && parts[2] == fingerprint);
-            if !valid {
-                return Err("continuation is stale or incompatible; capture the first page again".into());
-            }
-            if let Some((_, Some(token_offset), Some(token_total))) = parsed {
-                offset = token_offset;
-                continuation_total = Some(token_total);
-            }
+            let (token_offset, token_total) = parse_continuation(&token, generation, expected_continuation.as_deref(), &fingerprint)?;
+            offset = token_offset;
+            continuation_total = Some(token_total);
         }
         let find_started = now_ms();
         let mut nodes = a11y.snapshot(&info, include_noninteractive, CANDIDATE_LIMIT + 1)?;
@@ -450,6 +439,20 @@ impl Host {
                 "total_ms": now_ms() - started,
             }),
         })
+    }
+}
+
+/// The `(offset, total)` of a continuation token that this session issued for this exact request.
+fn parse_continuation(token: &str, generation: i64, expected: Option<&str>, fingerprint: &str) -> Res<(usize, usize)> {
+    let parts: Vec<&str> = token.split(':').collect();
+    let parsed = (parts.len() == 4).then(|| (parts[0].parse::<i64>().ok(), parts[1].parse::<usize>().ok(), parts[3].parse::<usize>().ok()));
+    match parsed {
+        Some((Some(token_generation), Some(offset), Some(total)))
+            if token_generation == generation - 1 && offset <= total && expected == Some(token) && parts[2] == fingerprint =>
+        {
+            Ok((offset, total))
+        }
+        _ => Err("continuation is stale or incompatible; capture the first page again".into()),
     }
 }
 

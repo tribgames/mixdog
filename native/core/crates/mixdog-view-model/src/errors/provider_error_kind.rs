@@ -395,10 +395,10 @@ fn code_fields(item: Js) -> (Vec<&'static str>, Vec<Js>) {
 /// The typed code of an error: the gateway's canonical one, else the first native code, trimmed and lower-cased.
 pub fn typed_error_code(err: Js) -> String {
     let detail = wire_detail(err);
-    if is_object(err) {
-        if let Some(canonical) = code_fields(err).0.first() {
-            return (*canonical).to_owned();
-        }
+    if is_object(err)
+        && let Some(canonical) = code_fields(err).0.first()
+    {
+        return (*canonical).to_owned();
     }
     for field in [get(detail, "code"), get(detail, "type"), get(err, "providerErrorCode"), get(err, "code"), path(err, &["error", "code"])] {
         if let Some(text) = str_of(field).map(js_trim).filter(|text| !text.is_empty()) {

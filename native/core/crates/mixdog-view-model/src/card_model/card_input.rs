@@ -68,8 +68,7 @@ fn trim_trailing(value: Option<&Value>) -> Option<String> {
 pub fn read_card_input<'a>(input: &Value, name: &str, args: Value, options: &CardOptions<'a>) -> CardBase<'a> {
     let default_truncate: Truncate<'a> = &clip_plain;
     let truncate = options.truncate.unwrap_or(default_truncate);
-    let max_result_chars =
-        options.max_result_chars.map_or(RESULT_LINE_HARD_MAX as f64, |chars| chars).min(RESULT_LINE_HARD_MAX as f64).max(MIN_RESULT_LINE_CHARS as f64);
+    let max_result_chars = options.max_result_chars.unwrap_or(RESULT_LINE_HARD_MAX as f64).min(RESULT_LINE_HARD_MAX as f64).max(MIN_RESULT_LINE_CHARS as f64);
     let result = field(input, "result");
     let result_absent = result.is_none_or(Value::is_null);
     let group_count = number_or(field(input, "count"), 1.0).max(1.0);

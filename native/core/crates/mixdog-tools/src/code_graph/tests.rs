@@ -669,7 +669,6 @@ fn the_argument_guard_answers_with_the_texts_of_the_argument_guard() {
     assert_eq!(one, serde_json::json!({"mode": "symbols", "file": "a"}));
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // File versions: what a record stands for is the digest of the bytes it was parsed from.
 
 /// A rewrite that keeps the size and the modification time, as an outside writer within the clock's granularity would.
@@ -814,7 +813,6 @@ fn a_hint_before_the_root_is_registered_is_kept_for_it() {
     assert_eq!(view(&fresh.graph(&root, &[]).unwrap()), (vec!["q".to_owned()], "export function q() { return h(); }\n".to_owned(), vec!["h".to_owned()]));
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Unstable input: one observation per file.
 
 fn grow_while_read(path: std::path::PathBuf, always: bool) {
@@ -875,7 +873,6 @@ fn a_file_that_could_not_be_verified_is_never_answered_as_absent() {
     assert!(!outline.complete);
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Memory: nothing is left out for size; retention is the held budget's to decide; tokens follow what is live.
 
 #[test]
@@ -910,7 +907,6 @@ fn replaced_tokens_are_released_once_old_readers_are_gone() {
     assert!(live.iter().any(|w| w == "new_only_token_zqx"));
 }
 
-// ---------------------------------------------------------------------------------------------------------------------
 // Timing: one row per call, attributed per call.
 
 struct Capture(std::sync::Arc<std::sync::Mutex<Vec<std::collections::BTreeMap<String, String>>>>);

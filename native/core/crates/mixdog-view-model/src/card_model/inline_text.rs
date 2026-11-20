@@ -72,7 +72,7 @@ pub fn normalize_count_map(value: &Value) -> Value {
                 Value::Array(items) => items.iter().enumerate().map(|(at, item)| (at.to_string(), item.clone())).collect(),
                 _ => Map::new(),
             };
-            let count = raw.get("count").map_or(0.0, |count| normalize_count(count));
+            let count = raw.get("count").map_or(0.0, normalize_count);
             copy.insert("count".to_owned(), json_number(count));
             out.insert(key, Value::Object(copy));
         } else {

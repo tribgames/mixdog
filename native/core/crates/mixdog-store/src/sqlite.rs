@@ -1556,81 +1556,11 @@ fn apply_frame(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, budg
             }
         }
         FrameKind::Rewind { to_ordinal } => {
-            let to = *to_ordinal as i64;
-            // The smallest unit of progress is one version (three writes): a budget below
-            // that is raised, so a tiny budget still advances.
-            let mut left = budget.saturating_sub(1).max(3);
-            used = 1;
-            // Prompts first: each superseded occurrence moves its key to the newest live
-            // one (two rows per occurrence).
-            let keys: Vec<String> = tx
-                .prepare_cached(
-                    "UPDATE prompt_occurrences SET superseded_rev = ?3 WHERE session = ?1 AND ordinal IN
-                     (SELECT ordinal FROM prompt_occurrences WHERE session = ?1 AND ordinal >= ?2 AND ordinal < ?3
-                      AND superseded_rev IS NULL LIMIT ?4) RETURNING key",
-                )?
-                .query_map(params![session, to, ordinal, (left / 2) as i64], |r| r.get(0))?
-                .collect::<Result<_, _>>()?;
-            for key in &keys {
-                refresh_prompt(tx, session, key)?;
+            let (rewound, complete) = apply_rewind(tx, session, *to_ordinal as i64, ordinal, budget)?;
+            if !complete {
+                return Ok((rewound, false));
             }
-            left -= 2 * keys.len();
-            used += 2 * keys.len();
-            if left < 2 {
-                return Ok((used, false));
-            }
-            for table in ["history", "amends", "compactions"] {
-                let sql = format!(
-                    "UPDATE {table} SET superseded_rev = ?3 WHERE session = ?1 AND ordinal IN
-                     (SELECT ordinal FROM {table} WHERE session = ?1 AND ordinal >= ?2 AND ordinal < ?3
-                      AND superseded_rev IS NULL LIMIT ?4)"
-                );
-                let n = tx.prepare_cached(&sql)?.execute(params![session, to, ordinal, left as i64])?;
-                left -= n;
-                used += n;
-                if left == 0 {
-                    return Ok((used, false));
-                }
-            }
-            let (n, complete) = crate::message_index::rewind(tx, session, to, ordinal, left)?;
-            debug_assert!(n <= left, "rewind wrote {n} rows with {left} left");
-            left = left.saturating_sub(n);
-            used += n;
-            if !complete || left == 0 {
-                return Ok((used, false));
-            }
-            let n = tx
-                .prepare_cached(
-                    "UPDATE turns SET superseded_rev = ?3 WHERE session = ?1 AND rid IN
-                     (SELECT rid FROM turns WHERE session = ?1 AND started_ordinal >= ?2
-                      AND started_ordinal < ?3 AND superseded_rev IS NULL LIMIT ?4)",
-                )?
-                .execute(params![session, to, ordinal, left as i64])?;
-            left -= n;
-            used += n;
-            // Surviving items whose live amend was superseded fall back to the newest live one.
-            let n = tx
-                .prepare_cached(
-                    "UPDATE history SET amend_ordinal = (SELECT max(a.ordinal) FROM amends a
-                       WHERE a.session = history.session AND a.target_ordinal = history.ordinal
-                       AND a.superseded_rev IS NULL)
-                     WHERE session = ?1 AND ordinal IN (SELECT ordinal FROM history WHERE session = ?1
-                       AND ordinal < ?2 AND amend_ordinal >= ?2 AND superseded_rev IS NULL LIMIT ?3)",
-                )?
-                .execute(params![session, to, left as i64])?;
-            left -= n;
-            used += n;
-            let n = tx
-                .prepare_cached(
-                    "DELETE FROM approvals WHERE session = ?1 AND aid IN (SELECT aid FROM approvals
-                     WHERE session = ?1 AND ordinal >= ?2 LIMIT ?3)",
-                )?
-                .execute(params![session, to, left as i64])?;
-            left -= n;
-            used += n;
-            if left == 0 {
-                return Ok((used, false));
-            }
+            used = rewound;
         }
         FrameKind::Compacted { cid, at, rows, mode, dropped, silent } => {
             // The divider sits at the compaction's own record (`archive_index::divider_place`).
@@ -1726,6 +1656,83 @@ fn apply_frame(tx: &Transaction<'_>, session: &str, frame: &ProjectedFrame, budg
     )?
     .execute(params![session, file_no, offset + len, ordinal + 1, frame.history_rev as i64, frame.rows as i64, frame.visible_rows as i64])?;
     Ok((used, true))
+}
+
+/// Supersedes what the rewind frame at `ordinal` takes back down to `to`, within `budget` rows of writes (raised to a
+/// small floor so every call makes progress); the flag is whether it all fit.
+fn apply_rewind(tx: &Transaction<'_>, session: &str, to: i64, ordinal: i64, budget: usize) -> rusqlite::Result<(usize, bool)> {
+    // The smallest unit of progress is one version (three writes): a budget below
+    // that is raised, so a tiny budget still advances.
+    let mut left = budget.saturating_sub(1).max(3);
+    let mut used = 1;
+    // Prompts first: each superseded occurrence moves its key to the newest live
+    // one (two rows per occurrence).
+    let keys: Vec<String> = tx
+        .prepare_cached(
+            "UPDATE prompt_occurrences SET superseded_rev = ?3 WHERE session = ?1 AND ordinal IN
+             (SELECT ordinal FROM prompt_occurrences WHERE session = ?1 AND ordinal >= ?2 AND ordinal < ?3
+              AND superseded_rev IS NULL LIMIT ?4) RETURNING key",
+        )?
+        .query_map(params![session, to, ordinal, (left / 2) as i64], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    for key in &keys {
+        refresh_prompt(tx, session, key)?;
+    }
+    left -= 2 * keys.len();
+    used += 2 * keys.len();
+    if left < 2 {
+        return Ok((used, false));
+    }
+    for table in ["history", "amends", "compactions"] {
+        let sql = format!(
+            "UPDATE {table} SET superseded_rev = ?3 WHERE session = ?1 AND ordinal IN
+             (SELECT ordinal FROM {table} WHERE session = ?1 AND ordinal >= ?2 AND ordinal < ?3
+              AND superseded_rev IS NULL LIMIT ?4)"
+        );
+        let n = tx.prepare_cached(&sql)?.execute(params![session, to, ordinal, left as i64])?;
+        left -= n;
+        used += n;
+        if left == 0 {
+            return Ok((used, false));
+        }
+    }
+    let (n, complete) = crate::message_index::rewind(tx, session, to, ordinal, left)?;
+    debug_assert!(n <= left, "rewind wrote {n} rows with {left} left");
+    left = left.saturating_sub(n);
+    used += n;
+    if !complete || left == 0 {
+        return Ok((used, false));
+    }
+    let n = tx
+        .prepare_cached(
+            "UPDATE turns SET superseded_rev = ?3 WHERE session = ?1 AND rid IN
+             (SELECT rid FROM turns WHERE session = ?1 AND started_ordinal >= ?2
+              AND started_ordinal < ?3 AND superseded_rev IS NULL LIMIT ?4)",
+        )?
+        .execute(params![session, to, ordinal, left as i64])?;
+    left -= n;
+    used += n;
+    // Surviving items whose live amend was superseded fall back to the newest live one.
+    let n = tx
+        .prepare_cached(
+            "UPDATE history SET amend_ordinal = (SELECT max(a.ordinal) FROM amends a
+               WHERE a.session = history.session AND a.target_ordinal = history.ordinal
+               AND a.superseded_rev IS NULL)
+             WHERE session = ?1 AND ordinal IN (SELECT ordinal FROM history WHERE session = ?1
+               AND ordinal < ?2 AND amend_ordinal >= ?2 AND superseded_rev IS NULL LIMIT ?3)",
+        )?
+        .execute(params![session, to, left as i64])?;
+    left -= n;
+    used += n;
+    let n = tx
+        .prepare_cached(
+            "DELETE FROM approvals WHERE session = ?1 AND aid IN (SELECT aid FROM approvals
+             WHERE session = ?1 AND ordinal >= ?2 LIMIT ?3)",
+        )?
+        .execute(params![session, to, left as i64])?;
+    left -= n;
+    used += n;
+    Ok((used, left != 0))
 }
 
 /// Points `key`'s prompt-history row at its newest live occurrence, or removes it.

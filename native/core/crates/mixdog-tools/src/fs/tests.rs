@@ -600,7 +600,6 @@ impl StatControl {
     }
 }
 
-// ---------------------------------------------------------------------------
 // One broad search at a time (`search-admission-*`, `record-tools-fs-search.mjs` `recordAdmission`)
 
 /// The local file service, whose walks ignore the caller's name rule: they enter every folder, as an unpruned walk does.

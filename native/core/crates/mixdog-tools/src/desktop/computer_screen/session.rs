@@ -131,7 +131,6 @@ fn utf16_prefix(text: &str, units: usize) -> String {
     text[..end].to_string()
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // Geometry (screen-geometry.ts)
 
 /// A rectangle in physical desktop pixels of the virtual screen.
@@ -282,7 +281,6 @@ fn screen_frame_region(frame: &HelperFrame, mapping: &PointerMapping) -> Result<
     }))
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // Input mapping (screen-input-dispatch.ts)
 
 fn button_of(name: &str) -> Option<PointerButton> {
@@ -339,7 +337,6 @@ fn screen_input_commands(input: &Value, mapping: Option<&PointerMapping>, genera
     }
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // Dependencies
 
 /// A command for the input host: an input, or the cursor read-back.
@@ -567,7 +564,6 @@ pub(super) struct SessionDeps {
     pub shutdown_deadline_ms: Option<u64>,
 }
 
-// ---------------------------------------------------------------------------------------------------------------
 // The session
 
 #[derive(Clone, Copy, PartialEq, Eq)]

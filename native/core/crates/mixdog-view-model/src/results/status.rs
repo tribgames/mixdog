@@ -241,7 +241,7 @@ pub fn assign_ui_diff_from_message(target: &mut Value, source: &Value) {
 /// (the first line, or one after a blank line); only a member whose tool is `read` is renumbered. It runs at display time, so
 /// an aggregate that is never expanded is never rebuilt.
 pub fn aggregate_raw_result_for_display(text: &str) -> String {
-    fn flush<'a>(member: &mut Vec<&'a str>, in_read: bool, out: &mut Vec<String>) {
+    fn flush(member: &mut Vec<&str>, in_read: bool, out: &mut Vec<String>) {
         if member.is_empty() {
             return;
         }
@@ -392,14 +392,14 @@ fn aggregate_summaries_steps(aggregate_calls: &[Value], yield_point: &mut impl F
         if !truthy(field(record, "summary")) {
             continue;
         }
-        if with_summary.last().is_some_and(|last| sequence(record) < sequence(*last)) {
+        if with_summary.last().is_some_and(|last| sequence(record) < sequence(last)) {
             ordered = false;
         }
         with_summary.push(record);
     }
     // Out of order (only a live card's calls are): one sort, not divisible.
     if !ordered {
-        js_sort_by(&mut with_summary, |a, b| sequence(*a) - sequence(*b));
+        js_sort_by(&mut with_summary, |a, b| sequence(a) - sequence(b));
     }
     with_summary.iter().map(|record| text_of(field(record, "summary"))).collect()
 }

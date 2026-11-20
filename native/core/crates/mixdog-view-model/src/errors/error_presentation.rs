@@ -320,11 +320,11 @@ fn classify(value: Js, raw: &str, clean: &str, status: f64, code: &str, now_ms: 
         descriptor = Some(provider_error_kind(Some(&error), &options));
     }
     let mut descriptor = descriptor.unwrap_or_else(KindDescriptor::unknown);
-    if descriptor.kind == "unknown" {
-        if let Some(legacy) = legacy_kind(clean) {
-            descriptor.kind = legacy;
-            return (descriptor, false);
-        }
+    if descriptor.kind == "unknown"
+        && let Some(legacy) = legacy_kind(clean)
+    {
+        descriptor.kind = legacy;
+        return (descriptor, false);
     }
     (descriptor, typed)
 }
@@ -452,12 +452,12 @@ pub fn describe_error(value: Js, now_ms: Option<f64>) -> Presentation {
                 recovery_template = "Try again in {{wait}}.".into();
                 params = Some(json!({ "wait": wait_label(wait) }));
             }
-        } else if descriptor.kind == "quota_exhausted" {
-            if let Some(reset) = reset_at {
-                recovery = format!("It resets at {}. Switch accounts or providers to continue now.", reset_label(reset, now_ms));
-                recovery_template = "It resets at {{time}}. Switch accounts or providers to continue now.".into();
-                params = Some(json!({ "time": reset_label(reset, now_ms) }));
-            }
+        } else if descriptor.kind == "quota_exhausted"
+            && let Some(reset) = reset_at
+        {
+            recovery = format!("It resets at {}. Switch accounts or providers to continue now.", reset_label(reset, now_ms));
+            recovery_template = "It resets at {{time}}. Switch accounts or providers to continue now.".into();
+            params = Some(json!({ "time": reset_label(reset, now_ms) }));
         }
     } else if let Some(transport) = transport {
         set(("connection", transport.strip_suffix('.').unwrap_or(&transport), "Check the connection, then try again."));
