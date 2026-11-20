@@ -162,18 +162,21 @@ async fn leader_exited(child: &mut Child) -> bool {
     // Registered before the first look, so an exit between a look and the wait still wakes it.
     let mut exits = tokio::signal::unix::signal(tokio::signal::unix::SignalKind::child()).ok();
     loop {
-        // SAFETY: an all-zero `siginfo_t` is a valid value of the plain C struct.
-        let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
-        // SAFETY: `info` is a valid out-parameter; `WNOWAIT` leaves the child waitable, `WNOHANG` returns at once.
-        let looked = unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOHANG | libc::WNOWAIT) };
-        if looked != 0 {
-            if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
-                continue;
+        // `siginfo_t` is not Send: finish inspecting it before waiting for the next signal.
+        {
+            // SAFETY: an all-zero `siginfo_t` is a valid value of the plain C struct.
+            let mut info: libc::siginfo_t = unsafe { std::mem::zeroed() };
+            // SAFETY: `info` is a valid out-parameter; `WNOWAIT` leaves the child waitable, `WNOHANG` returns at once.
+            let looked = unsafe { libc::waitid(libc::P_PID, pid as libc::id_t, &mut info, libc::WEXITED | libc::WNOHANG | libc::WNOWAIT) };
+            if looked != 0 {
+                if std::io::Error::last_os_error().raw_os_error() == Some(libc::EINTR) {
+                    continue;
+                }
+                return false;
             }
-            return false;
-        }
-        if info.si_signo == libc::SIGCHLD {
-            return true;
+            if info.si_signo == libc::SIGCHLD {
+                return true;
+            }
         }
         // Without the signal (not registered, or its stream ended) the next look comes after a short pause.
         let woke = match exits.as_mut() {
@@ -788,7 +791,7 @@ mod tests {
     #[tokio::test(flavor = "multi_thread")]
     async fn the_tree_is_ended_while_its_exited_leader_is_unreaped() {
         let mut command = Command::new("sh");
-        command.args(["-c", "sleep 100 & echo $!; exit 0"]);
+        command.args(["-c", "sleep 100 & echo $!; read release; exit 0"]);
         let Ok((mut child, containment)) = spawn_contained(command, "leader", std::process::Stdio::piped()) else {
             panic!("the start failed");
         };
@@ -797,7 +800,14 @@ mod tests {
         stdout.read_line(&mut line).await.unwrap();
         let grandchild: i32 = line.trim().parse().expect("the grandchild's pid");
         let leader = child.id().unwrap() as i32;
-        assert!(mixdog_rt::time::timeout(Duration::from_secs(30), leader_exited(&mut child)).await.expect("the leader exits in 30 s"));
+        let mut stdin = child.stdin.take().unwrap();
+        {
+            let exited = leader_exited(&mut child);
+            tokio::pin!(exited);
+            assert!(futures::poll!(&mut exited).is_pending(), "the running leader is not reported as exited");
+            stdin.write_all(b"\n").await.unwrap();
+            assert!(mixdog_rt::time::timeout(Duration::from_secs(30), exited).await.expect("the leader exits in 30 s"));
+        }
         // SAFETY: signal 0 only asks whether the process exists.
         assert_eq!(unsafe { libc::kill(leader, 0) }, 0, "the exited leader is not reaped yet");
         containment.terminate();
