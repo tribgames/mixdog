@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
 import { beginReceipt, childrenOf, finishReceipt, receiptPath } from '../../../scripts/ci/receipt.mjs';
+import { DEFAULT_TEST_TIMEOUT_MS, LONG_TEST_TIMEOUT_MS, testTimeoutArg } from '../../../scripts/lib/run-node-tests.mjs';
 
 const reporterUrl = (receipt) => {
   const url = pathToFileURL(join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', 'scripts', 'ci', 'skip-reporter.mjs'));
@@ -44,7 +45,11 @@ if (process.argv[1] && fileURLToPath(import.meta.url) === process.argv[1]) {
     beginReceipt(receipt, 'node');
     env.MIXDOG_CHILD_RECEIPTS = childrenOf(receipt);
   }
-  const run = spawnSync(process.execPath, ['--import', 'tsx', ...reporting, '--test', ...files], { cwd: ROOT, stdio: 'inherit', env });
+  // As scripts/test.mjs: a handle left open no longer keeps a finished file alive, and a file that never finishes fails.
+  const nodeArgs = ['--test-force-exit'];
+  const timeout = testTimeoutArg(nodeArgs, env, process.argv[2] === 'unit' ? DEFAULT_TEST_TIMEOUT_MS : LONG_TEST_TIMEOUT_MS);
+  if (timeout) nodeArgs.push(timeout);
+  const run = spawnSync(process.execPath, ['--import', 'tsx', ...reporting, '--test', ...nodeArgs, ...files], { cwd: ROOT, stdio: 'inherit', env });
   const status = run.status ?? 1;
   if (receipt) finishReceipt(receipt, status);
   process.exit(status);

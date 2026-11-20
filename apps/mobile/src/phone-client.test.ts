@@ -426,19 +426,27 @@ test('a fatal transport error closes the socket without a status code a browser 
   });
   await Promise.all([phone.client.resumeThread('t1', { lastItems: 50 }), served]);
   const closed: unknown[][] = [];
+  let firstClose!: () => void;
+  const closedOnce = new Promise<void>((resolve) => {
+    firstClose = resolve;
+  });
   // A browser WebSocket: close(1002) throws and leaves the socket open.
   far.ws.close = (...args: unknown[]) => {
     closed.push(args);
+    firstClose();
     if (args[0] === 1002) throw new Error('InvalidAccessError');
   };
   far.ws.send = () => {
     throw new Error('send failed');
   };
-  void phone.client.call('thread/list', {}).catch(() => undefined);
-  await settle();
-  assert.ok(closed.length > 0, 'the socket was closed');
-  assert.deepEqual(closed[0], [], 'closed without a code');
-  await phone.client.close();
+  try {
+    void phone.client.call('thread/list', {}).catch(() => undefined);
+    // Sealing the frame runs on the crypto thread pool, so its failure lands after a time no tick count bounds.
+    await closedOnce;
+    assert.deepEqual(closed[0], [], 'closed without a code');
+  } finally {
+    await phone.client.close();
+  }
 });
 
 test('a relay frame-too-large notice reaches the page with its size and ceiling', async () => {
