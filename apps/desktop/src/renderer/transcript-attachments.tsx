@@ -365,7 +365,7 @@ function SentImageCard({
 
 // Chip for an `[Image: …]` / `[Image source: …]` metadata line: the file name
 // from its source path and its dimensions.
-export function imageMetaChip(meta: string, line: string): ImageMarkerChip {
+function imageMetaChip(meta: string, line: string): ImageMarkerChip {
   // A visualize pin's crop (`[Image: visualize pin N · label, WxH]`): named
   // like its composer card (number · label; history written before the emoji went still reads this way). Restored history has no crop thumbnail to show.
   const pin = /^visualize pin (\d+) · (.+), (\d+)x(\d+)$/.exec(meta);

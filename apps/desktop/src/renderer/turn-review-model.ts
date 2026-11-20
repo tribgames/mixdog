@@ -293,7 +293,7 @@ const READ_ONLY_CATEGORIES = new Set([
   'Browser',
 ]);
 
-export function toolMayChangeFiles(item: TranscriptItem): boolean {
+function toolMayChangeFiles(item: TranscriptItem): boolean {
   const keys = item.categories && typeof item.categories === 'object' ? Object.keys(item.categories) : [];
   // A grouped card keys its categories as `Patch|Editing|Edited|file|files`.
   const categories = keys.length

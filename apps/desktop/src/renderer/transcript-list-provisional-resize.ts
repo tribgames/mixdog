@@ -57,8 +57,7 @@ export function useProvisionalRowResize({
       // while a learned estimate can be far off (a shape median). Held at
       // that estimate, the end pin moved every row above it by the error for
       // the frames until the parse landed, then back: opening a chat painted
-      // its upper rows 40px high, then dropped them (user: 들어갈 때 위로
-      // 튀었다가 내려온다). Only a streaming reply's fallback is transient.
+      // its upper rows 40px high, then dropped them. Only a streaming reply's fallback is transient.
       if (
         element &&
         held !== undefined &&

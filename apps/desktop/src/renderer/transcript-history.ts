@@ -9,7 +9,7 @@ export const TRANSCRIPT_WINDOW_MAX_ITEMS = 2_048;
 /** …and the most serialized characters (about bytes) they may total. */
 export const TRANSCRIPT_WINDOW_MAX_CHARS = 16 * 1024 * 1024;
 /** Byte budget of one historical-position page. */
-export const TRANSCRIPT_HISTORY_PAGE_BYTES = 1_000_000;
+const TRANSCRIPT_HISTORY_PAGE_BYTES = 1_000_000;
 
 type HistoryItem = { readonly id?: unknown };
 

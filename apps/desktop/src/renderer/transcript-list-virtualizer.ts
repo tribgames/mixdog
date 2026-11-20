@@ -126,7 +126,7 @@ export function useTranscriptVirtualizer({
     // unpositioned. The web browser renderer uses this path too: React-owned
     // positions there moved scrollTop synchronously while rows kept their
     // stale top until the async rerender, so every row measurement painted
-    // one shifted frame (user: 웹앱에서 트랜스크립트가 튄다).
+    // one shifted frame in the web app.
     directDomUpdates: true,
     // A range change seen in a scroll event re-renders the list, but never
     // synchronously inside that event: react-virtual's default flushSync ran

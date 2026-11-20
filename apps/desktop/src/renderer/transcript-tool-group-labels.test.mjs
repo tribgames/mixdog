@@ -6,10 +6,9 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import test from 'node:test';
 import React, { act } from 'react';
-import { createRoot } from 'react-dom/client';
-import { JSDOM } from 'jsdom';
 
 import i18n from './i18n';
+import { installTestDom } from './test-support/test-dom.mjs';
 import { projectSettledTranscriptRows } from './transcript-rows.ts';
 import { desktopToolActivitySummary } from './transcript-tool-core.ts';
 import { ToolActivityGroup } from './TranscriptView.tsx';
@@ -185,40 +184,12 @@ test('calls of a turn share one group; narration and a new turn start another', 
 });
 
 function installDom() {
-  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', { url: 'http://localhost/' });
-  dom.window.Element.prototype.getAnimations = () => [];
-  dom.window.Document.prototype.getAnimations = () => [];
-  const previous = new Map(
-    [
-      'window',
-      'document',
-      'navigator',
-      'IS_REACT_ACT_ENVIRONMENT',
-      'requestAnimationFrame',
-      'cancelAnimationFrame',
-    ].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
-  );
-  Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
-  Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
-  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
-  Object.defineProperty(globalThis, 'requestAnimationFrame', {
-    configurable: true,
-    writable: true,
-    value: (callback) => setTimeout(() => callback(0), 0),
+  const { window, root, restore } = installTestDom(null, {
+    jsdom: { url: 'http://localhost/' },
+    expose: ['navigator'],
+    rootId: 'root',
   });
-  Object.defineProperty(globalThis, 'cancelAnimationFrame', { configurable: true, value: (id) => clearTimeout(id) });
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  return {
-    window: dom.window,
-    root: createRoot(dom.window.document.getElementById('root')),
-    close() {
-      dom.window.close();
-      for (const [key, descriptor] of previous) {
-        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-        else delete globalThis[key];
-      }
-    },
-  };
+  return { window, root, close: restore };
 }
 
 test('a running explore group copies as its one summary line', async () => {

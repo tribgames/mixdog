@@ -75,7 +75,7 @@ export function rememberAgentReviews(
   // An oversized review keeps only what decides and draws the collapsed bar
   // (files, kind, checkpoint); its patch text is re-read on entry. Caching
   // nothing held every entry into such a session behind that read before its
-  // transcript could reveal (user: 특정 세션은 다시 가도 매번 늦게 뜬다).
+  // transcript could reveal.
   // No tag: a patch-less entry must never be answered `unchanged`.
   const light = chars > AGENT_REVIEW_SCOPE_MAX_CHARS;
   if (light) {

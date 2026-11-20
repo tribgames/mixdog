@@ -132,8 +132,7 @@ export function attachTranscriptSelectionDrag(options: TranscriptSelectionDragOp
    *  scrollbar gutter (.transcript keeps `scrollbar-gutter: stable`), and a
    *  caret read inside the gutter resolves to the scroller itself — no row —
    *  so a drag out of the window's RIGHT edge got no correction at all and
-   *  Chromium's first-row fallback showed as the range flipping (user: 앱 창
-   *  밖으로 드래그한 커서가 나가면 커서포인트를 잃어 드래그가 뒤집혀). */
+   *  Chromium's first-row fallback showed as the range flipping. */
   const contentBox = (): DOMRect => {
     const rect = root.getBoundingClientRect();
     return new DOMRect(rect.left + root.clientLeft, rect.top + root.clientTop, root.clientWidth, root.clientHeight);

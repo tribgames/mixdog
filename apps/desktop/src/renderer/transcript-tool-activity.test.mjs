@@ -1,9 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import React, { act } from 'react';
-import { createRoot } from 'react-dom/client';
-import { JSDOM } from 'jsdom';
 
+import { installTestDom } from './test-support/test-dom.mjs';
 import { CompletionStatus, completionActivityKey, hadLiveActivity } from './transcript-status.tsx';
 import { appendLiveTranscriptRows, projectSettledTranscriptRows } from './transcript-rows.ts';
 import {
@@ -17,60 +16,17 @@ import {
 } from './TranscriptView.tsx';
 
 function installToolActivityDom(userAgent) {
-  const dom = new JSDOM('<!doctype html><html><body><div id="root"></div></body></html>', {
-    url: 'http://localhost/',
+  const { window, root, restore } = installTestDom(null, {
+    jsdom: { url: 'http://localhost/' },
+    expose: ['navigator'],
+    rootId: 'root',
   });
-  // jsdom has no Web Animations: an element runs no animations.
-  dom.window.Element.prototype.getAnimations = () => [];
-  dom.window.Document.prototype.getAnimations = () => [];
-  Object.defineProperty(dom.window.navigator, 'userAgent', {
-    configurable: true,
-    value: userAgent,
-  });
-  Object.defineProperty(dom.window.navigator, 'maxTouchPoints', {
-    configurable: true,
-    value: /Mobile/.test(userAgent) ? 5 : 0,
-  });
-  Object.defineProperty(dom.window.screen, 'width', {
-    configurable: true,
-    value: /Mobile/.test(userAgent) ? 390 : 1440,
-  });
-  Object.defineProperty(dom.window.screen, 'height', {
-    configurable: true,
-    value: /Mobile/.test(userAgent) ? 844 : 900,
-  });
-  const previous = new Map(
-    [
-      'window',
-      'document',
-      'navigator',
-      'IS_REACT_ACT_ENVIRONMENT',
-      'requestAnimationFrame',
-      'cancelAnimationFrame',
-    ].map((key) => [key, Object.getOwnPropertyDescriptor(globalThis, key)])
-  );
-  Object.defineProperty(globalThis, 'window', { configurable: true, value: dom.window });
-  Object.defineProperty(globalThis, 'document', { configurable: true, value: dom.window.document });
-  Object.defineProperty(globalThis, 'navigator', { configurable: true, value: dom.window.navigator });
-  // The loops' mount locks run in the next animation frame.
-  Object.defineProperty(globalThis, 'requestAnimationFrame', {
-    configurable: true,
-    writable: true,
-    value: (callback) => setTimeout(() => callback(0), 0),
-  });
-  Object.defineProperty(globalThis, 'cancelAnimationFrame', { configurable: true, value: (id) => clearTimeout(id) });
-  globalThis.IS_REACT_ACT_ENVIRONMENT = true;
-  return {
-    window: dom.window,
-    root: createRoot(dom.window.document.getElementById('root')),
-    close() {
-      dom.window.close();
-      for (const [key, descriptor] of previous) {
-        if (descriptor) Object.defineProperty(globalThis, key, descriptor);
-        else delete globalThis[key];
-      }
-    },
-  };
+  const mobile = /Mobile/.test(userAgent);
+  Object.defineProperty(window.navigator, 'userAgent', { configurable: true, value: userAgent });
+  Object.defineProperty(window.navigator, 'maxTouchPoints', { configurable: true, value: mobile ? 5 : 0 });
+  Object.defineProperty(window.screen, 'width', { configurable: true, value: mobile ? 390 : 1440 });
+  Object.defineProperty(window.screen, 'height', { configurable: true, value: mobile ? 844 : 900 });
+  return { window, root, close: restore };
 }
 
 function project(items, turnKeys = items.map(() => 'turn')) {

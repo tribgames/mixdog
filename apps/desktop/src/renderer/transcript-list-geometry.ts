@@ -140,7 +140,7 @@ export function captureReadingAnchor(
  *  on that flag withheld compensation from an idle reader: rows above the
  *  viewport grew uncompensated, their deltas queued, and the flush then landed
  *  the whole batch in one step — the desktop transcript bounced while no one
- *  was scrolling (user: 가만히 있는데 위아래로 투둑 튄다).
+ *  was scrolling.
  *
  *  An Android fling that outlives the gesture window is held by the touch latch
  *  in use-transcript-follow (touchScrollLatchOpen). That IS reader ownership and

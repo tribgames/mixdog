@@ -45,7 +45,7 @@ const TOUCH_MOVED_PX = 4;
 // phone outlives the 250ms gesture window and the 180ms motion window. The
 // corrections that were being deferred then land in the middle of Chromium's
 // momentum, which re-bases the fling and shakes the transcript up and down
-// (user: 모바일에서 위로 스크롤하면 덜덜거린다). Ownership therefore latches
+// on mobile. Ownership therefore latches
 // on the touch itself, is held while the finger is down, and is closed by the
 // browser's own scrollend — this idle is only the fallback for engines that do
 // not fire it.
@@ -62,7 +62,7 @@ export const PROGRAMMATIC_WINDOW_MS = 150;
 // virtual timeline gate every end write on reader ownership, so a click that
 // landed inside a live gesture window (wheel ramp, fling tail, scrollbar drag)
 // was swallowed whole: the transcript kept coasting and the offset never moved
-// (user: 스크롤 중에 최신으로 이동을 눌러도 즉시 멈추지 않는다). The jump
+// when the jump to the latest was pressed mid-scroll. The jump
 // therefore drops reader ownership first, then re-pins the tail frame by frame
 // until the residual momentum Chromium still delivers is overwritten.
 export const JUMP_PIN_MS = 400;
