@@ -279,7 +279,9 @@ export function testTargetsOf(dir, entries) {
 
 // `targets` are the Cargo test targets on disk, of which every one not in `tracked` is refused.
 export const buildViolations = ({ targets, tracked }) =>
-  targets.filter((path) => !tracked.has(path)).map((path) => `${path} is a Cargo test target on disk that is not tracked`);
+  targets
+    .filter((path) => !tracked.has(path))
+    .map((path) => `${path} is a Cargo test target on disk that is not tracked`);
 
 // NUL-delimited: the newline form quotes a path with non-ASCII bytes (`"tests/caf\303\251.rs"`), which would match no path.
 function lsFiles(root, ...args) {

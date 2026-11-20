@@ -49,4 +49,3 @@ test('public key validation', () => {
   assert.equal(isNativePushPublicKey(Buffer.alloc(65, 4).toString('base64url')), false, 'off-curve point');
   assert.equal(isNativePushPublicKey(42), false);
 });
-

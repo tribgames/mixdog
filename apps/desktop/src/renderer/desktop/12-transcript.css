@@ -535,7 +535,7 @@ html:is([data-mixdog-skin], [data-mixdog-user-theme]) .welcome-logo {
    still on screen keeps all its loops running, even one scrolled out of view
    inside that row (the live band's status line above long reasoning). */
 .transcript-virtual-row[data-offscreen="true"]
-:is(.spin, .live-activity-arcs, .live-activity-arc-strip, [data-slot="text-shimmer-glint"]),
+  :is(.spin, .live-activity-arcs, .live-activity-arc-strip, [data-slot="text-shimmer-glint"]),
 .transcript-virtual-row[data-offscreen="true"] [data-slot="text-shimmer-glint"]::before {
   animation-play-state: paused;
 }

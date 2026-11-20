@@ -101,7 +101,10 @@ const taking = (answer, sent = []) => ({
   sendSync: (channel) => (sent.push(channel), answer),
   send: (channel) => sent.push(channel),
 });
-const RESCUED = [['draft', 'v2'], ['layout', '{}']];
+const RESCUED = [
+  ['draft', 'v2'],
+  ['layout', '{}'],
+];
 
 test('the_storage_becomes_the_rescue_and_main_is_told_and_no_rescue_leaves_it_alone', () => {
   const sent = [];
@@ -119,5 +122,9 @@ test('the_storage_becomes_the_rescue_and_main_is_told_and_no_rescue_leaves_it_al
 test('a_storage_that_refused_the_rescue_leaves_it_with_main', () => {
   const sent = [];
   assert.equal(restoreRescuedLocalStorage(taking(RESCUED, sent), pageStorage({}, ['layout'])), 'refused');
-  assert.deepEqual(sent, [DESKTOP_IPC.takeLocalStorageRescue], 'main is not told, so the next page load takes it again');
+  assert.deepEqual(
+    sent,
+    [DESKTOP_IPC.takeLocalStorageRescue],
+    'main is not told, so the next page load takes it again'
+  );
 });

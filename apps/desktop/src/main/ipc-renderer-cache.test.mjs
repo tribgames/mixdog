@@ -62,7 +62,10 @@ function harness(caches) {
 
 test('the page reads and writes each cache by name, and the window closing saves them', (t) => {
   const dir = profile(t);
-  const paths = { 'session-catalog': join(dir, 'catalog.json'), 'transcript-row-heights-v2': join(dir, 'heights.json') };
+  const paths = {
+    'session-catalog': join(dir, 'catalog.json'),
+    'transcript-row-heights-v2': join(dir, 'heights.json'),
+  };
   writeFileSync(paths['session-catalog'], 'catalog');
   const caches = Object.fromEntries(
     Object.entries(paths).map(([name, path]) => [name, createRendererCache(path, unexpectedFailure)])

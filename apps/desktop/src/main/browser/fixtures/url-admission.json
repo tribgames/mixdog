@@ -6,9 +6,7 @@
       "url": "https://example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"]
       }
     },
     "expect": {
@@ -22,12 +20,8 @@
       "url": "https://rebind.example.test/private",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "rebind.example.test": [
-          "192.168.1.10"
-        ]
+        "example.test": ["93.184.216.34"],
+        "rebind.example.test": ["192.168.1.10"]
       }
     },
     "expect": {
@@ -43,12 +37,8 @@
         "allowPrivateNetwork": true
       },
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "nas.example.test": [
-          "192.168.1.10"
-        ]
+        "example.test": ["93.184.216.34"],
+        "nas.example.test": ["192.168.1.10"]
       }
     },
     "expect": {
@@ -64,12 +54,8 @@
         "allowPrivateNetwork": false
       },
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "ts.example.test": [
-          "100.101.102.103"
-        ]
+        "example.test": ["93.184.216.34"],
+        "ts.example.test": ["100.101.102.103"]
       }
     },
     "expect": {
@@ -85,12 +71,8 @@
         "allowPrivateNetwork": true
       },
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "ts.example.test": [
-          "100.101.102.103"
-        ]
+        "example.test": ["93.184.216.34"],
+        "ts.example.test": ["100.101.102.103"]
       }
     },
     "expect": {
@@ -106,12 +88,8 @@
         "allowPrivateNetwork": true
       },
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "meta.example.test": [
-          "169.254.169.254"
-        ]
+        "example.test": ["93.184.216.34"],
+        "meta.example.test": ["169.254.169.254"]
       }
     },
     "expect": {
@@ -127,12 +105,8 @@
         "allowPrivateNetwork": false
       },
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "meta.example.test": [
-          "169.254.169.254"
-        ]
+        "example.test": ["93.184.216.34"],
+        "meta.example.test": ["169.254.169.254"]
       }
     },
     "expect": {
@@ -146,13 +120,8 @@
       "url": "https://mixed.example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "mixed.example.test": [
-          "93.184.216.34",
-          "10.0.0.1"
-        ]
+        "example.test": ["93.184.216.34"],
+        "mixed.example.test": ["93.184.216.34", "10.0.0.1"]
       }
     },
     "expect": {
@@ -168,16 +137,9 @@
         "allowPrivateNetwork": true
       },
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "meta.example.test": [
-          "169.254.169.254"
-        ],
-        "mixed-meta.example.test": [
-          "93.184.216.34",
-          "169.254.169.254"
-        ]
+        "example.test": ["93.184.216.34"],
+        "meta.example.test": ["169.254.169.254"],
+        "mixed-meta.example.test": ["93.184.216.34", "169.254.169.254"]
       }
     },
     "expect": {
@@ -191,12 +153,8 @@
       "url": "https://mapped.example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "mapped.example.test": [
-          "::ffff:10.0.0.1"
-        ]
+        "example.test": ["93.184.216.34"],
+        "mapped.example.test": ["::ffff:10.0.0.1"]
       }
     },
     "expect": {
@@ -210,12 +168,8 @@
       "url": "https://v6.example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "v6.example.test": [
-          "2606:4700::1111"
-        ]
+        "example.test": ["93.184.216.34"],
+        "v6.example.test": ["2606:4700::1111"]
       }
     },
     "expect": {
@@ -229,12 +183,8 @@
       "url": "https://v6ula.example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "v6ula.example.test": [
-          "fd00::1"
-        ]
+        "example.test": ["93.184.216.34"],
+        "v6ula.example.test": ["fd00::1"]
       }
     },
     "expect": {
@@ -248,9 +198,7 @@
       "url": "https://empty.example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
+        "example.test": ["93.184.216.34"],
         "empty.example.test": []
       }
     },
@@ -265,9 +213,7 @@
       "url": "https://fail.example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
+        "example.test": ["93.184.216.34"],
         "fail.example.test": null
       }
     },
@@ -282,9 +228,7 @@
       "url": "https://nowhere.example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"]
       }
     },
     "expect": {
@@ -298,9 +242,7 @@
       "url": "https://sixty-four.example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
+        "example.test": ["93.184.216.34"],
         "sixty-four.example.test": [
           "93.184.216.1",
           "93.184.216.2",
@@ -380,9 +322,7 @@
       "url": "https://sixty-five.example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
+        "example.test": ["93.184.216.34"],
         "sixty-five.example.test": [
           "93.184.216.1",
           "93.184.216.2",
@@ -499,9 +439,7 @@
       "url": "http://localhost./",
       "policy": {},
       "lookup": {
-        "localhost.": [
-          "127.0.0.1"
-        ]
+        "localhost.": ["127.0.0.1"]
       }
     },
     "expect": {
@@ -581,9 +519,7 @@
       "url": "https://example.test/?token=abc",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"]
       }
     },
     "expect": {
@@ -597,9 +533,7 @@
       "url": "https://example.test/?token=abc",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"]
       },
       "pageGenerated": true
     },
@@ -614,9 +548,7 @@
       "url": "https://u:p@example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"]
       }
     },
     "expect": {
@@ -630,9 +562,7 @@
       "url": "ftp://example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"]
       }
     },
     "expect": {
@@ -645,14 +575,10 @@
       "mode": "url",
       "url": "https://example.test/",
       "policy": {
-        "allowedDomains": [
-          "example.com"
-        ]
+        "allowedDomains": ["example.com"]
       },
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"]
       }
     },
     "expect": {
@@ -666,9 +592,7 @@
       "url": "example.test",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"]
       }
     },
     "expect": {
@@ -682,12 +606,8 @@
       "url": "rebind.example.test",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "rebind.example.test": [
-          "192.168.1.10"
-        ]
+        "example.test": ["93.184.216.34"],
+        "rebind.example.test": ["192.168.1.10"]
       }
     },
     "expect": {
@@ -701,9 +621,7 @@
       "url": "https://example.test/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"]
       },
       "mailLink": {
         "url": "https://example.test/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
@@ -722,9 +640,7 @@
       "url": "https://example.test/v?token=eyJhbGciOiJIUzI1NiJ9.eyJlbWFpbCI6ImRldiJ9.c2lnbmF0dXJlLXZhbHVl",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"]
       }
     },
     "expect": {
@@ -750,12 +666,8 @@
       "url": "wss://socket.example.test/live",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "socket.example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"],
+        "socket.example.test": ["93.184.216.34"]
       }
     },
     "expect": {
@@ -781,12 +693,8 @@
       "url": "ws://rebind.example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "rebind.example.test": [
-          "192.168.1.10"
-        ]
+        "example.test": ["93.184.216.34"],
+        "rebind.example.test": ["192.168.1.10"]
       }
     },
     "expect": {
@@ -800,9 +708,7 @@
       "url": "https://example.test/app.js?token=abc",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"]
       }
     },
     "expect": {
@@ -816,9 +722,7 @@
       "url": "ftp://example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"]
       }
     },
     "expect": {
@@ -844,9 +748,7 @@
       "url": "blob:https://example.test/id",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"]
       }
     },
     "expect": {
@@ -872,12 +774,8 @@
       "url": "wss://u:p@socket.example.test/",
       "policy": {},
       "lookup": {
-        "example.test": [
-          "93.184.216.34"
-        ],
-        "socket.example.test": [
-          "93.184.216.34"
-        ]
+        "example.test": ["93.184.216.34"],
+        "socket.example.test": ["93.184.216.34"]
       }
     },
     "expect": {

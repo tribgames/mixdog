@@ -40,7 +40,9 @@ test('a block comment that closes before the code on its line does not hide the 
     }),
     []
   );
-  assert.deepEqual(readers(read({ 'src/c.test.mjs': `const a = 1; /* x */ const b = "${GONE}";\n` })), ['src/c.test.mjs']);
+  assert.deepEqual(readers(read({ 'src/c.test.mjs': `const a = 1; /* x */ const b = "${GONE}";\n` })), [
+    'src/c.test.mjs',
+  ]);
   // a comment marker inside a string is not a comment, and a quote inside a regular expression is not a string
   assert.deepEqual(
     readers(read({ 'src/d.test.mjs': `const url = 'http://x/*'; readFileSync('${GONE}'); const re = /["']/;\n` })),
@@ -63,13 +65,19 @@ test('the tokenizer reads strings, templates with interpolations, comments and t
 
 test('an import or a spawn split over several lines is followed, and a template literal path is read', () => {
   const lines = read({
-    't/world.mjs': "const g = readFileSync(`./recorded.json`);\n",
+    't/world.mjs': 'const g = readFileSync(`./recorded.json`);\n',
     't/multi.test.mjs': "const m = await import(\n  // the helper\n  './world.mjs'\n);\n",
     't/named.test.mjs': "import {\n  a,\n  b,\n} from\n  './world.mjs';\n",
     't/spawn.test.mjs': "spawnSync('node', [\n  't/world.mjs',\n]);\n",
     't/url.test.mjs': "const p = new URL(\n  './world.mjs',\n  import.meta.url,\n);\n",
   });
-  assert.deepEqual(readers(lines), ['t/multi.test.mjs', 't/named.test.mjs', 't/spawn.test.mjs', 't/url.test.mjs', 't/world.mjs']);
+  assert.deepEqual(readers(lines), [
+    't/multi.test.mjs',
+    't/named.test.mjs',
+    't/spawn.test.mjs',
+    't/url.test.mjs',
+    't/world.mjs',
+  ]);
 });
 
 test('a script that imports or spawns a reader is a reader, however deep, until nothing new is found', () => {
@@ -84,7 +92,9 @@ test('a script that imports or spawns a reader is a reader, however deep, until 
     't/comment.test.mjs': "// import { adapterWorld } from './world.mjs';\n",
   });
   assert.deepEqual(readers(lines), ['t/helper.ts', 't/mid.mjs', 't/top.test.mjs', 't/ts.test.ts', 't/world.mjs']);
-  assert.ok(lines.some((line) => line.startsWith(`t/top.test.mjs: reaches t/mid.mjs, which leads to ${GONE} (tracked`)));
+  assert.ok(
+    lines.some((line) => line.startsWith(`t/top.test.mjs: reaches t/mid.mjs, which leads to ${GONE} (tracked`))
+  );
 });
 
 test('a tracked file that .gitignore also covers, of any extension, is not in a clean checkout: reaching it makes a reader', () => {
@@ -165,7 +175,8 @@ test('the build check reads the disk: linked test files and folders are targets,
       'crate/tests/gathered/main.rs is a Cargo test target on disk that is not tracked',
       ...(fileLink ? ['crate/tests/leftover.rs is a Cargo test target on disk that is not tracked'] : []),
     ]);
-    if (!fileLink) t.skip('file symlinks are unavailable to this account; the linked folder and the tracked names were checked');
+    if (!fileLink)
+      t.skip('file symlinks are unavailable to this account; the linked folder and the tracked names were checked');
   } finally {
     rmSync(root, { recursive: true, force: true });
   }

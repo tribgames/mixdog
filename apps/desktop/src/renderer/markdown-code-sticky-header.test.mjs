@@ -111,9 +111,16 @@ test('code block header: sticks below the top chrome while the block scrolls, an
     for (const into of [300, 913]) {
       const stuck = await scrollTo(page, rest.cardTop + into);
       assert.ok(stuck.cardTop < 0, `${label}: the block's top is scrolled past the chat's top`);
-      assert.ok(Math.abs(stuck.offset - 44) < 0.5, `${label}: the header sits 44px below the chat's top (${stuck.offset})`);
+      assert.ok(
+        Math.abs(stuck.offset - 44) < 0.5,
+        `${label}: the header sits 44px below the chat's top (${stuck.offset})`
+      );
       assert.ok(stuck.copyHit, `${label}: the copy button is on top and reachable`);
-      assert.equal(await pixel(page, stuck.probe), restInk, `${label}: no code shows through the header (${into}px in)`);
+      assert.equal(
+        await pixel(page, stuck.probe),
+        restInk,
+        `${label}: no code shows through the header (${into}px in)`
+      );
     }
 
     // Once the card's bottom passes the pinned header, the header leaves with

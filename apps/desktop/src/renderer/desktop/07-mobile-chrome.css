@@ -302,25 +302,25 @@ html[data-mixdog-mobile-tabs] .composer-footer > .composer-tool {
    lands elsewhere, so the wash stayed on after the press. Rest state carries no hover wash here; the
    press itself still flashes through :active. */
 html[data-mixdog-mobile-tabs]
-:is(
-  .composer-tool:not(.is-recording),
-  .model-trigger,
-  .pane-dock-toggle,
-  .workspace-tab-home,
-  .workspace-tab-compact-current,
-  .session-context-indicator > button
-):hover:not(:active) {
+  :is(
+    .composer-tool:not(.is-recording),
+    .model-trigger,
+    .pane-dock-toggle,
+    .workspace-tab-home,
+    .workspace-tab-compact-current,
+    .session-context-indicator > button
+  ):hover:not(:active) {
   background: transparent;
 }
 /* The same stuck-hover wash on the sheet and panel header controls; a
    control that is open or pressed keeps its plate. */
 html[data-mixdog-mobile-tabs]
-:is(.session-panel-action, .row-overflow-trigger, .browser-pane-nav-button):hover:not(
-  :active,
-  .is-active,
-  [aria-pressed="true"],
-  [aria-expanded="true"]
-) {
+  :is(.session-panel-action, .row-overflow-trigger, .browser-pane-nav-button):hover:not(
+    :active,
+    .is-active,
+    [aria-pressed="true"],
+    [aria-expanded="true"]
+  ) {
   background: transparent;
 }
 html[data-mixdog-mobile-tabs] .workspace-tab-compact-current:hover:not(:active) {
@@ -968,7 +968,7 @@ html[data-mixdog-mobile-tabs] .pane-side-dock .workbench-side-panel[hidden][data
 }
 /* Responsive band corrections are layout, not gesture — they never animate. */
 html[data-mixdog-mobile-tabs]
-.pane-side-dock:has(> .pane-side-dock-main > .workbench-side-panel[data-motion="instant"]) {
+  .pane-side-dock:has(> .pane-side-dock-main > .workbench-side-panel[data-motion="instant"]) {
   transition: none;
 }
 /* The sheet has no bar of its own: each pane's PC header row (DockHeaderRow) is
@@ -1079,15 +1079,15 @@ html[data-mixdog-mobile-tabs] .workbench-side-panel-resize {
    hides its bar. The drawer/sheet lists still painted the 8px desktop bar on
    their right edge, where it darkens on touch and even drags. Same treatment, list-wide. */
 html[data-mixdog-mobile-tabs]
-:is(
-  .utility-dock-pane,
-  .agent-activity-page,
-  .dock-scm-scroll,
-  .dock-scm-history,
-  .dock-files,
-  .workbench-side-section-body,
-  .session-sidebar-scroll
-) {
+  :is(
+    .utility-dock-pane,
+    .agent-activity-page,
+    .dock-scm-scroll,
+    .dock-scm-history,
+    .dock-files,
+    .workbench-side-section-body,
+    .session-sidebar-scroll
+  ) {
   scrollbar-width: none;
   scrollbar-gutter: auto;
 }
@@ -1415,7 +1415,7 @@ html[data-mixdog-mobile-tabs] .pane-dialog-layer {
 /* Modal polish: safe-area-aware centring, no live blur on a phone GPU, and
    footer actions large enough to tap without changing desktop density. */
 html[data-mixdog-mobile-tabs]
-:is(.onboarding-layer, .schedules-dialog-layer, .settings-confirm-layer, .settings-oauth-layer, .mx-dialog-layer) {
+  :is(.onboarding-layer, .schedules-dialog-layer, .settings-confirm-layer, .settings-oauth-layer, .mx-dialog-layer) {
   padding: max(12px, env(safe-area-inset-top, 0px)) max(16px, env(safe-area-inset-right, 0px))
     max(12px, env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
   -webkit-backdrop-filter: none;

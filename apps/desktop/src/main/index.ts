@@ -2006,7 +2006,6 @@ function rendererDiagnosticListener(
   };
 }
 
-
 /** What a dead renderer costs: a silent reload while the failures are rare, a
  *  single prompt once they are not, and nothing at all while quitting. The
  *  exit that follows a lost Local Storage link (`followsStorageLoss`) is the

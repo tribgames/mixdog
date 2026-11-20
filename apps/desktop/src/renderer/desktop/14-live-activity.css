@@ -522,7 +522,7 @@ html[data-pet-over-transcript] .live-activity-tokens {
    dock's active view. The dots also hold with a hidden document (the mark
    drops to its static pose above). */
 :is([data-conversation-parked="true"], [data-retained], .utility-dock-pane[data-surface-active="false"])
-:is(.live-activity-arcs, .live-activity-arc-strip),
+  :is(.live-activity-arcs, .live-activity-arc-strip),
 :is(
     :root[data-mixdog-motion="paused"],
     .transcript-virtual-row[data-offscreen="true"],

@@ -38,9 +38,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "post"
-        ],
+        "kinds": ["post"],
         "payment": false
       }
     },
@@ -56,9 +54,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "post"
-        ],
+        "kinds": ["post"],
         "payment": false
       }
     },
@@ -88,9 +84,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "post"
-        ],
+        "kinds": ["post"],
         "payment": false
       }
     },
@@ -106,9 +100,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "post"
-        ],
+        "kinds": ["post"],
         "payment": false
       }
     },
@@ -124,9 +116,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "post"
-        ],
+        "kinds": ["post"],
         "payment": false
       }
     },
@@ -142,9 +132,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "post"
-        ],
+        "kinds": ["post"],
         "payment": false
       }
     },
@@ -184,9 +172,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "submit"
-        ],
+        "kinds": ["submit"],
         "payment": false
       }
     },
@@ -200,9 +186,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "submit"
-        ],
+        "kinds": ["submit"],
         "payment": false
       }
     },
@@ -216,9 +200,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "submit"
-        ],
+        "kinds": ["submit"],
         "payment": false
       }
     },
@@ -232,9 +214,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "submit"
-        ],
+        "kinds": ["submit"],
         "payment": false
       }
     },
@@ -271,9 +251,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "submit"
-        ],
+        "kinds": ["submit"],
         "payment": false
       }
     },
@@ -294,9 +272,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "post"
-        ],
+        "kinds": ["post"],
         "payment": false
       }
     },
@@ -327,10 +303,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "post",
-          "submit"
-        ],
+        "kinds": ["post", "submit"],
         "payment": false
       }
     },
@@ -367,9 +340,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "upload"
-        ],
+        "kinds": ["upload"],
         "payment": false
       }
     },
@@ -428,9 +399,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "confirm"
-        ],
+        "kinds": ["confirm"],
         "payment": false
       }
     },
@@ -463,9 +432,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "confirm"
-        ],
+        "kinds": ["confirm"],
         "payment": false
       }
     },
@@ -480,9 +447,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "confirm"
-        ],
+        "kinds": ["confirm"],
         "payment": false
       }
     },
@@ -501,9 +466,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "confirm"
-        ],
+        "kinds": ["confirm"],
         "payment": false
       }
     },
@@ -519,10 +482,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "submit",
-          "confirm"
-        ],
+        "kinds": ["submit", "confirm"],
         "payment": false
       }
     },
@@ -538,10 +498,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "upload",
-          "confirm"
-        ],
+        "kinds": ["upload", "confirm"],
         "payment": false
       }
     },
@@ -556,9 +513,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "confirm"
-        ],
+        "kinds": ["confirm"],
         "payment": false
       }
     },
@@ -626,9 +581,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "post"
-        ],
+        "kinds": ["post"],
         "payment": false
       }
     },
@@ -685,9 +638,7 @@
       "paymentEvidence": true,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "submit"
-        ],
+        "kinds": ["submit"],
         "payment": true
       }
     },
@@ -703,9 +654,7 @@
       "paymentEvidence": true,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "post"
-        ],
+        "kinds": ["post"],
         "payment": true
       }
     },
@@ -733,9 +682,7 @@
       "paymentEvidence": true,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "upload"
-        ],
+        "kinds": ["upload"],
         "payment": false
       }
     },
@@ -750,9 +697,7 @@
       "paymentEvidence": true,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "confirm"
-        ],
+        "kinds": ["confirm"],
         "payment": false
       }
     },
@@ -768,10 +713,7 @@
       "paymentEvidence": true,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "submit",
-          "confirm"
-        ],
+        "kinds": ["submit", "confirm"],
         "payment": true
       }
     },
@@ -785,9 +727,7 @@
       "paymentEvidence": false,
       "expect": {
         "outcome": "ask",
-        "kinds": [
-          "submit"
-        ],
+        "kinds": ["submit"],
         "payment": false
       }
     }

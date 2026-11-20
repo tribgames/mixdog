@@ -437,8 +437,7 @@ test('a_subscription_made_in_the_gap_is_kept_and_its_unsubscribe_works', async (
   r.set(second);
   r.changed();
   assert.equal(second.handlers.size, 1);
-  const emit = (method) =>
-    [...second.handlers][0]({ type: 'notification', notification: { method, params: 1 } });
+  const emit = (method) => [...second.handlers][0]({ type: 'notification', notification: { method, params: 1 } });
   emit('connections/ssh/askpass');
   emit('connections/ssh/progress');
   assert.deepEqual(heard, [1]);

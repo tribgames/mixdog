@@ -51,13 +51,25 @@ function quotaAnswer() {
     generatedAt: viewedAt,
     view: 'window',
     selection: { provider: 'anthropic-oauth', account: 'default', label: '5H' },
-    subscriptions: [{ provider: 'anthropic-oauth', account: 'default', accountLabel: 'Account 1', accountRank: 0, accountInRoster: true, windows: ['5H'] }],
+    subscriptions: [
+      {
+        provider: 'anthropic-oauth',
+        account: 'default',
+        accountLabel: 'Account 1',
+        accountRank: 0,
+        accountInRoster: true,
+        windows: ['5H'],
+      },
+    ],
     period: domain,
     domain,
     focus: { usedPct: 10, resetAt, startMs: opened, endMs: resetAt, current: true, peak: 10 },
     summary: { consumed: 9, costUsd: 3 },
     totals: { turns: 3, input: 300000, output: 1200, tokens: 301500, costUsd: 3 },
-    points: [[opened, 0, 1], [viewedAt, 10, 1]],
+    points: [
+      [opened, 0, 1],
+      [viewedAt, 10, 1],
+    ],
     models,
     modelSeries: [],
     slots: [],
@@ -93,9 +105,7 @@ test('TOK/S, Share and every kept column fit 375px and 390px in both usage table
             );
           };
           const root = createRoot(document.getElementById("root"));
-          const period = ${JSON.stringify(
-            usageSnapshot('hour').period
-          )};
+          const period = ${JSON.stringify(usageSnapshot('hour').period)};
           window.renderStats = () => {
             const route = {
               turns: 195, sessions: 4, input: 234000, output: 56000, tokens: 1234000,

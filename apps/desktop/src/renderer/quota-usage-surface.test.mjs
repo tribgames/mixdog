@@ -41,7 +41,17 @@ function harness(context) {
  * whose meter moved last opens, on the account in use (`pool.selectedId`, else the one that moved last), on the asked window (else the
  * weekly one, else the first). `history` lists a window's past windows newest first, `page` of them ten at a time.
  */
-function quotaWorld(context, { viewedAt = now, accounts = [{ id: 'default', label: 'Account 1' }], pool = { selectedId: null }, readings, history = [], detail = {} }) {
+function quotaWorld(
+  context,
+  {
+    viewedAt = now,
+    accounts = [{ id: 'default', label: 'Account 1' }],
+    pool = { selectedId: null },
+    readings,
+    history = [],
+    detail = {},
+  }
+) {
   context.mock.method(Date, 'now', () => viewedAt);
   const calls = [];
   const pages = [];
@@ -68,7 +78,10 @@ function quotaWorld(context, { viewedAt = now, accounts = [{ id: 'default', labe
         accountLabel: accounts[rank]?.label ?? a,
         accountRank: rank < 0 ? undefined : rank,
         accountInRoster: rank >= 0,
-        windows: readings.filter((row) => row.provider === p && row.account === a).map((row) => row.label).sort(),
+        windows: readings
+          .filter((row) => row.provider === p && row.account === a)
+          .map((row) => row.label)
+          .sort(),
       };
     });
     const domain = { fromMs: startMs, toMs: reading.resetAt };
@@ -93,7 +106,14 @@ function quotaWorld(context, { viewedAt = now, accounts = [{ id: 'default', labe
       subscriptions,
       period: { ...domain, ...(question.anchor ? { anchor: question.anchor } : {}) },
       domain,
-      focus: { usedPct: reading.usedPct, resetAt: reading.resetAt, startMs, endMs: reading.resetAt, current: true, peak: reading.usedPct },
+      focus: {
+        usedPct: reading.usedPct,
+        resetAt: reading.resetAt,
+        startMs,
+        endMs: reading.resetAt,
+        current: true,
+        peak: reading.usedPct,
+      },
       summary: {},
       points: [
         [startMs, 0, 1],
@@ -125,7 +145,18 @@ function quotaWorld(context, { viewedAt = now, accounts = [{ id: 'default', labe
       invokeCapability: async ({ capability, args = [] }) => {
         if (capability === 'getUsageStats') {
           statsReads.push(args[0]);
-          return { value: { generatedAt: viewedAt, period: { view: 'hour', fromMs: viewedAt - 24 * HOUR, toMs: viewedAt }, range: {}, totals: {}, providers: [], daily: [], hourly: [], coverage: {} } };
+          return {
+            value: {
+              generatedAt: viewedAt,
+              period: { view: 'hour', fromMs: viewedAt - 24 * HOUR, toMs: viewedAt },
+              range: {},
+              totals: {},
+              providers: [],
+              daily: [],
+              hourly: [],
+              coverage: {},
+            },
+          };
         }
         assert.equal(capability, 'getQuotaHistory');
         if (args[0]?.page != null) {
@@ -145,15 +176,32 @@ function quotaWorld(context, { viewedAt = now, accounts = [{ id: 'default', labe
 // The Claude five-hour window: opened at 13:00, no reading until 13:30 (10 %), 30 % at 14:00, held since; Opus took 20 points and Sonnet 10.
 // Its half-hour slots: those that have started are read, the rest are still to come.
 function claudeFiveHour(viewedAt) {
-  const model = (name, consumed, tokens, costUsd) => ({ model: name, consumed, turns: 1, input: tokens - 100, output: 100, cacheRead: 0, tokens, costUsd, outputTokensPerSecond: 50 });
+  const model = (name, consumed, tokens, costUsd) => ({
+    model: name,
+    consumed,
+    turns: 1,
+    input: tokens - 100,
+    output: 100,
+    cacheRead: 0,
+    tokens,
+    costUsd,
+    outputTokensPerSecond: 50,
+  });
   const opus = model('claude-opus-4-1', 20, 3300, 2.4);
   const sonnet = model('claude-sonnet-4-5', 10, 1100, 0.6);
-  const slot = (index, fields) => ({ fromMs: at(0, 30 * index), toMs: at(0, 30 * (index + 1)), future: at(0, 30 * index) >= viewedAt, ...fields });
+  const slot = (index, fields) => ({
+    fromMs: at(0, 30 * index),
+    toMs: at(0, 30 * (index + 1)),
+    future: at(0, 30 * index) >= viewedAt,
+    ...fields,
+  });
   const slots = [
     slot(0, { startPct: 0, endPct: 10, tokens: 1100, costUsd: 0.6, models: [sonnet] }),
     slot(1, { startPct: 10, endPct: 30, tokens: 3300, costUsd: 2.4, models: [opus] }),
     slot(2, { startPct: 30, endPct: 30, tokens: 0, costUsd: 0, models: [] }),
-    ...[3, 4, 5, 6, 7, 8, 9].map((index) => slot(index, { startPct: 30, endPct: 30, tokens: 0, costUsd: 0, models: [] })),
+    ...[3, 4, 5, 6, 7, 8, 9].map((index) =>
+      slot(index, { startPct: 30, endPct: 30, tokens: 0, costUsd: 0, models: [] })
+    ),
   ];
   return {
     window: {
@@ -162,12 +210,36 @@ function claudeFiveHour(viewedAt) {
       summary: { consumed: 30, costUsd: 3, estimatedTotalCostUsd: 3, costPerPercent: null },
       totals: { turns: 2, input: 4200, output: 200, tokens: 4400, costUsd: 3 },
       models: [opus, sonnet],
-      modelSeries: [opus, sonnet].map((entry) => ({ ...entry, key: entry.model, points: [[at(0), 0], [viewedAt, entry.consumed]] })),
-      points: [[at(0), 0, 1], [at(0, 30), 10, 2], [at(0, 45), 10, 1], [at(1), 30, 1], [viewedAt, 30, 1]],
+      modelSeries: [opus, sonnet].map((entry) => ({
+        ...entry,
+        key: entry.model,
+        points: [
+          [at(0), 0],
+          [viewedAt, entry.consumed],
+        ],
+      })),
+      points: [
+        [at(0), 0, 1],
+        [at(0, 30), 10, 2],
+        [at(0, 45), 10, 1],
+        [at(1), 30, 1],
+        [viewedAt, 30, 1],
+      ],
       slots,
     },
     periodSummary: { maxedOut: 0, consumed: 30 },
-    history: [{ key: String(opened), startMs: opened, endMs: resetAt, peak: 30, current: true, costUsd: 3, estimatedTotalCostUsd: 3, costPerPercent: null }],
+    history: [
+      {
+        key: String(opened),
+        startMs: opened,
+        endMs: resetAt,
+        peak: 30,
+        current: true,
+        costUsd: 3,
+        estimatedTotalCostUsd: 3,
+        costPerPercent: null,
+      },
+    ],
   };
 }
 
@@ -219,7 +291,6 @@ test('subscription usage opens at once from its last answer, on the subscription
   assert.equal(statsReads.length, 1, 'the token tab reads its statistics when chosen');
 });
 
-
 test('subscription usage read ahead is read once and paints the dialog at once', async (context) => {
   const render = harness(context);
   const { calls, pages, gate, api } = quotaApi(context);
@@ -245,7 +316,6 @@ test('subscription usage read ahead is read once and paints the dialog at once',
   await act(async () => gate.release());
 });
 
-
 test('the window history pages ten windows at a time and opens the one clicked', async (context) => {
   const render = harness(context);
   // Twelve five-hour windows back to back, the n-th read once at n %; the last is open.
@@ -258,9 +328,19 @@ test('the window history pages ten windows at a time and opens the one clicked',
     current: index === 11,
   })).reverse();
   const { calls, pages, api } = quotaWorld(context, {
-    readings: [{ provider: 'anthropic-oauth', account: 'default', label: '5H', ts: readAt(11), usedPct: 12, resetAt: readAt(11) + 4 * HOUR }],
+    readings: [
+      {
+        provider: 'anthropic-oauth',
+        account: 'default',
+        label: '5H',
+        ts: readAt(11),
+        usedPct: 12,
+        resetAt: readAt(11) + 4 * HOUR,
+      },
+    ],
     history: windows,
-  });  focusQuotaUsage({ provider: 'anthropic-oauth', window: '5H' });
+  });
+  focusQuotaUsage({ provider: 'anthropic-oauth', window: '5H' });
   await render({ surface: 'stats', open: true, onClose() {}, api });
   const peaks = () =>
     [...document.querySelectorAll('.quota-history-table tbody tr')].map((row) => row.cells[1].textContent);
@@ -283,7 +363,6 @@ test('the window history pages ten windows at a time and opens the one clicked',
   assert.equal(document.querySelector('.quota-history-table tr[data-active="true"]').cells[1].textContent, '1%');
 });
 
-
 test('a provider meter opens its own subscription window', async (context) => {
   const render = harness(context);
   const { calls, api } = quotaApi(context);
@@ -296,7 +375,6 @@ test('a provider meter opens its own subscription window', async (context) => {
   assert.equal(document.querySelectorAll('.stats-card > b')[0].textContent, '12%');
 });
 
-
 test('the allowance to reset never spreads the rest past what is left', async (context) => {
   const render = harness(context);
   // The weekly resets in 12 h with 60 % left; the five-hour in 30 min with 60 % left.
@@ -308,7 +386,10 @@ test('the allowance to reset never spreads the rest past what is left', async (c
     usedPct,
     resetAt: reset,
   });
-  const { api } = quotaWorld(context, { readings: [reading('7D', 40, now + 12 * HOUR), reading('5H', 40, now + 30 * MINUTE)] });  window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'quota');
+  const { api } = quotaWorld(context, {
+    readings: [reading('7D', 40, now + 12 * HOUR), reading('5H', 40, now + 30 * MINUTE)],
+  });
+  window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'quota');
   await render({ surface: 'stats', open: true, onClose() {}, api });
   assert.equal(document.querySelector('.quota-window[aria-pressed="true"]').textContent, '7D');
   // Under a day left: 60 % over 12 h reads per hour, not 120 % a day.
@@ -325,7 +406,6 @@ test('the allowance to reset never spreads the rest past what is left', async (c
     t('{{percent}} an hour', { percent: '60%' })
   );
 });
-
 
 test('a subscription is listed once and its accounts are picked beside it', async (context) => {
   const render = harness(context);
@@ -350,7 +430,8 @@ test('a subscription is listed once and its accounts are picked beside it', asyn
       { id: 'work', label: 'Account 2' },
       { id: 'spare', label: 'Account 3' },
     ],
-  });  window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'quota');
+  });
+  window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'quota');
   await render({ surface: 'stats', open: true, onClose() {}, api });
   const picker = (name) => document.querySelector(`.quota-${name} [role="combobox"]`);
   const options = async (name) => {
@@ -387,7 +468,6 @@ test('a subscription is listed once and its accounts are picked beside it', asyn
   assert.equal(document.querySelector('.quota-account'), null, 'one account needs no second choice');
 });
 
-
 test('subscription usage follows the account in use when it switches', async (context) => {
   const render = harness(context);
   const reading = (account, ts, usedPct) => ({
@@ -407,7 +487,8 @@ test('subscription usage follows the account in use when it switches', async (co
       { id: 'work', label: 'Account 2' },
     ],
     pool,
-  });  window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'quota');
+  });
+  window.localStorage.setItem('mixdog.desktop.usage-surface-mode.v1', 'quota');
   const props = { surface: 'stats', open: true, onClose() {}, api };
   await render(props);
   const shownAccount = () => document.querySelector('.quota-account .mx-select-value').textContent;
@@ -562,11 +643,31 @@ test('the usage dialog header switches to subscription usage and opens there nex
 test('subscription values distinguish recorded money, inferred outside use and their total', async (context) => {
   const render = harness(context);
   // Sixty priced requests ($30 of list-price value) moved the meter from 0 to 30 %; 30 % more came from outside Mixdog.
-  const model = { model: 'model-priced', consumed: 30, turns: 60, input: 6000, output: 600, cacheRead: 0, tokens: 6600, costUsd: 30 };
+  const model = {
+    model: 'model-priced',
+    consumed: 30,
+    turns: 60,
+    input: 6000,
+    output: 600,
+    cacheRead: 0,
+    tokens: 6600,
+    costUsd: 30,
+  };
   const { api } = quotaWorld(context, {
     viewedAt: at(2, 1),
     readings: [{ provider: 'anthropic-oauth', account: 'default', label: '5H', ts: at(2), usedPct: 60, resetAt }],
-    history: [{ key: String(opened), startMs: opened, endMs: resetAt, peak: 60, current: true, costUsd: 30, estimatedTotalCostUsd: 60, costPerPercent: 1 }],
+    history: [
+      {
+        key: String(opened),
+        startMs: opened,
+        endMs: resetAt,
+        peak: 60,
+        current: true,
+        costUsd: 30,
+        estimatedTotalCostUsd: 60,
+        costPerPercent: 1,
+      },
+    ],
     detail: {
       'anthropic-oauth/5H': {
         window: {
@@ -575,11 +676,24 @@ test('subscription values distinguish recorded money, inferred outside use and t
           totals: { turns: 60, input: 6000, output: 600, tokens: 6600, costUsd: 30 },
           outside: 30,
           models: [model],
-          slots: [{ fromMs: opened, toMs: at(0, 30), startPct: 0, endPct: 15, tokens: 3300, costUsd: 15, estimatedTotalCostUsd: 30, models: [{ ...model, consumed: 15 }], outside: 15 }],
+          slots: [
+            {
+              fromMs: opened,
+              toMs: at(0, 30),
+              startPct: 0,
+              endPct: 15,
+              tokens: 3300,
+              costUsd: 15,
+              estimatedTotalCostUsd: 30,
+              models: [{ ...model, consumed: 15 }],
+              outside: 15,
+            },
+          ],
         },
       },
     },
-  });  focusQuotaUsage('anthropic-oauth');
+  });
+  focusQuotaUsage('anthropic-oauth');
   await render({ surface: 'stats', open: true, onClose() {}, api });
   const cards = document.querySelectorAll('.stats-card');
   assert.match(cards[2].querySelector('b').textContent, /^\$/);
@@ -604,7 +718,14 @@ test('subscription usage lists Fast calls as a second model row marked Fast', as
   const render = harness(context);
   const route = (fields) => ({ turns: 1, input: 100, output: 300, cacheRead: 0, tokens: 400, ...fields });
   const both = route({ model: 'model-both', outputTokensPerSecond: 150, consumed: 4 });
-  const bothFast = route({ model: 'model-both', speedTier: 'fast', outputTokensPerSecond: 300, consumed: 4, output: 600, tokens: 700 });
+  const bothFast = route({
+    model: 'model-both',
+    speedTier: 'fast',
+    outputTokensPerSecond: 300,
+    consumed: 4,
+    output: 600,
+    tokens: 700,
+  });
   const normal = route({ model: 'model-normal', outputTokensPerSecond: 150, consumed: 2 });
   const models = [both, bothFast, normal];
   const { api } = quotaWorld(context, {
@@ -616,12 +737,20 @@ test('subscription usage lists Fast calls as a second model row marked Fast', as
           focus: { usedPct: 10, resetAt, startMs: opened, endMs: resetAt, current: true, peak: 10 },
           summary: { consumed: 10 },
           models,
-          modelSeries: models.map((entry) => ({ ...entry, key: entry.model, points: [[opened, 0], [at(2, 1), entry.consumed]] })),
+          modelSeries: models.map((entry) => ({
+            ...entry,
+            key: entry.model,
+            points: [
+              [opened, 0],
+              [at(2, 1), entry.consumed],
+            ],
+          })),
           slots: [{ fromMs: opened, toMs: at(0, 30), startPct: 0, endPct: 10, tokens: 1500, models }],
         },
       },
     },
-  });  focusQuotaUsage('anthropic-oauth');
+  });
+  focusQuotaUsage('anthropic-oauth');
   await render({ surface: 'stats', open: true, onClose() {}, api });
   const rows = [...document.querySelectorAll('.quota-table .stats-model-row')].filter(
     (row) => row.firstElementChild.textContent !== t('Outside Mixdog')

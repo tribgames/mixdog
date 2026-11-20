@@ -40,7 +40,7 @@ test('a coded refusal keeps the wire message, and a typed detail does not replac
   assert.deepEqual(shown.details, { name: 'Bench' });
 });
 
-test("a coded worktree refusal keeps no details beside its message", () => {
+test('a coded worktree refusal keeps no details beside its message', () => {
   const shown = coreErrorForWindow(
     rpcFailure({
       reason: 'domainError',

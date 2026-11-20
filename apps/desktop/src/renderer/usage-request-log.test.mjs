@@ -322,7 +322,8 @@ test('a request of an internal session shows its kind and an Internal tag, a ses
     ['gone-schedule', 'schedule', {}],
     ['dev', 'lead', { sessionTitle: 'Dev session' }],
     ['dev', 'cache-warm', { sessionTitle: 'Dev session', backgroundKind: 'cache-warm' }],
-  ]);  await render({ surface: 'stats', open: true, onClose() {}, api });
+  ]);
+  await render({ surface: 'stats', open: true, onClose() {}, api });
   const session = (row) => bodyRows()[row].children[1];
   const tag = (row) => session(row).querySelector('.request-log-internal');
   const kinds = ['Memory cycle', 'Web search', 'Cache warm-up', 'Heartbeat or exec run'];

@@ -12,7 +12,7 @@
         { "phase": "snapshot", "do": [] },
         { "phase": "snapshot", "do": [] },
         { "phase": "screenshot", "do": [] },
-        { "phase": "wait", "do": [ { "phase": "snapshot", "do": [] } ] }
+        { "phase": "wait", "do": [{ "phase": "snapshot", "do": [] }] }
       ]
     },
     "expect": { "snapshots": 3, "screenshots": 1, "steps": null, "mouse": null, "failed": false, "queueMs": 12 }
@@ -21,9 +21,7 @@
     "case": "nested phases of one kind count once in time and each in number",
     "input": {
       "queueMs": 0,
-      "ops": [
-        { "phase": "snapshot", "do": [ { "phase": "snapshot", "do": [ { "phase": "snapshot", "do": [] } ] } ] }
-      ]
+      "ops": [{ "phase": "snapshot", "do": [{ "phase": "snapshot", "do": [{ "phase": "snapshot", "do": [] }] }] }]
     },
     "expect": { "snapshots": 3, "screenshots": 0, "steps": null, "mouse": null, "failed": false, "queueMs": 0 }
   },
@@ -32,9 +30,9 @@
     "input": {
       "queueMs": 0,
       "ops": [
-        { "step": 1, "do": [ { "phase": "target", "do": [ { "phase": "snapshot", "do": [] } ] } ] },
-        { "step": 2, "do": [ { "phase": "input", "do": [] } ] },
-        { "step": 3, "do": [ { "phase": "actionability", "do": [] } ] }
+        { "step": 1, "do": [{ "phase": "target", "do": [{ "phase": "snapshot", "do": [] }] }] },
+        { "step": 2, "do": [{ "phase": "input", "do": [] }] },
+        { "step": 3, "do": [{ "phase": "actionability", "do": [] }] }
       ]
     },
     "expect": { "snapshots": 1, "screenshots": 0, "steps": [1, 2, 3], "mouse": null, "failed": false, "queueMs": 0 }
@@ -56,11 +54,18 @@
         { "step": 1, "do": [] }
       ]
     },
-    "expect": { "snapshots": 0, "screenshots": 0, "steps": [1, 2, 3, 4, 5, 6], "mouse": null, "failed": false, "queueMs": 0 }
+    "expect": {
+      "snapshots": 0,
+      "screenshots": 0,
+      "steps": [1, 2, 3, 4, 5, 6],
+      "mouse": null,
+      "failed": false,
+      "queueMs": 0
+    }
   },
   {
     "case": "only out-of-range steps leave no steps member",
-    "input": { "queueMs": 0, "ops": [ { "step": 0, "do": [] }, { "step": 9, "do": [] } ] },
+    "input": { "queueMs": 0, "ops": [{ "step": 0, "do": [] }, { "step": 9, "do": [] }] },
     "expect": { "snapshots": 0, "screenshots": 0, "steps": null, "mouse": null, "failed": false, "queueMs": 0 }
   },
   {
@@ -75,7 +80,14 @@
         { "mouse": "mouseMoved" }
       ]
     },
-    "expect": { "snapshots": 0, "screenshots": 0, "steps": null, "mouse": { "mouseMoved": 3, "mousePressed": 1, "mouseReleased": 1 }, "failed": false, "queueMs": 0 }
+    "expect": {
+      "snapshots": 0,
+      "screenshots": 0,
+      "steps": null,
+      "mouse": { "mouseMoved": 3, "mousePressed": 1, "mouseReleased": 1 },
+      "failed": false,
+      "queueMs": 0
+    }
   },
   {
     "case": "a failure keeps the timing it had and the phases it left open",
@@ -83,11 +95,18 @@
       "queueMs": 4,
       "ops": [
         { "mouse": "mousePressed" },
-        { "step": 1, "do": [ { "phase": "wait", "do": [ { "throw": true } ] } ] },
+        { "step": 1, "do": [{ "phase": "wait", "do": [{ "throw": true }] }] },
         { "phase": "snapshot", "do": [] }
       ]
     },
-    "expect": { "snapshots": 0, "screenshots": 0, "steps": [1], "mouse": { "mousePressed": 1 }, "failed": true, "queueMs": 4 }
+    "expect": {
+      "snapshots": 0,
+      "screenshots": 0,
+      "steps": [1],
+      "mouse": { "mousePressed": 1 },
+      "failed": true,
+      "queueMs": 4
+    }
   },
   {
     "case": "a failure inside a nested step",
@@ -95,7 +114,7 @@
       "queueMs": 1,
       "ops": [
         { "phase": "screenshot", "do": [] },
-        { "step": 2, "do": [ { "phase": "input", "do": [ { "throw": true } ] } ] }
+        { "step": 2, "do": [{ "phase": "input", "do": [{ "throw": true }] }] }
       ]
     },
     "expect": { "snapshots": 0, "screenshots": 1, "steps": [2], "mouse": null, "failed": true, "queueMs": 1 }

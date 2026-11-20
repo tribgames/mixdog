@@ -7,7 +7,9 @@ import { PAYLOAD_CEILING_CHARS, play } from './test-support/phone-play.mjs';
 
 async function main() {
   const name = process.argv[2];
-  const departures = JSON.parse(readFileSync(new URL('./remote-shim-lifecycle-departures.json', import.meta.url), 'utf8'));
+  const departures = JSON.parse(
+    readFileSync(new URL('./remote-shim-lifecycle-departures.json', import.meta.url), 'utf8')
+  );
   const ops = departures[name].script;
   const repo = new URL('../../../../', import.meta.url);
   const options = JSON.parse(readFileSync(new URL('packages/protocol-client/conformance/options.json', repo), 'utf8'));
@@ -31,7 +33,10 @@ async function main() {
           ? Promise.reject(Object.assign(new Error('payload too large'), { code: 'RELAY_PAYLOAD_TOO_LARGE' }))
           : host.client().call('feed/subscribe', { feedId: 'pending-call' }),
       ...Object.fromEntries(
-        Object.entries(SYNTHETIC_READ_REQUESTS).map(([name, method]) => [name, (_params, host) => host.client().call(method, {})])
+        Object.entries(SYNTHETIC_READ_REQUESTS).map(([name, method]) => [
+          name,
+          (_params, host) => host.client().call(method, {}),
+        ])
       ),
     },
     install: (host) => void host.declareLane('terminal', ['terminal']),

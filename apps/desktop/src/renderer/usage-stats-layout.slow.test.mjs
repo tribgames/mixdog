@@ -39,9 +39,7 @@ test('token usage stays centered and scrollable with titlebar insets, empty resu
           import { CommandSurface } from "./CommandSurface";
 
           const root = createRoot(document.getElementById("root"));
-          const period = ${JSON.stringify(
-            usageSnapshot('hour').period
-          )};
+          const period = ${JSON.stringify(usageSnapshot('hour').period)};
           window.renderStats = (state) => {
             const empty = state === "empty";
             const route = {

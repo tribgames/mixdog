@@ -274,7 +274,10 @@ test('archiving a background session closes its tab without navigating; a failed
     },
   });
   await act(async () => {
-    await f.state().archiveSession('session-b', true).catch(() => {});
+    await f
+      .state()
+      .archiveSession('session-b', true)
+      .catch(() => {});
   });
   assert.deepEqual(f.closedPaneKeys, []);
   assert.equal(f.state().tabs.length, 2);
@@ -339,7 +342,14 @@ test('closeSessionPaneTabs falls back to the group neighbour, else another group
     tabs: ids.map((sid) => ({ kind: 'session', id: sid })),
   });
   assert.deepEqual(
-    closeSessionPaneTabs('b', [leaf('l', ['a', 'b', 'c'], 'b')], 'l', [{ key: 'session:c', title: 'C' }], setTabs, close),
+    closeSessionPaneTabs(
+      'b',
+      [leaf('l', ['a', 'b', 'c'], 'b')],
+      'l',
+      [{ key: 'session:c', title: 'C' }],
+      setTabs,
+      close
+    ),
     { shown: true, fallback: { selection: { kind: 'session', id: 'c' }, title: 'C' } }
   );
   assert.deepEqual(
@@ -393,8 +403,14 @@ test('closeSessionPaneTabs never falls back to the deleted session open in other
   );
   // Only the deleted session remains anywhere: draft.
   assert.equal(
-    closeSessionPaneTabs('a', [leaf('l', ['a'], 'a'), leaf('m', ['a'], 'a'), leaf('n', ['a'], 'a')], 'l', [], setTabs, close)
-      .fallback,
+    closeSessionPaneTabs(
+      'a',
+      [leaf('l', ['a'], 'a'), leaf('m', ['a'], 'a'), leaf('n', ['a'], 'a')],
+      'l',
+      [],
+      setTabs,
+      close
+    ).fallback,
     null
   );
 });

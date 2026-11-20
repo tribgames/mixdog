@@ -14,7 +14,7 @@ import { DIRECT_KEYS } from '../shared/desktop-api-split.ts';
 // The router's call deadline reads the page's timers (remote-shim-call-watch.ts); a Node test has no window.
 globalThis.window ??= globalThis;
 
-test("edges reach the phone on the catalog clock: 400 ms after the first, no sooner than 2 s after the last refresh", async () => {
+test('edges reach the phone on the catalog clock: 400 ms after the first, no sooner than 2 s after the last refresh', async () => {
   let now = 10_000;
   const timers = [];
   const published = [];
@@ -221,7 +221,10 @@ const CHAT_CALLS_BESIDES = [
 test('the adapter the switch point loads claims exactly the chat calls the desktop API names, each as a function', async () => {
   const { adapter } = await import('./remote-protocol-chat.ts');
   assert.equal(adapter.group, 'chat');
-  const expected = [...DIRECT_KEYS.sessions.filter((name) => !SESSION_CALLS_ELSEWHERE.includes(name)), ...CHAT_CALLS_BESIDES];
+  const expected = [
+    ...DIRECT_KEYS.sessions.filter((name) => !SESSION_CALLS_ELSEWHERE.includes(name)),
+    ...CHAT_CALLS_BESIDES,
+  ];
   assert.equal(expected.length, 39);
   for (const name of expected) assert.equal(typeof adapter.calls[name], 'function', name);
   assert.deepEqual(Object.keys(adapter.calls).sort(), [...expected].sort());

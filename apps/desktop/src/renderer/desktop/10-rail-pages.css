@@ -1974,7 +1974,7 @@ html[data-mixdog-mobile-tabs]
    scroller's padding edge, so nothing wider survives its clip) and opens 4px
    above the heading and below the last row. */
 .session-sidebar-sessions
-:is(.project-group, .sidebar-favorites)[data-session-drop="true"]:not([data-drop-position])::after {
+  :is(.project-group, .sidebar-favorites)[data-session-drop="true"]:not([data-drop-position])::after {
   content: "";
   position: absolute;
   inset: -4px 0 -4px -8px;

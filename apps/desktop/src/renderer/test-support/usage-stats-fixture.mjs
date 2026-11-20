@@ -8,7 +8,8 @@ const TODAY = '2026-09-13';
 const WINDOW_DAYS = { '7d': 7, day: 30, week: 90, month: 365 };
 const shiftDay = (day, days) => new Date(Date.parse(`${day}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10);
 const dayOf = (day) => {
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(day ?? '') || shiftDay(day, 0) !== day) throw new Error(`usageSnapshot needs a YYYY-MM-DD day, got ${day}`);
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(day ?? '') || shiftDay(day, 0) !== day)
+    throw new Error(`usageSnapshot needs a YYYY-MM-DD day, got ${day}`);
   return day;
 };
 // The product also takes HH:MM:SS; the tests never do, so it is refused rather than guessed.
@@ -43,9 +44,32 @@ function periodOf({ view, anchor, startDay, endDay, startTime, endTime }) {
     };
   }
   if (view === 'hour')
-    return { view, anchor: null, fromMs: now - DAY_MS, toMs: now, endMs: now, startDay: '2026-09-12', endDay: TODAY, days: 1, previousAnchor: null, nextAnchor: null, isCurrent: true };
+    return {
+      view,
+      anchor: null,
+      fromMs: now - DAY_MS,
+      toMs: now,
+      endMs: now,
+      startDay: '2026-09-12',
+      endDay: TODAY,
+      days: 1,
+      previousAnchor: null,
+      nextAnchor: null,
+      isCurrent: true,
+    };
   if (view === 'year' || view === 'all')
-    return { view, anchor: null, fromMs: 0, toMs: now, startDay: null, endDay: TODAY, days: null, previousAnchor: null, nextAnchor: null, isCurrent: true };
+    return {
+      view,
+      anchor: null,
+      fromMs: 0,
+      toMs: now,
+      startDay: null,
+      endDay: TODAY,
+      days: null,
+      previousAnchor: null,
+      nextAnchor: null,
+      isCurrent: true,
+    };
   if (view === 'custom') {
     const start = dayOf(startDay);
     const end = dayOf(endDay);
