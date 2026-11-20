@@ -52,7 +52,8 @@ export function SkinCustomDialog({
             <X aria-hidden="true" size={16} />
           </button>
         </header>
-        <div className="skin-custom-body">
+        {/* The body scrolls under a tall picture; a tab stop lets the keyboard scroll it. */}
+        <div className="skin-custom-body" role="region" tabIndex={0} aria-labelledby={titleId}>
           <p>{t('Click the part of the picture to keep in view when the window crops it.')}</p>
           {/* The pointer marks a point; the arrow keys below move it. */}
           <div

@@ -360,7 +360,13 @@
 .skin-custom-dialog {
   width: min(520px, 100%);
 }
+/* A tall picture scrolls inside the dialog's height cap so the footer stays
+   on screen; the picture is not shrunk to fit, since the subject point is read
+   from where it is clicked. */
 .skin-custom-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
   padding: 0 var(--mx-dialog-inset, 20px) 8px;
 }
 .skin-custom-body > p {
