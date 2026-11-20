@@ -263,7 +263,10 @@ consumes it (the test runs the selection over a table of paths).
   `--profile ci --partition count:k/N` (N from `scripts/ci/core-select.mjs`: one leg per 4,000 tests, at most four). A pull
   request archives the changed crates and their reverse dependencies; main archives the whole workspace. `core-pg` runs
   `services-pg` and `pg` from the same archive with the provisioned runtime (Linux always, macOS on main and manual runs, when the
-  archive holds the crate). `core-lint` is clippy of the daemon on each system. `core-real` builds the process-tree helper and
+  archive holds the crate). `core-lint` is clippy of the daemon on each system, and on Linux
+  the format check of the whole workspace (`cargo fmt --all -- --check` for `native/core` and for each standalone tool under `native/` that has a
+  `Cargo.lock`, configured by `native/rustfmt.toml`; `native/core/vendor` and the generated tables marked `#[rustfmt::skip]` are
+  left alone). `core-real` builds the process-tree helper and
   runs its suites and the harness suites on every system, and on Linux and macOS also builds the release `mixdogd` and boots it.
   It runs on a push to main or a manual run whenever the core or `scripts/rust-core` and its neighbours changed (everything, on
   main). On a pull request it runs only when `scripts/rust-core`, `benchmarks/token-lang`, the harness's Rust-core suites, the

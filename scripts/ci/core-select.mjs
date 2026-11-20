@@ -51,6 +51,7 @@ const slash = (path) => path.split(sep).join('/');
 // A change to any of these reaches every crate: the build's own inputs, and this gate.
 const WHOLE = [
   /^native\/core\/(Cargo\.(toml|lock)|clippy\.toml)$/,
+  /^native\/rustfmt\.toml$/,
   /^native\/core\/(\.cargo|\.config|build-support)\//,
   /^rust-toolchain\.toml$/,
   /^\.github\/workflows\/release-gate\.yml$/,

@@ -50,7 +50,7 @@ env:
 #
 #   changes ---> core-build (linux, macos, windows) ---> core-tests (N legs per system)
 #      |             `--> mixdogd (dev controls, one artifact) ---> desktop-slow
-#      +--> core-lint (clippy, per system)   core-real (release mixdogd, node real-core tests)
+#      +--> core-lint (clippy per system, rustfmt once)   core-real (release mixdogd, node real-core tests)
 #      +--> runtime, runtime-slow, runtime-macos, desktop*, relay*, spawn, packages, patch, graph, ... (independent)
 #
 # A pull request builds and tests only the crates the change can affect and the crates
@@ -2119,8 +2119,9 @@ jobs:
   # Clippy of the daemon, which composes the core (the command the merge check runs), on each system
   # because each compiles code the others do not (cfg(windows), cfg(target_os = "macos")). It is
   # a check build: it shares nothing with the test build but the build scripts, so it runs beside it
-  # on its own dependency cache, not after it on the same runner. The tree is not rustfmt-formatted, so
-  # there is no fmt check to run.
+  # on its own dependency cache, not after it on the same runner. The format check (native/rustfmt.toml)
+  # reads the sources and nothing else, whatever system they are compiled for, so one system runs it, for the
+  # core and for the standalone tools beside it.
   core-lint:
     name: core-lint (${{ matrix.os }})
     needs: changes
@@ -2152,7 +2153,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8
         with:
           toolchain: ${{ steps.rust-pin.outputs.version }}
-          components: clippy
+          components: clippy, rustfmt
       - name: Restore the checked dependencies
         id: deps
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -2164,6 +2165,14 @@ jobs:
           key: core-clippy-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-${{ hashFiles('rust-toolchain.toml', 'native/core/Cargo.lock', 'native/core/Cargo.toml', 'native/core/crates/**/Cargo.toml', 'native/core/.cargo/config.toml', 'src/runtime/**/data/*manifest.json', 'src/runtime/effort-judge/model-manifest.json') }}
           restore-keys: |
             core-clippy-${{ matrix.os }}-${{ runner.arch }}-${{ steps.rust-pin.outputs.version }}-
+      # Every Rust workspace under native/ that resolves from the checkout alone (mixdog-browser-import depends
+      # on sources outside it): the core, and each standalone tool with its own binaries and tests.
+      - name: Format check
+        if: matrix.os == 'linux'
+        run: |
+          for lock in native/*/Cargo.lock; do
+            cargo fmt --all --manifest-path "$(dirname "$lock")/Cargo.toml" -- --check
+          done
       # Lints are not denied in the compile itself: a denied lint ends the build at the first crate that has
       # one, and the crates after it wait for the next run. Every crate is linted, then any finding fails.
       - name: Clippy
