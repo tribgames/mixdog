@@ -102,9 +102,10 @@ tiers, source-text guards, structural findings, language-specific checks and
 prose tells) first; also `references/test-suite-slop.md` when tests are in
 scope and `references/cleanup-report.md` for the report.
 
-1. **Pin behavior (read-only).** Find the source-text guards a planned move
-   can affect. A unit whose touched behavior no test covers gets only SAFE
-   changes; report it instead of adding tests.
+1. **Pin behavior.** Find the source-text guards a planned move can affect
+   and the tests covering each unit. A structural change to an uncovered unit
+   is pinned first ("Equivalence is shown" in `references/principles.md`);
+   without a pin, SAFE changes only.
 2. **Ladder, then lenses, then structure** on each selected source unit,
    then every principle's test; structural findings need evidence and a
    reader benefit, and rank first. Engine diagnostics
