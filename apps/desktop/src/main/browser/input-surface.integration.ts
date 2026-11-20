@@ -5,6 +5,7 @@ import { createPolling } from '../host-harness-poll';
 import { registerBrowserIpc } from '../ipc-browser';
 import { DESKTOP_IPC } from '../../shared/contract';
 import { readyBrowserFrame } from './harness-frame';
+import { clickShellAt } from './input-surface-click';
 import { measureBrowserPresentation } from './input-surface-performance';
 import { exerciseBrowserErrorNotice } from './input-surface-errors';
 import { exerciseBrowserPrompts } from './input-surface-prompts';
@@ -129,9 +130,7 @@ export async function exerciseBrowserInputSurface(options: {
       bounds.x + (bounds.width - frame.width * scale) / 2 + ((point.x * frame.width) / frame.viewportWidth) * scale;
     const y =
       bounds.y + (bounds.height - frame.height * scale) / 2 + ((point.y * frame.height) / frame.viewportHeight) * scale;
-    for (const type of ['mousePressed', 'mouseReleased']) {
-      await shell.debugger.sendCommand('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 });
-    }
+    await clickShellAt(shell, { x, y });
     await shell.debugger.sendCommand('Input.insertText', { text: 'manual 한글' });
     log(
       `manual input sent at ${x.toFixed(1)},${y.toFixed(1)}; image ${frame.width}x${frame.height}, viewport ${frame.viewportWidth}x${frame.viewportHeight}`
@@ -188,15 +187,11 @@ export async function exerciseBrowserInputSurface(options: {
       const el = document.querySelector('iframe'), r = el.getBoundingClientRect();
       return { x: r.x + el.clientLeft, y: r.y + el.clientTop };
     })()`);
-    for (const type of ['mousePressed', 'mouseReleased']) {
-      await shell.debugger.sendCommand('Input.dispatchMouseEvent', {
-        type,
-        button: 'left',
-        clickCount: 1,
-        x: bounds.x + (((childOffset.x + childPoint.x) * frame.width) / frame.viewportWidth) * scale,
-        y: bounds.y + (((childOffset.y + childPoint.y) * frame.height) / frame.viewportHeight) * scale,
-      });
-    }
+    const childClick = {
+      x: bounds.x + (((childOffset.x + childPoint.x) * frame.width) / frame.viewportWidth) * scale,
+      y: bounds.y + (((childOffset.y + childPoint.y) * frame.height) / frame.viewportHeight) * scale,
+    };
+    await clickShellAt(shell, childClick);
     await shell.debugger.sendCommand('Input.insertText', { text: 'iframe 한글' });
     await eventually(
       () => child.executeJavaScript(`document.getElementById('frame').value`),
@@ -222,15 +217,7 @@ export async function exerciseBrowserInputSurface(options: {
     await new Promise((resolve) => setTimeout(resolve, 150));
     assert.equal(iframeWaitFinished, false);
     const handoffStarted = performance.now();
-    for (const type of ['mousePressed', 'mouseReleased']) {
-      await shell.debugger.sendCommand('Input.dispatchMouseEvent', {
-        type,
-        button: 'left',
-        clickCount: 1,
-        x: bounds.x + (((childOffset.x + childPoint.x) * frame.width) / frame.viewportWidth) * scale,
-        y: bounds.y + (((childOffset.y + childPoint.y) * frame.height) / frame.viewportHeight) * scale,
-      });
-    }
+    await clickShellAt(shell, childClick);
     await shell.debugger.sendCommand('Input.dispatchKeyEvent', {
       type: 'keyDown',
       key: 'End',
@@ -246,9 +233,7 @@ export async function exerciseBrowserInputSurface(options: {
     assert.equal(await guest.executeJavaScript(`document.getElementById('agent').value`), 'manual 한글');
     assert.equal(await shell.executeJavaScript(`document.getElementById('draft').textContent`), 'keep editing');
     log(`iframe human takeover preserves parent and composer: ${(performance.now() - handoffStarted).toFixed(1)}ms`);
-    for (const type of ['mousePressed', 'mouseReleased']) {
-      await shell.debugger.sendCommand('Input.dispatchMouseEvent', { type, x, y, button: 'left', clickCount: 1 });
-    }
+    await clickShellAt(shell, { x, y });
     await eventually(
       () => guest.executeJavaScript(`document.activeElement.id`),
       (value) => value === 'agent'

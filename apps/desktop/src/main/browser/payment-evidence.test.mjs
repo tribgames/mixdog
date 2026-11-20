@@ -48,7 +48,12 @@ test('an unreadable page counts as payment evidence (fail closed)', async () => 
 
 test('the host asks with payment set only for a submit or post step on a page with evidence', async () => {
   const asked = [];
-  const approval = createBrowserActionApproval({ ask: async (request) => (asked.push(request), true) });
+  const approval = createBrowserActionApproval({
+    ask: async (request) => {
+      asked.push(request);
+      return true;
+    },
+  });
   const target = () => ({ url: 'https://shop.example/cart', identity: 'doc1' });
   const submit = { action: 'click', submit: true, target: { name: 'Continue' }, session_id: 's', session_life: '1:0' };
   await approval.approve({ ...submit }, target, undefined, undefined, undefined, async () => true);

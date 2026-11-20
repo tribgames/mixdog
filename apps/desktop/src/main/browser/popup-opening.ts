@@ -5,11 +5,13 @@
  */
 import type { BaseWindow, BrowserWindow, WebContents } from 'electron';
 
-import type { BrowserGuestStateStore } from './host-state';
-import { pushBounded } from './host-state';
+import { type BrowserGuestStateStore, pushBounded } from './host-state';
 import type { adoptBrowserPageWindow, createBrowserPageWindow } from './page-window';
 import { popupTakesSelection, takeWindowOpenGesture } from './popup-focus';
 import { type BrowserUrlPolicy, normalizePageUrl } from './url-policy';
+
+/** Window opens whose selection waits for did-create-window; the oldest is forgotten past it. */
+const PENDING_SELECTION_LIMIT = 8;
 
 export interface PopupOpeningHost {
   state: BrowserGuestStateStore;
@@ -69,7 +71,7 @@ export function handleWindowOpens(guest: WebContents, host: PopupOpeningHost): v
         };
       }
       selections.push({ url, select });
-      if (selections.length > 8) selections.shift();
+      if (selections.length > PENDING_SELECTION_LIMIT) selections.shift();
       return {
         action: 'allow',
         outlivesOpener: true,

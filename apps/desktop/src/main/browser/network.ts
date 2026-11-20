@@ -226,26 +226,29 @@ export class BrowserNetworkLedger {
     return entry;
   }
 
-  loadingFinished(params: Record<string, unknown>, sessionId?: string, now = Date.now()): BrowserNetworkRequest | null {
-    const scopedId = scopedRequestId(sessionId, String(params.requestId || ''));
-    const entry = this.#inflight.get(scopedId);
+  /** The in-flight request a CDP event names, now finished and no longer tracked. */
+  #finish(params: Record<string, unknown>, sessionId: string | undefined, now: number): BrowserNetworkRequest | null {
+    const entry = this.#inflightFor(params, sessionId);
     if (!entry) return null;
     entry.finishedAt = now;
-    if (Number.isFinite(Number(params.encodedDataLength))) {
+    this.#inflight.delete(scopedRequestId(sessionId, String(params.requestId || '')));
+    return entry;
+  }
+
+  loadingFinished(params: Record<string, unknown>, sessionId?: string, now = Date.now()): BrowserNetworkRequest | null {
+    const entry = this.#finish(params, sessionId, now);
+    if (entry && Number.isFinite(Number(params.encodedDataLength))) {
       entry.encodedDataLength = Number(params.encodedDataLength);
     }
-    this.#inflight.delete(scopedId);
     return entry;
   }
 
   loadingFailed(params: Record<string, unknown>, sessionId?: string, now = Date.now()): BrowserNetworkRequest | null {
-    const scopedId = scopedRequestId(sessionId, String(params.requestId || ''));
-    const entry = this.#inflight.get(scopedId);
-    if (!entry) return null;
-    entry.finishedAt = now;
-    entry.failure = String(params.errorText || 'failed');
-    entry.canceled = params.canceled === true;
-    this.#inflight.delete(scopedId);
+    const entry = this.#finish(params, sessionId, now);
+    if (entry) {
+      entry.failure = String(params.errorText || 'failed');
+      entry.canceled = params.canceled === true;
+    }
     return entry;
   }
 

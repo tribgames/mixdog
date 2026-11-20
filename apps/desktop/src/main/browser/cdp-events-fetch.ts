@@ -31,6 +31,19 @@ const originOf = (url: string): string => {
   }
 };
 
+/** Answers a paused request of the host's own questions; a failed answer leaves nothing to report. */
+function fulfillQuietly(
+  host: RequestPauseHost,
+  guest: WebContents,
+  cdp: Electron.Debugger,
+  params: Parameters<BrowserCdpSend>[3],
+  sessionId?: string
+): void {
+  void host
+    .sendCdp(guest, cdp, 'Fetch.fulfillRequest', params, CDP_REQUEST_TIMEOUT_MS, undefined, sessionId)
+    .catch(() => undefined);
+}
+
 /** A page asked whether a permission is undecided for it. Only the page's own
  *  origin is answered (the request must come from the origin it names), and
  *  anything unverifiable reads as not undecided. */
@@ -50,17 +63,7 @@ function answerPermissionState(
   >;
   const from = originOf(headers.Referer ?? headers.referer ?? headers.Origin ?? headers.origin ?? '');
   const prompt = Boolean(from) && from === state.origin && !host.permissionRefused?.(state.origin, state.name);
-  void host
-    .sendCdp(
-      guest,
-      cdp,
-      'Fetch.fulfillRequest',
-      permissionStateFulfillParams(requestId, prompt),
-      CDP_REQUEST_TIMEOUT_MS,
-      undefined,
-      sessionId
-    )
-    .catch(() => undefined);
+  fulfillQuietly(host, guest, cdp, permissionStateFulfillParams(requestId, prompt), sessionId);
 }
 
 /** The page asked the host a question through the dialog bridge: the request
@@ -78,17 +81,7 @@ function holdDialogBridgeRequest(
   const requestId = String(params.requestId || '');
   if (!requestId) return;
   if (diagnostics.pendingDialog) {
-    void host
-      .sendCdp(
-        guest,
-        cdp,
-        'Fetch.fulfillRequest',
-        dialogBridgeFulfillParams(requestId, false, ''),
-        CDP_REQUEST_TIMEOUT_MS,
-        undefined,
-        sessionId
-      )
-      .catch(() => undefined);
+    fulfillQuietly(host, guest, cdp, dialogBridgeFulfillParams(requestId, false, ''), sessionId);
     return;
   }
   diagnostics.pendingDialog = {

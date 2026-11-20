@@ -94,6 +94,11 @@ interface SecretFillHost {
   saveLogin?: (login: { origin: string; username: string; password: string }) => Promise<void>;
 }
 
+/** Throws while the session's takeover lock is held. */
+function assertSessionFree(host: Pick<SecretFillHost, 'assertFree'>, sessionId: string): void {
+  (host.assertFree ?? ((id: string) => takeoverGate.assertFree(id)))(sessionId);
+}
+
 /** The checks made before a secret input takes its value: the request is bound to this
  *  session, the session's takeover lock is free, the page it was bound to is still on its https
  *  origin showing the main-frame document it showed then (a navigation, even within the origin,
@@ -118,7 +123,7 @@ function boundTarget(
   const binding = registry.binding(requestId);
   if (!binding || binding.sessionId !== sessionId) return refuse('blocked');
   try {
-    (host.assertFree || ((id: string) => takeoverGate.assertFree(id)))(sessionId);
+    assertSessionFree(host, sessionId);
   } catch {
     return refuse('blocked');
   }
@@ -170,7 +175,7 @@ export async function runSecretFill(
   const guard =
     bound &&
     (() => {
-      (host.assertFree || ((id: string) => takeoverGate.assertFree(id)))(sessionId);
+      assertSessionFree(host, sessionId);
       if (!onOrigin(guest)) throw new BrowserPageChangedError();
       bound();
     });
@@ -277,17 +282,10 @@ export async function fillBoundLogin(
             : { form: 'username', value: credential.username, targets, document, url },
           signal
         );
+        const reason = filled.filled ? {} : { reason: 'password-field-unavailable' as const };
         return passwordStep
-          ? {
-              usernameFilled: filled.usernameFilled === true,
-              passwordFilled: filled.filled,
-              ...(filled.filled ? {} : { reason: 'password-field-unavailable' as const }),
-            }
-          : {
-              usernameFilled: filled.filled,
-              passwordFilled: false,
-              ...(filled.filled ? {} : { reason: 'password-field-unavailable' as const }),
-            };
+          ? { usernameFilled: filled.usernameFilled === true, passwordFilled: filled.filled, ...reason }
+          : { usernameFilled: filled.filled, passwordFilled: false, ...reason };
       },
       signal
     );
@@ -550,15 +548,9 @@ export function createBrowserHostAgent(options: {
   engine?: FillEngine;
 }) {
   const { base, tools, lifecycle, taskLifecycle } = options;
+  const autoSignInEnabled = options.autoSignInEnabled || (() => true);
   const autoSignIn = createBrowserAutoSignIn(
-    browserAutoSignInDeps(
-      base,
-      tools,
-      options.autoSignInEnabled || (() => true),
-      undefined,
-      undefined,
-      options.onDiagnostic
-    )
+    browserAutoSignInDeps(base, tools, autoSignInEnabled, undefined, undefined, options.onDiagnostic)
   );
   const { state, cdp, sessions, leave, commandChains, pendingReads } = base;
   const services = createBrowserActionServices(
@@ -694,7 +686,7 @@ export function createBrowserHostAgent(options: {
         ),
     },
     savedLogin: createSavedLoginHost({
-      autoSignIn: options.autoSignInEnabled || (() => true),
+      autoSignIn: autoSignInEnabled,
       credentials: base.profileImporter,
       worker: options.savedLoginWorker ?? NO_COMPUTER_HOST,
       engine: options.engine,

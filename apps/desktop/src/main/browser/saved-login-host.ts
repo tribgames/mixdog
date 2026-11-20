@@ -70,8 +70,27 @@ const unscoped = (): Error =>
     'saved_login_unavailable: the request names no session and agent turn to scope its fill to; no input was sent'
   );
 
+function fieldAndAccount(input: Record<string, unknown>): { field: SavedLoginField; account: string } {
+  const field = String(input.field || '');
+  if (field !== 'username' && field !== 'password') {
+    throw new Error('invalid_input: field must be username or password');
+  }
+  const account = typeof input.account === 'string' ? input.account.trim() : '';
+  if (!account) throw new Error('invalid_input: account must name a saved login');
+  return { field, account };
+}
+
 export function createSavedLoginHost(deps: SavedLoginHostDeps) {
   const admitted = new Set<string>();
+  /** The request's agent turn, once its fill was admitted for this session. */
+  const admittedTurn = (sessionId: string, input: Record<string, unknown>): number => {
+    const turn = turnOf(input);
+    if (!sessionId || !turn) throw unscoped();
+    if (!admitted.has(key(sessionId, turn))) {
+      throw new Error('saved_login_unavailable: the fill was not admitted for its session and turn; no input was sent');
+    }
+    return turn;
+  };
   return {
     admit(sessionId: string, input: Record<string, unknown>): { enabled: boolean } {
       const turn = turnOf(input);
@@ -90,19 +109,8 @@ export function createSavedLoginHost(deps: SavedLoginHostDeps) {
       return { released: true };
     },
     async step(sessionId: string, step: 'check' | 'type', input: Record<string, unknown>): Promise<unknown> {
-      const turn = turnOf(input);
-      if (!sessionId || !turn) throw unscoped();
-      if (!admitted.has(key(sessionId, turn))) {
-        throw new Error(
-          'saved_login_unavailable: the fill was not admitted for its session and turn; no input was sent'
-        );
-      }
-      const field = String(input.field || '');
-      if (field !== 'username' && field !== 'password') {
-        throw new Error('invalid_input: field must be username or password');
-      }
-      const account = typeof input.account === 'string' ? input.account.trim() : '';
-      if (!account) throw new Error('invalid_input: account must name a saved login');
+      const turn = admittedTurn(sessionId, input);
+      const { field, account } = fieldAndAccount(input);
       const windowId = typeof input.window_id === 'string' ? input.window_id.trim() : '';
       if (!windowId) throw new Error('fill_saved_login requires an exact window_id before dispatch');
       const command: Record<string, unknown> = {
@@ -142,22 +150,11 @@ export function createSavedLoginHost(deps: SavedLoginHostDeps) {
       return this.step(sessionId, 'type', input);
     },
     async value(sessionId: string, input: Record<string, unknown>): Promise<SavedLoginHostValue> {
-      const turn = turnOf(input);
-      if (!sessionId || !turn) throw unscoped();
-      if (!admitted.has(key(sessionId, turn))) {
-        throw new Error(
-          'saved_login_unavailable: the fill was not admitted for its session and turn; no input was sent'
-        );
-      }
+      admittedTurn(sessionId, input);
       if (!deps.autoSignIn()) {
         throw new Error('saved_login_unavailable: Auto login is off in Settings (인증 관리); no input was sent');
       }
-      const field = String(input.field || '');
-      if (field !== 'username' && field !== 'password') {
-        throw new Error('invalid_input: field must be username or password');
-      }
-      const account = typeof input.account === 'string' ? input.account.trim() : '';
-      if (!account) throw new Error('invalid_input: account must name a saved login');
+      const { field, account } = fieldAndAccount(input);
       const { secureOrigin, maskedCredentialLabel } = await deps.text();
       const origin = secureOrigin(String(input.origin || ''));
       if (!origin)

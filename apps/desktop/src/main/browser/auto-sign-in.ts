@@ -625,12 +625,12 @@ function createSignInStep(
     if (phase === 'code') {
       const code = deps.code ? await deps.code.value(url, account) : '';
       // No stored key: the code is the user's.
-      if (!code) return null;
+      if (!deps.code || !code) return null;
       if (!mayGoOn(await state(guest, signal), seen, phase)) {
         throw new SignInStopped('The human check changed before stored credential input; input was not sent.');
       }
       guardPage('The page changed before stored credential input; input was not sent.');
-      filled = await deps.code!.fill(guest, code, signal, url, bound || undefined);
+      filled = await deps.code.fill(guest, code, signal, url, bound || undefined);
     } else {
       const result = await deps.withCredential(
         url,

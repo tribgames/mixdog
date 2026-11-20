@@ -8,6 +8,7 @@ import { anchorPinnedLayout, fullPageRect } from './screenshot-full-page';
 import type { EncodedBrowserScreenshot, ScreenshotCropInput } from './screenshot-image';
 import { captureTiledDocument } from './screenshot-tiles';
 import { normalizeScreenshotOptions } from './screenshot-policy';
+import type { BrowserVisualPrivacy } from './visual-privacy';
 export {
   normalizeScreenshotOptions,
   type BrowserScreenshotFormat,
@@ -47,7 +48,7 @@ export function createBrowserScreenshotService(
   cdp: BrowserCdpPort,
   screenshotTimeoutMs: number,
   nativeTimeoutMs: number,
-  visualPrivacy?: import('./visual-privacy').BrowserVisualPrivacy
+  visualPrivacy?: BrowserVisualPrivacy
 ) {
   const slow = { timeoutMs: screenshotTimeoutMs };
 

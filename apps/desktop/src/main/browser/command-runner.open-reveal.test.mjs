@@ -59,7 +59,7 @@ function fixture({ reveal = async () => 'shown', target = null, ensure, autoSign
         return true;
       },
     },
-    tabs: { resolveTargetGuest: (sessionId, background, tab) => (target ? target(sessionId, tab) : null) },
+    tabs: { resolveTargetGuest: (sessionId, _background, tab) => (target ? target(sessionId, tab) : null) },
     downloads: {},
     taskLifecycle: { begin() {}, use() {} },
     retainGuest() {},

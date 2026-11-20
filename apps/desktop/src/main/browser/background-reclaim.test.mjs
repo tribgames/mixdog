@@ -113,9 +113,9 @@ test('at the ceiling the least recently used idle page of a finished session is 
 });
 
 const exclusions = {
-  'a user page': (h, entry) => Object.assign(entry, { kind: 'user' }),
-  'a popup': (h, entry) => Object.assign(entry, { kind: 'popup' }),
-  'a retained page': (h, entry) => Object.assign(entry, { keepAlive: true }),
+  'a user page': (_h, entry) => Object.assign(entry, { kind: 'user' }),
+  'a popup': (_h, entry) => Object.assign(entry, { kind: 'popup' }),
+  'a retained page': (_h, entry) => Object.assign(entry, { keepAlive: true }),
   'a revealed foreground page': (h, entry) => h.sessions.selectGuest('other', entry.guest),
   'a page mid-command': (h) => h.busy.add('other/p'),
   'a page holding sign-in or typed input': (h, entry) => h.unfinished.add(entry.guest),

@@ -161,11 +161,6 @@ export function createBrowserRemoteControl(
       .catch(() => undefined);
   }
 
-  /** The session is gone: stop streaming and release its viewer. */
-  function releaseViewer(sessionId: string): void {
-    stopStream(sessionId);
-  }
-
   /** An explicit resize of a streamed page (`resize-request`): fit it to the
    *  client's box, or return it to its own geometry — by viewport emulation
    *  only, as a take-over fits, so the page never reloads. The page re-lays
@@ -249,5 +244,13 @@ export function createBrowserRemoteControl(
     navigatePage(host, guest, control);
   }
 
-  return { remoteBrowserStream, remoteBrowserControl, releaseViewer, resize, streamedPage, widenVideo };
+  /** releaseViewer: the session is gone, so its stream stops. */
+  return {
+    remoteBrowserStream,
+    remoteBrowserControl,
+    releaseViewer: stopStream,
+    resize,
+    streamedPage,
+    widenVideo,
+  };
 }

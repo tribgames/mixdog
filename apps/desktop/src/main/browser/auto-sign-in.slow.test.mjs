@@ -438,7 +438,7 @@ test('probe: hidden response fields and provider containers, each judged alone',
 test('probe: no suppression and no sharing across widgets', () => {
   // Same provider: one solved, one empty.
   assert.equal(probe(TURNSTILE_DONE + TURNSTILE_EMPTY).check, 'pending');
-  assert.equal(probe(TURNSTILE_DONE + '<div class="cf-turnstile"></div>').check, 'pending');
+  assert.equal(probe(`${TURNSTILE_DONE}<div class="cf-turnstile"></div>`).check, 'pending');
   // One loose token does not fill two containers.
   assert.equal(
     probe(
@@ -447,17 +447,17 @@ test('probe: no suppression and no sharing across widgets', () => {
     'pending'
   );
   // A solved other provider does not cover a pending one.
-  assert.equal(probe(RECAPTCHA_DONE + '<div class="cf-turnstile"></div>').check, 'pending');
+  assert.equal(probe(`${RECAPTCHA_DONE}<div class="cf-turnstile"></div>`).check, 'pending');
   assert.equal(probe(RECAPTCHA_DONE + TURNSTILE_EMPTY).check, 'pending');
   // A deferred sibling is pending itself and hides nothing else.
   const deferred = '<div class="cf-turnstile" data-execution="execute"></div>';
   assert.equal(probe(deferred).check, 'pending');
   assert.equal(probe(TURNSTILE_DONE + deferred).check, 'pending');
-  assert.equal(probe('<div class="h-captcha" data-size="invisible"></div>' + TURNSTILE_EMPTY).check, 'pending');
+  assert.equal(probe(`<div class="h-captcha" data-size="invisible"></div>${TURNSTILE_EMPTY}`).check, 'pending');
   // The badge (and its own field) is not evidence and suppresses nothing outside itself.
   assert.equal(probe(BADGE).check, 'none');
   assert.equal(probe(BADGE + TURNSTILE_EMPTY).check, 'pending');
-  assert.equal(probe(BADGE + '<div class="g-recaptcha"></div>').check, 'pending');
+  assert.equal(probe(`${BADGE}<div class="g-recaptcha"></div>`).check, 'pending');
   assert.equal(probe(BADGE + TURNSTILE_DONE).check, 'solved');
 });
 
@@ -798,7 +798,7 @@ test('probe: a username-only step is one username/email field alone on a page th
     'explicit autocomplete'
   );
   assert.equal(
-    state('https://shop.example.com/login', email + '<input name="q" type="search">').username,
+    state('https://shop.example.com/login', `${email}<input name="q" type="search">`).username,
     false,
     'not alone'
   );
@@ -808,7 +808,7 @@ test('probe: a username-only step is one username/email field alone on a page th
     'not an identifier'
   );
   assert.equal(
-    state('https://shop.example.com/login', email + '<input type="password">').username,
+    state('https://shop.example.com/login', `${email}<input type="password">`).username,
     false,
     'a password page'
   );

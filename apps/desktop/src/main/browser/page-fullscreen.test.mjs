@@ -40,7 +40,7 @@ const setup = (shellOptions) => {
   const changes = [];
   const fullscreen = createPageFullscreen({
     shell,
-    sessionIdForGuest: (g) => (g === guest ? 's1' : g === other ? 's1' : undefined),
+    sessionIdForGuest: (g) => (g === guest || g === other ? 's1' : undefined),
     currentGuest: (sessionId) => current[sessionId] ?? null,
     changed: (sessionId, active) => changes.push([sessionId, active]),
   });

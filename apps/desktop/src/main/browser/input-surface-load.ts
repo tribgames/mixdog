@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { BrowserWindow, nativeImage, type WebContents } from 'electron';
 import type { BrowserHost } from './host-types';
 import { createPolling } from '../host-harness-poll';
+import { clickShellAt } from './input-surface-click';
 import { measureBrowserWheelToPixels, percentileMs } from './input-surface-latency';
 
 /** A full-size, changing page exercises encoding and input together. The
@@ -93,28 +94,12 @@ export async function measureBrowserSurfaceLoad(
         (value) => value === 0
       );
       assert.ok(acknowledgement.length > 0, 'the production wheel input path must be exercised');
-      for (const type of ['mousePressed', 'mouseReleased']) {
-        await shell.debugger.sendCommand('Input.dispatchMouseEvent', {
-          type,
-          x: bounds.x + 325,
-          y: bounds.y + 20,
-          button: 'left',
-          clickCount: 1,
-        });
-      }
+      await clickShellAt(shell, { x: bounds.x + 325, y: bounds.y + 20 });
       await eventually(
         () => guest.executeJavaScript('window.loadClicks'),
         (value) => value === 1
       );
-      for (const type of ['mousePressed', 'mouseReleased']) {
-        await shell.debugger.sendCommand('Input.dispatchMouseEvent', {
-          type,
-          x: bounds.x + 70,
-          y: bounds.y + 20,
-          button: 'left',
-          clickCount: 1,
-        });
-      }
+      await clickShellAt(shell, { x: bounds.x + 70, y: bounds.y + 20 });
       await shell.debugger.sendCommand('Input.insertText', { text: 'scroll 한글 123' });
       await eventually(
         () => guest.executeJavaScript(`document.getElementById('load-input').value`),

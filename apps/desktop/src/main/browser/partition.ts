@@ -7,8 +7,7 @@
  * `downloads` action can report. Every page keeps a zoom of its own, never
  * the one Chromium shares across a site's pages (page-zoom.ts).
  */
-import type { Session, WebContents, WebFrameMain } from 'electron';
-import { app, ipcMain, session } from 'electron';
+import { app, ipcMain, type Session, session, type WebContents, type WebFrameMain } from 'electron';
 
 import { rememberBrowserIdentity } from './browser-identity';
 import { BROWSER_PARTITION } from './host-types';

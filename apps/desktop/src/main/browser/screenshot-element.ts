@@ -1,7 +1,6 @@
 /** Element screenshots: one viewport (or document) capture, cropped to the
  *  element the caller named. */
-import type { Rectangle, WebContents } from 'electron';
-import { nativeImage } from 'electron';
+import { nativeImage, type Rectangle, type WebContents } from 'electron';
 
 import { screenshotClipForElement } from './screenshot-clip';
 import { BrowserScreenshotRestoreError, encodeImage } from './screenshot-engines';

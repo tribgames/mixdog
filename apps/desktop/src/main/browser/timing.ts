@@ -38,8 +38,11 @@ interface Collector {
 const current = new AsyncLocalStorage<Collector>();
 const failures = new WeakMap<object, BrowserCommandTiming>();
 
+const isObjectLike = (value: unknown): value is object =>
+  value !== null && (typeof value === 'object' || typeof value === 'function');
+
 export function browserFailureTiming(error: unknown): BrowserCommandTiming | undefined {
-  return error !== null && (typeof error === 'object' || typeof error === 'function') ? failures.get(error) : undefined;
+  return isObjectLike(error) ? failures.get(error) : undefined;
 }
 
 export async function measureBrowserMouseEvent<T>(
@@ -146,9 +149,7 @@ export async function timeBrowserCommand(
       collector.timing.commandMs = performance.now() - started;
       return { ...result, timing: collector.timing };
     } catch (error) {
-      if (error !== null && (typeof error === 'object' || typeof error === 'function')) {
-        failures.set(error, collector.timing);
-      }
+      if (isObjectLike(error)) failures.set(error, collector.timing);
       throw error;
     } finally {
       const finished = performance.now();

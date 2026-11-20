@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import type { WebContents } from 'electron';
 import { createPolling } from '../host-harness-poll';
+import { clickShellAt } from './input-surface-click';
 
 /** Actual dialog UI and upload transport; the host fixture supplies a native
  * picker result so this never opens an OS dialog or reads user files. */
@@ -17,9 +18,7 @@ export async function exerciseBrowserPrompts(
       const r = buttons[${last ? 'buttons.length - 1' : '0'}].getBoundingClientRect();
       return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
     })()`);
-    for (const type of ['mousePressed', 'mouseReleased']) {
-      await shell.debugger.sendCommand('Input.dispatchMouseEvent', { type, ...point, button: 'left', clickCount: 1 });
-    }
+    await clickShellAt(shell, point);
     await eventually(hasPrompt, (value) => !value);
   };
   const original = await guest.executeJavaScript(`document.getElementById('agent').value`);

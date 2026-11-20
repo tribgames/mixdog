@@ -1,7 +1,6 @@
 import type { WebContents } from 'electron';
 
-import type { BrowserRemoteControlHost, RemoteStream } from './remote-stream';
-import { viewportKey } from './remote-stream';
+import { type BrowserRemoteControlHost, type RemoteStream, viewportKey } from './remote-stream';
 
 /** Apply the stream's fit to this page and document unless it already holds
  *  it; a page the stream left behind gets its own viewport back. `driven` is

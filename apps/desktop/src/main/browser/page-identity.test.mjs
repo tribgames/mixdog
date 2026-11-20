@@ -4,6 +4,7 @@ import { EventEmitter } from 'node:events';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { setImmediate as settle } from 'node:timers/promises';
 
 import { createBrowserPageIdentityStore, pageIdentityKey, trackBrowserPageIdentity } from './page-identity.ts';
 import { createBrowserPageIdentityFile } from './page-identity-file.ts';
@@ -34,7 +35,6 @@ const trackFavicons = (pageUrl) => {
   });
   return { store, guest, fetched };
 };
-const settle = () => new Promise((resolve) => setImmediate(resolve));
 
 test('the icon a page declares is read on any origin, with the page it came from', async () => {
   const { store, guest, fetched } = trackFavicons('https://github.com/mixdog/mixdog');
@@ -220,7 +220,7 @@ test('a guest files its title, icon and screenshot under the address asked for a
   guest.emit('did-stop-loading');
   await Promise.resolve();
   t.mock.timers.tick(1000);
-  await new Promise((resolve) => setImmediate(resolve));
+  await settle();
   // The first loadable address the page declared, whatever its origin.
   assert.deepEqual(fetched, ['https://cdn.other.test/a.ico']);
   for (const url of ['https://a.test/final', 'https://a.test/start']) {

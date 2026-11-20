@@ -270,22 +270,7 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
                   targetIsBackground,
                 }),
             });
-      // The identity a "Continue with Google/GitHub" last used on this site.
-      let linked = '';
-      if (command.internalStep !== true && host.linkedSignIn) {
-        try {
-          linked = await host.linkedSignIn.replyLine({ guest, sessionId: ownerSessionId, turnId });
-        } catch (error) {
-          // The reply goes out without the line either way. The one expected
-          // failure is the page closing while its record is read; any other
-          // (an unreadable store, ...) is reported, never silently dropped.
-          if (!guest.isDestroyed()) {
-            host.onDiagnostic?.('browser-linked-sign-in-reply-failed', {
-              error: redactBrowserText(error instanceof Error ? error.message : String(error)),
-            });
-          }
-        }
-      }
+      const linked = command.internalStep === true ? '' : await linkedReplyLine(guest, ownerSessionId, turnId);
       // An open always answers with its placement (the transcript's "보기"
       // line reads it); a sign-in made on the way rides along as its note.
       if (opensForeground) {
@@ -305,6 +290,24 @@ export function createBrowserCommandRunner(host: BrowserCommandRunnerHost) {
         throw new Error(`${message.replace(/\.?$/, '.')} The blank tab this command opened was closed.`);
       }
       throw new Error(message);
+    }
+  }
+
+  /** The identity a "Continue with Google/GitHub" last used on this site; ''
+   *  without one. The reply goes out without the line when it cannot be read:
+   *  the one expected failure is the page closing while its record is read;
+   *  any other (an unreadable store, ...) is reported, never silently dropped. */
+  async function linkedReplyLine(guest: WebContents, sessionId: string, turnId: number): Promise<string> {
+    if (!host.linkedSignIn) return '';
+    try {
+      return await host.linkedSignIn.replyLine({ guest, sessionId, turnId });
+    } catch (error) {
+      if (!guest.isDestroyed()) {
+        host.onDiagnostic?.('browser-linked-sign-in-reply-failed', {
+          error: redactBrowserText(error instanceof Error ? error.message : String(error)),
+        });
+      }
+      return '';
     }
   }
 

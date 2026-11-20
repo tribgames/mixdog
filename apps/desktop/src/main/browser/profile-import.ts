@@ -1,17 +1,19 @@
-import { createDecipheriv, createHash, randomBytes, randomUUID } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import { existsSync } from 'node:fs';
 import { mkdir, readdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { basename, join, resolve, sep } from 'node:path';
-import { execFile, spawn } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { app, safeStorage, type Session } from 'electron';
 import type { BrowserCookieJar } from './cookie-jar';
 import { CookieSignOutScopes, signOutCookieMatcher } from './cookie-sign-out-scopes';
 import { clearPendingPauses, readVaultFile } from './credential-vault-file';
 import { CredentialVault, maskedCredentialLabel, secureOrigin } from './credential-vault';
+import { prepareChromeForImport } from './profile-import-chrome-close';
 import {
   NATIVE_FAILURE,
   nativeBrowserImporterPath,
+  readEncryptedChildJson,
   resolvePackagedBrowserImporter,
   type NativeBrowserImporter,
 } from './profile-import-native';
@@ -26,7 +28,6 @@ import {
   APP_BOUND_KEY_FILE,
   AppBoundKeyStore,
   SavedKeyUnavailableError,
-  base64Bytes,
   readAppBoundBlobSha256,
   type KeyEncryption,
 } from './profile-import-key';
@@ -35,12 +36,11 @@ import { type BrowserHistoryEntry, importChromeHistory } from './profile-import-
 import { requireSensitiveImportApproval } from './profile-import-approval';
 export type { BrowserImportCookie } from './profile-import-cookies';
 export type { BrowserHistoryEntry } from './profile-import-history';
+export { prepareChromeForImport } from './profile-import-chrome-close';
+export { readEncryptedChildJson } from './profile-import-native';
 
 const CHROME_SOURCE_ID = 'chrome';
 const HISTORY_SEARCH_LIMIT = 12;
-const NATIVE_OUTPUT_LIMIT = 64 * 1024 * 1024;
-const NATIVE_IMPORT_TIMEOUT_MS = 120_000;
-const CHROME_CLOSE_TIMEOUT_MS = 30_000;
 const CAPABILITY_PROBE_TIMEOUT_MS = 5_000;
 /** Automatic runs back the cookie jar up like any import; only this many of their snapshots are kept. */
 const AUTOMATIC_BACKUPS_KEPT = 3;
@@ -153,11 +153,6 @@ export interface NativeCookieRoute {
   returnKey: boolean;
 }
 
-interface BrowserProcessCloseTarget {
-  imageName: string;
-  timeoutMs?: number;
-}
-
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
@@ -185,110 +180,10 @@ function chromeExecutableCandidates(explicit?: string): string[] {
   ].filter(Boolean);
 }
 
-/** `tasklist` lists processes in well under a second; this only bounds a hang. */
-const TASKLIST_TIMEOUT_MS = 5_000;
-/** One PowerShell start (Add-Type compile) plus the WM_CLOSE posts. */
-const CLOSE_REQUEST_TIMEOUT_MS = 10_000;
-/** How often the wait for Chrome to exit re-lists its processes. */
-const CHROME_EXIT_POLL_MS = 200;
-
 function chromeUserDataDirectory(): string {
   const local = String(process.env.LOCALAPPDATA || '');
   if (!local) throw new Error('Chrome profile location is unavailable on this Windows account.');
   return join(local, 'Google', 'Chrome', 'User Data');
-}
-
-async function browserProcessIds(tasklist: string, imageName: string): Promise<number[]> {
-  const { stdout } = await execFileAsync(tasklist, ['/FI', `IMAGENAME eq ${imageName}`, '/FO', 'CSV', '/NH'], {
-    windowsHide: true,
-    timeout: TASKLIST_TIMEOUT_MS,
-    maxBuffer: 256 * 1024,
-  });
-  return stdout
-    .split(/\r?\n/)
-    .filter((line) => line.toLowerCase().startsWith(`"${imageName.toLowerCase()}","`))
-    .map((line) => Number(line.match(/^"[^"]+","(\d+)"/)?.[1]))
-    .filter((pid) => Number.isInteger(pid) && pid > 0);
-}
-
-export async function prepareChromeForImport(
-  target: BrowserProcessCloseTarget = {
-    imageName: 'chrome.exe',
-  }
-): Promise<void> {
-  if (process.platform !== 'win32') return;
-  if (!/^[a-zA-Z0-9._-]{1,120}\.exe$/i.test(target.imageName)) {
-    throw new Error('Browser process identity is invalid.');
-  }
-  const systemRoot = String(process.env.SystemRoot || 'C:\\Windows');
-  const tasklist = join(systemRoot, 'System32', 'tasklist.exe');
-  const initialProcessIds = await browserProcessIds(tasklist, target.imageName);
-  if (!initialProcessIds.length) return;
-  const powershell = join(systemRoot, 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
-  const closeScript = `
-$ErrorActionPreference = 'Stop'
-Add-Type @'
-using System;
-using System.Collections.Generic;
-using System.Runtime.InteropServices;
-public static class MixdogBrowserWindowClose {
-  private delegate bool EnumWindowsProc(IntPtr hwnd, IntPtr lParam);
-  [DllImport("user32.dll")] private static extern bool EnumWindows(EnumWindowsProc callback, IntPtr lParam);
-  [DllImport("user32.dll")] private static extern uint GetWindowThreadProcessId(IntPtr hwnd, out uint processId);
-  [DllImport("user32.dll", SetLastError = true)] private static extern bool PostMessage(IntPtr hwnd, uint message, IntPtr wParam, IntPtr lParam);
-  public static int Close(uint[] processIds) {
-    var allowed = new HashSet<uint>(processIds);
-    var closed = 0;
-    EnumWindows((hwnd, ignored) => {
-      uint processId;
-      GetWindowThreadProcessId(hwnd, out processId);
-      if (allowed.Contains(processId) && PostMessage(hwnd, 0x0010, IntPtr.Zero, IntPtr.Zero)) {
-        closed += 1;
-      }
-      return true;
-    }, IntPtr.Zero);
-    return closed;
-  }
-}
-'@
-$processIds = [uint32[]](ConvertFrom-Json -InputObject $env:MIXDOG_BROWSER_IMPORT_PROCESS_IDS)
-[MixdogBrowserWindowClose]::Close($processIds) | Out-Null
-`;
-  let closeRequestFailed = false;
-  try {
-    await execFileAsync(
-      powershell,
-      ['-NoLogo', '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-Command', closeScript],
-      {
-        windowsHide: true,
-        timeout: CLOSE_REQUEST_TIMEOUT_MS,
-        maxBuffer: 256 * 1024,
-        env: {
-          ...process.env,
-          MIXDOG_BROWSER_IMPORT_PROCESS_IDS: JSON.stringify(initialProcessIds),
-        },
-      }
-    );
-  } catch {
-    closeRequestFailed = true;
-    // A process can disappear while its top-level windows are enumerated. The
-    // bounded wait below is the source of truth and never force-terminates it.
-  }
-  const deadline = Date.now() + Math.max(1_000, Math.min(120_000, target.timeoutMs ?? CHROME_CLOSE_TIMEOUT_MS));
-  while (Date.now() < deadline) {
-    if (!(await browserProcessIds(tasklist, target.imageName)).length) return;
-    await new Promise((resolveWait) => setTimeout(resolveWait, CHROME_EXIT_POLL_MS));
-  }
-  if (closeRequestFailed) {
-    throw new Error('Browser close request failed.');
-  }
-  throw new Error('Google Chrome이 정상 종료되지 않아 가져오기를 중단했습니다. 열린 작업을 확인한 뒤 다시 시도하세요.');
-}
-
-async function sha256File(path: string): Promise<string> {
-  return createHash('sha256')
-    .update(await readFile(path))
-    .digest('hex');
 }
 
 function exactProfileDirectory(userDataDirectory: string, profileId: string): string {
@@ -309,109 +204,6 @@ function exactTemporaryJob(root: string, jobId: string): string {
   const target = resolve(base, `job-${jobId}`);
   if (!target.startsWith(`${base}${sep}`)) throw new Error('Import job escaped its temporary root.');
   return target;
-}
-
-/** Runs the child with `input` on stdin. Settles on the child's `close` (the
- *  process has exited and its stdio is drained), never on `exit`, which can
- *  fire while stdout still holds unread data. A spawn that throws synchronously
- *  rejects this promise like any other failure. */
-async function runNativeChild(
-  executable: string,
-  args: string[],
-  input: Buffer
-): Promise<{ exitCode: number; stdout: Buffer; stderr: Buffer; stdoutBytes: number }> {
-  const child = spawn(executable, args, {
-    windowsHide: true,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  });
-  const closed = new Promise<number>((resolveClose, rejectClose) => {
-    const timer = setTimeout(() => {
-      child.kill();
-      rejectClose(new Error('Native browser importer timed out.'));
-    }, NATIVE_IMPORT_TIMEOUT_MS);
-    child.once('error', (error) => {
-      clearTimeout(timer);
-      rejectClose(error);
-    });
-    child.once('close', (code) => {
-      clearTimeout(timer);
-      resolveClose(code ?? 1);
-    });
-  });
-  const stdout: Buffer[] = [];
-  const stderr: Buffer[] = [];
-  let stdoutBytes = 0;
-  let stderrBytes = 0;
-  child.stdout?.on('data', (chunk: Buffer) => {
-    stdoutBytes += chunk.length;
-    if (stdoutBytes > NATIVE_OUTPUT_LIMIT) {
-      child.kill();
-      return;
-    }
-    stdout.push(chunk);
-  });
-  child.stderr?.on('data', (chunk: Buffer) => {
-    stderrBytes += chunk.length;
-    if (stderrBytes <= 16_384) stderr.push(chunk);
-  });
-  child.stdin?.end(input);
-  const exitCode = await closed;
-  return { exitCode, stdout: Buffer.concat(stdout), stderr: Buffer.concat(stderr), stdoutBytes };
-}
-
-/** `createTransportKey` is a test seam: the default is the production key.
- *  `savedKey` (the Chrome v20 key, with `--v20-key-stdin`) follows the
- *  transport key on a second stdin line: never in arguments or the environment. */
-export async function readEncryptedChildJson(
-  executable: string,
-  args: string[],
-  expectedSha256: string,
-  createTransportKey: () => Buffer = () => randomBytes(32),
-  savedKey?: Buffer
-): Promise<unknown> {
-  if ((await sha256File(executable)) !== expectedSha256) {
-    throw new Error('Native browser importer changed after signature verification.');
-  }
-  const transportKey = createTransportKey();
-  try {
-    // Built from bytes, not strings, so every copy of the keys can be wiped.
-    const encodedTransport = base64Bytes(transportKey);
-    const encodedSaved = savedKey ? base64Bytes(savedKey) : Buffer.alloc(0);
-    const input = savedKey ? Buffer.concat([encodedTransport, Buffer.from('\n'), encodedSaved]) : encodedTransport;
-    let child: Awaited<ReturnType<typeof runNativeChild>>;
-    try {
-      child = await runNativeChild(executable, args, input);
-    } finally {
-      input.fill(0);
-      encodedTransport.fill(0);
-      encodedSaved.fill(0);
-    }
-    if (child.stdoutBytes > NATIVE_OUTPUT_LIMIT) throw new Error('Native browser importer returned too much data.');
-    if (child.exitCode !== 0) {
-      throw new Error(
-        child.stderr.toString('utf8').trim() || `Native browser importer exited with code ${child.exitCode}.`
-      );
-    }
-    const envelope = JSON.parse(child.stdout.toString('utf8')) as Record<string, unknown>;
-    if (envelope.version !== 1) throw new Error('Native password importer returned an invalid envelope.');
-    const nonce = Buffer.from(String(envelope.nonce || ''), 'base64');
-    const sealed = Buffer.from(String(envelope.ciphertext || ''), 'base64');
-    if (nonce.length !== 12 || sealed.length < 16) {
-      throw new Error('Native password importer returned an invalid envelope.');
-    }
-    const ciphertext = sealed.subarray(0, sealed.length - 16);
-    const authTag = sealed.subarray(sealed.length - 16);
-    const decipher = createDecipheriv('aes-256-gcm', transportKey, nonce);
-    decipher.setAuthTag(authTag);
-    const plaintext = Buffer.concat([decipher.update(ciphertext), decipher.final()]);
-    try {
-      return JSON.parse(plaintext.toString('utf8'));
-    } finally {
-      plaintext.fill(0);
-    }
-  } finally {
-    transportKey.fill(0);
-  }
 }
 
 export class BrowserProfileImportService {

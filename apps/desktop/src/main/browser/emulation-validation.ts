@@ -9,8 +9,15 @@ export type NetworkProfile = {
   uploadThroughput: number;
 };
 
+export const UNTHROTTLED_NETWORK: NetworkProfile = {
+  offline: false,
+  latency: 0,
+  downloadThroughput: -1,
+  uploadThroughput: -1,
+};
+
 const NETWORK_PROFILES: Record<string, NetworkProfile> = {
-  none: { offline: false, latency: 0, downloadThroughput: -1, uploadThroughput: -1 },
+  none: UNTHROTTLED_NETWORK,
   offline: { offline: true, latency: 0, downloadThroughput: 0, uploadThroughput: 0 },
   slow3g: { offline: false, latency: 400, downloadThroughput: 50_000, uploadThroughput: 50_000 },
   fast3g: { offline: false, latency: 150, downloadThroughput: 200_000, uploadThroughput: 100_000 },

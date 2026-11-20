@@ -20,6 +20,15 @@ interface DebuggerAttachmentHost {
   initializeTargetSession(guest: WebContents, cdp: Electron.Debugger, signal: AbortSignal): Promise<void>;
 }
 
+function detachDebugger(guest: WebContents): void {
+  if (guest.isDestroyed() || !guest.debugger.isAttached()) return;
+  try {
+    guest.debugger.detach();
+  } catch {
+    /* already detached */
+  }
+}
+
 export function createGuestDebuggerAttachment(host: DebuggerAttachmentHost) {
   const { state } = host;
   const debuggerReady = new WeakMap<WebContents, Promise<Electron.Debugger>>();
@@ -107,13 +116,7 @@ export function createGuestDebuggerAttachment(host: DebuggerAttachmentHost) {
     guest.removeListener('destroyed', onDestroyed);
     if (debuggerLifetime.get(guest) !== lifetime) return;
     lifetime.abort(new Error('CDP initialization failed'));
-    if (!guest.isDestroyed() && guest.debugger.isAttached()) {
-      try {
-        guest.debugger.detach();
-      } catch {
-        /* already detached */
-      }
-    }
+    detachDebugger(guest);
     if (debuggerLifetime.get(guest) === lifetime) debuggerLifetime.delete(guest);
   }
 
@@ -159,12 +162,7 @@ export function createGuestDebuggerAttachment(host: DebuggerAttachmentHost) {
     debuggerLifetime.get(guest)?.abort(new Error('CDP detaching'));
     debuggerReady.delete(guest);
     debuggerAttached.delete(guest);
-    if (guest.isDestroyed() || !guest.debugger.isAttached()) return;
-    try {
-      guest.debugger.detach();
-    } catch {
-      /* already detached */
-    }
+    detachDebugger(guest);
   }
 
   return {

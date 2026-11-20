@@ -51,6 +51,12 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
   const lingerMs = host.lingerMs ?? BROWSER_DRIVE_LINGER_MS;
   const driving = new WeakMap<WebContents, { holds: number; on: boolean; timer?: NodeJS.Timeout }>();
 
+  /** The root session (undefined) and every attached child session. */
+  const sessionIdsOf = (guest: WebContents): Array<string | undefined> => [
+    undefined,
+    ...state.for(guest).cdpSessions.keys(),
+  ];
+
   /** Switch the driving domains of one session. Turning them on replays what
    *  the page logged meanwhile; entries this host already recorded are
    *  skipped by the event router through the session's replay floor. */
@@ -84,8 +90,7 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
       (cdp) => {
         const record = driving.get(guest);
         if (!record || record.on !== on || guest.isDestroyed()) return;
-        const sessionIds: Array<string | undefined> = [undefined, ...state.for(guest).cdpSessions.keys()];
-        for (const sessionId of sessionIds) void switchDriving(guest, cdp, on, sessionId);
+        for (const sessionId of sessionIdsOf(guest)) void switchDriving(guest, cdp, on, sessionId);
       },
       () => undefined
     );
@@ -137,8 +142,7 @@ export function createBrowserCdpSessionInit(host: BrowserCdpSessionInitHost, sen
    *  answering from the network while the page above it is intercepted. */
   async function applyFetchPatterns(guest: WebContents, cdp: Electron.Debugger, signal?: AbortSignal): Promise<void> {
     const patterns = fetchPatternsFor(guest);
-    const sessionIds: Array<string | undefined> = [undefined, ...state.for(guest).cdpSessions.keys()];
-    for (const sessionId of sessionIds) {
+    for (const sessionId of sessionIdsOf(guest)) {
       await sendCdp(guest, cdp, 'Fetch.enable', { patterns }, CDP_REQUEST_TIMEOUT_MS, signal, sessionId).catch(
         () => undefined
       );

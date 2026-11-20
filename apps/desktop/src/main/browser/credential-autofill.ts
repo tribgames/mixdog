@@ -63,39 +63,32 @@ export function fillGuard(engine: FillEngine | undefined, pageId: string, expect
   return () => checkPrecondition(bound as Precondition, page, () => engine.facts(pageId));
 }
 
-/** Runs only in a CDP-created isolated world. Credentials arrive as a
- * Runtime.callFunctionOn argument, never as renderer IPC data or source text. */
-export const BROWSER_CREDENTIAL_AUTOFILL_FUNCTION = String.raw`async function(credential) {
-  const collectInputs = () => {
-    const inputs = [];
-    const visit = (root) => {
-      for (const element of root.querySelectorAll('*')) {
-        if (element instanceof HTMLInputElement) inputs.push(element);
-        if (element.shadowRoot) visit(element.shadowRoot);
-      }
-    };
-    visit(document);
-    return inputs;
+/** Page-script source shared by the three functions below: every input of the
+ *  document and its open shadow roots, and whether one is usable and shown. */
+const COLLECT_INPUTS_SOURCE = `
+  const inputs = [];
+  const visit = (root) => {
+    for (const element of root.querySelectorAll('*')) {
+      if (element instanceof HTMLInputElement) inputs.push(element);
+      if (element.shadowRoot) visit(element.shadowRoot);
+    }
   };
+  visit(document);`;
+const VISIBLE_SOURCE = `
   const visible = (element) => {
-    if (!element || element.disabled || element.readOnly || element.getAttribute('aria-hidden') === 'true') {
-      return false;
-    }
+    if (!element || element.disabled || element.readOnly || element.getAttribute('aria-hidden') === 'true') return false;
     const style = getComputedStyle(element);
-    if (
-      style.display === 'none'
-      || style.visibility === 'hidden'
-      || (style.opacity !== '' && Number(style.opacity) === 0)
-    ) {
-      return false;
-    }
+    if (style.display === 'none' || style.visibility === 'hidden' || (style.opacity !== '' && Number(style.opacity) === 0)) return false;
     const rect = element.getBoundingClientRect();
     return rect.width > 0 && rect.height > 0;
-  };
+  };`;
+
+/** Runs only in a CDP-created isolated world. Credentials arrive as a
+ * Runtime.callFunctionOn argument, never as renderer IPC data or source text. */
+export const BROWSER_CREDENTIAL_AUTOFILL_FUNCTION = String.raw`async function(credential) {${COLLECT_INPUTS_SOURCE}${VISIBLE_SOURCE}
   const autocompleteTokens = (element) =>
     String(element.autocomplete || element.getAttribute('autocomplete') || '')
       .toLowerCase().split(/\s+/).filter(Boolean);
-  const inputs = collectInputs();
   const passwordFields = inputs.filter((element) => {
     if (!visible(element) || String(element.type || '').toLowerCase() !== 'password') return false;
     return !autocompleteTokens(element).includes('new-password');
@@ -222,22 +215,7 @@ export class BrowserPageChangedError extends Error {
  *  Answers the exact elements a fill will write, in order (null for none),
  *  carrying `form`, `types` (each one's input type) and, for a code,
  *  `codeLength`; the host binds their node ids (inspectSecretField). */
-export const BROWSER_SECRET_FIELD_FUNCTION = String.raw`async function(request) {
-  const inputs = [];
-  const visit = (root) => {
-    for (const element of root.querySelectorAll('*')) {
-      if (element instanceof HTMLInputElement) inputs.push(element);
-      if (element.shadowRoot) visit(element.shadowRoot);
-    }
-  };
-  visit(document);
-  const visible = (element) => {
-    if (!element || element.disabled || element.readOnly || element.getAttribute('aria-hidden') === 'true') return false;
-    const style = getComputedStyle(element);
-    if (style.display === 'none' || style.visibility === 'hidden' || (style.opacity !== '' && Number(style.opacity) === 0)) return false;
-    const rect = element.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  };
+export const BROWSER_SECRET_FIELD_FUNCTION = String.raw`async function(request) {${COLLECT_INPUTS_SOURCE}${VISIBLE_SOURCE}
   const tokens = (element) => String(element.autocomplete || element.getAttribute('autocomplete') || '').toLowerCase().split(/\s+/).filter(Boolean);
   const type = (element) => String(element.type || 'text').toLowerCase();
   const identity = (element) => [
@@ -382,14 +360,7 @@ export const BROWSER_SECRET_FIELD_FUNCTION = String.raw`async function(request) 
  *  picked here: unless every target is still an input of this document,
  *  usable and of the type it had then (`request.types`), it answers stale
  *  and types nothing. */
-export const BROWSER_SECRET_FILL_FUNCTION = `async function(request, ...targets) {
-  const visible = (element) => {
-    if (element.disabled || element.readOnly || element.getAttribute('aria-hidden') === 'true') return false;
-    const style = getComputedStyle(element);
-    if (style.display === 'none' || style.visibility === 'hidden' || (style.opacity !== '' && Number(style.opacity) === 0)) return false;
-    const rect = element.getBoundingClientRect();
-    return rect.width > 0 && rect.height > 0;
-  };
+export const BROWSER_SECRET_FILL_FUNCTION = `async function(request, ...targets) {${VISIBLE_SOURCE}
   const type = (element) => String(element.type || 'text').toLowerCase();
   const types = String(request?.types || '').split(' ').filter(Boolean);
   const bound = targets.length > 0 && targets.length === types.length && targets.every((element, index) =>

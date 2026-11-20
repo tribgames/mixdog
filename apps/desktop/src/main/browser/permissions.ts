@@ -168,6 +168,9 @@ async function frameActivations(frames: PermissionFrame[]): Promise<boolean> {
   }
 }
 
+/** An origin that names no site: unparsable, or an opaque one. */
+const isOpaqueOrigin = (origin: string): boolean => !origin || origin === 'null';
+
 function originOf(url: string): string {
   try {
     return new URL(url).origin;
@@ -213,14 +216,18 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
    *  same origin embedded elsewhere. */
   const decisionKey = (embedder: string, origin: string, key: string) => `${embedder}\n${origin}\n${key}`;
 
+  function setQueue(guest: PermissionGuest, queue: PendingBrowserPermission[]): void {
+    if (queue.length) pending.set(guest, queue);
+    else pending.delete(guest);
+  }
+
   /** Settle a guest's open prompts as refused, without remembering it. With
    *  `frame`, only the prompts that frame asked. */
   function dropPending(guest: PermissionGuest, frame?: string): void {
     const queue = pending.get(guest) ?? [];
     const dropped = frame ? queue.filter((entry) => entry.frames.has(frame)) : queue;
     const kept = queue.filter((entry) => !dropped.includes(entry));
-    if (kept.length) pending.set(guest, kept);
-    else pending.delete(guest);
+    setQueue(guest, kept);
     for (const request of dropped) for (const settle of request.settle) settle(false);
   }
 
@@ -349,8 +356,7 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
     const guest = frame ? options.guestForFrame?.(frame) : null;
     const origin = frame ? originOf(frame.origin) : '';
     const embedder = guest && !guest.isDestroyed() ? originOf(guest.getURL()) : '';
-    const bad = (value: string) => !value || value === 'null';
-    if (!hidAllowed() || !frame || !guest || bad(origin) || bad(embedder)) {
+    if (!hidAllowed() || !frame || !guest || isOpaqueOrigin(origin) || isOpaqueOrigin(embedder)) {
       callback();
       return;
     }
@@ -402,7 +408,7 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
         if (GRANTED_BY_DEFAULT.has(permission)) return true;
         if (NEEDS_ACTIVATION.has(permission)) return false;
         const origin = originOf(requestingOrigin);
-        if (!origin || origin === 'null') return false;
+        if (isOpaqueOrigin(origin)) return false;
         // Lets a page call `navigator.hid` at all; each device still needs a person's pick.
         if (permission === 'hid') return hidAllowed();
         if (permission === STORAGE_ACCESS) return details?.isMainFrame === true;
@@ -421,8 +427,7 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
         const origin = originOf(asked.requestingUrl ?? '');
         const embedder = originOf(webContents.getURL());
         const frames = askingFrames(webContents, asked);
-        const bad = (value: string) => !value || value === 'null';
-        if (!keys || bad(origin) || bad(embedder) || !frames.length) {
+        if (!keys || isOpaqueOrigin(origin) || isOpaqueOrigin(embedder) || !frames.length) {
           callback(false);
           return;
         }
@@ -455,8 +460,7 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
       // A waiting chooser would otherwise leave the page's requestDevice() unresolved.
       for (const [entry, guest] of [...choosers]) {
         const queue = (pending.get(guest) ?? []).filter((other) => other !== entry);
-        if (queue.length) pending.set(guest, queue);
-        else pending.delete(guest);
+        setQueue(guest, queue);
         for (const settle of entry.settle) settle(false);
       }
     },
@@ -501,8 +505,7 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
         const chosen = allow ? answered.devices.find((device) => device.id === deviceId) : undefined;
         if (allow && !chosen) return false;
         queue.shift();
-        if (queue.length) pending.set(guest, queue);
-        else pending.delete(guest);
+        setQueue(guest, queue);
         for (const settle of answered.settle) settle(chosen !== undefined, chosen?.id);
         return true;
       }
@@ -529,8 +532,7 @@ export function createBrowserPermissions(options: BrowserPermissionOptions = {})
         if (verdict === undefined) remaining.push(entry);
         else for (const settle of entry.settle) settle(verdict);
       }
-      if (remaining.length) pending.set(guest, remaining);
-      else pending.delete(guest);
+      setQueue(guest, remaining);
       return true;
     },
   };

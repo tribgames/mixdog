@@ -5,7 +5,7 @@ import type { WebContents } from 'electron';
 import { browserUserAgentOverride } from './browser-identity';
 import type { BrowserCdpPort } from './cdp';
 import type { BrowserCommand } from './host-types';
-import type { NetworkProfile } from './emulation-validation';
+import { type NetworkProfile, UNTHROTTLED_NETWORK } from './emulation-validation';
 
 export async function resetEmulation(cdp: BrowserCdpPort, guest: WebContents, signal?: AbortSignal): Promise<void> {
   await Promise.all([
@@ -17,20 +17,14 @@ export async function resetEmulation(cdp: BrowserCdpPort, guest: WebContents, si
     cdp.call(guest, 'Emulation.setLocaleOverride', { locale: '' }, signal),
     cdp.call(guest, 'Emulation.setEmulatedMedia', { features: [] }, signal),
     cdp.call(guest, 'Emulation.setCPUThrottlingRate', { rate: 1 }, signal),
-    cdp.call(
-      guest,
-      'Network.emulateNetworkConditions',
-      {
-        offline: false,
-        latency: 0,
-        downloadThroughput: -1,
-        uploadThroughput: -1,
-      },
-      signal
-    ),
+    cdp.call(guest, 'Network.emulateNetworkConditions', UNTHROTTLED_NETWORK, signal),
     cdp.call(guest, 'Emulation.clearGeolocationOverride', {}, signal),
     cdp.call(guest, 'Network.setExtraHTTPHeaders', { headers: {} }, signal),
   ]);
+}
+
+export function screenOrientation(landscape: boolean): BrowserDeviceMetrics['screenOrientation'] {
+  return landscape ? { type: 'landscapePrimary', angle: 90 } : { type: 'portraitPrimary', angle: 0 };
 }
 
 export async function applyViewportOverride(
@@ -45,7 +39,6 @@ export async function applyViewportOverride(
     4,
     Math.max(0.5, Number.isFinite(command.deviceScaleFactor) ? Number(command.deviceScaleFactor) : 1)
   );
-  const landscape = command.orientation === 'landscape';
   const metrics: BrowserDeviceMetrics = {
     width,
     height,
@@ -53,7 +46,7 @@ export async function applyViewportOverride(
     mobile: command.mobile === true,
     screenWidth: width,
     screenHeight: height,
-    screenOrientation: landscape ? { type: 'landscapePrimary', angle: 90 } : { type: 'portraitPrimary', angle: 0 },
+    screenOrientation: screenOrientation(command.orientation === 'landscape'),
   };
   await cdp.call(guest, 'Emulation.setDeviceMetricsOverride', metrics, signal);
   return {

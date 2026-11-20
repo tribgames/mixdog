@@ -182,6 +182,11 @@ async function allowsAllActions(): Promise<boolean> {
   }
 }
 
+/** Records the decision in the audit; a failing audit never decides a step. */
+function auditStep(agentId: string, actions: string[], decision: string): void {
+  void (async () => hooks.audit?.(agentId, actions, decision))().catch(() => undefined);
+}
+
 const PAYMENT_IN_RUN =
   "Browser Use step refused: payments aren't allowed in schedule/webhook runs; nothing was dispatched";
 const BLOCKED_BY_PERMISSION = "Browser Use step blocked by this bot's permission; nothing was dispatched";
@@ -205,7 +210,7 @@ export async function requestBrowserApproval(
   const actions = request.payment === true ? null : grantActions(request.kinds);
   const bot = actions ? ownBot : '';
   const audit = (decision: string) => {
-    if (bot && actions) void (async () => hooks.audit?.(bot, actions, decision))().catch(() => undefined);
+    if (bot && actions) auditStep(bot, actions, decision);
   };
   // A schedule or webhook run (and the work it started) never asks: saving the
   // routine was the user's grant. The bot's own `block` still applies, and an
@@ -218,7 +223,7 @@ export async function requestBrowserApproval(
     // Without it, or without a readable permission, the step is refused.
     const owner = (request.unattendedAgent || '').trim();
     const runAudit = (decision: string) => {
-      if (owner && actions) void (async () => hooks.audit?.(owner, actions, decision))().catch(() => undefined);
+      if (owner && actions) auditStep(owner, actions, decision);
     };
     if (!owner) {
       throw new Error(
@@ -240,9 +245,7 @@ export async function requestBrowserApproval(
   if (ownBot && request.unattended !== true && request.payment !== true && (await allowsAllActions())) {
     const stepActions = kindActions(request.kinds);
     const auditAs = (decision: string) => {
-      if (stepActions.length) {
-        void (async () => hooks.audit?.(ownBot, stepActions, decision))().catch(() => undefined);
-      }
+      if (stepActions.length) auditStep(ownBot, stepActions, decision);
     };
     if (stepActions.length && (await blockedBy(ownBot, stepActions))) {
       auditAs('blocked');

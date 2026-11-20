@@ -90,6 +90,7 @@ export function parseBrowserCookieReport(output: unknown): NativeCookieImportRep
     throw new Error('Native cookie importer returned an invalid report.');
   }
   const report = output as Partial<NativeCookieImportReport>;
+  const { failures } = report;
   const count = (value: unknown): value is number =>
     typeof value === 'number' && Number.isSafeInteger(value) && value >= 0 && value <= MAX_COOKIES;
   if (
@@ -98,15 +99,15 @@ export function parseBrowserCookieReport(output: unknown): NativeCookieImportRep
     !count(report.expired) ||
     !Array.isArray(report.cookies) ||
     report.cookies.length > MAX_COOKIES ||
-    !report.failures ||
-    typeof report.failures !== 'object' ||
-    !FAILURE_KEYS.every((key) => count(report.failures?.[key])) ||
+    !failures ||
+    typeof failures !== 'object' ||
+    !FAILURE_KEYS.every((key) => count(failures[key])) ||
     report.cookies.some((cookie) => !cookie || typeof cookie !== 'object' || Array.isArray(cookie)) ||
     (report.appBoundKey !== undefined && !validAppBoundKey(report.appBoundKey))
   ) {
     throw new Error('Native cookie importer returned an invalid report.');
   }
-  const failed = FAILURE_KEYS.reduce((sum, key) => sum + report.failures![key], 0);
+  const failed = FAILURE_KEYS.reduce((sum, key) => sum + failures[key], 0);
   if (report.sourceCount !== report.cookies.length + failed + report.expired) {
     throw new Error('Native cookie importer returned inconsistent source counts.');
   }
