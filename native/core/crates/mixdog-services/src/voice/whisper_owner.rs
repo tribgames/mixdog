@@ -185,6 +185,7 @@ if ($survived) { exit 1 }
 exit 0"#;
 
 /// The hard lifetime of one tree-kill pass (`TREE_KILL_DEADLINE_MS`).
+#[cfg(windows)]
 const TREE_KILL_DEADLINE: Duration = Duration::from_secs(15);
 
 /// `fileTime`: epoch milliseconds as a Windows FILETIME.
