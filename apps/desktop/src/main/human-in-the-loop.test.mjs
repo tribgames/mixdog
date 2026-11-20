@@ -1,13 +1,11 @@
 import assert from 'node:assert/strict';
 import { createECDH } from 'node:crypto';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import { waitUntil } from './bounded-wait.mjs';
-import { decryptNativePush } from '../shared/native-push-crypto.ts';
-import { sessionAttention } from '../shared/session-attention.ts';
 import { createNotificationPreferencesStore, notificationPreferencesPath } from './notification-preferences.ts';
 import { fillSecretInput } from './browser/secret-fill-core.test-helper.mjs';
 import { beginComputerOperation } from './human-only-approval.ts';

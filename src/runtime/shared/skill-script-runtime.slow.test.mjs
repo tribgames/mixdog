@@ -18,7 +18,7 @@ import { basename, dirname, join } from 'node:path';
 import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 
-import { displayShellCommand, POWERSHELL_UTF8_PREFIX } from './shell-display.mjs';
+import { POWERSHELL_UTF8_PREFIX } from './shell-display.mjs';
 import {
   archiveRootOf,
   canonicalSkillScriptPath,
@@ -236,10 +236,6 @@ function runByName(args, options) {
     ...options,
     windowsVerbatimArguments: true,
   });
-}
-
-function posixQuote(value) {
-  return `'${value.replaceAll("'", "'\\''")}'`;
 }
 
 function psQuote(value) {

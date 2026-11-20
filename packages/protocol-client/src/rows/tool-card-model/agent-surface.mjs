@@ -29,7 +29,7 @@ export function titleizeAgentName(value) {
   return text.replace(/[_-]+/g, ' ').split(/\s+/).filter(Boolean).map(titleWord).join(' ');
 }
 
-// The agent a status/read envelope names on its gent: line.
+// The agent a status/read envelope names on its `agent:` line.
 function agentNameFromResult(resultText) {
   const line = /^agent:\s*(\S.*)$/im.exec(leadingResultBlock(resultText));
   return line ? titleizeAgentName(line[1]) : '';

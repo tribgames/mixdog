@@ -33,9 +33,9 @@ export function contextShares(weights, total) {
 }
 
 // The map shows what the context holds and what is still open. The
-// auto-compact buffer is headroom policy, not content, and reading it as a
-// third kind of occupancy only crowded the picture (user: 자동압축버퍼는 항목
-// 없애줘); the window it reserves is already the window this map measures.
+// auto-compact buffer is headroom policy, not content, so it is not a third
+// kind of occupancy; the window it reserves is already the window this map
+// measures.
 export function buildContextMap(categories, { windowTokens = 0, cells = 128, fit = false } = {}) {
   const occupied = categories.reduce((sum, category) => sum + category.tokens, 0);
   const window = Math.max(0, windowTokens);

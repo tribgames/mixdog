@@ -807,9 +807,8 @@ export function* formatAggregateDetailSteps(summaries) {
     if (match) {
       const nounRaw = match[2].toLowerCase();
       // Normalize to a canonical singular so singular/plural variants of the
-      // SAME noun merge into one metric. Previously "48 matches" keyed as
-      // found_matches while "1 match" keyed as found_matchs (naive +s), so the
-      // detail row showed "48 matches, 1 match" instead of "49 matches".
+      // SAME noun merge into one metric ("48 matches" + "1 match" is
+      // "49 matches", not two metrics).
       const singular = singularNoun(nounRaw);
       const plural = pluralNoun(singular);
       const key = `found_${singular}`;

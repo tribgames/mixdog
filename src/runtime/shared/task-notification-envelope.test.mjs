@@ -6,7 +6,6 @@ import {
   renderShellCompletionEnvelope,
 } from './task-notification-envelope.mjs';
 import {
-  backgroundTaskHeaderStatus,
   isBracketedShellNotificationEnvelope,
   isInternalRuntimeNotificationText,
   isModelVisibleToolCompletionWrapper,

@@ -290,8 +290,7 @@ export function watchCore({
       const unansweredFor = Math.max(stalledMs, answered ? 0 : now() - unansweredSince);
       if (unansweredFor < unansweredLimitMs) continue;
       log(`core ${discovery.pid} has answered nothing for ${Math.round(unansweredFor / 1000)} s: ending it`);
-      // Said before the kill, with why: no answer to the status ask, or an answer that reports a stalled runtime.
-      // Said with why (no answer to the status ask, or an answer reporting a stalled runtime); `say` is never on the kill's path.
+      // Said before the kill, with why (no answer to the status ask, or an answer reporting a stalled runtime); `say` is never on the kill's path.
       say({
         pid: discovery.pid,
         reason: answered ? 'runtimeStalled' : 'statusUnanswered',

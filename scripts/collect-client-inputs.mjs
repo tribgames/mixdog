@@ -90,11 +90,6 @@ const deref = (defs, s) => {
 };
 
 const typesOf = (s) => (Array.isArray(s.type) ? s.type : s.type ? [s.type] : []);
-const isNullable = (defs, s) => {
-  s = deref(defs, s);
-  if (typesOf(s).includes('null')) return true;
-  return [...(s.anyOf ?? []), ...(s.oneOf ?? [])].some((b) => typesOf(deref(defs, b)).includes('null'));
-};
 
 /** Validates `v` against the schema the way serde reads it: enough of draft-07 for the protocol's schemas. */
 function validate(defs, schema, v, at = '$') {

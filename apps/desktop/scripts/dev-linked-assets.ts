@@ -82,14 +82,21 @@ export interface OtherDriveAssetOptions {
 export function otherDriveAssetHandler({ own, serves, headers }: OtherDriveAssetOptions) {
   return (req: Pick<IncomingMessage, 'method' | 'url'>, res: ServerResponse, next: () => void): void => {
     const file = req.method === 'GET' || req.method === 'HEAD' ? otherDriveFile(req.url ?? '', own) : null;
-    if (!file || !serves(file)) return next();
+    if (!file || !serves(file)) {
+      next();
+      return;
+    }
     let size: number;
     try {
       const stats = statSync(file);
-      if (!stats.isFile()) return next();
+      if (!stats.isFile()) {
+        next();
+        return;
+      }
       size = stats.size;
     } catch {
-      return next();
+      next();
+      return;
     }
     for (const [name, value] of Object.entries(headers?.() ?? {})) if (value !== undefined) res.setHeader(name, value);
     res.statusCode = 200;

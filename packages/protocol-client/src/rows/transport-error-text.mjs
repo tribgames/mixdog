@@ -95,12 +95,6 @@ function typedStatus(error) {
   return 0;
 }
 
-/**
- * Classify a connection-level failure by walking the error and its `cause`
- * chain. Returns `{ kind, code, status }` or null when the failure is not a
- * transport problem. `code` is the innermost errno/undici code (the most
- * specific cause), preferred over the outer wrapper's code.
- */
 // Innermost typed code wins: an outer TypeError('fetch failed') wraps the
 // SocketError that actually explains the failure.
 function typedTransportKind(chain) {
@@ -148,6 +142,12 @@ function messageTransportKind(messages) {
   return null;
 }
 
+/**
+ * Classify a connection-level failure by walking the error and its `cause`
+ * chain. Returns `{ kind, code, status }` or null when the failure is not a
+ * transport problem. `code` is the innermost errno/undici code (the most
+ * specific cause), preferred over the outer wrapper's code.
+ */
 export function classifyTransportError(error) {
   const chain = typeof error === 'string' ? [] : causeChain(error);
   const messages = typeof error === 'string' ? [error.trim()] : chain.map(messageOf);

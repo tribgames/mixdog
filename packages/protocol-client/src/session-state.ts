@@ -269,7 +269,7 @@ export const sessionReducer: ThreadReducer<SessionFold> = {
       case 'thread/goal/cleared':
         return withField(s, 'goal', undefined);
       case 'thread/frame':
-        return { ...s, frames: (s.frames ?? 0) + 1, framedRevision: (s.framedRevision ?? 0) +(p.structureChanged === true ? 1 : 0) };
+        return { ...s, frames: (s.frames ?? 0) + 1, framedRevision: (s.framedRevision ?? 0) + (p.structureChanged === true ? 1 : 0) };
       case 'turn/started':
       case 'turn/completed':
         return withLive(s, null);

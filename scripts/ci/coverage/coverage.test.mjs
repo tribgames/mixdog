@@ -49,8 +49,6 @@ function gitRepo(dir) {
   return { git, head: git('rev-parse', 'HEAD').stdout.trim() };
 }
 const OWNER = 'team';
-const PY_RUNNER = fileURLToPath(new URL('./py-runner.py', import.meta.url));
-const PYTHON = process.platform === 'win32' ? 'python' : 'python3';
 
 // ---- a small reviewed plan, written the way the real one is: legs, slots, routes, one Rust workspace, one Python route
 const clause = (...legs) => ({ anyOf: legs });

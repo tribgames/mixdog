@@ -5,14 +5,12 @@ import test from 'node:test';
 
 import { DESKTOP_IPC } from '../shared/contract.ts';
 import { connectionFeatureGate } from './connections/feature-gates.ts';
-import { registerServerFileIpc } from './ipc-server-files.ts';
 import {
   createServerDownloads,
   createServerFilePreviews,
   ServerFileGrants,
   serverByteStream,
   serverCoreInvoke,
-  uploadServerBytes,
 } from './server-file-access.ts';
 async function stage(f, payload, name, scope) {
   const { uploadId } = await f.ops.invoke('serverUploadBegin', [name, payload.length, scope]);

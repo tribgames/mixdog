@@ -129,8 +129,7 @@ export type ClientErrorDetail =
   /** initialize refused by the version gate; terminal, no ladder (protocol.md §4.4). */
   | { readonly kind: 'versionRefused'; readonly reason: 'clientOutdated' | 'serverOutdated'; readonly serverVersion: string; readonly clientVersion: string }
   | { readonly kind: 'unknownMethod'; readonly method: string }
-  /** The call's pre-send bound (
-equestTimeoutMs) or an explicit CallOptions.timeoutMs passed with no answer. sent: its request had been
+  /** The call's pre-send bound (`requestTimeoutMs`) or an explicit CallOptions.timeoutMs passed with no answer. sent: its request had been
    * written, so a mutation may have run (a mutation fails as `opOutcomeUnknown` with this as `cause`); not sent: it never left. */
   | { readonly kind: 'requestTimeout'; readonly method: string; readonly sent: boolean }
   /** `op/status` said the mutation never ran and now never will (fenced). The caller decides whether to issue a new op. */
@@ -344,8 +343,8 @@ export interface ProtocolClient<S = Json> {
 
   /** Reads all pages of a blob (`blob/read`, page ≤ `server.limits.maxBlobPageBytes`). Rejects `blobNotFound`/`blobCorrupt` for this read only. */
   readBlob(ref: BlobRef, options?: Pick<CallOptions, 'sent'>): Promise<Uint8Array>;
-  /** Uploads in raw chunks ≤ `server.limits.maxBlobPutChunkBytes` (`blob/put`, SPEC R1) and returns the ref to put into a request. */
-  /** `options.sent` is the claim of the upload's LAST chunk: the upload is one message, which has left once its last chunk has. */
+  /** Uploads in raw chunks ≤ `server.limits.maxBlobPutChunkBytes` (`blob/put`, SPEC R1) and returns the ref to put into a request.
+   *  `options.sent` is the claim of the upload's LAST chunk: the upload is one message, which has left once its last chunk has. */
   putBlob(bytes: Uint8Array, mediaType: string, options?: Pick<CallOptions, 'sent'> & {
     /** Runs after each acknowledged chunk; throwing stops the remaining upload. */
     onChunkAccepted?(): void;

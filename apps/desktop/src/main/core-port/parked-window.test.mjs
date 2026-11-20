@@ -6,7 +6,7 @@ import { createPortConnector } from '../../renderer/core-direct/port-connector.t
 import { installCorePort } from '../../preload/core-port.ts';
 import { BootReports } from './boot-progress.ts';
 import { watchRecovery } from './failure-recovery.ts';
-import { CORE_PORT_CHANNEL, CORE_PORT_OPEN_CHANNEL, CorePortRelay } from './relay.ts';
+import { CORE_PORT_OPEN_CHANNEL, CorePortRelay } from './relay.ts';
 
 const tick = () => new Promise((resolve) => setImmediate(resolve));
 
