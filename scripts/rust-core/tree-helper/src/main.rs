@@ -42,10 +42,11 @@
 //!   deadline; the helper's own children are named by `/proc/self/task/*/children`, which lists only processes the helper
 //!   itself owns (`waitid` names only children that have exited, so it cannot be what finds a living one).
 //! - macOS also: a signal sent to a group does not show that its members ended, and macOS cannot adopt them. Once the leader
-//!   is reaped, the helper waits until the group has no living member: `kill(-pgid, 0)` answers ESRCH (a zombie is not a
-//!   member to it). Between two such checks it waits for the exit of a member the system lists for the group (a kqueue exit
-//!   event per member), so each check follows an exit, under the deadline; a group still populated at the deadline is a
-//!   failure naming its members.
+//!   is reaped, the helper waits until an observation of the group shows no living member (zombies, which can never run
+//!   again, do not count): two listings of the group's members, each taken at one instant, and each member's state tied to
+//!   its unique process id (`group::observe`). `kill(-pgid, 0)` cannot decide it: it answers EPERM both for a group of
+//!   zombies and for one with a member the helper may not signal. Observations repeat under the deadline; a group not
+//!   shown empty by then, or one that cannot be observed, is a failure naming what is known.
 //!
 //! The spawn of the program runs on its own thread, so a parent's death, its request or a signal is seen while `spawn` is
 //! blocked. What can block it is the exec itself (an executable on a filesystem that does not answer); the program is then
@@ -753,75 +754,189 @@ mod sys {
 
     /// macOS: waits for a process group to have no living member, event by event.
     #[cfg(target_os = "macos")]
-    mod group {
-        use super::{Errno, Instant};
-        use rustix::event::kqueue::{kevent, kqueue, Event, EventFilter, EventFlags, ProcessEvents};
-        use rustix::process::{test_kill_process_group, Pid};
-        use std::mem::MaybeUninit;
+    pub(crate) mod group {
+        use super::Instant;
+        use rustix::process::Pid;
+        use std::collections::BTreeMap;
         use std::time::Duration;
 
-        /// The pids the system lists in group `pgid` (zombies included; they are not waited for, as `kill` skips them).
-        fn members(pgid: i32) -> Result<Vec<i32>, String> {
-            let mut buffer = vec![0 as libc::pid_t; 4096];
-            let size = (buffer.len() * std::mem::size_of::<libc::pid_t>()) as libc::c_int;
-            // SAFETY: the buffer is valid for `size` bytes and outlives the call.
-            let count = unsafe { libc::proc_listpgrppids(pgid, buffer.as_mut_ptr().cast(), size) };
-            if count < 0 {
-                return Err(format!("the members of the group of pid {pgid} cannot be listed: {}", std::io::Error::last_os_error()));
-            }
-            buffer.truncate(count as usize);
-            Ok(buffer)
+        /// <sys/proc_info.h>: the `proc_listpids` type that lists one process group.
+        const PROC_PGRP_ONLY: u32 = 2;
+        /// <sys/proc_info_private.h>: the `proc_pidinfo` flavor that answers a process's 64-bit unique id.
+        const PROC_PIDUNIQIDENTIFIERINFO: libc::c_int = 17;
+        /// The pause between two observations of a group that is not yet shown empty.
+        const RECHECK: Duration = Duration::from_millis(20);
+
+        /// `struct proc_uniqidentifierinfo` (<sys/proc_info_private.h>, which asserts its 56 bytes and calls it API).
+        #[repr(C)]
+        struct UniqIdentifierInfo {
+            uuid: [u8; 16],
+            uniqueid: u64,
+            puniqueid: u64,
+            idversion: i32,
+            orig_ppidversion: i32,
+            reserve2: u64,
+            reserve3: u64,
+        }
+        const _: () = assert!(std::mem::size_of::<UniqIdentifierInfo>() == 56);
+
+        fn errno() -> i32 {
+            std::io::Error::last_os_error().raw_os_error().unwrap_or(0)
         }
 
-        /// Until `kill(-pgid, 0)` answers ESRCH, waits for the exit of a listed member; each check follows an exit. A group
-        /// still populated at the deadline, or one whose living members no listing names, is an error naming what is known.
+        /// The pids in group `pgid` at one instant: the kernel walks, in a single hold of its process-list lock, first every
+        /// process not yet exited (allproc), then the exited, unreaped ones (zombproc), and stops early only at its cap. The
+        /// cap is min(buffer, processes it counted + 20), counted before the lock is taken, so a listing can be cut short
+        /// without filling the buffer when processes are being created meanwhile: a short listing is not shown complete.
+        /// What is established is the order: the zombproc walk starts only once allproc was walked whole, so a listing
+        /// that contains an exited process, or nothing at all (the cap is at least 1), names every member of allproc.
+        /// `observe` relies on that and on nothing more. A listing that fills the buffer is taken again with twice the
+        /// room, so a large group is not cut short by the buffer itself. libproc answers a failed call with 0, the same as
+        /// an empty group, so errno is cleared first and a 0 with errno set is the failure it is.
+        fn members(pgid: i32) -> Result<Vec<i32>, String> {
+            let failed = |what: &str| format!("the members of the group of pid {pgid} cannot be listed: {what}");
+            let unit = std::mem::size_of::<libc::pid_t>();
+            // SAFETY: a null buffer only asks for the room the listing needs.
+            let mut bytes = unsafe { libc::proc_listpids(PROC_PGRP_ONLY, pgid as u32, std::ptr::null_mut(), 0) };
+            loop {
+                if bytes <= 0 {
+                    return Err(failed(&std::io::Error::last_os_error().to_string()));
+                }
+                let capacity = bytes as usize / unit;
+                let mut buffer = vec![0 as libc::pid_t; capacity];
+                // SAFETY: errno is this thread's own; the buffer is valid for `capacity * unit` bytes and outlives the call.
+                let got = unsafe {
+                    *libc::__error() = 0;
+                    libc::proc_listpids(PROC_PGRP_ONLY, pgid as u32, buffer.as_mut_ptr().cast(), (capacity * unit) as libc::c_int)
+                };
+                if got < 0 || (got == 0 && errno() != 0) {
+                    return Err(failed(&std::io::Error::last_os_error().to_string()));
+                }
+                let listed = got as usize / unit;
+                if listed < capacity {
+                    buffer.truncate(listed);
+                    return Ok(buffer);
+                }
+                bytes = bytes.checked_mul(2).ok_or_else(|| failed("the group does not fit in a listing"))?;
+            }
+        }
+
+        /// `proc_pidinfo` for `pid` into `info`, zombies included (arg 1). None when no process holds the pid.
+        fn pid_info<T>(pid: i32, flavor: libc::c_int, info: &mut T, what: &str) -> Result<Option<()>, String> {
+            let size = std::mem::size_of::<T>() as libc::c_int;
+            // SAFETY: `info` is `size` bytes of plain data, valid for the call.
+            let got = unsafe { libc::proc_pidinfo(pid, flavor, 1, (info as *mut T).cast(), size) };
+            if got == size {
+                return Ok(Some(()));
+            }
+            match errno() {
+                libc::ESRCH if got == 0 => Ok(None),
+                _ => Err(format!("the {what} of member pid {pid} cannot be read (answered {got} of {size} bytes): {}", std::io::Error::last_os_error())),
+            }
+        }
+
+        /// The unique id of the process holding `pid`: never given to another process, unlike the pid.
+        fn unique_id(pid: i32) -> Result<Option<u64>, String> {
+            // SAFETY: all-zero is a valid value of this plain-data struct.
+            let mut info: UniqIdentifierInfo = unsafe { std::mem::zeroed() };
+            Ok(pid_info(pid, PROC_PIDUNIQIDENTIFIERINFO, &mut info, "unique id")?.map(|()| info.uniqueid))
+        }
+
+        /// What one read found the holder of a listed pid to be.
+        enum State {
+            /// Not known to have exited (an exit in progress reads as this until the kernel marks the zombie).
+            Living,
+            /// Exited, unreaped: this process can never run or fork again.
+            Exited(u64),
+            /// The pid is free, or changed hands between the reads.
+            Unknown,
+        }
+
+        /// The state of `pid`'s holder, tied to its unique id: the id is read before and after the state, and only an
+        /// unchanged id shows that the state read belongs to that process.
+        fn state(pid: i32) -> Result<State, String> {
+            let Some(before) = unique_id(pid)? else { return Ok(State::Unknown) };
+            // SAFETY: all-zero is a valid `proc_bsdshortinfo`.
+            let mut info: libc::proc_bsdshortinfo = unsafe { std::mem::zeroed() };
+            let read = pid_info(pid, libc::PROC_PIDT_SHORTBSDINFO, &mut info, "state")?;
+            Ok(match (read, unique_id(pid)?) {
+                (Some(()), Some(after)) if after == before && info.pbsi_status == libc::SZOMB => State::Exited(before),
+                (Some(()), Some(after)) if after == before => State::Living,
+                _ => State::Unknown,
+            })
+        }
+
+        /// What one observation of a group found.
+        #[derive(Debug, PartialEq)]
+        pub(crate) enum Seen {
+            Empty,
+            Living(Vec<i32>),
+            /// Members not shown exited, none shown living: the group changed during the observation.
+            Changing,
+            /// The deadline came before the observation was finished.
+            Unfinished,
+        }
+
+        /// One observation. The first listing's members are read one by one; any living one ends it. Otherwise a second
+        /// listing, at one instant T, is checked pid by pid: the unique id now held by each pid must be one the reads found
+        /// exited. A process holds its pid from its creation to its reaping, so a matching id means that this very process
+        /// held the pid at T and had exited before T, so it was on zombproc at T. By the order `members` establishes, the
+        /// listing then names every member of allproc at T, and it named none: everything in the group at T had exited,
+        /// and a process that has exited cannot fork, so no living member was there at T nor can come after (one that
+        /// `setpgid` moves in aside). A child in the middle of its fork is on no list, but its parent is on allproc until
+        /// the fork returns. The deadline is checked before each read, so a long scan ends with it.
+        pub(crate) fn observe(pgid: i32, deadline: Instant) -> Result<Seen, String> {
+            let mut exited = BTreeMap::new();
+            let mut living = Vec::new();
+            for pid in members(pgid)? {
+                if Instant::now() >= deadline {
+                    return Ok(Seen::Unfinished);
+                }
+                match state(pid)? {
+                    State::Living => living.push(pid),
+                    State::Exited(id) => {
+                        exited.insert(pid, id);
+                    }
+                    State::Unknown => {}
+                }
+            }
+            if !living.is_empty() {
+                return Ok(Seen::Living(living));
+            }
+            for pid in members(pgid)? {
+                if Instant::now() >= deadline {
+                    return Ok(Seen::Unfinished);
+                }
+                let recorded = exited.get(&pid).copied();
+                if recorded.is_none() || unique_id(pid)? != recorded {
+                    return Ok(Seen::Changing);
+                }
+            }
+            Ok(Seen::Empty)
+        }
+
+        /// Observes the group until an observation shows it has no living member, pausing RECHECK between observations. An
+        /// empty observation counts only when it ended before the deadline (its instant T is earlier still). A group not
+        /// shown empty by the deadline is an error naming the members last observed alive (by the last finished scan); one
+        /// that cannot be observed is an error too.
         pub fn wait_empty(group: Pid, deadline: Instant) -> Result<(), String> {
             let pgid = group.as_raw_nonzero().get();
-            let queue = kqueue().map_err(|e| format!("waiting for the group of pid {pgid} to empty: kqueue failed: {e}"))?;
+            let mut living = Vec::new();
             loop {
-                match test_kill_process_group(group) {
-                    Err(Errno::SRCH) => return Ok(()),
-                    Err(error) => return Err(format!("asking whether the group of pid {pgid} is empty failed: {error}")),
-                    Ok(()) => {}
-                }
-                let listed = members(pgid)?;
-                if listed.is_empty() {
-                    // The last member can have exited between the probe and the listing. With no member listed, none is
-                    // left to start another, so a second probe decides: empty now, or members no listing names.
-                    return match test_kill_process_group(group) {
-                        Err(Errno::SRCH) => Ok(()),
-                        Err(error) => Err(format!("asking whether the group of pid {pgid} is empty failed: {error}")),
-                        Ok(()) => Err(format!("the group of pid {pgid} has living members that the system does not list")),
-                    };
-                }
-                let mut watched = 0;
-                for pid in listed.iter().filter_map(|pid| Pid::from_raw(*pid)) {
-                    let change = Event::new(EventFilter::Proc { pid, flags: ProcessEvents::EXIT }, EventFlags::ADD | EventFlags::ONESHOT, std::ptr::null_mut());
-                    let mut none: [MaybeUninit<Event>; 0] = [];
-                    // SAFETY: the change names a process, not a descriptor; the queue outlives the call.
-                    match unsafe { kevent(&queue, &[change], &mut none, Some(Duration::ZERO)) } {
-                        Ok(_) => watched += 1,
-                        // Exited (or a zombie) since the listing: the next check sees it.
-                        Err(Errno::SRCH) => {}
-                        Err(error) => return Err(format!("watching member pid {} of the group of pid {pgid} failed: {error}", pid.as_raw_nonzero())),
-                    }
-                }
+                let seen = observe(pgid, deadline)?;
                 let left = deadline.saturating_duration_since(Instant::now());
+                match seen {
+                    Seen::Empty if !left.is_zero() => return Ok(()),
+                    Seen::Living(pids) => living = pids,
+                    Seen::Changing => living.clear(),
+                    Seen::Empty | Seen::Unfinished => {}
+                }
                 if left.is_zero() {
-                    return Err(format!("the group of pid {pgid} still has members {listed:?} at the deadline after SIGKILL"));
+                    let shown = format!("the group of pid {pgid} was not shown empty by the deadline after SIGKILL");
+                    // Alive at the last finished scan only: one may have exited since, too late to count.
+                    return Err(if living.is_empty() { shown } else { format!("{shown}; members last observed alive: {living:?}") });
                 }
-                if watched == 0 {
-                    continue;
-                }
-                let mut fired = [MaybeUninit::<Event>::uninit()];
-                // SAFETY: as above.
-                match unsafe { kevent(&queue, &[], &mut fired, Some(left)) } {
-                    Ok(([], _)) => {
-                        return Err(format!("the group of pid {pgid} still has members {listed:?} at the deadline after SIGKILL"))
-                    }
-                    Ok(_) | Err(Errno::INTR) => {}
-                    Err(error) => return Err(format!("waiting for a member of the group of pid {pgid} to exit failed: {error}")),
-                }
+                std::thread::sleep(left.min(RECHECK));
             }
         }
     }
@@ -1087,6 +1202,32 @@ mod tests {
         let mut sent = Vec::new();
         assert_eq!(super::publish(Some(&mut sent), &record(None, None, &Tree::new())), Err(143));
         assert!(sent.is_empty(), "no record after a signal");
+    }
+
+    /// macOS: a group whose only member is an unreaped zombie has no living member (`kill(-pgid, 0)` answers it EPERM); a
+    /// group with a living member is observed as living, naming it; and a deadline already past ends the wait with an error,
+    /// never with success.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn a_zombie_only_group_is_empty_and_one_with_a_living_member_is_not() {
+        use super::sys::group::{observe, wait_empty, Seen};
+        use rustix::process::{waitid, Pid, WaitId, WaitIdOptions};
+        use std::os::unix::process::CommandExt;
+        let mut zombie = std::process::Command::new("/usr/bin/true").process_group(0).spawn().unwrap();
+        let pid = Pid::from_raw(zombie.id() as i32).unwrap();
+        waitid(WaitId::Pid(pid), WaitIdOptions::EXITED | WaitIdOptions::NOWAIT).unwrap();
+        let zombie_only = wait_empty(pid, Instant::now() + Duration::from_secs(10));
+        zombie.wait().unwrap();
+        assert_eq!(zombie_only, Ok(()));
+
+        let mut living = std::process::Command::new("/bin/sleep").arg("30").process_group(0).spawn().unwrap();
+        let pid = living.id() as i32;
+        let seen = observe(pid, Instant::now() + Duration::from_secs(30));
+        let late = wait_empty(Pid::from_raw(pid).unwrap(), Instant::now());
+        living.kill().unwrap();
+        living.wait().unwrap();
+        assert_eq!(seen, Ok(Seen::Living(vec![pid])));
+        assert_eq!(late, Err(format!("the group of pid {pid} was not shown empty by the deadline after SIGKILL")));
     }
 
     #[test]
