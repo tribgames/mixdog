@@ -1,5 +1,5 @@
 {
-  "$schema": "https://biomejs.dev/schemas/2.5.13/schema.json",
+  "$schema": "https://biomejs.dev/schemas/2.6.8/schema.json",
   "root": true,
   "vcs": {
     "enabled": true,
@@ -14,20 +14,20 @@
       "apps/desktop/scripts/**",
       "apps/relay/**",
       "scripts/**",
-      "!**/vendor/**",
-      "!**/native/mixdog-graph/tests/**",
-      "!**/benchmarks/**",
-      "!**/deliverables/**",
-      "!**/output*/**",
+      "!**/vendor",
+      "!**/native/mixdog-graph/tests",
+      "!**/benchmarks",
+      "!**/deliverables",
+      "!**/output*",
       "!!**/dist",
       "!!**/artifacts",
-      "!**/.tmp*/**",
       "!**/.tmp*",
-      "!**/.mixdog*/**",
+      "!**/.tmp*",
       "!**/.mixdog*",
-      "!**/.bench*/**",
+      "!**/.mixdog*",
       "!**/.bench*",
-      "!**/node_modules/**",
+      "!**/.bench*",
+      "!**/node_modules",
       "!**/*.min.js",
       "!apps/desktop/src/renderer/public/boot.js",
       "!src/defaults/skills/pptx/scripts/review-deck.mjs",
@@ -35,6 +35,9 @@
       "!apps/desktop/src/renderer/test-support/phone-world.mjs",
       "!apps/desktop/src/renderer/remote-protocol-chat-node-export.mjs",
       "!apps/desktop/src/shared/test-recorded/*.recorded.mjs",
+      "!apps/desktop/src/renderer/remote-protocol-chat-harness/lib/pg-version.json",
+      "!apps/desktop/src/renderer/*.core/*.json",
+      "!scripts/rust-core/recorded",
       "!apps/desktop/src/renderer/public/ui-language.js",
       "!scripts/generate-voice-runtime-manifest.mjs",
       "!scripts/build-voice-runtime-windows.ps1",
@@ -70,6 +73,18 @@
       }
     }
   },
+  "overrides": [
+    {
+      "includes": ["**/*.test.*"],
+      "linter": {
+        "rules": {
+          "correctness": {
+            "noComponentHookFactories": "off"
+          }
+        }
+      }
+    }
+  ],
   "assist": {
     "enabled": false,
     "actions": {
