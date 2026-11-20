@@ -98,6 +98,8 @@ pub struct BridgeFiles {
     io: MaintenanceIo,
     slots: Mutex<HashMap<&'static str, Slot>>,
     watching: Mutex<Option<Watching>>,
+    /// One [`Self::attach`] at a time: its resolution and registration run on the lane, outside `watching`.
+    attaching: tokio::sync::Mutex<()>,
     /// `Date.now()` in milliseconds.
     now_ms: Box<dyn Fn() -> f64 + Send + Sync>,
     /// Counts the reads taken into the copy; a test waits on it instead of polling.
@@ -371,7 +373,7 @@ impl BridgeFiles {
     fn new_at(dir: PathBuf, io: MaintenanceIo, now_ms: Box<dyn Fn() -> f64 + Send + Sync>) -> Arc<Self> {
         let slot = || Slot { advert: Advert::Missing, failed: false, timer: false, loading: false, again: false };
         let slots = FEATURES.iter().map(|id| (*id, slot())).collect();
-        Arc::new(Self { dir, io, slots: Mutex::new(slots), watching: Mutex::new(None), now_ms, applied: tokio::sync::watch::channel(0).0 })
+        Arc::new(Self { dir, io, slots: Mutex::new(slots), watching: Mutex::new(None), attaching: tokio::sync::Mutex::new(()), now_ms, applied: tokio::sync::watch::channel(0).0 })
     }
 
     #[cfg(test)]
@@ -388,7 +390,7 @@ impl BridgeFiles {
     /// of the watched copy: watch first, so a change after the read is never missed).
     pub async fn start(self: &Arc<Self>, watcher: Arc<FolderWatcher>) {
         *self.watching() = Some(Watching { watcher, at: None });
-        self.attach();
+        self.attach().await;
         for id in FEATURES {
             let loaded = Self::read(self.io, self.dir.join(format!("{id}-bridge.json"))).await;
             self.apply(id, loaded);
@@ -402,16 +404,31 @@ impl BridgeFiles {
     /// Points the watch at the discovery folder or, while that cannot be watched (it does not
     /// exist yet), the nearest ancestor that can: an event there names the folder, and the next
     /// re-read tries the folder again.
-    fn attach(&self) {
-        let mut watching = self.watching();
-        let Some(held) = watching.as_mut() else { return };
-        if held.at.as_deref() == Some(self.dir.as_path()) {
-            return;
+    ///
+    /// The folder is watched by its real path (the backend names events by it; `at` keeps the spelling given), which is
+    /// resolved on the maintenance lane with the registration, so a folder on a stalled mount holds a lane job, not a worker.
+    async fn attach(&self) {
+        let _one = self.attaching.lock().await;
+        let watcher = {
+            let watching = self.watching();
+            let Some(held) = watching.as_ref() else { return };
+            if held.at.as_deref() == Some(self.dir.as_path()) {
+                return;
+            }
+            held.watcher.clone()
+        };
+        let dir = self.dir.clone();
+        let job = self.io.submit(&CancellationToken::new(), move |_lane| {
+            watcher.unwatch(WATCH_ID);
+            std::iter::successors(Some(dir.as_path()), |dir| dir.parent())
+                .find(|dir| mixdog_workspace::pathguard::canonical(dir).is_ok_and(|real| watcher.watch(WATCH_ID, &real, false).is_ok()))
+                .map(Path::to_path_buf)
+        });
+        let Ok(job) = job else { return };
+        let Ok(at) = job.await else { return };
+        if let Some(held) = self.watching().as_mut() {
+            held.at = at;
         }
-        held.watcher.unwatch(WATCH_ID);
-        held.at = std::iter::successors(Some(self.dir.as_path()), |dir| dir.parent())
-            .find(|dir| held.watcher.watch(WATCH_ID, dir, false).is_ok())
-            .map(Path::to_path_buf);
     }
 
     /// The watch delivered a batch. On the folder itself only the files named are re-read; on an
@@ -448,7 +465,7 @@ impl BridgeFiles {
 
     /// The re-read of a file after its debounce: an event during a read reads again.
     async fn reread(self: &Arc<Self>, id: &'static str) {
-        self.attach();
+        self.attach().await;
         loop {
             {
                 let mut slots = self.slots();
