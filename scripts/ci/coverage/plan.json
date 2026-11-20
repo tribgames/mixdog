@@ -15,6 +15,10 @@
         {
           "id": "root",
           "producer": "node"
+        },
+        {
+          "id": "office-page",
+          "producer": "node"
         }
       ]
     },
@@ -674,12 +678,27 @@
       "requires": [
         {
           "anyOf": [
-            "linux/root-fast/1of1"
+            "linux/root-fast/1of1#root"
           ]
         },
         {
           "anyOf": [
             "macos/root-fast/1of1"
+          ]
+        }
+      ]
+    },
+    {
+      "name": "office-page",
+      "family": "node",
+      "owner": "release-engineering",
+      "include": [
+        "native/core/crates/mixdog-office-author/assets/page/*.test.mjs"
+      ],
+      "requires": [
+        {
+          "anyOf": [
+            "linux/root-fast/1of1#office-page"
           ]
         }
       ]

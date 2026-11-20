@@ -7602,6 +7602,186 @@
      ]
     ]
    }
+  },
+  {
+   "id": [
+    "node",
+    "scripts/rust-core/process-tree.test.mjs",
+    "a helper killed after endTree found it alive, before it finished ending the tree, makes endTree fail"
+   ],
+   "platform": "windows",
+   "kind": "skip",
+   "reasonCode": "uncoded",
+   "reasonText": "Windows ends a tree by killing its helper: the job ends every member",
+   "owner": "release-engineering",
+   "reason": "POSIX-only behaviour of the process-tree helper (skips on Windows)",
+   "replacement": {
+    "kind": "runs",
+    "in": [
+     "linux/core-real/1of1#process-tree",
+     "macos/core-real/1of1#process-tree"
+    ]
+   }
+  },
+  {
+   "id": [
+    "node",
+    "scripts/rust-core/process-tree.test.mjs",
+    "a signal-killed program is reported with its signal, read from the helper's record"
+   ],
+   "platform": "windows",
+   "kind": "skip",
+   "reasonCode": "uncoded",
+   "reasonText": "POSIX signals",
+   "owner": "release-engineering",
+   "reason": "POSIX-only behaviour of the process-tree helper (skips on Windows)",
+   "replacement": {
+    "kind": "runs",
+    "in": [
+     "linux/core-real/1of1#process-tree",
+     "macos/core-real/1of1#process-tree"
+    ]
+   }
+  },
+  {
+   "id": [
+    "node",
+    "scripts/rust-core/process-tree.test.mjs",
+    "the program and its descendants do not inherit the parent channel"
+   ],
+   "platform": "windows",
+   "kind": "skip",
+   "reasonCode": "uncoded",
+   "reasonText": "POSIX descriptors",
+   "owner": "release-engineering",
+   "reason": "POSIX-only behaviour of the process-tree helper (skips on Windows)",
+   "replacement": {
+    "kind": "runs",
+    "in": [
+     "linux/core-real/1of1#process-tree",
+     "macos/core-real/1of1#process-tree"
+    ]
+   }
+  },
+  {
+   "id": [
+    "node",
+    "scripts/rust-core/process-tree.test.mjs",
+    "the descriptor check does see an inherited descriptor 3 (the check is not vacuous)"
+   ],
+   "platform": "windows",
+   "kind": "skip",
+   "reasonCode": "uncoded",
+   "reasonText": "POSIX descriptors",
+   "owner": "release-engineering",
+   "reason": "POSIX-only behaviour of the process-tree helper (skips on Windows)",
+   "replacement": {
+    "kind": "runs",
+    "in": [
+     "linux/core-real/1of1#process-tree",
+     "macos/core-real/1of1#process-tree"
+    ]
+   }
+  },
+  {
+   "id": [
+    "node",
+    "scripts/rust-core/tree-helper.test.mjs",
+    "SIGTERM sent to the helper ends the program and its grandchild, exits 143 and writes no report"
+   ],
+   "platform": "windows",
+   "kind": "skip",
+   "reasonCode": "uncoded",
+   "reasonText": "POSIX signals",
+   "owner": "release-engineering",
+   "reason": "POSIX-only behaviour of the process-tree helper (skips on Windows)",
+   "replacement": {
+    "kind": "runs",
+    "in": [
+     "linux/core-real/1of1#process-tree",
+     "macos/core-real/1of1#process-tree"
+    ]
+   }
+  },
+  {
+   "id": [
+    "node",
+    "scripts/rust-core/tree-helper.test.mjs",
+    "SIGINT sent to the helper ends the program and its grandchild, exits 130 and writes no report"
+   ],
+   "platform": "windows",
+   "kind": "skip",
+   "reasonCode": "uncoded",
+   "reasonText": "POSIX signals",
+   "owner": "release-engineering",
+   "reason": "POSIX-only behaviour of the process-tree helper (skips on Windows)",
+   "replacement": {
+    "kind": "runs",
+    "in": [
+     "linux/core-real/1of1#process-tree",
+     "macos/core-real/1of1#process-tree"
+    ]
+   }
+  },
+  {
+   "id": [
+    "node",
+    "scripts/rust-core/tree-helper.test.mjs",
+    "SIGHUP sent to the helper ends the program and its grandchild, exits 129 and writes no report"
+   ],
+   "platform": "windows",
+   "kind": "skip",
+   "reasonCode": "uncoded",
+   "reasonText": "POSIX signals",
+   "owner": "release-engineering",
+   "reason": "POSIX-only behaviour of the process-tree helper (skips on Windows)",
+   "replacement": {
+    "kind": "runs",
+    "in": [
+     "linux/core-real/1of1#process-tree",
+     "macos/core-real/1of1#process-tree"
+    ]
+   }
+  },
+  {
+   "id": [
+    "node",
+    "scripts/rust-core/tree-helper.test.mjs",
+    "a SIGTERM that reaches the helper as its program exits withholds the report: exit 143"
+   ],
+   "platform": "windows",
+   "kind": "skip",
+   "reasonCode": "uncoded",
+   "reasonText": "POSIX signals",
+   "owner": "release-engineering",
+   "reason": "POSIX-only behaviour of the process-tree helper (skips on Windows)",
+   "replacement": {
+    "kind": "runs",
+    "in": [
+     "linux/core-real/1of1#process-tree",
+     "macos/core-real/1of1#process-tree"
+    ]
+   }
+  },
+  {
+   "id": [
+    "node",
+    "scripts/rust-core/tree-helper.test.mjs",
+    "a file that cannot be executed is a launch failure in the record (EACCES)"
+   ],
+   "platform": "windows",
+   "kind": "skip",
+   "reasonCode": "uncoded",
+   "reasonText": "POSIX modes",
+   "owner": "release-engineering",
+   "reason": "POSIX-only behaviour of the process-tree helper (skips on Windows)",
+   "replacement": {
+    "kind": "runs",
+    "in": [
+     "linux/core-real/1of1#process-tree",
+     "macos/core-real/1of1#process-tree"
+    ]
+   }
   }
  ]
 }

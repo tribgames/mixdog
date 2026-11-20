@@ -422,12 +422,23 @@ jobs:
             args+=(--exclude-path "$EXCLUDED_PATH")
           fi
           npm test -- "${args[@]}"
+      # The page script tests of the Office author crate sit outside every discovery root of scripts/test.mjs, so they are named.
+      - name: Run the Office page script tests
+        if: matrix.shard == 1
+        env:
+          MIXDOG_SLOT: office-page
+          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/office-page.json
+        run: node scripts/ci/node-runner.mjs native/core/crates/mixdog-office-author/assets/page/*.test.mjs
       # A skipped or todo test outside scripts/ci/coverage/exceptions.json fails the job (check-skips.mjs): on a clean checkout a test that
       # skips because its material is absent would otherwise be green and test nothing.
       - name: Check that no test of the root default lane skipped outside the reviewed list
         env:
-          MIXDOG_RECEIPT: ${{ runner.temp }}/receipts/runtime.json
-        run: node scripts/ci/check-skips.mjs receipts "$MIXDOG_RECEIPT"
+          RECEIPTS: ${{ runner.temp }}/receipts
+          SHARD: ${{ matrix.shard }}
+        run: |
+          receipts=("$RECEIPTS/runtime.json")
+          if [[ "$SHARD" == 1 ]]; then receipts+=("$RECEIPTS/office-page.json"); fi
+          node scripts/ci/check-skips.mjs receipts "${receipts[@]}"
       - name: Upload the evidence of this leg
         uses: ./.github/actions/upload-evidence
         with:
