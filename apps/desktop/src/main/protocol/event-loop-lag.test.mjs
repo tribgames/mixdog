@@ -61,6 +61,8 @@ function createTurnLog() {
   };
   return {
     start() {
+      // Time labelled before the measurement (the warm-up) belongs to no turn of it.
+      spent.clear();
       last = performance.now();
       timer = setInterval(tick, 1);
       observer.observe({ entryTypes: ['gc'] });
