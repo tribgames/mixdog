@@ -25,6 +25,7 @@ import type { ProtocolConnection } from './protocol/connection';
 import { registerComputerIpc, type ComputerIpcHost } from './ipc-computer';
 import { registerFileDialogIpc } from './ipc-file-dialogs';
 import { registerPaneLayoutIpc } from './ipc-pane-layout';
+import { type LocalStorageRescue, registerLocalStorageRescueIpc } from './local-storage-rescue';
 import type { PaneLayoutFile } from './pane-layout-file';
 import { registerProjectIpc } from './ipc-projects';
 import { coreErrorForWindow } from './protocol/core-error';
@@ -129,6 +130,8 @@ interface DesktopIpcDependencies {
   pcHost?: PcQuotaHost;
   /** This window's pane layout file in the profile (see pane-layout-file.ts). */
   paneLayoutFile?: PaneLayoutFile;
+  /** This window's Local Storage rescue (see local-storage-rescue.ts). */
+  localStorageRescue?: LocalStorageRescue;
   /** The connection's protocol link: pushed sections and detail calls for the renderer. */
   protocol?: ProtocolConnection | null;
   /** This PC's own core connection (what reads this computer, e.g. its installed fonts); the window's own when absent. */
@@ -160,6 +163,7 @@ export function registerDesktopIpc(
     serverId,
     pcHost,
     paneLayoutFile,
+    localStorageRescue,
     protocol,
     pcCore,
     prepareConfirmedAllowAllActions,
@@ -340,6 +344,7 @@ export function registerDesktopIpc(
   // What this window paints, for the completion-notification rule.
   const disposeScreenSessions = registerScreenSessions(window, ipcMain);
   const disposePaneLayoutIpc = registerPaneLayoutIpc({ window, ipcMain, file: paneLayoutFile });
+  const disposeLocalStorageRescueIpc = registerLocalStorageRescueIpc({ window, ipcMain, rescue: localStorageRescue });
   registerSourceControlIpc({
     app,
     handle,
@@ -363,6 +368,9 @@ export function registerDesktopIpc(
     DESKTOP_IPC.rendererDiagnostic,
     DESKTOP_IPC.readPaneLayoutFile,
     DESKTOP_IPC.writePaneLayoutFile,
+    DESKTOP_IPC.localStorageLost,
+    DESKTOP_IPC.takeLocalStorageRescue,
+    DESKTOP_IPC.localStorageRestored,
     DESKTOP_IPC.termWrite,
     DESKTOP_IPC.termResize,
     DESKTOP_IPC.termAcknowledge,
@@ -391,6 +399,7 @@ export function registerDesktopIpc(
     disposeRendererProbe();
     disposeScreenSessions();
     disposePaneLayoutIpc();
+    disposeLocalStorageRescueIpc();
     for (const channel of channels) ipcMain.removeHandler(channel);
     if (corePort) {
       ipcMain.removeHandler(CORE_PORT_OPEN_CHANNEL);

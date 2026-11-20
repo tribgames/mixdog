@@ -9,6 +9,9 @@ import { ipcErrorFromEnvelope } from '../shared/coded-error';
 import { createBrowserTextureBridge } from './browser-texture';
 import { installCorePort } from './core-port';
 import { createHostApi } from './host-api';
+import { installLocalStorageLink } from './local-storage-link';
+
+installLocalStorageLink(ipcRenderer);
 
 /** `ipcRenderer.invoke` that rebuilds a refusal main returned as an error
  *  envelope (Electron drops an Error's custom `code` in transit). */
