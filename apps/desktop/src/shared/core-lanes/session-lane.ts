@@ -1,6 +1,6 @@
 // The sessions of a core connection as this process's windows are told of them (ipc-state-bridge.ts): the sidebar
-// catalog, each followed thread's state, and the chat calls whose answer is more than the core's reply. Node's host
-// pushed all three; over the core they are made here from the client library's folds and the app feed.
+// catalog, each followed thread's state, and the chat calls whose answer is more than the core's reply. All three
+// are made here from the client library's folds and the app feed.
 //
 // Nothing is converted a second way: the catalog is the phone's roster feed (`createRosterFeed`) over the same row
 // projection (`summariesOfThreadRows`), the chat calls are the phone's adapter (`createChatApi`, `createChatHostApi`)
@@ -37,14 +37,14 @@ import { summariesOfThreadRows } from './thread-rows';
 type Client = ProtocolClient<SessionFold>;
 
 export interface SessionLane {
-  /** The chat calls as Node's host answered them, over the client that is open now. */
+  /** The chat calls, over the client that is open now. */
   chat(): Promise<ChatHostApi>;
   listSessions(): Promise<DesktopSessionSummary[]>;
   subscribeSessions(listener: (sessions: DesktopSessionSummary[]) => void): () => void;
   subscribeSessionStates(listener: (update: DesktopSessionStateUpdate) => void): () => void;
   /** The stored tail for a paint preview, without starting a runtime or publishing a state frame. */
   previewSession(sessionId: string): Promise<SessionSnapshot>;
-  /** Node's `prefetchSession`: the session's transcript tail is published as a state frame (`readTraceId` names it). */
+  /** Prefetch: the session's transcript tail is published as a state frame (`readTraceId` names it). */
   prefetchSession(sessionId: string, itemLimit?: number, readTraceId?: string): Promise<boolean>;
   /** The followed thread's state is published again, whole. */
   requestSessionStateResync(sessionId: string): void;
@@ -113,7 +113,7 @@ export function createSessionLane({
   const offReplaced = protocol.onReplaced(() => void roster.list(rosterClient).catch(() => undefined));
 
   // ── the followed threads' states ──
-  // Node's host stamped every session snapshot it answered with the remote channel's session (`snapshotWithRemoteSession`).
+  // Every session snapshot answered is stamped with the remote channel's session.
   const decorated = (client: Client, state: unknown): SessionSnapshot =>
     withRemoteSession(
       state,
