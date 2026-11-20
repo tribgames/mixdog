@@ -5,6 +5,7 @@ import React, { useContext, useSyncExternalStore, type ComponentType, type React
 import { Play } from 'lucide-react';
 import { t } from './i18n';
 import { childrenText, MarkdownLink, MarkdownSessionContext } from './MarkdownLink';
+import { MarkdownCodeLines } from './markdown-code-lines';
 import { LOCAL_IMAGE_TAG } from './markdown-plugins';
 import { MarkdownLocalImage } from './markdown-local-image';
 import {
@@ -97,7 +98,16 @@ function createMarkdownComponents(CopyControl: MarkdownCopyControl) {
     table: MarkdownTable,
     td: MarkdownTd,
     th: MarkdownTh,
-    pre({ children, 'data-md-unit': unit }: { children?: ReactNode; 'data-md-unit'?: string }) {
+    pre({
+      children,
+      'data-md-unit': unit,
+      'data-md-place': place,
+    }: {
+      children?: ReactNode;
+      'data-md-unit'?: string;
+      /** The code block's place in its reply (markdown-block-parking, PLACE_PROP). */
+      'data-md-place'?: string;
+    }) {
       const child = React.Children.count(children) === 1 ? React.Children.only(children) : null;
       if (!React.isValidElement(child)) {
         return (
@@ -120,7 +130,9 @@ function createMarkdownComponents(CopyControl: MarkdownCopyControl) {
             </span>
           </header>
           <pre data-scrollable>
-            <code className={props.className}>{props.children}</code>
+            <MarkdownCodeLines place={place} className={props.className}>
+              {props.children}
+            </MarkdownCodeLines>
           </pre>
         </div>
       );

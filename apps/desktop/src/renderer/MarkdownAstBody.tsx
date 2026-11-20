@@ -15,18 +15,13 @@ import {
   useMemo,
   useRef,
   useState,
-  useSyncExternalStore,
 } from 'react';
 import { jsx, jsxs } from 'react/jsx-runtime';
 import { toJsxRuntime } from 'hast-util-to-jsx-runtime';
 
 import type { MarkdownAstRoot } from './markdown-ast';
-import {
-  type BlockParking,
-  MarkdownBlockParkingContext,
-  PARKED_ATTRIBUTE,
-  UNIT_ATTRIBUTE,
-} from './markdown-block-parking';
+import { MarkdownBlock } from './markdown-block';
+import { MarkdownBlockParkingContext, PLACE_PROP, UNIT_ATTRIBUTE } from './markdown-block-parking';
 import { highlightMentions, MarkdownMentionNamesContext } from './markdown-mentions';
 import { markdownComponents, type MarkdownCopyControl } from './markdown-components';
 import { applyStreamFade, STREAM_FADE_BOX_TAGS, type StreamFadeTimeline } from './markdown-stream-fade';
@@ -148,12 +143,27 @@ export default memo(function MarkdownAstBody({
   });
   // The body left the reply: other blocks stand next to its neighbours now.
   useLayoutEffect(() => () => parking?.sync(), [parking]);
+  // And nothing is kept for its code blocks. They leave in the commit's layout
+  // phase, which this cleanup comes after.
+  useEffect(() => () => parking?.release(bodyId), [parking, bodyId]);
+  // Each code block is told its place in the body, under which what is parked
+  // of its lines is kept while the block around it is out of the DOM
+  // (markdown-code-lines).
+  let codes = 0;
+  const placed =
+    (create: typeof jsx): typeof jsx =>
+    (type, props, key) =>
+      create(
+        type,
+        type === components.pre ? { ...(props as object), [PLACE_PROP]: `${bodyId}/${codes++}` } : props,
+        key
+      );
   // The tree is converted once, as without parking; only its top-level
   // elements are then held one by one.
   const rendered = toJsxRuntime((shown?.root ?? body) as never, {
     Fragment,
-    jsx,
-    jsxs,
+    jsx: parking ? placed(jsx) : jsx,
+    jsxs: parking ? placed(jsxs) : jsxs,
     components: components as never,
     ignoreInvalidStyle: true,
     passKeys: true,
@@ -171,21 +181,3 @@ export default memo(function MarkdownAstBody({
     );
   });
 });
-
-function MarkdownBlock({ id, parking, children }: { id: string; parking: BlockParking; children: ReactNode }) {
-  const subscribe = useCallback((listener: () => void) => parking.subscribe(id, listener), [parking, id]);
-  const parked = useSyncExternalStore(subscribe, () => parking.parked(id));
-  const mounted = parked === null;
-  // biome-ignore lint/correctness/useExhaustiveDependencies: the block's element changed when it parked or returned.
-  useLayoutEffect(() => parking.sync(), [parking, mounted]);
-  if (parked) {
-    return (
-      <div
-        {...{ [PARKED_ATTRIBUTE]: id }}
-        aria-hidden="true"
-        style={{ height: parked.height, marginTop: parked.before, marginBottom: parked.after }}
-      />
-    );
-  }
-  return children;
-}
