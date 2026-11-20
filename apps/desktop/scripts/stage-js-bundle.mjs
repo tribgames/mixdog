@@ -265,7 +265,9 @@ export async function treeDigest(dir) {
     })
   );
   const hash = createHash('sha256');
-  files.forEach((path, at) => hash.update(`${path}\0${hashes[at]}\n`));
+  files.forEach((path, at) => {
+    hash.update(`${path}\0${hashes[at]}\n`);
+  });
   return hash.digest('hex');
 }
 

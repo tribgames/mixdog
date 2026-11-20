@@ -453,7 +453,6 @@ export function bootPhone(ctx: RemoteShimContext, env: PhoneEnv): PhoneBoot {
 
   return {
     start,
-    /** Node's wakeProbe: what an overdue or silent call asks of the connection. */
     wakeProbe: () => wake(),
     silentSince: (since: number): boolean => phone?.link.silentSince(since) ?? false,
     client: () => phone?.client,

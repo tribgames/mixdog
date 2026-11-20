@@ -13,13 +13,11 @@ import {
   utimesSync,
   writeFileSync,
 } from 'node:fs';
-import { request as httpRequest } from 'node:http';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 
 import { filePreviewServable, registerFilePreview, resolveFilePreview } from '../file-preview.ts';
-import { panePreviewUrl } from './host-pane-preview.ts';
 import { createCoreLocalPages, setCoreLocalPages } from '../core-local-pages.ts';
 import { localPageUrl, pageAssetType } from './test-fixtures/page-server-stand-in.ts';
 import { VisualizeBridgeServer } from './bridge-server.ts';

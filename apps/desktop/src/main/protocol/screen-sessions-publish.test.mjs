@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
-import { registerScreenSessions, reportScreenSessions } from '../screen-sessions.ts';
+import { registerScreenSessions } from '../screen-sessions.ts';
 import { onProtocolAttached, publishScreenSessions } from './screen-sessions-publish.ts';
 
 function harness() {

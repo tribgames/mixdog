@@ -9,7 +9,6 @@ export class MockConn {
   private waiter: ((t: string) => void) | undefined;
   private closedFlag = false;
   private readonly sink: TransportSink;
-  /** While set, a request's `sent` claim settles only at `releaseSent`: the frame has not left the page yet. */
   /** What the writer does with a frame's departure claim: 'given' resolves it at once, 'held' waits for `releaseSent`, 'refused' rejects it,
    *  'none' never calls it. */
   claims: 'given' | 'held' | 'refused' | 'none' = 'given';
@@ -45,7 +44,7 @@ export class MockConn {
     settled: () => this.chain,
   };
 
-  /** The frames held back by `holdSent` have left. */
+  /** The frames held back (`claims = 'held'`) have left. */
   releaseSent(): void {
     this.claims = 'given';
     for (const { left } of this.leaving.splice(0)) left();

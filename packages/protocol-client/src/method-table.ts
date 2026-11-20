@@ -2,13 +2,14 @@
 import { methodTable } from '@mixdog/protocol';
 import type { MethodSpec } from '@mixdog/protocol';
 import type { Json, MethodInfo, MethodLookup, OpScope } from './api.ts';
+import { isObj } from './obj.ts';
 
 type OpScopeRule = MethodSpec['opScope'];
 
 /** The table's `field` is a wire path: a dotted path (`args.sessionId`) walks nested objects. */
 function fieldPath(params: Json, field: string): Json | undefined {
   let v: Json | undefined = params;
-  for (const seg of field.split('.')) v = typeof v === 'object' && v !== null && !Array.isArray(v) ? v[seg] : undefined;
+  for (const seg of field.split('.')) v = isObj(v) ? v[seg] : undefined;
   return v;
 }
 

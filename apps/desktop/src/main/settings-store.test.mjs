@@ -2,12 +2,9 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 
 import { DesktopSettingsStore, desktopSettingsFromConfig } from './settings-store.ts';
-import { registerDesktopIpc } from './ipc.ts';
 import { requiredDesktopSettingKey } from './ipc-validation.ts';
 import { requiredDesktopCapabilityRequest } from './ipc-capability-request.ts';
-import { DESKTOP_IPC } from '../shared/contract.ts';
 import { defaultBrowserPermissionPolicy } from '../shared/browser-permission-policy.ts';
-import { registerWindowSettingsIpc } from './ipc-window-settings.ts';
 
 test('desktop settings read the canonical agent section and desktop defaults', () => {
   assert.deepEqual(desktopSettingsFromConfig({}), {

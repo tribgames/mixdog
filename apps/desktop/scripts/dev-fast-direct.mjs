@@ -408,12 +408,6 @@ async function hashFile(path) {
   return hash.digest('hex');
 }
 
-async function hashFiles(paths) {
-  const hash = createHash('sha256');
-  for (const path of paths) hash.update(await contentsForFile(path));
-  return hash.digest('hex');
-}
-
 export async function hashBrowserImportNativeTools(nativeToolsDir) {
   const hash = createHash('sha256');
   for (const fileName of browserImportNativeFileNames) {

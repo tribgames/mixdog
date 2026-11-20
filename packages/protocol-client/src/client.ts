@@ -46,6 +46,7 @@ import { isOfferedRequest, isScopedMethod, isSectionMethod, methodInfo } from '.
 import { createLinkLog } from './link-log.mjs';
 import { DEFAULT_REQUEST_TIMEOUT_MS } from './request-limits.ts';
 import { LinkHealth } from './health.ts';
+import { isObj } from './obj.ts';
 
 // ───────────────────────────── pure helpers ─────────────────────────────
 
@@ -85,7 +86,7 @@ export function isTextMedia(mediaType: string): boolean {
  * lib versions reject a `Uint8Array<ArrayBufferLike>` there). */
 type DigestInput = Parameters<typeof crypto.subtle.digest>[1];
 
-const fromB64 =(s: string): Uint8Array => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+const fromB64 = (s: string): Uint8Array => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
 const toB64 = (b: Uint8Array): string => {
   let s = '';
   for (const x of b) s += String.fromCharCode(x);
@@ -250,14 +251,13 @@ const windowCovers = (held: ResumeWindow, asked: ResumeWindow): boolean => {
 const retainWindow = (asked: ResumeWindow, held: ResumeWindow | undefined): ResumeWindow =>
   held && windowCovers(held, asked) ? held : asked;
 const FEED_REQUEST_DEADLINE_MS = 10_000;
-const isObject = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
 const validFeed = (f: unknown): boolean =>
   f === undefined ||
-  (isObject(f) && typeof f.id === 'string' && typeof f.epoch === 'string' && typeof f.seq === 'number' &&
+  (isObj(f) && typeof f.id === 'string' && typeof f.epoch === 'string' && typeof f.seq === 'number' &&
     (f.from === undefined || (typeof f.from === 'number' && f.from <= f.seq)));
 /** The first position a frame stands for: a coalesced frame (`feed.from`, announced with `feedRanges`) covers `from..=seq`. */
 const firstOf = (f: FeedStamp): number => f.from ?? f.seq;
-const validErrorBody = (e: unknown): boolean => isObject(e) && typeof e.code === 'number' && typeof e.message === 'string';
+const validErrorBody = (e: unknown): boolean => isObj(e) && typeof e.code === 'number' && typeof e.message === 'string';
 /** Delivers `value` to every listener: one that throws is reported and the others still hear it (a listener owns its failure). */
 function isolated<T>(listeners: ReadonlySet<(value: T) => void>, value: T): void {
   for (const listener of [...listeners]) {
@@ -1467,7 +1467,7 @@ class Engine implements ProtocolClient<Json> {
       if (!Array.isArray(entries)) throw fail({ kind: 'protocolViolation', what: 'op/status without ops' });
     } catch (e) {
       const cause = detailOf(e);
-      if (cause.kind === 'connectionLost' || cause.kind === 'clientClosed') return;
+      if (isConnectionEnd(cause)) return;
       for (const opId of opIds) {
         const u = this.unanswered.get(opId);
         if (!u) continue;

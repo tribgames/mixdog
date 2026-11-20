@@ -1,8 +1,5 @@
 import assert from 'node:assert/strict';
 import { createECDH } from 'node:crypto';
-import { mkdtemp, rm } from 'node:fs/promises';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
 import test from 'node:test';
 
 import {
@@ -11,13 +8,12 @@ import {
   encryptNativePush,
   isNativePushPublicKey,
 } from '../shared/native-push-crypto.ts';
-import { waitUntil } from './bounded-wait.mjs';
+
 const device = () => {
   const ecdh = createECDH('prime256v1');
   ecdh.generateKeys();
   return { privateKey: ecdh.getPrivateKey(), publicKey: ecdh.getPublicKey().toString('base64url') };
 };
-const APNS_TOKEN = 'cd'.repeat(32);
 
 test('shared vector: encryption is deterministic for fixed inputs and decrypts', () => {
   const mx = encryptNativePush(vector.devicePublicKey, vector.content, {
@@ -54,9 +50,3 @@ test('public key validation', () => {
   assert.equal(isNativePushPublicKey(42), false);
 });
 
-const HOST_ID = '0123456789abcdef0123456789abcdef';
-
-/** The notifier reports how each notification ended (sent or suppressed): waiting for that report is waiting for the delivery to finish. */
-const diagnosed = (diagnostics, event) =>
-  waitUntil(() => diagnostics.some(([name]) => name === event), `a '${event}' push diagnostic`);
-const approval = (id) => ({ sessionId: 's1', frameSource: 'live', snapshot: { toolApproval: id ? { id } : null } });

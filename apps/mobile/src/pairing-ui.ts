@@ -139,7 +139,6 @@ export const STRINGS = {
     pcOffline: '오프라인',
   },
 };
-export type StringKey = keyof typeof STRINGS.en;
 export type Strings = typeof STRINGS.en;
 
 export interface ScreenState {
@@ -358,8 +357,6 @@ const el = (doc: Document, tag: string, className = '', text = ''): HTMLElement 
   if (text) node.textContent = text;
   return node;
 };
-
-const formatCode = (digits: string): string => (digits.length > 3 ? `${digits.slice(0, 3)}·${digits.slice(3)}` : digits);
 
 function actionButton(doc: Document, action: Action, disabled: boolean, hooks: Hooks, label?: string): HTMLButtonElement {
   const button = el(doc, 'button', `mxp-btn${action.primary ? '' : ' sec'}`) as HTMLButtonElement;

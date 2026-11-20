@@ -114,7 +114,7 @@ test('the order check rejects a call written between the original handshake and 
 });
 
 test('thread/resume passes its claim to its own frame', async () => {
-  const { client, frames, answerNext } = await rig();
+  const { client, answerNext } = await rig();
   const mine = recorder();
   const resumed = client.resumeThread('t1', { lastItems: 5 }, { sent: mine.claim });
   void resumed.catch(() => undefined);

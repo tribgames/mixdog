@@ -268,7 +268,7 @@ export function createRelayConnector(deps: RelayConnectorDeps): RelayConnector {
           if (active === peer) active = null;
           peer = null;
         };
-        // are: close without a status, as the page's own recycles always did (the relay then reads 1005).
+        // With `bare`, closes without a status, as the page's own recycles always did (the relay then reads 1005).
         const fail = (code: number, reason: string, bare = false): void => {
           if (finished) return;
           try {
