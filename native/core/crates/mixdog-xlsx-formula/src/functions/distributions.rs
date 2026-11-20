@@ -220,7 +220,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return error(E::Num);
             }
             // the search runs on the worksheet x in [A, B] itself, never a rescaled unit quantile
-            let guess = j::beta_inv(q, p[1], p[2]).ok().map(|u| p[3] * (1.0 - u) + p[4] * u);
+            let guess = estimate(j::beta_inv(q, p[1], p[2])).map(|u| p[3] * (1.0 - u) + p[4] * u);
             let law = ci::Law::Beta { a: p[1], b: p[2], lo: p[3], hi: p[4] };
             cert(ci::quantile(law, &ci::Target::lower(q), p[3], p[4], guess))
         }
@@ -320,7 +320,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return value(0.0);
             }
             let law = ci::Law::Gamma { a: d / 2.0, scale: 2.0 };
-            let guess = j::chisquare_inv(q, d).ok().or_else(|| gamma_guess(q, d / 2.0, 2.0));
+            let guess = estimate(j::chisquare_inv(q, d)).or_else(|| gamma_guess(q, d / 2.0, 2.0)).or_else(|| gamma_far_tail_guess(q, d / 2.0, 2.0));
             cert(ci::quantile(law, &ci::Target::lower(q), 0.0, f64::MAX, guess))
         }
         "CHISQ.INV.RT" => {
@@ -337,7 +337,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return value(0.0);
             }
             let law = ci::Law::Gamma { a: d / 2.0, scale: 2.0 };
-            let guess = j::chisquare_inv_rt(q, d).ok().or_else(|| gamma_guess(1.0 - q, d / 2.0, 2.0));
+            let guess = estimate(j::chisquare_inv_rt(q, d)).or_else(|| gamma_guess(1.0 - q, d / 2.0, 2.0));
             cert(ci::quantile(law, &ci::Target::upper(q), 0.0, f64::MAX, guess))
         }
         "CHISQ.TEST" => chisq_test(a),
@@ -358,7 +358,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 ci::quantile(law, &ci::Target::upper(alpha / 2.0), 0.0, f64::MAX, Some(guess))
             } else {
                 let law = ci::Law::T2 { d: size - 1.0 };
-                ci::quantile(law, &ci::Target::upper(alpha), 0.0, f64::MAX, j::student_inv_2t(alpha, size - 1.0).ok())
+                ci::quantile(law, &ci::Target::upper(alpha), 0.0, f64::MAX, estimate(j::student_inv_2t(alpha, size - 1.0)))
             };
             cert(z.and_then(|z| cd::scaled_by_root(z, p[1], size)))
         }
@@ -411,7 +411,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                     return value(0.0);
                 }
                 let law = ci::Law::F { d1: p[1], d2: p[2] };
-                let guess = j::central_f_inv_rt(p[0], p[1], p[2]).ok();
+                let guess = estimate(j::central_f_inv_rt(p[0], p[1], p[2]));
                 cert(ci::quantile(law, &ci::Target::upper(p[0]), 0.0, f64::MAX, guess))
             }
         }
@@ -426,7 +426,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return value(0.0);
             }
             let law = ci::Law::F { d1: p[1], d2: p[2] };
-            let guess = j::central_f_inv(p[0], p[1], p[2]).ok();
+            let guess = estimate(j::central_f_inv(p[0], p[1], p[2]));
             cert(ci::quantile(law, &ci::Target::lower(p[0]), 0.0, f64::MAX, guess))
         }
         "F.TEST" => f_test(a),
@@ -466,8 +466,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 let law = ci::Law::Gamma { a: p[1], scale: p[2] };
                 // the estimate in unit scale, then scaled: at a scale of DBL_MIN the scaled estimate underflowed to
                 // 0 and the search bisected the whole range (GAMMA.INV(0.5,1,2.2250738585072014E-308), 2.7 s)
-                let guess =
-                    j::gamma_inv(p[0], p[1], 1.0).ok().map(|t| t * p[2]).filter(|g| *g > 0.0 && g.is_finite()).or_else(|| gamma_guess(p[0], p[1], p[2]));
+                let guess = estimate(j::gamma_inv(p[0], p[1], 1.0).map(|t| t * p[2])).or_else(|| gamma_guess(p[0], p[1], p[2])).or_else(|| gamma_far_tail_guess(p[0], p[1], p[2]));
                 cert(ci::quantile(law, &ci::Target::lower(p[0]), 0.0, f64::MAX, guess))
             } else if cumulative {
                 cert(cd::gamma_cdf(p[0], p[1], p[2], false))
@@ -670,7 +669,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
             if p[0] < T_INV_MIN_TAIL {
                 return error(t_tiny_tail_error(d));
             }
-            let guess = j::student_inv(p[0], d).ok();
+            let guess = estimate(j::student_inv(p[0], d));
             cert(ci::quantile(ci::Law::T { d }, &ci::Target::lower(p[0]), -f64::MAX, f64::MAX, guess))
         }
         "T.INV.2T" => {
@@ -689,7 +688,7 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
                 return value(0.0);
             }
             // the two-tail quantile P(|T| > x) = p, compared on the tail that is the smaller probability
-            let guess = j::student_inv_2t(p[0], d).ok();
+            let guess = estimate(j::student_inv_2t(p[0], d));
             cert(ci::quantile(ci::Law::T2 { d }, &ci::Target::upper(p[0]), 0.0, f64::MAX, guess))
         }
         "T.TEST" => t_test(a),
@@ -740,6 +739,11 @@ fn run(name: &str, a: &[V]) -> Result<V, Failure> {
         _ => unreachable!("registered distribution"),
     }
 }
+/// The double quantile as a starting point for the certified search. A root below the kernels' bracket comes back as
+/// 0, which the search rejects (and then bisects the whole range): it is no estimate, so the caller's fallback runs.
+fn estimate<E>(root: Result<f64, E>) -> Option<f64> {
+    root.ok().filter(|g| *g != 0.0 && g.is_finite())
+}
 /// A probability argument as Excel reads it: a subnormal is zero (Excel flushes subnormals on entry, see
 /// `subnormal_probabilities_are_zero_in_excel_and_in_the_engine`).
 fn flush(p: f64) -> f64 {
@@ -753,6 +757,17 @@ fn gamma_guess(p: f64, a: f64, scale: f64) -> Option<f64> {
     let c = 1.0 - 1.0 / (9.0 * a) + z / (3.0 * a.sqrt());
     let x = a * c * c * c * scale;
     (x.is_finite() && x > 0.0).then_some(x)
+}
+/// A subnormal gamma quantile estimate for a far lower tail `p` (Wilson-Hilferty's `c <= 0`, the cube has left the
+/// cube-root's range): `P(a, x) = x^a / Γ(a+1)` to first order. Only a subnormal seed is given: the rank search lands
+/// on the nearest double from it, whereas a normal seed that the probes certify is returned unrefined.
+fn gamma_far_tail_guess(p: f64, a: f64, scale: f64) -> Option<f64> {
+    let c = 1.0 - 1.0 / (9.0 * a) + super::special::norm_quantile(p) / (3.0 * a.sqrt());
+    if !(c <= 0.0) {
+        return None;
+    }
+    let x = ((p.ln() + super::special::ln_gamma(a + 1.0)) / a).exp() * scale;
+    (x > 0.0 && x < f64::MIN_POSITIVE).then_some(x)
 }
 /// The normal quantile in worksheet units, searched on the worksheet x itself (a quantile past the largest double
 /// is `#NUM!`).
