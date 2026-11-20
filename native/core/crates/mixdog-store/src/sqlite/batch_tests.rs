@@ -55,7 +55,7 @@ fn item(ordinal: u64) -> ProjectedFrame {
 fn project(w: &mut Writer, frames: Vec<ProjectedFrame>, model: &str) -> oneshot::Receiver<Result<(), DbError>> {
     let (ack, answer) = oneshot::channel();
     w.take(Command::Project {
-        projection: Projection { session: SESSION.into(), frames, head: head(model) },
+        projection: Projection { session: SESSION.into(), frames, head: Arc::new(head(model)) },
         ack: Some(ack),
     });
     answer
@@ -75,7 +75,7 @@ fn writer(dir: &tempfile::TempDir, append_rows: usize) -> Writer {
     drop(open_writer(&dir.path().join("i.sqlite"), Some(&runtime_ddl())).expect("index"));
     let mut w = Writer::start(&dir.path().join("i.sqlite")).expect("writer");
     w.conn.pragma_update(None, "synchronous", "OFF").expect("pragma");
-    w.take(Command::Upsert { head: Box::new(head("zero")), dirty: DirtyMark::Set, ack: None });
+    w.take(Command::Upsert { head: Arc::new(head("zero")), dirty: DirtyMark::Set, ack: None });
     let mut started = project(&mut w, vec![frame(0, FrameKind::Session { base: None })], "zero");
     for _ in 0..10 {
         if w.projections.is_empty() && w.upserts.is_empty() {

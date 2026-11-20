@@ -180,8 +180,9 @@ pub struct Projection {
     pub session: String,
     pub frames: Vec<ProjectedFrame>,
     /// The session's header side after these frames: the catalog row is rebuilt from it
-    /// and the projected message state once the frames are in.
-    pub head: CatalogHead,
+    /// and the projected message state once the frames are in. Shared with the row waiting to be
+    /// written: it holds the session's whole header, which is copied once, where it is taken.
+    pub head: std::sync::Arc<CatalogHead>,
 }
 
 fn op(op: &Option<OpRef>) -> Option<ProjectedOp> {

@@ -201,7 +201,7 @@ impl World {
         self.model.push(Sess { id, start: base.map_or(0, |b| b.1), frames: vec![F::Session(base)], submitted: 0 });
         let head = self.head(i, 1);
         let id = self.model[i].id.clone();
-        self.w.take(Command::Upsert { head: Box::new(head), dirty: DirtyMark::Set, ack: None });
+        self.w.take(Command::Upsert { head: Arc::new(head), dirty: DirtyMark::Set, ack: None });
         // The row exists before the session's first projection (creation acks its upsert).
         for _ in 0..100_000 {
             if !self.w.upserts.contains_key(&id) {
@@ -270,7 +270,7 @@ impl World {
         let frames: Vec<ProjectedFrame> = (self.model[i].submitted..upto).map(|k| self.frame(i, k)).collect();
         let head = self.head(i, upto);
         let session = self.model[i].id.clone();
-        self.w.take(Command::Project { projection: Projection { session, frames, head }, ack: None });
+        self.w.take(Command::Project { projection: Projection { session, frames, head: Arc::new(head) }, ack: None });
         self.model[i].submitted = upto;
     }
 
@@ -322,7 +322,7 @@ impl World {
     fn reconcile(&mut self) {
         for i in 0..self.model.len() {
             let head = self.head(i, self.model[i].submitted.max(1));
-            self.w.take(Command::Upsert { head: Box::new(head), dirty: DirtyMark::Keep, ack: None });
+            self.w.take(Command::Upsert { head: Arc::new(head), dirty: DirtyMark::Keep, ack: None });
         }
     }
 
