@@ -49,8 +49,7 @@ export type ConversationProps = {
   onDraftWorkflow?: (workflow: DesktopWorkflowState) => void;
   onDraftOrchestrationMode?: (mode: DesktopOrchestrationMode) => void;
   onOpenCommandSurface: (surface: CommandSurfaceName) => void;
-  /** Context card → Inherit session and /inherit, run in place (user: 팝업 안
-   *  뜨고 바로 진행되게). The pane holds the source session and its route; the
+  /** Context card → Inherit session and /inherit, run in place. The pane holds the source session and its route; the
    *  host creates the heir and opens its tab. */
   onInheritSession?: (sourceSessionId: string, route: DesktopModelSelection) => Promise<void>;
   onOpenFile?: (project: string, rel: string, line?: number, accessToken?: string, column?: number) => void;
@@ -66,7 +65,7 @@ export type ConversationProps = {
   /** The Goal segment of the composer island. */
   goalIsland?: ReactNode;
   /** Context gauge seated in the composer footer beside the model trigger
-   *  on every surface (user: 컨텍스트는 모델 선택기 옆; 모바일도 PC에 맞춰). */
+   *  on every surface. */
   contextIndicator?: ReactNode;
   /** The last turn's speed and cache hit, on the line under the composer. */
   usageReadout?: ReactNode;

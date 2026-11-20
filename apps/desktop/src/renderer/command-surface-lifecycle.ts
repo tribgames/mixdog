@@ -86,8 +86,7 @@ export function useCommandSurfaceLifecycle({
   const loadSequence = useRef(0);
   const loadingSurface = useRef<CommandSurfaceName | null>(null);
   const sessionId = commandSurfaceSessionId(surface, explicitSessionId, snapshot);
-  // Instant repaint on reopen (user: 컨텍스트가 오래 로딩 후 작은 프레임에서
-  // 튐): context payloads cache per session exactly like /usage, so the
+  // Instant repaint on reopen: context payloads cache per session exactly like /usage, so the
   // dialog opens full-size with the last data while a silent refresh runs.
   const cacheKey = commandSurfaceCacheKey(surface, sessionId);
   // The desktop keeps statistics warm while this surface is closed. Scope the
@@ -211,8 +210,7 @@ export function useCommandSurfaceLifecycle({
 
   // The context surface is the snapshot it opened with. Following live state
   // frames re-read the gauge dozens of times per streaming turn, which moved
-  // the list under the reader and cut off the entry preview mid-read (user:
-  // 이런 게 자꾸 떠서 볼 수가 없어). Closing and reopening takes a new reading.
+  // the list under the reader and cut off the entry preview mid-read. Closing and reopening takes a new reading.
 
   const run = useCallback(
     async (capability: DesktopCapability, args: unknown[] = []) => {

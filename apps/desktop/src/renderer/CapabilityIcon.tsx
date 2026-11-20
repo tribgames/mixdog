@@ -4,11 +4,11 @@ import type { SVGProps } from 'react';
 // Hand-drawn 24-unit artwork shared by capability lists, detail headers, and
 // composer skill selections. Capabilities that wrap a product wear that
 // product's mark and colour (Git, Chrome, Windows, Microsoft 365, Word, Excel,
-// PowerPoint, Acrobat red) so the row is recognised at a glance (user: 브랜드가
-// 드러나게). Everything else shares one language: a single object, 1.5 stroke
-// with round joins, drawn inside the 3…21 frame so no per-icon transform is
-// needed, and at most one quiet plate (fillOpacity .14) for silhouette. Keep
-// navigation/status glyphs in MxIcon.
+// PowerPoint, Acrobat red) so the row is recognised at a glance. Everything
+// else shares one language: a single object, 1.5 stroke with round joins,
+// drawn inside the 3…21 frame so no per-icon transform is needed, and at most
+// one quiet plate (fillOpacity .14) for silhouette. Keep navigation/status
+// glyphs in MxIcon.
 const CAPABILITY_ARTWORK = {
   git: '#f05033',
   memory: '#b49bf2',
@@ -115,7 +115,7 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
           />
         </g>
       );
-    // A bookmark: what you keep to come back to (no brain — user request).
+    // A bookmark: what you keep to come back to (no brain).
     case 'memory':
       return (
         <>
@@ -146,8 +146,8 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
         </>
       );
     // A document page carrying the Word / Excel / PowerPoint brand bars: the
-    // Office capability is that format family behind one switch. (The old
-    // four-tile mark read as the Windows logo on Linux and macOS.)
+    // Office capability is that format family behind one switch; a four-tile
+    // mark would read as the Windows logo on Linux and macOS.
     case 'office':
       return (
         <>
@@ -250,9 +250,9 @@ function Artwork({ kind }: { kind: CapabilityArtwork }) {
           <path d="M12.5 12.5 21 15.6l-3.6 1.5-1.5 3.6Z" />
         </>
       );
-    // Generic skill: a full-frame hexagon module with a sparkle. The old flat
-    // layer stack only used half the frame's height and read undersized beside
-    // the brand marks (user: 스킬 아이콘 왜 작게 느껴지냐).
+    // Generic skill: a full-frame hexagon module with a sparkle; a flat layer
+    // stack only uses half the frame's height and reads undersized beside the
+    // brand marks.
     default:
       return (
         <>

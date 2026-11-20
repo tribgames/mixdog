@@ -108,17 +108,15 @@ export function ConnectorChatCard({ id }: { id: string }) {
     }
     connectCatalogConnector(entry).catch((reason) => showDesktopToast(errorMessage(reason), 'error'));
   };
-  let line: ReactNode = appPasswordOnly
-    ? t('Connect with an app password on the Connectors tab')
-    : ownClient
-      ? ownGoogleClientNote()
-      : entry.backend.kind === 'oauth'
-        ? t('Sign in in the browser')
-        : t('Finish on the Connectors tab');
+  let line: ReactNode;
   if (waiting) line = <ConnectorStep view={view} connector={entry.id} />;
   else if (connected) line = connectorIdentity(server) || name;
   else if (view.status === 'failed') line = view.error;
   else if (server?.authRequired === true && !ownClient) line = t('Sign-in required');
+  else if (appPasswordOnly) line = t('Connect with an app password on the Connectors tab');
+  else if (ownClient) line = ownGoogleClientNote();
+  else if (entry.backend.kind === 'oauth') line = t('Sign in in the browser');
+  else line = t('Finish on the Connectors tab');
   return (
     // biome-ignore lint/a11y/useSemanticElements: a <div> card; role="group" names it.
     <div

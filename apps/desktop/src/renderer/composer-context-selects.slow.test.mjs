@@ -134,8 +134,7 @@ for (const language of ['en', 'ko']) {
       assert.ok(menu);
       assert.equal(menu.style.top, '');
       assert.ok(parseFloat(menu.style.bottom) >= 900 - rect().top);
-      // The menu opens straight on its options: no header row (user: 팝업
-      // 헤더 제거); the trigger's aria-label alone names the listbox.
+      // The menu opens straight on its options: no header row; the trigger's aria-label alone names the listbox.
       assert.equal(menu.getAttribute('aria-labelledby'), null);
       assert.equal(menu.querySelector('.mx-menu-title'), null);
       assert.equal(menu.firstElementChild.getAttribute('role'), 'option');

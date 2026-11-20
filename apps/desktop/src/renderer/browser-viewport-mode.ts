@@ -2,8 +2,7 @@ import type { DesktopBrowserViewportConfig } from '../shared/contract';
 import { MOBILE_CHROME_USER_AGENT } from '../shared/remote-browser';
 import { t } from './i18n';
 
-/** Representative viewport sizes, not device names (user: 대표 해상도만, 폰
- *  이름 빼고): each phone size stands for its whole class of devices. */
+/** Representative viewport sizes, not device names: each phone size stands for its whole class of devices. */
 export type BrowserViewportPresetId =
   | 'responsive'
   | 'fit'

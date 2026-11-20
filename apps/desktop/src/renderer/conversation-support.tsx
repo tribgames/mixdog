@@ -333,7 +333,7 @@ export function conversationKeyDownCapture(
   // IME "Process" key starting a Korean composition) pressed while
   // focus sits on the transcript or tool chrome refocuses the input
   // BEFORE the character/composition commits, so keystrokes are never
-  // silently dropped (user: 간헐적으로 채팅 입력이 안 됨).
+  // silently dropped.
   if (event.ctrlKey || event.metaKey || event.altKey) return;
   if (event.key.length !== 1 && event.key !== 'Process') return;
   if (!target || typeof target.closest !== 'function') return;
@@ -393,19 +393,21 @@ function errorRowNode(
   // A retry of these would only repeat the same refusal. A sign-in failure
   // keeps its retry: after signing in again the same turn can run.
   const retryable = !['policy', 'entitlement', 'billing', 'service-tier'].includes(failureKind);
+  let action: ReactNode;
+  if (readOnly) action = undefined;
+  else if (imageRefusal) action = <ImageRefusalActions refusal={imageRefusal} sessionId={sessionId} />;
+  else if (reauth) {
+    action = (
+      <button type="button" onClick={() => onOpenSettings('providers')}>
+        {t('Sign in again')}
+      </button>
+    );
+  }
   const notice = (
     <ErrorNotice
       className="transcript-error-notice"
       errors={errors}
-      action={
-        imageRefusal && !readOnly ? (
-          <ImageRefusalActions refusal={imageRefusal} sessionId={sessionId} />
-        ) : reauth && !readOnly ? (
-          <button type="button" onClick={() => onOpenSettings('providers')}>
-            {t('Sign in again')}
-          </button>
-        ) : undefined
-      }
+      action={action}
       onRetry={
         retryable && !readOnly && retryKey && !transcriptRowArchived(row) ? () => onRetryTurn(retryKey) : undefined
       }
@@ -567,7 +569,7 @@ export function transcriptRowNode(
       {assistant}
       {seatTurnCards(turnCards)}
       <PreviewedTurnChangesCard turnChanges={row.turnChanges} visualized={turnCards?.visualized} />
-      {footerAfterCards && row.item && row.completion ? (
+      {footerAfterCards && row.item && row.completion && (
         <TranscriptResponseFooter
           trailing
           item={row.item}
@@ -576,7 +578,7 @@ export function transcriptRowNode(
           completionActivityKey={assistantProps.completionActivityKey}
           backgroundWork={assistantProps.backgroundWork}
         />
-      ) : null}
+      )}
     </>
   ) : (
     assistant

@@ -22,6 +22,27 @@ export type ComposerQuotaCardModel = {
   onResume?(): void;
 };
 
+function stopCopy(card: ComposerQuotaCardModel): { title: string; guidance: string } {
+  if (card.kind === 'entitlement') {
+    return {
+      title: t('Not included in your plan'),
+      guidance: t('Upgrade your plan, or choose another model or provider.'),
+    };
+  }
+  if (card.kind === 'billing') {
+    return {
+      title: t('Out of credits or at spend limit'),
+      guidance: t('Check your billing with the provider, then try again.'),
+    };
+  }
+  return {
+    title: t('Usage limit reached'),
+    guidance: card.otherAccount
+      ? t("Switch accounts or to another provider's model to continue now")
+      : t("Switch to another provider's model to continue now"),
+  };
+}
+
 /**
  * The quota stop as one pill line between the island and the prompt input:
  * what happened, when it resets, how to continue now, and resuming at the
@@ -33,20 +54,8 @@ export function ComposerQuotaCard({ card }: { card: ComposerQuotaCardModel }) {
   const remaining = useQuotaRemaining(card.resetAt);
   const time = card.resetAt === null ? '' : quotaResetLabel(card.resetAt);
   const resumeNow = Boolean(card.onResume && !card.reserved);
-  const title =
-    card.kind === 'entitlement'
-      ? t('Not included in your plan')
-      : card.kind === 'billing'
-        ? t('Out of credits or at spend limit')
-        : t('Usage limit reached');
-  let guidance =
-    card.kind === 'entitlement'
-      ? t('Upgrade your plan, or choose another model or provider.')
-      : card.kind === 'billing'
-        ? t('Check your billing with the provider, then try again.')
-        : card.otherAccount
-          ? t("Switch accounts or to another provider's model to continue now")
-          : t("Switch to another provider's model to continue now");
+  const { title, guidance: stopGuidance } = stopCopy(card);
+  let guidance = stopGuidance;
   let buttonLabel = t('Resume at {{time}}', { time });
   let buttonIcon: 'clock' | 'loading' | 'play' = 'clock';
   let buttonAction = card.onToggleResume;

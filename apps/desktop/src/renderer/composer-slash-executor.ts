@@ -126,7 +126,7 @@ async function runSlashCommand(
   else if (name === 'compact') await runCompact(run, rawName);
   else if (name === 'doctor') deps.onOpenCommandSurface('doctor');
   else if (name === 'settings') deps.onOpenSettings();
-  // Desktop /quit leaves THIS task, not the app (user): it rides the same
+  // Desktop /quit leaves THIS task, not the app: it rides the same
   // close path as Ctrl+W, so unsaved-close guards and group collapse apply.
   // Explicit app quit stays in the File menu.
   else if (command.action === 'close-task') window.dispatchEvent(new CustomEvent('mixdog:close-active-tab'));
@@ -309,8 +309,8 @@ function modelSelection(
 }
 
 // A session pane's /new and /clear close THIS session tab and open a New Task
-// in its place (settings inherited). Outside a session pane the old routes
-// remain: /new opens a draft, /clear clears the engine.
+// in its place (settings inherited). Outside a session pane /new opens a
+// draft and /clear clears the engine.
 async function runNewOrClear(run: SlashRun, rawName: string): Promise<undefined> {
   const { deps } = run;
   if (!deps.draftMode && deps.sessionId && deps.onClearToNewTask) deps.onClearToNewTask();

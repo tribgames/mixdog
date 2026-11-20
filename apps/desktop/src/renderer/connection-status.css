@@ -60,9 +60,6 @@ html[data-mixdog-mobile-tabs] .conn-link-stack {
   align-items: center;
   gap: 8px;
 }
-.conn-link-log-slot:empty {
-  display: none;
-}
 .conn-link-notice[data-tone="error"] {
   box-shadow: inset 3px 0 0 var(--mx-danger);
 }

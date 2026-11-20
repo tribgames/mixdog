@@ -100,12 +100,9 @@ const asRecord = (value: unknown): Record<string, unknown> =>
 /** The section updates a `connections` feed notification carries: one `connections/updated`, or the sections of a snapshot. */
 function sectionChanges(note: Notification): SectionChange[] {
   const params = asRecord(note.params);
-  const updates =
-    note.method === 'feed/snapshot'
-      ? asRecord(params.state).sections
-      : note.method === 'connections/updated'
-        ? [params]
-        : [];
+  let updates: unknown = [];
+  if (note.method === 'feed/snapshot') updates = asRecord(params.state).sections;
+  else if (note.method === 'connections/updated') updates = [params];
   if (!Array.isArray(updates)) return [];
   return updates
     .map(asRecord)

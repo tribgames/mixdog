@@ -31,7 +31,7 @@ export function composerPlaceholder({
   hasConversation: boolean;
   fallback: string;
 }): string {
-  // User request: one stable placeholder — no rotating variants — and once a
+  // One stable placeholder — no rotating variants — and once a
   // session has content the composer shows NO hint copy at all; instructional
   // placeholders belong to the empty new-task state. A message sent while a
   // turn runs is an ordinary send, so the turn changes nothing here.
@@ -413,6 +413,21 @@ function DictationProgress() {
   );
 }
 
+function DictationCancel({ onCancel }: { onCancel: () => void }) {
+  return (
+    <button
+      type="button"
+      className="composer-dictation-cancel"
+      aria-label={t('Discard recording')}
+      data-tooltip={t('Discard · Esc')}
+      data-tooltip-side="top"
+      onClick={onCancel}
+    >
+      <X size={14} aria-hidden="true" />
+    </button>
+  );
+}
+
 // Recording takes over the typing surface, never the footer: the stop and
 // send discs stay reachable, and the draft underneath is untouched until the
 // transcript is appended to it.
@@ -438,16 +453,7 @@ export function DictationOverlay({
             <span className="composer-dictation-elapsed" role="status">
               {t('Starting microphone…')}
             </span>
-            <button
-              type="button"
-              className="composer-dictation-cancel"
-              aria-label={t('Discard recording')}
-              data-tooltip={t('Discard · Esc')}
-              data-tooltip-side="top"
-              onClick={onCancel}
-            >
-              <X size={14} aria-hidden="true" />
-            </button>
+            <DictationCancel onCancel={onCancel} />
           </>
         )}
         {state === 'recording' && (
@@ -457,16 +463,7 @@ export function DictationOverlay({
                 would talk over everything else. The mic button's label carries
                 the state instead. */}
             <span className="composer-dictation-elapsed">{formatDictationElapsed(elapsedMs)}</span>
-            <button
-              type="button"
-              className="composer-dictation-cancel"
-              aria-label={t('Discard recording')}
-              data-tooltip={t('Discard · Esc')}
-              data-tooltip-side="top"
-              onClick={onCancel}
-            >
-              <X size={14} aria-hidden="true" />
-            </button>
+            <DictationCancel onCancel={onCancel} />
           </>
         )}
         {state === 'transcribing' && (

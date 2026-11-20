@@ -52,7 +52,10 @@ function mount(t) {
     sections: {
       core: async () => false,
       snapshot: async () => ({ status: 'ready', entries: [poolEntry] }),
-      subscribe: (listener) => (pushes.add(listener), () => void pushes.delete(listener)),
+      subscribe: (listener) => {
+        pushes.add(listener);
+        return () => void pushes.delete(listener);
+      },
     },
   };
   // The branch segment remembers each session's last workspace and menu.
@@ -1402,7 +1405,7 @@ test('a first entry reserves the resting height of the island it replaces in the
   assert.equal(slot().hasAttribute('data-entry'), true, 'its first appearance in this session fades in');
 });
 
-// User: 대화창 들어가면 덜컥 한 줄 정도 내려앉는다. Entering a chat from a
+// Entering a chat from a
 // session whose pill showed reserved the pill's height; the transcript
 // revealed above that room and dropped by it when the hold ran out.
 test('a reserved slot holds the entry reveal only while a segment is undecided', async (t) => {
@@ -3641,7 +3644,7 @@ function resolvedImports(url) {
   );
 }
 
-// User: 세션을 바꿀 때 핀된 봇이 한 번 위아래로 튄다. A new session's island is
+// A new session's island is
 // drawn at its full-label width until its fit lands in the same frame; the
 // pinned pet's publisher measured it in that window and sent the pre-fit span
 // (the whole card wide, over the bot), then the fitted one.

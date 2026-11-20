@@ -299,25 +299,23 @@ export function textWidths(): (font: string, text: string) => number {
   };
 }
 
+function ReadoutMark({ icon: Icon }: { icon: ReadoutItem['icon'] }) {
+  if (Icon === 'dot') return <span className="composer-readout-dot" aria-hidden="true" />;
+  return Icon ? <Icon size={ICON_WIDTH} aria-hidden="true" /> : null;
+}
+
 function ReadoutItems({ items }: { items: ReadoutItem[] }): ReactNode {
-  return items.map((item) => {
-    const Icon = item.icon;
-    return (
-      <span key={item.label} className="composer-readout-item" role="img" title={item.label} aria-label={item.label}>
-        {Icon === 'dot' ? (
-          <span className="composer-readout-dot" aria-hidden="true" />
-        ) : Icon ? (
-          <Icon size={ICON_WIDTH} aria-hidden="true" />
-        ) : null}
-        {item.text}
-        {item.separator ? (
-          <span className="composer-readout-sep" aria-hidden="true">
-            ·
-          </span>
-        ) : null}
-      </span>
-    );
-  });
+  return items.map((item) => (
+    <span key={item.label} className="composer-readout-item" role="img" title={item.label} aria-label={item.label}>
+      <ReadoutMark icon={item.icon} />
+      {item.text}
+      {item.separator ? (
+        <span className="composer-readout-sep" aria-hidden="true">
+          ·
+        </span>
+      ) : null}
+    </span>
+  ));
 }
 
 /** A muted line of icon + value items with no hover card. On a narrow line it

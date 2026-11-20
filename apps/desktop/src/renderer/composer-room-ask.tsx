@@ -121,13 +121,10 @@ export function roomTaggedMembers(
   tagged: readonly string[],
   members: readonly RoomMemberLabel[] | null
 ): RoomMemberLabel[] {
-  return tagged.flatMap((id) =>
-    id === ROOM_EVERYONE
-      ? members?.length
-        ? [everyoneLabel()]
-        : []
-      : (members ?? []).filter((member) => member.id === id)
-  );
+  return tagged.flatMap((id) => {
+    if (id !== ROOM_EVERYONE) return (members ?? []).filter((member) => member.id === id);
+    return members?.length ? [everyoneLabel()] : [];
+  });
 }
 
 /** The member ids a message to these tags addresses: Everyone is the room's members

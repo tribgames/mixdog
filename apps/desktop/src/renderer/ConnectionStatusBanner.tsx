@@ -345,7 +345,7 @@ function ServerRestoreStatus() {
                   : t('Reopening {{name}}…', { name: entry.name })}
               </b>
               <span className="conn-link-sub">
-                {entry.phase === 'failed'
+                {failed
                   ? (entry.message ?? '')
                   : RESTORE_PHASE_LABELS[entry.phase as keyof typeof RESTORE_PHASE_LABELS]?.()}
               </span>

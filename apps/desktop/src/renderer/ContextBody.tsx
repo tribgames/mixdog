@@ -65,7 +65,7 @@ export function ContextReading({ status, snapshot }: { status: unknown; snapshot
 
 /** What this session has spent from its first request, compactions included,
  *  in the statistics surface's terms. One quiet line: spacing and text tone
- *  separate the figures, no rules or dots (user: 구분선들이 있는게 맘에 안 듦). */
+ *  separate the figures, no rules or dots. */
 function SessionUsageFooter({ usage, compactions }: { usage: unknown; compactions: number }) {
   const totals = record(usage);
   if (!(statsNumber(totals.turns) > 0)) return null;
@@ -120,7 +120,7 @@ export function ContextBody({
   loading?: boolean;
   /** The dialog's title bar carries the reading (ContextReading), so the body
    *  opens straight on the bar: one header, not a title over a second
-   *  headline (user: 헤더가 하나만 있으면 되지, 헤더 아래는 막대만). */
+   *  headline. */
   readingInHeader?: boolean;
 }) {
   const context = record(status);

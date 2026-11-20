@@ -395,7 +395,8 @@ export async function reenableConnector(name: string, label: string, connector =
 
 export function cancelConnectorLogin(name: string, connector = ''): void {
   const found = lookup(name, connector);
-  const key = found ? (found.name && states.get(found.name) === found ? found.name : placeholderKey(connector)) : name;
+  let key = name;
+  if (found) key = found.name && states.get(found.name) === found ? found.name : placeholderKey(connector);
   const current = states.get(key);
   stopFollowing(key);
   publish(key, null);
@@ -478,13 +479,11 @@ export async function connectCatalogConnector(
     const { servers, googleClient } = await readMcpStatus();
     const ofConnector = servers.filter((server) => server.connector === entry.id && server.source !== 'plugin');
     const address = appPassword ? gmailAddress(appPassword.email) : '';
-    const existing = target
-      ? ofConnector.find((server) => server.name === target)
-      : add && connectorMultiAccount(entry)
-        ? address
-          ? ofConnector.find((server) => appPasswordAccount(server) === address)
-          : undefined
-        : ofConnector[0];
+    let existing: Row | undefined;
+    if (target) existing = ofConnector.find((server) => server.name === target);
+    else if (add && connectorMultiAccount(entry)) {
+      existing = address ? ofConnector.find((server) => appPasswordAccount(server) === address) : undefined;
+    } else existing = ofConnector[0];
     name = existing ? String(existing.name) : '';
     if (!states.get(placeholder)) return;
     // A Gmail already on an app password reconnects as it is; the Google

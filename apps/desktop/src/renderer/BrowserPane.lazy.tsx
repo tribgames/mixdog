@@ -388,7 +388,7 @@ function DesktopBrowserPane({
       mainTab || isRemoteHostRenderer()
         ? undefined
         : () => requestBrowserInMain({ sessionId, url: currentUrl, title: activeTabTitle }),
-    // The old in-pane dialog is gone: this opens Settings › 인증 관리.
+    // Opens Settings › 인증 관리.
     onSignedInSites: desktopApi?.browserSignedInSites ? () => openAuthSettings() : undefined,
   });
   const frameTransform = frameScale < 1 ? `scale(${frameScale})` : undefined;

@@ -16,7 +16,10 @@ test('a server window’s notices are information only: a sign-in notice has no 
   const api = {
     connection: { kind: 'ssh', id: 'h1', name: 'vps' },
     subscribeConnectionLink: () => () => undefined,
-    subscribeConnectionNotice: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+    subscribeConnectionNotice: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
     getConnectionLink: () => Promise.resolve({ state: { status: 'connected' } }),
   };
   dom.window.mixdogDesktop = api;

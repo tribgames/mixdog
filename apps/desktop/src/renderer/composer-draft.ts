@@ -51,22 +51,21 @@ export function takeRejectedComposerSubmissionRecoveries(scope: string): Compose
 
 /** A composer identity that belongs to a freshly opened New Task pane.
  *  Pressing New task mints a distinct draft identity, and a fresh draft
- *  ALWAYS opens clean — carrying the previous pane's text and attachments
- *  into it was a reported bug. */
+ *  ALWAYS opens clean, never carrying the previous pane's text and
+ *  attachments. */
 export function composerScopeOpensFreshDraft(nextScope: string): boolean {
   return nextScope.startsWith('draft:');
 }
 
 /** In-flight text per composer identity. Switching tabs swaps the identity
  *  scope on ONE mounted composer, so the text typed in a tab is parked here
- *  and handed back when that tab is shown again (user: 다른 탭 갔다와도
- *  타이핑하던 글자 남아있게). Empty text drops the entry. */
+ *  and handed back when that tab is shown again. Empty text drops the entry. */
 const composerDraftsByScope = new Map<string, string>();
 
 /** The stash outlives the page: a phone app sent to the background can be
  *  reloaded (deploy adoption) or killed by the OS, and the half-typed prompt
- *  must come back (user: 홈으로 나갔다 오면 적어놓은게 다 지워짐). The page
- *  writes it when it leaves the screen; a fresh page reads it once. */
+ *  must come back. The page writes it when it leaves the screen; a fresh page
+ *  reads it once. */
 const PERSISTED_DRAFTS_KEY = 'mixdog.composer-drafts';
 const PERSISTED_DRAFTS_LIMIT = 50;
 let persistedDraftsLoaded = false;
@@ -125,9 +124,8 @@ export function stashedComposerDraft(scope: string): string {
 }
 
 /** Attachment chips per composer identity, parked beside the text when the
- *  user leaves a tab before sending (user: 첨부만 해 둔 파일이 다른 세션
- *  갔다 오면 사라짐). Chips keep their ids, so the tokens in the parked text
- *  still name them. Memory only — image data is too large for storage — and
+ *  user leaves a tab before sending. Chips keep their ids, so the tokens in
+ *  the parked text still name them. Memory only — image data is too large for storage — and
  *  bounded, oldest tab dropped first. */
 const composerAttachmentsByScope = new Map<string, ComposerAttachment[]>();
 const PARKED_ATTACHMENT_SCOPES_LIMIT = 20;

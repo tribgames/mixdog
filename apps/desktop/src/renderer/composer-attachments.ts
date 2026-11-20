@@ -308,12 +308,9 @@ async function imageAttachment({
   displayName,
   cancelled,
 }: AttachmentInput): Promise<ComposerAttachment | null> {
-  if (!SUPPORTED_IMAGE_TYPES.test(file.type)) {
-    throw new UnsupportedComposerFileError(`${displayName}: use PNG, JPEG, GIF, or WebP under 12 MB.`);
-  }
-  if (file.size > MAX_IMAGE_FILE_BYTES) {
-    throw new Error(`${displayName}: use PNG, JPEG, GIF, or WebP under 12 MB.`);
-  }
+  const unsupported = `${displayName}: use PNG, JPEG, GIF, or WebP under 12 MB.`;
+  if (!SUPPORTED_IMAGE_TYPES.test(file.type)) throw new UnsupportedComposerFileError(unsupported);
+  if (file.size > MAX_IMAGE_FILE_BYTES) throw new Error(unsupported);
   // A remote browser re-encodes below the ceiling, so only the final payload
   // is judged (attachmentPolicyError); a local raw attach is judged here.
   const raw = await base64Payload(file, `${displayName}: could not read image.`);
