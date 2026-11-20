@@ -23,7 +23,8 @@ use super::languages::{files_for_languages, parse_graph_langs};
 use super::process::{MAX_CAPTURE_BYTES, ProcessResult, Processes, RunOptions};
 use super::rule_files::RULE_FILES;
 
-const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
+/// The deadline a `--langs` probe has in production.
+pub(crate) const PROBE_TIMEOUT: Duration = Duration::from_secs(8);
 const STRUCTURAL_TIMEOUT: Duration = Duration::from_secs(120);
 
 #[derive(Debug, Clone)]
@@ -275,12 +276,23 @@ pub fn reset_structural_probe_cache() {
 /// mode exits 0 with no output. Only the language registry payload proves this binary owns the
 /// scan protocol. Returns the table when it does.
 pub async fn probe_graph_langs(processes: &Processes, bin: &Path, cwd: &Path, cancel: Option<&CancellationToken>) -> Option<super::languages::GraphLangs> {
+    probe_graph_langs_within(processes, bin, cwd, Some(PROBE_TIMEOUT), cancel).await
+}
+
+/// [`probe_graph_langs`] under another deadline (`None`: none), for the tool's own tests.
+pub(crate) async fn probe_graph_langs_within(
+    processes: &Processes,
+    bin: &Path,
+    cwd: &Path,
+    deadline: Option<Duration>,
+    cancel: Option<&CancellationToken>,
+) -> Option<super::languages::GraphLangs> {
     let bin_path = bin.to_owned();
     if !on_lane(processes.durability(), move || binary_exists(&bin_path)).await.unwrap_or(false) {
         return None;
     }
     let mut options = RunOptions::new(cwd);
-    options.timeout = PROBE_TIMEOUT;
+    options.timeout = deadline.unwrap_or(Duration::ZERO);
     options.cancel = cancel;
     let result = processes.run(&bin.to_string_lossy(), &[cwd.to_string_lossy().into_owned(), "--langs".into()], options).await;
     if result.code != 0 || !result.error.is_empty() {
@@ -290,10 +302,14 @@ pub async fn probe_graph_langs(processes: &Processes, bin: &Path, cwd: &Path, ca
 }
 
 pub async fn graph_supports_scan(processes: &Processes, bin: &Path, cwd: &Path, cancel: Option<&CancellationToken>) -> bool {
+    graph_supports_scan_within(processes, bin, cwd, Some(PROBE_TIMEOUT), cancel).await
+}
+
+pub(crate) async fn graph_supports_scan_within(processes: &Processes, bin: &Path, cwd: &Path, deadline: Option<Duration>, cancel: Option<&CancellationToken>) -> bool {
     if let Some(cached) = probe_cache().lock().unwrap().get(bin) {
         return *cached;
     }
-    let supported = probe_graph_langs(processes, bin, cwd, cancel).await.is_some();
+    let supported = probe_graph_langs_within(processes, bin, cwd, deadline, cancel).await.is_some();
     probe_cache().lock().unwrap().insert(bin.to_owned(), supported);
     supported
 }
@@ -440,9 +456,20 @@ pub async fn resolve_structural_adapter(
     graph_ready: Option<bool>,
     cancel: Option<&CancellationToken>,
 ) -> Result<GraphStructuralAdapter, StructuralEngineUnavailable> {
+    resolve_structural_adapter_within(processes, cwd, graph_bin, graph_ready, Some(PROBE_TIMEOUT), cancel).await
+}
+
+pub(crate) async fn resolve_structural_adapter_within(
+    processes: &Processes,
+    cwd: &Path,
+    graph_bin: Option<&Path>,
+    graph_ready: Option<bool>,
+    probe_deadline: Option<Duration>,
+    cancel: Option<&CancellationToken>,
+) -> Result<GraphStructuralAdapter, StructuralEngineUnavailable> {
     let ready = match (graph_ready, graph_bin) {
         (Some(r), _) => r,
-        (None, Some(bin)) => graph_supports_scan(processes, bin, cwd, cancel).await,
+        (None, Some(bin)) => graph_supports_scan_within(processes, bin, cwd, probe_deadline, cancel).await,
         (None, None) => false,
     };
     match graph_bin {

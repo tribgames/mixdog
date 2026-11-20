@@ -749,7 +749,7 @@ mod tests {
         assert_eq!(to_rel(cwd, abs), "src/a.rs");
         assert_eq!(to_rel(cwd, "./x\\y.rs"), "x/y.rs");
         assert_eq!(to_rel(cwd, "  "), "");
-        assert_eq!(to_rel(Path::new("C:\\repo"), "\\\\?\\C:\\repo\\a.rs"), "a.rs");
+        assert_eq!(to_rel(Path::new("C:\\repo"), "\\\\?\\C:\\repo\\a.rs"), if cfg!(windows) { "a.rs" } else { "C:/repo/a.rs" });
         // Windows names a directory in any letter case; elsewhere a different case is a different directory.
         assert_eq!(to_rel(Path::new("C:\\Repo"), "c:\\repo\\src\\a.rs"), if cfg!(windows) { "src/a.rs" } else { "c:/repo/src/a.rs" });
         assert_eq!((path_arg("-x.sh"), path_arg("dir/-x.sh"), path_arg("x.sh")), ("./-x.sh".to_owned(), "dir/-x.sh".to_owned(), "x.sh".to_owned()));
