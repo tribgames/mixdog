@@ -426,6 +426,30 @@ mod owner_only {
         }
         // SAFETY: allocated by the conversion above.
         let actual = unsafe { take_wide(text) };
-        Ok(actual == owner_only_sddl(false)? || actual == owner_only_sddl(true)?)
+        Ok(actual == canonical_dacl(&owner_only_sddl(false)?)? || actual == canonical_dacl(&owner_only_sddl(true)?)?)
+    }
+
+    /// `sddl` as the DACL text the system writes for it, the form `is_owner_only` reads: the
+    /// writer abbreviates some SIDs (`LA` for the machine's built-in Administrator, RID 500)
+    /// that `ConvertSidToStringSidW` spells out.
+    fn canonical_dacl(sddl: &str) -> io::Result<String> {
+        let sddl = wide(std::ffi::OsStr::new(sddl));
+        let mut descriptor = null_mut();
+        // SAFETY: `sddl` is NUL-terminated; the descriptor is freed below.
+        if unsafe { ConvertStringSecurityDescriptorToSecurityDescriptorW(sddl.as_ptr(), SDDL_REVISION_1, &mut descriptor, null_mut()) } == 0 {
+            return Err(io::Error::last_os_error());
+        }
+        let mut text: *mut u16 = null_mut();
+        // SAFETY: `descriptor` was just built.
+        let converted =
+            unsafe { ConvertSecurityDescriptorToStringSecurityDescriptorW(descriptor, SDDL_REVISION_1, DACL_SECURITY_INFORMATION, &mut text, null_mut()) };
+        let error = io::Error::last_os_error();
+        // SAFETY: allocated by ConvertStringSecurityDescriptorToSecurityDescriptorW.
+        unsafe { LocalFree(descriptor) };
+        if converted == 0 {
+            return Err(error);
+        }
+        // SAFETY: allocated by the conversion above.
+        Ok(unsafe { take_wide(text) })
     }
 }
