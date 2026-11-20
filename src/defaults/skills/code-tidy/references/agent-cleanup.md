@@ -128,23 +128,12 @@ labels in running prose, inflated words where a plain one fits, hedging
 stacks, and symmetric lists of three added for rhythm. Fix by deleting or
 rewriting plainly; keep facts, constraints and links.
 
-## Mechanical passes and whole-project runs
+## Whole-project runs
 
-- A formatter or safe-fix pass never touches generated files, recordings,
-  snapshots, vendored code, or any source another file pins by hash or
-  checksum. Before running one, search for hash pins and exclude those paths;
-  after it, search again and run the project's tests.
-- An automatic "safe" fix can change behavior: replacing a function with an
-  arrow breaks constructable or proxy targets; rewrapping an import can detach
-  a suppression directive from its line. Review the diff of every automated
-  fix, and revert the ones that change identity, binding or directive
-  placement.
-- A mechanical pass is its own commit, separate from judged edits, so it can
-  be reviewed and reverted alone (commit only when the user asks).
-- Pre-release, whole-project use is normal when the user names the whole
-  project: partition by directory, run the deterministic layers first, then
-  judge structure per partition, and report findings ordered structural first.
-  The release blocker list is the RISKY and defect sections, not the nits.
+Pre-release, whole-project use is normal when the user names the whole
+project: partition by directory, run the deterministic layers first, then
+judge structure per partition, and report findings ordered structural first.
+The release blocker list is the RISKY and defect sections, not the nits.
 
 ## Keep: never remove or rename
 

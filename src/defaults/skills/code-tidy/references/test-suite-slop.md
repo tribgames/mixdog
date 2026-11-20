@@ -16,7 +16,5 @@ test), tautological (cannot fail), a permutation crossing no new branch, or
 verification theater (verifier and producer share one failure domain), or it
 asserts a removal, a restated constant or copied production logic, and name
 the test that still owns the contract. Deleting a contract test needs the
-user's approval. A test is not removed for relying on a recording or
-fixture: first list its assertions that carry their own expected values and
-keep or move them to the owning test. Merging into an owner, rewriting source-text assertions, and
+user's approval. Merging into an owner, rewriting source-text assertions, and
 everything else follows `test-suite`.
