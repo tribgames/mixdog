@@ -106,6 +106,12 @@ export interface FocusClaim {
 /** Tolerance between the fixture's and the watch's reads of the system clock. */
 const CLOCK_SLACK_MS = 25;
 
+export function describeFocusWindow(hwnd: number, sentinel: number, target: number): string {
+  if (hwnd === sentinel) return 'the sentinel';
+  if (hwnd === target) return 'the target';
+  return `0x${hwnd.toString(16)}`;
+}
+
 /** S48's verdict from the OS watch: every excursion from the sentinel belongs
  *  to an action, ends with the sentinel holding both foreground and focus
  *  again, and lasts at most `boundMs`. A fixture focus claim inside an
@@ -127,8 +133,7 @@ export function judgeFocusLock(input: {
   failures: string[];
 } {
   const { watch, sentinel, target, runs } = input;
-  const name = (hwnd: number) =>
-    hwnd === sentinel ? 'the sentinel' : hwnd === target ? 'the target' : `0x${hwnd.toString(16)}`;
+  const name = (hwnd: number) => describeFocusWindow(hwnd, sentinel, target);
   const runIndex = (at: number) => {
     const index = runs.findIndex((run) => at >= run.sentAt && at <= run.repliedAt + input.settleMs);
     return index < 0 ? undefined : index;

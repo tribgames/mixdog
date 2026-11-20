@@ -23,6 +23,7 @@
  * it, and other programs running as the same Windows user are outside this
  * protection.
  */
+import { errorMessage } from '../shared/common';
 import { type SavedLoginPixelGuard, type SavedLoginTurn, type SecretInputs, secretInputs } from '../../secret-input';
 import type { ComputerCommand, PowerShellResponse } from '../shared/types';
 
@@ -56,7 +57,7 @@ type NativeCall = (request: Record<string, unknown>, beforeSend?: () => void) =>
 type NativeResult = NonNullable<PowerShellResponse['result']>;
 
 function errorText(error: unknown): string {
-  return String((error as Error)?.message || error).replace(/\.$/, '');
+  return errorMessage(error).replace(/\.$/, '');
 }
 
 /** The request's login and field, or the refusal that sends nothing: off

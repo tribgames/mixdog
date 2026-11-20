@@ -26,7 +26,7 @@ import type { ComputerAuthorizationStatus, ComputerAuthorizationWindow } from '.
 import { createComputerAuthorizationSettings } from './authorization-settings';
 import { createComputerFailureDiagnostics } from '../session/failure-diagnostics';
 import { bridgeDiscoveryDirectory } from '../../bridge/discovery-file';
-import { mixdogDataDirectory } from '../shared/common';
+import { mixdogDataDirectory, errorMessage } from '../shared/common';
 import type { ComputerCommand, ComputerCommandResult } from '../shared/types';
 import { createProcessFateReader } from './process-fate';
 import { createCaptureAuthorizer, listAuthorizationWindows } from './host-authorization';
@@ -269,11 +269,11 @@ export function createPowerShellComputerHost(
   // Windows only: the lock the foreground process leases to a refused worker.
   // The process's one owner, shared with the core's helpers (host/computer-lease.ts); a harness's own runtime gets its own.
   const foregroundLock =
-    process.platform === 'win32'
-      ? options.foregroundLease
+    process.platform !== 'win32'
+      ? undefined
+      : options.foregroundLease
         ? createHostForegroundLock(options.foregroundLease)
-        : processForegroundLock()
-      : undefined;
+        : processForegroundLock();
   // Agent-scoped resident PowerShell workers + their shared pending-request table.
   const workerPool = createWorkerPool({
     dataDirectory: mixdogDataDirectory,
@@ -411,7 +411,7 @@ export function createPowerShellComputerHost(
         // after the user switched Computer Use off, so the failure is recorded.
         void bridge.stopBridge().catch((error) => {
           diagnose('computer_bridge_stop_failed', {
-            message: String((error as Error)?.message || error),
+            message: errorMessage(error),
           });
         });
       }

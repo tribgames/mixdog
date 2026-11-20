@@ -13,6 +13,7 @@ import {
 } from './scenario-runtime';
 import { userControlDetail } from './scenario-user-control';
 import {
+  describeFocusWindow,
   describeForegroundLock,
   describeLockTimeline,
   describeWatchedInput,
@@ -853,11 +854,7 @@ export const inputScenarios: ScenarioGroup = {
           const home = await openFocusLockSentinel(windows);
           sentinel = home;
           const sentinelHwnd = Number(nativeHwnd(home));
-          const describe = (hwnd: number) => {
-            if (hwnd === sentinelHwnd) return 'the sentinel';
-            if (hwnd === targetHwnd) return 'the target';
-            return `0x${hwnd.toString(16)}`;
-          };
+          const describe = (hwnd: number) => describeFocusWindow(hwnd, sentinelHwnd, targetHwnd);
           // Everything that needs no foreground is ready before it is taken,
           // so the user's window is away only for the control and the three actions.
           const userForeground = await foregroundHwnd();

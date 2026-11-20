@@ -63,8 +63,7 @@ export async function runElevatedRequest(options: {
           cancel();
           return;
         }
-        let at: number;
-        while ((at = pending.indexOf('\n')) >= 0) {
+        for (let at = pending.indexOf('\n'); at >= 0; at = pending.indexOf('\n')) {
           const row = pending.slice(0, at);
           pending = pending.slice(at + 1);
           try {

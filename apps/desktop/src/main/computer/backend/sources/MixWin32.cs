@@ -137,7 +137,6 @@ public partial class MixWin32
         info.cbSize = (uint)Marshal.SizeOf(typeof(LASTINPUTINFO));
         return GetLastInputInfo(ref info) ? (long)info.dwTime : -1L;
     }
-    [DllImport("user32.dll")] public static extern IntPtr FindWindow(string c, string n);
     [DllImport("user32.dll")] public static extern bool SetForegroundWindow(IntPtr h);
     [DllImport("user32.dll")] static extern bool BringWindowToTop(IntPtr h);
     [DllImport("user32.dll")] static extern IntPtr SetActiveWindow(IntPtr h);
