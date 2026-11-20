@@ -111,6 +111,8 @@ export function registerScreenshot(connection: HostConnection, ctx: EngineContex
       bytes.byteLength <= MAX_INLINE_SCREENSHOT_BYTES
         ? { ...screenshotWireImage(shot), width, height }
         : { mimeType, width, height, blob: await uploadBlob(connection, bytes, mimeType) };
-    return partial ? { ...picture, partial } : picture;
+    // A full page past the image limits arrives scaled down; the core's reply says so.
+    const scaled = shot.scaledFrom ? { ...picture, scaledFrom: shot.scaledFrom } : picture;
+    return partial ? { ...scaled, partial } : scaled;
   });
 }

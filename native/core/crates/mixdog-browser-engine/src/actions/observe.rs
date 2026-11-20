@@ -65,6 +65,7 @@ use crate::reply::screenshot::ImageOutput;
 use crate::reply::screenshot::attach_frame;
 use crate::reply::screenshot::read_capture;
 use crate::reply::screenshot::read_capture_for_output;
+use crate::reply::screenshot::scaled_capture_note;
 use crate::settle::reply_wait::read_page_text;
 use crate::settle::settle::Cancelled;
 
@@ -293,12 +294,13 @@ pub async fn visual_screenshot(page: &PageCall<'_>, ports: &ShotPorts<'_>, comma
     let output = image_output(command);
     let capture = read_capture_for_output(&result, full_page, ports.blobs, output).await?;
     let text = format!(
-        "{} of {} ({}x{} px). {}",
+        "{} of {} ({}x{} px). {}{}",
         if capture.full_page { "Full-page screenshot" } else { "Screenshot" },
         redact_url(&result.facts.url),
         capture.width,
         capture.height,
-        if capture.full_page { "This image is inspection-only." } else { "Use snapshot mode=both or locate before coordinate actions." }
+        if capture.full_page { "This image is inspection-only." } else { "Use snapshot mode=both or locate before coordinate actions." },
+        scaled_capture_note(&capture)
     );
     let mut reply = ToolReply::text(text);
     attach_frame(ports.files, &mut reply, output, ports.frame_dir, &capture).await?;

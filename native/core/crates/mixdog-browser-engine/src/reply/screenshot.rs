@@ -14,6 +14,7 @@ use std::time::Instant;
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 use bytes::Bytes;
+use mixdog_app_protocol::v2::browser_engine::BrowserScreenshotScale;
 use mixdog_app_protocol::v2::browser_engine::HostBrowserScreenshotResult;
 
 use crate::port::BlobPort;
@@ -39,7 +40,23 @@ pub struct CapturedScreenshot {
     pub height: u32,
     /// The capture covers the whole page, not the viewport.
     pub full_page: bool,
+    /// The page's own size and the scale applied, when the host delivered the whole page scaled down.
+    pub scaled_from: Option<BrowserScreenshotScale>,
     pub bytes: Bytes,
+}
+
+/// Tells the reader a full-page image is not at the page's own size.
+pub fn scaled_capture_note(capture: &CapturedScreenshot) -> String {
+    let Some(from) = &capture.scaled_from else {
+        return String::new();
+    };
+    let percent = ((from.scale * 10_000.0).round() / 100.0).max(0.01);
+    format!(
+        " The page is {}x{} px, over the image limits, so the capture is the whole page scaled to {}%.",
+        from.width,
+        from.height,
+        mixdog_js::number_to_string(percent)
+    )
 }
 
 /// Where the picture goes (`image_output` of the command).
@@ -91,7 +108,14 @@ pub async fn read_capture(result: &HostBrowserScreenshotResult, full_page: bool,
     } else {
         return Err(ReplyError::new("browser screenshot answered no picture"));
     };
-    Ok(CapturedScreenshot { mime_type: result.mime_type.clone(), width: result.width, height: result.height, full_page, bytes })
+    Ok(CapturedScreenshot {
+        mime_type: result.mime_type.clone(),
+        width: result.width,
+        height: result.height,
+        full_page,
+        scaled_from: result.scaled_from.clone(),
+        bytes,
+    })
 }
 
 /// A frame may go to a file when it is not empty and not above the file budget (`frameImageFitsFileBudget`).
@@ -140,7 +164,12 @@ pub async fn attach_screenshot(files: &dyn FilePort, reply: &mut ToolReply, inpu
     }
     let capture = input.capture;
     if capture.full_page {
-        reply.text.push_str(&format!("\n\nFull-page screenshot: {}x{} px; inspection-only and not coordinate-bound.", capture.width, capture.height));
+        reply.text.push_str(&format!(
+            "\n\nFull-page screenshot: {}x{} px; inspection-only and not coordinate-bound.{}",
+            capture.width,
+            capture.height,
+            scaled_capture_note(capture)
+        ));
     } else {
         reply.grounding = Some(VisualGrounding::bind(bound, f64::from(capture.width), f64::from(capture.height), input.now));
         reply.text.push_str(&format!(
@@ -204,7 +233,21 @@ mod tests {
     }
 
     fn capture(bytes: &[u8], full_page: bool) -> CapturedScreenshot {
-        CapturedScreenshot { mime_type: "image/png".into(), width: 1600, height: 1200, full_page, bytes: Bytes::copy_from_slice(bytes) }
+        CapturedScreenshot { mime_type: "image/png".into(), width: 1600, height: 1200, full_page, scaled_from: None, bytes: Bytes::copy_from_slice(bytes) }
+    }
+
+    #[tokio::test]
+    async fn a_full_page_delivered_scaled_down_says_so() {
+        let scaled = json!({"data": STANDARD.encode(b"png"), "scaledFrom": {"width": 1593, "height": 72305, "scale": 0.45318}});
+        let shot = read_capture(&result(scaled), true, &Blobs(Err("unused".into()))).await.unwrap();
+        let refs = set("p-s1");
+        let mut reply = ToolReply::default();
+        attach_screenshot(&Frames::default(), &mut reply, input(&shot, Some(&refs), Some(&refs), ImageOutput::Inline)).await.unwrap();
+        assert_eq!(
+            reply.text,
+            "\n\nFull-page screenshot: 4x3 px; inspection-only and not coordinate-bound. The page is 1593x72305 px, over the image limits, so the capture is the whole page scaled to 45.32%."
+        );
+        assert_eq!(scaled_capture_note(&capture(b"pixels", true)), "");
     }
 
     fn input<'a>(capture: &'a CapturedScreenshot, bound: Option<&'a RefSet>, latest: Option<&'a RefSet>, output: ImageOutput) -> ScreenshotInput<'a> {

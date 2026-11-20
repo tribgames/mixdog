@@ -680,6 +680,31 @@
       ],
       "description": "The region a screenshot is cut to: an element a snapshot ref names, or a rectangle in CSS pixels."
     },
+    "BrowserScreenshotScale": {
+      "description": "The page's own size in image pixels and the scale its picture was delivered at.",
+      "properties": {
+        "height": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        },
+        "scale": {
+          "format": "double",
+          "type": "number"
+        },
+        "width": {
+          "format": "uint32",
+          "minimum": 0.0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "height",
+        "scale",
+        "width"
+      ],
+      "type": "object"
+    },
     "BrowserSignInOp": {
       "oneOf": [
         {
@@ -2593,6 +2618,17 @@
             "boolean",
             "null"
           ]
+        },
+        "scaledFrom": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/BrowserScreenshotScale"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "Set when a full page past the image limits was delivered scaled down; absent for a picture at the page's own size."
         },
         "width": {
           "format": "uint32",
