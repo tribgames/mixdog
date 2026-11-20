@@ -99,7 +99,8 @@ interface Run {
 
 /** `ControlOrMeta` is the shortcut modifier of the machine the page is on: Command on macOS, Control elsewhere (the core does not know which it is). */
 function modifierOfThisHost(modifier: string): string {
-  return modifier === 'ControlOrMeta' ? (process.platform === 'darwin' ? 'Meta' : 'Control') : modifier;
+  if (modifier !== 'ControlOrMeta') return modifier;
+  return process.platform === 'darwin' ? 'Meta' : 'Control';
 }
 
 export function registerInputBatch(connection: HostConnection, ctx: EngineContext): void {

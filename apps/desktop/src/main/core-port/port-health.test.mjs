@@ -104,7 +104,9 @@ function rig() {
   const webContents = Object.assign(new EventEmitter(), {
     id: 1,
     postMessage: (_channel, message, [port]) =>
-      listeners.forEach((l) => l({ source: host, data: { type: 'mixdog-core-port', ...message }, ports: [port] })),
+      listeners.forEach((l) => {
+        l({ source: host, data: { type: 'mixdog-core-port', ...message }, ports: [port] });
+      }),
   });
   const bridge = { open: (o) => relay.open(webContents, o?.slot) };
   const connector = createPortConnector(bridge, host);

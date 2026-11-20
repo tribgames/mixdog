@@ -55,7 +55,7 @@ function requireId(value: unknown, method: string): string {
 function windowsKey(windows: readonly WindowFocusEntry[]): string {
   return JSON.stringify(
     [...windows]
-      .sort((a, b) => (a.connectionId < b.connectionId ? -1 : a.connectionId > b.connectionId ? 1 : 0))
+      .sort((a, b) => Number(a.connectionId > b.connectionId) - Number(a.connectionId < b.connectionId))
       .map((w) => [w.connectionId, w.visible, w.focused, w.sessionIds ?? []])
   );
 }

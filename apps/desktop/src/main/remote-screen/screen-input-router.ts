@@ -392,7 +392,7 @@ export class ScreenInputRouter {
     }
     for (const id of lifted) {
       const entry = held.get(id);
-      if (!entry || entry.release.op !== 'key') continue;
+      if (entry?.release.op !== 'key') continue;
       if (!live() || !onOrigin()) {
         // Cancelled (or moved desktop): the key is up; never pressed again.
         held.delete(id);

@@ -540,7 +540,7 @@ test('the routed operations are the spec map targets with params the Rust schema
     ROUTED_DESKTOP_OPERATIONS.filter((name) => !covered.has(name) && !ROOTED_NAMES.has(name)),
     []
   );
-  for (const [name, args, method, params] of CASES) {
+  for (const [name, _args, method, params] of CASES) {
     assert.ok(wantedMethods.get(name).includes(method), `${name} -> ${method}`);
     const schema = paramsSchema(method);
     if (method === 'host/state/set') continue; // an enum: `{key, value}`
@@ -1214,7 +1214,10 @@ test('a window asking while the leg is up but has not answered a listing makes t
         status: 'ready',
         entries: [{ section: 'remote', key: null, revision: 1, value: unanswered }],
       }),
-      call: async (method) => (calls.push(method), answered),
+      call: async (method) => {
+        calls.push(method);
+        return answered;
+      },
     },
   });
   const descriptor = await lane.invoke('remoteAccessInfo', [false]);

@@ -285,5 +285,3 @@ export function createTurnHolds(
     },
   };
 }
-
-export type TurnHolds = ReturnType<typeof createTurnHolds>;

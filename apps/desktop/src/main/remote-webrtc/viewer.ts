@@ -357,16 +357,16 @@ export function createRemoteWebrtcViewer(source: RemoteWebrtcSource, effects: Re
 
     /** A validated phone signal of a connection (`ready`/geometry ones excluded). */
     signal(message: Exclude<RemoteWebrtcClientSignal, { type: 'ready' | 'geometry-ack' | 'resize-request' }>): void {
-      if ('viewerAttempt' in message || !current(message)) return;
+      if ('viewerAttempt' in message || !connection || !current(message)) return;
       switch (message.type) {
         case 'answer':
-          if (state !== 'negotiating' || !connection!.offered || connection!.answer) return;
-          connection!.answer = message.fingerprints;
-          effects.answer(connection!.id, message.sdp);
+          if (state !== 'negotiating' || !connection.offered || connection.answer) return;
+          connection.answer = message.fingerprints;
+          effects.answer(connection.id, message.sdp);
           return;
         case 'candidate':
           if (state === 'negotiating' || state === 'connected' || state === 'promoting' || state === 'webrtc') {
-            effects.candidate(connection!.id, message.candidate);
+            effects.candidate(connection.id, message.candidate);
           }
           return;
         case 'media-ready': {

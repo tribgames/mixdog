@@ -35,7 +35,11 @@ function fakeSpawn(greeting = ['ready']) {
       setImmediate(() => child.emit('exit', null, 'SIGTERM'));
     };
     child.say = (line) => child.stdout.emit('data', `${line}\n`);
-    setImmediate(() => greeting.forEach((line) => child.say(line)));
+    setImmediate(() =>
+      greeting.forEach((line) => {
+        child.say(line);
+      })
+    );
     children.push(child);
     return child;
   };

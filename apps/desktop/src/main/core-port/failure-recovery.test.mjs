@@ -48,8 +48,14 @@ test('recovery makes sure the runtime directory exists, watches it, and only the
     runs: () => true,
     log() {},
     ensureRoot: () => order.push('ensure'),
-    watch: () => (order.push('watch'), { close() {} }),
-    readState: async () => (order.push('read'), serving),
+    watch: () => {
+      order.push('watch');
+      return { close() {} };
+    },
+    readState: async () => {
+      order.push('read');
+      return serving;
+    },
   });
   await tick();
   assert.deepEqual(order, ['ensure', 'watch', 'read']);
@@ -85,7 +91,7 @@ test('a watch that cannot be installed is recorded in the diagnostics log with i
     watch() {
       throw new Error('unreachable');
     },
-    log: (event, fields) => failing.push(fields.message),
+    log: (_event, fields) => failing.push(fields.message),
   });
   await tick();
   assert.match(failing[0], /EACCES/, 'a directory that cannot be made is recorded too');
@@ -128,7 +134,10 @@ test('a stale discovery document does not clear a real failure: a serving state 
     runtimeRoot: 'r',
     readState: async () => serving,
     runs: (pid) => (pid === 77 ? alive : false),
-    watch: (_directory, change) => ((onChange = change), { close() {} }),
+    watch: (_directory, change) => {
+      onChange = change;
+      return { close() {} };
+    },
   });
   await tick();
   assert.ok(reports.confirmed(), 'left by a killed core');

@@ -62,7 +62,7 @@ function pillControls(section) {
   const sent = [];
   const host = [];
   const controls = createComputerPillControls({
-    core: createCoreUserControl(async (method, params) => {
+    core: createCoreUserControl(async (_method, params) => {
       sent.push(params.action);
       return { ok: true };
     }),
@@ -134,7 +134,7 @@ test('the setting and the pill actions go to the core where the desktop has no h
   const source = createComputerPillSource(() => 5);
   const sent = [];
   const controls = createComputerPillControls({
-    core: createCoreUserControl(async (method, params) => {
+    core: createCoreUserControl(async (_method, params) => {
       sent.push(params.seconds === undefined ? params.action : `${params.action} ${params.seconds}`);
       return { ok: true };
     }),

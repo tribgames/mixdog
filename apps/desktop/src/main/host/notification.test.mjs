@@ -52,8 +52,9 @@ function build(overrides = {}) {
     ...overrides,
   });
   const show = (params) => handlers.get('host/notification/show')(params);
-  const fire = (toast, event, ...args) =>
-    listeners.filter(([t, e]) => t === toast && e === event).forEach(([, , fn]) => fn(...args));
+  const fire = (toast, event, ...args) => {
+    for (const [t, e, fn] of listeners) if (t === toast && e === event) fn(...args);
+  };
   return { show, calls, sent, fire, closeAll };
 }
 

@@ -137,7 +137,9 @@ test('registerWindowHost serves the three requests and forgets what was reported
   const windows = [{ connectionId: 'local', visible: true, focused: true }];
   host.publishFocus(windows);
   await wait(30);
-  closers.forEach((l) => l());
+  closers.forEach((l) => {
+    l();
+  });
   host.publishFocus(windows);
   await wait(30);
   assert.equal(calls.length, 2);
@@ -165,7 +167,9 @@ test('a click on a server notification focuses that server window and reports th
   });
   notifications.get('host/notification/show')({ title: 'T', body: 'B', threadId: 'th1', connectionId: 'c1' });
   notifications.get('host/notification/show')({ title: 'T', body: 'B', threadId: 'th2' });
-  clicks.forEach((fn) => fn());
+  clicks.forEach((fn) => {
+    fn();
+  });
   assert.deepEqual(focused, [['c1', 'th1']]);
   assert.equal(activations, 1);
   assert.deepEqual(sent, [

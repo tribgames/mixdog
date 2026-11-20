@@ -13,7 +13,16 @@ function pair() {
       return () => listeners.delete(listener);
     },
   };
-  return { sent, listeners, connection, source, emit: (change) => listeners.forEach((l) => l(change)) };
+  return {
+    sent,
+    listeners,
+    connection,
+    source,
+    emit: (change) =>
+      listeners.forEach((l) => {
+        l(change);
+      }),
+  };
 }
 
 test('a reveal, a hide and a handoff are sent as host/browser/surface', () => {

@@ -50,7 +50,10 @@ function connection(answer = async () => ({})) {
       thread: (threadId) => threads.get(threadId),
       section: (section, key = null) => sections.get(`${section}\0${key ?? ''}`),
       sections: () => [],
-      subscribe: (listener) => (storeListeners.add(listener), () => storeListeners.delete(listener)),
+      subscribe: (listener) => {
+        storeListeners.add(listener);
+        return () => storeListeners.delete(listener);
+      },
     },
     pendingServerRequests: () => requests,
   };
@@ -62,9 +65,18 @@ function connection(answer = async () => ({})) {
     },
     client: () => client,
     whenSynced: async () => undefined,
-    onEvent: (listener) => (eventListeners.add(listener), () => eventListeners.delete(listener)),
-    onStoreChange: (listener) => (storeListeners.add(listener), () => storeListeners.delete(listener)),
-    onReplaced: (listener) => (replacedListeners.add(listener), () => replacedListeners.delete(listener)),
+    onEvent: (listener) => {
+      eventListeners.add(listener);
+      return () => eventListeners.delete(listener);
+    },
+    onStoreChange: (listener) => {
+      storeListeners.add(listener);
+      return () => storeListeners.delete(listener);
+    },
+    onReplaced: (listener) => {
+      replacedListeners.add(listener);
+      return () => replacedListeners.delete(listener);
+    },
     resumeThread: async (threadId, window) => {
       resumes.push({ threadId, window });
       return {};
@@ -80,7 +92,10 @@ function connection(answer = async () => ({})) {
     change,
     follow,
     notify,
-    replaced: () => [...replacedListeners].forEach((listener) => listener()),
+    replaced: () =>
+      [...replacedListeners].forEach((listener) => {
+        listener();
+      }),
   };
 }
 
@@ -231,12 +246,18 @@ test('a hidden session unsubscribed without a loss leaves the shown sessions: ho
   const core = connection();
   const lookups = [];
   const thread = core.protocol.client().store.thread;
-  core.protocol.client().store.thread = (threadId) => (lookups.push(threadId), thread(threadId));
+  core.protocol.client().store.thread = (threadId) => {
+    lookups.push(threadId);
+    return thread(threadId);
+  };
   const lane = createSessionLane({ protocol: core.protocol });
   const frames = framesOf(lane);
   const interested = new Set(['t1']);
   const asked = [];
-  lane.setInterest((threadId) => (asked.push(threadId), interested.has(threadId)));
+  lane.setInterest((threadId) => {
+    asked.push(threadId);
+    return interested.has(threadId);
+  });
   core.follow('t1', []);
   assert.equal(frames.length, 1);
   interested.delete('t1');

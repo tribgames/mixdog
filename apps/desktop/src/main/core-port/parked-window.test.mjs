@@ -35,7 +35,11 @@ test('a window parked on a confirmed failure attaches when main observes the cor
     watch: (_dir, onChange) => {
       watchers += 1;
       changed = onChange;
-      return { close: () => void (watchers -= 1) };
+      return {
+        close: () => {
+          watchers -= 1;
+        },
+      };
     },
   });
   await tick();
@@ -73,7 +77,9 @@ test('a window parked on a confirmed failure attaches when main observes the cor
   const savedWindow = globalThis.window;
   globalThis.window = {
     postMessage: (data, _origin, ports) =>
-      host.listeners.forEach((listener) => listener({ source: host, data, ports })),
+      host.listeners.forEach((listener) => {
+        listener({ source: host, data, ports });
+      }),
   };
   const exposed = {};
   const windowA = Object.assign(new EventEmitter(), {
@@ -89,7 +95,11 @@ test('a window parked on a confirmed failure attaches when main observes the cor
         on: (channel, listener) => ipc.on(channel, listener),
         invoke: (channel, ...args) => handlers[channel]?.(...args),
       },
-      { exposeInMainWorld: (name, api) => void (exposed[name] = api) }
+      {
+        exposeInMainWorld: (name, api) => {
+          exposed[name] = api;
+        },
+      }
     );
     const sink = { frame() {}, closed() {} };
     const connector = createPortConnector(exposed.mixdogCorePort, host, 1_000);

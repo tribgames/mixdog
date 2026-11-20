@@ -26,19 +26,33 @@ function harness({ afterCommand, replyLine, fillStored, capture } = {}) {
         log.push(`after ${input.sessionId} ${input.turnId} ${(await input.observe()).text === ''}`);
         return null;
       }),
-    replyLine: replyLine ?? (async (input) => (log.push(`line ${input.turnId}`), '')),
+    replyLine:
+      replyLine ??
+      (async (input) => {
+        log.push(`line ${input.turnId}`);
+        return '';
+      }),
     fillStored:
       fillStored ??
-      (async (_guest, account) => (log.push(`fill ${account}`), { usernameFilled: true, passwordFilled: true })),
+      (async (_guest, account) => {
+        log.push(`fill ${account}`);
+        return { usernameFilled: true, passwordFilled: true };
+      }),
     beginTurn: (sessionId, turn) => log.push(`begin ${sessionId} ${turn}`),
-    finishTurn: (sessionId, turn, aborted) => (log.push(`finish ${sessionId} ${turn} ${aborted}`), 2),
+    finishTurn: (sessionId, turn, aborted) => {
+      log.push(`finish ${sessionId} ${turn} ${aborted}`);
+      return 2;
+    },
     forget: (sessionId) => log.push(`forget ${sessionId}`),
     onDiagnostic: (event) => log.push(`diagnostic ${event}`),
   };
   const snapshot = {
     captureSnapshotPayload:
       capture ??
-      (async (_guest, command) => (log.push(`capture ${command.action}`), { snapshotId: 'p1-s1', elements: [] })),
+      (async (_guest, command) => {
+        log.push(`capture ${command.action}`);
+        return { snapshotId: 'p1-s1', elements: [] };
+      }),
   };
   registerSignIn(connection, ctx, deps, snapshot);
   const call = (method, params) => handlers.get(`host/browser/${method}`)(params, new AbortController().signal);

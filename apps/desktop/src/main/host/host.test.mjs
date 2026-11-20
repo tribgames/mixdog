@@ -54,7 +54,10 @@ function pair() {
     sent,
     call: (method, params, signal = new AbortController().signal) => requests.get(method)(params, signal),
     push: (method, params) => notifications.get(method)(params),
-    close: () => closers.forEach((listener) => listener()),
+    close: () =>
+      closers.forEach((listener) => {
+        listener();
+      }),
   };
 }
 
@@ -109,7 +112,7 @@ function build(overrides = {}) {
           calls.executed.push(command);
           if (command.action === 'boom') throw new Error('failed at https://u:secret@x.test/');
           if (command.action === 'wait')
-            await new Promise((resolve, reject) =>
+            await new Promise((_resolve, reject) =>
               signal.addEventListener('abort', () => reject(new Error('aborted')))
             );
           return { text: 'ok' };
@@ -491,9 +494,13 @@ test('a shown notification plays its sound and a click reports the thread', () =
   assert.deepEqual(calls.toasts[0].content, { title: 'T', body: 'B' });
   // The sound belongs to the toast the OS showed: it plays when the toast's `show` event fires.
   assert.equal(calls.sounds, 0);
-  shows.forEach((fn) => fn());
+  shows.forEach((fn) => {
+    fn();
+  });
   assert.equal(calls.sounds, 1);
-  clicks.forEach((fn) => fn());
+  clicks.forEach((fn) => {
+    fn();
+  });
   assert.equal(calls.activations, 1);
   assert.deepEqual(wire.sent.notifications, [['host/notification/clicked', { threadId: 'th9' }]]);
 });

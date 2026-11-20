@@ -62,8 +62,7 @@ const isRecord = (value: unknown): value is Record<string, unknown> =>
   Boolean(value) && typeof value === 'object' && !Array.isArray(value);
 
 function stepText(value: unknown, name: string, max: number, trim = true): string {
-  if (typeof value !== 'string' || (trim ? !value.trim() : false))
-    throw new Error(`${name} must be a non-empty string`);
+  if (typeof value !== 'string' || (trim && !value.trim())) throw new Error(`${name} must be a non-empty string`);
   const clean = trim ? value.trim() : value;
   if (clean.length > max) throw new Error(`${name} must be at most ${max} characters`);
   if (clean.includes('\0')) throw new Error(`${name} is invalid`);

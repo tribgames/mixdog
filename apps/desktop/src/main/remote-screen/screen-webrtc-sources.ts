@@ -188,7 +188,10 @@ export function createRemoteScreenSources(deps: RemoteScreenSourcesDeps) {
         lost: () => ended,
         onChange(listener) {
           let listeners = accessListeners.get(clientId);
-          if (!listeners) accessListeners.set(clientId, (listeners = new Set()));
+          if (!listeners) {
+            listeners = new Set();
+            accessListeners.set(clientId, listeners);
+          }
           const heard = (why?: AccessEnd): void => {
             if (why) ended = why;
             listener();

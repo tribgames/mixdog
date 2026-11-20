@@ -32,10 +32,14 @@ const display = {
   captureSourceId: 'screen:0:0',
 };
 let revision = 0;
+const nextRevision = () => {
+  revision += 1;
+  return revision;
+};
 /** The service's access messages: each one a newer revision of epoch `e1`. */
 const granted = (over = {}) => ({
   epoch: 'e1',
-  revision: (revision += 1),
+  revision: nextRevision(),
   connection: 'conn-1',
   paired: true,
   label: 'Phone',
@@ -43,7 +47,7 @@ const granted = (over = {}) => ({
 });
 const denied = (over = {}) => ({
   epoch: 'e1',
-  revision: (revision += 1),
+  revision: nextRevision(),
   connection: '',
   paired: false,
   label: '',

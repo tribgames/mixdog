@@ -15,7 +15,10 @@ function connection() {
     handleRequest: (method, run) => handlers.set(method, run),
     onClose: (listener) => closers.push(listener),
     serve: (method, params, signal = new AbortController().signal) => handlers.get(method)(params, signal),
-    close: () => closers.forEach((listener) => listener()),
+    close: () =>
+      closers.forEach((listener) => {
+        listener();
+      }),
   };
 }
 
@@ -77,7 +80,14 @@ test('a capture whose scope is revoked while it is taken returns no pixels', asy
   const scopes = registerComputerScopes(wire, createComputerSwitch(true));
   const { sources, entered, release } = heldPixels();
   const uploads = [];
-  registerComputerPixels(wire, { sources, scopes, callCore: async (_method, params) => (uploads.push(params), {}) });
+  registerComputerPixels(wire, {
+    sources,
+    scopes,
+    callCore: async (_method, params) => {
+      uploads.push(params);
+      return {};
+    },
+  });
   const capture = wire.serve('host/computer/pixels', ask);
   await entered.opened;
   assert.deepEqual(await wire.serve('host/computer/revokeScopes', { scopes: [7] }), {

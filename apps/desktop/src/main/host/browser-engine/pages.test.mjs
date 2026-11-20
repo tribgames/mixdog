@@ -56,9 +56,15 @@ function harness({ policy, freshPage, kind = 'agent', keepAlive } = {}) {
         return freshPage ? makeGuest('p9') : visible[0];
       },
       requestBrowserSurface: (id, reveal) => log.push(`surface ${id} ${reveal}`),
-      revealPage: async (id, guest) => (log.push(`reveal ${guest.pageId}`), 'shown'),
+      revealPage: async (_id, guest) => {
+        log.push(`reveal ${guest.pageId}`);
+        return 'shown';
+      },
       reportOpenFailure: (_id, message, tabId) => log.push(`openFailure ${message} ${tabId ?? ''}`),
-      discardCreatedPage: (_id, guest) => (log.push(`discard ${guest.pageId}`), true),
+      discardCreatedPage: (_id, guest) => {
+        log.push(`discard ${guest.pageId}`);
+        return true;
+      },
       discardUntouchedBlank: () => {},
       recoverCrashedGuest: async () => {},
       backgroundEntryByPageId: (_id, pageId) => [...backgrounds].find(([, p]) => p.guest.pageId === pageId) ?? null,
@@ -76,7 +82,12 @@ function harness({ policy, freshPage, kind = 'agent', keepAlive } = {}) {
       invalidateInteraction: () => {},
       for: () => ({ networkFailures: [] }),
     },
-    leases: { acquire: (pageId, commandId, ttlMs) => (log.push(`lease ${pageId} ${commandId} ${ttlMs}`), 'lease-1') },
+    leases: {
+      acquire: (pageId, commandId, ttlMs) => {
+        log.push(`lease ${pageId} ${commandId} ${ttlMs}`);
+        return 'lease-1';
+      },
+    },
     page: {
       urls: {
         validatedAgentUrl: async (raw) => {

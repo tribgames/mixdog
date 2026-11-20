@@ -156,7 +156,7 @@ test('the app is told the core process it starts', async () => {
     bin: 'mixdogd',
     environmentReady: async () => {},
     onLaunched: (started) => told.push(started),
-    spawnImpl: (bin, args, options) => {
+    spawnImpl: (_bin, _args, options) => {
       assert.equal(options.detached, false);
       return child;
     },
@@ -179,7 +179,7 @@ test('the core is started on the runtime root the app selected', async () => {
     bin: 'mixdogd',
     env: () => ({ PATH: 'p' }),
     environmentReady: async () => {},
-    spawnImpl: (bin, args, options) => {
+    spawnImpl: (_bin, _args, options) => {
       spawnedEnv = options.env;
       return child;
     },
@@ -222,7 +222,7 @@ test('a launcher that owns its core starts it as an ordinary child', async (cont
   const dataDir = mkdtempSync(join(tmpdir(), 'local-core-'));
   context.after(() => rmSync(dataDir, { recursive: true, force: true }));
   const spawned = [];
-  const spawnImpl = (bin, args, options) => {
+  const spawnImpl = (_bin, _args, options) => {
     spawned.push(options);
     return {
       once(event, listener) {
@@ -284,7 +284,9 @@ test('the desktop waits for a core that takes 20 s to serve, as a large profile 
         return serving;
       },
       launch: async () => {},
-      sleep: async (ms) => void (clock += ms),
+      sleep: async (ms) => {
+        clock += ms;
+      },
       now: () => clock,
       readyTimeoutMs,
     });
@@ -297,7 +299,9 @@ test('the desktop waits for a core that takes 20 s to serve, as a large profile 
     runtimeRoot: 'unused',
     bin: 'mixdogd',
     environmentReady: async () => {},
-    ensure: async (options) => void (asked = options),
+    ensure: async (options) => {
+      asked = options;
+    },
   });
   await endpoint().catch(() => {});
   assert.equal(asked.readyTimeoutMs, DESKTOP_CORE_READY_TIMEOUT_MS);
@@ -316,8 +320,12 @@ test('a discovery file left by a process that no longer runs names no core: one 
     const served = await ensureCore({
       // The started core replaces the file once it is up.
       readDiscovery: async () => (launches && clock >= 300 ? started : stale),
-      launch: async () => void (launches += 1),
-      sleep: async (ms) => void (clock += ms),
+      launch: async () => {
+        launches += 1;
+      },
+      sleep: async (ms) => {
+        clock += ms;
+      },
       now: () => clock,
       readyTimeoutMs: DESKTOP_CORE_READY_TIMEOUT_MS,
       runs: (pid) => pid === 99,
@@ -331,8 +339,12 @@ test('a discovery file left by a process that no longer runs names no core: one 
   await assert.rejects(
     ensureCore({
       readDiscovery: async () => leftBehind[0],
-      launch: async () => void (launches += 1),
-      sleep: async (ms) => void (clock += ms),
+      launch: async () => {
+        launches += 1;
+      },
+      sleep: async (ms) => {
+        clock += ms;
+      },
       now: () => clock,
       readyTimeoutMs: 1_000,
       runs: () => true,
@@ -393,7 +405,9 @@ test('a core that ends abnormally before serving fails the start at once with it
         return said;
       },
       launch: async () => capture,
-      sleep: async (ms) => void (clock += ms),
+      sleep: async (ms) => {
+        clock += ms;
+      },
       now: () => clock,
       readyTimeoutMs: DESKTOP_CORE_READY_TIMEOUT_MS,
       // The other core (88) runs; the launched one (77) until its exit is seen.
@@ -519,7 +533,9 @@ test('a report belongs to its call: it is withdrawn when the call throws on a re
     ensureCore({
       ...base,
       now: () => clock,
-      sleep: async (ms) => void (clock += ms),
+      sleep: async (ms) => {
+        clock += ms;
+      },
       readDiscovery: async () => booting({ done: 1, total: 4 }),
     }),
     /core is not ready/

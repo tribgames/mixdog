@@ -76,5 +76,3 @@ export function createVisualizeGestureTokens(now: () => number = Date.now) {
     },
   };
 }
-
-export type VisualizeGestureTokens = ReturnType<typeof createVisualizeGestureTokens>;

@@ -20,7 +20,9 @@ function fakeProtocol(entries) {
   };
   const publish = (added) => {
     entries.push(added);
-    [...(watchers.get(added.section) ?? [])].forEach((listener) => listener(added));
+    [...(watchers.get(added.section) ?? [])].forEach((listener) => {
+      listener(added);
+    });
   };
   return { protocol, calls, publish };
 }
@@ -30,13 +32,14 @@ function fakeLane() {
   return {
     sent,
     lane: {
-      invoke: async (capability, args, sessionId) => (
-        sent.push(['invoke', capability, args, sessionId]), { value: `lane:${capability}`, snapshot: 'held' }
-      ),
-      read: async (requests) => (
-        sent.push(['read', requests.map((request) => request.capability)]),
-        requests.map((request) => ({ ok: true, value: `lane:${request.capability}` }))
-      ),
+      invoke: async (capability, args, sessionId) => {
+        sent.push(['invoke', capability, args, sessionId]);
+        return { value: `lane:${capability}`, snapshot: 'held' };
+      },
+      read: async (requests) => {
+        sent.push(['read', requests.map((request) => request.capability)]);
+        return requests.map((request) => ({ ok: true, value: `lane:${request.capability}` }));
+      },
     },
   };
 }
@@ -63,7 +66,10 @@ test('a section not published yet is waited for', async () => {
   const { lane } = fakeLane();
   const wrapped = withSectionCapabilities({ lane, protocol, snapshot });
   let settled = false;
-  const answer = wrapped.invoke('listAgents', [], undefined).then((result) => ((settled = true), result));
+  const answer = wrapped.invoke('listAgents', [], undefined).then((result) => {
+    settled = true;
+    return result;
+  });
   await Promise.resolve();
   assert.equal(settled, false);
   publish(entry('agents', null, [{ id: 'worker' }]));
@@ -119,7 +125,10 @@ test('a lane method that is not a section capability reaches the wrapped lane', 
   const { protocol } = fakeProtocol([]);
   const { lane } = fakeLane();
   const calls = [];
-  lane.stopShellJob = async (sessionId, taskId) => (calls.push([sessionId, taskId]), { stopped: true });
+  lane.stopShellJob = async (sessionId, taskId) => {
+    calls.push([sessionId, taskId]);
+    return { stopped: true };
+  };
   lane.getQuotaAutoResume = async () => true;
   const wrapped = withSectionCapabilities({ lane, protocol, snapshot });
   assert.deepEqual(await wrapped.stopShellJob('s1', 't1'), { stopped: true });

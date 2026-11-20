@@ -250,7 +250,7 @@ export function createRemoteWebrtcHost(deps: RemoteWebrtcHostDeps) {
         const page = source.page();
         const feed = feeds.get(sourceKey);
         const fresh = feed?.currentKey === pageKey(page.documentId, page.geometry);
-        return { ...page, framesSinceCurrent: fresh ? feed!.framesSinceCurrent : 0 };
+        return { ...page, framesSinceCurrent: fresh && feed ? feed.framesSinceCurrent : 0 };
       },
       newConnectionId: () => randomBytes(18).toString('base64url'),
       // Wall clock: the sender stamps channel receipt with Date.now() too.

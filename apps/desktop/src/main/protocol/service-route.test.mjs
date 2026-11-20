@@ -57,7 +57,10 @@ function lane(
       call,
       ...threadCalls(call),
       notify: (method, params) => notified.push({ method, params }),
-      onEvent: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+      onEvent: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
     },
     snapshot: () => HELD,
   });
@@ -362,16 +365,6 @@ const settled = async () => {
   for (let i = 0; i < 20; i++) await tick();
 };
 
-/** The threads a run of requests leaves followed, replayed in the order they were sent. */
-const followedAfter = (calls) => {
-  const followed = new Set();
-  for (const { method, params } of calls) {
-    if (method === 'thread/resume') followed.add(params.threadId);
-    if (method === 'thread/unsubscribe') followed.delete(params.threadId);
-  }
-  return [...followed].sort();
-};
-
 test('setVisibleSessions resumes the new visible threads and unsubscribes the ones that left', async () => {
   const { calls, service } = lane();
   assert.equal(await service.call('setVisibleSessions', [['a', 'b'], 1]), true);
@@ -434,8 +427,14 @@ function modeled(answer = () => 'ok', { defer = false, report } = {}) {
   const replacedListeners = new Set();
   const eventListeners = new Set();
   const storeListeners = new Set();
-  const emitEvent = (event) => eventListeners.forEach((listener) => listener(event));
-  const emitStore = (change) => storeListeners.forEach((listener) => listener(change));
+  const emitEvent = (event) =>
+    eventListeners.forEach((listener) => {
+      listener(event);
+    });
+  const emitStore = (change) =>
+    storeListeners.forEach((listener) => {
+      listener(change);
+    });
   let clients = 0;
   let client;
   const open = () => {
@@ -527,9 +526,18 @@ function modeled(answer = () => 'ok', { defer = false, report } = {}) {
     client: () => client,
     resumeThread: async (threadId, window) => (await reach()).resumeThread(threadId, window),
     unsubscribeThread: async (threadId) => (await reach()).unsubscribeThread(threadId),
-    onEvent: (listener) => (eventListeners.add(listener), () => eventListeners.delete(listener)),
-    onReplaced: (listener) => (replacedListeners.add(listener), () => replacedListeners.delete(listener)),
-    onStoreChange: (listener) => (storeListeners.add(listener), () => storeListeners.delete(listener)),
+    onEvent: (listener) => {
+      eventListeners.add(listener);
+      return () => eventListeners.delete(listener);
+    },
+    onReplaced: (listener) => {
+      replacedListeners.add(listener);
+      return () => replacedListeners.delete(listener);
+    },
+    onStoreChange: (listener) => {
+      storeListeners.add(listener);
+      return () => storeListeners.delete(listener);
+    },
   };
   const schedule = (run, ms) => {
     const timer = { run, ms };
@@ -600,9 +608,11 @@ test('a hide followed at once by a show ends subscribed, and a show followed by 
 });
 
 test('a registration is accepted at once and never waits on any thread: a held request holds back no other thread', async () => {
-  const m = modeled((method, threadId) => (threadId === 'a' ? 'hold' : 'ok'));
+  const m = modeled((_method, threadId) => (threadId === 'a' ? 'hold' : 'ok'));
   let accepted = false;
-  void m.show(['a', 'b'], 1).then(() => (accepted = true));
+  void m.show(['a', 'b'], 1).then(() => {
+    accepted = true;
+  });
   await tick();
   assert.equal(accepted, true, 'accepted while a is still unanswered');
   await settled();
@@ -619,7 +629,7 @@ test('a registration is accepted at once and never waits on any thread: a held r
 
 test('a session the core does not have is retried at the slowest rate and does not stop the others; the answer stays true', async () => {
   let gone = true;
-  const m = modeled((method, threadId) => (gone && threadId === 'a' ? 'unavailable' : 'ok'));
+  const m = modeled((_method, threadId) => (gone && threadId === 'a' ? 'unavailable' : 'ok'));
   assert.equal(await m.show(['a', 'b', 'c'], 1), true);
   await settled();
   assertConverged(m, ['b', 'c']);
@@ -696,7 +706,7 @@ test('a late answer of a retired generation changes nothing, whether it succeeds
 });
 
 test('a retired attempt that is answered while the next one is in flight starts nothing', async () => {
-  const m = modeled((method, threadId, client) =>
+  const m = modeled((method, _threadId, client) =>
     (client.id === 1 && method === 'thread/unsubscribe') || client.id === 2 ? 'hold' : 'ok'
   );
   await m.show(['a'], 1);
@@ -719,7 +729,7 @@ test('a retired attempt that is answered while the next one is in flight starts 
 
 test('the rejected interleaving: an owed cleanup survives the replacement it follows, and a later hide really unsubscribes', async () => {
   let hideFails = false;
-  const m = modeled((method, threadId, client) => {
+  const m = modeled((method, _threadId, client) => {
     if (method !== 'thread/unsubscribe') return 'ok';
     if (client.id === 1) return 'hold';
     return hideFails ? 'fail' : 'ok';
@@ -978,9 +988,10 @@ test('the main process client disposes its service lane: an outstanding retry se
 
 test('repeated replacements leave one retry per thread and no stranded work; dispose releases it all', async () => {
   let refuse = true;
-  const m = modeled((method, threadId, client) =>
-    client.id > 1 && refuse ? (threadId === 'a' ? 'hold' : 'fail') : 'ok'
-  );
+  const m = modeled((_method, threadId, client) => {
+    if (client.id <= 1 || !refuse) return 'ok';
+    return threadId === 'a' ? 'hold' : 'fail';
+  });
   await m.show(['a', 'b'], 1);
   await settled();
   for (let i = 0; i < 25; i++) {
@@ -1137,9 +1148,20 @@ function replaceable(first, { handOver = async () => undefined } = {}) {
   const stores = new Set();
   let unbind = () => undefined;
   const bind = () => {
-    const offEvents = client.on((event) => events.forEach((listener) => listener(event)));
-    const offStore = client.store.subscribe((change) => stores.forEach((listener) => listener(change)));
-    unbind = () => (offEvents(), offStore());
+    const offEvents = client.on((event) =>
+      events.forEach((listener) => {
+        listener(event);
+      })
+    );
+    const offStore = client.store.subscribe((change) =>
+      stores.forEach((listener) => {
+        listener(change);
+      })
+    );
+    unbind = () => {
+      offEvents();
+      return offStore();
+    };
   };
   bind();
   return {
@@ -1152,9 +1174,18 @@ function replaceable(first, { handOver = async () => undefined } = {}) {
         await handOver();
         return client.unsubscribeThread(threadId);
       },
-      onEvent: (listener) => (events.add(listener), () => events.delete(listener)),
-      onReplaced: (listener) => (replaced.add(listener), () => replaced.delete(listener)),
-      onStoreChange: (listener) => (stores.add(listener), () => stores.delete(listener)),
+      onEvent: (listener) => {
+        events.add(listener);
+        return () => events.delete(listener);
+      },
+      onReplaced: (listener) => {
+        replaced.add(listener);
+        return () => replaced.delete(listener);
+      },
+      onStoreChange: (listener) => {
+        stores.add(listener);
+        return () => stores.delete(listener);
+      },
     },
     async replace(next) {
       unbind();
@@ -1162,7 +1193,9 @@ function replaceable(first, { handOver = async () => undefined } = {}) {
       client = next;
       bind();
       await old.close();
-      replaced.forEach((listener) => listener());
+      replaced.forEach((listener) => {
+        listener();
+      });
     },
   };
 }
@@ -1197,7 +1230,10 @@ test('real client: a failed unsubscribe is owed until it succeeds; showing again
   const service = createServiceLane({
     protocol: replaceable(client).protocol,
     snapshot: () => HELD,
-    schedule: (run) => (timers.push(run), () => timers.splice(timers.indexOf(run), 1)),
+    schedule: (run) => {
+      timers.push(run);
+      return () => timers.splice(timers.indexOf(run), 1);
+    },
   });
   await service.call('setVisibleSessions', [['a'], 1]);
   await settled();
@@ -1230,7 +1266,10 @@ test('real client: after a replacement whose resume fails, the lane repairs it a
   const service = createServiceLane({
     protocol: link.protocol,
     snapshot: () => HELD,
-    schedule: (run) => (timers.push(run), () => timers.splice(timers.indexOf(run), 1)),
+    schedule: (run) => {
+      timers.push(run);
+      return () => timers.splice(timers.indexOf(run), 1);
+    },
   });
   await service.call('setVisibleSessions', [['a'], 1]);
   await settled();
@@ -1326,7 +1365,10 @@ async function overlappedHide() {
   const sent = [];
   const link = replaceable(client, { handOver: () => gate });
   const send = client.unsubscribeThread.bind(client);
-  client.unsubscribeThread = (threadId) => (sent.push('thread/unsubscribe'), send(threadId));
+  client.unsubscribeThread = (threadId) => {
+    sent.push('thread/unsubscribe');
+    return send(threadId);
+  };
   const service = createServiceLane({ protocol: link.protocol, snapshot: () => HELD, schedule: () => () => undefined });
   await service.call('setVisibleSessions', [['a'], 1]);
   await settled();
@@ -1514,7 +1556,10 @@ test('a newer query of the same consumer ends the older one, which answers what 
       call,
       ...threadCalls(call),
       notify: () => undefined,
-      onEvent: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
+      onEvent: (listener) => {
+        listeners.add(listener);
+        return () => listeners.delete(listener);
+      },
     },
     snapshot: () => HELD,
   });
@@ -1690,7 +1735,12 @@ test('a client with a capability lane sends an approval decision through it, and
   const decided = [];
   const client = new DesktopServiceClient({
     serviceLane: service,
-    capabilityLane: { resolveToolApproval: async (...args) => (decided.push(args), true) },
+    capabilityLane: {
+      resolveToolApproval: async (...args) => {
+        decided.push(args);
+        return true;
+      },
+    },
   });
   assert.equal(await client.resolveToolApprovalForSession('t1', 'a1', { approved: true }), true);
   assert.deepEqual(decided, [['t1', 'a1', { approved: true }]]);
@@ -1730,7 +1780,10 @@ test('a thread the client follows without the lane wanting it is released once i
     },
     snapshot: () => HELD,
     schedule: () => () => undefined,
-    sweep: (run) => (sweeps.push(run), () => sweeps.splice(sweeps.indexOf(run), 1)),
+    sweep: (run) => {
+      sweeps.push(run);
+      return () => sweeps.splice(sweeps.indexOf(run), 1);
+    },
   });
   await service.call('setVisibleSessions', [['shown'], 1]);
   const realNow = Date.now;

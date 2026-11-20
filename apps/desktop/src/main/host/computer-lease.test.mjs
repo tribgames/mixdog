@@ -76,13 +76,24 @@ function served(t) {
     { admit: () => ({ signal: new AbortController().signal, commit() {}, track() {}, trackUnfenced() {} }) },
     nativeForegroundLease(() => fake)
   );
-  t.after(() => closers.forEach((close) => close()));
+  t.after(() =>
+    closers.forEach((close) => {
+      close();
+    })
+  );
   const ask = (params) =>
     handlers.get('host/computer/foregroundLease')(
       { instance: 'computer-1', action: 7, seq: 1, holdMs: 0, answerBy: 0, lease: 0, ...params },
       new AbortController().signal
     );
-  return { ask, close: () => closers.forEach((close) => close()), fake };
+  return {
+    ask,
+    close: () =>
+      closers.forEach((close) => {
+        close();
+      }),
+    fake,
+  };
 }
 test('an acquire is answered with the lease, and its release ends it and carries the action facts', async (t) => {
   const { ask, fake } = served(t);

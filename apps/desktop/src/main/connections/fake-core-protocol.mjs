@@ -9,8 +9,14 @@ export function fakeProtocol(entries = []) {
     calls: [],
     closed: 0,
     snapshot: () => ({ status: 'ready', entries }),
-    onEvent: (listener) => (listeners.add(listener), () => listeners.delete(listener)),
-    emit: (event) => listeners.forEach((listener) => listener(event)),
+    onEvent: (listener) => {
+      listeners.add(listener);
+      return () => listeners.delete(listener);
+    },
+    emit: (event) =>
+      listeners.forEach((listener) => {
+        listener(event);
+      }),
     respond(id, answer) {
       this.sent.push(['respond', id, answer]);
     },
@@ -27,7 +33,9 @@ export function fakeProtocol(entries = []) {
     },
     /** The core's app section `section` now holds `value`. */
     pushSection: (section, value) =>
-      sectionWatchers.get(section)?.forEach((listener) => listener({ section, key: null, revision: 1, value })),
+      sectionWatchers.get(section)?.forEach((listener) => {
+        listener({ section, key: null, revision: 1, value });
+      }),
     // The session lane's readers: no client is open, so nothing is folded and no store change arrives.
     client: () => null,
     whenSynced: async () => {},
@@ -41,9 +49,15 @@ export function fakeProtocol(entries = []) {
     start: async () => {},
     reopen: async () => {},
     ensureOpen: async () => {},
-    onReplaced: (listener) => (replacedListeners.add(listener), () => replacedListeners.delete(listener)),
+    onReplaced: (listener) => {
+      replacedListeners.add(listener);
+      return () => replacedListeners.delete(listener);
+    },
     /** A reopen attached a new client. */
-    replace: () => replacedListeners.forEach((listener) => listener()),
+    replace: () =>
+      replacedListeners.forEach((listener) => {
+        listener();
+      }),
     async close() {
       this.closed += 1;
     },

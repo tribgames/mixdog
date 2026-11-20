@@ -101,7 +101,11 @@ test('progress: a large response is reported while it is still arriving, through
   );
   writer.send('go');
   await new Promise((resolve) => {
-    const timer = setInterval(() => events.includes('frame') && (clearInterval(timer), resolve()), 10);
+    const timer = setInterval(() => {
+      if (!events.includes('frame')) return;
+      clearInterval(timer);
+      resolve();
+    }, 10);
   });
   assert.ok(events.includes('progress'), 'bytes were reported');
   assert.ok(events.indexOf('progress') < events.indexOf('frame'), 'the first report came before the message was whole');
@@ -141,7 +145,10 @@ test('socket-progress: the real ws library still exposes the raw socket this rel
   let serverSide;
   const core = await listener((socket) => (serverSide = socket));
   const client = new WebSocket(core.url);
-  await new Promise((resolve, reject) => (client.once('open', resolve), client.once('error', reject)));
+  await new Promise((resolve, reject) => {
+    client.once('open', resolve);
+    return client.once('error', reject);
+  });
   assert.equal(typeof client._socket?.on, 'function', 'ws keeps the net socket it upgraded as _socket');
   let reports = 0;
   observeSocketProgress(
