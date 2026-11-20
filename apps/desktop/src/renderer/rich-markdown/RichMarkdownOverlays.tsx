@@ -87,7 +87,7 @@ export function RichMarkdownSuggestMenu({
           </div>
         ))
       ) : (
-        <div className="rich-markdown-suggest-empty">{t('No matches')}</div>
+        <div className="rich-markdown-suggest-empty mx-empty-state">{t('No matches')}</div>
       )}
     </div>
   );

@@ -362,7 +362,7 @@ export function TurnReviewFilesMenu({
             onKeyDown={onKeyDown}
           >
             {/* A source picked here with no files keeps the menu, saying so. */}
-            {files.size === 0 && <p className="turn-review-files-empty">{ready ? emptyText : ''}</p>}
+            {files.size === 0 && <p className="turn-review-files-empty mx-empty-state">{ready ? emptyText : ''}</p>}
             {/* Every changed file in one scrolling list; a row opens its diff. */}
             <div ref={list} className="turn-review-files-list">
               {listNodes}

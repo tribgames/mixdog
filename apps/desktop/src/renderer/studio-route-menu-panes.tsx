@@ -217,7 +217,9 @@ export function StudioModelPane({
             </div>
           </section>
         ))}
-        {visibleLanes.length === 0 && !autoVisible && <p className="model-empty">{t('No matching models.')}</p>}
+        {visibleLanes.length === 0 && !autoVisible && (
+          <p className="model-empty mx-empty-state">{t('No matching models.')}</p>
+        )}
       </div>
     </div>
   );

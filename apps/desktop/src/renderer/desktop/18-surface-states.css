@@ -228,3 +228,45 @@
     animation: none;
   }
 }
+/* The ONE empty state: what a pane, panel, dock, list or dialog body shows
+   when it has nothing to show (also its loading / unavailable line). It takes
+   the whole area it stands in for and centres its message, and any action
+   under it, on both axes at every size. Surfaces keep their own type and ink
+   on their own class; only this rule lays the state out. */
+.mx-empty-state {
+  box-sizing: border-box;
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  margin: 0;
+  padding: 16px;
+  text-align: center;
+}
+/* A loading state keeps its spinner beside its line, on one row, so the line
+   itself sits on the centre instead of under a stacked spinner. */
+.mx-empty-state:has(> .progress-spinner-turn) {
+  flex-direction: row;
+}
+/* A cover state lies over the content it stands in for (a browser or screen
+   stage), filling its nearest positioned box. */
+.mx-empty-state-cover {
+  position: absolute;
+  inset: 0;
+}
+/* An in-flow state's container (a block scroller, a grid list, a flex row)
+   lays it out as one column, so the state fills what the container's other
+   children leave free instead of hugging the top. A table cell stays a cell. */
+:not([hidden], td, th):has(> .mx-empty-state:where(:not(.mx-empty-state-cover))) {
+  display: flex;
+  flex-direction: column;
+}
+/* Its siblings keep their block size (headers, windowed-list spacers): only
+   the state gives way when the container is short. */
+:not([hidden], td, th):has(> .mx-empty-state:where(:not(.mx-empty-state-cover))) > :not(.mx-empty-state) {
+  flex-shrink: 0;
+}

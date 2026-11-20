@@ -168,11 +168,6 @@
   display: inline-flex;
   flex: none;
 }
-/* With no bot, a routine view holds the line and the representative bot's
-   action in place of its editor. */
-.schedules-dialog > .routine-needs-bot {
-  padding: 24px 16px;
-}
 /* Attachment chips inside the automation editors reuse the composer chip
    look; the container just needs its own flow inside the dialog card. */
 .schedules-attachments {
@@ -683,17 +678,12 @@
 }
 .projects-memory-viewport.is-empty {
   min-height: 96px;
-  display: grid;
-  place-items: center;
 }
 .projects-memory-empty {
-  margin: 0;
-  padding: 16px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
   font-weight: var(--mx-weight-regular);
   line-height: var(--mx-line-meta);
-  text-align: center;
 }
 .projects-memory-editor .core-memory-list {
   padding: 0;

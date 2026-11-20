@@ -73,7 +73,7 @@ export async function createMixy(run: Run, payload: RecordValue): Promise<boolea
 /** The empty Agents pane before Mixy exists: one action reopens the dialog. */
 export function MixyEmptyState({ onCreate }: { onCreate(): void }) {
   return (
-    <div className="utility-dock-empty mixy-empty">
+    <div className="utility-dock-empty mixy-empty mx-empty-state">
       <p>{t('No bots.')}</p>
       <button type="button" className="mixy-empty-create" onClick={onCreate}>
         {t('Create representative bot')}

@@ -126,10 +126,10 @@ function sessionDiffStatus(
   { loading, ready, unsupported, error }: { loading: boolean; ready: boolean; unsupported: boolean; error: string },
   onRetry: () => void
 ): ReactNode {
-  if (!sessionId) return <p className="utility-dock-empty">{t('Open a session to view its diff.')}</p>;
+  if (!sessionId) return <p className="utility-dock-empty mx-empty-state">{t('Open a session to view its diff.')}</p>;
   if (loading && !ready) return <InitialSurface />;
   if (error) return <ErrorNotice error={error} onRetry={onRetry} />;
-  if (unsupported) return <p className="utility-dock-empty">{t('Session diff is unavailable.')}</p>;
+  if (unsupported) return <p className="utility-dock-empty mx-empty-state">{t('Session diff is unavailable.')}</p>;
   return null;
 }
 
@@ -319,7 +319,7 @@ export function SessionDiffPane({
   if (awaitingFile) body = <InitialSurface />;
   else if (rows.length === 0) {
     body = (
-      <p className="utility-dock-empty">
+      <p className="utility-dock-empty mx-empty-state">
         {repository ? sessionChangesEmptyText(source) : t('No changes from this session.')}
       </p>
     );

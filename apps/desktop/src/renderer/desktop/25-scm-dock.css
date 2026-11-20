@@ -488,11 +488,8 @@
   padding: 2px 0 4px;
 }
 .dock-scm-branch-list > p {
-  margin: 0;
-  padding: 12px 8px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
-  text-align: center;
 }
 /* Quick-pick separators: small muted label over a hairline. */
 .dock-scm-branch-list h3 {
@@ -1109,8 +1106,8 @@
     --dock-scm-gutter: 6px;
   }
 }
-/* Empty + loading states are the side panels' one empty line
-   (10-rail-pages.css) at the top of the scroller, like every other panel. */
+/* Empty + loading states are the shared .mx-empty-state, centred in the
+   scroller like every other panel's. */
 /* History rows: ONE-line summary and a
    `author · relative age` byline (no avatar monogram), on a FIXED row height.
    Nothing inside the row may grow it: the byline, the ref badge and the push
@@ -1945,23 +1942,9 @@
   opacity: var(--mx-op-disabled);
   cursor: default;
 }
-/* Loading + empty states center in the list/detail scrollers the same way:
-   both scrollers are plain blocks, so .utility-dock-empty's flex:1 never
-   stretches there and the spinner hugged the top. */
-.dock-pr-list:has(> .dock-pr-empty),
-.dock-pr-list:has(> .utility-dock-empty),
-.workspace-pr-editor-scroll:has(> .utility-dock-empty) {
-  display: grid;
-  place-items: center;
-}
+/* Loading + empty states are the shared .mx-empty-state (18-surface-states.css). */
 .dock-pr-empty {
-  width: min(226px, calc(100% - 20px));
-  margin: 0 auto;
-  display: grid;
-  justify-items: center;
-  gap: 5px;
   color: var(--mx-text-muted);
-  text-align: center;
 }
 .dock-pr-empty > svg {
   margin-bottom: 3px;
@@ -1995,10 +1978,6 @@
   background: var(--mx-hover);
 }
 .dock-pr-empty-row {
-  min-height: 22px;
-  display: flex;
-  align-items: center;
-  padding: 1px 8px 1px 34px;
   color: var(--mx-text-faint);
   font-size: var(--mx-font-minor);
   line-height: var(--mx-line-ui);
@@ -2639,8 +2618,6 @@ i.dock-pr-row-checks[data-checks="pending"] {
   background: var(--mx-bg-base);
 }
 .dock-scm-commit-diff > p {
-  margin: 0;
-  padding: 10px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
 }
@@ -2824,12 +2801,6 @@ i.dock-pr-row-checks[data-checks="pending"] {
   cursor: default;
 }
 .workspace-git-diff-state {
-  height: 100%;
-  margin: 0;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 7px;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-minor);
 }
@@ -3065,9 +3036,12 @@ button.inline-diff-fold:focus-visible {
   background-image: linear-gradient(var(--mx-text-muted), var(--mx-text-muted));
   outline: none;
 }
-.inline-diff-empty {
+/* A failure note beside a diff still readable is a notice, not the empty state. */
+.inline-diff-empty:not(.mx-empty-state) {
   margin: 0;
   padding: 8px 12px;
+}
+.inline-diff-empty {
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
 }

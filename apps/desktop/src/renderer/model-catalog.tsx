@@ -498,7 +498,7 @@ export function ModelCatalog({
                 </p>
               )}
               {renderedKeys.length === 0 && (
-                <p className="model-empty">
+                <p className="model-empty mx-empty-state">
                   {emptyCatalogText(catalogRefreshing || !catalogLoaded, Boolean(normalizedQuery))}
                 </p>
               )}

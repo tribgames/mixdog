@@ -79,7 +79,7 @@ const HISTORY_RELOAD_KEYS = new Set(['commit', 'push', 'pull', 'sync', 'amend', 
 
 function emptyState(text: string, live = false) {
   return (
-    <p className="utility-dock-empty" role={live ? 'status' : undefined}>
+    <p className="utility-dock-empty mx-empty-state" role={live ? 'status' : undefined}>
       {text}
     </p>
   );
@@ -573,9 +573,11 @@ export function SourceControlDock({
               <RowSpacer edge="leading" height={fileWindow.leading} />
               {visibleFiles.map((file) => fileRow(file))}
               <RowSpacer edge="trailing" height={fileWindow.trailing} />
-              {files.length === 0 && <p className="dock-scm-clean">{t('No changes in this project.')}</p>}
+              {files.length === 0 && (
+                <p className="dock-scm-clean mx-empty-state">{t('No changes in this project.')}</p>
+              )}
               {files.length > 0 && filteredFiles.length === 0 && (
-                <p className="dock-scm-clean">{t('No changed files match the filter.')}</p>
+                <p className="dock-scm-clean mx-empty-state">{t('No changed files match the filter.')}</p>
               )}
             </div>
             <SourceControlCommitForm

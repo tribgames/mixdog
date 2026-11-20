@@ -52,8 +52,8 @@ export function InlinePaneContent({
       alive = false;
     };
   }, [kind, source]);
-  if (!content) return <div className="visualize-empty">{t('Nothing to show.')}</div>;
-  if (state.status === 'loading') return <div className="visualize-empty">{t('Loading…')}</div>;
+  if (!content) return <div className="visualize-empty mx-empty-state">{t('Nothing to show.')}</div>;
+  if (state.status === 'loading') return <div className="visualize-empty mx-empty-state">{t('Loading…')}</div>;
   if (state.status === 'error') {
     return (
       <div className="visualize-inline-error" role="alert">

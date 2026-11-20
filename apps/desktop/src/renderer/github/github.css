@@ -17,7 +17,10 @@
   flex: 1;
   min-width: 0;
 }
+/* The panel takes the dock height under the navigation, so its empty and
+   loading lines centre in the dock. */
 .github-panel {
+  flex: 1 1 auto;
   min-height: 0;
   overflow: auto;
   padding: 12px;

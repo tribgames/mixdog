@@ -17,8 +17,8 @@
   color: var(--mx-chart-gold);
 }
 
-/* The Agents pane before Mixy exists: .utility-dock-empty centres the line
-   and this button. */
+/* The Agents pane before Mixy exists: .mx-empty-state centres the line and
+   this button. */
 .mixy-empty-create {
   min-height: 32px;
   padding: 0 14px;

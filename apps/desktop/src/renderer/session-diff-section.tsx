@@ -48,33 +48,38 @@ function sectionBody(
   onOpenFile: (() => void) | undefined
 ) {
   if (collapsed) return null;
-  if (row.reason) return <p className="inline-diff-empty">{t('No diff was recorded for this file.')}</p>;
+  if (row.reason) return <p className="inline-diff-empty mx-empty-state">{t('No diff was recorded for this file.')}</p>;
   if (sessionDiffRowTooLarge(row)) {
     return (
-      <p className="inline-diff-empty session-diff-too-large">
-        {t('This file is too large to display here.')}
-        {onOpenFile && (
-          <>
-            {' · '}
-            <button
-              type="button"
-              className="session-diff-open-in-editor"
-              disabled={row.status === 'D'}
-              onClick={onOpenFile}
-            >
-              {t('Open in editor')}
-            </button>
-          </>
-        )}
+      <p className="inline-diff-empty session-diff-too-large mx-empty-state">
+        {/* One line: the action reads as an inline link after the note. */}
+        <span>
+          {t('This file is too large to display here.')}
+          {onOpenFile && (
+            <>
+              {' · '}
+              <button
+                type="button"
+                className="session-diff-open-in-editor"
+                disabled={row.status === 'D'}
+                onClick={onOpenFile}
+              >
+                {t('Open in editor')}
+              </button>
+            </>
+          )}
+        </span>
       </p>
     );
   }
-  if (row.patchPending) return <p className="inline-diff-empty">{t('Loading diff…')}</p>;
-  const failed = row.patchFailed ? (
-    <p className="inline-diff-empty">{t('Could not load this diff. Refresh to try again.')}</p>
-  ) : null;
+  if (row.patchPending) return <p className="inline-diff-empty mx-empty-state">{t('Loading diff…')}</p>;
+  const failedText = t('Could not load this diff. Refresh to try again.');
+  // With nothing readable the failure stands in for the diff.
+  if (row.patchFailed && row.parts.length === 0) {
+    return <p className="inline-diff-empty mx-empty-state">{failedText}</p>;
+  }
   // A newer read that failed keeps the last text readable, with the failure beside it.
-  if (failed && row.parts.length === 0) return failed;
+  const failed = row.patchFailed ? <p className="inline-diff-empty">{failedText}</p> : null;
   return (
     <>
       {failed}

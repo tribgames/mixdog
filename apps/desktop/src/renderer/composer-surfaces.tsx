@@ -228,7 +228,11 @@ export function MentionPalette({
           </React.Fragment>
         );
       })}
-      {items.length === 0 && <p role="status">{loading ? t('Searching project files…') : t('No matching files.')}</p>}
+      {items.length === 0 && (
+        <p className="mx-empty-state" role="status">
+          {loading ? t('Searching project files…') : t('No matching files.')}
+        </p>
+      )}
     </ComposerPalette>
   );
 }
@@ -292,18 +296,25 @@ export function SkillMentionPalette({
           <span className="skill-mention-description">{skill.description}</span>
         </button>
       ))}
-      {results.length === 0 && available && <p role="status">{t('No matching skills.')}</p>}
+      {results.length === 0 && available && (
+        <p className="mx-empty-state" role="status">
+          {t('No matching skills.')}
+        </p>
+      )}
       {!available && (
-        <p role="status">
-          {t('No skills are on.')}{' '}
-          <button
-            type="button"
-            className="skill-mention-settings"
-            onMouseDown={preventFocusSteal}
-            onClick={onOpenSkillSettings}
-          >
-            {t('Open skill settings')}
-          </button>
+        <p className="mx-empty-state" role="status">
+          {/* One line: the settings link reads inline after the note. */}
+          <span>
+            {t('No skills are on.')}{' '}
+            <button
+              type="button"
+              className="skill-mention-settings"
+              onMouseDown={preventFocusSteal}
+              onClick={onOpenSkillSettings}
+            >
+              {t('Open skill settings')}
+            </button>
+          </span>
         </p>
       )}
     </ComposerPalette>

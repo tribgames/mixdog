@@ -191,7 +191,7 @@ export function CommandSurface({
                 </p>
                 {surface === 'stats' && error && <ErrorNotice error={error} className="stats-error" />}
                 {!showStatsErrorOnly && showLoadingPlaceholder && (
-                  <p className="settings-loading" role="status">
+                  <p className="settings-loading mx-empty-state" role="status">
                     {t('Loading…')}
                   </p>
                 )}

@@ -177,7 +177,11 @@ function SessionSearchDialog({ sessions, onOpenSession, onClose }: SessionSearch
             }
           }}
         >
-          {rows.length === 0 && !contentPending && <p role="status">{t('No matching sessions')}</p>}
+          {rows.length === 0 && !contentPending && (
+            <p className="mx-empty-state" role="status">
+              {t('No matching sessions')}
+            </p>
+          )}
           {rows.length > 0 && (
             <div className="session-search-heading" role="presentation">
               {t('Sessions')}

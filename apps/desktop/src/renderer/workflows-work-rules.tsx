@@ -95,7 +95,7 @@ export function WorkRulesSection({
         </div>
       )}
       {workflows.length === 0 && (
-        <div className="utility-dock-empty">
+        <div className="utility-dock-empty mx-empty-state">
           <p>{t('No workflows.')}</p>
         </div>
       )}

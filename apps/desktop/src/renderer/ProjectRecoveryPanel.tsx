@@ -151,9 +151,13 @@ export function ProjectRecoveryPanel({
           {labels.refresh}
         </button>
       </header>
-      {pending && <p role="status">{labels.busy}</p>}
+      {pending && (
+        <p className={records.length ? undefined : 'mx-empty-state'} role="status">
+          {labels.busy}
+        </p>
+      )}
       {failed && <p role="alert">{labels.failures?.[recoveryFailureCode(failure)!] ?? labels.failure}</p>}
-      {!pending && !failed && !records.length && <p>{labels.empty}</p>}
+      {!pending && !failed && !records.length && <p className="mx-empty-state">{labels.empty}</p>}
       <ul>
         {records.map((record) => (
           <li key={record.id}>

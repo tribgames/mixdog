@@ -163,7 +163,7 @@ export function RoutinesPane({
       {loading ? (
         <InitialSurface />
       ) : !schedules.length && !webhooks.length ? (
-        <p className="utility-dock-empty">{t('No routines.')}</p>
+        <p className="utility-dock-empty mx-empty-state">{t('No routines.')}</p>
       ) : (
         <>
           {schedules.length > 0 && (

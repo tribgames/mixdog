@@ -333,13 +333,9 @@
 /* Detail pane: a 48px bar in the dialog header's grammar (icon slot · title ·
    meta · icon slot), then the scrolling list or preview under it. */
 .context-detail-empty {
-  flex: 1 1 auto;
-  display: grid;
-  place-items: center;
   min-height: 160px;
   color: var(--mx-text-faint);
   font-size: var(--mx-font-minor);
-  text-align: center;
 }
 .context-detail-empty p {
   margin: 0;
@@ -622,9 +618,11 @@
   min-width: 72px;
   text-align: right;
 }
-.context-entry-list p {
+.context-entry-list p:not(.mx-empty-state) {
   margin: 0;
   padding: 10px 12px;
+}
+.context-entry-list p {
   color: var(--mx-text-faint);
   font-size: var(--mx-font-minor);
 }

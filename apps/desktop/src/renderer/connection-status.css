@@ -75,21 +75,18 @@ html[data-connection-down] .composer {
   position: relative;
 }
 .terminal-connection-note {
-  position: absolute;
-  inset: auto 12px 12px auto;
   z-index: 2;
-  padding: 4px 10px;
-  border-radius: var(--mx-radius-pill);
   color: var(--mx-text-muted);
   background: var(--mx-bg-layer-1);
-  box-shadow: var(--mx-card-outline);
   font-size: var(--mx-font-meta);
   pointer-events: none;
 }
-.terminal-connection-note[data-kind="unavailable"] {
-  inset: 0;
-  display: grid;
-  place-items: center;
-  border-radius: 0;
-  box-shadow: none;
+/* The reconnecting pill in the corner; a server without terminals covers
+   the pane with the shared .mx-empty-state instead. */
+.terminal-connection-note:not(.mx-empty-state) {
+  position: absolute;
+  inset: auto 12px 12px auto;
+  padding: 4px 10px;
+  border-radius: var(--mx-radius-pill);
+  box-shadow: var(--mx-card-outline);
 }

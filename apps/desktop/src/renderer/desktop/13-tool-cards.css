@@ -2103,7 +2103,8 @@ button[data-copied="true"] > svg {
   flex-direction: column;
 }
 /* `.utility-dock-empty` (and the Agents pane's legacy `.schedules-empty`)
-   share the side panels' one empty state in 10-rail-pages.css. */
+   wear the side panels' empty-state type (10-rail-pages.css) on the shared
+   .mx-empty-state layout (18-surface-states.css). */
 .live-activity {
   height: auto;
   /* ONE band height (24px) shared by the slot below and the status row inside

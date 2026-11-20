@@ -257,25 +257,25 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
   if (!cwd)
     return (
       <div className="review-pane">
-        <p className="review-empty">{t('Select a project to review changes.')}</p>
+        <p className="review-empty mx-empty-state">{t('Select a project to review changes.')}</p>
       </div>
     );
   if (readError)
     return (
       <div className="review-pane">
-        <p className="review-empty">{readError}</p>
+        <p className="review-empty mx-empty-state">{readError}</p>
       </div>
     );
   if (!status)
     return (
       <div className="review-pane">
-        <p className="review-empty">{t('Loading review…')}</p>
+        <p className="review-empty mx-empty-state">{t('Loading review…')}</p>
       </div>
     );
   if (!status.repository)
     return (
       <div className="review-pane">
-        <p className="review-empty">{t('Not a git repository.')}</p>
+        <p className="review-empty mx-empty-state">{t('Not a git repository.')}</p>
       </div>
     );
   const changed = review?.files ?? [];
@@ -342,7 +342,7 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
       {actionError && <SourceControlErrorNotice error={actionError} className="review-git-error" />}
       <div className="review-scroll">
         {changed.length === 0 && (
-          <div className="review-empty-state">
+          <div className="review-empty-state mx-empty-state">
             <p className="review-empty">
               {base === 'HEAD' ? t('Working tree clean.') : t('No changes vs {{base}}.', { base })}
             </p>
@@ -384,13 +384,13 @@ export function ReviewPane({ cwd }: { cwd: string | null }) {
                 </div>
               );
             } else if (patch === undefined || patch === null) {
-              fileBody = <p className="review-empty">{t('Loading diff…')}</p>;
+              fileBody = <p className="review-empty mx-empty-state">{t('Loading diff…')}</p>;
             } else if (typeof patch === 'object') {
-              fileBody = <p className="review-empty">{patch.error}</p>;
+              fileBody = <p className="review-empty mx-empty-state">{patch.error}</p>;
             } else if (patch) {
               fileBody = <GitFileDiff patch={patch} mode={diffStyle} />;
             } else {
-              fileBody = <p className="review-empty">{t('No textual diff for this file.')}</p>;
+              fileBody = <p className="review-empty mx-empty-state">{t('No textual diff for this file.')}</p>;
             }
             return (
               <section className="review-file" data-open={open || undefined} key={file.path}>

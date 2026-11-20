@@ -144,7 +144,7 @@ function ImportFilters({ listing, busy }: { listing: ImportListing; busy: boolea
 function ImportEmptyState({ listing, onChooseFile }: { listing: ImportListing; onChooseFile(): void }) {
   const sourceName = SOURCES.find((entry) => entry.value === listing.source)?.label ?? '';
   return (
-    <div className="settings-import-empty">
+    <div className="settings-import-empty mx-empty-state">
       <b>{EMPTY_TITLES[listing.source]()}</b>
       <p>{t('No conversations were found in:')}</p>
       <code>{listing.list?.searchedRoot}</code>
@@ -202,9 +202,10 @@ function ImportListView({ listing, busy }: { listing: ImportListing; busy: boole
           />
         ))}
         {list && rows.length === 0 && list.complete && (
-          <p className="settings-import-note">{t('No conversations match your filters.')}</p>
+          <p className="settings-import-note mx-empty-state">{t('No conversations match your filters.')}</p>
         )}
-        {((listing.loading && !list) || listing.loadingMore) && <p className="settings-import-note">{t('Loading…')}</p>}
+        {listing.loading && !list && <p className="settings-import-note mx-empty-state">{t('Loading…')}</p>}
+        {listing.loadingMore && !(listing.loading && !list) && <p className="settings-import-note">{t('Loading…')}</p>}
         {listing.listError && (
           <p className="settings-import-note" role="alert">
             {t('Conversations could not be listed.')}

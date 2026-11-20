@@ -31,7 +31,7 @@ export function EditorPaneNoticeSurface({ breadcrumbs, children }: { breadcrumbs
   return (
     <div className="editor-pane">
       {breadcrumbs}
-      <div className="editor-pane-notice">{children}</div>
+      <div className="editor-pane-notice mx-empty-state">{children}</div>
     </div>
   );
 }
@@ -256,7 +256,7 @@ export function EditorPanePreviewSurface({
   const body = (zoom: { scale: number } | null) => (
     <>
       {!loaded && !error && (
-        <div className="editor-pane-preview-loading" role="status">
+        <div className="editor-pane-preview-loading mx-empty-state mx-empty-state-cover" role="status">
           <ProgressSpinner size={16} className="editor-pane-spinner" aria-hidden="true" />
           <p>{t('Loading preview…')}</p>
         </div>

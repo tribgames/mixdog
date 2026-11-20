@@ -68,7 +68,7 @@ export class SidebarPanelBoundary extends Component<
         aria-hidden={active ? undefined : true}
       >
         <div className="schedules-page">
-          <div className="schedules-empty" role="status">
+          <div className="schedules-empty mx-empty-state" role="status">
             <p>{t('{{label}} could not be loaded.', { label: t(label) })}</p>
             <button type="button" className="sidebar-panel-retry" onClick={this.retry}>
               {t('Retry')}

@@ -371,7 +371,7 @@ export function SkillsPanel({
       )}
       {skills.length === 0 &&
         (sectionLoaded(data, 'skills') ? (
-          <div className="utility-dock-empty">
+          <div className="utility-dock-empty mx-empty-state">
             <p>{t('No skills.')}</p>
           </div>
         ) : (

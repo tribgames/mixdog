@@ -213,7 +213,7 @@ export function FileDiffBody({
 }) {
   const hunks = useMemo(() => patchHunks(patch), [patch]);
   if (mode === 'split') return <GitFileDiff patch={patch} mode="split" hideHunkHeader={hideHunkHeader} />;
-  if (hunks.length === 0) return <p className="inline-diff-empty">{t('No textual differences.')}</p>;
+  if (hunks.length === 0) return <p className="inline-diff-empty mx-empty-state">{t('No textual differences.')}</p>;
   return <InlineDiff hunks={hunks} language={language} whole={whole} />;
 }
 

@@ -141,9 +141,11 @@ export function CallHierarchyPeek({
         }}
       >
         <div className="editor-call-hierarchy-preview">
-          {preview?.loading && <p>{t('Loading…')}</p>}
-          {preview && !preview.loading && preview.error && <p>{preview.error}</p>}
-          {!preview && <p>{state.error || (state.loading ? t('Loading…') : t('No results'))}</p>}
+          {preview?.loading && <p className="mx-empty-state">{t('Loading…')}</p>}
+          {preview && !preview.loading && preview.error && <p className="mx-empty-state">{preview.error}</p>}
+          {!preview && (
+            <p className="mx-empty-state">{state.error || (state.loading ? t('Loading…') : t('No results'))}</p>
+          )}
           {preview && !preview.loading && !preview.error && (
             <Editor
               key={preview.itemKey}
@@ -215,10 +217,10 @@ export function CallHierarchyPeek({
           aria-label={state.direction === 'incoming' ? t('Incoming Calls') : t('Outgoing Calls')}
           tabIndex={0}
         >
-          {state.loading && <p>{t('Loading…')}</p>}
-          {!state.loading && state.error && <p>{state.error}</p>}
+          {state.loading && <p className="mx-empty-state">{t('Loading…')}</p>}
+          {!state.loading && state.error && <p className="mx-empty-state">{state.error}</p>}
           {!state.loading && !state.error && !state.rows.length && (
-            <p>
+            <p className="mx-empty-state">
               {state.direction === 'incoming'
                 ? t("No callers of '{{name}}'", { name: state.root?.name || '' })
                 : t("No calls from '{{name}}'", { name: state.root?.name || '' })}

@@ -203,8 +203,9 @@ function DetectedList({
   onForward(port: number): void;
 }) {
   if (view.scanError) return <p className="conn-field-msg conn-field-msg--error">{view.scanError}</p>;
-  if (!view.detected) return <p className="conn-empty">{t('Checking the server’s ports…')}</p>;
-  if (view.detected.length === 0) return <p className="conn-empty">{t('Nothing is listening on the server.')}</p>;
+  if (!view.detected) return <p className="conn-empty mx-empty-state">{t('Checking the server’s ports…')}</p>;
+  if (view.detected.length === 0)
+    return <p className="conn-empty mx-empty-state">{t('Nothing is listening on the server.')}</p>;
   return (
     <div className="conn-list">
       {view.detected.map((port) => (
@@ -322,7 +323,9 @@ export function ServerPortsPanel({ active }: { active: boolean }) {
             ))}
           </div>
         ) : (
-          <p className="conn-empty">{t('No ports are forwarded. Forward one to open it at 127.0.0.1 on this PC.')}</p>
+          <p className="conn-empty mx-empty-state">
+            {t('No ports are forwarded. Forward one to open it at 127.0.0.1 on this PC.')}
+          </p>
         )}
       </section>
       <section className="conn-group">

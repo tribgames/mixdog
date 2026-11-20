@@ -137,7 +137,7 @@ export default function EditorSideMarkdownPreview({
         <div className="editor-md-layout">
           <div className="editor-md-surface" ref={surfaceRef}>
             {error ? (
-              <div className="editor-pane-notice" role="alert">
+              <div className="editor-pane-notice mx-empty-state" role="alert">
                 {error}
               </div>
             ) : (

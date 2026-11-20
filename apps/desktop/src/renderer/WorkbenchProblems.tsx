@@ -251,10 +251,10 @@ export const WorkbenchProblemsPane = memo(function WorkbenchProblemsPane({
     else if (event.key === 'Enter') openProblem(problem);
   };
 
-  if (!projectPath) return <p className="utility-dock-empty">{t('Open a project to view problems.')}</p>;
+  if (!projectPath) return <p className="utility-dock-empty mx-empty-state">{t('Open a project to view problems.')}</p>;
   if (!rows.length) {
     return (
-      <p className="utility-dock-empty">
+      <p className="utility-dock-empty mx-empty-state">
         {filter.query || filter.activeFileOnly
           ? t('No problems match the current filters.')
           : t('No problems detected.')}

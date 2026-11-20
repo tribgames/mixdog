@@ -82,11 +82,11 @@
 .browser-device-list,
 .browser-page-prompt .mx-dialog-body .browser-device-empty {
   margin-top: 12px;
-  padding: 4px;
   border-radius: var(--mx-radius-md);
   background: var(--mx-bg-layer-1);
 }
 .browser-device-list {
+  padding: 4px;
   min-width: 0;
   display: grid;
   gap: 2px;
@@ -145,13 +145,8 @@
 }
 .browser-page-prompt .mx-dialog-body .browser-device-empty {
   min-height: 72px;
-  padding: 12px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   color: var(--mx-text-muted);
   font-size: var(--mx-font-meta);
-  text-align: center;
 }
 /* A permission prompt's "how long to remember" choice: label and select on
    one line, wrapping under each other when the card is narrow. */

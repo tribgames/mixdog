@@ -221,8 +221,10 @@ export function SourceControlBranchPicker({
               </button>
             </header>
             <div className="dock-scm-branch-list">
-              {loading && <p>{t('Loading branches…')}</p>}
-              {!loading && visibleBranches.length === 0 && <p>{t('No matching branches.')}</p>}
+              {loading && <p className="mx-empty-state">{t('Loading branches…')}</p>}
+              {!loading && visibleBranches.length === 0 && (
+                <p className="mx-empty-state">{t('No matching branches.')}</p>
+              )}
               {(
                 [
                   [t('Default branch'), defaultBranch ? [defaultBranch] : []],

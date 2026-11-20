@@ -24,7 +24,7 @@ export function BrandTile({ crop = false }: { crop?: boolean } = {}): React.JSX.
 export function WorkspaceEmptyState(): React.JSX.Element {
   const phone = usePhoneSurfaceMarked();
   return (
-    <div className="workspace-empty" data-testid="workspace-empty">
+    <div className="workspace-empty mx-empty-state" data-testid="workspace-empty">
       <div className="thread-welcome">
         <span className="welcome-logo" aria-hidden="true">
           <BrandTile crop />

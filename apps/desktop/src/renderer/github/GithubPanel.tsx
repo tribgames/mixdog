@@ -302,7 +302,11 @@ export function GithubPanel({
       </div>
       {error && <ErrorNotice error={error} />}
       {notice && <p role="status">{notice}</p>}
-      {loading && <p role="status">{t('Loading…')}</p>}
+      {loading && (
+        <p className="mx-empty-state" role="status">
+          {t('Loading…')}
+        </p>
+      )}
       {form && (
         <GithubActionForm
           key={`${form.action}:${form.id || form.number || ''}`}
@@ -342,7 +346,7 @@ export function GithubPanel({
       )}
       {!form && !detail && (
         <>
-          {!loading && !error && items.length === 0 && <p>{t('No items on this page.')}</p>}
+          {!loading && !error && items.length === 0 && <p className="mx-empty-state">{t('No items on this page.')}</p>}
           {/* biome-ignore lint/a11y/useSemanticElements: the list container must stay a div; role="list" gives it list semantics */}
           <div className="github-list" role="list">
             {items.map((item) => (

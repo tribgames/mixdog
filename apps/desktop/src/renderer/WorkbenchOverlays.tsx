@@ -414,7 +414,11 @@ export function WorkbenchQuickAccess({
           />
         </div>
         <div className="workbench-quick-results" role="listbox" aria-label={commandMode ? t('Commands') : t('Files')}>
-          {rows.length === 0 && <p role="status">{listMessage}</p>}
+          {rows.length === 0 && (
+            <p className="mx-empty-state" role="status">
+              {listMessage}
+            </p>
+          )}
           {rows.map((row, index) => {
             if (row.kind === 'command') {
               return (

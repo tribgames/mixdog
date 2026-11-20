@@ -132,15 +132,15 @@ export function BreadcrumbPicker({
       )}
       <div className="editor-breadcrumb-picker-tree" role="tree">
         {picker.kind === 'files' && picker.loading && (
-          <p>
+          <p className="mx-empty-state">
             <ProgressSpinner size={14} className="editor-pane-spinner" /> {t('Loading…')}
           </p>
         )}
-        {picker.kind === 'files' && !picker.loading && picker.error && <p>{picker.error}</p>}
+        {picker.kind === 'files' && !picker.loading && picker.error && <p className="mx-empty-state">{picker.error}</p>}
         {picker.kind === 'files' && !picker.loading && !picker.error && !picker.rows.length && (
-          <p>{t('No files found.')}</p>
+          <p className="mx-empty-state">{t('No files found.')}</p>
         )}
-        {picker.kind === 'symbols' && !picker.rows.length && <p>{t('No symbols found.')}</p>}
+        {picker.kind === 'symbols' && !picker.rows.length && <p className="mx-empty-state">{t('No symbols found.')}</p>}
         {picker.rows.map((item, index) => {
           const fileItem = picker.kind === 'files' ? (item as BreadcrumbFileItem) : null;
           const symbolItem = picker.kind === 'symbols' ? (item as EditorOutlineItem) : null;

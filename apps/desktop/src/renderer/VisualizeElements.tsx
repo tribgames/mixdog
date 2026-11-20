@@ -279,7 +279,7 @@ function InspectionReport({
           ))}
         </ul>
       ) : (
-        <p className="visualize-elements-empty">{t('No layout findings.')}</p>
+        <p className="visualize-elements-empty mx-empty-state">{t('No layout findings.')}</p>
       )}
       {inspection.outline.length ? (
         <>
@@ -386,7 +386,7 @@ export function VisualizeElements({
             {reading.state === 'ready' ? (
               <InspectionReport inspection={reading.inspection} hover={hover} pin={pin} />
             ) : (
-              <p className="visualize-elements-empty">{unreadyMessage(reading)}</p>
+              <p className="visualize-elements-empty mx-empty-state">{unreadyMessage(reading)}</p>
             )}
           </div>
         );

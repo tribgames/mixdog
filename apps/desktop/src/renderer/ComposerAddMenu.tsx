@@ -200,8 +200,12 @@ function renderComposerAddMenuPanel({
               </span>
             </button>
             <div className="composer-add-heading">{t('Skills')}</div>
-            {loading && <p role="status">{t('Loading skills…')}</p>}
-            {!loading && !skills.length && !error && <p>{t('No enabled skills.')}</p>}
+            {loading && (
+              <p className="mx-empty-state" role="status">
+                {t('Loading skills…')}
+              </p>
+            )}
+            {!loading && !skills.length && !error && <p className="mx-empty-state">{t('No enabled skills.')}</p>}
             {skills.map((skill) => renderComposerSkillEntry(skill, dismiss, onSkill))}
             {/* biome-ignore lint/a11y/useSemanticElements: the divider element must stay a div to keep DOM and styling */}
             <div className="composer-add-divider" role="separator" />
