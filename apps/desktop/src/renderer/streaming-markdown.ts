@@ -29,12 +29,12 @@ interface StreamingMarkdownParts {
 /* Safety valve, not a rendering mode. The streaming projection normally has
  * no size cap: every projection
  * re-lexes the whole response, freezes all but the last token, and heals that
- * last token so it is always parsed. Our 8 KiB cap fired on ordinary output —
- * one long list or an open fence has no stable boundary, so the whole tail
- * crossed it mid-stream and the reader watched raw `**`/`##` markers appear
- * (user: 스크립트 완성되기 전에 원문이 나온다). 64 KiB only guards against a
+ * last token so it is always parsed. A small cap would fire on ordinary
+ * output — one long list or an open fence has no stable boundary, so the
+ * whole tail would cross it mid-stream and the reader would watch raw
+ * `**`/`##` markers appear. 64 KiB only guards against a
  * pathological unbounded tail; below it the tail always parses, and above it
- * the renderer now holds the last completed parse instead of dropping to
+ * the renderer holds the last completed parse instead of dropping to
  * source (StreamingMarkdownBody). */
 export const MAX_STREAMING_UNSTABLE_MARKDOWN_CHARS = 64 * 1024;
 const STREAM_APPEND_PROBE_CHARS = 128;
@@ -152,12 +152,11 @@ function stableMarkdownBoundaries(text: string, cache: StreamingMarkdownCache): 
 }
 
 /* Top-level block starts of a CommonMark document, exactly where remark-parse
- * (micromark) places `root.children[i].position.start.offset`. The streaming
- * projection used to run the full main-thread parser over the live tail on
- * every token flush only to read those offsets (~160 ms per stream on a
- * throttled phone). This is the spec's line-oriented block phase (container
- * continuation, block starts, lazy continuation) without inline parsing, and
- * with micromark's deviations: indented code interrupts like a paragraph for
+ * (micromark) places `root.children[i].position.start.offset`. Running the
+ * full main-thread parser over the live tail on every token flush only to
+ * read those offsets cost ~160 ms per stream on a throttled phone, so this is
+ * the spec's line-oriented block phase (container continuation, block starts,
+ * lazy continuation) without inline parsing, and with micromark's deviations: indented code interrupts like a paragraph for
  * list items, an interrupting ordered item must be literally `1`, complete
  * HTML tags (condition 7) start on lazy lines, and link reference
  * definitions split the paragraph they open. */
@@ -513,7 +512,7 @@ class MarkdownBlockScanner {
         const toTab = 4 - (this.column % 4);
         if (columns) {
           this.partiallyConsumedTab = toTab > remaining;
-          const advance = toTab > remaining ? remaining : toTab;
+          const advance = Math.min(toTab, remaining);
           this.column += advance;
           this.offset += this.partiallyConsumedTab ? 0 : 1;
           remaining -= advance;
@@ -854,8 +853,8 @@ export function resolveStreamingMarkdownChunks(
   }
   if (!streaming) {
     // Keep already-parsed blocks mounted when the stream settles. Resetting
-    // here used to make the final token reparse the complete response in one
-    // renderer task, even though most blocks had already been frozen.
+    // here would reparse the complete response in one renderer task, even
+    // though most blocks had already been frozen.
     if (cache.stableText && value.startsWith(cache.stableText)) {
       cache.sourceText = value;
       return {

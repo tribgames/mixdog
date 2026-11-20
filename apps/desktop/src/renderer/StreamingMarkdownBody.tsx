@@ -134,9 +134,8 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   // chunk is cut to its frozen block every time the next block starts, and
   // dropping the stale parse there blanked the block (and the tail below it)
   // for a whole worker round trip: the transcript collapsed and regrew at
-  // every paragraph (user: 웹앱에서 트랜스크립트가 튄다). The stale parse is
-  // one worker round trip old and is replaced by the parse of the text on
-  // screen as soon as it lands.
+  // every paragraph. The stale parse is one worker round trip old and is
+  // replaced by the parse of the text on screen as soon as it lands.
   const synced = lastSync.current;
   const usable =
     (syncRoot ? synced : null) ??
@@ -165,9 +164,8 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
       // Requiring an EXACT match here meant that whenever the worker was
       // slower than the 20 Hz publication cadence every result was discarded,
       // so the live tail kept its raw "**"/"`" markers for the whole stream
-      // and only styled itself once output stopped (user: 문장이 완성되기
-      // 전까지 마크다운 포맷이 적용 안 된다). A result whose source is still a
-      // prefix of the current text is promoted instead, exactly like
+      // and only styled itself once output stopped. A result whose source is
+      // still a prefix of the current text is promoted instead, exactly like
       // the last completed parse.
       if (requestedText.current !== parsedText && !requestedSource.current.startsWith(source)) {
         return;
@@ -206,8 +204,7 @@ const ParsedMarkdownBody = memo(function ParsedMarkdownBody({
   if (showFencedSourceFallback) {
     // The projection only reserves geometry. Entry still waits for the parse:
     // revealing the projection and then swapping in the AST re-wrapped prose
-    // and recoloured code in front of the reader (user: 세션 불러올 때 문자가
-    // 재배열되는 느낌).
+    // and recoloured code in front of the reader.
     return (
       <>
         <MarkdownSourceFallback text={text} copyControl={copyControl} />

@@ -200,7 +200,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
       {!loading && (
         <>
           {/* The panel is titled Workflows already; the list under it is named
-          for what it holds (user: 워크플로우 두 개 붙어 있는 게 어색해서). */}
+          for what it holds. */}
           <WorkRulesSection
             workflows={workflows}
             orderedWorkflows={orderedWorkflows}
@@ -273,7 +273,7 @@ export function WorkflowsPane({ api = window.mixdogDesktop, active = true }: { a
               >
                 <AgentRowIcon route={webSearchRoute} fallback="web" />
                 <span className="schedules-row-copy utilities-row-copy">
-                  {/* Agent names stay as named, like every other row (user: 워커명이 왜 저거만 한글이야). */}
+                  {/* Agent names stay as named, like every other row. */}
                   <b>Web Search</b>
                   <AgentRouteSummaryView
                     summary={agentRouteSummary(webSearchRoute, webSearchModels, { webSearch: true })}

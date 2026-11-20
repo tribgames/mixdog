@@ -2,8 +2,8 @@ import { createContext, useContext, useEffect, useRef, useState, type CSSPropert
 
 // An expanded tool result mounts only the rows near its panel's viewport. The
 // panel is a scroll box of capped height, so most of a long result is never on
-// screen, yet every row of it used to be in the DOM while the call stayed open
-// (34 opened calls held 3,900 rows, 21k nodes and ~90 MB).
+// screen, yet mounting every row would keep it all in the DOM while the call
+// stays open (34 opened calls held 3,900 rows, 21k nodes and ~90 MB).
 //
 // Each code of the result is cut into windows of at most TOOL_WINDOW_ROWS
 // rows; section headers stay, so every file link is there to tab to. A window

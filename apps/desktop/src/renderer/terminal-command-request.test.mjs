@@ -104,9 +104,17 @@ test('Run controls follow a terminal host registered after the first render', as
 function withWindow(claims, delays = []) {
   const previous = globalThis.window;
   globalThis.window = {
-    setTimeout: (callback, delay) => (delays.push(delay), globalThis.setTimeout(callback, delay)),
+    setTimeout: (callback, delay) => {
+      delays.push(delay);
+      return globalThis.setTimeout(callback, delay);
+    },
     clearTimeout: globalThis.clearTimeout.bind(globalThis),
-    mixdogDesktop: { claimTerminalRun: async (requestId) => (claims.push(requestId), true) },
+    mixdogDesktop: {
+      claimTerminalRun: async (requestId) => {
+        claims.push(requestId);
+        return true;
+      },
+    },
   };
   return () => {
     globalThis.window = previous;

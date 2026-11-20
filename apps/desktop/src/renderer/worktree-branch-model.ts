@@ -560,10 +560,10 @@ export async function sendDraftWithWorktreeIntent<T extends { accepted?: unknown
   const fromDefault = defaultIntents.has(key);
   const worktree = takeWorktreeIntent(key);
   let started = false;
+  const intentFields = selected ?? (fromDefault ? { fromDefault: true } : null);
   try {
     const result = await submitDraftWithWorktree(
-      (options) =>
-        send(selected ? { ...options, ...selected } : fromDefault ? { ...options, fromDefault: true } : options),
+      (options) => send(intentFields ? { ...options, ...intentFields } : options),
       worktree,
       confirm
     );

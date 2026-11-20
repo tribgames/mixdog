@@ -1,7 +1,7 @@
 // The Windows min/max/close controls live in a NATIVE overlay (WCO): DOM
-// scrims cannot paint over them, so a fullscreen modal used to dim the whole
-// app EXCEPT that band, which stayed at the full-brightness theme color
-// (user: 딤드도 안 먹고 색도 튀던데). While at least one fullscreen scrim
+// scrims cannot paint over them, so a fullscreen modal would dim the whole
+// app EXCEPT that band, which would stay at the full-brightness theme color.
+// While at least one fullscreen scrim
 // holds a claim here, the scrim-composited band/symbol colors ride the
 // native overlay itself; releasing the last claim restores the theme band.
 import { isElectronRenderer } from './remote-ui-projection';
@@ -91,7 +91,7 @@ function visibleScrims(): Rgba[] {
       if (!color) return null;
       // A fading scrim animates ELEMENT opacity, not its background alpha:
       // fold it in so the native band tracks the fade instead of jumping to
-      // the settled color a beat early (user: 딤드될 때 혼자 튀어 보임).
+      // the settled color a beat early.
       const opacity = Number.parseFloat(style.opacity);
       return Number.isFinite(opacity) ? { ...color, a: color.a * opacity } : color;
     })
@@ -146,7 +146,7 @@ function followCaption(durationMs = 450): void {
 
 /** The caption band is native chrome, so its colors are PUSHED from the theme
  *  tokens: pure black/white symbols read heavier than the DOM icons beside
- *  them (user: 아이콘이랑 최대최소닫기 색감이 동떨어져 있다). While a modal
+ *  them. While a modal
  *  holds a claim, the same scrim is composited on top of both. */
 /** Returns whether the composited colors changed since the last send. */
 function sendCaption(): boolean {
@@ -155,8 +155,7 @@ function sendCaption(): boolean {
   // layout on every frame of a dialog's open and close.
   if (!isElectronRenderer()) return false;
   // Prefer the ACTUAL painted titlebar over the token: the caption band must
-  // read as one surface with the strip beside it (user: 배경이랑 완전히
-  // 동화됐으면), even if a surface tweak moves the token. Full-bleed settings
+  // read as one surface with the strip beside it, even if a surface tweak moves the token. Full-bleed settings
   // replaces that strip, so its panel becomes the native caption surface.
   const fullBleedSettings = fullBleedSettingsSurface();
   const topbar = typeof document === 'undefined' ? null : document.querySelector<HTMLElement>('header.topbar');
@@ -166,15 +165,13 @@ function sendCaption(): boolean {
   if (!band) return false;
   const light = window.getComputedStyle(document.documentElement).colorScheme === 'light';
   // Caption symbols share the EXACT ink of the DOM cluster beside them
-  // (user: 그쪽만 혼자 다르게 튀어 보임): the native strokes are hairline,
-  // so full cluster ink does not read heavier.
+  // The native strokes are hairline, so full cluster ink does not read heavier.
   const ink =
     resolveCssColor('var(--mx-icon)') ?? (light ? { r: 0, g: 0, b: 0, a: 1 } : { r: 255, g: 255, b: 255, a: 1 });
   let plate = over(band, band);
   let symbol = over(ink, plate);
   // Stacked scrims darken the caption exactly as they darken the DOM: a
-  // confirmation over the wizard paints TWO (user: 왜 - ㅁ x 는 딤드에 포함
-  // 안 되는거야 — 한 겹만 먹고 있었다).
+  // confirmation over the wizard paints TWO.
   for (const scrim of visibleScrims()) {
     plate = over(scrim, plate);
     symbol = over(scrim, symbol);

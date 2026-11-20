@@ -21,7 +21,7 @@
   height: 100%;
   gap: 0;
   /* Like .workspace-tabs.drag-scroll: scrolls when tabs hit their floor, with
-     the scrollbar fully hidden (it used to eat row height and push tabs up). */
+     the scrollbar fully hidden (a visible one eats row height and pushes tabs up). */
   overflow-x: scroll;
   overflow-y: hidden;
   scrollbar-width: none;

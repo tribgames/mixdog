@@ -1,6 +1,6 @@
 /* Zoom pill (ZoomPill.tsx), shared by the browser panes and the editor
    previews: floats at the bottom centre of its positioned content box, above
-   the page or document (user: 화면 하단 중앙에 확대축소 프로그래스). It lives
+   the page or document. It lives
    with the component, not in the lazily loaded browser stylesheet, so every
    surface gets the same look. */
 .browser-zoom-pill {

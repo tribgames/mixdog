@@ -397,8 +397,7 @@ export function RouteEditorDialog({
           }}
         >
           {/* A built-in definition is read, not edited: its name is the title and
-            its usage one sentence of prose — no disabled inputs to scan past
-            (user: 팝업 레이아웃 정리). */}
+            its usage one sentence of prose — no disabled inputs to scan past */}
           {target.readOnlyDefinition && (
             <div className="schedules-field">
               {/* Lead runs every conversation, so it has no "when"; it says what it does. */}

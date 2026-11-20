@@ -51,8 +51,8 @@ export function useStudioLaneCatalog(api: StudioApi, active: boolean, setError: 
 
 /** The pane's load on every entry (and Retry): the gallery must not wait on
  *  the lane catalog — provider auth checks are the slow leg of this pane, and
- *  the tiles used to paint only after they answered (user: 들어가면 섬네일이
- *  늦게 나온다) — so each half commits on arrival. */
+ *  the tiles would paint only after they answered — so each half commits on
+ *  arrival. */
 export function useStudioLoad({
   active,
   refreshAssetKind,

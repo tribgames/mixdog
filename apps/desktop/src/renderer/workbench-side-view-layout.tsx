@@ -52,8 +52,7 @@ const WORKBENCH_SIDE_GROUP_MIME = 'application/x-mixdog-side-group';
 export interface WorkbenchSideViewDescriptor {
   id: WorkbenchSideViewId;
   label: string;
-  /** Header title when it should read shorter than the capability name
-   *  (user: 브라우저 유즈 → 브라우저 로 헤더 바꾸고). */
+  /** Header title when it should read shorter than the capability name. */
   title?: string;
   tooltip?: string;
   icon: LucideIcon;
@@ -206,7 +205,7 @@ export function WorkbenchSideIconBar({
   const barRef = useRef<HTMLDivElement | null>(null);
   const { isVisible } = useDockIconVisibility();
   const renderedGroups = groups.filter((group) => descriptors.has(group[0]) && isVisible(group[0]));
-  // Only the left rail rearranges (user: 왼쪽에서만 이동가능하게): the
+  // Only the left rail rearranges: the
   // pane-scoped right strip neither starts a drag nor accepts one.
   const movable = side === 'left';
   const acceptsDrag = (event: ReactDragEvent<HTMLElement>): boolean => movable && carriesSideDrag(event);
@@ -305,8 +304,7 @@ export function WorkbenchSideIconBar({
             }}
             onClick={() => onSelect(root)}
           >
-            {/* Horizontal bars share the status island's 20px lucide tier (user:
-            아이콘들도 사이드탭쪽이 더 얇은 것 같고 — 크기를 맞춰야). */}
+            {/* Horizontal bars share the status island's 20px lucide tier. */}
             <Icon size={orientation === 'vertical' ? 24 : 20} aria-hidden="true" />
           </button>
         );
@@ -501,7 +499,7 @@ interface WorkbenchSidePanelProps {
   /** False drops the width resize edge (a pane dock docked below the chat
    *  fills the cell's width and resizes its height instead). */
   resizable?: boolean;
-  /** Pane docks render ONE unit-wide header themselves (user: 헤더 한 줄),
+  /** Pane docks render ONE unit-wide header themselves,
    *  so the panel's own tab header stays off. */
   hideTabs?: boolean;
   groups: readonly WorkbenchSideViewGroup[];
@@ -600,7 +598,7 @@ export function WorkbenchSidePanel({
   useEffect(() => {
     setRetainedRoots((current) => keepSameRoots(current, nextRetainedWorkbenchSideRoots(groups, current, activeRoot)));
   }, [activeRoot, groups]);
-  // Idle pre-retain (user: 메뉴 이동할 때 깜빡 — 바로바로 나오게): shortly
+  // Idle pre-retain: shortly
   // after the panel settles, EVERY destination hidden-mounts, so the first
   // visit to each menu swaps attributes on a live tree instead of mounting
   // from scratch and flashing an empty frame. Pane-embedded docks skip this:

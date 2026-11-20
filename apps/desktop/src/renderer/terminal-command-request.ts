@@ -92,9 +92,8 @@ export function revealSessionTerminalTab(
   if (!sessionId) return;
   // Without main's list (a transcript card), the terminal's own id names its tab.
   const base = sessionTerminalId(sessionId);
-  const own = terminalId
-    ? [{ id: terminalId, tab: terminalId === base ? 1 : Number(terminalId.slice(base.length + 1)) }]
-    : [];
+  const ownTab = terminalId === base ? 1 : Number(terminalId?.slice(base.length + 1));
+  const own = terminalId ? [{ id: terminalId, tab: ownTab }] : [];
   adoptSessionTerminalTabs(sessionId, tabs ?? own);
   if (terminalId) selectSessionTerminalTab(sessionId, terminalId);
   for (const listener of revealListeners) listener(sessionId);

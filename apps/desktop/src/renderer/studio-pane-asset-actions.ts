@@ -4,7 +4,7 @@ import {
   removeStudioAssetReferences,
   type StudioReferenceStore,
 } from './studio-draft-cache';
-import type { StudioMediaJob, StudioReference } from './studio-media-state';
+import { studioReferenceChip, type StudioMediaJob, type StudioReference } from './studio-media-state';
 import type { createStudioGenerationActions } from './studio-pane-generation';
 import type { createStudioMediaActions } from './studio-pane-media-actions';
 import { mediaFile } from './studio-pane-support';
@@ -86,10 +86,7 @@ export function createStudioAssetActions({
 
   /** The references an asset was generated with, as composer chips. */
   const assetReferences = async (asset: MediaAsset): Promise<StudioReference[]> =>
-    (await readStudioAssetReferences(asset.id, referenceStore)).map((reference) => ({
-      ...reference,
-      url: `data:${reference.mime};base64,${reference.base64}`,
-    }));
+    (await readStudioAssetReferences(asset.id, referenceStore)).map(studioReferenceChip);
 
   // Reuse restores the recipe into the composer — prompt, route, options and
   // references — to edit before the next run instead of repeating it as is.
@@ -117,8 +114,7 @@ export function createStudioAssetActions({
     }
   };
 
-  // Detail actions: queue the saved request again, hand the file to the OS
-  // viewer, or remove it from the gallery.
+  // Queues the asset's saved request again.
   const regenerate = async (asset: MediaAsset) => {
     if (!asset.prompt.trim()) return;
     const references = await assetReferences(asset);

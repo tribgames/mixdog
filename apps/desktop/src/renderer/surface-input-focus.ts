@@ -45,7 +45,7 @@ const SURFACE_KEYBOARD_OWNER_SELECTOR = [
 /** Touch-first device (phone/tablet): the primary pointer is coarse. On these
  *  surfaces a programmatic focus raises the software keyboard, so
  *  click-anywhere/auto focus grammars must stand down and let only a direct
- *  tap on the field open the keyboard (user: 터치만 해도 키보드가 올라옴). */
+ *  tap on the field open the keyboard. */
 export function touchPrimaryPointer(): boolean {
   return typeof window.matchMedia === 'function' && window.matchMedia('(pointer: coarse)').matches;
 }
@@ -83,7 +83,7 @@ export function shouldFocusSurfaceInput(
  *  warm, and their dialog keeps a static aria-modal. A bare
  *  `querySelector('[aria-modal="true"]')` therefore reported a phantom modal
  *  for the rest of the window's life and silently killed every workbench
- *  shortcut (user: Ctrl+N으로 new task가 갑자기 안 된다). A parked surface is
+ *  shortcut. A parked surface is
  *  inert / aria-hidden / an inactive preserved layer; only a dialog outside all
  *  of those actually owns the keyboard. */
 const PARKED_SURFACE_SELECTOR = '[inert],[aria-hidden="true"],[data-surface-active="false"]';

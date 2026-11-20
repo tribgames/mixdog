@@ -43,6 +43,10 @@ export interface StudioReference {
   url: string;
 }
 
+export function studioReferenceChip(reference: Omit<StudioReference, 'url'>): StudioReference {
+  return { ...reference, url: `data:${reference.mime};base64,${reference.base64}` };
+}
+
 export interface QueuedMediaRequest {
   lane: string;
   kind: MediaKind;

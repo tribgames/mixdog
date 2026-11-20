@@ -254,8 +254,8 @@ function terminalView(key: string): TerminalView {
   term.loadAddon(fit);
   const writer = new TerminalWritePump((data, complete) => term.write(data, complete), acknowledgeTerminalOutput);
   // Relay-served browsers pay a full round trip per echoed keystroke; the
-  // predictor paints validated keystrokes immediately (user: RTT 때문에
-  // 터미널 타이핑이 답답함). Electron's local PTY needs none of it.
+  // predictor paints validated keystrokes immediately. Electron's local PTY
+  // needs none of it.
   const localEcho = isRemoteHostRenderer()
     ? new TerminalLocalEcho({
         write: (data) => {
@@ -275,7 +275,7 @@ function terminalView(key: string): TerminalView {
         cols: () => term.cols,
         // One confirmed echo is enough to characterise the shell here: every
         // extra measured keystroke is a full relay round trip the typist waits
-        // out with nothing on screen (user: 타이핑이 느리다). A mismatch still
+        // out with nothing on screen. A mismatch still
         // rolls back and restarts validation, so the safety net is unchanged.
         validationStreak: 1,
       })
@@ -305,7 +305,7 @@ function terminalView(key: string): TerminalView {
 // xterm measures cell metrics (and the WebGL renderer bakes its glyph atlas)
 // with whatever face is ACTIVE at open. A terminal created before JetBrains
 // Mono settles keeps fallback metrics after the swap — clipped glyphs and a
-// visible jump (same class as the Monaco boot shift, user report). One
+// visible jump (same class as the Monaco boot shift). One
 // refresh when the face lands realigns every live terminal.
 let terminalMonoRefreshArmed = false;
 function armTerminalMonoRefresh() {
@@ -403,7 +403,7 @@ export async function disposeTerminalPane(id: string): Promise<void> {
 
 // Terminals stay dark on both app themes: ANSI palettes —
 // PSReadLine yellows included — assume a dark background, and a light sheet
-// made typed input and the cursor unreadable (user-flagged).
+// made typed input and the cursor unreadable.
 // The 16 ANSI slots use the editor's dark palette instead of xterm's
 // built-in Tango defaults: Tango's blue (#3465a4) and bright black sit near
 // this canvas and made paths/prompts hard to read. Background stays in sync
@@ -550,7 +550,7 @@ export default function TerminalPane({
     // keypad only for a focus that still sits inside the opening tap's
     // activation window, so waiting for termEnsure() + replay + fit made the
     // keyboard arrive seconds later and shove the layout a SECOND time
-    // (user: 터미널 열리고 키패드가 늦게 올라온다). The post-ensure and
+    // The post-ensure and
     // activation focus calls stay as fallbacks for a cold or failed attach.
     if (activeRef.current) {
       try {
@@ -561,7 +561,7 @@ export default function TerminalPane({
     }
     // PTY ensure/replay can be slow. Revealing xterm's empty shell first let
     // the replayed scrollback visibly dump into an already-open terminal
-    // (user: PANE 최초 진입 시 스크립트가 튐). Keep PaneSurfaceGate's opaque
+    // Keep PaneSurfaceGate's opaque
     // cover up until the replay buffer is written and the first fit has run —
     // the ensure path fires onReady right after that. This timer only guards
     // a stalled PTY host so the gate can never hang on a blank pane.

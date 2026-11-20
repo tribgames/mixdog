@@ -35,15 +35,12 @@ export function agentRouteSummary(
   const provider = String(route.provider || '');
   const model = String(route.model || '');
   const selected = models.find((entry) => entry.provider === provider && entry.model === model);
-  // Every row reads the same way (user: 웹검색만 왜 다르게 취급하냐): a row
+  // Every row reads the same way: a row
   // with no model — Web Search's default marker or an empty route — says
   // "Default", and a set model shows its name.
   const pinned = model !== '' && !(provider === 'default' && model === 'default');
-  const modelLabel = pinned
-    ? modelDisplayName(model, provider, selected?.display || '')
-    : webSearch
-      ? t('Follows Main')
-      : 'Default';
+  const unpinnedLabel = webSearch ? t('Follows Main') : 'Default';
+  const modelLabel = pinned ? modelDisplayName(model, provider, selected?.display || '') : unpinnedLabel;
   const effortValue = String(route.effort || preferredModelEffort(selected) || '');
   const effortOption = selected?.effortOptions.find((entry) => entry.value === effortValue);
   const rawEffortLabel = effortOption?.label || effortValue;
@@ -64,7 +61,7 @@ export function agentRouteSummary(
 }
 
 /** The row's leading mark: the brand of the model it runs on, so flat rows
- *  part at a glance (user: 각각이 분리되어 보이지 않는데). A route with no
+ *  part at a glance. A route with no
  *  pinned model — off, or following Main — shows the row's own glyph. */
 export function AgentRowIcon({ route, fallback = 'agent' }: { route: RecordValue; fallback?: 'agent' | 'web' }) {
   const provider = String(route.provider || '');

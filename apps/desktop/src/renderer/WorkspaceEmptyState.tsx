@@ -29,7 +29,7 @@ export function WorkspaceEmptyState(): React.JSX.Element {
         <span className="welcome-logo" aria-hidden="true">
           <BrandTile crop />
         </span>
-        {/* Product vocabulary has ONE Project concept (user decision) — no
+        {/* Product vocabulary has ONE Project concept — no
             "workspace" wording anywhere, including assistive labels. */}
         <h1 className="sr-only">Mixdog</h1>
         {/* The phone has no keyboard: the key list would be orphan labels. */}
