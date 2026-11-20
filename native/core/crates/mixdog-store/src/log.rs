@@ -1094,7 +1094,7 @@ impl LogWriter {
         let (kind, op) = project(&session.record, &mut lookup).map_err(FoldError::Body)?;
         let projection = Projection {
             session: fold.session.clone(),
-            head: CatalogHead::of(&fold),
+            head: std::sync::Arc::new(CatalogHead::of(&fold)),
             frames: vec![ProjectedFrame {
                 pos,
                 frame_len: buf.len() as u64,
@@ -1432,7 +1432,7 @@ impl LogWriter {
             projection: Projection {
                 session: self.fold.session.clone(),
                 frames,
-                head: CatalogHead::of(&self.fold),
+                head: std::sync::Arc::new(CatalogHead::of(&self.fold)),
             },
         })
     }

@@ -669,7 +669,7 @@ mod projector_tests {
 
     fn empty_projection(session: &str) -> Projection {
         let head = CatalogHead { session: session.into(), log_id: "L".into(), base_session: None, header: serde_json::Map::new() };
-        Projection { session: session.into(), frames: Vec::new(), head }
+        Projection { session: session.into(), frames: Vec::new(), head: Arc::new(head) }
     }
 
     /// A projector whose task died (a panic while projecting) leaves its count of queued projections behind; a list must not wait

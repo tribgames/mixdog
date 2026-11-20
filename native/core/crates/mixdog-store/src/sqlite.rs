@@ -761,7 +761,7 @@ pub struct Rewritten {
 }
 
 enum Command {
-    Upsert { head: Box<CatalogHead>, dirty: DirtyMark, ack: Option<Ack> },
+    Upsert { head: Arc<CatalogHead>, dirty: DirtyMark, ack: Option<Ack> },
     MarkDirty { session: String, ack: Ack },
     Status { session: String, status: SessionStatus, damage: Option<String>, ack: Ack },
     Delete { session: String, ack: Ack },
@@ -812,7 +812,7 @@ struct Pending {
 
 /// A catalog row to write: its head, the dirty mark, the acks to answer, and the arrival
 /// order of the head.
-type Upsert = (Box<CatalogHead>, DirtyMark, Vec<Ack>, u64);
+type Upsert = (Arc<CatalogHead>, DirtyMark, Vec<Ack>, u64);
 
 struct Writer {
     conn: Connection,
@@ -823,7 +823,7 @@ struct Writer {
     refold: bool,
     /// Sessions whose row waits for an inherited state still being computed, with the head
     /// the row is to be built from and its arrival order.
-    waiting: HashMap<String, (CatalogHead, u64)>,
+    waiting: HashMap<String, (Arc<CatalogHead>, u64)>,
     /// Pending fork views may need a maintenance step.
     views: bool,
     /// Deleted sessions whose rows go in maintenance steps, oldest request first.
@@ -1132,7 +1132,7 @@ impl Writer {
                 if let Some((head, seq)) = self.waiting.remove(&session) {
                     // A newer head queued meanwhile wins. The head keeps its arrival order, so a projection of the session
                     // queued after it (whose head is newer) still replaces it, and does not hold its row back.
-                    self.upserts.entry(session).or_insert_with(|| (Box::new(head), DirtyMark::Keep, Vec::new(), seq));
+                    self.upserts.entry(session).or_insert_with(|| (head, DirtyMark::Keep, Vec::new(), seq));
                 }
             }
             // Idle, or failed: new work re-arms it.
@@ -1182,7 +1182,7 @@ impl Writer {
         let mut reached = 0usize;
         let mut rows = 0usize;
         let mut bytes = 0usize;
-        let mut waiting: Vec<(String, (CatalogHead, u64))> = Vec::new();
+        let mut waiting: Vec<(String, (Arc<CatalogHead>, u64))> = Vec::new();
         let mut edges: Vec<RowEdge> = Vec::new();
         // The edges the sink was told are about to commit.
         let mut told = 0usize;
@@ -1314,7 +1314,7 @@ impl Writer {
                 done_projections += 1;
                 // The frames are in: the row is built from this projection's own head (a
                 // newer explicit upsert of the session wins).
-                let latest = Box::new(pending.projection.head.clone());
+                let latest = pending.projection.head.clone();
                 let seq = pending.seq;
                 let entry = self
                     .upserts
@@ -1347,7 +1347,7 @@ impl Writer {
                 let (written, edge) = upsert_edge(&tx, &head, dirty, &self.labels, watch, archive.as_deref())?;
                 edges.extend(edge);
                 if written == 0 {
-                    waiting.push((id.clone(), ((*head).clone(), seq)));
+                    waiting.push((id.clone(), (head, seq)));
                 }
                 bytes += written;
                 acks.extend(waiters);
@@ -2104,7 +2104,7 @@ impl SqliteStore {
     /// The row is built by `summary::catalog_row` from `head` and the session's projected
     /// message state when it is written.
     pub async fn upsert(&self, head: CatalogHead, dirty: DirtyMark) -> Result<(), DbError> {
-        self.ask(|ack| Command::Upsert { head: Box::new(head), dirty, ack: Some(ack) }).await
+        self.ask(|ack| Command::Upsert { head: Arc::new(head), dirty, ack: Some(ack) }).await
     }
 
     /// RL §9.2 rule 1: committed before the activation's first append.
@@ -3058,7 +3058,7 @@ impl Adopting<'_> {
     }
 
     fn row(&self, head: &CatalogHead, dirty: DirtyMark) -> Result<(), String> {
-        self.ask(|ack| Command::Upsert { head: Box::new(head.clone()), dirty, ack: Some(ack) })
+        self.ask(|ack| Command::Upsert { head: Arc::new(head.clone()), dirty, ack: Some(ack) })
     }
 
     /// The pending row becomes the row of the log that is there now: its identity, marked dirty until the folded row is

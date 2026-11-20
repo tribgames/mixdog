@@ -996,8 +996,12 @@ impl LeadSurfaceHost {
         let mut session = Value::Object(header.clone());
         session["messages"] = Value::Array(before.node_messages());
         let answer = change(&surface, &mut session);
-        let mut next = session.as_object().cloned().ok_or_else(|| "the session is not an object".to_owned())?;
-        let messages = next.shift_remove("messages").and_then(|messages| messages.as_array().cloned()).unwrap_or_default();
+        // The session is this function's own copy: what `change` left of it is taken, not copied a second time.
+        let Value::Object(mut next) = session else { return Err("the session is not an object".to_owned()) };
+        let messages = match next.shift_remove("messages") {
+            Some(Value::Array(messages)) => messages,
+            _ => Vec::new(),
+        };
         let mut after = SystemBlocks::from_node_messages(&messages).map_err(|error| format!("{error:?}"))?;
         after.combined = before.combined;
         if after != before {
