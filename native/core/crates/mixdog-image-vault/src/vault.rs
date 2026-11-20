@@ -30,12 +30,12 @@ use mixdog_imaging::validate::with_base64;
 use mixdog_rt::InLane;
 use mixdog_statefile::Access;
 use mixdog_statefile::IoLane;
-use mixdog_statefile::read_content;
+
 use mixdog_store::blobs::BlobStore;
 use mixdog_store::blobs::digest_of;
 use mixdog_store::blobs::digest_of_reference;
 use mixdog_store::blobs::hex;
-use mixdog_store::fsio::create_dir_durable;
+
 use mixdog_store::fsio::publish_file_with;
 
 const DIR: &str = "image-vault";
@@ -142,21 +142,21 @@ impl ImageVault {
     }
 
     /// The manifest of `original` (64 hex) at the current validator version.
-    pub fn lookup(&self, original: &str) -> Lookup {
+    pub fn lookup<L: IoLane>(&self, lane: &InLane<L>, original: &str) -> Lookup {
         let current = self.manifest_path(original, VALIDATOR_VERSION);
-        match read_content(&current).map(|bytes| bytes.map(String::from_utf8)) {
-            Ok(Some(Ok(text))) => match Manifest::decode(&text) {
+        match mixdog_fsio::read_to_string(lane, &current) {
+            Ok(text) => match Manifest::decode(&text) {
                 Some(manifest) if manifest.original == original && manifest.validator_version == VALIDATOR_VERSION => Lookup::Found(manifest),
                 _ => Lookup::Damaged,
             },
-            Ok(None) => self.older(original),
-            Ok(Some(Err(_))) | Err(_) => Lookup::Damaged,
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => self.older(lane, original),
+            Err(_) => Lookup::Damaged,
         }
     }
 
-    fn older(&self, original: &str) -> Lookup {
+    fn older<L: IoLane>(&self, lane: &InLane<L>, original: &str) -> Lookup {
         for version in (1..VALIDATOR_VERSION).rev() {
-            if read_content(&self.manifest_path(original, version)).is_ok_and(|content| content.is_some()) {
+            if mixdog_statefile::metadata(lane, &self.manifest_path(original, version)).is_ok() {
                 return Lookup::Stale { version };
             }
         }
@@ -180,7 +180,7 @@ impl ImageVault {
     /// a missing blob is republished (repair). Equal concurrent imports share one validation.
     pub fn import<L: IoLane>(&self, lane: &InLane<L>, bytes: &[u8], name: &str, cancel: &Cancel) -> Result<Manifest, ImportError> {
         let original = hex(&digest_of(bytes)).to_owned();
-        if let Lookup::Found(manifest) = self.lookup(&original)
+        if let Lookup::Found(manifest) = self.lookup(lane, &original)
             && self.blobs_present(lane, &manifest)
         {
             return Ok(manifest);
@@ -195,7 +195,7 @@ impl ImageVault {
 
     fn validate_and_store<L: IoLane>(&self, lane: &InLane<L>, original: &str, bytes: &[u8], name: &str, cancel: &Cancel) -> Flight {
         // A flight that finished while this caller queued has already stored the verdict.
-        if let Lookup::Found(manifest) = self.lookup(original)
+        if let Lookup::Found(manifest) = self.lookup(lane, original)
             && self.blobs_present(lane, &manifest)
         {
             return Ok(manifest);
@@ -217,7 +217,9 @@ impl ImageVault {
             Err(_) => return Err(ImportError::Transient(AdmitError::Busy)),
         };
         let manifest = Manifest { validator_version: VALIDATOR_VERSION, original: original.to_owned(), name: name.to_owned(), encoded_len, outcome };
-        create_dir_durable(&self.dir).map_err(|e| storage("image-vault dir", e))?;
+        // `finish` runs on interactive lanes too, which have no write proof; the directory is created as the original did.
+        #[allow(clippy::disallowed_methods, reason = "runs on a lane job, interactive or durability; the interactive lane has no write proof")]
+        std::fs::create_dir_all(&self.dir).map_err(|e| storage("image-vault dir", e))?;
         publish_file_with(&self.manifest_path(original, VALIDATOR_VERSION), manifest.encode().as_bytes(), Access::Inherit).map_err(|e| storage("manifest", e))?;
         Ok(manifest)
     }
@@ -227,7 +229,7 @@ impl ImageVault {
     pub fn import_base64<L: IoLane>(&self, lane: &InLane<L>, base64: &str, name: &str, cancel: &Cancel) -> Result<Manifest, ImportError> {
         let held = with_base64(base64, global(), cancel, |bytes, held| {
             let original = hex(&digest_of(&bytes)).to_owned();
-            if let Lookup::Found(manifest) = self.lookup(&original)
+            if let Lookup::Found(manifest) = self.lookup(lane, &original)
                 && self.blobs_present(lane, &manifest)
             {
                 return Ok(Ok(manifest));
@@ -246,7 +248,7 @@ impl ImageVault {
     /// worker slot; an unreadable or oversize one is a named failure, never a guess.
     pub fn import_blob_ref<L: IoLane>(&self, lane: &InLane<L>, reference: &str, name: &str, cancel: &Cancel) -> Result<Manifest, ImportError> {
         let digest = digest_of_reference(reference).ok_or_else(|| ImportError::Invalid("not an attachment reference".into()))?;
-        if let Lookup::Found(manifest) = self.lookup(reference)
+        if let Lookup::Found(manifest) = self.lookup(lane, reference)
             && self.blobs_present(lane, &manifest)
         {
             return Ok(manifest);
@@ -334,6 +336,12 @@ mod tests {
             on_lane(self.tokens.durability_io, &CancellationToken::new(), move |lane| vault.import(lane, &bytes, &name, &Cancel::default())).await.unwrap()
         }
 
+        async fn lookup(&self, original: &str) -> Lookup {
+            let vault = self.vault();
+            let original = original.to_owned();
+            on_lane(self.tokens.durability_io, &CancellationToken::new(), move |lane| vault.lookup(lane, &original)).await.unwrap()
+        }
+
         async fn read(&self, manifest: Manifest, choice: Choice) -> Result<Arc<[u8]>, ReadError> {
             let vault = self.vault();
             on_lane(self.tokens.durability_io, &CancellationToken::new(), move |lane| vault.bytes_for(lane, &manifest, choice)).await.unwrap()
@@ -397,9 +405,9 @@ mod tests {
         // An interrupted import: the manifest is gone (or torn) while the blobs stay.
         let path = world.vault().manifest_path(&manifest.original, VALIDATOR_VERSION);
         std::fs::write(&path, b"torn").unwrap();
-        assert_eq!(world.vault().lookup(&manifest.original), Lookup::Damaged);
+        assert_eq!(world.lookup(&manifest.original).await, Lookup::Damaged);
         assert_eq!(world.import(tiff, "t.tif").await.unwrap().outcome, manifest.outcome);
-        assert!(matches!(world.vault().lookup(&manifest.original), Lookup::Found(_)));
+        assert!(matches!(world.lookup(&manifest.original).await, Lookup::Found(_)));
     }
 
     #[tokio::test(flavor = "multi_thread", worker_threads = 4)]

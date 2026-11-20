@@ -9,6 +9,7 @@ description = "The versioned image verdict store and the migration of legacy ima
 workspace = true
 
 [dependencies]
+mixdog-fsio = { workspace = true }
 mixdog-image-egress = { workspace = true }
 mixdog-imaging = { workspace = true }
 mixdog-rt = { workspace = true }

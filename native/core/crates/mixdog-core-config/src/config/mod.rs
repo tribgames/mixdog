@@ -943,7 +943,7 @@ impl Config {
                 // `saveConfigAndAdopt`'s `seedChanges`: the first write seeds the adopted `builtins` where the stored section lacks it.
                 let agent = doc.get(AGENT_SECTION).and_then(Value::as_object).cloned().unwrap_or_default();
                 let seed = (!agent.contains_key("builtins"))
-                    .then(|| crate::tool_modules::adopt(&agent, origin).shift_remove("builtins"))
+                    .then(|| crate::tool_modules::adopt(&agent, origin).swap_remove("builtins"))
                     .flatten();
                 set_in(doc, ALLOW_ALL_ACTIONS, Value::Bool(true));
                 if let Some(seed) = seed {

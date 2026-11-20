@@ -701,11 +701,11 @@ fn normalize_abs(path: &str, cwd: &str) -> Option<String> {
 }
 /// The sha256 of the file's bytes, `None` when it is unreadable or past the budget.
 #[allow(clippy::disallowed_methods, reason = "runs inside a lane job body")]
-fn digest_of(abs: &str) -> Option<String> {
+fn digest_of(lane: &InLane<InteractiveIo>, abs: &str) -> Option<String> {
     use std::io::Read;
     use sha2::Digest;
     let mut bytes = Vec::new();
-    mixdog_fsio::File::open(&mixdog_fsio::Unlaned, abs).ok()?.take(READ_PREFIX_HASH_BYTES + 1).read_to_end(&mut bytes).ok()?;
+    mixdog_fsio::File::open(lane, abs).ok()?.take(READ_PREFIX_HASH_BYTES + 1).read_to_end(&mut bytes).ok()?;
     // A text-only PDF result on one route does not prove that another route
     // would return text rather than pages or a native attachment.
     (!bytes.starts_with(b"%PDF-") && bytes.len() as u64 <= READ_PREFIX_HASH_BYTES)
@@ -713,7 +713,7 @@ fn digest_of(abs: &str) -> Option<String> {
 }
 /// Node's `statSync`: one metadata call per path argument, taken inside an io-interactive lane job.
 #[allow(clippy::disallowed_methods, reason = "takes the lane's proof: it runs inside a lane job body")]
-fn stat_tuple(_lane: &InLane<InteractiveIo>, abs: &str) -> Option<Stat> {
+fn stat_tuple(lane: &InLane<InteractiveIo>, abs: &str) -> Option<Stat> {
     if Path::new(abs).extension().and_then(|ext| ext.to_str()).is_some_and(|ext| ext.eq_ignore_ascii_case("pdf")) {
         return None;
     }
@@ -743,7 +743,7 @@ fn stat_tuple(_lane: &InLane<InteractiveIo>, abs: &str) -> Option<Stat> {
             times: [ns(meta.mtime(), meta.mtime_nsec()), ns(meta.ctime(), meta.ctime_nsec())],
             ino: meta.ino(),
             dev: meta.dev(),
-            digest: digest_of(abs),
+            digest: digest_of(lane, abs),
         })
     }
     #[cfg(windows)]
@@ -754,7 +754,7 @@ fn stat_tuple(_lane: &InLane<InteractiveIo>, abs: &str) -> Option<Stat> {
             times: [meta.last_write_time() as u128, meta.creation_time() as u128],
             ino: 0,
             dev: 0,
-            digest: digest_of(abs),
+            digest: digest_of(lane, abs),
         })
     }
 }

@@ -227,6 +227,9 @@ async fn background_work(
         }
     }
 }
+// The publish retry is a poll interval, not a Node timer a replay orders: on a virtual clock it must wake once per advance as tokio's sleep did,
+// not stop the clock's driver at every retry deadline.
+#[allow(clippy::disallowed_methods, reason = "the retry of a failed publish is not a timer of Node's lists; a replay's clock must not stop at each retry")]
 async fn thread_sections(
     mut strips: watch::Receiver<HashMap<String, ShellJobsState>>,
     threads: Arc<dyn ThreadState>,
@@ -240,7 +243,7 @@ async fn thread_sections(
         tokio::select! {
             () = stop.cancelled() => return,
             changed = strips.changed() => if changed.is_err() { return },
-            () = mixdog_rt::time::sleep(PUBLISH_RETRY), if failed => {}
+            () = tokio::time::sleep(PUBLISH_RETRY), if failed => {}
         }
         failed = false;
         let all = strips.borrow_and_update().clone();

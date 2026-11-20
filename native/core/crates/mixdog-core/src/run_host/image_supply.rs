@@ -62,7 +62,7 @@ impl ImageSupply for VaultSupply {
 
     async fn stored(&self, reference: &str) -> Result<Manifest, SupplyError> {
         let (vault, reference) = (self.vault(), reference.to_owned());
-        on_lane(self.durability, &CancellationToken::new(), move |lane| match vault.lookup(&reference) {
+        on_lane(self.durability, &CancellationToken::new(), move |lane| match vault.lookup(lane, &reference) {
             Lookup::Found(manifest) => Ok(manifest),
             // Every ingress imports on arrival and the restore gate migrates old history, so a reference without a current
             // verdict is a stale or damaged one: validated again here, completely, under the same admission.

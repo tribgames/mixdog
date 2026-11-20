@@ -206,18 +206,19 @@ mod tests {
 const CODE_STALL: std::time::Duration = std::time::Duration::from_secs(45);
 const LOGIN_LIMIT: std::time::Duration = std::time::Duration::from_secs(10 * 60);
 /// Fails the flow and kills gh when the code never shows up in time, or the flow outlives its limit.
+#[allow(clippy::disallowed_methods, reason = "on a replay's virtual clock mixdog_rt::time adds a stop of its own, so one advance past the stall would fail the login where tokio's timer observed it at the advance's end")]
 async fn guard(shared: Arc<Shared>, stall: std::time::Duration, limit: std::time::Duration) {
     let deadline = tokio::time::Instant::now() + limit;
     let mut state = shared.state.subscribe();
     // The watch's read guard must not outlive the wait: `advance` writes to the same channel.
-    let started = mixdog_rt::time::timeout(stall, state.wait_for(|s| !matches!(s, LoginState::Starting)))
+    let started = tokio::time::timeout(stall, state.wait_for(|s| !matches!(s, LoginState::Starting)))
         .await
         .map(|waited| waited.is_ok());
     let message = match started {
         Err(_) => "GitHub sign-in did not start. Run `gh auth login` in a terminal instead.",
         Ok(false) => return,
         Ok(true) => {
-            if mixdog_rt::time::timeout_at(deadline, state.wait_for(LoginState::is_terminal)).await.is_ok() {
+            if tokio::time::timeout_at(deadline, state.wait_for(LoginState::is_terminal)).await.is_ok() {
                 return;
             }
             "Login timed out after 10 minutes."

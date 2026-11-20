@@ -419,6 +419,7 @@ impl SessionHandle {
     /// of the messages, amended as above, satisfies it, or the whole conversation is read. Whether any message satisfies
     /// `wanted` is then the answer the whole conversation gives: a match is a message the whole read holds too, and no match
     /// is only answered once every row is read.
+    #[allow(clippy::disallowed_methods, reason = "on a replay's virtual clock mixdog_rt::time stops the replay at the count wait and starts the full-history read there; tokio's timer does not")]
     pub async fn model_messages(&self, wanted: Option<&(dyn Fn(&serde_json::Value) -> bool + Sync)>) -> Result<Vec<serde_json::Value>, CoreError> {
         let (tx, rx) = oneshot::channel();
         self.inbox.send(Inbox::UnsavedRows { tx }).await.map_err(|_| self.closing())?;
@@ -433,7 +434,7 @@ impl SessionHandle {
         // The count waits for a held store (a save that failed), which the whole read does not: a count that does not come at
         // once reads the whole conversation, the answer the tail would have given.
         let len = match wanted {
-            Some(_) => match mixdog_rt::time::timeout(TAIL_COUNT_WAIT, context.len()).await {
+            Some(_) => match tokio::time::timeout(TAIL_COUNT_WAIT, context.len()).await {
                 Ok(len) => len?,
                 Err(_) => 0,
             },
