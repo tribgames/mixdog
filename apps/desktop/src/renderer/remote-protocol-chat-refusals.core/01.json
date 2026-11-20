@@ -1,15 +1,15 @@
 {
   "manifest": {
     "binary": "mixdogd.exe",
-    "binarySha256": "d0e783fbd02884feeea40051469abb228d1490c3dc48b8c394dfb7b4923a49e4",
-    "binaryBuilt": "2026-11-19T20:16:33.979Z",
+    "binarySha256": "755b5cba48ac9fdc8d79e68d98c71dc54443fc80d2958b236cf2da383275dfdf",
+    "binaryBuilt": "2026-11-20T11:01:44.670Z",
     "builtFrom": {
-      "sources": 3705,
-      "sourceSha256": "499c4dbae9581ba7973b0874eed9c760107fb4168b8935534b7e8970471be60c"
+      "sources": 3707,
+      "sourceSha256": "a20b2155a0d537476c6a08d09c7ccc3d75ae0f7b51e06c9027ff31114cd05c9e"
     },
     "recorder": {
       "remote-protocol-chat-refusals.record.mjs": "cab7bfae3528e5bf62b9b7eb4efc8e852f3ea3e0c513587d92bc82cfaae82795",
-      "../../../../packages/protocol-client/src/client.ts": "6e3ab9f0c19fab484d6c89a98da3e237e84d8b24aeeff916bb62cfd575814146",
+      "../../../../packages/protocol-client/src/client.ts": "7cec6d86942eb9012ce0fafa298ce60c39647379a79622aec43e602eee879344",
       "../main/protocol/service-route.ts": "690a6ca7093920aba55215e7739abc3413870b250c2a1a91a5e1007e88facaf5",
       "../shared/core-lanes/service-route.ts": "9745e75744ca69112275604b9741edaf585ed34640593470bc5609a1a53d5e27",
       "remote-protocol-chat-abort-live.mjs": "ec034a7db6968adf45dc03d35db33ac674a22d20462b984d0721f83c456a169e",
@@ -29,21 +29,21 @@
     "clientVersion": "1.5.0",
     "source": "running mixdogd serve, isolated env (the public harness remote-protocol-chat-harness/lib, pinned above), driven over the WebSocket JSON-RPC protocol"
   },
-  "thread": "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6",
-  "project": "C:\\mixdog-chat-record\\refusals-gyKZYj\\ws\\a",
-  "unregistered": "C:\\mixdog-chat-record\\refusals-gyKZYj\\ws\\never-registered",
+  "thread": "sess_47100_1795172539169_1795172539169_58d875a7bc394532a02e2833fe55be4b",
+  "project": "C:\\mixdog-chat-record\\refusals-dP1bdJ\\ws\\a",
+  "unregistered": "C:\\mixdog-chat-record\\refusals-dP1bdJ\\ws\\never-registered",
   "cases": [
     {
       "name": "abortSession-idle",
       "call": "abortSession",
       "args": [
-        "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6",
+        "sess_47100_1795172539169_1795172539169_58d875a7bc394532a02e2833fe55be4b",
         {}
       ],
       "request": {
         "method": "turn/interrupt",
         "params": {
-          "threadId": "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6"
+          "threadId": "sess_47100_1795172539169_1795172539169_58d875a7bc394532a02e2833fe55be4b"
         }
       },
       "reply": {
@@ -63,7 +63,7 @@
       "name": "submitToSession-empty",
       "call": "submitToSession",
       "args": [
-        "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6",
+        "sess_47100_1795172539169_1795172539169_58d875a7bc394532a02e2833fe55be4b",
         "",
         {
           "id": "refusals-empty"
@@ -72,7 +72,7 @@
       "request": {
         "method": "turn/start",
         "params": {
-          "threadId": "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6",
+          "threadId": "sess_47100_1795172539169_1795172539169_58d875a7bc394532a02e2833fe55be4b",
           "input": {
             "prompt": "",
             "options": {
@@ -97,7 +97,7 @@
       "name": "submitToSession-blank",
       "call": "submitToSession",
       "args": [
-        "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6",
+        "sess_47100_1795172539169_1795172539169_58d875a7bc394532a02e2833fe55be4b",
         "   ",
         {
           "id": "refusals-blank"
@@ -106,7 +106,7 @@
       "request": {
         "method": "turn/start",
         "params": {
-          "threadId": "sess_48192_1795119437069_1795119437069_cf375e760824452590580e18f9b854f6",
+          "threadId": "sess_47100_1795172539169_1795172539169_58d875a7bc394532a02e2833fe55be4b",
           "input": {
             "prompt": "   ",
             "options": {
@@ -208,12 +208,12 @@
       "name": "startProjectTask-unknown",
       "call": "startProjectTask",
       "args": [
-        "C:\\mixdog-chat-record\\refusals-gyKZYj\\ws\\never-registered"
+        "C:\\mixdog-chat-record\\refusals-dP1bdJ\\ws\\never-registered"
       ],
       "request": {
         "method": "project/directory",
         "params": {
-          "path": "C:\\mixdog-chat-record\\refusals-gyKZYj\\ws\\never-registered",
+          "path": "C:\\mixdog-chat-record\\refusals-dP1bdJ\\ws\\never-registered",
           "owner": true
         }
       },
