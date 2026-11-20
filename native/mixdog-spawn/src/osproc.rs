@@ -243,19 +243,33 @@ mod sys {
     /// `SZOMB` of `sys/proc.h`: a process that ended and awaits its reaper.
     const SZOMB: u32 = 5;
 
+    /// `PROC_PIDUNIQIDENTIFIERINFO` of `sys/proc_info_private.h` (libc does not export it).
+    const PROC_PIDUNIQIDENTIFIERINFO: libc::c_int = 17;
+
+    /// `struct proc_uniqidentifierinfo` of `sys/proc_info_private.h`; the fields not read are its layout.
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    #[allow(dead_code)]
+    struct UniqueIdInfo {
+        uuid: [u8; 16],
+        unique_id: u64,
+        parent_unique_id: u64,
+        id_version: i32,
+        orig_ppid_version: i32,
+        reserved: [u64; 2],
+    }
+
     /// There is no pidfd: an exit is found by looking again.
     pub(super) async fn exited(_watched: &[Identity]) -> bool {
         false
     }
 
-    /// libproc's view of a live (not zombie) process; `None` once there is no such process. A
-    /// process the kernel does not let us inspect exists: that is a `PermissionDenied` error, never `None`.
-    pub(super) fn proc_of(pid: u32) -> io::Result<Option<Proc>> {
-        let mut info: libc::proc_bsdinfo = unsafe { std::mem::zeroed() };
-        let size = std::mem::size_of::<libc::proc_bsdinfo>() as libc::c_int;
-        let got = unsafe {
-            libc::proc_pidinfo(pid as libc::c_int, libc::PROC_PIDTBSDINFO, 0, (&mut info as *mut libc::proc_bsdinfo).cast(), size)
-        };
+    /// One `proc_pidinfo` flavor of `pid` into `T`, a plain C struct of that flavor's size; `None` once there is no such process.
+    fn pid_info<T: Copy>(pid: u32, flavor: libc::c_int) -> io::Result<Option<T>> {
+        // SAFETY: `T` is a C struct of integers, for which all-zero bytes are a valid value.
+        let mut info: T = unsafe { std::mem::zeroed() };
+        let size = std::mem::size_of::<T>() as libc::c_int;
+        let got = unsafe { libc::proc_pidinfo(pid as libc::c_int, flavor, 0, (&mut info as *mut T).cast(), size) };
         if got <= 0 {
             let error = io::Error::last_os_error();
             return match error.raw_os_error() {
@@ -266,15 +280,34 @@ mod sys {
         if got != size {
             return Err(io::Error::new(io::ErrorKind::InvalidData, "a short process info"));
         }
-        if info.pbi_status == SZOMB {
-            return Ok(None);
+        Ok(Some(info))
+    }
+
+    /// libproc's view of a live (not zombie) process; `None` once there is no such process. A
+    /// process the kernel does not let us inspect exists: that is a `PermissionDenied` error, never `None`.
+    ///
+    /// Both flavors read here are open to every user (xnu's `proc_pidinfo` reads them with `NO_CHECK_SAME_USER`). The full BSD info
+    /// (`PROC_PIDTBSDINFO`) is refused for another user's process, so every process of root or a system account was unreadable to a
+    /// user's core, every table was incomplete, and no tree was ever seen gone. The token is the kernel's unique id of the process,
+    /// never reused within a boot; it is read before and after the row, so a pid taken over between the reads is read again.
+    pub(super) fn proc_of(pid: u32) -> io::Result<Option<Proc>> {
+        loop {
+            let Some(before) = pid_info::<UniqueIdInfo>(pid, PROC_PIDUNIQIDENTIFIERINFO)? else {
+                return Ok(None);
+            };
+            let Some(info) = pid_info::<libc::proc_bsdshortinfo>(pid, libc::PROC_PIDT_SHORTBSDINFO)? else {
+                return Ok(None);
+            };
+            if info.pbsi_status == SZOMB {
+                return Ok(None);
+            }
+            let Some(after) = pid_info::<UniqueIdInfo>(pid, PROC_PIDUNIQIDENTIFIERINFO)? else {
+                return Ok(None);
+            };
+            if after.unique_id == before.unique_id {
+                return Ok(Some(Proc { pid, ppid: info.pbsi_ppid, pgid: info.pbsi_pgid, token: before.unique_id.to_string() }));
+            }
         }
-        Ok(Some(Proc {
-            pid,
-            ppid: info.pbi_ppid,
-            pgid: info.pbi_pgid,
-            token: format!("{}.{:06}", info.pbi_start_tvsec, info.pbi_start_tvusec),
-        }))
     }
 
     pub(super) fn table() -> io::Result<Table> {

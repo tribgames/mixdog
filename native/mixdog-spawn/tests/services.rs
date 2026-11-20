@@ -25,6 +25,7 @@ use mixdog_core_api::state::SectionChange;
 use mixdog_core_api::state::StatePublisher;
 use mixdog_protocol::Origin;
 use mixdog_protocol::SectionName;
+use mixdog_spawn::LocalProcessManager;
 use mixdog_spawn::ports::ListeningPort;
 use mixdog_spawn::service::ProcessFeeds;
 use mixdog_spawn::service::ProcessService;
@@ -350,26 +351,30 @@ async fn a_claim_on_an_id_without_a_tab_is_published_and_a_dispose_of_it_forgets
     publisher.wait_for("the tab list without the released id", |_| row().is_none()).await;
 }
 
+/// A terminal service whose shells get the marker integration: bash and zsh need a directory for their startup files (the core
+/// gives it one, `compose_flip.rs`); without it only PowerShell would report activity.
+fn integrated_service(manager: LocalProcessManager, feeds: Arc<ProcessFeeds>, publisher: Arc<SectionLog>, name: &str) -> Arc<TerminalService> {
+    let config = TerminalServiceConfig { shell_integration_dir: Some(scratch_dir(&format!("{name}-integration"))) };
+    TerminalService::new(manager, feeds, publisher, config)
+}
+
 /// A shell with the marker integration (only such a shell reports activity); the test picks one itself, so it does not depend on which
 /// shell the machine defaults to.
 async fn integrated_profile(service: &TerminalService) -> String {
     let Reply::Value(profiles) = service.call(request("terminal/profiles", json!({}), 1)).await.unwrap() else {
         panic!("terminal/profiles answers with a value");
     };
-    profiles
-        .as_array()
-        .unwrap()
-        .iter()
-        .find(|p| {
-            let path = p["path"].as_str().unwrap().to_lowercase().replace('\\', "/");
-            let name = path.rsplit('/').next().unwrap().trim_end_matches(".exe");
-            // System32's bash.exe is the WSL launcher, which the integration leaves alone.
-            matches!(name, "pwsh" | "powershell" | "zsh") || (name == "bash" && !path.contains("/system32/"))
-        })
-        .expect("this machine has a shell with terminal integration (PowerShell, bash or zsh)")["id"]
-        .as_str()
-        .unwrap()
-        .to_owned()
+    let mut listed = Vec::new();
+    for profile in profiles.as_array().unwrap() {
+        let id = profile["id"].as_str().unwrap().to_owned();
+        let spawn = service.tabs().resolve_profile(&id).await.expect("a listed profile resolves");
+        listed.push((id, spawn));
+    }
+    listed
+        .into_iter()
+        .find(|(_, spawn)| reports_activity(spawn))
+        .expect("this machine has a shell with terminal integration (PowerShell, bash, zsh or cmd)")
+        .0
 }
 
 /// One poll of a future, on the spot: what the future does before its first wait has been done when this returns.
@@ -386,7 +391,7 @@ async fn a_dispose_is_answered_after_the_activity_it_ended_is_published() {
     let manager = manager();
     let feeds = ProcessFeeds::new(manager.clone(), scoped());
     let publisher = Arc::new(SectionLog::default());
-    let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
+    let service = integrated_service(manager, feeds, publisher.clone(), "dispose-published");
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
     let integrated = integrated_profile(&service).await;
     service.call(request("terminal/ensure", json!({ "tabId": "term_end", "options": { "cwd": cwd, "profile": integrated } }), 1)).await.unwrap();
@@ -491,7 +496,7 @@ async fn terminal_activity_lists_tabs_in_creation_order() {
     let manager = manager();
     let feeds = ProcessFeeds::new(manager.clone(), scoped());
     let publisher = Arc::new(SectionLog::default());
-    let service = TerminalService::new(manager, feeds, publisher.clone(), TerminalServiceConfig::default());
+    let service = integrated_service(manager, feeds, publisher.clone(), "activity-order");
     let cwd = temp_dir().as_path().to_string_lossy().into_owned();
     let integrated = integrated_profile(&service).await;
     // Created in reverse id order: a section sorted by id would list `term_a` first.

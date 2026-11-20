@@ -454,8 +454,9 @@ impl DomainService for TerminalService {
                     // ordered queue as the announcement and are not held. The hold's deadline runs from here, so a resize that blocks
                     // in the console holds the feed for no longer than that. A stated limit: a resize still blocked when the deadline
                     // passes lets what was held go before the owner, a shell's exit (its end and exit line) included.
+                    // Read before the hold is taken: once taken it is visible (and the clock may move) before this thread goes on.
+                    let deadline = tokio::time::Instant::now() + PUBLISH_DEADLINE;
                     let release = self.feeds.hold_new_output(size.tab_id.as_str()).map(|held| {
-                        let deadline = tokio::time::Instant::now() + PUBLISH_DEADLINE;
                         let (published, done) = tokio::sync::oneshot::channel();
                         mixdog_rt::spawn("terminal-owner-first", TaskClass::Work, async move {
                             let _ = tokio::time::timeout_at(deadline, done).await;
