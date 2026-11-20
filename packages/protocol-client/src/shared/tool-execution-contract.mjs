@@ -260,6 +260,11 @@ export function isTranscriptCancelledStatusText(text) {
   return TRANSCRIPT_CANCELLED_STATUS_RE.test(String(text ?? '').trim());
 }
 
+// The crash-recovery marker is a cut turn, not a cancel the user asked for: its row reads "Interrupted".
+export function isProcessRestartStatusText(text) {
+  return /^\[request interrupted by process restart\]$/i.test(String(text ?? '').trim());
+}
+
 // One display-only policy for every transcript surface. Runtime control rows
 // may be persisted as ordinary role:user messages so the next model step can
 // consume them; they are never human-authored chat and must not be rendered.

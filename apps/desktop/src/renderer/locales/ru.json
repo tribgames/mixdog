@@ -2788,6 +2788,7 @@
   "Internal session: a background run the app started itself. You cannot open it as a conversation.": "Внутренняя сессия: автоматический фоновый запуск. Открыть её как беседу нельзя.",
   "Interrupt (Ctrl+C)": "Прервать (Ctrl+C)",
   "Interrupted": "Прервано",
+  "Interrupted after {{elapsed}}": "Прервано через {{elapsed}}",
   "Interrupted by app restart": "Прервано перезапуском приложения",
   "Invalid": "Недействительно",
   "Invalid sign-in address. Paste the full address you were redirected to after signing in.": "Недопустимый адрес входа. Вставьте полный адрес, на который вы были перенаправлены после входа.",

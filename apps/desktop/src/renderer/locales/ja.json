@@ -2629,6 +2629,7 @@
   "Internal session: a background run the app started itself. You cannot open it as a conversation.": "内部セッション: バックグラウンドで自動開始された実行です。会話として開くことはできません。",
   "Interrupt (Ctrl+C)": "中断 (Ctrl+C)",
   "Interrupted": "中断",
+  "Interrupted after {{elapsed}}": "{{elapsed}} 後に中断",
   "Interrupted by app restart": "アプリ再起動により中断",
   "Invalid": "無効",
   "Invalid sign-in address. Paste the full address you were redirected to after signing in.": "サインインアドレスが無効です。サインイン後にリダイレクトされた完全なアドレスを貼り付けてください。",

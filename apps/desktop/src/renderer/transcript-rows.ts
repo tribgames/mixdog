@@ -4,7 +4,7 @@ import { completionTone } from './transcript-primitives';
 import { isVisibleTranscriptItem } from './transcript-row';
 import { streamingTextPaints } from './use-transcript-text-reveal';
 // @ts-expect-error The shared runtime module is plain ESM and has no declaration file.
-import { isTranscriptCancelledStatusText } from '../../../../packages/protocol-client/src/shared/tool-execution-contract.mjs';
+import { isProcessRestartStatusText, isTranscriptCancelledStatusText } from '../../../../packages/protocol-client/src/shared/tool-execution-contract.mjs';
 
 /**
  * Transcript projection: turn semantics are preserved as explicit row tags,
@@ -420,6 +420,7 @@ function pushCancelledPromptRow(
       ...item,
       kind: 'turndone',
       status: 'cancelled',
+      ...(isProcessRestartStatusText(item.text) ? { cause: 'restart' } : {}),
       elapsedMs: 0,
     } as TranscriptItem,
   });

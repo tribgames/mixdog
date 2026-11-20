@@ -2682,6 +2682,7 @@
   "Internal session: a background run the app started itself. You cannot open it as a conversation.": "Interne Sitzung: ein automatisch gestarteter Hintergrundlauf. Sie lässt sich nicht als Unterhaltung öffnen.",
   "Interrupt (Ctrl+C)": "Abbrechen (Strg+C)",
   "Interrupted": "Unterbrochen",
+  "Interrupted after {{elapsed}}": "Nach {{elapsed}} unterbrochen",
   "Interrupted by app restart": "Durch App-Neustart unterbrochen",
   "Invalid": "Ungültig",
   "Invalid sign-in address. Paste the full address you were redirected to after signing in.": "Ungültige Anmeldeadresse. Fügen Sie die vollständige Adresse ein, auf die Sie nach der Anmeldung weitergeleitet wurden.",

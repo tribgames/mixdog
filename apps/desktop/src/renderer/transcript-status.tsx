@@ -810,9 +810,15 @@ export function CompletionStatus({
   }
   if (tone === 'failed' || tone === 'interrupted') {
     const elapsed = formatElapsed(item.elapsedMs);
-    let fallback = t('Cancelled');
+    // A turn a restart or crash cut reads "Interrupted"; only one the user stopped reads "Cancelled".
+    const cut = item.cause === 'restart';
+    let fallback = cut ? t('Interrupted') : t('Cancelled');
     if (tone === 'failed') fallback = t('Failed');
-    else if (elapsed) fallback = t('Cancelled after {{elapsed}}', { elapsed });
+    else if (elapsed) {
+      fallback = cut
+        ? t('Interrupted after {{elapsed}}', { elapsed })
+        : t('Cancelled after {{elapsed}}', { elapsed });
+    }
     const translated = translateStatusLabel(label);
     const visible =
       tone === 'failed' && !/^(done|complete|completed)$/i.test(label) ? translated || label || fallback : fallback;

@@ -2629,6 +2629,7 @@
   "Internal session: a background run the app started itself. You cannot open it as a conversation.": "Phiên nội bộ: một lượt chạy nền do chính ứng dụng khởi động. Không thể mở nó như một cuộc trò chuyện.",
   "Interrupt (Ctrl+C)": "Ngắt (Ctrl+C)",
   "Interrupted": "Bị gián đoạn",
+  "Interrupted after {{elapsed}}": "Bị gián đoạn sau {{elapsed}}",
   "Interrupted by app restart": "Bị gián đoạn do khởi động lại ứng dụng",
   "Invalid": "Không hợp lệ",
   "Invalid sign-in address. Paste the full address you were redirected to after signing in.": "Địa chỉ đăng nhập không hợp lệ. Dán toàn bộ địa chỉ được chuyển hướng đến sau khi đăng nhập.",

@@ -2734,6 +2734,7 @@
   "Internal session: a background run the app started itself. You cannot open it as a conversation.": "Sesión interna: una ejecución en segundo plano que la aplicación inició por sí misma. No se puede abrir como conversación.",
   "Interrupt (Ctrl+C)": "Interrumpir (Ctrl+C)",
   "Interrupted": "Interrumpido",
+  "Interrupted after {{elapsed}}": "Interrumpido tras {{elapsed}}",
   "Interrupted by app restart": "Interrumpido por reinicio de la aplicación",
   "Invalid": "No válido",
   "Invalid sign-in address. Paste the full address you were redirected to after signing in.": "Dirección de inicio de sesión no válida. Pega la dirección completa a la que se te redirigió tras iniciar sesión.",

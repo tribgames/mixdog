@@ -129,6 +129,8 @@ pub fn is_goal_prompt(message: &Value) -> bool {
 
 /// The typed fact of a tool card row (`meta.taskCard`).
 pub const TASK_CARD: &str = "taskCard";
+/// `meta.turnEnd.cause` / a turn-end row's `cause` when a restart or crash cut the turn, not a user's stop.
+pub const RESTART_CAUSE: &str = "restart";
 /// The typed fact of an interrupted turn end (`meta.turnEnd`).
 pub const TURN_END: &str = "turnEnd";
 
@@ -158,7 +160,14 @@ pub fn row_facts(message: &mut Value, text: &mut UserText<'_>) -> Option<RowFact
         Shown::Nothing => facts.visible = is_goal_prompt(message),
         Shown::Notice => {}
         Shown::Card(card) => set_meta(message, TASK_CARD, card),
-        Shown::TurnEnd => set_meta(message, TURN_END, serde_json::json!({ "status": "cancelled", "elapsedMs": 0 })),
+        Shown::TurnEnd => {
+            // The end stays a cancelled one; the restart cause rides beside it and only changes what the row says.
+            let mut end = serde_json::json!({ "status": "cancelled", "elapsedMs": 0 });
+            if crate::text_class::is_process_restart_status_text(&text.text(message.get("content"))) {
+                end["cause"] = serde_json::json!(RESTART_CAUSE);
+            }
+            set_meta(message, TURN_END, end)
+        }
         Shown::User(text) => facts.prompt = Some(text),
     }
     Some(facts)

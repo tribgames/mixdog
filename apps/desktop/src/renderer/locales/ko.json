@@ -2629,6 +2629,7 @@
   "Internal session: a background run the app started itself. You cannot open it as a conversation.": "내부 세션: 앱이 자체적으로 시작한 백그라운드 실행입니다. 대화로 열 수 없습니다.",
   "Interrupt (Ctrl+C)": "중단 (Ctrl+C)",
   "Interrupted": "중단됨",
+  "Interrupted after {{elapsed}}": "{{elapsed}} 후 중단됨",
   "Interrupted by app restart": "앱 재시작으로 중단됨",
   "Invalid": "올바르지 않음",
   "Invalid sign-in address. Paste the full address you were redirected to after signing in.": "로그인 주소가 올바르지 않습니다. 로그인 후 이동한 주소 전체를 붙여넣으세요.",
