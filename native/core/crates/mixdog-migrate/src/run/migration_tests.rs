@@ -456,7 +456,7 @@ fn fixture_migrates_every_kind() {
     assert_eq!(
         a.rows[10].body,
         json!({"role":"user","content":"[Request interrupted by process restart]",
-            "meta":{"turnEnd":{"status":"cancelled","elapsedMs":0}}})
+            "meta":{"turnEnd":{"status":"cancelled","elapsedMs":0,"cause":"restart"}}})
     );
     assert!(a.rows[3].body["content"] == "hi \u{fffd} there");
     // The assistant's model switch is a record anchored on its row, out of the stored body.
