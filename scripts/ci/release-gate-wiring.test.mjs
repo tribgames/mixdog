@@ -189,7 +189,7 @@ test('release-gate.yml: the Rust core is built once per system and its tests run
   // dev-core-install needs the root onnxruntime-node and the four data/pptxgenjs files, staged by the project's own paths.
   const install = desktop.steps.find((step) => step.name === 'Install dependencies');
   const stage = desktop.steps.find((step) => step.name?.startsWith('Stage the root packages'));
-  assert.match(install.run, /lock-subset\.mjs ci-boot-subset onnxruntime-node pptxgenjs jszip/);
+  assert.match(install.run, /lock-subset\.mjs ci-boot-subset onnxruntime-node pptxgenjs jszip strip-ansi unpdf/);
   assert.match(stage.run, /copyPptxgenjsData/);
   assert.ok(
     desktop.steps.indexOf(install) < desktop.steps.indexOf(stage) &&

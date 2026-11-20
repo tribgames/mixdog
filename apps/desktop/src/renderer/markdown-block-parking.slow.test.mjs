@@ -116,7 +116,9 @@ const HAST = `
 `;
 
 const PAGE = (width) => `
-  <style>.pane { position: absolute; top: 0; height: 600px; overflow-y: auto; }</style>
+  <style>.pane { position: absolute; top: 0; height: 600px; overflow-y: auto; }
+  /* The list inside a list item is far narrower than its parent, whatever font the machine has: the long lines wrap differently there. */
+  .pane ul ul { padding-inline-start: 240px !important; }</style>
   ${['whole', 'parked']
     .map(
       (id, index) => `

@@ -2,6 +2,7 @@
 // the script is the departures file's own, the world's core end speaks the protocol. Prints the trace on a marker line;
 // remote-shim-lifecycle.slow.test.mjs checks it.
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
 import { SYNTHETIC_READ_REQUESTS, createPhoneWorld, protocolDialect } from './test-support/phone-world.mjs';
 import { PAYLOAD_CEILING_CHARS, play } from './test-support/phone-play.mjs';
 
@@ -17,7 +18,7 @@ async function main() {
   const initializeResult = { ...options.initializeResult, serverVersion: version };
 
   const world = await createPhoneWorld({
-    tree: decodeURIComponent(repo.pathname.slice(1)),
+    tree: fileURLToPath(repo),
     dialect: protocolDialect(initializeResult),
     paired: ops[0].paired ?? true,
     registration: ops[0].registration ?? 200,
